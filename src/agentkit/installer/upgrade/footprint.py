@@ -181,7 +181,7 @@ class CustomizationFootprint:
         )
         points.extend(_detect_ccag_rules(project_root, is_subagent=is_subagent))
         points.extend(_detect_prompt_binding(project_root))
-        points.extend(_detect_skill_bindings(project_root, project_key, skills=skills))
+        points.extend(_detect_skill_bindings(project_root, skills=skills))
         return cls(points=tuple(points))
 
 
@@ -293,7 +293,7 @@ def _detect_prompt_binding(project_root: Path) -> Iterable[CustomizationPoint]:
 
 
 def _detect_skill_bindings(
-    project_root: Path, project_key: str, *, skills: Skills | None
+    project_root: Path, *, skills: Skills | None
 ) -> Iterable[CustomizationPoint]:
     """Detect deliberate skill bindings via ``Skills.resolve_binding`` (FK-43).
 

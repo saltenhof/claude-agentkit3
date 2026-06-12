@@ -358,18 +358,11 @@ class StorySplitService:
         )
 
         # Build the committed record (CONSUMES AG3-074 result axis).
-        record = StorySplitRecord(
+        record = _committed_split_result_record(
+            request=request,
             split_id=split_id,
-            project_key=request.project_key,
-            source_story_id=request.source_story_id,
-            requested_by=request.requested_by,
-            reason=request.reason,
             plan_ref=plan_ref,
-            status=SplitStatus.COMMITTED,
             successor_ids=successor_ids,
-            superseded_by=successor_ids,
-            terminal_state=TerminalState.CANCELLED,
-            exit_class=ExitClass.SCOPE_SPLIT,
             created_at=now,
         )
 
@@ -560,25 +553,13 @@ class StorySplitService:
             rejection_reason=reason,
             created_at=now,
         )
-        op_record = ControlPlaneOperationRecord(
-            op_id=split_id,
-            project_key=request.project_key,
-            story_id=request.source_story_id,
-            run_id=request.run_id,
-            session_id=None,
-            operation_kind="story_split",
-            phase=None,
+        op_record = _split_operation_record(
+            request=request,
+            split_id=split_id,
+            plan_ref=plan_ref,
+            now=now,
             status="failed",
-            response_payload={
-                "status": "failed",
-                "op_id": split_id,
-                "operation_kind": "story_split",
-                "plan_ref": plan_ref,
-                "requested_by": request.requested_by,
-                "rejection_reason": reason,
-            },
-            created_at=now,
-            updated_at=now,
+            extra_payload={"rejection_reason": reason},
         )
         self._repo.commit_operation_with_side_effects(
             op_record,
@@ -618,24 +599,11 @@ class StorySplitService:
                 raise StorySplitError(
                     "split fence collides with a foreign operation",
                 )
-        op_record = ControlPlaneOperationRecord(
-            op_id=split_id,
-            project_key=request.project_key,
-            story_id=request.source_story_id,
-            run_id=request.run_id,
-            session_id=None,
-            operation_kind="story_split",
-            phase=None,
-            status="committed",
-            response_payload={
-                "status": "committed",
-                "op_id": split_id,
-                "operation_kind": "story_split",
-                "plan_ref": plan_ref,
-                "requested_by": request.requested_by,
-            },
-            created_at=now,
-            updated_at=now,
+        op_record = _committed_split_record(
+            request=request,
+            split_id=split_id,
+            plan_ref=plan_ref,
+            now=now,
         )
         self._repo.commit_operation_with_side_effects(
             op_record,
@@ -654,25 +622,12 @@ class StorySplitService:
         now: datetime,
     ) -> None:
         """Persist the resolved successor ids onto the committed fence record."""
-        op_record = ControlPlaneOperationRecord(
-            op_id=split_id,
-            project_key=request.project_key,
-            story_id=request.source_story_id,
-            run_id=request.run_id,
-            session_id=None,
-            operation_kind="story_split",
-            phase=None,
-            status="committed",
-            response_payload={
-                "status": "committed",
-                "op_id": split_id,
-                "operation_kind": "story_split",
-                "plan_ref": record.plan_ref,
-                "requested_by": request.requested_by,
-                "successor_ids": list(record.successor_ids),
-            },
-            created_at=now,
-            updated_at=now,
+        op_record = _committed_split_record(
+            request=request,
+            split_id=split_id,
+            plan_ref=record.plan_ref,
+            now=now,
+            extra_payload={"successor_ids": list(record.successor_ids)},
         )
         self._repo.commit_operation_with_side_effects(
             op_record,
@@ -721,7 +676,7 @@ class StorySplitService:
         plan_to_created: dict[str, str] = dict(known_successor_ids)
         for index, successor in enumerate(request.plan.successors):
             created = self._story_service.create_story(
-                self._successor_input(source, successor),
+                _build_successor_input(source, successor),
                 op_id=f"{split_id}:successor:{index}:{successor.story_id}",
             )
             # The REAL allocated display id, always — never a silent fallback to
@@ -760,25 +715,12 @@ class StorySplitService:
         it NEVER fabricates plan-local ids. The fence stays ``committed`` and
         unfinalized (no ``successor_ids``) until step 7 completes.
         """
-        op_record = ControlPlaneOperationRecord(
-            op_id=split_id,
-            project_key=request.project_key,
-            story_id=request.source_story_id,
-            run_id=request.run_id,
-            session_id=None,
-            operation_kind="story_split",
-            phase=None,
-            status="committed",
-            response_payload={
-                "status": "committed",
-                "op_id": split_id,
-                "operation_kind": "story_split",
-                "plan_ref": plan_ref,
-                "requested_by": request.requested_by,
-                "successor_map": dict(plan_to_created),
-            },
-            created_at=now,
-            updated_at=now,
+        op_record = _committed_split_record(
+            request=request,
+            split_id=split_id,
+            plan_ref=plan_ref,
+            now=now,
+            extra_payload={"successor_map": dict(plan_to_created)},
         )
         self._repo.commit_operation_with_side_effects(
             op_record,
@@ -786,37 +728,6 @@ class StorySplitService:
             binding_to_delete=None,
             locks=(),
             events=(),
-        )
-
-    def _successor_input(
-        self, source: Story, successor: SuccessorStory
-    ) -> CreateStoryInput:
-        """Build the Story-Creation input for one successor from the source."""
-        return CreateStoryInput.model_validate(
-            {
-                "project_key": source.project_key,
-                "title": successor.title,
-                "type": source.story_type.value
-                if isinstance(source.story_type, WireStoryType)
-                else str(source.story_type),
-                "repos": list(source.participating_repos),
-                "epic": source.epic,
-                "module": source.module,
-                "size": source.size.value
-                if isinstance(source.size, StorySize)
-                else str(source.size),
-                "change_impact": source.change_impact.value
-                if isinstance(source.change_impact, ChangeImpact)
-                else str(source.change_impact),
-                "concept_quality": source.concept_quality.value
-                if isinstance(source.concept_quality, ConceptQuality)
-                else str(source.concept_quality),
-                "owner": source.owner,
-                "risk": source.risk.value
-                if isinstance(source.risk, RiskLevel)
-                else str(source.risk),
-                "labels": list(source.labels),
-            }
         )
 
     def _export_successor(self, created_id: str) -> None:
@@ -845,30 +756,12 @@ class StorySplitService:
         result = self._successor_export.export(
             story_id=created_id, story_dir=story_dir
         )
-        self._require_export_success(
+        _require_export_success(
             result,
             failure=(
                 f"successor story.md export/reindex failed for {created_id!r}"
             ),
         )
-
-    @staticmethod
-    def _require_export_success(result: object, *, failure: str) -> None:
-        """Fail closed when a story.md export/reindex result reports failure.
-
-        The production ``export_story_md`` returns a
-        :class:`~agentkit.story_creation.story_md_export.StoryMdExportResult`
-        whose ``success`` flag is ``False`` on ANY blocker (missing story, write
-        error, < 500 bytes / missing-frontmatter validation, VectorDB indexing
-        failure) WITHOUT raising. Every export/reindex call site in the split flow
-        routes its result through this guard so a ``success=False`` is never
-        swallowed — it raises a :class:`StorySplitError` carrying the underlying
-        ``error`` detail, keeping the split fail-closed (no partial mutation past
-        the point of rejection, §54.5 / AK5 / AK12).
-        """
-        if not getattr(result, "success", False):
-            detail = str(getattr(result, "error", "") or "no detail reported")
-            raise StorySplitError(f"{failure}: {detail}")
 
     # ------------------------------------------------------------------
     # Step 5: dependency rebinding (after successors exist)
@@ -998,35 +891,15 @@ class StorySplitService:
         ``successor_map`` is re-asserted so a later resume keeps the successor
         reconstruction cross-checks (the fence stays committed-but-unfinalized).
         """
-        op_record = ControlPlaneOperationRecord(
-            op_id=split_id,
-            project_key=request.project_key,
-            story_id=request.source_story_id,
-            run_id=request.run_id,
-            session_id=None,
-            operation_kind="story_split",
-            phase=None,
-            status="committed",
-            response_payload={
-                "status": "committed",
-                "op_id": split_id,
-                "operation_kind": "story_split",
-                "plan_ref": plan_ref,
-                "requested_by": request.requested_by,
+        op_record = _committed_split_record(
+            request=request,
+            split_id=split_id,
+            plan_ref=plan_ref,
+            now=now,
+            extra_payload={
                 "successor_map": dict(plan_to_created),
-                "rebinding_plan": {
-                    "removals": [
-                        [m.story_id, m.depends_on_story_id, m.kind.value]
-                        for m in plan.removals
-                    ],
-                    "additions": [
-                        [m.story_id, m.depends_on_story_id, m.kind.value]
-                        for m in plan.additions
-                    ],
-                },
+                "rebinding_plan": _serialize_rebinding_plan(plan),
             },
-            created_at=now,
-            updated_at=now,
         )
         self._repo.commit_operation_with_side_effects(
             op_record,
@@ -1060,39 +933,7 @@ class StorySplitService:
         raw = payload.get("rebinding_plan")
         if raw is None:
             return None
-        try:
-            if not isinstance(raw, dict):
-                raise TypeError("rebinding_plan is not a mapping")
-            removals = tuple(
-                EdgeMutation(
-                    story_id=str(story_id),
-                    depends_on_story_id=str(depends_on),
-                    kind=StoryDependencyKind(str(kind)),
-                )
-                for story_id, depends_on, kind in raw.get("removals") or ()
-            )
-            additions = tuple(
-                EdgeMutation(
-                    story_id=str(story_id),
-                    depends_on_story_id=str(depends_on),
-                    kind=StoryDependencyKind(str(kind)),
-                )
-                for story_id, depends_on, kind in raw.get("additions") or ()
-            )
-        except (TypeError, ValueError) as exc:
-            raise StorySplitError(
-                "resume rejected: split fence rebinding checkpoint is malformed "
-                f"— partial state is inconsistent ({exc})",
-            ) from exc
-        allowed_targets = set(successor_ids)
-        for addition in additions:
-            if addition.depends_on_story_id not in allowed_targets:
-                raise StorySplitError(
-                    "resume rejected: split fence rebinding checkpoint targets "
-                    f"{addition.depends_on_story_id!r} which is not a created "
-                    "successor — partial state is inconsistent",
-                )
-        return RebindingPlan(removals=removals, additions=additions)
+        return _deserialize_rebinding_plan(raw, successor_ids)
 
     # ------------------------------------------------------------------
     # Step 7: controlled termination
@@ -1200,18 +1041,11 @@ class StorySplitService:
     ) -> StorySplitResult:
         """Pure no-op replay of a FINALIZED committed split (no re-mutation)."""
         successor_ids = tuple(str(item) for item in raw_ids)
-        record = StorySplitRecord(
+        record = _committed_split_result_record(
+            request=request,
             split_id=split_id,
-            project_key=request.project_key,
-            source_story_id=request.source_story_id,
-            requested_by=request.requested_by,
-            reason=request.reason,
             plan_ref=plan_ref,
-            status=SplitStatus.COMMITTED,
             successor_ids=successor_ids,
-            superseded_by=successor_ids,
-            terminal_state=TerminalState.CANCELLED,
-            exit_class=ExitClass.SCOPE_SPLIT,
             created_at=operation.created_at,
         )
         return StorySplitResult(
@@ -1281,6 +1115,208 @@ class StorySplitService:
             # with the deterministic op_id reuses this exact id (no duplicate).
             reconstructed[plan_key] = real
         return reconstructed
+
+
+def _split_operation_record(
+    *,
+    request: StorySplitRequest,
+    split_id: str,
+    plan_ref: str,
+    now: datetime,
+    status: str,
+    extra_payload: dict[str, object] | None = None,
+) -> ControlPlaneOperationRecord:
+    """Build a story-split fence record from the shared §54.8 boilerplate.
+
+    Every §54.8 fence write (initial commit, incremental successor/rebinding
+    checkpoints, finalization, and the ``failed`` rejection audit) shares the
+    identical operation envelope and base response payload; only ``status`` and
+    the per-step ``extra_payload`` keys differ. Centralising the construction
+    keeps the persisted fence shape identical across all writes.
+    """
+    response_payload: dict[str, object] = {
+        "status": status,
+        "op_id": split_id,
+        "operation_kind": "story_split",
+        "plan_ref": plan_ref,
+        "requested_by": request.requested_by,
+    }
+    if extra_payload:
+        response_payload.update(extra_payload)
+    return ControlPlaneOperationRecord(
+        op_id=split_id,
+        project_key=request.project_key,
+        story_id=request.source_story_id,
+        run_id=request.run_id,
+        session_id=None,
+        operation_kind="story_split",
+        phase=None,
+        status=status,
+        response_payload=response_payload,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _committed_split_record(
+    *,
+    request: StorySplitRequest,
+    split_id: str,
+    plan_ref: str,
+    now: datetime,
+    extra_payload: dict[str, object] | None = None,
+) -> ControlPlaneOperationRecord:
+    """Build a ``committed`` story-split fence record (see ``_split_operation_record``)."""
+    return _split_operation_record(
+        request=request,
+        split_id=split_id,
+        plan_ref=plan_ref,
+        now=now,
+        status="committed",
+        extra_payload=extra_payload,
+    )
+
+
+def _committed_split_result_record(
+    *,
+    request: StorySplitRequest,
+    split_id: str,
+    plan_ref: str,
+    successor_ids: tuple[str, ...],
+    created_at: datetime,
+) -> StorySplitRecord:
+    """Build the COMMITTED split record (CONSUMES the AG3-074 result axis).
+
+    Used both on the live success path and on the finalized no-op resume replay,
+    keeping the persisted record identity (status / terminal_state / exit_class /
+    superseded_by) identical between a first run and its idempotent replay.
+    """
+    return StorySplitRecord(
+        split_id=split_id,
+        project_key=request.project_key,
+        source_story_id=request.source_story_id,
+        requested_by=request.requested_by,
+        reason=request.reason,
+        plan_ref=plan_ref,
+        status=SplitStatus.COMMITTED,
+        successor_ids=successor_ids,
+        superseded_by=successor_ids,
+        terminal_state=TerminalState.CANCELLED,
+        exit_class=ExitClass.SCOPE_SPLIT,
+        created_at=created_at,
+    )
+
+
+def _build_successor_input(
+    source: Story, successor: SuccessorStory
+) -> CreateStoryInput:
+    """Build the Story-Creation input for one successor from the source."""
+    return CreateStoryInput.model_validate(
+        {
+            "project_key": source.project_key,
+            "title": successor.title,
+            "type": source.story_type.value
+            if isinstance(source.story_type, WireStoryType)
+            else str(source.story_type),
+            "repos": list(source.participating_repos),
+            "epic": source.epic,
+            "module": source.module,
+            "size": source.size.value
+            if isinstance(source.size, StorySize)
+            else str(source.size),
+            "change_impact": source.change_impact.value
+            if isinstance(source.change_impact, ChangeImpact)
+            else str(source.change_impact),
+            "concept_quality": source.concept_quality.value
+            if isinstance(source.concept_quality, ConceptQuality)
+            else str(source.concept_quality),
+            "owner": source.owner,
+            "risk": source.risk.value
+            if isinstance(source.risk, RiskLevel)
+            else str(source.risk),
+            "labels": list(source.labels),
+        }
+    )
+
+
+def _require_export_success(result: object, *, failure: str) -> None:
+    """Fail closed when a story.md export/reindex result reports failure.
+
+    The production ``export_story_md`` returns a
+    :class:`~agentkit.story_creation.story_md_export.StoryMdExportResult`
+    whose ``success`` flag is ``False`` on ANY blocker (missing story, write
+    error, < 500 bytes / missing-frontmatter validation, VectorDB indexing
+    failure) WITHOUT raising. Every export/reindex call site in the split flow
+    routes its result through this guard so a ``success=False`` is never
+    swallowed — it raises a :class:`StorySplitError` carrying the underlying
+    ``error`` detail, keeping the split fail-closed (no partial mutation past
+    the point of rejection, §54.5 / AK5 / AK12).
+    """
+    if not getattr(result, "success", False):
+        detail = str(getattr(result, "error", "") or "no detail reported")
+        raise StorySplitError(f"{failure}: {detail}")
+
+
+def _serialize_rebinding_plan(plan: RebindingPlan) -> dict[str, object]:
+    """Serialize a resolved edge-mutation plan for the durable fence checkpoint.
+
+    The serialized form carries the dependency ``kind`` of every removal/addition
+    — the one piece of information that is unrecoverable from a half-mutated
+    graph (the old edge whose kind the addition inherits may already be deleted).
+    """
+    return {
+        "removals": [
+            [m.story_id, m.depends_on_story_id, m.kind.value]
+            for m in plan.removals
+        ],
+        "additions": [
+            [m.story_id, m.depends_on_story_id, m.kind.value]
+            for m in plan.additions
+        ],
+    }
+
+
+def _deserialize_rebinding_plan(
+    raw: object, successor_ids: tuple[str, ...]
+) -> RebindingPlan:
+    """Reconstruct a checkpointed edge-mutation plan, replaying it verbatim.
+
+    Fails closed on a structurally corrupt checkpoint or one whose addition
+    targets are not the created successors.
+    """
+    try:
+        if not isinstance(raw, dict):
+            raise TypeError("rebinding_plan is not a mapping")
+        removals = tuple(
+            EdgeMutation(
+                story_id=str(story_id),
+                depends_on_story_id=str(depends_on),
+                kind=StoryDependencyKind(str(kind)),
+            )
+            for story_id, depends_on, kind in raw.get("removals") or ()
+        )
+        additions = tuple(
+            EdgeMutation(
+                story_id=str(story_id),
+                depends_on_story_id=str(depends_on),
+                kind=StoryDependencyKind(str(kind)),
+            )
+            for story_id, depends_on, kind in raw.get("additions") or ()
+        )
+    except (TypeError, ValueError) as exc:
+        raise StorySplitError(
+            "resume rejected: split fence rebinding checkpoint is malformed "
+            f"— partial state is inconsistent ({exc})",
+        ) from exc
+    allowed_targets = set(successor_ids)
+    for addition in additions:
+        if addition.depends_on_story_id not in allowed_targets:
+            raise StorySplitError(
+                "resume rejected: split fence rebinding checkpoint targets "
+                f"{addition.depends_on_story_id!r} which is not a created "
+                "successor — partial state is inconsistent",
+            )
+    return RebindingPlan(removals=removals, additions=additions)
 
 
 __all__ = [

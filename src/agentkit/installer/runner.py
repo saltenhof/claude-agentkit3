@@ -1119,6 +1119,7 @@ def scaffold_project_structure(config: InstallConfig, root: Path) -> list[str]:
     Returns:
         The project-relative paths of the directories created (for reporting).
     """
+    del config  # part of the (config, root) deploy-helper signature family; unused here (S1172)
     resources_dir = _resources_target_project_dir()
     created = _deploy_directory_structure(resources_dir, root)
     for runtime_dir in (

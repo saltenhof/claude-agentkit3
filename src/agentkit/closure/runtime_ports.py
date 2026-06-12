@@ -425,14 +425,18 @@ class ProductiveTelemetryEvidencePort:
         try:
             review_roles, role_pools, web_budget = self._resolve_config()
         except Exception as exc:  # noqa: BLE001 -- fail-closed: cannot prove evidence
+            # S1110: the message is hoisted into a local so the kwarg value is a
+            # plain identifier (no parenthesised grouping at the call site). The
+            # string value is byte-identical to the prior inline form.
+            blocking_reason = (
+                "Telemetry-Evidence-Block (FK-68 §68.4): the authoritative "
+                f"review/llm/web budget config could not be resolved ({exc}) "
+                "-> fail-closed (cannot verify telemetry evidence -> cannot "
+                "merge)"
+            )
             return TelemetryEvidenceVerdict(
                 passed=False,
-                blocking_reason=(
-                    "Telemetry-Evidence-Block (FK-68 §68.4): the authoritative "
-                    f"review/llm/web budget config could not be resolved ({exc}) "
-                    "-> fail-closed (cannot verify telemetry evidence -> cannot "
-                    "merge)"
-                ),
+                blocking_reason=blocking_reason,
             )
 
         reader = StateBackendExecutionEventReader(

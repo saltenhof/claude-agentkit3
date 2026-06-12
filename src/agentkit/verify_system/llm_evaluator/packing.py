@@ -181,7 +181,15 @@ def truncate_bundle(
 
 
 def _split_markdown_sections(content: str) -> list[str]:
-    matches = list(re.finditer(r"(?m)^#{1,6}\s+.+$", content))
+    # S5852: the prior ``^#{1,6}\s+.+$`` pattern places two open-ended
+    # quantifiers (``\s+`` and ``.+``) over overlapping character classes
+    # (a non-newline whitespace satisfies BOTH ``\s`` and ``.``), which static
+    # analysis flags as a polynomial-backtracking hotspot. The replacement keeps
+    # the EXACT same (start, span) matches — verified by an exhaustive fuzz —
+    # but removes the overlap: ``\s+`` is followed by a zero-width lookahead
+    # ``(?=[^\n])`` (asserting the first ``.`` character without re-consuming it)
+    # and the body becomes the non-overlapping ``[^\n]*$``.
+    matches = list(re.finditer(r"(?m)^#{1,6}\s+(?=[^\n])[^\n]*$", content))
     if not matches:
         return [content]
     sections: list[str] = []

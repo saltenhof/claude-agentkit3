@@ -277,25 +277,11 @@ class CapabilityEnforcement:
         # wins; an unclassified target is resolved after the loop — as an
         # UNCLASSIFIED_MUTATION (block-all-modes) for ANY mutating op, else an
         # UNRESOLVED (mode-specific) non-mutating event.
-        unresolved = False
-        for path_class in path_classes:
-            if path_class is None:
-                unresolved = True
-                continue
-            base = self._matrix.is_allowed(principal, op_class, path_class)
-            verdict = self._freeze.apply(base, principal, story_id or "", op_class)
-            if verdict.decision is CapabilityDecision.DENY:
-                if _service_path_override_allowed(
-                    event, principal, op_class, path_class
-                ):
-                    return CapabilityResult(
-                        EnforcementOutcome.ALLOW_VIA_OFFICIAL_SERVICE_PATH,
-                        CapabilityVerdict.allow(
-                            "attested official service path",
-                            rule_id="FK-55-55.10.3-step-8",
-                        ),
-                    )
-                return CapabilityResult(EnforcementOutcome.DENY, verdict)
+        deny_result, unresolved = self._resolve_targets(
+            event, principal, op_class, story_id, path_classes
+        )
+        if deny_result is not None:
+            return deny_result
         # An unclassified MUTATION target is a fail-closed BLOCK in ALL modes
         # (FK-55 §55.10.2); it precedes the §55.6.1 unknown-permission rule (an
         # unclassified mutation must never be deferred). An unknown tool is never
@@ -348,6 +334,52 @@ class CapabilityEnforcement:
             ),
             hull=hull,
         )
+
+    def _resolve_targets(
+        self,
+        event: HookEvent,
+        principal: Principal,
+        op_class: OperationClass,
+        story_id: str | None,
+        path_classes: list[PathClass | None],
+    ) -> tuple[CapabilityResult | None, bool]:
+        """Apply the hard matrix + freeze overlay per target (§55.10.3 steps 4-5).
+
+        First DENY wins, with the §55.10.3 step-8 official-service-path override
+        applied on a DENY exactly as before. An unclassified target (``None``
+        sentinel) is recorded in the returned ``unresolved`` flag and resolved by
+        the caller after the loop (mutating ⇒ UNCLASSIFIED_MUTATION; else
+        UNRESOLVED) — never softened here.
+
+        Returns:
+            A pair ``(early_result, unresolved)``. ``early_result`` is the
+            terminal DENY / service-path-override :class:`CapabilityResult` when
+            one fired (the caller returns it verbatim), else ``None``.
+            ``unresolved`` is ``True`` when any target was the ``None`` sentinel.
+        """
+        unresolved = False
+        for path_class in path_classes:
+            if path_class is None:
+                unresolved = True
+                continue
+            base = self._matrix.is_allowed(principal, op_class, path_class)
+            verdict = self._freeze.apply(base, principal, story_id or "", op_class)
+            if verdict.decision is CapabilityDecision.DENY:
+                if _service_path_override_allowed(
+                    event, principal, op_class, path_class
+                ):
+                    return (
+                        CapabilityResult(
+                            EnforcementOutcome.ALLOW_VIA_OFFICIAL_SERVICE_PATH,
+                            CapabilityVerdict.allow(
+                                "attested official service path",
+                                rule_id="FK-55-55.10.3-step-8",
+                            ),
+                        ),
+                        unresolved,
+                    )
+                return CapabilityResult(EnforcementOutcome.DENY, verdict), unresolved
+        return None, unresolved
 
     def _subagent_spawn_result(
         self, principal: Principal, story_id: str

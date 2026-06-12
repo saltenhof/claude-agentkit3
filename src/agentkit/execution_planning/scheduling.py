@@ -292,14 +292,14 @@ def evaluate_scheduling(
         for story in plan.ready_set
         if story.story_id not in quarantined
     )
-    quarantined_ready = tuple(
+    quarantined_ready = {
         story.story_id
         for story in plan.ready_set
         if story.story_id in quarantined
-    )
+    }
     blocked_stories = tuple(
         sorted(
-            {story.story_id for story in plan.blocked_set} | set(quarantined_ready),
+            {story.story_id for story in plan.blocked_set} | quarantined_ready,
         ),
     )
     why_not_now = _why_not_now(plan, quarantined)
@@ -476,8 +476,10 @@ def _quarantine_cyclic_subgraph(graph: DependencyGraph) -> tuple[tuple[str, ...]
     if not has_cycle:
         return (), False
     quarantined: set[str] = set(path)
-    for node in list(quarantined):
-        quarantined |= graph.transitive_successors(node)
+    extra: set[str] = set()
+    for node in quarantined:
+        extra |= graph.transitive_successors(node)
+    quarantined |= extra
     return tuple(sorted(quarantined)), True
 
 
@@ -553,8 +555,8 @@ def _round_robin_pick(
 ) -> list[str]:
     """Round-robin over alphabetically sorted repos until global slots exhausted."""
     repo_order = sorted(buckets)
-    cursors = {repo: 0 for repo in repo_order}
-    picked_in_repo: dict[str, int] = {repo: 0 for repo in repo_order}
+    cursors = dict.fromkeys(repo_order, 0)
+    picked_in_repo: dict[str, int] = dict.fromkeys(repo_order, 0)
     picked: list[str] = []
     remaining_global = global_slots_left
     while remaining_global > 0:

@@ -262,7 +262,8 @@ def _build_real_client(*, host: str, port: int) -> WeaviateClientPort:
     typed :class:`VectorDbUnavailableError` at call time.
     """
     try:
-        import weaviate  # noqa: PLC0415 (optional dependency, import-guarded)
+        # PLC0415: optional dependency, import-guarded.
+        import weaviate  # noqa: PLC0415
     except ImportError as exc:
         raise VectorDbUnavailableError(
             "weaviate-client is not installed; the VectorDB is mandatory "
@@ -309,6 +310,7 @@ class _RealWeaviateClient:
         project_id: str,
         limit: int,
     ) -> Sequence[Mapping[str, object]]:
+        del search_mode  # required by the WeaviateClientPort Protocol; unused by the real hybrid query (S1172)
         coll = self._connection.collections.get(collection)  # type: ignore[attr-defined]
         response = coll.query.hybrid(
             query=query,

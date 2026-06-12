@@ -59,6 +59,7 @@ def run_checkpoint_upgrade(
     Raises:
         ProjectError: When the project root does not exist (fail-closed).
     """
+    del github_owner, github_repo  # part of the caller signature; not consumed by the upgrade flow (S1172)
     from agentkit.exceptions import ProjectError
 
     if not project_root.is_dir():

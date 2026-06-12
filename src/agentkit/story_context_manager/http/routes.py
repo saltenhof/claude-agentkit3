@@ -654,13 +654,11 @@ def _enforce_reconciliation(
     except ValidationError as exc:
         first = exc.errors()[0]
         location = ".".join(str(part) for part in first.get("loc", ()))
+        detail = f"{location}: {first.get('msg', 'invalid value')}".rstrip(": ")
         return _error_response(
             HTTPStatus.UNPROCESSABLE_ENTITY,
             error_code="reconciliation_evidence_missing",
-            message=(
-                f"reconciliation evidence is invalid: "
-                f"{location}: {first.get('msg', 'invalid value')}".rstrip(": ")
-            ),
+            message=f"reconciliation evidence is invalid: {detail}",
             correlation_id=correlation_id,
         )
 

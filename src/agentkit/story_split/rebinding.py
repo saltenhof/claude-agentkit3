@@ -121,11 +121,7 @@ def plan_rebinding(
             The caller MUST treat this as a fail-closed reject with no mutation.
     """
     successor_set = set(successor_ids)
-    # Index inbound edges onto the source by dependent story (preserve kind).
-    inbound_to_source: dict[str, list[StoryDependency]] = {}
-    for edge in existing_edges:
-        if edge.depends_on_story_id == source_story_id:
-            inbound_to_source.setdefault(edge.story_id, []).append(edge)
+    inbound_to_source = _index_inbound_edges(existing_edges, source_story_id)
 
     removals: list[EdgeMutation] = []
     additions: list[EdgeMutation] = []
@@ -136,59 +132,141 @@ def plan_rebinding(
 
     handled_dependents: set[str] = set()
     for dependent_story_id, old_dependency, new_dependencies in rebinding_entries:
-        if old_dependency != source_story_id:
-            raise RebindingError(
-                "rebinding old_dependency must be the cancelled source "
-                f"({source_story_id!r}); got {old_dependency!r}",
-            )
-        source_edges = inbound_to_source.get(dependent_story_id, [])
-        if not source_edges:
-            raise RebindingError(
-                "no_silent_drop: rebinding entry for "
-                f"{dependent_story_id!r} declares an old edge onto "
-                f"{old_dependency!r} that does not exist",
-            )
-        # no_unjustified_fanout: more than one successor target requires an
-        # explicit plan declaration (which this very list IS); the implicit
-        # fanout we must reject is "one declared target silently expanded".
-        # Each declared new_dependency must be a real successor.
-        for new_dep in new_dependencies:
-            if new_dep not in successor_set:
-                raise RebindingError(
-                    "no_unjustified_fanout: rebinding target "
-                    f"{new_dep!r} is not a declared successor",
-                )
+        source_edges = _validate_rebinding_entry(
+            dependent_story_id=dependent_story_id,
+            old_dependency=old_dependency,
+            new_dependencies=new_dependencies,
+            source_story_id=source_story_id,
+            successor_set=successor_set,
+            inbound_to_source=inbound_to_source,
+        )
         handled_dependents.add(dependent_story_id)
-        for old_edge in source_edges:
-            removals.append(
+        _derive_entry_mutations(
+            dependent_story_id=dependent_story_id,
+            new_dependencies=new_dependencies,
+            source_story_id=source_story_id,
+            source_edges=source_edges,
+            projected=projected,
+            removals=removals,
+            additions=additions,
+        )
+
+    _assert_no_stale_targets(
+        inbound_to_source=inbound_to_source,
+        handled_dependents=handled_dependents,
+        source_story_id=source_story_id,
+    )
+    _assert_acyclic(projected)
+    return RebindingPlan(removals=tuple(removals), additions=tuple(additions))
+
+
+def _index_inbound_edges(
+    existing_edges: tuple[StoryDependency, ...], source_story_id: str
+) -> dict[str, list[StoryDependency]]:
+    """Index inbound edges onto the source by dependent story (preserve kind)."""
+    inbound_to_source: dict[str, list[StoryDependency]] = {}
+    for edge in existing_edges:
+        if edge.depends_on_story_id == source_story_id:
+            inbound_to_source.setdefault(edge.story_id, []).append(edge)
+    return inbound_to_source
+
+
+def _validate_rebinding_entry(
+    *,
+    dependent_story_id: str,
+    old_dependency: str,
+    new_dependencies: tuple[str, ...],
+    source_story_id: str,
+    successor_set: set[str],
+    inbound_to_source: dict[str, list[StoryDependency]],
+) -> list[StoryDependency]:
+    """Validate one rebinding entry; return its existing inbound source edges.
+
+    Enforces ``old_dependency == source``, ``no_silent_drop`` (the declared old
+    edge must exist) and ``no_unjustified_fanout`` (every declared target must be
+    a real successor). Raises :class:`RebindingError` on any violation.
+    """
+    if old_dependency != source_story_id:
+        raise RebindingError(
+            "rebinding old_dependency must be the cancelled source "
+            f"({source_story_id!r}); got {old_dependency!r}",
+        )
+    source_edges = inbound_to_source.get(dependent_story_id, [])
+    if not source_edges:
+        raise RebindingError(
+            "no_silent_drop: rebinding entry for "
+            f"{dependent_story_id!r} declares an old edge onto "
+            f"{old_dependency!r} that does not exist",
+        )
+    # no_unjustified_fanout: more than one successor target requires an
+    # explicit plan declaration (which this very list IS); the implicit
+    # fanout we must reject is "one declared target silently expanded".
+    # Each declared new_dependency must be a real successor.
+    for new_dep in new_dependencies:
+        if new_dep not in successor_set:
+            raise RebindingError(
+                "no_unjustified_fanout: rebinding target "
+                f"{new_dep!r} is not a declared successor",
+            )
+    return source_edges
+
+
+def _derive_entry_mutations(
+    *,
+    dependent_story_id: str,
+    new_dependencies: tuple[str, ...],
+    source_story_id: str,
+    source_edges: list[StoryDependency],
+    projected: set[tuple[str, str, str]],
+    removals: list[EdgeMutation],
+    additions: list[EdgeMutation],
+) -> None:
+    """Append the removal/addition mutations for one validated rebinding entry.
+
+    Mutates ``projected``, ``removals`` and ``additions`` in place. Raises
+    :class:`RebindingError` if an addition would create a duplicate active edge
+    (``graph_integrity_preserved``).
+    """
+    for old_edge in source_edges:
+        removals.append(
+            EdgeMutation(
+                story_id=old_edge.story_id,
+                depends_on_story_id=source_story_id,
+                kind=old_edge.kind,
+            )
+        )
+        projected.discard(
+            (old_edge.story_id, source_story_id, old_edge.kind.value)
+        )
+        for new_dep in new_dependencies:
+            key = (dependent_story_id, new_dep, old_edge.kind.value)
+            if key in projected:
+                raise RebindingError(
+                    "graph_integrity_preserved: rebinding would create a "
+                    f"duplicate active edge {dependent_story_id!r} -> {new_dep!r}",
+                )
+            projected.add(key)
+            additions.append(
                 EdgeMutation(
-                    story_id=old_edge.story_id,
-                    depends_on_story_id=source_story_id,
+                    story_id=dependent_story_id,
+                    depends_on_story_id=new_dep,
                     kind=old_edge.kind,
                 )
             )
-            projected.discard(
-                (old_edge.story_id, source_story_id, old_edge.kind.value)
-            )
-            for new_dep in new_dependencies:
-                key = (dependent_story_id, new_dep, old_edge.kind.value)
-                if key in projected:
-                    raise RebindingError(
-                        "graph_integrity_preserved: rebinding would create a "
-                        f"duplicate active edge {dependent_story_id!r} -> {new_dep!r}",
-                    )
-                projected.add(key)
-                additions.append(
-                    EdgeMutation(
-                        story_id=dependent_story_id,
-                        depends_on_story_id=new_dep,
-                        kind=old_edge.kind,
-                    )
-                )
 
-    # no_stale_cancelled_target: every dependent that still points at the source
-    # must be covered by a rebinding entry; an unhandled inbound edge is a stale
-    # pointer onto the soon-to-be-cancelled story -> fail closed.
+
+def _assert_no_stale_targets(
+    *,
+    inbound_to_source: dict[str, list[StoryDependency]],
+    handled_dependents: set[str],
+    source_story_id: str,
+) -> None:
+    """Enforce ``no_stale_cancelled_target`` for every inbound dependent.
+
+    Every dependent that still points at the source must be covered by a
+    rebinding entry; an unhandled inbound edge is a stale pointer onto the
+    soon-to-be-cancelled story -> fail closed.
+    """
     for dependent_story_id in inbound_to_source:
         if dependent_story_id not in handled_dependents:
             raise RebindingError(
@@ -196,9 +274,6 @@ def plan_rebinding(
                 f"{dependent_story_id!r} still points at the cancelled source "
                 f"{source_story_id!r} but the plan declares no rebinding for it",
             )
-
-    _assert_acyclic(projected)
-    return RebindingPlan(removals=tuple(removals), additions=tuple(additions))
 
 
 def _assert_acyclic(edges: set[tuple[str, str, str]]) -> None:

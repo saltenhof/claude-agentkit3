@@ -5,20 +5,11 @@ The HIGHEST intra-BC layer of ``installation-and-bootstrap``
 checkpoint engine + execution modes (it is a FLOW/MODE of that engine, not a
 second installer) and CONSUMES the four owner-BC top/read surfaces lent to the
 :class:`CustomizationFootprint`. Nothing in the lower installer layers imports
-from this package.
-
-Public surface (FK-51 §51.3-§51.8):
-
-* :func:`migrate_config` / :func:`migrate_3_to_4` — stepwise ``config_version``
-  migration with a ``.bak`` backup before every migration (§51.4).
-* :class:`UpgradeScenario` / :func:`decide_upgrade_scenario` — the typed
-  three-scenario decision (§51.3).
-* :class:`CustomizationFootprint` — the read-aggregate over the four owner
-  surfaces + the never-silently-overwrite invariant F-51-023 (§51.8).
-* :func:`migrate_hooks` / :func:`migrate_git_hook_dispatch` — hook + git-hook
-  dispatching migration (§51.6 / §51.6.1).
-* :func:`run_cleanup` — the fail-closed cleanup mode (§51.7).
-* :func:`run_upgrade` — the engine-driven upgrade flow entry point.
+from this package. The public surface (re-exported below, see ``__all__``)
+covers config migration (§51.4), the typed scenario decision (§51.3), the
+customization read-aggregate + invariant F-51-023 (§51.8), hook/git-hook
+migration (§51.6), the fail-closed cleanup mode (§51.7) and the engine-driven
+:func:`run_upgrade` entry point.
 """
 
 from __future__ import annotations

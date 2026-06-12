@@ -509,7 +509,10 @@ def _print_checkpoint_results(result: object) -> None:
 
 def _cmd_register_project(args: argparse.Namespace) -> int:
     """Handle ``agentkit register-project`` (FK-50 §50.2)."""
-    from agentkit.exceptions import InstallationError, ProjectError
+    # S5713: ``InstallationError`` derives from ``ProjectError`` (exceptions.py),
+    # so catching ``ProjectError`` already covers it — the redundant subclass is
+    # dropped from the import and the except clause (handling is shared).
+    from agentkit.exceptions import ProjectError
     from agentkit.installer.bootstrap_checkpoints.orchestrator import (
         run_checkpoint_install,
     )
@@ -521,7 +524,7 @@ def _cmd_register_project(args: argparse.Namespace) -> int:
     mode = ExecutionMode.DRY_RUN if args.dry_run else ExecutionMode.REGISTER
     try:
         result = run_checkpoint_install(config, mode=mode)  # type: ignore[arg-type]
-    except (InstallationError, ProjectError) as exc:
+    except ProjectError as exc:
         print(f"register-project failed: {exc}", file=sys.stderr)
         return 1
     label = "planned" if args.dry_run else "registered"
@@ -532,7 +535,10 @@ def _cmd_register_project(args: argparse.Namespace) -> int:
 
 def _cmd_verify_project(args: argparse.Namespace) -> int:
     """Handle ``agentkit verify-project`` (FK-50 §50.2, read-only)."""
-    from agentkit.exceptions import InstallationError, ProjectError
+    # S5713: ``InstallationError`` derives from ``ProjectError``; catching the
+    # parent already covers the subclass (shared handling), so the redundant
+    # subclass is removed from the import and the except clause.
+    from agentkit.exceptions import ProjectError
     from agentkit.installer.bootstrap_checkpoints.orchestrator import (
         run_checkpoint_install,
     )
@@ -543,7 +549,7 @@ def _cmd_verify_project(args: argparse.Namespace) -> int:
         return 1
     try:
         result = run_checkpoint_install(config, mode=ExecutionMode.VERIFY)  # type: ignore[arg-type]
-    except (InstallationError, ProjectError) as exc:
+    except ProjectError as exc:
         print(f"verify-project failed: {exc}", file=sys.stderr)
         return 1
     print(f"Project verification (read-only) at {args.project_root}")
@@ -594,7 +600,12 @@ def _add_upgrade_parser(
 
 def _cmd_upgrade_project(args: argparse.Namespace) -> int:
     """Handle ``agentkit upgrade-project`` (FK-51, AG3-089)."""
-    from agentkit.exceptions import InstallationError, ProjectError
+    # S5713: ``CustomizationPreservationError`` -> ``InstallationError`` ->
+    # ``ProjectError``. The specific ``CustomizationPreservationError`` keeps its
+    # OWN earlier except clause (distinct F-51-023 handling); the generic clause
+    # then catches the remaining ``ProjectError`` subtree, so the redundant
+    # ``InstallationError`` is dropped from the import and the generic except.
+    from agentkit.exceptions import ProjectError
     from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
     from agentkit.installer.upgrade.entry import run_checkpoint_upgrade
     from agentkit.installer.upgrade.footprint import CustomizationPreservationError
@@ -620,7 +631,7 @@ def _cmd_upgrade_project(args: argparse.Namespace) -> int:
         # F-51-023: a detected customization blocked a non-migrating write path.
         print(f"upgrade-project blocked (F-51-023): {exc}", file=sys.stderr)
         return 1
-    except (InstallationError, ProjectError) as exc:
+    except ProjectError as exc:
         print(f"upgrade-project failed: {exc}", file=sys.stderr)
         return 1
     label = "planned" if args.dry_run else "upgraded"

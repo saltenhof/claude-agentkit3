@@ -60,7 +60,8 @@ class GhCliRepoExistenceProbe:
                 detail="GitHub CLI 'gh' is not installed (FK-50 §50.6).",
             )
         try:
-            completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
+            # fixed argv, no shell
+            completed = subprocess.run(  # noqa: S603
                 ["gh", "repo", "view", f"{owner}/{repo}", "--json", "name"],
                 capture_output=True,
                 text=True,

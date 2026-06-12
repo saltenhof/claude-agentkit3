@@ -110,6 +110,44 @@ def _merge_mcp_servers(
     return root, changed
 
 
+def _cp10_plan_result(
+    *,
+    mcp_present: bool,
+    changed: bool,
+    server_keys: list[str],
+    mcp_name: str,
+    dry_run: bool,
+    start: float,
+) -> CheckpointResult:
+    """Build the read-only CP 10 outcome (dry-run plan / verify status).
+
+    Read-only modes never write the file; they report the planned status: PASS
+    when the file exists and nothing would change, UPDATED when it exists but the
+    desired servers differ, else CREATED (the file would be created).
+    """
+    if mcp_present and not changed:
+        planned = CheckpointStatus.PASS
+    elif mcp_present:
+        planned = CheckpointStatus.UPDATED
+    else:
+        planned = CheckpointStatus.CREATED
+    detail = f"Would register MCP servers {server_keys} in {mcp_name}."
+    if dry_run:
+        return planned_result(
+            nid.CP_10_MCP_REGISTRATION,
+            planned_status=planned,
+            detail=detail,
+            start=start,
+        )
+    return make_result(
+        nid.CP_10_MCP_REGISTRATION,
+        status=planned,
+        detail=detail,
+        reason=REASON_ALREADY_SATISFIED if planned is CheckpointStatus.PASS else None,
+        start=start,
+    )
+
+
 def cp10_mcp_registration(context: CheckpointContext) -> CheckpointResult:
     """CP 10 — register MCP servers in the target ``.mcp.json`` (FK-50 §50.3).
 
@@ -141,24 +179,12 @@ def cp10_mcp_registration(context: CheckpointContext) -> CheckpointResult:
     server_keys = sorted(desired)
 
     if not context.mode.mutations_allowed:
-        planned = (
-            CheckpointStatus.PASS
-            if (mcp_path.is_file() and not changed)
-            else (CheckpointStatus.UPDATED if mcp_path.is_file() else CheckpointStatus.CREATED)
-        )
-        detail = f"Would register MCP servers {server_keys} in {mcp_path.name}."
-        if is_dry_run(context.mode):
-            return planned_result(
-                nid.CP_10_MCP_REGISTRATION,
-                planned_status=planned,
-                detail=detail,
-                start=start,
-            )
-        return make_result(
-            nid.CP_10_MCP_REGISTRATION,
-            status=planned,
-            detail=detail,
-            reason=REASON_ALREADY_SATISFIED if planned is CheckpointStatus.PASS else None,
+        return _cp10_plan_result(
+            mcp_present=mcp_path.is_file(),
+            changed=changed,
+            server_keys=server_keys,
+            mcp_name=mcp_path.name,
+            dry_run=is_dry_run(context.mode),
             start=start,
         )
 

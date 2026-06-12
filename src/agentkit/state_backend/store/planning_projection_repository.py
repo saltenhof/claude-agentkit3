@@ -38,6 +38,10 @@ from agentkit.execution_planning.persistence.records import (
 from agentkit.execution_planning.persistence.repositories import (
     PlanningProjectionRepositories,
 )
+from agentkit.state_backend.store._planning_ddl import (
+    _PLANNING_DDL_POSTGRES,
+    _PLANNING_DDL_SQLITE,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -61,145 +65,10 @@ __all__ = [
 
 # ---------------------------------------------------------------------------
 # DDL for the ten planning tables (BC14 schema owner) -- SQLite + Postgres.
+# The ``CREATE TABLE`` constants live in the sibling ``_planning_ddl`` module so
+# this adapter's module-level LOC stays within budget; re-imported under their
+# original names (no behaviour change).
 # ---------------------------------------------------------------------------
-
-_PLANNING_DDL_SQLITE: tuple[str, ...] = (
-    """
-    CREATE TABLE IF NOT EXISTS planning_planned_story (
-        project_key TEXT NOT NULL,
-        story_id TEXT NOT NULL,
-        story_type TEXT NOT NULL,
-        story_size TEXT NOT NULL,
-        participating_repos_json TEXT NOT NULL,
-        planning_status TEXT NOT NULL,
-        is_hard_truth INTEGER NOT NULL,
-        revision INTEGER NOT NULL,
-        PRIMARY KEY (project_key, story_id)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS planning_dependency_edge (
-        project_key TEXT NOT NULL,
-        story_id TEXT NOT NULL,
-        depends_on_story_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        rationale TEXT,
-        is_hard_truth INTEGER NOT NULL,
-        created_at TEXT NOT NULL,
-        revision INTEGER NOT NULL,
-        PRIMARY KEY (project_key, story_id, depends_on_story_id, kind)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS planning_blocking_condition (
-        project_key TEXT NOT NULL,
-        blocker_id TEXT NOT NULL,
-        story_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        provenance TEXT NOT NULL,
-        reason_code TEXT NOT NULL,
-        source_story_id TEXT,
-        source_gate_id TEXT,
-        detail TEXT,
-        is_hard_truth INTEGER NOT NULL,
-        revision INTEGER NOT NULL,
-        PRIMARY KEY (project_key, blocker_id)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS planning_gate (
-        project_key TEXT NOT NULL,
-        gate_id TEXT NOT NULL,
-        story_id TEXT NOT NULL,
-        gate_kind TEXT NOT NULL,
-        state TEXT NOT NULL,
-        reason_code TEXT NOT NULL,
-        is_blocking INTEGER NOT NULL,
-        revision INTEGER NOT NULL,
-        PRIMARY KEY (project_key, gate_id)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS planning_scheduling_budget (
-        project_key TEXT NOT NULL,
-        budget_id TEXT NOT NULL,
-        repo_parallel_cap INTEGER NOT NULL,
-        merge_risk_cap INTEGER NOT NULL,
-        api_rate_limit_cap INTEGER NOT NULL,
-        llm_pool_cap INTEGER NOT NULL,
-        ci_capacity_cap INTEGER NOT NULL,
-        revision INTEGER NOT NULL,
-        PRIMARY KEY (project_key, budget_id)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS planning_scheduling_policy (
-        project_key TEXT NOT NULL,
-        policy_id TEXT NOT NULL,
-        may_parallelize_now INTEGER NOT NULL,
-        budget_id TEXT NOT NULL,
-        recommended_batch_limit INTEGER,
-        reason_code TEXT NOT NULL,
-        revision INTEGER NOT NULL,
-        PRIMARY KEY (project_key, policy_id)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS planning_rulebook_revision (
-        project_key TEXT NOT NULL,
-        rulebook_id TEXT NOT NULL,
-        revision INTEGER NOT NULL,
-        raw_syntax TEXT NOT NULL,
-        updated_by_principal TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        PRIMARY KEY (project_key, rulebook_id, revision)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS planning_rulebook_compile_result (
-        project_key TEXT NOT NULL,
-        rulebook_id TEXT NOT NULL,
-        revision INTEGER NOT NULL,
-        status TEXT NOT NULL,
-        compiled_rules_json TEXT NOT NULL,
-        errors_json TEXT NOT NULL,
-        triggers_replan INTEGER NOT NULL,
-        compiled_at TEXT NOT NULL,
-        PRIMARY KEY (project_key, rulebook_id, revision)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS planning_execution_plan (
-        project_key TEXT NOT NULL,
-        plan_id TEXT NOT NULL,
-        graph_revision INTEGER NOT NULL,
-        readiness_revision INTEGER NOT NULL,
-        scheduling_revision INTEGER NOT NULL,
-        rulebook_revision INTEGER NOT NULL,
-        critical_path_json TEXT NOT NULL,
-        recommended_batch_json TEXT NOT NULL,
-        max_allowed_batch_json TEXT NOT NULL,
-        revision INTEGER NOT NULL,
-        PRIMARY KEY (project_key, plan_id)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS planning_execution_wave (
-        project_key TEXT NOT NULL,
-        plan_id TEXT NOT NULL,
-        wave_id TEXT NOT NULL,
-        wave_order INTEGER NOT NULL,
-        wave_state TEXT NOT NULL,
-        candidate_story_ids_json TEXT NOT NULL,
-        revision INTEGER NOT NULL,
-        PRIMARY KEY (project_key, plan_id, wave_id)
-    )
-    """,
-)
-
-# Postgres DDL: same shape, INTEGER->BOOLEAN for the flag columns is unnecessary
-# (we store 0/1 ints there too for symmetry with the record bool<->int mapping).
-_PLANNING_DDL_POSTGRES: tuple[str, ...] = _PLANNING_DDL_SQLITE
 
 
 def _is_postgres() -> bool:

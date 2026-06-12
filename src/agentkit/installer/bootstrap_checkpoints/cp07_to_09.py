@@ -197,9 +197,8 @@ def cp08_skill_bindings(context: CheckpointContext) -> CheckpointResult:
     )
 
     settings_paths = _default_governance_hook_settings_paths(root)
-    context.run_state.hook_settings_baseline = {
-        path: digest for path, digest in _file_digests(settings_paths).items()
-    }
+    baseline: dict[object, str] = dict(_file_digests(settings_paths).items())
+    context.run_state.hook_settings_baseline = baseline
 
     # ---- register: deploy the active project-local bindings (CP 8 region) ----
     # The central prompt-bundle store entry is materialised HERE (register only,

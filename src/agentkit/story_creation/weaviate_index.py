@@ -48,6 +48,10 @@ class WeaviateStoryIndex:
             VectorDbWriteError: When the indexing write fails (hard blocker,
                 propagated from the adapter; fail-closed).
         """
+        # story_id is mandated by the StoryIndexPort contract but not consulted
+        # here: the objects already carry their own story_id, and story_sync
+        # keys off that. Kept for symmetry / future per-story deletes.
+        del story_id
         return self._adapter.story_sync(objects=objects)
 
 

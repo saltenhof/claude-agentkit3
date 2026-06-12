@@ -190,11 +190,9 @@ class LlmConvergenceJudge:
         try:
             raw = self._llm_client.complete(role=_CONVERGENCE_ROLE, prompt=prompt)
         except LlmClientError as exc:
-            msg = (
-                "fine-design convergence verdict unavailable: the LLM judge "
-                "transport failed (FK-25 §25.5.4 non-reachability / FK-11 pool "
+            msg = "fine-design convergence verdict unavailable: the LLM judge " \
+                "transport failed (FK-25 §25.5.4 non-reachability / FK-11 pool " \
                 f"selection is a follow-up): {exc}"
-            )
             raise FineDesignEvaluatorUnavailableError(msg) from exc
         verdict = self._parse_verdict(raw)
         decisions = tuple(
@@ -218,18 +216,14 @@ class LlmConvergenceJudge:
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError as exc:
-            msg = (
-                "fine-design convergence verdict is not valid JSON (FK-25 "
+            msg = "fine-design convergence verdict is not valid JSON (FK-25 " \
                 f"§25.5.4 fail-closed, no fabricated convergence): {exc}"
-            )
             raise FineDesignEvaluatorUnavailableError(msg) from exc
         try:
             return _ConvergenceVerdict.model_validate(payload)
         except ValidationError as exc:
-            msg = (
-                "fine-design convergence verdict has an invalid shape (FK-25 "
+            msg = "fine-design convergence verdict has an invalid shape (FK-25 " \
                 f"§25.5.4 fail-closed, no fabricated convergence): {exc}"
-            )
             raise FineDesignEvaluatorUnavailableError(msg) from exc
 
     @staticmethod

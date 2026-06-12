@@ -2,12 +2,37 @@
 
 from __future__ import annotations
 
+import re
+import time
+
 from agentkit.verify_system.llm_evaluator.packing import (
     PackingKind,
+    _split_markdown_sections,
     pack_code,
     pack_markdown,
     truncate_bundle,
 )
+
+# The exact behaviour the S5852-hardened ``_split_markdown_sections`` regex must
+# preserve: the original (backtracking-prone) heading matcher. The non-vulnerable
+# replacement must yield the IDENTICAL set of section boundaries.
+_LEGACY_HEADING_RE = re.compile(r"(?m)^#{1,6}\s+.+$")
+
+
+def _legacy_split_markdown_sections(content: str) -> list[str]:
+    """Reference implementation using the pre-S5852 backtracking regex."""
+    matches = list(_LEGACY_HEADING_RE.finditer(content))
+    if not matches:
+        return [content]
+    sections: list[str] = []
+    if matches[0].start() > 0:
+        sections.append(content[: matches[0].start()].strip())
+    for pos, match in enumerate(matches):
+        end = matches[pos + 1].start() if pos + 1 < len(matches) else len(content)
+        section = content[match.start() : end].strip()
+        if section:
+            sections.append(section)
+    return [section for section in sections if section]
 
 
 def test_pack_markdown_keeps_priority_sections() -> None:
@@ -102,3 +127,49 @@ def test_pack_markdown_placeholder_overflow_caps_section_aware() -> None:
     for line in result.content.splitlines():
         if line.startswith("[Section"):
             assert line.endswith("]")
+
+
+def test_split_markdown_sections_matches_legacy_regex_behaviour() -> None:
+    """S5852: the non-backtracking heading split is byte-identical to the old regex.
+
+    Covers normal docs plus the cross-line / whitespace-only / no-trailing-text
+    edge cases where ``\\s+.+$`` relied on a single backtrack step. The hardened
+    matcher must produce the SAME section list for every one of them.
+    """
+    corpus = [
+        "# Intro\nbody\n## Acceptance Criteria\nmore\n### Details\ntext",
+        "preamble text\n## First\na\n## Second\nb",
+        "no headings here at all\njust prose",
+        "#No space after hash is not a heading",
+        "####### too many hashes is not a heading",
+        "# Title\n## Sub\n",
+        "#\nnext line becomes the heading body via the old backtrack",
+        "#   \nspaces then newline",
+        "###",  # bare hashes, no whitespace -> no heading
+        "### ",  # hashes + single space + EOS -> no match (old fails)
+        "## heading with trailing spaces   \nbody",
+        "text\n\n# H1\n\n## H2\n\ncontent",
+    ]
+    for content in corpus:
+        assert _split_markdown_sections(content) == _legacy_split_markdown_sections(
+            content
+        ), f"section split diverged for {content!r}"
+
+
+def test_split_markdown_sections_is_fast_on_pathological_input() -> None:
+    """S5852: a pathological whitespace-heavy input must not blow up (<1s).
+
+    The prior ``\\s+.+$`` adjacency is the polynomial-backtracking hotspot. Feed a
+    large heading marker followed by a long whitespace-only run (the worst case
+    that forces the engine to reconcile ``\\s+`` against ``.+`` at the line end),
+    repeated across many lines, and assert it completes well under a second.
+    """
+    pathological = ("#" + " " * 4_000 + "\n") * 2_000
+    start = time.perf_counter()
+    sections = _split_markdown_sections(pathological)
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 1.0, f"section split too slow ({elapsed:.3f}s) -- ReDoS regression"
+    # Whitespace-only lines are NOT headings (no ``.+`` text) -> the whole blob is
+    # one section (matching the legacy regex semantics).
+    assert sections == _legacy_split_markdown_sections(pathological)

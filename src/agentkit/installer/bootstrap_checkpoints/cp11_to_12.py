@@ -46,7 +46,8 @@ def _claude_md_path(project_root: Path) -> Path:
 def _current_hooks_path(project_root: Path) -> str | None:
     """Return the configured ``core.hooksPath`` (or ``None`` if unset/no git)."""
     try:
-        completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        # fixed argv, no shell
+        completed = subprocess.run(  # noqa: S603
             ["git", "-C", str(project_root), "config", "--get", "core.hooksPath"],
             capture_output=True,
             text=True,
@@ -64,7 +65,8 @@ def _current_hooks_path(project_root: Path) -> str | None:
 def _set_hooks_path(project_root: Path) -> bool:
     """Set ``core.hooksPath`` = ``tools/hooks/``; return success."""
     try:
-        completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        # fixed argv, no shell
+        completed = subprocess.run(  # noqa: S603
             [
                 "git",
                 "-C",
@@ -83,6 +85,42 @@ def _set_hooks_path(project_root: Path) -> bool:
     return completed.returncode == 0
 
 
+def _cp11_plan_result(
+    *, hooks_set: bool, claude_present: bool, dry_run: bool, start: float
+) -> CheckpointResult:
+    """Build the read-only CP 11 outcome (dry-run plan / verify status).
+
+    Read-only modes never mutate; they report the planned status: PASS when
+    nothing would change, CREATED when the CLAUDE.md skeleton is absent (it would
+    be created), else UPDATED.
+    """
+    will_change = (not hooks_set) or (not claude_present)
+    if not will_change:
+        planned = CheckpointStatus.PASS
+    elif not claude_present:
+        planned = CheckpointStatus.CREATED
+    else:
+        planned = CheckpointStatus.UPDATED
+    detail = (
+        f"Would ensure core.hooksPath={_HOOKS_PATH_VALUE} and the CLAUDE.md "
+        "skeleton (created only if absent)."
+    )
+    if dry_run:
+        return planned_result(
+            nid.CP_11_GIT_HOOKS_AND_CLAUDE,
+            planned_status=planned,
+            detail=detail,
+            start=start,
+        )
+    return make_result(
+        nid.CP_11_GIT_HOOKS_AND_CLAUDE,
+        status=planned,
+        detail=detail,
+        reason=REASON_ALREADY_SATISFIED if planned is CheckpointStatus.PASS else None,
+        start=start,
+    )
+
+
 def cp11_git_hooks_and_claude(context: CheckpointContext) -> CheckpointResult:
     """CP 11 — set ``core.hooksPath`` + create the CLAUDE.md skeleton (idempotent).
 
@@ -97,26 +135,10 @@ def cp11_git_hooks_and_claude(context: CheckpointContext) -> CheckpointResult:
     claude_present = claude_md.is_file()
 
     if not context.mode.mutations_allowed:
-        will_change = (not hooks_set) or (not claude_present)
-        planned = CheckpointStatus.PASS if not will_change else (
-            CheckpointStatus.CREATED if not claude_present else CheckpointStatus.UPDATED
-        )
-        detail = (
-            f"Would ensure core.hooksPath={_HOOKS_PATH_VALUE} and the CLAUDE.md "
-            "skeleton (created only if absent)."
-        )
-        if is_dry_run(context.mode):
-            return planned_result(
-                nid.CP_11_GIT_HOOKS_AND_CLAUDE,
-                planned_status=planned,
-                detail=detail,
-                start=start,
-            )
-        return make_result(
-            nid.CP_11_GIT_HOOKS_AND_CLAUDE,
-            status=planned,
-            detail=detail,
-            reason=REASON_ALREADY_SATISFIED if planned is CheckpointStatus.PASS else None,
+        return _cp11_plan_result(
+            hooks_set=hooks_set,
+            claude_present=claude_present,
+            dry_run=is_dry_run(context.mode),
             start=start,
         )
 

@@ -355,7 +355,7 @@ class StoryService:
         body = _create_story_body(request, op_id)
         cached, cached_payload = self._idempotency.check(op_id, body)
         if cached:
-            return self._resolve_cached_create(cached_payload)
+            return _resolve_cached_create(self._story_repo, cached_payload)
 
         project = self._project_repo.get(request.project_key)
         if project is None:
@@ -415,23 +415,6 @@ class StoryService:
         )
         self._emit(request.project_key, story.story_display_id, wire_summary)
         return story
-
-    def _resolve_cached_create(
-        self, cached_payload: dict[str, object] | None,
-    ) -> Story:
-        """Return the cached story for an idempotent create_story replay (Befund 5)."""
-        assert cached_payload is not None
-        cached_story = _story_from_cached_payload(cached_payload)
-        if cached_story is not None:
-            return cached_story
-        # Legacy records without internal fields: fall back to DB read.
-        cached_display_id = str(cached_payload.get("story_id", ""))
-        story = self._story_repo.get_by_display_id(cached_display_id)
-        if story is not None:
-            return story
-        raise StoryNotFoundError(
-            f"Idempotent replay: cached story {cached_display_id!r} not found",
-        )
 
     # ------------------------------------------------------------------
     # update_story_fields (PATCH /v1/stories/{id})
@@ -1238,6 +1221,25 @@ def _story_from_cached_payload(payload: dict[str, object]) -> Story | None:
         )
     except (KeyError, ValueError):
         return None
+
+
+def _resolve_cached_create(
+    story_repo: StoryRepository,
+    cached_payload: dict[str, object] | None,
+) -> Story:
+    """Return the cached story for an idempotent create_story replay (Befund 5)."""
+    assert cached_payload is not None
+    cached_story = _story_from_cached_payload(cached_payload)
+    if cached_story is not None:
+        return cached_story
+    # Legacy records without internal fields: fall back to DB read.
+    cached_display_id = str(cached_payload.get("story_id", ""))
+    story = story_repo.get_by_display_id(cached_display_id)
+    if story is not None:
+        return story
+    raise StoryNotFoundError(
+        f"Idempotent replay: cached story {cached_display_id!r} not found",
+    )
 
 
 def _valid_story_exit_record(

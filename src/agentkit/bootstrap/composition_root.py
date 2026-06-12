@@ -6,11 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agentkit.artifacts import (
-    ArtifactManager,
-    EnvelopeValidator,
-    ProducerRegistry,
-)
+from agentkit.artifacts import ArtifactManager, EnvelopeValidator, ProducerRegistry
 from agentkit.exceptions import PipelineError
 from agentkit.exploration.register import register_exploration_producers
 from agentkit.implementation.register import register_implementation_producers
@@ -27,12 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from agentkit.closure.gates import TelemetryEvidencePort
-    from agentkit.closure.merge_sequence import (
-        MergeApplicability,
-        PreMergeScanPort,
-        RepoRunners,
-        SanityGatePort,
-    )
+    from agentkit.closure.merge_sequence import MergeApplicability, PreMergeScanPort, RepoRunners, SanityGatePort
     from agentkit.closure.multi_repo_saga import GitBackend as RepoGitBackend
     from agentkit.closure.phase import (
         ClosurePhaseHandler,

@@ -241,10 +241,8 @@ class HubFineDesignEvaluator:
         try:
             available = self._available_backends()
         except MultiLlmHubError as exc:
-            msg = (
-                "multi-LLM hub unavailable for fine-design quorum acquisition "
+            msg = "multi-LLM hub unavailable for fine-design quorum acquisition " \
                 f"(FK-25 §25.5.4 non-reachability): {exc}"
-            )
             raise FineDesignEvaluatorUnavailableError(msg) from exc
         if _PRIMARY_ADVISOR not in available:
             msg = (
@@ -270,10 +268,8 @@ class HubFineDesignEvaluator:
                 llms=list(advisors),
             )
         except MultiLlmHubError as exc:
-            msg = (
-                "could not acquire the fine-design advisor quorum over the hub "
+            msg = "could not acquire the fine-design advisor quorum over the hub " \
                 f"(FK-25 §25.5.4 non-reachability): {exc}"
-            )
             raise FineDesignEvaluatorUnavailableError(msg) from exc
         # Fail-closed: the granted lease MUST cover BOTH mandatory advisors.
         granted = set(lease.llms)
@@ -287,7 +283,7 @@ class HubFineDesignEvaluator:
             raise FineDesignEvaluatorUnavailableError(msg)
         self._lease = lease
         self._advisors = advisors
-        self._send_counts = {advisor: 0 for advisor in advisors}
+        self._send_counts = dict.fromkeys(advisors, 0)
         # A fresh acquisition starts a FRESH discussion: never leak the previous
         # (aborted) attempt's responses into the new attempt's round-1 prompt
         # (the caller's D4 bounded retry re-acquires through this path).
@@ -326,10 +322,8 @@ class HubFineDesignEvaluator:
                 message=prompt,
             )
         except MultiLlmHubError as exc:
-            msg = (
-                "fine-design send failed over the hub (FK-25 §25.5.4 "
+            msg = "fine-design send failed over the hub (FK-25 §25.5.4 " \
                 f"non-reachability): {exc}"
-            )
             raise FineDesignEvaluatorUnavailableError(msg) from exc
         for advisor in self._advisors:
             self._send_counts[advisor] += 1
@@ -367,10 +361,8 @@ class HubFineDesignEvaluator:
         try:
             return self._client.session_stats(session_id=session_id)
         except MultiLlmHubError as exc:
-            msg = (
-                "could not read post-hoc llm_session_stats for fine-design "
+            msg = "could not read post-hoc llm_session_stats for fine-design " \
                 f"verification (FK-25 §25.5.4): {exc}"
-            )
             raise FineDesignEvaluatorUnavailableError(msg) from exc
 
     def _abort_on_zero_answer(self, stats: HubSessionStats) -> None:

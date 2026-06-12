@@ -43,6 +43,25 @@ from agentkit.kpi_analytics.fact_store.models import (
     PeriodFilter,
     SyncState,
 )
+from agentkit.state_backend.store._fact_sql import (
+    _FACT_CORPUS_COLUMNS,
+    _FACT_CORPUS_CONFLICT,
+    _FACT_CORPUS_UPDATE,
+    _FACT_GUARD_COLUMNS,
+    _FACT_GUARD_CONFLICT,
+    _FACT_GUARD_UPDATE,
+    _FACT_PIPELINE_COLUMNS,
+    _FACT_PIPELINE_CONFLICT,
+    _FACT_PIPELINE_UPDATE,
+    _FACT_POOL_COLUMNS,
+    _FACT_POOL_CONFLICT,
+    _FACT_POOL_UPDATE,
+    _FACT_STORY_COLUMNS,
+    _FACT_STORY_UPDATE,
+    _SYNC_STATE_COLUMNS,
+    _SYNC_STATE_CONFLICT,
+    _SYNC_STATE_UPDATE,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -368,88 +387,9 @@ def _row_to_sync_state(row: dict[str, Any]) -> SyncState:
 # ---------------------------------------------------------------------------
 # UPSERT statement bodies (shared column lists; placeholders backend-specific)
 # ---------------------------------------------------------------------------
-
-_FACT_STORY_COLUMNS = (
-    "project_key, story_id, story_type, story_size, story_mode, started_at, "
-    "completed_at, qa_rounds, compaction_count, llm_call_count, "
-    "adversarial_findings, adversarial_tests_created, files_changed, "
-    "feedback_converged, phase_setup_ms, phase_implementation_ms, "
-    "phase_closure_ms, are_gate_status, agentkit_version, agentkit_commit"
-)
-_FACT_STORY_UPDATE = (
-    "story_type=excluded.story_type, story_size=excluded.story_size, "
-    "story_mode=excluded.story_mode, started_at=excluded.started_at, "
-    "completed_at=excluded.completed_at, qa_rounds=excluded.qa_rounds, "
-    "compaction_count=excluded.compaction_count, "
-    "llm_call_count=excluded.llm_call_count, "
-    "adversarial_findings=excluded.adversarial_findings, "
-    "adversarial_tests_created=excluded.adversarial_tests_created, "
-    "files_changed=excluded.files_changed, "
-    "feedback_converged=excluded.feedback_converged, "
-    "phase_setup_ms=excluded.phase_setup_ms, "
-    "phase_implementation_ms=excluded.phase_implementation_ms, "
-    "phase_closure_ms=excluded.phase_closure_ms, "
-    "are_gate_status=excluded.are_gate_status, "
-    "agentkit_version=excluded.agentkit_version, "
-    "agentkit_commit=excluded.agentkit_commit"
-)
-
-
-_FACT_GUARD_COLUMNS = (
-    "project_key, guard_id, period_start, period_end, "
-    "invocation_count, violation_count"
-)
-_FACT_GUARD_CONFLICT = "project_key, guard_id, period_start"
-_FACT_GUARD_UPDATE = (
-    "period_end=excluded.period_end, "
-    "invocation_count=excluded.invocation_count, "
-    "violation_count=excluded.violation_count"
-)
-
-_FACT_POOL_COLUMNS = (
-    "project_key, llm_role, period_start, period_end, call_count, "
-    "token_input_total, token_output_total, avg_latency_ms"
-)
-_FACT_POOL_CONFLICT = "project_key, llm_role, period_start"
-_FACT_POOL_UPDATE = (
-    "period_end=excluded.period_end, call_count=excluded.call_count, "
-    "token_input_total=excluded.token_input_total, "
-    "token_output_total=excluded.token_output_total, "
-    "avg_latency_ms=excluded.avg_latency_ms"
-)
-
-_FACT_PIPELINE_COLUMNS = (
-    "project_key, period_start, period_end, stories_completed, "
-    "stories_escalated, avg_qa_rounds, avg_phase_implementation_ms"
-)
-_FACT_PIPELINE_CONFLICT = "project_key, period_start"
-_FACT_PIPELINE_UPDATE = (
-    "period_end=excluded.period_end, "
-    "stories_completed=excluded.stories_completed, "
-    "stories_escalated=excluded.stories_escalated, "
-    "avg_qa_rounds=excluded.avg_qa_rounds, "
-    "avg_phase_implementation_ms=excluded.avg_phase_implementation_ms"
-)
-
-_FACT_CORPUS_COLUMNS = (
-    "project_key, period_start, period_end, incidents_recorded, "
-    "patterns_promoted, checks_approved"
-)
-_FACT_CORPUS_CONFLICT = "project_key, period_start"
-_FACT_CORPUS_UPDATE = (
-    "period_end=excluded.period_end, "
-    "incidents_recorded=excluded.incidents_recorded, "
-    "patterns_promoted=excluded.patterns_promoted, "
-    "checks_approved=excluded.checks_approved"
-)
-
-_SYNC_STATE_COLUMNS = "project_key, key, value_int, value_text, updated_at"
-_SYNC_STATE_CONFLICT = "project_key, key"
-_SYNC_STATE_UPDATE = (
-    "value_int=excluded.value_int, "
-    "value_text=excluded.value_text, "
-    "updated_at=excluded.updated_at"
-)
+# SQL-fragment constants live in the sibling ``_fact_sql`` module so this
+# adapter's module-level LOC stays within budget; re-imported under their
+# original names (no behaviour change).
 
 
 def _named(columns: str) -> str:

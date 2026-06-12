@@ -693,7 +693,8 @@ def _record_guard_invocation(
             blocked=not verdict.allowed,
             now=now,
         )
-    except Exception:  # noqa: BLE001 -- counter is the volume KPI, not the audit trail
+    # BLE001: counter is the volume KPI, not the audit trail — never raise.
+    except Exception:  # noqa: BLE001
         logger.warning(
             "guard_invocation_counters UPSERT failed for hook_id=%s story_id=%s "
             "(best-effort scratchpad; audit trail unaffected)",
@@ -841,7 +842,8 @@ def _sweep_stale_guard_counters(project_root: Path) -> None:
         GuardCounterService(
             StateBackendGuardCounterRepository(project_root)
         ).flush_housekeeping()
-    except Exception:  # noqa: BLE001 -- housekeeping is the volume KPI, not the audit trail
+    # BLE001: housekeeping is the volume KPI, not the audit trail — never raise.
+    except Exception:  # noqa: BLE001
         logger.warning(
             "guard_invocation_counters Housekeeping sweep failed "
             "(best-effort scratchpad; audit trail unaffected)",
