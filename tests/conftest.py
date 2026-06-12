@@ -13,6 +13,12 @@ SRC_ROOT = REPO_ROOT / "src"
 TOOLS_ROOT = REPO_ROOT / "tools"
 PYTEST_TEMP_ROOT = REPO_ROOT / "tmp" / "pytest-temproot"
 PROMPT_BUNDLE_STORE_ENV = "AGENTKIT_PROMPT_BUNDLE_STORE_ROOT"
+#: AG3-111 introduced a SECOND central store (materialized skill variants) that, like
+#: the prompt-bundle store, defaults to a privileged system path (``/var/lib/agentkit``
+#: on POSIX) when no override is set. The test suite must isolate it to a writable tmp
+#: dir too — otherwise real-install tests that bind a placeholder-bearing skill fail
+#: fail-closed on a non-root / CI host (PermissionError on ``/var/lib/agentkit``).
+MATERIALIZED_SKILL_VARIANT_STORE_ENV = "AGENTKIT_MATERIALIZED_SKILL_VARIANT_STORE_ROOT"
 
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
@@ -33,10 +39,21 @@ pytest_plugins = ("tests.fixtures.postgres_backend",)
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _isolate_prompt_bundle_store(tmp_path_factory: pytest.TempPathFactory) -> None:
+def _isolate_central_skill_stores(tmp_path_factory: pytest.TempPathFactory) -> None:
+    """Redirect the central AK3 stores to writable tmp dirs for the whole session.
+
+    Both stores default to ``/var/lib/agentkit/...`` on POSIX when unset; on a
+    non-root / CI host that path is unwritable, so a real install that binds a
+    placeholder-bearing skill (materialized variant) or stages a prompt bundle would
+    fail fail-closed. ``setdefault`` keeps any per-test explicit override intact.
+    """
     os.environ.setdefault(
         PROMPT_BUNDLE_STORE_ENV,
         str(tmp_path_factory.mktemp("prompt-bundle-store")),
+    )
+    os.environ.setdefault(
+        MATERIALIZED_SKILL_VARIANT_STORE_ENV,
+        str(tmp_path_factory.mktemp("materialized-skill-variant-store")),
     )
 
 
