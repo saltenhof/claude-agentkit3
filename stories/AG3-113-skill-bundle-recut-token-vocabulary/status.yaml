@@ -1,16 +1,15 @@
 story_id: AG3-113
 title: "Skill-Bundle-Re-Cut: GitHub-Projects-Tokens raus + Token-Vokabular-Korrektur (create/lookup auf AK3-Control-Plane, FK-43/FK-03-Delta) + toter Projects-Adapter entsorgt"
 type: implementation
-status: blocked
+status: ready
 phase: setup
-# BLOCKED 2026-06-12 on AG3-114: the create-userstory re-cut must wire story creation to the
-# native ProjectEdgeClient.create_story (FK-91 §91.1a) instead of gh issue create. That client
-# operation + target-tool create-story entry does not exist yet — AG3-114 builds it. AG3-113
-# also carries a Codex spec-review (CHANGES-REQUESTED, job-d1cc630a): fix CLI surfaces (no
+# READY 2026-06-12: AG3-114 landed (native ProjectEdgeClient.create_story + target-tool create-story
+# via the tenant-scoped /v1/projects/{key}/stories). Next: revise this spec per the Codex spec-review
+# (job-d1cc630a, CHANGES-REQUESTED) now that the create path is real — fix CLI surfaces (no
 # `agentkit story validate`), next-id = create_story allocates atomically (no standalone module),
-# remove all gh issue list/view story-tracking, add execute-userstory-core vocabulary AC, count
-# 12 graphql mutations, insert a read-only design pass before the concept edit. Revise spec after
-# AG3-114 shapes the create path.
+# remove ALL gh issue list/view story-tracking (not only gh issue create), add the execute-userstory-core
+# vocabulary AC, count is 12 graphql mutations, insert a read-only design pass before the concept edit —
+# THEN implement (worker -> Codex review). The re-cut wires create-userstory onto the AG3-114 tool.
 created: "2026-06-12"
 size: L
 # Herkunft: PO-Entscheidung 2026-06-12. Die Konzepte sind bereits frei von GitHub-Projects
