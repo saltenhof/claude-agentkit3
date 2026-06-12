@@ -146,7 +146,12 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # 3.25.0 (AG3-068): stories.vectordb_conflict_resolved column added (FK-21 §21.12
 # producer flag). Fresh schemas get it from the canonical Postgres/SQLite DDL;
 # existing schemas get the idempotent additive ALTER TABLE migration.
-SCHEMA_VERSION = "3.25.0"
+# 3.26.0 (AG3-072): stories.split_from + stories.split_successors (SQLite:
+# split_successors_json) columns added for the materialized FK-54 §54.8.5 split
+# lineage. Fresh schemas get them from the canonical Postgres/SQLite DDL;
+# existing schemas get the idempotent additive ALTER TABLE migrations
+# (defaults NULL / '[]', backward-compatible; FK-18 §18.9a).
+SCHEMA_VERSION = "3.26.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 # AG3-051: reserved test-schema namespace. Disjoint from the production schema
 # name (``ak3_v<slug>``), so a test override can never resolve onto production

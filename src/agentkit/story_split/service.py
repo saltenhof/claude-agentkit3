@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
 from agentkit.control_plane.records import ControlPlaneOperationRecord
-from agentkit.core_types import StorySize
+from agentkit.core_types import StoryDependencyKind, StorySize
 from agentkit.execution_planning.entities import StoryDependency
 from agentkit.governance.principal_capabilities.principals import Principal
 from agentkit.story_context_manager.story_model import (
@@ -23,6 +23,7 @@ from agentkit.story_context_manager.story_model import (
     ConceptQuality,
     CreateStoryInput,
     RiskLevel,
+    StoryStatus,
     WireStoryType,
 )
 from agentkit.story_context_manager.terminal_state import ExitClass, TerminalState
@@ -36,6 +37,7 @@ from agentkit.story_split.models import (
     derive_split_id,
 )
 from agentkit.story_split.rebinding import (
+    EdgeMutation,
     RebindingError,
     RebindingPlan,
     plan_rebinding,
@@ -47,7 +49,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.control_plane.repository import ControlPlaneRuntimeRepository
-    from agentkit.core_types import StoryDependencyKind
     from agentkit.story_context_manager.story_model import Story
 
 
@@ -286,8 +287,11 @@ class StorySplitService:
             idempotent, so re-creating an already-created successor returns the
             SAME real id (no duplicate). ``known_successor_ids`` seeds the
             plan-id -> real-id map reconstructed from the durable checkpoint;
-          * step 5 rebinding — applied only while the source still carries inbound
-            edges; an already-rebound graph is detected and skipped;
+          * step 5 rebinding — the resolved edge-mutation plan is checkpointed
+            onto the fence BEFORE the first edge mutation and applied
+            idempotently (remove-if-present / add-if-absent), so a crash anywhere
+            inside the apply converges by replaying the checkpointed plan; a
+            fully rebound graph is detected and skipped;
           * step 5b lineage / step 6 cancel / step 7 reindex — all idempotent on
             the already-materialized state.
 
@@ -331,9 +335,18 @@ class StorySplitService:
         # The plan was already validated in the entry gate against the plan-local
         # ids; re-deriving with the real allocated ids is a deterministic remap
         # that cannot newly fail (the validation is a bijection on a valid plan).
-        # On a convergent resume of an already-rebound graph this is a no-op.
+        # The fully-resolved edge-mutation plan is CHECKPOINTED onto the durable
+        # fence BEFORE the first edge mutation, and applied idempotently
+        # (remove-if-present / add-if-absent), so a crash at ANY point inside the
+        # apply converges on rerun. On a convergent resume of an already-rebound
+        # graph this is a no-op.
         rebinding_plan = self._apply_rebinding(
-            request, successor_ids, plan_to_created
+            request,
+            successor_ids,
+            plan_to_created,
+            split_id=split_id,
+            plan_ref=plan_ref,
+            now=now,
         )
 
         # Step 5b: materialize the AK7 lineage on the REAL stories — split_from on
@@ -456,6 +469,16 @@ class StorySplitService:
             raise StorySplitError(
                 "split entry gate rejected: source story "
                 f"{request.source_story_id!r} is unknown",
+            )
+        # FAIL-CLOSED (§54.4 / §54.8.7): the administrative split-cancel path is
+        # only legal from In Progress, so a source in any other status is rejected
+        # AT THE GATE with zero mutation — never stranded mid-flow at step 6 after
+        # successors were already created (an unrecoverable half-split).
+        if str(source.status) != StoryStatus.IN_PROGRESS.value:
+            raise StorySplitError(
+                "split entry gate rejected: source story "
+                f"{request.source_story_id!r} is {str(source.status)!r}, but the "
+                "administrative split-cancel path (§54.8.7) requires In Progress",
             )
         state = self._source_state_loader(request)
         if not state.scope_explosion_established:
@@ -701,7 +724,9 @@ class StorySplitService:
                 self._successor_input(source, successor),
                 op_id=f"{split_id}:successor:{index}:{successor.story_id}",
             )
-            created_id = str(getattr(created, "story_display_id", successor.story_id))
+            # The REAL allocated display id, always — never a silent fallback to
+            # the plan-local reference id (the contract returns a Story).
+            created_id = str(created.story_display_id)
             if plan_to_created.get(successor.story_id) != created_id:
                 plan_to_created[successor.story_id] = created_id
                 # Checkpoint the REAL allocated ids onto the durable fence BEFORE
@@ -803,7 +828,8 @@ class StorySplitService:
         ``StoryMdExportResult(success=False)``, NOT by raising. A swallowed
         ``success=False`` would let a successor proceed un-exported / un-indexed
         through rebinding, cancel, reindex and ``_finalize_fence`` while the split
-        reports success — a silent Integrationsfolgen gap. So the result is
+        reports success — a silent integration-consequences gap (FK-54 §54.11,
+        "Integrationsfolgen"). So the result is
         inspected here and a failed export raises a typed split error BEFORE any
         downstream step runs.
 
@@ -853,19 +879,35 @@ class StorySplitService:
         request: StorySplitRequest,
         successor_ids: tuple[str, ...],
         plan_to_created: dict[str, str],
+        *,
+        split_id: str,
+        plan_ref: str,
+        now: datetime,
     ) -> RebindingPlan:
-        """Derive + apply the rebinding plan (mapping_requires_successors_created).
+        """Derive, checkpoint + apply the rebinding plan (crash-convergent).
 
-        The deterministic plan is derived first (pure, fail-closed on the six
-        formal invariants); only a fully valid plan is applied. Removals run
-        before additions so no duplicate active edge can be observed mid-apply.
-        The plan-local successor reference ids in ``new_dependencies`` are
-        translated to the authoritative created display ids.
+        ``mapping_requires_successors_created`` holds by ordering (successors
+        exist). The deterministic plan is derived first (pure, fail-closed on the
+        six formal invariants); only a fully valid plan is applied. The plan-local
+        successor reference ids in ``new_dependencies`` are translated to the
+        authoritative created display ids.
 
-        Idempotent for convergent resume: if the declared old edges onto the
-        source are already gone AND the rebound successor edges already exist, the
-        rebinding was applied by a prior run — this is a no-op (no double
-        rebinding, no spurious ``no_silent_drop`` reject on the absent old edge).
+        Crash-convergent by construction (second-QA finding F1):
+
+          * the fully-resolved edge-mutation plan (WITH the dependency kinds,
+            which are unrecoverable from a half-mutated graph) is CHECKPOINTED
+            onto the durable fence BEFORE the first edge mutation;
+          * the apply is idempotent against the REAL store semantics
+            (remove-if-present / add-if-absent — the production repository
+            raises on a missing remove / duplicate add);
+          * a rerun after a crash anywhere inside the apply loads the
+            checkpointed plan (the graph-derivation would dead-end on
+            ``no_silent_drop`` for an already-removed old edge) and replays the
+            remaining mutations to convergence.
+
+        Fully-applied graphs short-circuit: if the declared old edges onto the
+        source are already gone AND the rebound successor edges already exist,
+        the rebinding was applied by a prior run — a no-op (no double rebinding).
         """
         existing_edges = tuple(
             self._dependency_repo.list_for_project(request.project_key)
@@ -882,32 +924,173 @@ class StorySplitService:
             request, existing_edges, rebinding_entries
         ):
             return RebindingPlan(removals=(), additions=())
-        try:
-            plan = plan_rebinding(
-                source_story_id=request.source_story_id,
-                successor_ids=successor_ids,
-                rebinding_entries=rebinding_entries,
-                existing_edges=existing_edges,
-            )
-        except RebindingError as exc:
-            raise StorySplitError(f"dependency rebinding rejected: {exc}") from exc
+        plan = self._load_rebinding_plan_checkpoint(split_id, successor_ids)
+        if plan is None:
+            try:
+                plan = plan_rebinding(
+                    source_story_id=request.source_story_id,
+                    successor_ids=successor_ids,
+                    rebinding_entries=rebinding_entries,
+                    existing_edges=existing_edges,
+                )
+            except RebindingError as exc:
+                raise StorySplitError(
+                    f"dependency rebinding rejected: {exc}"
+                ) from exc
+            if plan.removals or plan.additions:
+                self._checkpoint_rebinding_plan(
+                    request,
+                    split_id=split_id,
+                    plan_ref=plan_ref,
+                    now=now,
+                    plan_to_created=plan_to_created,
+                    plan=plan,
+                )
 
+        present = {
+            (e.story_id, e.depends_on_story_id, e.kind.value) for e in existing_edges
+        }
         for removal in plan.removals:
-            self._dependency_repo.remove(
-                removal.story_id, removal.depends_on_story_id, removal.kind
-            )
-        now = self._now_fn()
+            if (
+                removal.story_id,
+                removal.depends_on_story_id,
+                removal.kind.value,
+            ) in present:
+                self._dependency_repo.remove(
+                    removal.story_id, removal.depends_on_story_id, removal.kind
+                )
+        created_at = self._now_fn()
         for addition in plan.additions:
-            self._dependency_repo.add(
-                StoryDependency(
-                    story_id=addition.story_id,
-                    depends_on_story_id=addition.depends_on_story_id,
-                    kind=addition.kind,
-                    created_at=now,
-                ),
-                project_key=request.project_key,
-            )
+            if (
+                addition.story_id,
+                addition.depends_on_story_id,
+                addition.kind.value,
+            ) not in present:
+                self._dependency_repo.add(
+                    StoryDependency(
+                        story_id=addition.story_id,
+                        depends_on_story_id=addition.depends_on_story_id,
+                        kind=addition.kind,
+                        created_at=created_at,
+                    ),
+                    project_key=request.project_key,
+                )
         return plan
+
+    def _checkpoint_rebinding_plan(
+        self,
+        request: StorySplitRequest,
+        *,
+        split_id: str,
+        plan_ref: str,
+        now: datetime,
+        plan_to_created: dict[str, str],
+        plan: RebindingPlan,
+    ) -> None:
+        """Persist the resolved edge-mutation plan onto the committed fence.
+
+        Written ONCE, before the first edge mutation. The checkpoint carries the
+        dependency ``kind`` of every removal/addition — the one piece of
+        information that is unrecoverable from a half-mutated graph (the old edge
+        whose kind the addition inherits may already be deleted). The
+        ``successor_map`` is re-asserted so a later resume keeps the successor
+        reconstruction cross-checks (the fence stays committed-but-unfinalized).
+        """
+        op_record = ControlPlaneOperationRecord(
+            op_id=split_id,
+            project_key=request.project_key,
+            story_id=request.source_story_id,
+            run_id=request.run_id,
+            session_id=None,
+            operation_kind="story_split",
+            phase=None,
+            status="committed",
+            response_payload={
+                "status": "committed",
+                "op_id": split_id,
+                "operation_kind": "story_split",
+                "plan_ref": plan_ref,
+                "requested_by": request.requested_by,
+                "successor_map": dict(plan_to_created),
+                "rebinding_plan": {
+                    "removals": [
+                        [m.story_id, m.depends_on_story_id, m.kind.value]
+                        for m in plan.removals
+                    ],
+                    "additions": [
+                        [m.story_id, m.depends_on_story_id, m.kind.value]
+                        for m in plan.additions
+                    ],
+                },
+            },
+            created_at=now,
+            updated_at=now,
+        )
+        self._repo.commit_operation_with_side_effects(
+            op_record,
+            binding_to_save=None,
+            binding_to_delete=None,
+            locks=(),
+            events=(),
+        )
+
+    def _load_rebinding_plan_checkpoint(
+        self, split_id: str, successor_ids: tuple[str, ...]
+    ) -> RebindingPlan | None:
+        """Load the checkpointed edge-mutation plan from the durable fence.
+
+        Returns ``None`` when no rebinding checkpoint exists (first run, or the
+        prior run crashed before deriving the plan — the graph is then still
+        pristine and the normal derivation applies). A present checkpoint was
+        derived from the entry-gate-validated plan against the pristine graph; it
+        is replayed verbatim (idempotently) instead of re-deriving against a
+        possibly half-mutated graph. Fails closed on a structurally corrupt
+        checkpoint or one whose addition targets are not the created successors.
+        """
+        operation = self._repo.load_operation(split_id)
+        if operation is None:
+            return None
+        payload = (
+            operation.response_payload
+            if isinstance(operation.response_payload, dict)
+            else {}
+        )
+        raw = payload.get("rebinding_plan")
+        if raw is None:
+            return None
+        try:
+            if not isinstance(raw, dict):
+                raise TypeError("rebinding_plan is not a mapping")
+            removals = tuple(
+                EdgeMutation(
+                    story_id=str(story_id),
+                    depends_on_story_id=str(depends_on),
+                    kind=StoryDependencyKind(str(kind)),
+                )
+                for story_id, depends_on, kind in raw.get("removals") or ()
+            )
+            additions = tuple(
+                EdgeMutation(
+                    story_id=str(story_id),
+                    depends_on_story_id=str(depends_on),
+                    kind=StoryDependencyKind(str(kind)),
+                )
+                for story_id, depends_on, kind in raw.get("additions") or ()
+            )
+        except (TypeError, ValueError) as exc:
+            raise StorySplitError(
+                "resume rejected: split fence rebinding checkpoint is malformed "
+                f"— partial state is inconsistent ({exc})",
+            ) from exc
+        allowed_targets = set(successor_ids)
+        for addition in additions:
+            if addition.depends_on_story_id not in allowed_targets:
+                raise StorySplitError(
+                    "resume rejected: split fence rebinding checkpoint targets "
+                    f"{addition.depends_on_story_id!r} which is not a created "
+                    "successor — partial state is inconsistent",
+                )
+        return RebindingPlan(removals=removals, additions=additions)
 
     def _rebinding_already_applied(
         self,
@@ -1010,6 +1193,15 @@ class StorySplitService:
         plan no longer declares, or at a successor story that has vanished) — and
         then it says why.
         """
+        # §54.4 (c) holds for EVERY run, including a convergent resume: the human
+        # split approval (Principal.HUMAN_CLI) is re-asserted BEFORE any resumed
+        # mutation. A committed fence is no license for a non-human principal to
+        # drive the remaining steps.
+        if request.principal is not Principal.HUMAN_CLI:
+            raise StorySplitError(
+                "resume rejected: split resume requires Principal.HUMAN_CLI "
+                "(explicit human split approval, §54.4)",
+            )
         if operation.story_id != request.source_story_id or (
             operation.project_key != request.project_key
         ):

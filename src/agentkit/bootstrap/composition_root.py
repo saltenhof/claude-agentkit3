@@ -321,7 +321,8 @@ def build_story_split_service(
             # signals a missing story / write / validation / VectorDB failure by
             # RETURNING success=False, NOT by raising. Returning 0 here would let
             # the split finalize with the source left un-exported / un-indexed —
-            # a silent Integrationsfolgen gap. Propagate the REAL failure instead
+            # a silent integration-consequences gap (FK-54 §54.11,
+            # "Integrationsfolgen"). Propagate the REAL failure instead
             # so the split stays fail-closed and a later rerun resumes.
             if not result.success:
                 raise StorySplitError(

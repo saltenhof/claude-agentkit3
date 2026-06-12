@@ -21,6 +21,10 @@ from agentkit.control_plane.records import ControlPlaneOperationRecord
 from agentkit.control_plane.repository import ControlPlaneRuntimeRepository
 from agentkit.core_types import StoryDependencyKind
 from agentkit.execution_planning.entities import StoryDependency
+from agentkit.execution_planning.errors import (
+    StoryDependencyConflictError,
+    StoryDependencyNotFoundError,
+)
 from agentkit.governance.principal_capabilities.principals import Principal
 from agentkit.project_management.entities import Project, ProjectConfiguration
 from agentkit.story_context_manager.idempotency import (
@@ -86,7 +90,14 @@ class _InMemoryProjectRepository:
 
 
 class _InMemoryDependencyRepo:
-    """Production-shaped in-memory StoryDependencyRepository (real edge models)."""
+    """Production-faithful in-memory StoryDependencyRepository (real edge models).
+
+    Mirrors ``StateBackendStoryDependencyRepository`` EXACTLY: ``add`` raises
+    ``StoryDependencyConflictError`` on a duplicate edge and ``remove`` raises
+    ``StoryDependencyNotFoundError`` on a missing edge — the split's idempotent
+    apply must therefore check presence first, like against the real store
+    (a forgiving fake here would hide a production crash, second-QA finding F1).
+    """
 
     def __init__(self) -> None:
         self.edges: list[StoryDependency] = []
@@ -97,10 +108,17 @@ class _InMemoryDependencyRepo:
 
     def add(self, edge: StoryDependency, *, project_key: str) -> None:
         del project_key
+        if any(
+            e.story_id == edge.story_id
+            and e.depends_on_story_id == edge.depends_on_story_id
+            and e.kind == edge.kind
+            for e in self.edges
+        ):
+            raise StoryDependencyConflictError("Story dependency already exists")
         self.edges.append(edge)
 
     def remove(self, story_id: str, depends_on_story_id: str, kind: object) -> None:
-        self.edges = [
+        remaining = [
             e
             for e in self.edges
             if not (
@@ -109,6 +127,9 @@ class _InMemoryDependencyRepo:
                 and e.kind == kind
             )
         ]
+        if len(remaining) == len(self.edges):
+            raise StoryDependencyNotFoundError("Story dependency not found")
+        self.edges = remaining
 
 
 class _RecordingExport:
@@ -837,6 +858,167 @@ def test_resume_converges_from_unfinalized_fence_before_any_successor() -> None:
         succ = h.story_service.get_story(created_id)
         assert succ is not None and succ.status is StoryStatus.BACKLOG
     assert tuple(source.split_successors) == result.successor_ids
+
+
+def _two_dependent_plan() -> SplitPlan:
+    """A plan with TWO rebinding entries (two real dependents onto the source)."""
+    return SplitPlan.model_validate(
+        {
+            "project_key": "ak3",
+            "source_story_id": "AK3-001",
+            "reason": "scope_explosion",
+            "successors": [
+                {"story_id": "AK3-107", "title": "Slice A", "scope_slice": "A"},
+                {"story_id": "AK3-108", "title": "Slice B", "scope_slice": "B"},
+            ],
+            "dependency_rebinding": [
+                {
+                    "dependent_story_id": "AK3-051",
+                    "old_dependency": "AK3-001",
+                    "new_dependencies": ["AK3-107"],
+                },
+                {
+                    "dependent_story_id": "AK3-052",
+                    "old_dependency": "AK3-001",
+                    "new_dependencies": ["AK3-108"],
+                },
+            ],
+        }
+    )
+
+
+def test_resume_converges_after_real_mid_rebinding_fault() -> None:
+    """Second-QA finding F1: a crash IN THE MIDDLE of the rebinding apply (after
+    a real edge removal persisted, before the rest of the plan applied) must be a
+    CONVERGENT resume — not a permanent ``no_silent_drop`` dead-end.
+
+    Drives the REAL service against the production-faithful dependency repo
+    (raises on duplicate add / missing remove, exactly like
+    ``StateBackendStoryDependencyRepository``). The first run crashes after the
+    FIRST removal is durably applied; the partially-rebound graph (old edge of
+    dependent #1 gone, no additions yet, dependent #2 untouched) must converge on
+    rerun to the full §54.5 end-state with no duplicate edges.
+    """
+    h = _build_harness()
+    h.dependency_repo.add(
+        StoryDependency(
+            story_id="AK3-051", depends_on_story_id="AK3-001", kind=HARD, created_at=NOW
+        ),
+        project_key="ak3",
+    )
+    h.dependency_repo.add(
+        StoryDependency(
+            story_id="AK3-052", depends_on_story_id="AK3-001", kind=HARD, created_at=NOW
+        ),
+        project_key="ak3",
+    )
+    plan = _two_dependent_plan()
+
+    # Crash semantics: the FIRST removal is durably applied, THEN the process
+    # dies (raise after the real mutation).
+    original_remove = h.dependency_repo.remove
+    state = {"removals": 0, "armed": True}
+
+    def _faulty_remove(story_id: str, depends_on_story_id: str, kind: object) -> None:
+        original_remove(story_id, depends_on_story_id, kind)
+        state["removals"] += 1
+        if state["armed"] and state["removals"] == 1:
+            raise RuntimeError("injected mid-rebinding fault")
+
+    h.dependency_repo.remove = _faulty_remove  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="mid-rebinding fault"):
+        h.split_service.split_story(_request(plan))
+
+    # Partially-rebound graph: dependent #1's old edge is GONE, no additions yet,
+    # dependent #2 still points at the source. Source NOT cancelled.
+    edges = [(e.story_id, e.depends_on_story_id) for e in h.dependency_repo.edges]
+    assert ("AK3-051", "AK3-001") not in edges
+    assert ("AK3-052", "AK3-001") in edges
+    source = h.story_service.get_story("AK3-001")
+    assert source is not None and source.status is StoryStatus.IN_PROGRESS
+
+    # Rerun (no fault): the resume must CONVERGE, not dead-end on no_silent_drop.
+    state["armed"] = False
+    result = h.split_service.split_story(_request(plan))
+    assert result.resumed is True
+
+    source = h.story_service.get_story("AK3-001")
+    assert source is not None and source.status is StoryStatus.CANCELLED
+    real_107, real_108 = result.successor_ids
+    edges = [(e.story_id, e.depends_on_story_id) for e in h.dependency_repo.edges]
+    # Both old edges gone, both rebound edges present EXACTLY once.
+    assert ("AK3-051", "AK3-001") not in edges
+    assert ("AK3-052", "AK3-001") not in edges
+    assert edges.count(("AK3-051", real_107)) == 1
+    assert edges.count(("AK3-052", real_108)) == 1
+    assert len(edges) == 2
+    # A THIRD run is a pure no-op replay (finalized fence).
+    again = h.split_service.split_story(_request(plan))
+    assert again.resumed is True
+    assert [(e.story_id, e.depends_on_story_id) for e in h.dependency_repo.edges] == edges
+
+
+def test_entry_gate_rejects_source_not_in_progress() -> None:
+    """Second-QA finding F2: a source story that is NOT In Progress must be
+    rejected AT THE GATE (§54.4 fail-closed, no partial mutation) — not stranded
+    mid-flow at the administrative cancel after successors were already created.
+    """
+    h = _build_harness(seed_in_progress=False)
+    src = h.story_service.create_story(
+        CreateStoryInput(
+            project_key="ak3",
+            title="Overscoped source",
+            story_type=WireStoryType.IMPLEMENTATION,
+            repos=["ak3"],
+        ),
+        op_id="op-src",
+    )
+    h.story_service.approve_story(src.story_display_id, op_id="op-src-approve")
+
+    with pytest.raises(StorySplitError, match="In Progress"):
+        h.split_service.split_story(_request(_plan(rebinding=False)))
+
+    # NO partial mutation: source still Approved, no successors, nothing exported,
+    # only the failed audit record exists (no committed fence).
+    source = h.story_service.get_story("AK3-001")
+    assert source is not None
+    assert source.status is StoryStatus.APPROVED
+    assert [s.story_display_id for s in h.story_service.list_stories("ak3")] == [
+        "AK3-001"
+    ]
+    assert h.export.exported == []
+    assert {op.status for op in h.cp_state.operations.values()} == {"failed"}
+
+
+def test_resume_requires_human_cli_principal() -> None:
+    """Second-QA finding F3: the resume path must re-assert the §54.4 human
+    approval BEFORE any convergent mutation — a non-human principal must not be
+    able to drive a crashed split forward just because a committed fence exists.
+    """
+    h = _build_harness()
+    _seed_unfinalized_fence(h, successor_map={})
+    request = StorySplitRequest(
+        project_key="ak3",
+        source_story_id="AK3-001",
+        plan=_plan(rebinding=False),
+        plan_text="{}",
+        reason="scope_explosion",
+        requested_by="orchestrator",
+        run_id="run-1",
+        principal=Principal.ORCHESTRATOR,
+    )
+    with pytest.raises(StorySplitError, match="HUMAN_CLI"):
+        h.split_service.split_story(request)
+    # NO convergent mutation happened: no successor created, nothing quiesced,
+    # nothing exported, source untouched.
+    assert [s.story_display_id for s in h.story_service.list_stories("ak3")] == [
+        "AK3-001"
+    ]
+    source = h.story_service.get_story("AK3-001")
+    assert source is not None and source.status is StoryStatus.IN_PROGRESS
+    assert h.quiesce.purged == []
+    assert h.export.exported == []
 
 
 def test_resume_fails_closed_on_inconsistent_checkpoint() -> None:

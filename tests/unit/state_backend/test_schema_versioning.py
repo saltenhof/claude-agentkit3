@@ -59,11 +59,14 @@ def test_schema_version_helpers_derive_versioned_names() -> None:
     # Claude Code PostToolUseFailure for failed tool-call outcomes, FK-30/FK-76)
     # AG3-068: 3.24.0 -> 3.25.0 (stories.vectordb_conflict_resolved column;
     # FK-21 §21.12 producer flag, additive ALTER TABLE migration)
-    assert state_config.SCHEMA_VERSION == "3.25.0"
+    # AG3-072: 3.25.0 -> 3.26.0 (stories.split_from + stories.split_successors
+    # columns; FK-54 §54.8.5 materialized split lineage, additive ALTER TABLE
+    # migrations, FK-18 §18.9a)
+    assert state_config.SCHEMA_VERSION == "3.26.0"
     assert state_config.versioned_postgres_schema_name("3.0.0") == "ak3_v3_0_0"
     assert state_config.versioned_sqlite_db_file("3.0.0") == "agentkit_3_0_0.sqlite"
-    assert state_config.versioned_postgres_schema_name() == "ak3_v3_25_0"
-    assert state_config.versioned_sqlite_db_file() == "agentkit_3_25_0.sqlite"
+    assert state_config.versioned_postgres_schema_name() == "ak3_v3_26_0"
+    assert state_config.versioned_sqlite_db_file() == "agentkit_3_26_0.sqlite"
 
 
 def test_schema_version_rejects_non_semver() -> None:
