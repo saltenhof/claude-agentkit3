@@ -1,0 +1,12 @@
+story_id: AG3-107
+title: "PhaseStatus.BLOCKED aus der Live-Status-Achse entfernen (Precondition-Fail -> FAILED)"
+type: implementation
+status: completed
+phase: closure
+completed: "2026-06-12"
+created: "2026-06-09"
+size: M
+depends_on:
+  - AG3-059
+  - AG3-060
+unblocks: []

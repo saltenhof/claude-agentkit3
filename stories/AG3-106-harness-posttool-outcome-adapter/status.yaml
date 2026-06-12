@@ -1,0 +1,11 @@
+story_id: AG3-106
+title: "Harness-PostToolUse-Outcome-Adapter (Claude Code + Codex -> HookEvent.post_tool_outcome)"
+type: implementation
+status: completed
+phase: closure
+completed: "2026-06-12"
+created: "2026-06-09"
+size: M
+depends_on:
+  - AG3-080
+unblocks: []
