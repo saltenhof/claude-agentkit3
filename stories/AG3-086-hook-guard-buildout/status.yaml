@@ -1,10 +1,20 @@
 story_id: AG3-086
 title: "Hook-/Guard-Vollausbau (WebCallBudgetGuard, skill_usage_check, Prompt-Integrity, TTL→ESCALATED)"
 type: implementation
-status: blocked
-phase: review_pending
+status: completed
+phase: closure
+completed: "2026-06-13"
 created: "2026-06-07"
 size: L
+# COMPLETED 2026-06-13 (resume-trigger fired). The guard code (WebCallBudgetGuard, skill_usage_check,
+# 3-stage prompt_integrity, TTL->ESCALATED, CCAG fail-closed) was already review-green through r4
+# (dual Codex+Fable) and on main (commit cb7e36e). The sole remaining blocker, AG3-111 (read-time
+# substitution delivery), landed 2026-06-13 (commit af2470e, Codex APPROVE). AG3-111's E2E NO-STUB
+# (tests/integration/governance/test_skill_materialization_e2e.py) runs the REAL
+# _run_prompt_integrity_guard against the REAL materialized execute-userstory-core bound through both
+# .claude and .codex points: Stage-2 ALLOWS the authorized spawn (header.skill_proof ==
+# expected_skill_proof, both from .installed-manifest.json) and BLOCKS forged + missing tokens. That
+# combined AG3-110+AG3-111+AG3-086 proof is exactly the documented resume contract -> flip to completed.
 # PAUSED 2026-06-11: implementation is review-green through r4 (4 remediation rounds, dual
 # Codex+Fable review) and the guard CODE is on main (commit cb7e36e).
 # The prompt_integrity guard is correct/fail-closed across all 3 stages. Stage-2 (story_execution)
