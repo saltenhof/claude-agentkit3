@@ -30,6 +30,7 @@ import re
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.fixtures.git_repo import ensure_git_repo
 from tests.integration.governance.test_prompt_integrity_dispatch import (
     _agent_event,
     _publish_story_binding,
@@ -152,6 +153,10 @@ def _make_config(root: Path, *, store: SkillBundleStore) -> InstallConfig:
 
 def _install(root: Path, *, store: SkillBundleStore | None = None) -> SkillBundleStore:
     root.mkdir(parents=True, exist_ok=True)
+    # CP 11 (FK-50 §50.3) runs ``git config core.hooksPath tools/hooks/`` against the
+    # project root, which REQUIRES a real git repo with write access — a bare tmp_path
+    # fails fail-closed (reason=git_config_failed) on a CI host (Jenkins #352).
+    ensure_git_repo(root)
     if store is None:
         store = _bundle_store(root.parent)
     result = install_agentkit(_make_config(root, store=store))
@@ -389,6 +394,7 @@ def test_e2e_real_bundle_scalar_placeholders_resolved_at_both_bindpoints(
     """
     root = tmp_path / "real-bundle-proj"
     root.mkdir(parents=True, exist_ok=True)
+    ensure_git_repo(root)  # CP 11 git config needs a real repo (Jenkins #352)
     store = _real_bundle_store_for(root.parent)
     result = install_agentkit(_real_bundle_install_config(root, store=store))
     assert result.success, result
