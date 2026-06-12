@@ -9,13 +9,18 @@ ad-hoc. This namespace consolidates the *mode semantics* onto ONE named owner
 (FIX-THE-MODEL / SINGLE SOURCE OF TRUTH) WITHOUT changing behaviour:
 
 * the canonical :data:`OperatingMode` literal has its SINGLE definition at the
-  blood-type-0/A-core foundation module ``agentkit.core_types.operating_mode``
-  (modelled as the ``domain_core_foundation`` boundary ``core_types``, importable
-  by everyone, importing nothing AK3-specific). It lives there -- not in this
-  A-core and not in ``projectedge.runtime`` -- because the ``control_plane.models``
-  R-adapter must resolve the annotation at model-build time and an adapter
-  boundary may only outbound-import the foundation layer, never another boundary
-  (AC010), so a foundation home is the only cycle-free SSOT. This A-core RE-EXPORTS
+  bloodgroup-A ``domain_core_foundation`` boundary module
+  ``agentkit.core_types.operating_mode`` (modelled as the ``core_types``
+  ``domain_core_foundation`` boundary in
+  ``concept/formal-spec/architecture-conformance/entities.md``, ``importable_by:
+  any``, importing nothing AK3-specific). It lives there -- not in this A-core and
+  not in ``projectedge.runtime`` -- because the ``control_plane.models`` R-adapter
+  must resolve the annotation at model-build time, and an adapter boundary may
+  outbound-import only the boundaries in its ``may_import_boundary_modules``
+  allow-list: the ``core_types`` ``domain_core_foundation`` boundary IS in that
+  list (AC010), whereas ``projectedge.runtime`` (this literal's previous home) is a
+  different boundary that is NOT, so the ``core_types`` foundation home is the only
+  cycle-free SSOT. This A-core RE-EXPORTS
   that literal as the SSOT *accessor* seam. Every other module RE-IMPORTS this
   exact literal -- the run-binding classifier ``control_plane.runtime``, the
   project-edge classifier ``projectedge.runtime``, the ``control_plane.models``

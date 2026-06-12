@@ -1,9 +1,11 @@
 """Canonical local operating-mode literal (FK-56 §56.5 / §56.7a).
 
-Foundation (blood-type-0) home of the closed three-value local operating-mode
-set. This module imports NOTHING AK3-specific (only ``typing``); it is the
-SINGLE definition every consumer re-imports, so AK2's "one OperatingMode" claim
-is literal, not aspirational.
+Foundation home of the closed three-value local operating-mode set. It lives in
+the ``core_types`` ``domain_core_foundation`` boundary (bloodgroup A: domain core
+types, ``importable_by: any``; modeled in
+``concept/formal-spec/architecture-conformance/entities.md``). This module imports
+NOTHING AK3-specific (only ``typing``); it is the SINGLE definition every consumer
+re-imports, so AK2's "one OperatingMode" claim is literal, not aspirational.
 
 The three values (FK-56 §56.5 / §56.7a):
 
@@ -13,15 +15,18 @@ The three values (FK-56 §56.5 / §56.7a):
 * ``"binding_invalid"`` -- a bound bundle whose binding is corrupt / mismatched:
   fail-closed block of mutating operations (FK-56 §56.7a).
 
-Why it lives in ``core_types`` and not in a boundary: ``control_plane.models``
-(a Pydantic adapter-boundary read model) must resolve this annotation at
-model-build time, and an adapter-boundary may only outbound-import the
-shared/foundation layer -- not another boundary such as ``projectedge.runtime``
-(its previous home) nor the ``story_context_manager`` A-core (AC010). Placing the
-type at the blood-type-0 foundation lets EVERY consumer (the project-edge
-classifier, the run-binding classifier, the A-core resolver seam, and the
-control-plane read models) re-import the EXACT SAME object cycle-free -- ONE
-definition, no drift, true SSOT.
+Why it lives in the ``core_types`` ``domain_core_foundation`` boundary:
+``control_plane.models`` (a Pydantic adapter-boundary read model) must resolve
+this annotation at model-build time, and an adapter-boundary may only
+outbound-import the foundation layer it is granted -- the ``core_types``
+``domain_core_foundation`` boundary is in its ``may_import_boundary_modules``
+allow-list (AC010), whereas ``projectedge.runtime`` (this type's previous home) is
+a different boundary NOT in that allow-list and the ``story_context_manager``
+A-core is off-limits to a boundary. Placing the type at the ``core_types``
+``domain_core_foundation`` lets EVERY consumer (the project-edge classifier, the
+run-binding classifier, the A-core resolver seam, and the control-plane read
+models) re-import the EXACT SAME object cycle-free -- ONE definition, no drift,
+true SSOT.
 
 The named ``story_context_manager.operating_mode_resolver`` A-core stays the
 SSOT *accessor* owner: it re-exports this literal and owns the single
@@ -38,8 +43,9 @@ from __future__ import annotations
 from typing import Literal
 
 #: The canonical closed three-value local operating-mode set (FK-56 §56.5 /
-#: §56.7a). Defined exactly ONCE here at the blood-type-0 foundation; every other
-#: module re-imports this object rather than redeclaring the literal.
+#: §56.7a). Defined exactly ONCE here at the ``core_types``
+#: ``domain_core_foundation`` boundary; every other module re-imports this object
+#: rather than redeclaring the literal.
 OperatingMode = Literal["ai_augmented", "story_execution", "binding_invalid"]
 
 __all__ = ["OperatingMode"]

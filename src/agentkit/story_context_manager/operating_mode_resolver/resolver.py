@@ -23,10 +23,13 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 # The canonical operating-mode literal (FK-56 §56.5 / §56.7a) has its SINGLE
-# definition at the blood-type-0 foundation (``core_types.operating_mode``), so a
-# Pydantic adapter-boundary read model (``control_plane.models``) can resolve the
-# annotation at model-build time without an AC010-forbidden boundary->boundary or
-# boundary->A-core import. This named ``operating_mode_resolver`` A-core is the SSOT
+# definition at the ``core_types`` ``domain_core_foundation`` boundary
+# (``core_types.operating_mode``), so a Pydantic adapter-boundary read model
+# (``control_plane.models``) can resolve the annotation at model-build time: the
+# ``core_types`` ``domain_core_foundation`` boundary is in that adapter's
+# ``may_import_boundary_modules`` allow-list (AC010), unlike ``projectedge.runtime``
+# (a different boundary) or the ``story_context_manager`` A-core. This named
+# ``operating_mode_resolver`` A-core is the SSOT
 # *accessor* seam: it RE-EXPORTS the one literal and owns the single
 # ``resolve_operating_mode`` accessor every consumer routes the resolved mode
 # through. Every other module (the project-edge classifier ``projectedge.runtime``;
