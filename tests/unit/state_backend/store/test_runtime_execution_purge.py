@@ -17,12 +17,16 @@ skips the actual DELETE.
 * AK1  -> ``TestPerEntityRoundtrip`` (one test per entity, both stores)
 * AK2  -> ``TestPortFanOut`` (fan-out + counters + type assertion)
 * AK3  -> ``TestIdempotency`` (second purge == 0, no error)
-* AK4  -> ``TestRuntimeResidue`` (positive clean + negative artificial residue)
+* AK4  -> ``TestRuntimeResidue`` (positive clean + negative artificial residue;
+  §53.7.5 rule regression: stale snapshot/verify decision cannot influence a
+  later run — second-QA closure of ``phase_snapshots`` + ``decision_records``)
 * AK5  -> wiring via ``build_runtime_execution_purge_port`` (production assembly)
 * AK6  -> run-bound artifact precision (other-run rows survive)
-* negative path -> ``TestFailClosed`` (missing project_key)
+* negative path -> ``TestFailClosed`` (missing project_key/story_id/run_id)
 * boundary -> ``TestReadModelBoundary`` (phase_state_projection NOT duplicated;
   canonical phase_states IS purged)
+* fail-closed scoping -> ``TestResidueProbeScoping`` (mis-scoped purge surfaces
+  as residue; the probe does not share the purge's project_key predicate)
 """
 
 from __future__ import annotations
@@ -41,7 +45,7 @@ from agentkit.bootstrap.composition_root import (
     build_runtime_execution_purge_port,
     build_runtime_execution_residue_probe,
 )
-from agentkit.core_types import ArtifactClass, EnvelopeStatus
+from agentkit.core_types import ArtifactClass, EnvelopeStatus, PolicyVerdict
 from agentkit.core_types.attempt import AttemptOutcome
 from agentkit.core_types.override import OverrideType
 from agentkit.governance.guard_system.records import (
@@ -52,6 +56,11 @@ from agentkit.phase_state_store.models import (
     FlowExecution,
     NodeExecutionLedger,
     OverrideRecord,
+)
+from agentkit.pipeline_engine.phase_executor.models import (
+    PhaseName,
+    PhaseSnapshot,
+    PhaseStatus,
 )
 from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
 from agentkit.state_backend.config import (
@@ -76,6 +85,7 @@ from agentkit.state_backend.store.runtime_execution_purge import (
     RuntimeExecutionResidueProbe,
 )
 from agentkit.telemetry.contract.records import ExecutionEventRecord
+from agentkit.verify_system.policy_engine.engine import VerifyDecision
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -223,6 +233,38 @@ def _seed_phase_state(story_dir: Path, run_id: str = _RUN) -> None:
     )
 
 
+def _seed_phase_snapshot(story_dir: Path) -> None:
+    facade.save_phase_snapshot(
+        story_dir,
+        PhaseSnapshot(
+            story_id=_STORY,
+            phase=PhaseName.SETUP,
+            status=PhaseStatus.COMPLETED,
+            completed_at=_NOW,
+        ),
+    )
+
+
+def _seed_verify_decision(story_dir: Path, attempt_nr: int = 3) -> None:
+    # NOTE: the Postgres driver requires an existing flow_executions row to
+    # resolve the decision scope — seed the flow execution first (as the real
+    # verify path does). attempt_nr defaults to 3 to model a LATE attempt of a
+    # corrupted run (attempt numbering restarts at 1 in the next run, so a
+    # leftover row would shadow the new run's decision via MAX(attempt_nr)).
+    facade.record_verify_decision(
+        story_dir,
+        decision=VerifyDecision(
+            passed=True,
+            verdict=PolicyVerdict.PASS,
+            layer_results=(),
+            all_findings=(),
+            blocking_findings=(),
+            summary="seeded stale verify decision (second-QA §53.7.5 probe)",
+        ),
+        attempt_nr=attempt_nr,
+    )
+
+
 def _seed_execution_event(story_dir: Path, run_id: str = _RUN) -> None:
     facade.append_execution_event(
         story_dir,
@@ -267,7 +309,9 @@ def _seed_all(story_dir: Path, run_id: str = _RUN) -> None:
     _seed_attempt(story_dir, run_id)
     _seed_override(story_dir, run_id)
     _seed_guard_decision(story_dir, run_id)
+    _seed_verify_decision(story_dir)  # needs the flow execution seeded above
     _seed_phase_state(story_dir, run_id)
+    _seed_phase_snapshot(story_dir)
     _seed_execution_event(story_dir, run_id)
     _seed_artifact_envelope(story_dir, run_id)
 
@@ -328,6 +372,21 @@ class TestPerEntityRoundtrip:
         deleted = facade.purge_phase_states(backend, _STORY)
         assert deleted == 1
         assert facade.load_phase_state(backend) is None
+
+    def test_phase_snapshots_roundtrip(self, backend: Path) -> None:
+        _seed_phase_snapshot(backend)
+        assert facade.backend_has_completed_snapshot(backend, "setup")
+        deleted = facade.purge_phase_snapshots(backend, _STORY)
+        assert deleted == 1
+        assert not facade.backend_has_completed_snapshot(backend, "setup")
+
+    def test_decision_records_roundtrip(self, backend: Path) -> None:
+        _seed_flow_execution(backend)  # Postgres decision scope needs the flow
+        _seed_verify_decision(backend)
+        assert facade.load_latest_verify_decision(backend) is not None
+        deleted = facade.purge_decision_records(backend, _STORY)
+        assert deleted == 1
+        assert facade.load_latest_verify_decision(backend) is None
 
     def test_execution_events_roundtrip(self, backend: Path) -> None:
         _seed_execution_event(backend)
@@ -452,6 +511,31 @@ class TestRuntimeResidue:
         assert not residue.is_clean
         assert residue.residue_rows["guard_decisions"] == 1
 
+    def test_stale_snapshot_and_verify_decision_cannot_influence_next_run(
+        self, backend: Path
+    ) -> None:
+        # §53.7.5 rule regression (second-QA closure): completed-phase snapshots
+        # and verify decisions are read STORY-keyed by guard/gate paths
+        # (Integrity-Gate Dim 2 via backend_has_completed_snapshot; decision via
+        # MAX(attempt_nr), which restarts at 1 in the next run). After the purge
+        # neither may answer for the purged run.
+        _seed_flow_execution(backend)
+        _seed_phase_snapshot(backend)
+        _seed_verify_decision(backend, attempt_nr=3)  # late attempt of old run
+        assert facade.backend_has_completed_snapshot(backend, "setup")
+        assert facade.backend_verify_decision_passed(backend)
+
+        port = build_runtime_execution_purge_port(backend)
+        result = port.purge_run(_PROJECT, _STORY, _RUN)
+        assert result.purged_rows["phase_snapshots"] == 1
+        assert result.purged_rows["decision_records"] == 1
+
+        assert not facade.backend_has_completed_snapshot(backend, "setup")
+        assert facade.load_latest_verify_decision(backend) is None
+        assert not facade.backend_verify_decision_passed(backend)
+        probe = build_runtime_execution_residue_probe(backend)
+        assert probe.check_run(_PROJECT, _STORY, _RUN).is_clean
+
 
 # ---------------------------------------------------------------------------
 # Negative path: fail-closed on incomplete scope
@@ -470,6 +554,11 @@ class TestFailClosed:
         port = build_runtime_execution_purge_port(backend)
         with pytest.raises(ValueError, match="run_id"):
             port.purge_run(_PROJECT, _STORY, "")
+
+    def test_missing_story_id_raises(self, backend: Path) -> None:
+        port = build_runtime_execution_purge_port(backend)
+        with pytest.raises(ValueError, match="story_id"):
+            port.purge_run(_PROJECT, "", _RUN)
 
     def test_residue_probe_missing_project_key_raises(self, backend: Path) -> None:
         probe = build_runtime_execution_residue_probe(backend)
@@ -512,6 +601,42 @@ class TestRunBoundArtifactPrecision:
             )
             is not None
         )
+
+
+# ---------------------------------------------------------------------------
+# Fail-closed scoping: the probe must not share the purge's project_key blind spot
+# ---------------------------------------------------------------------------
+
+
+class TestResidueProbeScoping:
+    """A mis-scoped purge (wrong-but-non-empty project_key) surfaces as residue.
+
+    The destructive purge keeps its narrow ``project_key`` predicate; the probe
+    counts ``(story_id, run_id)``-scoped. If both shared the predicate, a purge
+    called with a wrong ``project_key`` would delete nothing in the
+    project-keyed tables AND the probe would report clean — a silent §53.7.5
+    violation. Second-QA fix: the probe is deliberately broader.
+    """
+
+    def test_mis_scoped_purge_is_flagged_as_residue(self, backend: Path) -> None:
+        _seed_guard_decision(backend)  # written under _PROJECT
+        port = build_runtime_execution_purge_port(backend)
+
+        # Wrong-but-non-empty project scope: project-keyed deletes match nothing.
+        result = port.purge_run("some-other-project", _STORY, _RUN)
+        assert result.purged_rows["guard_decisions"] == 0
+
+        # The probe must fail closed on the surviving run-bound row.
+        probe = build_runtime_execution_residue_probe(backend)
+        residue = probe.check_run("some-other-project", _STORY, _RUN)
+        assert not residue.is_clean
+        assert residue.residue_rows["guard_decisions"] == 1
+
+        # Correctly scoped purge converges to clean.
+        assert port.purge_run(_PROJECT, _STORY, _RUN).purged_rows[
+            "guard_decisions"
+        ] == 1
+        assert probe.check_run(_PROJECT, _STORY, _RUN).is_clean
 
 
 # ---------------------------------------------------------------------------

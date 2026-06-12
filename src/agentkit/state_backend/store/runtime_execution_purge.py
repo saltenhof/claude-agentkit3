@@ -32,10 +32,23 @@ NodeExecution(Ledger)             ``node_execution_ledgers`` ``node_execution_le
 AttemptRecord                     ``attempts``               ``attempts``
 OverrideRecord                    ``override_records``       ``override_records``
 GuardDecision                     ``guard_decisions``        ``guard_decisions``
+VerifyDecision (governance rt.)   ``decision_records``       ``decision_records`` (story-keyed)
 canonical PhaseState              ``phase_states``           ``phase_states`` (runtime)
+PhaseState snapshot (per phase)   ``phase_snapshots``        ``phase_snapshots`` (story-keyed)
 ExecutionEvent                    ``execution_events``       ``execution_events``
 run-bound ArtifactRecord          ``artifact_envelopes``     ``artifact_envelopes`` (run-bound)
 ================================  =========================  ============================
+
+Second-QA closure (review 2026-06-12, FK-53 §53.7.5 rule): ``phase_snapshots``
+and ``decision_records`` are the in-code persistence companions of the §53.6.2
+``PhaseState`` / governance-runtime entities and are written by THIS owner facade
+(``save_phase_snapshot`` / ``record_verify_decision``). Both are story-keyed
+(no ``run_id`` column in the canonical SQLite schema) and are read story-keyed by
+guard/gate paths (``backend_has_completed_snapshot`` feeds Integrity-Gate Dim 2;
+``load_latest_verify_decision`` picks ``MAX(attempt_nr)`` story-wide — on
+Postgres with an explicit story-wide fallback). Leaving them behind would let a
+purged run's objects influence a later restart/resume/guard decision — exactly
+what the §53.7.5 rule forbids — so they are part of the runtime purge surface.
 
 The read-model ``phase_state_projection`` is OUT OF SCOPE (it already has its own
 ``purge_run`` and belongs to the read-model/analytics purge domain, story §2.2).
@@ -49,7 +62,7 @@ missing ``project_key`` / ``story_id`` / ``run_id`` scope.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentkit.state_backend.store import facade
@@ -66,7 +79,9 @@ RUNTIME_EXECUTION_PURGE_DOMAINS: tuple[str, ...] = (
     "attempts",
     "override_records",
     "guard_decisions",
+    "decision_records",
     "phase_states",
+    "phase_snapshots",
     "execution_events",
     "artifact_envelopes",
 )
@@ -84,10 +99,12 @@ class RuntimeExecutionPurgeResult:
     Attributes:
         purged_rows: Number of deleted rows per Runtime-Execution domain. Every
             domain in :data:`RUNTIME_EXECUTION_PURGE_DOMAINS` is present (zero
-            when nothing was deleted — idempotent re-run / never-written).
+            when nothing was deleted — idempotent re-run / never-written). The
+            field is required so the documented every-domain-present invariant
+            cannot be silently bypassed by a defaulted empty map.
     """
 
-    purged_rows: dict[str, int] = field(default_factory=dict)
+    purged_rows: dict[str, int]
 
     @property
     def total_purged(self) -> int:
@@ -164,9 +181,9 @@ class RuntimeExecutionPurgePort:
 
         Args:
             project_key: Tenant/project scope (validated; ``attempts``,
-                ``phase_states`` and ``artifact_envelopes`` have no
-                ``project_key`` column, so the scope is enforced here, not as a
-                column predicate).
+                ``phase_states``, ``phase_snapshots``, ``decision_records`` and
+                ``artifact_envelopes`` carry no ``project_key`` purge predicate,
+                so the scope is enforced here, not as a column predicate).
             story_id: Story display id.
             run_id: Run correlation id being reset.
 
@@ -193,7 +210,9 @@ class RuntimeExecutionPurgePort:
             "guard_decisions": facade.purge_guard_decisions(
                 store_dir, project_key, story_id, run_id
             ),
+            "decision_records": facade.purge_decision_records(store_dir, story_id),
             "phase_states": facade.purge_phase_states(store_dir, story_id),
+            "phase_snapshots": facade.purge_phase_snapshots(store_dir, story_id),
             "execution_events": facade.purge_execution_events(
                 store_dir, project_key, story_id, run_id
             ),

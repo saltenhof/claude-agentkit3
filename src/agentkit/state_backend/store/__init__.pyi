@@ -35,6 +35,9 @@ from agentkit.state_backend.store.facade import (
     control_plane_backend_available as control_plane_backend_available,
 )
 from agentkit.state_backend.store.facade import (
+    count_runtime_execution_residue as count_runtime_execution_residue,
+)
+from agentkit.state_backend.store.facade import (
     delete_control_plane_operation_global as delete_control_plane_operation_global,
 )
 from agentkit.state_backend.store.facade import (
@@ -168,6 +171,36 @@ from agentkit.state_backend.store.facade import (
 )
 from agentkit.state_backend.store.facade import (
     load_story_metrics_for_scope as load_story_metrics_for_scope,
+)
+from agentkit.state_backend.store.facade import (
+    purge_attempts as purge_attempts,
+)
+from agentkit.state_backend.store.facade import (
+    purge_decision_records as purge_decision_records,
+)
+from agentkit.state_backend.store.facade import (
+    purge_execution_events as purge_execution_events,
+)
+from agentkit.state_backend.store.facade import (
+    purge_flow_executions as purge_flow_executions,
+)
+from agentkit.state_backend.store.facade import (
+    purge_guard_decisions as purge_guard_decisions,
+)
+from agentkit.state_backend.store.facade import (
+    purge_node_execution_ledgers as purge_node_execution_ledgers,
+)
+from agentkit.state_backend.store.facade import (
+    purge_override_records as purge_override_records,
+)
+from agentkit.state_backend.store.facade import (
+    purge_phase_snapshots as purge_phase_snapshots,
+)
+from agentkit.state_backend.store.facade import (
+    purge_phase_states as purge_phase_states,
+)
+from agentkit.state_backend.store.facade import (
+    purge_run_bound_artifact_envelopes as purge_run_bound_artifact_envelopes,
 )
 from agentkit.state_backend.store.facade import (
     read_artifact_record as read_artifact_record,

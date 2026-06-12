@@ -1819,8 +1819,9 @@ def build_runtime_execution_purge_port(
     Composition root for the per-owner Runtime-Execution purge. The port
     orchestrates the owner-purge facade APIs (``state_backend.store.facade``) for
     ``flow_executions``, ``node_execution_ledgers``, ``attempts``,
-    ``override_records``, ``guard_decisions``, canonical ``phase_states``,
-    ``execution_events`` and run-bound ``artifact_envelopes`` — no God-Purge, no
+    ``override_records``, ``guard_decisions``, ``decision_records``, canonical
+    ``phase_states``, ``phase_snapshots``, ``execution_events`` and run-bound
+    ``artifact_envelopes`` — no God-Purge, no
     port-owned cross-BC SQL. The consumer is ``story-lifecycle``
     (``StoryResetService``, AG3-071; NOT built here), which drives the port
     through this real assembly.

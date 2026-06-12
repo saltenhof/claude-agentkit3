@@ -1126,6 +1126,10 @@ def load_override_records(story_dir: Path) -> list[OverrideRecord]:
 # / ``node_executions`` / ``artifact_records`` are NEVER referenced). Canonical
 # ``phase_states`` is purged here; the read-model ``phase_state_projection`` is
 # out of scope (its own ``purge_run`` lives in ``projection_repositories``).
+# Second-QA closure (2026-06-12): ``phase_snapshots`` and ``decision_records``
+# are story-keyed runtime companions of §53.6.2 PhaseState / governance runtime
+# and are purged too — leftover snapshots/verify decisions would influence a
+# later restart/guard decision via story-keyed reads (§53.7.5 rule).
 
 
 def purge_flow_executions(
@@ -1196,6 +1200,33 @@ def purge_phase_states(story_dir: Path, story_id: str) -> int:
     return int(_backend_module().purge_phase_states_row(story_dir, story_id))
 
 
+def purge_phase_snapshots(story_dir: Path, story_id: str) -> int:
+    """Delete all phase_snapshots rows for story_id; return deleted row count.
+
+    Completed-phase snapshots are runtime PhaseState evidence keyed by
+    ``(story_id, phase)`` — no ``run_id`` column. They feed guard/gate decisions
+    story-keyed (``backend_has_completed_snapshot`` -> Integrity-Gate Dim 2), so
+    a purged run's leftover snapshot would influence a later restart/guard
+    decision (FK-53 §53.7.5 rule). Purged for the whole story.
+    """
+
+    return int(_backend_module().purge_phase_snapshots_row(story_dir, story_id))
+
+
+def purge_decision_records(story_dir: Path, story_id: str) -> int:
+    """Delete all decision_records rows for story_id; return deleted row count.
+
+    Canonical verify decisions (governance runtime residue, FK-53 §53.7.5) are
+    keyed ``(story_id, decision_kind, attempt_nr)`` in the canonical SQLite
+    schema — attempt numbering restarts per run, and ``load_latest_verify_decision``
+    selects ``MAX(attempt_nr)`` story-wide (Postgres falls back story-wide), so a
+    purged run's leftover decision would SHADOW the next run's verify decision in
+    the Integrity Gate. Purged for the whole story.
+    """
+
+    return int(_backend_module().purge_decision_records_row(story_dir, story_id))
+
+
 def purge_execution_events(
     story_dir: Path, project_key: str, story_id: str, run_id: str
 ) -> int:
@@ -1231,6 +1262,13 @@ def count_runtime_execution_residue(
 
     Building block for the Runtime-Residue verify (FK-53 §53.7.5 / §53.10
     fragment); a non-zero count for any table means residue survived a purge.
+
+    Fail-closed scoping: the residue COUNT is deliberately ``project_key``-
+    agnostic (run-bound tables are counted by ``(story_id, run_id)``, the
+    story-keyed tables by ``story_id``). The destructive purge keeps its narrow
+    ``project_key`` predicate; a mis-scoped purge call (wrong-but-non-empty
+    ``project_key``) therefore shows up HERE as residue instead of both sides
+    sharing the same blind spot. ``project_key`` stays validated at the port.
     """
 
     return dict(

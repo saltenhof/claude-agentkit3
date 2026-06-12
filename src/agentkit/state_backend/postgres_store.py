@@ -3491,6 +3491,44 @@ def purge_phase_states_row(
         return int(cursor.rowcount)
 
 
+def purge_phase_snapshots_row(
+    story_dir: Path,
+    story_id: str,
+) -> int:
+    """Delete all phase_snapshots rows for story_id (every phase).
+
+    Story-keyed runtime PhaseState evidence (second-QA closure, FK-53 §53.7.5
+    rule); mirrors the ``sqlite_store`` helper — see its docstring.
+    """
+
+    with _connect(story_dir) as conn:
+        cursor = conn.execute(
+            "DELETE FROM phase_snapshots WHERE story_id = ?",
+            (story_id,),
+        )
+        return int(cursor.rowcount)
+
+
+def purge_decision_records_row(
+    story_dir: Path,
+    story_id: str,
+) -> int:
+    """Delete all decision_records rows for story_id (every kind/attempt/run).
+
+    Governance runtime residue (second-QA closure, FK-53 §53.7.5 rule): the
+    Postgres reader falls back to a story-wide ``MAX(attempt_nr)`` lookup, so a
+    purged run's leftover verify decision would shadow the next run's decision.
+    Story-keyed delete mirrors the ``sqlite_store`` helper.
+    """
+
+    with _connect(story_dir) as conn:
+        cursor = conn.execute(
+            "DELETE FROM decision_records WHERE story_id = ?",
+            (story_id,),
+        )
+        return int(cursor.rowcount)
+
+
 def purge_execution_events_row(
     story_dir: Path,
     project_key: str,
@@ -3534,15 +3572,21 @@ def count_runtime_execution_residue_row(
     story_id: str,
     run_id: str,
 ) -> dict[str, int]:
-    """Count remaining Runtime-Execution rows per table for the run scope."""
+    """Count remaining Runtime-Execution rows per table for the run scope.
 
+    Deliberately ``project_key``-agnostic counting (run-bound tables by
+    ``(story_id, run_id)``, story-keyed tables by ``story_id``) so a mis-scoped
+    purge surfaces as residue — see the ``sqlite_store`` twin's docstring.
+    """
+
+    # Residue counting is run-/story-scoped by design — see docstring.
+    del project_key
     with _connect(story_dir) as conn:
-        return _count_runtime_execution_residue(conn, project_key, story_id, run_id)
+        return _count_runtime_execution_residue(conn, story_id, run_id)
 
 
 def _count_runtime_execution_residue(
     conn: _CompatConnection,
-    project_key: str,
     story_id: str,
     run_id: str,
 ) -> dict[str, int]:
@@ -3553,18 +3597,18 @@ def _count_runtime_execution_residue(
         value = next(iter(row.values())) if isinstance(row, dict) else row[0]
         return int(value)
 
-    pksr = (project_key, story_id, run_id)
     sr = (story_id, run_id)
+    s = (story_id,)
     return {
         "flow_executions": _count(
             "SELECT COUNT(*) AS n FROM flow_executions "
-            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
-            pksr,
+            "WHERE story_id = ? AND run_id = ?",
+            sr,
         ),
         "node_execution_ledgers": _count(
             "SELECT COUNT(*) AS n FROM node_execution_ledgers "
-            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
-            pksr,
+            "WHERE story_id = ? AND run_id = ?",
+            sr,
         ),
         "attempts": _count(
             "SELECT COUNT(*) AS n FROM attempts WHERE story_id = ? AND run_id = ?",
@@ -3572,22 +3616,30 @@ def _count_runtime_execution_residue(
         ),
         "override_records": _count(
             "SELECT COUNT(*) AS n FROM override_records "
-            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
-            pksr,
+            "WHERE story_id = ? AND run_id = ?",
+            sr,
         ),
         "guard_decisions": _count(
             "SELECT COUNT(*) AS n FROM guard_decisions "
-            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
-            pksr,
+            "WHERE story_id = ? AND run_id = ?",
+            sr,
+        ),
+        "decision_records": _count(
+            "SELECT COUNT(*) AS n FROM decision_records WHERE story_id = ?",
+            s,
         ),
         "phase_states": _count(
             "SELECT COUNT(*) AS n FROM phase_states WHERE story_id = ?",
-            (story_id,),
+            s,
+        ),
+        "phase_snapshots": _count(
+            "SELECT COUNT(*) AS n FROM phase_snapshots WHERE story_id = ?",
+            s,
         ),
         "execution_events": _count(
             "SELECT COUNT(*) AS n FROM execution_events "
-            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
-            pksr,
+            "WHERE story_id = ? AND run_id = ?",
+            sr,
         ),
         "artifact_envelopes": _count(
             "SELECT COUNT(*) AS n FROM artifact_envelopes "
