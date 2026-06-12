@@ -181,26 +181,59 @@ def truncate_bundle(
 
 
 def _split_markdown_sections(content: str) -> list[str]:
-    # S5852: the prior ``^#{1,6}\s+.+$`` pattern places two open-ended
-    # quantifiers (``\s+`` and ``.+``) over overlapping character classes
-    # (a non-newline whitespace satisfies BOTH ``\s`` and ``.``), which static
-    # analysis flags as a polynomial-backtracking hotspot. The replacement keeps
-    # the EXACT same (start, span) matches — verified by an exhaustive fuzz —
-    # but removes the overlap: ``\s+`` is followed by a zero-width lookahead
-    # ``(?=[^\n])`` (asserting the first ``.`` character without re-consuming it)
-    # and the body becomes the non-overlapping ``[^\n]*$``.
-    matches = list(re.finditer(r"(?m)^#{1,6}\s+(?=[^\n])[^\n]*$", content))
+    matches = _markdown_heading_spans(content)
     if not matches:
         return [content]
     sections: list[str] = []
-    if matches[0].start() > 0:
-        sections.append(content[: matches[0].start()].strip())
+    if matches[0][0] > 0:
+        sections.append(content[: matches[0][0]].strip())
     for pos, match in enumerate(matches):
-        end = matches[pos + 1].start() if pos + 1 < len(matches) else len(content)
-        section = content[match.start() : end].strip()
+        end = matches[pos + 1][0] if pos + 1 < len(matches) else len(content)
+        section = content[match[0] : end].strip()
         if section:
             sections.append(section)
     return [section for section in sections if section]
+
+
+def _markdown_heading_spans(content: str) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    pos = 0
+    while pos < len(content):
+        if pos > 0 and content[pos - 1] != "\n":
+            newline = content.find("\n", pos)
+            if newline < 0:
+                break
+            pos = newline + 1
+        span = _match_legacy_markdown_heading_at(content, pos)
+        if span is None:
+            newline = content.find("\n", pos)
+            if newline < 0:
+                break
+            pos = newline + 1
+            continue
+        spans.append(span)
+        pos = span[1]
+    return spans
+
+
+def _match_legacy_markdown_heading_at(content: str, start: int) -> tuple[int, int] | None:
+    cursor = start
+    while cursor < len(content) and cursor - start < 6 and content[cursor] == "#":
+        cursor += 1
+    if cursor == start or cursor >= len(content) or content[cursor] == "#":
+        return None
+    whitespace_start = cursor
+    while cursor < len(content) and content[cursor].isspace():
+        cursor += 1
+    if cursor == whitespace_start:
+        return None
+    for body_start in range(cursor, whitespace_start, -1):
+        line_end = content.find("\n", body_start)
+        if line_end < 0:
+            line_end = len(content)
+        if body_start < line_end:
+            return start, line_end
+    return None
 
 
 def _split_code_blocks(content: str) -> list[str]:

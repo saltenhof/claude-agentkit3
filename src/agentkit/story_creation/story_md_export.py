@@ -269,10 +269,8 @@ def export_story_md(
             objects=_story_index_objects(story, spec),
         )
     except VectorDbError as exc:
-        indexing_error = (
-            f"Weaviate indexing failed: {exc} (fail-closed: indexing "
+        indexing_error = f"Weaviate indexing failed: {exc} (fail-closed: indexing " \
             "failure blocks the export, no catch-up path, FK-21 §21.11.4)"
-        )
         return StoryMdExportResult(
             success=False,
             story_md_path=target_str,
