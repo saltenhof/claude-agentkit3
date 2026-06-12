@@ -180,6 +180,17 @@ werden (Kap. 50):
 | `{{gh_repo}}` | GitHub-Repo aus Config (Code-Backend; bei Multi-Repo: erstes Repo aus `participating_repos` falls Skill-Kontext eine Story hat, sonst `repositories[0].name`) |
 | `{{project_key}}` | AK3-Project-Schluessel aus `project.yaml` (Story-Backend-Identifier) |
 | `{{project_prefix}}` | Story-ID-Prefix aus `project.yaml` |
+| `{{wiki_stories_dir}}` | Wiki-Story-Verzeichnis (projektrelativ) aus `project.yaml` (FK-03 §3.1, Default `stories`) |
+
+Alle Config-Tokens sind **lowercase** (`snake_case`); UPPERCASE-Varianten
+existieren nicht und werden fail-closed-on-unknown abgelehnt. Der
+Token-Satz ist abschliessend: was sich projektneutral inlinen oder aus
+einem bestehenden Token deterministisch ableiten laesst (z. B. der
+Projekt-Codebase-Root, der `concept/`-Pfad, der bundle-relative
+Prompt-/Skript-Pfad, der Wiki-Index `{{wiki_stories_dir}}/INDEX.md`),
+wird **kein** eigener Token. GitHub-Project-/Board-/Issue-Tokens
+existieren nicht (FK-12 §12.1.1: GitHub ist Code-Backend, kein
+Story-Traeger).
 
 ## 43.3 Mitgelieferte Skills
 
@@ -338,10 +349,11 @@ Template-Engine.
 
 **Klasse `PlaceholderSubstitutor` (in `SkillBinding`):**
 
-`PlaceholderSubstitutor` substituiert Werte aus `PipelineConfig`
-(BC foundation, FK-03). Die Schnittstelle zu `PipelineConfig` ist
-**read-only**: keine Schreibzugriffe, keine Zustandsmutation.
-Die substituierten Felder stammen ausschliesslich aus FK-03:
+`PlaceholderSubstitutor` substituiert Werte aus `ProjectConfig`
+(BC foundation, FK-03). Die Schnittstelle zu `ProjectConfig` ist
+**read-only**: keine Schreibzugriffe, keine Zustandsmutation. Reines
+String-Replace, **fail-closed-on-unknown** (jeder nicht gelistete Token
+bricht). Die substituierten Felder stammen ausschliesslich aus FK-03:
 
 | Platzhalter | Quelle in `project.yaml` (FK-03) |
 |---|---|
@@ -349,16 +361,31 @@ Die substituierten Felder stammen ausschliesslich aus FK-03:
 | `{{gh_repo}}` | `config.repositories[0].name` (bei Single-Repo: das einzige Repo; bei Multi-Repo: deterministisches erstes Repo der Liste) |
 | `{{project_prefix}}` | `config.project_prefix` |
 | `{{project_key}}` | `config.project_key` |
+| `{{wiki_stories_dir}}` | `config.wiki_stories_dir` (projektrelativ, Default `stories`; FK-03 §3.1) |
+
+Der Token `{{AGENT_SPAWN_SKILL_PROOF}}` ist **nicht** Config-, sondern
+**Manifest-gespeist** (AG3-110, FK-31 §31.7.4): seine autoritative
+Quelle ist der install-stabile Token im `.installed-manifest.json`, nicht
+`project.yaml`. Er wird ausschliesslich ueber `substitute_spawn_header`
+aufgeloest und auf dem reinen Config-Pfad fail-closed als unbekannt
+behandelt. Ebenso ist jeder bundle-relative Pfad (z. B. die
+Prompt-Templates eines Skill-Bundles) **kein** Token: er ist
+Bindungs-/Installationszustand (FK-43 §43.4.1 `bundle_root`,
+`.installed-manifest.json` `authorized_prompt_paths`) und wird im Skill
+bundle-relativ referenziert, nicht ueber `project.yaml` materialisiert
+(SSOT — keine install-spezifischen absoluten Pfade in der nutzer-
+editierbaren Projektkonfiguration).
 
 ```python
-# Schnittstelle: read-only auf PipelineConfig (FK-03)
+# Schnittstelle: read-only auf ProjectConfig (FK-03)
 class PlaceholderSubstitutor:
-    def substitute(self, content: str, config: PipelineConfig) -> str:
+    def substitute(self, content: str, config: ProjectConfig) -> str:
         replacements = {
             "{{gh_owner}}": config.github_owner,
             "{{gh_repo}}": config.repositories[0].name,
             "{{project_prefix}}": config.project_prefix,
             "{{project_key}}": config.project_key,
+            "{{wiki_stories_dir}}": config.wiki_stories_dir,
         }
         for placeholder, value in replacements.items():
             content = content.replace(placeholder, value)

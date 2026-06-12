@@ -178,6 +178,28 @@ def _add_create_story_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--op-id")
 
 
+def _build_master_fields(args: argparse.Namespace) -> dict[str, object]:
+    """Map the parsed ``create-story`` args to the master-field input mapping.
+
+    Extracted from :func:`_run_create_story` to keep the input-mapping concern out
+    of the fail-closed orchestration body (Sonar S3776 cognitive-complexity slim).
+    """
+    master_fields: dict[str, object] = {
+        "project_key": args.project_key,
+        "title": args.title,
+        "type": args.story_type,
+        "repos": list(args.repos),
+        "epic": args.epic,
+        "module": args.module,
+        "labels": list(args.labels or []),
+    }
+    if args.size:
+        master_fields["size"] = args.size
+    if args.mode:
+        master_fields["mode"] = args.mode
+    return master_fields
+
+
 def _run_create_story(
     project_root: Path,
     args: argparse.Namespace,
@@ -205,17 +227,7 @@ def _run_create_story(
     """
     op_id = args.op_id or f"op-{uuid.uuid4().hex}"
     correlation_id = f"corr-{uuid.uuid4().hex}"
-    master_fields: dict[str, object] = {
-        "project_key": args.project_key,
-        "title": args.title,
-        "type": args.story_type,
-        "repos": list(args.repos),
-        "epic": args.epic,
-        "module": args.module,
-        **({"size": args.size} if args.size else {}),
-        **({"mode": args.mode} if args.mode else {}),
-        "labels": list(args.labels or []),
-    }
+    master_fields = _build_master_fields(args)
 
     # Config + reconciliation-runtime build. A missing / invalid project.yaml is a
     # stable ``configuration_error`` (AC3); an unconfigured / unready VectorDB is a

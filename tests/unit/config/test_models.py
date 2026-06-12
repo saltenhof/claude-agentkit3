@@ -183,6 +183,51 @@ class TestProjectConfig:
         ]
         assert cfg.github_owner is None
         assert cfg.github_repo is None
+        # AG3-113: wiki_stories_dir default (FK-03 §3.1 / FK-43 §43.4.2).
+        assert cfg.wiki_stories_dir == "stories"
+
+    def test_wiki_stories_dir_custom_relative(self) -> None:
+        cfg = ProjectConfig(
+            project_key="p",
+            project_name="p",
+            repositories=[RepositoryConfig(name="r", path=Path("/tmp"))],
+            pipeline=_opt_out_pipeline(),
+            wiki_stories_dir="docs/stories",
+        )
+        assert cfg.wiki_stories_dir == "docs/stories"
+
+    def test_wiki_stories_dir_trimmed(self) -> None:
+        cfg = ProjectConfig(
+            project_key="p",
+            project_name="p",
+            repositories=[RepositoryConfig(name="r", path=Path("/tmp"))],
+            pipeline=_opt_out_pipeline(),
+            wiki_stories_dir="  stories  ",
+        )
+        assert cfg.wiki_stories_dir == "stories"
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "",
+            "   ",
+            "/abs/stories",
+            "../stories",
+            "a/../b",
+            "C:\\stories",
+            "C:stories",
+        ],
+    )
+    def test_wiki_stories_dir_invalid_fails_closed(self, bad: str) -> None:
+        # FK-03 §3.1 fail-closed: non-empty, project-relative, no '..', no absolute.
+        with pytest.raises(ValidationError):
+            ProjectConfig(
+                project_key="p",
+                project_name="p",
+                repositories=[RepositoryConfig(name="r", path=Path("/tmp"))],
+                pipeline=_opt_out_pipeline(),
+                wiki_stories_dir=bad,
+            )
 
     def test_all_fields(self) -> None:
         cfg = ProjectConfig(

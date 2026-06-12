@@ -10,9 +10,9 @@ Issue operations:
     :func:`close_issue`, :func:`reopen_issue`, :func:`add_labels`,
     :func:`remove_labels`, :func:`add_comment`.
 
-Project operations:
-    :class:`ProjectItem`, :func:`list_project_items`,
-    :func:`add_issue_to_project`.
+GitHub Projects / board operations are intentionally NOT exposed: GitHub is the
+code backend only (FK-12 §12.1.1). Story identity, status and attributes live in
+the AK3 Story-Backend (FK-91), never on a GitHub Project board.
 """
 
 from __future__ import annotations
@@ -28,22 +28,14 @@ from agentkit.integrations.github.issues import (
     remove_labels,
     reopen_issue,
 )
-from agentkit.integrations.github.projects import (
-    ProjectItem,
-    add_issue_to_project,
-    list_project_items,
-)
 
 __all__ = [
     "IssueData",
-    "ProjectItem",
     "add_comment",
-    "add_issue_to_project",
     "add_labels",
     "close_issue",
     "create_issue",
     "get_issue",
-    "list_project_items",
     "remove_labels",
     "reopen_issue",
     "resolve_token_for_owner",

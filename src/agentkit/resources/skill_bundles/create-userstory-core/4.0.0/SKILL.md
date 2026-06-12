@@ -5,7 +5,7 @@ description: >
   asks to create, write, or draft a user story — e.g. "erstelle eine User Story fuer ...",
   "erstelle dazu eine User Story", "neue Story anlegen", "create a user story for ...",
   "mach ein Bugfix-Ticket fuer ...", "mach ein Konzept fuer ...", "erstelle eine Research Story".
-  Handles GitHub issue creation, project field setup, and wiki directory creation.
+  Creates the story in the AK3 Story-Backend (control plane) and the wiki story directory.
 argument-hint: "[description or context]"
 allowed-tools: "Bash, Read, Glob, Grep, AskUserQuestion, Write, mcp"
 ---
@@ -14,14 +14,17 @@ allowed-tools: "Bash, Read, Glob, Grep, AskUserQuestion, Write, mcp"
 
 Context from user: $ARGUMENTS
 
+Story identity, status, attributes and lifecycle are owned by the **AK3 Story-Backend**
+(control plane), not by GitHub. GitHub is the **code backend only** (branches, PRs;
+FK-12 §12.1.1). This skill creates the story via the deployed AK3 control-plane tool
+`projectedge create-story` — there is NO `gh issue create`, NO `gh project`, NO
+`gh api graphql` board mutation, and NO standalone next-story-id step. The backend
+allocates the Story-ID atomically and validates the story in a non-bypassable
+create boundary.
+
 ## Step 0: Read Project Rules + VectorDB Preflight
 
-Read `{{PROJECT_CODEBASE_ROOT}}/CLAUDE.md` first — all project rules apply.
-
-Then read the full story specification for reference:
-```
-{{STORY_SPEC_PATH}}
-```
+Read `CLAUDE.md` (project root) first — all project rules apply.
 
 **VectorDB Preflight Check (HARD REQUIREMENT):**
 
@@ -35,30 +38,32 @@ If exit code is NOT 0: **STOP immediately.** Inform the user:
 "VectorDB (Weaviate) is not reachable. Story creation requires a running VectorDB instance.
 Please start Weaviate first (docker compose up -d in the vectordb directory)."
 
-Do NOT proceed with story creation if this check fails.
+Do NOT proceed with story creation if this check fails. The control-plane create
+boundary also fails closed on an unavailable VectorDB (the reconciliation gate),
+so a green preflight avoids a late fail-closed rejection.
 
 **VectorDB Facts (DO NOT hallucinate these):**
 - Weaviate collection name: **`StoryContext`** (NOT "StoryChunk", NOT "Stories")
 - Weaviate URL: read from `.story-pipeline.yaml` → `vectordb.url` (typically `http://localhost:9903`)
-- Indexing is handled automatically by `python -m agentkit export-story-md` — do NOT call Weaviate directly
+- Indexing and the related-story reconciliation are handled by the control-plane
+  create boundary and `python -m agentkit export-story-md` — do NOT call Weaviate directly
 
 ## Step 1: Determine Story Type
 
 Evaluate from conversation context which of the **four story types** this is:
 
-- **Implementation**: New functionality, enhancement, infrastructure — produces code + tests. Refactoring may occur as a technique inside implementation work, but is not its own story type. ID schema: `{{PROJECT_PREFIX}}-{NNN}`.
-- **Concept**: Analysis, design work, architectural proposals — produces documents, NO code. ID schema: `{{PROJECT_PREFIX}}-{NNN}`.
-- **Bugfix**: Fixing a defect in existing code — produces code + reproducing test. ID schema: `{{PROJECT_PREFIX}}-FIX-{NNN}`.
-- **Research**: Investigation, experiment, evaluation — produces findings documents, code optional (prototypes). ID schema: `{{PROJECT_PREFIX}}-{NNN}`.
+- **Implementation**: New functionality, enhancement, infrastructure — produces code + tests. Refactoring may occur as a technique inside implementation work, but is not its own story type. ID schema: `{{project_prefix}}-{NNN}`.
+- **Concept**: Analysis, design work, architectural proposals — produces documents, NO code. ID schema: `{{project_prefix}}-{NNN}`.
+- **Bugfix**: Fixing a defect in existing code — produces code + reproducing test. ID schema: `{{project_prefix}}-FIX-{NNN}`.
+- **Research**: Investigation, experiment, evaluation — produces findings documents, code optional (prototypes). ID schema: `{{project_prefix}}-{NNN}`.
 
 If unclear from context, ask the user.
 
-## Step 2: Target Repo (FIXED — always primary)
+## Step 2: Target Repos
 
-**ALL issues are created in `{{GH_OWNER}}/{{GH_REPO_PRIMARY}}` — the project root repo.**
-This is a HARD RULE, regardless of single-repo or multi-repo setup.
-Code repos (`codebase/*`) are for code only, NEVER for issue tracking.
-The GitHub Project aggregates issues from this single source.
+The story records its participating repositories (Step 3c). Code repos are for code
+only — story identity and tracking live in the AK3 Story-Backend, never on a
+GitHub Project board.
 
 ## Step 2a: Story-Granularitaet pruefen — PFLICHTSCHRITT
 
@@ -176,7 +181,7 @@ Round 3: synthesis → "Here are the coverage reports from rounds 1 and 2.
 
 Each Sub-Agent MUST receive:
 ```
-Read {{PROJECT_CODEBASE_ROOT}}/CLAUDE.md first — all project rules apply.
+Read CLAUDE.md (project root) first — all project rules apply.
 
 Task: Create stories {K} through {M} from the attached concept document.
 Use the /create-userstory skill for each story.
@@ -194,42 +199,54 @@ Important:
 
 ## Step 2b: Related Story Search (mandatory)
 
-Before creating the story, check if similar stories already exist.
+Before creating the story, check if similar stories already exist. The related-story
+search runs against the **AK3 Story-Backend** (FK-91 Story-Read-Service) and the
+VectorDB — never against GitHub issues.
 
 {{#IF_STORY_VECTORDB}}
 ### Semantic + Structural Search
 
 1. Formulate 1-2 search queries from the topic/title of the new story.
-2. Call `story_search` MCP tool (or fallback: `python {{USERSTORY_BUNDLE_PATH}}/vectordb/search.py "query"`):
+2. Call the `story_search` MCP tool (semantic VectorDB search over the AK3
+   Story-Backend's indexed stories):
    ```
    story_search(query="<topic keywords>", limit=10)
    ```
-3. Additionally, run a structural GitHub search:
+3. Additionally, run a structural search over the local wiki story directory
+   (the authoritative local mirror that `agentkit export-story-md` writes 1:1
+   from the backend story; FK-91 §91.1a `/v1/projects/{project_key}/stories/search?q=`
+   is the corresponding server-side read surface):
    ```bash
-   {{GH_CONFIG_EXPORT}}
-   gh issue list --repo {{GH_OWNER}}/{{GH_REPO_PRIMARY}} --search "<keywords>" --state all --limit 10
+   ls {{wiki_stories_dir}}/ | grep -i "<keywords>"
+   grep -ril "<keywords>" {{wiki_stories_dir}}/
    ```
 4. **If semantic search returns results with score > 0.7:**
    - Show the user the top-5 results with Story-ID, Title, Status, Score
    - Ask: "Es gibt aehnliche bestehende Stories. Soll die Story trotzdem angelegt werden?"
-   - If yes: add cross-references in "Verwandte Stories" or "Abhaengigkeiten" section of the issue body
+   - If yes: add cross-references in "Verwandte Stories" or "Abhaengigkeiten" section of the story body
    - If no: abort story creation
 5. **If no relevant results (all scores < 0.7):** proceed to Step 3
-6. Integrate results into the issue body:
+6. Integrate results into the story body:
    - Related stories → "Verwandte Stories" section
    - Dependencies → "Abhaengigkeiten" section
+
+The atomic create boundary (Step 5c) additionally runs the fail-closed VectorDB
+reconciliation incl. the LLM adjudicator against the backend, so a near-duplicate
+that slips through here is still caught at creation time.
 {{/IF_STORY_VECTORDB}}
 {{^IF_STORY_VECTORDB}}
 ### Structural Search (Fallback — no VectorDB)
 
-Run a GitHub issue search to check for existing similar stories:
+Search the local wiki story directory (the authoritative local mirror written
+1:1 from the backend by `agentkit export-story-md`) for existing similar stories:
 
 ```bash
-{{GH_CONFIG_EXPORT}}
-gh issue list --repo {{GH_OWNER}}/{{GH_REPO_PRIMARY}} --search "<keywords from topic>" --state all --limit 10
+ls {{wiki_stories_dir}}/ | grep -i "<keywords from topic>"
+grep -ril "<keywords from topic>" {{wiki_stories_dir}}/
 ```
 
-If matches found: present to user and ask whether to proceed.
+If matches found: present to user and ask whether to proceed. The create boundary
+(Step 5c) still runs the backend-side reconciliation fail-closed regardless.
 {{/IF_STORY_VECTORDB}}
 
 ## Step 3: Gather Required Information
@@ -239,7 +256,7 @@ If not already clear from conversation context, ask the user for the needed info
 **For Implementation Stories (Pflichtfelder + optionale Quellen):**
 - Title (short, descriptive)
 - Kontext (why does this story exist? business value? 2-4 sentences)
-- Module(s) (e.g. {{MODULES_EXAMPLE}})
+- Module(s) (e.g. backend, frontend, pipeline)
 - Dependencies (other story IDs, or "Keine")
 - In Scope / Out of Scope
 - Acceptance criteria (concrete, testable)
@@ -299,7 +316,7 @@ Problembeschreibung. Das Ergebnis der Research IST die Quelle, nicht umgekehrt.
 Lese die kuratierte Label-Liste:
 
 ```
-Read {{WIKI_STORIES_DIR}}/story-labels.md
+Read {{wiki_stories_dir}}/story-labels.md
 ```
 
 Wenn die Datei existiert und Labels enthaelt:
@@ -309,33 +326,34 @@ Wenn die Datei existiert und Labels enthaelt:
 3. Erfinde KEINE neuen Labels — nur aus der Liste waehlen.
 4. Wenn kein Label passt: keine Labels vergeben (ist valide).
 
-Die ausgewaehlten Labels werden in Step 5 im `gh issue create`-Aufruf als `--label` gesetzt.
+Die ausgewaehlten Labels werden in Step 5 als `--label`-Argumente an das
+`projectedge create-story`-Tool uebergeben.
 
 Wenn die Datei leer ist oder nicht existiert: keine Labels vergeben, ohne Warnung fortfahren.
 
 ## Step 3b: Concept Discovery Engine (PFLICHTSCHRITT)
 
 Bevor Konzept-Referenzen als Freitext erfasst werden, MUSS eine strukturierte
-Konzept-Suche stattfinden. Dieser Schritt spiegel die Rigoroesitaet von Step 3a
-(Requirements) fuer Konzept-Referenzen.
+Konzept-Suche stattfinden. Dieser Schritt spiegelt die Rigoroesitaet von Step 3a
+(Requirements) fuer Konzept-Referenzen. Konzeptquellen liegen im `concept/`-Verzeichnis.
 
 ### 3b.1 — INDEX.yaml lesen (oder Fallback)
 
 ```
-Read {{CONCEPTS_DIR}}/INDEX.yaml
+Read concept/INDEX.yaml
 ```
 
 Wenn INDEX.yaml nicht vorhanden:
-- Fallback: `Glob {{CONCEPTS_DIR}}/**/*.md` — alle Konzeptdokumente enumerieren
+- Fallback: `Glob concept/**/*.md` — alle Konzeptdokumente enumerieren
 - Appendix-Verzeichnisse (`appendix/`) erkennen und Companion-Beziehungen ableiten
 
 ### 3b.2 — Keyword-Suche (Pflicht) + Semantische Suche (optional, wenn VectorDB MCP verfuegbar)
 
-**Primaerpfad (immer):** Grep-basierte Keyword-Suche ueber `{{CONCEPTS_DIR}}` mit
+**Primaerpfad (immer):** Grep-basierte Keyword-Suche ueber `concept/` mit
 Schluesselwoertern aus Titel, Scope und ACs:
 ```bash
-Grep "<Schluesselwort-aus-Titel>" {{CONCEPTS_DIR}}
-Grep "<Schluesselwort-aus-AC>" {{CONCEPTS_DIR}}
+Grep "<Schluesselwort-aus-Titel>" concept/
+Grep "<Schluesselwort-aus-AC>" concept/
 ```
 
 **Optionaler Zusatz (nur wenn `concept_search` als MCP-Tool im Skill-Kontext aufrufbar ist):**
@@ -354,7 +372,7 @@ Ist es nicht verfuegbar, genuegt der Grep-basierte Primaerpfad vollstaendig.
 
 Klassen-/Interface-Namen, Konfig-Keys, Event-Typen aus den Technischen Details:
 ```bash
-Grep "<KlassenName>" {{CONCEPTS_DIR}}
+Grep "<KlassenName>" concept/
 ```
 
 ### 3b.4 — Trigger-Rules anwenden
@@ -392,14 +410,14 @@ a concept, the concept wins."
 Included:
 | Konzept | Abschnitt | Typ | Begruendung |
 |---------|-----------|-----|-------------|
-| `{{CONCEPTS_DIR}}/TK-07-error-routing.md` | Kap. 2+3 | primary | Error-Routing-Spez. |
-| `{{CONCEPTS_DIR}}/TK-07-appendix.md` | Appendix I.4 | appendix | Referenz-Impl. |
-| `{{CONCEPTS_DIR}}/TK-01-base-state.md` | Kap. 1 | foundational | State-Schema-Modif. |
+| `concept/TK-07-error-routing.md` | Kap. 2+3 | primary | Error-Routing-Spez. |
+| `concept/TK-07-appendix.md` | Appendix I.4 | appendix | Referenz-Impl. |
+| `concept/TK-01-base-state.md` | Kap. 1 | foundational | State-Schema-Modif. |
 
 Excluded (mit Rationale):
 | Konzept | Abschnitt | Begruendung |
 |---------|-----------|-------------|
-| `{{CONCEPTS_DIR}}/TK-09-ui.md` | Kap. 4 | Keine UI-Aenderung in dieser Story |
+| `concept/TK-09-ui.md` | Kap. 4 | Keine UI-Aenderung in dieser Story |
 
 Konflikte / Deferrals:
 - [DEFERRAL] TK-04 → TK-07 fuer Farbsystem (automatisch aufgeloest)
@@ -427,7 +445,7 @@ Worker dort keinen Branch bekommt und auf main arbeitet.
    - Dateien im Projekt-Root (z.B. `concept/`, `stories/`, `docs/`) gehoeren zum Root/Wiki-Repo
 4. Bestimme:
    - **PRIMARY_REPO**: Das Repo mit den meisten/wichtigsten Aenderungen
-   - **PARTICIPATING_REPOS**: Alle Repos mit mindestens einer betroffenen Datei (komma-separiert)
+   - **PARTICIPATING_REPOS**: Alle Repos mit mindestens einer betroffenen Datei
 5. Bei nur einem konfigurierten Repo: PRIMARY_REPO = dieses Repo, PARTICIPATING_REPOS = dieses Repo
 6. Wenn ein Dateipfad keinem Repo zugeordnet werden kann: Warnung an den User — das Root/Wiki-Repo
    fehlt moeglicherweise in `.story-pipeline.yaml`.
@@ -436,7 +454,8 @@ Worker dort keinen Branch bekommt und auf main arbeitet.
 Eine Story kann `Module: backend` haben, aber Dateien im Root-Repo aendern (z.B. API-Contract-Dokumente).
 Die Repo-Zuordnung basiert immer auf den tatsaechlichen Dateipfaden, nie auf dem Module-Feld.
 
-Merke dir PRIMARY_REPO und PARTICIPATING_REPOS fuer Step 6c (Project Fields setzen).
+Merke dir PRIMARY_REPO und PARTICIPATING_REPOS — sie werden in Step 5 als `--repo`-Argumente
+an das `projectedge create-story`-Tool uebergeben (der erste `--repo` ist das PRIMARY_REPO).
 
 ## Step 3d: Mode-Determination-Felder bestimmen (PFLICHTSCHRITT)
 
@@ -525,68 +544,29 @@ Aktion: ok / Felder aendern / Referenzen anpassen / Konflikte aufloesen?
 
 User entscheidet EINMAL ueber Mode-Felder UND Konzept-Referenzen.
 
-## Step 4: Determine Next Story ID
+## Step 4: Story-ID (vom Backend alloziert)
 
-Story IDs are managed as **project-level sequences**, independent of GitHub issue numbers.
-Two separate counters: `{{PROJECT_PREFIX}}-{NNN}` for implementation/concept/research stories, `{{PROJECT_PREFIX}}-FIX-{NNN}` for bugfix stories.
+Es gibt **keinen** eigenen Schritt zur Bestimmung der naechsten Story-ID und **keinen**
+`agentkit story validate`-Aufruf (existiert nicht als Subcommand). Die Story-ID wird vom
+AK3-Story-Backend **atomar** waehrend `create-story` alloziert und zurueckgegeben; die
+Story-Section-Validierung passiert non-bypassable in der Create-Boundary (AG3-068). Der
+ID-Prefix folgt dem Schema aus Step 1:
+- Implementation/Concept/Research: `{{project_prefix}}-{NNN}`
+- Bugfix: `{{project_prefix}}-FIX-{NNN}`
 
-**IMPORTANT:** GitHub issue numbers are NOT story IDs. A story `{{PROJECT_PREFIX}}-097` might be GitHub issue `#102`.
-The story ID is determined by scanning existing stories across ALL repos via the GitHub Project.
+Du musst die ID also **nicht** vorab berechnen — sie kommt aus der Tool-Antwort.
 
-### Find the next number
+## Step 5: Story-Body schreiben + im Backend anlegen
 
-Use the `next_story_id` Python module which reads the "Story ID" custom field from the GitHub
-Project and cross-checks with wiki directories:
+Schreibe zuerst den vollstaendigen Story-Body in eine Temp-Datei, lasse ihn von ChatGPT
+reviewen (Step 5a–5b), und uebergib ihn dann an das `projectedge create-story`-Tool.
 
-```bash
-# For feature stories:
-STORY_ID=$(python -m agentkit.stories.next_story_id feature)
-echo "Next feature story ID: $STORY_ID"
+### Step 5a: Story-Body-Datei schreiben
 
-# For bugfix stories:
-STORY_ID=$(python -m agentkit.stories.next_story_id fix)
-echo "Next bugfix story ID: $STORY_ID"
-```
+Use the **Write tool** to create `_temp_story_body.md` with the full story body.
+Use the template for the story type (fill in all placeholders):
 
-The script outputs a single line with the next ID (e.g. `{{PROJECT_PREFIX}}-042` or `{{PROJECT_PREFIX}}-FIX-003`).
-It reads the `storyId` field from the GitHub Project items and falls back to title parsing for
-items where the field is not yet set. Wiki directories are cross-checked as a second source.
-
-Store the determined story ID for all subsequent steps:
-- Implementation/Concept/Research: `STORY_ID={{PROJECT_PREFIX}}-{NNN}` (e.g. `{{PROJECT_PREFIX}}-097`)
-- Bugfix: `STORY_ID={{PROJECT_PREFIX}}-FIX-{NNN}` (e.g. `{{PROJECT_PREFIX}}-FIX-002`)
-
-## Step 5: Create the GitHub Issue
-
-### Activate Skill Marker
-
-Before creating the issue, set the governance marker so the story-creation-guard hook allows `gh issue create`:
-
-```bash
-mkdir -p _temp/governance && echo "$STORY_ID" > _temp/governance/.skill-create-userstory-active
-```
-
-### GitHub CLI Prerequisite
-
-All `gh` commands require:
-```bash
-{{GH_CONFIG_EXPORT}}
-```
-
-### IMPORTANT: No Heredocs — Use Temp File + `--body-file`
-
-**Heredocs (`<<'EOF'`) DO NOT WORK in the Bash tool.** The Bash tool wraps commands in
-single quotes for `bash -c '...'`. Heredoc delimiters like `<<'ISSUE_EOF'` contain single
-quotes that prematurely terminate the outer quoting, causing `unexpected EOF` parse errors.
-
-**Mandatory approach:**
-1. Use the **Write tool** to create a temp file at `{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md`
-2. Use `gh issue create --body-file "{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md"`
-3. **Delete the temp file immediately** after the issue is created: `rm -f "{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md"`
-
-### For Implementation Stories
-
-**Step 5a:** Use the **Write tool** to create `{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md` with the full issue body. Use the following template (fill in all placeholders):
+#### For Implementation Stories
 
 ```markdown
 ## Problem Context
@@ -598,7 +578,7 @@ outcome that will be true once the implementation is done. 2-4 sentences.]
 
 ## Solution Approach
 [High-level implementation approach. Which classes/modules change? Key design decisions.]
-- Affected modules/areas: {{MODULES_EXAMPLE}}
+- Affected modules/areas: [e.g. backend, pipeline]
 - Planned implementation details:
   - [Classes/components to add or modify]
   - [Key configuration, API, or database changes]
@@ -626,60 +606,23 @@ outcome that will be true once the implementation is done. 2-4 sentences.]
 - [Other story IDs or "None"]
 
 ## Concept References
-- `{{CONCEPTS_DIR}}/XX-yyy.md` - Chapter N - primary - primary specification
-- `{{CONCEPTS_DIR}}/ZZ-zzz.md` - Chapter N - excluded on purpose; document here only if that exclusion matters for scope
+- `concept/XX-yyy.md` - Chapter N - primary - primary specification
+- `concept/ZZ-zzz.md` - Chapter N - excluded on purpose; document here only if that exclusion matters for scope
 
 ## Guardrail References
-{{GUARDRAIL_REFS}}
+- Project guardrails (`guardrails/architecture-guardrails.md`, `guardrails/testing-guardrails.md`) apply.
+- List the concrete ARCH-NN / TEST-NN references relevant to this story, or "Standard project guardrails".
 
 ## Definition of Done
-{{DOD_FEATURE}}
+- All acceptance criteria met and demonstrably verified.
+- New business logic covered by unit tests; bugfixes carry a reproducing test.
+- Pipeline negative paths at phase boundaries proven where relevant.
+- `mypy` (strict) and `ruff` clean; coverage stays >= 85%.
+- No ZERO-DEBT remainders (no silent TODOs, no half-finished model transitions).
+- Concept fidelity: no implicit deviation from `concept/`; conflicts surfaced explicitly.
 ```
 
-**STOP: Before creating the issue, execute Steps 5a-section-validate, 5a.1 and 5b below. Return here only after ALL are PASS.**
-
-### Step 5a-section-validate: Story Section Validation (PFLICHTSCHRITT)
-
-**After writing the issue body temp file and BEFORE the concept reference validation:**
-
-Validate the issue body against the canonical section schema. The story body must contain
-all required sections (Target State, Acceptance Criteria, Definition of Done) with meaningful
-content — not placeholder text.
-
-```bash
-python -m agentkit story validate --file "{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md"
-```
-
-**Exit codes:**
-- `0` (PASS): All required sections present with meaningful content. Proceed.
-- `1` (WARN): Warnings present. **Fix the warnings before proceeding.** Only PASS (exit 0) is acceptable.
-- `2` (FAIL): Required sections missing or empty. **Fix the issue body before proceeding.**
-
-If FAIL: Fix the missing/empty sections in the temp file and re-validate. Do NOT proceed
-with a FAIL result — the pipeline will produce warnings or errors during execution.
-
-**Step 5c:** Create the issue using `--body-file` and delete the temp file:
-
-```bash
-{{GH_CONFIG_EXPORT}}
-
-ISSUE_URL=$(gh issue create --repo {{GH_OWNER}}/{{GH_REPO_PRIMARY}} \
-  --title "${STORY_ID}: <Title>" \
-  <LABEL_FLAGS> \
-  --body-file "{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md")
-
-ISSUE_NR=$(echo "$ISSUE_URL" | grep -oP '\d+$')
-echo "Created GitHub issue #$ISSUE_NR with story ID $STORY_ID: $ISSUE_URL"
-
-rm -f "{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md"
-```
-
-Replace `<LABEL_FLAGS>` with `--label "<label>"` for each label selected in Step 3a.
-If no labels were selected: omit the `--label` flag entirely.
-
-### For Bugfix Stories
-
-**Step 5a:** Use the **Write tool** to create `{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md` with the bugfix issue body. Template:
+#### For Bugfix Stories
 
 ```markdown
 ## Problem Context
@@ -730,55 +673,17 @@ that will be true after the fix is applied. 2-4 sentences.]
 - [List exact concept refs if the bug is constrained by concepts; otherwise "None at story creation."]
 
 ## Guardrail References
-{{GUARDRAIL_REFS}}
+- Project guardrails apply; bugfix requires a reproducing test (testing-guardrails).
+- List the concrete references relevant to this fix, or "Standard project guardrails".
 
 ## Definition of Done
-{{DOD_BUGFIX}}
+- Bug no longer reproducible; a reproducing test was added first (red) and now passes (green).
+- No regression in the existing suite; no refactoring beyond the fix scope.
+- `mypy` (strict) and `ruff` clean; coverage stays >= 85%.
+- No ZERO-DEBT remainders.
 ```
 
-**STOP: Before creating the issue, execute Steps 5a-section-validate, 5a.1 and 5b below. Return here only after ALL are PASS.**
-
-### Step 5a-section-validate: Story Section Validation (PFLICHTSCHRITT)
-
-**After writing the issue body temp file and BEFORE the concept reference validation:**
-
-Validate the issue body against the canonical section schema. The story body must contain
-all required sections (Target State, Acceptance Criteria, Definition of Done) with meaningful
-content — not placeholder text.
-
-```bash
-python -m agentkit story validate --file "{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md"
-```
-
-**Exit codes:**
-- `0` (PASS): All required sections present with meaningful content. Proceed.
-- `1` (WARN): Warnings present. **Fix the warnings before proceeding.** Only PASS (exit 0) is acceptable.
-- `2` (FAIL): Required sections missing or empty. **Fix the issue body before proceeding.**
-
-If FAIL: Fix the missing/empty sections in the temp file and re-validate. Do NOT proceed
-with a FAIL result — the pipeline will produce warnings or errors during execution.
-
-**Step 5c:** Create the issue and delete the temp file:
-
-```bash
-{{GH_CONFIG_EXPORT}}
-
-ISSUE_URL=$(gh issue create --repo {{GH_OWNER}}/{{GH_REPO_PRIMARY}} \
-  --title "${STORY_ID}: <Title>" \
-  <LABEL_FLAGS> \
-  --body-file "{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md")
-
-ISSUE_NR=$(echo "$ISSUE_URL" | grep -oP '\d+$')
-echo "Created GitHub issue #$ISSUE_NR with story ID $STORY_ID: $ISSUE_URL"
-
-rm -f "{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md"
-```
-
-Replace `<LABEL_FLAGS>` with `--label "<label>"` for each label selected in Step 3a.
-
-### For Concept Stories
-
-**Step 5a:** Use the **Write tool** to create `{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md` with the concept issue body. Template:
+#### For Concept Stories
 
 ```markdown
 ## Problem Context
@@ -791,7 +696,7 @@ design decisions, or documents will exist that do not exist today? 2-4 sentences
 ## Solution Approach
 [How will the analysis/design be performed? What questions must be answered, what artefacts
 must be produced, and which area is affected?]
-- Affected modules/areas: {{MODULES_EXAMPLE}}
+- Affected modules/areas: [e.g. backend, pipeline]
 - Key questions:
   - [Concrete question 1]
   - [Concrete question 2]
@@ -817,59 +722,20 @@ must be produced, and which area is affected?]
 - [Other story IDs or "None"]
 
 ## Concept References
-- `{{CONCEPTS_DIR}}/fachkonzept.md` - Chapter N - primary - input for this analysis
+- `concept/fachkonzept.md` - Chapter N - primary - input for this analysis
 - [Add further exact concept references or "None at story creation"]
 
 ## Guardrail References
-{{GUARDRAIL_REFS}}
+- Project guardrails apply (no code produced; concept fidelity is the bar).
+- List the concrete references relevant to this concept, or "Standard project guardrails".
 
 ## Definition of Done
-{{DOD_CONCEPT}}
+- All raised questions answered with rationale; design/analysis document produced and reviewed.
+- Output is concept-faithful and consistent with `concept/`; conflicts surfaced explicitly.
+- No ZERO-DEBT remainders (no open questions silently dropped).
 ```
 
-**STOP: Before creating the issue, execute Steps 5a-section-validate, 5a.1 and 5b below. Return here only after ALL are PASS.**
-
-### Step 5a-section-validate: Story Section Validation (PFLICHTSCHRITT)
-
-**After writing the issue body temp file and BEFORE the concept reference validation:**
-
-Validate the issue body against the canonical section schema. The story body must contain
-all required sections (Target State, Acceptance Criteria, Definition of Done) with meaningful
-content — not placeholder text.
-
-```bash
-python -m agentkit story validate --file "{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md"
-```
-
-**Exit codes:**
-- `0` (PASS): All required sections present with meaningful content. Proceed.
-- `1` (WARN): Warnings present. **Fix the warnings before proceeding.** Only PASS (exit 0) is acceptable.
-- `2` (FAIL): Required sections missing or empty. **Fix the issue body before proceeding.**
-
-If FAIL: Fix the missing/empty sections in the temp file and re-validate. Do NOT proceed
-with a FAIL result — the pipeline will produce warnings or errors during execution.
-
-**Step 5c:** Create the issue and delete the temp file:
-
-```bash
-{{GH_CONFIG_EXPORT}}
-
-ISSUE_URL=$(gh issue create --repo {{GH_OWNER}}/{{GH_REPO_PRIMARY}} \
-  --title "${STORY_ID}: <Title>" \
-  <LABEL_FLAGS> \
-  --body-file "{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md")
-
-ISSUE_NR=$(echo "$ISSUE_URL" | grep -oP '\d+$')
-echo "Created GitHub issue #$ISSUE_NR with story ID $STORY_ID: $ISSUE_URL"
-
-rm -f "{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md"
-```
-
-Replace `<LABEL_FLAGS>` with `--label "<label>"` for each label selected in Step 3a.
-
-### For Research Stories
-
-**Step 5a:** Use the **Write tool** to create `{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md` with the research issue body. Template:
+#### For Research Stories
 
 ```markdown
 ## Problem Context
@@ -915,57 +781,22 @@ or documents will exist? 2-4 sentences.]
 - [List exact concept refs if this research depends on them; otherwise "None at story creation."]
 
 ## Guardrail References
-{{GUARDRAIL_REFS}}
+- Project guardrails apply (primary/authoritative sources; no implementation work).
+- List the concrete references relevant to this research, or "Standard project guardrails".
 
 ## Definition of Done
-{{DOD_RESEARCH}}
+- All research questions answered with source evidence; findings (research.md) + sources (sources.md) complete.
+- Recommendations formulated and downstream-usable.
+- No ZERO-DEBT remainders.
 ```
 
-**STOP: Before creating the issue, execute Steps 5a-section-validate, 5a.1 and 5b below. Return here only after ALL are PASS.**
-
-### Step 5a-section-validate: Story Section Validation (PFLICHTSCHRITT)
-
-**After writing the issue body temp file and BEFORE the concept reference validation:**
-
-Validate the issue body against the canonical section schema. The story body must contain
-all required sections (Target State, Acceptance Criteria, Definition of Done) with meaningful
-content — not placeholder text.
-
-```bash
-python -m agentkit story validate --file "{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md"
-```
-
-**Exit codes:**
-- `0` (PASS): All required sections present with meaningful content. Proceed.
-- `1` (WARN): Warnings present. **Fix the warnings before proceeding.** Only PASS (exit 0) is acceptable.
-- `2` (FAIL): Required sections missing or empty. **Fix the issue body before proceeding.**
-
-If FAIL: Fix the missing/empty sections in the temp file and re-validate. Do NOT proceed
-with a FAIL result — the pipeline will produce warnings or errors during execution.
-
-**Step 5c:** Create the issue and delete the temp file:
-
-```bash
-{{GH_CONFIG_EXPORT}}
-
-ISSUE_URL=$(gh issue create --repo {{GH_OWNER}}/{{GH_REPO_PRIMARY}} \
-  --title "${STORY_ID}: <Title>" \
-  <LABEL_FLAGS> \
-  --body-file "{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md")
-
-ISSUE_NR=$(echo "$ISSUE_URL" | grep -oP '\d+$')
-echo "Created GitHub issue #$ISSUE_NR with story ID $STORY_ID: $ISSUE_URL"
-
-rm -f "{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md"
-```
-
-Replace `<LABEL_FLAGS>` with `--label "<label>"` for each label selected in Step 3a.
+**STOP: Before creating the story, execute Steps 5a-validate, 5a.1 and 5b below. Return here only after ALL are PASS.**
 
 ## Step 5a-validate: Konzeptquellen-Validierung (PFLICHTSCHRITT)
 
-**Nach dem Erstellen des Issue-Body und VOR dem ChatGPT-Review:**
+**Nach dem Erstellen des Story-Body und VOR dem ChatGPT-Review:**
 
-Wenn der Issue-Body eine `## Konzept-Referenzen`-Sektion mit Pfaden enthält
+Wenn der Story-Body eine `## Concept References`-Sektion mit Pfaden enthält
 (nicht nur den Platzhalter), validiere JEDEN referenzierten Pfad:
 
 1. Beginnt der Pfad mit `concept/`? (Konzeptquellen muessen im `concept/`-Verzeichnis liegen)
@@ -974,13 +805,13 @@ Wenn der Issue-Body eine `## Konzept-Referenzen`-Sektion mit Pfaden enthält
 4. Ist die Datei nicht leer?
 
 ```bash
-# Fuer jeden Pfad in Konzept-Referenzen:
+# Fuer jeden Pfad in Concept References:
 PFAD="{PFAD}"
 if [[ "$PFAD" != concept/* ]]; then
   echo "FEHLER: $PFAD liegt nicht im concept/-Verzeichnis"
 elif [[ "$PFAD" == *..* ]]; then
   echo "FEHLER: $PFAD enthaelt Path-Traversal"
-elif ! test -s "{{PROJECT_CODEBASE_ROOT}}/$PFAD"; then
+elif ! test -s "$PFAD"; then
   echo "FEHLER: $PFAD nicht gefunden oder leer"
 else
   echo "OK: $PFAD"
@@ -998,22 +829,22 @@ externer Systeme kann sich aendern und ist zur Erstellungszeit nicht garantiert.
 
 **Nach Step 5a-validate, VOR dem ChatGPT-Review:**
 
-Pruefe ob jede `TK-*`- und `AF-*`-Erwaehnung im Issue-Body in der
-Konzept-Referenzen-Tabelle steht.
+Pruefe ob jede `TK-*`- und `AF-*`-Erwaehnung im Story-Body in der
+Concept-References-Tabelle steht.
 
-**Option A — Python-Validator (bevorzugt):**
+**Option A — Python-Validator (bevorzugt, falls im Zielprojekt vorhanden):**
 ```bash
-python {{PROJECT_CODEBASE_ROOT}}/userstory/tools/validate_concept_refs.py \
-  --issue-body {{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md \
-  --concept-root {{CONCEPTS_DIR}} \
-  --index {{CONCEPTS_DIR}}/INDEX.yaml
+python userstory/tools/validate_concept_refs.py \
+  --story-body _temp_story_body.md \
+  --concept-root concept/ \
+  --index concept/INDEX.yaml
 ```
 Exit-Code 0 = PASS. Exit-Code 1 = Findings.
 
-**Option B — Manuell (wenn Python nicht verfuegbar):**
-1. Extrahiere alle `TK-*`, `AF-*`, `Kap.*`, `Section *` und `Appendix *` aus dem Issue-Body
+**Option B — Manuell (wenn Python-Validator nicht verfuegbar):**
+1. Extrahiere alle `TK-*`, `AF-*`, `Kap.*`, `Section *` und `Appendix *` aus dem Story-Body
    (ausserhalb der Referenzen-Sektion)
-2. Vergleiche mit den Pfaden in der `## Konzept-Referenzen`-Tabelle
+2. Vergleiche mit den Pfaden in der `## Concept References`-Tabelle
 3. Jede Erwaehnung ohne Match → `[HARD STOP]`
 
 **Bei HARD STOP:** Entweder Referenz in die Tabelle aufnehmen ODER
@@ -1021,7 +852,7 @@ Erwaehnung aus dem Body entfernen. Kein stilles Ueberspringen.
 
 ## Step 5b: ChatGPT Story Review (MANDATORY)
 
-**Every story MUST be reviewed by ChatGPT before the issue is created.**
+**Every story MUST be reviewed by ChatGPT before it is created in the backend.**
 This review is template-based — you provide structured DATA (manifests), never the review prompt.
 The prompt comes EXCLUSIVELY from the template files in `prompts/`.
 
@@ -1049,7 +880,7 @@ degrades your own output quality.
 
 ### 5b.2 Prepare Source Context
 
-Write `{{PROJECT_CODEBASE_ROOT}}/_temp_source_context.md` using the Write tool.
+Write `_temp_source_context.md` using the Write tool.
 This file MUST contain ALL input material that was used to create this story/these stories:
 
 - **User request**: The original $ARGUMENTS or conversation context
@@ -1079,7 +910,7 @@ Use template: `prompts/story-review-standalone.md`
    - `token`: from acquire result
    - `target`: `"chatgpt"`
    - `message`: "Bevor du das Review startest: Welche zusaetzlichen Dokumente, Sektionen, Appendices oder Konzepte brauchst du, um ein optimales Review zu geben? Antworte NUR mit: CONTEXT_SUFFICIENT — oder — NEEDS_CONTEXT: <komma-separierte Liste>"
-   - `merge_paths`: `["{{PROJECT_CODEBASE_ROOT}}/_temp_source_context.md", "{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md"]`
+   - `merge_paths`: `["_temp_source_context.md", "_temp_story_body.md"]`
 3. **Auswerten:**
    - Bei `CONTEXT_SUFFICIENT`: direkt zu Phase 1.
    - Bei `NEEDS_CONTEXT: <Liste>`:
@@ -1096,10 +927,10 @@ Use template: `prompts/story-review-standalone.md`
    - `token`: from acquire result
    - `target`: `"chatgpt"`
    - `message`: Content of `prompts/story-review-standalone.md` (read the file, do NOT paraphrase)
-   - `merge_paths`: `["{{PROJECT_CODEBASE_ROOT}}/_temp_source_context.md", "{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md"]`
+   - `merge_paths`: `["_temp_source_context.md", "_temp_story_body.md"]`
 5. Parse `VERDICT: PASS` or `VERDICT: REWORK`
 6. `llm_release(session_id="...", token="...")`
-7. Cleanup: `rm -f "{{PROJECT_CODEBASE_ROOT}}/_temp_source_context.md"`
+7. Cleanup: `rm -f "_temp_source_context.md"`
 
 ---
 
@@ -1109,7 +940,7 @@ Three phases: (1) per-story manifest review, (2) completeness check, (3) release
 
 **Phase 1: Generate Manifest**
 
-Write `{{PROJECT_CODEBASE_ROOT}}/_temp_manifest.json` with this structure:
+Write `_temp_manifest.json` with this structure:
 
 ```json
 {
@@ -1119,7 +950,7 @@ Write `{{PROJECT_CODEBASE_ROOT}}/_temp_manifest.json` with this structure:
   "decomposition_rationale": "Split by implementation phases: ...",
   "requirements_mapping": [
     {
-      "story_id": "BB2-030",
+      "story_id": "<assigned after creation>",
       "story_title": "...",
       "covers": ["Concept section 4.1-4.3"],
       "not_covers": ["Sections 4.4-4.9 → other stories"],
@@ -1127,9 +958,9 @@ Write `{{PROJECT_CODEBASE_ROOT}}/_temp_manifest.json` with this structure:
     }
   ],
   "all_stories_summary": [
-    "BB2-030: Error detection (Concept 4.1-4.3)",
-    "BB2-031: Retry logic (Concept 4.4-4.5)",
-    "BB2-032: Monitoring (Concept 4.6-4.9)"
+    "Error detection (Concept 4.1-4.3)",
+    "Retry logic (Concept 4.4-4.5)",
+    "Monitoring (Concept 4.6-4.9)"
   ]
 }
 ```
@@ -1147,15 +978,15 @@ Use template: `prompts/story-review-single.md`
    - `token`: from acquire result
    - `target`: `"chatgpt"`
    - `message`: Content of `prompts/story-review-single.md`
-   - `merge_paths`: `["{{PROJECT_CODEBASE_ROOT}}/_temp_manifest.json", "{{PROJECT_CODEBASE_ROOT}}/_temp_source_context.md", "{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md"]`
+   - `merge_paths`: `["_temp_manifest.json", "_temp_source_context.md", "_temp_story_body.md"]`
 3. Parse `VERDICT` for story 1. On REWORK → handle (see below).
-4. **Subsequent sends** (stories 2..N) — update `_temp_issue_body.md` with next story, then:
+4. **Subsequent sends** (stories 2..N) — update `_temp_story_body.md` with next story, then:
    `llm_send` with:
    - `session_id`: from acquire result
    - `token`: from acquire result
    - `target`: `"chatgpt"`
    - `message`: "Review the next story draft per the same template and manifest:"
-   - `merge_paths`: `["{{PROJECT_CODEBASE_ROOT}}/_temp_issue_body.md"]`
+   - `merge_paths`: `["_temp_story_body.md"]`
    (Manifest + source context retained from send 1)
 5. Parse `VERDICT` for each story.
 
@@ -1168,31 +999,31 @@ Use template: `prompts/story-review-completeness.md`
 This check runs AFTER all individual story reviews pass. It uses a DIFFERENT
 template that does NOT include the manifest — ChatGPT must judge independently.
 
-1. Write ALL story drafts into `{{PROJECT_CODEBASE_ROOT}}/_temp_all_stories.md`
-   (concatenate all N drafts with `---` separators and story IDs as headings)
+1. Write ALL story drafts into `_temp_all_stories.md`
+   (concatenate all N drafts with `---` separators and titles as headings)
 2. `llm_send` with:
    - `session_id`: from acquire result
    - `token`: from acquire result
    - `target`: `"chatgpt"`
    - `message`: Content of `prompts/story-review-completeness.md`
-   - `merge_paths`: `["{{PROJECT_CODEBASE_ROOT}}/_temp_source_context.md", "{{PROJECT_CODEBASE_ROOT}}/_temp_all_stories.md"]`
+   - `merge_paths`: `["_temp_source_context.md", "_temp_all_stories.md"]`
    (Note: NO manifest — ChatGPT judges coverage independently)
 3. Parse `COMPLETENESS VERDICT`
 4. `llm_release(session_id="...", token="...")`
-5. Cleanup: `rm -f "{{PROJECT_CODEBASE_ROOT}}/_temp_source_context.md" "{{PROJECT_CODEBASE_ROOT}}/_temp_manifest.json" "{{PROJECT_CODEBASE_ROOT}}/_temp_all_stories.md"`
+5. Cleanup: `rm -f "_temp_source_context.md" "_temp_manifest.json" "_temp_all_stories.md"`
 
 ---
 
 ### On PASS (individual story)
 
-Proceed to Step 5c for that story (create the GitHub Issue).
+Proceed to Step 5c for that story (create it in the backend).
 
 ### On REWORK (individual story)
 
 1. Show ChatGPT's feedback to the user
-2. Ask: "ChatGPT has flagged issues with story {ID}. Shall I rework it?"
-3. If yes: rework the story, regenerate `_temp_issue_body.md`, re-send for review
-4. If no (user overrides): proceed to Step 5c — document the override in the issue body
+2. Ask: "ChatGPT has flagged issues with this story. Shall I rework it?"
+3. If yes: rework the story, regenerate `_temp_story_body.md`, re-send for review
+4. If no (user overrides): proceed to Step 5c — document the override in the story body
 
 ### On GAPS_FOUND / OVERLAPS_FOUND / ISSUES_FOUND (completeness check)
 
@@ -1201,231 +1032,97 @@ Proceed to Step 5c for that story (create the GitHub Issue).
 3. For overlaps: propose scope adjustments to eliminate duplication
 4. User decides how to proceed
 
-## Step 6: Add to GitHub Project and Set Custom Fields
+## Step 5c: Create the Story in the AK3 Backend
 
-**Step 6a: Add issue to the project:**
+Create the story via the deployed AK3 control-plane tool `projectedge create-story`.
+This drives `ProjectEdgeClient.create_story` against the tenant-scoped Story-Backend
+(FK-91 §91.1a): it allocates the Story-ID atomically, runs the fail-closed
+reconciliation (VectorDB-gated related-story check incl. the LLM adjudicator), and
+validates the body in a non-bypassable create boundary. There is NO `gh issue create`.
 
 ```bash
-{{GH_CONFIG_EXPORT}}
-gh project item-add {{GH_PROJECT_NUMBER}} --owner {{GH_OWNER}} --url "$ISSUE_URL"
+python tools/agentkit/projectedge.py create-story \
+  --project-key {{project_key}} \
+  --title "<Title>" \
+  --type "<implementation|bugfix|concept|research>" \
+  --repo "<PRIMARY_REPO>" \
+  [--repo "<additional participating repo>" ...] \
+  --story-body "_temp_story_body.md" \
+  --epic "<EPIC>" \
+  --module "<MODULE>" \
+  --size "<XS|S|M|L|XL|XXL>" \
+  --mode "<execution|exploration>" \
+  [--label "<label>" ...]
 ```
 
-**Step 6b: Get the project item ID:**
+Notes:
+- `--repo` is repeatable; the **first** `--repo` is the PRIMARY_REPO, the remaining ones
+  are the additional PARTICIPATING_REPOS (Step 3c).
+- `--story-body` accepts a file path (preferred — pass `_temp_story_body.md`) or literal text.
+- `--label` is repeatable; pass one per label selected in Step 3a. Omit entirely if none.
+- `--mode` mirrors the Step 3d Pipeline-Mode determination (Exploration vs. Execution).
+- Mode-determination attributes (Change Impact, New Structures, Concept Quality) belong in
+  the story body; the backend derives the pipeline mode from them and `--mode`.
 
+**Exit codes:**
+- `0`: success. The tool prints JSON on stdout including the allocated Story-ID
+  (`story_id`), `op_id`, and the reconciliation counters. Capture `story_id` for Step 6.
+- `3` (fail-closed create rejection): the create boundary / reconciliation rejected the
+  story. The tool prints a stable error contract on stderr with an `error_code`
+  (`configuration_error`, `validation_failed`, `vectordb_unavailable`,
+  `conflict_adjudication_unavailable`, `transport_error`, ...). Report it to the user and
+  fix the root cause — do NOT retry blindly and do NOT fall back to any GitHub path.
+- `2`: argparse usage error (a malformed invocation).
+
+Delete the temp body file after a successful create:
 ```bash
-{{GH_CONFIG_EXPORT}}
-ITEM_ID=$(gh project item-list {{GH_PROJECT_NUMBER}} --owner {{GH_OWNER}} --format json --limit 200 | python -c "
-import sys, json
-data = json.loads(sys.stdin.read())
-target_repo = '{{GH_OWNER}}/{{GH_REPO_PRIMARY}}'
-for item in data.get('items', []):
-    content = item.get('content', {})
-    # Match by issue number AND repository to avoid cross-repo collisions
-    repo = content.get('repository', '')
-    nr = content.get('number', -1)
-    if nr == $ISSUE_NR and (not repo or target_repo in repo):
-        print(item['id'])
-        break
-")
-echo "Item ID: $ITEM_ID"
+rm -f "_temp_story_body.md"
 ```
 
-**If ITEM_ID is empty:** The item may not have appeared in the project yet (race condition).
-Wait 3 seconds and retry once. If still empty, report the error.
+## Step 6: Create Wiki Story Directory and Export story.md
 
-**Step 6c: Set custom fields via GraphQL:**
-
-Project ID: `{{GH_PROJECT_ID}}`
-
-Field IDs and option IDs:
-
-{{GH_PROJECT_FIELDS_TABLE}}
-
-Set all fields (replace placeholders):
+Use the `story_id` returned by Step 5c.
 
 ```bash
-{{GH_CONFIG_EXPORT}}
-
-# Status = Backlog
-gh api graphql -f query='mutation {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: "{{GH_PROJECT_ID}}",
-    itemId: "'"$ITEM_ID"'",
-    fieldId: "{{GH_FIELD_STATUS_ID}}",
-    value: { singleSelectOptionId: "{{GH_STATUS_BACKLOG_OPTION}}" }
-  }) { projectV2Item { id } }
-}'
-
-# Story ID (custom field)
-gh api graphql -f query='mutation {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: "{{GH_PROJECT_ID}}",
-    itemId: "'"$ITEM_ID"'",
-    fieldId: "{{GH_FIELD_STORY_ID_ID}}",
-    value: { text: "'"$STORY_ID"'" }
-  }) { projectV2Item { id } }
-}'
-
-# Size (replace <SIZE_OPTION_ID> with correct ID from table above)
-gh api graphql -f query='mutation {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: "{{GH_PROJECT_ID}}",
-    itemId: "'"$ITEM_ID"'",
-    fieldId: "{{GH_FIELD_SIZE_ID}}",
-    value: { singleSelectOptionId: "<SIZE_OPTION_ID>" }
-  }) { projectV2Item { id } }
-}'
-
-# Module
-gh api graphql -f query='mutation {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: "{{GH_PROJECT_ID}}",
-    itemId: "'"$ITEM_ID"'",
-    fieldId: "{{GH_FIELD_MODULE_ID}}",
-    value: { text: "<MODULE>" }
-  }) { projectV2Item { id } }
-}'
-
-# Primary Repo (from Step 3b — canonical repo ID, e.g. "backend", "root")
-gh api graphql -f query='mutation {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: "{{GH_PROJECT_ID}}",
-    itemId: "'"$ITEM_ID"'",
-    fieldId: "{{GH_FIELD_PRIMARY_REPO_ID}}",
-    value: { text: "<PRIMARY_REPO>" }
-  }) { projectV2Item { id } }
-}'
-
-# Participating Repos (from Step 3b — comma-separated canonical repo IDs, e.g. "root, backend")
-gh api graphql -f query='mutation {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: "{{GH_PROJECT_ID}}",
-    itemId: "'"$ITEM_ID"'",
-    fieldId: "{{GH_FIELD_PARTICIPATING_REPOS_ID}}",
-    value: { text: "<PARTICIPATING_REPOS>" }
-  }) { projectV2Item { id } }
-}'
-
-# Epic
-gh api graphql -f query='mutation {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: "{{GH_PROJECT_ID}}",
-    itemId: "'"$ITEM_ID"'",
-    fieldId: "{{GH_FIELD_EPIC_ID}}",
-    value: { text: "<EPIC>" }
-  }) { projectV2Item { id } }
-}'
-
-# Story Type (replace <STORY_TYPE_OPTION_ID> with correct ID from table above)
-# Options: Implementation={{GH_STORY_TYPE_IMPLEMENTATION_OPTION}}, Concept={{GH_STORY_TYPE_CONCEPT_OPTION}},
-#          Bugfix={{GH_STORY_TYPE_BUGFIX_OPTION}}, Research={{GH_STORY_TYPE_RESEARCH_OPTION}}
-gh api graphql -f query='mutation {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: "{{GH_PROJECT_ID}}",
-    itemId: "'"$ITEM_ID"'",
-    fieldId: "{{GH_FIELD_STORY_TYPE_ID}}",
-    value: { singleSelectOptionId: "<STORY_TYPE_OPTION_ID>" }
-  }) { projectV2Item { id } }
-}'
-
-# Created At (today's date)
-gh api graphql -f query='mutation {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: "{{GH_PROJECT_ID}}",
-    itemId: "'"$ITEM_ID"'",
-    fieldId: "{{GH_FIELD_CREATED_AT_ID}}",
-    value: { date: "'"$(date +%Y-%m-%d)"'" }
-  }) { projectV2Item { id } }
-}'
-
-# Change Impact
-gh api graphql -f query='mutation {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: "{{GH_PROJECT_ID}}",
-    itemId: "'"$ITEM_ID"'",
-    fieldId: "{{GH_FIELD_CHANGE_IMPACT_ID}}",
-    value: { singleSelectOptionId: "<CHANGE_IMPACT_OPTION_ID>" }
-  }) { projectV2Item { id } }
-}'
-# Options: {{GH_CHANGE_IMPACT_LOCAL_OPTION}} | {{GH_CHANGE_IMPACT_COMPONENT_OPTION}} | {{GH_CHANGE_IMPACT_CROSS_COMPONENT_OPTION}} | {{GH_CHANGE_IMPACT_ARCHITECTURE_IMPACT_OPTION}}
-
-# New Structures
-gh api graphql -f query='mutation {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: "{{GH_PROJECT_ID}}",
-    itemId: "'"$ITEM_ID"'",
-    fieldId: "{{GH_FIELD_NEW_STRUCTURES_ID}}",
-    value: { singleSelectOptionId: "<NEW_STRUCTURES_OPTION_ID>" }
-  }) { projectV2Item { id } }
-}'
-# Options: {{GH_NEW_STRUCTURES_TRUE_OPTION}} | {{GH_NEW_STRUCTURES_FALSE_OPTION}}
-
-# Concept Quality (Pflicht — immer setzen, Default: "High")
-gh api graphql -f query='mutation {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: "{{GH_PROJECT_ID}}",
-    itemId: "'"$ITEM_ID"'",
-    fieldId: "{{GH_FIELD_CONCEPT_QUALITY_ID}}",
-    value: { singleSelectOptionId: "<CONCEPT_QUALITY_OPTION_ID>" }
-  }) { projectV2Item { id } }
-}'
-# Options: {{GH_CONCEPT_QUALITY_HIGH_OPTION}} | {{GH_CONCEPT_QUALITY_MEDIUM_OPTION}} | {{GH_CONCEPT_QUALITY_LOW_OPTION}}
-# Low → triggert Exploration in der Pipeline. High = Standard.
-# Low → triggert Exploration in der Pipeline. Bei Concept/Research nicht relevant (kein Exploration-Mode).
-```
-
-### Remove Skill Marker
-
-Issue and project fields are set — remove the governance marker:
-
-```bash
-rm -f _temp/governance/.skill-create-userstory-active
-```
-
-## Step 7: Create Wiki Story Directory and Export story.md
-
-```bash
-STORY_DIR="{{WIKI_STORIES_DIR}}/${STORY_ID}_<kebab-case-slug>"
+STORY_ID="<story_id from Step 5c JSON>"
+STORY_DIR="{{wiki_stories_dir}}/${STORY_ID}_<kebab-case-slug>"
 mkdir -p "$STORY_DIR"
 ```
 
 **IMPORTANT: Do NOT write story.md yourself using the Write tool.**
-Instead, run the deterministic export command which fetches the issue from GitHub,
-writes an exact copy with YAML frontmatter, AND indexes the story in VectorDB:
+Instead, run the deterministic export command which writes an exact copy with YAML
+frontmatter AND indexes the story in VectorDB (Weaviate):
 
 ```bash
 python -m agentkit export-story-md \
   --story-id "$STORY_ID" \
-  --issue-nr $ISSUE_NR \
-  --story-dir "$STORY_DIR" \
-  --story-type "<STORY_TYPE>" \
-  --module "<MODULE>" \
-  --epic "<EPIC>"
+  --story-dir "$STORY_DIR"
 ```
 
-This command does THREE things in one deterministic step:
-1. Fetches the issue via `gh issue view`
-2. Writes `story.md` with YAML frontmatter (1:1 copy of GitHub Issue)
-3. Indexes the story in VectorDB (Weaviate) for semantic search
+The export reads the story 1:1 from the AK3 backend by `--story-id`, so the
+story type / module / epic are taken from the backend record (do NOT pass them
+on the command line — the parser only accepts `--story-id`, `--story-dir` and an
+optional `--project-root`).
 
-If the command fails (including VectorDB indexing failure), report the error —
-do NOT fall back to writing story.md manually or skipping indexing.
+This command writes `story.md` with YAML frontmatter (a 1:1 copy of the backend story)
+and indexes the story in VectorDB for semantic search. If the command fails (including
+VectorDB indexing failure), report the error — do NOT fall back to writing story.md
+manually or skipping indexing.
 
-## Step 8: Present Summary
+## Step 7: Present Summary
 
 After all steps complete, present to the user:
 
 ```
 Story created:
-- Story ID: {{PROJECT_PREFIX}}-{NNN} (or {{PROJECT_PREFIX}}-FIX-{NNN})
-- GitHub Issue: #<ISSUE_NR> in {{GH_OWNER}}/<REPO>
-- Project: Added to {{PROJECT_NAME}} — Status=Backlog, Story ID=<STORY_ID>, Size=<SIZE>, Module=<MODULE>, Epic=<EPIC>, Created=<DATE>
-- Wiki: {{WIKI_STORIES_DIR}}/<STORY_DIR>/story.md
-- URL: <ISSUE_URL>
+- Story ID: <STORY_ID> (allocated by the AK3 backend)
+- Backend: created in the AK3 Story-Backend (control plane) — status Backlog
+- Wiki: {{wiki_stories_dir}}/<STORY_DIR>/story.md
+- Repos: <PRIMARY_REPO> (primary), <PARTICIPATING_REPOS>
 
-Note: GitHub issue number (#<ISSUE_NR>) and story ID (<STORY_ID>) are independent.
 The story ID is the canonical reference used in prompts, telemetry, and directory names.
 
-Status is Backlog. To start execution, set the status to "Approved" first
-(via GitHub Project Board UI or GraphQL CLI update with option "{{GH_STATUS_APPROVED_OPTION}}").
+Status is Backlog. To start execution, the story must be approved first
+(status-transition backlog → approved via the AK3 control plane, FK-91 §91.1a
+`POST /v1/stories/{story_id}/approve` — a human release action).
 ```

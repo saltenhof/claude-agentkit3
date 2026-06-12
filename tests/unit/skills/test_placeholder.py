@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,7 @@ def _project_config(
     project_key: str = "my-proj",
     github_owner: str | None = "my-org",
     github_repo: str | None = "my-repo",
+    wiki_stories_dir: str = "stories",
 ) -> ProjectConfig:
     return ProjectConfig(
         project_key=project_key,
@@ -49,6 +51,7 @@ def _project_config(
         repositories=[RepositoryConfig(name="app", path=Path("."))],
         github_owner=github_owner,
         github_repo=github_repo,
+        wiki_stories_dir=wiki_stories_dir,
         pipeline=_OPT_OUT_PIPELINE,
     )
 
@@ -87,6 +90,26 @@ class TestMandatoryPlaceholders:
         )
         result = self.sub.substitute(template, self.cfg)
         assert result == "owner=my-org repo=app key=my-proj prefix=MY-PROJ"
+
+    def test_wiki_stories_dir_default(self) -> None:
+        # AG3-113: surviving layout token resolves to config.wiki_stories_dir.
+        result = self.sub.substitute("Dir: {{wiki_stories_dir}}", self.cfg)
+        assert result == "Dir: stories"
+
+    def test_wiki_stories_dir_custom(self) -> None:
+        cfg = _project_config(wiki_stories_dir="docs/stories")
+        result = self.sub.substitute("{{wiki_stories_dir}}/INDEX.md", cfg)
+        assert result == "docs/stories/INDEX.md"
+
+    def test_full_lowercase_vocabulary_together(self) -> None:
+        template = (
+            "owner={{gh_owner}} repo={{gh_repo}} key={{project_key}} "
+            "prefix={{project_prefix}} wiki={{wiki_stories_dir}}"
+        )
+        result = self.sub.substitute(template, self.cfg)
+        assert result == (
+            "owner=my-org repo=app key=my-proj prefix=MY-PROJ wiki=stories"
+        )
 
     def test_no_placeholders_passthrough(self) -> None:
         result = self.sub.substitute("no placeholders here", self.cfg)
@@ -228,3 +251,97 @@ class TestSpawnHeaderSubstitution:
             "key={{project_key}}", self.cfg, tmp_path
         )
         assert result == "key=my-proj"
+
+
+# ---------------------------------------------------------------------------
+# AG3-113 — FK-43 vocabulary parity + shipped-bundle full resolution (NO-STUB)
+# ---------------------------------------------------------------------------
+
+#: Tokens that the substitutor intentionally does NOT resolve and that may remain
+#: literally in materialised content (story §2.1.5 / AC5 + AC8a exceptions):
+#:  * ``<STORY-ID>`` / ``<ROUND>`` — non-``{{}}`` runtime markers (not matched here).
+#:  * the conditional block directives ``{{#...}}`` / ``{{^...}}`` / ``{{/...}}`` —
+#:    a SEPARATE render mechanism (out of scope, FK-43 §43.4.2 "keine Template-Engine").
+_BLOCK_DIRECTIVE_RE = re.compile(r"\{\{[#^/][^}]+\}\}")
+
+#: The two re-cut bundles whose vocabulary must be FULLY resolvable, plus
+#: execute-userstory-core (AG3-111 E2E target, AC8a). All three must resolve with
+#: a real ProjectConfig + a real installed manifest (NO substitutor mock).
+_RECUT_BUNDLES = (
+    "create-userstory-core",
+    "lookup-userstory-core",
+    "execute-userstory-core",
+)
+
+
+def _bundle_md_files(bundle_id: str) -> list[Path]:
+    from agentkit.skills.bundle_store import shipped_skill_bundles_root
+
+    root = shipped_skill_bundles_root() / bundle_id / "4.0.0"
+    return sorted(root.glob("**/*.md"))
+
+
+def test_fk43_vocabulary_matches_concept_table() -> None:
+    # AC2: the substitutor's config-fed vocabulary is exactly the FK-43 §43.4.2
+    # lowercase table (4 identity tokens + the surviving wiki_stories_dir layout
+    # token). The manifest-fed proof is separate and NOT in this set.
+    from agentkit.skills.placeholder import _MANDATORY_PLACEHOLDERS
+
+    expected = [
+        "gh_owner",
+        "gh_repo",
+        "project_key",
+        "project_prefix",
+        "wiki_stories_dir",
+    ]
+    assert sorted(_MANDATORY_PLACEHOLDERS) == expected
+    assert SPAWN_SKILL_PROOF_PLACEHOLDER not in _MANDATORY_PLACEHOLDERS
+
+
+class TestShippedBundleFullResolution:
+    """AC5 / AC8a (NO-STUB): every shipped re-cut bundle .md resolves fully."""
+
+    def setup_method(self) -> None:
+        self.sub = PlaceholderSubstitutor()
+        self.cfg = _project_config()
+
+    @pytest.mark.parametrize("bundle_id", _RECUT_BUNDLES)
+    def test_every_md_resolves_without_unknown_or_residual(
+        self, bundle_id: str, tmp_path: Path
+    ) -> None:
+        # Real ProjectConfig + real installed manifest (NO mock of the substitutor).
+        _write_manifest(tmp_path, "deadbeefcafe0123")
+        md_files = _bundle_md_files(bundle_id)
+        assert md_files, f"no .md files found for bundle {bundle_id}"
+        for md in md_files:
+            content = md.read_text(encoding="utf-8")
+            # NO UnknownPlaceholderError (fail-closed-on-unknown stays valid because
+            # the vocabulary is complete for these bundles).
+            resolved = self.sub.substitute_spawn_header(content, self.cfg, tmp_path)
+            # Strip the allowed conditional block directives, then assert NO residual
+            # {{...}} token remains.
+            residual = _residual_placeholders_after_blocks(resolved)
+            assert residual == [], (
+                f"residual {{{{...}}}} tokens in {md.name} of {bundle_id}: {residual}"
+            )
+
+    @pytest.mark.parametrize("bundle_id", ("create-userstory-core", "execute-userstory-core"))
+    def test_resolution_is_idempotent_byte_identical(
+        self, bundle_id: str, tmp_path: Path
+    ) -> None:
+        # AC8: repeated substitution of the same bundle + config is byte-identical
+        # (prep for AG3-111 materialisation).
+        _write_manifest(tmp_path, "deadbeefcafe0123")
+        for md in _bundle_md_files(bundle_id):
+            content = md.read_text(encoding="utf-8")
+            first = self.sub.substitute_spawn_header(content, self.cfg, tmp_path)
+            second = self.sub.substitute_spawn_header(content, self.cfg, tmp_path)
+            assert first == second
+
+
+def _residual_placeholders_after_blocks(text: str) -> list[str]:
+    """Return residual ``{{...}}`` tokens after removing block directives."""
+    from agentkit.skills.placeholder import _PLACEHOLDER_RE
+
+    without_blocks = _BLOCK_DIRECTIVE_RE.sub("", text)
+    return _PLACEHOLDER_RE.findall(without_blocks)

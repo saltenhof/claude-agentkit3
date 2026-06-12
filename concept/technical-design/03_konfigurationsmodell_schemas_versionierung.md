@@ -184,6 +184,22 @@ sonarqube:
   accept_frequency_fc_threshold: 0.25  # Anteil der Stories, ab dem eine haeufig akzeptierte Regel zum Failure-Corpus-Signal wird (FK-27 §27.6b, FK-41 §41.10)
 ```
 
+#### Projekt-Layout-Felder (Top-Level `ProjectConfig`)
+
+`wiki_stories_dir` (oben im Beispiel) ist ein typisiertes Top-Level-Feld
+des `ProjectConfig` (nicht unter `pipeline`) und gibt das **projekt-
+relative** Verzeichnis der Wiki-Stories an (Default `stories`). Es wird
+vom FK-43-`PlaceholderSubstitutor` als Token `{{wiki_stories_dir}}` in
+Skill-Bundles aufgeloest (FK-43 §43.4.2). Validierung (fail-closed):
+nicht-leer, projektrelativ, **kein** absoluter Pfad, **kein** `..`-
+Segment — das Feld wird fuer Dateisystem-Operationen (Story-Verzeichnis
+anlegen, Export) verwendet. `guardrails_dir`/`guardrails_pattern` bleiben
+projektrelative Layout-Felder. Bundle-/install-spezifische Pfade (z. B.
+der Skill-Bundle-Root mit den Prompt-Templates) sind **kein**
+`project.yaml`-Feld: sie sind Bindungs-/Installationszustand (FK-43
+§43.4.1, `.installed-manifest.json`) und werden nicht ueber die
+nutzer-editierbare Projektkonfiguration gefuehrt (SSOT).
+
 #### SonarQube-Stanza (`sonarqube`) — Felder und Validierung
 
 Die `sonarqube`-Stanza deklariert die Umgebungs- und Profil-Anforderung

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from importlib import import_module
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Annotated, Any
 
 from pydantic import (
@@ -805,6 +805,11 @@ class ProjectConfig(BaseModel):
         story_types: Allowed story types for this project.
         github_owner: GitHub organisation or user owning the repo.
         github_repo: GitHub repository name.
+        wiki_stories_dir: Project-relative directory holding the wiki stories
+            (FK-03 §3.1 / FK-43 §43.4.2 placeholder ``{{wiki_stories_dir}}``).
+            Defaults to ``"stories"``. Used for filesystem operations (story
+            directory creation, export), so it is validated fail-closed:
+            non-empty, project-relative, no absolute path, no ``..`` segment.
         policy: Top-level verify-stage overrides (FK-33 §33.2.4).
         worker_health: Mandatory worker-health monitor configuration (FK-49).
             There is no disable field; the monitor is part of the runtime.
@@ -821,8 +826,40 @@ class ProjectConfig(BaseModel):
     story_types: list[str] = list(DEFAULT_STORY_TYPES)
     github_owner: str | None = None
     github_repo: str | None = None
+    wiki_stories_dir: str = "stories"
     are: AreConfig | None = None
     worker_health: WorkerHealthConfig = WorkerHealthConfig()
+
+    @field_validator("wiki_stories_dir")
+    @classmethod
+    def _check_wiki_stories_dir(cls, value: str) -> str:
+        """FK-03 §3.1 / FK-43 §43.4.2: validate the wiki-stories directory.
+
+        Fail-closed (the value drives filesystem operations): the directory
+        must be a non-empty, project-relative path with no ``..`` traversal
+        segment and no absolute / drive-anchored prefix.
+        """
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError(
+                "wiki_stories_dir must be a non-empty project-relative path "
+                "(FK-03 §3.1, fail-closed)"
+            )
+        candidate = PurePosixPath(stripped.replace("\\", "/"))
+        windows = PureWindowsPath(stripped)
+        # Reject absolute (POSIX/Windows) AND drive-qualified-but-relative forms
+        # like ``C:stories`` (a drive anchor is not a clean project-relative path).
+        if candidate.is_absolute() or windows.is_absolute() or windows.drive:
+            raise ValueError(
+                f"wiki_stories_dir must be project-relative, not absolute or "
+                f"drive-anchored: {value!r} (FK-03 §3.1, fail-closed)"
+            )
+        if ".." in candidate.parts:
+            raise ValueError(
+                f"wiki_stories_dir must not contain a '..' traversal segment: "
+                f"{value!r} (FK-03 §3.1, fail-closed)"
+            )
+        return stripped
 
     @model_validator(mode="after")
     def _validate_stage_overrides_known(self) -> ProjectConfig:

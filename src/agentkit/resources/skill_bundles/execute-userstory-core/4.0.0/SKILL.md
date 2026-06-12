@@ -100,14 +100,17 @@ This header is mandatory. The governance hook blocks non-conformant spawns.
 
 ## Input
 
-The skill receives a story ID as argument (e.g. `{{PROJECT_PREFIX}}-042`).
+The skill receives a story ID as argument (e.g. `{{project_prefix}}-042`).
 
 ## Step 0: Load Orchestrator System Prompt
+
+All prompt-template paths below are **relative to this skill bundle**
+(the directory holding this `SKILL.md`), e.g. `prompts/orchestrator-system.md`.
 
 Read and internalize the orchestrator role definition:
 
 ```
-{{USERSTORY_BUNDLE_PATH}}/prompts/orchestrator-system.md
+prompts/orchestrator-system.md
 ```
 
 This defines what the orchestrator may and may not do. Follow it strictly.
@@ -493,18 +496,18 @@ The user decides whether and how to continue.
 ## Prompt Template Paths
 
 ```
-{{USERSTORY_BUNDLE_PATH}}/prompts/orchestrator-system.md
-{{USERSTORY_BUNDLE_PATH}}/prompts/worker-implementation.md       (implementation stories)
-{{USERSTORY_BUNDLE_PATH}}/prompts/worker-bugfix.md               (bugfix stories)
-{{USERSTORY_BUNDLE_PATH}}/prompts/worker-concept.md              (concept stories)
-{{USERSTORY_BUNDLE_PATH}}/prompts/worker-research.md             (research stories)
-{{USERSTORY_BUNDLE_PATH}}/prompts/worker-remediation.md          (all types, rounds 2+)
-{{USERSTORY_BUNDLE_PATH}}/prompts/qa-semantic.md                 (implementation stories)
-{{USERSTORY_BUNDLE_PATH}}/prompts/qa-semantic-bugfix.md          (bugfix stories)
-{{USERSTORY_BUNDLE_PATH}}/prompts/qa-semantic-concept.md         (concept stories)
-{{USERSTORY_BUNDLE_PATH}}/prompts/qa-semantic-research.md        (research stories)
-{{USERSTORY_BUNDLE_PATH}}/prompts/qa-guardrail.md                (all types, if guardrails configured)
-{{USERSTORY_BUNDLE_PATH}}/prompts/sparring/  (used by Worker, not by Orchestrator)
+prompts/orchestrator-system.md
+prompts/worker-implementation.md       (implementation stories)
+prompts/worker-bugfix.md               (bugfix stories)
+prompts/worker-concept.md              (concept stories)
+prompts/worker-research.md             (research stories)
+prompts/worker-remediation.md          (all types, rounds 2+)
+prompts/qa-semantic.md                 (implementation stories)
+prompts/qa-semantic-bugfix.md          (bugfix stories)
+prompts/qa-semantic-concept.md         (concept stories)
+prompts/qa-semantic-research.md        (research stories)
+prompts/qa-guardrail.md                (all types, if guardrails configured)
+prompts/sparring/  (used by Worker, not by Orchestrator)
 ```
 
 ---

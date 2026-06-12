@@ -34,13 +34,17 @@ if TYPE_CHECKING:
 # Regex that matches any {{...}} placeholder token.
 _PLACEHOLDER_RE = re.compile(r"\{\{(\w+)\}\}")
 
-# The four mandatory placeholders defined in FK-43 §43.4.2.
+# The FK-43 §43.4.2 config-fed placeholder vocabulary (lowercase, snake_case).
+# Four mandatory identity tokens plus the surviving layout token
+# ``wiki_stories_dir``. This set is authoritative and closed: any token not
+# listed here (and not the manifest-fed proof) breaks fail-closed.
 _MANDATORY_PLACEHOLDERS: frozenset[str] = frozenset(
     {
         "gh_owner",
         "gh_repo",
         "project_prefix",
         "project_key",
+        "wiki_stories_dir",
     }
 )
 
@@ -52,14 +56,17 @@ SPAWN_SKILL_PROOF_PLACEHOLDER = "AGENT_SPAWN_SKILL_PROOF"
 class PlaceholderSubstitutor:
     """Substitutes FK-43 §43.4.2 placeholder tokens in skill content.
 
-    Supports exactly four mandatory placeholders (FK-43 §43.4.2 table):
+    Supports exactly the FK-43 §43.4.2 config-fed placeholder table
+    (lowercase, snake_case):
 
-    * ``{{gh_owner}}``       — ``config.github_owner``
-    * ``{{gh_repo}}``        — ``config.repositories[0].name``
+    * ``{{gh_owner}}``          — ``config.github_owner``
+    * ``{{gh_repo}}``           — ``config.repositories[0].name``
       (deterministic first repository; single-repo: the only one)
-    * ``{{project_prefix}}`` — ``config.project_prefix``
+    * ``{{project_prefix}}``    — ``config.project_prefix``
       (FK-03 §3.2 / defaulted from ``project_key.upper()`` when absent)
-    * ``{{project_key}}``    — ``config.project_key``
+    * ``{{project_key}}``       — ``config.project_key``
+    * ``{{wiki_stories_dir}}``  — ``config.wiki_stories_dir``
+      (FK-03 §3.1 project-relative wiki-stories directory; default ``stories``)
 
     The accepted config type is the top-level ``ProjectConfig`` (which
     aggregates ``PipelineConfig`` and carries all FK-03 §3.2 fields).
@@ -143,7 +150,7 @@ class PlaceholderSubstitutor:
 
     @staticmethod
     def _config_values(config: ProjectConfig) -> dict[str, str]:
-        """Return the four FK-03 placeholder values from *config* (FK-43 §43.4.2)."""
+        """Return the FK-43 §43.4.2 config-fed placeholder values from *config*."""
         if not config.repositories:
             msg = (
                 "PlaceholderSubstitutor requires at least one repository in "
@@ -158,6 +165,7 @@ class PlaceholderSubstitutor:
             "gh_repo": config.repositories[0].name,
             "project_prefix": config.project_prefix,
             "project_key": config.project_key,
+            "wiki_stories_dir": config.wiki_stories_dir,
         }
 
     @staticmethod

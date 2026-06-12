@@ -1,8 +1,23 @@
 story_id: AG3-113
 title: "Skill-Bundle-Re-Cut: GitHub-Projects-Tokens raus + Token-Vokabular-Korrektur (create/lookup auf AK3-Control-Plane, FK-43/FK-03-Delta) + toter Projects-Adapter entsorgt"
 type: implementation
-status: ready
-phase: setup
+status: completed
+phase: closure
+completed: "2026-06-12"
+# COMPLETED 2026-06-12. Re-cut deployed bundles off GitHub-Projects + fixed the placeholder token
+# vocabulary so the fail-closed substitutor resolves every token. create-userstory wires onto the
+# AG3-114 `projectedge create-story` tool (no gh issue create/list/view, no next-id, no 12 graphql
+# mutations, no {{GH_CONFIG_EXPORT}}); lookup reads the Source-A wiki mirror + project-scoped
+# Control-Plane read endpoints (/v1/projects/{key}/stories/...). D1 lowercase vocab; D2 one surviving
+# typed layout field wiki_stories_dir (FK-03 §3.1 + ProjectConfig fail-closed validator rejecting
+# absolute AND drive-relative paths); userstory_bundle_path stayed inlined (SSOT). FK-43 §43.2.3/§43.4.2
+# concept delta via Codex approval flow. Dead integrations/github/projects.py removed (no live consumer).
+# Codex (sole gate): round-1 CHANGES-REQUESTED (2 ERRORs: fabricated export-story-md flags;
+# bare /v1/stories lookup) -> fixed -> round-2 APPROVE. Orchestrator Aufräumrunde rode along:
+# projectedge.py S3776 cognitive complexity 16->14 via _build_master_fields extract (behavior-neutral,
+# clears the trunk's 1 new_critical_violation). Gates green: ruff, mypy 694, GAC-1, 6247 unit+contract,
+# vocabulary NO-STUB test over create+lookup+execute. Unblocks AG3-111.
+# --- original READY plan ---
 # READY 2026-06-12: AG3-114 landed (native ProjectEdgeClient.create_story + target-tool create-story
 # via the tenant-scoped /v1/projects/{key}/stories). Next: revise this spec per the Codex spec-review
 # (job-d1cc630a, CHANGES-REQUESTED) now that the create path is real — fix CLI surfaces (no
