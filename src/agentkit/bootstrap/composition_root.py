@@ -51,7 +51,10 @@ if TYPE_CHECKING:
     )
     from agentkit.exploration.change_frame import ChangeFrame
     from agentkit.exploration.drafting import ExplorationDrafting
-    from agentkit.exploration.mandate.fine_design import FineDesignRoundOutcome
+    from agentkit.exploration.mandate.fine_design import (
+        FineDesignEvaluator,
+        FineDesignRoundOutcome,
+    )
     from agentkit.exploration.phase import ExplorationPhaseHandler
     from agentkit.exploration.review import ExplorationReview
     from agentkit.failure_corpus import FailureCorpus
@@ -60,6 +63,7 @@ if TYPE_CHECKING:
     from agentkit.governance.repository import SetupContextRepository
     from agentkit.governance.setup_preflight_gate.phase import SetupPhaseHandler
     from agentkit.kpi_analytics import KpiAnalytics
+    from agentkit.multi_llm_hub.client import HubClientProtocol
     from agentkit.pipeline_engine.engine import PipelineEngine
     from agentkit.pipeline_engine.lifecycle import HandlerResult, PhaseHandlerRegistry
     from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
@@ -488,6 +492,7 @@ def build_exploration_phase_handler(
     story_dir: Path,
     *,
     review: ExplorationReview | None = None,
+    fine_design_evaluator: FineDesignEvaluator | None = None,
 ) -> ExplorationPhaseHandler:
     """Wire the registrable ``ExplorationPhaseHandler`` surface (AG3-045/AG3-046).
 
@@ -520,16 +525,22 @@ def build_exploration_phase_handler(
     ``change_impact``). The bloodgroup-A core imports none of these I/O sources
     directly; the telemetry / state-backend / clock wiring lives HERE.
 
-    The fine-design subprocess is wired with the PRODUCTIVE, fail-closed
-    :class:`_UnavailableFineDesignEvaluator`: the full FK-25 §25.5 multi-LLM
-    fine-design discussion is a FOLLOW-UP story, so the productive wiring must NOT
-    fabricate convergence. The evaluator therefore raises
-    :class:`FineDesignEvaluatorUnavailableError` on every round (FK-25 §25.5.4
-    non-reachability), so a class-2 (fine_design) story ESCALATES to a human with
-    the ``fine_design_required`` reaction instead of silently reaching APPROVED /
-    freeze with no real fine-design (ZERO DEBT / FAIL-CLOSED). The
-    :class:`FineDesignSubprocess` shell stays intact and converges WHEN a real /
-    scripted evaluator is injected (the unit/integration tests inject one).
+    AG3-097: the fine-design subprocess is wired with the CONCRETE multi-LLM-hub
+    evaluator :class:`HubFineDesignEvaluator` by DEFAULT (built by
+    :func:`build_hub_fine_design_evaluator` over the real :class:`HubClient`
+    transport + a productive prompt builder + the LLM-delegating convergence
+    judge). The REAL build path therefore drives the hub (ChatGPT + a mandatory
+    second advisor are acquired/sent over the hub, FK-25 §25.5.2), NOT a stand-in
+    that never touches the hub. The convergence VERDICT is delegated to the
+    fail-closed LLM client until the FK-11 pool selection is wired, so a class-2
+    frame: drives the real hub advisors, then -- per D4-Override (FK-25 §25.5.4
+    Z. 642-650) -- ends ``FAILED`` after the bounded retry (cause in
+    ``AttemptRecord.failure_cause``) rather than fabricating an APPROVED / freeze
+    with no real verdict (ZERO DEBT / FAIL-CLOSED; NO ``infra_unavailable``
+    triple). ``fine_design_evaluator`` lets a caller inject an explicit evaluator
+    (e.g. the fail-closed :class:`_UnavailableFineDesignEvaluator` for a justified
+    hub-absent config, or a scripted evaluator in tests); the DEFAULT is the
+    hub-backed evaluator. The :class:`FineDesignSubprocess` shell is unchanged.
 
     Args:
         story_dir: Story working directory (bound ``FlowExecution`` + the read
@@ -537,6 +548,10 @@ def build_exploration_phase_handler(
             handler config.
         review: Optional pre-built three-stage exit-gate. ``None`` fails closed
             on a valid change-frame (AG3-054 injects the per-run review).
+        fine_design_evaluator: Optional explicit fine-design evaluator. ``None``
+            (the default) wires the hub-backed :class:`HubFineDesignEvaluator`
+            over the real transport; a caller may inject the fail-closed stand-in
+            for a justified hub-absent config or a scripted evaluator in tests.
 
     Returns:
         A wired ``ExplorationPhaseHandler`` (incl. the AG3-047 mandate flow).
@@ -570,7 +585,8 @@ def build_exploration_phase_handler(
         scope_detector=ScopeExplosionDetector(),
         impact_checker=ImpactExceedanceChecker(),
     )
-    fine_design = FineDesignSubprocess(_UnavailableFineDesignEvaluator())
+    evaluator = fine_design_evaluator or build_hub_fine_design_evaluator(story_dir)
+    fine_design = FineDesignSubprocess(evaluator)
     freeze_marker = DesignFreezeMarker(
         writer=adapter, clock=lambda: datetime.now(UTC)
     )
@@ -601,6 +617,65 @@ def build_exploration_phase_handler(
         telemetry=telemetry,
         drafting=drafting,
         draft_presence=adapter if drafting is not None else None,
+    )
+
+
+def build_hub_fine_design_evaluator(
+    story_dir: Path,
+    *,
+    hub_client: HubClientProtocol | None = None,
+    llm_client: LlmClient | None = None,
+    owner: str | None = None,
+) -> FineDesignEvaluator:
+    """Wire the productive multi-LLM-hub fine-design evaluator (AG3-097).
+
+    Composition root for :class:`HubFineDesignEvaluator` (FK-25 §25.5.2/§25.5.4):
+    binds the REAL :class:`HubClient` transport (resolved from
+    :func:`load_multi_llm_hub_config`, default localhost) plus the productive
+    :class:`ChangeFrameFineDesignPromptBuilder` and the LLM-delegating
+    :class:`LlmConvergenceJudge`. The judge's verdict transport defaults to the
+    fail-closed :class:`FailClosedLlmClient` (no FK-11 LLM pool is wired yet), so
+    the assembled evaluator REALLY drives the hub (acquire/send ChatGPT + a
+    mandatory second advisor) and then fails closed at the convergence verdict ->
+    the caller edge maps that to D4 bounded-retry-then-``FAILED`` (no fabricated
+    convergence; ZERO DEBT / FAIL-CLOSED). Once the pool adapter exists the caller
+    passes a real ``llm_client`` and the verdict becomes live with no transport
+    change.
+
+    Args:
+        story_dir: Story working directory (telemetry root + story-id correlation
+            via the canonical ``<project_root>/stories/<story_id>`` layout).
+        hub_client: Optional hub transport. ``None`` => the real
+            :class:`HubClient` over the resolved hub base URL.
+        llm_client: Optional convergence-verdict LLM transport. ``None`` => the
+            fail-closed :class:`FailClosedLlmClient` (FK-11 pool is a follow-up).
+        owner: Optional hub session owner id. ``None`` => a story-correlated
+            default.
+
+    Returns:
+        A wired :class:`HubFineDesignEvaluator` (typed as the
+        :class:`FineDesignEvaluator` port).
+    """
+    from agentkit.exploration.mandate.hub_fine_design import HubFineDesignEvaluator
+    from agentkit.exploration.mandate.hub_fine_design_wiring import (
+        ChangeFrameFineDesignPromptBuilder,
+        LlmConvergenceJudge,
+    )
+    from agentkit.multi_llm_hub.client import HubClient
+    from agentkit.multi_llm_hub.config import load_multi_llm_hub_config
+    from agentkit.telemetry.storage import StateBackendEmitter
+    from agentkit.verify_system.llm_evaluator.llm_client import FailClosedLlmClient
+
+    story_id = story_dir.name
+    client = hub_client or HubClient(load_multi_llm_hub_config().base_url)
+    verdict_client = llm_client or FailClosedLlmClient()
+    return HubFineDesignEvaluator(
+        client,
+        emitter=StateBackendEmitter(story_dir),
+        judge=LlmConvergenceJudge(verdict_client),
+        prompt_builder=ChangeFrameFineDesignPromptBuilder(),
+        owner=owner or f"exploration-fine-design-{story_id}",
+        story_id=story_id,
     )
 
 
@@ -753,23 +828,24 @@ class _StateBackendDeclaredImpactReader:
 
 @dataclass(frozen=True)
 class _UnavailableFineDesignEvaluator:
-    """Productive fail-closed fine-design evaluator (AG3-047, FK-25 §25.5.4).
+    """Fail-closed fine-design evaluator for a justified hub-absent config.
 
-    FK-25 §25.5 / story AG3-047 §2.1.4: the full multi-LLM fine-design discussion
-    (ChatGPT-mandatory acquire/send/release over the LLM hub) is a deliberate
-    FOLLOW-UP story. The PRODUCTIVE wiring must therefore NOT fabricate a
-    converged outcome for a class-2 (fine_design) frame -- that would let a story
-    with unresolved design points reach APPROVED / freeze with no real
-    fine-design (an Attrappe passing as productive core logic, forbidden).
+    AG3-097: the DEFAULT canonical production wiring now uses the concrete
+    :class:`HubFineDesignEvaluator` (see :func:`build_hub_fine_design_evaluator`),
+    which drives the real hub. This stand-in remains for a justified config where
+    the hub is intentionally absent -- the caller injects it explicitly via
+    ``build_exploration_phase_handler(..., fine_design_evaluator=...)``. It must
+    NEVER fabricate a converged outcome for a class-2 (fine_design) frame -- that
+    would let a story with unresolved design points reach APPROVED / freeze with
+    no real fine-design (an Attrappe passing as productive core logic, forbidden).
 
-    This evaluator instead raises :class:`FineDesignEvaluatorUnavailableError` on
-    every round -- the honest FK-25 §25.5.4 non-reachability signal ("no LLM is
-    available ... escalation to the human"). The
-    :class:`FineDesignSubprocess` shell does NOT swallow it; the exploration
-    phase handler escalates the class-2 story fail-closed with the
-    ``fine_design_required`` reaction. The follow-up story injects the real
-    ChatGPT-mandatory multi-LLM evaluator here; the orchestration shell
-    (:class:`FineDesignSubprocess`) stays unchanged and converges with it.
+    It raises :class:`FineDesignEvaluatorUnavailableError` on every round -- the
+    honest FK-25 §25.5.4 non-reachability signal ("no LLM is available"). The
+    :class:`FineDesignSubprocess` shell does NOT swallow it; per D4-Override
+    (FK-25 §25.5.4 Z. 642-650) the exploration phase handler treats
+    non-reachability as an OPERATIONAL error -> bounded retry, then ``FAILED``
+    (cause in AttemptRecord.failure_cause) -- NOT a pause, NO ``infra_unavailable``
+    triple.
     """
 
     def run_round(

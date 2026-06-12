@@ -637,12 +637,12 @@ def test_real_entities_md_loads_boundary_modules() -> None:
     compiled = compile_formal_specs(Path("concept/formal-spec"))
     config = load_architecture_conformance_config(compiled)
 
-    assert len(config.boundary_modules) == 15, (
-        f"Expected 15 boundary_modules, got {len(config.boundary_modules)}: "
+    assert len(config.boundary_modules) == 16, (
+        f"Expected 16 boundary_modules, got {len(config.boundary_modules)}: "
         f"{[bm.boundary_id for bm in config.boundary_modules]}"
     )
-    assert len(config.boundary_module_kinds) == 6, (
-        f"Expected 6 boundary_module_kinds, got {len(config.boundary_module_kinds)}"
+    assert len(config.boundary_module_kinds) == 7, (
+        f"Expected 7 boundary_module_kinds, got {len(config.boundary_module_kinds)}"
     )
 
 

@@ -179,18 +179,29 @@ class CcagDecision:
 #: HookEvent field that carries operating mode (added if absent).
 _OPERATING_MODE_FIELD = "operating_mode"
 
-OperatingMode = Literal["story_execution", "ai_augmented", "interactive_agent"]
+# CCAG's permission-decision axis is DELIBERATELY a DIFFERENT axis from the FK-56
+# operating-mode literal (``story_context_manager.operating_mode_resolver.OperatingMode``
+# = ``ai_augmented``/``story_execution``/``binding_invalid``). Per FK-42 §42.2.5 +
+# FK-56 §56.4 CCAG keys its no-match decision on whether a synchronous host-prompt
+# is admissible, which is a property of the PRINCIPAL (FK-56 §56.4: the
+# ``ai_augmented`` mode's main-agent principal IS the ``interactive_agent``, a
+# distinct capability class from the ``orchestrator``). It therefore has NO
+# ``binding_invalid`` (binding validity is the hard guards' job, not CCAG's) and
+# instead distinguishes ``interactive_agent``. Conflating the two literals would
+# build a SECOND, conflicting operating-mode truth (FIX-THE-MODEL: forbidden), so
+# this axis carries its own name and is NOT the SSOT ``OperatingMode``.
+CcagDecisionMode = Literal["story_execution", "ai_augmented", "interactive_agent"]
 
-_STORY_EXECUTION: OperatingMode = "story_execution"
-_AI_AUGMENTED: OperatingMode = "ai_augmented"
-_INTERACTIVE_AGENT: OperatingMode = "interactive_agent"
+_STORY_EXECUTION: CcagDecisionMode = "story_execution"
+_AI_AUGMENTED: CcagDecisionMode = "ai_augmented"
+_INTERACTIVE_AGENT: CcagDecisionMode = "interactive_agent"
 
 _KNOWN_MODES: frozenset[str] = frozenset(
     {_STORY_EXECUTION, _AI_AUGMENTED, _INTERACTIVE_AGENT}
 )
 
 
-def _extract_operating_mode(event: HookEvent) -> OperatingMode:
+def _extract_operating_mode(event: HookEvent) -> CcagDecisionMode:
     """Extract the operating mode from a HookEvent.
 
     HookEvent is frozen (Pydantic) and does not currently carry
@@ -392,7 +403,7 @@ class CcagPermissionRuntime:
         *,
         tool_name: str,
         tool_input: dict[str, object],
-        operating_mode: OperatingMode,
+        operating_mode: CcagDecisionMode,
         hook_event: HookEvent,
     ) -> CcagDecision:
         """Handle the no-match case per operating mode (FK-42 §42.2.5).
@@ -515,9 +526,9 @@ class CcagPermissionRuntime:
 __all__ = [
     "CcagDecision",
     "CcagDecisionKind",
+    "CcagDecisionMode",
     "CcagPermissionRuntime",
-    "OperatingMode",
-    "_STORY_EXECUTION",
     "_AI_AUGMENTED",
     "_INTERACTIVE_AGENT",
+    "_STORY_EXECUTION",
 ]

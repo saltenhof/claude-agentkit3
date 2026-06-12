@@ -172,3 +172,67 @@ def test_unknown_session_is_propagated() -> None:
 
     with pytest.raises(HubSessionNotFoundError):
         client.send(session_id="missing", token="tok", message="Hello")
+
+
+def test_session_stats_maps_per_llm_and_release(  # AG3-097 AK5
+) -> None:
+    """session_stats maps per-LLM count/answered + derives released from status."""
+    transport = _FakeTransport()
+    transport.responses[("GET", "/api/session/stats?session_id=s-1")] = {
+        "session_id": "s-1",
+        "status": "released",
+        "backends": {
+            "chatgpt": {"message_count": 3, "answered": True},
+            "qwen": {"message_count": 2, "answered": True},
+        },
+    }
+    client = HubClient("http://hub.test", transport=transport)
+
+    stats = client.session_stats(session_id="s-1")
+
+    assert stats.session_id == "s-1"
+    assert stats.status == "released"
+    assert stats.released is True
+    by_backend = {row.backend: row for row in stats.backends}
+    assert by_backend["chatgpt"].message_count == 3
+    assert by_backend["chatgpt"].answered is True
+    assert by_backend["qwen"].answered is True
+
+
+def test_session_stats_active_session_is_not_released() -> None:
+    """An ``active`` session after the discussion is NOT a correct release."""
+    transport = _FakeTransport()
+    transport.responses[("GET", "/api/session/stats?session_id=s-2")] = {
+        "session_id": "s-2",
+        "status": "active",
+        "backends": {"chatgpt": {"message_count": 1, "answered": True}},
+    }
+    client = HubClient("http://hub.test", transport=transport)
+
+    stats = client.session_stats(session_id="s-2")
+
+    assert stats.released is False
+
+
+def test_session_stats_zero_answer_is_faithfully_reported() -> None:
+    """A 0-answer / non-answering backend is reported as answered=False.
+
+    The faithful client must NOT read a non-answering LLM as answered (that would
+    hide the upstream fail-closed abort). With no explicit flag it derives from a
+    0 message_count.
+    """
+    transport = _FakeTransport()
+    transport.responses[("GET", "/api/session/stats?session_id=s-3")] = {
+        "session_id": "s-3",
+        "status": "released",
+        "backends": {
+            "chatgpt": {"message_count": 2, "answered": True},
+            "qwen": {"message_count": 0},
+        },
+    }
+    client = HubClient("http://hub.test", transport=transport)
+
+    stats = client.session_stats(session_id="s-3")
+
+    by_backend = {row.backend: row for row in stats.backends}
+    assert by_backend["qwen"].answered is False

@@ -25,6 +25,14 @@ from agentkit.control_plane.records import (
     SessionRunBindingRecord,
 )
 from agentkit.control_plane.repository import ControlPlaneRuntimeRepository
+
+# Deliberate RUNTIME re-import (not TYPE_CHECKING): this is the SSOT re-import of
+# the canonical FK-56 operating-mode literal from its SINGLE foundation definition
+# (``core_types.operating_mode``). It must be a runtime binding so the
+# single-definition identity holds for consumers (and is assertable) -- moving it
+# into a type-checking block would make ``control_plane.runtime.OperatingMode`` a
+# different/absent object at runtime, defeating the AK2 SSOT consolidation.
+from agentkit.core_types.operating_mode import OperatingMode  # noqa: TC001
 from agentkit.exceptions import (
     ControlPlaneBindingCollisionError,
     ControlPlaneClaimCollisionError,
@@ -44,7 +52,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-OperatingMode = Literal["ai_augmented", "story_execution", "binding_invalid"]
+# OperatingMode (FK-56 §56.5 / §56.7a) is RE-IMPORTED from its canonical SSOT
+# foundation definition ``core_types.operating_mode``: this runtime CLASSIFIES
+# the mode (``_resolve_operating_mode``) but does NOT redeclare the type, so there
+# is exactly one definition and no drift (AK2 SSOT). The named
+# ``operating_mode_resolver`` A-core remains the SSOT accessor seam.
 FreshnessClass = Literal["baseline_read", "guarded_read", "mutation"]
 
 _SYNC_AFTER_BY_CLASS = {

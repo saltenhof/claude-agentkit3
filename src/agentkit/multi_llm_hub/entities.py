@@ -92,3 +92,53 @@ class HubSessionLease(BaseModel):
     token: str
     llms: list[HubBackendName]
     slots: dict[HubBackendName, int]
+
+
+class HubBackendSessionStats(BaseModel):
+    """Per-LLM post-hoc stats for one Hub session (FK-25 §25.5.4).
+
+    Read-only verification surface the fine-design adapter consumes after a
+    discussion to assert each acquired LLM actually participated (>= 1 answer)
+    and that the session was correctly released. NO enforcement logic lives in
+    the model -- it is a typed fact carrier (ARCH-41).
+
+    Attributes:
+        backend: The LLM backend this row describes.
+        message_count: Number of messages the backend exchanged this session.
+        answered: Whether the backend produced at least one answer (>= 1
+            assistant response). FK-25 §25.5.4: a 0-answer acquired LLM is a
+            fail-closed abort upstream.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    backend: HubBackendName
+    message_count: int = Field(ge=0)
+    answered: bool
+
+
+class HubSessionStats(BaseModel):
+    """Post-hoc ``llm_session_stats`` read model for one Hub session (FK-25 §25.5.4).
+
+    The AK3-side consume surface for the external Hub's ``llm_session_stats``
+    MCP tool. Read-only: it carries per-LLM participation + the session/release
+    status so the fine-design adapter can (a) abort fail-closed on a 0-answer
+    LLM and (b) write a telemetry WARNING when a session was not correctly
+    released (SEVERITY-semantics).
+
+    Attributes:
+        session_id: The session these stats describe.
+        status: The session lifecycle status (``active`` / ``released`` /
+            ``expired``).
+        released: Whether the session was correctly released. ``False`` (e.g. a
+            still-``active`` or ``expired`` session after the discussion) drives
+            the FK-25 §25.5.4 release WARNING.
+        backends: Per-LLM stats for every acquired backend.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    session_id: str
+    status: HubSessionStatus
+    released: bool
+    backends: list[HubBackendSessionStats]

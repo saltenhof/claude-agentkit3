@@ -220,6 +220,121 @@ def test_fine_design_max_rounds_escalates_and_emits_decisions() -> None:
     assert review.run_design_challenge_seen == []
 
 
+@dataclass
+class _AlwaysUnreachable:
+    """Evaluator whose multi-LLM quorum is never reachable (FK-25 §25.5.4)."""
+
+    calls: int = 0
+
+    def run_round(
+        self, change_frame: ChangeFrame, *, round_number: int
+    ) -> FineDesignRoundOutcome:
+        from agentkit.exploration.mandate.fine_design import (
+            FineDesignEvaluatorUnavailableError,
+        )
+
+        del change_frame, round_number
+        self.calls += 1
+        msg = "no second LLM reachable"
+        raise FineDesignEvaluatorUnavailableError(msg)
+
+
+def test_fine_design_non_reachability_is_failed_not_paused() -> None:
+    """D4: non-reachability -> bounded-retry-then-FAILED, NOT PAUSED/infra (AK4).
+
+    Asserts the D4 model exactly: status FAILED, NO yield_status (PAUSED) and NO
+    suggested_reaction (escalation), the failure cause is carried in errors, and
+    a bounded retry actually retried (>1 attempt) before FAILED.
+    """
+    emitter = MemoryEmitter()
+    evaluator = _AlwaysUnreachable()
+    handler = _handler(
+        _fine_design_frame(),
+        review=_ScriptedReview(_dummy_approved()),
+        fine_design=FineDesignSubprocess(evaluator),
+        emitter=emitter,
+        impact_reader=_FixedImpactReader(ChangeImpact.ARCHITECTURE_IMPACT),
+    )
+
+    result = handler.on_enter(_ctx(), _envelope())
+
+    assert result.status is PhaseStatus.FAILED
+    # D4: NO PAUSED triple, NO escalation_class/infra_unavailable carrier, NO
+    # escalation. The result carries NO yield_status (PAUSED) and NO
+    # suggested_reaction (the ESCALATED carrier AG3-047 uses) -- it is a plain
+    # FAILED whose cause the engine records in AttemptRecord.failure_cause.
+    assert result.yield_status is None
+    assert result.suggested_reaction is None
+    assert any("fine_design_quorum_unreachable" in err for err in result.errors)
+    # Bounded retry actually retried before giving up (>1 attempt).
+    assert evaluator.calls > 1
+
+
+@dataclass
+class _ConvergesThenFinalizeZeroAnswer:
+    """Converges on every round, but ``finalize`` aborts on a 0-answer post-hoc.
+
+    Models the AK5 hazard: the live ``run`` discussion converges, but the post-hoc
+    ``llm_session_stats`` verification (run in ``finalize``) finds an acquired LLM
+    with 0 answers and aborts fail-closed. Faithful to the real
+    :class:`HubFineDesignEvaluator` lifecycle (``run_round`` then ``finalize``).
+    """
+
+    run_rounds: int = 0
+    finalize_calls: int = 0
+
+    def run_round(
+        self, change_frame: ChangeFrame, *, round_number: int
+    ) -> FineDesignRoundOutcome:
+        del change_frame, round_number
+        self.run_rounds += 1
+        return FineDesignRoundOutcome(converged=True, decisions=())
+
+    def finalize(self) -> None:
+        from agentkit.exploration.mandate.fine_design import (
+            FineDesignEvaluatorUnavailableError,
+        )
+
+        self.finalize_calls += 1
+        msg = (
+            "post-hoc llm_session_stats shows advisor 'qwen' with 0 answers "
+            "(FK-25 §25.5.4): the class-2 decision is aborted fail-closed"
+        )
+        raise FineDesignEvaluatorUnavailableError(msg)
+
+
+def test_fine_design_finalize_failure_after_convergence_is_failed_not_taken() -> None:
+    """AK5 (AG3-097 review): a 0-answer finalize abort after a CONVERGED run must
+
+    fail-closed to FAILED -- the converged-but-unverified class-2 decision is NOT
+    taken. The bug was that the ``finally`` swallowed the finalize failure and let
+    the pending converged ``return`` proceed; the fix discards the result and (the
+    finalize failure being a reachability failure) retries within the bounded
+    budget, then maps to FAILED (D4). Drives the real handler path.
+    """
+    emitter = MemoryEmitter()
+    evaluator = _ConvergesThenFinalizeZeroAnswer()
+    handler = _handler(
+        _fine_design_frame(),
+        review=_ScriptedReview(_dummy_approved()),
+        fine_design=FineDesignSubprocess(evaluator),
+        emitter=emitter,
+        impact_reader=_FixedImpactReader(ChangeImpact.ARCHITECTURE_IMPACT),
+    )
+
+    result = handler.on_enter(_ctx(), _envelope())
+
+    # The class-2 decision is NOT taken: the converged-but-unverified result is
+    # discarded and the run ends FAILED (D4), NOT COMPLETED/ESCALATED.
+    assert result.status is PhaseStatus.FAILED
+    assert result.yield_status is None
+    assert result.suggested_reaction is None
+    assert any("fine_design_quorum_unreachable" in err for err in result.errors)
+    # finalize ran each attempt and the bounded retry actually retried (>1).
+    assert evaluator.finalize_calls > 1
+    assert evaluator.run_rounds > 1
+
+
 def test_gate_rejected_maps_to_escalated() -> None:
     """A REJECTED gate (no freeze) -> ESCALATED with gate REJECTED."""
     from agentkit.exploration.review.doc_fidelity import DocFidelityResult

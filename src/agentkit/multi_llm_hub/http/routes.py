@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 _CORRELATION_HEADER = "X-Correlation-Id"
 _HUB_MESSAGES_PATH = re.compile(r"^/v1/hub/sessions/(?P<session_id>[^/]+)/messages$")
 _HUB_RELEASE_PATH = re.compile(r"^/v1/hub/sessions/(?P<session_id>[^/]+)/release$")
+_HUB_STATS_PATH = re.compile(r"^/v1/hub/sessions/(?P<session_id>[^/]+)/stats$")
 
 
 @dataclass(frozen=True)
@@ -102,6 +103,11 @@ class MultiLlmHubRoutes:
             return self._handle_status(correlation_id)
         if route_path == "/v1/hub/sessions":
             return self._handle_sessions(correlation_id)
+        stats_match = _HUB_STATS_PATH.match(route_path)
+        if stats_match is not None:
+            return self._handle_session_stats(
+                stats_match.group("session_id"), correlation_id
+            )
         if route_path == "/v1/events/hub":
             return self._handle_hub_events(query, correlation_id)
         return None
@@ -149,6 +155,32 @@ class MultiLlmHubRoutes:
         return _json_response(
             HTTPStatus.OK,
             {"sessions": [session.model_dump(mode="json") for session in sessions]},
+            correlation_id=correlation_id,
+        )
+
+    def _handle_session_stats(
+        self,
+        session_id: str,
+        correlation_id: str,
+    ) -> MultiLlmHubRouteResponse:
+        """Read-only ``llm_session_stats`` BFF route (FK-25 §25.5.4, GET).
+
+        Proxies the external Hub's post-hoc session-stats surface (per-LLM
+        message count + answered flag + session/release status). Read-only: no
+        token, no enforcement logic at the BFF -- the fine-design adapter owns
+        the abort / WARNING decisions.
+        """
+        try:
+            stats = self._client.session_stats(session_id=session_id)
+        except HubSessionNotFoundError as exc:
+            return _not_found_response(str(exc), correlation_id)
+        except HubUnavailableError as exc:
+            return _unavailable_response(str(exc), correlation_id)
+        except MultiLlmHubError as exc:
+            return _hub_error_response(str(exc), correlation_id)
+        return _json_response(
+            HTTPStatus.OK,
+            {"stats": stats.model_dump(mode="json")},
             correlation_id=correlation_id,
         )
 

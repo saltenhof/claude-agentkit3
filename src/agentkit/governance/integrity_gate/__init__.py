@@ -37,6 +37,10 @@ from agentkit.governance.integrity_gate.dimensions import (
     mandatory_dimensions_for,
     required_phases_for,
 )
+from agentkit.governance.integrity_gate.mode_guard import (
+    IntegrityGateNotApplicableError,
+    guard_integrity_gate_mode,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -49,6 +53,9 @@ if TYPE_CHECKING:
     )
     from agentkit.governance.repository import IntegrityGateStatePort
     from agentkit.state_backend.scope import RuntimeStateScope
+    from agentkit.story_context_manager.operating_mode_resolver import (
+        OperatingMode,
+    )
     from agentkit.story_context_manager.types import StoryType
 
 
@@ -153,9 +160,20 @@ class IntegrityGate:
         story_dir: Path,
         story_type: StoryType,
         *,
+        operating_mode: OperatingMode = "story_execution",
         fresh_attestation: FreshAttestation | None = None,
     ) -> IntegrityGateResult:
         """Evaluate all integrity dimensions for the given story (FK-35 §35.2).
+
+        FK-56 §56.7a / §56.10 mode exclusion (AG3-097): the gate is NOT
+        applicable in the ``ai_augmented`` (free / unbound) mode. That exclusion
+        is enforced FIRST, before any integrity work -- an ``ai_augmented``
+        invocation raises :class:`IntegrityGateNotApplicableError` and emits NO
+        ``integrity_gate_started`` / ``integrity_gate_result`` event and produces
+        NO closure FAIL-code. The mode comes from the named
+        ``operating_mode_resolver`` owner (the same seam ``guard_evaluation``
+        reads); a bound closure run is ``story_execution`` (the default), so no
+        existing caller's behaviour changes.
 
         Phase 1 (mandatory pre-stage, FK-35 §35.2.3): Dim 1-2-4 must all exist.
         A missing one aborts with that ``MISSING_*`` failure reason; the
@@ -166,6 +184,9 @@ class IntegrityGate:
         Args:
             story_dir: Story base directory.
             story_type: Type of the story being evaluated.
+            operating_mode: The resolved FK-56 operating mode (default
+                ``"story_execution"``). ``"ai_augmented"`` aborts fail-closed
+                before any work (FK-56 §56.7a / §56.10).
             fresh_attestation: The fresh, commit-bound attestation the Closure
                 pre-merge scan (AG3-056) produced (FK-29 §29.1a.3 d). When
                 supplied, Dim 9 VERIFIES exactly this attestation (green +
@@ -176,7 +197,15 @@ class IntegrityGate:
 
         Returns:
             An :class:`IntegrityGateResult`.
+
+        Raises:
+            IntegrityGateNotApplicableError: If ``operating_mode`` is
+                ``"ai_augmented"`` (FK-56 §56.7a / §56.10) -- raised before any
+                integrity work or telemetry.
         """
+        # FK-56 §56.7a / §56.10 (AG3-097): hard, typed mode exclusion BEFORE any
+        # integrity work -- no event, no FAIL-code in the ai_augmented mode.
+        guard_integrity_gate_mode(operating_mode)
         gate_ctx = IntegrityGateContext(story_dir=story_dir, story_type=story_type)
         runtime_scope = self._resolve_scope(story_dir)
         results: dict[IntegrityDimension, DimensionResult] = {}
@@ -380,7 +409,9 @@ __all__ = [
     "IntegrityDimension",
     "IntegrityGate",
     "IntegrityGateContext",
+    "IntegrityGateNotApplicableError",
     "IntegrityGateResult",
     "IntegrityGateStatus",
+    "guard_integrity_gate_mode",
     "required_phases_for",
 ]

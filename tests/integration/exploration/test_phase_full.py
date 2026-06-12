@@ -348,16 +348,20 @@ def test_trivial_approves_and_freezes(tmp_path: Path) -> None:
     assert _frozen_file_exists(story_dir) is True
 
 
-def test_fine_design_escalates_fail_closed_no_freeze(tmp_path: Path) -> None:
-    """Klasse 2 (fine-design) on the PRODUCTIVE wiring -> ESCALATED, no freeze.
+def test_fine_design_non_reachability_fails_closed_no_freeze(tmp_path: Path) -> None:
+    """Klasse 2 (fine-design) non-reachability -> FAILED (D4), no freeze.
 
-    ERROR-1 fix (FK-25 §25.5 / §25.5.4): the productive composition root wires the
-    fail-closed :class:`_UnavailableFineDesignEvaluator` (the real multi-LLM
-    fine-design evaluator is a follow-up). A class-2 frame therefore ESCALATES to
-    a human with the ``fine_design_required`` reaction instead of silently
-    reaching APPROVED / freeze with no real fine-design. The change-frame is NOT
-    frozen (NO ERROR BYPASSING).
+    D4-Override (FK-25 §25.5.4 Z. 642-650): non-reachability is an OPERATIONAL
+    error, NOT a pause. Here the fail-closed :class:`_UnavailableFineDesignEvaluator`
+    is INJECTED explicitly via ``fine_design_evaluator`` (the justified hub-absent
+    config) so the test stays deterministic + offline; after the bounded retry a
+    class-2 frame ends ``status: FAILED`` (cause recorded in
+    AttemptRecord.failure_cause by the engine) -- NOT ESCALATED, NOT PAUSED, NO
+    infra_unavailable triple. The change-frame is NOT frozen (NO ERROR BYPASSING).
     """
+    from agentkit.bootstrap.composition_root import _UnavailableFineDesignEvaluator
+    from agentkit.exploration.mandate.fine_design import FineDesignSubprocess
+
     story_dir = _story_dir(tmp_path)
     _bind_flow(story_dir)
     _save_story(story_dir, declared=ChangeImpact.ARCHITECTURE_IMPACT)
@@ -365,17 +369,111 @@ def test_fine_design_escalates_fail_closed_no_freeze(tmp_path: Path) -> None:
     _persist_frame(manager, story_dir, _fine_design_frame())
     ctx = _ctx(story_dir)
     handler = build_exploration_phase_handler(
-        story_dir, review=_passing_review(ctx, story_dir)
+        story_dir,
+        review=_passing_review(ctx, story_dir),
+        fine_design_evaluator=_UnavailableFineDesignEvaluator(),
+    )
+    # The injected hub-absent stand-in is what the shell drives.
+    assert isinstance(
+        handler._fine_design,  # noqa: SLF001 -- assert the wired evaluator
+        FineDesignSubprocess,
     )
 
     result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(_state()))
 
-    assert result.status is PhaseStatus.ESCALATED
-    assert result.suggested_reaction is not None
-    assert "fine_design_required" in result.suggested_reaction
+    assert result.status is PhaseStatus.FAILED
+    # D4: no infra_unavailable / PAUSED / escalation_class anywhere.
+    assert result.yield_status is None
+    assert result.suggested_reaction is None
+    assert any("fine_design_quorum_unreachable" in err for err in result.errors)
     assert _frozen_file_exists(story_dir) is False
-    # The mandate classification telemetry still fired before the escalation.
+    # The mandate classification telemetry still fired before the failure.
     events = {
         e.event_type for e in load_execution_events(story_dir, story_id=_STORY_ID)
     }
     assert EventType.MANDATE_CLASSIFICATION in events
+
+
+def test_productive_wiring_uses_hub_fine_design_evaluator_by_default(
+    tmp_path: Path,
+) -> None:
+    """ANTI-DEAD-PATH (AG3-097 review Blocker #1): the REAL build path uses the hub.
+
+    The canonical productive ``build_exploration_phase_handler`` (no injected
+    evaluator) MUST assemble the concrete :class:`HubFineDesignEvaluator` over the
+    real :class:`HubClient` transport -- NOT the ``_UnavailableFineDesignEvaluator``
+    stand-in. Without this guard the hub fine-design would be dead code in
+    production (the AG3-072 dead-path failure mode). Asserts the assembled
+    handler's fine-design evaluator IS the hub evaluator wired with the real hub
+    client + the productive prompt builder + the LLM-delegating convergence judge.
+    """
+    from agentkit.bootstrap.composition_root import _UnavailableFineDesignEvaluator
+    from agentkit.exploration.mandate.hub_fine_design import HubFineDesignEvaluator
+    from agentkit.exploration.mandate.hub_fine_design_wiring import (
+        ChangeFrameFineDesignPromptBuilder,
+        LlmConvergenceJudge,
+    )
+    from agentkit.multi_llm_hub.client import HubClient
+
+    story_dir = _story_dir(tmp_path)
+    ctx = _ctx(story_dir)
+    handler = build_exploration_phase_handler(
+        story_dir, review=_passing_review(ctx, story_dir)
+    )
+
+    evaluator = handler._fine_design._evaluator  # noqa: SLF001 -- anti-dead-path
+    assert isinstance(evaluator, HubFineDesignEvaluator)
+    assert not isinstance(evaluator, _UnavailableFineDesignEvaluator)
+    # The hub-backed evaluator drives the REAL transport + productive collaborators.
+    assert isinstance(evaluator._client, HubClient)  # noqa: SLF001
+    assert isinstance(  # noqa: SLF001
+        evaluator._prompt_builder, ChangeFrameFineDesignPromptBuilder
+    )
+    assert isinstance(evaluator._judge, LlmConvergenceJudge)  # noqa: SLF001
+
+
+def test_productive_hub_fine_design_run_drives_the_hub_path(tmp_path: Path) -> None:
+    """The hub-backed evaluator REALLY drives the hub on a class-2 frame run.
+
+    Asserts the anti-dead-path end-to-end: the productive handler's hub evaluator
+    is exercised over a fake-but-production-faithful hub (boundary-only double).
+    The discussion acquires ChatGPT + a mandatory second advisor and SENDS the
+    real round prompt over the hub -- proving the build path drives the hub, not a
+    placeholder that never touches it. The convergence judge here is wired to the
+    default fail-closed LLM client, so the run ends FAILED (D4) -- but only AFTER
+    the hub advisors were really acquired + sent to.
+    """
+    from tests.unit.exploration.mandate.test_hub_fine_design import _FakeHub
+
+    from agentkit.bootstrap.composition_root import build_hub_fine_design_evaluator
+
+    story_dir = _story_dir(tmp_path)
+    _bind_flow(story_dir)
+    _save_story(story_dir, declared=ChangeImpact.ARCHITECTURE_IMPACT)
+    manager = build_artifact_manager(story_dir)
+    _persist_frame(manager, story_dir, _fine_design_frame())
+    ctx = _ctx(story_dir)
+
+    hub = _FakeHub(available=("chatgpt", "qwen"))
+    # Real productive hub-evaluator builder, only the hub transport boundary is a
+    # production-faithful fake (MOCKS exception). The judge defaults to the
+    # fail-closed LLM client -> the run drives the hub then fails closed (D4).
+    evaluator = build_hub_fine_design_evaluator(story_dir, hub_client=hub)
+    handler = build_exploration_phase_handler(
+        story_dir,
+        review=_passing_review(ctx, story_dir),
+        fine_design_evaluator=evaluator,
+    )
+
+    result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(_state()))
+
+    # The hub WAS driven: the mandatory advisors were acquired AND a real send
+    # happened over the hub (>= 1 send per advisor) before the verdict failed closed.
+    assert hub.granted == ("chatgpt", "qwen")
+    assert all(
+        hub.send_counts.get(advisor, 0) >= 1 for advisor in ("chatgpt", "qwen")
+    )
+    # The verdict failed closed (no FK-11 pool) -> D4 FAILED, no fabricated freeze.
+    assert result.status is PhaseStatus.FAILED
+    assert result.yield_status is None
+    assert _frozen_file_exists(story_dir) is False

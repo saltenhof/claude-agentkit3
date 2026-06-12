@@ -23,12 +23,17 @@ if TYPE_CHECKING:
 
     import pytest
 
+    # Canonical FK-56 operating-mode literal -- the SINGLE foundation definition
+    # (``core_types.operating_mode``). Annotation-only here (PEP 563 deferred), so
+    # it lives in the type-checking block; no inline literal redeclaration.
+    from agentkit.core_types.operating_mode import OperatingMode
+
 
 def _bundle(
     *,
     worktree_root: str,
     session_id: str = "sess-001",
-    operating_mode: Literal["ai_augmented", "story_execution", "binding_invalid"] = "story_execution",
+    operating_mode: OperatingMode = "story_execution",
     sync_after: datetime | None = None,
     lock_status: Literal["ACTIVE", "INACTIVE", "INVALID"] = "ACTIVE",
     qa_lock_status: Literal["ACTIVE", "INACTIVE", "INVALID"] = "ACTIVE",

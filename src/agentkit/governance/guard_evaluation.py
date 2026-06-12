@@ -24,6 +24,9 @@ from agentkit.projectedge.runtime import (
     ResolvedEdgeState,
     read_change_frame_freeze_state,
 )
+from agentkit.story_context_manager.operating_mode_resolver import (
+    resolve_operating_mode,
+)
 
 Operation = Literal[
     "bash_command",
@@ -96,10 +99,8 @@ def evaluate_pre_tool_use(event: HookEvent, *, project_root: Path) -> GuardVerdi
     )
     context.update(_guard_context(event, resolved, project_root=project_root))
 
-    if (
-        resolved.operating_mode == "binding_invalid"
-        and freshness_class == "mutation"
-    ):
+    operating_mode = resolve_operating_mode(resolved)
+    if operating_mode == "binding_invalid" and freshness_class == "mutation":
         return GuardVerdict.block(
             "operating_mode_guard",
             ViolationType.POLICY_VIOLATION,
@@ -146,7 +147,7 @@ def _guard_context(
             and resolved.bundle.qa_lock.status == "ACTIVE"
         )
     context: dict[str, object] = {
-        "operating_mode": resolved.operating_mode,
+        "operating_mode": resolve_operating_mode(resolved),
         "principal_kind": event.principal_kind,
         "active_story_id": story_id,
         "project_key": context_project_key if story_id else "",
@@ -212,7 +213,7 @@ def _guards_for_state(
 ) -> list[GovernanceGuard]:
     guards: list[GovernanceGuard] = [BranchGuard()]
     if (
-        resolved.operating_mode == "story_execution"
+        resolve_operating_mode(resolved) == "story_execution"
         and resolved.bundle is not None
         and resolved.bundle.session is not None
     ):

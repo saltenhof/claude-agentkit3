@@ -84,13 +84,22 @@ _FINE_DESIGN_MAX_ROUNDS_REACTION = (
     "within the round limit -- operator decision required (FK-25 §25.5.1)"
 )
 
-#: Operator-facing escalation reaction when the fine-design evaluator could not
-#: run at all (FK-25 §25.5.4 non-reachability). The productive wiring escalates
-#: a fine-design (Klasse-2) story here until the real multi-LLM evaluator exists
-#: (follow-up story); it never silently converges a class-2 frame.
-_FINE_DESIGN_UNAVAILABLE_REACTION = (
-    "fine_design_required: real fine-design evaluator not yet available "
-    "(follow-up); operator intervention required (FK-25 §25.5 / §25.5.4)"
+#: Bounded retry count for a fine-design non-reachability before FAILED (D4).
+#: FK-25 §25.5.4 Z. 642-650 / D4-Override: non-reachability is an OPERATIONAL
+#: error -- a bounded retry, then ``status: FAILED`` (NOT a pause, NOT an
+#: infra_unavailable triple). One retry is the buildable bound in this cut.
+_FINE_DESIGN_REACHABILITY_RETRIES = 1
+
+#: Fail-closed FAILED message when the fine-design multi-LLM quorum is not
+#: reachable after the bounded retry (D4 -> FAILED; cause recorded in the
+#: AttemptRecord.failure_cause as HANDLER_REPORTED_FAILED by the engine). There
+#: is deliberately NO escalation_class / infra_unavailable / PAUSED here.
+_FINE_DESIGN_UNREACHABLE_FAILURE = (
+    "fine_design_quorum_unreachable: the multi-LLM fine-design quorum "
+    "(ChatGPT + a second advisor) was not reachable / an acquired LLM produced "
+    "no answer after a bounded retry. Per D4 (FK-25 §25.5.4 Z. 642-650) this is "
+    "an operational error -> status FAILED (no PAUSED, no infra_unavailable); "
+    "the story can be re-triggered once the hub is restored."
 )
 
 _EXPLORATION_SUMMARY_FILE = "exploration-summary.md"
@@ -561,11 +570,13 @@ class ExplorationPhaseHandler:
         Emits one ``fine_design_decision`` event per decision (FK-25 §25.8). On
         ``converged`` the flow continues to the review (returns ``None``); on
         ``max_rounds_exceeded`` it escalates fail-closed (FK-25 §25.5.1). When the
-        injected evaluator cannot run at all
-        (:class:`FineDesignEvaluatorUnavailableError`, FK-25 §25.5.4 -- the
-        productive case until the real multi-LLM evaluator exists) it escalates
-        fail-closed with the ``fine_design_required`` reaction; it NEVER fabricates
-        a converged outcome for a class-2 frame (ZERO DEBT / FAIL-CLOSED).
+        multi-LLM quorum is NOT reachable
+        (:class:`FineDesignEvaluatorUnavailableError`, FK-25 §25.5.4), the bounded
+        retry runs and then -- per D4-Override (FK-25 §25.5.4 Z. 642-650) -- the
+        iteration ends ``FAILED`` (an OPERATIONAL error, cause recorded in
+        AttemptRecord.failure_cause), NOT a pause, NO ``infra_unavailable`` triple.
+        It NEVER fabricates a converged outcome for a class-2 frame (ZERO DEBT /
+        FAIL-CLOSED).
 
         Args:
             ctx: The story context for this run.
@@ -574,9 +585,10 @@ class ExplorationPhaseHandler:
             run_id: The bound run id.
 
         Returns:
-            ``None`` to continue to the review (converged), or a terminal
-            ESCALATED ``HandlerResult`` (round limit or evaluator unavailable),
-            or a fail-closed FAILED result when the subprocess is not wired.
+            ``None`` to continue to the review (converged), a terminal ESCALATED
+            ``HandlerResult`` (round limit), or a fail-closed FAILED result
+            (non-reachability after bounded retry -- D4 -- or the subprocess not
+            being wired).
         """
         from agentkit.exploration.mandate.fine_design import (
             FineDesignEvaluatorUnavailableError,
@@ -594,15 +606,21 @@ class ExplorationPhaseHandler:
                 ),
             )
         try:
-            outcome: FineDesignResult = self._fine_design.run(change_frame)
+            outcome: FineDesignResult = self._run_fine_design_with_retry(
+                change_frame
+            )
         except FineDesignEvaluatorUnavailableError:
-            # FK-25 §25.5.4: no real fine-design discussion could be held (the
-            # multi-LLM evaluator is a follow-up). Escalate to a human rather
-            # than silently converging a class-2 frame (NO ERROR BYPASSING).
-            return self._escalate(
-                state,
-                _FINE_DESIGN_UNAVAILABLE_REACTION,
-                _FINE_DESIGN_UNAVAILABLE_REACTION,
+            # D4-Override (FK-25 §25.5.4 Z. 642-650): non-reachability of the
+            # multi-LLM quorum is an OPERATIONAL error, NOT a pause. After the
+            # bounded retry it ends the iteration with status FAILED (the engine
+            # records HANDLER_REPORTED_FAILED in AttemptRecord.failure_cause).
+            # NO escalation_class / infra_unavailable / PAUSED triple.
+            return HandlerResult(
+                status=PhaseStatus.FAILED,
+                errors=(_FINE_DESIGN_UNREACHABLE_FAILURE,),
+                updated_state=self._exploration_state(
+                    state, PhaseStatus.FAILED, ExplorationGateStatus.PENDING
+                ),
             )
         for decision in outcome.final_design_decisions:
             self._telemetry.emit_fine_design_decision(
@@ -615,6 +633,67 @@ class ExplorationPhaseHandler:
                 _FINE_DESIGN_MAX_ROUNDS_REACTION,
             )
         return None
+
+    def _run_fine_design_with_retry(
+        self, change_frame: ChangeFrame
+    ) -> FineDesignResult:
+        """Run the bounded subprocess with a bounded reachability retry (D4).
+
+        FK-25 §25.5.4 Z. 642-650 / D4-Override: non-reachability is an operational
+        error handled by a BOUNDED retry, then ``FAILED`` (raised here as
+        :class:`FineDesignEvaluatorUnavailableError`, mapped to FAILED by the
+        caller). Each attempt drives the subprocess loop and then ``finalize``
+        (post-hoc ``llm_session_stats`` verification + release WARNING + session
+        release) so a slot never leaks across a retry.
+
+        FAIL-CLOSED (AG3-097 review): a ``finalize`` failure after a CONVERGED /
+        max_rounds_exceeded ``run`` is NOT swallowed -- the post-hoc 0-answer
+        ``llm_session_stats`` abort (an acquired LLM produced 0 answers, AK5) is a
+        reachability failure of THIS attempt, so the converged-but-unverified
+        result is DISCARDED and the attempt is retried within the bounded budget;
+        if the budget is exhausted the error propagates and the caller maps it to
+        ``FAILED`` (D4). A result is returned ONLY when both ``run`` AND ``finalize``
+        succeeded -- never a converged result whose post-hoc verification failed.
+
+        Args:
+            change_frame: The validated change-frame.
+
+        Returns:
+            The :class:`FineDesignResult` of the first attempt that both ran AND
+            post-hoc-verified.
+
+        Raises:
+            FineDesignEvaluatorUnavailableError: If every bounded attempt hit
+                non-reachability in ``run`` OR ``finalize`` (the caller maps this
+                to FAILED, D4).
+        """
+        from agentkit.exploration.mandate.fine_design import (
+            FineDesignEvaluatorUnavailableError,
+        )
+
+        assert self._fine_design is not None  # noqa: S101 -- checked by caller
+        attempts = _FINE_DESIGN_REACHABILITY_RETRIES + 1
+        last_error: FineDesignEvaluatorUnavailableError | None = None
+        for _attempt in range(attempts):
+            result: FineDesignResult | None = None
+            try:
+                result = self._fine_design.run(change_frame)
+            except FineDesignEvaluatorUnavailableError as exc:
+                last_error = exc
+            # Post-hoc verification + release ALWAYS run (slot cleanup), even when
+            # ``run`` already failed. A finalize-time non-reachability (the AK5
+            # 0-answer post-hoc abort) is itself a reachability failure: it MUST
+            # take precedence over a converged ``run`` result so an acquired LLM
+            # with 0 answers can never let the class-2 decision through.
+            try:
+                self._fine_design.finalize()
+            except FineDesignEvaluatorUnavailableError as exc:
+                last_error = exc
+                result = None  # discard a converged-but-unverified result (AK5)
+            if result is not None:
+                return result
+        assert last_error is not None  # noqa: S101 -- only reached on failure
+        raise last_error
 
     def _approved_with_freeze(
         self,

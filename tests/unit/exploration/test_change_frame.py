@@ -286,3 +286,52 @@ def test_from_payload_fails_closed_on_corrupt_payload() -> None:
     del corrupt["goal_and_scope"]  # drop a mandatory part
     with pytest.raises(ValidationError):
         ChangeFrame.from_payload(corrupt)
+
+
+# -- AG3-097: optional 8th component fine_design_decisions (AK9 / AK10) -----
+def test_fine_design_decisions_defaults_empty() -> None:
+    """The optional 8th component defaults to an empty tuple (AK9)."""
+    frame = ChangeFrame(**_valid_kwargs())
+    assert frame.fine_design_decisions == ()
+
+
+def test_fine_design_decisions_carries_decisions_and_serializes() -> None:
+    """The 8th field carries FineDesignDecision items + serializes (AK9)."""
+    from agentkit.exploration.mandate.fine_design import FineDesignDecision
+
+    decision = FineDesignDecision(
+        decision_id="FD-001",
+        question="single or split run_status key?",
+        decision="single run_status key",
+        rationale="consistent with the state model",
+        normative_basis=("FK-39", "FK-26 §26.2"),
+        llm_responses=("chatgpt: single", "qwen: single"),
+    )
+    frame = ChangeFrame(**_valid_kwargs(), fine_design_decisions=(decision,))
+
+    dumped = frame.model_dump(mode="json")
+    assert "fine_design_decisions" in dumped  # English wire-key (ARCH-55)
+    assert dumped["fine_design_decisions"][0]["decision_id"] == "FD-001"
+    restored = ChangeFrame.from_payload(dumped)
+    assert restored == frame
+    assert restored.fine_design_decisions[0].decision == "single run_status key"
+
+
+def test_fine_design_decisions_english_wire_key_only() -> None:
+    """ARCH-55: the German FK concept-name is NOT a code key (AK10)."""
+    dumped = ChangeFrame(**_valid_kwargs()).model_dump(mode="json")
+    assert "fine_design_decisions" in dumped
+    assert "feindesign_entscheidungen" not in dumped
+
+
+def test_freeze_behavior_unchanged_with_eighth_field() -> None:
+    """The 8th field does not change the freeze behavior (AK9, AG3-047 owns it).
+
+    frozen_at stays optional even when frozen is True (no new consistency
+    invariant), and the model stays frozen=True (immutable).
+    """
+    frame = ChangeFrame(**_valid_kwargs(), frozen=True)
+    assert frame.frozen is True
+    assert frame.frozen_at is None  # no invariant forcing frozen_at
+    with pytest.raises(ValidationError):
+        frame.fine_design_decisions = ()  # type: ignore[misc]

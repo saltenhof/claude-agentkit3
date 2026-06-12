@@ -16,6 +16,13 @@ from agentkit.control_plane.models import (
     EdgePointer,
     ProjectEdgeSyncRequest,
 )
+
+# RE-IMPORT the canonical FK-56 operating-mode literal from its SINGLE foundation
+# definition (``core_types.operating_mode``). This R-boundary CLASSIFIES the mode
+# (``ProjectEdgeResolver`` reads the persisted bundle and decides) but does NOT
+# redeclare the type -- there is exactly ONE definition, so no drift (AK2 SSOT).
+# Re-exported in ``__all__`` for the named ``operating_mode_resolver`` A-core seam.
+from agentkit.core_types.operating_mode import OperatingMode
 from agentkit.projectedge.client import (
     HttpsJsonTransport,
     LocalEdgePublisher,
@@ -26,7 +33,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 FreshnessClass = Literal["baseline_read", "guarded_read", "mutation"]
-OperatingMode = Literal["ai_augmented", "story_execution", "binding_invalid"]
 #: Tri-state result of resolving the persisted exploration change-frame freeze
 #: state (FK-23 §23.4.3, AG3-047):
 #:

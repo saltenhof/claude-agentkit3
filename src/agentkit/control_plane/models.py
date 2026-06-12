@@ -12,6 +12,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+# RUNTIME re-import of the canonical FK-56 operating-mode literal from its SINGLE
+# foundation definition (``core_types.operating_mode``). Pydantic must resolve this
+# annotation at model-build time, so it cannot live behind ``TYPE_CHECKING``; the
+# ``noqa: TC001`` is the deliberate suppression of the type-only-import hint. These
+# read models (``EdgePointer``/``SessionRunBindingView``) re-use the ONE canonical
+# object instead of redeclaring the inline literal -- true AK2 SSOT, no drift.
+from agentkit.core_types.operating_mode import OperatingMode  # noqa: TC001
 from agentkit.telemetry.events import EventType
 
 _CORRELATION_HEADER = "X-Correlation-Id"
@@ -179,7 +186,7 @@ class EdgePointer(BaseModel):
 
     project_key: str
     export_version: str
-    operating_mode: Literal["ai_augmented", "story_execution", "binding_invalid"]
+    operating_mode: OperatingMode
     bundle_dir: str
     sync_after: datetime
     freshness_class: Literal["baseline_read", "guarded_read", "mutation"]
@@ -198,7 +205,7 @@ class SessionRunBindingView(BaseModel):
     principal_type: str
     worktree_roots: list[str]
     binding_version: str
-    operating_mode: Literal["ai_augmented", "story_execution", "binding_invalid"]
+    operating_mode: OperatingMode
 
 
 class StoryExecutionLockView(BaseModel):

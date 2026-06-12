@@ -35,6 +35,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from agentkit.artifacts.envelope import STORY_ID_PATTERN
+from agentkit.exploration.mandate.fine_design import FineDesignDecision
 
 #: ChangeFrame wire-schema version (FK-23 §23.4.1 ``schema_version``).
 CHANGE_FRAME_SCHEMA_VERSION = "3.0"
@@ -303,6 +304,15 @@ class ChangeFrame(BaseModel):
     conformance_statement: ConformanceStatement
     verification_sketch: VerificationSketch
     open_points: OpenPoints
+
+    # --- Optional eighth component (FK-25 §25.5.5 / §25.10, AG3-097) --------
+    #: The class-2 fine-design decision protocol (FK-25 §25.5.5). The FK concept
+    #: name is the German ``feindesign_entscheidungen``; the CODE wire-key is the
+    #: English ``fine_design_decisions`` (ARCH-55 -- a German wire-key would be a
+    #: doc-only nachzug, AG3-102, never code). Optional eighth component (default
+    #: empty): a frame with no class-2 decision carries an empty list. Reuses the
+    #: existing English-keyed :class:`FineDesignDecision` (NO duplicate schema).
+    fine_design_decisions: tuple[FineDesignDecision, ...] = ()
 
     # --- Lifecycle (FK-23 §23.4.2 / §23.4.3 / FK-25 §25.4.2) ---------------
     frozen: bool = False

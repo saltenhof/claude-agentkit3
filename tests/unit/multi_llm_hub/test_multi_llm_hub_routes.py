@@ -9,10 +9,12 @@ from agentkit.control_plane_http.app import ControlPlaneApplicationRoutes
 from agentkit.multi_llm_hub.entities import (
     HubBackendMetric,
     HubBackendName,
+    HubBackendSessionStats,
     HubHealth,
     HubMessage,
     HubSession,
     HubSessionLease,
+    HubSessionStats,
 )
 from agentkit.multi_llm_hub.errors import HubUnavailableError
 from agentkit.multi_llm_hub.http.routes import MultiLlmHubRoutes
@@ -122,6 +124,23 @@ class _FakeHubClient:
             slots={"chatgpt": 0},
         )
 
+    def session_stats(
+        self, *, session_id: str, timeout: float | None = None
+    ) -> HubSessionStats:
+        del timeout
+        if self.unavailable:
+            raise HubUnavailableError("Hub down")
+        return HubSessionStats(
+            session_id=session_id,
+            status="released",
+            released=True,
+            backends=[
+                HubBackendSessionStats(
+                    backend="chatgpt", message_count=2, answered=True
+                ),
+            ],
+        )
+
 
 def _app(client: _FakeHubClient) -> ControlPlaneApplication:
     return ControlPlaneApplication(
@@ -152,6 +171,25 @@ def test_get_hub_status_returns_health_and_metrics() -> None:
         "persistence": "ok",
         "uptime_ms": 100,
     }
+
+
+def test_get_hub_session_stats_returns_stats() -> None:  # AG3-097 AK5
+    """The read-only ``/v1/hub/sessions/{id}/stats`` GET route returns stats."""
+    response = _app(_FakeHubClient()).handle_request(
+        method="GET",
+        path="/v1/hub/sessions/s-1/stats",
+        body=b"",
+        request_headers={"X-Correlation-Id": "req-hub-stats"},
+    )
+
+    body = _json_body(response.body)
+    assert response.status_code == HTTPStatus.OK
+    stats = body["stats"]
+    assert isinstance(stats, dict)
+    assert stats["session_id"] == "s-1"
+    assert stats["released"] is True
+    assert stats["backends"][0]["backend"] == "chatgpt"
+    assert stats["backends"][0]["answered"] is True
 
 
 def test_get_hub_sessions_returns_sessions() -> None:

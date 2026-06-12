@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from agentkit.multi_llm_hub.entities import (
     HubBackendMetric,
     HubBackendName,
+    HubBackendSessionStats,
     HubBackendStatus,
     HubHealth,
     HubHolder,
@@ -21,6 +22,8 @@ from agentkit.multi_llm_hub.entities import (
     HubMessageStatus,
     HubSession,
     HubSessionLease,
+    HubSessionStats,
+    HubSessionStatus,
 )
 from agentkit.multi_llm_hub.errors import (
     HubAcquireQueuedError,
@@ -191,6 +194,22 @@ class HubClientProtocol(Protocol):
 
     def resume(self, *, session_id: str) -> HubSessionLease: ...
 
+    def session_stats(self, *, session_id: str, timeout: float | None = ...) -> HubSessionStats:
+        """Return post-hoc per-LLM session statistics (FK-25 §25.5.4).
+
+        Read-only ``llm_session_stats`` consume surface: per-LLM message count +
+        whether the LLM answered, plus the session/release status. No token is
+        required (the external tool works for active and released sessions).
+
+        Args:
+            session_id: Session identifier to read stats for.
+            timeout: Per-request timeout in seconds. ``None`` => transport default.
+
+        Returns:
+            The typed :class:`HubSessionStats`.
+        """
+        ...
+
 
 class HubClient:
     """Adapter client for the external Multi-LLM Hub REST API."""
@@ -357,6 +376,28 @@ class HubClient:
             ),
         )
 
+    def session_stats(
+        self, *, session_id: str, timeout: float | None = None
+    ) -> HubSessionStats:
+        """Return post-hoc per-LLM session statistics (FK-25 §25.5.4).
+
+        Read-only ``llm_session_stats`` consume surface for the AK3 fine-design
+        adapter's post-hoc verification: per-LLM message count + whether the LLM
+        answered, plus the session/release status. No token is required.
+
+        Args:
+            session_id: Session identifier to read stats for.
+            timeout: Per-request timeout (``None`` => transport default).
+
+        Returns:
+            The typed :class:`HubSessionStats`.
+        """
+        encoded = urllib.parse.quote(session_id, safe="")
+        raw = self._request(
+            "GET", f"/api/session/stats?session_id={encoded}", timeout=timeout
+        )
+        return _session_stats_payload(raw)
+
     def _request(
         self,
         method: str,
@@ -464,6 +505,62 @@ def _lease_payload(raw_lease: dict[str, object]) -> dict[str, object]:
             for backend, slot_id in _object_map(raw_lease.get("slots")).items()
         },
     }
+
+
+def _session_stats_payload(raw_stats: dict[str, object]) -> HubSessionStats:
+    """Map a raw ``llm_session_stats`` response into the typed read model.
+
+    Faithful to the external Hub contract (FK-25 §25.5.4): per-LLM message count
+    + answered flag, plus the session status. ``released`` is DERIVED from the
+    session status (``status == "released"``) rather than trusting a separate
+    boolean the Hub may not send -- a still-``active`` or ``expired`` session
+    after the discussion is NOT a correct release (drives the WARNING upstream).
+    """
+    status = _session_status(raw_stats.get("status"))
+    backends_raw = _object_map(raw_stats.get("backends"))
+    backends: list[HubBackendSessionStats] = []
+    for backend_name in sorted(backends_raw):
+        backend = _backend_name(backend_name)
+        row = _object_map(backends_raw[backend_name])
+        message_count = _int_value(row.get("message_count"))
+        # ``answered`` is reported by the Hub; fall back to a response-count /
+        # message-count signal so a faithful client never reads a non-answering
+        # LLM as answered (fail-closed for the upstream 0-answer abort).
+        answered = _answered_flag(row)
+        backends.append(
+            HubBackendSessionStats(
+                backend=backend,
+                message_count=message_count,
+                answered=answered,
+            )
+        )
+    return HubSessionStats(
+        session_id=str(raw_stats.get("session_id", "")),
+        status=status,
+        released=status == "released",
+        backends=backends,
+    )
+
+
+def _answered_flag(row: dict[str, object]) -> bool:
+    raw_answered = row.get("answered")
+    if isinstance(raw_answered, bool):
+        return raw_answered
+    # No explicit flag: derive from a response count if present, else from the
+    # message count (a session that exchanged >= 1 message answered at least
+    # once). Fail-closed default is False (never invent an answer).
+    if "response_count" in row:
+        return _int_value(row.get("response_count")) > 0
+    return _int_value(row.get("message_count")) > 0
+
+
+def _session_status(value: object) -> HubSessionStatus:
+    allowed: tuple[HubSessionStatus, ...] = ("active", "released", "expired")
+    if value in allowed:
+        return value
+    # Unknown / missing status is NOT silently a correct release: treat it as the
+    # most conservative non-released state so the release WARNING fires.
+    return "active"
 
 
 def _message_from_response(

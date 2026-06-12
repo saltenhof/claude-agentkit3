@@ -1,8 +1,8 @@
 story_id: AG3-097
 title: "free-mode/ai_augmented-Abgrenzung + Multi-LLM-Feindesign-Vollausfuehrung"
 type: implementation
-status: draft
-phase: review_pending
+status: in_progress
+phase: implementation
 created: "2026-06-07"
 size: M
 depends_on:

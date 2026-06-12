@@ -5,12 +5,19 @@ decision within the normative frame) through an ITERATIVE multi-LLM discussion
 led by the harness agent (ChatGPT mandatory, Qwen preferred), bounded at 10
 rounds, converging to a documented decision.
 
-SKELETON ONLY (story AG3-047 §2.1.4 / FK-25 §25.5):
------------------------------------------------------
+ORCHESTRATION SHELL (story AG3-047 §2.1.4 / FK-25 §25.5):
+---------------------------------------------------------
 The FULL multi-LLM discussion (ChatGPT-mandatory acquire/send/release over the
-LLM hub, ``llm_session_stats`` post-hoc verification, hook-based round
-enforcement, the non-reachability escalation ``infra_unavailable``) is a
-deliberate FOLLOW-UP story (AG3-047 §2.2 out-of-scope). This class provides the
+LLM hub, ``llm_session_stats`` post-hoc verification, the 10-round adapter cap)
+is wired by AG3-097 as the concrete ``HubFineDesignEvaluator`` (in
+``agentkit.exploration.mandate.hub_fine_design``) injected into this shell.
+Non-reachability / "Multi-LLM-Quorum nicht erreichbar" is an OPERATIONAL ERROR,
+NOT a pause (D4-Override 2026-06-09 / FK-25 §25.5.4 Z. 642-650): the evaluator
+signals it via :class:`FineDesignEvaluatorUnavailableError`, the bounded shell
+does NOT swallow it, and the caller edge runs a bounded retry and then ends the
+iteration with ``status: FAILED`` -- the cause recorded in
+``AttemptRecord.failure_cause``. There is NO ``escalation_class="infra_unavailable"``,
+NO ``PAUSED`` triple, NO FK-35 infra carrier. This class provides the
 deterministic SCAFFOLD:
 
 * a bounded loop of at most ``max_rounds`` rounds (default 10, FK-25 §25.5.1);
@@ -42,14 +49,20 @@ class FineDesignEvaluatorUnavailableError(RuntimeError):
     """The fine-design evaluator cannot run a round at all (FK-25 §25.5.4).
 
     Raised by a :class:`FineDesignEvaluator` whose advising-LLM backend is not
-    reachable / not yet wired, i.e. the FK-25 §25.5.4 non-reachability case
-    ("no second LLM is available ... abort, escalation to the human"). This is
-    NOT a failure to converge (that is a real, completed
-    discussion that hit the round limit); it is the honest signal that no real
-    fine-design discussion could be held at all. The bounded subprocess shell
-    deliberately does NOT swallow this error -- it propagates so the caller
-    (the exploration phase handler) escalates fail-closed instead of fabricating
-    a converged or max-rounds-exceeded outcome (ZERO DEBT / FAIL-CLOSED).
+    reachable, i.e. the FK-25 §25.5.4 non-reachability case ("no second LLM is
+    available / an acquired LLM produced no answer -> abort"). This is NOT a
+    failure to converge (that is a real, completed discussion that hit the round
+    limit); it is the honest signal that no real fine-design discussion could be
+    held at all.
+
+    D4-Override 2026-06-09 (FK-25 §25.5.4 Z. 642-650): non-reachability is an
+    OPERATIONAL ERROR, not a pause. There is NO ``escalation_class``,
+    NO ``infra_unavailable`` payload, NO ``PAUSED`` triple on this error -- it is
+    a plain signal. The bounded subprocess shell deliberately does NOT swallow
+    it; the caller edge (exploration phase handler) runs a bounded retry and then
+    ends the iteration with ``status: FAILED``, recording the cause in
+    ``AttemptRecord.failure_cause`` -- never fabricating a converged or
+    max-rounds-exceeded outcome (ZERO DEBT / FAIL-CLOSED).
     """
 
 
@@ -140,6 +153,15 @@ class FineDesignResult(BaseModel):
     final_design_decisions: tuple[FineDesignDecision, ...]
 
 
+@runtime_checkable
+class _Finalizable(Protocol):
+    """Optional post-discussion hook on an evaluator (FK-25 §25.5.4)."""
+
+    def finalize(self) -> None:
+        """Run the post-hoc verification + release (e.g. ``llm_session_stats``)."""
+        ...
+
+
 class FineDesignSubprocess:
     """The Klasse-2 fine-design skeleton (FK-25 §25.5; single-LLM-per-round)."""
 
@@ -152,6 +174,22 @@ class FineDesignSubprocess:
                 bloodgroup-A core).
         """
         self._evaluator = evaluator
+
+    def finalize(self) -> None:
+        """Run the evaluator's post-discussion hook, if it has one (FK-25 §25.5.4).
+
+        Adapts the shell to the AG3-097 hub evaluator without rewriting the loop:
+        a hub-backed evaluator exposes ``finalize`` (post-hoc ``llm_session_stats``
+        verification + release WARNING + session release); a plain single-round
+        evaluator does not, in which case this is a no-op. The driver (the
+        exploration phase handler) calls this in a ``finally`` after :meth:`run`.
+
+        Raises:
+            FineDesignEvaluatorUnavailableError: Propagated from the evaluator's
+                ``finalize`` (e.g. a post-hoc 0-answer abort, FK-25 §25.5.4 / D4).
+        """
+        if isinstance(self._evaluator, _Finalizable):
+            self._evaluator.finalize()
 
     def run(
         self, change_frame: ChangeFrame, max_rounds: int = DEFAULT_MAX_ROUNDS

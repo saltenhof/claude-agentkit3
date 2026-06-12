@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: architecture-conformance
 spec_kind: entity-set
-version: 28
+version: 29
 prose_refs:
   - concept/technical-design/01_systemkontext_und_architekturprinzipien.md
   - concept/technical-design/07_komponentenarchitektur_und_architekturkonformanz.md
@@ -97,6 +97,24 @@ versionierte DDL gegen rohe Connections aus, nutzt den Same-Boundary-
 Helper `postgres_store.iter_sql_statements` (reines SQL-Statement-
 Splitting) und den `shared`-Helper `now_iso`. Reine Modul-Prefix-
 Erweiterung, keine gelockerte Regel.
+Version 29 modelliert `agentkit.core_types` explizit als boundary_module
+`core_types` (boundary_kind `domain_core_foundation`, Bluttyp A,
+importable_by any). Schliesst die Modell-Luecke aus AG3-097: die
+Domaenen-Kern-Foundation (ArtifactClass/Severity/Story/QaContext/...
+und der lokale OperatingMode, FK-56 §56.5/§56.7a) war bislang in keiner
+Komponenten-Gruppe und keinem Boundary-Modul modelliert. Importe der
+R-Adapter-Boundaries auf `agentkit.core_types` (control_plane.models /
+control_plane.runtime / projectedge.runtime sowie die state_backend-
+Driver/Repository) wurden dadurch nur als unbekannte stdlib/third-party-
+Importe durchgewunken (Fallthrough), nicht per Regel erlaubt. Mit der
+expliziten Modellierung plus den ergaenzten
+`may_import_boundary_modules`-Eintraegen (core_types) bei genau diesen
+fuenf Boundaries ist die boundary->core_types-Kante jetzt regel-erlaubt
+(AC010-boundary-match) statt fallthrough-stillgelegt. Neuer
+boundary_kind `domain_core_foundation` (A-typisierte importierbare
+Blatt-Foundation mit Domaenenwissen, im Unterschied zur fachneutralen
+shared_foundation Bluttyp 0). Keine gelockerte Regel; nur das Modell
+wird vollstaendig gemacht.
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -130,6 +148,9 @@ boundary_module_kinds:
   - id: architecture-conformance.boundary_kind.shared_foundation
     code: shared_foundation
     meaning: Fachneutrale Basistypen, Exceptions, stateless Hilfen. Importiert nichts Fachliches und keine Boundary-Module mit I/O.
+  - id: architecture-conformance.boundary_kind.domain_core_foundation
+    code: domain_core_foundation
+    meaning: Domaenen-Kern-Foundation (Bluttyp A) — fachliche Kerntypen (Story, Severity, ArtifactClass, QaContext, OperatingMode), die mehrere Bounded Contexts gleichzeitig brauchen. Anders als shared_foundation NICHT fachneutral (Bluttyp 0), sondern traegt Domaenenwissen; aber wie shared_foundation ein importierbares Blattmodul ohne I/O, das nichts AK3-Spezifisches importiert (nur stdlib/pydantic). Von jedem importierbar.
   - id: architecture-conformance.boundary_kind.infrastructure_driver
     code: infrastructure_driver
     meaning: Persistenz- und Infrastrukturtreiber (Postgres-/SQLite-Driver, Filesystem-I/O). Wird ausschliesslich von R-Adaptern aufgerufen, nie direkt von A.
@@ -425,7 +446,12 @@ component_groups:
     module_prefixes:
       - agentkit.story_context_manager.operating_mode_resolver
     parent_group_id: architecture-conformance.group.story_context_manager
-    exposure: internal
+    # sub_exposed (AG3-097): the named operating-mode resolution owner is
+    # consumed cross-BC by governance-and-guards (guard_evaluation + the
+    # integrity-gate mode guard, FK-56 §56.7a/§56.10). It carries the SSOT mode
+    # seam, so it is exposed as a sub-surface like the other consumed
+    # story_context_manager sub-components (StoryTypes/StoryIdentity/...).
+    exposure: sub_exposed
     component_kind: domain
 
   - id: architecture-conformance.group.story_storage_backend
@@ -1299,6 +1325,7 @@ boundary_modules:
       - architecture-conformance.group.telemetry_contract
     may_import_boundary_modules:
       - architecture-conformance.boundary.shared
+      - architecture-conformance.boundary.core_types
     # Pydantic-Modelle und Persistenz-Records der Control-Plane.
     # Datentypen mit Cross-BC-Refs (z.B. Telemetry-Event-Typen). Da
     # nicht "rein-fachneutral", als adapter_boundary modelliert
@@ -1317,6 +1344,7 @@ boundary_modules:
     may_import_boundary_modules:
       - architecture-conformance.boundary.config
       - architecture-conformance.boundary.shared
+      - architecture-conformance.boundary.core_types
       - architecture-conformance.boundary.control_plane_records
       - architecture-conformance.boundary.state_backend_repository
       - architecture-conformance.boundary.filesystem
@@ -1351,6 +1379,7 @@ boundary_modules:
     may_import_boundary_modules:
       - architecture-conformance.boundary.config
       - architecture-conformance.boundary.shared
+      - architecture-conformance.boundary.core_types
       - architecture-conformance.boundary.control_plane_records
 
   - id: architecture-conformance.boundary.concept_catalog
@@ -1418,6 +1447,7 @@ boundary_modules:
       - architecture-conformance.boundary.state_backend_drivers
       - architecture-conformance.boundary.state_persistence_scope
       - architecture-conformance.boundary.shared
+      - architecture-conformance.boundary.core_types
       - architecture-conformance.boundary.control_plane_records
       - architecture-conformance.boundary.filesystem
       - architecture-conformance.boundary.auth
@@ -1480,6 +1510,42 @@ boundary_modules:
     # mitzunehmen. Volldefinition concept/methodology/software-blutgruppen.md.
 
   # -----------------------------------------------------------------------
+  # Domain-Core-Foundation (domain_core_foundation): fachliche Kerntypen,
+  # die mehrere BCs gleichzeitig brauchen. Bluttyp A (traegt Domaenen-
+  # wissen), aber importierbares Blattmodul ohne I/O.
+  # -----------------------------------------------------------------------
+
+  - id: architecture-conformance.boundary.core_types
+    name: CoreTypes
+    bloodgroup: A
+    boundary_kind: domain_core_foundation
+    module_prefixes:
+      - agentkit.core_types
+    importable_by: any
+    may_import_component_groups: []
+    may_import_boundary_modules: []
+    # Domaenen-Kern-Foundation (FK-56 §56.5/§56.7a; AG3-021 §2.1.1.1):
+    # Single Source of Truth fuer fachliche Kerntypen, die mehrere BCs
+    # gleichzeitig brauchen — ArtifactClass, Severity, Story(Mode/Size),
+    # QaContext, AttemptOutcome, PolicyVerdict, ClosureVerdict,
+    # PauseReason, die FailureCorpus-Enums sowie der lokale OperatingMode
+    # (ai_augmented / story_execution / binding_invalid).
+    #
+    # Bluttyp A statt 0: anders als boundary.shared (fachneutral, Bluttyp
+    # 0, in jedes Projekt kopierbar) traegt core_types Domaenenwissen und
+    # ist deshalb KEINE Null-Software. Aber wie shared ein importierbares
+    # Blattmodul ohne I/O: es importiert NUR stdlib/pydantic und sich
+    # selbst (agentkit.core_types.*), nichts anderes AK3-Spezifisches
+    # (may_import_component_groups: [] und may_import_boundary_modules:
+    # []). Damit kann JEDER Konsument — A-BCs ebenso wie die R-Adapter-
+    # Boundaries control_plane.models / control_plane.runtime /
+    # projectedge.runtime und die state_backend-Driver/Repository —
+    # exakt dasselbe Objekt cycle-free re-importieren. OperatingMode lebt
+    # hier (nicht in projectedge.runtime), damit control_plane.models
+    # (R-Adapter) die Annotation aufloesen kann, ohne eine andere
+    # Boundary zu importieren (kein Import-Zyklus).
+
+  # -----------------------------------------------------------------------
   # Infrastructure-IO (infrastructure_io): Filesystem-Writer und
   # Artifact-Exporter. Trennt Builder (A) von Writer (R/T).
   # -----------------------------------------------------------------------
@@ -1526,6 +1592,7 @@ boundary_modules:
     may_import_component_groups: []
     may_import_boundary_modules:
       - architecture-conformance.boundary.shared
+      - architecture-conformance.boundary.core_types
       - architecture-conformance.boundary.config
       - architecture-conformance.boundary.filesystem
       - architecture-conformance.boundary.control_plane_records
