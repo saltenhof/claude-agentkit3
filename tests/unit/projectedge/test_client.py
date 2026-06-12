@@ -94,8 +94,12 @@ class _FakeTransport:
 
 
 class _FakeResponse:
-    def __init__(self, body: bytes) -> None:
+    def __init__(
+        self, body: bytes, *, headers: dict[str, str] | None = None
+    ) -> None:
         self._body = body
+        #: Mirror the real urllib response ``.headers`` (an object with ``.get``).
+        self.headers = headers or {}
 
     def __enter__(self) -> _FakeResponse:
         return self

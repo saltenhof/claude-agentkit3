@@ -304,6 +304,39 @@ def test_correlation_id_reflected_from_request_header() -> None:
     assert _header(response, "X-Correlation-Id") == "custom-corr-99"
 
 
+def test_correlation_id_adopted_case_insensitively_on_success_and_error() -> None:
+    """Codex R2 #2: the server adopts the client's id regardless of header casing.
+
+    The official client sends ``X-Correlation-Id`` but ``urllib`` (and proxies)
+    may normalize the casing on the wire (e.g. ``x-correlation-id``). HTTP header
+    names are case-insensitive (RFC 9110 §5.1), so the server's lookup must adopt
+    the client's id — not mint a divergent ``req-<uuid>`` — on BOTH a success and
+    an error response.
+    """
+    app = _make_app()
+    # Lower-cased header name, as it can arrive after urllib normalization.
+    success = app.handle_request(
+        method="GET",
+        path="/v1/projects/myproj/phases",
+        body=b"",
+        request_headers={"x-correlation-id": "corr-ci-1"},
+    )
+    assert _header(success, "X-Correlation-Id") == "corr-ci-1"
+
+    error = app.handle_request(
+        method="GET",
+        path="/v1/projects/myproj/unknown-endpoint-xyz",
+        body=b"",
+        request_headers={"x-correlation-id": "corr-ci-1"},
+    )
+    assert error.status_code == HTTPStatus.NOT_FOUND
+    # The SAME id is echoed on the error response (header AND body), not a req-*.
+    assert _header(error, "X-Correlation-Id") == "corr-ci-1"
+    body = _json_body(error)
+    assert isinstance(body, dict)
+    assert body["correlation_id"] == "corr-ci-1"
+
+
 # ---------------------------------------------------------------------------
 # AC2 — project-scoped URL routing
 # ---------------------------------------------------------------------------

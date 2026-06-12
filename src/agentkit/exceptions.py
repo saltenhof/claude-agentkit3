@@ -126,6 +126,61 @@ class ControlPlaneBindingCollisionError(AgentKitError):
     """
 
 
+class ControlPlaneApiError(AgentKitError):
+    """A control-plane HTTP endpoint returned a stable error contract response.
+
+    FK-91 §91.1a Regel #8: error responses follow a stable contract with at least
+    ``error_code``, ``error`` and ``correlation_id`` (optional structured
+    ``detail``). The :class:`~agentkit.projectedge.client.HttpsJsonTransport`
+    raises this typed error when an HTTP error body conforms to that contract, so
+    the official ``ProjectEdgeClient`` surfaces the structured rejection (e.g. a
+    fail-closed ``reconciliation_evidence_missing`` on ``POST /v1/stories``)
+    instead of an opaque ``RuntimeError``. A non-conforming error body still
+    raises ``RuntimeError`` (no silent fallback to weaker data).
+
+    Attributes:
+        error_code: The stable wire error code (e.g. ``reconciliation_evidence_missing``).
+        correlation_id: The correlation id carried by the error response (Regel #7).
+        http_status: The HTTP status code of the error response.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_code: str,
+        correlation_id: str,
+        http_status: int,
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, detail=detail)
+        self.error_code = error_code
+        self.correlation_id = correlation_id
+        self.http_status = http_status
+
+
+class ConflictAdjudicationUnavailableError(AgentKitError):
+    """Stage-2 story-creation conflict adjudication has no create-time LLM owner.
+
+    FK-21 §21.4.1 Schritt 3: when stage 1 of the VectorDB reconciliation surfaces
+    above-threshold similarity candidates, an LLM conflict evaluation
+    (``StructuredEvaluator`` with role ``story_creation_review``) must adjudicate
+    them. That evaluator is STORY-EXECUTION scoped (it materializes a run-pinned
+    prompt against a live ``StoryContext`` with a resolved ``run_id`` / story dir
+    -- see ``PromptRuntimeMaterializer``), none of which exists yet at CREATE time
+    (the story is not yet created). No pre-story, create-time conflict-evaluator
+    owner is wired (AG3-065 / AG3-070 are story-execution scoped).
+
+    This is therefore a TRUTHFUL, dedicated fail-closed signal: an above-threshold
+    similarity conflict cannot be adjudicated at create time, so the create is
+    BLOCKED (FK-21 §21.4.3 / NO ERROR BYPASSING) -- never silently passed and
+    never mislabelled as a VectorDB outage. It is NOT a
+    :class:`~agentkit.integrations.vectordb.VectorDbError`: the VectorDB itself is
+    healthy; only the conflict-adjudication owner is missing. The tool maps it to
+    the stable wire error code ``conflict_adjudication_unavailable``.
+    """
+
+
 class ProjectError(AgentKitError):
     """Project model or discovery error.
 

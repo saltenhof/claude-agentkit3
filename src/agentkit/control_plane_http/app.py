@@ -1418,13 +1418,28 @@ def _decode_json_body(body: bytes, correlation_id: str) -> object | HttpResponse
 
 
 def _resolve_correlation_id(request_headers: Mapping[str, str] | None) -> str:
+    # HTTP header names are case-insensitive (RFC 9110 §5.1). The official client
+    # sends ``X-Correlation-Id`` but ``urllib`` (and intermediaries) may normalize
+    # the casing on the wire, so an EXACT-case lookup would miss the client's id
+    # and the control plane would mint a divergent ``req-<uuid>`` (FK-91 §91.1a
+    # Regel #7 violation). Resolve the header case-insensitively so the client's
+    # correlation id is adopted regardless of the transmitted casing.
     if request_headers is not None:
-        provided = request_headers.get(_CORRELATION_HEADER)
+        provided = _lookup_header_ci(request_headers, _CORRELATION_HEADER)
         if provided is not None:
             value = provided.strip()
             if value:
                 return value
     return f"req-{uuid.uuid4().hex}"
+
+
+def _lookup_header_ci(headers: Mapping[str, str], name: str) -> str | None:
+    """Look a request header up case-insensitively (HTTP headers are case-insensitive)."""
+    target = name.lower()
+    for key, value in headers.items():
+        if key.lower() == target:
+            return value
+    return None
 
 
 def _has_header(headers: Sequence[tuple[str, str]], name: str) -> bool:

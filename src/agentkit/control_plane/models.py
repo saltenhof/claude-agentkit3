@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 # read models (``EdgePointer``/``SessionRunBindingView``) re-use the ONE canonical
 # object instead of redeclaring the inline literal -- true AK2 SSOT, no drift.
 from agentkit.core_types.operating_mode import OperatingMode  # noqa: TC001
+from agentkit.story_creation.reconciliation_evidence import ReconciliationEvidence
 from agentkit.telemetry.events import EventType
 
 _CORRELATION_HEADER = "X-Correlation-Id"
@@ -177,6 +178,162 @@ class ProjectEdgeSyncRequest(BaseModel):
     freshness_class: Literal["baseline_read", "guarded_read", "mutation"] = (
         "guarded_read"
     )
+
+
+class CreateStoryInputs(BaseModel):
+    """Typed story master data for the agent-facing create (FK-91 §91.1a).
+
+    Carries ONLY the story content the caller supplies — never the
+    ``reconciliation`` evidence. The evidence is produced exclusively by the real
+    reconciliation runtime and attached internally by
+    :meth:`CreateStoryRequest.from_evidence`, so the official create surface can
+    never be handed a self-consistent, hand-built evidence dict (FK-21 §21.4 SSOT,
+    FIX-THE-MODEL). ``repos`` is the caller-proposed repo set; the authoritative
+    ``participating_repos`` comes from the reconciliation outcome (repo-affinity).
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+
+    project_key: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    story_type: str = Field(alias="type", min_length=1)
+    repos: list[str] = Field(min_length=1)
+    epic: str = ""
+    module: str = ""
+    size: str | None = None
+    mode: str | None = None
+    change_impact: str | None = None
+    concept_quality: str | None = None
+    owner: str = ""
+    risk: str | None = None
+    labels: list[str] = Field(default_factory=list)
+    new_structures: bool = False
+
+
+class CreateStoryRequest(BaseModel):
+    """Canonical request payload for the agent-facing story create (FK-91 §91.1a).
+
+    Carries the story master data (``CreateStoryInputs`` content via the wire
+    ``type`` alias), the idempotency ``op_id`` (Regel #5) and the typed
+    ``reconciliation`` evidence (FK-21 §21.4/§21.12) that the non-bypassable
+    create boundary (``POST /v1/stories``) requires. The model serializes to the
+    exact wire body the route consumes: the story content keys at top level, plus
+    ``op_id`` and ``reconciliation``. The ``reconciliation`` block is mandatory —
+    an absent / inconsistent block fail-closes at the route before any persistence
+    (no in-body bypass, no dummy evidence).
+
+    ``reconciliation`` is a typed :class:`ReconciliationEvidence`, NOT a raw dict:
+    the request cannot be built around a hand-assembled, self-consistent evidence
+    dict that fakes a reconciliation that never ran. The official client builds
+    this request via :meth:`from_evidence` from a real reconciliation outcome
+    only (FK-21 §21.4 "proof the reconciliation actually ran").
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+
+    op_id: str = Field(min_length=1, default_factory=lambda: f"op-{uuid.uuid4().hex}")
+    project_key: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    story_type: str = Field(alias="type", min_length=1)
+    repos: list[str] = Field(min_length=1)
+    reconciliation: ReconciliationEvidence
+    epic: str = ""
+    module: str = ""
+    size: str | None = None
+    mode: str | None = None
+    change_impact: str | None = None
+    concept_quality: str | None = None
+    owner: str = ""
+    risk: str | None = None
+    labels: list[str] = Field(default_factory=list)
+    new_structures: bool = False
+
+    @classmethod
+    def from_evidence(
+        cls,
+        inputs: CreateStoryInputs,
+        evidence: ReconciliationEvidence,
+        *,
+        op_id: str,
+        participating_repos: tuple[str, ...] | None = None,
+    ) -> CreateStoryRequest:
+        """Build a create request from master data + REAL reconciliation evidence.
+
+        The ``evidence`` MUST come from the deterministic reconciliation runtime
+        (:meth:`StoryCreationReconciler.reconcile_only`), never hand-built. The
+        authoritative ``repos`` are the reconciliation's ``participating_repos``
+        (repo-affinity, FK-21 §21.9) when supplied, falling back to the caller's
+        proposed set otherwise.
+
+        Args:
+            inputs: The typed story master data (no evidence).
+            evidence: The self-validating reconciliation evidence (real runtime).
+            op_id: The idempotency key (Regel #5).
+            participating_repos: The authoritative repo set from the outcome; when
+                ``None`` the caller-proposed ``inputs.repos`` is used.
+
+        Returns:
+            A fully-typed :class:`CreateStoryRequest` ready to post.
+        """
+        repos = (
+            list(participating_repos)
+            if participating_repos is not None
+            else list(inputs.repos)
+        )
+        return cls(
+            op_id=op_id,
+            project_key=inputs.project_key,
+            title=inputs.title,
+            story_type=inputs.story_type,
+            repos=repos,
+            reconciliation=evidence,
+            epic=inputs.epic,
+            module=inputs.module,
+            size=inputs.size,
+            mode=inputs.mode,
+            change_impact=inputs.change_impact,
+            concept_quality=inputs.concept_quality,
+            owner=inputs.owner,
+            risk=inputs.risk,
+            labels=list(inputs.labels),
+            new_structures=inputs.new_structures,
+        )
+
+    def to_wire_body(self) -> dict[str, object]:
+        """Serialize to the exact ``POST /v1/stories`` wire body.
+
+        The story content keys are emitted under their wire names (``type`` for
+        ``story_type``); ``op_id`` and the typed ``reconciliation`` evidence are
+        carried as the transport-level keys the route's fail-closed gate reads.
+        Optional keys that were not provided are omitted so the server applies
+        its own defaults (no spurious ``None`` overriding a typed default).
+        """
+        body = self.model_dump(mode="json", by_alias=True, exclude_none=True)
+        # ``labels``/``new_structures`` always present (have defaults); keep them
+        # only when meaningful so an empty default does not mask server policy.
+        if not body.get("labels"):
+            body.pop("labels", None)
+        return body
+
+
+class CreatedStorySummary(BaseModel):
+    """Typed view of the created story returned by ``POST /v1/stories`` (201).
+
+    Validates the backend-allocated story summary wire payload (the route's
+    ``story_to_wire_summary``). ``story_id`` is the backend-allocated canonical
+    display id (FK-91 §91.1a: the Control Plane is the single story truth — the
+    id is never client-assigned). ``correlation_id`` carries the stable
+    correlation propagated for the call (Regel #7).
+    """
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    story_id: str = Field(min_length=1)
+    project_key: str = Field(min_length=1)
+    title: str
+    status: str
+    type: str
+    correlation_id: str = ""
 
 
 class EdgePointer(BaseModel):

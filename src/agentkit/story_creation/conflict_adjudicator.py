@@ -69,6 +69,7 @@ from agentkit.verify_system.llm_evaluator.llm_client import LlmClientError
 from agentkit.verify_system.llm_evaluator.roles import LlmVerdict, ReviewerRole
 from agentkit.verify_system.llm_evaluator.structured_evaluator import (
     StructuredEvaluator,
+    StructuredEvaluatorError,
     StructuredEvaluatorResult,
 )
 from agentkit.verify_system.protocols import Finding, Severity, TrustClass
@@ -193,9 +194,11 @@ class CreateTimeConflictAdjudicator:
 
         Raises:
             CreateTimeConflictAdjudicationError: When the LLM transport (or the
-                create-scope prompt resolution) is unavailable -- fail-closed,
-                TRUTHFUL and distinguishable from a VectorDB outage. No dummy
-                verdict.
+                create-scope prompt resolution) is unavailable, OR when the model
+                returns malformed / schema-invalid output that cannot be parsed
+                into a verdict after the evaluator's fail-closed retries --
+                fail-closed, TRUTHFUL and distinguishable from a VectorDB outage.
+                No dummy verdict, never a leaked traceback.
             ValueError: When ``role`` is not ``story_creation_review``, or when a
                 non-``None`` ``previous_findings`` list is passed (fail-closed:
                 the create-scope path serves only the create-time role and has no
@@ -241,6 +244,27 @@ class CreateTimeConflictAdjudicator:
                 "returned the candidates); only the create-time LLM assessment "
                 "failed. Story creation is BLOCKED fail-closed (FK-21 §21.4.3) -- "
                 f"no dummy verdict, no PASS-when-in-doubt. Cause: {exc}"
+            ) from exc
+        except StructuredEvaluatorError as exc:
+            # The LLM transport answered, but the model output is malformed /
+            # schema-invalid and could not be parsed into a structured verdict even
+            # after the evaluator's fail-closed retries (FK-11 §11.4.4). This is a
+            # FORESEEABLE create-time LLM-assessment failure: it must fail closed
+            # with the SAME truthful CreateTimeConflictAdjudicationError (mapped to
+            # the stable ``conflict_adjudication_unavailable`` wire code) -- NEVER a
+            # leaked traceback (stable tool error contract) and NEVER a dummy
+            # verdict / PASS-when-in-doubt. The VectorDB is healthy (stage-1
+            # similarity already returned the candidates); only the create-time LLM
+            # assessment could not produce a usable verdict (story.md §2.1.5 / AC6).
+            raise CreateTimeConflictAdjudicationError(
+                "create-time conflict adjudication (FK-21 §21.4.1 Schritt 3) could "
+                "not run: the create-time LLM produced malformed / schema-invalid "
+                "output that could not be parsed into a conflict verdict (FK-11 "
+                "§11.4.4 fail-closed after retries). The VectorDB is healthy "
+                "(stage-1 similarity already returned the candidates); only the "
+                "create-time LLM assessment failed. Story creation is BLOCKED "
+                "fail-closed (FK-21 §21.4.3) -- no dummy verdict, no "
+                f"PASS-when-in-doubt. Cause: {exc}"
             ) from exc
         return self._collapse_to_binary(result)
 

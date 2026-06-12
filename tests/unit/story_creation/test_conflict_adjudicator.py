@@ -383,18 +383,54 @@ def test_login_required_outage_also_fails_closed() -> None:
 
 
 def test_no_pass_when_in_doubt_on_malformed_llm_response() -> None:
-    """AC6: a structurally-invalid LLM response fails closed (no silent PASS).
+    """AC6 / Codex R2 #3: a malformed LLM response fails closed (no traceback, no
+    silent PASS).
 
-    The real StructuredEvaluator rejects an unparseable/empty response after its
-    bounded retry. The adjudicator must NOT mask that as a PASS verdict.
+    The real StructuredEvaluator rejects an unparseable / schema-invalid response
+    after its bounded retry by raising ``StructuredEvaluatorError``. The adjudicator
+    must WRAP that foreseeable failure in ``CreateTimeConflictAdjudicationError`` so
+    it fails closed with the truthful ``conflict_adjudication_unavailable`` code at
+    the tool — never escaping as a raw ``StructuredEvaluatorError`` traceback and
+    never masked as a PASS verdict.
     """
+    from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+        StructuredEvaluatorError,
+    )
+
     client = _FakeLlmClient(response="not json at all, no checks here")
     adjudicator = CreateTimeConflictAdjudicator(client)
-    with pytest.raises(Exception) as exc_info:  # noqa: PT011 - assert type below
+    with pytest.raises(CreateTimeConflictAdjudicationError) as exc_info:
         adjudicator.evaluate(ReviewerRole.STORY_CREATION_REVIEW, _bundle(), None, 1)
-    # It must never be a silent PASS; the structured-evaluator fail-closed error
-    # propagates (it is NOT swallowed into a dummy verdict).
+    # The foreseeable malformed-output failure is wrapped fail-closed, NOT leaked
+    # as a raw StructuredEvaluatorError traceback (stable tool error contract).
+    assert not isinstance(exc_info.value, StructuredEvaluatorError)
+    # Distinguishable from a VectorDB outage (NOT a VectorDbError subclass).
+    assert not isinstance(exc_info.value, VectorDbError)
+    # Truthful: the message names the malformed-output cause + VectorDB health.
+    message = str(exc_info.value)
+    assert "malformed" in message.lower()
+    assert "VectorDB is healthy" in message
+    # It must never be a silent PASS; no dummy verdict was produced.
     assert "PASS" not in type(exc_info.value).__name__
+
+
+def test_malformed_output_chains_structured_evaluator_error() -> None:
+    """Codex R2 #3: the wrapped fail-closed error chains the underlying cause.
+
+    The malformed-output ``CreateTimeConflictAdjudicationError`` is raised ``from``
+    the original ``StructuredEvaluatorError``, so the truthful root cause is
+    preserved for diagnostics while the stable, fail-closed type is what callers
+    catch.
+    """
+    from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+        StructuredEvaluatorError,
+    )
+
+    client = _FakeLlmClient(response="}{ definitely not a checks array")
+    adjudicator = CreateTimeConflictAdjudicator(client)
+    with pytest.raises(CreateTimeConflictAdjudicationError) as exc_info:
+        adjudicator.evaluate(ReviewerRole.STORY_CREATION_REVIEW, _bundle(), None, 1)
+    assert isinstance(exc_info.value.__cause__, StructuredEvaluatorError)
 
 
 # -- AC7-adjacent: the create-scope path only serves the create-time role -----

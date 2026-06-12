@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from agentkit.projectedge.client import (
+    CreateStoryResult,
     HttpsJsonTransport,
     LocalEdgePublisher,
     ProjectEdgeClient,
@@ -17,6 +18,7 @@ from agentkit.projectedge.runtime import (
 
 __all__ = [
     "ChangeFrameFreezeState",
+    "CreateStoryResult",
     "HttpsJsonTransport",
     "LocalEdgePublisher",
     "ProjectEdgeResolver",

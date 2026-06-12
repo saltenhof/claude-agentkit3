@@ -1,17 +1,19 @@
 story_id: AG3-114
 title: "§91.1a Agent-Surface fuer Story-Create: ProjectEdgeClient.create_story + Target-Project-Tool-Entry gegen POST /v1/stories (FK-91 §91.1a, FK-21 ReconciliationEvidence) — Ersatz fuer gh issue create"
 type: implementation
-status: blocked
-phase: implementation
-# BLOCKED 2026-06-12 on the create-time conflict adjudicator (new prerequisite story): PO decided
-# "wire the adjudicator first". The R1 implementation is solid (typed evidence, correlation header,
-# stable error contract, op_id, real evidence-missing negative) but runtime_factory uses
-# FailClosedConflictEvaluator (truthful conflict_adjudication_unavailable) because NO create-time
-# LLM conflict adjudicator owner exists — the only StructuredEvaluator is execution-scoped (needs
-# StoryContext/story_id/run_id/run-pin, absent pre-story). Plus open Codex re-review R2 items
-# (#1 outcome still caller-suppliable -> run reconcile inside the official boundary; #2 X-Correlation-Id
-# case-insensitive lookup; #4 factory VectorDbError + URLError -> stable contract). R1 work stashed;
-# resume AG3-114 after the adjudicator lands: wire it, apply R2 fixes, re-review.
+status: completed
+phase: closure
+completed: "2026-06-12"
+# COMPLETED 2026-06-12. R1 (typed evidence, correlation header, stable error contract, op_id) +
+# resume (wired the real AG3-115 CreateTimeConflictAdjudicator over the FK-65 HubLlmClient, role->pool
+# via pipeline.llm_roles.story_creation_review) + R2/R3 remediation: create_story drives reconcile_only
+# INSIDE the boundary from a single CreateStoryInputs (no forgery seam); posts to the tenant-scoped
+# /v1/projects/{project_key}/stories (the route ControlPlaneApplication actually exposes); X-Correlation-Id
+# case-insensitive on the server; stable tool error contract (vectordb_unavailable / transport_error /
+# conflict_adjudication_unavailable); StructuredEvaluatorError fails closed. E2E NO-STUB routes through the
+# REAL ControlPlaneApplication router. Codex (sole gate): APPROVE-WITH-NITS. Gates green (1016 passed,
+# mypy 695, ruff, GAC-1). Residual (foreign owner): persisting the §21.4.2 counters as Story columns is
+# story_context_manager scope (follow-up). .mcp.json kept out of the commit.
 created: "2026-06-12"
 size: L
 # Herkunft: PO-Entscheidung 2026-06-12. FK-91 §91.1a Regel #9: Stories werden ausschliesslich

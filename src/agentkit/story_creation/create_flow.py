@@ -40,16 +40,51 @@ from agentkit.story_creation.vectordb_reconciliation import (
     AbgleichProtocol,
     ReconciliationResult,
     VectorDbReconciliation,
-    resolve_vectordb_conflict_flag,
 )
 
 if TYPE_CHECKING:
     from agentkit.config.models import ProjectConfig, VectorDbConfig
+    from agentkit.control_plane.models import CreateStoryInputs
     from agentkit.integrations.vectordb import WeaviateStoryAdapter
     from agentkit.story_context_manager.service import StoryService
-    from agentkit.story_context_manager.story_model import CreateStoryInput, Story
+
+    # ``CreateStoryInput`` is explicitly re-exported (``as``) so the ProjectEdge
+    # boundary can type its reconcile entry point through this create-flow surface
+    # without importing the ``story_context_manager`` component directly (AC010).
+    from agentkit.story_context_manager.story_model import (
+        CreateStoryInput as CreateStoryInput,
+    )
+    from agentkit.story_context_manager.story_model import Story
     from agentkit.story_creation.vectordb_reconciliation import ConflictEvaluatorPort
     from agentkit.telemetry.emitters import EventEmitter
+
+
+@dataclass(frozen=True)
+class ReconciliationOutcome:
+    """Typed outcome of a reconcile-only run (no persistence).
+
+    Produced by :meth:`StoryCreationReconciler.reconcile_only` for the
+    agent-facing create path (FK-91 §91.1a Regel #3): the agent runs the real
+    fail-closed reconciliation, obtains the self-validating evidence here, then
+    submits it with ``POST /v1/stories`` through the official client. The
+    reconciliation is NOT persisted in-process on this path — the authoritative
+    create happens at the Control-Plane boundary, which re-enforces the evidence.
+
+    Attributes:
+        evidence: The typed, self-validating reconciliation evidence the create
+            boundary requires (FK-21 §21.4/§21.12).
+        reconciliation: The raw two-stage reconciliation result (audit).
+        participating_repos: The resolved repo set (post repo-affinity) that the
+            create request should carry; it also rides on the evidence.
+        used_affinity_proposal: ``True`` when the derived affinity proposal was
+            applied; ``False`` when the caller-supplied repo set was honoured
+            (human-correction, §21.9.2) or no proposal resolved.
+    """
+
+    evidence: ReconciliationEvidence
+    reconciliation: ReconciliationResult
+    participating_repos: tuple[str, ...]
+    used_affinity_proposal: bool
 
 
 @dataclass(frozen=True)
@@ -90,17 +125,22 @@ class StoryCreationReconciler:
     def __init__(
         self,
         *,
-        story_service: StoryService,
         adapter: WeaviateStoryAdapter,
         evaluator: ConflictEvaluatorPort,
         vectordb_config: VectorDbConfig,
         project_config: ProjectConfig,
+        story_service: StoryService | None = None,
         event_emitter: EventEmitter | None = None,
     ) -> None:
         """Initialise the reconciler.
 
         Args:
             story_service: The authoritative story lifecycle service (FK-91).
+                Required ONLY for the in-process :meth:`create_story` (Zone-2/admin
+                exemption, FK-21 §21.13.2). The agent-facing path uses
+                :meth:`reconcile_only` (no in-process persistence) and may leave
+                this ``None`` -- the authoritative create then happens at the
+                Control-Plane boundary via the official client.
             adapter: The thin Weaviate transport adapter (stage 1; fail-closed).
             evaluator: The EXISTING structured-evaluator surface (stage 2).
             vectordb_config: The CONSUMED ``vectordb`` config (owner: AG3-070)
@@ -152,19 +192,93 @@ class StoryCreationReconciler:
         Raises:
             VectorDbUnavailableError: When Weaviate is unreachable -- the create
                 is BLOCKED fail-closed (FK-21 §21.4.3), never a silent skip.
+            RuntimeError: When the reconciler was constructed without a
+                ``story_service`` (the in-process create path is unavailable; the
+                agent-facing path must use :meth:`reconcile_only` + the client).
+        """
+        if self._story_service is None:
+            raise RuntimeError(
+                "in-process create_story requires a story_service; the "
+                "agent-facing path must use reconcile_only + ProjectEdgeClient"
+            )
+
+        outcome = self.reconcile_only(
+            request,
+            story_body=story_body,
+            story_was_adapted=story_was_adapted,
+            story_display_id=story_display_id,
+        )
+
+        conflict_resolved = outcome.evidence.vectordb_conflict_resolved
+        final_request = request.model_copy(
+            update={
+                "vectordb_conflict_resolved": conflict_resolved,
+                "repos": list(outcome.participating_repos),
+            }
+        )
+
+        story = self._story_service.create_story(
+            final_request,
+            op_id=op_id,
+            correlation_id=correlation_id,
+        )
+
+        return StoryCreationOutcome(
+            story=story,
+            reconciliation=outcome.reconciliation,
+            vectordb_conflict_resolved=conflict_resolved,
+            participating_repos=tuple(story.participating_repos),
+            used_affinity_proposal=outcome.used_affinity_proposal,
+            evidence=outcome.evidence,
+        )
+
+    def reconcile_only(
+        self,
+        request: CreateStoryInput,
+        *,
+        story_body: str,
+        story_was_adapted: bool = False,
+        story_display_id: str = "",
+    ) -> ReconciliationOutcome:
+        """Run the fail-closed reconciliation + affinity and PRODUCE evidence.
+
+        This is the reachable reconcile surface the agent-facing create path
+        (FK-91 §91.1a Regel #3) needs: it runs the REAL two-stage VectorDB
+        reconciliation (FK-21 §21.4) and the repo-affinity derivation (§21.9),
+        then builds the self-validating :class:`ReconciliationEvidence` — WITHOUT
+        persisting any story. The agent submits the returned evidence with
+        ``POST /v1/stories`` through the official client; the Control-Plane
+        boundary is the single authoritative create (it re-enforces the evidence
+        fail-closed). There is therefore no second story-creation truth here.
+
+        A Weaviate outage raises (``VectorDbUnavailableError``) before any
+        evidence is produced, so the agent path fail-closes BEFORE the create
+        call — never a dummy / skipped evidence (FK-21 §21.4.3).
+
+        Args:
+            request: The base ``CreateStoryInput`` (master data from the caller);
+                its ``repos`` may be overridden by the affinity proposal.
+            story_body: The full story markdown body (reconciliation query +
+                repo-affinity strong-evidence source).
+            story_was_adapted: Whether a detected stage-2 conflict was resolved by
+                ADAPTING (not discarding) the story (FK-21 §21.4.1).
+            story_display_id: Optional display-ID for the search query scope /
+                telemetry; the project prefix scopes the search.
+
+        Returns:
+            A :class:`ReconciliationOutcome` carrying the typed evidence, the raw
+            reconciliation result and the resolved ``participating_repos``.
+
+        Raises:
+            VectorDbUnavailableError: When Weaviate is unreachable -- the agent
+                create path is BLOCKED fail-closed (FK-21 §21.4.3).
         """
         # Stage 1+2 reconciliation. A Weaviate outage raises here and aborts the
-        # whole create (fail-closed, AC1 / AC3).
+        # whole create (fail-closed, AC2).
         reconciliation = self._reconciliation.reconcile(
             story_id=story_display_id or request.title,
             story_description=story_body,
             project_id=request.project_key,
-        )
-
-        # Producer rule for the conflict flag (AC5 / FK-21 §21.12).
-        conflict_resolved = resolve_vectordb_conflict_flag(
-            verdict=reconciliation.verdict,
-            story_was_adapted=story_was_adapted,
         )
 
         # Repo-affinity derivation (AC6 / FK-21 §21.9). The proposal feeds
@@ -182,13 +296,6 @@ class StoryCreationReconciler:
         else:
             repos = list(request.repos)
             used_proposal = False
-
-        final_request = request.model_copy(
-            update={
-                "vectordb_conflict_resolved": conflict_resolved,
-                "repos": repos,
-            }
-        )
 
         # Build the typed reconciliation evidence (FK-21 §21.4/§21.12). This is
         # the proof the agent-facing create boundary (POST /v1/stories) requires;
@@ -214,23 +321,78 @@ class StoryCreationReconciler:
             participating_repos=tuple(repos),
         )
 
-        story = self._story_service.create_story(
-            final_request,
-            op_id=op_id,
-            correlation_id=correlation_id,
+        return ReconciliationOutcome(
+            evidence=evidence,
+            reconciliation=reconciliation,
+            participating_repos=tuple(repos),
+            used_affinity_proposal=used_proposal,
         )
 
-        return StoryCreationOutcome(
-            story=story,
-            reconciliation=reconciliation,
-            vectordb_conflict_resolved=conflict_resolved,
-            participating_repos=tuple(story.participating_repos),
-            used_affinity_proposal=used_proposal,
-            evidence=evidence,
+    def reconcile_only_from_inputs(
+        self,
+        inputs: CreateStoryInputs,
+        *,
+        story_body: str,
+        story_was_adapted: bool = False,
+        story_display_id: str = "",
+    ) -> ReconciliationOutcome:
+        """Reconcile from the agent-facing ``CreateStoryInputs`` master data.
+
+        The agent-facing create surface (FK-91 §91.1a Regel #3) carries a SINGLE
+        ``CreateStoryInputs`` master object that is BOTH reconciled and persisted.
+        This method derives the reconciler's ``CreateStoryInput`` INTERNALLY from
+        that one object, so the ProjectEdge boundary never has to construct a
+        second input (it would otherwise have to import ``story_context_manager``,
+        violating architecture-conformance AC010) and there is no split-input seam
+        where a caller could reconcile object A while object B is persisted (FK-21
+        §21.4 SSOT, FIX-THE-MODEL / Codex R2 finding #2). ``CreateStoryInput``
+        accepts the SAME wire keys (with the ``type`` alias and enum coercion), so
+        the by-alias round-trip of the master data introduces no second source of
+        truth.
+
+        Args:
+            inputs: The single typed story master data the create surface carries
+                (no reconciliation evidence). Both the reconciliation query / repo-
+                affinity scope and the persisted body derive from this one object.
+            story_body: The full story markdown body (reconciliation query + repo-
+                affinity strong-evidence source).
+            story_was_adapted: Whether a detected stage-2 conflict was resolved by
+                ADAPTING (not discarding) the story (FK-21 §21.4.1).
+            story_display_id: Optional display-ID for the search query scope /
+                telemetry; the project prefix scopes the search.
+
+        Returns:
+            A :class:`ReconciliationOutcome` carrying the typed evidence, the raw
+            reconciliation result and the resolved ``participating_repos``.
+
+        Raises:
+            VectorDbUnavailableError: When Weaviate is unreachable -- the agent
+                create path is BLOCKED fail-closed (FK-21 §21.4.3).
+        """
+        # ``CreateStoryInput`` is constructed HERE, inside the ``story_creation``
+        # owner, from the single master-data object (function-local import keeps the
+        # module-level import set unchanged). The by-alias dump round-trips the wire
+        # keys (``type`` alias + enum coercion) so no second master source exists.
+        from agentkit.story_context_manager.story_model import CreateStoryInput
+
+        # ``exclude_none`` so optional fields the caller left unset (``size`` /
+        # ``change_impact`` / ``concept_quality`` / ``risk``, which default to
+        # ``None`` on ``CreateStoryInputs``) fall through to ``CreateStoryInput``'s
+        # own typed defaults instead of an explicit ``None`` overriding them (the
+        # same convention the persisted wire body uses, ``to_wire_body``).
+        request = CreateStoryInput.model_validate(
+            inputs.model_dump(by_alias=True, exclude_none=True)
+        )
+        return self.reconcile_only(
+            request,
+            story_body=story_body,
+            story_was_adapted=story_was_adapted,
+            story_display_id=story_display_id,
         )
 
 
 __all__ = [
+    "ReconciliationOutcome",
     "StoryCreationOutcome",
     "StoryCreationReconciler",
 ]
