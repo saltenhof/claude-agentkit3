@@ -1,8 +1,35 @@
 story_id: AG3-111
 title: "Read-Time-Skill-Platzhalter-Substitution / materialisierte Skill-Variante: Auslieferung der Platzhalter-Aufloesung (FK-43 §43.4.2) so dass {{project_key}}..{{AGENT_SPAWN_SKILL_PROOF}} vor dem Harness-Read aufgeloest sind (heute null Produktions-Aufrufer; betrifft alle 4 FK-03-Platzhalter + den AG3-110-Spawn-Proof)"
 type: implementation
-status: blocked
-phase: backlog
+status: completed
+phase: closure
+completed: "2026-06-13"
+# COMPLETED 2026-06-13. Materialized/substituted harness-variant delivery: placeholder-bearing
+# skills are materialized (substitute_spawn_header re-use, AG3-027/AG3-110) into a digest-keyed
+# variant store OUTSIDE the bundle-store root (installer/paths.py), the harness bind points link
+# to the variant; placeholder-free skills keep the raw link. Mode derived from the link target
+# (skills/links.read_directory_link_target) — NO new SkillBinding field. Manifest-before-materialize
+# ordering; fail-closed on missing token; self-atomic rollback (variant + both-harness links +
+# persisted binding row all undone on any failure, incl. post-first-save). E2E NO-STUB reads the
+# REAL execute-userstory-core/4.0.0 through BOTH .claude and .codex bind points: all 5 scalar
+# placeholders resolve, spawn header carries the real token, real AG3-086 guard allows authorized /
+# blocks forged+missing. AC2/AC4 clarified: block/section directives {{#..}}/{{/..}}/{{^..}} are a
+# different mechanism (conditional-section rendering / prompt-runtime FK-44; FK-43 §43.4.2 forbids a
+# template engine in the substitutor) and are excepted from the no-literal-{{..}} criterion.
+# Codex (sole gate): round-1 CHANGES-REQUESTED (self-atomic row rollback gap; synthetic-bundle E2E)
+# -> Sonnet remediation -> round-2 APPROVE. Gates green: ruff, mypy 695 (default + linux), GAC-1,
+# both concept gates, 6277 unit+contract + 43 targeted incl. E2E NO-STUB. Closes AG3-110 AC4 (real
+# spawn header carries token, guard allows); resume-trigger for AG3-086.
+# RESUMED 2026-06-13: AG3-113 landed (bundles re-cut to clean lowercase AK3-Control-Plane
+# vocabulary, trunk green). The paused materialization implementation (stash@{0}) was applied:
+# installer/paths.py (digest-keyed materialized-variant store), skills/materialize.py
+# (bundle_has_placeholders + bind_skill_materialized: read .md -> substitute_spawn_header ->
+# write digest variant -> link -> self-atomic), skills/links.py (read_directory_link_target),
+# runner.py wiring (manifest-before-materialize ordering), top.py mode-derivation. Now GREEN end
+# to end: ruff, mypy 695 (default + linux), GAC-1, both concept gates, 6418 unit+contract+
+# installer/skills/governance integration incl. the E2E-NO-STUB (test_skill_materialization_e2e).
+# Next: Codex review gate -> remediation if needed -> commit/push -> Sonar -> close AG3-110 AC4,
+# unblock AG3-086.
 # BLOCKED 2026-06-12 on AG3-113 (skill-bundle-recut-token-vocabulary): the shipped
 # create/lookup bundles still carry ~30 GitHub-Projects tokens + {{GH_CONFIG_EXPORT}} and use
 # UPPERCASE casing that matches no substitutor token. AG3-111's materialization fail-closes on

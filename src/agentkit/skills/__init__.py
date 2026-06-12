@@ -34,7 +34,12 @@ from agentkit.skills.links import (
     create_directory_link,
     is_directory_link,
     platform_binding_mode,
+    read_directory_link_target,
     remove_directory_link,
+)
+from agentkit.skills.materialize import (
+    bind_skill_materialized,
+    bundle_has_placeholders,
 )
 from agentkit.skills.placeholder import (
     SPAWN_SKILL_PROOF_PLACEHOLDER,
@@ -68,7 +73,11 @@ __all__ = [
     "create_directory_link",
     "is_directory_link",
     "platform_binding_mode",
+    "read_directory_link_target",
     "remove_directory_link",
+    # Materialized variant binding (AG3-111, FK-43 §43.4.1.1)
+    "bind_skill_materialized",
+    "bundle_has_placeholders",
     # Placeholder
     "PlaceholderSubstitutor",
     "SPAWN_SKILL_PROOF_PLACEHOLDER",

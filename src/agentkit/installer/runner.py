@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     # PUBLIC surface ``agentkit.skills`` — never the internal
     # ``agentkit.skills.bundle_store`` submodule (exposure=internal). The public
     # package re-exports ``SkillBundleStore``/``SkillProfile``/``Skills``.
+    from agentkit.config.models import ProjectConfig
     from agentkit.installer.integration_checkpoints.ci_preflight import (
         CiPreflightResult,
     )
@@ -930,10 +931,79 @@ def _resolve_mandatory_skill_bundles(
     return skills, resolved
 
 
+def _materialized_variant_dir_for(
+    config: InstallConfig,
+    project_config: ProjectConfig,
+    root: Path,
+    skill_name: str,
+    bundle_root: Path,
+) -> Path:
+    """Compute the digest-keyed variant directory for a materialized skill (AG3-111).
+
+    The variant store path is owned by the installer BC (``installer/paths.py``,
+    FIX Q1). The digest folds the FULL materialization-relevant input — project_key
+    + the resolved ``agent_spawn_skill_proof`` token + the four FK-03 config values +
+    ``bundle_id@bundle_version`` — so any changed input yields a NEW digest directory
+    (immutable variants) and an unchanged input a byte-identical one (idempotency).
+    """
+    from agentkit.installer.installed_manifest import resolve_install_stable_skill_proof
+    from agentkit.installer.paths import (
+        materialized_skill_variant_dir,
+        materialized_skill_variant_input_digest,
+    )
+
+    bundle_info = _read_skill_bundle_manifest(bundle_root)
+    bundle_id = str(bundle_info.get("bundle_id") or bundle_root.stem)
+    bundle_version = str(bundle_info.get("bundle_version") or "0.0.0")
+    # The token is already persisted (manifest-write precedes binding, AG3-111 §2.1
+    # #2); ``resolve_install_stable_skill_proof`` reuses the on-disk token. If absent,
+    # ``substitute_spawn_header`` later raises fail-closed (no dummy token).
+    token = resolve_install_stable_skill_proof(root)
+    assert project_config.project_prefix is not None  # noqa: S101 -- validator-enforced
+    digest = materialized_skill_variant_input_digest(
+        project_key=project_config.project_key,
+        skill_proof_token=token,
+        gh_owner=project_config.github_owner or "",
+        gh_repo=project_config.repositories[0].name,
+        project_prefix=project_config.project_prefix,
+        bundle_id=bundle_id,
+        bundle_version=bundle_version,
+    )
+    return materialized_skill_variant_dir(
+        project_config.project_key,
+        bundle_id,
+        bundle_version,
+        digest,
+        skill_name,
+    )
+
+
+def _read_skill_bundle_manifest(bundle_root: Path) -> dict[str, object]:
+    """Read a bundle's ``manifest.json`` (bundle_id/version source) fail-soft.
+
+    Returns an empty dict when no manifest exists; the caller falls back to the
+    bundle-root directory name + ``0.0.0`` (same convention as ``bind_skill``).
+    """
+    manifest_path = bundle_root / "manifest.json"
+    if not manifest_path.is_file():
+        return {}
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    return data if isinstance(data, dict) else {}
+
+
 def _bind_resolved_skills(
-    skills: Skills, resolved: list[tuple[str, Path]], root: Path
+    skills: Skills,
+    resolved: list[tuple[str, Path]],
+    root: Path,
+    config: InstallConfig,
 ) -> None:
     """Bind the PRE-RESOLVED mandatory skills transactionally (Phase 2).
+
+    AG3-111: a placeholder-bearing skill (a bundle ``.md`` carrying a ``{{...}}``
+    token) is bound via its MATERIALIZED substituted variant
+    (``Skills.bind_skill_materialized``); a placeholder-free skill keeps the raw
+    ``bundle_root`` link (``Skills.bind_skill``). The materialization runs AFTER the
+    manifest write (caller ordering) so the manifest token is on disk.
 
     ``Skills.bind_skill`` is multi-harness (Claude Code + Codex, FK-43 §43.4.1
     AK4) and creates the harness link directories itself — the installer no
@@ -952,26 +1022,54 @@ def _bind_resolved_skills(
             :func:`_resolve_mandatory_skill_bundles`).
         resolved: ``(skill_name, bundle_root)`` pairs to bind.
         root: Project root.
+        config: The install configuration (source of the FK-03 placeholder values
+            for the materialized variant; AG3-111).
 
     Raises:
         InstallationError: When a bind fails (``cause=BindFailed``; all prior
             state rolled back) or a rollback could not fully compensate
             (``cause=RollbackIncomplete``).
     """
+    from agentkit.config.loader import load_project_config
     from agentkit.skills.errors import SkillBindingPartialStateError
+    from agentkit.skills.materialize import bundle_has_placeholders
+
+    # The ProjectConfig (FK-03 placeholder source) is loaded LAZILY — only when a
+    # placeholder-bearing skill is actually encountered — from the on-disk
+    # ``project.yaml`` (written at CP 5, well before this CP 8 bind region). A
+    # placeholder-free install never touches it.
+    project_config: ProjectConfig | None = None
 
     # Bind transactionally (multi-harness links, FK-43 §43.4.1).
-    # ``bind_skill`` is SELF-ATOMIC (skills/top.py): on any failure it leaves NO
-    # partial state — no link, no persisted binding row. Therefore the
-    # failing skill is NEVER appended to ``bound_so_far``; only skills that
-    # returned successfully (and so REALLY have persisted state) are in the
-    # rollback set. This makes the orphan report ACCURATE: a skill that failed
-    # before any side effect can never be reported as a false orphan
-    # (AG3-048 Codex-r3 ERROR 2).
+    # ``bind_skill``/``bind_skill_materialized`` are SELF-ATOMIC (skills/top.py,
+    # skills/materialize.py): on any failure they leave NO partial state — no link,
+    # no persisted binding row, no half-written variant. Therefore the failing skill
+    # is NEVER appended to ``bound_so_far``; only skills that returned successfully
+    # (and so REALLY have persisted state) are in the rollback set. This makes the
+    # orphan report ACCURATE: a skill that failed before any side effect can never be
+    # reported as a false orphan (AG3-048 Codex-r3 ERROR 2).
     bound_so_far: list[str] = []
     for skill_name, bundle_root in resolved:
         try:
-            skills.bind_skill(skill_name, bundle_root, root)
+            if bundle_has_placeholders(bundle_root):
+                # AG3-111: placeholder-bearing skill -> materialized substituted
+                # variant + link at the variant (FK-43 §43.4.1.1). Fail-closed: a
+                # missing manifest token makes ``substitute_spawn_header`` raise.
+                if project_config is None:
+                    project_config = load_project_config(root)
+                variant_dir = _materialized_variant_dir_for(
+                    config, project_config, root, skill_name, bundle_root
+                )
+                skills.bind_skill_materialized(
+                    skill_name,
+                    bundle_root,
+                    root,
+                    config=project_config,
+                    variant_dir=variant_dir,
+                )
+            else:
+                # Placeholder-free skill -> unchanged raw ``bundle_root`` link.
+                skills.bind_skill(skill_name, bundle_root, root)
         except SkillBindingPartialStateError as exc:
             # AG3-048 Codex-r4 FINDING 1: the FAILING skill's own self-atomic
             # cleanup could NOT fully undo its partial state (residual link
@@ -1058,7 +1156,7 @@ def _bind_mandatory_skills(config: InstallConfig, root: Path) -> None:
     wrapper.
     """
     skills, resolved = _resolve_mandatory_skill_bundles(config, root)
-    _bind_resolved_skills(skills, resolved, root)
+    _bind_resolved_skills(skills, resolved, root, config)
 
 
 #: Harness link bind points that must be git-ignored in a target project so a
@@ -1173,7 +1271,6 @@ def deploy_post_registration_artifacts(config: InstallConfig, root: Path) -> lis
         created.append(gitignore_rel)
 
     created.extend(_deploy_prompt_bindings(root, canonical_prompt_bundle_root))
-    _bind_resolved_skills(skills, resolved_skill_bundles, root)
 
     # The prompt-bundle lock (``PromptRuntime.update_binding``) is owned by the
     # CP 8 handler (FK-50 §50.5, story AC6 second binding path); it is NOT written
@@ -1186,11 +1283,20 @@ def deploy_post_registration_artifacts(config: InstallConfig, root: Path) -> lis
     # spawn fails closed. Idempotent + install-stable (the token is reused unchanged
     # on re-install). The CP 8 mutations-allowed guard (cp07_to_09.py) ensures this
     # runs only in register mode, never in dry_run/verify.
+    #
+    # AG3-111 (FK-43 §43.2.3/§43.4.2, ORDERING): the manifest MUST be written
+    # BEFORE the skill bind so a placeholder-bearing skill's materialization finds
+    # the real ``agent_spawn_skill_proof`` token on disk. Reordered ahead of
+    # ``_bind_resolved_skills`` (previously the bind ran first). Fail-closed: a
+    # missing token makes ``substitute_spawn_header`` raise -> install aborts.
     installed_manifest = _write_installed_manifest(
         root, manifest=manifest, resolved_skill_bundles=resolved_skill_bundles
     )
     if installed_manifest is not None:
         created.append(installed_manifest)
+
+    _bind_resolved_skills(skills, resolved_skill_bundles, root, config)
+
     control_plane_config = _write_control_plane_config(root)
     if control_plane_config is not None:
         created.append(control_plane_config)

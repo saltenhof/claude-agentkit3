@@ -45,6 +45,7 @@ from agentkit.skills.quality_metric import (
 if TYPE_CHECKING:
     from pathlib import Path  # noqa: TC003  # used only in annotations (from __future__ annotations)
 
+    from agentkit.config.models import ProjectConfig
     from agentkit.skills.bundle_store import SkillBundleStore
     from agentkit.skills.repository import SkillBindingRepository
     from agentkit.telemetry.projection_accessor import ProjectionAccessor
@@ -528,6 +529,75 @@ class Skills:
         return _CleanupResidual(
             residual_links=residual_links,
             persisted_row_remains=persisted_row_remains,
+        )
+
+    # ------------------------------------------------------------------
+    # bind_skill_materialized (AG3-111, FK-43 §43.4.1.1)
+    # ------------------------------------------------------------------
+
+    def bind_skill_materialized(
+        self,
+        skill_name: str,
+        bundle_root: Path,
+        project_root: Path,
+        *,
+        config: ProjectConfig,
+        variant_dir: Path,
+    ) -> SkillBinding:
+        """Bind a placeholder-bearing skill via its materialized substituted variant.
+
+        The SECOND binding mode (FK-43 §43.4.1.1): instead of linking the raw
+        ``bundle_root``, the installer materializes a SUBSTITUTED copy of the bundle
+        into the digest-keyed *variant_dir* (in the AK3 install store) and links the
+        harness bind points at THAT variant. All five placeholders (four FK-03 + the
+        manifest-fed ``{{AGENT_SPAWN_SKILL_PROOF}}``, AG3-110) are resolved by the
+        REUSED :class:`PlaceholderSubstitutor` — no substitution is re-implemented.
+
+        The Fachlogik lives in :mod:`agentkit.skills.materialize`; this method only
+        performs the same pre-bind validation as :meth:`bind_skill` (paths, profile,
+        manifest digest), resolves the effective bundle keys, and delegates — keeping
+        the persistence repo encapsulated. ``SkillBinding`` is UNCHANGED (the
+        materialized mode is derived from the link target, not a new field).
+
+        Args:
+            skill_name: Logical skill name.
+            bundle_root: Systemwide bundle directory (neutral representation).
+            project_root: Target-project root.
+            config: Project configuration (resolves the four FK-03 placeholders).
+            variant_dir: The digest-keyed variant directory (installer-computed).
+
+        Returns:
+            The persisted ``SkillBinding`` (status ``VERIFIED``).
+
+        Raises:
+            SkillBindingFailedError: When paths are invalid or a link fails.
+            SkillBundleDigestMismatchError: When the bundle manifest digest mismatches.
+            SkillProfileNotSupportedError: When the profile is unsupported.
+            UnknownPlaceholderError: When a ``.md`` placeholder is unresolvable
+                (e.g. the manifest token is missing — fail-closed).
+        """
+        from agentkit.skills.materialize import bind_skill_materialized
+
+        _validate_bind_paths(project_root, bundle_root)
+        bundle_info = _read_bundle_manifest(bundle_root)
+        self._validate_profile_support(skill_name, bundle_info, bundle_root)
+        _verify_manifest_digest(skill_name, bundle_info, bundle_root)
+
+        effective_project_key = project_root.stem
+        effective_bundle_id = str(bundle_info.get("bundle_id") or bundle_root.stem)
+        effective_bundle_version = str(bundle_info.get("bundle_version") or "0.0.0")
+        bid = _binding_id_for(effective_project_key, skill_name)
+
+        return bind_skill_materialized(
+            skill_name,
+            bundle_root,
+            project_root,
+            config=config,
+            variant_dir=variant_dir,
+            binding_repo=self._binding_repo,
+            binding_id=bid,
+            bundle_id=effective_bundle_id,
+            bundle_version=effective_bundle_version,
         )
 
     @staticmethod

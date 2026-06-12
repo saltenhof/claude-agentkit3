@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
@@ -32,6 +33,13 @@ CLAUDE_SETTINGS_FILE: str = "settings.json"
 CODEX_CONFIG_FILE: str = "config.toml"
 PROMPT_BUNDLE_LOCK_FILE: str = "prompt-bundle.lock.json"
 PROMPT_BUNDLE_STORE_ENV: str = "AGENTKIT_PROMPT_BUNDLE_STORE_ROOT"
+#: Env override for the SEPARATE materialized-skill-variant store (AG3-111,
+#: FK-43 §43.4.1.1). This store holds substituted SKILL.md harness variants for
+#: placeholder-bearing skills. It lives in the AK3 install/state area, NOT under
+#: the ``SkillBundleStore`` root and is EXPLICITLY excluded from bundle discovery
+#: (FIX Q1) — generated, project-specific variants must never pollute the
+#: canonical bundle namespace nor write into the packaged ``resources/`` tree.
+MATERIALIZED_SKILL_VARIANT_STORE_ENV: str = "AGENTKIT_MATERIALIZED_SKILL_VARIANT_STORE_ROOT"
 PIPELINE_CONFIG_FILE: str = "story-pipeline.yaml"
 PHASE_RUNS_DIR: str = "phase-runs"
 CONTEXT_FILE: str = "context.json"
@@ -104,6 +112,96 @@ def prompt_bundle_store_dir(
 
 def prompt_bundle_lock_path(project_root: Path) -> Path:
     return project_root / CONFIG_DIR / PROMPT_BUNDLE_LOCK_FILE
+
+
+def default_materialized_skill_variant_store_root() -> Path:
+    """Return the default root for the materialized-skill-variant store (AG3-111).
+
+    Resolution order mirrors the prompt-bundle-store pattern:
+
+    1. ``AGENTKIT_MATERIALIZED_SKILL_VARIANT_STORE_ROOT`` env override (operator/test).
+    2. The AK3 install/state area (``%PROGRAMDATA%\\AgentKit\\...`` on Windows,
+       ``/var/lib/agentkit/...`` on POSIX).
+
+    This store is SEPARATE from the ``SkillBundleStore`` root (which defaults to the
+    packaged shipped bundles and is discovery-scanned) and is never scanned for
+    bundles (FK-43 §43.4.1.1, FIX Q1).
+    """
+    override = os.environ.get(MATERIALIZED_SKILL_VARIANT_STORE_ENV)
+    if override:
+        return Path(override)
+    if os.name == "nt":
+        program_data = Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData"))
+        return program_data / "AgentKit" / "materialized-skill-variants"
+    return Path("/var/lib/agentkit/materialized-skill-variants")
+
+
+def materialized_skill_variant_store_root(explicit_root: Path | None = None) -> Path:
+    """Return the materialized-skill-variant store root (explicit or default)."""
+    if explicit_root is not None:
+        return explicit_root
+    return default_materialized_skill_variant_store_root()
+
+
+def materialized_skill_variant_input_digest(
+    *,
+    project_key: str,
+    skill_proof_token: str,
+    gh_owner: str,
+    gh_repo: str,
+    project_prefix: str,
+    bundle_id: str,
+    bundle_version: str,
+) -> str:
+    """Return the input-digest that keys a materialized variant directory (AG3-111).
+
+    FIX Q1: the variant directory is keyed by a SHA-256 over the FULL
+    materialization-relevant input — ``project_key`` + the resolved
+    ``agent_spawn_skill_proof`` token + the four FK-03 config values
+    (``gh_owner``/``gh_repo``/``project_prefix``/``project_key``) +
+    ``bundle_id@bundle_version``. Any changed input yields a NEW, different digest
+    directory (immutable variants, no in-place mutation); an unchanged input yields
+    a stable digest -> byte-identical re-materialization (idempotency, FK-51).
+
+    The components are joined with a ``\\x00`` separator so no value can spoof a
+    boundary (e.g. ``("ab", "c")`` differs from ``("a", "bc")``).
+
+    Returns:
+        The hex SHA-256 digest string.
+    """
+    components = (
+        project_key,
+        skill_proof_token,
+        gh_owner,
+        gh_repo,
+        project_prefix,
+        f"{bundle_id}@{bundle_version}",
+    )
+    canonical = "\x00".join(components).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def materialized_skill_variant_dir(
+    project_key: str,
+    bundle_id: str,
+    bundle_version: str,
+    input_digest: str,
+    skill: str,
+    *,
+    store_root: Path | None = None,
+) -> Path:
+    """Return the digest-keyed variant directory for one materialized skill (AG3-111).
+
+    Layout (FIX Q1):
+    ``{store}/{project_key}/{bundle_id}@{bundle_version}/{input_digest}/{skill}/``.
+    """
+    return (
+        materialized_skill_variant_store_root(store_root)
+        / project_key
+        / f"{bundle_id}@{bundle_version}"
+        / input_digest
+        / skill
+    )
 
 
 def static_prompts_dir(project_root: Path) -> Path:
@@ -182,6 +280,7 @@ __all__ = [
     "PHASE_RUNS_DIR",
     "PHASE_STATE_FILE",
     "PIPELINE_CONFIG_FILE",
+    "MATERIALIZED_SKILL_VARIANT_STORE_ENV",
     "PROMPT_BUNDLE_LOCK_FILE",
     "PROMPT_BUNDLE_STORE_ENV",
     "PROJECT_CONFIG_FILE",
@@ -197,8 +296,12 @@ __all__ = [
     "codex_config_path",
     "config_dir",
     "control_plane_config_path",
+    "default_materialized_skill_variant_store_root",
     "default_prompt_bundle_store_root",
     "installed_manifest_path",
+    "materialized_skill_variant_dir",
+    "materialized_skill_variant_input_digest",
+    "materialized_skill_variant_store_root",
     "manifests_dir",
     "prompt_instance_dir",
     "prompt_pin_dir",

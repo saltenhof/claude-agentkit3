@@ -26,14 +26,17 @@ from __future__ import annotations
 import importlib
 import os
 import sys
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 from agentkit.skills.binding import SkillBindingMode
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
 _IS_WINDOWS = sys.platform == "win32"
+
+#: Windows extended-length path prefix ``os.readlink`` returns for a junction
+#: target. Stripped by :func:`read_directory_link_target` so the resolved target
+#: compares equal to an ordinary ``Path`` (a digest-keyed variant dir vs. the raw
+#: ``bundle_root``) without callers special-casing the prefix.
+_WINDOWS_EXTENDED_LENGTH_PREFIX = "\\\\?\\"
 
 
 def platform_binding_mode() -> SkillBindingMode:
@@ -102,3 +105,36 @@ def remove_directory_link(path: Path) -> None:
         os.rmdir(path)
     else:
         path.unlink()
+
+
+def read_directory_link_target(link_path: Path) -> Path:
+    """Resolve the target a binding link points at (AG3-111 §2.1 item 1b).
+
+    A link-introspection helper (NOT a schema/state-format change): it lets
+    ``resolve_binding`` / Verify / cleanup derive the materialized-vs-raw binding
+    mode from the REAL link target — a digest-keyed variant directory in the AK3
+    install store (materialized) versus the systemwide ``bundle_root`` (raw) —
+    WITHOUT adding a ``SkillBinding`` field.
+
+    Resolution is platform-aware, symmetric to :func:`create_directory_link`:
+
+    * **POSIX symlink** — :func:`os.readlink` returns the stored absolute target.
+    * **Windows junction** — :func:`os.readlink` (Python 3.8+) reads the
+      reparse-point target; it is returned with the extended-length ``\\\\?\\``
+      prefix, which this function strips so the result compares equal to an
+      ordinary absolute :class:`~pathlib.Path`.
+
+    Args:
+        link_path: The binding-point link to introspect (must be a symlink or a
+            Windows directory junction).
+
+    Returns:
+        The absolute :class:`~pathlib.Path` the link points at.
+
+    Raises:
+        OSError: When *link_path* is not a link or its target cannot be read.
+    """
+    raw_target = os.readlink(link_path)
+    if _IS_WINDOWS and raw_target.startswith(_WINDOWS_EXTENDED_LENGTH_PREFIX):
+        raw_target = raw_target[len(_WINDOWS_EXTENDED_LENGTH_PREFIX):]
+    return Path(raw_target)
