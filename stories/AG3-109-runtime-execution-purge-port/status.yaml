@@ -1,8 +1,9 @@
 story_id: AG3-109
 title: "Runtime-Execution-Purge-Port (koordiniert, je Owner dediziert)"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
+completed: "2026-06-12"
 created: "2026-06-09"
 size: M
 depends_on: []
