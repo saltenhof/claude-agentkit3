@@ -1,0 +1,23 @@
+story_id: AG3-113
+title: "Skill-Bundle-Re-Cut: GitHub-Projects-Tokens raus + Token-Vokabular-Korrektur (create/lookup auf AK3-Control-Plane, FK-43/FK-03-Delta) + toter Projects-Adapter entsorgt"
+type: implementation
+status: ready
+phase: setup
+created: "2026-06-12"
+size: L
+# Herkunft: PO-Entscheidung 2026-06-12. Die Konzepte sind bereits frei von GitHub-Projects
+# (FK-12 §12.1.1, 01_systemkontext §1.2 "nicht ueber externe Project-Boards"), die ausgelieferten
+# Bundles create-userstory-core + lookup-userstory-core tragen aber noch ~30 GH-Projects-Tokens +
+# {{GH_CONFIG_EXPORT}}. Basis: stories/_proposal-skill-token-vocabulary-and-bundle-recut.md +
+# stories/_analysis-skill-placeholder-token-vocabulary.md. PO-Entscheidungen: D1 lowercase,
+# D3 Story-Anlage voll ueber AK3-Control-Plane (gh issue create + gh project + {{GH_CONFIG_EXPORT}}
+# entfallen), D2 Proposal-Minimal (nur ueberlebende Layout-Tokens als typisierte FK-03/Config-Felder),
+# toter Adapter integrations/github/projects.py wird mit entsorgt. Diese Story ist das fehlende
+# Fundament fuer AG3-111 (Substitutions-Delivery wird erst gegen ein vollstaendig aufloesbares
+# Vokabular korrekt; fail-closed-on-unknown ist sonst falsch-positiv).
+depends_on:
+  - AG3-014
+  - AG3-027
+  - AG3-090
+unblocks:
+  - AG3-111

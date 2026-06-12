@@ -1,8 +1,13 @@
 story_id: AG3-111
 title: "Read-Time-Skill-Platzhalter-Substitution / materialisierte Skill-Variante: Auslieferung der Platzhalter-Aufloesung (FK-43 §43.4.2) so dass {{project_key}}..{{AGENT_SPAWN_SKILL_PROOF}} vor dem Harness-Read aufgeloest sind (heute null Produktions-Aufrufer; betrifft alle 4 FK-03-Platzhalter + den AG3-110-Spawn-Proof)"
 type: implementation
-status: draft
+status: blocked
 phase: backlog
+# BLOCKED 2026-06-12 on AG3-113 (skill-bundle-recut-token-vocabulary): the shipped
+# create/lookup bundles still carry ~30 GitHub-Projects tokens + {{GH_CONFIG_EXPORT}} and use
+# UPPERCASE casing that matches no substitutor token. AG3-111's materialization fail-closes on
+# those unknown tokens (verified: prior worker stashed exactly this). AG3-113 re-cuts the bundles
+# to the clean lowercase AK3-Control-Plane vocabulary; only then is AG3-111 implementable.
 created: "2026-06-11"
 size: L
 # depends_on AG3-110 is now a COMPLETED precondition (producer + substitute_spawn_header
@@ -16,5 +21,6 @@ depends_on:
   - AG3-027
   - AG3-048
   - AG3-110
+  - AG3-113
 unblocks:
   - AG3-086
