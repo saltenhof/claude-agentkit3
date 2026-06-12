@@ -2,8 +2,11 @@
 
 Single source of truth for all cross-cutting StrEnum types that are
 needed by multiple bounded contexts at once. This module may import
-from NO other module (no circular import); it is a blood-type-0
-foundation module.
+from NO other module (no circular import); ``agentkit.core_types`` is the
+``domain_core_foundation`` boundary (bloodgroup A: a leaf foundation that
+carries AK3 DOMAIN core types -- ArtifactClass/QaContext/StoryStatus/
+OperatingMode/... -- so NOT fachneutral Null-Software; ``importable_by: any``,
+modeled in ``concept/formal-spec/architecture-conformance/entities.md``).
 
 Story anchor: AG3-021 (typed core enums). Value lists and wire strings
 are normative in AG3-021 §2.1.1.1; every member is pinned by the
