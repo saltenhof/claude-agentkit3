@@ -75,6 +75,10 @@ if TYPE_CHECKING:
     from agentkit.state_backend.store.planning_story_dependency_repository import (
         PlanningWritePathStoryDependencyRepository,
     )
+    from agentkit.state_backend.store.runtime_execution_purge import (
+        RuntimeExecutionPurgePort,
+        RuntimeExecutionResidueProbe,
+    )
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.story_context_manager.story_model import ChangeImpact
     from agentkit.story_context_manager.types import StoryType
@@ -1807,6 +1811,56 @@ def build_phase_state_residue_probe(
     return _probe
 
 
+def build_runtime_execution_purge_port(
+    store_dir: Path | None = None,
+) -> RuntimeExecutionPurgePort:
+    """Wire the coordinating Runtime-Execution-Purge port (AG3-109, FK-53 §53.7.5).
+
+    Composition root for the per-owner Runtime-Execution purge. The port
+    orchestrates the owner-purge facade APIs (``state_backend.store.facade``) for
+    ``flow_executions``, ``node_execution_ledgers``, ``attempts``,
+    ``override_records``, ``guard_decisions``, canonical ``phase_states``,
+    ``execution_events`` and run-bound ``artifact_envelopes`` — no God-Purge, no
+    port-owned cross-BC SQL. The consumer is ``story-lifecycle``
+    (``StoryResetService``, AG3-071; NOT built here), which drives the port
+    through this real assembly.
+
+    Args:
+        store_dir: State-backend base directory (story dir for SQLite; Postgres
+            resolves the global store). Defaults to the current working dir.
+
+    Returns:
+        A fully constructed :class:`RuntimeExecutionPurgePort`.
+    """
+    from agentkit.state_backend.store.runtime_execution_purge import (
+        RuntimeExecutionPurgePort as _RuntimeExecutionPurgePort,
+    )
+
+    return _RuntimeExecutionPurgePort(store_dir or Path.cwd())
+
+
+def build_runtime_execution_residue_probe(
+    store_dir: Path | None = None,
+) -> RuntimeExecutionResidueProbe:
+    """Wire the Runtime-Residue verify building block (AG3-109, FK-53 §53.7.5).
+
+    Fail-closed probe that confirms no Runtime-Execution residue remains for a
+    run. This is the Runtime-Residue fragment only; AG3-071 composes it into the
+    full ``verify_reset_clean_state`` (§53.8/§53.10).
+
+    Args:
+        store_dir: State-backend base directory (story dir for SQLite).
+
+    Returns:
+        A fully constructed :class:`RuntimeExecutionResidueProbe`.
+    """
+    from agentkit.state_backend.store.runtime_execution_purge import (
+        RuntimeExecutionResidueProbe as _RuntimeExecutionResidueProbe,
+    )
+
+    return _RuntimeExecutionResidueProbe(store_dir or Path.cwd())
+
+
 def build_projection_accessor(store_dir: Path | None = None) -> ProjectionAccessor:
     """Create a fully wired ``ProjectionAccessor``.
 
@@ -2987,4 +3041,4 @@ def build_failure_corpus(accessor: ProjectionAccessor) -> FailureCorpus:
 
 
 # Keep export metadata compact so module-level LOC stays under the project gate.
-__all__ = ["ClosureConfigUnavailableError", "SetupCoordinatesUnavailableError", "build_artifact_invalidation_sink", "build_review_completion_sink", "build_artifact_manager", "build_closure_phase_handler", "build_exploration_drafting", "build_exploration_phase_handler", "build_exploration_review", "build_failure_corpus", "build_integrity_gate", "build_phase_state_residue_probe", "build_pipeline_engine", "build_pipeline_handler_registry", "build_planning_projection_accessor", "build_planning_story_dependency_repository", "build_producer_registry", "build_projection_accessor", "build_setup_config_for_run", "build_setup_phase_handler", "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_structural_are_provider", "build_structural_build_test_port", "build_verify_system"]  # noqa: E501
+__all__ = ["ClosureConfigUnavailableError", "SetupCoordinatesUnavailableError", "build_artifact_invalidation_sink", "build_review_completion_sink", "build_artifact_manager", "build_closure_phase_handler", "build_exploration_drafting", "build_exploration_phase_handler", "build_exploration_review", "build_failure_corpus", "build_integrity_gate", "build_phase_state_residue_probe", "build_pipeline_engine", "build_pipeline_handler_registry", "build_planning_projection_accessor", "build_planning_story_dependency_repository", "build_producer_registry", "build_projection_accessor", "build_runtime_execution_purge_port", "build_runtime_execution_residue_probe", "build_setup_config_for_run", "build_setup_phase_handler", "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_structural_are_provider", "build_structural_build_test_port", "build_verify_system"]  # noqa: E501

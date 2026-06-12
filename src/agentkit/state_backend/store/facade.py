@@ -1113,6 +1113,134 @@ def load_override_records(story_dir: Path) -> list[OverrideRecord]:
 
 
 # ---------------------------------------------------------------------------
+# Runtime-Execution per-owner purge (AG3-109, FK-53 §53.7.5)
+# ---------------------------------------------------------------------------
+#
+# Owner-purge APIs for the Runtime-Execution core entities. SQL lives in the
+# driver helper (``sqlite_store`` / ``postgres_store``); this facade is the
+# canonical owner surface (next to ``save_*``/``load_*``). The coordinating
+# ``RuntimeExecutionPurgePort`` calls THESE APIs — it issues no cross-BC SQL of
+# its own (no God-Purge). Each call is idempotent (FK-53 §53.9.1).
+#
+# Physical §1.3 mapping (code is ground truth; phantom tables ``attempt_records``
+# / ``node_executions`` / ``artifact_records`` are NEVER referenced). Canonical
+# ``phase_states`` is purged here; the read-model ``phase_state_projection`` is
+# out of scope (its own ``purge_run`` lives in ``projection_repositories``).
+
+
+def purge_flow_executions(
+    story_dir: Path, project_key: str, story_id: str, run_id: str
+) -> int:
+    """Delete flow_executions rows for the run scope; return deleted row count."""
+
+    return int(
+        _backend_module().purge_flow_executions_row(
+            story_dir, project_key, story_id, run_id
+        )
+    )
+
+
+def purge_node_execution_ledgers(
+    story_dir: Path, project_key: str, story_id: str, run_id: str
+) -> int:
+    """Delete node_execution_ledgers rows for the run scope; return row count."""
+
+    return int(
+        _backend_module().purge_node_execution_ledgers_row(
+            story_dir, project_key, story_id, run_id
+        )
+    )
+
+
+def purge_attempts(story_dir: Path, story_id: str, run_id: str) -> int:
+    """Delete attempts rows for (story_id, run_id); return deleted row count.
+
+    The ``attempts`` table has no ``project_key`` column; project scope is
+    validated at the coordinating port, not implied here.
+    """
+
+    return int(_backend_module().purge_attempts_row(story_dir, story_id, run_id))
+
+
+def purge_override_records(
+    story_dir: Path, project_key: str, story_id: str, run_id: str
+) -> int:
+    """Delete override_records rows for the run scope; return deleted row count."""
+
+    return int(
+        _backend_module().purge_override_records_row(
+            story_dir, project_key, story_id, run_id
+        )
+    )
+
+
+def purge_guard_decisions(
+    story_dir: Path, project_key: str, story_id: str, run_id: str
+) -> int:
+    """Delete guard_decisions rows for the run scope; return deleted row count."""
+
+    return int(
+        _backend_module().purge_guard_decisions_row(
+            story_dir, project_key, story_id, run_id
+        )
+    )
+
+
+def purge_phase_states(story_dir: Path, story_id: str) -> int:
+    """Delete the canonical phase_states row for story_id; return row count.
+
+    Purges the canonical runtime PhaseState (keyed by ``story_id`` only), NOT the
+    FK-39 read-model ``phase_state_projection`` (out of scope).
+    """
+
+    return int(_backend_module().purge_phase_states_row(story_dir, story_id))
+
+
+def purge_execution_events(
+    story_dir: Path, project_key: str, story_id: str, run_id: str
+) -> int:
+    """Delete execution_events rows for the run scope; return deleted row count."""
+
+    return int(
+        _backend_module().purge_execution_events_row(
+            story_dir, project_key, story_id, run_id
+        )
+    )
+
+
+def purge_run_bound_artifact_envelopes(
+    story_dir: Path, story_id: str, run_id: str
+) -> int:
+    """Delete run-bound artifact_envelopes rows for (story_id, run_id).
+
+    ``artifact_envelopes`` has no ``project_key`` column; every row is run-bound
+    via ``run_id``. Other-run (across-run/durable) rows are left intact.
+    """
+
+    return int(
+        _backend_module().purge_run_bound_artifact_envelopes_row(
+            story_dir, story_id, run_id
+        )
+    )
+
+
+def count_runtime_execution_residue(
+    story_dir: Path, project_key: str, story_id: str, run_id: str
+) -> dict[str, int]:
+    """Return remaining Runtime-Execution rows per table for the run scope.
+
+    Building block for the Runtime-Residue verify (FK-53 §53.7.5 / §53.10
+    fragment); a non-zero count for any table means residue survived a purge.
+    """
+
+    return dict(
+        _backend_module().count_runtime_execution_residue_row(
+            story_dir, project_key, story_id, run_id
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
 # StoryMetricsRecord
 # ---------------------------------------------------------------------------
 

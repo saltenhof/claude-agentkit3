@@ -3073,6 +3073,252 @@ def load_story_execution_lock_global_row(
 
 
 # ---------------------------------------------------------------------------
+# Runtime-Execution per-owner purge rows (AG3-109)
+# ---------------------------------------------------------------------------
+#
+# Physical mapping (§1.3 — code is ground truth; FK-18/FK-53 prose drift is a
+# doc-only follow-up owned by FK-18-Doc, NOT renamed here):
+#
+#   §53.6.2 entity              real table                purge key columns
+#   --------------------------  -----------------------   ------------------------
+#   FlowExecution               flow_executions           project_key,story_id,run_id
+#   NodeExecution(Ledger)       node_execution_ledgers    project_key,story_id,run_id
+#   AttemptRecord               attempts                  story_id,run_id  (no project_key col)
+#   OverrideRecord              override_records          project_key,story_id,run_id
+#   GuardDecision               guard_decisions           project_key,story_id,run_id
+#   canonical PhaseState        phase_states              story_id  (no project_key/run_id col)
+#   ExecutionEvent              execution_events          project_key,story_id,run_id
+#   run-bound ArtifactRecord    artifact_envelopes        story_id,run_id  (no project_key col)
+#
+# NEVER reference phantom tables ``attempt_records`` / ``node_executions`` /
+# ``artifact_records``. The read-model ``phase_state_projection`` is OUT OF SCOPE
+# (already purged via projection_repositories.py:purge_run).
+#
+# All purge helpers are idempotent (FK-53 §53.9.1): delete-if-present, count zero
+# when already gone, hard-fail only on real infra/permission errors (the open
+# connection propagates those). They use ``?`` placeholders so the identical SQL
+# runs on Postgres via ``postgres_store._CompatConnection`` (``?`` -> ``%s``).
+
+
+def purge_flow_executions_row(
+    story_dir: Path,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> int:
+    """Delete flow_executions rows for (project_key, story_id, run_id)."""
+
+    with _connect(story_dir) as conn:
+        cursor = conn.execute(
+            "DELETE FROM flow_executions "
+            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            (project_key, story_id, run_id),
+        )
+        return int(cursor.rowcount)
+
+
+def purge_node_execution_ledgers_row(
+    story_dir: Path,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> int:
+    """Delete node_execution_ledgers rows for (project_key, story_id, run_id)."""
+
+    with _connect(story_dir) as conn:
+        cursor = conn.execute(
+            "DELETE FROM node_execution_ledgers "
+            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            (project_key, story_id, run_id),
+        )
+        return int(cursor.rowcount)
+
+
+def purge_attempts_row(
+    story_dir: Path,
+    story_id: str,
+    run_id: str,
+) -> int:
+    """Delete attempts rows for (story_id, run_id).
+
+    The ``attempts`` table has no ``project_key`` column (PK is
+    ``(story_id, run_id, phase, attempt)``); the project scope is validated at
+    the coordinating port, not implied as a column.
+    """
+
+    with _connect(story_dir) as conn:
+        cursor = conn.execute(
+            "DELETE FROM attempts WHERE story_id = ? AND run_id = ?",
+            (story_id, run_id),
+        )
+        return int(cursor.rowcount)
+
+
+def purge_override_records_row(
+    story_dir: Path,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> int:
+    """Delete override_records rows for (project_key, story_id, run_id)."""
+
+    with _connect(story_dir) as conn:
+        cursor = conn.execute(
+            "DELETE FROM override_records "
+            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            (project_key, story_id, run_id),
+        )
+        return int(cursor.rowcount)
+
+
+def purge_guard_decisions_row(
+    story_dir: Path,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> int:
+    """Delete guard_decisions rows for (project_key, story_id, run_id)."""
+
+    with _connect(story_dir) as conn:
+        cursor = conn.execute(
+            "DELETE FROM guard_decisions "
+            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            (project_key, story_id, run_id),
+        )
+        return int(cursor.rowcount)
+
+
+def purge_phase_states_row(
+    story_dir: Path,
+    story_id: str,
+) -> int:
+    """Delete the canonical phase_states row for story_id.
+
+    The canonical ``phase_states`` table is keyed by ``story_id`` only (one
+    runtime PhaseState per story); it carries no ``run_id``/``project_key``
+    column. This purges the canonical runtime PhaseState, NOT the FK-39 read-model
+    ``phase_state_projection`` (out of scope; already has its own purge).
+    """
+
+    with _connect(story_dir) as conn:
+        cursor = conn.execute(
+            "DELETE FROM phase_states WHERE story_id = ?",
+            (story_id,),
+        )
+        return int(cursor.rowcount)
+
+
+def purge_execution_events_row(
+    story_dir: Path,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> int:
+    """Delete execution_events rows for (project_key, story_id, run_id)."""
+
+    with _connect(story_dir) as conn:
+        cursor = conn.execute(
+            "DELETE FROM execution_events "
+            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            (project_key, story_id, run_id),
+        )
+        return int(cursor.rowcount)
+
+
+def purge_run_bound_artifact_envelopes_row(
+    story_dir: Path,
+    story_id: str,
+    run_id: str,
+) -> int:
+    """Delete run-bound artifact_envelopes rows for (story_id, run_id).
+
+    ``artifact_envelopes`` has no ``project_key`` column; every row is bound to a
+    ``run_id`` (PK ``(story_id, run_id, stage, attempt, artifact_class,
+    producer_name)``). A reset starts a NEW run with a NEW ``run_id``, so deleting
+    all rows for the OLD ``(story_id, run_id)`` removes exactly the run-bound
+    artefacts and leaves any other-run (durable across-run) rows untouched.
+    """
+
+    with _connect(story_dir) as conn:
+        cursor = conn.execute(
+            "DELETE FROM artifact_envelopes WHERE story_id = ? AND run_id = ?",
+            (story_id, run_id),
+        )
+        return int(cursor.rowcount)
+
+
+def count_runtime_execution_residue_row(
+    story_dir: Path,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> dict[str, int]:
+    """Count remaining Runtime-Execution rows per table for the run scope.
+
+    Returns a ``table -> remaining row count`` map. Used by the Runtime-Residue
+    probe (FK-53 §53.7.5 / §53.10 building block) to fail closed when any
+    runtime-execution object survives a purge.
+    """
+
+    with _connect(story_dir) as conn:
+        return _count_runtime_execution_residue(conn, project_key, story_id, run_id)
+
+
+def _count_runtime_execution_residue(
+    conn: sqlite3.Connection,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> dict[str, int]:
+    def _count(sql: str, params: tuple[object, ...]) -> int:
+        row = conn.execute(sql, params).fetchone()
+        return int(row[0]) if row is not None else 0
+
+    pksr = (project_key, story_id, run_id)
+    sr = (story_id, run_id)
+    return {
+        "flow_executions": _count(
+            "SELECT COUNT(*) FROM flow_executions "
+            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            pksr,
+        ),
+        "node_execution_ledgers": _count(
+            "SELECT COUNT(*) FROM node_execution_ledgers "
+            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            pksr,
+        ),
+        "attempts": _count(
+            "SELECT COUNT(*) FROM attempts WHERE story_id = ? AND run_id = ?",
+            sr,
+        ),
+        "override_records": _count(
+            "SELECT COUNT(*) FROM override_records "
+            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            pksr,
+        ),
+        "guard_decisions": _count(
+            "SELECT COUNT(*) FROM guard_decisions "
+            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            pksr,
+        ),
+        "phase_states": _count(
+            "SELECT COUNT(*) FROM phase_states WHERE story_id = ?",
+            (story_id,),
+        ),
+        "execution_events": _count(
+            "SELECT COUNT(*) FROM execution_events "
+            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            pksr,
+        ),
+        "artifact_envelopes": _count(
+            "SELECT COUNT(*) FROM artifact_envelopes "
+            "WHERE story_id = ? AND run_id = ?",
+            sr,
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Backend predicate helpers (kept as thin wrappers for driver-level checks)
 # ---------------------------------------------------------------------------
 
