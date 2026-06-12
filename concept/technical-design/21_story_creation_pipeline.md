@@ -354,6 +354,21 @@ evaluator.evaluate(
 **Ergebnis:** PASS (kein Konflikt) oder FAIL (Duplikat/Überschneidung
 erkannt → Agent muss Konflikt klären).
 
+> **Create-Scope-Klarstellung (Schritt 3):** Die Konfliktbewertung in
+> Schritt 3 **gatet** die Anlage und läuft daher *vor* der Existenz der
+> Story. Sie nutzt einen **Create-Scope**: die im obigen Aufruf übergebene
+> `story_id` ist die Draft-Display-/Such-ID (kein persistierter Story-
+> Identifier), und es gibt **kein** `run_id` und **keinen** Run-Pin. Die
+> Substitutions- und (binäre) PASS/FAIL-Bewertungspflicht bleibt unverändert;
+> präzisiert wird ausschließlich der Scope. Da kein Run-Pin existiert, nutzt
+> dieser Aufruf **nicht** den run-gepinnten Materialisierungs-/Audit-Pfad aus
+> FK-44 (`render-evaluator-prompt` setzt einen `run_pinned` Zustand voraus);
+> das Konflikt-Prompt-Template wird stattdessen aus derselben gepinnten/
+> Bootstrap-Bundle-Quelle digest-verifiziert geladen — kein loser Datei-Read —,
+> und es entfällt mangels Run die run-scoped Prompt-Audit-Artefaktpersistierung.
+> Das fachliche VektorDB-Abgleich-Protokoll (§21.4.2) und die execution-scoped
+> Evaluator-/Zieltreue-Pfade bleiben davon unberührt.
+
 ### 21.4.2 Protokollierung
 
 Jeder Abgleich wird protokolliert (FK-05-022):

@@ -1,8 +1,9 @@
 story_id: AG3-115
 title: "Create-Time-Conflict-Adjudicator: LLM-Konfliktbewertung (FK-21 §21.4.1 Schritt 3) im pre-story Create-Scope, entkoppelt vom execution-scoped StructuredEvaluator"
 type: implementation
-status: ready
-phase: setup
+status: completed
+phase: closure
+completed: "2026-06-12"
 created: "2026-06-12"
 size: L
 # Herkunft: PO-Entscheidung 2026-06-12 ("Adjudicator zuerst verdrahten") aus dem AG3-114-Review.

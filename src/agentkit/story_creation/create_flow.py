@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING
 from agentkit.story_creation.reconciliation_evidence import ReconciliationEvidence
 from agentkit.story_creation.repo_affinity import resolve_repo_affinity
 from agentkit.story_creation.vectordb_reconciliation import (
+    AbgleichProtocol,
     ReconciliationResult,
     VectorDbReconciliation,
     resolve_vectordb_conflict_flag,
@@ -193,12 +194,21 @@ class StoryCreationReconciler:
         # the proof the agent-facing create boundary (POST /v1/stories) requires;
         # it grounds the conflict flag + affinity in the actual reconciliation
         # outcome so the persisted story cannot diverge from it (FIX-THE-MODEL).
+        #
+        # The §21.4.2 abgleich-protocol counters (incl. ``sent_to_llm`` and
+        # ``search_mode``) are projected from the reconciliation result via the
+        # owner-faithful ``AbgleichProtocol`` so the full §21.4.2 counter set is
+        # carried through the AUTHORITATIVE evidence path -- no second/shadow
+        # schema, the protocol is genuinely produced in the real flow.
+        protocol = AbgleichProtocol.from_result(reconciliation)
         evidence = ReconciliationEvidence(
             weaviate_ready=True,
-            total_hits=reconciliation.total_hits,
-            hits_above_threshold=reconciliation.hits_above_threshold,
-            hits_classified_conflict=reconciliation.hits_classified_conflict,
-            threshold_value=reconciliation.threshold_value,
+            total_hits=protocol.total_hits,
+            hits_above_threshold=protocol.above_threshold,
+            candidates_evaluated=protocol.sent_to_llm,
+            hits_classified_conflict=protocol.llm_conflicts,
+            threshold_value=protocol.threshold_used,
+            search_mode=protocol.search_mode,
             verdict=reconciliation.verdict,
             story_was_adapted=story_was_adapted,
             participating_repos=tuple(repos),

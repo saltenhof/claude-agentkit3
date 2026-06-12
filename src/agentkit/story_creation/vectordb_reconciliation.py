@@ -80,6 +80,80 @@ class ReconciliationResult:
     conflict_candidates: tuple[str, ...]
 
 
+#: The fixed search mode of the stage-1 similarity search (FK-21 §21.4.1
+#: Schritt 1: ``story_search(search_mode="hybrid", ...)``). Surfaced as the
+#: ``search_mode`` field of the §21.4.2 abgleich protocol.
+RECONCILIATION_SEARCH_MODE: str = "hybrid"
+
+
+@dataclass(frozen=True)
+class AbgleichProtocol:
+    """Typed FK-21 §21.4.2 abgleich-protocol counters (no new shadow schema).
+
+    A pure, owner-faithful projection of the existing typed
+    :class:`ReconciliationResult` onto the FK-21 §21.4.2 protocol wire keys
+    (``total_hits`` / ``above_threshold`` / ``sent_to_llm`` / ``llm_conflicts`` /
+    ``threshold_used`` / ``search_mode``). It carries no second source of truth:
+    every field is read from the reconciliation result that the counter owner
+    (:class:`VectorDbReconciliation`) already produced. It exists so the §21.4.2
+    counters are available as a *typed* set (story.md §2.1.4 / guardrail
+    "TYPISIERT STATT STRINGS") and fits the ``ReconciliationEvidence`` / abgleich
+    protocol rather than an ad-hoc dict.
+
+    Attributes:
+        total_hits: Raw ``story_search`` hit count (stage 1).
+        above_threshold: Hits with ``score >= similarity_threshold``.
+        sent_to_llm: Candidates handed to the LLM (capped at
+            ``max_llm_candidates``).
+        llm_conflicts: ``1`` when stage 2 returned ``FAIL``, else ``0``.
+        threshold_used: The applied similarity threshold.
+        search_mode: The stage-1 search mode (always ``"hybrid"``).
+    """
+
+    total_hits: int
+    above_threshold: int
+    sent_to_llm: int
+    llm_conflicts: int
+    threshold_used: float
+    search_mode: str
+
+    @classmethod
+    def from_result(cls, result: ReconciliationResult) -> AbgleichProtocol:
+        """Project a :class:`ReconciliationResult` onto the §21.4.2 counters.
+
+        Args:
+            result: The two-stage reconciliation result (the counter owner).
+
+        Returns:
+            The typed §21.4.2 abgleich-protocol counters.
+        """
+        return cls(
+            total_hits=result.total_hits,
+            above_threshold=result.hits_above_threshold,
+            sent_to_llm=result.candidates_evaluated,
+            llm_conflicts=result.hits_classified_conflict,
+            threshold_used=result.threshold_value,
+            search_mode=RECONCILIATION_SEARCH_MODE,
+        )
+
+    def to_wire(self) -> dict[str, object]:
+        """Return the §21.4.2 protocol as its canonical wire-key dict (audit).
+
+        Returns:
+            The exact FK-21 §21.4.2 keys: ``total_hits``, ``above_threshold``,
+            ``sent_to_llm``, ``llm_conflicts``, ``threshold_used``,
+            ``search_mode``.
+        """
+        return {
+            "total_hits": self.total_hits,
+            "above_threshold": self.above_threshold,
+            "sent_to_llm": self.sent_to_llm,
+            "llm_conflicts": self.llm_conflicts,
+            "threshold_used": self.threshold_used,
+            "search_mode": self.search_mode,
+        }
+
+
 def resolve_vectordb_conflict_flag(
     *,
     verdict: LlmVerdict,
@@ -259,6 +333,8 @@ class VectorDbReconciliation:
 
 
 __all__ = [
+    "RECONCILIATION_SEARCH_MODE",
+    "AbgleichProtocol",
     "ConflictEvaluatorPort",
     "ReconciliationResult",
     "VectorDbReconciliation",

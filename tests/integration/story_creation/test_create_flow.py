@@ -337,6 +337,42 @@ def test_reconciler_produces_route_consumable_evidence() -> None:
     )
 
 
+def test_real_flow_evidence_carries_full_21_4_2_counters() -> None:
+    """AG3-115 #3: the §21.4.2 counters (incl. sent_to_llm + search_mode) are
+    delivered through the AUTHORITATIVE evidence path of the REAL create flow.
+
+    Three hits: two above the 0.7 threshold (sent to the LLM), one below. The
+    produced evidence must carry the full §21.4.2 counter set -- the older 4
+    counters PLUS ``sent_to_llm`` (candidates_evaluated) and ``search_mode`` --
+    projected via the owner-faithful AbgleichProtocol in the real flow.
+    """
+    body = "## Betroffene Dateien\n- services/api/main.py\n"
+    reconciler = _reconciler(
+        hits=[_hit("AK3-001", 0.95), _hit("AK3-002", 0.80), _hit("AK3-003", 0.40)],
+        verdict=LlmVerdict.FAIL,
+    )
+    outcome = reconciler.create_story(
+        _input(),
+        story_body=body,
+        op_id="op-counters",
+        story_was_adapted=True,
+    )
+    evidence = outcome.evidence
+    assert evidence.total_hits == 3
+    assert evidence.hits_above_threshold == 2
+    # sent_to_llm: both above-threshold hits were handed to the LLM.
+    assert evidence.candidates_evaluated == 2
+    assert evidence.hits_classified_conflict == 1
+    assert evidence.threshold_value == 0.7
+    assert evidence.search_mode == "hybrid"
+    # The evidence re-validates as a route-consumable payload with the new keys.
+    from agentkit.story_creation.reconciliation_evidence import ReconciliationEvidence
+
+    revalidated = ReconciliationEvidence.model_validate(evidence.model_dump())
+    assert revalidated.candidates_evaluated == 2
+    assert revalidated.search_mode == "hybrid"
+
+
 def test_real_flow_emits_single_vectordb_search_event() -> None:
     """AC9 end-to-end: the wired flow emits exactly the mandatory payload."""
     emitter = MemoryEmitter()

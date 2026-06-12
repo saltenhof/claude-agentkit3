@@ -35,6 +35,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agentkit.story_creation.vectordb_reconciliation import (
+    RECONCILIATION_SEARCH_MODE,
     resolve_vectordb_conflict_flag,
 )
 from agentkit.verify_system.llm_evaluator.roles import LlmVerdict
@@ -53,8 +54,12 @@ class ReconciliationEvidence(BaseModel):
             (FK-21 §21.4.3): a Weaviate outage blocks creation.
         total_hits: Raw ``story_search`` hit count (telemetry contract).
         hits_above_threshold: Hits at/above ``similarity_threshold``.
+        candidates_evaluated: Candidates handed to the LLM, capped at
+            ``max_llm_candidates`` (FK-21 §21.4.2 ``sent_to_llm`` counter).
         hits_classified_conflict: ``1`` when stage 2 returned ``FAIL``, else 0.
         threshold_value: The applied similarity threshold (audit).
+        search_mode: The stage-1 ``story_search`` mode (FK-21 §21.4.2
+            ``search_mode`` counter; always ``"hybrid"``).
         verdict: The stage-2 verdict (``PASS`` when stage 1 cleared all hits).
         story_was_adapted: Whether a detected stage-2 conflict was resolved by
             ADAPTING (not discarding) the story (FK-21 §21.4.1).
@@ -67,8 +72,10 @@ class ReconciliationEvidence(BaseModel):
     weaviate_ready: bool
     total_hits: int = Field(ge=0)
     hits_above_threshold: int = Field(ge=0)
+    candidates_evaluated: int = Field(default=0, ge=0)
     hits_classified_conflict: int = Field(ge=0)
     threshold_value: float = Field(ge=0.0, le=1.0)
+    search_mode: str = RECONCILIATION_SEARCH_MODE
     verdict: LlmVerdict
     story_was_adapted: bool = False
     participating_repos: tuple[str, ...] = ()
@@ -90,6 +97,19 @@ class ReconciliationEvidence(BaseModel):
             raise ValueError(
                 "reconciliation evidence is invalid: hits_above_threshold "
                 f"({self.hits_above_threshold}) exceeds total_hits ({self.total_hits})"
+            )
+        if self.candidates_evaluated > self.hits_above_threshold:
+            raise ValueError(
+                "reconciliation evidence is invalid: candidates_evaluated "
+                f"({self.candidates_evaluated}) exceeds hits_above_threshold "
+                f"({self.hits_above_threshold}): the LLM cannot evaluate more "
+                "candidates than survived the threshold filter (FK-21 §21.4.2)"
+            )
+        if self.search_mode != RECONCILIATION_SEARCH_MODE:
+            raise ValueError(
+                "reconciliation evidence is invalid: search_mode "
+                f"({self.search_mode!r}) must be the fixed stage-1 search mode "
+                f"{RECONCILIATION_SEARCH_MODE!r} (FK-21 §21.4.2)"
             )
         conflict_expected = 1 if self.verdict is LlmVerdict.FAIL else 0
         if self.hits_classified_conflict != conflict_expected:

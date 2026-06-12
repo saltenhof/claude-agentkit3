@@ -20,8 +20,10 @@ def _evidence(**overrides: object) -> ReconciliationEvidence:
         "weaviate_ready": True,
         "total_hits": 5,
         "hits_above_threshold": 2,
+        "candidates_evaluated": 2,
         "hits_classified_conflict": 0,
         "threshold_value": 0.7,
+        "search_mode": "hybrid",
         "verdict": LlmVerdict.PASS,
     }
     base.update(overrides)
@@ -94,3 +96,53 @@ def test_participating_repos_default_empty() -> None:
 def test_participating_repos_roundtrip() -> None:
     evidence = _evidence(participating_repos=["a", "b"])
     assert evidence.participating_repos == ("a", "b")
+
+
+# -- AG3-115 #3: the §21.4.2 counters sent_to_llm + search_mode are carried -----
+
+
+def test_sent_to_llm_and_search_mode_carried() -> None:
+    """The §21.4.2 counters ``sent_to_llm`` / ``search_mode`` are evidence fields."""
+    evidence = _evidence(candidates_evaluated=2, search_mode="hybrid")
+    assert evidence.candidates_evaluated == 2
+    assert evidence.search_mode == "hybrid"
+
+
+def test_non_hybrid_search_mode_is_rejected() -> None:
+    """Only the fixed FK-21 §21.4.2 stage-1 mode ``"hybrid"`` is accepted."""
+    for mode in ("bm25", "vector", "keyword", "HYBRID"):
+        with pytest.raises(
+            ValidationError, match="must be the fixed stage-1 search mode"
+        ):
+            _evidence(search_mode=mode)
+
+
+def test_candidates_evaluated_exceeding_above_threshold_is_rejected() -> None:
+    """The LLM cannot evaluate more candidates than survived the threshold."""
+    with pytest.raises(ValidationError, match="exceeds hits_above_threshold"):
+        _evidence(hits_above_threshold=2, candidates_evaluated=3)
+
+
+def test_empty_search_mode_is_rejected() -> None:
+    with pytest.raises(
+        ValidationError, match="must be the fixed stage-1 search mode"
+    ):
+        _evidence(search_mode="  ")
+
+
+def test_search_mode_defaults_to_hybrid() -> None:
+    """A payload omitting ``search_mode`` defaults to the stage-1 mode (hybrid).
+
+    Keeps AG3-114's older 4-counter payloads valid (back-compatible default).
+    """
+    base: dict[str, object] = {
+        "weaviate_ready": True,
+        "total_hits": 5,
+        "hits_above_threshold": 2,
+        "hits_classified_conflict": 0,
+        "threshold_value": 0.7,
+        "verdict": LlmVerdict.PASS,
+    }
+    evidence = ReconciliationEvidence.model_validate(base)
+    assert evidence.search_mode == "hybrid"
+    assert evidence.candidates_evaluated == 0
