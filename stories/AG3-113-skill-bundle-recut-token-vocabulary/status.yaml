@@ -1,8 +1,16 @@
 story_id: AG3-113
 title: "Skill-Bundle-Re-Cut: GitHub-Projects-Tokens raus + Token-Vokabular-Korrektur (create/lookup auf AK3-Control-Plane, FK-43/FK-03-Delta) + toter Projects-Adapter entsorgt"
 type: implementation
-status: ready
+status: blocked
 phase: setup
+# BLOCKED 2026-06-12 on AG3-114: the create-userstory re-cut must wire story creation to the
+# native ProjectEdgeClient.create_story (FK-91 §91.1a) instead of gh issue create. That client
+# operation + target-tool create-story entry does not exist yet — AG3-114 builds it. AG3-113
+# also carries a Codex spec-review (CHANGES-REQUESTED, job-d1cc630a): fix CLI surfaces (no
+# `agentkit story validate`), next-id = create_story allocates atomically (no standalone module),
+# remove all gh issue list/view story-tracking, add execute-userstory-core vocabulary AC, count
+# 12 graphql mutations, insert a read-only design pass before the concept edit. Revise spec after
+# AG3-114 shapes the create path.
 created: "2026-06-12"
 size: L
 # Herkunft: PO-Entscheidung 2026-06-12. Die Konzepte sind bereits frei von GitHub-Projects
@@ -19,5 +27,6 @@ depends_on:
   - AG3-014
   - AG3-027
   - AG3-090
+  - AG3-114
 unblocks:
   - AG3-111
