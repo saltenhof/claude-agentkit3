@@ -14,6 +14,9 @@ if TYPE_CHECKING:
     from agentkit.verify_system.evidence import RepoContext
     from agentkit.verify_system.structural.system_evidence import ChangeEvidence
 
+#: Shared ``--story`` help label, reused across the story-scoped subcommands.
+_STORY_ID_FIELD_LABEL = "Story ID"
+
 
 def main(argv: list[str] | None = None) -> int:
     """Main CLI entrypoint.
@@ -126,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
         "run-story", help="Run a story through the pipeline",
     )
     run_parser.add_argument(
-        "--story", required=True, help="Story ID",
+        "--story", required=True, help=_STORY_ID_FIELD_LABEL,
     )
     run_parser.add_argument(
         "--issue-nr", type=int, required=True,
@@ -170,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
         "reset-story",
         help="Administratively reset an irreparably escalated story (FK-53)",
     )
-    reset_parser.add_argument("--story", required=True, help="Story ID")
+    reset_parser.add_argument("--story", required=True, help=_STORY_ID_FIELD_LABEL)
     reset_parser.add_argument("--reason", required=True, help="FK-53 §53.3 reset reason")
     reset_parser.add_argument(
         "--escalation-ref",
@@ -193,7 +196,7 @@ def main(argv: list[str] | None = None) -> int:
     exit_parser = subparsers.add_parser(
         "exit-story", help="Administratively exit a bound story run",
     )
-    exit_parser.add_argument("--story", required=True, help="Story ID")
+    exit_parser.add_argument("--story", required=True, help=_STORY_ID_FIELD_LABEL)
     exit_parser.add_argument("--reason", required=True, help="FK-58 exit reason code")
     exit_parser.add_argument("--note", required=False, help="Optional human note")
     exit_parser.add_argument(

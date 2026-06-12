@@ -35,13 +35,20 @@ from typing import TYPE_CHECKING
 from agentkit.core_types import StorySize
 from agentkit.story_context_manager.errors import (
     ForbiddenError,
-    ForbiddenFieldError,
     InvalidStatusTransitionError,
     StoryNotFoundError,
     StoryProjectNotFoundError,
     StoryValidationError,
 )
 from agentkit.story_context_manager.idempotency import IdempotencyKeyStore
+from agentkit.story_context_manager.patch_handlers import (
+    _apply_updates,
+    _get_project_repos,
+)
+from agentkit.story_context_manager.reset_transitions import (
+    ResetTransitionMixin,
+    is_story_runnable_status,
+)
 from agentkit.story_context_manager.story_model import (
     ChangeImpact,
     ConceptQuality,
@@ -66,7 +73,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from agentkit.execution_planning.repository import StoryDependencyRepository
-    from agentkit.project_management.entities import Project
     from agentkit.project_management.repository import ProjectRepository
     from agentkit.story_context_manager.idempotency import IdempotencyKeyRepository
     from agentkit.story_context_manager.story_repository import StoryRepository
@@ -100,34 +106,10 @@ _TERMINAL_STATUSES: frozenset[StoryStatus] = frozenset({
     StoryStatus.CANCELLED,
 })
 
-#: AG3-071 (FK-53 §53.7.2/§53.9.2): stati in which a story may NOT enter or resume
-#: a normal pipeline run. ``RESETTING`` is fenced for an in-flight administrative
-#: reset; ``RESET_FAILED`` is the fail-closed blocked state of an aborted reset.
-#: A start/resume/retry/scheduler admission MUST consult this set and refuse,
-#: independent of the (non-terminal) status — only ``StoryResetService.resume_reset``
-#: of the same reset_id may advance a ``RESET_FAILED`` story.
-_RESET_NON_RUNNABLE_STATUSES: frozenset[StoryStatus] = frozenset({
-    StoryStatus.RESETTING,
-    StoryStatus.RESET_FAILED,
-})
-
-
-def is_story_runnable_status(status: StoryStatus) -> bool:
-    """Return whether a status permits a normal pipeline start/resume/retry.
-
-    Fail-closed admission helper for the Story-Reset axis (FK-53 §53.9.2,
-    AG3-071): a story under an in-flight reset (``RESETTING``) or in the blocked
-    post-abort state (``RESET_FAILED``) is NOT runnable. Every start, resume,
-    retry and scheduler-admission path must gate on this so a reset cannot be
-    silently bypassed by re-entering the normal pipeline.
-
-    Args:
-        status: The story's current lifecycle status.
-
-    Returns:
-        ``False`` when the status is a reset-blocked status, ``True`` otherwise.
-    """
-    return status not in _RESET_NON_RUNNABLE_STATUSES
+# ``is_story_runnable_status`` (and its ``_RESET_NON_RUNNABLE_STATUSES`` table)
+# is re-exported from this module so the Story-Reset admission helper keeps its
+# historical import path. The owning unit is ``reset_transitions`` (AG3-071).
+__all__ = ["StoryService", "is_story_runnable_status"]
 
 
 def _check_transition(
@@ -171,7 +153,7 @@ def _check_transition(
 # ---------------------------------------------------------------------------
 
 
-class StoryService:
+class StoryService(ResetTransitionMixin):
     """Authoritative story lifecycle service for story_context_manager BC.
 
     Dependencies injected at construction time following ARCH-26.
@@ -783,126 +765,6 @@ class StoryService:
         self._emit(story.project_key, story_display_id, wire_summary)
         return story
 
-    # ------------------------------------------------------------------
-    # Story-Reset administrative transitions (FK-53, AG3-071)
-    # ------------------------------------------------------------------
-
-    def begin_reset(self, story_display_id: str) -> Story:
-        """Fence a story for an administrative reset (In Progress -> Resetting).
-
-        FK-53 §53.7.2 (Schritt 2): the reset fences the story BEFORE any deletion.
-        Driven exclusively by ``StoryResetService``; not callable from the
-        frontend and not part of the generic cancel surface. The escalation/
-        exception finding that justifies the reset is established separately from
-        run/audit artifacts — it is NOT a story stammdaten status (FK-53 §53.4).
-
-        Args:
-            story_display_id: The story to fence.
-
-        Returns:
-            The fenced Story (status ``Resetting``).
-
-        Raises:
-            StoryNotFoundError: When the story does not exist.
-            InvalidStatusTransitionError: When the story is not In Progress.
-        """
-        story = self.get_story_or_raise(story_display_id)
-        _check_transition(story.status, StoryStatus.RESETTING, context="begin_reset")
-        story.status = StoryStatus.RESETTING
-        self._story_repo.save(story)
-        wire_summary = story_to_wire_summary(story)
-        self._emit(story.project_key, story_display_id, wire_summary)
-        return story
-
-    def complete_reset(self, story_display_id: str) -> Story:
-        """Return a reset story to the restartable base (Resetting -> In Progress).
-
-        FK-53 §53.8: a successful reset leaves the story as a non-running but
-        restartable work unit. The restartable base in the StoryStatus owner is
-        ``In Progress`` (a later restart is a NEW execution epoch, not a resume of
-        the purged run). This deliberately does NOT emit/set ``Cancelled`` — a
-        reset keeps the story alive (counter-evidence to the FK-91 drift
-        ``story_cancelled_administratively``).
-
-        Args:
-            story_display_id: The reset story to release.
-
-        Returns:
-            The released Story (status ``In Progress``).
-
-        Raises:
-            StoryNotFoundError: When the story does not exist.
-            InvalidStatusTransitionError: When the story is not Resetting.
-        """
-        story = self.get_story_or_raise(story_display_id)
-        _check_transition(
-            story.status, StoryStatus.IN_PROGRESS, context="complete_reset"
-        )
-        story.status = StoryStatus.IN_PROGRESS
-        self._story_repo.save(story)
-        wire_summary = story_to_wire_summary(story)
-        self._emit(story.project_key, story_display_id, wire_summary)
-        return story
-
-    def mark_reset_failed(self, story_display_id: str) -> Story:
-        """Block a story after an aborted reset (Resetting -> Reset Failed).
-
-        FK-53 §53.9.2: a reset that fails mid-flow leaves the story
-        administratively blocked. ``Reset Failed`` is NOT runnable
-        (:func:`is_story_runnable_status`) — only ``StoryResetService.resume_reset``
-        of the same reset_id may move it on.
-
-        Args:
-            story_display_id: The story to mark blocked.
-
-        Returns:
-            The blocked Story (status ``Reset Failed``).
-
-        Raises:
-            StoryNotFoundError: When the story does not exist.
-            InvalidStatusTransitionError: When the story is not Resetting.
-        """
-        story = self.get_story_or_raise(story_display_id)
-        _check_transition(
-            story.status, StoryStatus.RESET_FAILED, context="mark_reset_failed"
-        )
-        story.status = StoryStatus.RESET_FAILED
-        self._story_repo.save(story)
-        wire_summary = story_to_wire_summary(story)
-        self._emit(story.project_key, story_display_id, wire_summary)
-        return story
-
-    def resume_reset_transition(self, story_display_id: str) -> Story:
-        """Re-fence a blocked reset story (Reset Failed -> Resetting).
-
-        FK-53 §53.9.2: a re-run with the same reset_id is a resume, not a new
-        reset. This moves a ``Reset Failed`` story back to ``Resetting`` so the
-        SAME reset operation can converge its remaining purge domains. Idempotent
-        at the call site: a story already ``Resetting`` is returned unchanged.
-
-        Args:
-            story_display_id: The blocked story to re-fence.
-
-        Returns:
-            The re-fenced Story (status ``Resetting``).
-
-        Raises:
-            StoryNotFoundError: When the story does not exist.
-            InvalidStatusTransitionError: When the story is neither Reset Failed
-                nor already Resetting.
-        """
-        story = self.get_story_or_raise(story_display_id)
-        if story.status is StoryStatus.RESETTING:
-            return story
-        _check_transition(
-            story.status, StoryStatus.RESETTING, context="resume_reset_transition"
-        )
-        story.status = StoryStatus.RESETTING
-        self._story_repo.save(story)
-        wire_summary = story_to_wire_summary(story)
-        self._emit(story.project_key, story_display_id, wire_summary)
-        return story
-
     def administratively_cancel_for_story_exit(
         self,
         story_display_id: str,
@@ -1433,182 +1295,3 @@ def _valid_story_split_record(
         and str(getattr(record, "terminal_state", "")) == "Cancelled"
         and str(getattr(record, "exit_class", "")) == "scope_split"
     )
-
-
-def _get_project_repos(project: Project | None) -> list[str]:
-    """Extract the list of allowed repos from a Project entity.
-
-    Reads ``Project.configuration.repositories`` (AG3-020).  An empty
-    return value means "no restriction" and callers treat it accordingly;
-    in production it is always populated because ``ProjectConfiguration``
-    requires at least one repository entry.
-
-    Args:
-        project: The Project entity, or ``None`` when the project lookup
-            failed upstream.
-
-    Returns:
-        The list of configured repository identifiers, or ``[]``.
-    """
-    if project is None:
-        return []
-    return list(project.configuration.repositories)
-
-
-def _apply_updates(
-    story: Story,
-    updates: dict[str, object],
-    project: Project | None,
-) -> Story:
-    """Apply wire-level field updates to a Story.
-
-    Dispatches each wire field name to its handler in ``_PATCH_HANDLERS``.
-    Unknown fields are silently ignored per REST PATCH semantics; fields
-    in ``FORBIDDEN_PATCH_FIELDS`` raise :class:`ForbiddenFieldError`.
-
-    Args:
-        story: Current Story instance (mutated in place).
-        updates: Wire field name -> new value.
-        project: Project entity (used by the ``repos`` handler).
-
-    Returns:
-        The mutated Story.
-
-    Raises:
-        ``StoryValidationError`` for invalid field values.
-        ``ForbiddenFieldError`` for forbidden fields.
-    """
-    for field_key, value in updates.items():
-        if field_key == "op_id":
-            continue  # transport-level field, not part of the story
-        handler = _PATCH_HANDLERS.get(field_key)
-        if handler is not None:
-            handler(story, value, project)
-            continue
-        if field_key in FORBIDDEN_PATCH_FIELDS:
-            raise ForbiddenFieldError(
-                f"Field {field_key!r} is forbidden in updates",
-                detail={"forbidden_field": field_key},
-            )
-        # Unknown field -- ignore silently per REST PATCH semantics.
-    return story
-
-
-# ---------------------------------------------------------------------------
-# _apply_updates dispatch handlers
-# ---------------------------------------------------------------------------
-
-
-def _patch_title(story: Story, value: object, _project: Project | None) -> None:
-    if not isinstance(value, str) or not value.strip():
-        raise StoryValidationError(
-            "title must be a non-empty string",
-            detail={"field": "title"},
-        )
-    story.title = value
-
-
-def _patch_epic(story: Story, value: object, _project: Project | None) -> None:
-    story.epic = str(value) if value is not None else ""
-
-
-def _patch_module(story: Story, value: object, _project: Project | None) -> None:
-    story.module = str(value) if value is not None else ""
-
-
-def _patch_type(story: Story, value: object, _project: Project | None) -> None:
-    from agentkit.story_context_manager.wire_adapter import parse_wire_story_type
-    story.story_type = parse_wire_story_type(str(value))
-
-
-def _patch_size(story: Story, value: object, _project: Project | None) -> None:
-    from agentkit.story_context_manager.wire_adapter import parse_wire_story_size
-    story.size = parse_wire_story_size(str(value))
-
-
-def _patch_mode(story: Story, value: object, _project: Project | None) -> None:
-    from agentkit.story_context_manager.wire_adapter import parse_wire_story_mode
-    story.mode = parse_wire_story_mode(
-        str(value) if value is not None else None
-    )
-
-
-def _patch_repos(story: Story, value: object, project: Project | None) -> None:
-    if not isinstance(value, list):
-        raise StoryValidationError(
-            "repos must be a list", detail={"field": "repos"},
-        )
-    repos = [str(r) for r in value]
-    validate_repos_not_empty(repos)
-    allowed = _get_project_repos(project)
-    if allowed:
-        validate_repos_against_project(repos, allowed)
-    story.participating_repos = repos
-
-
-def _patch_change_impact(
-    story: Story, value: object, _project: Project | None,
-) -> None:
-    from agentkit.story_context_manager.wire_adapter import parse_wire_change_impact
-    story.change_impact = parse_wire_change_impact(str(value))
-
-
-def _patch_concept_quality(
-    story: Story, value: object, _project: Project | None,
-) -> None:
-    from agentkit.story_context_manager.wire_adapter import parse_wire_concept_quality
-    story.concept_quality = parse_wire_concept_quality(str(value))
-
-
-def _patch_owner(story: Story, value: object, _project: Project | None) -> None:
-    story.owner = str(value) if value is not None else ""
-
-
-def _patch_risk(story: Story, value: object, _project: Project | None) -> None:
-    from agentkit.story_context_manager.wire_adapter import parse_wire_risk_level
-    story.risk = parse_wire_risk_level(str(value))
-
-
-def _patch_blocker(story: Story, value: object, _project: Project | None) -> None:
-    story.blocker = str(value) if value is not None else None
-
-
-def _patch_labels(story: Story, value: object, _project: Project | None) -> None:
-    if not isinstance(value, list):
-        raise StoryValidationError(
-            "labels must be a list", detail={"field": "labels"},
-        )
-    story.labels = [str(label) for label in value]
-
-
-def _patch_wave(story: Story, value: object, _project: Project | None) -> None:
-    if not isinstance(value, int):
-        raise StoryValidationError(
-            "wave must be an integer", detail={"field": "wave"},
-        )
-    story.wave = value
-
-
-def _patch_critical_path(
-    story: Story, value: object, _project: Project | None,
-) -> None:
-    story.critical_path = bool(value)
-
-
-_PATCH_HANDLERS: dict[str, Callable[[Story, object, Project | None], None]] = {
-    "title": _patch_title,
-    "epic": _patch_epic,
-    "module": _patch_module,
-    "type": _patch_type,
-    "size": _patch_size,
-    "mode": _patch_mode,
-    "repos": _patch_repos,
-    "change_impact": _patch_change_impact,
-    "concept_quality": _patch_concept_quality,
-    "owner": _patch_owner,
-    "risk": _patch_risk,
-    "blocker": _patch_blocker,
-    "labels": _patch_labels,
-    "wave": _patch_wave,
-    "critical_path": _patch_critical_path,
-}
