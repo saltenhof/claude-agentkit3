@@ -1,0 +1,10 @@
+story_id: AG3-108
+title: "Per-Check-Outcome-Read-Model (verify-system-emittiert) + Telemetrie-Filter + Closure-Aggregation"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-09"
+size: L
+depends_on: []
+unblocks:
+  - AG3-078
