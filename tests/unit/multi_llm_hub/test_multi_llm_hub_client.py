@@ -218,8 +218,8 @@ def test_session_stats_zero_answer_is_faithfully_reported() -> None:
     """A 0-answer / non-answering backend is reported as answered=False.
 
     The faithful client must NOT read a non-answering LLM as answered (that would
-    hide the upstream fail-closed abort). With no explicit flag it derives from a
-    0 message_count.
+    hide the upstream fail-closed abort). With no explicit ``answered`` flag and
+    no ``response_count`` the fail-closed derivation is False.
     """
     transport = _FakeTransport()
     transport.responses[("GET", "/api/session/stats?session_id=s-3")] = {
@@ -236,3 +236,36 @@ def test_session_stats_zero_answer_is_faithfully_reported() -> None:
 
     by_backend = {row.backend: row for row in stats.backends}
     assert by_backend["qwen"].answered is False
+
+
+def test_session_stats_never_derives_answered_from_sent_message_count() -> None:
+    """Sent messages alone NEVER count as an answer (fail-closed, AG3-097 2nd QA).
+
+    FK-25 §25.5.4: ``message_count`` is the count of SENT messages. A hub row
+    that omits both the ``answered`` flag and a ``response_count`` must be read
+    as answered=False even when messages were sent -- otherwise a silent backend
+    would slip past the upstream 0-answer abort (NO ERROR BYPASSING: no silent
+    fallback to weaker data quality). An explicit ``response_count`` (a real
+    answer fact) still derives the flag.
+    """
+    transport = _FakeTransport()
+    transport.responses[("GET", "/api/session/stats?session_id=s-4")] = {
+        "session_id": "s-4",
+        "status": "released",
+        "backends": {
+            # 5 messages SENT, but no answered flag and no response_count: the
+            # silent-backend hazard. Must be False, never invented from sends.
+            "qwen": {"message_count": 5},
+            # An explicit response fact still derives answered faithfully.
+            "chatgpt": {"message_count": 5, "response_count": 3},
+            "grok": {"message_count": 5, "response_count": 0},
+        },
+    }
+    client = HubClient("http://hub.test", transport=transport)
+
+    stats = client.session_stats(session_id="s-4")
+
+    by_backend = {row.backend: row for row in stats.backends}
+    assert by_backend["qwen"].answered is False
+    assert by_backend["chatgpt"].answered is True
+    assert by_backend["grok"].answered is False

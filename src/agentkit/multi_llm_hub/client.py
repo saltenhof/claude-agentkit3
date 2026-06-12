@@ -546,12 +546,15 @@ def _answered_flag(row: dict[str, object]) -> bool:
     raw_answered = row.get("answered")
     if isinstance(raw_answered, bool):
         return raw_answered
-    # No explicit flag: derive from a response count if present, else from the
-    # message count (a session that exchanged >= 1 message answered at least
-    # once). Fail-closed default is False (never invent an answer).
+    # No explicit flag: derive ONLY from a response count (a real answer fact the
+    # hub contract reports). NEVER from ``message_count`` -- per FK-25 §25.5.4
+    # that is the count of SENT messages, so deriving an answer from it would
+    # invent one for a silent backend and defeat the upstream 0-answer abort
+    # (NO ERROR BYPASSING: no silent fallback to weaker data quality). Missing
+    # both facts is fail-closed False (never invent an answer).
     if "response_count" in row:
         return _int_value(row.get("response_count")) > 0
-    return _int_value(row.get("message_count")) > 0
+    return False
 
 
 def _session_status(value: object) -> HubSessionStatus:

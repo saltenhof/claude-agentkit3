@@ -288,6 +288,10 @@ class HubFineDesignEvaluator:
         self._lease = lease
         self._advisors = advisors
         self._send_counts = {advisor: 0 for advisor in advisors}
+        # A fresh acquisition starts a FRESH discussion: never leak the previous
+        # (aborted) attempt's responses into the new attempt's round-1 prompt
+        # (the caller's D4 bounded retry re-acquires through this path).
+        self._last_responses = {}
 
     def _available_backends(self) -> frozenset[HubBackendName]:
         metrics = self._client.pool_status()
@@ -387,9 +391,9 @@ class HubFineDesignEvaluator:
 
         FK-25 §25.5.4 / SEVERITY-semantics: a not-correctly-released session is a
         WARNING (aufschiebend, but never silent). A correct release writes NO
-        warning. The check reads the post-hoc stats BEFORE this evaluator's own
-        release call -- it reflects the session state observed by the hub at the
-        time the discussion finished.
+        warning. The stats are read AFTER this evaluator's own release call (see
+        :meth:`finalize`): a session the hub still reports as not released at
+        that point is a real release violation.
         """
         if stats.released:
             return

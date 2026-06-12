@@ -477,3 +477,88 @@ def test_productive_hub_fine_design_run_drives_the_hub_path(tmp_path: Path) -> N
     assert result.status is PhaseStatus.FAILED
     assert result.yield_status is None
     assert _frozen_file_exists(story_dir) is False
+
+
+class _ConvergenceVerdictClient:
+    """Scripted ``LlmClient`` for the REAL ``LlmConvergenceJudge`` (LLM grenze).
+
+    Returns a strict, schema-valid convergence verdict so the productive judge +
+    transport adapter run for real; ONLY the LLM completion is scripted.
+    """
+
+    def complete(self, *, role: str, prompt: str) -> str:
+        assert role == "fine_design_convergence"
+        assert "Advisor positions" in prompt  # the REAL verdict prompt was built
+        return json.dumps(
+            {
+                "converged": True,
+                "decisions": [
+                    {
+                        "decision_id": "FD-001",
+                        "question": "broker streaming contract unresolved",
+                        "decision": "single streaming contract key",
+                        "rationale": "consistent with the existing contract",
+                        "normative_basis": ["FK-25"],
+                    }
+                ],
+            }
+        )
+
+
+def test_converged_hub_fine_design_persists_decisions_into_frozen_artifact(
+    tmp_path: Path,
+) -> None:
+    """AG3-097 AK9 (2nd QA): a CONVERGED class-2 run persists the decision
+    protocol into the frozen change-frame artifact (FK-25 §25.5.5 / §25.10).
+
+    Drives the FULL productive assembly -- ``build_hub_fine_design_evaluator``
+    (real ``HubFineDesignEvaluator`` + real ``ChangeFrameFineDesignPromptBuilder``
+    + real ``LlmConvergenceJudge``), the real ``FineDesignSubprocess`` shell, the
+    real handler / review / freeze / state-backend writer -- with fakes ONLY at
+    the hub transport and the LLM completion (MOCKS exception). The frozen
+    ``change_frame.json`` must carry ``fine_design_decisions`` (the optional
+    eighth component): the decisions are artifact truth, not telemetry-only.
+    """
+    from tests.unit.exploration.mandate.test_hub_fine_design import _FakeHub
+
+    from agentkit.bootstrap.composition_root import build_hub_fine_design_evaluator
+
+    story_dir = _story_dir(tmp_path)
+    _bind_flow(story_dir)
+    _save_story(story_dir, declared=ChangeImpact.ARCHITECTURE_IMPACT)
+    manager = build_artifact_manager(story_dir)
+    _persist_frame(manager, story_dir, _fine_design_frame())
+    ctx = _ctx(story_dir)
+
+    hub = _FakeHub(available=("chatgpt", "qwen"))
+    evaluator = build_hub_fine_design_evaluator(
+        story_dir, hub_client=hub, llm_client=_ConvergenceVerdictClient()
+    )
+    handler = build_exploration_phase_handler(
+        story_dir,
+        review=_passing_review(ctx, story_dir),
+        fine_design_evaluator=evaluator,
+    )
+
+    result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(_state()))
+
+    assert result.status is PhaseStatus.COMPLETED
+    # The hub was really driven and the session was released (finalize ran).
+    assert hub.granted == ("chatgpt", "qwen")
+    assert hub.released is True
+    # The FROZEN artifact carries the eighth component with the decisions.
+    frozen_path = (
+        resolve_qa_story_dir(story_dir, story_id=_STORY_ID) / CHANGE_FRAME_FILE
+    )
+    payload = json.loads(frozen_path.read_text(encoding="utf-8"))
+    assert payload["frozen"] is True
+    decisions = payload["fine_design_decisions"]
+    assert len(decisions) == 1
+    assert decisions[0]["decision_id"] == "FD-001"
+    assert decisions[0]["decision"] == "single streaming contract key"
+    assert decisions[0]["llm_responses"]  # the recorded multi-LLM exchange
+    # The per-decision telemetry event still fired (FK-25 §25.8).
+    events = {
+        e.event_type for e in load_execution_events(story_dir, story_id=_STORY_ID)
+    }
+    assert EventType.FINE_DESIGN_DECISION in events

@@ -180,6 +180,7 @@ def _handler(
     fine_design: FineDesignSubprocess | None,
     emitter: MemoryEmitter,
     impact_reader: object | None,
+    writer: _NoopWriter | None = None,
 ) -> ExplorationPhaseHandler:
     return ExplorationPhaseHandler(
         change_frame_reader=_FixedReader(frame),
@@ -190,7 +191,8 @@ def _handler(
         declared_impact_reader=impact_reader,  # type: ignore[arg-type]
         fine_design=fine_design,
         freeze_marker=DesignFreezeMarker(
-            writer=_NoopWriter(), clock=lambda: datetime.now(UTC)
+            writer=writer if writer is not None else _NoopWriter(),
+            clock=lambda: datetime.now(UTC),
         ),
         telemetry=MandateTelemetry(emitter),
     )
@@ -426,6 +428,66 @@ def test_trivial_class_suppresses_stage2b_design_challenge() -> None:
     # The mandate classified the frame and the gate still ran (no bypass).
     assert any(
         e.event_type is EventType.MANDATE_CLASSIFICATION for e in emitter.all_events
+    )
+
+
+@dataclass
+class _ConvergeWithDecisions:
+    """A fine-design evaluator that converges round 1 WITH a documented decision."""
+
+    def run_round(
+        self, change_frame: ChangeFrame, *, round_number: int
+    ) -> FineDesignRoundOutcome:
+        from agentkit.exploration.mandate.fine_design import FineDesignDecision
+
+        del change_frame
+        decision = FineDesignDecision(
+            decision_id=f"FD-{round_number:03d}",
+            question="which contract key shape?",
+            decision="single run_status key",
+            rationale="consistent with FK-39",
+            normative_basis=("FK-25", "FK-39"),
+            llm_responses=("chatgpt: single key", "qwen: agree"),
+        )
+        return FineDesignRoundOutcome(converged=True, decisions=(decision,))
+
+
+def test_converged_fine_design_decisions_are_persisted_into_frozen_frame() -> None:
+    """AG3-097 AK9 (2nd QA): converged class-2 decisions land in the ARTIFACT.
+
+    FK-25 §25.5.5 / §25.10: every class-2 decision is documented in the
+    change-frame artifact under the optional eighth component
+    ``fine_design_decisions`` -- not telemetry-only. A converged fine-design run
+    must enrich the frame so the freeze persists the decision protocol; the
+    incoming worker frame had NO decisions.
+    """
+    emitter = MemoryEmitter()
+    review = _ScriptedReview(_dummy_approved())
+    writer = _NoopWriter()
+    frame = _fine_design_frame()
+    assert frame.fine_design_decisions == ()  # the worker frame starts empty
+    handler = _handler(
+        frame,
+        review=review,
+        fine_design=FineDesignSubprocess(_ConvergeWithDecisions()),
+        emitter=emitter,
+        impact_reader=_FixedImpactReader(ChangeImpact.ARCHITECTURE_IMPACT),
+        writer=writer,
+    )
+
+    result = handler.on_enter(_ctx(), _envelope())
+
+    assert result.status is PhaseStatus.COMPLETED
+    # The freeze persisted the ENRICHED frame: frozen + carrying the protocol.
+    assert len(writer.written) == 1
+    persisted = writer.written[0]
+    assert persisted.frozen is True
+    assert len(persisted.fine_design_decisions) == 1
+    assert persisted.fine_design_decisions[0].decision_id == "FD-001"
+    assert persisted.fine_design_decisions[0].decision == "single run_status key"
+    # The per-decision telemetry still fired (FK-25 §25.8) -- artifact AND event.
+    assert any(
+        e.event_type is EventType.FINE_DESIGN_DECISION for e in emitter.all_events
     )
 
 

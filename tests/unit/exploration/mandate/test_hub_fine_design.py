@@ -347,6 +347,51 @@ def test_finalize_is_idempotent_without_acquire() -> None:
     evaluator.finalize()  # must not raise
 
 
+def test_retry_attempt_starts_with_fresh_previous_responses() -> None:
+    """A re-acquired attempt's round-1 prompt carries NO prior-attempt responses.
+
+    AG3-097 second QA: the caller's D4 bounded retry drives ``run_round`` again
+    after ``finalize`` released the first session. The fresh acquisition must
+    reset the recorded responses -- the new attempt's round-1 prompt builder
+    input is empty, never the previous (aborted) attempt's positions.
+    """
+
+    @dataclass
+    class _RecordingPromptBuilder:
+        seen: list[dict[HubBackendName, str]] = field(default_factory=list)
+
+        def build(
+            self,
+            change_frame: ChangeFrame,
+            *,
+            round_number: int,
+            previous_responses: dict[HubBackendName, str],
+        ) -> str:
+            del change_frame
+            self.seen.append(dict(previous_responses))
+            return f"round {round_number}"
+
+    hub = _FakeHub(available=("chatgpt", "qwen"))
+    builder = _RecordingPromptBuilder()
+    evaluator = HubFineDesignEvaluator(
+        hub,  # type: ignore[arg-type]
+        emitter=MemoryEmitter(),
+        judge=_ScriptedJudge(converge_on=999),
+        prompt_builder=builder,
+        owner="main-agent",
+        story_id="AG3-097",
+    )
+    evaluator.run_round(example_change_frame(), round_number=1)
+    evaluator.run_round(example_change_frame(), round_number=2)
+    evaluator.finalize()  # releases; the retry re-acquires below
+
+    evaluator.run_round(example_change_frame(), round_number=1)
+
+    assert builder.seen[0] == {}  # attempt 1, round 1
+    assert builder.seen[1] != {}  # attempt 1, round 2 carries round-1 positions
+    assert builder.seen[2] == {}  # attempt 2, round 1 is FRESH (no leakage)
+
+
 def test_non_positive_max_rounds_fails_closed() -> None:
     """A non-positive send cap is a fail-closed programming error."""
     with pytest.raises(ValueError, match="max_rounds must be >= 1"):

@@ -138,10 +138,17 @@ class _MandateRouting:
         terminal: A terminal handler result, or ``None`` to continue to the gate.
         run_design_challenge: The Stage-2b mandate-gating flag (only meaningful
             when ``terminal`` is ``None``).
+        change_frame: The change-frame the gate + freeze must continue with, or
+            ``None`` to keep the incoming frame. A converged class-2 fine-design
+            run returns the frame ENRICHED with the ``fine_design_decisions``
+            protocol (FK-25 §25.5.5 / §25.10, AG3-097 AK9) so the decisions are
+            persisted into the frozen change-frame artifact -- never a
+            telemetry-only side record (SINGLE SOURCE OF TRUTH).
     """
 
     terminal: HandlerResult | None = None
     run_design_challenge: bool = True
+    change_frame: ChangeFrame | None = None
 
 
 @dataclass(frozen=True)
@@ -341,6 +348,12 @@ class ExplorationPhaseHandler:
             if routed.terminal is not None:
                 return routed.terminal
             run_design_challenge = routed.run_design_challenge
+            if routed.change_frame is not None:
+                # A converged class-2 fine-design enriched the frame with the
+                # FK-25 §25.5.5 decision protocol: the gate reviews and the
+                # freeze persists THAT frame (the decisions land in the
+                # change-frame artifact, AG3-097 AK9 -- not telemetry-only).
+                change_frame = routed.change_frame
 
         # Run the three-stage exit-gate (Stage 1 -> Stage 2a -> opt. Stage 2b)
         # and map the gate decision onto the phase result (FK-23 §23.5).
@@ -552,9 +565,13 @@ class ExplorationPhaseHandler:
                 )
             )
         if result.mandate_class is MandateClass.FINE_DESIGN:
-            terminal = self._run_fine_design(ctx, state, change_frame, run_id=run_id)
-            if terminal is not None:
-                return _MandateRouting(terminal=terminal)
+            fine = self._run_fine_design(ctx, state, change_frame, run_id=run_id)
+            if isinstance(fine, HandlerResult):
+                return _MandateRouting(terminal=fine)
+            return _MandateRouting(
+                run_design_challenge=result.run_design_challenge,
+                change_frame=fine,
+            )
         return _MandateRouting(run_design_challenge=result.run_design_challenge)
 
     def _run_fine_design(
@@ -564,12 +581,17 @@ class ExplorationPhaseHandler:
         change_frame: ChangeFrame,
         *,
         run_id: str,
-    ) -> HandlerResult | None:
+    ) -> HandlerResult | ChangeFrame:
         """Run the Klasse-2 fine-design subprocess (FK-25 §25.5).
 
         Emits one ``fine_design_decision`` event per decision (FK-25 §25.8). On
-        ``converged`` the flow continues to the review (returns ``None``); on
-        ``max_rounds_exceeded`` it escalates fail-closed (FK-25 §25.5.1). When the
+        ``converged`` the flow continues to the review with the change-frame
+        ENRICHED by the decision protocol (the optional eighth component
+        ``fine_design_decisions``, FK-25 §25.5.5 / §25.10): the gate reviews and
+        the freeze persists the frame that CARRIES the decisions, so the
+        change-frame artifact -- not only telemetry -- documents every class-2
+        decision (AG3-097 AK9). On ``max_rounds_exceeded`` it escalates
+        fail-closed (FK-25 §25.5.1). When the
         multi-LLM quorum is NOT reachable
         (:class:`FineDesignEvaluatorUnavailableError`, FK-25 §25.5.4), the bounded
         retry runs and then -- per D4-Override (FK-25 §25.5.4 Z. 642-650) -- the
@@ -585,10 +607,10 @@ class ExplorationPhaseHandler:
             run_id: The bound run id.
 
         Returns:
-            ``None`` to continue to the review (converged), a terminal ESCALATED
-            ``HandlerResult`` (round limit), or a fail-closed FAILED result
-            (non-reachability after bounded retry -- D4 -- or the subprocess not
-            being wired).
+            The (decision-enriched) :class:`ChangeFrame` to continue to the
+            review with (converged), a terminal ESCALATED ``HandlerResult``
+            (round limit), or a fail-closed FAILED result (non-reachability
+            after bounded retry -- D4 -- or the subprocess not being wired).
         """
         from agentkit.exploration.mandate.fine_design import (
             FineDesignEvaluatorUnavailableError,
@@ -632,7 +654,16 @@ class ExplorationPhaseHandler:
                 _FINE_DESIGN_MAX_ROUNDS_REACTION,
                 _FINE_DESIGN_MAX_ROUNDS_REACTION,
             )
-        return None
+        if not outcome.final_design_decisions:
+            return change_frame
+        # FK-25 §25.5.5 / §25.10 (AG3-097 AK9): the converged decision protocol
+        # is part of the change-frame ARTIFACT (the optional eighth component),
+        # not a telemetry-only side record. Build the enriched successor
+        # immutably; the freeze (FK-23 §23.4.3) persists it after an APPROVED
+        # gate via the single change-frame writer (no second write path).
+        return change_frame.model_copy(
+            update={"fine_design_decisions": outcome.final_design_decisions}
+        )
 
     def _run_fine_design_with_retry(
         self, change_frame: ChangeFrame
