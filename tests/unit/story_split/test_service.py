@@ -56,6 +56,7 @@ if TYPE_CHECKING:
 
 NOW = datetime(2026, 6, 12, 12, 0, tzinfo=UTC)
 HARD = StoryDependencyKind.HARD_STORY_DEPENDENCY
+SOFT = StoryDependencyKind.SOFT_STORY_DEPENDENCY
 
 
 # ---------------------------------------------------------------------------
@@ -957,6 +958,122 @@ def test_resume_converges_after_real_mid_rebinding_fault() -> None:
     again = h.split_service.split_story(_request(plan))
     assert again.resumed is True
     assert [(e.story_id, e.depends_on_story_id) for e in h.dependency_repo.edges] == edges
+
+
+def _one_dependent_multikind_plan() -> SplitPlan:
+    """A plan with ONE rebinding entry for a dependent that holds TWO old edges
+    onto the source of DIFFERENT kinds (hard + soft), both rebound onto the same
+    successor. The full dependency identity is ``(dependent, target, kind)``, so
+    the resolved plan carries TWO removals and TWO additions preserving each
+    kind (``rebinding.py`` emits one removal/addition per source edge)."""
+    return SplitPlan.model_validate(
+        {
+            "project_key": "ak3",
+            "source_story_id": "AK3-001",
+            "reason": "scope_explosion",
+            "successors": [
+                {"story_id": "AK3-107", "title": "Slice A", "scope_slice": "A"},
+                {"story_id": "AK3-108", "title": "Slice B", "scope_slice": "B"},
+            ],
+            "dependency_rebinding": [
+                {
+                    "dependent_story_id": "AK3-051",
+                    "old_dependency": "AK3-001",
+                    "new_dependencies": ["AK3-107"],
+                },
+            ],
+        }
+    )
+
+
+def test_resume_converges_after_multikind_mid_rebinding_fault() -> None:
+    """r6 Blocker (Codex r5): a dependent with TWO old edges onto the source of
+    DIFFERENT kinds (hard + soft) rebinds to BOTH kinds on the successor. A crash
+    AFTER all removals AND AFTER the FIRST addition but BEFORE the second must be
+    a CONVERGENT resume that restores BOTH kinds exactly once — not a finalize
+    that silently drops the second kind.
+
+    The pre-fix kind-blind ``_rebinding_already_applied`` short-circuit saw "no
+    inbound source edge AND one successor edge of some kind" and declared the
+    rebinding done, finalising the split with the second kind missing. The fix
+    makes the kind-aware durable checkpoint the single convergence gate, so the
+    second (soft) addition is replayed on resume.
+
+    Drives the REAL service against the production-faithful dependency repo
+    (raises on duplicate add / missing remove).
+    """
+    h = _build_harness()
+    # ONE dependent, TWO old edges onto the source of DIFFERENT kinds.
+    h.dependency_repo.add(
+        StoryDependency(
+            story_id="AK3-051", depends_on_story_id="AK3-001", kind=HARD, created_at=NOW
+        ),
+        project_key="ak3",
+    )
+    h.dependency_repo.add(
+        StoryDependency(
+            story_id="AK3-051", depends_on_story_id="AK3-001", kind=SOFT, created_at=NOW
+        ),
+        project_key="ak3",
+    )
+    plan = _one_dependent_multikind_plan()
+
+    # Crash semantics: BOTH removals are durably applied, then the FIRST addition
+    # is durably applied, then the process dies BEFORE the second addition. This
+    # is exactly the half-mutated graph Codex reproduced: no inbound source edge,
+    # one successor edge (one kind) present, the other kind still missing.
+    original_add = h.dependency_repo.add
+    state = {"adds": 0, "armed": True}
+
+    def _faulty_add(edge: StoryDependency, *, project_key: str) -> None:
+        original_add(edge, project_key=project_key)
+        state["adds"] += 1
+        if state["armed"] and state["adds"] == 1:
+            raise RuntimeError("injected multikind mid-rebinding fault")
+
+    h.dependency_repo.add = _faulty_add  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="multikind mid-rebinding fault"):
+        h.split_service.split_story(_request(plan))
+
+    # Half-mutated graph: both old edges gone, exactly ONE successor edge present
+    # (one kind), source NOT cancelled. This is the precise state that fooled the
+    # kind-blind shortcut.
+    triples = [
+        (e.story_id, e.depends_on_story_id, e.kind) for e in h.dependency_repo.edges
+    ]
+    assert ("AK3-051", "AK3-001", HARD) not in triples
+    assert ("AK3-051", "AK3-001", SOFT) not in triples
+    successor_edges = [t for t in triples if t[0] == "AK3-051"]
+    assert len(successor_edges) == 1
+    source = h.story_service.get_story("AK3-001")
+    assert source is not None and source.status is StoryStatus.IN_PROGRESS
+
+    # Rerun (no fault): the resume must CONVERGE via the kind-aware checkpoint and
+    # restore BOTH kinds — NOT short-circuit on "one successor edge exists".
+    state["armed"] = False
+    result = h.split_service.split_story(_request(plan))
+    assert result.resumed is True
+
+    source = h.story_service.get_story("AK3-001")
+    assert source is not None and source.status is StoryStatus.CANCELLED
+    real_107 = result.successor_ids[0]
+    final = [
+        (e.story_id, e.depends_on_story_id, e.kind) for e in h.dependency_repo.edges
+    ]
+    # Both old edges gone; BOTH kinds rebound onto the successor EXACTLY once.
+    assert ("AK3-051", "AK3-001", HARD) not in final
+    assert ("AK3-051", "AK3-001", SOFT) not in final
+    assert final.count(("AK3-051", real_107, HARD)) == 1
+    assert final.count(("AK3-051", real_107, SOFT)) == 1
+    assert len(final) == 2
+
+    # A THIRD run is a pure no-op replay (finalized fence) — kinds stay intact.
+    again = h.split_service.split_story(_request(plan))
+    assert again.resumed is True
+    assert [
+        (e.story_id, e.depends_on_story_id, e.kind) for e in h.dependency_repo.edges
+    ] == final
 
 
 def test_entry_gate_rejects_source_not_in_progress() -> None:

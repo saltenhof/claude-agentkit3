@@ -892,22 +892,28 @@ class StorySplitService:
         successor reference ids in ``new_dependencies`` are translated to the
         authoritative created display ids.
 
-        Crash-convergent by construction (second-QA finding F1):
+        Crash-convergent by construction (second-QA finding F1; r6 multi-kind):
 
           * the fully-resolved edge-mutation plan (WITH the dependency kinds,
             which are unrecoverable from a half-mutated graph) is CHECKPOINTED
             onto the durable fence BEFORE the first edge mutation;
-          * the apply is idempotent against the REAL store semantics
-            (remove-if-present / add-if-absent — the production repository
-            raises on a missing remove / duplicate add);
-          * a rerun after a crash anywhere inside the apply loads the
-            checkpointed plan (the graph-derivation would dead-end on
-            ``no_silent_drop`` for an already-removed old edge) and replays the
-            remaining mutations to convergence.
+          * the durable checkpoint is the SINGLE source of convergence truth.
+            On resume it is loaded and replayed verbatim; the apply is
+            idempotent at the FULL dependency identity ``(dependent, target,
+            kind)`` against the REAL store semantics (remove-if-present /
+            add-if-absent — the production repository raises on a missing
+            remove / duplicate add);
+          * a rerun after a crash anywhere inside the apply therefore replays
+            EVERY checkpointed ``(remove/add, kind)`` tuple to convergence: each
+            step that is already satisfied is a no-op, so re-running any number
+            of times leaves exactly the planned end-state (no dropped kind, no
+            duplicate edge).
 
-        Fully-applied graphs short-circuit: if the declared old edges onto the
-        source are already gone AND the rebound successor edges already exist,
-        the rebinding was applied by a prior run — a no-op (no double rebinding).
+        There is deliberately NO kind-blind "graph already looks rebound"
+        short-circuit: dependency identity includes ``kind``, so any
+        convergence check that ignored a kind could finalize the split while a
+        second required edge of a different kind is still missing (r6 Blocker).
+        The kind-aware checkpoint replay is the only convergence gate.
         """
         existing_edges = tuple(
             self._dependency_repo.list_for_project(request.project_key)
@@ -920,10 +926,6 @@ class StorySplitService:
             )
             for entry in request.plan.dependency_rebinding
         )
-        if self._rebinding_already_applied(
-            request, existing_edges, rebinding_entries
-        ):
-            return RebindingPlan(removals=(), additions=())
         plan = self._load_rebinding_plan_checkpoint(split_id, successor_ids)
         if plan is None:
             try:
@@ -1091,45 +1093,6 @@ class StorySplitService:
                     "successor — partial state is inconsistent",
                 )
         return RebindingPlan(removals=removals, additions=additions)
-
-    def _rebinding_already_applied(
-        self,
-        request: StorySplitRequest,
-        existing_edges: tuple[StoryDependency, ...],
-        rebinding_entries: tuple[tuple[str, str, tuple[str, ...]], ...],
-    ) -> bool:
-        """Detect a graph already rebound by a prior (crashed) run (idempotency).
-
-        Returns ``True`` only when there is rebinding work to do in principle
-        (declared entries exist) AND every declared old edge onto the source is
-        already gone AND every expected rebound successor edge is already
-        present. In that exact state re-applying would either no-op or trip the
-        ``no_silent_drop`` guard on the absent old edge — so the convergent resume
-        treats it as done. A plan with NO declared rebinding returns ``False`` and
-        falls through to the normal (empty) derivation.
-        """
-        if not rebinding_entries:
-            return False
-        present = {
-            (e.story_id, e.depends_on_story_id, e.kind.value) for e in existing_edges
-        }
-        inbound_dependents = {
-            e.story_id
-            for e in existing_edges
-            if e.depends_on_story_id == request.source_story_id
-        }
-        for dependent_story_id, _old_dependency, new_dependencies in rebinding_entries:
-            # The old edge onto the source must already be removed.
-            if dependent_story_id in inbound_dependents:
-                return False
-            # Every rebound successor edge must already exist (some kind).
-            for new_dep in new_dependencies:
-                if not any(
-                    s == dependent_story_id and d == new_dep
-                    for (s, d, _k) in present
-                ):
-                    return False
-        return True
 
     # ------------------------------------------------------------------
     # Step 7: controlled termination
