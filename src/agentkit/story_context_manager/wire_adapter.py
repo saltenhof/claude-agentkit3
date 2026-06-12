@@ -55,6 +55,11 @@ def story_to_wire_summary(story: Story) -> dict[str, object]:
         "change_impact": story.change_impact.value,
         "concept_quality": story.concept_quality.value,
         "vectordb_conflict_resolved": story.vectordb_conflict_resolved,
+        # AG3-072 (FK-54 §54.8.5): split lineage materialized on the source /
+        # successors. ``split_from`` is the cancelled source on a successor;
+        # ``split_successors`` is the real successor id set on the source.
+        "split_from": story.split_from,
+        "split_successors": list(story.split_successors),
         "owner": story.owner,
         "wave": story.wave,
         "critical_path": story.critical_path,

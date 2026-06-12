@@ -74,6 +74,7 @@ if TYPE_CHECKING:
     from agentkit.story_context_manager.models import StoryContext
     from agentkit.story_context_manager.story_model import ChangeImpact
     from agentkit.story_context_manager.types import StoryType
+    from agentkit.story_split.service import SplitSourceState, StorySplitRequest
     from agentkit.telemetry.emitters import EventEmitter
     from agentkit.telemetry.projection_accessor import ProjectionAccessor
     from agentkit.verify_system.llm_evaluator.llm_client import LlmClient
@@ -177,6 +178,171 @@ def build_story_exit_service(*, project_key: str) -> object:
         control_plane_repository=ControlPlaneRuntimeRepository(),
         story_service=StoryService(),
         governance=governance,
+    )
+
+
+def _default_split_source_state_loader(
+    request: StorySplitRequest,
+) -> SplitSourceState:
+    """Derive the §54.4 entry-gate source state from real run telemetry.
+
+    Reads the FK-25 scope-explosion evidence from the ``execution_events`` stream
+    (``scope_explosion_check`` with ``status="exploded"`` and a
+    ``mandate_classification`` carrying ``escalation_class="scope_explosion"``)
+    and the competing-administrative-operation signal from the control plane.
+    This CONSUMES the existing FK-25 detection; it does not rebuild it.
+    """
+    from agentkit.control_plane.repository import ControlPlaneRuntimeRepository
+    from agentkit.story.repository import StoryRepository
+    from agentkit.story_split.service import SplitSourceState
+
+    scope_exploded = False
+    paused_with_scope_explosion = False
+    events = StoryRepository().load_recent_execution_events(
+        request.project_key, request.source_story_id, request.run_id, 1000
+    )
+    for event in events:
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        if (
+            event.event_type == "scope_explosion_check"
+            and str(payload.get("status")) == "exploded"
+        ):
+            scope_exploded = True
+        if (
+            event.event_type == "mandate_classification"
+            and str(payload.get("escalation_class")) == "scope_explosion"
+        ):
+            paused_with_scope_explosion = True
+
+    repo = ControlPlaneRuntimeRepository()
+    competing = repo.has_committed_story_exit_operation_for_run(
+        request.project_key, request.source_story_id, request.run_id
+    )
+    return SplitSourceState(
+        scope_explosion_established=scope_exploded,
+        paused_with_scope_explosion=paused_with_scope_explosion,
+        competing_admin_operation_active=competing,
+    )
+
+
+def build_story_split_service(
+    *,
+    project_key: str,
+    stories_root: Path,
+    project_root: str | None,
+    source_state_loader: Callable[[StorySplitRequest], SplitSourceState] | None = None,
+) -> object:
+    """Build the productive FK-54 story-split service (AG3-072).
+
+    Wires the real story service, dependency repository, the narrow
+    ``phase_state_projection`` quiesce owner (FacadePhaseStateProjectionRepository,
+    NOT the full analytics purge), the governance lock/worktree teardown, and the
+    AG3-068 reindex interface (``export_story_md`` -> ``story_sync``) for both
+    successor export and the superseded-source re-index.
+
+    Args:
+        project_key: The bound project key.
+        stories_root: The ``stories/`` directory for successor ``story.md`` export.
+        project_root: Project root carrying the Weaviate host/port config.
+        source_state_loader: Loader for the §54.4 entry-gate source state. When
+            ``None`` the real telemetry-derived loader (FK-25 scope-explosion
+            evidence + competing-operation signal) is wired here.
+
+    Returns:
+        A wired ``StorySplitService``.
+    """
+    from agentkit.control_plane.repository import ControlPlaneRuntimeRepository
+    from agentkit.governance.runner import Governance
+    from agentkit.integrations.vectordb import WeaviateStoryAdapter
+    from agentkit.state_backend.store.governance_hook_repository import (
+        StateBackendHookRegistrationRepository,
+    )
+    from agentkit.state_backend.store.lock_record_repository import LockRecordRepository
+    from agentkit.state_backend.store.projection_repositories import (
+        FacadePhaseStateProjectionRepository,
+    )
+    from agentkit.state_backend.store.story_dependency_repository import (
+        StateBackendStoryDependencyRepository,
+    )
+    from agentkit.state_backend.store.worktree_repository import (
+        StateBackendWorktreeRepository,
+    )
+    from agentkit.story_context_manager.service import StoryService
+    from agentkit.story_creation.story_md_export import export_story_md
+    from agentkit.story_creation.weaviate_index import WeaviateStoryIndex
+    from agentkit.story_split.service import StorySplitError, StorySplitService
+    from agentkit.vectordb.wait_for_weaviate import _resolve_host_port
+
+    governance = Governance(
+        hook_repo=StateBackendHookRegistrationRepository(),
+        lock_repo=LockRecordRepository(),
+        project_key=project_key,
+        worktree_repo=StateBackendWorktreeRepository(),
+    )
+    story_attributes = StoryService()
+    host, port = _resolve_host_port(project_root)
+    index = WeaviateStoryIndex(WeaviateStoryAdapter.connect(host=host, port=port))
+    if source_state_loader is None:
+        source_state_loader = _default_split_source_state_loader
+
+    class _SuccessorExport:
+        def export(self, *, story_id: str, story_dir: Path) -> object:
+            return export_story_md(
+                story_id,
+                story_dir,
+                story_attributes=story_attributes,
+                index=index,
+            )
+
+    class _SupersededIndex:
+        def mark_superseded(
+            self, *, story_id: str, superseded_by: tuple[str, ...]
+        ) -> int:
+            # HONOR superseded_by (AG3-072 review #4): persist the superseded_by
+            # ids onto the source story's authoritative lineage FIRST, so the
+            # (re-)export below indexes the source as Cancelled WITH
+            # superseded_by=[...] — not a stale In Progress / empty-lineage state.
+            # ``materialize_split_lineage`` writes ``split_successors`` (which IS
+            # the superseded_by set); re-asserting it here keeps the index
+            # honoring superseded_by independent of step ordering. Idempotent.
+            story_attributes.materialize_split_lineage(
+                source_story_id=story_id,
+                successor_ids=superseded_by,
+            )
+            # Re-export the cancelled source so AG3-068 re-indexes it (NOT deletes
+            # it). The source stays in the index as Cancelled + superseded_by.
+            result = export_story_md(
+                story_id,
+                stories_root / story_id,
+                story_attributes=story_attributes,
+                index=index,
+            )
+            # FAIL-CLOSED (AG3-072 review r4 / §54.5 / AK5 / AK12): export_story_md
+            # signals a missing story / write / validation / VectorDB failure by
+            # RETURNING success=False, NOT by raising. Returning 0 here would let
+            # the split finalize with the source left un-exported / un-indexed —
+            # a silent Integrationsfolgen gap. Propagate the REAL failure instead
+            # so the split stays fail-closed and a later rerun resumes.
+            if not result.success:
+                raise StorySplitError(
+                    "source superseded re-export/reindex failed for "
+                    f"{story_id!r}: {result.error or 'no detail reported'}",
+                )
+            return 1
+
+    return StorySplitService(
+        control_plane_repository=ControlPlaneRuntimeRepository(),
+        # Share the single StoryService instance with the export/superseded path
+        # so lineage materialization and the superseded re-index see one
+        # authoritative story surface (no divergent shadow service).
+        story_service=story_attributes,
+        dependency_repository=StateBackendStoryDependencyRepository(),
+        phase_state_quiesce=FacadePhaseStateProjectionRepository(),
+        governance=governance,
+        successor_export=_SuccessorExport(),
+        superseded_index=_SupersededIndex(),
+        stories_root=stories_root,
+        source_state_loader=source_state_loader,
     )
 
 

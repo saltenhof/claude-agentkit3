@@ -150,6 +150,20 @@ def main(argv: list[str] | None = None) -> int:
         default=".",
         help="Project root containing the AgentKit state backend",
     )
+    # AG3-072 (FK-54 §54.6): administrative scope_explosion recovery split.
+    split_parser = subparsers.add_parser(
+        "split-story",
+        help="Administratively split a scope-exploded story into successors",
+    )
+    # FK-54 §54.4: the human approval IS the human-started CLI invocation with a
+    # valid --plan. The interface is EXACTLY --story/--plan/--reason; there is no
+    # hidden attestation flag (a bare `agentkit split-story ...` must succeed).
+    split_parser.add_argument("--story", required=True, help="Source story ID")
+    split_parser.add_argument(
+        "--plan", required=True, help="Path to the human-approved split-plan JSON"
+    )
+    split_parser.add_argument("--reason", required=True, help="Split reason")
+
     exit_parser = subparsers.add_parser(
         "exit-story", help="Administratively exit a bound story run",
     )
@@ -224,35 +238,39 @@ def main(argv: list[str] | None = None) -> int:
         print(f"agentkit {__version__}")
         return 0
 
-    if args.command == "install":
-        return _cmd_install(args)
-    if args.command == "uninstall":
-        return _cmd_uninstall(args)
-    if args.command == "register-project":
-        return _cmd_register_project(args)
-    if args.command == "verify-project":
-        return _cmd_verify_project(args)
-    if args.command == "upgrade-project":
-        return _cmd_upgrade_project(args)
-    if args.command == "run-story":
-        return _cmd_run_story(args)
-    if args.command == "watch-worker":
-        return _cmd_watch_worker(args)
-    if args.command == "exit-story":
-        return _cmd_exit_story(args, argv or sys.argv[1:])
-    if args.command == "doctor":
-        return _cmd_doctor()
-    if args.command == "serve-control-plane":
-        return _cmd_serve_control_plane(args)
-    if args.command == "export-story-md":
-        return _cmd_export_story_md(args)
-    if args.command == "repair-story-md":
-        return _cmd_repair_story_md(args)
-    if args.command == "evidence" and args.evidence_command == "assemble":
-        return _cmd_evidence_assemble(args)
+    handled, exit_code = _dispatch_command(args, argv or sys.argv[1:])
+    if handled:
+        return exit_code
 
     parser.print_help()
     return 0
+
+
+def _dispatch_command(
+    args: argparse.Namespace, cli_args: list[str]
+) -> tuple[bool, int]:
+    """Dispatch a parsed subcommand. Returns ``(handled, exit_code)``."""
+    handlers = {
+        "install": lambda: _cmd_install(args),
+        "uninstall": lambda: _cmd_uninstall(args),
+        "register-project": lambda: _cmd_register_project(args),
+        "verify-project": lambda: _cmd_verify_project(args),
+        "upgrade-project": lambda: _cmd_upgrade_project(args),
+        "run-story": lambda: _cmd_run_story(args),
+        "watch-worker": lambda: _cmd_watch_worker(args),
+        "split-story": lambda: _cmd_split_story(args, cli_args),
+        "exit-story": lambda: _cmd_exit_story(args, cli_args),
+        "doctor": lambda: _cmd_doctor(),
+        "serve-control-plane": lambda: _cmd_serve_control_plane(args),
+        "export-story-md": lambda: _cmd_export_story_md(args),
+        "repair-story-md": lambda: _cmd_repair_story_md(args),
+    }
+    handler = handlers.get(str(args.command))
+    if handler is not None:
+        return True, handler()
+    if args.command == "evidence" and args.evidence_command == "assemble":
+        return True, _cmd_evidence_assemble(args)
+    return False, 0
 
 
 def _resolve_github_coordinates(
@@ -653,6 +671,82 @@ def _cmd_watch_worker(args: argparse.Namespace) -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"watch-worker failed: {exc}", file=sys.stderr)
         return 1
+
+
+def _cmd_split_story(args: argparse.Namespace, cli_args: list[str]) -> int:
+    """Handle ``agentkit split-story`` (FK-54 §54.6, AG3-072)."""
+    from agentkit.bootstrap.composition_root import build_story_split_service
+    from agentkit.governance.principal_capabilities.principals import Principal
+    from agentkit.story_split import StorySplitError, StorySplitRequest, StorySplitService
+    from agentkit.story_split.plan_loader import SplitPlanError, load_split_plan
+
+    del cli_args  # not consulted: the human-started CLI path IS the §54.4 approval.
+    project_key = os.environ.get("AGENTKIT_PROJECT_KEY", "").strip()
+    run_id = os.environ.get("AGENTKIT_RUN_ID", "").strip()
+    project_root = os.environ.get("AGENTKIT_PROJECT_ROOT", "").strip() or None
+    if not project_key or not run_id:
+        print(
+            "split-story failed: AGENTKIT_PROJECT_KEY and AGENTKIT_RUN_ID must "
+            "identify the source run.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Read + validate the plan BEFORE any mutation (fail-closed, §54.6).
+    try:
+        plan, plan_text = load_split_plan(Path(args.plan))
+    except SplitPlanError as exc:
+        print(f"split-story failed [InvalidPlan]: {exc}", file=sys.stderr)
+        return 1
+
+    # FK-54 §54.4 / AK2+AK5: the human split approval is REPRESENTED by this
+    # human-started administrative CLI path carrying a valid --plan. The CLI
+    # invocation itself IS the approval, so the acting principal of this admin
+    # subcommand is human_cli; the bare --story/--plan/--reason command succeeds
+    # end to end (no hidden attestation flag).
+    principal = Principal.HUMAN_CLI
+
+    stories_root = Path("stories")
+    service = build_story_split_service(
+        project_key=project_key,
+        stories_root=stories_root,
+        project_root=project_root,
+    )
+    if not isinstance(service, StorySplitService):
+        print(
+            "split-story failed: composition root returned invalid service",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        result = service.split_story(
+            StorySplitRequest(
+                project_key=project_key,
+                source_story_id=args.story,
+                plan=plan,
+                plan_text=plan_text,
+                reason=args.reason,
+                requested_by=str(principal),
+                run_id=run_id,
+                principal=principal,
+            )
+        )
+    except StorySplitError as exc:
+        print(f"split-story failed: {exc}", file=sys.stderr)
+        return 1
+    print(
+        json.dumps(
+            {
+                "status": result.record.status.value,
+                "split_id": result.split_id,
+                "source_story_id": result.record.source_story_id,
+                "successor_ids": list(result.successor_ids),
+                "resumed": result.resumed,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
 
 
 def _cmd_exit_story(args: argparse.Namespace, cli_args: list[str]) -> int:

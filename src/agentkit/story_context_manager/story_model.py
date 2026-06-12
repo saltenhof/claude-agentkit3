@@ -212,6 +212,17 @@ class Story(BaseModel):
     # default False/absent: a PASS or an unresolved conflict leaves it False.
     vectordb_conflict_resolved: bool = False
 
+    # AG3-072 (FK-54 §54.8.5, formal.story-split.entities ``story_lineage``):
+    # the materialized split lineage on the authoritative stammdaten record.
+    #   - ``split_from`` is the source story id on EACH created successor (it is
+    #     the id the successor was carved out of), ``None`` on every other story.
+    #   - ``split_successors`` is the ordered set of REAL successor display ids on
+    #     the cancelled source story, empty on every other story.
+    # These are the REAL allocated StoryService ids (never the plan-local ids).
+    # FIX THE MODEL: lineage lives on the Story owner, not in a shadow side table.
+    split_from: str | None = None
+    split_successors: list[str] = Field(default_factory=list)
+
     # -- Read-model joins (not stored in stories table, joined from others) --
     dependencies: list[str] = Field(default_factory=list)  # list of story_display_id
     qa_rounds: int = 0

@@ -92,6 +92,169 @@ class TestCLIMain:
         with pytest.raises(SystemExit):
             main(["exit-story", "--story", "AG3-073"])
 
+    def test_split_story_command_dispatches_with_required_params(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_split_story(args: SimpleNamespace, cli_args: list[str]) -> int:
+            captured["story"] = args.story
+            captured["plan"] = args.plan
+            captured["reason"] = args.reason
+            return 0
+
+        monkeypatch.setattr("agentkit.cli.main._cmd_split_story", fake_split_story)
+
+        exit_code = main([
+            "split-story",
+            "--story",
+            "AG3-042",
+            "--plan",
+            "plan.json",
+            "--reason",
+            "scope explosion",
+        ])
+
+        assert exit_code == 0
+        assert captured["story"] == "AG3-042"
+        assert captured["plan"] == "plan.json"
+        assert captured["reason"] == "scope explosion"
+
+    def test_split_story_requires_story_plan_reason(self) -> None:
+        with pytest.raises(SystemExit):
+            main(["split-story", "--story", "AG3-042"])
+
+    def test_split_story_spec_command_succeeds_end_to_end(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Finding #2: the EXACT §54.6 command (only --story/--plan/--reason)
+        succeeds end to end. The human-started CLI path IS the §54.4 approval, so
+        the resolved principal is human_cli and the entry gate (AK2/AK5) holds —
+        no hidden --ak3-principal-attest flag is required or accepted.
+
+        Drives the REAL CLI -> real principal -> real StorySplitService ->
+        real StoryService create/cancel/lineage. Only the storage seams
+        (control-plane, dependency repo, export, superseded reindex) are
+        in-memory; the productive split logic runs unchanged.
+        """
+        import json as _json
+
+        from tests.unit.story_split.test_service import (
+            _build_harness,
+            _good_source_state,
+        )
+
+        from agentkit.governance.principal_capabilities.principals import Principal
+
+        # The hidden attestation flag must no longer exist on the split parser:
+        # passing it is an argparse error (the bare interface is the contract).
+        with pytest.raises(SystemExit):
+            main(
+                [
+                    "split-story",
+                    "--story",
+                    "AK3-001",
+                    "--plan",
+                    "p.json",
+                    "--reason",
+                    "r",
+                    "--ak3-principal-attest",
+                    "human_cli",
+                ]
+            )
+
+        harness = _build_harness(source_state_loader=_good_source_state)
+        captured_principal: dict[str, object] = {}
+        original_split = harness.split_service.split_story
+
+        def _spy_split(request: object) -> object:
+            captured_principal["principal"] = getattr(request, "principal", None)
+            return original_split(request)  # type: ignore[arg-type]
+
+        harness.split_service.split_story = _spy_split  # type: ignore[assignment]
+
+        def _fake_build(**_kwargs: object) -> object:
+            return harness.split_service
+
+        monkeypatch.setattr(
+            "agentkit.bootstrap.composition_root.build_story_split_service",
+            _fake_build,
+        )
+        monkeypatch.setenv("AGENTKIT_PROJECT_KEY", "ak3")
+        monkeypatch.setenv("AGENTKIT_RUN_ID", "run-1")
+
+        plan_path = tmp_path / "plan.json"
+        plan_path.write_text(
+            _json.dumps(
+                {
+                    "project_key": "ak3",
+                    "source_story_id": "AK3-001",
+                    "reason": "scope_explosion",
+                    "successors": [
+                        {"story_id": "AK3-107", "title": "Slice A", "scope_slice": "A"},
+                        {"story_id": "AK3-108", "title": "Slice B", "scope_slice": "B"},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        exit_code = main(
+            [
+                "split-story",
+                "--story",
+                "AK3-001",
+                "--plan",
+                str(plan_path),
+                "--reason",
+                "scope explosion",
+            ]
+        )
+
+        assert exit_code == 0
+        # The CLI resolved the human_cli principal (the bare command IS approval).
+        assert captured_principal["principal"] is Principal.HUMAN_CLI
+        out = _json.loads(capsys.readouterr().out)
+        assert out["status"] == "committed"
+        assert out["resumed"] is False
+        assert len(out["successor_ids"]) == 2
+        # Source ended Cancelled via the administrative split-cancel path.
+        source = harness.story_service.get_story("AK3-001")
+        assert source is not None
+        assert source.status.value == "Cancelled"
+
+    def test_split_story_rejects_invalid_plan_before_mutation(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        # AK2: an unreadable/invalid plan fails closed BEFORE the service builds.
+        monkeypatch.setenv("AGENTKIT_PROJECT_KEY", "ak3")
+        monkeypatch.setenv("AGENTKIT_RUN_ID", "run-1")
+        monkeypatch.setenv("AGENTKIT_SESSION_ID", "sess-1")
+
+        def _explode(**_kwargs: object) -> object:
+            raise AssertionError("service must not be built for an invalid plan")
+
+        monkeypatch.setattr(
+            "agentkit.bootstrap.composition_root.build_story_split_service",
+            _explode,
+        )
+        bad_plan = tmp_path / "plan.json"
+        bad_plan.write_text("not json {", encoding="utf-8")
+
+        exit_code = main(
+            ["split-story", "--story", "AG3-042", "--plan", str(bad_plan), "--reason", "r"]
+        )
+
+        assert exit_code == 1
+        assert "InvalidPlan" in capsys.readouterr().err
+
     def test_watch_worker_command_dispatches(
         self,
         monkeypatch: pytest.MonkeyPatch,

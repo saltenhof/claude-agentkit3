@@ -635,6 +635,11 @@
             -- AG3-068: VectorDB-conflict producer flag (FK-21 §21.12).
             -- Default FALSE = fail-closed: only a resolved stage-2 conflict sets it.
             vectordb_conflict_resolved BOOLEAN NOT NULL DEFAULT FALSE,
+            -- AG3-072 (FK-54 §54.8.5): materialized split lineage. ``split_from``
+            -- is the cancelled source on a successor; ``split_successors`` is the
+            -- real successor id list on the source. Defaults NULL / '[]'.
+            split_from TEXT NULL,
+            split_successors JSONB NOT NULL DEFAULT '[]'::jsonb,
             created_at TIMESTAMPTZ NULL,
             completed_at TIMESTAMPTZ NULL,
             PRIMARY KEY (story_uuid),

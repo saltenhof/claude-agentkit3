@@ -186,6 +186,38 @@ class TestBranchGuardAllowed:
         )
         assert v.allowed is True
 
+    def test_official_split_story_command_allowed(self, guard: BranchGuard) -> None:
+        # AG3-072 AK10: the existing prefix path allows "agentkit split-story"
+        # under an active story lock (story_execution) via _OFFICIAL_ALLOW_PREFIXES.
+        v = guard.evaluate(
+            "bash_command",
+            {
+                "command": (
+                    "agentkit split-story --story AG3-042 --plan plan.json "
+                    "--reason 'scope explosion'"
+                ),
+                "operating_mode": "story_execution",
+                "active_story_id": "AG3-042",
+            },
+        )
+        assert v.allowed is True
+
+    def test_free_git_mutation_blocked_while_split_prefix_allowed(
+        self, guard: BranchGuard
+    ) -> None:
+        # AG3-072 AK10: a free git mutation past the service stays blocked even
+        # though the split-story prefix is allowed.
+        free = guard.evaluate(
+            "bash_command",
+            {
+                "command": "git push origin main",
+                "operating_mode": "story_execution",
+                "active_story_id": "AG3-042",
+            },
+        )
+        assert free.allowed is False
+        assert free.violation_type == ViolationType.BRANCH_VIOLATION
+
     def test_git_internal_file_mutation_is_blocked(self, guard: BranchGuard) -> None:
         v = guard.evaluate("file_write", {"file_path": "/repo/.git/index"})
         assert v.allowed is False

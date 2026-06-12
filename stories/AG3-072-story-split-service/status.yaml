@@ -1,8 +1,9 @@
 story_id: AG3-072
 title: "StorySplitService + Split-Plan + Dependency-Rebinding"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
+completed: "2026-06-12"
 created: "2026-06-07"
 size: M
 depends_on:

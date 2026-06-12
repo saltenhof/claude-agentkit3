@@ -150,6 +150,34 @@ def _story_exit_record(story_id: str) -> StoryExitRecord:
     )
 
 
+def _story_split_record(story_id: str, *, split_id: str = "split-1") -> object:
+    from datetime import UTC, datetime
+
+    from agentkit.story_context_manager.terminal_state import (
+        ExitClass as TExitClass,
+    )
+    from agentkit.story_context_manager.terminal_state import (
+        TerminalState as TTerminalState,
+    )
+    from agentkit.story_split import StorySplitRecord
+    from agentkit.story_split.models import SplitStatus
+
+    return StorySplitRecord(
+        split_id=split_id,
+        project_key="ak3",
+        source_story_id=story_id,
+        requested_by="human_cli",
+        reason="scope_explosion",
+        plan_ref="abc123",
+        status=SplitStatus.COMMITTED,
+        successor_ids=("AK3-201", "AK3-202"),
+        superseded_by=("AK3-201", "AK3-202"),
+        terminal_state=TTerminalState.CANCELLED,
+        exit_class=TExitClass.SCOPE_SPLIT,
+        created_at=datetime(2026, 6, 9, 12, 0, tzinfo=UTC),
+    )
+
+
 # ---------------------------------------------------------------------------
 # create_story
 # ---------------------------------------------------------------------------
@@ -479,6 +507,117 @@ def test_administrative_story_exit_cancel_rejects_non_human_principal() -> None:
             story_exit_operation_committed=True,
             principal=Principal.ORCHESTRATOR,
             op_id="exit-1",
+        )
+
+
+def test_administrative_story_split_cancel_in_progress_is_gated() -> None:
+    svc = _make_service()
+    story = _create_story(svc, op_id="op-create")
+    svc.approve_story(story.story_display_id, op_id="op-approve")
+    svc.begin_progress(story.story_display_id)
+
+    cancelled = svc.administratively_cancel_for_story_split(
+        story.story_display_id,
+        story_split_record=_story_split_record(
+            story.story_display_id, split_id="split-1"
+        ),
+        story_split_operation_committed=True,
+        principal=Principal.HUMAN_CLI,
+        op_id="split-1",
+    )
+
+    assert cancelled.status == StoryStatus.CANCELLED
+    assert cancelled.blocker == "Story-Split scope_split (split-1)"
+
+
+def test_administrative_story_split_cancel_is_idempotent_on_cancelled() -> None:
+    svc = _make_service()
+    story = _create_story(svc, op_id="op-create")
+    svc.approve_story(story.story_display_id, op_id="op-approve")
+    svc.begin_progress(story.story_display_id)
+    record = _story_split_record(story.story_display_id, split_id="split-1")
+
+    first = svc.administratively_cancel_for_story_split(
+        story.story_display_id,
+        story_split_record=record,
+        story_split_operation_committed=True,
+        principal=Principal.HUMAN_CLI,
+        op_id="split-1",
+    )
+    second = svc.administratively_cancel_for_story_split(
+        story.story_display_id,
+        story_split_record=record,
+        story_split_operation_committed=True,
+        principal=Principal.HUMAN_CLI,
+        op_id="split-1",
+    )
+
+    assert first.status == StoryStatus.CANCELLED
+    assert second.status == StoryStatus.CANCELLED
+
+
+def test_administrative_story_split_cancel_requires_committed_fence() -> None:
+    svc = _make_service()
+    story = _create_story(svc, op_id="op-create")
+    svc.approve_story(story.story_display_id, op_id="op-approve")
+    svc.begin_progress(story.story_display_id)
+
+    with pytest.raises(ForbiddenError, match="committed"):
+        svc.administratively_cancel_for_story_split(
+            story.story_display_id,
+            story_split_record=_story_split_record(story.story_display_id),
+            story_split_operation_committed=False,
+            principal=Principal.HUMAN_CLI,
+            op_id="split-1",
+        )
+
+
+def test_administrative_story_split_cancel_rejects_non_human_principal() -> None:
+    svc = _make_service()
+    story = _create_story(svc, op_id="op-create")
+    svc.approve_story(story.story_display_id, op_id="op-approve")
+    svc.begin_progress(story.story_display_id)
+
+    with pytest.raises(ForbiddenError, match="human_cli"):
+        svc.administratively_cancel_for_story_split(
+            story.story_display_id,
+            story_split_record=_story_split_record(story.story_display_id),
+            story_split_operation_committed=True,
+            principal=Principal.ORCHESTRATOR,
+            op_id="split-1",
+        )
+
+
+def test_administrative_story_split_cancel_rejects_invalid_record() -> None:
+    svc = _make_service()
+    story = _create_story(svc, op_id="op-create")
+    svc.approve_story(story.story_display_id, op_id="op-approve")
+    svc.begin_progress(story.story_display_id)
+
+    # A story_exit record (wrong producer / exit_class) must be rejected.
+    with pytest.raises(StoryValidationError, match="StorySplitRecord"):
+        svc.administratively_cancel_for_story_split(
+            story.story_display_id,
+            story_split_record=_story_exit_record(story.story_display_id),
+            story_split_operation_committed=True,
+            principal=Principal.HUMAN_CLI,
+            op_id="split-1",
+        )
+
+
+def test_administrative_story_split_cancel_rejects_backlog_story() -> None:
+    # Frontend cancel-guard semantics are NOT reused: a never-started story is
+    # not a valid In Progress split source.
+    svc = _make_service()
+    story = _create_story(svc, op_id="op-create")
+
+    with pytest.raises(InvalidStatusTransitionError):
+        svc.administratively_cancel_for_story_split(
+            story.story_display_id,
+            story_split_record=_story_split_record(story.story_display_id),
+            story_split_operation_committed=True,
+            principal=Principal.HUMAN_CLI,
+            op_id="split-1",
         )
 
 

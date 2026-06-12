@@ -300,6 +300,57 @@ def test_state_backend_vectordb_conflict_flag_sqlite_roundtrip(
     assert plain.vectordb_conflict_resolved is False
 
 
+def test_state_backend_split_lineage_sqlite_roundtrip(tmp_path: Path) -> None:
+    """AG3-072 (FK-54 §54.8.5): the materialized split lineage round-trips
+    through the REAL SQLite state-backend repository.
+
+    Proves ``materialize_split_lineage`` -> ``_story_to_sqlite_row`` ->
+    ``_sqlite_row_to_story`` (the migrated ``split_from`` / ``split_successors``
+    columns) faithfully persists the REAL allocated ids: the source carries
+    ``split_successors`` and each successor carries ``split_from`` = source id,
+    while an unrelated story keeps the fail-closed defaults (None / []).
+    """
+    facade.reset_backend_cache_for_tests()
+    project_repository = StateBackendProjectRepository(tmp_path)
+    project_repository.save(
+        create_project(
+            "tenant-a", "Tenant A", "AK3", _configuration(),
+            repositories=["https://example.test/repo.git"],
+        ),
+    )
+    service = _service(project_repository=project_repository, store_dir=tmp_path)
+
+    for idx in range(3):
+        service.create_story(
+            CreateStoryInput(
+                project_key="tenant-a",
+                title=f"Story {idx}",
+                type=WireStoryType.IMPLEMENTATION,
+                repos=["https://example.test/repo.git"],
+            ),
+            op_id=f"op-{idx}",
+        )
+    # AK3-001 is the source, AK3-002/AK3-003 the successors (real allocated ids).
+    service.materialize_split_lineage(
+        source_story_id="AK3-001",
+        successor_ids=("AK3-002", "AK3-003"),
+    )
+
+    # Read back through a FRESH SQLite repository instance (no in-memory cache).
+    facade.reset_backend_cache_for_tests()
+    reloaded = StateBackendStoryRepository(tmp_path)
+    source = reloaded.get_by_display_id("AK3-001")
+    succ_a = reloaded.get_by_display_id("AK3-002")
+    succ_b = reloaded.get_by_display_id("AK3-003")
+    assert source is not None and succ_a is not None and succ_b is not None
+    assert source.split_successors == ["AK3-002", "AK3-003"]
+    assert source.split_from is None
+    assert succ_a.split_from == "AK3-001"
+    assert succ_b.split_from == "AK3-001"
+    assert succ_a.split_successors == []
+    assert succ_b.split_successors == []
+
+
 def test_state_backend_concurrent_allocation_is_gap_free(tmp_path: Path) -> None:
     """C2: a REAL concurrent proof that ``create_story_atomic`` is race-safe.
 

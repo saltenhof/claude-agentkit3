@@ -407,6 +407,14 @@ def _schema_alter_statements() -> tuple[str, ...]:
             "ALTER TABLE stories ADD COLUMN IF NOT EXISTS "
             "vectordb_conflict_resolved BOOLEAN NOT NULL DEFAULT FALSE"
         ),
+        # AG3-072 (FK-54 §54.8.5): materialized split lineage columns for existing
+        # Postgres schemas that pre-date the postgres_schema.sql addition.
+        # Idempotent via IF NOT EXISTS.
+        "ALTER TABLE stories ADD COLUMN IF NOT EXISTS split_from TEXT NULL",
+        (
+            "ALTER TABLE stories ADD COLUMN IF NOT EXISTS "
+            "split_successors JSONB NOT NULL DEFAULT '[]'::jsonb"
+        ),
     )
 
 

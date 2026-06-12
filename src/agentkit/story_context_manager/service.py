@@ -848,6 +848,160 @@ class StoryService:
         self._emit(story.project_key, story_display_id, wire_summary)
         return story
 
+    def administratively_cancel_for_story_split(
+        self,
+        story_display_id: str,
+        *,
+        story_split_record: object,
+        story_split_operation_committed: bool,
+        principal: object,
+        op_id: str,
+        correlation_id: str = "",
+    ) -> Story:
+        """Administratively cancel an In Progress story for an FK-54 story split.
+
+        This is the dedicated administrative split-cancel transition (§54.8.7). It
+        deliberately does NOT add ``In Progress -> Cancelled`` to the generic
+        ``_ALLOWED_TRANSITIONS`` table, so the frontend ``cancel_story`` surface
+        stays fail-closed for in-flight stories and this path is the ONLY way an
+        in-progress source story reaches ``Cancelled`` via a split. It does not go
+        through closure and does not reuse the ``cancel_story`` guard.
+
+        Fail-closed preconditions:
+          - ``principal`` must be ``human_cli`` (the human-started CLI path);
+          - ``story_split_operation_committed`` must be ``True`` (the split fence
+            is registered);
+          - ``story_split_record`` must be a structurally valid split record for
+            this story / ``op_id`` carrying ``exit_class=scope_split`` and
+            ``terminal_state=Cancelled``.
+
+        Args:
+            story_display_id: The source story to cancel.
+            story_split_record: The ``StorySplitRecord`` audit evidence.
+            story_split_operation_committed: Whether the split fence is committed.
+            principal: The acting principal (must be ``human_cli``).
+            op_id: The split_id used as the idempotency key.
+            correlation_id: Correlation ID for propagation.
+
+        Returns:
+            The cancelled (or idempotent no-op) Story.
+
+        Raises:
+            ForbiddenError: When principal/fence preconditions fail.
+            StoryValidationError: When the split record is invalid.
+            InvalidStatusTransitionError: When the story is not In Progress (and
+                not already Cancelled).
+        """
+        if str(principal) != "human_cli":
+            raise ForbiddenError(
+                "Story-Split administrative cancellation requires human_cli",
+                detail={"principal": str(principal)},
+            )
+        if not story_split_operation_committed:
+            raise ForbiddenError(
+                "Story-Split administrative cancellation requires a committed "
+                "split fence operation",
+                detail={"story_id": story_display_id, "op_id": op_id},
+            )
+        if not _valid_story_split_record(story_split_record, story_display_id, op_id):
+            raise StoryValidationError(
+                "Invalid StorySplitRecord for administrative cancellation",
+                detail={"story_id": story_display_id, "op_id": op_id},
+            )
+
+        body: dict[str, object] = {
+            "story_id": story_display_id,
+            "op_id": op_id,
+            "split_id": str(getattr(story_split_record, "split_id", "")),
+            "operation": "story_split_admin_cancel",
+        }
+        cached, cached_payload = self._idempotency.check(op_id, body)
+        if cached:
+            assert cached_payload is not None
+            cached_story = _story_from_cached_payload(cached_payload)
+            if cached_story is not None:
+                return cached_story
+
+        story = self.get_story_or_raise(story_display_id)
+        if story.status is StoryStatus.CANCELLED:
+            self._idempotency.record(
+                op_id,
+                body,
+                _story_to_internal_snapshot(story),
+                correlation_id=correlation_id,
+            )
+            return story
+        if story.status is not StoryStatus.IN_PROGRESS:
+            raise InvalidStatusTransitionError(
+                "Story-Split administrative cancellation is only legal from "
+                "In Progress or as an idempotent no-op on Cancelled.",
+                detail={
+                    "current_status": story.status.value,
+                    "target_status": StoryStatus.CANCELLED.value,
+                },
+            )
+
+        project = self._project_repo.get(story.project_key)
+        if project is not None and project.archived_at is not None:
+            raise ForbiddenError(
+                f"Project {story.project_key!r} is archived",
+                detail={"project_key": story.project_key},
+            )
+
+        story.status = StoryStatus.CANCELLED
+        story.blocker = f"Story-Split scope_split ({op_id})"
+        self._story_repo.save(story)
+        wire_summary = story_to_wire_summary(story)
+        self._idempotency.record(
+            op_id, body, _story_to_internal_snapshot(story), correlation_id=correlation_id
+        )
+        self._emit(story.project_key, story_display_id, wire_summary)
+        return story
+
+    def materialize_split_lineage(
+        self,
+        *,
+        source_story_id: str,
+        successor_ids: tuple[str, ...],
+    ) -> None:
+        """Persist the FK-54 §54.8.5 split lineage onto the REAL stories.
+
+        Writes ``split_successors`` (the real, allocated successor ids) onto the
+        source story and ``split_from`` (the source id) onto EACH successor. The
+        ids passed here are the authoritative ``StoryService`` display ids — never
+        the plan-local reference ids. Idempotent: re-running with the same inputs
+        leaves the same lineage.
+
+        This is the authoritative materialization step for
+        ``formal.story-split.entities`` ``story_lineage`` and AC7. It is a pure
+        stammdaten write (no status transition); the administrative cancel of the
+        source is a separate step.
+
+        Args:
+            source_story_id: The cancelled source story display id.
+            successor_ids: The real successor display ids (creation order).
+
+        Raises:
+            StoryNotFoundError: When the source or a successor does not exist.
+        """
+        source = self.get_story_or_raise(source_story_id)
+        source.split_successors = list(successor_ids)
+        self._story_repo.save(source)
+        self._emit(
+            source.project_key,
+            source_story_id,
+            story_to_wire_summary(source),
+        )
+        for successor_id in successor_ids:
+            successor = self.get_story_or_raise(successor_id)
+            successor.split_from = source_story_id
+            self._story_repo.save(successor)
+            self._emit(
+                successor.project_key,
+                successor_id,
+                story_to_wire_summary(successor),
+            )
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
@@ -1060,6 +1214,17 @@ def _story_from_cached_payload(payload: dict[str, object]) -> Story | None:
             vectordb_conflict_resolved=bool(
                 payload.get("vectordb_conflict_resolved", False)
             ),
+            # AG3-072 (FK-54 §54.8.5): restore the split lineage so an idempotent
+            # replay preserves split_from / split_successors. Fail-closed defaults
+            # (None / []) for legacy snapshots without these fields.
+            split_from=(
+                str(payload["split_from"])
+                if payload.get("split_from")
+                else None
+            ),
+            split_successors=[
+                str(sid) for sid in _to_list(payload.get("split_successors"))
+            ],
             created_at=(
                 datetime.fromisoformat(str(payload["created_at"]))
                 if payload.get("created_at")
@@ -1088,6 +1253,27 @@ def _valid_story_exit_record(
         and getattr(record, "story_id", None) == story_display_id
         and str(getattr(record, "terminal_state", "")) == "Cancelled"
         and str(getattr(record, "exit_class", "")) == "viability_handoff"
+    )
+
+
+def _valid_story_split_record(
+    record: object,
+    story_display_id: str,
+    op_id: str,
+) -> bool:
+    """Validate the structural StorySplitRecord gate without owning the BC.
+
+    Mirrors :func:`_valid_story_exit_record`: a structural check that the record
+    is the producer's own split artifact for this story/op, carrying the
+    AG3-074-owned ``terminal_state=Cancelled`` + ``exit_class=scope_split`` axis.
+    """
+
+    return (
+        getattr(record, "producer_id", None) == "story_split_service"
+        and getattr(record, "split_id", None) == op_id
+        and getattr(record, "source_story_id", None) == story_display_id
+        and str(getattr(record, "terminal_state", "")) == "Cancelled"
+        and str(getattr(record, "exit_class", "")) == "scope_split"
     )
 
 

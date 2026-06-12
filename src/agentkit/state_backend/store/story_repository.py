@@ -131,6 +131,9 @@ def _story_to_sqlite_row(story: Story) -> dict[str, object]:
         "new_structures": 1 if story.new_structures else 0,
         # AG3-068: VectorDB-conflict producer flag (FK-21 §21.12).
         "vectordb_conflict_resolved": 1 if story.vectordb_conflict_resolved else 0,
+        # AG3-072 (FK-54 §54.8.5): materialized split lineage (real ids).
+        "split_from": story.split_from,
+        "split_successors_json": _dump(story.split_successors),
         "created_at": story.created_at.isoformat() if story.created_at else None,
         "completed_at": story.completed_at.isoformat() if story.completed_at else None,
     }
@@ -164,6 +167,14 @@ def _sqlite_row_to_story(row: dict[str, Any]) -> Story:
         # AG3-068: VectorDB-conflict producer flag. Fail-closed default 0/False
         # when the column is absent (older schema rows without the column).
         vectordb_conflict_resolved=bool(row.get("vectordb_conflict_resolved", 0)),
+        # AG3-072 (FK-54 §54.8.5): materialized split lineage. Fail-closed
+        # defaults (None / []) when the columns are absent on older schema rows.
+        split_from=(
+            str(row["split_from"])
+            if row.get("split_from")
+            else None
+        ),
+        split_successors=_load(row.get("split_successors_json"), []),
         created_at=(
             datetime.fromisoformat(str(row["created_at"]))
             if row["created_at"]
@@ -242,6 +253,9 @@ def _story_to_pg_row(story: Story) -> dict[str, object]:
         "new_structures": story.new_structures,
         # AG3-068: VectorDB-conflict producer flag (FK-21 §21.12).
         "vectordb_conflict_resolved": story.vectordb_conflict_resolved,
+        # AG3-072 (FK-54 §54.8.5): materialized split lineage (real ids).
+        "split_from": story.split_from,
+        "split_successors": story.split_successors,
         "created_at": story.created_at.isoformat() if story.created_at else None,
         "completed_at": story.completed_at.isoformat() if story.completed_at else None,
     }
@@ -278,6 +292,14 @@ def _pg_row_to_story(row: dict[str, Any]) -> Story:
         # AG3-068: VectorDB-conflict producer flag. Fail-closed default False
         # when column absent (older schema rows without the column).
         vectordb_conflict_resolved=bool(row.get("vectordb_conflict_resolved", False)),
+        # AG3-072 (FK-54 §54.8.5): materialized split lineage. Fail-closed
+        # defaults (None / []) when the columns are absent on older schema rows.
+        split_from=(
+            str(row["split_from"])
+            if row.get("split_from")
+            else None
+        ),
+        split_successors=[str(sid) for sid in (row.get("split_successors") or [])],
         created_at=(
             datetime.fromisoformat(str(row["created_at"]))
             if row["created_at"]
@@ -403,6 +425,14 @@ def _migrate_stories_table_sqlite(conn: sqlite3.Connection) -> None:
             "ALTER TABLE stories ADD COLUMN "
             "vectordb_conflict_resolved INTEGER NOT NULL DEFAULT 0"
         )
+    # AG3-072 (FK-54 §54.8.5): materialized split lineage columns.
+    if "split_from" not in existing_columns:
+        conn.execute("ALTER TABLE stories ADD COLUMN split_from TEXT")
+    if "split_successors_json" not in existing_columns:
+        conn.execute(
+            "ALTER TABLE stories ADD COLUMN "
+            "split_successors_json TEXT NOT NULL DEFAULT '[]'"
+        )
 
 
 def _ensure_story_tables_sqlite(conn: sqlite3.Connection) -> None:
@@ -456,6 +486,11 @@ def _ensure_story_tables_sqlite(conn: sqlite3.Connection) -> None:
             -- AG3-068: VectorDB-conflict producer flag (FK-21 §21.12).
             -- Default 0 (False) = fail-closed: only a resolved stage-2 conflict sets it.
             vectordb_conflict_resolved INTEGER NOT NULL DEFAULT 0,
+            -- AG3-072 (FK-54 §54.8.5): materialized split lineage. ``split_from``
+            -- is the cancelled source on a successor; ``split_successors_json`` is
+            -- the real successor id list on the source. Defaults NULL / '[]'.
+            split_from TEXT,
+            split_successors_json TEXT NOT NULL DEFAULT '[]',
             created_at TEXT,
             completed_at TEXT,
             PRIMARY KEY (story_uuid),
@@ -887,13 +922,15 @@ def _sqlite_upsert_story(
             title, story_type, status, size, mode, epic, module,
             participating_repos_json, change_impact, concept_quality,
             owner, risk, blocker, labels_json, wave, critical_path,
-            new_structures, vectordb_conflict_resolved, created_at, completed_at
+            new_structures, vectordb_conflict_resolved,
+            split_from, split_successors_json, created_at, completed_at
         ) VALUES (
             :story_uuid, :project_key, :story_number, :story_display_id,
             :title, :story_type, :status, :size, :mode, :epic, :module,
             :participating_repos_json, :change_impact, :concept_quality,
             :owner, :risk, :blocker, :labels_json, :wave, :critical_path,
-            :new_structures, :vectordb_conflict_resolved, :created_at, :completed_at
+            :new_structures, :vectordb_conflict_resolved,
+            :split_from, :split_successors_json, :created_at, :completed_at
         )
         ON CONFLICT(story_uuid) DO UPDATE SET
             title = excluded.title,
@@ -914,6 +951,8 @@ def _sqlite_upsert_story(
             critical_path = excluded.critical_path,
             new_structures = excluded.new_structures,
             vectordb_conflict_resolved = excluded.vectordb_conflict_resolved,
+            split_from = excluded.split_from,
+            split_successors_json = excluded.split_successors_json,
             created_at = excluded.created_at,
             completed_at = excluded.completed_at
         """,
@@ -929,7 +968,8 @@ def _pg_upsert_story(conn: Any, row: dict[str, object]) -> None:
             title, story_type, status, size, mode, epic, module,
             participating_repos, change_impact, concept_quality,
             owner, risk, blocker, labels, wave, critical_path,
-            new_structures, vectordb_conflict_resolved, created_at, completed_at
+            new_structures, vectordb_conflict_resolved,
+            split_from, split_successors, created_at, completed_at
         ) VALUES (
             %(story_uuid)s, %(project_key)s, %(story_number)s,
             %(story_display_id)s, %(title)s, %(story_type)s, %(status)s,
@@ -938,6 +978,7 @@ def _pg_upsert_story(conn: Any, row: dict[str, object]) -> None:
             %(concept_quality)s, %(owner)s, %(risk)s, %(blocker)s,
             %(labels)s::jsonb, %(wave)s, %(critical_path)s,
             %(new_structures)s, %(vectordb_conflict_resolved)s,
+            %(split_from)s, %(split_successors)s::jsonb,
             %(created_at)s, %(completed_at)s
         )
         ON CONFLICT(story_uuid) DO UPDATE SET
@@ -959,6 +1000,8 @@ def _pg_upsert_story(conn: Any, row: dict[str, object]) -> None:
             critical_path = EXCLUDED.critical_path,
             new_structures = EXCLUDED.new_structures,
             vectordb_conflict_resolved = EXCLUDED.vectordb_conflict_resolved,
+            split_from = EXCLUDED.split_from,
+            split_successors = EXCLUDED.split_successors,
             created_at = EXCLUDED.created_at,
             completed_at = EXCLUDED.completed_at
         """,
@@ -966,6 +1009,7 @@ def _pg_upsert_story(conn: Any, row: dict[str, object]) -> None:
             **row,
             "participating_repos": json.dumps(row["participating_repos"]),
             "labels": json.dumps(row["labels"]),
+            "split_successors": json.dumps(row["split_successors"]),
         },
     )
 
