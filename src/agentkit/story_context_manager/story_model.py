@@ -44,6 +44,14 @@ class StoryStatus(StrEnum):
     IN_PROGRESS = "In Progress"
     DONE = "Done"
     CANCELLED = "Cancelled"
+    # AG3-071 (FK-53 §53.7.2/§53.9.2): administrative Story-Reset stati. RESETTING
+    # is the exclusive fence the reset acquires before any deletion; RESET_FAILED is
+    # the fail-closed blocked state after an aborted reset. NEITHER is a terminal
+    # state (the story stays a live, restartable work unit, FK-53 §53.8 — a reset is
+    # NOT a Cancelled). RESET_FAILED is NOT runnable (start/resume/retry/scheduler
+    # are blocked); only ``resume_reset`` of the same reset_id may move it forward.
+    RESETTING = "Resetting"
+    RESET_FAILED = "Reset Failed"
 
 
 class WireStoryType(StrEnum):

@@ -125,6 +125,96 @@ class TestCLIMain:
         with pytest.raises(SystemExit):
             main(["split-story", "--story", "AG3-042"])
 
+    def test_reset_story_command_dispatches_with_required_params(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_reset_story(args: SimpleNamespace) -> int:
+            captured["story"] = args.story
+            captured["reason"] = args.reason
+            captured["escalation_ref"] = args.escalation_ref
+            captured["dry_run"] = args.dry_run
+            captured["force"] = args.force
+            return 0
+
+        monkeypatch.setattr("agentkit.cli.main._cmd_reset_story", fake_reset_story)
+
+        exit_code = main([
+            "reset-story",
+            "--story",
+            "AG3-071",
+            "--reason",
+            "irreparable merge conflict",
+            "--escalation-ref",
+            "ESC-9",
+            "--dry-run",
+        ])
+
+        assert exit_code == 0
+        assert captured["story"] == "AG3-071"
+        assert captured["reason"] == "irreparable merge conflict"
+        assert captured["escalation_ref"] == "ESC-9"
+        assert captured["dry_run"] is True
+        assert captured["force"] is False
+
+    def test_reset_story_requires_story_and_reason(self) -> None:
+        with pytest.raises(SystemExit):
+            main(["reset-story", "--story", "AG3-071"])
+
+    def test_reset_story_dry_run_reports_domains_without_mutation(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """AC2: --dry-run prints the planned purge domains and does not mutate."""
+        import json as _json
+
+        from agentkit.story_reset import (
+            PlannedPurge,
+            ResetPurgeDomain,
+            StoryResetService,
+        )
+
+        monkeypatch.setenv("AGENTKIT_PROJECT_KEY", "ak3")
+
+        class _DryRunService(StoryResetService):
+            def __init__(self) -> None:  # bypass the heavy real wiring
+                pass
+
+            def request_reset(self, request: object) -> object:  # type: ignore[override]
+                assert request.dry_run is True
+                return PlannedPurge(
+                    project_key="ak3",
+                    story_id=request.story_id,
+                    run_id="run-x",
+                    reason=request.reason,
+                    planned_domains=(
+                        ResetPurgeDomain.RUNTIME_EXECUTION,
+                        ResetPurgeDomain.READ_MODELS,
+                    ),
+                )
+
+        monkeypatch.setattr(
+            "agentkit.bootstrap.composition_root.build_story_reset_service",
+            lambda **_kw: _DryRunService(),
+        )
+
+        exit_code = main([
+            "reset-story",
+            "--story",
+            "AG3-071",
+            "--reason",
+            "irreparable",
+            "--dry-run",
+        ])
+
+        assert exit_code == 0
+        out = _json.loads(capsys.readouterr().out.strip())
+        assert out["mode"] == "dry-run"
+        assert out["planned_domains"] == ["runtime_execution", "read_models"]
+
     def test_split_story_spec_command_succeeds_end_to_end(
         self,
         monkeypatch: pytest.MonkeyPatch,

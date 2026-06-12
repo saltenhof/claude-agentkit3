@@ -346,6 +346,104 @@ def build_story_split_service(
     )
 
 
+def build_story_reset_service(
+    *,
+    project_key: str,
+    store_dir: Path,
+    project_root: Path | None = None,
+    audit_root: Path | None = None,
+) -> object:
+    """Build the productive FK-53 Story-Reset service (AG3-071).
+
+    Wires the four §53.10 contract operations onto the REAL purge owners (no second
+    purge truth): the Runtime-Execution purge port + governance lock owner
+    (Schritt 5, SEPARATE owners), the FK-69 ``ProjectionAccessor`` + the AG3-082
+    analytics ``purge_story_analytics`` path (Schritt 6, SEPARATE owners), the
+    workspace/worktree teardown (Schritt 7/8), the story-status owner
+    (``StoryService``) and the ``ControlPlaneRuntimeRepository`` reset fence.
+
+    Args:
+        project_key: The project scope.
+        store_dir: State-backend base dir (story dir for SQLite). Drives the purge
+            ports + lock repository.
+        project_root: Target project root used to resolve worktrees (defaults to
+            ``store_dir``).
+        audit_root: Durable reset-record audit root (defaults to
+            ``var/story_reset``).
+
+    Returns:
+        A fully wired :class:`agentkit.story_reset.StoryResetService`.
+    """
+    from agentkit.bootstrap.story_reset_adapters import (
+        AnalyticsPurgeAdapter,
+        CompetingOperationAdapter,
+        EscalationEvidenceAdapter,
+        FenceAdapter,
+        LockPurgeAdapter,
+        ReadModelPurgeAdapter,
+        RunScopeAdapter,
+        RuntimePurgeAdapter,
+        WorkspacePurgeAdapter,
+        WorktreePurgeAdapter,
+    )
+    from agentkit.control_plane.repository import ControlPlaneRuntimeRepository
+    from agentkit.governance.runner import Governance
+    from agentkit.kpi_analytics.aggregation import RefreshWorker
+    from agentkit.kpi_analytics.fact_store import FactStore
+    from agentkit.state_backend.store.analytics_source import (
+        StateBackendAnalyticsSource,
+    )
+    from agentkit.state_backend.store.fact_repository import (
+        StateBackendFactRepository,
+    )
+    from agentkit.state_backend.store.governance_hook_repository import (
+        StateBackendHookRegistrationRepository,
+    )
+    from agentkit.state_backend.store.lock_record_repository import LockRecordRepository
+    from agentkit.state_backend.store.worktree_repository import (
+        StateBackendWorktreeRepository,
+    )
+    from agentkit.story.repository import StoryRepository
+    from agentkit.story_context_manager.service import StoryService
+    from agentkit.story_reset import FileResetRecordStore, StoryResetService
+
+    resolved_root = project_root or store_dir
+    lock_repo = LockRecordRepository(store_dir)
+    governance = Governance(
+        hook_repo=StateBackendHookRegistrationRepository(),
+        lock_repo=lock_repo,
+        project_key=project_key,
+        project_root=resolved_root,
+        worktree_repo=StateBackendWorktreeRepository(resolved_root),
+    )
+    cp_repo = ControlPlaneRuntimeRepository()
+    story_repo = StoryRepository()
+    accessor = build_projection_accessor(store_dir)
+    refresh_worker = RefreshWorker(
+        FactStore(StateBackendFactRepository(store_dir)),
+        StateBackendAnalyticsSource(accessor, project_key=project_key),
+    )
+    worktree_repo = StateBackendWorktreeRepository(resolved_root)
+
+    return StoryResetService(
+        story_status=StoryService(),
+        record_store=FileResetRecordStore(audit_root or Path("var/story_reset")),
+        run_scope=RunScopeAdapter(story_repo),
+        escalation_evidence=EscalationEvidenceAdapter(story_repo),
+        competing_operation=CompetingOperationAdapter(cp_repo),
+        fence=FenceAdapter(cp_repo),
+        runtime_purge=RuntimePurgeAdapter(
+            build_runtime_execution_purge_port(store_dir),
+            build_runtime_execution_residue_probe(store_dir),
+        ),
+        lock_purge=LockPurgeAdapter(governance, lock_repo),
+        read_model_purge=ReadModelPurgeAdapter(accessor),
+        analytics_purge=AnalyticsPurgeAdapter(refresh_worker),
+        workspace=WorkspacePurgeAdapter(resolved_root),
+        worktree=WorktreePurgeAdapter(worktree_repo),
+    )
+
+
 def build_kpi_analytics(store_dir: Path, *, project_key: str) -> KpiAnalytics:
     """Wire a ``KpiAnalytics`` facade onto the real FactStore + RefreshWorker.
 

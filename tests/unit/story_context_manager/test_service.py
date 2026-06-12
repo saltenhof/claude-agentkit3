@@ -1009,3 +1009,82 @@ def test_get_story_detail_returns_story_and_spec() -> None:
     assert story_out.story_display_id == story.story_display_id
     # Befund 2: spec must be present (default created by create_story)
     assert spec is not None
+
+
+# ---------------------------------------------------------------------------
+# Story-Reset administrative transitions (FK-53, AG3-071)
+# ---------------------------------------------------------------------------
+
+
+def _create_in_progress_story(svc: StoryService, *, op_id: str = "op-rs") -> Story:
+    """Create + drive a story to In Progress for the reset-axis tests."""
+    story = _create_story(svc, op_id=op_id)
+    svc.approve_story(story.story_display_id, op_id=f"{op_id}-approve")
+    svc.begin_progress(story.story_display_id)
+    return story
+
+
+def test_begin_reset_fences_in_progress_story() -> None:
+    """begin_reset moves In Progress -> Resetting (FK-53 §53.7.2 fence)."""
+    svc = _make_service()
+    story = _create_in_progress_story(svc)
+
+    fenced = svc.begin_reset(story.story_display_id)
+
+    assert fenced.status is StoryStatus.RESETTING
+
+
+def test_begin_reset_rejects_non_in_progress_story() -> None:
+    """begin_reset fails closed for a story that is not In Progress."""
+    svc = _make_service()
+    story = _create_story(svc, op_id="op-backlog")  # Backlog
+
+    with pytest.raises(InvalidStatusTransitionError):
+        svc.begin_reset(story.story_display_id)
+
+
+def test_complete_reset_returns_to_restartable_base_not_cancelled() -> None:
+    """complete_reset moves Resetting -> In Progress (restartable, NOT Cancelled)."""
+    svc = _make_service()
+    story = _create_in_progress_story(svc)
+    svc.begin_reset(story.story_display_id)
+
+    released = svc.complete_reset(story.story_display_id)
+
+    assert released.status is StoryStatus.IN_PROGRESS
+    # FK-53 §53.8 / AC10: the reset axis never lands on Cancelled.
+    assert released.status is not StoryStatus.CANCELLED
+
+
+def test_mark_reset_failed_blocks_story() -> None:
+    """mark_reset_failed moves Resetting -> Reset Failed (FK-53 §53.9.2)."""
+    svc = _make_service()
+    story = _create_in_progress_story(svc)
+    svc.begin_reset(story.story_display_id)
+
+    failed = svc.mark_reset_failed(story.story_display_id)
+
+    assert failed.status is StoryStatus.RESET_FAILED
+
+
+def test_resume_reset_transition_refences_failed_story() -> None:
+    """resume_reset_transition moves Reset Failed -> Resetting (same reset)."""
+    svc = _make_service()
+    story = _create_in_progress_story(svc)
+    svc.begin_reset(story.story_display_id)
+    svc.mark_reset_failed(story.story_display_id)
+
+    resumed = svc.resume_reset_transition(story.story_display_id)
+
+    assert resumed.status is StoryStatus.RESETTING
+
+
+def test_resume_reset_transition_is_idempotent_on_resetting() -> None:
+    """A resume of an already-Resetting story is an idempotent no-op."""
+    svc = _make_service()
+    story = _create_in_progress_story(svc)
+    svc.begin_reset(story.story_display_id)
+
+    again = svc.resume_reset_transition(story.story_display_id)
+
+    assert again.status is StoryStatus.RESETTING

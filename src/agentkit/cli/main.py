@@ -164,6 +164,32 @@ def main(argv: list[str] | None = None) -> int:
     )
     split_parser.add_argument("--reason", required=True, help="Split reason")
 
+    # AG3-071 (FK-53 §53.3): the official, human-triggered Story-Reset path. The
+    # ONLY trigger for a destructive reset (no automatic path).
+    reset_parser = subparsers.add_parser(
+        "reset-story",
+        help="Administratively reset an irreparably escalated story (FK-53)",
+    )
+    reset_parser.add_argument("--story", required=True, help="Story ID")
+    reset_parser.add_argument("--reason", required=True, help="FK-53 §53.3 reset reason")
+    reset_parser.add_argument(
+        "--escalation-ref",
+        dest="escalation_ref",
+        required=False,
+        help="Optional reference to the escalation/exception finding (§53.5)",
+    )
+    reset_parser.add_argument(
+        "--dry-run",
+        dest="dry_run",
+        action="store_true",
+        help="Plan-only: report the planned purge domains without mutating (§53.3).",
+    )
+    reset_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Bypass the escalation-finding precondition (conscious operator override).",
+    )
+
     exit_parser = subparsers.add_parser(
         "exit-story", help="Administratively exit a bound story run",
     )
@@ -259,6 +285,7 @@ def _dispatch_command(
         "run-story": lambda: _cmd_run_story(args),
         "watch-worker": lambda: _cmd_watch_worker(args),
         "split-story": lambda: _cmd_split_story(args, cli_args),
+        "reset-story": lambda: _cmd_reset_story(args),
         "exit-story": lambda: _cmd_exit_story(args, cli_args),
         "doctor": lambda: _cmd_doctor(),
         "serve-control-plane": lambda: _cmd_serve_control_plane(args),
@@ -758,6 +785,89 @@ def _cmd_split_story(args: argparse.Namespace, cli_args: list[str]) -> int:
         )
     )
     return 0
+
+
+def _cmd_reset_story(args: argparse.Namespace) -> int:
+    """Handle ``agentkit reset-story`` (FK-53 §53.3, AG3-071).
+
+    The official, human-triggered Story-Reset control path. ``--dry-run`` reports
+    the planned purge domains without any destructive mutation; otherwise the full
+    §53.7 flow runs (request -> execute) and the §53.8 clean-state verification is
+    reported.
+    """
+    from agentkit.bootstrap.composition_root import build_story_reset_service
+    from agentkit.story_reset import (
+        PlannedPurge,
+        StoryResetError,
+        StoryResetRequest,
+        StoryResetService,
+    )
+
+    project_key = os.environ.get("AGENTKIT_PROJECT_KEY", "").strip()
+    if not project_key:
+        print(
+            "reset-story failed: AGENTKIT_PROJECT_KEY must identify the project.",
+            file=sys.stderr,
+        )
+        return 1
+    project_root = os.environ.get("AGENTKIT_PROJECT_ROOT", "").strip() or "."
+    store_dir = Path(project_root)
+
+    service = build_story_reset_service(
+        project_key=project_key,
+        store_dir=store_dir,
+        project_root=store_dir,
+    )
+    if not isinstance(service, StoryResetService):
+        print(
+            "reset-story failed: composition root returned invalid service",
+            file=sys.stderr,
+        )
+        return 1
+
+    # The human-started CLI invocation IS the §53.2/§53.3 authorisation.
+    request = StoryResetRequest(
+        project_key=project_key,
+        story_id=args.story,
+        requested_by="human_cli",
+        reason=args.reason,
+        escalation_ref=args.escalation_ref,
+        dry_run=bool(args.dry_run),
+        force=bool(args.force),
+    )
+    try:
+        outcome = service.request_reset(request)
+        if isinstance(outcome, PlannedPurge):
+            print(
+                json.dumps(
+                    {
+                        "mode": "dry-run",
+                        "story_id": outcome.story_id,
+                        "run_id": outcome.run_id,
+                        "planned_domains": [d.value for d in outcome.planned_domains],
+                    },
+                    sort_keys=True,
+                )
+            )
+            return 0
+        result = service.execute_reset(outcome.reset_id)
+    except StoryResetError as exc:
+        print(f"reset-story failed: {exc}", file=sys.stderr)
+        return 1
+    print(
+        json.dumps(
+            {
+                "status": result.record.status.value,
+                "reset_id": result.reset_id,
+                "story_id": result.record.story_id,
+                "clean_state": result.clean_state.is_clean,
+                "purge_summary": result.record.purge_summary,
+                "resumed": result.resumed,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0 if result.clean_state.is_clean else 1
 
 
 def _cmd_exit_story(args: argparse.Namespace, cli_args: list[str]) -> int:

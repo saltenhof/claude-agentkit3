@@ -275,5 +275,45 @@ class LockRecordRepository:
 
         return [_lock_record_id(dict(row)) for row in rows]
 
+    def count_active_locks_for_story(self, story_id: str) -> int:
+        """Return the number of still-ACTIVE lock records for ``story_id``.
+
+        Read-only probe for the FK-53 §53.8 reset end-state verification
+        (``StoryResetService.verify_reset_clean_state``, AG3-071): after a reset,
+        NO active lock/lease of the corrupt run may remain. Unlike
+        :meth:`deactivate_locks_for_story`, this probe is fail-open on an unknown
+        story (returns ``0``): a story with no lock rows at all is trivially free
+        of active locks, and a verify probe must not raise on the absence of rows.
+
+        Args:
+            story_id: Canonical story identifier.
+
+        Returns:
+            The count of lock records whose ``status != 'INACTIVE'`` (``0`` when
+            the story is unknown or all locks are already inactive).
+        """
+        if _is_postgres():
+            return self._pg_count_active(story_id)
+        return self._sqlite_count_active(story_id)
+
+    def _sqlite_count_active(self, story_id: str) -> int:
+        with _sqlite_connect(self._store_dir) as conn:
+            cursor = conn.execute(
+                "SELECT COUNT(*) FROM story_execution_locks "
+                "WHERE story_id = ? AND status != 'INACTIVE'",
+                (story_id,),
+            )
+            return int(cursor.fetchone()[0])
+
+    def _pg_count_active(self, story_id: str) -> int:
+        with _postgres_connect() as conn:
+            cursor = conn.execute(
+                "SELECT COUNT(*) AS count FROM story_execution_locks "
+                "WHERE story_id = %s AND status != 'INACTIVE'",
+                (story_id,),
+            )
+            row = cursor.fetchone()
+            return int(row["count"] if isinstance(row, dict) else row[0])
+
 
 __all__ = ["LockRecordRepository"]

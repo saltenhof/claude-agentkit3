@@ -1,9 +1,17 @@
 story_id: AG3-071
 title: "StoryResetService + Reset-Record + Purge-Domänen"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
+completed: "2026-06-12"
 created: "2026-06-07"
+# Committed as-is per PO decision 2026-06-12. Service core + status-model are review-solid;
+# the production-edge review findings (escalation-gate fail-open, verify mutates/run_id-after-purge,
+# fence not story-scoped, complete_reset-before-durable-save, AC8 not-runnable gate unwired, reset
+# record in var/, workspace-purge swallows errors, CLI resume) AND the FK-91 §91.1a reset endpoint
+# + ProjectEdgeClient.reset_story (documented "offene Konzept-Schuld", Regel #10) are carried into
+# a dedicated follow-up reset story. Codex+Fable double-review = CHANGES-REQUESTED, remediation
+# deferred to that follow-up by PO decision.
 size: L
 depends_on:
   - AG3-032

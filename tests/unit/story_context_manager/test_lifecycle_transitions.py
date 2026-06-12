@@ -12,7 +12,10 @@ from __future__ import annotations
 import pytest
 
 from agentkit.story_context_manager.errors import InvalidStatusTransitionError
-from agentkit.story_context_manager.service import _check_transition
+from agentkit.story_context_manager.service import (
+    _check_transition,
+    is_story_runnable_status,
+)
 from agentkit.story_context_manager.story_model import StoryStatus
 
 # All valid (from, to) transitions:
@@ -23,6 +26,11 @@ _VALID = [
     (StoryStatus.APPROVED, StoryStatus.CANCELLED),     # cancel from approved
     (StoryStatus.APPROVED, StoryStatus.IN_PROGRESS),   # begin_progress (pipeline)
     (StoryStatus.IN_PROGRESS, StoryStatus.DONE),       # complete_story (pipeline)
+    # AG3-071 (FK-53) administrative reset axis:
+    (StoryStatus.IN_PROGRESS, StoryStatus.RESETTING),    # begin_reset (fence)
+    (StoryStatus.RESETTING, StoryStatus.IN_PROGRESS),    # complete_reset (restartable)
+    (StoryStatus.RESETTING, StoryStatus.RESET_FAILED),   # mark_reset_failed
+    (StoryStatus.RESET_FAILED, StoryStatus.RESETTING),   # resume_reset_transition
 ]
 
 # All invalid (from, to) pairs that must raise (including same-status):
@@ -83,6 +91,43 @@ def test_cancelled_is_terminal_no_further_transitions() -> None:
     for target in _ALL_STATUSES:
         with pytest.raises(InvalidStatusTransitionError):
             _check_transition(terminal, target)
+
+
+def test_reset_axis_is_not_terminal() -> None:
+    """RESETTING / RESET_FAILED are administrative, NOT terminal (FK-53 §53.8)."""
+    from agentkit.story_context_manager.service import _TERMINAL_STATUSES
+
+    assert StoryStatus.RESETTING not in _TERMINAL_STATUSES
+    assert StoryStatus.RESET_FAILED not in _TERMINAL_STATUSES
+
+
+def test_reset_failed_is_not_runnable() -> None:
+    """RESET_FAILED and RESETTING are NOT runnable (FK-53 §53.9.2, AC8)."""
+    assert is_story_runnable_status(StoryStatus.RESET_FAILED) is False
+    assert is_story_runnable_status(StoryStatus.RESETTING) is False
+
+
+def test_normal_statuses_are_runnable() -> None:
+    """Non-reset statuses remain runnable (the reset gate is the only blocker)."""
+    for status in (
+        StoryStatus.BACKLOG,
+        StoryStatus.APPROVED,
+        StoryStatus.IN_PROGRESS,
+        StoryStatus.DONE,
+        StoryStatus.CANCELLED,
+    ):
+        assert is_story_runnable_status(status) is True
+
+
+def test_reset_does_not_reach_cancelled_from_in_progress() -> None:
+    """The reset axis never sets Cancelled (counter-evidence to FK-91 drift, AC10)."""
+    # The ONLY In Progress edges are DONE and RESETTING — never CANCELLED directly.
+    with pytest.raises(InvalidStatusTransitionError):
+        _check_transition(StoryStatus.IN_PROGRESS, StoryStatus.CANCELLED)
+    with pytest.raises(InvalidStatusTransitionError):
+        _check_transition(StoryStatus.RESETTING, StoryStatus.CANCELLED)
+    with pytest.raises(InvalidStatusTransitionError):
+        _check_transition(StoryStatus.RESET_FAILED, StoryStatus.CANCELLED)
 
 
 def test_transition_error_carries_detail() -> None:
