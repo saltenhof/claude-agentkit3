@@ -104,7 +104,13 @@ glossary:
         the same check_id running across stages or remediation attempts.
         check_id is the executed-check identifier (e.g. artifact.protocol,
         qa_review, branch.story, ac_fulfilled, impl_fidelity) -- NOT a
-        fc_check_proposals CHK-NNNN proposal identifier.
+        fc_check_proposals CHK-NNNN proposal identifier. The optional
+        check_proposal_ref links an FC-derived executed check back to its
+        fc_check_proposals.check_id (CHK-NNNN); it is conditionally mandatory
+        (non-NULL for FC-derived checks, NULL for native/built-in checks,
+        §69.15.6 rule 4 / §69.11 rule 10). FK-69 owns only the raw outcome
+        enum; the mapping of outcomes to effectiveness categories (true/false
+        positive, no finding) is failure-corpus-owned (FK-41 §41.6.7.1).
       see_also:
         - term: qa-read-model
           domain: telemetry-and-events
@@ -362,6 +368,11 @@ die Zugriffsschicht.
   `StoryContext` und Closure-Artefakte.
 - Ein vollstaendiger Story-Reset loescht den `story_metrics`-Satz der
   korrupten Umsetzung.
+- `story_metrics` enthaelt **keine** `check_ref`- oder
+  Per-Check-Outcome-Spalten und ist **keine** Quelle der
+  Per-Check-Effektivitaet. Die Per-Check-Outcome-Wahrheit liegt ausschliesslich
+  in `qa_check_outcomes` (§69.15); `story_metrics` bleibt run-level (eine Zeile
+  pro `(project_key, run_id)`).
 
 ## 69.9 Failure-Corpus-Read-Models
 
@@ -450,6 +461,11 @@ Diese Dateien sind jedoch nie die alleinige operative Wahrheit.
 9. For `outcome=triggered`, at least one matching `qa_findings` row
    for the same `(project_key, run_id, attempt_no, stage_id, check_id)`
    MUST exist (the finding is the evidence that triggered the outcome).
+10. For every `qa_check_outcomes` row whose executed check originated from
+    an `fc_check_proposals` proposal (CheckFactory, FK-41 §41.6.6),
+    `check_proposal_ref` MUST be non-NULL and equal to that proposal's
+    `CHK-NNNN` id. For native/built-in checks it MUST be NULL. Missing linkage
+    for an FC-derived check is an emitter/schema violation (fail-closed).
 
 ## 69.15 Tabelle `qa_check_outcomes`
 
@@ -467,6 +483,14 @@ clean (PASS) checks and overridden checks.
 This provides a complete, queryable audit trail of check execution suitable
 for effectiveness analysis (AG3-078) and override attribution without
 requiring reconstruction from aggregates.
+
+`qa_check_outcomes` is the canonical per-check outcome source. FK-69 owns only
+the RAW `outcome` enum (telemetry fact: what happened). The INTERPRETATION of
+outcomes into effectiveness categories (true positive / false positive / no
+finding) and the resulting check auto-deactivation are failure-corpus business
+semantics, defined canonically in FK-41 §41.6.7 / §41.6.7.1 — FK-69 does not
+duplicate that mapping. `story_metrics` (§69.8) is run-level and is NOT a source
+of per-check effectiveness.
 
 ### 69.15.2 Pflichtattribute
 
@@ -534,10 +558,15 @@ stage artifact is established via the parent `qa_stage_results` row for
    `llm_evaluator/structured_evaluator.py` check-id whitelists (e.g.
    `qa_review`, `ac_fulfilled`, `impl_fidelity`). It is NOT a
    `fc_check_proposals` CHK-NNNN identifier.
-4. **`check_proposal_ref` is optional and only set** when an executed check
-   was generated from a `fc_check_proposals` proposal (CheckFactory,
-   AG3-078). All deterministic and built-in LLM-role checks carry
-   `check_proposal_ref=NULL`.
+4. **`check_proposal_ref` is conditionally mandatory.** It MUST be non-NULL
+   and equal to the originating `fc_check_proposals.check_id` (`CHK-NNNN`) for
+   every executed check that was generated from an `fc_check_proposals`
+   proposal (CheckFactory, FK-41 §41.6.6). For all native/built-in
+   deterministic and LLM-role checks it MUST be `NULL`. Missing linkage for an
+   FC-derived check is an emitter/schema violation (fail-closed; see §69.11
+   rule 10). It is populated by verify-system echoing
+   `StageDefinition.origin_check_ref` (FK-33 §33.2.1) verbatim, without
+   interpreting it.
 5. **`override_id` is set for `overridden` outcomes** to enable
    deterministic attribution: which override suppressed which check.
    `override_id` is a globally unique identifier (PRIMARY KEY in
@@ -549,6 +578,18 @@ stage artifact is established via the parent `qa_stage_results` row for
 8. **closure MUST NOT write `qa_check_outcomes`.** closure reads this
    table for roll-ups; per-check outcome truth belongs exclusively to
    verify-system (the executor).
+9. **The mapping of `outcome` to effectiveness categories is NOT defined
+   here.** FK-69 owns only the raw `outcome` enum (`triggered | clean |
+   overridden`). The interpretation `triggered → true positive`,
+   `overridden → false positive`, `clean → no finding` and the resulting
+   auto-deactivation are failure-corpus semantics, defined canonically in
+   FK-41 §41.6.7.1.
+10. **`read_projection` for `qa_check_outcomes` MUST support `check_proposal_ref`
+    and an `occurred_at`/`since_days` time-window as filters.** Per-check
+    effectiveness aggregation runs over `check_proposal_ref` (the `CHK-NNNN`
+    proposal id), NOT over the executed `check_id`; a missing
+    `check_proposal_ref` filter capability would force an incorrect
+    aggregation and is a contract gap.
 
 ## 69.12 Backfill und Migration
 

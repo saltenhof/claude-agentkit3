@@ -50,8 +50,10 @@ glossary:
       definition: >
         Typisiertes Profil einer QA-Subflow-Stage in der StageRegistry. Enthält:
         id, layer (1-4), kind (deterministic | llm_evaluation | agent | policy),
-        applies_to (Story-Typen), blocking, trust_class (A/B/C/None), producer
-        und execution_policy. Nicht überschreibbar ausser blocking.
+        applies_to (Story-Typen), blocking, trust_class (A/B/C/None), producer,
+        execution_policy und optional origin_check_ref (CHK-NNNN-Herkunft eines
+        FC-abgeleiteten ausgefuehrten Checks; NULL fuer native Checks).
+        Nicht überschreibbar ausser blocking.
       see_also:
         - term: stage-registry
           domain: verify-system
@@ -155,6 +157,16 @@ class StageDefinition:
     producer: str               # Erlaubter Producer-Name
     execution_policy: str       # DSL-Policy des Stage-Aufrufs
     override_policy: str        # normativer Override-Rahmen fuer diese Stage
+    origin_check_ref: str | None = None
+        # Originating fc_check_proposals.check_id (CHK-NNNN) for a registry
+        # entry that represents exactly ONE FC-derived executed check.
+        # verify-system copies this value verbatim into
+        # qa_check_outcomes.check_proposal_ref (FK-69 §69.15.3) for that
+        # executed check's rows, WITHOUT interpreting it (no failure-corpus
+        # semantics leak into verify-system). NULL for native/built-in
+        # checks. Origin metadata is per executed check, not per containing
+        # stage: if a stage groups multiple executed checks, the linkage is
+        # carried per executed check, never inferred from the stage.
 ```
 
 ### 33.2.2 Standard-Stages

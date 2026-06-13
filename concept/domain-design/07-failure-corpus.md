@@ -621,9 +621,10 @@ keinen einzigen realen Fund hatten und mehr als 3 False Positives
 produziert haben, werden automatisch deaktiviert und der Mensch wird
 im nächsten Review darüber informiert. Der Mensch kann die
 Deaktivierung rückgängig machen. Ausnahme: Checks, die aus Patterns
-mit Schweregrad "kritisch" oder "sicherheitskritisch" abgeleitet
-wurden, sind von der Auto-Deaktivierung ausgenommen und können nur
-manuell durch den Menschen deaktiviert werden.
+mit `risk_level == "kritisch"` abgeleitet wurden, sind von der
+Auto-Deaktivierung ausgenommen und können nur manuell durch den Menschen
+deaktiviert werden. (Kanonische `risk_level`-Werte sind `mittel | hoch |
+kritisch`; "sicherheitskritisch" ist kein kanonischer Wert.)
 
 **Output:** Status wechselt auf "retired" (deaktiviert) — oder der Check
 bleibt "active". Eine inhaltliche Nachjustierung erfolgt als neue

@@ -275,6 +275,8 @@ Optionale Attribute:
 - `effectiveness_last_checked_at`
 - `true_positives_90d`
 - `false_positives_90d`
+- `no_findings_90d` — Anzahl `clean`-Runs im 90-Tage-Fenster (nur Reporting;
+  zaehlt nie als realer Fund, §41.6.7.1)
 
 Fachregeln:
 
@@ -605,6 +607,15 @@ def create_check_implementation_story(proposal: dict) -> str:
 Die Story durchlaeuft die regulaere AgentKit-Pipeline (Worker
 implementiert, Verify prueft, Closure mergt).
 
+Beim Registrieren des FC-abgeleiteten Checks traegt die `CheckFactory` die
+Herkunfts-ID (`fc_check_proposals.check_id`, `CHK-NNNN`) als
+Check-Herkunfts-Metadatum in die verify-system-Stage-/Check-Registry ein
+(FK-33 §33.2.1 `StageDefinition.origin_check_ref`). verify-system echo-t diesen
+Wert beim Ausfuehren unveraendert in `qa_check_outcomes.check_proposal_ref`
+(FK-69 §69.15.3) — ohne ihn fachlich zu interpretieren. So bleibt die
+Per-Check-Effektivitaet (§41.6.7) deterministisch ueber `check_proposal_ref`
+zurechenbar, ohne dass failure-corpus-Semantik in verify-system leakt.
+
 **Pipeline-Stufe nach Check-Typ:**
 
 | Check-Typ | Pipeline-Stufe |
@@ -620,46 +631,86 @@ Status wechselt auf `active`.
 
 ### 41.6.7 Schritt 6: Wirksamkeitspruefung (FK-10-072 bis FK-10-085)
 
-**Wer:** `failure_corpus.CheckFactory`
-(`agentkit.failure_corpus.check_factory.CheckFactory`)
+**Wer:** `failure_corpus.CheckEffectivenessTracker`
+(`agentkit.failure_corpus.check_factory.CheckEffectivenessTracker`)
 
-**Datenquelle:** Workflow-Metric-Daten (Tabelle `story_metrics`, Schema-Owner:
-`story-closure.PostMergeFinalization`). Lesezugriff ausschliesslich via
+**Datenquelle:** `qa_check_outcomes` (FK-69 §69.15) — die kanonische
+Per-Check-Outcome-Wahrheit (Owner verify-system: ein Outcome pro ausgefuehrtem
+Check, `triggered | clean | overridden`). Lesezugriff ausschliesslich via
 `Telemetry.read_projection` (`agentkit.telemetry.projection_accessor`,
-sub_exposed). `CheckFactory` schreibt nie direkt in `story_metrics`.
+sub_exposed). `story_metrics` (FK-69 §69.8) ist run-level (eine Zeile pro
+Story-Run) und ist **keine** Quelle der Per-Check-Effektivitaet. Der
+`CheckEffectivenessTracker` schreibt nie direkt in `qa_check_outcomes` (Owner
+verify-system); er liest sie nur und schreibt aggregierte Effectiveness-Felder
+in `fc_check_proposals` zurueck.
 
-Ein periodisches Skript zaehlt pro aktivem Check:
+Aggregiert wird ueber `check_proposal_ref` (die `fc_check_proposals.check_id` im
+`CHK-NNNN`-Format), **nicht** ueber den ausgefuehrten `check_id` (z.B.
+`artifact.protocol`); `check_id` in `qa_check_outcomes` ist der ausgefuehrte
+Check-Name, nicht die Proposal-ID (FK-69 §69.15.2 / §69.15.6 Regel 3).
+
+Ein periodischer Job (owned by failure-corpus; rollierendes 90-Tage-Fenster,
+**nicht** als Closure-Subschritt) zaehlt pro aktivem Check:
 
 ```python
-def check_effectiveness(check_id: str, days: int = 90) -> dict:
-    metrics = telemetry.read_projection(
-        table="story_metrics",
-        filters={"check_ref": check_id},
+def check_effectiveness(check_proposal_id: str, days: int = 90) -> dict:
+    rows = telemetry.read_projection(
+        table="qa_check_outcomes",
+        filters={"check_proposal_ref": check_proposal_id},
         since_days=days,
     )
     return {
-        "check_id": check_id,
+        "check_id": check_proposal_id,
         "period_days": days,
-        "true_positives": count_triggers(metrics),
-        "false_positives": count_overrides(metrics),
-        "no_findings": count_clean_runs(metrics),
+        "true_positives": count(rows, outcome="triggered"),
+        "false_positives": count(rows, outcome="overridden"),
+        "no_findings": count(rows, outcome="clean"),
     }
 ```
 
-**Wirksamkeits-Report:** Wird nach 30 Tagen automatisch erzeugt
-und im woechentlichen Review-Slot angezeigt (FK-10-077 bis FK-10-079).
+#### 41.6.7.1 Effectiveness-Mapping (kanonisch)
+
+Die Bewertung der rohen `qa_check_outcomes.outcome`-Werte zu
+Effektivitaets-Kategorien ist **genau hier** kanonisch definiert
+(failure-corpus-Geschaeftssemantik, die die Auto-Deaktivierung steuert). FK-69
+§69.15 besitzt nur das ROH-Enum `outcome` (Telemetrie-Fakt) und verweist fuer die
+Bewertung auf diese Stelle — keine zweite Definition.
+
+| `qa_check_outcomes.outcome` | Effektivitaets-Kategorie |
+|---|---|
+| `triggered` | true positive (Check loeste einen Fund aus) |
+| `overridden` | false positive (per menschlichem Override aufgehoben) |
+| `clean` | no finding (sauber durchgelaufen, kein Fund) |
+
+**Wirksamkeits-Report:** Wird nach 30 Tagen automatisch erzeugt und im
+woechentlichen Review-Slot angezeigt (FK-10-077 bis FK-10-079). Der woechentliche
+Review darf einen ersten Wirksamkeits-Report ab 30 Tagen anzeigen; die
+persistierten Zaehlfelder bleiben rollierende 90-Tage-Recounts.
 
 Die Effectiveness-Felder (`true_positives_90d`, `false_positives_90d`,
-`effectiveness_last_checked_at`) werden via `Telemetry.write_projection`
-in `fc_check_proposals` zurueckgeschrieben (§41.3.3).
+`no_findings_90d`, `effectiveness_last_checked_at`) werden via
+`Telemetry.write_projection` in `fc_check_proposals` zurueckgeschrieben (§41.3.3).
+
+**Reset-/Backfill-Invariante:** Die 90-Tage-Aggregation ist ein zustandsloser
+Recount ueber nicht-gepurgte Runs. Ein vollstaendiger Story-Reset purged die
+zugehoerigen `qa_check_outcomes`-Zeilen (FK-69 §69.15.6 Regel 6); der naechste
+Recount ist dadurch selbstheilend. Fehlende Historie zaehlt **nicht** als
+`clean`/no finding (kein stiller Default auf leere Daten).
 
 **Auto-Deaktivierung (FK-10-080 bis FK-10-084):**
 
 | Bedingung | Reaktion |
 |-----------|---------|
-| 90 Tage kein realer Fund UND > 3 False Positives | Automatisch deaktiviert. Mensch wird informiert. |
+| 90 Tage kein realer Fund (`true_positives_90d == 0`) UND > 3 False Positives (`false_positives_90d > 3`) | Automatisch deaktiviert. Mensch wird informiert. |
 | Mensch macht Deaktivierung rueckgaengig | Check wird reaktiviert |
-| Pattern-Schweregrad "kritisch" oder "sicherheitskritisch" | **Ausgenommen** von Auto-Deaktivierung. Nur manuell durch Mensch. |
+| Pattern-`risk_level == "kritisch"` | **Ausgenommen** von Auto-Deaktivierung. Nur manuell durch Mensch. |
+
+`no_findings` zaehlt nie als realer Fund (nur Reporting) und geht nicht in die
+Deaktivierungs-Bedingung ein. Die `risk_level`-Pruefung erfolgt ueber den
+Intra-BC-Join `fc_check_proposals.pattern_ref → fc_patterns.risk_level` (beide
+failure-corpus). Kanonische `risk_level`-Werte sind `mittel | hoch | kritisch`
+(§41.3.2); Alias-Werte wie `critical` oder `sicherheitskritisch` sind **keine**
+kanonischen `risk_level`-Werte.
 
 Status wechselt auf `retired` (deaktiviert) — oder der Check bleibt
 `active`. Eine inhaltliche Nachjustierung erfolgt als neue Check-Revision

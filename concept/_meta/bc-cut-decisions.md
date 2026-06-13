@@ -1256,7 +1256,7 @@ Total: ~27 Klassen.
 | `governance-and-guards` | GG -> FC | `record_incident` (vom GovernanceObserver bei Schwellenuebersicht) |
 | `verify-system` | VS -> FC | `record_incident` (von QaCycleCoordinator bei FAIL, AdversarialOrchestrator, ConformanceService Doctreue-Ebene-4); FC -> VS (CheckFactory ruft `LlmEvaluator` fuer Schritt 1+3) |
 | `story-closure` | C -> FC | `record_incident` (Postflight-FAIL und Doctreue-FAIL erzeugen Incident-Kandidaten) |
-| `telemetry-and-events` | FC -> T | `Telemetry.write_projection` fuer fc_incidents/fc_patterns/fc_check_proposals; `Telemetry.read_projection` fuer Wirksamkeitspruefung-Daten |
+| `telemetry-and-events` | FC -> T | `Telemetry.write_projection` fuer fc_incidents/fc_patterns/fc_check_proposals; `Telemetry.read_projection` fuer die Wirksamkeitspruefung-Daten aus `qa_check_outcomes` (verify-system-owned Read-Model, FK-69 §69.15; gefiltert ueber `check_proposal_ref`/`since_days`, FK-41 §41.6.7) — NICHT aus `story_metrics`, und ohne direkten verify-system-Repo-Import |
 | `agent-skills` | AS -> FC | `QualityMetricCollector` liest fc_incidents fuer Skill-Wirksamkeits-Beobachtung |
 | `pipeline-framework` | FC -> PF | CheckFactory Schritt 5 erzeugt GitHub-Story -> Story durchlaeuft Pipeline regulaer |
 | `prompt-runtime` | FC -> PR | LlmEvaluator-Aufrufe in Schritt 1+3 ueber `materialize_prompt` |
@@ -1279,9 +1279,10 @@ Total: ~27 Klassen.
    Cross-BC-Beziehung zu pipeline-framework dokumentieren.
 5. FK-41 §41.4.2 QA-Evaluation als Capture-Akteur (F-41-069): Verify-System ruft
    `FailureCorpus.record_incident` direkt.
-6. FK-41 §41.6.7 Auto-Deaktivierung: nutzt Workflow-Metric-Daten (Owner:
-   story-closure.PostMergeFinalization). Lese-Schnittstelle via
-   `Telemetry.read_projection`.
+6. FK-41 §41.6.7 Auto-Deaktivierung: nutzt `qa_check_outcomes` (Owner
+   verify-system; Zugriff via telemetry-and-events `Telemetry.read_projection`),
+   gefiltert ueber `check_proposal_ref`/`since_days`. NICHT aus
+   `story_metrics`/Workflow-Metric-Daten und nicht owned by story-closure.
 7. FK-41 §41.9 CLI-Befehle: Boundary-Control des aufrufenden BC. FailureCorpus
    ist transport-agnostisch.
 
@@ -1941,7 +1942,7 @@ koennen bei der Implementierungsphase auftauchen.
 | 54 | failure-corpus | FK-41 §41.6.2/§41.6.4 LLM-Aufrufe (Schritt 1 Schaerfen, Schritt 3 Proposal-Generierung): laufen ueber `verify-system.LlmEvaluator` mit `prompt-runtime.materialize_prompt`. Modul-Pfade in FK-41 dokumentieren. |
 | 55 | failure-corpus | FK-41 §41.6.6 Schritt 5 (Story-Erzeugung): ruft `Integrations.github`-Adapter. Cross-BC-Beziehung zu pipeline-framework (Story durchlaeuft Pipeline regulaer) in FK-41 dokumentieren. |
 | 56 | failure-corpus | FK-41 §41.4.2 QA-Evaluation als Capture-Akteur (F-41-069): Verify-System ruft `FailureCorpus.record_incident` direkt. FK-41 Capture-Akteur-Tabelle entsprechend praezisieren. |
-| 57 | failure-corpus | FK-41 §41.6.7 Auto-Deaktivierung: nutzt Workflow-Metric-Daten (Owner: story-closure.PostMergeFinalization). Lese-Schnittstelle via `Telemetry.read_projection` in FK-41 dokumentieren. |
+| 57 | failure-corpus | FK-41 §41.6.7 Auto-Deaktivierung: nutzt `qa_check_outcomes` (Owner verify-system; Zugriff via telemetry-and-events `Telemetry.read_projection`), gefiltert ueber `check_proposal_ref`/`since_days`. NICHT aus `story_metrics`/Workflow-Metric-Daten, nicht owned by story-closure. In FK-41 dokumentieren. |
 | 58 | failure-corpus | FK-41 §41.9 CLI-Befehle: Boundary-Control des aufrufenden BC. FailureCorpus ist transport-agnostisch; CLI-Beispiele aus FK-41 auslagern. |
 | 59 | execution-planning | FK-70 §70.10.1 Port-Vokabular: `DependencyGraphPort`, `ReadinessAssessmentPort`, `ExecutionPlanPort`, `SchedulingPolicyPort` auf "Komponenten" und "Top-Surfaces" umformulieren. |
 | 60 | execution-planning | FK-70 §70.10.2 Persistenz: ExecutionPlan + PlannedStory + DependencyEdge via `Telemetry.write_projection`; Schema-Owner: execution-planning. Konsistent mit BC-9-Pattern. |
