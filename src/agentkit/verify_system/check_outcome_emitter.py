@@ -34,6 +34,47 @@ __all__ = [
 ]
 
 
+def _build_override_index(
+    override_records: list[OverrideRecord] | None,
+) -> dict[str, OverrideRecord]:
+    """Map ``check_id`` -> the FIRST matching ``OverrideRecord`` (FK-69 §69.15.6)."""
+    index: dict[str, OverrideRecord] = {}
+    for ovr in override_records or ():
+        if ovr.check_id and ovr.check_id not in index:
+            index[ovr.check_id] = ovr
+    return index
+
+
+def _resolve_executed_check_ids(layer_result: LayerResult) -> list[str]:
+    """Return the executed check ids from layer metadata, else derive from findings.
+
+    Blank strings are NOT filtered here — the fail-closed check in
+    :func:`build_check_outcomes` rejects them.
+    """
+    raw_executed: object = layer_result.metadata.get("executed_check_ids")
+    if isinstance(raw_executed, (list, tuple, set, frozenset)):
+        return [str(cid) for cid in raw_executed]
+    # Fall back: derive from findings (covers at least the triggered set).
+    return list({f.check for f in layer_result.findings if f.check})
+
+
+def _classify_check_outcome(
+    check_id: str,
+    override_index: dict[str, OverrideRecord],
+    triggered_check_ids: set[str],
+) -> tuple[CheckOutcome, str | None]:
+    """Classify one executed check as overridden / triggered / clean.
+
+    Override wins over triggered (an explicitly suppressed check is ``overridden``
+    even if it produced a finding); the correlated ``override_id`` is returned.
+    """
+    if check_id in override_index:
+        return CheckOutcome.OVERRIDDEN, override_index[check_id].override_id
+    if check_id in triggered_check_ids:
+        return CheckOutcome.TRIGGERED, None
+    return CheckOutcome.CLEAN, None
+
+
 def build_check_outcomes(
     flow: FlowExecution,
     layer_result: LayerResult,
@@ -85,27 +126,9 @@ def build_check_outcomes(
         )
 
     ts: datetime = occurred_at if occurred_at is not None else datetime.now(UTC)
-
-    # Build override index: check_id -> first matching OverrideRecord.
-    override_index: dict[str, OverrideRecord] = {}
-    if override_records:
-        for ovr in override_records:
-            if ovr.check_id and ovr.check_id not in override_index:
-                override_index[ovr.check_id] = ovr
-
-    # Collect executed check IDs from metadata or fall back to finding checks.
-    # Do NOT filter blank strings here — the fail-closed check below raises on them.
-    raw_executed: object = layer_result.metadata.get("executed_check_ids")
-    executed_check_ids: list[str]
-    if isinstance(raw_executed, (list, tuple, set, frozenset)):
-        executed_check_ids = [str(cid) for cid in raw_executed]
-    else:
-        # Fall back: derive from findings (covers at least triggered set).
-        executed_check_ids = list(
-            {f.check for f in layer_result.findings if f.check}
-        )
-
-    # Build triggered set: check_ids that produced a finding.
+    override_index = _build_override_index(override_records)
+    executed_check_ids = _resolve_executed_check_ids(layer_result)
+    # Triggered set: check_ids that produced a finding.
     triggered_check_ids: set[str] = {f.check for f in layer_result.findings if f.check}
 
     records: list[QACheckOutcomeRecord] = []
@@ -120,17 +143,9 @@ def build_check_outcomes(
                 f"corrupt input, fail-closed (FK-69 §69.11 rule 6): {check_id!r}"
             )
 
-        if check_id in override_index:
-            ovr = override_index[check_id]
-            outcome = CheckOutcome.OVERRIDDEN
-            override_id: str | None = ovr.override_id
-        elif check_id in triggered_check_ids:
-            outcome = CheckOutcome.TRIGGERED
-            override_id = None
-        else:
-            outcome = CheckOutcome.CLEAN
-            override_id = None
-
+        outcome, override_id = _classify_check_outcome(
+            check_id, override_index, triggered_check_ids
+        )
         records.append(
             QACheckOutcomeRecord(
                 project_key=flow.project_key,

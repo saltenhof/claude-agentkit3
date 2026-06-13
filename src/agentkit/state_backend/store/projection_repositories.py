@@ -47,6 +47,17 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
+# Shared parametrized WHERE-clause fragments (single source; reused across the
+# projection read filters so the same predicate literal is not duplicated, S1192).
+# ---------------------------------------------------------------------------
+_WHERE_PROJECT_KEY = "project_key = ?"
+_WHERE_STORY_ID = "story_id = ?"
+_WHERE_RUN_ID = "run_id = ?"
+_WHERE_ATTEMPT_NO = "attempt_no = ?"
+_WHERE_STAGE_ID = "stage_id = ?"
+
+
+# ---------------------------------------------------------------------------
 # Repository Protocols
 # ---------------------------------------------------------------------------
 
@@ -606,19 +617,19 @@ class FacadeQAStageResultsRepository:
         clauses: list[str] = []
         params: list[object] = []
         if project_key is not None:
-            clauses.append("project_key = ?")
+            clauses.append(_WHERE_PROJECT_KEY)
             params.append(project_key)
         if story_id is not None:
-            clauses.append("story_id = ?")
+            clauses.append(_WHERE_STORY_ID)
             params.append(story_id)
         if run_id is not None:
-            clauses.append("run_id = ?")
+            clauses.append(_WHERE_RUN_ID)
             params.append(run_id)
         if attempt_no is not None:
-            clauses.append("attempt_no = ?")
+            clauses.append(_WHERE_ATTEMPT_NO)
             params.append(attempt_no)
         if stage_id is not None:
-            clauses.append("stage_id = ?")
+            clauses.append(_WHERE_STAGE_ID)
             params.append(stage_id)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         with _sqlite_connect_qa(self._story_dir) as conn:
@@ -844,19 +855,19 @@ class FacadeQAFindingsRepository:
         clauses: list[str] = []
         params: list[object] = []
         if project_key is not None:
-            clauses.append("project_key = ?")
+            clauses.append(_WHERE_PROJECT_KEY)
             params.append(project_key)
         if story_id is not None:
-            clauses.append("story_id = ?")
+            clauses.append(_WHERE_STORY_ID)
             params.append(story_id)
         if run_id is not None:
-            clauses.append("run_id = ?")
+            clauses.append(_WHERE_RUN_ID)
             params.append(run_id)
         if attempt_no is not None:
-            clauses.append("attempt_no = ?")
+            clauses.append(_WHERE_ATTEMPT_NO)
             params.append(attempt_no)
         if stage_id is not None:
-            clauses.append("stage_id = ?")
+            clauses.append(_WHERE_STAGE_ID)
             params.append(stage_id)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         with _sqlite_connect_qa(self._story_dir) as conn:
@@ -1390,16 +1401,16 @@ class FacadeQACheckOutcomesRepository:
         clauses: list[str] = ["project_key = ?"]
         params: list[object] = [project_key]
         if story_id is not None:
-            clauses.append("story_id = ?")
+            clauses.append(_WHERE_STORY_ID)
             params.append(story_id)
         if run_id is not None:
-            clauses.append("run_id = ?")
+            clauses.append(_WHERE_RUN_ID)
             params.append(run_id)
         if attempt_no is not None:
-            clauses.append("attempt_no = ?")
+            clauses.append(_WHERE_ATTEMPT_NO)
             params.append(attempt_no)
         if stage_id is not None:
-            clauses.append("stage_id = ?")
+            clauses.append(_WHERE_STAGE_ID)
             params.append(stage_id)
         if check_id is not None:
             clauses.append("check_id = ?")
