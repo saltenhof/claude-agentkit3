@@ -1,12 +1,39 @@
 story_id: AG3-085
 title: "Governance-Beobachtung (Rolling-Window-Risikoscore + LLM-Adjudication)"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
+completed: "2026-06-13"
 created: "2026-06-07"
 size: L
+# COMPLETED 2026-06-13. GovernanceObserver (FK-35 §35.3): stateless rolling-window
+# risk-score as a DB query over execution_events/governance_signal (no in-memory
+# buffer; single validated read feeds both score and candidate), threshold + per-
+# (project,story,run,signal_type) cooldown gate, LLM adjudication via the existing
+# Multi-LLM Hub transport (fail-closed parse, session released on error; no
+# StructuredEvaluator/ReviewerRole abuse), deterministic measure selection (FK-35
+# §35.3.8), failure-corpus handoff severity>=medium via explicit mapper, four FK-91
+# EventTypes (governance_signal consumed-only + adjudication/incident_opened/
+# measure_applied emitted) with mandatory payload contracts, typed config keys
+# governance.window_size/risk_threshold/cooldown_s (FK-93 §93.5), risk-points table
+# exact (FK-93 §93.6) + immediate-stop hard path. Fail-closed: unknown/malformed/
+# immediate-stop signal raises before any emission/adjudication (ingress + scored
+# window read). Dedicated cooldown store query (sqlite json_extract + postgres
+# payload_json::jsonb->>'signal_type', full parity) + load_execution_event_rows
+# optional DB-side limit (ORDER BY occurred_at DESC, event_id DESC) in both stores.
+# Measure ENFORCEMENT is out of scope (immediate-stop "direkt aus Hook" = AG3-086;
+# pause_story/stop_process = Phase-State/escalation per §35.3.8/§35.4.1; Codex
+# agreed) — documented as a boundary in observer/measures docstrings.
+# QA: Codex sole gate, 5 rounds (R5 escalated to Opus per >4-round rule). Findings
+# fixed: reader green-skeleton, cooldown ordering, payload-contract validation
+# (emit+score+candidate), _backend_module bypass + Postgres parity, cooldown exact-
+# signal query, reader story_dir fail-closed, Postgres jsonb-cast (verified on a real
+# postgres:17 container). Sonar Aufräumrunde (7 new-code findings) -> grün. Gates
+# green: ruff, mypy strict default+linux (712), GAC-1, ~1925 tests incl. integration
+# + a Postgres-backed cooldown regression test. Jenkins #379 + #381 SUCCESS, Sonar OK.
 depends_on:
   - AG3-037
   - AG3-078
   - AG3-065
-unblocks: []
+unblocks:
+  - AG3-103
