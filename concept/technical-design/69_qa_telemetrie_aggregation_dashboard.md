@@ -67,7 +67,8 @@ glossary:
     - id: qa-read-model
       definition: >
         Querybare Projektions-Schicht operativer QA-Ergebnisse im
-        State-Backend: qa_stage_results, qa_findings und story_metrics.
+        State-Backend: qa_stage_results, qa_findings, qa_check_outcomes
+        und story_metrics.
         Verdichtet execution_events zu Story- und Stage-Sichten fuer
         Laufzeit-Dashboards und Drill-Downs, ohne in die periodische
         KPI-Analytics-Schicht (FK-60 bis FK-63) einzugreifen. Jede
@@ -75,6 +76,8 @@ glossary:
         Story-Reset werden alle Zeilen des betroffenen run_id entfernt.
       see_also:
         - term: execution-event
+          domain: telemetry-and-events
+        - term: qa-check-outcome
           domain: telemetry-and-events
     - id: story-metric
       definition: >
@@ -87,6 +90,22 @@ glossary:
       see_also:
         - term: workflow-metric
           domain: telemetry-and-events
+        - term: qa-read-model
+          domain: telemetry-and-events
+    - id: qa-check-outcome
+      definition: >
+        Per-check outcome row in `qa_check_outcomes`. Records the result of
+        every individual check executed by verify-system: triggered (finding
+        produced), clean (PASS, no finding), or overridden (suppressed by
+        override). Owner: verify-system. DB-Owner: telemetry-and-events via
+        ProjectionAccessor. The composite key
+        (project_key, run_id, stage_id, attempt_no, check_id) is unique;
+        stage_id and attempt_no are mandatory identity fields to disambiguate
+        the same check_id running across stages or remediation attempts.
+        check_id is the executed-check identifier (e.g. artifact.protocol,
+        qa_review, branch.story, ac_fulfilled, impl_fidelity) -- NOT a
+        fc_check_proposals CHK-NNNN proposal identifier.
+      see_also:
         - term: qa-read-model
           domain: telemetry-and-events
   internal_terms:
@@ -154,6 +173,7 @@ FK-69 autorisiert folgende Tabellen (DB-Zugriffsschicht via
 
 - `qa_stage_results` — `agentkit.telemetry.read_models.qa_stage_results`
 - `qa_findings` — `agentkit.telemetry.read_models.qa_findings`
+- `qa_check_outcomes` — `agentkit.telemetry.read_models.qa_check_outcomes`
 
 **Story-Metriken (Schema-Owner: story-closure):**
 
@@ -178,6 +198,7 @@ liegt bei den jeweiligen Owner-BCs wie oben angegeben.
 |---------|----------------|-------------------|-----------------|
 | `qa_stage_results` | verify-system | `verify_system.StageRegistry` / Verify-Runner | Ergebnis je Stage und Attempt |
 | `qa_findings` | verify-system | `verify_system.StageRegistry` / jeweiliger Stage-Adapter | Atomare Findings je Check |
+| `qa_check_outcomes` | verify-system | `verify_system.CheckOutcomeEmitter` / Verify-Runner | Per-Check-Outcome for every executed check (triggered/clean/overridden) |
 | `story_metrics` | story-closure | `story_closure.PostMergeFinalization` | Story-nahe Abschlussmetriken |
 | `phase_state_projection` | pipeline-framework | `pipeline_engine.PhaseExecutor` | Laufzeitphasenstatus und Attempt-Zaehler |
 | `fc_incidents` | failure-corpus | `failure_corpus.FailureCorpus` | Laufende Incident-Erfassung |
@@ -417,6 +438,117 @@ Diese Dateien sind jedoch nie die alleinige operative Wahrheit.
    sind keine exklusive Wahrheit.
 5. Ein vollstaendiger Story-Reset darf keine FK-69-Zeile der
    korrupten Umsetzung zuruecklassen.
+6. Every `qa_check_outcomes` row MUST have a non-empty `check_id`. A row
+   with a blank or NULL `check_id` is a schema violation (fail-closed).
+7. An `overridden` outcome row MUST reference a valid `override_id`
+   (non-NULL). An `override_id` set on a `triggered` or `clean` row is a
+   schema violation.
+8. Every `qa_check_outcomes` row MUST belong to an existing
+   `qa_stage_results` row for the same `(project_key, run_id, attempt_no,
+   stage_id)` combination. Outcome rows without a parent stage result are
+   invalid.
+9. For `outcome=triggered`, at least one matching `qa_findings` row
+   for the same `(project_key, run_id, attempt_no, stage_id, check_id)`
+   MUST exist (the finding is the evidence that triggered the outcome).
+
+## 69.15 Tabelle `qa_check_outcomes`
+
+**Modul:** `agentkit.telemetry.read_models.qa_check_outcomes`
+**Schema-Owner:** verify-system
+
+### 69.15.1 Zweck
+
+`qa_check_outcomes` records the result of every individual check executed by
+verify-system, across all QA layers and all remediation attempts. Unlike
+`qa_findings` (which only captures non-PASS results), `qa_check_outcomes`
+records a row for EVERY executed check regardless of outcome — including
+clean (PASS) checks and overridden checks.
+
+This provides a complete, queryable audit trail of check execution suitable
+for effectiveness analysis (AG3-078) and override attribution without
+requiring reconstruction from aggregates.
+
+### 69.15.2 Pflichtattribute
+
+- `project_key` — mandatory on all FK-69 tables (§69.2 rule 2)
+- `story_id`
+- `run_id`
+- `stage_id` — the executing stage identifier (e.g. `artifact.protocol`,
+  `qa_review`, `semantic_review`, `doc_fidelity_impl`, `branch.story`);
+  mandatory identity field because the same `check_id` can run in multiple
+  stages across a run
+- `attempt_no` — 1-based QA-remediation attempt; mandatory identity field
+  because the same `check_id` can run multiple times across remediation
+  rounds
+- `check_id` — the executed-check identifier (e.g. `artifact.protocol`,
+  `qa_review`, `branch.story`, `ac_fulfilled`, `impl_fidelity`);
+  NOT `fc_check_proposals.check_id` (those are CHK-NNNN proposal IDs)
+- `outcome` — `CheckOutcome` enum: `triggered` (finding produced) |
+  `clean` (PASS, no finding) | `overridden` (suppressed by override)
+- `occurred_at` — UTC timestamp of check execution
+
+### 69.15.3 Optionale Attribute
+
+- `check_proposal_ref` — reference to `fc_check_proposals.check_id`
+  (CHK-NNNN format), set ONLY when the executed check originated from a
+  proposal; NULL for all deterministic and built-in LLM-role checks
+- `override_id` — correlation to the `OverrideRecord.override_id` that
+  caused the `overridden` outcome; NULL for `triggered`/`clean` rows.
+  `override_id` is globally unique (PRIMARY KEY on `override_records`),
+  so a single column reference is sufficient for deterministic attribution.
+
+### 69.15.4 Composite Key
+
+Primary key: `(project_key, run_id, stage_id, attempt_no, check_id)`
+
+The composite key is intentional: `stage_id` and `attempt_no` are mandatory
+identity fields because:
+
+1. The same `check_id` can appear in multiple stages (e.g. `impl_fidelity`
+   runs within `doc_fidelity_impl` stage; structural checks run within
+   `structural` stage).
+2. In QA-remediation runs, the same check reruns across attempts — each
+   attempt produces a distinct outcome row.
+
+### 69.15.5 Artifact Traceability
+
+`qa_check_outcomes` rows are emitted by `verify_system.CheckOutcomeEmitter`
+at check-execution time within the verify-runner flow. They are NOT
+materialized from a QA artifact after the fact (unlike `qa_stage_results`
+and `qa_findings`, which are materialized from a stage artifact). Therefore
+`qa_check_outcomes` rows carry no `artifact_id` column. Traceability to the
+stage artifact is established via the parent `qa_stage_results` row for
+`(project_key, run_id, attempt_no, stage_id)` (§69.11 consistency rule 8).
+
+### 69.15.6 Fachregeln
+
+1. **verify-system is the sole writer.** No other BC may write
+   `qa_check_outcomes`. Schema-Owner is verify-system; DB-Owner is
+   telemetry-and-events (via `ProjectionAccessor`).
+2. **Every executed check produces exactly one row per
+   `(project_key, run_id, stage_id, attempt_no, check_id)`.** A clean
+   check produces `outcome=clean`, not silence.
+3. **`check_id` is the executed-check identifier**, as defined in
+   `verify_system/stage_registry/data.py` (`stage_id` values e.g.
+   `artifact.protocol`, `branch.story`) and
+   `llm_evaluator/structured_evaluator.py` check-id whitelists (e.g.
+   `qa_review`, `ac_fulfilled`, `impl_fidelity`). It is NOT a
+   `fc_check_proposals` CHK-NNNN identifier.
+4. **`check_proposal_ref` is optional and only set** when an executed check
+   was generated from a `fc_check_proposals` proposal (CheckFactory,
+   AG3-078). All deterministic and built-in LLM-role checks carry
+   `check_proposal_ref=NULL`.
+5. **`override_id` is set for `overridden` outcomes** to enable
+   deterministic attribution: which override suppressed which check.
+   `override_id` is a globally unique identifier (PRIMARY KEY in
+   `override_records`).
+6. **A full Story-Reset removes all `qa_check_outcomes` rows** of the
+   affected `run_id` (FK-69 §69.10.1 reset rule).
+7. **`project_key` is mandatory.** A missing `project_key` is a hard error
+   (fail-closed, FK-69 §69.2 rule 2).
+8. **closure MUST NOT write `qa_check_outcomes`.** closure reads this
+   table for roll-ups; per-check outcome truth belongs exclusively to
+   verify-system (the executor).
 
 ## 69.12 Backfill und Migration
 
