@@ -33,7 +33,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from agentkit.failure_corpus.check_proposal import CheckProposalRecord
 from agentkit.failure_corpus.incident import Incident
+from agentkit.failure_corpus.pattern import FailurePatternRecord
 from agentkit.verify_system.stage_registry.records import (
     QACheckOutcomeRecord,
     QAFindingRecord,
@@ -54,6 +56,8 @@ if TYPE_CHECKING:
     # ``verify_system.stage_registry.records``.
     # AG3-108: ``QACheckOutcomeRecord`` added (FK-69 §69.15 per-check outcome
     # read model; schema owner verify-system).
+    # AG3-078: ``FailurePatternRecord`` and ``CheckProposalRecord`` added
+    # (FK-41 §41.3.2/§41.3.3; fc_patterns and fc_check_proposals tables).
     ProjectionRecord = (
         QAStageResultRecord
         | QAFindingRecord
@@ -61,9 +65,13 @@ if TYPE_CHECKING:
         | StoryMetricsRecord
         | PhaseState
         | Incident
+        | FailurePatternRecord
+        | CheckProposalRecord
     )
 
 __all__ = [
+    "CheckProposalRecord",
+    "FailurePatternRecord",
     "Incident",
     "PhaseState",
     "ProjectionRecord",
@@ -116,6 +124,7 @@ def __getattr__(name: str) -> Any:
         # AG3-081 (AC4): PhaseState is the typed phase_state_projection record
         # (schema owner AG3-059) -- the union is no longer dict[str, object].
         # AG3-108: QACheckOutcomeRecord added (FK-69 §69.15).
+        # AG3-078: FailurePatternRecord and CheckProposalRecord added (FK-41 §41.3.2/§41.3.3).
         return (
             QAStageResultRecord
             | QAFindingRecord
@@ -123,5 +132,7 @@ def __getattr__(name: str) -> Any:
             | StoryMetricsRecord
             | PhaseState
             | Incident
+            | FailurePatternRecord
+            | CheckProposalRecord
         )
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

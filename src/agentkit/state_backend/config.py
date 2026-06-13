@@ -158,7 +158,13 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # table from the canonical Postgres/SQLite DDL. Side-by-side migration
 # (FK-18 §18.9a): a fresh ak3_v3_27_0 schema / agentkit_3_27_0.sqlite is
 # created; the old 3.26.0 DB is never touched.
-SCHEMA_VERSION = "3.27.0"
+# 3.28.0 (AG3-078): ARCH-55 English wire values for PromotionRule
+# (repetition/high_severity/favorable_checkability), PatternRiskLevel
+# (medium/high/critical), FalsePositiveRisk (low/medium/high). Also adds
+# no_findings_90d INTEGER column to fc_check_proposals. Side-by-side migration
+# (FK-18 §18.9a): a fresh ak3_v3_28_0 schema / agentkit_3_28_0.sqlite is
+# created; the old 3.27.0 DB is never touched.
+SCHEMA_VERSION = "3.28.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 # AG3-051: reserved test-schema namespace. Disjoint from the production schema
 # name (``ak3_v<slug>``), so a test override can never resolve onto production

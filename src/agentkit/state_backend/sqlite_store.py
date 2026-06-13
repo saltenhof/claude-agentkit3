@@ -985,10 +985,10 @@ def _ensure_runtime_tables_part3(conn: sqlite3.Connection) -> None:
             invariant         TEXT NOT NULL,
             incident_refs     TEXT NOT NULL,
             promotion_rule    TEXT NOT NULL CHECK (promotion_rule IN (
-                'wiederholung', 'hohe_schwere', 'checkbarkeit'
+                'repetition', 'high_severity', 'favorable_checkability'
             )),
             risk_level        TEXT NOT NULL CHECK (risk_level IN (
-                'mittel', 'hoch', 'kritisch'
+                'medium', 'high', 'critical'
             )),
             incident_count    INTEGER NOT NULL,
             confirmed_at      TEXT,
@@ -1049,7 +1049,7 @@ def _ensure_runtime_tables_part3(conn: sqlite3.Connection) -> None:
         -- AG3-040 Sub-Block (b) (FK-41 §41.3.3, FK-69 §69.3): fc_check_proposals.
         -- Schema owner failure-corpus. Test-parallel path with IDENTICAL
         -- semantics to postgres_schema.sql. status = check-status (5 values),
-        -- check_type = 6 FK-41 values, false_positive_risk = niedrig|mittel|hoch.
+        -- check_type = 6 FK-41 values, false_positive_risk = low|medium|high.
         -- pattern_ref is an FK to fc_patterns(pattern_id). positive_/negative_
         -- fixtures = JSON arrays. ONLY table + repository skeleton; the writer
         -- (CheckFactory) is Out of Scope.
@@ -1069,7 +1069,7 @@ def _ensure_runtime_tables_part3(conn: sqlite3.Connection) -> None:
             pipeline_layer        INTEGER NOT NULL,
             owner                 TEXT NOT NULL,
             false_positive_risk   TEXT NOT NULL CHECK (false_positive_risk IN (
-                'niedrig', 'mittel', 'hoch'
+                'low', 'medium', 'high'
             )),
             positive_fixtures     TEXT NOT NULL,
             negative_fixtures     TEXT NOT NULL,
@@ -1080,6 +1080,7 @@ def _ensure_runtime_tables_part3(conn: sqlite3.Connection) -> None:
             effectiveness_last_checked_at TEXT,
             true_positives_90d    INTEGER,
             false_positives_90d   INTEGER,
+            no_findings_90d       INTEGER,
             -- check_id == CHK-NNNN (NNNN >= 4 digits, DIGITS ONLY).
             CONSTRAINT fc_check_proposals_id_format
                 CHECK (check_id GLOB 'CHK-[0-9][0-9][0-9][0-9]*'

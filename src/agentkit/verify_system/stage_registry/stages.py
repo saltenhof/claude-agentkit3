@@ -98,6 +98,12 @@ class StageDefinition:
         feature_gated_are: Whether the stage is only active when
             ``features.are == true`` (FK-27 §27.4.4 ARE-Gate). Default
             ``False``.
+        origin_check_ref: Originating ``fc_check_proposals.check_id``
+            (``CHK-NNNN``) for an FC-derived executed check; ``None`` for
+            native checks (FK-33 §33.2.1). verify-system echoes this value
+            verbatim into ``qa_check_outcomes.check_proposal_ref`` via the
+            :class:`~agentkit.verify_system.check_outcome_emitter.CheckOutcomeEmitter`;
+            no FC-semantic interpretation inside verify-system.
     """
 
     stage_id: str
@@ -111,6 +117,7 @@ class StageDefinition:
     execution_policy: ExecutionPolicy = ExecutionPolicy.ALWAYS
     escalated: bool = False
     feature_gated_are: bool = False
+    origin_check_ref: str | None = None
     _blocking_override: bool | None = None
 
     @property

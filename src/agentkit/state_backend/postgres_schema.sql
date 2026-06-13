@@ -502,10 +502,10 @@
             invariant TEXT NOT NULL,
             incident_refs JSON NOT NULL,
             promotion_rule TEXT NOT NULL CHECK (promotion_rule IN (
-                'wiederholung', 'hohe_schwere', 'checkbarkeit'
+                'repetition', 'high_severity', 'favorable_checkability'
             )),
             risk_level TEXT NOT NULL CHECK (risk_level IN (
-                'mittel', 'hoch', 'kritisch'
+                'medium', 'high', 'critical'
             )),
             incident_count INTEGER NOT NULL,
             confirmed_at TIMESTAMPTZ,
@@ -568,7 +568,7 @@
             pipeline_layer INTEGER NOT NULL,
             owner TEXT NOT NULL,
             false_positive_risk TEXT NOT NULL CHECK (false_positive_risk IN (
-                'niedrig', 'mittel', 'hoch'
+                'low', 'medium', 'high'
             )),
             positive_fixtures JSON NOT NULL,
             negative_fixtures JSON NOT NULL,
@@ -579,6 +579,7 @@
             effectiveness_last_checked_at TIMESTAMPTZ,
             true_positives_90d INTEGER,
             false_positives_90d INTEGER,
+            no_findings_90d INTEGER,
             PRIMARY KEY (check_id),
             -- check_id == CHK-NNNN (NNNN >= 4 Stellen, NUR Ziffern; FK-41
             -- §41.3.3, FAIL-CLOSED).

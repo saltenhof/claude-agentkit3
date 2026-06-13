@@ -51,6 +51,25 @@ class FcCheckProposalRepository(Protocol):
         """List all CheckProposals for a ``pattern_ref`` (FK-41 §41.3.3)."""
         ...
 
+    def list_for_project(self, project_key: str) -> list[CheckProposalRecord]:
+        """List all CheckProposals for a ``project_key`` (project-bound, single query).
+
+        Returns all proposals for the project ordered deterministically by
+        ``check_id``. Single round-trip — no fixed-range scanning.
+        """
+        ...
+
+    def max_check_seq(self) -> int:
+        """Return the maximum numeric ``CHK-NNNN`` suffix across ALL proposals.
+
+        ``check_id`` is a GLOBAL identity (PK ``(check_id)`` in both stores;
+        FK-41 §41.3.3 — the check lifecycle is story/project-independent), so a
+        new id must be allocated against the global keyspace, not a per-project
+        slice. Returns ``0`` when no proposal exists. Single round-trip — no
+        fixed-range scanning.
+        """
+        ...
+
 
 def _proposal_to_row(proposal: CheckProposalRecord) -> dict[str, Any]:
     """Serialize a ``CheckProposalRecord`` into an fc_check_proposals row."""
@@ -80,6 +99,7 @@ def _proposal_to_row(proposal: CheckProposalRecord) -> dict[str, Any]:
         ),
         "true_positives_90d": proposal.true_positives_90d,
         "false_positives_90d": proposal.false_positives_90d,
+        "no_findings_90d": proposal.no_findings_90d,
     }
 
 
@@ -139,6 +159,7 @@ def _row_to_proposal(row: dict[str, Any]) -> CheckProposalRecord:
         effectiveness_last_checked_at=_dt(row.get("effectiveness_last_checked_at")),
         true_positives_90d=_opt_int(row.get("true_positives_90d")),
         false_positives_90d=_opt_int(row.get("false_positives_90d")),
+        no_findings_90d=_opt_int(row.get("no_findings_90d")),
     )
 
 
@@ -228,13 +249,65 @@ class StateBackendFcCheckProposalRepository:
                 ).fetchall()
         return [_row_to_proposal(dict(r)) for r in rows]
 
+    def list_for_project(self, project_key: str) -> list[CheckProposalRecord]:
+        """List all CheckProposals for a ``project_key`` (project-bound, single query).
+
+        Returns all proposals for the project ordered deterministically by
+        ``check_id``. Single round-trip — no fixed-range scanning.
+        """
+        if _is_postgres():
+            with _postgres_connect() as conn:
+                rows = conn.execute(
+                    "SELECT * FROM fc_check_proposals WHERE project_key = %s "
+                    "ORDER BY check_id",
+                    (project_key,),
+                ).fetchall()
+        else:
+            with _sqlite_connect_qa(self._store_dir) as conn:
+                rows = conn.execute(
+                    "SELECT * FROM fc_check_proposals WHERE project_key = ? "
+                    "ORDER BY check_id",
+                    (project_key,),
+                ).fetchall()
+        return [_row_to_proposal(dict(r)) for r in rows]
+
+    def max_check_seq(self) -> int:
+        """Return the maximum numeric ``CHK-NNNN`` suffix across ALL proposals.
+
+        ``check_id`` is globally keyed (PK ``(check_id)``), so allocation of a
+        fresh id must span the whole table (FK-41 §41.3.3, story/project-
+        independent lifecycle). Computes ``MAX(suffix)`` in SQL (single query);
+        returns ``0`` when the table is empty.
+        """
+        if _is_postgres():
+            with _postgres_connect() as conn:
+                row = conn.execute(
+                    "SELECT MAX(CAST(SUBSTRING(check_id FROM 5) AS INTEGER)) "
+                    "AS max_seq "
+                    "FROM fc_check_proposals WHERE check_id LIKE 'CHK-%'"
+                ).fetchone()
+        else:
+            with _sqlite_connect_qa(self._store_dir) as conn:
+                row = conn.execute(
+                    "SELECT MAX(CAST(SUBSTR(check_id, 5) AS INTEGER)) "
+                    "AS max_seq "
+                    "FROM fc_check_proposals WHERE check_id LIKE 'CHK-%'"
+                ).fetchone()
+        # ``row`` is keyed by the ``max_seq`` alias in both stores (SQLite
+        # ``sqlite3.Row`` and Postgres ``dict_row``); positional ``[0]`` is not
+        # portable across ``dict_row`` (FK-41 §41.3.3 global allocator).
+        max_seq = row["max_seq"] if row is not None else None
+        if max_seq is None:
+            return 0
+        return int(max_seq)
+
 
 _COLUMNS = (
     "check_id, project_key, status, pattern_ref, invariant, check_type, "
     "pipeline_stage, pipeline_layer, owner, false_positive_risk, "
     "positive_fixtures, negative_fixtures, created_at, approved_at, approved_by, "
     "rejected_reason, effectiveness_last_checked_at, true_positives_90d, "
-    "false_positives_90d"
+    "false_positives_90d, no_findings_90d"
 )
 
 _UPDATE_SET = (
@@ -249,7 +322,8 @@ _UPDATE_SET = (
     "approved_by=excluded.approved_by, rejected_reason=excluded.rejected_reason, "
     "effectiveness_last_checked_at=excluded.effectiveness_last_checked_at, "
     "true_positives_90d=excluded.true_positives_90d, "
-    "false_positives_90d=excluded.false_positives_90d"
+    "false_positives_90d=excluded.false_positives_90d, "
+    "no_findings_90d=excluded.no_findings_90d"
 )
 
 _SQLITE_UPSERT = f"""
@@ -259,7 +333,7 @@ _SQLITE_UPSERT = f"""
         :pipeline_stage, :pipeline_layer, :owner, :false_positive_risk,
         :positive_fixtures, :negative_fixtures, :created_at, :approved_at,
         :approved_by, :rejected_reason, :effectiveness_last_checked_at,
-        :true_positives_90d, :false_positives_90d
+        :true_positives_90d, :false_positives_90d, :no_findings_90d
     )
     ON CONFLICT (check_id) DO UPDATE SET {_UPDATE_SET}
 """
@@ -272,7 +346,7 @@ _PG_UPSERT = f"""
         %(owner)s, %(false_positive_risk)s, %(positive_fixtures)s,
         %(negative_fixtures)s, %(created_at)s, %(approved_at)s, %(approved_by)s,
         %(rejected_reason)s, %(effectiveness_last_checked_at)s,
-        %(true_positives_90d)s, %(false_positives_90d)s
+        %(true_positives_90d)s, %(false_positives_90d)s, %(no_findings_90d)s
     )
     ON CONFLICT (check_id) DO UPDATE SET {_UPDATE_SET}
 """

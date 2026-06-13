@@ -330,6 +330,17 @@ def _make_fail_outcome(
     )
 
 
+class _EmptyStageRegistry:
+    """Minimal stage-registry double exposing no stages (AG3-078).
+
+    phase.py builds a per-check origin map from ``stage_registry.stages``
+    (FK-33 §33.2.1). This double carries no FC-derived stages, so the map is
+    empty and every emitted ``check_proposal_ref`` is None. No MagicMock.
+    """
+
+    stages: tuple[object, ...] = ()
+
+
 class _RecordingVerifySystem:
     """VerifySystem test double that records run_qa_subflow() calls.
 
@@ -362,6 +373,15 @@ class _RecordingVerifySystem:
     def artifact_manager(self) -> ArtifactManager:
         """Return the recording artifact manager (for FK-69 path compat)."""
         return self._recording_manager
+
+    @property
+    def stage_registry(self) -> _EmptyStageRegistry:
+        """Return an empty stage registry (AG3-078: no FC-derived origin stages).
+
+        phase.py reads ``stage_registry.stages`` to build the per-check
+        check_proposal_ref origin map; this double exposes no stages.
+        """
+        return _EmptyStageRegistry()
 
     def run_qa_subflow(
         self,

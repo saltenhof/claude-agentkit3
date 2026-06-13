@@ -11,11 +11,16 @@ path. After the reset:
 - the FK-69 read-models of the ``run_id`` are gone (qa_stage_results, qa_findings,
   story_metrics, fc_incidents) — verified with a negative read;
 - the ``guard_invocation_counters`` of the scope are gone;
-- ``fc_check_proposals`` are UNTOUCHED (FK-41 §41.3) — the accessor never purges
-  them and the seeded proposal survives.
+- ``fc_check_proposals`` are UNTOUCHED (FK-41 §41.3.3) — the check lifecycle is
+  story-independent; purge_run carries NO fc_check_proposals purge path.
+- ``fc_patterns`` are NOT deleted by purge_run (FK-69 §69.9): patterns are
+  recomputed (not deleted); recompute is AG3-082.
 
-``fc_patterns`` are corrected/recomputed (NOT deleted) — that recompute half is
-AG3-082; this test only proves the deletion half + the untouched proposal.
+AG3-078 NOTE: FC_PATTERNS and FC_CHECK_PROPOSALS were moved into
+_ACCESSOR_OWNED_KINDS in AG3-078 so the accessor can read/write them.
+purge_run does NOT extend to cover them (FK-41 §41.3.3/FK-69 §69.9): they
+are simply absent from PurgeResult.purged_rows.  The
+``ProjectionKindNotAccessorOwnedError`` path no longer applies to these kinds.
 """
 
 from __future__ import annotations
@@ -33,7 +38,6 @@ from agentkit.state_backend.store.guard_counter_repository import (
 from agentkit.state_backend.store.projection_repositories import (
     build_projection_repositories,
 )
-from agentkit.telemetry.errors import ProjectionKindNotAccessorOwnedError
 from agentkit.telemetry.projection_accessor import (
     ProjectionAccessor,
     ProjectionFilter,
@@ -134,15 +138,20 @@ def test_full_reset_leaves_no_fk69_or_counter_rows_proposals_untouched(
     assert purge_result.purged_guard_counters == 2
     assert counter_repo.read_counters_for_story(_PROJECT, _STORY) == []
 
-    # fc_check_proposals are UNTOUCHED (FK-41 §41.3): the reset purge never
-    # references them. purge_run carries NO FC_CHECK_PROPOSALS purge path (the
-    # kind is externally owned), so the reset cannot delete a proposal.
+    # fc_check_proposals are UNTOUCHED (FK-41 §41.3.3): the check lifecycle is
+    # story-independent; purge_run carries NO FC_CHECK_PROPOSALS purge path.
+    # AG3-078: FC_CHECK_PROPOSALS is now accessor-owned (readable/writable via
+    # the accessor), but purge_run does NOT extend to it (FK-69 §69.9).
     assert ProjectionKind.FC_CHECK_PROPOSALS not in purge_result.purged_rows
-    # fc_patterns are corrected/recomputed (NOT deleted) — also not in the purge.
+    # fc_patterns are NOT deleted by purge_run (FK-69 §69.9): patterns are
+    # recomputed (not deleted); the recompute is AG3-082.
     assert ProjectionKind.FC_PATTERNS not in purge_result.purged_rows
-    # The accessor refuses fc_check_proposals fail-closed (no second purge path).
-    with pytest.raises(ProjectionKindNotAccessorOwnedError):
-        accessor.read_projection(
-            ProjectionKind.FC_CHECK_PROPOSALS,
-            ProjectionFilter(project_key=_PROJECT, story_id=_STORY),
-        )
+    # FC_CHECK_PROPOSALS is now accessor-owned (AG3-078): read_projection must
+    # succeed (not raise ProjectionKindNotAccessorOwnedError). The accessor
+    # accepts the call; project_key is required (fail-closed).
+    proposals_after_reset = accessor.read_projection(
+        ProjectionKind.FC_CHECK_PROPOSALS,
+        ProjectionFilter(project_key=_PROJECT, story_id=_STORY),
+    )
+    # No proposals were seeded in this test, so the result is an empty list.
+    assert isinstance(proposals_after_reset, list)

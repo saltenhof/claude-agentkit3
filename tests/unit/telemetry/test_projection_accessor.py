@@ -291,8 +291,9 @@ def test_is_accessor_owned_contract() -> None:
 
     FK-69 §69.3+§69.15 listet alle 8 Tabellen; §69.4 vergibt Write-Ownership.
     Der Accessor besitzt QA + qa_check_outcomes + story_metrics + fc_incidents;
-    die uebrigen drei Kinds sind bewusst publiziert, aber extern besessen.
     AG3-108: qa_check_outcomes (FK-69 §69.15, Codex-approved) ist accessor-owned.
+    AG3-078: fc_patterns + fc_check_proposals sind jetzt accessor-owned (FK-41 §41.5/§41.6).
+    Nur PHASE_STATE_PROJECTION ist extern besessen (Write-Owner: PhaseExecutor).
     """
     owned = {
         ProjectionKind.QA_STAGE_RESULTS,
@@ -300,17 +301,17 @@ def test_is_accessor_owned_contract() -> None:
         ProjectionKind.QA_CHECK_OUTCOMES,
         ProjectionKind.STORY_METRICS,
         ProjectionKind.FC_INCIDENTS,
+        ProjectionKind.FC_PATTERNS,
+        ProjectionKind.FC_CHECK_PROPOSALS,
     }
     external = {
         ProjectionKind.PHASE_STATE_PROJECTION,
-        ProjectionKind.FC_PATTERNS,
-        ProjectionKind.FC_CHECK_PROPOSALS,
     }
     for kind in owned:
         assert ProjectionAccessor.is_accessor_owned(kind) is True
     for kind in external:
         assert ProjectionAccessor.is_accessor_owned(kind) is False
-    # Vollstaendigkeit: alle 8 FK-69-Tabellen sind klassifiziert (AG3-108).
+    # Vollstaendigkeit: alle 8 FK-69-Tabellen sind klassifiziert (AG3-108/AG3-078).
     assert owned | external == set(ProjectionKind)
 
 
@@ -400,16 +401,14 @@ def test_read_fc_incidents_passes_filter() -> None:
     assert result == expected
 
 
-def test_read_fc_patterns_raises_not_accessor_owned() -> None:
-    """FC_PATTERNS bleibt fail-closed bis zur Producer-Folge-Story."""
+def test_read_fc_patterns_requires_project_key() -> None:
+    """FC_PATTERNS read without project_key is fail-closed (ValueError, AG3-078)."""
     repos = _make_repos()
     accessor = ProjectionAccessor(repos)
     f = ProjectionFilter()
 
-    with pytest.raises(ProjectionKindNotAccessorOwnedError) as exc_info:
+    with pytest.raises(ValueError, match="project_key"):
         accessor.read_projection(ProjectionKind.FC_PATTERNS, f)
-
-    assert exc_info.value.kind is ProjectionKind.FC_PATTERNS
 
 
 def test_read_phase_state_projection_raises_not_accessor_owned() -> None:

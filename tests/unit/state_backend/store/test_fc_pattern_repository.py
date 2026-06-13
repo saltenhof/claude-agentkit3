@@ -65,7 +65,7 @@ def _seed_check(tmp_path: Path, *, check_id: str, pattern_ref: str) -> None:
             pipeline_stage="structural",
             pipeline_layer=1,
             owner="team-x",
-            false_positive_risk=FalsePositiveRisk.NIEDRIG,
+            false_positive_risk=FalsePositiveRisk.LOW,
             positive_fixtures=[],
             negative_fixtures=[],
             created_at=_NOW,
@@ -91,8 +91,8 @@ def _make_pattern(
         category=FailureCategory.SCOPE_DRIFT,
         invariant="Bugfix-Stories aendern nur das betroffene Modul",
         incident_refs=incident_refs if incident_refs is not None else ["FC-2026-0001"],
-        promotion_rule=PromotionRule.WIEDERHOLUNG,
-        risk_level=PatternRiskLevel.HOCH,
+        promotion_rule=PromotionRule.REPETITION,
+        risk_level=PatternRiskLevel.HIGH,
         incident_count=1,
         confirmed_at=_NOW if accepted else None,
         confirmed_by="human" if accepted else None,
@@ -157,8 +157,8 @@ class TestSqliteRoundtrip:
         assert loaded == pattern
         assert loaded.status is PatternStatus.CANDIDATE
         assert loaded.category is FailureCategory.SCOPE_DRIFT
-        assert loaded.promotion_rule is PromotionRule.WIEDERHOLUNG
-        assert loaded.risk_level is PatternRiskLevel.HOCH
+        assert loaded.promotion_rule is PromotionRule.REPETITION
+        assert loaded.risk_level is PatternRiskLevel.HIGH
         assert loaded.incident_refs == ["FC-2026-0001"]
 
     def test_confirmed_fields_survive(self, tmp_path: Path) -> None:
@@ -178,8 +178,8 @@ class TestSqliteRoundtrip:
             category=FailureCategory.TEST_OMISSION,
             invariant="E2E-Evidenz muss Exit-Code enthalten",
             incident_refs=["FC-2026-0001", "FC-2026-0002"],
-            promotion_rule=PromotionRule.CHECKBARKEIT,
-            risk_level=PatternRiskLevel.KRITISCH,
+            promotion_rule=PromotionRule.FAVORABLE_CHECKABILITY,
+            risk_level=PatternRiskLevel.CRITICAL,
             incident_count=2,
             confirmed_at=_NOW,
             confirmed_by="human",
@@ -240,8 +240,8 @@ class TestCheckConstraints:
         "scope_drift",
         "inv",
         '["FC-2026-0001"]',
-        "wiederholung",
-        "hoch",
+        "repetition",
+        "high",
         1,
     )
 
@@ -265,13 +265,13 @@ class TestCheckConstraints:
             conn.commit()
 
     def test_rejects_invalid_promotion_rule(self, tmp_path: Path) -> None:
-        bad = (*self._VALID[:6], "repetition", *self._VALID[7:])
+        bad = (*self._VALID[:6], "wiederholung", *self._VALID[7:])
         with _sqlite(tmp_path) as conn, pytest.raises(sqlite3.IntegrityError):
             conn.execute(self._INSERT, bad)
             conn.commit()
 
     def test_rejects_invalid_risk_level(self, tmp_path: Path) -> None:
-        bad = (*self._VALID[:7], "high", *self._VALID[8:])
+        bad = (*self._VALID[:7], "hoch", *self._VALID[8:])
         with _sqlite(tmp_path) as conn, pytest.raises(sqlite3.IntegrityError):
             conn.execute(self._INSERT, bad)
             conn.commit()

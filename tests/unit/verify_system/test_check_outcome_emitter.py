@@ -358,3 +358,84 @@ def test_check_outcome_emitter_no_accessor_no_writes() -> None:
     records = emitter.emit(flow, result, attempt_no=1, projection_accessor=None)  # type: ignore[arg-type]
 
     assert len(records) == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests: origin_check_ref -> check_proposal_ref echo (FK-33 §33.2.1 /
+#        FK-69 §69.15.6 rule 4, AG3-078)
+# ---------------------------------------------------------------------------
+
+
+def test_origin_check_ref_echoed_into_check_proposal_ref() -> None:
+    """A StageDefinition with origin_check_ref=CHK-NNNN produces rows with
+    check_proposal_ref=CHK-NNNN (FK-33 §33.2.1 / FK-69 §69.15.6 rule 4).
+
+    verify-system echoes origin_check_ref verbatim; no FC interpretation.
+    """
+    from agentkit.verify_system.check_outcome_emitter import build_check_outcomes
+
+    flow = _FakeFlow()
+    result = _layer_result(
+        [_finding("fc.mycheck")],
+        executed_check_ids=["fc.mycheck", "fc.other"],
+    )
+
+    records = build_check_outcomes(
+        flow,
+        result,
+        attempt_no=1,
+        occurred_at=_TS,
+        origin_check_ref="CHK-0042",
+    )
+
+    assert len(records) == 2
+    for rec in records:
+        assert rec.check_proposal_ref == "CHK-0042", (
+            f"Expected check_proposal_ref='CHK-0042'; got {rec.check_proposal_ref!r}"
+        )
+
+
+def test_native_stage_produces_null_check_proposal_ref() -> None:
+    """A native stage (origin_check_ref=None) produces check_proposal_ref=NULL.
+
+    FK-33 §33.2.1: origin_check_ref is None for native checks (not FC-derived).
+    """
+    from agentkit.verify_system.check_outcome_emitter import build_check_outcomes
+
+    flow = _FakeFlow()
+    result = _layer_result(
+        [],
+        executed_check_ids=["artifact.protocol", "branch.story"],
+    )
+
+    records = build_check_outcomes(
+        flow,
+        result,
+        attempt_no=1,
+        occurred_at=_TS,
+        origin_check_ref=None,
+    )
+
+    assert len(records) == 2
+    for rec in records:
+        assert rec.check_proposal_ref is None, (
+            f"Expected check_proposal_ref=None for native stage; got {rec.check_proposal_ref!r}"
+        )
+
+
+def test_emitter_origin_check_ref_propagated_via_emit() -> None:
+    """CheckOutcomeEmitter.emit propagates origin_check_ref to check_proposal_ref."""
+    flow = _FakeFlow()
+    result = _layer_result([], executed_check_ids=["fc.structural"])
+    emitter = CheckOutcomeEmitter()
+
+    records = emitter.emit(
+        flow,  # type: ignore[arg-type]
+        result,
+        attempt_no=1,
+        occurred_at=_TS,
+        origin_check_ref="CHK-0007",
+    )
+
+    assert len(records) == 1
+    assert records[0].check_proposal_ref == "CHK-0007"

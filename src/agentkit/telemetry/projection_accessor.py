@@ -98,23 +98,20 @@ _ACCESSOR_OWNED_KINDS: frozenset[ProjectionKind] = frozenset(
         # (FK-69 §69.9/§69.14 route fc_* explicitly via write_projection). The
         # fc_incidents repo adapter lives accessor-side in state_backend/store.
         ProjectionKind.FC_INCIDENTS,
+        # AG3-078 (FK-41 §41.5/§41.6): FC_PATTERNS and FC_CHECK_PROPOSALS ownership
+        # wired. PatternPromotion/CheckFactory are the producer stories.
+        # Read/write enabled; purge_run NOT extended (FK-41 §41.3.3/FK-69 §69.9).
+        ProjectionKind.FC_PATTERNS,
+        ProjectionKind.FC_CHECK_PROPOSALS,
     }
 )
 
 # Externally owned kinds: published in ProjectionKind (FK-69 §69.3), but the
 # data path belongs by design to another writer / another story.
-# FC_PATTERNS/FC_CHECK_PROPOSALS stay fail-closed until their follow-up stories
-# (PatternPromotion/CheckFactory) — FAIL-CLOSED for not-yet-built tables.
-_FC_FOLLOWUP_OWNER = (
-    "failure-corpus follow-up story (PatternPromotion/CheckFactory; table not yet built)"
-)
-
 _EXTERNALLY_OWNED_KINDS: dict[ProjectionKind, str] = {
     ProjectionKind.PHASE_STATE_PROJECTION: (
         "pipeline_engine.PhaseExecutor (FK-69 §69.4 Write-Ownership)"
     ),
-    ProjectionKind.FC_PATTERNS: _FC_FOLLOWUP_OWNER,
-    ProjectionKind.FC_CHECK_PROPOSALS: _FC_FOLLOWUP_OWNER,
 }
 
 
@@ -146,6 +143,9 @@ class ProjectionFilter:
             Callers that need reproducible tests MUST inject ``_now`` via
             the ``QACheckOutcomesRepository.read`` time parameter instead
             of relying on ``since_days`` alone.
+        check_proposal_ref: Exact-match filter on the FC-check proposal reference
+            (``CHK-NNNN``); only relevant for ``qa_check_outcomes``; added in
+            AG3-078.
     """
 
     project_key: str | None = None
@@ -155,6 +155,7 @@ class ProjectionFilter:
     stage_id: str | None = None
     check_id: str | None = None
     since_days: int | None = None
+    check_proposal_ref: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -206,9 +207,15 @@ def _build_kind_to_record_type() -> dict[ProjectionKind, type]:
     failure_corpus.types, NOT telemetry) — analogous to
     ``verify_system.stage_registry.records``. This produces no cycle
     ``failure_corpus`` <-> ``telemetry``.
+
+    AG3-078: FC_PATTERNS -> FailurePatternRecord, FC_CHECK_PROPOSALS -> CheckProposalRecord.
+    Both live in failure_corpus.pattern / failure_corpus.check_proposal (leaf modules,
+    import only core_types — no import cycle with telemetry).
     """
     from agentkit.closure import StoryMetricsRecord as _StoryMetricsRecord
+    from agentkit.failure_corpus.check_proposal import CheckProposalRecord as _CheckProposalRecord
     from agentkit.failure_corpus.incident import Incident as _Incident
+    from agentkit.failure_corpus.pattern import FailurePatternRecord as _FailurePatternRecord
 
     return {
         ProjectionKind.QA_STAGE_RESULTS: QAStageResultRecord,
@@ -216,9 +223,11 @@ def _build_kind_to_record_type() -> dict[ProjectionKind, type]:
         ProjectionKind.QA_CHECK_OUTCOMES: QACheckOutcomeRecord,
         ProjectionKind.STORY_METRICS: _StoryMetricsRecord,
         ProjectionKind.FC_INCIDENTS: _Incident,
-        # PHASE_STATE_PROJECTION has no BC-owned record type in AG3-035;
+        # AG3-078: FC_PATTERNS and FC_CHECK_PROPOSALS now owned by the accessor.
+        ProjectionKind.FC_PATTERNS: _FailurePatternRecord,
+        ProjectionKind.FC_CHECK_PROPOSALS: _CheckProposalRecord,
+        # PHASE_STATE_PROJECTION has no BC-owned record type;
         # write owner is pipeline_engine.PhaseExecutor (not via the accessor).
-        # FC_PATTERNS/FC_CHECK_PROPOSALS follow with their producer stories.
     }
 
 
@@ -256,10 +265,10 @@ class ProjectionAccessor:
     def is_accessor_owned(projection_kind: ProjectionKind) -> bool:
         """True if the accessor owns the write/read path for ``projection_kind``.
 
-        Explicit FK-69 §69.4 contract: QA, story_metrics and (since AG3-028)
-        FC_INCIDENTS kinds are accessor-owned. Externally owned kinds
-        (PHASE_STATE_PROJECTION, FC_PATTERNS, FC_CHECK_PROPOSALS) are rejected by
-        ``write_projection``/``read_projection`` fail-closed with
+        Explicit FK-69 §69.4 contract: QA, story_metrics, FC_INCIDENTS (AG3-028),
+        FC_PATTERNS and FC_CHECK_PROPOSALS (AG3-078) are accessor-owned. Only
+        PHASE_STATE_PROJECTION is externally owned (PIPELINE_ENGINE.PhaseExecutor)
+        and is rejected by ``write_projection``/``read_projection`` fail-closed with
         ``ProjectionKindNotAccessorOwnedError``.
 
         Args:
@@ -287,7 +296,7 @@ class ProjectionAccessor:
 
         Raises:
             ProjectionKindNotAccessorOwnedError: For externally owned
-                ProjectionKinds (PHASE_STATE_PROJECTION, FC_PATTERNS, FC_CHECK_PROPOSALS). Subclass of
+                ProjectionKinds (PHASE_STATE_PROJECTION). Subclass of
                 ``NotImplementedError``; names the owner (FK-69 §69.4).
             ProjectionRecordTypeMismatchError: When ``type(record)`` does not
                 match the expected type for ``projection_kind``.
@@ -331,6 +340,14 @@ class ProjectionAccessor:
             # The isinstance check ran above via _get_kind_to_record_type();
             # the Any-cast sidesteps mypy narrowing without requiring a runtime import.
             self._repos.story_metrics.write(record)  # type: ignore[arg-type]
+        elif projection_kind is ProjectionKind.FC_PATTERNS:
+            # AG3-078: FC_PATTERNS now accessor-owned (FK-41 §41.5/§41.6).
+            # FailurePatternRecord is lazy-loaded (anti-circular-import).
+            self._repos.fc_patterns.save(record)  # type: ignore[arg-type]
+        elif projection_kind is ProjectionKind.FC_CHECK_PROPOSALS:
+            # AG3-078: FC_CHECK_PROPOSALS now accessor-owned (FK-41 §41.5/§41.6).
+            # CheckProposalRecord is lazy-loaded (anti-circular-import).
+            self._repos.fc_check_proposals.save(record)  # type: ignore[arg-type]
         else:
             # FC_INCIDENTS is redirected fail-closed to record_fc_incident
             # above; all remaining kinds are covered by the
@@ -444,7 +461,7 @@ class ProjectionAccessor:
 
         Raises:
             ProjectionKindNotAccessorOwnedError: For externally owned
-                ProjectionKinds (PHASE_STATE_PROJECTION, FC_PATTERNS, FC_CHECK_PROPOSALS). Subclass of
+                ProjectionKinds (PHASE_STATE_PROJECTION). Subclass of
                 ``NotImplementedError``; names the owner (FK-69 §69.4).
         """
         if projection_kind is ProjectionKind.QA_STAGE_RESULTS:
@@ -485,6 +502,7 @@ class ProjectionAccessor:
                     stage_id=filter.stage_id,
                     check_id=filter.check_id,
                     since_days=filter.since_days,
+                    check_proposal_ref=filter.check_proposal_ref,
                     _now=_now,
                 )
             )
@@ -514,10 +532,35 @@ class ProjectionAccessor:
                     run_id=filter.run_id,
                 )
             )
-        # Externally owned kinds (PHASE_STATE_PROJECTION, FC_PATTERNS,
-        # FC_CHECK_PROPOSALS): fail-closed with owner naming. phase_state reads
-        # run directly via facade.load_phase_state; fc_patterns/fc_check_proposals
-        # come with their producer follow-up stories.
+        elif projection_kind is ProjectionKind.FC_PATTERNS:
+            # AG3-078: FC_PATTERNS now accessor-owned (FK-41 §41.5, read/write wired).
+            # project_key is mandatory (FAIL-CLOSED, analogous to FC_INCIDENTS).
+            if not filter.project_key:
+                raise ValueError(
+                    "read_projection(FC_PATTERNS) requires "
+                    "ProjectionFilter.project_key (FK-41 §41.3.2: queries are "
+                    "always project-bound)"
+                )
+            return list(self._repos.fc_patterns.list_for_project(filter.project_key))
+        elif projection_kind is ProjectionKind.FC_CHECK_PROPOSALS:
+            # AG3-078: FC_CHECK_PROPOSALS now accessor-owned (FK-41 §41.6, read/write wired).
+            # project_key is mandatory (FAIL-CLOSED, analogous to FC_INCIDENTS).
+            if not filter.project_key:
+                raise ValueError(
+                    "read_projection(FC_CHECK_PROPOSALS) requires "
+                    "ProjectionFilter.project_key (FK-41 §41.3.3: queries are "
+                    "always project-bound)"
+                )
+            # List proposals for the project.
+            # If pattern_ref filter provided (via story_id field), scope to that pattern.
+            if filter.story_id is not None:
+                return list(self._repos.fc_check_proposals.list_for_pattern(filter.story_id))
+            # Single-query project scan — symmetric with fc_patterns (list_for_project).
+            return list(
+                self._repos.fc_check_proposals.list_for_project(filter.project_key)
+            )
+        # Externally owned kinds (PHASE_STATE_PROJECTION): fail-closed with owner naming.
+        # phase_state reads run directly via facade.load_phase_state.
         raise ProjectionKindNotAccessorOwnedError(
             kind=projection_kind,
             owner=_EXTERNALLY_OWNED_KINDS.get(

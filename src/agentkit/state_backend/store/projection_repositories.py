@@ -33,8 +33,14 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
+    from agentkit.state_backend.store.fc_check_proposal_repository import (
+        FcCheckProposalRepository,
+    )
     from agentkit.state_backend.store.fc_incident_repository import (
         FCIncidentsRepository,
+    )
+    from agentkit.state_backend.store.fc_pattern_repository import (
+        FcPatternRepository,
     )
     from agentkit.state_backend.store.task_repository import TaskRepository
     from agentkit.telemetry.risk_window.normalized_event import NormalizedEvent
@@ -160,6 +166,7 @@ class QACheckOutcomesRepository(Protocol):
         stage_id: str | None = None,
         check_id: str | None = None,
         since_days: int | None = None,
+        check_proposal_ref: str | None = None,
         _now: datetime | None = None,
     ) -> list[QACheckOutcomeRecord]:
         """Load QACheckOutcomeRecords with optional filters.
@@ -173,6 +180,8 @@ class QACheckOutcomesRepository(Protocol):
             check_id: Optional check-ID exact-match filter.
             since_days: Optional UTC window: ``occurred_at >= now - since_days``.
                 0 = today only; negative = treated as 0.
+            check_proposal_ref: Optional exact-match filter on the FC-check proposal
+                reference (``CHK-NNNN``); added in AG3-078.
             _now: Injectable UTC "now" for deterministic tests. Defaults to
                 ``datetime.now(UTC)`` when ``since_days`` is set.
         """
@@ -351,6 +360,8 @@ class ProjectionRepositories:
         guard_counter_purge: Reset-purge seam for ``guard_invocation_counters``
             (AG3-081, FK-61 §61.4.3 Trigger 4). Drains the story's guard counters
             as part of the ONE reset path (``ProjectionAccessor.purge_run``).
+        fc_patterns: Adapter for ``fc_patterns`` (AG3-078, FK-41 §41.3.2).
+        fc_check_proposals: Adapter for ``fc_check_proposals`` (AG3-078, FK-41 §41.3.3).
     """
 
     qa_stage_results: QAStageResultsRepository
@@ -363,6 +374,8 @@ class ProjectionRepositories:
     risk_window: RiskWindowRepository
     tasks: TaskRepository
     guard_counter_purge: GuardCounterPurgePort
+    fc_patterns: FcPatternRepository
+    fc_check_proposals: FcCheckProposalRepository
 
 
 # ---------------------------------------------------------------------------
@@ -1338,6 +1351,7 @@ class FacadeQACheckOutcomesRepository:
         stage_id: str | None = None,
         check_id: str | None = None,
         since_days: int | None = None,
+        check_proposal_ref: str | None = None,
         _now: Any = None,
     ) -> list[QACheckOutcomeRecord]:
         """Read qa_check_outcomes with optional filters."""
@@ -1350,6 +1364,7 @@ class FacadeQACheckOutcomesRepository:
                 stage_id=stage_id,
                 check_id=check_id,
                 since_days=since_days,
+                check_proposal_ref=check_proposal_ref,
                 _now=_now,
             )
         return self._sqlite_read(
@@ -1360,6 +1375,7 @@ class FacadeQACheckOutcomesRepository:
             stage_id=stage_id,
             check_id=check_id,
             since_days=since_days,
+            check_proposal_ref=check_proposal_ref,
             _now=_now,
         )
 
@@ -1387,6 +1403,7 @@ class FacadeQACheckOutcomesRepository:
         stage_id: str | None,
         check_id: str | None,
         since_days: int | None,
+        check_proposal_ref: str | None,
         _now: Any,
     ) -> list[QACheckOutcomeRecord]:
         from datetime import UTC, datetime
@@ -1419,6 +1436,9 @@ class FacadeQACheckOutcomesRepository:
         if cutoff is not None:
             clauses.append("occurred_at >= ?")
             params.append(cutoff)
+        if check_proposal_ref is not None:
+            clauses.append("check_proposal_ref = ?")
+            params.append(check_proposal_ref)
 
         where = f"WHERE {' AND '.join(clauses)}"
         with _sqlite_connect_qa(self._story_dir) as conn:
@@ -1458,6 +1478,7 @@ class FacadeQACheckOutcomesRepository:
         stage_id: str | None,
         check_id: str | None,
         since_days: int | None,
+        check_proposal_ref: str | None,
         _now: Any,
     ) -> list[QACheckOutcomeRecord]:
         from agentkit.verify_system.stage_registry.records import (
@@ -1488,6 +1509,9 @@ class FacadeQACheckOutcomesRepository:
         if cutoff is not None:
             clauses.append("occurred_at >= %(since_cutoff)s")
             pg_params["since_cutoff"] = cutoff
+        if check_proposal_ref is not None:
+            clauses.append("check_proposal_ref = %(check_proposal_ref)s")
+            pg_params["check_proposal_ref"] = check_proposal_ref
 
         where = f"WHERE {' AND '.join(clauses)}"
         with _postgres_connect() as conn:
@@ -1585,8 +1609,14 @@ def build_projection_repositories(store_dir: Path | None = None) -> ProjectionRe
     Returns:
         ``ProjectionRepositories`` with all concrete adapter instances.
     """
+    from agentkit.state_backend.store.fc_check_proposal_repository import (
+        StateBackendFcCheckProposalRepository,
+    )
     from agentkit.state_backend.store.fc_incident_repository import (
         StateBackendFCIncidentsRepository,
+    )
+    from agentkit.state_backend.store.fc_pattern_repository import (
+        StateBackendFcPatternRepository,
     )
     from agentkit.state_backend.store.task_repository import StateBackendTaskRepository
 
@@ -1601,6 +1631,8 @@ def build_projection_repositories(store_dir: Path | None = None) -> ProjectionRe
         risk_window=FacadeRiskWindowRepository(store_dir),
         tasks=StateBackendTaskRepository(store_dir),
         guard_counter_purge=StateBackendGuardCounterPurgeAdapter(store_dir),
+        fc_patterns=StateBackendFcPatternRepository(store_dir),
+        fc_check_proposals=StateBackendFcCheckProposalRepository(store_dir),
     )
 
 

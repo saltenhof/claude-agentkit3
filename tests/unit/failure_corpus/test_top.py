@@ -136,25 +136,140 @@ class TestRecordIncident:
         assert IncidentRejectReason.NOT_SIGNIFICANT in exc.value.reason_codes
 
 
-class TestNotImplementedSurface:
-    """AK#2: vier Folge-Story-Methoden werfen NotImplementedError mit Begruendung."""
+class TestUnwiredSubsFailClosed:
+    """AG3-078: when project_key is omitted from build_failure_corpus, subs are None.
 
-    def test_suggest_patterns(self, corpus: FailureCorpus) -> None:
-        with pytest.raises(NotImplementedError, match="PatternPromotion"):
+    The top surface fails-closed with RuntimeError (FAIL-CLOSED guard), not
+    NotImplementedError, since these methods are implemented in AG3-078 but
+    require project_key to be wired.
+    """
+
+    def test_suggest_patterns_without_project_key(self, corpus: FailureCorpus) -> None:
+        with pytest.raises(RuntimeError, match="PatternPromotion"):
             corpus.suggest_patterns()
 
-    def test_confirm_pattern(self, corpus: FailureCorpus) -> None:
-        with pytest.raises(NotImplementedError, match="PatternPromotion"):
+    def test_confirm_pattern_without_project_key(self, corpus: FailureCorpus) -> None:
+        with pytest.raises(RuntimeError, match="PatternPromotion"):
             corpus.confirm_pattern(PatternId("P-1"), PatternDecision.ACCEPTED)
 
-    def test_derive_check(self, corpus: FailureCorpus) -> None:
-        with pytest.raises(NotImplementedError, match="CheckFactory"):
+    def test_derive_check_without_project_key(self, corpus: FailureCorpus) -> None:
+        with pytest.raises(RuntimeError, match="CheckFactory"):
             corpus.derive_check(PatternId("P-1"))
 
-    def test_approve_check(self, corpus: FailureCorpus) -> None:
-        with pytest.raises(NotImplementedError, match="CheckFactory"):
+    def test_approve_check_without_project_key(self, corpus: FailureCorpus) -> None:
+        with pytest.raises(RuntimeError, match="CheckFactory"):
             corpus.approve_check(CheckId("C-1"), CheckApprovalDecision.APPROVED)
 
-    def test_report_effectiveness(self, corpus: FailureCorpus) -> None:
-        with pytest.raises(NotImplementedError, match="Effectiveness"):
+    def test_report_effectiveness_without_project_key(self, corpus: FailureCorpus) -> None:
+        with pytest.raises(RuntimeError, match="CheckEffectivenessTracker"):
             corpus.report_effectiveness()
+
+
+class TestBuildFailureCorpusWiring:
+    """AG3-078 ERROR A/2/3: production wiring tests for the LLM sharpener + story creation.
+
+    Verifies that:
+    - build_failure_corpus with project_key but no llm_client BUILDS (ERROR A regression
+      fix): the LLM sharpener is built lazily, so the non-derive_check subs/commands work.
+      The factory is wired WITHOUT a sharpener and derive_check stays fail-closed.
+    - build_failure_corpus with project_key and a real LlmClient wires sharpener + story_creation.
+    """
+
+    def test_builds_without_llm_client_and_derive_check_stays_fail_closed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ERROR A: llm_client=None must NOT crash the build (regression fix).
+
+        The previous fail-closed-at-construction wiring broke every non-derive_check
+        CLI command (the composition root unconditionally built LlmInvariantSharpener(None),
+        which raised). The corrected build constructs the sharpener LAZILY: with no
+        llm_client the CheckFactory has no sharpener wired, the other five top methods
+        build, and derive_check itself remains FAIL-CLOSED (raises if it tries to sharpen
+        without a sharpener).
+        """
+        monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
+        monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+        from agentkit.core_types import FailureCategory, PatternStatus
+        from agentkit.failure_corpus.pattern import (
+            FailurePatternRecord,
+            PatternRiskLevel,
+            PromotionRule,
+        )
+        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.state_backend.store.fc_pattern_repository import (
+            StateBackendFcPatternRepository,
+        )
+
+        reset_backend_cache_for_tests()
+        try:
+            acc = ProjectionAccessor(build_projection_repositories(tmp_path))
+            # Build must SUCCEED without an llm_client.
+            corpus = build_failure_corpus(
+                acc, project_key="proj-wire-fail", store_dir=tmp_path, llm_client=None
+            )
+            factory = corpus._check_factory  # noqa: SLF001
+            assert factory is not None
+            assert factory._sharpener is None  # noqa: SLF001
+            # The non-derive_check path works: suggest_patterns runs (empty corpus).
+            assert corpus.suggest_patterns() == []
+            # derive_check stays FAIL-CLOSED: seed an ACCEPTED pattern, then derive.
+            StateBackendFcPatternRepository(tmp_path).save(
+                FailurePatternRecord(
+                    pattern_id="FP-0001",
+                    project_key="proj-wire-fail",
+                    status=PatternStatus.ACCEPTED,
+                    category=FailureCategory.SCOPE_DRIFT,
+                    promotion_rule=PromotionRule.HIGH_SEVERITY,
+                    invariant="scope must not be exceeded",
+                    risk_level=PatternRiskLevel.HIGH,
+                    confirmed_by="human",
+                    incident_refs=[],
+                    incident_count=0,
+                )
+            )
+            with pytest.raises(RuntimeError, match="InvariantSharpenerPort is None"):
+                corpus.derive_check(PatternId("FP-0001"))
+        finally:
+            reset_backend_cache_for_tests()
+
+    def test_wires_sharpener_and_story_creation_with_real_llm_client(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ERROR 2/3 production path: wired corpus has CheckFactory with both ports set.
+
+        Uses a minimal LlmClient stub (only seam allowed at LLM boundary per CLAUDE.md).
+        Verifies the composition root wires invariant_sharpener + story_creation
+        into the CheckFactory — the PRODUCTION path that was missing before AG3-078.
+        """
+
+        class _StubLlmClient:
+            """Minimal LlmClient test double (LLM boundary seam only)."""
+
+            def complete(self, *, role: str, prompt: str) -> str:
+                return f"Stub invariant for role={role}"
+
+        monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
+        monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+
+        reset_backend_cache_for_tests()
+        try:
+            acc = ProjectionAccessor(build_projection_repositories(tmp_path))
+            corpus = build_failure_corpus(
+                acc,
+                project_key="proj-wire-ok",
+                store_dir=tmp_path,
+                llm_client=_StubLlmClient(),  # type: ignore[arg-type]
+            )
+            # Composition root succeeded — both ports must be wired in CheckFactory.
+            # Access via the internal _check_factory attribute (production path verification).
+            factory = corpus._check_factory  # noqa: SLF001
+            assert factory is not None, "CheckFactory must be wired when project_key is given"
+            assert factory._sharpener is not None, (  # noqa: SLF001
+                "invariant_sharpener must be wired (AG3-078 ERROR 2)"
+            )
+            assert factory._story_creation is not None, (  # noqa: SLF001
+                "story_creation must be wired (AG3-078 ERROR 3)"
+            )
+        finally:
+            reset_backend_cache_for_tests()

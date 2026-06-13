@@ -51,16 +51,11 @@ _CHECK_ID_PATTERN = re.compile(r"^CHK-\d{4,}$", re.ASCII)
 
 
 class FalsePositiveRisk(StrEnum):
-    """False-positive risk of a check proposal (FK-41 §41.3.3).
+    """False-positive risk of a check proposal (FK-41 §41.3.3, ARCH-55 English wire values)."""
 
-    Wire values (``niedrig``/``mittel``/``hoch``) are frozen FK-41 contract
-    strings persisted in the ``false_positive_risk`` column; they are not
-    English-renamed here (ARCH-55 out of scope — concept-level change).
-    """
-
-    NIEDRIG = "niedrig"
-    MITTEL = "mittel"
-    HOCH = "hoch"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
 
 
 def _validate_check_id(value: str) -> str:
@@ -110,7 +105,7 @@ class CheckProposalRecord(BaseModel):
         pipeline_stage: Target stage in the verify pipeline.
         pipeline_layer: Target layer (1 = structural, 2 = LLM eval, ...).
         owner: Team identifier.
-        false_positive_risk: niedrig | mittel | hoch.
+        false_positive_risk: low | medium | high.
         positive_fixtures: JSON array with ``{description, expected}``.
         negative_fixtures: JSON array with ``{description, expected}``.
         created_at: Creation timestamp.
@@ -120,6 +115,7 @@ class CheckProposalRecord(BaseModel):
         effectiveness_last_checked_at: Optional effectiveness-check timestamp.
         true_positives_90d: Optional 90-day true-positive counter.
         false_positives_90d: Optional 90-day false-positive counter.
+        no_findings_90d: Optional 90-day no-findings counter (AG3-078).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -143,6 +139,7 @@ class CheckProposalRecord(BaseModel):
     effectiveness_last_checked_at: datetime | None = None
     true_positives_90d: int | None = None
     false_positives_90d: int | None = None
+    no_findings_90d: int | None = None
 
     @field_validator("check_id")
     @classmethod

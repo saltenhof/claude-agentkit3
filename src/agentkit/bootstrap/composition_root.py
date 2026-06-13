@@ -3093,8 +3093,13 @@ class _RequirementsCoverageAreProvider:
         return self.coverage.check_gate(story_id, project_key)
 
 
-def build_failure_corpus(accessor: ProjectionAccessor) -> FailureCorpus:
-    """Create a wired ``FailureCorpus`` top component (AG3-028).
+def build_failure_corpus(
+    accessor: ProjectionAccessor,
+    project_key: str | None = None,
+    store_dir: Path | None = None,
+    llm_client: LlmClient | None = None,
+) -> FailureCorpus:
+    """Create a wired ``FailureCorpus`` top component (AG3-028, AG3-078).
 
     Composition root for the failure-corpus BC (FK-41 §41.1/§41.4). Wires the
     ``IncidentTriage`` with a default normalizer and IngressCriteria and passes
@@ -3104,13 +3109,39 @@ def build_failure_corpus(accessor: ProjectionAccessor) -> FailureCorpus:
     ``failure_corpus`` does NOT know the fc_incidents DB repo adapter
     (CONFLICT-2, AC#6): persistence/reading runs via the ``ProjectionAccessor``.
 
+    AG3-078: When ``project_key`` is provided, also wires the three AG3-078 subs:
+    ``PatternPromotion``, ``CheckFactory``, and ``CheckEffectivenessTracker``.
+    Without ``project_key`` only ``record_incident`` is functional (existing callers
+    that omit project_key retain the AG3-028 behavior).
+
+    The ``CheckFactory`` is wired with an ``AK3StoryCreationAdapter`` and, only
+    when ``llm_client`` is supplied, an ``LlmInvariantSharpener``.  The sharpener
+    is the step-1 (invariant sharpening) LLM boundary and is the ONLY part of the
+    build that needs an LLM transport; it is therefore built lazily.  When
+    ``llm_client`` is ``None`` the factory is constructed WITHOUT a sharpener so
+    that every non-``derive_check`` command (record_incident, suggest_patterns,
+    confirm_pattern, approve_check, report_effectiveness, list_checks) can build
+    and run.  ``derive_check`` itself stays FAIL-CLOSED: ``CheckFactory.derive_check``
+    raises ``RuntimeError`` if it ever tries to sharpen without a wired sharpener
+    (no silent skip).
+
     Args:
         accessor: The ``ProjectionAccessor`` as the write/read boundary (fulfils
             ``IncidentWriterPort`` and ``ProjectionReaderPort`` by structural typing).
+        project_key: Project key for the AG3-078 subs (PatternPromotion,
+            CheckFactory, CheckEffectivenessTracker). When ``None`` (default),
+            the subs are not wired (backward-compatible with AG3-028 callers).
+        store_dir: State-backend base directory. Only relevant for SQLite; passed
+            to ``build_projection_repositories`` to obtain the fc_* adapters.
+            Defaults to ``Path.cwd()`` when ``project_key`` is given.
+        llm_client: LLM transport for invariant sharpening (FK-41 §41.6.2).
+            Required when ``project_key`` is provided (FAIL-CLOSED:
+            ``LlmInvariantSharpener`` raises if ``None``).  Ignored when
+            ``project_key`` is ``None``.
 
     Returns:
-        ``FailureCorpus`` with a functional ``record_incident``; the remaining
-        top methods are contract slots (NotImplementedError, follow-up stories).
+        ``FailureCorpus`` with a functional ``record_incident``; the AG3-078 top
+        methods are also functional when ``project_key`` is provided.
     """
     from agentkit.failure_corpus import (
         FailureCorpus as _FailureCorpus,
@@ -3127,7 +3158,68 @@ def build_failure_corpus(accessor: ProjectionAccessor) -> FailureCorpus:
         writer=accessor,
         reader=accessor,
     )
-    return _FailureCorpus(incident_triage=triage)
+
+    if project_key is None:
+        return _FailureCorpus(incident_triage=triage)
+
+    # AG3-078: wire PatternPromotion, CheckFactory, CheckEffectivenessTracker.
+    # Repos are obtained from a fresh ProjectionRepositories (the accessor holds
+    # them internally but does not expose them via its public surface — we build
+    # a parallel repo bundle here to stay within AC#7).
+    from agentkit.failure_corpus.check_factory import CheckFactory as _CheckFactory
+    from agentkit.failure_corpus.effectiveness import (
+        CheckEffectivenessTracker as _CheckEffectivenessTracker,
+    )
+    from agentkit.failure_corpus.invariant_sharpener import LlmInvariantSharpener as _LlmInvariantSharpener
+    from agentkit.failure_corpus.pattern_promotion import PatternPromotion as _PatternPromotion
+    from agentkit.failure_corpus.story_creation_adapter import AK3StoryCreationAdapter as _AK3StoryCreationAdapter
+    from agentkit.state_backend.store.fc_check_proposal_repository import (
+        StateBackendFcCheckProposalRepository,
+    )
+    from agentkit.state_backend.store.fc_pattern_repository import (
+        StateBackendFcPatternRepository,
+    )
+
+    _store_dir = store_dir or Path.cwd()
+    pattern_repo = StateBackendFcPatternRepository(_store_dir)
+    check_repo = StateBackendFcCheckProposalRepository(_store_dir)
+
+    # AG3-078: the LLM invariant sharpener is the ONLY LLM-dependent part of the
+    # build and is only needed by derive_check (step 1).  Build it lazily: only
+    # when a concrete LLM transport (FK-41 §41.6.2, e.g. HubLlmClient from
+    # build_verify_system) is supplied.  Without it the factory is wired WITHOUT
+    # a sharpener so the other five top methods (and every non-derive_check CLI
+    # subcommand) still build; derive_check stays FAIL-CLOSED via the
+    # CheckFactory.derive_check guard (InvariantSharpenerPort is None -> raise).
+    _sharpener = _LlmInvariantSharpener(llm_client) if llm_client is not None else None
+    _story_creation = _AK3StoryCreationAdapter(project_key)
+
+    pattern_promotion = _PatternPromotion(
+        accessor=accessor,
+        pattern_repo=pattern_repo,
+        project_key=project_key,
+    )
+    check_factory = _CheckFactory(
+        pattern_repo=pattern_repo,
+        check_repo=check_repo,
+        project_key=project_key,
+        invariant_sharpener=_sharpener,
+        story_creation=_story_creation,
+    )
+    effectiveness_tracker = _CheckEffectivenessTracker(
+        accessor=accessor,
+        check_repo=check_repo,
+        pattern_repo=pattern_repo,
+        project_key=project_key,
+    )
+    return _FailureCorpus(
+        incident_triage=triage,
+        pattern_promotion=pattern_promotion,
+        check_factory=check_factory,
+        effectiveness_tracker=effectiveness_tracker,
+        check_repo=check_repo,
+        project_key=project_key,
+    )
 
 
 # Keep export metadata compact so module-level LOC stays under the project gate.

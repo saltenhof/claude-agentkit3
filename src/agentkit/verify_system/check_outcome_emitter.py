@@ -82,6 +82,8 @@ def build_check_outcomes(
     attempt_no: int,
     occurred_at: datetime | None = None,
     override_records: list[OverrideRecord] | None = None,
+    origin_check_ref: str | None = None,
+    check_origin_refs: dict[str, str | None] | None = None,
 ) -> list[QACheckOutcomeRecord]:
     """Build per-check outcome rows from a completed QA layer result.
 
@@ -98,6 +100,15 @@ def build_check_outcomes(
     FK-69 §69.15.6 invariant: every emitted row has a non-blank ``check_id``.
     FK-69 §69.15.6 rule 7: ``project_key`` must not be empty (fail-closed).
 
+    FK-33 §33.2.1 / FK-69 §69.15.6 rule 4 / AG3-078 ERROR 1:
+    ``check_origin_refs`` is the per-check mapping ``check_id -> origin_check_ref``
+    (``CHK-NNNN | None``) built from the stage registry. When provided, each row's
+    ``check_proposal_ref`` is resolved individually — FC-derived check_ids carry
+    their CHK-NNNN, native check_ids get NULL. This is the correct granularity:
+    a single layer may contain both FC-derived and native checks.
+    The legacy ``origin_check_ref`` single value is used as a fallback when
+    ``check_origin_refs`` is not provided (backward-compatible).
+
     Args:
         flow: The currently executing ``FlowExecution`` (provides identity
             fields ``project_key``, ``story_id``, ``run_id``).
@@ -109,6 +120,16 @@ def build_check_outcomes(
             may suppress individual checks.  A record is correlated when
             ``override_record.check_id`` matches the executed check's
             ``check_id``.  ``None`` / empty list means no overrides.
+        origin_check_ref: Optional single-value originating ``fc_check_proposals.check_id``
+            (``CHK-NNNN``) applied to ALL rows in the layer.  Used for backward
+            compatibility when ``check_origin_refs`` is not provided.
+            ``None`` for native (non-FC-derived) layers (FK-33 §33.2.1).
+        check_origin_refs: Optional per-check mapping ``check_id -> CHK-NNNN | None``
+            built from the stage registry (AG3-078 ERROR 1). When provided, takes
+            priority over ``origin_check_ref``. Each row's ``check_proposal_ref``
+            is resolved from this mapping individually (FC-derived -> CHK-NNNN;
+            native -> NULL). Build with
+            ``{s.stage_id: s.origin_check_ref for s in registry.stages}``.
 
     Returns:
         A list of :class:`~agentkit.verify_system.stage_registry.records.QACheckOutcomeRecord`,
@@ -143,6 +164,12 @@ def build_check_outcomes(
                 f"corrupt input, fail-closed (FK-69 §69.11 rule 6): {check_id!r}"
             )
 
+        # AG3-078 ERROR 1: resolve per-check origin_check_ref from mapping when provided.
+        # check_origin_refs gives per-check FK-33 §33.2.1 CHK-NNNN resolution:
+        # FC-derived check_ids have CHK-NNNN; native check_ids get NULL.
+        # Falls back to the legacy single origin_check_ref when mapping not provided.
+        resolved_origin = check_origin_refs.get(check_id) if check_origin_refs is not None else origin_check_ref
+
         outcome, override_id = _classify_check_outcome(
             check_id, override_index, triggered_check_ids
         )
@@ -156,6 +183,7 @@ def build_check_outcomes(
                 check_id=check_id,
                 outcome=outcome,
                 occurred_at=ts,
+                check_proposal_ref=resolved_origin,
                 override_id=override_id,
             )
         )
@@ -183,6 +211,8 @@ class CheckOutcomeEmitter:
         occurred_at: datetime | None = None,
         override_records: list[OverrideRecord] | None = None,
         projection_accessor: Any | None = None,
+        origin_check_ref: str | None = None,
+        check_origin_refs: dict[str, str | None] | None = None,
     ) -> list[QACheckOutcomeRecord]:
         """Build and persist per-check outcome rows for one layer result.
 
@@ -197,6 +227,12 @@ class CheckOutcomeEmitter:
                 Typed as ``Any`` to avoid a circular import from verify-system
                 -> telemetry; the caller is responsible for passing a valid
                 ``ProjectionAccessor`` instance.
+            origin_check_ref: Optional single-value originating ``fc_check_proposals.check_id``
+                (``CHK-NNNN``) applied to ALL rows in the layer (backward-compat).
+                ``None`` for native layers (FK-33 §33.2.1).
+            check_origin_refs: Optional per-check mapping ``check_id -> CHK-NNNN | None``
+                built from the stage registry (AG3-078 ERROR 1). When provided,
+                takes priority over ``origin_check_ref`` for per-check resolution.
 
         Returns:
             List of :class:`~agentkit.verify_system.stage_registry.records.QACheckOutcomeRecord`
@@ -210,6 +246,8 @@ class CheckOutcomeEmitter:
             attempt_no=attempt_no,
             occurred_at=occurred_at,
             override_records=override_records,
+            origin_check_ref=origin_check_ref,
+            check_origin_refs=check_origin_refs,
         )
         if projection_accessor is not None:
             for record in records:

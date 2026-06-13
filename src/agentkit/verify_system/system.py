@@ -249,6 +249,21 @@ class VerifySystem:
         """
         return self.layer_3
 
+    @property
+    def stage_registry(self) -> StageRegistry:
+        """Return the StageRegistry used by the policy engine (FK-33 §33.2.1).
+
+        Exposed for callers that need per-check ``origin_check_ref`` lookups
+        (AG3-078 ERROR 1: build check_id -> origin_check_ref mapping before
+        emitting qa_check_outcomes). The registry is the single source of truth
+        for all stage definitions including FC-derived checks.
+
+        Returns:
+            The :class:`~agentkit.verify_system.stage_registry.registry.StageRegistry`
+            bound to the policy engine.
+        """
+        return self.policy_engine._registry  # noqa: SLF001
+
     @classmethod
     def create_default(
         cls,

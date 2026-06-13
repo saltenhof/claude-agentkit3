@@ -38,25 +38,25 @@ _PATTERN_ID_PATTERN = re.compile(r"^FP-\d{4,}$", re.ASCII)
 
 
 class PromotionRule(StrEnum):
-    """Promotion rule of a FailurePattern (FK-41 §41.3.2).
+    """Promotion rule of a FailurePattern (FK-41 §41.3.2, ARCH-55 English wire values).
 
     Attributes:
-        WIEDERHOLUNG: repeated incidents of the same kind.
-        HOHE_SCHWERE: single critical incident.
-        CHECKBARKEIT: deterministically checkable at low FP risk.
+        REPETITION: repeated incidents of the same kind.
+        HIGH_SEVERITY: single critical or high-severity incident.
+        FAVORABLE_CHECKABILITY: deterministically checkable at low FP risk.
     """
 
-    WIEDERHOLUNG = "wiederholung"
-    HOHE_SCHWERE = "hohe_schwere"
-    CHECKBARKEIT = "checkbarkeit"
+    REPETITION = "repetition"
+    HIGH_SEVERITY = "high_severity"
+    FAVORABLE_CHECKABILITY = "favorable_checkability"
 
 
 class PatternRiskLevel(StrEnum):
-    """Risk level of a FailurePattern (FK-41 §41.3.2)."""
+    """Risk level of a FailurePattern (FK-41 §41.3.2, ARCH-55 English wire values)."""
 
-    MITTEL = "mittel"
-    HOCH = "hoch"
-    KRITISCH = "kritisch"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
 
 
 def _validate_incident_refs(value: object) -> list[str]:
@@ -92,8 +92,8 @@ class FailurePatternRecord(BaseModel):
         category: Failure category (FailureCategory, 12 values).
         invariant: Precise, deterministic rule statement.
         incident_refs: JSON array of the associated incident_id values (list[str]).
-        promotion_rule: Promotion rule (wiederholung | hohe_schwere | checkbarkeit).
-        risk_level: Risk level (mittel | hoch | kritisch).
+        promotion_rule: Promotion rule (repetition | high_severity | favorable_checkability).
+        risk_level: Risk level (medium | high | critical).
         incident_count: Denormalized counter; rebuildable from incident_refs.
         confirmed_at: Timestamp of the human confirmation (optional).
         confirmed_by: ``human`` on confirmation (no automatic entry).

@@ -53,8 +53,8 @@ def _seed_pattern(tmp_path: Path, pattern_id: str, project_key: str = "proj-pg")
             category=FailureCategory.SCOPE_DRIFT,
             invariant="inv",
             incident_refs=["FC-2026-0001"],
-            promotion_rule=PromotionRule.WIEDERHOLUNG,
-            risk_level=PatternRiskLevel.HOCH,
+            promotion_rule=PromotionRule.REPETITION,
+            risk_level=PatternRiskLevel.HIGH,
             incident_count=1,
             # FK-41 §41.3.2:239: 'accepted' erfordert confirmed_by='human'.
             confirmed_at=_NOW,
@@ -82,7 +82,7 @@ def _make_proposal(
         pipeline_stage="structural",
         pipeline_layer=1,
         owner="team-x",
-        false_positive_risk=FalsePositiveRisk.NIEDRIG,
+        false_positive_risk=FalsePositiveRisk.LOW,
         positive_fixtures=_FIXTURES,
         negative_fixtures=[],
         created_at=_NOW,
@@ -140,6 +140,38 @@ def test_postgres_fc_check_proposal_list_for_pattern(
     assert ids == ["CHK-2101", "CHK-2102", "CHK-2103"]
 
 
+@pytest.mark.contract
+def test_postgres_max_check_seq_empty_store(
+    tmp_path: Path,
+    postgres_backend_env: object,
+) -> None:
+    """max_check_seq() returns 0 on an empty store (Postgres SQL branch).
+
+    Global check_id allocator (FK-41 §41.3.3); the Postgres
+    ``MAX(CAST(SUBSTRING(...)))`` branch must yield the documented empty value 0.
+    """
+    repo = StateBackendFcCheckProposalRepository(store_dir=tmp_path)
+    assert repo.max_check_seq() == 0
+
+
+@pytest.mark.contract
+def test_postgres_max_check_seq_global_max(
+    tmp_path: Path,
+    postgres_backend_env: object,
+) -> None:
+    """max_check_seq() returns the global MAX(CHK-NNNN) suffix (Postgres SQL branch).
+
+    Mirrors the SQLite coverage of the global check_id allocator (FK-41 §41.3.3):
+    check_id is a GLOBAL identity, so the allocator spans ALL proposals. Seeds
+    CHK-0001 and CHK-9999 and asserts the max suffix is 9999.
+    """
+    _seed_pattern(tmp_path, "FP-2004")
+    repo = StateBackendFcCheckProposalRepository(store_dir=tmp_path)
+    repo.save(_make_proposal(check_id="CHK-0001", pattern_ref="FP-2004"))
+    repo.save(_make_proposal(check_id="CHK-9999", pattern_ref="FP-2004"))
+    assert repo.max_check_seq() == 9999
+
+
 # ---------------------------------------------------------------------------
 # WARNING 2 — Postgres CHECK/FK parity (mirrors the SQLite TestCheckConstraints):
 # direct DB writes that bypass Pydantic must still be rejected fail-closed.
@@ -156,8 +188,8 @@ _PATTERN_VALID = (
     "scope_drift",
     "inv",
     '["FC-2026-0001"]',
-    "wiederholung",
-    "hoch",
+    "repetition",
+    "high",
     1,
 )
 
@@ -183,7 +215,7 @@ def _check_valid(pattern_ref: str = "FP-4001") -> tuple[object, ...]:
         "structural",
         1,
         "team-x",
-        "niedrig",
+        "low",
         '[{"description": "d", "expected": "PASS"}]',
         "[]",
         _NOW.isoformat(),

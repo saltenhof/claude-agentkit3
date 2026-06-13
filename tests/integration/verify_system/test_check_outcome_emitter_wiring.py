@@ -504,6 +504,17 @@ class _PassVerifySystemWithOverridableCheck:
     injected by the test) and threaded through the real emit() call.
     """
 
+    @property
+    def stage_registry(self) -> StageRegistry:
+        """Return an empty registry (no FC-derived stages in this test double).
+
+        AG3-078 ERROR 1: phase.py calls verify_system.stage_registry.stages to
+        build the per-check origin_check_ref mapping. Test double must satisfy
+        this interface with an empty tuple so all check_ids get NULL
+        check_proposal_ref (no FC-derived checks in this stub's layer result).
+        """
+        return StageRegistry(stages=())
+
     def run_qa_subflow(
         self,
         ctx: object,

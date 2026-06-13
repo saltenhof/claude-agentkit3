@@ -296,6 +296,14 @@ class ImplementationPhaseHandler:
         # raises on backend errors — no silent swallow) and pass them into every
         # per-layer emit call so the emitter can mark `overridden` for any check_id
         # that matches an active override (FK-69 §69.11 rule 3 / §69.15.6 rule 5).
+        # AG3-078 ERROR 1: build per-check check_id -> origin_check_ref mapping from
+        # the stage registry (FK-33 §33.2.1). FC-derived stages carry CHK-NNNN in
+        # StageDefinition.origin_check_ref; native stages carry None. A single layer
+        # may mix both, so the mapping must be per-check_id (not per-layer).
+        _stage_origin_map: dict[str, str | None] = {
+            stage.stage_id: stage.origin_check_ref
+            for stage in verify_system.stage_registry.stages
+        }
         _override_records = load_override_records(s_dir)
         _emitter = CheckOutcomeEmitter()
         for layer_result in decision.layer_results:
@@ -305,6 +313,7 @@ class ImplementationPhaseHandler:
                 attempt_no=attempt_nr,
                 override_records=_override_records,
                 projection_accessor=accessor,
+                check_origin_refs=_stage_origin_map,
             )
         record_verify_decision(
             s_dir,

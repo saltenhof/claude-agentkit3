@@ -66,11 +66,14 @@ def test_schema_version_helpers_derive_versioned_names() -> None:
     # override_records; FK-69 §69.15 Per-Check-Outcome-Read-Model + §69.11 rule 3
     # override->check correlation, Schema-Owner verify-system, Codex-approved,
     # FK-18 §18.9a)
-    assert state_config.SCHEMA_VERSION == "3.27.0"
+    # AG3-078: 3.27.0 -> 3.28.0 (fc_check_proposals.check_proposal_ref on
+    # qa_check_outcomes; FC_PATTERNS/FC_CHECK_PROPOSALS accessor-owned;
+    # PatternPromotion/CheckFactory/CheckEffectivenessTracker; FK-41 §41.5/§41.6)
+    assert state_config.SCHEMA_VERSION == "3.28.0"
     assert state_config.versioned_postgres_schema_name("3.0.0") == "ak3_v3_0_0"
     assert state_config.versioned_sqlite_db_file("3.0.0") == "agentkit_3_0_0.sqlite"
-    assert state_config.versioned_postgres_schema_name() == "ak3_v3_27_0"
-    assert state_config.versioned_sqlite_db_file() == "agentkit_3_27_0.sqlite"
+    assert state_config.versioned_postgres_schema_name() == "ak3_v3_28_0"
+    assert state_config.versioned_sqlite_db_file() == "agentkit_3_28_0.sqlite"
 
 
 def test_schema_version_rejects_non_semver() -> None:

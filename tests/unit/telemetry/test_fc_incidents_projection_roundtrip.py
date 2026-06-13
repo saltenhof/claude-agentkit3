@@ -21,7 +21,6 @@ from agentkit.state_backend.store.projection_repositories import (
 )
 from agentkit.telemetry.errors import (
     FCIncidentWriteViaDedicatedMethodError,
-    ProjectionKindNotAccessorOwnedError,
 )
 from agentkit.telemetry.projection_accessor import (
     ProjectionAccessor,
@@ -194,9 +193,11 @@ def test_cross_project_isolation(accessor: ProjectionAccessor) -> None:
     assert len(rows_b_after) == 1
 
 
-def test_fc_patterns_fail_closed_write(accessor: ProjectionAccessor) -> None:
+def test_fc_patterns_wrong_type_raises_mismatch(accessor: ProjectionAccessor) -> None:
+    """AG3-078: FC_PATTERNS is accessor-owned; writing wrong type raises TypeMismatch."""
     from agentkit.failure_corpus import Incident
     from agentkit.failure_corpus.types import IncidentId
+    from agentkit.telemetry.errors import ProjectionRecordTypeMismatchError
 
     incident = Incident(
         project_key="proj-a",
@@ -211,21 +212,23 @@ def test_fc_patterns_fail_closed_write(accessor: ProjectionAccessor) -> None:
         symptom="s",
         recorded_at=_NOW,
     )
-    with pytest.raises(ProjectionKindNotAccessorOwnedError):
+    with pytest.raises(ProjectionRecordTypeMismatchError):
         accessor.write_projection(ProjectionKind.FC_PATTERNS, incident)
 
 
-def test_fc_check_proposals_fail_closed_read(accessor: ProjectionAccessor) -> None:
-    with pytest.raises(ProjectionKindNotAccessorOwnedError):
+def test_fc_check_proposals_read_requires_project_key(accessor: ProjectionAccessor) -> None:
+    """AG3-078: FC_CHECK_PROPOSALS is accessor-owned; read without project_key -> ValueError."""
+    with pytest.raises(ValueError, match="project_key"):
         accessor.read_projection(
             ProjectionKind.FC_CHECK_PROPOSALS,
-            ProjectionFilter(project_key="proj-a", story_id="AG3-001"),
+            ProjectionFilter(project_key=None),
         )
 
 
-def test_fc_patterns_still_externally_owned() -> None:
-    assert ProjectionAccessor.is_accessor_owned(ProjectionKind.FC_PATTERNS) is False
+def test_fc_patterns_is_now_accessor_owned() -> None:
+    """AG3-078: fc_patterns + fc_check_proposals are accessor-owned (FK-41 §41.5/§41.6)."""
+    assert ProjectionAccessor.is_accessor_owned(ProjectionKind.FC_PATTERNS) is True
     assert (
         ProjectionAccessor.is_accessor_owned(ProjectionKind.FC_CHECK_PROPOSALS)
-        is False
+        is True
     )

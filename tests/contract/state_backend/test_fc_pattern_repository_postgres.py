@@ -45,8 +45,8 @@ def _make_pattern(
         category=FailureCategory.SCOPE_DRIFT,
         invariant="inv",
         incident_refs=["FC-2026-0001"],
-        promotion_rule=PromotionRule.WIEDERHOLUNG,
-        risk_level=PatternRiskLevel.HOCH,
+        promotion_rule=PromotionRule.REPETITION,
+        risk_level=PatternRiskLevel.HIGH,
         incident_count=1,
         confirmed_at=_NOW if accepted else None,
         confirmed_by="human" if accepted else None,
@@ -114,8 +114,8 @@ _PATTERN_VALID = (
     "scope_drift",
     "inv",
     '["FC-2026-0001"]',
-    "wiederholung",
-    "hoch",
+    "repetition",
+    "high",
     1,
 )
 
