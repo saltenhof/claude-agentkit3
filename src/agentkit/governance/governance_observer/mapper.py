@@ -64,7 +64,7 @@ def to_corpus_incident_candidate(
     category = _INCIDENT_TYPE_TO_CATEGORY[verdict.incident_type]
     severity = _SEVERITY_MAP[verdict.severity]
     evidence = _build_evidence(candidate, verdict)
-    symptom = _build_symptom(candidate, verdict)
+    symptom = _build_symptom(verdict)
     return IncidentCandidate(
         project_key=candidate.project_key,
         story_id=candidate.story_id,
@@ -79,14 +79,10 @@ def to_corpus_incident_candidate(
     )
 
 
-def _build_symptom(
-    candidate: GovernanceIncidentCandidate,
-    verdict: GovernanceAdjudicationVerdict,
-) -> str:
+def _build_symptom(verdict: GovernanceAdjudicationVerdict) -> str:
     """Build the free-text symptom string for the corpus candidate.
 
     Args:
-        candidate: The GovernanceObserver incident candidate.
         verdict: The adjudication verdict.
 
     Returns:

@@ -317,18 +317,8 @@ MANDATORY_PAYLOAD_FIELDS: Mapping[EventType, tuple[str, ...]] = {
     # hook-sensor producer can validate against the same contract.
     EventType.GOVERNANCE_SIGNAL: ("risk_points", "signal_type", "actor"),
     # The three observer-emitted events (FK-35 §35.3.7 / §35.3.6 / §35.3.8):
-    EventType.GOVERNANCE_ADJUDICATION: (
-        "incident_type",
-        "severity",
-        "confidence",
-        "recommended_action",
-        "signal_type",
-    ),
-    EventType.GOVERNANCE_INCIDENT_OPENED: (
-        "risk_score",
-        "event_count",
-        "dominant_signals",
-    ),
+    EventType.GOVERNANCE_ADJUDICATION: ("incident_type", "severity", "confidence", "recommended_action", "signal_type"),
+    EventType.GOVERNANCE_INCIDENT_OPENED: ("risk_score", "event_count", "dominant_signals"),
     EventType.GOVERNANCE_MEASURE_APPLIED: ("measure", "severity"),
     # FK-68 §68.2.2 (Z. 397-399) — BC15 ARE / Requirements events.
     EventType.ARE_REQUIREMENTS_LINKED: ("story_id", "requirement_count"),
@@ -371,9 +361,7 @@ INTEGRITY_VIOLATION_PROMPT_GUARD: str = "prompt_integrity_guard"
 
 #: The valid ``stage`` values for a ``prompt_integrity_guard``
 #: ``integrity_violation`` — one per check stage (FK-31 §31.7.2).
-INTEGRITY_VIOLATION_STAGES: frozenset[str] = frozenset(
-    {"escape_detection", "schema_validation", "template_integrity"}
-)
+INTEGRITY_VIOLATION_STAGES: frozenset[str] = frozenset({"escape_detection", "schema_validation", "template_integrity"})
 
 
 class EventPayloadContractError(ValueError):
@@ -406,10 +394,7 @@ class EventPayloadContractError(ValueError):
                 "EventType must be present (FK-61 §61.12.2 / FK-25 §25.8)."
             )
         else:
-            message = (
-                f"Event {event_type!r} payload contract violation: {detail}. "
-                "FAIL-CLOSED."
-            )
+            message = f"Event {event_type!r} payload contract violation: {detail}. FAIL-CLOSED."
         super().__init__(message)
         self.event_type = event_type
         self.missing = missing
@@ -481,17 +466,14 @@ def _validate_integrity_violation_stage(payload: Mapping[str, object]) -> None:
     has_stage = "stage" in payload
     if guard == INTEGRITY_VIOLATION_PROMPT_GUARD:
         if not has_stage:
-            raise EventPayloadContractError(
-                EventType.INTEGRITY_VIOLATION.value, ("stage",)
-            )
+            raise EventPayloadContractError(EventType.INTEGRITY_VIOLATION.value, ("stage",))
         stage = payload.get("stage")
         if stage not in INTEGRITY_VIOLATION_STAGES:
             raise EventPayloadContractError(
                 EventType.INTEGRITY_VIOLATION.value,
                 ("stage",),
                 detail=(
-                    f"prompt_integrity_guard 'stage'={stage!r} is not one of "
-                    f"{sorted(INTEGRITY_VIOLATION_STAGES)} (FK-31 §31.7.2)"
+                    f"prompt_integrity_guard 'stage'={stage!r} is not one of {sorted(INTEGRITY_VIOLATION_STAGES)} (FK-31 §31.7.2)"
                 ),
             )
     elif has_stage:
@@ -500,8 +482,5 @@ def _validate_integrity_violation_stage(payload: Mapping[str, object]) -> None:
         raise EventPayloadContractError(
             EventType.INTEGRITY_VIOLATION.value,
             ("stage",),
-            detail=(
-                f"'stage' is prompt_integrity_guard-specific but guard={guard!r} "
-                "carried it (FK-61 §61.12.2 / FK-68 §68.2)"
-            ),
+            detail=(f"'stage' is prompt_integrity_guard-specific but guard={guard!r} carried it (FK-61 §61.12.2 / FK-68 §68.2)"),
         )

@@ -17,8 +17,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
-from pydantic import ValidationError
-
 from agentkit.governance.governance_observer.models import GovernanceAdjudicationVerdict
 
 if TYPE_CHECKING:
@@ -150,7 +148,7 @@ def parse_adjudication_response(raw_text: str) -> GovernanceAdjudicationVerdict:
     text = _strip_markdown_fence(text)
     try:
         return GovernanceAdjudicationVerdict.model_validate_json(text)
-    except (ValueError, ValidationError) as exc:
+    except ValueError as exc:  # pydantic ValidationError is a ValueError subclass
         raise GovernanceAdjudicationError(
             f"LLM adjudication response is not valid JSON or failed schema validation:"
             f" {exc}\nRaw response (first 500 chars): {raw_text[:500]!r}"
@@ -217,9 +215,7 @@ class HubGovernanceAdjudicator:
         Raises:
             GovernanceAdjudicationError: On transport failure or schema violation.
         """
-        prompt = build_adjudication_prompt(
-            candidate, story_context_summary=story_context_summary
-        )
+        prompt = build_adjudication_prompt(candidate, story_context_summary=story_context_summary)
         raw_response = self._send_to_hub(
             owner=f"governance-observer/{candidate.story_id}",
             description=f"Governance adjudication for story {candidate.story_id}",
@@ -267,9 +263,7 @@ class HubGovernanceAdjudicator:
                 msg: HubMessage | None = messages.get(backend_name)
                 if msg is None or msg.status != "ok":
                     error_text: str = msg.text if msg is not None else "no response"
-                    raise GovernanceAdjudicationError(
-                        f"LLM backend {self._backend!r} returned error: {error_text}"
-                    )
+                    raise GovernanceAdjudicationError(f"LLM backend {self._backend!r} returned error: {error_text}")
                 return str(msg.text)
             finally:
                 import contextlib
@@ -282,6 +276,4 @@ class HubGovernanceAdjudicator:
         except GovernanceAdjudicationError:
             raise
         except MultiLlmHubError as exc:
-            raise GovernanceAdjudicationError(
-                f"Multi-LLM Hub transport error during adjudication: {exc}"
-            ) from exc
+            raise GovernanceAdjudicationError(f"Multi-LLM Hub transport error during adjudication: {exc}") from exc

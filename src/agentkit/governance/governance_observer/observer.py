@@ -148,9 +148,7 @@ class GovernanceObserver:
         signal_type = _parse_signal_type(signal_type_wire)
 
         if signal_type in IMMEDIATE_STOP_SIGNALS:
-            return self._apply_immediate_stop(
-                project_key, story_id, run_id, signal_type=signal_type
-            )
+            return self._apply_immediate_stop(project_key, story_id, run_id)
 
         return self._process_scored_signal(
             project_key,
@@ -169,8 +167,6 @@ class GovernanceObserver:
         project_key: str,
         story_id: str,
         run_id: str,
-        *,
-        signal_type: GovernanceSignalType,
     ) -> GovernanceMeasure:
         """Apply stop_process for an immediate-stop signal without adjudication.
 
@@ -178,7 +174,6 @@ class GovernanceObserver:
             project_key: Project scope.
             story_id: Story scope.
             run_id: Run scope.
-            signal_type: The immediate-stop signal type.
 
         Returns:
             :attr:`~GovernanceMeasure.STOP_PROCESS`.
@@ -230,9 +225,7 @@ class GovernanceObserver:
 
         # Single validated read: raises fail-closed before any further processing
         # if any payload in the window violates the mandatory contract.
-        window_payloads = self._reader.read_governance_signals(
-            project_key, story_id, run_id, limit=window_size
-        )
+        window_payloads = self._reader.read_governance_signals(project_key, story_id, run_id, limit=window_size)
         _validate_window_payloads(window_payloads)
 
         score = score_from_validated_payloads(window_payloads)
@@ -264,9 +257,7 @@ class GovernanceObserver:
         )
         self._emit_incident_opened(story_id, run_id, project_key=project_key, candidate=candidate)
 
-        verdict = self._run_adjudication(
-            candidate, story_context_summary=story_context_summary
-        )
+        verdict = self._run_adjudication(candidate, story_context_summary=story_context_summary)
         self._emit_adjudication(
             story_id,
             run_id,
@@ -346,9 +337,7 @@ class GovernanceObserver:
         Raises:
             GovernanceAdjudicationError: When adjudication fails.
         """
-        return self._adjudicator.adjudicate(
-            candidate, story_context_summary=story_context_summary
-        )
+        return self._adjudicator.adjudicate(candidate, story_context_summary=story_context_summary)
 
     def _maybe_handoff_to_corpus(
         self,
@@ -493,6 +482,7 @@ class GovernanceObserver:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _validate_window_payloads(payloads: list[dict[str, object]]) -> None:
     """Validate all payloads in a rolling-window list fail-closed (AC2/AC9).
 
@@ -536,10 +526,7 @@ def _parse_signal_type(wire: str) -> GovernanceSignalType:
         return GovernanceSignalType(wire)
     except ValueError as exc:
         valid = sorted(t.value for t in GovernanceSignalType)
-        raise ValueError(
-            f"Unknown governance signal type: {wire!r}. "
-            f"FAIL-CLOSED: must be one of {valid}."
-        ) from exc
+        raise ValueError(f"Unknown governance signal type: {wire!r}. FAIL-CLOSED: must be one of {valid}.") from exc
 
 
 def _dominant_signals(payloads: list[dict[str, object]]) -> list[str]:
@@ -607,16 +594,10 @@ def _summarise_payloads(payloads: list[dict[str, object]]) -> str:
     """
     if not payloads:
         return "No governance signals in window."
-    total: int = sum(
-        int(rp)
-        for p in payloads
-        if isinstance(rp := p.get("risk_points"), (int, float))
-    )
+    total: int = sum(int(rp) for p in payloads if isinstance(rp := p.get("risk_points"), (int, float)))
     signal_types = _dominant_signals(payloads)
     return (
-        f"{len(payloads)} governance_signal events; "
-        f"total risk_points={total}; "
-        f"top signals: {', '.join(signal_types) or 'none'}"
+        f"{len(payloads)} governance_signal events; total risk_points={total}; top signals: {', '.join(signal_types) or 'none'}"
     )
 
 
@@ -638,7 +619,6 @@ def lookup_risk_points(signal_type: GovernanceSignalType) -> int:
     """
     if signal_type in IMMEDIATE_STOP_SIGNALS:
         raise ValueError(
-            f"{signal_type!r} is an immediate-stop signal and has no point value. "
-            "It must be handled via the hard-stop path."
+            f"{signal_type!r} is an immediate-stop signal and has no point value. It must be handled via the hard-stop path."
         )
     return RISK_POINTS[signal_type]

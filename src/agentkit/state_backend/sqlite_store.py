@@ -81,8 +81,7 @@ def _assert_sqlite_allowed() -> None:
     """
     if not _sqlite_allowed():
         raise RuntimeError(
-            "SQLite backend is disabled for this path. "
-            f"Set {ALLOW_SQLITE_ENV}=1 only for narrow unit-test execution.",
+            f"SQLite backend is disabled for this path. Set {ALLOW_SQLITE_ENV}=1 only for narrow unit-test execution.",
         )
 
 
@@ -1193,10 +1192,7 @@ def _ensure_story_identity_migration(conn: sqlite3.Connection) -> None:
     backfills values from materialized ``story_id``.
     """
 
-    columns = {
-        str(row["name"])
-        for row in conn.execute("PRAGMA table_info(story_contexts)").fetchall()
-    }
+    columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(story_contexts)").fetchall()}
     if "story_uuid" not in columns:
         conn.execute("ALTER TABLE story_contexts ADD COLUMN story_uuid TEXT")
     if "story_number" not in columns:
@@ -1341,6 +1337,7 @@ def _ensure_default_projects_for_story_contexts(conn: sqlite3.Connection) -> Non
     encountered so the operator can replace it.
     """
     import logging
+
     _log = logging.getLogger(__name__)
 
     rows = conn.execute(
@@ -1359,6 +1356,7 @@ def _ensure_default_projects_for_story_contexts(conn: sqlite3.Connection) -> Non
         repositories: list[str] = []
         try:
             import json as _json
+
             payload = _json.loads(str(row["payload_json"] or "{}"))
             participating = payload.get("participating_repos", [])
             if isinstance(participating, list) and participating:
@@ -1424,6 +1422,7 @@ def _ensure_project_for_story_row(
         row: Story-context dict being saved (may contain ``participating_repos``).
     """
     import logging
+
     _log = logging.getLogger(__name__)
 
     story_id = str(row["story_id"])
@@ -2507,6 +2506,13 @@ def append_execution_event_global_row(row: dict[str, Any]) -> None:
     )
 
 
+# Execution-event WHERE-clause fragments (hoisted to avoid duplicated literals, Sonar S1192).
+_CLAUSE_PROJECT_KEY = "project_key = ?"
+_CLAUSE_STORY_ID = "story_id = ?"
+_CLAUSE_RUN_ID = "run_id = ?"
+_CLAUSE_EVENT_TYPE = "event_type = ?"
+
+
 def load_execution_event_rows(
     story_dir: Path,
     *,
@@ -2530,16 +2536,16 @@ def load_execution_event_rows(
     clauses: list[str] = []
     params: list[object] = []
     if project_key is not None:
-        clauses.append("project_key = ?")
+        clauses.append(_CLAUSE_PROJECT_KEY)
         params.append(project_key)
     if story_id is not None:
-        clauses.append("story_id = ?")
+        clauses.append(_CLAUSE_STORY_ID)
         params.append(story_id)
     if run_id is not None:
-        clauses.append("run_id = ?")
+        clauses.append(_CLAUSE_RUN_ID)
         params.append(run_id)
     if event_type is not None:
-        clauses.append("event_type = ?")
+        clauses.append(_CLAUSE_EVENT_TYPE)
         params.append(event_type)
     where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     if limit is not None:
@@ -2636,13 +2642,13 @@ def load_execution_event_rows_global(
     from pathlib import Path as _Path
 
     db_dir: Path = _Path.cwd()
-    clauses: list[str] = ["project_key = ?", "story_id = ?"]
+    clauses: list[str] = [_CLAUSE_PROJECT_KEY, _CLAUSE_STORY_ID]
     params: list[object] = [project_key, story_id]
     if run_id is not None:
-        clauses.append("run_id = ?")
+        clauses.append(_CLAUSE_RUN_ID)
         params.append(run_id)
     if event_type is not None:
-        clauses.append("event_type = ?")
+        clauses.append(_CLAUSE_EVENT_TYPE)
         params.append(event_type)
     where_clause = f"WHERE {' AND '.join(clauses)}"
     limit_clause = f"LIMIT {int(limit)}" if limit is not None else ""
@@ -2746,13 +2752,13 @@ def load_story_metrics_rows(
     clauses: list[str] = []
     params: list[object] = []
     if project_key is not None:
-        clauses.append("project_key = ?")
+        clauses.append(_CLAUSE_PROJECT_KEY)
         params.append(project_key)
     if story_id is not None:
-        clauses.append("story_id = ?")
+        clauses.append(_CLAUSE_STORY_ID)
         params.append(story_id)
     if run_id is not None:
-        clauses.append("run_id = ?")
+        clauses.append(_CLAUSE_RUN_ID)
         params.append(run_id)
     where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     with _connect(story_dir) as conn:
@@ -2918,6 +2924,7 @@ def load_override_record_rows(story_dir: Path) -> list[dict[str, Any]]:
 # QA layer artifacts + QA decision
 # ---------------------------------------------------------------------------
 
+
 def persist_layer_artifact_rows(
     story_dir: Path,
     *,
@@ -2940,8 +2947,7 @@ def persist_layer_artifact_rows(
     story_id = _story_id_for(story_dir)
     if story_id is None:
         raise CorruptStateError(
-            "Cannot persist QA layer artifacts without story context "
-            "in canonical backend",
+            "Cannot persist QA layer artifacts without story context in canonical backend",
         )
     produced: list[str] = []
     for item in layer_payload_rows:
@@ -3119,8 +3125,7 @@ def load_qa_stage_result_rows(
 
     del story_dir, project_key, story_id, run_id, attempt_no, stage_id
     raise RuntimeError(
-        "FK-69 QA read models are only materialized on the Postgres backend. "
-        "SQLite remains a narrow unit-test backend.",
+        "FK-69 QA read models are only materialized on the Postgres backend. SQLite remains a narrow unit-test backend.",
     )
 
 
@@ -3137,8 +3142,7 @@ def load_qa_finding_rows(
 
     del story_dir, project_key, story_id, run_id, attempt_no, stage_id
     raise RuntimeError(
-        "FK-69 QA read models are only materialized on the Postgres backend. "
-        "SQLite remains a narrow unit-test backend.",
+        "FK-69 QA read models are only materialized on the Postgres backend. SQLite remains a narrow unit-test backend.",
     )
 
 
@@ -3253,8 +3257,7 @@ def purge_flow_executions_row(
 
     with _connect(story_dir) as conn:
         cursor = conn.execute(
-            "DELETE FROM flow_executions "
-            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            "DELETE FROM flow_executions WHERE project_key = ? AND story_id = ? AND run_id = ?",
             (project_key, story_id, run_id),
         )
         return int(cursor.rowcount)
@@ -3270,8 +3273,7 @@ def purge_node_execution_ledgers_row(
 
     with _connect(story_dir) as conn:
         cursor = conn.execute(
-            "DELETE FROM node_execution_ledgers "
-            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            "DELETE FROM node_execution_ledgers WHERE project_key = ? AND story_id = ? AND run_id = ?",
             (project_key, story_id, run_id),
         )
         return int(cursor.rowcount)
@@ -3307,8 +3309,7 @@ def purge_override_records_row(
 
     with _connect(story_dir) as conn:
         cursor = conn.execute(
-            "DELETE FROM override_records "
-            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            "DELETE FROM override_records WHERE project_key = ? AND story_id = ? AND run_id = ?",
             (project_key, story_id, run_id),
         )
         return int(cursor.rowcount)
@@ -3324,8 +3325,7 @@ def purge_guard_decisions_row(
 
     with _connect(story_dir) as conn:
         cursor = conn.execute(
-            "DELETE FROM guard_decisions "
-            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            "DELETE FROM guard_decisions WHERE project_key = ? AND story_id = ? AND run_id = ?",
             (project_key, story_id, run_id),
         )
         return int(cursor.rowcount)
@@ -3405,8 +3405,7 @@ def purge_execution_events_row(
 
     with _connect(story_dir) as conn:
         cursor = conn.execute(
-            "DELETE FROM execution_events "
-            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            "DELETE FROM execution_events WHERE project_key = ? AND story_id = ? AND run_id = ?",
             (project_key, story_id, run_id),
         )
         return int(cursor.rowcount)
@@ -3477,8 +3476,7 @@ def _count_runtime_execution_residue(
             sr,
         ),
         "node_execution_ledgers": _count(
-            "SELECT COUNT(*) FROM node_execution_ledgers "
-            "WHERE story_id = ? AND run_id = ?",
+            "SELECT COUNT(*) FROM node_execution_ledgers WHERE story_id = ? AND run_id = ?",
             sr,
         ),
         "attempts": _count(
@@ -3510,8 +3508,7 @@ def _count_runtime_execution_residue(
             sr,
         ),
         "artifact_envelopes": _count(
-            "SELECT COUNT(*) FROM artifact_envelopes "
-            "WHERE story_id = ? AND run_id = ?",
+            "SELECT COUNT(*) FROM artifact_envelopes WHERE story_id = ? AND run_id = ?",
             sr,
         ),
     }
