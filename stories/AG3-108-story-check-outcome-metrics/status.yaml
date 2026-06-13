@@ -1,8 +1,23 @@
 story_id: AG3-108
 title: "Per-Check-Outcome-Read-Model (verify-system-emittiert) + Telemetrie-Filter + Closure-Aggregation"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
+completed: "2026-06-13"
+# COMPLETED 2026-06-13. Per-Check-Outcome read-model qa_check_outcomes (verify-system-owned, FK-69
+# §69.15 via Codex approval-flow, 3 rounds). verify-system emits one row per executed check
+# (triggered/clean/overridden) at QA time via CheckOutcomeEmitter, wired into the REAL QA persistence
+# path (implementation/phase.py: after record_qa_layer_artifacts, per layer_result, with loaded
+# OverrideRecords) — clean/PASS now persisted (executed_check_ids populated in structural + layer2
+# metadata). check_id = executed check (stage_id/finding), check_proposal_ref separate/optional.
+# Override->check correlation persisted (OverrideRecord.check_id in both stores + mappers).
+# Read-model in sqlite + postgres; ProjectionKind.QA_CHECK_OUTCOMES; SCHEMA_VERSION 3.27.0;
+# ProjectionFilter check_id + since_days (injectable _now on the PUBLIC read path). Fail-closed:
+# blank check_id raises; missing project_key rejected. closure read-only. Codex (sole gate):
+# initial CHANGES (5 ERRORs: dead producer + clean/PASS + override persist + injectable time +
+# blank fail-closed) -> r1 fixed 4, r2 fixed the override-emission wiring -> r3 APPROVE. Gates green:
+# ruff, mypy 696 (default+linux), GAC-1, both concept gates, 6324 unit+contract + integration
+# incl. the production-path overridden E2E. Unblocks AG3-078.
 created: "2026-06-09"
 size: L
 depends_on: []
