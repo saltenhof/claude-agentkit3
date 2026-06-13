@@ -18,10 +18,12 @@ def test_projection_accessor_module_importable() -> None:
         ProjectionKind,
     )
 
-    # Sanity: alle 7 FK-69-Tabellen sind in ProjectionKind
-    assert len(list(ProjectionKind)) == 7
+    # Sanity: alle 8 FK-69-Tabellen sind in ProjectionKind (AG3-108 added
+    # qa_check_outcomes as the per-check-outcome read model, FK-69 §69.15).
+    assert len(list(ProjectionKind)) == 8
     assert ProjectionKind.QA_STAGE_RESULTS == "qa_stage_results"
     assert ProjectionKind.STORY_METRICS == "story_metrics"
+    assert ProjectionKind.QA_CHECK_OUTCOMES == "qa_check_outcomes"
 
 
 def test_projection_repositories_buildable() -> None:
