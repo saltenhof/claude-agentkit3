@@ -248,10 +248,21 @@ def _to_layer_result(
         metadata.
     """
     passed = result.verdict is not LlmVerdict.FAIL
+    # AG3-108: executed_check_ids = the base role check-id set (ROLE_CHECK_IDS[role]).
+    # These are the checks the LLM evaluated; PASS checks are not in findings but
+    # must be present here so CheckOutcomeEmitter can emit clean rows for them.
+    # Resolution pseudo-check-ids (finding_resolution_*) are excluded — they are
+    # not real executed checks in the FK-69 sense.
+    from agentkit.verify_system.llm_evaluator.roles import ROLE_CHECK_IDS
+
+    base_check_ids: frozenset[str] = ROLE_CHECK_IDS.get(role, frozenset())
     metadata: dict[str, object] = {
         "verdict": result.verdict.value,
         "raw_response_hash": result.raw_response_hash,
         "template_sha256": result.template_sha256,
+        # FK-69 §69.15: full set of executed check identifiers (base role set
+        # only; resolution pseudo-ids excluded).
+        "executed_check_ids": tuple(sorted(base_check_ids)),
     }
     if result.finding_resolutions:
         # E5: serialise the LLM verdicts under the canonical metadata key,

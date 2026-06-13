@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Any
 
 from agentkit.failure_corpus.incident import Incident
 from agentkit.verify_system.stage_registry.records import (
+    QACheckOutcomeRecord,
     QAFindingRecord,
     QAStageResultRecord,
 )
@@ -51,9 +52,12 @@ if TYPE_CHECKING:
     # (AG3-028 KONFLIKT-2). It lives in the leaf module ``failure_corpus.incident``
     # (which imports only core_types + types, NOT telemetry) -- analogous to
     # ``verify_system.stage_registry.records``.
+    # AG3-108: ``QACheckOutcomeRecord`` added (FK-69 §69.15 per-check outcome
+    # read model; schema owner verify-system).
     ProjectionRecord = (
         QAStageResultRecord
         | QAFindingRecord
+        | QACheckOutcomeRecord
         | StoryMetricsRecord
         | PhaseState
         | Incident
@@ -63,6 +67,7 @@ __all__ = [
     "Incident",
     "PhaseState",
     "ProjectionRecord",
+    "QACheckOutcomeRecord",
     "QAFindingRecord",
     "QAStageResultRecord",
     "StoryMetricsRecord",
@@ -110,9 +115,11 @@ def __getattr__(name: str) -> Any:
         # failure_corpus.incident (which imports no telemetry -> no cycle).
         # AG3-081 (AC4): PhaseState is the typed phase_state_projection record
         # (schema owner AG3-059) -- the union is no longer dict[str, object].
+        # AG3-108: QACheckOutcomeRecord added (FK-69 §69.15).
         return (
             QAStageResultRecord
             | QAFindingRecord
+            | QACheckOutcomeRecord
             | StoryMetricsRecord
             | PhaseState
             | Incident

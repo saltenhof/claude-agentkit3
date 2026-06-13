@@ -51,9 +51,12 @@ def _task() -> Task:
 
 
 def test_task_port_does_not_extend_projection_kind() -> None:
+    # AG3-108 (FK-69 §69.15 Codex-approved): qa_check_outcomes is the 8th
+    # FK-69 table. The task port (tm_tasks) must NOT appear in ProjectionKind.
     assert {kind.value for kind in ProjectionKind} == {
         "qa_stage_results",
         "qa_findings",
+        "qa_check_outcomes",
         "story_metrics",
         "phase_state_projection",
         "fc_incidents",

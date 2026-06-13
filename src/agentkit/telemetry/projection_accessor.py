@@ -31,11 +31,13 @@ from agentkit.telemetry.errors import (
     ProjectionRecordTypeMismatchError,
 )
 from agentkit.verify_system.stage_registry.records import (
+    QACheckOutcomeRecord,
     QAFindingRecord,
     QAStageResultRecord,
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime
     from pathlib import Path
 
     from agentkit.failure_corpus.incident import IncidentDraft
@@ -57,13 +59,14 @@ if TYPE_CHECKING:
 class ProjectionKind(StrEnum):
     """Canonical enum values for all FK-69 tables.
 
-    FK-69 §69.3/§69.4 authorizes exactly 7 tables. WORKFLOW_METRICS is an
-    FK-68 table (telemetry/eventing), not an FK-69 read model, and does not
-    belong here. Story AG3-035 §2.1.1/AK2 is aligned to these 7 values.
+    FK-69 §69.3/§69.4 authorizes 8 tables (7 original + qa_check_outcomes
+    added in AG3-108). WORKFLOW_METRICS is an FK-68 table (telemetry/eventing),
+    not an FK-69 read model, and does not belong here.
     """
 
     QA_STAGE_RESULTS = "qa_stage_results"
     QA_FINDINGS = "qa_findings"
+    QA_CHECK_OUTCOMES = "qa_check_outcomes"
     STORY_METRICS = "story_metrics"
     PHASE_STATE_PROJECTION = "phase_state_projection"
     FC_INCIDENTS = "fc_incidents"
@@ -87,6 +90,9 @@ _ACCESSOR_OWNED_KINDS: frozenset[ProjectionKind] = frozenset(
     {
         ProjectionKind.QA_STAGE_RESULTS,
         ProjectionKind.QA_FINDINGS,
+        # AG3-108: qa_check_outcomes is a verify-system-owned FK-69 read model;
+        # the accessor is its DB owner (FK-69 §69.15).
+        ProjectionKind.QA_CHECK_OUTCOMES,
         ProjectionKind.STORY_METRICS,
         # AG3-028 CONFLICT-2: fc_incidents is accessor-owned after this story
         # (FK-69 §69.9/§69.14 route fc_* explicitly via write_projection). The
@@ -132,6 +138,14 @@ class ProjectionFilter:
         run_id: Run-ID filter (recommended for run-scoped queries).
         attempt_no: Attempt number (only relevant for QA tables).
         stage_id: Stage-ID (only relevant for QA tables).
+        check_id: Exact-match filter on the executed-check identifier
+            (only relevant for ``qa_check_outcomes``; AG3-108).
+        since_days: UTC window filter: ``occurred_at >= now - since_days``
+            days. Only relevant for ``qa_check_outcomes``; 0 means today
+            only; negative values are treated as 0 (AG3-108).
+            Callers that need reproducible tests MUST inject ``_now`` via
+            the ``QACheckOutcomesRepository.read`` time parameter instead
+            of relying on ``since_days`` alone.
     """
 
     project_key: str | None = None
@@ -139,6 +153,8 @@ class ProjectionFilter:
     run_id: str | None = None
     attempt_no: int | None = None
     stage_id: str | None = None
+    check_id: str | None = None
+    since_days: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +213,7 @@ def _build_kind_to_record_type() -> dict[ProjectionKind, type]:
     return {
         ProjectionKind.QA_STAGE_RESULTS: QAStageResultRecord,
         ProjectionKind.QA_FINDINGS: QAFindingRecord,
+        ProjectionKind.QA_CHECK_OUTCOMES: QACheckOutcomeRecord,
         ProjectionKind.STORY_METRICS: _StoryMetricsRecord,
         ProjectionKind.FC_INCIDENTS: _Incident,
         # PHASE_STATE_PROJECTION has no BC-owned record type in AG3-035;
@@ -306,6 +323,9 @@ class ProjectionAccessor:
         elif projection_kind is ProjectionKind.QA_FINDINGS:
             assert isinstance(record, QAFindingRecord)
             self._repos.qa_findings.write(record)
+        elif projection_kind is ProjectionKind.QA_CHECK_OUTCOMES:
+            assert isinstance(record, QACheckOutcomeRecord)
+            self._repos.qa_check_outcomes.write(record)
         elif projection_kind is ProjectionKind.STORY_METRICS:
             # StoryMetricsRecord is runtime-lazy loaded (anti-circular-import).
             # The isinstance check ran above via _get_kind_to_record_type();
@@ -405,12 +425,19 @@ class ProjectionAccessor:
         self,
         projection_kind: ProjectionKind,
         filter: ProjectionFilter,  # noqa: A002
+        *,
+        _now: datetime | None = None,
     ) -> list[ProjectionRecord]:
         """Read projection records, filtered, from the state backend.
 
         Args:
             projection_kind: The FK-69 table family.
             filter: Optional filter parameters (project_key, story_id, run_id, ...).
+            _now: Optional injectable UTC clock for the ``since_days`` window
+                (only relevant for ``QA_CHECK_OUTCOMES``). When ``None`` the
+                repository defaults to ``datetime.now(UTC)``. Use this seam in
+                tests to make the UTC boundary deterministic without reaching
+                into private repository internals (AG3-108 ERROR 4).
 
         Returns:
             List of ``ProjectionRecord`` instances (empty when no matches).
@@ -438,6 +465,27 @@ class ProjectionAccessor:
                     run_id=filter.run_id,
                     attempt_no=filter.attempt_no,
                     stage_id=filter.stage_id,
+                )
+            )
+        elif projection_kind is ProjectionKind.QA_CHECK_OUTCOMES:
+            # AG3-108: project_key is mandatory for qa_check_outcomes
+            # (FK-69 §69.2 rule 2 / §69.15.6 rule 7 fail-closed).
+            if not filter.project_key:
+                raise ValueError(
+                    "read_projection(QA_CHECK_OUTCOMES) requires "
+                    "ProjectionFilter.project_key (FK-69 §69.15.6 rule 7: "
+                    "missing project_key is a hard error)"
+                )
+            return list(
+                self._repos.qa_check_outcomes.read(
+                    project_key=filter.project_key,
+                    story_id=filter.story_id,
+                    run_id=filter.run_id,
+                    attempt_no=filter.attempt_no,
+                    stage_id=filter.stage_id,
+                    check_id=filter.check_id,
+                    since_days=filter.since_days,
+                    _now=_now,
                 )
             )
         elif projection_kind is ProjectionKind.STORY_METRICS:
@@ -532,6 +580,10 @@ class ProjectionAccessor:
         )
         purged_rows[ProjectionKind.QA_FINDINGS] = self._repos.qa_findings.purge_run(
             project_key, story_id, run_id
+        )
+        # AG3-108: qa_check_outcomes is a mandatory FK-69 table; purge on reset.
+        purged_rows[ProjectionKind.QA_CHECK_OUTCOMES] = (
+            self._repos.qa_check_outcomes.purge_run(project_key, story_id, run_id)
         )
         purged_rows[ProjectionKind.STORY_METRICS] = self._repos.story_metrics.purge_run(
             project_key, story_id, run_id

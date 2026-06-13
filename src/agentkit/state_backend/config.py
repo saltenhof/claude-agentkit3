@@ -151,7 +151,14 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # lineage. Fresh schemas get them from the canonical Postgres/SQLite DDL;
 # existing schemas get the idempotent additive ALTER TABLE migrations
 # (defaults NULL / '[]', backward-compatible; FK-18 §18.9a).
-SCHEMA_VERSION = "3.26.0"
+# 3.27.0 (AG3-108): qa_check_outcomes table added (FK-69 §69.15). Schema-Owner
+# verify-system, DB-Owner telemetry-and-events. Records EVERY executed QA check
+# with outcome triggered/clean/overridden, composite PK
+# (project_key, run_id, stage_id, attempt_no, check_id). Fresh schemas get the
+# table from the canonical Postgres/SQLite DDL. Side-by-side migration
+# (FK-18 §18.9a): a fresh ak3_v3_27_0 schema / agentkit_3_27_0.sqlite is
+# created; the old 3.26.0 DB is never touched.
+SCHEMA_VERSION = "3.27.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 # AG3-051: reserved test-schema namespace. Disjoint from the production schema
 # name (``ak3_v<slug>``), so a test override can never resolve onto production

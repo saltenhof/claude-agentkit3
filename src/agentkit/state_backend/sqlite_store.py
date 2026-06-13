@@ -356,7 +356,11 @@ def _ensure_schema_runtime_tables(conn: sqlite3.Connection) -> None:
             actor_id TEXT NOT NULL,
             reason TEXT NOT NULL,
             created_at TEXT NOT NULL,
-            consumed_at TEXT
+            consumed_at TEXT,
+            -- AG3-108: override->check correlation (FK-69 §69.11 rule 3, §69.15.6
+            -- rule 5). NULL for non-check overrides; set when this override
+            -- suppresses a specific QA check (outcome = overridden).
+            check_id TEXT
         );
 
         CREATE TABLE IF NOT EXISTS decision_records (
@@ -578,6 +582,25 @@ def _ensure_schema_core_tables_b(conn: sqlite3.Connection) -> None:
             detail           TEXT,
             metadata_json    TEXT NOT NULL DEFAULT '{}',
             PRIMARY KEY (project_key, run_id, attempt_no, stage_id, finding_id)
+        );
+
+        -- AG3-108 (FK-69 §69.15): qa_check_outcomes. Schema-Owner verify-system,
+        -- DB-Owner telemetry-and-events via ProjectionAccessor / FacadeQACheckOutcomesRepository.
+        -- Records EVERY executed QA check: triggered (finding produced), clean (PASS),
+        -- or overridden (suppressed). Composite PK enforces uniqueness per
+        -- (project, run, stage, attempt, check).
+        CREATE TABLE IF NOT EXISTS qa_check_outcomes (
+            project_key          TEXT NOT NULL,
+            story_id             TEXT NOT NULL,
+            run_id               TEXT NOT NULL,
+            stage_id             TEXT NOT NULL,
+            attempt_no           INTEGER NOT NULL,
+            check_id             TEXT NOT NULL,
+            outcome              TEXT NOT NULL,
+            occurred_at          TEXT NOT NULL,
+            check_proposal_ref   TEXT,
+            override_id          TEXT,
+            PRIMARY KEY (project_key, run_id, stage_id, attempt_no, check_id)
         );
 
         -- AG3-037 (FK-68 §68.8): governance risk window. Schema-Owner
@@ -2727,8 +2750,8 @@ def save_override_record_row(story_dir: Path, row: dict[str, Any]) -> None:
             INSERT INTO override_records (
                 override_id, story_id, project_key, run_id, flow_id,
                 target_node_id, override_type, actor_type, actor_id,
-                reason, created_at, consumed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                reason, created_at, consumed_at, check_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(override_id) DO UPDATE SET
                 target_node_id=excluded.target_node_id,
                 override_type=excluded.override_type,
@@ -2736,7 +2759,8 @@ def save_override_record_row(story_dir: Path, row: dict[str, Any]) -> None:
                 actor_id=excluded.actor_id,
                 reason=excluded.reason,
                 created_at=excluded.created_at,
-                consumed_at=excluded.consumed_at
+                consumed_at=excluded.consumed_at,
+                check_id=excluded.check_id
             """,
             (
                 row["override_id"],
@@ -2751,6 +2775,7 @@ def save_override_record_row(story_dir: Path, row: dict[str, Any]) -> None:
                 row["reason"],
                 row["created_at"],
                 row["consumed_at"],
+                row.get("check_id"),
             ),
         )
 

@@ -2801,8 +2801,8 @@ def save_override_record_row(story_dir: Path, row: dict[str, Any]) -> None:
             INSERT INTO override_records (
                 override_id, story_id, project_key, run_id, flow_id,
                 target_node_id, override_type, actor_type, actor_id,
-                reason, created_at, consumed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                reason, created_at, consumed_at, check_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(override_id) DO UPDATE SET
                 target_node_id=excluded.target_node_id,
                 override_type=excluded.override_type,
@@ -2810,7 +2810,8 @@ def save_override_record_row(story_dir: Path, row: dict[str, Any]) -> None:
                 actor_id=excluded.actor_id,
                 reason=excluded.reason,
                 created_at=excluded.created_at,
-                consumed_at=excluded.consumed_at
+                consumed_at=excluded.consumed_at,
+                check_id=excluded.check_id
             """,
             (
                 row["override_id"],
@@ -2825,6 +2826,7 @@ def save_override_record_row(story_dir: Path, row: dict[str, Any]) -> None:
                 row["reason"],
                 row["created_at"],
                 row["consumed_at"],
+                row.get("check_id"),
             ),
         )
 

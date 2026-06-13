@@ -62,11 +62,15 @@ def test_schema_version_helpers_derive_versioned_names() -> None:
     # AG3-072: 3.25.0 -> 3.26.0 (stories.split_from + stories.split_successors
     # columns; FK-54 §54.8.5 materialized split lineage, additive ALTER TABLE
     # migrations, FK-18 §18.9a)
-    assert state_config.SCHEMA_VERSION == "3.26.0"
+    # AG3-108: 3.26.0 -> 3.27.0 (qa_check_outcomes table + check_id column on
+    # override_records; FK-69 §69.15 Per-Check-Outcome-Read-Model + §69.11 rule 3
+    # override->check correlation, Schema-Owner verify-system, Codex-approved,
+    # FK-18 §18.9a)
+    assert state_config.SCHEMA_VERSION == "3.27.0"
     assert state_config.versioned_postgres_schema_name("3.0.0") == "ak3_v3_0_0"
     assert state_config.versioned_sqlite_db_file("3.0.0") == "agentkit_3_0_0.sqlite"
-    assert state_config.versioned_postgres_schema_name() == "ak3_v3_26_0"
-    assert state_config.versioned_sqlite_db_file() == "agentkit_3_26_0.sqlite"
+    assert state_config.versioned_postgres_schema_name() == "ak3_v3_27_0"
+    assert state_config.versioned_sqlite_db_file() == "agentkit_3_27_0.sqlite"
 
 
 def test_schema_version_rejects_non_semver() -> None:

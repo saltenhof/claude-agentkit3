@@ -71,6 +71,10 @@ class OverrideRecord:
     reason: str
     created_at: datetime
     consumed_at: datetime | None = None
+    # AG3-108: override -> check correlation (FK-69 §69.11 rule 3, §69.15.6
+    # rule 5). Set only when this override suppresses a specific QA check
+    # (outcome = overridden). NULL for non-check overrides.
+    check_id: str | None = None
 
     def __post_init__(self) -> None:
         """Normalize wire strings to the closed override enum."""

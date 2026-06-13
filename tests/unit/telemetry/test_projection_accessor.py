@@ -289,13 +289,15 @@ def test_fc_incidents_record_calls_repo() -> None:
 def test_is_accessor_owned_contract() -> None:
     """is_accessor_owned trennt accessor-besessene von extern besessenen Kinds.
 
-    FK-69 §69.3 listet alle 7 Tabellen; §69.4 vergibt Write-Ownership. Der
-    Accessor besitzt QA + story_metrics + (seit AG3-028) fc_incidents; die
-    uebrigen drei Kinds sind bewusst publiziert, aber extern besessen.
+    FK-69 §69.3+§69.15 listet alle 8 Tabellen; §69.4 vergibt Write-Ownership.
+    Der Accessor besitzt QA + qa_check_outcomes + story_metrics + fc_incidents;
+    die uebrigen drei Kinds sind bewusst publiziert, aber extern besessen.
+    AG3-108: qa_check_outcomes (FK-69 §69.15, Codex-approved) ist accessor-owned.
     """
     owned = {
         ProjectionKind.QA_STAGE_RESULTS,
         ProjectionKind.QA_FINDINGS,
+        ProjectionKind.QA_CHECK_OUTCOMES,
         ProjectionKind.STORY_METRICS,
         ProjectionKind.FC_INCIDENTS,
     }
@@ -308,7 +310,7 @@ def test_is_accessor_owned_contract() -> None:
         assert ProjectionAccessor.is_accessor_owned(kind) is True
     for kind in external:
         assert ProjectionAccessor.is_accessor_owned(kind) is False
-    # Vollstaendigkeit: jede der 7 FK-69-Tabellen ist klassifiziert.
+    # Vollstaendigkeit: alle 8 FK-69-Tabellen sind klassifiziert (AG3-108).
     assert owned | external == set(ProjectionKind)
 
 

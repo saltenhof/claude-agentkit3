@@ -62,6 +62,7 @@ from agentkit.pipeline_engine.phase_executor import (
 )
 from agentkit.state_backend.store import (
     load_flow_execution,
+    load_override_records,
     record_verify_decision,
     save_story_context,
 )
@@ -278,6 +279,7 @@ class ImplementationPhaseHandler:
         # state_backend facade). The atomic driver transaction stays encapsulated
         # in the injected batch port (finding D option i).
         from agentkit.bootstrap.composition_root import build_projection_accessor
+        from agentkit.verify_system.check_outcome_emitter import CheckOutcomeEmitter
 
         accessor = build_projection_accessor(s_dir)
         accessor.record_qa_layer_artifacts(
@@ -286,6 +288,24 @@ class ImplementationPhaseHandler:
             attempt_nr=attempt_nr,
             projection_dir=projection_dir,
         )
+        # AG3-108 AC2/AC4: wire CheckOutcomeEmitter into the real QA persistence path.
+        # Emits one qa_check_outcomes row per executed check per layer (triggered /
+        # clean / overridden). The emitter is a verify-system BC producer; the
+        # accessor is the DB owner (FK-69 §69.15).
+        # AC4: load persisted OverrideRecords once (fail-closed: load_override_records
+        # raises on backend errors — no silent swallow) and pass them into every
+        # per-layer emit call so the emitter can mark `overridden` for any check_id
+        # that matches an active override (FK-69 §69.11 rule 3 / §69.15.6 rule 5).
+        _override_records = load_override_records(s_dir)
+        _emitter = CheckOutcomeEmitter()
+        for layer_result in decision.layer_results:
+            _emitter.emit(
+                flow,
+                layer_result,
+                attempt_no=attempt_nr,
+                override_records=_override_records,
+                projection_accessor=accessor,
+            )
         record_verify_decision(
             s_dir,
             decision=decision,

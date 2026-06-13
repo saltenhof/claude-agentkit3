@@ -7,6 +7,10 @@ DRIFT 1 (aufgeloest, AG3-035): FK-69 §69.3 autorisiert genau 7 Tabellen.
 Die Story-Skizze nannte faelschlich 8 (inkl. WORKFLOW_METRICS) -- das ist
 NICHT in FK-69. Dieser Contract-Test pinnt die korrekte Anzahl und die
 korrekten Werte.
+
+AG3-108 (2026-06-13): FK-69 §69.15 autorisiert via Codex Approval Flow eine
+achte Tabelle: qa_check_outcomes (Per-Check-Outcome-Read-Model, Owner
+verify-system). Die Anzahl steigt auf 8.
 """
 
 from __future__ import annotations
@@ -14,13 +18,14 @@ from __future__ import annotations
 from agentkit.telemetry.projection_accessor import ProjectionKind
 
 # ---------------------------------------------------------------------------
-# FK-69 §69.3: Genau 7 Tabellen
+# FK-69 §69.3 + §69.15: Genau 8 Tabellen (AG3-108 erweitert um qa_check_outcomes)
 # ---------------------------------------------------------------------------
 
 
 _FK69_EXPECTED_KINDS = {
     "qa_stage_results",
     "qa_findings",
+    "qa_check_outcomes",
     "story_metrics",
     "phase_state_projection",
     "fc_incidents",
@@ -30,23 +35,25 @@ _FK69_EXPECTED_KINDS = {
 
 
 def test_projection_kind_has_exactly_seven_values() -> None:
-    """FK-69 §69.3 autorisiert exakt 7 Tabellen -- kein WORKFLOW_METRICS.
+    """FK-69 §69.3+§69.15 autorisiert exakt 8 Tabellen (AG3-108: qa_check_outcomes).
 
     DRIFT 1 (AG3-035): Story-Skizze nannte faelschlich 8 Werte. FK-69
-    §69.3 ist autoritativ: genau 7.
+    §69.3 ist autoritativ: die 7 Originaltabellen.
+    AG3-108: FK-69 §69.15 erweitert den Kanon um qa_check_outcomes via
+    Codex Approval Flow. Der Gesamtumfang betraegt nun 8 Tabellen.
     """
     actual_values = {kind.value for kind in ProjectionKind}
-    assert len(actual_values) == 7, (
-        f"ProjectionKind sollte genau 7 Werte haben (FK-69 §69.3). "
+    assert len(actual_values) == 8, (
+        f"ProjectionKind sollte genau 8 Werte haben (FK-69 §69.3+§69.15, AG3-108). "
         f"Gefunden: {sorted(actual_values)}"
     )
 
 
 def test_projection_kind_values_match_fk69_tables() -> None:
-    """ProjectionKind-Werte entsprechen exakt den FK-69 §69.3-Tabellennamen."""
+    """ProjectionKind-Werte entsprechen exakt den FK-69 §69.3+§69.15-Tabellennamen."""
     actual_values = {kind.value for kind in ProjectionKind}
     assert actual_values == _FK69_EXPECTED_KINDS, (
-        f"ProjectionKind-Werte weichen von FK-69 §69.3 ab.\n"
+        f"ProjectionKind-Werte weichen von FK-69 §69.3+§69.15 ab.\n"
         f"Erwartet: {sorted(_FK69_EXPECTED_KINDS)}\n"
         f"Gefunden: {sorted(actual_values)}"
     )

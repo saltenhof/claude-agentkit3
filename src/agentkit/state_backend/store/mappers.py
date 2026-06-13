@@ -808,6 +808,8 @@ def override_record_to_row(record: OverrideRecord) -> dict[str, Any]:
         "reason": record.reason,
         "created_at": record.created_at.isoformat(),
         "consumed_at": record.consumed_at.isoformat() if record.consumed_at else None,
+        # AG3-108: override->check correlation (FK-69 §69.11 rule 3, §69.15.6 rule 5).
+        "check_id": record.check_id,
     }
 
 
@@ -848,6 +850,9 @@ def override_row_to_record(row: dict[str, Any]) -> OverrideRecord:
             if row["consumed_at"] is not None
             else None
         ),
+        # AG3-108: override->check correlation (FK-69 §69.11 rule 3, §69.15.6
+        # rule 5). Legacy rows without the column return None (nullable).
+        check_id=str(row["check_id"]) if row.get("check_id") is not None else None,
     )
 
 

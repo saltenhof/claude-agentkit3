@@ -273,7 +273,8 @@ class StructuralChecker:
         checks_run = 0
 
         # --- Mandatory canonical-state pre-checks (FK-27 §27.4 precondition) --
-        checks_run += self._run_pre_checks(ctx, story_dir, findings)
+        pre_check_count, pre_check_ids = self._run_pre_checks(ctx, story_dir, findings)
+        checks_run += pre_check_count
 
         # --- Stage-registry-driven Layer-1 stages (FK-27 §27.4.1-§27.4.4) -----
         # FK-33 §33.5: collect the INDEPENDENT system change evidence ONCE (one
@@ -295,6 +296,11 @@ class StructuralChecker:
                 if stage.escalated and finding.severity == Severity.BLOCKING:
                     escalated = True
 
+        # AG3-108: populate executed_check_ids so CheckOutcomeEmitter can emit
+        # clean rows for PASS checks (not just triggered from findings).
+        # Includes both pre-check IDs and stage IDs (full executed set).
+        executed_check_ids: list[str] = pre_check_ids + stage_ids_run
+
         passed = not any(f.severity == Severity.BLOCKING for f in findings)
         metadata: dict[str, object] = {
             "total_checks": checks_run,
@@ -305,6 +311,9 @@ class StructuralChecker:
                     ctx.story_type, are_enabled=self._are_provider.is_enabled
                 )
             },
+            # FK-69 §69.15: full set of executed check identifiers so the
+            # CheckOutcomeEmitter can emit clean rows for PASS checks.
+            "executed_check_ids": tuple(executed_check_ids),
         }
         if escalated:
             # FK-27 §27.4.5: impact.violation routes directly to ESCALATED.
@@ -321,16 +330,26 @@ class StructuralChecker:
         ctx: StoryContext,
         story_dir: Path,
         findings: list[Finding],
-    ) -> int:
-        """Run the mandatory canonical-state pre-checks; return checks-run count."""
+    ) -> tuple[int, list[str]]:
+        """Run the mandatory canonical-state pre-checks.
+
+        Returns:
+            A 2-tuple ``(checks_run_count, executed_check_ids)``.  The
+            ``executed_check_ids`` list contains one entry per check that
+            actually ran (AG3-108: needed for CheckOutcomeEmitter clean-row
+            emission).
+        """
         checks_run = 0
+        check_ids_run: list[str] = []
 
         checks_run += 1
+        check_ids_run.append("context_exists")
         f = check_context_exists(story_dir)
         if f:
             findings.append(f)
 
         checks_run += 1
+        check_ids_run.append("context_valid")
         f = check_context_valid(story_dir)
         if f:
             findings.append(f)
@@ -339,14 +358,17 @@ class StructuralChecker:
         implementation_index = _phase_index(profile.phases, "implementation")
         required_prior = list(profile.phases[:implementation_index])
         checks_run += len(required_prior)
+        # One "phase_snapshots" check ID per required phase (matches Finding.check).
+        check_ids_run.extend("phase_snapshots" for _ in required_prior)
         findings.extend(check_phase_snapshots(story_dir, required_prior))
 
         checks_run += 1
+        check_ids_run.append("no_corrupt_state")
         f = check_no_corrupt_state(story_dir)
         if f:
             findings.append(f)
 
-        return checks_run
+        return checks_run, check_ids_run
 
     def _run_stage(
         self,
