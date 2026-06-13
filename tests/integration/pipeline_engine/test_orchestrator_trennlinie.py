@@ -103,8 +103,23 @@ def _fail_outcome(attempt_nr: int) -> QaSubflowOutcome:
     )
 
 
+class _EmptyStageRegistry:
+    """Minimal stage-registry double exposing no stages (AG3-078).
+
+    phase.py builds a per-check check_proposal_ref origin map from
+    ``stage_registry.stages`` (FK-33 §33.2.1); this double carries no stages.
+    """
+
+    stages: tuple[object, ...] = ()
+
+
 class _FailVerifySystem:
     """VerifySystem double returning a non-escalated FAIL (CONTINUE_REMEDIATION)."""
+
+    @property
+    def stage_registry(self) -> _EmptyStageRegistry:
+        """Empty stage registry (AG3-078: no FC-derived origin stages)."""
+        return _EmptyStageRegistry()
 
     def run_qa_subflow(
         self,

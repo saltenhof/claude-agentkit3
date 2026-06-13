@@ -51,6 +51,12 @@ def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, No
     reset_backend_cache_for_tests()
 
 
+class _EmptyStageRegistry:
+    """Minimal stage-registry double exposing no stages (AG3-078, FK-33 §33.2.1)."""
+
+    stages: tuple[object, ...] = ()
+
+
 class _ExplodingVerifySystem:
     """VerifySystem double that fails the test if the QA-subflow is ever called.
 
@@ -58,6 +64,11 @@ class _ExplodingVerifySystem:
     instead of) the QA-subflow: any call here is a wiring bug (the handler
     bypassed the manifest check).
     """
+
+    @property
+    def stage_registry(self) -> _EmptyStageRegistry:
+        """Empty stage registry (AG3-078: no FC-derived origin stages)."""
+        return _EmptyStageRegistry()
 
     def run_qa_subflow(
         self,
