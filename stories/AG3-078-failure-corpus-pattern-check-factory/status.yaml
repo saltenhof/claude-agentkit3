@@ -1,10 +1,25 @@
 story_id: AG3-078
 title: "Failure-Corpus Stufe 2/3 (Pattern-Promotion + Check-Factory + Effectiveness + CLI, FK-41 §41.5-§41.10): Clustering/Promotion-Writer, 6-Schritt-Check-Factory, Auto-Deaktivierung, failure-corpus-CLI, Sonar-Accept-Frequenz-Signal"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
+completed: "2026-06-13"
 created: "2026-06-07"
 size: L
+# COMPLETED 2026-06-13. Failure-Corpus Stufe 2/3: PatternPromotion (deterministic clustering +
+# symptom_signature ASCII-fold + promotion rules), 6-step CheckFactory (LlmInvariantSharpener via
+# verify-system LlmEvaluator + PromptRuntime; AK3StoryCreationAdapter; approve_check DRAFT-guarded
+# 3-valued APPROVED/REJECTED/REVISE), Effectiveness reading qa_check_outcomes via check_proposal_ref
+# (reconciled normative truth, commit 82e02ba; CP2/CP3/CP4 dissolved), auto-deactivation + kritisch
+# exemption via fc_patterns join, ProjectionAccessor read/write ownership of fc_patterns/
+# fc_check_proposals (no purge_run extension), failure-corpus CLI, Sonar-accept-frequency signal
+# (CP1 fail-closed), ARCH-55 enum migration, F-41-070 fixture. In-scope adds: ProjectionFilter
+# .check_proposal_ref, fc_check_proposals.no_findings_90d, StageDefinition.origin_check_ref ->
+# emitter echo, global max_check_seq() allocation (both stores). Codex (sole gate): 7 ERRORs ->
+# 4 -> 2 -> APPROVE over 6 QA rounds (escalated to Opus per >4-round rule; Opus also found+fixed a
+# real Postgres dict_row max_check_seq bug). Gates green: ruff, mypy 703 (default+linux), GAC-1,
+# 4 concept gates, 6440 unit+contract (0 errors/failures), integration telemetry+verify_system+
+# failure_corpus 59. Unblocks AG3-085.
 depends_on:
   # AG3-028: failure_corpus top-surface predecessor (real build-order edge).
   # AG3-070: project-config owner of the SonarQubeConfig model that must carry
