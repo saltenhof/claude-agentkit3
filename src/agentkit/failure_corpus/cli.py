@@ -26,6 +26,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import argparse
 
+# Shared argument help text (hoisted to avoid duplicated literals, Sonar S1192).
+_HELP_PROJECT_KEY = "Project key"
+
 # ---------------------------------------------------------------------------
 # Parser registration (called from cli/main.py)
 # ---------------------------------------------------------------------------
@@ -45,7 +48,7 @@ def register_subparsers(subparsers: argparse._SubParsersAction) -> None:  # type
         "add-incident",
         help="Record a new incident candidate via FailureCorpus.record_incident",
     )
-    add_p.add_argument("--project-key", required=True, help="Project key")
+    add_p.add_argument("--project-key", required=True, help=_HELP_PROJECT_KEY)
     add_p.add_argument("--story-id", required=True, help="Story ID")
     add_p.add_argument("--run-id", required=True, help="Run ID")
     add_p.add_argument(
@@ -87,17 +90,15 @@ def register_subparsers(subparsers: argparse._SubParsersAction) -> None:  # type
         "suggest-patterns",
         help="Cluster OBSERVED incidents into PatternCandidates",
     )
-    suggest_p.add_argument("--project-key", required=True, help="Project key")
+    suggest_p.add_argument("--project-key", required=True, help=_HELP_PROJECT_KEY)
 
     # review-patterns
     review_pat_p = subparsers.add_parser(
         "review-patterns",
         help="Accept or reject a PatternCandidate (human confirmation gate)",
     )
-    review_pat_p.add_argument("--project-key", required=True, help="Project key")
-    review_pat_p.add_argument(
-        "--pattern-id", required=True, help="Pattern identity (FP-NNNN)"
-    )
+    review_pat_p.add_argument("--project-key", required=True, help=_HELP_PROJECT_KEY)
+    review_pat_p.add_argument("--pattern-id", required=True, help="Pattern identity (FP-NNNN)")
     review_pat_p.add_argument(
         "--decision",
         required=True,
@@ -120,19 +121,13 @@ def register_subparsers(subparsers: argparse._SubParsersAction) -> None:  # type
         "--promotion-rule",
         required=False,
         default=None,
-        help=(
-            "Promotion rule wire value (repetition/high_severity/favorable_checkability; "
-            "required for accepted decision)"
-        ),
+        help=("Promotion rule wire value (repetition/high_severity/favorable_checkability; required for accepted decision)"),
     )
     review_pat_p.add_argument(
         "--category",
         required=False,
         default=None,
-        help=(
-            "FailureCategory wire value (e.g. 'test_omission'; "
-            "required for accepted decision)"
-        ),
+        help=("FailureCategory wire value (e.g. 'test_omission'; required for accepted decision)"),
     )
 
     # review-checks
@@ -140,10 +135,8 @@ def register_subparsers(subparsers: argparse._SubParsersAction) -> None:  # type
         "review-checks",
         help="Approve, reject, or request revision of a CheckProposal",
     )
-    review_chk_p.add_argument("--project-key", required=True, help="Project key")
-    review_chk_p.add_argument(
-        "--check-id", required=True, help="Check proposal identity (CHK-NNNN)"
-    )
+    review_chk_p.add_argument("--project-key", required=True, help=_HELP_PROJECT_KEY)
+    review_chk_p.add_argument("--check-id", required=True, help="Check proposal identity (CHK-NNNN)")
     review_chk_p.add_argument(
         "--decision",
         required=True,
@@ -162,7 +155,7 @@ def register_subparsers(subparsers: argparse._SubParsersAction) -> None:  # type
         "effectiveness-report",
         help="Run the effectiveness job for all ACTIVE checks (FK-41 §41.6.7)",
     )
-    eff_p.add_argument("--project-key", required=True, help="Project key")
+    eff_p.add_argument("--project-key", required=True, help=_HELP_PROJECT_KEY)
     eff_p.add_argument(
         "--window-days",
         type=int,
@@ -175,7 +168,7 @@ def register_subparsers(subparsers: argparse._SubParsersAction) -> None:  # type
         "list-checks",
         help="List all check proposals for a project",
     )
-    list_chk_p.add_argument("--project-key", required=True, help="Project key")
+    list_chk_p.add_argument("--project-key", required=True, help=_HELP_PROJECT_KEY)
     list_chk_p.add_argument(
         "--pattern-id",
         required=False,
@@ -274,9 +267,7 @@ def handle_suggest_patterns(args: argparse.Namespace) -> int:
 
     for cand in candidates:
         print(
-            f"  {cand.pattern_id}: [{cand.category.value}] "
-            f"rule={cand.promotion_rule.value} "
-            f"incidents={len(cand.incident_refs)}"
+            f"  {cand.pattern_id}: [{cand.category.value}] rule={cand.promotion_rule.value} incidents={len(cand.incident_refs)}"
         )
         print(f"    invariant_candidate: {cand.invariant_candidate}")
     return 0
@@ -452,11 +443,7 @@ def handle_list_checks(args: argparse.Namespace) -> int:
         return 0
 
     for chk in results:
-        print(
-            f"  {chk.check_id}: [{chk.status.value}] "
-            f"type={chk.check_type.value} "
-            f"pattern={chk.pattern_ref}"
-        )
+        print(f"  {chk.check_id}: [{chk.status.value}] type={chk.check_type.value} pattern={chk.pattern_ref}")
     return 0
 
 

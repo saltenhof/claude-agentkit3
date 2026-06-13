@@ -189,7 +189,8 @@ def _determine_promotion_rule(
     # REPETITION: >= 3 incidents within 30-day window
     cutoff = _now - timedelta(days=_REPETITION_WINDOW_DAYS)
     recent = [
-        inc for inc in incidents
+        inc
+        for inc in incidents
         if (
             (inc.recorded_at.tzinfo is None and inc.recorded_at >= cutoff.replace(tzinfo=None))
             or (inc.recorded_at.tzinfo is not None and inc.recorded_at >= cutoff)
@@ -199,10 +200,7 @@ def _determine_promotion_rule(
         return PromotionRule.REPETITION
 
     # FAVORABLE_CHECKABILITY: >= 2 incidents AND category maps to LOW FP risk
-    if (
-        len(incidents) >= _FAVORABLE_CHECKABILITY_MIN_COUNT
-        and _fp_risk_for_category(category) is FalsePositiveRisk.LOW
-    ):
+    if len(incidents) >= _FAVORABLE_CHECKABILITY_MIN_COUNT and _fp_risk_for_category(category) is FalsePositiveRisk.LOW:
         return PromotionRule.FAVORABLE_CHECKABILITY
 
     return None
@@ -230,9 +228,7 @@ class PatternPromotion:
         self._pattern_repo = pattern_repo
         self._project_key = project_key
 
-    def suggest_patterns(
-        self, *, _now: datetime | None = None
-    ) -> list[PatternCandidate]:
+    def suggest_patterns(self, *, _now: datetime | None = None) -> list[PatternCandidate]:
         """Cluster OBSERVED incidents into PatternCandidates (FK-41 §41.5, AG3-078).
 
         Reads all FC_INCIDENTS with status OBSERVED for this project, clusters
@@ -258,10 +254,7 @@ class PatternPromotion:
         )
 
         # Filter to OBSERVED status only
-        observed = [
-            inc for inc in all_incidents
-            if isinstance(inc, Incident) and inc.incident_status is IncidentStatus.OBSERVED
-        ]
+        observed = [inc for inc in all_incidents if isinstance(inc, Incident) and inc.incident_status is IncidentStatus.OBSERVED]
 
         # Cluster by (category, symptom_signature)
         clusters: dict[_ClusterKey, list[Incident]] = {}
@@ -331,46 +324,88 @@ class PatternPromotion:
             ValueError: If ACCEPTED but required fields (invariant, risk_level,
                 promotion_rule, category) are missing.
         """
-        now = datetime.now(UTC)
-
         if decision is PatternDecision.ACCEPTED:
-            if invariant is None:
-                raise ValueError("invariant is required for ACCEPTED pattern")
-            if risk_level is None:
-                raise ValueError("risk_level is required for ACCEPTED pattern")
-            if promotion_rule is None:
-                raise ValueError("promotion_rule is required for ACCEPTED pattern")
-            if category is None:
-                raise ValueError("category is required for ACCEPTED pattern")
-            record = FailurePatternRecord(
-                pattern_id=str(pattern_id),
-                project_key=self._project_key,
-                status=PatternStatus.ACCEPTED,
-                category=category,
+            record = self._build_accepted_record(
+                pattern_id,
                 invariant=invariant,
-                incident_refs=incident_refs or [],
-                promotion_rule=promotion_rule,
                 risk_level=risk_level,
-                incident_count=len(incident_refs or []),
-                confirmed_at=now,
-                confirmed_by="human",
+                promotion_rule=promotion_rule,
+                category=category,
+                incident_refs=incident_refs,
             )
         else:
-            # REJECTED — minimal record, no active pipeline effect
-            record = FailurePatternRecord(
-                pattern_id=str(pattern_id),
-                project_key=self._project_key,
-                status=PatternStatus.REJECTED,
-                category=category or FailureCategory.SCOPE_DRIFT,
-                invariant=invariant or "(rejected)",
-                incident_refs=incident_refs or [],
-                promotion_rule=promotion_rule or PromotionRule.REPETITION,
-                risk_level=risk_level or PatternRiskLevel.MEDIUM,
-                incident_count=len(incident_refs or []),
+            record = self._build_rejected_record(
+                pattern_id,
+                invariant=invariant,
+                risk_level=risk_level,
+                promotion_rule=promotion_rule,
+                category=category,
+                incident_refs=incident_refs,
             )
 
         self._pattern_repo.save(record)
         return record
+
+    def _build_accepted_record(
+        self,
+        pattern_id: PatternId,
+        *,
+        invariant: str | None,
+        risk_level: PatternRiskLevel | None,
+        promotion_rule: PromotionRule | None,
+        category: FailureCategory | None,
+        incident_refs: list[str] | None,
+    ) -> FailurePatternRecord:
+        """Build an ACCEPTED ``FailurePatternRecord`` (FK-41 §41.5.3).
+
+        Raises:
+            ValueError: If any required field (invariant, risk_level,
+                promotion_rule, category) is missing for an ACCEPTED pattern.
+        """
+        if invariant is None:
+            raise ValueError("invariant is required for ACCEPTED pattern")
+        if risk_level is None:
+            raise ValueError("risk_level is required for ACCEPTED pattern")
+        if promotion_rule is None:
+            raise ValueError("promotion_rule is required for ACCEPTED pattern")
+        if category is None:
+            raise ValueError("category is required for ACCEPTED pattern")
+        return FailurePatternRecord(
+            pattern_id=str(pattern_id),
+            project_key=self._project_key,
+            status=PatternStatus.ACCEPTED,
+            category=category,
+            invariant=invariant,
+            incident_refs=incident_refs or [],
+            promotion_rule=promotion_rule,
+            risk_level=risk_level,
+            incident_count=len(incident_refs or []),
+            confirmed_at=datetime.now(UTC),
+            confirmed_by="human",
+        )
+
+    def _build_rejected_record(
+        self,
+        pattern_id: PatternId,
+        *,
+        invariant: str | None,
+        risk_level: PatternRiskLevel | None,
+        promotion_rule: PromotionRule | None,
+        category: FailureCategory | None,
+        incident_refs: list[str] | None,
+    ) -> FailurePatternRecord:
+        """Build a REJECTED ``FailurePatternRecord`` (minimal, no pipeline effect)."""
+        return FailurePatternRecord(
+            pattern_id=str(pattern_id),
+            project_key=self._project_key,
+            status=PatternStatus.REJECTED,
+            category=category or FailureCategory.SCOPE_DRIFT,
+            invariant=invariant or "(rejected)",
+            incident_refs=incident_refs or [],
+            promotion_rule=promotion_rule or PromotionRule.REPETITION,
+            risk_level=risk_level or PatternRiskLevel.MEDIUM,
+            incident_count=len(incident_refs or []),
+        )
 
 
 def _derive_invariant_candidate(incidents: list[Incident]) -> str:

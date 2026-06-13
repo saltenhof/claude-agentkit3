@@ -109,9 +109,7 @@ _ACCESSOR_OWNED_KINDS: frozenset[ProjectionKind] = frozenset(
 # Externally owned kinds: published in ProjectionKind (FK-69 §69.3), but the
 # data path belongs by design to another writer / another story.
 _EXTERNALLY_OWNED_KINDS: dict[ProjectionKind, str] = {
-    ProjectionKind.PHASE_STATE_PROJECTION: (
-        "pipeline_engine.PhaseExecutor (FK-69 §69.4 Write-Ownership)"
-    ),
+    ProjectionKind.PHASE_STATE_PROJECTION: ("pipeline_engine.PhaseExecutor (FK-69 §69.4 Write-Ownership)"),
 }
 
 
@@ -193,6 +191,7 @@ class PurgeResult:
 # ---------------------------------------------------------------------------
 # ProjectionAccessor
 # ---------------------------------------------------------------------------
+
 
 def _build_kind_to_record_type() -> dict[ProjectionKind, type]:
     """Build the mapping ProjectionKind -> allowed record type (FK-69 §69.4).
@@ -304,9 +303,7 @@ class ProjectionAccessor:
         if projection_kind not in _ACCESSOR_OWNED_KINDS:
             raise ProjectionKindNotAccessorOwnedError(
                 kind=projection_kind,
-                owner=_EXTERNALLY_OWNED_KINDS.get(
-                    projection_kind, "unknown (no FK-69 owner registered)"
-                ),
+                owner=_EXTERNALLY_OWNED_KINDS.get(projection_kind, "unknown (no FK-69 owner registered)"),
             )
 
         # AG3-028 Codex-r1: fc_incidents is written via the dedicated
@@ -438,6 +435,21 @@ class ProjectionAccessor:
         """Return whether a project-scoped story target exists."""
         return self._repos.tasks.story_target_exists(project_key, story_id)
 
+    @staticmethod
+    def _require_project_key(project_key: str | None, *, kind_label: str, fk_ref: str) -> str:
+        """Return the project key or raise (FAIL-CLOSED: project-bound reads).
+
+        Hoisted out of :meth:`read_projection` so each project-bound branch is a
+        single flat guard call instead of a nested ``if`` (keeps the dispatch
+        below the cognitive-complexity ceiling, Sonar S3776).
+
+        Raises:
+            ValueError: If ``project_key`` is missing/empty.
+        """
+        if not project_key:
+            raise ValueError(f"read_projection({kind_label}) requires ProjectionFilter.project_key ({fk_ref})")
+        return project_key
+
     def read_projection(
         self,
         projection_kind: ProjectionKind,
@@ -487,15 +499,14 @@ class ProjectionAccessor:
         elif projection_kind is ProjectionKind.QA_CHECK_OUTCOMES:
             # AG3-108: project_key is mandatory for qa_check_outcomes
             # (FK-69 §69.2 rule 2 / §69.15.6 rule 7 fail-closed).
-            if not filter.project_key:
-                raise ValueError(
-                    "read_projection(QA_CHECK_OUTCOMES) requires "
-                    "ProjectionFilter.project_key (FK-69 §69.15.6 rule 7: "
-                    "missing project_key is a hard error)"
-                )
+            project_key = self._require_project_key(
+                filter.project_key,
+                kind_label="QA_CHECK_OUTCOMES",
+                fk_ref="FK-69 §69.15.6 rule 7: missing project_key is a hard error",
+            )
             return list(
                 self._repos.qa_check_outcomes.read(
-                    project_key=filter.project_key,
+                    project_key=project_key,
                     story_id=filter.story_id,
                     run_id=filter.run_id,
                     attempt_no=filter.attempt_no,
@@ -519,15 +530,14 @@ class ProjectionAccessor:
             # queries are always project-bound -> project_key is mandatory
             # (FAIL-CLOSED; Codex-r1). If project_key is missing, the repo read
             # fails with ValueError instead of silently returning all projects.
-            if not filter.project_key:
-                raise ValueError(
-                    "read_projection(FC_INCIDENTS) requires "
-                    "ProjectionFilter.project_key (FK-41 §41.3.1: queries are "
-                    "always project-bound)"
-                )
+            project_key = self._require_project_key(
+                filter.project_key,
+                kind_label="FC_INCIDENTS",
+                fk_ref="FK-41 §41.3.1: queries are always project-bound",
+            )
             return list(
                 self._repos.fc_incidents.read(
-                    project_key=filter.project_key,
+                    project_key=project_key,
                     story_id=filter.story_id,
                     run_id=filter.run_id,
                 )
@@ -535,37 +545,31 @@ class ProjectionAccessor:
         elif projection_kind is ProjectionKind.FC_PATTERNS:
             # AG3-078: FC_PATTERNS now accessor-owned (FK-41 §41.5, read/write wired).
             # project_key is mandatory (FAIL-CLOSED, analogous to FC_INCIDENTS).
-            if not filter.project_key:
-                raise ValueError(
-                    "read_projection(FC_PATTERNS) requires "
-                    "ProjectionFilter.project_key (FK-41 §41.3.2: queries are "
-                    "always project-bound)"
-                )
-            return list(self._repos.fc_patterns.list_for_project(filter.project_key))
+            project_key = self._require_project_key(
+                filter.project_key,
+                kind_label="FC_PATTERNS",
+                fk_ref="FK-41 §41.3.2: queries are always project-bound",
+            )
+            return list(self._repos.fc_patterns.list_for_project(project_key))
         elif projection_kind is ProjectionKind.FC_CHECK_PROPOSALS:
             # AG3-078: FC_CHECK_PROPOSALS now accessor-owned (FK-41 §41.6, read/write wired).
             # project_key is mandatory (FAIL-CLOSED, analogous to FC_INCIDENTS).
-            if not filter.project_key:
-                raise ValueError(
-                    "read_projection(FC_CHECK_PROPOSALS) requires "
-                    "ProjectionFilter.project_key (FK-41 §41.3.3: queries are "
-                    "always project-bound)"
-                )
+            project_key = self._require_project_key(
+                filter.project_key,
+                kind_label="FC_CHECK_PROPOSALS",
+                fk_ref="FK-41 §41.3.3: queries are always project-bound",
+            )
             # List proposals for the project.
             # If pattern_ref filter provided (via story_id field), scope to that pattern.
             if filter.story_id is not None:
                 return list(self._repos.fc_check_proposals.list_for_pattern(filter.story_id))
             # Single-query project scan — symmetric with fc_patterns (list_for_project).
-            return list(
-                self._repos.fc_check_proposals.list_for_project(filter.project_key)
-            )
+            return list(self._repos.fc_check_proposals.list_for_project(project_key))
         # Externally owned kinds (PHASE_STATE_PROJECTION): fail-closed with owner naming.
         # phase_state reads run directly via facade.load_phase_state.
         raise ProjectionKindNotAccessorOwnedError(
             kind=projection_kind,
-            owner=_EXTERNALLY_OWNED_KINDS.get(
-                projection_kind, "unknown (no FK-69 owner registered)"
-            ),
+            owner=_EXTERNALLY_OWNED_KINDS.get(projection_kind, "unknown (no FK-69 owner registered)"),
         )
 
     def purge_run(
@@ -618,22 +622,12 @@ class ProjectionAccessor:
         # NOT vanish in the blanket catch (FK-69 §69.10.1/§69.11.5: no FK-69
         # state after reset; no productive reset caller gates on errors==[]).
         # These errors escalate hard.
-        purged_rows[ProjectionKind.QA_STAGE_RESULTS] = (
-            self._repos.qa_stage_results.purge_run(project_key, story_id, run_id)
-        )
-        purged_rows[ProjectionKind.QA_FINDINGS] = self._repos.qa_findings.purge_run(
-            project_key, story_id, run_id
-        )
+        purged_rows[ProjectionKind.QA_STAGE_RESULTS] = self._repos.qa_stage_results.purge_run(project_key, story_id, run_id)
+        purged_rows[ProjectionKind.QA_FINDINGS] = self._repos.qa_findings.purge_run(project_key, story_id, run_id)
         # AG3-108: qa_check_outcomes is a mandatory FK-69 table; purge on reset.
-        purged_rows[ProjectionKind.QA_CHECK_OUTCOMES] = (
-            self._repos.qa_check_outcomes.purge_run(project_key, story_id, run_id)
-        )
-        purged_rows[ProjectionKind.STORY_METRICS] = self._repos.story_metrics.purge_run(
-            project_key, story_id, run_id
-        )
-        purged_rows[ProjectionKind.FC_INCIDENTS] = self._repos.fc_incidents.purge_run(
-            project_key, story_id, run_id
-        )
+        purged_rows[ProjectionKind.QA_CHECK_OUTCOMES] = self._repos.qa_check_outcomes.purge_run(project_key, story_id, run_id)
+        purged_rows[ProjectionKind.STORY_METRICS] = self._repos.story_metrics.purge_run(project_key, story_id, run_id)
+        purged_rows[ProjectionKind.FC_INCIDENTS] = self._repos.fc_incidents.purge_run(project_key, story_id, run_id)
         # AG3-037 (FK-68 §68.8): the run's risk-window rows are part of a full
         # reset. risk_window is an FK-68 telemetry read-model (NOT an FK-69
         # ProjectionKind, FK-69 §69.3), so it is purged here but not counted in
@@ -648,9 +642,7 @@ class ProjectionAccessor:
         # state may survive a full reset; the already-aggregated fact_guard_period
         # contributions are re-computed by AG3-082), so a failure escalates hard
         # like the mandatory FK-69 tables rather than degrading into errors[].
-        purged_guard_counters = self._repos.guard_counter_purge.purge_story(
-            project_key, story_id
-        )
+        purged_guard_counters = self._repos.guard_counter_purge.purge_story(project_key, story_id)
 
         # Best-effort ONLY for phase_state_projection: its legacy-schema variants
         # (missing project_key/run_id columns, not-guaranteed-bootstrapped table
@@ -659,16 +651,11 @@ class ProjectionAccessor:
         # collected separately here instead of blocking the reset of the mandatory
         # tables — write owner is pipeline_engine.PhaseExecutor.
         try:
-            purged_rows[ProjectionKind.PHASE_STATE_PROJECTION] = (
-                self._repos.phase_state_projection.purge_run(
-                    project_key, story_id, run_id
-                )
+            purged_rows[ProjectionKind.PHASE_STATE_PROJECTION] = self._repos.phase_state_projection.purge_run(
+                project_key, story_id, run_id
             )
         except Exception as exc:  # noqa: BLE001
-            errors.append(
-                f"purge_run {ProjectionKind.PHASE_STATE_PROJECTION!r}: "
-                f"{type(exc).__name__}: {exc}"
-            )
+            errors.append(f"purge_run {ProjectionKind.PHASE_STATE_PROJECTION!r}: {type(exc).__name__}: {exc}")
 
         return PurgeResult(
             purged_rows=purged_rows,

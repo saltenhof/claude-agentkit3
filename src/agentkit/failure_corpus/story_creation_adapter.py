@@ -18,9 +18,10 @@ from agentkit.failure_corpus.check_factory import StoryCreationPort
 class AK3StoryCreationAdapter:
     """Concrete StoryCreationPort: delegates to ``StoryService.create_story``.
 
-    Creates an Implementation-type story titled
-    ``"[FC-CHECK] Implement check {check_id}"`` in the given project.
-    The story body includes the sharpened invariant and check type.
+    Creates an Implementation-type story whose title carries the sharpened
+    invariant (``"[FC-CHECK] Implement check {check_id}: {invariant}"``) in the
+    given project. The ``check_id``, ``pattern_ref`` and ``check_type`` travel as
+    typed labels so the implementing worker can route by check type.
 
     Args:
         project_key: Project key for the created story.
@@ -62,7 +63,7 @@ class AK3StoryCreationAdapter:
 
         try:
             service = StoryService()
-            title = f"[FC-CHECK] Implement check {check_id}"
+            title = f"[FC-CHECK] Implement check {check_id}: {invariant}"
             request = CreateStoryInput(
                 project_key=self._project_key,
                 title=title,
@@ -71,7 +72,11 @@ class AK3StoryCreationAdapter:
                 epic="failure-corpus",
                 module="failure-corpus",
                 owner="failure-corpus",
-                labels=[f"fc-check:{check_id}", f"pattern:{pattern_ref}"],
+                labels=[
+                    f"fc-check:{check_id}",
+                    f"pattern:{pattern_ref}",
+                    f"check-type:{check_type}",
+                ],
             )
             op_id = f"fc-check-story-{check_id}-{uuid.uuid4().hex[:8]}"
             story = service.create_story(request, op_id=op_id)
