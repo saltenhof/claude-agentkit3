@@ -116,6 +116,24 @@ class EventType(StrEnum):
     #: exploration-phase class-4 mandate exceedance check.
     IMPACT_EXCEEDANCE_CHECK = "impact_exceedance_check"
 
+    # Governance observation (FK-35 §35.3, FK-91 Kapitel 35). AG3-085 owns the
+    # catalogue values and their mandatory-payload contracts; the emitters live in
+    # the governance-observer BC (``agentkit.governance.governance_observer``).
+    # ``GOVERNANCE_SIGNAL`` is consumed (not produced) by the observer — produced
+    # by hook-sensor AG3-086. The other three are emitted by the observer.
+    #
+    # Mandatory payload contracts (FK-35 §35.3.7 / §35.3.6 / §35.3.8):
+    # - GOVERNANCE_SIGNAL:        risk_points (int), signal_type (str), actor (str)
+    # - GOVERNANCE_ADJUDICATION:  incident_type, severity, confidence,
+    #                             recommended_action, signal_type
+    # - GOVERNANCE_INCIDENT_OPENED: risk_score (int), event_count (int),
+    #                             dominant_signals (list)
+    # - GOVERNANCE_MEASURE_APPLIED: measure (str), severity (str)
+    GOVERNANCE_SIGNAL = "governance_signal"
+    GOVERNANCE_ADJUDICATION = "governance_adjudication"
+    GOVERNANCE_INCIDENT_OPENED = "governance_incident_opened"
+    GOVERNANCE_MEASURE_APPLIED = "governance_measure_applied"
+
     # Governance risk window (FK-68 §68.9.2 preflight sentinel). Emitted by the
     # preflight sentinel when the preflight stream is unbalanced.
     PREFLIGHT_COMPLIANCE_VIOLATION = "preflight_compliance_violation"
@@ -293,6 +311,25 @@ MANDATORY_PAYLOAD_FIELDS: Mapping[EventType, tuple[str, ...]] = {
     EventType.GATE_RESOLVED: ("gate_id", "result"),
     EventType.RULEBOOK_COMPILED: ("rulebook_id",),
     EventType.WAVE_COLLAPSED: ("wave_id", "story_count"),
+    # FK-35 §35.3 / FK-91 Kapitel 35 — Governance-Observer events (AG3-085).
+    # ``GOVERNANCE_SIGNAL`` is consumed-only by the observer (produced by
+    # AG3-086 hook-sensors); its mandatory fields are pinned here so the
+    # hook-sensor producer can validate against the same contract.
+    EventType.GOVERNANCE_SIGNAL: ("risk_points", "signal_type", "actor"),
+    # The three observer-emitted events (FK-35 §35.3.7 / §35.3.6 / §35.3.8):
+    EventType.GOVERNANCE_ADJUDICATION: (
+        "incident_type",
+        "severity",
+        "confidence",
+        "recommended_action",
+        "signal_type",
+    ),
+    EventType.GOVERNANCE_INCIDENT_OPENED: (
+        "risk_score",
+        "event_count",
+        "dominant_signals",
+    ),
+    EventType.GOVERNANCE_MEASURE_APPLIED: ("measure", "severity"),
     # FK-68 §68.2.2 (Z. 397-399) — BC15 ARE / Requirements events.
     EventType.ARE_REQUIREMENTS_LINKED: ("story_id", "requirement_count"),
     EventType.ARE_EVIDENCE_SUBMITTED: ("story_id", "evidence_type"),

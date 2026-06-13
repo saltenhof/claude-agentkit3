@@ -93,6 +93,11 @@ _EXPECTED_EVENT_VALUES = {
     "impact_exceedance_check",
     # Preflight sentinel (FK-68 §68.9.2, AG3-037)
     "preflight_compliance_violation",
+    # Governance observation (FK-35 §35.3, FK-91 Kapitel 35, AG3-085)
+    "governance_signal",
+    "governance_adjudication",
+    "governance_incident_opened",
+    "governance_measure_applied",
     # QA / general
     "artifact_invalidated",
     "error",
@@ -204,6 +209,21 @@ _EXPECTED_MANDATORY_FIELDS: dict[EventType, tuple[str, ...]] = {
     EventType.ARE_REQUIREMENTS_LINKED: ("story_id", "requirement_count"),
     EventType.ARE_EVIDENCE_SUBMITTED: ("story_id", "evidence_type"),
     EventType.ARE_GATE_RESULT: ("story_id", "result"),
+    # Governance observation (FK-35 §35.3, FK-91 Kapitel 35, AG3-085).
+    EventType.GOVERNANCE_SIGNAL: ("risk_points", "signal_type", "actor"),
+    EventType.GOVERNANCE_ADJUDICATION: (
+        "incident_type",
+        "severity",
+        "confidence",
+        "recommended_action",
+        "signal_type",
+    ),
+    EventType.GOVERNANCE_INCIDENT_OPENED: (
+        "risk_score",
+        "event_count",
+        "dominant_signals",
+    ),
+    EventType.GOVERNANCE_MEASURE_APPLIED: ("measure", "severity"),
 }
 
 # ``are_gate_result`` is intentionally absent: AG3-081 (§2.1.3) raised it to a

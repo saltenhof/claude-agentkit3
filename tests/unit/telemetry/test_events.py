@@ -98,6 +98,11 @@ class TestEventType:
             "ARTIFACT_INVALIDATED",
             "ERROR",
             "WARNING",
+            # AG3-085: governance observation (FK-91 event catalog)
+            "GOVERNANCE_SIGNAL",
+            "GOVERNANCE_ADJUDICATION",
+            "GOVERNANCE_INCIDENT_OPENED",
+            "GOVERNANCE_MEASURE_APPLIED",
         }
         actual = {m.name for m in EventType}
         assert actual == expected

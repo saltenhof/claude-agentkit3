@@ -90,6 +90,21 @@ def reset_backend_cache_for_tests() -> None:
     _backend_module.cache_clear()
 
 
+def active_backend_is_sqlite() -> bool:
+    """Return ``True`` when the active backend is SQLite.
+
+    Exposes the backend-kind discriminant at the sanctioned ``state_backend.store``
+    surface so BCs that need to adapt their construction contract for SQLite
+    (e.g. GovernanceObserver reader FIX C) can check without importing the
+    restricted ``state_backend.config`` module (architecture conformance AC010/AC011).
+
+    Returns:
+        ``True`` iff the active configured backend is SQLite.
+    """
+    config = load_state_backend_config()
+    return config.backend is StateBackendKind.SQLITE
+
+
 def control_plane_backend_available() -> bool:
     """Whether the active backend provides the control-plane operation store (#3).
 
@@ -588,6 +603,7 @@ def load_execution_events(
     story_id: str | None = None,
     run_id: str | None = None,
     event_type: str | None = None,
+    limit: int | None = None,
 ) -> list[ExecutionEventRecord]:
     rows = _backend_module().load_execution_event_rows(
         story_dir,
@@ -595,6 +611,7 @@ def load_execution_events(
         story_id=story_id,
         run_id=run_id,
         event_type=event_type,
+        limit=limit,
     )
     return [mappers.execution_event_row_to_record(row) for row in rows]
 
@@ -637,6 +654,59 @@ def load_execution_events_for_project_global(
         limit=limit,
     )
     return [mappers.execution_event_row_to_record(row) for row in rows]
+
+
+def load_last_adjudication_ts(
+    story_dir: Path,
+    *,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    payload_signal_type: str,
+) -> float | None:
+    """Return the UNIX timestamp of the last ``governance_adjudication`` for the scope.
+
+    Implements FK-35 §35.3.11: queries the EXACT ``(project_key, story_id,
+    run_id, signal_type)`` tuple via a DB-side MAX(occurred_at) with exact
+    JSON matching.  This avoids the bounded-scan + Python-max pattern that can
+    miss same-signal adjudications when 200+ other-signal adjudications are newer.
+
+    Both stores apply identical semantics (``payload_json`` is a ``TEXT``
+    column in both schemas):
+    - SQLite: ``json_extract(payload_json, '$.signal_type') = ?``
+    - Postgres: ``(payload_json::jsonb)->>'signal_type' = ?`` (cast required
+      because the ``->>`` operator does not apply to ``TEXT``).
+
+    Neither uses LIKE (which could false-match substrings).
+
+    Args:
+        story_dir: Story directory (used by the SQLite driver; ignored by Postgres
+            which derives the connection from the environment).
+        project_key: Exact project scope.
+        story_id: Exact story scope.
+        run_id: Exact run scope.
+        payload_signal_type: Exact ``signal_type`` wire value to match.
+
+    Returns:
+        UNIX float timestamp of the most-recent matching adjudication, or
+        ``None`` when no such adjudication exists.
+    """
+    from datetime import UTC, datetime
+
+    raw = _backend_module().max_adjudication_occurred_at(
+        story_dir,
+        project_key=project_key,
+        story_id=story_id,
+        run_id=run_id,
+        payload_signal_type=payload_signal_type,
+    )
+    if raw is None:
+        return None
+    # occurred_at is stored as ISO-8601; parse and return as UNIX float.
+    dt = datetime.fromisoformat(raw)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.timestamp()
 
 
 # ---------------------------------------------------------------------------

@@ -2514,9 +2514,19 @@ def load_execution_event_rows(
     story_id: str | None = None,
     run_id: str | None = None,
     event_type: str | None = None,
+    limit: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Return execution-event row dicts matching the given filters."""
+    """Return execution-event row dicts matching the given filters.
 
+    When *limit* is ``None`` rows are ordered ``occurred_at ASC, event_id ASC``
+    (chronological — default for existing callers such as closure).  When *limit*
+    is set to a positive integer the query flips to ``ORDER BY occurred_at DESC,
+    event_id DESC LIMIT limit`` so the *most-recent* rows are returned first
+    (FK-35 §35.3.5 rolling-window semantics).  A non-positive *limit* returns
+    an empty list immediately.
+    """
+    if limit is not None and limit <= 0:
+        return []
     clauses: list[str] = []
     params: list[object] = []
     if project_key is not None:
@@ -2532,6 +2542,11 @@ def load_execution_event_rows(
         clauses.append("event_type = ?")
         params.append(event_type)
     where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    if limit is not None:
+        params.append(limit)
+        order_and_limit = "ORDER BY occurred_at DESC, event_id DESC LIMIT ?"
+    else:
+        order_and_limit = "ORDER BY occurred_at ASC, event_id ASC"
     with _connect(story_dir) as conn:
         rows = conn.execute(
             f"""
@@ -2540,7 +2555,107 @@ def load_execution_event_rows(
                    node_id, payload_json
             FROM execution_events
             {where_clause}
-            ORDER BY occurred_at ASC, event_id ASC
+            {order_and_limit}
+            """,
+            tuple(params),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def max_adjudication_occurred_at(
+    story_dir: Path,
+    *,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    payload_signal_type: str,
+) -> str | None:
+    """Return MAX(occurred_at) for governance_adjudication rows matching the exact scope.
+
+    Implements FK-35 §35.3.11: the last adjudication timestamp for the EXACT
+    ``(project_key, story_id, run_id, signal_type)`` tuple.  Uses
+    ``json_extract(payload_json, '$.signal_type') = ?`` (NOT LIKE) to avoid
+    false matches on substring keys.  Returns the raw ISO-8601 string from the
+    DB (``occurred_at`` column), or ``None`` when no matching row exists.
+
+    Args:
+        story_dir: Story directory for the SQLite database.
+        project_key: Exact project scope.
+        story_id: Exact story scope.
+        run_id: Exact run scope.
+        payload_signal_type: Exact ``signal_type`` value to match in the JSON payload.
+
+    Returns:
+        ISO-8601 ``occurred_at`` string of the most-recent matching adjudication,
+        or ``None`` when absent.
+    """
+    with _connect(story_dir) as conn:
+        row = conn.execute(
+            """
+            SELECT MAX(occurred_at) AS max_occurred_at
+            FROM execution_events
+            WHERE project_key = ?
+              AND story_id = ?
+              AND run_id = ?
+              AND event_type = 'governance_adjudication'
+              AND json_extract(payload_json, '$.signal_type') = ?
+            """,
+            (project_key, story_id, run_id, payload_signal_type),
+        ).fetchone()
+    if row is None:
+        return None
+    value = row["max_occurred_at"] if isinstance(row, dict) else row[0]
+    return str(value) if value is not None else None
+
+
+def load_execution_event_rows_global(
+    project_key: str,
+    story_id: str,
+    *,
+    run_id: str | None = None,
+    event_type: str | None = None,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """Return execution-event rows ordered DESC by occurred_at for a rolling window.
+
+    Implements the FK-35 §35.3.5 rolling-window query:
+    ``ORDER BY occurred_at DESC LIMIT window_size`` so only the most-recent
+    ``limit`` events are returned.  Callers sum ``payload.risk_points`` over
+    the result to obtain the current risk score (no in-memory accumulation).
+
+    Args:
+        project_key: Project scope filter.
+        story_id: Story scope filter.
+        run_id: Optional run scope filter.
+        event_type: Optional event-type filter (e.g. ``"governance_signal"``).
+        limit: Maximum number of rows to return (the rolling-window width).
+
+    Returns:
+        Row dicts ordered by ``occurred_at DESC``, capped at ``limit``.
+    """
+    from pathlib import Path as _Path
+
+    db_dir: Path = _Path.cwd()
+    clauses: list[str] = ["project_key = ?", "story_id = ?"]
+    params: list[object] = [project_key, story_id]
+    if run_id is not None:
+        clauses.append("run_id = ?")
+        params.append(run_id)
+    if event_type is not None:
+        clauses.append("event_type = ?")
+        params.append(event_type)
+    where_clause = f"WHERE {' AND '.join(clauses)}"
+    limit_clause = f"LIMIT {int(limit)}" if limit is not None else ""
+    with _connect(db_dir) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT project_key, story_id, run_id, event_id, event_type,
+                   occurred_at, source_component, severity, phase, flow_id,
+                   node_id, payload_json
+            FROM execution_events
+            {where_clause}
+            ORDER BY occurred_at DESC, event_id DESC
+            {limit_clause}
             """,
             tuple(params),
         ).fetchall()
