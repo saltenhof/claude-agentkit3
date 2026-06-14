@@ -254,6 +254,49 @@ def _build_default_read_model_routes() -> ReadModelRoutes:
 
 
 # ---------------------------------------------------------------------------
+# AG3-091 read-only 405 guard (module-level — no instance state required)
+# ---------------------------------------------------------------------------
+
+
+def _handle_healthz(method: str, correlation_id: str) -> HttpResponse:
+    """Return the /healthz response (200 OK for GET, 405 for anything else)."""
+    if method != "GET":
+        return _error_response(
+            HTTPStatus.METHOD_NOT_ALLOWED,
+            error_code="method_not_allowed",
+            message="Method not allowed",
+            correlation_id=correlation_id,
+            headers=(("Allow", "GET"),),
+        )
+    return _json_response(
+        HTTPStatus.OK,
+        {"status": "ok"},
+        correlation_id=correlation_id,
+    )
+
+
+def _read_only_method_not_allowed(
+    read_model_routes: ReadModelRoutes,
+    route_path: str,
+    correlation_id: str,
+) -> HttpResponse | None:
+    """Return 405 for a mutation on an AG3-091 read-only path, else None.
+
+    Only called for POST/PUT/PATCH (GET/DELETE return earlier).  Reuses the
+    verb-agnostic ``ReadModelRoutes`` 405-matcher (all mutation verbs map to
+    the same ``_method_not_allowed_if_matches`` with ``Allow: GET``) so the
+    read-only-endpoint decision lives in exactly one place (SSOT).  Running
+    this BEFORE ``_decode_json_body`` ensures the 405 fires regardless of the
+    request body — an empty or non-JSON body on a read-only path must NOT
+    degrade to ``400 invalid_json`` (FAIL-CLOSED, AC1/AC5).
+    """
+    response = read_model_routes.handle_post(route_path, None, correlation_id)
+    if response is not None:
+        return _bc_response_to_http_response(response)
+    return None
+
+
+# ---------------------------------------------------------------------------
 # HttpResponse
 # ---------------------------------------------------------------------------
 
@@ -385,7 +428,7 @@ class ControlPlaneApplication:
         query = parse_qs(split.query)
 
         if route_path == "/healthz":
-            return self._handle_healthz(method, correlation_id)
+            return _handle_healthz(method, correlation_id)
 
         middleware_block = self._run_middleware(
             method, route_path, request_headers, correlation_id
@@ -451,8 +494,8 @@ class ControlPlaneApplication:
             return self._handle_get_request(route_path, query, correlation_id)
         if method == "DELETE":
             return self._handle_delete_request(route_path, correlation_id)
-        read_only_block = self._read_only_method_not_allowed(
-            route_path, correlation_id
+        read_only_block = _read_only_method_not_allowed(
+            self._read_model_routes, route_path, correlation_id
         )
         if read_only_block is not None:
             return read_only_block
@@ -470,40 +513,7 @@ class ControlPlaneApplication:
             request_headers,
         )
 
-    def _read_only_method_not_allowed(
-        self,
-        route_path: str,
-        correlation_id: str,
-    ) -> HttpResponse | None:
-        """Return 405 for a mutation on an AG3-091 read-only path, else None.
 
-        Only called for POST/PUT/PATCH (GET/DELETE return earlier).  Reuses the
-        verb-agnostic ``ReadModelRoutes`` 405-matcher (all mutation verbs map to
-        the same ``_method_not_allowed_if_matches`` with ``Allow: GET``) so the
-        read-only-endpoint decision lives in exactly one place (SSOT).  Running
-        this BEFORE ``_decode_json_body`` ensures the 405 fires regardless of the
-        request body — an empty or non-JSON body on a read-only path must NOT
-        degrade to ``400 invalid_json`` (FAIL-CLOSED, AC1/AC5).
-        """
-        response = self._read_model_routes.handle_post(route_path, None, correlation_id)
-        if response is not None:
-            return _bc_response_to_http_response(response)
-        return None
-
-    def _handle_healthz(self, method: str, correlation_id: str) -> HttpResponse:
-        if method != "GET":
-            return _error_response(
-                HTTPStatus.METHOD_NOT_ALLOWED,
-                error_code="method_not_allowed",
-                message="Method not allowed",
-                correlation_id=correlation_id,
-                headers=(("Allow", "GET"),),
-            )
-        return _json_response(
-            HTTPStatus.OK,
-            {"status": "ok"},
-            correlation_id=correlation_id,
-        )
 
     def _handle_get_request(
         self,

@@ -17,6 +17,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from agentkit.execution_planning.readiness import derive_budgets
+from agentkit.project_management._flow_constants import (
+    CLOSURE_PROGRESS_TO_SUBSTEP,
+    DONE_STATUS,
+    LOOP_GROUPS,
+    NO_PROGRESS_STATUSES,
+    OPTIONAL_SUBSTEPS,
+    PHASE_ORDER,
+    PHASE_STATUS_TO_FLOW,
+    SUBSTEP_SEQUENCE_FAST,
+    SUBSTEP_SEQUENCE_STANDARD,
+)
 from agentkit.project_management.service import (
     compute_story_counters,
     derive_mode_lock,
@@ -39,6 +50,13 @@ if TYPE_CHECKING:
     from agentkit.requirements_coverage.models import StoryAreLink
     from agentkit.story_context_manager.story_model import Story
 
+
+# ---------------------------------------------------------------------------
+# Backward-compat aliases (tests import these private names from this module)
+# ---------------------------------------------------------------------------
+
+_SUBSTEP_SEQUENCE_STANDARD = SUBSTEP_SEQUENCE_STANDARD
+_SUBSTEP_SEQUENCE_FAST = SUBSTEP_SEQUENCE_FAST
 
 # ---------------------------------------------------------------------------
 # Execution limits
@@ -132,86 +150,6 @@ def build_story_counters(project_key: str, stories: list[Story]) -> StoryCounter
 # Story flow snapshot (FK-39 phase-state projection)
 # ---------------------------------------------------------------------------
 
-_PHASE_ORDER: tuple[str, ...] = ("setup", "exploration", "implementation", "closure")
-
-# Story statuses that indicate no pipeline progress has started.
-_NO_PROGRESS_STATUSES: frozenset[str] = frozenset(
-    {"Backlog", "Approved", "Cancelled", "Resetting", "Reset Failed"}
-)
-
-# Terminal-done status (wire value).
-_DONE_STATUS = "Done"
-
-_PHASE_STATUS_TO_FLOW: dict[str, str] = {
-    "pending": "pending",
-    "in_progress": "active",
-    "paused": "paused",
-    "completed": "done",
-    "failed": "failed",
-    "escalated": "escalated",
-}
-
-# Canonical substep sequences per phase (ported from storyFixtures.ts
-# PHASE_SUBSTEP_SEQUENCE and PHASE_SUBSTEP_SEQUENCE_FAST, FK-24 §24.3.3).
-_SUBSTEP_SEQUENCE_STANDARD: dict[str, tuple[str, ...]] = {
-    "setup": (
-        "preflight", "story_context", "are_bundle", "type_switch",
-        "worktree", "guard_activation", "mode_resolution",
-    ),
-    "exploration": (
-        "worker_spawn", "draft", "structural_validation", "doc_fidelity_l2",
-        "design_review", "aggregation", "feindesign", "freeze",
-    ),
-    "implementation": (
-        "worker_start", "incremental", "inline_reviews", "final_build",
-        "handover", "qa_layer1_structural", "qa_layer2_llm",
-        "qa_layer3_adversarial", "qa_layer4_policy", "qa_feedback",
-    ),
-    "closure": (
-        "finding_resolution", "integrity_gate", "branch_push", "merge",
-        "main_push", "teardown", "story_close", "metrics",
-        "doc_fidelity_l4", "postflight", "vectordb_sync", "guards_off",
-    ),
-}
-
-# Fast-mode: OUT-substeps are absent (FK-24 §24.3.3, AG3-018 §Mode-Profil).
-_SUBSTEP_SEQUENCE_FAST: dict[str, tuple[str, ...]] = {
-    "setup": ("preflight", "story_context", "type_switch", "worktree"),
-    # Exploration is entirely OUT in fast-mode; phase renders as skipped.
-    "exploration": (),
-    "implementation": (
-        "worker_start", "incremental", "final_build",
-        "handover", "qa_layer1_structural",
-    ),
-    "closure": (
-        "integrity_gate", "branch_push", "merge", "main_push",
-        "teardown", "story_close", "metrics", "postflight",
-        "vectordb_sync", "guards_off",
-    ),
-}
-
-# Optional substep flags (ported from storyFixtures.ts SUBSTEP_META).
-_OPTIONAL_SUBSTEPS: frozenset[str] = frozenset(
-    {"feindesign", "inline_reviews", "qa_feedback", "finding_resolution", "vectordb_sync"}
-)
-
-# Loop group membership (ported from storyFixtures.ts SUBSTEP_META).
-_LOOP_GROUPS: dict[str, str] = {
-    "draft": "design_iteration",
-    "structural_validation": "design_iteration",
-    "doc_fidelity_l2": "design_iteration",
-    "design_review": "design_iteration",
-    "incremental": "remediation",
-    "inline_reviews": "remediation",
-    "final_build": "remediation",
-    "handover": "remediation",
-    "qa_layer1_structural": "remediation",
-    "qa_layer2_llm": "remediation",
-    "qa_layer3_adversarial": "remediation",
-    "qa_layer4_policy": "remediation",
-    "qa_feedback": "remediation",
-}
-
 # PhaseState is a runtime type; import only for type annotations.
 # We use object here and access attributes defensively to keep
 # the read-model layer free of runtime pipeline-engine imports.
@@ -254,61 +192,86 @@ def build_story_flow_snapshot(
         The :class:`StoryFlowSnapshot` wire model.
     """
     mode: str = "fast" if is_fast_mode else "standard"
-    sequence = _SUBSTEP_SEQUENCE_FAST if is_fast_mode else _SUBSTEP_SEQUENCE_STANDARD
+    sequence = SUBSTEP_SEQUENCE_FAST if is_fast_mode else SUBSTEP_SEQUENCE_STANDARD
 
-    all_done = story_status == _DONE_STATUS
-    no_progress = story_status in _NO_PROGRESS_STATUSES or current_phase_state is None
+    all_done = story_status == DONE_STATUS
+    no_progress = story_status in NO_PROGRESS_STATUSES or current_phase_state is None
 
-    if all_done:
-        phases = [
-            _build_phase_all(phase_name, "done", sequence)
-            for phase_name in _PHASE_ORDER
-            if not (phase_name == "exploration" and is_fast_mode)
-        ]
-        if is_fast_mode:
-            phases.insert(
-                _PHASE_ORDER.index("exploration"),
-                StoryFlowPhase(phase="exploration", state="skipped", substeps=[]),
-            )
-        return StoryFlowSnapshot(story_id=story_id, mode=mode, phases=phases)
-
-    if no_progress:
-        phases = [
-            _build_phase_all(phase_name, "pending", sequence)
-            for phase_name in _PHASE_ORDER
-            if not (phase_name == "exploration" and is_fast_mode)
-        ]
-        if is_fast_mode:
-            phases.insert(
-                _PHASE_ORDER.index("exploration"),
-                StoryFlowPhase(phase="exploration", state="skipped", substeps=[]),
-            )
-        return StoryFlowSnapshot(story_id=story_id, mode=mode, phases=phases)
+    if all_done or no_progress:
+        substep_state = "done" if all_done else "pending"
+        return _build_uniform_snapshot(story_id, mode, is_fast_mode, substep_state, sequence)
 
     # Active story — position-based derivation.
     current_phase_name = str(
         getattr(getattr(current_phase_state, "phase", None), "value", "")
         or getattr(current_phase_state, "phase", "")
     )
-    current_index = _PHASE_ORDER.index(current_phase_name) if current_phase_name in _PHASE_ORDER else -1
+    current_index = (
+        PHASE_ORDER.index(current_phase_name)
+        if current_phase_name in PHASE_ORDER
+        else -1
+    )
 
     phases = []
-    for phase_name in _PHASE_ORDER:
-        if phase_name == "exploration" and is_fast_mode:
-            phases.append(StoryFlowPhase(phase="exploration", state="skipped", substeps=[]))
-            continue
-        phase_index = _PHASE_ORDER.index(phase_name)
-        if current_index == -1 or phase_index > current_index:
-            phases.append(_build_phase_all(phase_name, "pending", sequence))
-        elif phase_index < current_index:
-            phases.append(_build_phase_all(phase_name, "done", sequence))
-        else:
-            # Active phase: derive state and per-substep progress from current runtime.
-            phases.append(
-                _build_active_phase(phase_name, current_phase_state, sequence, is_fast_mode)
+    for phase_name in PHASE_ORDER:
+        phases.append(
+            _resolve_phase_flow_state(
+                phase_name, current_index, current_phase_state, sequence, is_fast_mode
             )
+        )
 
     return StoryFlowSnapshot(story_id=story_id, mode=mode, phases=phases)
+
+
+def _build_uniform_snapshot(
+    story_id: str,
+    mode: str,
+    is_fast_mode: bool,
+    substep_state: str,
+    sequence: dict[str, tuple[str, ...]],
+) -> StoryFlowSnapshot:
+    """Build a snapshot where all non-skipped phases share the same substep state."""
+    phases = [
+        _build_phase_all(phase_name, substep_state, sequence)
+        for phase_name in PHASE_ORDER
+        if not (phase_name == "exploration" and is_fast_mode)
+    ]
+    if is_fast_mode:
+        phases.insert(
+            PHASE_ORDER.index("exploration"),
+            StoryFlowPhase(phase="exploration", state="skipped", substeps=[]),
+        )
+    return StoryFlowSnapshot(story_id=story_id, mode=mode, phases=phases)
+
+
+def _resolve_phase_flow_state(
+    phase_name: str,
+    current_index: int,
+    current_phase_state: object,
+    sequence: dict[str, tuple[str, ...]],
+    is_fast_mode: bool,
+) -> StoryFlowPhase:
+    """Resolve the flow state for a single phase during active story execution.
+
+    Args:
+        phase_name: The name of the phase to resolve.
+        current_index: Index of the currently active phase in PHASE_ORDER (-1 if unknown).
+        current_phase_state: The live PhaseState object.
+        sequence: Substep sequence mapping (standard or fast).
+        is_fast_mode: Whether the story runs in fast mode.
+
+    Returns:
+        The resolved :class:`StoryFlowPhase`.
+    """
+    if phase_name == "exploration" and is_fast_mode:
+        return StoryFlowPhase(phase="exploration", state="skipped", substeps=[])
+    phase_index = PHASE_ORDER.index(phase_name)
+    if current_index == -1 or phase_index > current_index:
+        return _build_phase_all(phase_name, "pending", sequence)
+    if phase_index < current_index:
+        return _build_phase_all(phase_name, "done", sequence)
+    # Active phase: derive state and per-substep progress from current runtime.
+    return _build_active_phase(phase_name, current_phase_state, sequence)
 
 
 def _build_phase_all(
@@ -333,7 +296,7 @@ def _build_substeps_uniform(
     annotated = _annotate_loop_positions(substep_ids)
     result = []
     for substep_id, loop_position, loop_size, loop_group in annotated:
-        is_optional = substep_id in _OPTIONAL_SUBSTEPS
+        is_optional = substep_id in OPTIONAL_SUBSTEPS
         effective_state = state
         if is_optional and state == "pending":
             effective_state = "optional-pending"
@@ -377,7 +340,7 @@ def _annotate_loop_positions(
         region_group = None
 
     for index, substep_id in enumerate(substep_ids):
-        group = _LOOP_GROUPS.get(substep_id)
+        group = LOOP_GROUPS.get(substep_id)
         if group != region_group:
             flush_region(index)
             if group:
@@ -391,7 +354,6 @@ def _build_active_phase(
     phase_name: str,
     phase_state: object,
     sequence: dict[str, tuple[str, ...]],
-    is_fast_mode: bool,
 ) -> StoryFlowPhase:
     """Build the active phase with per-substep progress from the current PhaseState.
 
@@ -413,7 +375,7 @@ def _build_active_phase(
     field on any payload model.  Reading such invented fields is forbidden.
     """
     raw_status = getattr(getattr(phase_state, "status", None), "value", "pending")
-    flow_state = _PHASE_STATUS_TO_FLOW.get(str(raw_status), "pending")
+    flow_state = PHASE_STATUS_TO_FLOW.get(str(raw_status), "pending")
 
     substep_ids = sequence.get(phase_name, ())
     annotated = _annotate_loop_positions(substep_ids)
@@ -431,7 +393,7 @@ def _build_active_phase(
             StoryFlowSubstep(
                 substep=substep_id,
                 state=sub_state,
-                optional=substep_id in _OPTIONAL_SUBSTEPS,
+                optional=substep_id in OPTIONAL_SUBSTEPS,
                 loop_group=loop_group,
                 loop_position=loop_position,
                 loop_size=loop_size,
@@ -457,17 +419,6 @@ def _build_active_phase(
     )
 
 
-# Mapping from ClosureProgress boolean field name to the canonical substep id.
-_CLOSURE_PROGRESS_TO_SUBSTEP: tuple[tuple[str, str], ...] = (
-    ("integrity_passed", "integrity_gate"),
-    ("story_branch_pushed", "branch_push"),
-    ("merge_done", "merge"),
-    ("story_closed", "story_close"),
-    ("metrics_written", "metrics"),
-    ("postflight_done", "postflight"),
-)
-
-
 def _derive_substep_states(
     phase_name: str,
     substep_ids: tuple[str, ...],
@@ -477,6 +428,7 @@ def _derive_substep_states(
 
     Returns one state string per substep_id, in the same order.
     Only real durable FK-39 payload fields are accessed; no invented fields.
+    Dispatches to per-phase helpers to keep cognitive complexity low.
 
     Args:
         phase_name: The current phase name.
@@ -486,43 +438,88 @@ def _derive_substep_states(
     Returns:
         A list of state strings aligned with ``substep_ids``.
     """
-    if phase_name == "exploration" and payload is not None:
-        gate_raw = getattr(payload, "gate_status", None)
-        gate_value = str(getattr(gate_raw, "value", gate_raw) or "pending")
-        if gate_value == "approved":
-            return [
-                "optional-pending" if s in _OPTIONAL_SUBSTEPS else "done"
-                for s in substep_ids
-            ]
-        if gate_value == "rejected":
-            return [
-                "optional-pending" if s in _OPTIONAL_SUBSTEPS else "failed"
-                for s in substep_ids
-            ]
-        # pending or unknown
+    if phase_name == "exploration":
+        return _derive_exploration_substeps(substep_ids, payload)
+    if phase_name == "closure":
+        return _derive_closure_substeps(substep_ids, payload)
+    # setup, implementation, or no payload: no per-substep durable signal.
+    return _derive_default_substeps(substep_ids)
+
+
+def _derive_exploration_substeps(
+    substep_ids: tuple[str, ...],
+    payload: object | None,
+) -> list[str]:
+    """Derive substep states for the exploration phase from gate_status.
+
+    Args:
+        substep_ids: Ordered tuple of canonical substep identifiers.
+        payload: The ExplorationPayload, or ``None``.
+
+    Returns:
+        A list of state strings aligned with ``substep_ids``.
+    """
+    if payload is None:
+        return _derive_default_substeps(substep_ids)
+    gate_raw = getattr(payload, "gate_status", None)
+    gate_value = str(getattr(gate_raw, "value", gate_raw) or "pending")
+    if gate_value == "approved":
         return [
-            "optional-pending" if s in _OPTIONAL_SUBSTEPS else "pending"
+            "optional-pending" if s in OPTIONAL_SUBSTEPS else "done"
             for s in substep_ids
         ]
+    if gate_value == "rejected":
+        return [
+            "optional-pending" if s in OPTIONAL_SUBSTEPS else "failed"
+            for s in substep_ids
+        ]
+    # pending or unknown
+    return _derive_default_substeps(substep_ids)
 
-    if phase_name == "closure" and payload is not None:
-        progress = getattr(payload, "progress", None)
-        if progress is not None:
-            done_substeps: set[str] = set()
-            for field_name, substep_id in _CLOSURE_PROGRESS_TO_SUBSTEP:
-                if getattr(progress, field_name, False):
-                    done_substeps.add(substep_id)
-            return [
-                "done" if s in done_substeps else (
-                    "optional-pending" if s in _OPTIONAL_SUBSTEPS else "pending"
-                )
-                for s in substep_ids
-            ]
 
-    # setup, implementation, or no payload: no per-substep durable signal.
-    # Render all substeps as pending (phase-level state stays active).
+def _derive_closure_substeps(
+    substep_ids: tuple[str, ...],
+    payload: object | None,
+) -> list[str]:
+    """Derive substep states for the closure phase from ClosureProgress checkpoints.
+
+    Args:
+        substep_ids: Ordered tuple of canonical substep identifiers.
+        payload: The ClosurePayload, or ``None``.
+
+    Returns:
+        A list of state strings aligned with ``substep_ids``.
+    """
+    if payload is None:
+        return _derive_default_substeps(substep_ids)
+    progress = getattr(payload, "progress", None)
+    if progress is None:
+        return _derive_default_substeps(substep_ids)
+    done_substeps: set[str] = set()
+    for field_name, substep_id in CLOSURE_PROGRESS_TO_SUBSTEP:
+        if getattr(progress, field_name, False):
+            done_substeps.add(substep_id)
     return [
-        "optional-pending" if s in _OPTIONAL_SUBSTEPS else "pending"
+        "done" if s in done_substeps else (
+            "optional-pending" if s in OPTIONAL_SUBSTEPS else "pending"
+        )
+        for s in substep_ids
+    ]
+
+
+def _derive_default_substeps(substep_ids: tuple[str, ...]) -> list[str]:
+    """Derive default substep states (pending / optional-pending) for phases with no durable signal.
+
+    Used by setup, implementation, and any phase without a payload.
+
+    Args:
+        substep_ids: Ordered tuple of canonical substep identifiers.
+
+    Returns:
+        A list of state strings aligned with ``substep_ids``.
+    """
+    return [
+        "optional-pending" if s in OPTIONAL_SUBSTEPS else "pending"
         for s in substep_ids
     ]
 
