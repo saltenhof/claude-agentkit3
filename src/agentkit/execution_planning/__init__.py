@@ -39,7 +39,7 @@ from agentkit.execution_planning.lifecycle import (
     mark_wave_after_results,
     remove_dependency,
 )
-from agentkit.execution_planning.readiness import derive_plan
+from agentkit.execution_planning.readiness import derive_budgets, derive_plan
 from agentkit.execution_planning.scheduling import (
     EvaluateSchedulingResult,
     ExecutionInputNext,
@@ -73,7 +73,7 @@ __all__ = [
     "SchedulingTriageReason", "StoryDependency", "StoryDependencyKind",
     "StoryRefForPlanning", "WaveStory", "WhyNotNow", "add_dependency",
     "assess_readiness", "blocking_condition_status", "classify_replan_trigger",
-    "derive_plan", "evaluate_scheduling", "mark_wave_after_results",
+    "derive_budgets", "derive_plan", "evaluate_scheduling", "mark_wave_after_results",
     "next_from_snapshot", "planning_status_from_blockers", "remove_dependency",
     "select_execution_input",
 ]

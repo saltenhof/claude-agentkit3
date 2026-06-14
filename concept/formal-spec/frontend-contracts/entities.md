@@ -838,6 +838,75 @@ entities:
     notes:
       - Alle Werte sind non-negative Integer; 0 bedeutet "Cap blockiert".
 
+  # ---- Coverage (AG3-091 / FK-40 §40.5b.6) -------------------------
+
+  - id: frontend-contracts.entity.story_coverage_acceptance
+    identity: story_id
+    description: >
+      Soll-coverage: adressierte Akzeptanzkriterien und verlinkte
+      ARE-Anforderungen (FK-40 §40.5b.6). Liefert dem Inspector-
+      Coverage-Tab (Soll-Seite) seine Eingabe. Quelle ist
+      ausschliesslich StoryAreLink + Story-Spec; read-only.
+    attributes:
+      - name: story_id
+        kind: string
+        required: true
+      - name: project_key
+        kind: string
+        required: true
+      - name: acceptance_criteria
+        kind: list<string>
+        required: true
+        notes:
+          - Akzeptanzkriterien aus der Story-Spec (Soll-Text).
+      - name: linked_requirements
+        kind: list<string>
+        required: true
+        notes:
+          - ARE-Item-IDs der verlinkten Anforderungen.
+    notes:
+      - >
+        Kein Mutationspfad; Schreibweg gehoert AG3-077
+        (StoryAreLink INSERT/UPDATE). AG3-091 liest read-only.
+
+  - id: frontend-contracts.entity.story_are_evidence
+    identity: story_id
+    description: >
+      Ist-coverage: verlinkte Anforderungen mit Coverage-Status und
+      Evidenz-Pfaden (FK-40 §40.5b.6 / story §2.1.2). Liefert dem
+      Inspector-Coverage-Tab (Ist-Seite) seine Eingabe. Quelle ist
+      ausschliesslich StoryAreLink + ARE-Live-Status (check_gate) +
+      ARE-Evidenz-Liste (list_evidence); read-only.
+      Jedes Element von ``linked_requirements`` repraesentiert eine
+      StoryAreLink-Kante (AG3-077 ``StoryAreLink``: ``are_item_id``,
+      ``kind``) angereichert um ``coverage_status`` (check_gate-Ergebnis)
+      und ``evidence_paths`` (konkrete Evidenz-Referenzen aus
+      AreEvidence.evidence_ref: Test-Locator, Commit-SHA, Artefakt-Pfad).
+    attributes:
+      - name: story_id
+        kind: string
+        required: true
+      - name: project_key
+        kind: string
+        required: true
+      - name: linked_requirements
+        kind: list<object>
+        required: true
+        notes:
+          - >
+            Jedes Objekt enthaelt: ``are_item_id`` (string),
+            ``kind`` (enum: addresses|partial|derives_from|recurring),
+            ``coverage_status`` (string: covered|uncovered|linked),
+            ``evidence_paths`` (list<string>: konkrete Evidenz-Referenzen
+            aus AreClient.list_evidence; leer wenn keine Evidenz vorhanden).
+            Basiert auf AG3-077 ``StoryAreLink``; kein eigenes Entitaets-
+            Duplikat (story_are_link_view wurde entfernt, siehe AG3-091
+            ERROR-F-Bereinigung).
+    notes:
+      - >
+        Kein Mutationspfad; Schreibweg gehoert AG3-077. AG3-091
+        liest read-only.
+
   # ---- Dependency-Graph ---------------------------------------------
 
   - id: frontend-contracts.entity.dependency_graph_snapshot

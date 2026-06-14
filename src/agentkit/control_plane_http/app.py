@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from agentkit.multi_llm_hub.http.routes import MultiLlmHubRouteResponse, MultiLlmHubRoutes
     from agentkit.pipeline_engine.http.routes import PipelineEngineRoutes
     from agentkit.project_management.http.routes import ProjectManagementRoutes, ProjectRouteResponse
+    from agentkit.project_management.read_model_routes import ReadModelRoutes
     from agentkit.requirements_coverage.http.routes import RequirementsCoverageRoutes
     from agentkit.story_context_manager.http.routes import StoryContextRoutes, StoryRouteResponse
     from agentkit.telemetry.http.routes import TelemetryRouteResponse, TelemetryRoutes
@@ -231,6 +232,27 @@ def _build_default_requirements_coverage_routes() -> RequirementsCoverageRoutes:
     return RequirementsCoverageRoutes()
 
 
+def _build_default_read_model_routes() -> ReadModelRoutes:
+    from agentkit.project_management.read_model_routes import ReadModelRoutes
+    from agentkit.state_backend.store.parallelization_config_repository import (
+        StateBackendParallelizationConfigRepository,
+    )
+    from agentkit.state_backend.store.project_management_repository import (
+        StateBackendProjectRepository,
+    )
+    from agentkit.state_backend.store.story_are_link_repository import (
+        StateBackendStoryAreLinkRepository,
+    )
+    from agentkit.story_context_manager.service import StoryService as _StoryContextService
+
+    return ReadModelRoutes(
+        project_repository=StateBackendProjectRepository(),
+        story_service=_StoryContextService(),
+        config_repository=StateBackendParallelizationConfigRepository(),
+        are_link_repository=StateBackendStoryAreLinkRepository(),
+    )
+
+
 # ---------------------------------------------------------------------------
 # HttpResponse
 # ---------------------------------------------------------------------------
@@ -276,6 +298,7 @@ class ControlPlaneApplicationRoutes:
     kpi_analytics_routes: KpiAnalyticsRoutes | None = None
     failure_corpus_routes: FailureCorpusRoutes | None = None
     requirements_coverage_routes: RequirementsCoverageRoutes | None = None
+    read_model_routes: ReadModelRoutes | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +365,9 @@ class ControlPlaneApplication:
         self._requirements_coverage_routes = (
             r.requirements_coverage_routes
             or _build_default_requirements_coverage_routes()
+        )
+        self._read_model_routes = (
+            r.read_model_routes or _build_default_read_model_routes()
         )
 
     def handle_request(
@@ -411,11 +437,25 @@ class ControlPlaneApplication:
         correlation_id: str,
         request_headers: Mapping[str, str] | None,
     ) -> HttpResponse:
-        """Dispatch to the correct HTTP-method handler."""
+        """Dispatch to the correct HTTP-method handler.
+
+        For mutation methods (POST/PUT/PATCH) the AG3-091 read-only 405 match
+        runs BEFORE ``_decode_json_body`` so that a mutation attempt on a
+        read-only endpoint returns ``405 method_not_allowed`` regardless of the
+        request body (empty, non-JSON, or JSON).  Only when the read-only
+        matcher abstains does the body get decoded and dispatched to the normal
+        mutation handlers (other BCs' mutation endpoints are unaffected — they
+        still decode and dispatch their bodies normally).
+        """
         if method == "GET":
             return self._handle_get_request(route_path, query, correlation_id)
         if method == "DELETE":
             return self._handle_delete_request(route_path, correlation_id)
+        read_only_block = self._read_only_method_not_allowed(
+            route_path, correlation_id
+        )
+        if read_only_block is not None:
+            return read_only_block
         payload = _decode_json_body(body, correlation_id)
         if isinstance(payload, HttpResponse):
             return payload
@@ -429,6 +469,26 @@ class ControlPlaneApplication:
             correlation_id,
             request_headers,
         )
+
+    def _read_only_method_not_allowed(
+        self,
+        route_path: str,
+        correlation_id: str,
+    ) -> HttpResponse | None:
+        """Return 405 for a mutation on an AG3-091 read-only path, else None.
+
+        Only called for POST/PUT/PATCH (GET/DELETE return earlier).  Reuses the
+        verb-agnostic ``ReadModelRoutes`` 405-matcher (all mutation verbs map to
+        the same ``_method_not_allowed_if_matches`` with ``Allow: GET``) so the
+        read-only-endpoint decision lives in exactly one place (SSOT).  Running
+        this BEFORE ``_decode_json_body`` ensures the 405 fires regardless of the
+        request body — an empty or non-JSON body on a read-only path must NOT
+        degrade to ``400 invalid_json`` (FAIL-CLOSED, AC1/AC5).
+        """
+        response = self._read_model_routes.handle_post(route_path, None, correlation_id)
+        if response is not None:
+            return _bc_response_to_http_response(response)
+        return None
 
     def _handle_healthz(self, method: str, correlation_id: str) -> HttpResponse:
         if method != "GET":
@@ -503,6 +563,12 @@ class ControlPlaneApplication:
         # so that every story operation passes through TenantScopeMiddleware (AC2/AC3).
         # Legacy bare /v1/stories paths are intentionally NOT delegated here.
 
+        # AG3-091 read-model routes: checked BEFORE story handlers to prevent
+        # collisions such as /stories/counters being captured by _PROJECT_STORY_DETAIL.
+        rm_response = self._read_model_routes.handle_get(route_path, query, correlation_id)
+        if rm_response is not None:
+            return _bc_response_to_http_response(rm_response)
+
         # GET /v1/projects/{key}/stories/search?q=...
         # Must match before /stories/{id} to avoid "search" being treated as story_id.
         story_search_match = _PROJECT_STORY_SEARCH.match(route_path)
@@ -570,7 +636,7 @@ class ControlPlaneApplication:
         query: dict[str, list[str]],
         correlation_id: str,
     ) -> HttpResponse | None:
-        """Dispatch GET to the 8 new BC http/ modules (AG3-090)."""
+        """Dispatch GET to the BC http/ modules (AG3-090)."""
         for routes in (
             self._pipeline_engine_routes,
             self._verify_system_routes,
@@ -593,6 +659,8 @@ class ControlPlaneApplication:
         correlation_id: str,
         request_headers: Mapping[str, str] | None,
     ) -> HttpResponse:
+        # AG3-091 read-only endpoints already returned 405 in _dispatch_method
+        # (before body decode); this handler only sees genuine mutation paths.
         auth_response = self._auth_routes.handle_post(
             route_path, payload, correlation_id, request_headers,
         )
@@ -724,6 +792,8 @@ class ControlPlaneApplication:
         payload: object,
         correlation_id: str,
     ) -> HttpResponse:
+        # AG3-091 read-only endpoints already returned 405 in _dispatch_method
+        # (before body decode); this handler only sees genuine mutation paths.
         planning_response = self._planning_routes.handle_put(
             route_path, payload, correlation_id,
         )
@@ -760,6 +830,11 @@ class ControlPlaneApplication:
         route_path: str,
         correlation_id: str,
     ) -> HttpResponse:
+        # AG3-091 read-only endpoints: DELETE -> 405 (AC1/AC5).
+        rm_delete = self._read_model_routes.handle_delete(route_path, correlation_id)
+        if rm_delete is not None:
+            return _bc_response_to_http_response(rm_delete)
+
         auth_response = self._auth_routes.handle_delete(
             route_path, {}, correlation_id,
         )
@@ -785,6 +860,8 @@ class ControlPlaneApplication:
         payload: object,
         correlation_id: str,
     ) -> HttpResponse:
+        # AG3-091 read-only endpoints already returned 405 in _dispatch_method
+        # (before body decode); this handler only sees genuine mutation paths.
         project_response = self._project_routes.handle_patch(
             route_path, payload, correlation_id,
         )

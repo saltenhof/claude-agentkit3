@@ -14,7 +14,10 @@ Covers:
 from __future__ import annotations
 
 import json
+import re
 from http import HTTPStatus
+
+import pytest
 
 # AC1: compat re-export must resolve to the SAME class
 from agentkit.control_plane.http import ControlPlaneApplication as CompatCPA
@@ -225,11 +228,136 @@ class _FakeAuthRoutes:
         return None
 
 
+class _FakeReadModelRoutes:
+    """Stub for ReadModelRoutes used in unit routing tests.
+
+    Returns a minimal 200 response for every AG3-091 read-model path,
+    using the same JSON shape the real routes produce so that assertions
+    on ``body["story_id"]`` work without needing a real project repo.
+    """
+
+    _ARE_EVIDENCE_PATH = re.compile(
+        r"^/v1/projects/(?P<project_key>[^/]+)/coverage/stories/(?P<story_id>[^/]+)/are-evidence$"
+    )
+    _ACCEPTANCE_PATH = re.compile(
+        r"^/v1/projects/(?P<project_key>[^/]+)/coverage/stories/(?P<story_id>[^/]+)/acceptance$"
+    )
+    _FLOW_PATH = re.compile(
+        r"^/v1/projects/(?P<project_key>[^/]+)/stories/(?P<story_id>[^/]+)/flow$"
+    )
+    _COUNTERS_PATH = re.compile(
+        r"^/v1/projects/(?P<project_key>[^/]+)/stories/counters$"
+    )
+    _MODE_LOCK_PATH = re.compile(
+        r"^/v1/projects/(?P<project_key>[^/]+)/mode-lock$"
+    )
+    _LIMITS_PATH = re.compile(
+        r"^/v1/projects/(?P<project_key>[^/]+)/execution-input/limits$"
+    )
+
+    def handle_get(
+        self,
+        route_path: str,
+        _query: dict[str, list[str]],
+        correlation_id: str,
+    ) -> object:
+        from agentkit.control_plane.models import bc_json_response
+
+        m = self._ARE_EVIDENCE_PATH.match(route_path)
+        if m:
+            return bc_json_response(
+                HTTPStatus.OK,
+                {
+                    "story_are_evidence": {
+                        "story_id": m.group("story_id"),
+                        "project_key": m.group("project_key"),
+                        "linked_requirements": [],
+                    },
+                },
+                correlation_id=correlation_id,
+            )
+        m = self._ACCEPTANCE_PATH.match(route_path)
+        if m:
+            return bc_json_response(
+                HTTPStatus.OK,
+                {
+                    "story_coverage_acceptance": {
+                        "story_id": m.group("story_id"),
+                        "project_key": m.group("project_key"),
+                        "acceptance_criteria": [],
+                        "linked_requirements": [],
+                    },
+                },
+                correlation_id=correlation_id,
+            )
+        m = self._FLOW_PATH.match(route_path)
+        if m:
+            return bc_json_response(
+                HTTPStatus.OK,
+                {"story_flow_snapshot": {"story_id": m.group("story_id"), "mode": "standard", "phases": []}},
+                correlation_id=correlation_id,
+            )
+        m = self._COUNTERS_PATH.match(route_path)
+        if m:
+            return bc_json_response(
+                HTTPStatus.OK,
+                {"story_counters": {"project_key": m.group("project_key")}},
+                correlation_id=correlation_id,
+            )
+        m = self._MODE_LOCK_PATH.match(route_path)
+        if m:
+            return bc_json_response(
+                HTTPStatus.OK,
+                {"mode_lock": {"project_key": m.group("project_key")}},
+                correlation_id=correlation_id,
+            )
+        m = self._LIMITS_PATH.match(route_path)
+        if m:
+            return bc_json_response(
+                HTTPStatus.OK,
+                {"execution_limits": {"project_key": m.group("project_key")}},
+                correlation_id=correlation_id,
+            )
+        return None
+
+    def handle_post(
+        self,
+        route_path: str,
+        _payload: object,
+        correlation_id: str,
+    ) -> None:
+        return None
+
+    def handle_put(
+        self,
+        route_path: str,
+        _payload: object,
+        correlation_id: str,
+    ) -> None:
+        return None
+
+    def handle_patch(
+        self,
+        route_path: str,
+        _payload: object,
+        correlation_id: str,
+    ) -> None:
+        return None
+
+    def handle_delete(
+        self,
+        route_path: str,
+        correlation_id: str,
+    ) -> None:
+        return None
+
+
 def _make_app(
     *,
     tenant_scope: object | None = None,
     pipeline_engine_routes: PipelineEngineRoutes | None = None,
     telemetry_routes: object | None = None,
+    read_model_routes: object | None = None,
 ) -> ControlPlaneApplication:
     """Build a minimal ControlPlaneApplication wired with all fakes."""
     from agentkit.artifacts.http.routes import ArtifactsRoutes
@@ -257,6 +385,7 @@ def _make_app(
             kpi_analytics_routes=KpiAnalyticsRoutes(service_available=True),
             failure_corpus_routes=FailureCorpusRoutes(service_available=True),
             requirements_coverage_routes=RequirementsCoverageRoutes(service_available=True),
+            read_model_routes=read_model_routes or _FakeReadModelRoutes(),  # type: ignore[arg-type]
         ),
         tenant_scope_middleware=tenant_scope or _NoopTenantScope(),  # type: ignore[arg-type]
     )
@@ -447,7 +576,143 @@ def test_get_project_scoped_coverage_are_evidence_returns_200() -> None:
     assert response.status_code == HTTPStatus.OK
     body = _json_body(response)
     assert isinstance(body, dict)
-    assert body["story_id"] == "AG3-001"
+    assert isinstance(body["story_are_evidence"], dict)
+    assert body["story_are_evidence"]["story_id"] == "AG3-001"
+
+
+# ---------------------------------------------------------------------------
+# ERROR 1 (R5) — read-only 405 fires BEFORE JSON body decode (dispatch order)
+# ---------------------------------------------------------------------------
+
+
+class _Real405ReadModelRoutes:
+    """Real-matcher read-model stub: returns 405 for read-only mutation verbs.
+
+    Reuses the genuine ``ReadModelRoutes`` 405-matcher
+    (``_method_not_allowed_if_matches``) so the unit test proves the productive
+    dispatch reorder (405 BEFORE ``_decode_json_body``) without a real repo.
+    Non-read-only paths return ``None`` (the dispatcher proceeds to decode).
+    """
+
+    def __init__(self) -> None:
+        from agentkit.project_management.read_model_routes import ReadModelRoutes
+
+        # Build a bare instance only to access the real 405 matcher; the
+        # repo fields are never touched on the 405 path (it runs before any
+        # repo access).
+        self._matcher = ReadModelRoutes.__new__(ReadModelRoutes)
+
+    def _match(self, route_path: str, correlation_id: str) -> object:
+        from agentkit.project_management.read_model_routes import ReadModelRoutes
+
+        return ReadModelRoutes._method_not_allowed_if_matches(
+            self._matcher, route_path, correlation_id
+        )
+
+    def handle_get(
+        self, route_path: str, _query: dict[str, list[str]], correlation_id: str
+    ) -> None:
+        return None
+
+    def handle_post(
+        self, route_path: str, _payload: object, correlation_id: str
+    ) -> object:
+        return self._match(route_path, correlation_id)
+
+    def handle_put(
+        self, route_path: str, _payload: object, correlation_id: str
+    ) -> object:
+        return self._match(route_path, correlation_id)
+
+    def handle_patch(
+        self, route_path: str, _payload: object, correlation_id: str
+    ) -> object:
+        return self._match(route_path, correlation_id)
+
+    def handle_delete(self, route_path: str, correlation_id: str) -> object:
+        return self._match(route_path, correlation_id)
+
+
+def _assert_read_only_405(response: HttpResponse, *, method: str) -> None:
+    assert response.status_code == HTTPStatus.METHOD_NOT_ALLOWED, (
+        f"{method} on a read-only path must be 405 regardless of body, "
+        f"got {response.status_code}"
+    )
+    body = _json_body(response)
+    assert isinstance(body, dict)
+    assert body["error_code"] == "method_not_allowed", (
+        f"{method} must NOT degrade to invalid_json for an empty/non-JSON "
+        f"body; got error_code={body.get('error_code')!r}"
+    )
+    allow = _header(response, "Allow")
+    assert allow is not None and "GET" in allow
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH"])
+@pytest.mark.parametrize("body", [b"", b"not json"])
+def test_read_only_mutation_returns_405_for_empty_or_non_json_body(
+    method: str, body: bytes
+) -> None:
+    """ERROR 1: read-only 405 fires before body decode (empty AND non-JSON body).
+
+    The previous dispatch decoded the body first, so an empty/non-JSON body on
+    a read-only path degraded to ``400 invalid_json`` instead of ``405``.  The
+    fix runs the read-only 405 matcher BEFORE ``_decode_json_body``.
+    """
+    app = _make_app(read_model_routes=_Real405ReadModelRoutes())
+    response = app.handle_request(
+        method=method,
+        path="/v1/projects/myproj/execution-input/limits",
+        body=body,
+    )
+    _assert_read_only_405(response, method=method)
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH"])
+@pytest.mark.parametrize("body", [b"", b"not json"])
+def test_read_only_coverage_mutation_returns_405_for_empty_or_non_json_body(
+    method: str, body: bytes
+) -> None:
+    """ERROR 1: same guarantee on a coverage read-only endpoint."""
+    app = _make_app(read_model_routes=_Real405ReadModelRoutes())
+    response = app.handle_request(
+        method=method,
+        path="/v1/projects/myproj/coverage/stories/AG3-001/acceptance",
+        body=body,
+    )
+    _assert_read_only_405(response, method=method)
+
+
+def test_read_only_delete_returns_405_before_any_handler() -> None:
+    """DELETE on a read-only path -> 405 (no body decode; DELETE has no body)."""
+    app = _make_app(read_model_routes=_Real405ReadModelRoutes())
+    response = app.handle_request(
+        method="DELETE",
+        path="/v1/projects/myproj/execution-input/limits",
+        body=b"",
+    )
+    _assert_read_only_405(response, method="DELETE")
+
+
+@pytest.mark.parametrize("body", [b"", b"not json"])
+def test_non_read_only_mutation_still_decodes_body(body: bytes) -> None:
+    """Other BCs' mutation endpoints are unaffected: empty/non-JSON body -> 400.
+
+    A NON-read-only mutation path must still decode the body and surface
+    ``400 invalid_json`` for an empty/non-JSON body (no read-only short-circuit).
+    """
+    app = _make_app(read_model_routes=_Real405ReadModelRoutes())
+    response = app.handle_request(
+        method="POST",
+        path="/v1/telemetry/events",
+        body=body,
+    )
+    assert response.status_code == HTTPStatus.BAD_REQUEST, (
+        "non-read-only mutation must still decode the body and 400 on bad JSON"
+    )
+    decoded = _json_body(response)
+    assert isinstance(decoded, dict)
+    assert decoded["error_code"] == "invalid_json"
 
 
 # ---------------------------------------------------------------------------
@@ -636,6 +901,7 @@ def _make_app_with_real_story_routes(
             kpi_analytics_routes=KpiAnalyticsRoutes(service_available=True),
             failure_corpus_routes=FailureCorpusRoutes(service_available=True),
             requirements_coverage_routes=RequirementsCoverageRoutes(service_available=True),
+            read_model_routes=_FakeReadModelRoutes(),  # type: ignore[arg-type]
         ),
         tenant_scope_middleware=tenant_scope or _NoopTenantScope(),  # type: ignore[arg-type]
     )

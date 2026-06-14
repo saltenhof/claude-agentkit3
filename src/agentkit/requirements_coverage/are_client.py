@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from agentkit.requirements_coverage.contract import (
     AreContext,
     AreDockpointStatus,
+    AreEvidence,
     AreRequirement,
     CoverageVerdict,
     EvidenceSubmitResult,
@@ -185,6 +186,32 @@ class AreClient:
             return CoverageVerdict.model_validate(data)
         except (TypeError, ValidationError) as exc:
             raise AreClientResponseError("Invalid ARE gate response") from exc
+
+    def list_evidence(self, story_id: str) -> list[AreEvidence]:
+        """List submitted evidence for all requirements of a story.
+
+        Calls ``GET /stories/{story_id}/evidence`` and returns all evidence
+        items persisted for the story (FK-40 §40.5b.6).  Used to populate
+        per-requirement ``evidence_paths`` in the are-evidence read-model.
+
+        Args:
+            story_id: Story identifier.
+
+        Returns:
+            List of :class:`AreEvidence` items (empty when none submitted).
+        """
+        data = self._request_json("GET", f"/stories/{story_id}/evidence")
+        try:
+            items = data
+            if isinstance(data, dict):
+                items = data.get("evidence") or data.get("items") or []
+            if items is None:
+                items = []
+            if not isinstance(items, list):
+                raise TypeError("ARE evidence list response must be a list")
+            return [AreEvidence.model_validate(item) for item in items]
+        except (TypeError, ValidationError) as exc:
+            raise AreClientResponseError("Invalid ARE evidence list response") from exc
 
     def _request_json(
         self,

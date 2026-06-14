@@ -366,9 +366,20 @@ def _critical_path(
     return max(paths.values(), key=lambda path: (len(path), path))
 
 
-def _budgets_from_parallel_config(
+def derive_budgets(
     config: ParallelizationConfig,
 ) -> ExecutionCapacityBudgets:
+    """Canonical derivation of ``ExecutionCapacityBudgets`` from a ``ParallelizationConfig``.
+
+    This is the Single Source of Truth for all five-cap derivation sites.
+    Call this function instead of duplicating the fan-out inline.
+
+    Args:
+        config: Active parallelization config.
+
+    Returns:
+        ``ExecutionCapacityBudgets`` with all five caps set.
+    """
     repo_cap = config.max_parallel_stories_per_repo or config.max_parallel_stories
     return ExecutionCapacityBudgets(
         repo_parallel_cap=repo_cap,
@@ -377,6 +388,10 @@ def _budgets_from_parallel_config(
         llm_pool_cap=config.max_parallel_stories,
         ci_capacity_cap=config.max_parallel_stories,
     )
+
+
+# Keep the private alias so existing internal callers (if any) still compile.
+_budgets_from_parallel_config = derive_budgets
 
 
 def _sorted_blockers(
