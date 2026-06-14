@@ -1,10 +1,33 @@
 story_id: AG3-092
 title: "Design-System (Token-Owner + Token-Conformance)"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
+completed: "2026-06-14"
 created: "2026-06-07"
 size: M
+# COMPLETED 2026-06-14 (user-directed closure). Typed Pydantic token owner
+# kpi-and-dashboard.DesignSystem (color/status/typography/spacing/control/chart.series.*
+# per FK-64 §64.5-§64.8/§64.14/§64.15/§64.17, no HTTP/IO); get_design_tokens real (both
+# AG3-029 stubs in views.py + top.py replaced); static token read route on the
+# control_plane_http kpi_analytics/http boundary (AG3-090, thin adapter, not in
+# DesignSystem). Owner = SSOT; CSS = checked expression (deterministic owner-derived
+# multi-:root-block drift check vs design-system.css). Token-conformance checker (FK-64
+# §64.17/§64.18, fail-closed, whitelist-by-construction) over a centralized CSS rule
+# parser: font-size (only var), local-font-scale (scoped to font-size value), ad-hoc hex,
+# control-size (every height/min-height/padding on any control selector must be
+# var(--control-*)), status strict 1:1 (severity/terminal/story-status, ambiguous lists
+# fail-closed). Status family complete (success/warning/danger/info + done + cancelled +
+# backlog/approved/in_progress). AC10 E2E real (real ControlPlaneApplication -> real owner).
+# QA: Codex sole gate, 8 remediation rounds (R5-R8 on Opus per >4-round rule) hardening
+# the CSS scanner. KNOWN LIMITATION (user-accepted 2026-06-14, MANUAL FOLLOW-UP): the
+# scanner has fail-open paths for violations nested inside CSS at-rules (@media) and for
+# comment-embedded declarations; these constructs do NOT occur in the current normative
+# design-system.css (0 @media, 0 comments). AC5 (5 violation types) + AC6 (real CSS passes)
+# are met. The remaining Codex r9 findings (@media descent, comment stripping) are deferred
+# to manual frontend rework. Gates: ruff, mypy strict default+linux (717), GAC-1, four
+# concept gates, ~254 kpi-analytics tests, coverage >=85%. Unblocks AG3-093 (with AG3-091)
+# + AG3-094.
 depends_on:
   - AG3-090
 unblocks:
