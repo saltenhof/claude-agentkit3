@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from agentkit.kpi_analytics.design_system import get_design_system
 from agentkit.kpi_analytics.errors import AnalyticsNotConfiguredError
 from agentkit.kpi_analytics.views import (
     DashboardView,
@@ -187,15 +188,23 @@ class KpiAnalytics:
         )
 
     def get_design_tokens(self) -> DesignTokens:
-        """Return dashboard design tokens (FK-64 DesignSystem).
+        """Return the typed dashboard design token set (FK-64 §64.2, AG3-092).
 
-        Not implemented in AG3-029 — DesignSystem is a separate follow-up story.
-        Hard-fail chosen over empty tokens: empty tokens would falsely suggest the
-        system is configured (AG3-029 deep-review).
+        Delivers the authoritative ``DesignSystem`` token owner as a
+        wire-serializable ``DesignTokens`` view.  The token set is deterministic
+        and has no runtime dependencies.
 
-        Raises:
-            NotImplementedError: Always, until the DesignSystem follow-up story.
+        Replaces the ``NotImplementedError`` stub from AG3-029.
+
+        Returns:
+            ``DesignTokens`` with the full typed family tree (colors / typography
+            / spacing / control / chart).
         """
-        raise NotImplementedError(
-            "DesignSystem tokens are implemented in follow-up story (FK-64)"
+        ds = get_design_system()
+        return DesignTokens(
+            colors=ds.colors,
+            typography=ds.typography,
+            spacing=ds.spacing,
+            control=ds.control,
+            chart=ds.chart,
         )

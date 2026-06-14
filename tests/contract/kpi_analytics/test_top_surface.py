@@ -106,6 +106,12 @@ def test_query_raises_not_implemented(analytics: KpiAnalytics) -> None:
         analytics.query("tenant-a", "SELECT * FROM kpi_story_metrics")
 
 
-def test_get_design_tokens_raises_not_implemented(analytics: KpiAnalytics) -> None:
-    with pytest.raises(NotImplementedError):
-        analytics.get_design_tokens()
+def test_get_design_tokens_returns_typed_token_set(analytics: KpiAnalytics) -> None:
+    """AG3-092: get_design_tokens is real (no longer raises NotImplementedError)."""
+    result = analytics.get_design_tokens()
+    # Must be a DesignTokens with all families
+    assert result.colors
+    assert result.typography
+    assert result.spacing
+    assert result.control
+    assert result.chart

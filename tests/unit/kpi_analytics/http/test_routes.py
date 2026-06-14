@@ -76,3 +76,69 @@ def test_unknown_kpi_dimension_returns_none() -> None:
 def test_unrelated_path_returns_none() -> None:
     routes = KpiAnalyticsRoutes(service_available=True)
     assert routes.handle_get("/v1/projects/myproj/phases", {}, _CORR) is None
+
+
+# ---------------------------------------------------------------------------
+# AG3-092 — design token route tests (AC3)
+# ---------------------------------------------------------------------------
+
+
+def test_design_tokens_route_returns_200() -> None:
+    """AC3: GET /v1/projects/{key}/kpi/design-tokens returns 200."""
+    routes = KpiAnalyticsRoutes(service_available=True)
+    result = routes.handle_get("/v1/projects/myproj/kpi/design-tokens", {}, _CORR)
+    assert result is not None
+    assert result.status_code == int(HTTPStatus.OK)
+
+
+def test_design_tokens_route_available_even_when_service_unavailable() -> None:
+    """AC3: design-token endpoint is always available (no backend dependency)."""
+    routes = KpiAnalyticsRoutes(service_available=False)
+    result = routes.handle_get("/v1/projects/myproj/kpi/design-tokens", {}, _CORR)
+    assert result is not None
+    assert result.status_code == int(HTTPStatus.OK)
+
+
+def test_design_tokens_route_echoes_project_key() -> None:
+    """AC3: response includes the project_key from the path."""
+    routes = KpiAnalyticsRoutes(service_available=True)
+    result = routes.handle_get("/v1/projects/tenant-x/kpi/design-tokens", {}, _CORR)
+    assert result is not None
+    body = _json(result)
+    assert isinstance(body, dict)
+    assert body["project_key"] == "tenant-x"
+
+
+def test_design_tokens_route_contains_all_families() -> None:
+    """AC3: response body contains all token families."""
+    routes = KpiAnalyticsRoutes(service_available=True)
+    result = routes.handle_get("/v1/projects/myproj/kpi/design-tokens", {}, _CORR)
+    assert result is not None
+    body = _json(result)
+    assert isinstance(body, dict)
+    assert "colors" in body
+    assert "typography" in body
+    assert "spacing" in body
+    assert "control" in body
+    assert "chart" in body
+
+
+def test_design_tokens_route_body_is_deterministic() -> None:
+    """AC3: two calls return identical bodies (deterministic token set)."""
+    routes = KpiAnalyticsRoutes()
+    r1 = routes.handle_get("/v1/projects/myproj/kpi/design-tokens", {}, _CORR)
+    r2 = routes.handle_get("/v1/projects/myproj/kpi/design-tokens", {}, _CORR)
+    assert r1 is not None
+    assert r2 is not None
+    # Bodies must be identical (project_key is the same)
+    assert r1.body == r2.body
+
+
+def test_design_tokens_route_not_claimed_by_dimension_handler() -> None:
+    """AC3: design-tokens sub-path is NOT matched by the dimension handler."""
+    # The dimension handler only accepts known dimensions (stories|guards|...)
+    routes = KpiAnalyticsRoutes(service_available=True)
+    # /kpi/design-tokens must return 200 from the token route, not None
+    result = routes.handle_get("/v1/projects/myproj/kpi/design-tokens", {}, _CORR)
+    assert result is not None
+    assert result.status_code == int(HTTPStatus.OK)
