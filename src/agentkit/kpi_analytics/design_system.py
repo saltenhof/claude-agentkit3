@@ -27,6 +27,10 @@ from pydantic import BaseModel, ConfigDict
 
 _CSS_VAR_EMPTY = ""  # no literal repetition risk here; present for clarity
 
+# Shared ``rem`` literal used as default by three otherwise-independent token
+# families (spacing, border, radii) that coincide at this value.
+_HALF_REM = "0.5rem"
+
 
 # ---------------------------------------------------------------------------
 # Color families (FK-64 §64.5)
@@ -274,7 +278,7 @@ class SpacingTokens(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     space_1: str = "0.25rem"
-    space_2: str = "0.5rem"
+    space_2: str = _HALF_REM
     space_3: str = "0.75rem"
     space_4: str = "1rem"
     space_5: str = "1.25rem"
@@ -289,7 +293,7 @@ class BorderTokens(BaseModel):
 
     hairline: str = "0.0625rem"
     graph_edge_width: str = "0.3125rem"
-    graph_edge_width_strong: str = "0.5rem"
+    graph_edge_width_strong: str = _HALF_REM
     graph_edge_dash: str = "0.5rem 0.4375rem"
 
 
@@ -303,7 +307,7 @@ class RadiiTokens(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     small: str = "0.25rem"
-    medium: str = "0.5rem"
+    medium: str = _HALF_REM
     large: str = "0.75rem"
     pill: str = "100rem"
 
