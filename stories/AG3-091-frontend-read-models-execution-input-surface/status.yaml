@@ -1,13 +1,35 @@
 story_id: AG3-091
 title: "API/Event-Katalog-Endpunkte (Frontend-Read-Models + Execution-Limits-Read)"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
+completed: "2026-06-14"
 created: "2026-06-07"
 size: L
+# COMPLETED 2026-06-14. BFF read-layer (control_plane_http): six project-scoped GET
+# read-model endpoints — execution-input/limits (5 caps via execution_planning
+# derive_budgets SSOT), mode-lock (delegates service.derive_mode_lock, no holder_count),
+# stories/counters (compute_story_counters), stories/{id}/flow (position-derived from
+# story.status + current FK-39 phase; substeps derived ONLY from real payload fields
+# gate_status/qa_cycle_round/ClosureProgress, no invented pointer), coverage/{id}/acceptance
+# + are-evidence (read-only over AG3-077 StoryAreLink + ARE live status, evidence_paths,
+# fail-closed builder AreVerdictRequiredError + 503). FAIL-CLOSED: 404 unknown project_key,
+# project_key scoping on all story endpoints (no cross-project leak), 405 on mutations
+# (checked before body decode). New formal coverage entities (story_coverage_acceptance,
+# story_are_evidence) contract-bound (FK-72 §72.14.3); no AG3-100 surface touched. AC10
+# E2E-without-stub: integration tests run real HTTP -> control_plane -> real backend ->
+# real DB reads of really-persisted data (ARE HTTP transport is the only faked boundary).
+# QA: Codex sole gate, 5 remediation rounds (R5 on Opus per >4-round rule). Findings fixed:
+# green-skeletons (limits fan-out, flow project_root/invented substep fields, are-evidence
+# hardcoded "linked"), cross-project leak, 405-before-decode, evidence paths, formal-entity
+# duplication. Sonar Aufraeumrunde (5 new-code: class-LOC, module-LOC, 2x S3776, unused param)
+# -> green. Gates: ruff, mypy strict default+linux (715), GAC-1, four concept gates,
+# 6022 unit + 580 contract + integration incl. real-payload flow E2E + 405 empty-body +
+# Postgres parity. Jenkins #397 + #399 SUCCESS, Sonar OK. Unblocks AG3-093 (with AG3-092).
 depends_on:
   - AG3-090
   - AG3-098
   - AG3-100
   - AG3-077
-unblocks: []
+unblocks:
+  - AG3-093
