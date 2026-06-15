@@ -19,6 +19,7 @@ would advance an IS story straight to implementation -- these tests would fail.
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING
 
 import pytest
@@ -54,14 +55,38 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.integration
 
+# Static story id used only by tests that do NOT persist story context to the
+# database (TestSetupRoutingBlocksImplementationForIS). Tests that DO write to
+# the shared Postgres ``story_contexts`` table use the per-test ``unique_story_id``
+# fixture below to avoid UniqueViolation on ``story_contexts_story_id_idx``.
 _STORY = "IS-69"
 _RUN = "11111111-1111-4111-8111-111111111111"
 
 
-def _is_ctx(project_root: Path | None = None) -> StoryContext:
+@pytest.fixture()
+def unique_story_id() -> str:
+    """Return a per-test-unique story id to prevent Postgres unique-index collisions.
+
+    The shared Postgres DB carries a standalone UNIQUE index on ``story_id``
+    (``story_contexts_story_id_idx``).  Tests that persist a story context must
+    use a story id that is unique across ALL integration tests in the session;
+    otherwise a previously inserted row from a different test file or a prior
+    test run causes a UniqueViolation even when the ``(project_key, story_id)``
+    pair would be distinct.
+
+    The id uses a large numeric suffix derived from a UUID so it satisfies the
+    ``^[A-Z][A-Z0-9]{1,9}-\\d+$`` pattern and the ``story_number >= 1`` invariant
+    while being statistically unique across parallel Jenkins workers.
+    """
+    # Take the low 9 digits of the uuid int; always >= 1 (floor at 1 if 0).
+    n = uuid.uuid4().int % 1_000_000_000 or 1
+    return f"IS-{n}"
+
+
+def _is_ctx(story_id: str, project_root: Path | None = None) -> StoryContext:
     return StoryContext(
         project_key="PROJ",
-        story_id=_STORY,
+        story_id=story_id,
         story_type=StoryType.IMPLEMENTATION,
         implementation_contract=ImplementationContract.INTEGRATION_STABILIZATION,
         execution_route=StoryMode.EXECUTION,  # even on EXECUTION route, IS forces exploration
@@ -69,18 +94,18 @@ def _is_ctx(project_root: Path | None = None) -> StoryContext:
     )
 
 
-def _setup_state() -> object:
+def _setup_state(story_id: str) -> object:
     return make_phase_state(
-        story_id=_STORY, phase="setup", status=PhaseStatus.COMPLETED
+        story_id=story_id, phase="setup", status=PhaseStatus.COMPLETED
     )
 
 
-def _exploration_state(*, approved: bool) -> object:
+def _exploration_state(story_id: str, *, approved: bool) -> object:
     gate = (
         ExplorationGateStatus.APPROVED if approved else ExplorationGateStatus.PENDING
     )
     return make_phase_state(
-        story_id=_STORY,
+        story_id=story_id,
         phase="exploration",
         status=PhaseStatus.COMPLETED,
         payload=ExplorationPayload(gate_status=gate),
@@ -94,7 +119,9 @@ def _workflow() -> object:
 class TestSetupRoutingBlocksImplementationForIS:
     def test_is_story_routes_setup_to_exploration(self) -> None:
         """AC8: IS story at setup routes to exploration, NOT implementation."""
-        transition = _evaluate_transitions(_workflow(), _is_ctx(), _setup_state())
+        transition = _evaluate_transitions(
+            _workflow(), _is_ctx(_STORY), _setup_state(_STORY)
+        )
         assert transition is not None
         assert transition.target == "exploration"
 
@@ -107,22 +134,24 @@ class TestSetupRoutingBlocksImplementationForIS:
             implementation_contract=ImplementationContract.STANDARD,
             execution_route=StoryMode.EXECUTION,
         )
-        transition = _evaluate_transitions(_workflow(), ctx, _setup_state())
+        transition = _evaluate_transitions(_workflow(), ctx, _setup_state(_STORY))
         assert transition is not None
         assert transition.target == "implementation"
 
 
 class TestExplorationToImplementationGatedOnManifest:
-    def _prepare_story_dir(self, tmp_path: Path, *, approved: bool) -> Path:
-        s_dir = _story_dir(tmp_path, _STORY)
+    def _prepare_story_dir(
+        self, tmp_path: Path, story_id: str, *, approved: bool
+    ) -> Path:
+        s_dir = _story_dir(tmp_path, story_id)
         s_dir.mkdir(parents=True, exist_ok=True)
-        ctx = _is_ctx(tmp_path)
+        ctx = _is_ctx(story_id, tmp_path)
         save_story_context(s_dir, ctx)
         if approved:
             m = IntegrationScopeManifest(
                 version=1,
                 project_key="PROJ",
-                story_id=_STORY,
+                story_id=story_id,
                 implementation_contract="integration_stabilization",
                 target_seams=("src/api/",),
                 allowed_repos_paths=("src/api/",),
@@ -140,7 +169,7 @@ class TestExplorationToImplementationGatedOnManifest:
                 s_dir,
                 ManifestApprovalRecord(
                     project_key="PROJ",
-                    story_id=_STORY,
+                    story_id=story_id,
                     run_id=_RUN,
                     manifest_version=m.version,
                     manifest_hash=m.content_hash,
@@ -149,36 +178,42 @@ class TestExplorationToImplementationGatedOnManifest:
         return s_dir
 
     def test_exploration_to_implementation_blocked_without_manifest(
-        self, tmp_path: Path
+        self, tmp_path: Path, unique_story_id: str
     ) -> None:
         """AC8: exploration -> implementation BLOCKED for IS without manifest.
 
         Even though the exploration gate is APPROVED, the absence of an approved
         IS manifest blocks the transition fail-closed (no transition fires).
         """
-        self._prepare_story_dir(tmp_path, approved=False)
+        self._prepare_story_dir(tmp_path, unique_story_id, approved=False)
         transition = _evaluate_transitions(
-            _workflow(), _is_ctx(tmp_path), _exploration_state(approved=True)
+            _workflow(),
+            _is_ctx(unique_story_id, tmp_path),
+            _exploration_state(unique_story_id, approved=True),
         )
         assert transition is None
 
     def test_exploration_to_implementation_allowed_with_approved_manifest(
-        self, tmp_path: Path
+        self, tmp_path: Path, unique_story_id: str
     ) -> None:
         """AC8: with an approved+bound manifest the transition advances."""
-        self._prepare_story_dir(tmp_path, approved=True)
+        self._prepare_story_dir(tmp_path, unique_story_id, approved=True)
         transition = _evaluate_transitions(
-            _workflow(), _is_ctx(tmp_path), _exploration_state(approved=True)
+            _workflow(),
+            _is_ctx(unique_story_id, tmp_path),
+            _exploration_state(unique_story_id, approved=True),
         )
         assert transition is not None
         assert transition.target == "implementation"
 
     def test_exploration_gate_not_approved_blocks_even_with_manifest(
-        self, tmp_path: Path
+        self, tmp_path: Path, unique_story_id: str
     ) -> None:
         """The base exploration-gate-approved guard still gates (defense in depth)."""
-        self._prepare_story_dir(tmp_path, approved=True)
+        self._prepare_story_dir(tmp_path, unique_story_id, approved=True)
         transition = _evaluate_transitions(
-            _workflow(), _is_ctx(tmp_path), _exploration_state(approved=False)
+            _workflow(),
+            _is_ctx(unique_story_id, tmp_path),
+            _exploration_state(unique_story_id, approved=False),
         )
         assert transition is None

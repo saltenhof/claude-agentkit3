@@ -15,6 +15,7 @@ structural checker, proving:
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -52,26 +53,45 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.integration
 
-_STORY = "IS-69"
 _RUN = "run-is69"
 _DELTA = "src/api/legacy_delta.py"  # a pre-snapshot delta INSIDE a declared seam
 
 
-def _standard_ctx() -> StoryContext:
+@pytest.fixture()
+def unique_story_id() -> str:
+    """Return a per-test-unique story id to prevent Postgres unique-index collisions.
+
+    The shared Postgres DB carries a standalone UNIQUE index on ``story_id``
+    (``story_contexts_story_id_idx``).  Tests that persist a story context must
+    use a story id that is unique across ALL integration tests in the session;
+    otherwise a previously inserted row from a different test file or a prior
+    test run causes a UniqueViolation even when the ``(project_key, story_id)``
+    pair would be distinct.
+
+    The id uses a large numeric suffix derived from a UUID so it satisfies the
+    ``^[A-Z][A-Z0-9]{1,9}-\\d+$`` pattern and the ``story_number >= 1`` invariant
+    while being statistically unique across parallel Jenkins workers.
+    """
+    # Take the low 9 digits of the uuid int; always >= 1 (floor at 1 if 0).
+    n = uuid.uuid4().int % 1_000_000_000 or 1
+    return f"IS-{n}"
+
+
+def _standard_ctx(story_id: str) -> StoryContext:
     return StoryContext(
         project_key="PROJ",
-        story_id=_STORY,
+        story_id=story_id,
         story_type=StoryType.IMPLEMENTATION,
         implementation_contract=ImplementationContract.STANDARD,
         execution_route=StoryMode.EXPLORATION,
     )
 
 
-def _manifest() -> IntegrationScopeManifest:
+def _manifest(story_id: str) -> IntegrationScopeManifest:
     return IntegrationScopeManifest(
         version=1,
         project_key="PROJ",
-        story_id=_STORY,
+        story_id=story_id,
         implementation_contract="integration_stabilization",
         target_seams=("src/api/",),
         allowed_repos_paths=("src/api/",),
@@ -87,11 +107,11 @@ def _manifest() -> IntegrationScopeManifest:
 
 
 class _FakeChangeEvidencePort:
-    def __init__(self, changed_files: tuple[str, ...]) -> None:
+    def __init__(self, story_id: str, changed_files: tuple[str, ...]) -> None:
         self._ev = ChangeEvidence(
             available=True,
-            current_branch=f"story/{_STORY}",
-            commit_messages=(f"feat({_STORY}): work",),
+            current_branch=f"story/{story_id}",
+            commit_messages=(f"feat({story_id}): work",),
             pushed=True,
             changed_files=changed_files,
             actual_impact=ChangeImpact("Component"),
@@ -109,7 +129,7 @@ class _FakeTelemetry:
         return True
 
 
-def _checker(changed_files: tuple[str, ...]) -> StructuralChecker:
+def _checker(story_id: str, changed_files: tuple[str, ...]) -> StructuralChecker:
     from agentkit.verify_system.structural.checks import BuildTestEvidence
 
     class _Bt:
@@ -126,15 +146,15 @@ def _checker(changed_files: tuple[str, ...]) -> StructuralChecker:
         registry=StageRegistry(stages=ALL_STAGES),
         telemetry=_FakeTelemetry(),
         build_test_port=_Bt(),
-        change_evidence_port=_FakeChangeEvidencePort(changed_files),
+        change_evidence_port=_FakeChangeEvidencePort(story_id, changed_files),
     )
 
 
-def _reclassified_is_story(tmp_path: Path) -> Path:
+def _reclassified_is_story(tmp_path: Path, story_id: str) -> Path:
     """Reclassify a standard story to IS with a pre-snapshot delta quarantined."""
-    story_dir = tmp_path / _STORY
+    story_dir = tmp_path / story_id
     story_dir.mkdir(parents=True, exist_ok=True)
-    save_story_context(story_dir, _standard_ctx())
+    save_story_context(story_dir, _standard_ctx(story_id))
     for phase in ("setup", "exploration"):
         from agentkit.pipeline_engine.phase_executor import (
             PhaseSnapshot,
@@ -145,7 +165,7 @@ def _reclassified_is_story(tmp_path: Path) -> Path:
         save_phase_snapshot(
             story_dir,
             PhaseSnapshot(
-                story_id=_STORY,
+                story_id=story_id,
                 phase=phase,
                 status=PhaseStatus.COMPLETED,
                 completed_at=datetime.now(tz=UTC),
@@ -157,20 +177,20 @@ def _reclassified_is_story(tmp_path: Path) -> Path:
     # save_story_context is the allowed AC003 mutation surface (injected).
     result = reclassify_standard_to_integration_stabilization(
         story_dir,
-        _standard_ctx(),
+        _standard_ctx(story_id),
         pre_snapshot_deltas=(_DELTA,),
         context_writer=save_story_context,
     )
     assert result.legalization_blocked is True
     assert _DELTA in result.quarantined_deltas
     # Approve the manifest so the other IS checks do not mask the delta finding.
-    m = _manifest()
+    m = _manifest(story_id)
     save_integration_manifest(story_dir, m)
     save_manifest_approval(
         story_dir,
         ManifestApprovalRecord(
             project_key="PROJ",
-            story_id=_STORY,
+            story_id=story_id,
             run_id=_RUN,
             manifest_version=m.version,
             manifest_hash=m.content_hash,
@@ -180,8 +200,10 @@ def _reclassified_is_story(tmp_path: Path) -> Path:
 
 
 class TestReclassificationBoundary:
-    def test_reclassification_persists_is_contract(self, tmp_path: Path) -> None:
-        story_dir = _reclassified_is_story(tmp_path)
+    def test_reclassification_persists_is_contract(
+        self, tmp_path: Path, unique_story_id: str
+    ) -> None:
+        story_dir = _reclassified_is_story(tmp_path, unique_story_id)
         ctx = load_story_context(story_dir)
         assert ctx is not None
         assert (
@@ -190,13 +212,13 @@ class TestReclassificationBoundary:
         )
 
     def test_pre_snapshot_delta_is_persisted_quarantined(
-        self, tmp_path: Path
+        self, tmp_path: Path, unique_story_id: str
     ) -> None:
-        story_dir = _reclassified_is_story(tmp_path)
+        story_dir = _reclassified_is_story(tmp_path, unique_story_id)
         assert _DELTA in read_quarantine_state(story_dir)
 
     def test_pre_snapshot_delta_stays_quarantined_via_real_checker(
-        self, tmp_path: Path
+        self, tmp_path: Path, unique_story_id: str
     ) -> None:
         """ERROR E: touching the quarantined pre-snapshot delta BLOCKS.
 
@@ -204,12 +226,12 @@ class TestReclassificationBoundary:
         because it is a quarantined pre-manifest delta (not legalized). This
         drives the REAL StructuralChecker, which reads the persisted quarantine.
         """
-        story_dir = _reclassified_is_story(tmp_path)
+        story_dir = _reclassified_is_story(tmp_path, unique_story_id)
         # The IS context is now persisted; build the IS ctx for the checker.
         ctx = load_story_context(story_dir)
         assert ctx is not None
 
-        checker = _checker(changed_files=(_DELTA,))
+        checker = _checker(unique_story_id, changed_files=(_DELTA,))
         result = checker.evaluate(ctx, story_dir)
 
         blocking = [
@@ -225,14 +247,14 @@ class TestReclassificationBoundary:
         )
 
     def test_declared_in_seam_non_quarantined_path_passes(
-        self, tmp_path: Path
+        self, tmp_path: Path, unique_story_id: str
     ) -> None:
         """A normal in-seam path (not quarantined) does NOT trigger the block."""
-        story_dir = _reclassified_is_story(tmp_path)
+        story_dir = _reclassified_is_story(tmp_path, unique_story_id)
         ctx = load_story_context(story_dir)
         assert ctx is not None
 
-        checker = _checker(changed_files=("src/api/handler.py",))
+        checker = _checker(unique_story_id, changed_files=("src/api/handler.py",))
         result = checker.evaluate(ctx, story_dir)
 
         surface_findings = [
