@@ -1,10 +1,45 @@
 story_id: AG3-069
 title: "Integration-Stabilization-Maschinerie (Manifest/Approval/Budget/Gate/Overlay)"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
+completed: "2026-06-15"
 size: L
+# COMPLETED 2026-06-15. New BC integration_stabilization implementing the second
+# contract axis (implementation_contract=integration_stabilization, FK-05).
+# Everything fail-closed and contract-gated (STANDARD stories unaffected, proven by
+# the full suite). Typed frozen IntegrationScopeManifest (FK-05 §5.5.2 fieldset +
+# version + recomputed content_hash, contract enum-validated) and
+# ManifestApprovalRecord (bound to project_key/story_id/run_id + hash/version);
+# persisted as domain state (raw Pydantic like story_context — Codex-adjudicated
+# that FK-71 envelopes are for QA artifacts, not domain state). Fail-closed
+# enforcement wired into REAL boundaries: worker-spawn approval+binding at
+# ImplementationPhaseHandler.on_enter; execution-routing block at the real
+# setup->implementation workflow transition (exploration mandatory); PreToolUse
+# seam-allowlist guard in the installed governance guard chain (FailClosedSeamGuard
+# on missing/unreadable allowlist file — no in-memory fallback); live
+# stabilization-budget guard (loops/surfaces/contract-changes/regressions-per-cycle)
+# in the capability layer; closure precondition in ClosurePhaseHandler. stability_gate
+# folded into the canonical StageRegistry (contract-aware stages_for/stage_for_id,
+# no parallel registry, no STANDARD leak); real stability_gate Layer-4 producer
+# threaded into PolicyEngine.decide via implementation_contract so the four FK-37
+# §37.1.3 checks (integration_target_matrix_passed/declared_surfaces_only/
+# stabilization_budget_not_exhausted/stability_gate) are genuinely REQUIRED for IS.
+# declared_surfaces_only = deterministic Layer-1 structural check (no LLM). Repo-set
+# boundary enforced at manifest save/approve. Reclassification standard->IS creates a
+# fresh evidence_epoch and persists quarantine for pre-snapshot cross-scope deltas
+# (no retroactive legalization). Four IS telemetry events emitted via the real
+# EventEmitter with registered mandatory payloads. IS context docked onto the AG3-067
+# ContextSufficiencyBuilder. QA (multi-layer defense, the session's hardest story):
+# Codex caught a FULL green-skeleton (all gates locally green while nothing was wired)
+# + a residual fail-open guard over R1(Sonnet shallow)->R2(OPUS deep wiring)->
+# R3(Sonnet final bugs)->R4 APPROVE; Jenkins #439 then caught a Postgres shared-DB
+# test-isolation parity bug (fixed via per-test-unique story_ids, R4); Sonar caught
+# 10 code-smell findings (2 Aufraeumrunden incl. a module-LOC fix that had to be
+# re-fixed when the extraction relocated the violation). Gates: ruff, mypy strict
+# default+linux (731), GAC-1, four concept gates, full suite 7550+ passed, IS
+# coverage 95%+. Jenkins #441 + #442 + #444 SUCCESS, Sonar gate OK. unblocks: none.
 depends_on:
   - AG3-064
   - AG3-067
