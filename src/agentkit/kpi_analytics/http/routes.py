@@ -52,7 +52,9 @@ from agentkit.control_plane.models import (
 from agentkit.kpi_analytics.design_system import get_design_system
 
 if TYPE_CHECKING:
+    from agentkit.kpi_analytics.fact_store.models import KpiQueryFilter, PeriodFilter
     from agentkit.kpi_analytics.top import KpiAnalytics
+    from agentkit.kpi_analytics.views import DashboardView
 
 logger = logging.getLogger(__name__)
 
@@ -216,149 +218,20 @@ class KpiAnalyticsRoutes:
         """
         assert self.kpi_analytics is not None  # guarded by caller
 
-        # Reject unknown query parameters (fail-closed).
-        unknown_params = set(query.keys()) - _ALLOWED_KPI_PARAMS
-        if unknown_params:
-            return bc_error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="invalid_kpi_filter",
-                message=(
-                    f"Unknown query parameter(s): {sorted(unknown_params)!r}. "
-                    f"Allowed: {sorted(_ALLOWED_KPI_PARAMS)!r}."
-                ),
-                correlation_id=correlation_id,
-            )
-
-        # Reject duplicate/multivalued parameters (fail-closed).
-        for param_name, values in query.items():
-            if len(values) > 1:
-                return bc_error_response(
-                    HTTPStatus.BAD_REQUEST,
-                    error_code="invalid_kpi_filter",
-                    message=(
-                        f"Duplicate query parameter {param_name!r}: "
-                        f"each parameter must appear at most once."
-                    ),
-                    correlation_id=correlation_id,
-                )
-
-        # Reject any query-string project_key (path is always authoritative).
-        # Whether the query value matches or mismatches, it is rejected: the path
-        # parameter is the only authoritative scope key (fail-closed).
-        if "project_key" in query:
-            query_project_key = query["project_key"][0]
-            if query_project_key != project_key:
-                return bc_error_response(
-                    HTTPStatus.BAD_REQUEST,
-                    error_code="invalid_kpi_filter",
-                    message=(
-                        f"project_key mismatch: path has {project_key!r} but "
-                        f"query string has {query_project_key!r}. "
-                        f"Use the path parameter only."
-                    ),
-                    correlation_id=correlation_id,
-                )
-            # Matching value is also rejected: redundant — path is authoritative.
-            return bc_error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="invalid_kpi_filter",
-                message=(
-                    "project_key in query string is redundant; "
-                    "use the path parameter only."
-                ),
-                correlation_id=correlation_id,
-            )
-
-        from_vals = query.get("from", [])
-        to_vals = query.get("to", [])
-        url_dimension = dimension or "stories"
-
-        # Period is MANDATORY — reject missing period with 400 (no full-table scan).
-        if not from_vals or not to_vals:
-            return bc_error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="invalid_kpi_filter",
-                message=(
-                    "Both 'from' and 'to' query parameters are required. "
-                    "Period is mandatory for all KPI dimension endpoints "
-                    "(FK-63 §63.3.3 — no unbounded full-table scan allowed)."
-                ),
-                correlation_id=correlation_id,
-            )
-
-        # Parse and validate period timestamps — must be timezone-aware.
-        from agentkit.kpi_analytics.fact_store.models import (
-            EntityFilter,
-            KpiQueryFilter,
-            PeriodFilter,
-            StoryFilter,
+        param_error = self._validate_kpi_query_params(
+            project_key=project_key, query=query, correlation_id=correlation_id
         )
+        if param_error is not None:
+            return param_error
 
-        try:
-            period_start = _parse_aware_datetime(from_vals[0], "'from'")
-            period_end = _parse_aware_datetime(to_vals[0], "'to'")
-        except ValueError as exc:
-            return bc_error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="invalid_kpi_filter",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
+        kpi_filter, filter_error = self._parse_kpi_filter(
+            project_key=project_key, query=query, correlation_id=correlation_id
+        )
+        if filter_error is not None:
+            return filter_error
+        assert kpi_filter is not None  # no error ⇒ filter built
 
-        # Parse optional comparison period (AC5).
-        compare_from_vals = query.get("compare_from", [])
-        compare_to_vals = query.get("compare_to", [])
-        comparison_period: PeriodFilter | None = None
-        if compare_from_vals or compare_to_vals:
-            if not compare_from_vals or not compare_to_vals:
-                return bc_error_response(
-                    HTTPStatus.BAD_REQUEST,
-                    error_code="invalid_kpi_filter",
-                    message=(
-                        "Both 'compare_from' and 'compare_to' must be provided together "
-                        "when using comparison mode."
-                    ),
-                    correlation_id=correlation_id,
-                )
-            try:
-                compare_start = _parse_aware_datetime(
-                    compare_from_vals[0], "'compare_from'"
-                )
-                compare_end = _parse_aware_datetime(compare_to_vals[0], "'compare_to'")
-                comparison_period = PeriodFilter(start=compare_start, end=compare_end)
-            except ValueError as exc:
-                return bc_error_response(
-                    HTTPStatus.BAD_REQUEST,
-                    error_code="invalid_kpi_filter",
-                    message=str(exc),
-                    correlation_id=correlation_id,
-                )
-
-        # Optional entity / story filters (single values only — duplicates already rejected).
-        guard_raw = query.get("guard", [None])[0] or None
-        pool_raw = query.get("pool", [None])[0] or None
-        story_type_raw = query.get("story_type", [None])[0] or None
-        story_size_raw = query.get("story_size", [None])[0] or None
-
-        try:
-            kpi_filter = KpiQueryFilter(
-                project_key=project_key,
-                period=PeriodFilter(start=period_start, end=period_end),
-                entity_filter=EntityFilter(guard=guard_raw, pool=pool_raw),
-                story_filter=StoryFilter(
-                    story_type=story_type_raw,
-                    story_size=story_size_raw,
-                ),
-                comparison_period=comparison_period,
-            )
-        except (ValueError, TypeError) as exc:
-            return bc_error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="invalid_kpi_filter",
-                message=f"Invalid KPI query filter: {exc}",
-                correlation_id=correlation_id,
-            )
-
+        url_dimension = dimension or "stories"
         view_kind = _DIMENSION_TO_VIEW_KIND.get(url_dimension, url_dimension)
         try:
             view = self.kpi_analytics.get_dashboard_view_with_filter(
@@ -379,16 +252,215 @@ class KpiAnalyticsRoutes:
                 correlation_id=correlation_id,
             )
 
+        return bc_json_response(
+            HTTPStatus.OK,
+            self._build_kpi_payload(view, url_dimension, kpi_filter.comparison_period),
+            correlation_id=correlation_id,
+        )
+
+    def _validate_kpi_query_params(
+        self,
+        *,
+        project_key: str,
+        query: dict[str, list[str]],
+        correlation_id: str,
+    ) -> KpiAnalyticsRouteResponse | None:
+        """Fail-closed query-parameter validation.
+
+        Returns an error ``BcRouteResponse`` for the first violation, or ``None``
+        when the parameters are well-formed.  Rejects unknown params, duplicate/
+        multivalued params, and any query-string ``project_key`` (the path
+        parameter is the only authoritative scope key).
+        """
+        unknown_params = set(query.keys()) - _ALLOWED_KPI_PARAMS
+        if unknown_params:
+            return bc_error_response(
+                HTTPStatus.BAD_REQUEST,
+                error_code="invalid_kpi_filter",
+                message=(
+                    f"Unknown query parameter(s): {sorted(unknown_params)!r}. "
+                    f"Allowed: {sorted(_ALLOWED_KPI_PARAMS)!r}."
+                ),
+                correlation_id=correlation_id,
+            )
+
+        for param_name, values in query.items():
+            if len(values) > 1:
+                return bc_error_response(
+                    HTTPStatus.BAD_REQUEST,
+                    error_code="invalid_kpi_filter",
+                    message=(
+                        f"Duplicate query parameter {param_name!r}: "
+                        f"each parameter must appear at most once."
+                    ),
+                    correlation_id=correlation_id,
+                )
+
+        # Reject any query-string project_key (path is always authoritative);
+        # a matching value is redundant, a mismatch is a conflict — both → 400.
+        if "project_key" not in query:
+            return None
+        query_project_key = query["project_key"][0]
+        if query_project_key != project_key:
+            return bc_error_response(
+                HTTPStatus.BAD_REQUEST,
+                error_code="invalid_kpi_filter",
+                message=(
+                    f"project_key mismatch: path has {project_key!r} but "
+                    f"query string has {query_project_key!r}. "
+                    f"Use the path parameter only."
+                ),
+                correlation_id=correlation_id,
+            )
+        return bc_error_response(
+            HTTPStatus.BAD_REQUEST,
+            error_code="invalid_kpi_filter",
+            message=(
+                "project_key in query string is redundant; "
+                "use the path parameter only."
+            ),
+            correlation_id=correlation_id,
+        )
+
+    def _parse_kpi_filter(
+        self,
+        *,
+        project_key: str,
+        query: dict[str, list[str]],
+        correlation_id: str,
+    ) -> tuple[KpiQueryFilter | None, KpiAnalyticsRouteResponse | None]:
+        """Parse a typed ``KpiQueryFilter`` from query params (fail-closed).
+
+        Returns ``(filter, None)`` on success or ``(None, error_response)`` on any
+        validation failure: missing mandatory period, naive timestamps, a
+        malformed comparison window, or an invalid filter combination.
+        """
+        from agentkit.kpi_analytics.fact_store.models import (
+            EntityFilter,
+            KpiQueryFilter,
+            PeriodFilter,
+            StoryFilter,
+        )
+
+        from_vals = query.get("from", [])
+        to_vals = query.get("to", [])
+        # Period is MANDATORY — reject missing period with 400 (no full-table scan).
+        if not from_vals or not to_vals:
+            return None, bc_error_response(
+                HTTPStatus.BAD_REQUEST,
+                error_code="invalid_kpi_filter",
+                message=(
+                    "Both 'from' and 'to' query parameters are required. "
+                    "Period is mandatory for all KPI dimension endpoints "
+                    "(FK-63 §63.3.3 — no unbounded full-table scan allowed)."
+                ),
+                correlation_id=correlation_id,
+            )
+
+        # Parse and validate period timestamps — must be timezone-aware.
+        try:
+            period_start = _parse_aware_datetime(from_vals[0], "'from'")
+            period_end = _parse_aware_datetime(to_vals[0], "'to'")
+        except ValueError as exc:
+            return None, bc_error_response(
+                HTTPStatus.BAD_REQUEST,
+                error_code="invalid_kpi_filter",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+
+        comparison_period, comparison_error = self._parse_comparison_period(
+            query=query, correlation_id=correlation_id
+        )
+        if comparison_error is not None:
+            return None, comparison_error
+
+        # Optional entity / story filters (single values — duplicates already rejected).
+        guard_raw = query.get("guard", [None])[0] or None
+        pool_raw = query.get("pool", [None])[0] or None
+        story_type_raw = query.get("story_type", [None])[0] or None
+        story_size_raw = query.get("story_size", [None])[0] or None
+
+        try:
+            kpi_filter = KpiQueryFilter(
+                project_key=project_key,
+                period=PeriodFilter(start=period_start, end=period_end),
+                entity_filter=EntityFilter(guard=guard_raw, pool=pool_raw),
+                story_filter=StoryFilter(
+                    story_type=story_type_raw,
+                    story_size=story_size_raw,
+                ),
+                comparison_period=comparison_period,
+            )
+        except (ValueError, TypeError) as exc:
+            return None, bc_error_response(
+                HTTPStatus.BAD_REQUEST,
+                error_code="invalid_kpi_filter",
+                message=f"Invalid KPI query filter: {exc}",
+                correlation_id=correlation_id,
+            )
+        return kpi_filter, None
+
+    def _parse_comparison_period(
+        self,
+        *,
+        query: dict[str, list[str]],
+        correlation_id: str,
+    ) -> tuple[PeriodFilter | None, KpiAnalyticsRouteResponse | None]:
+        """Parse the optional AC5 comparison window from query params (fail-closed).
+
+        Returns ``(None, None)`` when no comparison window is requested,
+        ``(period, None)`` on success, or ``(None, error_response)`` when only one
+        bound is supplied or a bound is naive/malformed.
+        """
+        from agentkit.kpi_analytics.fact_store.models import PeriodFilter
+
+        compare_from_vals = query.get("compare_from", [])
+        compare_to_vals = query.get("compare_to", [])
+        if not compare_from_vals and not compare_to_vals:
+            return None, None
+        if not compare_from_vals or not compare_to_vals:
+            return None, bc_error_response(
+                HTTPStatus.BAD_REQUEST,
+                error_code="invalid_kpi_filter",
+                message=(
+                    "Both 'compare_from' and 'compare_to' must be provided together "
+                    "when using comparison mode."
+                ),
+                correlation_id=correlation_id,
+            )
+        try:
+            compare_start = _parse_aware_datetime(compare_from_vals[0], "'compare_from'")
+            compare_end = _parse_aware_datetime(compare_to_vals[0], "'compare_to'")
+            comparison_period = PeriodFilter(start=compare_start, end=compare_end)
+        except ValueError as exc:
+            return None, bc_error_response(
+                HTTPStatus.BAD_REQUEST,
+                error_code="invalid_kpi_filter",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+        return comparison_period, None
+
+    @staticmethod
+    def _build_kpi_payload(
+        view: DashboardView,
+        url_dimension: str,
+        comparison_period: PeriodFilter | None,
+    ) -> dict[str, object]:
+        """Serialize a ``DashboardView`` to the wire payload at the HTTP edge.
+
+        Typed fact rows are dumped to plain dicts here (the same edge pattern as
+        ``_handle_design_tokens``).  The comparison block is included only when a
+        comparison window was requested (AC5).
+        """
         payload: dict[str, object] = {
             "project_key": view.project_key,
             "dimension": url_dimension,
             "status": view.status,
-            # Serialize typed fact rows to plain dicts at the HTTP edge
-            # (the same pattern used for DesignTokens in _handle_design_tokens).
             "rows": [row.model_dump(mode="json") for row in view.rows],
         }
         if comparison_period is not None:
-            # Surface comparison period and its rows in response (AC5).
             payload["comparison_period"] = {
                 "from": comparison_period.start.isoformat(),
                 "to": comparison_period.end.isoformat(),
@@ -396,11 +468,7 @@ class KpiAnalyticsRoutes:
             payload["comparison_rows"] = [
                 row.model_dump(mode="json") for row in view.comparison_rows
             ]
-        return bc_json_response(
-            HTTPStatus.OK,
-            payload,
-            correlation_id=correlation_id,
-        )
+        return payload
 
     @staticmethod
     def _handle_design_tokens(
