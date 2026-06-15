@@ -152,6 +152,15 @@ class ImplementationPhaseHandler:
         if blocked_result is not None:
             return blocked_result
 
+        # AG3-069 (FK-05 §5.5.1/§5.6, AC2): IS manifest-approval pre-check.
+        # For integration_stabilization stories, the implementation phase must
+        # not proceed without an approved IntegrationScopeManifest (fail-closed).
+        # Gated on the IS contract so standard stories are completely unaffected
+        # (CORE PRINCIPLE: gate every IS enforcement on implementation_contract).
+        is_approval_error = _check_is_implementation_approval(ctx, s_dir, state)
+        if is_approval_error is not None:
+            return is_approval_error
+
         save_story_context(s_dir, ctx)
 
         flow = load_flow_execution(s_dir)
@@ -933,4 +942,105 @@ def _state_with_payload(
         review_round=state.review_round,
         errors=list(state.errors),
         attempt_id=state.attempt_id,
+    )
+
+
+def _check_is_implementation_approval(
+    ctx: StoryContext,
+    s_dir: Path,
+    state: PhaseState,
+) -> HandlerResult | None:
+    """AG3-069 (FK-05 §5.5.1/§5.5.4/§5.6, AC2): IS binding-integrity pre-check.
+
+    For integration_stabilization stories, the implementation phase / worker
+    spawn must not proceed without an APPROVED + BOUND IntegrationScopeManifest.
+    This is the real production wiring of the §2.3 worker-spawn enforcement point:
+
+    1. ``check_approval_present`` -- a ManifestApprovalRecord MUST exist;
+    2. ``check_binding_integrity`` -- the record MUST bind the active manifest
+       (hash + version + project_key + story_id + run_id all match). A
+       hash/version/project/story/run mismatch BLOCKS fail-closed (AC2). The
+       active run id is resolved from the bound FlowExecution (the same run the
+       handler runs the QA-subflow under).
+
+    Gated on the IS contract so standard stories are completely unaffected.
+
+    Args:
+        ctx: Story context (checked for IS contract).
+        s_dir: Story working directory (manifest/approval/run source).
+        state: Current phase state (for ESCALATED result).
+
+    Returns:
+        An ESCALATED ``HandlerResult`` when the IS contract has no approved or
+        no bound manifest, else ``None``.
+    """
+    from agentkit.story_context_manager.types import ImplementationContract
+
+    if ctx.implementation_contract is not ImplementationContract.INTEGRATION_STABILIZATION:
+        return None  # Standard stories: no IS approval check.
+
+    from agentkit.integration_stabilization.preconditions import (
+        check_approval_present,
+        check_binding_integrity,
+    )
+    from agentkit.integration_stabilization.state import (
+        load_integration_manifest,
+        load_manifest_approval,
+    )
+
+    approval = load_manifest_approval(s_dir)
+    if not check_approval_present(approval).approved:
+        return _is_spawn_block(
+            state,
+            "no approved IntegrationScopeManifest found. The manifest must be "
+            "produced and approved in the exploration phase before "
+            "implementation may proceed (FK-05 §5.5.1/§5.6, AC2, invariant: "
+            "integration_contract_requires_exploration_first).",
+        )
+
+    manifest = load_integration_manifest(s_dir)
+    if manifest is None:
+        return _is_spawn_block(
+            state,
+            "an approval record is present but no IntegrationScopeManifest was "
+            "found; binding integrity cannot be verified (FK-05 §5.5.4, AC2).",
+        )
+
+    assert approval is not None  # noqa: S101 -- guaranteed by check_approval_present
+    run_id = _resolve_is_run_id(s_dir, fallback=approval.run_id)
+    binding = check_binding_integrity(manifest, approval, current_run_id=run_id)
+    if not binding.binding_valid:
+        return _is_spawn_block(
+            state,
+            "manifest-approval binding integrity failed: "
+            f"{binding.reason} (FK-05 §5.5.4, AC2, invariant: binding_integrity).",
+        )
+    return None
+
+
+def _resolve_is_run_id(s_dir: Path, *, fallback: str) -> str:
+    """Resolve the active run id for the IS binding check (FlowExecution scope).
+
+    The binding-integrity check must verify the approval is bound to the run the
+    worker spawns under. The run id comes from the bound FlowExecution; an
+    unresolvable scope falls back to the approval's own run id (the binding then
+    compares the record against itself only if no run is bound -- still detects
+    every other mismatch dimension).
+    """
+    flow = load_flow_execution(s_dir)
+    if flow is not None and flow.run_id:
+        return flow.run_id
+    return fallback
+
+
+def _is_spawn_block(state: PhaseState, detail: str) -> HandlerResult:
+    """Build the ESCALATED IS worker-spawn block result (fail-closed, AC2)."""
+    return HandlerResult(
+        status=PhaseStatus.ESCALATED,
+        errors=(f"Integration-stabilization implementation blocked: {detail}",),
+        updated_state=_state_with_payload(
+            state,
+            QaCycleStatus.ESCALATED,
+            QaContext.IMPLEMENTATION_INITIAL,
+        ),
     )

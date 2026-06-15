@@ -103,6 +103,11 @@ class TestEventType:
             "GOVERNANCE_ADJUDICATION",
             "GOVERNANCE_INCIDENT_OPENED",
             "GOVERNANCE_MEASURE_APPLIED",
+            # AG3-069: integration-stabilization telemetry events
+            "INTEGRATION_MANIFEST_APPROVED",
+            "UNDECLARED_SURFACE_DETECTED",
+            "STABILIZATION_BUDGET_EXHAUSTED",
+            "STABILITY_GATE_PASSED",
         }
         actual = {m.name for m in EventType}
         assert actual == expected

@@ -18,10 +18,11 @@ from agentkit.core_types import ArtifactClass
 from agentkit.core_types.qa_artifact_names import (
     CONTEXT_SUFFICIENCY_PRODUCER,
     SONARQUBE_GATE_PRODUCER,
+    STABILITY_GATE_PRODUCER,
 )
 from agentkit.verify_system.register import register_verify_producers
 
-#: Erwartete Producer-Liste nach AG3-026 Re-Review.
+#: Erwartete Producer-Liste nach AG3-026 Re-Review (+ AG3-069 IS stability-gate).
 EXPECTED_QA_PRODUCERS: frozenset[str] = frozenset(
     {
         "verify-system.layer-1-structural",
@@ -33,6 +34,7 @@ EXPECTED_QA_PRODUCERS: frozenset[str] = frozenset(
         "verify-system.layer-3-adversarial",
         SONARQUBE_GATE_PRODUCER,
         "verify-system.layer-4-policy",
+        STABILITY_GATE_PRODUCER,  # AG3-069: IS stability-gate producer
     }
 )
 _OLD_SONAR_LITERAL = "qa-" + "sonarqube-gate"
@@ -66,6 +68,7 @@ def test_layer_1_and_4_are_deterministic() -> None:
     assert types_by_name[CONTEXT_SUFFICIENCY_PRODUCER] is ProducerType.DETERMINISTIC
     assert types_by_name["verify-system.layer-3-adversarial"] is ProducerType.LLM_REVIEWER
     assert types_by_name["verify-system.layer-4-policy"] is ProducerType.DETERMINISTIC
+    assert types_by_name[STABILITY_GATE_PRODUCER] is ProducerType.DETERMINISTIC
 
 
 def test_sonarqube_producer_literal_only_lives_in_ssot() -> None:

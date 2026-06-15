@@ -119,10 +119,25 @@ class ContextSufficiencyBuilder:
         caller_diff_summary: str | None = None,
         caller_evidence_manifest: BundleManifest | dict[str, object] | str | None = None,
     ) -> ContextSufficiencyResult:
-        """Build enriched Layer-2 context and classify sufficiency."""
+        """Build enriched Layer-2 context and classify sufficiency.
+
+        AG3-069 (FK-37 §37.1.3): if the story uses the
+        integration_stabilization contract and a manifest is present in the
+        story directory, the manifest data is appended to the concept excerpt
+        so the LLM reviewers have full IS scope context (docked here per
+        story §6 depends_on AG3-067 instruction).
+        """
         story_spec = review_input.story_spec or self._load_story_spec()
         handover = review_input.handover or self._load_handover()
-        concept_excerpt = review_input.concept_excerpt or self._load_concept_excerpt()
+        concept_excerpt = (
+            review_input.concept_excerpt or self._load_concept_excerpt()
+        )
+        # Dock IS context onto the concept_excerpt (AG3-069, FK-37 §37.1.3).
+        is_context = self._load_integration_stabilization_context()
+        if is_context:
+            concept_excerpt = (
+                f"{concept_excerpt}\n\n{is_context}" if concept_excerpt else is_context
+            )
         arch_references = self._load_arch_references()
         diff_summary = caller_diff_summary
         evidence_manifest = caller_evidence_manifest
@@ -251,6 +266,61 @@ class ContextSufficiencyBuilder:
             if fallback.is_file():
                 return fallback
         return None
+
+    def _load_integration_stabilization_context(self) -> str:
+        """Dock IS manifest context onto the builder (AG3-069, FK-37 §37.1.3).
+
+        When the story uses the integration_stabilization contract and an
+        approved manifest is present, returns a formatted excerpt of the
+        manifest for the LLM reviewer. Returns an empty string otherwise.
+
+        This method implements the AC13 / depends_on AG3-067 docking: the IS
+        context part is added HERE (in the real builder, not a second builder).
+
+        Returns:
+            A formatted IS context string, or an empty string when not IS or
+            no manifest is available.
+        """
+        try:
+            from agentkit.integration_stabilization.state import (
+                load_integration_manifest,
+            )
+            from agentkit.state_backend.store.facade import load_story_context
+            from agentkit.story_context_manager.types import ImplementationContract
+
+            ctx = load_story_context(self._story_dir)
+            if ctx is None:
+                return ""
+            if (
+                ctx.implementation_contract
+                is not ImplementationContract.INTEGRATION_STABILIZATION
+            ):
+                return ""
+            manifest = load_integration_manifest(self._story_dir)
+            if manifest is None:
+                return ""
+            # Format the IS manifest as context for the LLM reviewer.
+            lines = [
+                "## Integration-Stabilization Context (FK-37 §37.1.3)",
+                f"- **project_key**: {manifest.project_key}",
+                f"- **story_id**: {manifest.story_id}",
+                f"- **target_seams**: {list(manifest.target_seams)}",
+                f"- **allowed_repos_paths**: {list(manifest.allowed_repos_paths)}",
+                f"- **integration_targets**: {list(manifest.integration_targets)}",
+                f"- **allowed_contract_changes**: {list(manifest.allowed_contract_changes)}",
+                "- **stabilization_budget**:",
+                f"  - max_loops: {manifest.stabilization_budget.max_loops}",
+                f"  - max_new_surfaces: {manifest.stabilization_budget.max_new_surfaces}",
+                f"  - max_contract_changes: {manifest.stabilization_budget.max_contract_changes}",
+                f"  - max_regressions_per_cycle: {manifest.stabilization_budget.max_regressions_per_cycle}",
+            ]
+            if manifest.out_of_contract_examples:
+                lines.append(
+                    f"- **out_of_contract_examples**: {list(manifest.out_of_contract_examples)}"
+                )
+            return "\n".join(lines)
+        except Exception:  # noqa: BLE001
+            return ""
 
 
 def _status_for(field_name: str, value: object | None) -> ContextFieldStatus:

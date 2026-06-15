@@ -17,6 +17,7 @@ routes directly to ESCALATED.
 
 from __future__ import annotations
 
+from pathlib import Path  # noqa: TC003  -- Path used in runtime path operations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from agentkit.story_context_manager.types import get_profile
@@ -67,7 +68,6 @@ from agentkit.verify_system.structural.checks import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
     from agentkit.requirements_coverage.contract import CoverageVerdict
     from agentkit.story_context_manager.models import StoryContext
@@ -282,11 +282,13 @@ class StructuralChecker:
         # impact + the hygiene checks, so they decide on system evidence rather
         # than the worker manifest.
         evidence = self._change_evidence_port.collect(story_dir)
-        dispatch = self._dispatch(evidence)
+        dispatch = self._dispatch(evidence, story_dir=story_dir)
         escalated = False
         stage_ids_run: list[str] = []
         for stage in self._registry.layer1_stages_for(
-            ctx.story_type, are_enabled=self._are_provider.is_enabled
+            ctx.story_type,
+            are_enabled=self._are_provider.is_enabled,
+            implementation_contract=ctx.implementation_contract,
         ):
             checks_run += 1
             stage_ids_run.append(stage.stage_id)
@@ -308,7 +310,9 @@ class StructuralChecker:
             "stage_producers": {
                 stage.stage_id: stage.producer
                 for stage in self._registry.layer1_stages_for(
-                    ctx.story_type, are_enabled=self._are_provider.is_enabled
+                    ctx.story_type,
+                    are_enabled=self._are_provider.is_enabled,
+                    implementation_contract=ctx.implementation_contract,
                 )
             },
             # FK-69 §69.15: full set of executed check identifiers so the
@@ -407,6 +411,8 @@ class StructuralChecker:
     def _dispatch(
         self,
         evidence: ChangeEvidence,
+        *,
+        story_dir: Path,
     ) -> dict[str, Callable[[StoryContext, Path, Severity], Finding | None]]:
         """Build the stage-id -> bound check dispatch table.
 
@@ -416,16 +422,23 @@ class StructuralChecker:
         the dispatched callables share the uniform ``(ctx, story_dir, severity)``
         signature.
 
+        AG3-069: integration-stabilization stages (``integration.*``) are also
+        dispatched here. They load manifest/approval state from ``story_dir``
+        and fail closed when state is absent.
+
         Args:
             evidence: The independent system change evidence collected once for
                 this ``evaluate`` (FK-33 §33.5), bound into the BLOCKING branch /
                 commit / push / secrets / impact + the hygiene checks.
+            story_dir: The story working directory. Passed to IS-stage handlers
+                that load manifest/approval state from the filesystem.
         """
         tel = self._telemetry
         bt = self._build_test_port
         bugfix = self._bugfix_port
         are = self._are_provider
         ev = evidence
+        s_dir = story_dir
 
         return {
             # §27.4.1 Artifact check
@@ -519,6 +532,30 @@ class StructuralChecker:
             # §27.4.2 Impact (actual impact from SYSTEM evidence).
             "impact.violation": lambda c, d, s: check_impact_violation(
                 c, d, severity=s, evidence=ev
+            ),
+            # AG3-069 (FK-05 §5.5.4/§5.10/§5.14, FK-37 §37.1.3):
+            # integration-stabilization Layer-1 stages. These stages only run
+            # for stories with implementation_contract=INTEGRATION_STABILIZATION
+            # (filtered by StageRegistry.layer1_stages_for with contract param).
+            # All load manifest/approval state from story_dir; absent state is
+            # a fail-closed BLOCK (no state = no approved manifest = blocked).
+            "integration.manifest_approval_required": (
+                lambda c, d, s: _check_is_manifest_approval_required(
+                    c, s_dir, severity=s
+                )
+            ),
+            "integration.binding_integrity": (
+                lambda c, d, s: _check_is_binding_integrity(c, s_dir, severity=s)
+            ),
+            "integration.declared_surfaces_only": (
+                lambda c, d, s: _check_is_declared_surfaces_only(
+                    c, s_dir, severity=s, evidence=ev
+                )
+            ),
+            "integration.stabilization_budget_not_exhausted": (
+                lambda c, d, s: _check_is_stabilization_budget_not_exhausted(
+                    c, s_dir, severity=s
+                )
             ),
         }
 
@@ -625,3 +662,263 @@ def _phase_index(phases: tuple[str, ...], target: str) -> int:
         if phase == target:
             return i
     return len(phases)
+
+
+# ---------------------------------------------------------------------------
+# AG3-069 (FK-05 §5.5.4/§5.10/§5.14, FK-37 §37.1.3):
+# Integration-stabilization Layer-1 structural check functions.
+# These are wired into _dispatch() above as the real production checks for
+# ``integration.*`` stage ids. They load manifest/approval state from
+# story_dir and are fail-closed: absent state = BLOCKING (no approved
+# manifest means no productive IS work).
+# ---------------------------------------------------------------------------
+
+
+def _check_is_manifest_approval_required(
+    ctx: StoryContext,
+    story_dir: Path,
+    *,
+    severity: Severity,
+) -> Finding | None:
+    """Layer-1 IS check: manifest_approval_required (FK-05 §5.5.4, AC12).
+
+    Fail-closed: if no ManifestApprovalRecord is present in story_dir,
+    productive integration work is blocked (enforcement point 1).
+
+    Args:
+        ctx: Story context (unused beyond guard).
+        story_dir: Story working directory.
+        severity: Registry-resolved severity (BLOCKING).
+
+    Returns:
+        ``None`` when an approval record is present; a BLOCKING finding
+        otherwise.
+    """
+    del ctx
+    from agentkit.integration_stabilization.state import load_manifest_approval
+    from agentkit.verify_system.protocols import TrustClass
+
+    approval = load_manifest_approval(story_dir)
+    if approval is None:
+        return Finding(
+            layer="structural",
+            check="integration.manifest_approval_required",
+            severity=severity,
+            message=(
+                "No ManifestApprovalRecord found in story directory. "
+                "Integration-stabilization work is fail-closed blocked without "
+                "an approved manifest record (FK-05 §5.5.1/§5.5.4, AC2/AC12)."
+            ),
+            trust_class=TrustClass.SYSTEM,
+        )
+    return None
+
+
+def _check_is_binding_integrity(
+    ctx: StoryContext,
+    story_dir: Path,
+    *,
+    severity: Severity,
+) -> Finding | None:
+    """Layer-1 IS check: binding_integrity (FK-05 §5.5.4, AC12).
+
+    Fail-closed: if the approval record does not bind the manifest (hash/
+    version/run mismatch), productive work is blocked.
+
+    Args:
+        ctx: Story context (provides run_id for binding check).
+        story_dir: Story working directory.
+        severity: Registry-resolved severity (BLOCKING).
+
+    Returns:
+        ``None`` when binding is valid; a BLOCKING finding otherwise.
+    """
+    from agentkit.integration_stabilization.preconditions import check_binding_integrity
+    from agentkit.integration_stabilization.state import (
+        load_integration_manifest,
+        load_manifest_approval,
+    )
+    from agentkit.verify_system.protocols import TrustClass
+
+    manifest = load_integration_manifest(story_dir)
+    approval = load_manifest_approval(story_dir)
+    if manifest is None or approval is None:
+        # Absent state is caught by _check_is_manifest_approval_required first;
+        # but guard against a missing manifest here too (fail-closed).
+        return Finding(
+            layer="structural",
+            check="integration.binding_integrity",
+            severity=severity,
+            message=(
+                "Missing manifest or approval record; cannot verify binding "
+                "integrity (FK-05 §5.5.4, AC12)."
+            ),
+            trust_class=TrustClass.SYSTEM,
+        )
+    # Use story_id as a fallback run_id if the context has no run.
+    run_id = getattr(ctx, "run_id", None) or ctx.story_id
+    result = check_binding_integrity(manifest, approval, current_run_id=run_id)
+    if not result.binding_valid:
+        return Finding(
+            layer="structural",
+            check="integration.binding_integrity",
+            severity=severity,
+            message=(
+                f"Manifest-approval binding integrity failed: {result.reason} "
+                "(FK-05 §5.5.4, AC12 / invariant: binding_integrity)."
+            ),
+            trust_class=TrustClass.SYSTEM,
+        )
+    return None
+
+
+def _check_is_declared_surfaces_only(
+    ctx: StoryContext,
+    story_dir: Path,
+    *,
+    severity: Severity,
+    evidence: ChangeEvidence,
+) -> Finding | None:
+    """Layer-1 IS check: declared_surfaces_only (FK-05 §5.10, FK-37 §37.1.3).
+
+    Deterministic structural check (no LLM path). Compares the
+    SYSTEM-evidence touched paths against the manifest's declared seams.
+
+    Fail-closed: absent manifest → BLOCKING.
+
+    Args:
+        ctx: Story context (unused beyond guard).
+        story_dir: Story working directory.
+        severity: Registry-resolved severity (BLOCKING).
+        evidence: System change evidence carrying the touched paths.
+
+    Returns:
+        ``None`` when all touched paths are declared; a BLOCKING finding
+        for the first undeclared path otherwise.
+    """
+    del ctx
+    from agentkit.integration_stabilization.declared_surfaces_check import (
+        check_declared_surfaces_only,
+    )
+    from agentkit.integration_stabilization.seam_allowlist_guard import (
+        materialize_seam_allowlist,
+    )
+    from agentkit.integration_stabilization.state import (
+        load_integration_manifest,
+        read_quarantine_state,
+    )
+    from agentkit.verify_system.protocols import TrustClass
+
+    manifest = load_integration_manifest(story_dir)
+    if manifest is None:
+        return Finding(
+            layer="structural",
+            check="integration.declared_surfaces_only",
+            severity=severity,
+            message=(
+                "No IntegrationScopeManifest found; cannot verify declared "
+                "surfaces (fail-closed, FK-05 §5.10, AC6)."
+            ),
+            trust_class=TrustClass.SYSTEM,
+        )
+    seam_allowlist = materialize_seam_allowlist(manifest)
+    touched_paths = tuple(evidence.changed_files) if evidence.available else ()
+    # AG3-069 (AC10, FK-05 §5.7/§5.13): a touched path matching a quarantined
+    # pre-snapshot cross-scope delta is BLOCKING even within a declared seam —
+    # reclassification never retroactively legalizes a pre-manifest delta.
+    quarantined = read_quarantine_state(story_dir)
+    result = check_declared_surfaces_only(
+        touched_paths=touched_paths,
+        manifest=manifest,
+        seam_allowlist=seam_allowlist,
+        quarantined_deltas=quarantined,
+    )
+    if not result.passed and result.findings:
+        # Return the first BLOCKING finding; the stage loop collects one per run.
+        return Finding(
+            layer="structural",
+            check="integration.declared_surfaces_only",
+            severity=severity,
+            message=result.findings[0].message,
+            trust_class=TrustClass.SYSTEM,
+        )
+    return None
+
+
+def _check_is_stabilization_budget_not_exhausted(
+    ctx: StoryContext,
+    story_dir: Path,
+    *,
+    severity: Severity,
+) -> Finding | None:
+    """Layer-1 IS check: stabilization_budget_not_exhausted (FK-05 §5.9).
+
+    Primary: hook/capability layer (live-blocking). This structural check
+    also audits budget exhaustion in the QA-subflow per FK-37 §37.1.3.
+
+    The budget counters are read from the persisted manifest's caps. A
+    live budget counter file (``integration_budget.json``) is loaded if
+    present; otherwise the caps are used as defaults (loops_used=0).
+
+    Args:
+        ctx: Story context (unused beyond guard).
+        story_dir: Story working directory.
+        severity: Registry-resolved severity (BLOCKING).
+
+    Returns:
+        ``None`` when within budget; a BLOCKING finding when any cap is
+        exhausted.
+    """
+    del ctx
+    import json as _json
+
+    from agentkit.integration_stabilization.models import (
+        StabilizationBudget,
+    )
+    from agentkit.integration_stabilization.preconditions import (
+        check_budget_not_exhausted,
+    )
+    from agentkit.integration_stabilization.state import load_integration_manifest
+    from agentkit.verify_system.protocols import TrustClass
+
+    manifest = load_integration_manifest(story_dir)
+    if manifest is None:
+        return Finding(
+            layer="structural",
+            check="integration.stabilization_budget_not_exhausted",
+            severity=severity,
+            message=(
+                "No IntegrationScopeManifest found; cannot verify budget "
+                "(fail-closed, FK-05 §5.9, AC4)."
+            ),
+            trust_class=TrustClass.SYSTEM,
+        )
+    # Load live budget counters if a counter file exists; default to zeroed.
+    budget_file = story_dir / "integration_budget.json"
+    counters: dict[str, int] = {}
+    if budget_file.exists():
+        try:
+            counters = _json.loads(budget_file.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            counters = {}
+    budget = StabilizationBudget(
+        caps=manifest.stabilization_budget,
+        loops_used=int(counters.get("loops_used", 0)),
+        new_surfaces_used=int(counters.get("new_surfaces_used", 0)),
+        contract_changes_used=int(counters.get("contract_changes_used", 0)),
+        regressions_this_cycle=int(counters.get("regressions_this_cycle", 0)),
+    )
+    result = check_budget_not_exhausted(budget)
+    if not result.within_budget:
+        return Finding(
+            layer="structural",
+            check="integration.stabilization_budget_not_exhausted",
+            severity=severity,
+            message=(
+                f"Stabilization budget exhausted: {list(result.exhausted_caps)}. "
+                "No further productive integration steps are allowed "
+                "(FK-05 §5.9, AC4 / invariant: budget_exhaustion_blocks_live_capability)."
+            ),
+            trust_class=TrustClass.SYSTEM,
+        )
+    return None

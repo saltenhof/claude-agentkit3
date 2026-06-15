@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentkit.core_types import PolicyVerdict
-from agentkit.story_context_manager.types import StoryType
+from agentkit.story_context_manager.types import ImplementationContract, StoryType
 from agentkit.verify_system.protocols import (
     Finding,
     LayerResult,
@@ -206,6 +206,7 @@ class PolicyEngine:
         traversed_layers: frozenset[int] | None = None,
         are_enabled: bool = False,
         context_sufficiency_artifact: Mapping[str, object] | None = None,
+        implementation_contract: ImplementationContract | None = None,
     ) -> VerifyDecision:
         """Produce a final decision from all layer results (FK-33 §33.7).
 
@@ -262,6 +263,7 @@ class PolicyEngine:
                     max_layer_reached=max_layer_reached,
                     traversed_layers=traversed_layers,
                     are_enabled=are_enabled,
+                    implementation_contract=implementation_contract,
                 )
             )
 
@@ -305,6 +307,7 @@ class PolicyEngine:
         max_layer_reached: int | None,
         traversed_layers: frozenset[int] | None = None,
         are_enabled: bool,
+        implementation_contract: ImplementationContract | None = None,
     ) -> list[Finding]:
         """Synthesise BLOCKING findings for missing traversed-layer stages.
 
@@ -338,7 +341,9 @@ class PolicyEngine:
         )
         produced_stage_ids = _produced_stage_ids(layer_results, self._registry)
         findings: list[Finding] = []
-        for stage in self._registry.stages_for(story_type):
+        for stage in self._registry.stages_for(
+            story_type, implementation_contract=implementation_contract
+        ):
             if stage.stage_id == "policy":
                 continue  # policy produces the aggregate decision itself.
             if not _stage_layer_traversed(
@@ -413,12 +418,26 @@ def _produced_stage_ids(
 
 def _derive_max_layer_reached(layer_results: tuple[LayerResult, ...]) -> int:
     """Derive the highest traversed layer from present results (>=1)."""
+    from agentkit.story_context_manager.types import ImplementationContract
+    from agentkit.verify_system.stage_registry.registry import (
+        is_integration_stabilization_stage,
+    )
+
     registry = StageRegistry()
-    produced = {
-        stage.layer
-        for stage_id in _produced_stage_ids(layer_results, registry)
-        if (stage := registry.stage_for_id(stage_id)) is not None
-    }
+    produced: set[int] = set()
+    for stage_id in _produced_stage_ids(layer_results, registry):
+        # An IS stage was only produced when running under the IS contract;
+        # look it up with that contract so its layer is counted (MAJOR H: the
+        # default lookup hides IS stages — that hiding must not under-count a
+        # legitimately produced IS Layer-4 result here).
+        contract = (
+            ImplementationContract.INTEGRATION_STABILIZATION
+            if is_integration_stabilization_stage(stage_id)
+            else None
+        )
+        stage = registry.stage_for_id(stage_id, implementation_contract=contract)
+        if stage is not None:
+            produced.add(stage.layer)
     return max(produced) if produced else 1
 
 

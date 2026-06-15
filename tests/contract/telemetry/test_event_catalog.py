@@ -102,6 +102,11 @@ _EXPECTED_EVENT_VALUES = {
     "artifact_invalidated",
     "error",
     "warning",
+    # Integration-stabilization (AG3-069, FK-05 §5.14)
+    "integration_manifest_approved",
+    "undeclared_surface_detected",
+    "stabilization_budget_exhausted",
+    "stability_gate_passed",
 }
 
 
@@ -224,6 +229,15 @@ _EXPECTED_MANDATORY_FIELDS: dict[EventType, tuple[str, ...]] = {
         "dominant_signals",
     ),
     EventType.GOVERNANCE_MEASURE_APPLIED: ("measure", "severity"),
+    # Integration-stabilization contract events (FK-05 §5.14, AG3-069 AC11).
+    EventType.INTEGRATION_MANIFEST_APPROVED: (
+        "event_name",
+        "manifest_version",
+        "manifest_hash",
+    ),
+    EventType.UNDECLARED_SURFACE_DETECTED: ("event_name", "surface_path"),
+    EventType.STABILIZATION_BUDGET_EXHAUSTED: ("event_name", "exhausted_caps"),
+    EventType.STABILITY_GATE_PASSED: ("event_name", "achieved_targets"),
 }
 
 # ``are_gate_result`` is intentionally absent: AG3-081 (§2.1.3) raised it to a

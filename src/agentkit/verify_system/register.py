@@ -31,6 +31,7 @@ from agentkit.core_types.qa_artifact_names import (
     QA_REVIEW_PRODUCER,
     SEMANTIC_REVIEW_PRODUCER,
     SONARQUBE_GATE_PRODUCER,
+    STABILITY_GATE_PRODUCER,
     STRUCTURAL_PRODUCER,
     VERIFY_DECISION_PRODUCER,
 )
@@ -84,6 +85,9 @@ _VERIFY_PRODUCERS: Final[tuple[tuple[ArtifactClass, str, ProducerType], ...]] = 
     # deterministic stage sequenced after Layer 3.
     (ArtifactClass.QA, SONARQUBE_GATE_PRODUCER, ProducerType.DETERMINISTIC),
     (ArtifactClass.QA, VERIFY_DECISION_PRODUCER, ProducerType.DETERMINISTIC),
+    # AG3-069 (FK-05 §5.10/§5.14, FK-37 §37.1.3): stability_gate Verify-Stage
+    # producer for integration_stabilization contract enforcement.
+    (ArtifactClass.QA, STABILITY_GATE_PRODUCER, ProducerType.DETERMINISTIC),
     # Layer 3 adversarial sandbox (AG3-044, FK-48 §48.1): the spawned
     # adversarial worker writes sandbox tests under the protected
     # ``_temp/adversarial/{story_id}/{epoch}/`` path.

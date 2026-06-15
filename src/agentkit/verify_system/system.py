@@ -83,7 +83,10 @@ if TYPE_CHECKING:
 
     from agentkit.config.models import ConformanceConfig
     from agentkit.story_context_manager.models import StoryContext
-    from agentkit.story_context_manager.types import StoryType
+    from agentkit.story_context_manager.types import (
+        ImplementationContract,
+        StoryType,
+    )
     from agentkit.telemetry.emitters import EventEmitter
     from agentkit.verify_system.conformance_service import FidelityContext
     from agentkit.verify_system.evidence.bundle_manifest import BundleManifest
@@ -1724,6 +1727,22 @@ def _run_qa_subflow(
     sonar_fail_decision = layer_loop.sonar_fail_decision
     context_sufficiency_artifact = layer_loop.context_sufficiency_artifact
 
+    # AG3-069 (FK-05 §5.10/§5.11, FK-37 §37.1.3, AC5/AC12): for
+    # integration_stabilization stories produce the REAL stability_gate Layer-4
+    # result BEFORE the policy decision (only when no Sonar short-circuit). The
+    # gate evaluates reached integration_targets, undeclared_surface and budget,
+    # produces a Layer-4 LayerResult the PolicyEngine aggregates AND persists the
+    # gate verdict the closure precondition reads. Gated on the IS contract so
+    # standard stories are completely unaffected (CORE PRINCIPLE).
+    if sonar_fail_decision is None:
+        _maybe_produce_is_stability_gate(
+            self,
+            ctx=ctx,
+            story_id=story_id,
+            story_ctx=_story_ctx,
+            layer_results=layer_results,
+        )
+
     # Step 5: Policy decision. On a Sonar fail-closed short-circuit the
     # gate's BLOCKING SYSTEM finding is authoritative (FK-33 §33.6.3): no
     # policy aggregation, no decision.json.
@@ -1754,6 +1773,12 @@ def _run_qa_subflow(
             traversed_layers=_traversed_layers(layer_kinds),
             are_enabled=self._structural_are_enabled(),
             context_sufficiency_artifact=context_sufficiency_artifact,
+            # AG3-069 (FK-37 §37.1.3, AC12): thread the implementation_contract so
+            # the registry-bound fail-closed missing-stage check requires the IS
+            # Layer-4 stages (stability_gate + integration_target_matrix_passed)
+            # for integration_stabilization. A normal QA PASS is then NOT
+            # sufficient for IS closure — the IS gate result MUST be produced.
+            implementation_contract=_effective_implementation_contract(_story_ctx),
         )
         # Step 6: Write policy decision artefact.
         decision_ref = self._write_policy_artifact(
@@ -1990,14 +2015,93 @@ def _effective_story_type(story_ctx: object | None) -> StoryType:
     return StoryType.IMPLEMENTATION
 
 
+def _effective_implementation_contract(
+    story_ctx: object | None,
+) -> ImplementationContract | None:
+    """Return the EFFECTIVE ``implementation_contract`` for the policy decision.
+
+    AG3-069 (FK-37 §37.1.3): the resolved ``StoryContext.implementation_contract``
+    drives the registry-bound contract filter in ``PolicyEngine.decide``. When no
+    context resolved (or it carries no contract), ``None`` is returned — the
+    standard behaviour (IS stages excluded), so a non-IS run is unaffected.
+    """
+    from agentkit.story_context_manager.models import StoryContext
+
+    if isinstance(story_ctx, StoryContext):
+        return story_ctx.implementation_contract
+    return None
+
+
+def _maybe_produce_is_stability_gate(
+    system: VerifySystem,
+    *,
+    ctx: VerifyContextBundle,
+    story_id: str,
+    story_ctx: object | None,
+    layer_results: list[LayerResult],
+) -> None:
+    """Produce the stability_gate Layer-4 result for IS stories (AG3-069, AC5/AC12).
+
+    No-op for standard stories (the contract gate). For
+    integration_stabilization it runs the REAL stability_gate producer over the
+    actually-touched surfaces (from the QA change-evidence port), appends the
+    produced Layer-4 :class:`LayerResult` to ``layer_results`` (so the
+    PolicyEngine aggregation consumes it and the registry-bound missing-stage
+    check is satisfied), persists the gate verdict and emits the telemetry event.
+
+    Args:
+        system: The owning ``VerifySystem``.
+        ctx: The run-time context bundle (run_id + story_dir).
+        story_id: The story display id.
+        story_ctx: The resolved ``StoryContext`` (or ``None``).
+        layer_results: Mutable accumulator the produced gate result is appended to.
+    """
+    from agentkit.story_context_manager.models import StoryContext
+    from agentkit.story_context_manager.types import ImplementationContract
+
+    if not (
+        isinstance(story_ctx, StoryContext)
+        and story_ctx.implementation_contract
+        is ImplementationContract.INTEGRATION_STABILIZATION
+    ):
+        return
+
+    from agentkit.integration_stabilization.stability_gate_producer import (
+        produce_stability_gate_layer_result,
+    )
+
+    evidence = system.implementation_change_evidence_port.collect(ctx.story_dir)
+    touched_paths = tuple(evidence.changed_files) if evidence.available else ()
+
+    result = produce_stability_gate_layer_result(
+        story_dir=ctx.story_dir,
+        run_id=ctx.run_id,
+        touched_paths=touched_paths,
+        emitter=system.conformance_emitter,
+        story_id=story_id,
+        project_key=story_ctx.project_key,
+    )
+    layer_results.append(result)
+
+
 def _max_layer_reached(layer_results: list[LayerResult]) -> int:
     """Derive the highest QA layer that produced a result (FK-33 §33.7.2)."""
+    from agentkit.story_context_manager.types import ImplementationContract
+    from agentkit.verify_system.stage_registry.registry import (
+        is_integration_stabilization_stage,
+    )
+
     registry = StageRegistry()
-    reached = [
-        stage.layer
-        for stage_id in _produced_stage_ids(layer_results, registry)
-        if (stage := registry.stage_for_id(stage_id)) is not None
-    ]
+    reached: list[int] = []
+    for stage_id in _produced_stage_ids(layer_results, registry):
+        contract = (
+            ImplementationContract.INTEGRATION_STABILIZATION
+            if is_integration_stabilization_stage(stage_id)
+            else None
+        )
+        stage = registry.stage_for_id(stage_id, implementation_contract=contract)
+        if stage is not None:
+            reached.append(stage.layer)
     return max(reached) if reached else 1
 
 

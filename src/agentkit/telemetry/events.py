@@ -137,6 +137,17 @@ class EventType(StrEnum):
     # Governance risk window (FK-68 §68.9.2 preflight sentinel). Emitted by the
     # preflight sentinel when the preflight stream is unbalanced.
     PREFLIGHT_COMPLIANCE_VIOLATION = "preflight_compliance_violation"
+
+    # Integration-stabilization contract events (FK-05 §5.14, AG3-069 AC11).
+    # Producers per formal-spec events.md:
+    # - INTEGRATION_MANIFEST_APPROVED    -> human_cli
+    # - UNDECLARED_SURFACE_DETECTED      -> guard_system
+    # - STABILIZATION_BUDGET_EXHAUSTED   -> guard_system
+    # - STABILITY_GATE_PASSED            -> pipeline_deterministic
+    INTEGRATION_MANIFEST_APPROVED = "integration_manifest_approved"
+    UNDECLARED_SURFACE_DETECTED = "undeclared_surface_detected"
+    STABILIZATION_BUDGET_EXHAUSTED = "stabilization_budget_exhausted"
+    STABILITY_GATE_PASSED = "stability_gate_passed"
     #: A cycle-bound QA artefact was invalidated (moved to ``stale/``) when a
     #: new atomic QA cycle began (FK-27 §27.2.3 / AG3-041 §2.1.3).
     ARTIFACT_INVALIDATED = "artifact_invalidated"
@@ -329,6 +340,20 @@ MANDATORY_PAYLOAD_FIELDS: Mapping[EventType, tuple[str, ...]] = {
     # ``covered``/``required``/``coverage_ratio`` stay ENRICHED but OPTIONAL (NOT
     # mandatory) — one mandatory set per event name, no second String-Map path.
     EventType.ARE_GATE_RESULT: ("story_id", "result"),
+    # Integration-stabilization contract events (FK-05 §5.14, AG3-069 AC11).
+    # Wire keys + producers per formal-spec/integration-stabilization/events.md.
+    # ``event_name`` is the canonical wire identifier on the payload; the other
+    # mandatory keys carry the audit-load-bearing facts (manifest binding,
+    # detected surface, exhausted caps, achieved targets). Every IS event is
+    # emitted through the real EventEmitter at its boundary (FAIL-CLOSED).
+    EventType.INTEGRATION_MANIFEST_APPROVED: (
+        "event_name",
+        "manifest_version",
+        "manifest_hash",
+    ),
+    EventType.UNDECLARED_SURFACE_DETECTED: ("event_name", "surface_path"),
+    EventType.STABILIZATION_BUDGET_EXHAUSTED: ("event_name", "exhausted_caps"),
+    EventType.STABILITY_GATE_PASSED: ("event_name", "achieved_targets"),
 }
 
 # ``integrity_gate_result`` is documented in FK-61 §61.12.2 with an enriched

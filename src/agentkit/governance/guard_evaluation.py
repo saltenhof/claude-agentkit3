@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+
+if TYPE_CHECKING:
+    from agentkit.telemetry.emitters import EventEmitter
 
 from agentkit.core_types.qa_artifact_names import CHANGE_FRAME_FILE
 from agentkit.governance.guards.artifact_guard import ArtifactGuard
@@ -217,15 +220,252 @@ def _guards_for_state(
         and resolved.bundle is not None
         and resolved.bundle.session is not None
     ):
-        allowed_paths = list(resolved.bundle.session.worktree_roots)
+        session = resolved.bundle.session
+        allowed_paths = list(session.worktree_roots)
         allowed_paths.append(
-            str(qa_story_dir(project_root, resolved.bundle.session.story_id)),
+            str(qa_story_dir(project_root, session.story_id)),
         )
         guards.append(
             ScopeGuard(allowed_paths=allowed_paths),
         )
         guards.append(ArtifactGuard())
+
+        # AG3-069 (FK-05 §5.12): wire the SeamAllowlistGuard and
+        # StabilizationBudgetGuard for integration_stabilization stories.
+        # These guards are ONLY active when the story uses the IS contract
+        # — they must never widen or alter the guard chain for standard
+        # stories (CORE PRINCIPLE: gate every IS enforcement on contract).
+        # Fail-CLOSED: when the story IS an IS story but the guard cannot be
+        # built (manifest/approval absent/unreadable/unbound), a FailClosed
+        # stand-in BLOCKS — a missing/broken IS guard must never silently skip.
+        seam_guard = _maybe_seam_guard(
+            project_root,
+            story_id=session.story_id,
+            project_key=session.project_key,
+            run_id=session.run_id,
+            worktree_roots=tuple(session.worktree_roots),
+        )
+        if seam_guard is not None:
+            guards.append(seam_guard)
+        budget_guard = _maybe_budget_guard(
+            project_root,
+            story_id=session.story_id,
+            project_key=session.project_key,
+            run_id=session.run_id,
+        )
+        if budget_guard is not None:
+            guards.append(budget_guard)
+
     return guards
+
+
+def _is_integration_stabilization_story(
+    project_root: Path, story_id: str
+) -> bool:
+    """Return whether the active story is an integration_stabilization campaign.
+
+    Truth-boundary discipline (TB003): ``agentkit.governance`` is a protected
+    module and MUST NOT read AK3 story export json nor call the ``load_story_context``
+    export loader. The IS contract is therefore detected from the presence of the
+    persisted IntegrationScopeManifest artifact (``integration_manifest.json``),
+    whose ``implementation_contract`` is INTEGRATION_STABILIZATION by construction
+    (model-validated). A standard story never produces this manifest. An IS story
+    BEFORE manifest approval has no manifest here — its execution is blocked at the
+    workflow transition (AC8) and the implementation worker-spawn (AC2); the
+    PreToolUse guard enforces the seam/budget overlay once a manifest exists and
+    fail-closes when the manifest is present but broken/unbound (ERROR D).
+
+    Args:
+        project_root: Project root for path resolution.
+        story_id: The active story identifier.
+
+    Returns:
+        ``True`` iff a persisted IntegrationScopeManifest is present.
+    """
+    from agentkit.installer.paths import story_dir as _story_dir
+    from agentkit.integration_stabilization.state import IS_MANIFEST_FILE
+
+    s_dir = _story_dir(project_root, story_id)
+    return (s_dir / IS_MANIFEST_FILE).exists()
+
+
+def _maybe_seam_guard(
+    project_root: Path,
+    *,
+    story_id: str,
+    project_key: str,
+    run_id: str,
+    worktree_roots: tuple[str, ...],
+) -> GovernanceGuard | None:
+    """Build the IS SeamAllowlistGuard; fail-CLOSED for a broken IS guard (ERROR D).
+
+    For a standard story returns ``None`` (no guard added — standard stories
+    unaffected). For an integration_stabilization story the guard is built ONLY
+    when an APPROVED + BOUND manifest is present; otherwise a
+    :class:`~agentkit.integration_stabilization.seam_allowlist_guard.FailClosedSeamGuard`
+    is returned that BLOCKS every mutation (a missing/broken IS guard must never
+    silently skip — the prior fail-OPEN behaviour was the AC7 bug).
+
+    The allowlist is materialized to ``<worktree_root>/.agent-guard/
+    seam_allowlist.json`` and the guard READS it (concept-conform, FK-05 §5.14).
+
+    Args:
+        project_root: Project root for path resolution.
+        story_id: The active story identifier.
+        project_key: The active project key (for emitted telemetry).
+        run_id: The active run id (binding-integrity + telemetry).
+        worktree_roots: The bound worktree roots (materialization target +
+            allowlist read source).
+
+    Returns:
+        A seam guard (production or fail-closed) for IS stories, else ``None``.
+    """
+    from agentkit.installer.paths import story_dir as _story_dir
+    from agentkit.integration_stabilization.preconditions import (
+        check_approval_present,
+        check_binding_integrity,
+    )
+    from agentkit.integration_stabilization.seam_allowlist_guard import (
+        FailClosedSeamGuard,
+        SeamAllowlistGuard,
+        materialize_seam_allowlist_file,
+        read_seam_allowlist_file,
+    )
+    from agentkit.integration_stabilization.state import (
+        load_integration_manifest,
+        load_manifest_approval,
+    )
+
+    if not _is_integration_stabilization_story(project_root, story_id):
+        return None
+
+    s_dir = _story_dir(project_root, story_id)
+    try:
+        manifest = load_integration_manifest(s_dir)
+        approval = load_manifest_approval(s_dir)
+        if manifest is None:
+            return FailClosedSeamGuard("no approved IntegrationScopeManifest present")
+        if not check_approval_present(approval).approved:
+            return FailClosedSeamGuard("no approved ManifestApprovalRecord present")
+        assert approval is not None  # noqa: S101 -- guaranteed by check above
+        binding = check_binding_integrity(
+            manifest, approval, current_run_id=run_id
+        )
+        if not binding.binding_valid:
+            return FailClosedSeamGuard(f"manifest binding invalid: {binding.reason}")
+
+        # Materialize the allowlist to the concept-conform guard file in every
+        # bound worktree root, then READ it back (the file is authoritative).
+        allowlist: tuple[str, ...] | None = None
+        for root in worktree_roots:
+            written = materialize_seam_allowlist_file(manifest, Path(root))
+            allowlist = read_seam_allowlist_file(written.parent.parent)
+        if allowlist is None:
+            # No worktree root present or the materialized allowlist file could
+            # not be read back.  This is a broken IS guard state (ERROR D fix):
+            # do NOT fall back to the in-memory manifest allowlist -- that was a
+            # residual fail-OPEN.  Return FailClosedSeamGuard so every mutation
+            # is blocked until the guard can be properly materialized.
+            return FailClosedSeamGuard(
+                "seam allowlist could not be materialized: no worktree root "
+                "available or the allowlist file was unreadable after write "
+                "(FK-05 §5.14, fail-closed)"
+            )
+    except Exception as exc:  # noqa: BLE001 -- a broken IS guard must BLOCK, not skip
+        return FailClosedSeamGuard(f"seam guard construction error: {exc}")
+
+    emitter = _is_event_emitter(s_dir, project_key)
+    return SeamAllowlistGuard(
+        allowlist,
+        emitter=emitter,
+        story_id=story_id,
+        project_key=project_key,
+        run_id=run_id,
+    )
+
+
+def _maybe_budget_guard(
+    project_root: Path,
+    *,
+    story_id: str,
+    project_key: str,
+    run_id: str,
+) -> GovernanceGuard | None:
+    """Build the IS StabilizationBudgetGuard; fail-CLOSED for a broken IS guard.
+
+    Returns ``None`` for standard stories. For an integration_stabilization
+    story the budget guard is built ONLY with an APPROVED + BOUND manifest;
+    otherwise a fail-closed stand-in BLOCKS every mutation (AC4, FK-05 §5.9 —
+    a missing/broken IS guard must never silently skip).
+
+    Args:
+        project_root: Project root for path resolution.
+        story_id: The active story identifier.
+        project_key: The active project key (for emitted telemetry).
+        run_id: The active run id (binding-integrity + telemetry).
+
+    Returns:
+        A budget guard (production or fail-closed) for IS stories, else ``None``.
+    """
+    from agentkit.installer.paths import story_dir as _story_dir
+    from agentkit.integration_stabilization.budget_guard import (
+        StabilizationBudgetGuard,
+    )
+    from agentkit.integration_stabilization.preconditions import (
+        check_approval_present,
+        check_binding_integrity,
+    )
+    from agentkit.integration_stabilization.seam_allowlist_guard import (
+        FailClosedSeamGuard,
+    )
+    from agentkit.integration_stabilization.state import (
+        load_integration_manifest,
+        load_manifest_approval,
+    )
+
+    if not _is_integration_stabilization_story(project_root, story_id):
+        return None
+
+    s_dir = _story_dir(project_root, story_id)
+    try:
+        manifest = load_integration_manifest(s_dir)
+        approval = load_manifest_approval(s_dir)
+        if manifest is None:
+            return FailClosedSeamGuard("no approved IntegrationScopeManifest present")
+        if not check_approval_present(approval).approved:
+            return FailClosedSeamGuard("no approved ManifestApprovalRecord present")
+        assert approval is not None  # noqa: S101 -- guaranteed by check above
+        binding = check_binding_integrity(
+            manifest, approval, current_run_id=run_id
+        )
+        if not binding.binding_valid:
+            return FailClosedSeamGuard(f"manifest binding invalid: {binding.reason}")
+    except Exception as exc:  # noqa: BLE001 -- a broken IS guard must BLOCK, not skip
+        return FailClosedSeamGuard(f"budget guard construction error: {exc}")
+
+    emitter = _is_event_emitter(s_dir, project_key)
+    return StabilizationBudgetGuard(
+        manifest=manifest,
+        story_dir=s_dir,
+        emitter=emitter,
+        story_id=story_id,
+        project_key=project_key,
+        run_id=run_id,
+    )
+
+
+def _is_event_emitter(story_dir: Path, project_key: str) -> EventEmitter | None:
+    """Build the state-backed telemetry emitter for IS guard events, or ``None``.
+
+    A telemetry-construction fault must NOT make the guard fail-open; the guard
+    still enforces and simply skips emission when no emitter is available.
+    """
+    try:
+        from agentkit.telemetry.storage import StateBackendEmitter
+
+        return StateBackendEmitter(story_dir, default_project_key=project_key)
+    except Exception:  # noqa: BLE001 -- emission is best-effort; the guard still blocks
+        return None
 
 
 __all__ = [

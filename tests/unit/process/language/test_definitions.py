@@ -180,4 +180,7 @@ class TestImplementationWorkflowDetails:
         assert tr.target == "implementation"
         assert tr.guard is not None
         guard_name = getattr(tr.guard, "guard_name", None)
-        assert guard_name == "exploration_gate_approved"
+        # AG3-069 (AC8): the exploration -> implementation guard is the composite
+        # IS-aware gate (delegates to exploration_gate_approved for standard
+        # stories, additionally requires an approved+bound manifest for IS).
+        assert guard_name == "exploration_gate_approved_with_is_manifest"

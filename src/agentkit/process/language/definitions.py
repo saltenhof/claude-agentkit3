@@ -29,12 +29,31 @@ if TYPE_CHECKING:
 @guard(
     "mode_is_not_exploration",
     description="Checks that the story routes setup directly to implementation.",
-    reads=frozenset({"execution_route", "mode"}),
+    reads=frozenset({"execution_route", "mode", "implementation_contract"}),
 )
 def _mode_is_not_exploration(
     ctx: StoryContext,
     state: PhaseState,
 ) -> GuardResult:
+    # AG3-069 (FK-05 §5.6, AC8): an integration_stabilization story ALWAYS routes
+    # setup -> exploration first; the direct setup -> implementation transition is
+    # FAIL-CLOSED blocked. Exploration is mandatory; execution is only reachable
+    # via the exploration gate AFTER the manifest is approved (see
+    # exploration_gate_approved + the IS manifest guard). Consumed from the typed
+    # routing predicate (no second routing truth, routing_rules.py).
+    from agentkit.story_context_manager.routing_rules import (
+        is_execution_routing_blocked,
+    )
+
+    if is_execution_routing_blocked(ctx):
+        return GuardResult.FAIL(
+            reason=(
+                "integration_stabilization mandates exploration before "
+                "implementation; the direct setup -> implementation transition "
+                "is blocked (FK-05 §5.6, AC8)."
+            ),
+        )
+
     # AG3-018 (FK-24 §24.3.4): a fast story ALWAYS routes setup -> implementation
     # (Exploration=OUT), regardless of execution_route. The fast/standard mode
     # axis is decoupled from execution_route (FK-24 §24.3.3).
@@ -50,6 +69,97 @@ def _mode_is_not_exploration(
             f"execution_route={ctx.execution_route!r}"
         ),
     )
+
+
+@guard(
+    "exploration_gate_approved_with_is_manifest",
+    description=(
+        "Exploration gate approved AND (for integration_stabilization) an "
+        "approved + bound manifest exists."
+    ),
+    reads=frozenset({"phase", "status", "payload", "implementation_contract"}),
+)
+def _exploration_gate_approved_with_is_manifest(
+    ctx: StoryContext,
+    state: PhaseState,
+) -> GuardResult:
+    """Gate the exploration -> implementation transition (AG3-069 AC8).
+
+    First the standard exploration-gate-approved guard must PASS. Then, for an
+    integration_stabilization story, an APPROVED + BOUND IntegrationScopeManifest
+    MUST exist before execution/implementation is reachable (FK-05 §5.5.1/§5.6).
+    A missing/unbound manifest fails-closed: the transition to implementation is
+    blocked, exploration stays the active phase (no productive integration work
+    without an approved manifest). Standard stories are unaffected — the IS check
+    is gated on the contract.
+    """
+    base = exploration_gate_approved(ctx, state)
+    if not base.passed:
+        return base
+
+    from agentkit.story_context_manager.types import ImplementationContract
+
+    if (
+        ctx.implementation_contract
+        is not ImplementationContract.INTEGRATION_STABILIZATION
+    ):
+        return base  # Standard story: standard gate decision is authoritative.
+
+    return _is_manifest_approved_and_bound(ctx)
+
+
+def _is_manifest_approved_and_bound(ctx: StoryContext) -> GuardResult:
+    """Return PASS iff an approved + bound IS manifest exists for ``ctx``.
+
+    Fail-closed: an unresolvable story directory, a missing manifest/approval, or
+    a binding-integrity failure all block the transition to implementation
+    (FK-05 §5.5.1/§5.5.4/§5.6, AC2/AC8).
+    """
+    if ctx.project_root is None:
+        return GuardResult.FAIL(
+            reason=(
+                "integration_stabilization: cannot resolve the story directory "
+                "to verify manifest approval; execution is blocked fail-closed "
+                "(FK-05 §5.6, AC8)."
+            ),
+        )
+
+    from agentkit.installer.paths import story_dir as _story_dir
+    from agentkit.integration_stabilization.preconditions import (
+        check_approval_present,
+        check_binding_integrity,
+    )
+    from agentkit.integration_stabilization.state import (
+        load_integration_manifest,
+        load_manifest_approval,
+    )
+    from agentkit.state_backend.store import resolve_runtime_scope
+
+    s_dir = _story_dir(ctx.project_root, ctx.story_id)
+    manifest = load_integration_manifest(s_dir)
+    approval = load_manifest_approval(s_dir)
+    if manifest is None or not check_approval_present(approval).approved:
+        return GuardResult.FAIL(
+            reason=(
+                "integration_stabilization: no approved IntegrationScopeManifest; "
+                "the exploration -> implementation transition is blocked until the "
+                "manifest is approved (FK-05 §5.5.1/§5.6, AC8)."
+            ),
+        )
+    assert approval is not None  # noqa: S101 -- guaranteed by check above
+    try:
+        run_id = resolve_runtime_scope(s_dir).run_id or approval.run_id
+    except Exception:  # noqa: BLE001 -- unresolvable scope falls back to the record run
+        run_id = approval.run_id
+    binding = check_binding_integrity(manifest, approval, current_run_id=run_id)
+    if not binding.binding_valid:
+        return GuardResult.FAIL(
+            reason=(
+                "integration_stabilization: manifest-approval binding invalid "
+                f"({binding.reason}); execution blocked fail-closed (FK-05 §5.5.4)."
+            ),
+        )
+    return GuardResult.PASS()
 
 
 def _build_implementation_workflow() -> WorkflowDefinition:
@@ -93,7 +203,11 @@ def _build_implementation_workflow() -> WorkflowDefinition:
         .substates(["merging", "cleanup", "reporting"])
         .transition("setup", "exploration", guard=mode_is_exploration)
         .transition("setup", "implementation", guard=_mode_is_not_exploration)
-        .transition("exploration", "implementation", guard=exploration_gate_approved)
+        .transition(
+            "exploration",
+            "implementation",
+            guard=_exploration_gate_approved_with_is_manifest,
+        )
         .transition("implementation", "closure", guard=implementation_completed)
         .hooks(
             pre_transition=["log_transition"],

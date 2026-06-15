@@ -18,6 +18,7 @@ from agentkit.core_types.qa_artifact_names import (
     RESEARCH_QUALITY_PRODUCER,
     SEMANTIC_REVIEW_PRODUCER,
     SONARQUBE_GATE_PRODUCER,
+    STABILITY_GATE_PRODUCER,
     STRUCTURAL_PRODUCER,
 )
 from agentkit.story_context_manager.types import StoryType
@@ -29,7 +30,7 @@ from agentkit.verify_system.stage_registry.stages import (
     StageOverridePolicy,
 )
 
-__all__ = ["LAYER_1_STAGES", "STANDARD_STAGES"]
+__all__ = ["ALL_STAGES", "LAYER_1_STAGES", "STANDARD_STAGES"]
 
 #: The code-producing story types every Layer-1 deterministic stage applies
 #: to (FK-33 §33.2.2 ``implementation, bugfix``).
@@ -317,6 +318,107 @@ def _make_standard_stages() -> tuple[StageDefinition, ...]:
     )
 
 
+def _make_all_stages() -> tuple[StageDefinition, ...]:
+    """Build the ONE canonical stage catalogue (standard + integration stages).
+
+    This is the single source of truth for the registry. It is a superset of
+    :data:`STANDARD_STAGES`; the integration-stabilization stages
+    (``integration.*`` + ``stability_gate``) are filtered IN only for the
+    ``integration_stabilization`` contract by the contract-aware query methods
+    (:meth:`StageRegistry.stages_for` / :meth:`StageRegistry.stage_for_id`).
+    There is NO parallel registry: standard and IS stories both consume this
+    one catalogue through the contract filter (AG3-069 MAJOR H).
+
+    Adds the four FK-37 §37.1.3 named fail-closed checks on top of the
+    standard stage set:
+
+    - ``integration.declared_surfaces_only`` (Layer 1, BLOCKING, SYSTEM)
+    - ``integration.stabilization_budget_not_exhausted`` (Layer 1, BLOCKING,
+      SYSTEM — primary enforcement; also audited in QA-subflow per §37.1.3)
+    - ``integration.integration_target_matrix_passed`` (Layer 4, BLOCKING,
+      SYSTEM — QA-subflow/closure precondition per §37.1.3)
+    - ``stability_gate`` (Layer 4, BLOCKING, SYSTEM — dedicated gate that
+      wraps all four FK-37 §37.1.3 checks; registered here per AC5/§6)
+
+    Preconditions (additional, named, fail-closed per AC12):
+    - ``integration.manifest_approval_required`` (Layer 1, BLOCKING, SYSTEM)
+    - ``integration.binding_integrity`` (Layer 1, BLOCKING, SYSTEM)
+    """
+    _integration_contract: frozenset[StoryType] = frozenset(
+        (StoryType.IMPLEMENTATION,)
+    )
+    return (
+        *STANDARD_STAGES,
+        # --- Layer-1: named preconditions (manifest approval + binding) --------
+        StageDefinition(
+            stage_id="integration.manifest_approval_required",
+            layer=1,
+            severity=Severity.BLOCKING,
+            applies_to=_integration_contract,
+            kind=StageKind.DETERMINISTIC,
+            trust_class=TrustClass.SYSTEM,
+            producer=STABILITY_GATE_PRODUCER,
+            override_policy=StageOverridePolicy.NONE,
+        ),
+        StageDefinition(
+            stage_id="integration.binding_integrity",
+            layer=1,
+            severity=Severity.BLOCKING,
+            applies_to=_integration_contract,
+            kind=StageKind.DETERMINISTIC,
+            trust_class=TrustClass.SYSTEM,
+            producer=STABILITY_GATE_PRODUCER,
+            override_policy=StageOverridePolicy.NONE,
+        ),
+        # --- Layer-1: FK-37 §37.1.3 deterministic checks -----------------------
+        StageDefinition(
+            stage_id="integration.declared_surfaces_only",
+            layer=1,
+            severity=Severity.BLOCKING,
+            applies_to=_integration_contract,
+            kind=StageKind.DETERMINISTIC,
+            trust_class=TrustClass.SYSTEM,
+            producer=STABILITY_GATE_PRODUCER,
+            override_policy=StageOverridePolicy.NONE,
+        ),
+        StageDefinition(
+            stage_id="integration.stabilization_budget_not_exhausted",
+            layer=1,
+            severity=Severity.BLOCKING,
+            applies_to=_integration_contract,
+            kind=StageKind.DETERMINISTIC,
+            trust_class=TrustClass.SYSTEM,
+            producer=STABILITY_GATE_PRODUCER,
+            override_policy=StageOverridePolicy.NONE,
+        ),
+        # --- Layer-4: QA-subflow/closure precondition checks -------------------
+        StageDefinition(
+            stage_id="integration.integration_target_matrix_passed",
+            layer=4,
+            severity=Severity.BLOCKING,
+            applies_to=_integration_contract,
+            kind=StageKind.POLICY,
+            trust_class=TrustClass.SYSTEM,
+            producer=STABILITY_GATE_PRODUCER,
+            override_policy=StageOverridePolicy.NONE,
+        ),
+        # --- stability_gate: dedicated Verify-Stage (FK-05 §5.10, AC5) ---------
+        # Wraps all four FK-37 §37.1.3 checks; registered as a Layer-4 POLICY
+        # stage (QA-subflow + closure precondition). FAIL on undeclared_surface,
+        # unmet integration_targets, or budget breach.
+        StageDefinition(
+            stage_id="stability_gate",
+            layer=4,
+            severity=Severity.BLOCKING,
+            applies_to=_integration_contract,
+            kind=StageKind.POLICY,
+            trust_class=TrustClass.SYSTEM,
+            producer=STABILITY_GATE_PRODUCER,
+            override_policy=StageOverridePolicy.NONE,
+        ),
+    )
+
+
 #: All Layer-1 deterministic stages (FK-27 §27.4.1-§27.4.4), execution order:
 #: artifact check (precondition) -> structural -> hygiene -> recurring guards ->
 #: ARE-Gate -> impact. See :func:`_make_layer_1_stages` for the full definition.
@@ -325,3 +427,11 @@ LAYER_1_STAGES: tuple[StageDefinition, ...] = _make_layer_1_stages()
 #: All standard stages: Layer-1 + Layer-2/3/4 (FK-27 §27.4.1-§27.4.4+).
 #: See :func:`_make_standard_stages` for the full definition.
 STANDARD_STAGES: tuple[StageDefinition, ...] = _make_standard_stages()
+
+#: The ONE canonical stage catalogue: standard stages + the six
+#: integration-stabilization stages (four FK-37 §37.1.3 checks + two
+#: preconditions + stability_gate). This is the registry default; the
+#: integration-stabilization stages are filtered IN only for the
+#: ``integration_stabilization`` contract via the contract-aware query methods
+#: (no parallel registry, AG3-069 MAJOR H). See :func:`_make_all_stages`.
+ALL_STAGES: tuple[StageDefinition, ...] = _make_all_stages()

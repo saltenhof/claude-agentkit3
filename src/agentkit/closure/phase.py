@@ -380,6 +380,17 @@ class ClosurePhaseHandler:
     ) -> HandlerResult:
         """Run the closure sequence, dispatching over the resume ``progress``."""
         cfg = self._config
+
+        # AG3-069 (FK-05 §5.11): integration_stabilization closure precondition.
+        # Checked BEFORE finalization-collaborator wiring so IS stories are
+        # rejected early (fail-closed). Gated on the IS contract so standard
+        # stories are completely unaffected (CORE PRINCIPLE).
+        is_precondition_error = _check_integration_stabilization_closure(
+            ctx, s_dir, source_state, progress
+        )
+        if is_precondition_error is not None:
+            return is_precondition_error
+
         finalization_error = _require_finalization_collaborators(cfg)
         if finalization_error is not None:
             return finalization_error
@@ -1275,6 +1286,104 @@ def _transition_story_done(
         return HandlerResult(
             status=PhaseStatus.FAILED,
             errors=(f"complete_story failed: {cs_err}",),
+        )
+    return None
+
+
+def _check_integration_stabilization_closure(
+    ctx: StoryContext,
+    s_dir: Path,
+    source_state: PhaseState,
+    progress: ClosureProgress,
+) -> HandlerResult | None:
+    """AG3-069 (FK-05 §5.11): IS closure precondition gate.
+
+    Only runs for integration_stabilization stories. Checks all FK-05 §5.11
+    conditions before the merge block: stability_gate=PASS, all integration
+    targets achieved, no open manifest violations, no replan/split needed.
+
+    Gated on the IS contract so standard stories are completely unaffected
+    (CORE PRINCIPLE: gate every IS enforcement on implementation_contract).
+
+    Args:
+        ctx: Story context.
+        s_dir: Story working directory.
+        source_state: Current phase state (for escalation).
+        progress: Current closure progress.
+
+    Returns:
+        A blocking ``HandlerResult`` when an IS precondition fails, or
+        ``None`` when the story is not IS or all conditions pass.
+    """
+    from agentkit.story_context_manager.types import ImplementationContract
+
+    if ctx.implementation_contract is not ImplementationContract.INTEGRATION_STABILIZATION:
+        return None  # Standard stories: no IS precondition check.
+
+    from agentkit.integration_stabilization.preconditions import (
+        check_closure_precondition,
+    )
+    from agentkit.integration_stabilization.state import (
+        load_integration_manifest,
+        load_manifest_approval,
+    )
+
+    manifest = load_integration_manifest(s_dir)
+    approval = load_manifest_approval(s_dir)
+
+    # Fail closed: if manifest or approval is absent, closure is blocked.
+    if manifest is None or approval is None:
+        missing = "manifest" if manifest is None else "approval record"
+        return HandlerResult(
+            status=PhaseStatus.FAILED,
+            errors=(
+                f"Integration-stabilization closure blocked: {missing} not "
+                "found in story directory. An approved manifest is required "
+                "for closure (FK-05 §5.11, AC9).",
+            ),
+        )
+
+    # Load stability_gate result and integration targets from budget file.
+    # The stability_gate status is written by the QA-subflow. If the file is
+    # absent, we cannot confirm PASS -> fail-closed block.
+    import json as _json
+
+    stability_file = s_dir / "integration_stability_gate.json"
+    stability_gate_passed = False
+    achieved_targets: frozenset[str] = frozenset()
+    open_violations = 0
+    replan_needed = False
+
+    if stability_file.exists():
+        try:
+            sg_data: dict[str, object] = _json.loads(
+                stability_file.read_text(encoding="utf-8")
+            )
+            stability_gate_passed = bool(sg_data.get("passed", False))
+            raw_targets = sg_data.get("achieved_targets", [])
+            achieved_targets = frozenset(raw_targets if isinstance(raw_targets, list) else [])
+            raw_violations = sg_data.get("open_violations", 0)
+            open_violations = int(raw_violations) if isinstance(raw_violations, (int, float)) else 0
+            replan_needed = bool(sg_data.get("replan_needed", False))
+        except Exception:  # noqa: BLE001
+            stability_gate_passed = False
+
+    required_targets = frozenset(manifest.integration_targets)
+    result = check_closure_precondition(
+        stability_gate_passed=stability_gate_passed,
+        achieved_targets=achieved_targets,
+        required_targets=required_targets,
+        open_manifest_violations=open_violations,
+        replan_needed=replan_needed,
+    )
+    if not result.closure_allowed:
+        reasons = "; ".join(result.blocking_reasons)
+        return HandlerResult(
+            status=PhaseStatus.FAILED,
+            errors=(
+                f"Integration-stabilization closure precondition failed "
+                f"(FK-05 §5.11, AC9): {reasons}",
+            ),
         )
     return None
 

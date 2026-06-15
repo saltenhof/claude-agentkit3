@@ -202,5 +202,5 @@ class TestMigrationRoundtrip:
         registry = ProducerRegistry()
         register_verify_producers(registry)
         register_verify_producers(registry)  # idempotent
-        # AG3-067 adds the deterministic Layer-2 context-sufficiency pre-step.
-        assert len(registry.known_producers(ArtifactClass.QA)) == 9  # noqa: PLR2004
+        # AG3-067 adds context-sufficiency; AG3-069 adds stability-gate producer.
+        assert len(registry.known_producers(ArtifactClass.QA)) == 10  # noqa: PLR2004

@@ -256,6 +256,9 @@ def mode_is_exploration(ctx: StoryContext, state: PhaseState) -> GuardResult:
         ``GuardResult.PASS()`` only when the route is EXPLORATION AND the story
         is not in fast mode; ``FAIL`` otherwise.
     """
+    from agentkit.story_context_manager.routing_rules import (
+        is_execution_routing_blocked,
+    )
     from agentkit.story_context_manager.story_model import WireStoryMode
     from agentkit.story_context_manager.types import StoryMode
 
@@ -267,6 +270,12 @@ def mode_is_exploration(ctx: StoryContext, state: PhaseState) -> GuardResult:
                 "directly to implementation"
             ),
         )
+    # AG3-069 (FK-05 §5.6, AC8): integration_stabilization mandates exploration
+    # regardless of execution_route, so setup -> exploration is taken even when the
+    # route is not EXPLORATION (the direct setup -> implementation edge is blocked
+    # by _mode_is_not_exploration via the same routing predicate).
+    if is_execution_routing_blocked(ctx):
+        return GuardResult.PASS()
     if ctx.execution_route == StoryMode.EXPLORATION:
         return GuardResult.PASS()
     return GuardResult.FAIL(
