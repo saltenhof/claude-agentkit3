@@ -1362,7 +1362,7 @@ def _resolve_project_key(args: argparse.Namespace) -> str | None:
     return env_key or None
 
 
-def _parse_since_cutoff(since_raw: str) -> object:
+def _parse_since_cutoff(since_raw: str) -> datetime:
     """Parse a ``--since`` value into a timezone-aware :class:`datetime`.
 
     Supported forms (MAJOR 5 fix):
@@ -1910,10 +1910,7 @@ def _validate_event_type(event_type_raw: str) -> int:
         return 0
     except ValueError:
         valid = sorted(e.value for e in EventType)
-        detail = (
-            f"--event {event_type_raw!r} is not a known EventType; "
-            "use one of the listed values."
-        )
+        detail = f"--event {event_type_raw!r} is not a known EventType; use one of the listed values."
         print(
             json.dumps(
                 {
@@ -1979,7 +1976,7 @@ def _coerce_to_aware_datetime(value: object) -> datetime | None:
     return None
 
 
-def _apply_since_filter(events: list[object], since_cutoff: object) -> list[object]:
+def _apply_since_filter(events: list[object], since_cutoff: datetime) -> list[object]:
     """Filter ``events`` to those whose timestamp is >= ``since_cutoff``.
 
     MAJOR 5 fix: filters by parsed datetime (not raw string comparison) so
@@ -2005,7 +2002,7 @@ def _apply_since_filter(events: list[object], since_cutoff: object) -> list[obje
         occ_dt = _coerce_to_aware_datetime(_pick_event_time(e))
         # ``None`` means no recognisable/parseable time field — skip rather than
         # silently retain; the event has no timestamp to compare.
-        if occ_dt is not None and occ_dt >= since_cutoff:  # type: ignore[operator]
+        if occ_dt is not None and occ_dt >= since_cutoff:
             result.append(e)
     return result
 
@@ -2014,7 +2011,7 @@ def _cmd_query_telemetry_story_form(
     story_id: str,
     project_root: Path,
     event_type_raw: str | None,
-    since_cutoff: object,
+    since_cutoff: datetime | None,
 ) -> int:
     """Inner handler for the story-scoped ``query-telemetry`` form.
 
@@ -2091,7 +2088,7 @@ def _cmd_query_telemetry(args: argparse.Namespace) -> int:
         return 1
 
     # MAJOR 5 fix: parse --since into a timezone-aware datetime (fail-closed).
-    since_cutoff: object = None
+    since_cutoff: datetime | None = None
     if since_raw is not None:
         try:
             since_cutoff = _parse_since_cutoff(since_raw)
@@ -2131,7 +2128,7 @@ def _cmd_query_telemetry_global_form(
     args: argparse.Namespace,
     run_id: str | None,
     event_type_raw: str | None,
-    since_cutoff: object,
+    since_cutoff: datetime | None,
 ) -> int:
     """Inner handler for the project-global ``query-telemetry`` forms (--run / --event).
 
