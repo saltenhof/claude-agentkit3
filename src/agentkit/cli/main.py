@@ -11,11 +11,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from agentkit.verify_system.evidence import RepoContext
     from agentkit.verify_system.structural.system_evidence import ChangeEvidence
 
 #: Shared ``--story`` help label, reused across the story-scoped subcommands.
 _STORY_ID_FIELD_LABEL = "Story ID"
+
+#: Shared ``--project-root`` help label, reused across the operator subcommands.
+_PROJECT_ROOT_HELP = "Project root directory"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1445,7 +1450,7 @@ def _setup_operator_recovery_subparsers(
     )
     resume_parser.add_argument("--story", required=True, help=_STORY_ID_FIELD_LABEL)
     resume_parser.add_argument("--trigger", required=True, help="Resume trigger event name")
-    resume_parser.add_argument("--project-root", default=".", help="Project root directory")
+    resume_parser.add_argument("--project-root", default=".", help=_PROJECT_ROOT_HELP)
 
     # reset-escalation (Class C — service gap)
     reset_esc_parser = subparsers.add_parser(
@@ -1467,7 +1472,7 @@ def _setup_operator_recovery_subparsers(
         help="Show story phase state and weekly-review frame (AG3-076)",
     )
     status_parser.add_argument("--story", required=False, help=_STORY_ID_FIELD_LABEL)
-    status_parser.add_argument("--project-root", default=".", help="Project root directory")
+    status_parser.add_argument("--project-root", default=".", help=_PROJECT_ROOT_HELP)
 
     # query-state
     query_state_parser = subparsers.add_parser(
@@ -1480,7 +1485,7 @@ def _setup_operator_recovery_subparsers(
         action="store_true",
         help="Query lock state (Class C — service gap)",
     )
-    query_state_parser.add_argument("--project-root", default=".", help="Project root directory")
+    query_state_parser.add_argument("--project-root", default=".", help=_PROJECT_ROOT_HELP)
 
     # query-telemetry
     query_tel_parser = subparsers.add_parser(
@@ -1500,7 +1505,7 @@ def _setup_operator_recovery_subparsers(
     )
     query_tel_parser.add_argument("--project", required=False, help="Project key override")
     query_tel_parser.add_argument("--config", required=False, help="Config path override")
-    query_tel_parser.add_argument("--project-root", default=".", help="Project root directory")
+    query_tel_parser.add_argument("--project-root", default=".", help=_PROJECT_ROOT_HELP)
 
     # weekly-review (Class C for Failure-Corpus sections / Class A for renderer frame)
     subparsers.add_parser(
@@ -1905,16 +1910,17 @@ def _validate_event_type(event_type_raw: str) -> int:
         return 0
     except ValueError:
         valid = sorted(e.value for e in EventType)
+        detail = (
+            f"--event {event_type_raw!r} is not a known EventType; "
+            "use one of the listed values."
+        )
         print(
             json.dumps(
                 {
                     "finding": "InvalidEventType",
                     "value": event_type_raw,
                     "valid_values": valid,
-                    "detail": (
-                        f"--event {event_type_raw!r} is not a known EventType; "
-                        "use one of the listed values."
-                    ),
+                    "detail": detail,
                 },
                 sort_keys=True,
             ),
@@ -1945,6 +1951,34 @@ def _pick_event_time(event: object) -> object:
     return None
 
 
+def _coerce_to_aware_datetime(value: object) -> datetime | None:
+    """Coerce a raw event time value to a timezone-aware :class:`datetime`.
+
+    Accepts an ISO-8601 string or a :class:`datetime`; naive values are
+    treated as UTC.  Returns ``None`` when the value is missing, not a
+    recognised type, or an unparseable string (fail-closed: such an event
+    has no comparable timestamp).
+
+    Args:
+        value: A raw time value from :func:`_pick_event_time` (str, datetime,
+            or ``None``).
+
+    Returns:
+        A timezone-aware :class:`datetime`, or ``None`` when not coercible.
+    """
+    from datetime import UTC, datetime
+
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    return None
+
+
 def _apply_since_filter(events: list[object], since_cutoff: object) -> list[object]:
     """Filter ``events`` to those whose timestamp is >= ``since_cutoff``.
 
@@ -1966,27 +2000,12 @@ def _apply_since_filter(events: list[object], since_cutoff: object) -> list[obje
     Returns:
         Subset of ``events`` that fall at or after ``since_cutoff``.
     """
-    from datetime import UTC, datetime
-
     result = []
     for e in events:
-        occ = _pick_event_time(e)
-        if occ is None:
-            # No recognisable time field present — skip rather than silently
-            # retain; the event has no timestamp to compare.
-            continue
-        if isinstance(occ, str):
-            try:
-                occ_dt = datetime.fromisoformat(occ)
-                if occ_dt.tzinfo is None:
-                    occ_dt = occ_dt.replace(tzinfo=UTC)
-            except ValueError:
-                continue
-        elif isinstance(occ, datetime):
-            occ_dt = occ if occ.tzinfo is not None else occ.replace(tzinfo=UTC)
-        else:
-            continue
-        if occ_dt >= since_cutoff:  # type: ignore[operator]
+        occ_dt = _coerce_to_aware_datetime(_pick_event_time(e))
+        # ``None`` means no recognisable/parseable time field — skip rather than
+        # silently retain; the event has no timestamp to compare.
+        if occ_dt is not None and occ_dt >= since_cutoff:  # type: ignore[operator]
             result.append(e)
     return result
 
@@ -2104,11 +2123,34 @@ def _cmd_query_telemetry(args: argparse.Namespace) -> int:
             story_id, project_root, event_type_raw, since_cutoff
         )
 
-    # run-scoped or event-type global form: needs project_key.
+    # run-scoped or event-type global form: needs project_key (handled in helper).
+    return _cmd_query_telemetry_global_form(args, run_id, event_type_raw, since_cutoff)
+
+
+def _cmd_query_telemetry_global_form(
+    args: argparse.Namespace,
+    run_id: str | None,
+    event_type_raw: str | None,
+    since_cutoff: object,
+) -> int:
+    """Inner handler for the project-global ``query-telemetry`` forms (--run / --event).
+
+    Resolves the project key fail-closed, reads project-global execution events
+    via the composition-root wrapper, and applies adapter-side run/event/since
+    filters (story §2.1.7).
+
+    Args:
+        args: Parsed CLI arguments (for project-key resolution).
+        run_id: Optional run-ID filter.
+        event_type_raw: Optional validated event-type filter.
+        since_cutoff: Optional timezone-aware :class:`datetime` lower bound.
+
+    Returns:
+        0 on success, 1 on error.
+    """
     # ERROR 2 fix: --config provided but broken -> fail-closed, not env fallback.
-    # Note: when --config is present we already ran _resolve_project_key above and it
-    # succeeded, so calling it again here is cheap and keeps the resolution logic in
-    # one canonical place.
+    # When --config is present the caller already validated it; resolving again
+    # here keeps the resolution logic in one canonical place.
     try:
         project_key = _resolve_project_key(args)
     except _ConfigResolutionError as exc:
