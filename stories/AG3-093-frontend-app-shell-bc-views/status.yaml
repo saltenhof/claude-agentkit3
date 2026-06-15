@@ -1,10 +1,38 @@
 story_id: AG3-093
 title: "Frontend-App-Shell + BC-aligned Views"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
+completed: "2026-06-16"
 size: L
+# COMPLETED 2026-06-16. In-place engineering refactor (FK-72 §72.13.4) of the
+# 2094-line frontend/prototype/src/App.tsx monolith into a clean BC-aligned tree:
+# app_shell/ (R-Klammer: routing/layout/inspector/board/sheet), contexts/<bc>/
+# (story_context_manager/SpecificationTab, artifacts/EvidenceTab, kpi_analytics/
+# KpiTab+AnalyticsSlot, execution_planning/GraphView+ReadyStackView+ExecutionLimitsView,
+# pipeline_engine/FlowTab), foundation/{bff/client.ts, multi_llm_hub/}, design_system/.
+# App.tsx is now an 18-line re-export. Established the missing toolchain (vitest +
+# @testing-library + eslint): npm run build/test/lint all green, 102 tests incl. 8
+# NON-skipped AC14 real-backend e2e. Mocks replaced by a fully project-scoped typed
+# BffClient hitting the REAL control-plane routes (/v1/projects/{key}/...); board/sheet
+# approval status sourced from the approval-bearing public search path (NOT the runtime
+# lifecycle_status list — two-StoryService split, Codex-adjudicated as out-of-scope
+# foreign-owner concern); inspector tabs render the fetched story_detail spec/evidence/
+# telemetry + coverage read-models fail-closed; Flow tab renders the fetched
+# story_flow_snapshot with hold-states (paused/escalated/failed) + state_reason, no local
+# heuristic fallback; Kanban + Sheet validate transitions BEFORE optimistic update via a
+# shared matrix and dispatch only approve/reject/cancel (never PATCH status); archived
+# projects disable mutating UI; all required-read failures surface fail-closed error pills.
+# AC14: real create -> approve/reject/cancel -> public search read-back round-trip against
+# the REAL ControlPlaneApplication over a test-only plain-HTTP harness with a real isolated
+# SQLite store (public create gate satisfied with valid typed reconciliation evidence; no
+# /_test bypass). QA (Codex sole gate, the session's longest): R1 REJECT (self-stub green
+# skeleton) -> R2 (project-scoped client + read-models + harness) -> R3/OPUS (response-shape
+# adapter, public-path E2E, fail-closed, Sheet validate, archived UI, real tests) -> R4/OPUS
+# (approval-status-from-search not lifecycle-cast, spec/evidence/coverage tab wiring, flow
+# hold-states, public-create AC14) -> R5..R9 ARCH-55 German-comment sweep to APPROVE
+# (job-4c56ca31). No src/agentkit Python modified. unblocks: AG3-094, AG3-105.
 depends_on:
   - AG3-090
   - AG3-091

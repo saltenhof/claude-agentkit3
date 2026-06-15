@@ -1,11 +1,11 @@
 /*
- * Story-Fixtures — die *eine* Story-Liste, von der alle Views leben.
+ * Story fixtures — the *single* story list all views live off.
  *
- * Diese Datei ersetzt die fruehere doppelte Quelle in `data.ts`
- * (`stories: Story[]` plus `rulebookStressStories`). Die Liste hier
- * ist der konsistente Mock-Datensatz; Mode und Runtime-State sind als
- * optionale Felder gepflegt, damit auch zukuenftige Sub-Step- und
- * Mode-Sichten sinnvolle Beispiele haben.
+ * This file replaces the former duplicate source in `data.ts`
+ * (`stories: Story[]` plus `rulebookStressStories`). The list here
+ * is the consistent mock dataset; mode and runtime state are maintained
+ * as optional fields so that future substep and mode views have
+ * meaningful examples.
  */
 
 import type { Mode, Phase, RuntimeState, Story, StoryStatus, Substep, SubstepMeta } from './storyModel';
@@ -102,33 +102,33 @@ const repoLabels: Record<string, string> = {
 };
 
 const completedCutoff = 36;
-/* Hinweis: streng nach FK-24 §24.3.3 (Mode-Lock) duerften Fast und
- * Standard nicht zeitgleich In Progress sein. Im Fixture lockern wir
- * das fuer Demo-Zwecke, damit der Story-Inspector beide Mode-Profile
- * mit aktivem Substep zeigen kann. */
+/* Note: strictly per FK-24 §24.3.3 (Mode-Lock), Fast and Standard
+ * must not be In Progress simultaneously. In the fixture we relax
+ * this for demo purposes so the Story Inspector can show both mode
+ * profiles with an active substep. */
 const inFlightStoryIds = new Set(['BB2-229', 'BB2-230', 'BB2-231', 'BB2-223', 'BB2-224']);
 const approvedOverrideStoryIds = new Set(['BB2-247', 'BB2-249', 'BB2-254']);
 const cancelledStoryIds = new Set(['BB2-246']);
 const externallyBlockedStoryIds = new Set(['BB2-238']);
 
-/* Mode-Verteilung: ein paar Stories laufen im Fast-Modus (FK-24).
- * Bewusst gemischt, damit die geplante Mode-Label-Anzeige Variation hat. */
+/* Mode distribution: a few stories run in Fast mode (FK-24).
+ * Intentionally mixed so the planned mode-label display has variation. */
 const fastModeStoryIds = new Set(['BB2-224', 'BB2-247', 'BB2-260']);
 
-/* Runtime-State pro In-Progress-Story: aktuelle Phase + Substep.
- * Verteilt ueber alle vier Phasen und unterschiedliche QA-Schichten,
- * damit die Story-Inspector- und Phase-Stepper-Sicht (AG3-019) den
- * Pipeline-Fortschritt visualisieren kann. */
+/* Runtime state per in-progress story: current phase + substep.
+ * Spread across all four phases and different QA layers so that
+ * the Story Inspector and phase stepper view (AG3-019) can
+ * visualize pipeline progress. */
 const runtimeStateByStoryId: Record<string, RuntimeState> = {
-  /* BB2-229: zweite Remediation-Runde, gerade in QA Layer 2. */
+  /* BB2-229: second remediation round, currently in QA Layer 2. */
   'BB2-229': { phase: 'implementation', substep: 'qa_layer2_llm', iteration: 2 },
   'BB2-230': { phase: 'implementation', substep: 'incremental', iteration: 1 },
   'BB2-231': { phase: 'closure', substep: 'integrity_gate', iteration: 1 },
-  /* BB2-223: dritte Design-Iteration in Exploration. */
+  /* BB2-223: third design iteration in Exploration. */
   'BB2-223': { phase: 'exploration', substep: 'design_review', iteration: 3 },
-  /* BB2-224: Fast-Mode-Story in der einzigen QA-Schicht des
-   * Fast-Profils (Schicht 1, MOD = Tests-gruen-Floor). Schichten 2-4
-   * existieren in Fast nicht. */
+  /* BB2-224: Fast-mode story in the only QA layer of the Fast
+   * profile (Layer 1, MOD = tests-green floor). Layers 2-4
+   * do not exist in Fast mode. */
   'BB2-224': { phase: 'implementation', substep: 'qa_layer1_structural', iteration: 1 },
 };
 
@@ -171,7 +171,7 @@ function buildStoryFromRow(row: RulebookRow, index: number): Story {
     wave,
     risk: externalBlocker || dependencies.length > 4 ? 'high' : dependencies.length > 1 ? 'medium' : 'low',
     blocker: externalBlocker
-      ? 'BLOCKED_EXTERNAL: CC-04 section 12.2 vs PL-239 muss fachlich geklaert werden.'
+      ? 'BLOCKED_EXTERNAL: CC-04 section 12.2 vs PL-239 must be resolved at domain level.'
       : undefined,
     criticalPath: dependencies.length > 2 || ['BB2-198', 'BB2-218', 'BB2-244', 'BB2-256'].includes(id),
     qaRounds: status === 'Done' ? 2 + (index % 2) : status === 'In Progress' ? 1 : 0,
@@ -181,30 +181,30 @@ function buildStoryFromRow(row: RulebookRow, index: number): Story {
     createdAt: `2026-04-${String(10 + (index % 18)).padStart(2, '0')}`,
     completedAt: status === 'Done' ? '2026-04-30' : undefined,
     labels: [cluster.toLowerCase(), repo.replace('+', '-'), `wave-${wave}`],
-    need: `Belastungsprobe aus orchestrator-rulebook.dsl: ${id} gehoert zu ${cluster} im Repo-Scope ${repo}.`,
-    solution: notes ?? `Story wird gemaess Dependency-Graph nach ${dependencies.length || 'keinen'} Vorgaengern eingeplant.`,
+    need: `Stress test from orchestrator-rulebook.dsl: ${id} belongs to ${cluster} in repo scope ${repo}.`,
+    solution: notes ?? `Story scheduled per dependency graph after ${dependencies.length || 'no'} predecessors.`,
     conceptRefs: ['orchestrator-rulebook.dsl', 'FK-70 Execution Planning', 'FK-64 Control-Plane Design System'],
     guardrailRefs: ['DependencyGraphPort', 'SchedulingPolicyPort', 'atomic merge unit'],
     acceptance: [
-      'Dependency-Kanten sind im Graph sichtbar',
-      'Status wird aus simulierter Rulebook-Halbdurchfuehrung abgeleitet',
-      'Blocker sind als operative Ableitung sichtbar',
+      'Dependency edges are visible in the graph',
+      'Status is derived from a simulated rulebook partial run',
+      'Blockers are visible as an operational derivation',
     ],
-    definitionOfDone: ['Vorgaenger erledigt', 'Merge-Window konfliktfrei', 'Story-Evidenz vorhanden'],
+    definitionOfDone: ['Predecessors done', 'Merge window conflict-free', 'Story evidence present'],
     gates: [
       { label: 'Dependency Graph', state: dependencies.length > 0 || externalBlocker ? 'WARNING' : 'PASS' },
       { label: 'Merge Window', state: externalBlocker ? 'ERROR' : 'PASS' },
       { label: 'Rulebook Policy', state: status === 'Cancelled' ? 'WARNING' : 'PASS' },
     ],
     phases: [
-      { label: 'Setup', state: status === 'Backlog' ? 'idle' : 'done', detail: status === 'Backlog' ? 'Wartet auf Vorgaenger' : 'Rulebook-Kontext geladen' },
-      { label: 'Exploration', state: 'skipped', detail: 'Stress-Datensatz aus realem Rulebook' },
+      { label: 'Setup', state: status === 'Backlog' ? 'idle' : 'done', detail: status === 'Backlog' ? 'Waiting for predecessors' : 'Rulebook context loaded' },
+      { label: 'Exploration', state: 'skipped', detail: 'Stress dataset from real rulebook' },
       { label: 'Implementation', state: status === 'Done' ? 'done' : status === 'In Progress' ? 'active' : externalBlocker ? 'blocked' : 'idle', detail: status },
-      { label: 'Verify', state: status === 'Done' ? 'done' : 'idle', detail: status === 'Done' ? 'Simuliert abgeschlossen' : 'Nicht gestartet' },
-      { label: 'Closure', state: status === 'Done' ? 'done' : 'idle', detail: status === 'Done' ? 'Merged' : 'Wartend' },
+      { label: 'Verify', state: status === 'Done' ? 'done' : 'idle', detail: status === 'Done' ? 'Simulated complete' : 'Not started' },
+      { label: 'Closure', state: status === 'Done' ? 'done' : 'idle', detail: status === 'Done' ? 'Merged' : 'Waiting' },
     ],
     events: [
-      { time: status === 'Done' ? 'Wave done' : status === 'In Progress' ? 'Now' : 'Planned', type: 'rulebook_projection', detail: `${id} aus realem UC2 Rulebook projiziert`, severity: externalBlocker ? 'warning' : 'info' },
+      { time: status === 'Done' ? 'Wave done' : status === 'In Progress' ? 'Now' : 'Planned', type: 'rulebook_projection', detail: `${id} projected from real UC2 rulebook`, severity: externalBlocker ? 'warning' : 'info' },
     ],
     dependencies,
     mode,
@@ -228,14 +228,13 @@ export const PROJECT_FIXTURES: ProjectFixture[] = [
 export const ACTIVE_PROJECT: ProjectFixture = PROJECT_FIXTURES[0];
 
 export const CONCEPT_ANCHORS: string[] = [
-  'FK-63: Dashboard liest analytics + runtime; Story-Cockpit vereint Status, Protokolle, Telemetrie, QA-Artefakte und Closure-Metriken.',
-  'FK-70: Pflichtsicht ist der Dependency-Graph; blockierte Umsetzung wird aus Status, Abhaengigkeiten und Blocker-Kontext abgeleitet.',
-  'FK-91: Offizielle API-Grenze liefert /v1/stories, /v1/planning/graph und /v1/dashboard/board.',
+  'FK-63: Dashboard reads analytics + runtime; Story Cockpit unifies status, logs, telemetry, QA artifacts and closure metrics.',
+  'FK-70: Mandatory view is the dependency graph; blocked execution is derived from status, dependencies and blocker context.',
+  'FK-91: Official API boundary exposes /v1/stories, /v1/planning/graph and /v1/dashboard/board.',
 ];
 
-/* Phasen-/Substep-Defaults pro Phase (Sequenz aus den Phasen-FKs).
- * Wird vom Phase-Stepper / Sub-Stepper / Story-Inspector "Ablauf"-Tab
- * genutzt. */
+/* Phase/substep defaults per phase (sequence from the phase FKs).
+ * Used by the phase stepper / sub-stepper / Story Inspector "Ablauf" tab. */
 export const PHASE_SUBSTEP_SEQUENCE: Record<Phase, Substep[]> = {
   setup: ['preflight', 'story_context', 'are_bundle', 'type_switch', 'worktree', 'guard_activation', 'mode_resolution'],
   exploration: ['worker_spawn', 'draft', 'structural_validation', 'doc_fidelity_l2', 'design_review', 'aggregation', 'feindesign', 'freeze'],
@@ -243,26 +242,26 @@ export const PHASE_SUBSTEP_SEQUENCE: Record<Phase, Substep[]> = {
   closure: ['finding_resolution', 'integrity_gate', 'branch_push', 'merge', 'main_push', 'teardown', 'story_close', 'metrics', 'doc_fidelity_l4', 'postflight', 'vectordb_sync', 'guards_off'],
 };
 
-/* Fast-Mode (FK-24 §24.3.3, AG3-018 §"Mode-Profil"):
- * Die kanonische Tabelle aus `stories/AG3-018-fast-modus/story.md`
- * markiert pro Substep IN (unveraendert), MOD (anders parametrisiert,
- * laeuft aber) oder OUT (entfaellt). Hier listen wir ausschliesslich
- * die Substeps, die im Fast-Mode tatsaechlich laufen (IN + MOD).
- * OUT-Substeps tauchen gar nicht erst auf, damit der User nicht erst
- * im Nachhinein merkt, dass etwas uebersprungen wurde.
+/* Fast mode (FK-24 §24.3.3, AG3-018 §"Mode profile"):
+ * The canonical table from `stories/AG3-018-fast-modus/story.md`
+ * marks each substep as IN (unchanged), MOD (differently parameterized
+ * but still runs) or OUT (dropped). Here we list only the substeps
+ * that actually run in Fast mode (IN + MOD). OUT substeps are omitted
+ * entirely so the user does not discover after the fact that something
+ * was skipped.
  *
- * Quellen-Anker: AG3-018-Tabelle ab Zeile 66; siehe auch FK-24 §24.3.3,
- * FK-27 §27.4–27.7 (QA-Schichten 2–4 entfallen) und FK-29 (Closure-OUTs). */
+ * Source anchor: AG3-018 table from line 66; see also FK-24 §24.3.3,
+ * FK-27 §27.4–27.7 (QA layers 2–4 dropped) and FK-29 (closure OUTs). */
 export const PHASE_SUBSTEP_SEQUENCE_FAST: Record<Phase, Substep[]> = {
-  /* OUT: are_bundle, guard_activation, mode_resolution */
+  /* OUT: are_bundle, guard_activation, mode_resolution -- dropped in Fast mode */
   setup: ['preflight', 'story_context', 'type_switch', 'worktree'],
-  /* gesamte Phase OUT */
+  /* entire phase OUT in Fast mode */
   exploration: [],
   /* OUT: inline_reviews, qa_layer2_llm, qa_layer3_adversarial,
-   *      qa_layer4_policy, qa_feedback. QA-Schicht 1 bleibt MOD
-   *      (degeneriert auf Tests-gruen-Floor). */
+   *      qa_layer4_policy, qa_feedback. QA layer 1 remains MOD
+   *      (degenerates to tests-green floor). */
   implementation: ['worker_start', 'incremental', 'final_build', 'handover', 'qa_layer1_structural'],
-  /* OUT: finding_resolution, doc_fidelity_l4. Rest ist MOD oder IN. */
+  /* OUT: finding_resolution, doc_fidelity_l4. Remainder is MOD or IN. */
   closure: [
     'integrity_gate',
     'branch_push',
@@ -277,9 +276,9 @@ export const PHASE_SUBSTEP_SEQUENCE_FAST: Record<Phase, Substep[]> = {
   ],
 };
 
-/* Phasen-Reihenfolge im UI-Flowchart. Fast laesst Exploration als
- * "skipped"-Phase weiterhin sichtbar (greyed), damit der Mode-Effekt
- * im Vergleich zum Standard nachvollziehbar ist. */
+/* Phase order in the UI flowchart. Fast mode keeps Exploration visible
+ * as a "skipped" phase (greyed) so the mode effect is comparable
+ * to standard mode. */
 export const PHASE_ORDER: Phase[] = ['setup', 'exploration', 'implementation', 'closure'];
 
 export const PHASE_LABELS: Record<Phase, string> = {
@@ -289,11 +288,11 @@ export const PHASE_LABELS: Record<Phase, string> = {
   closure: 'Closure',
 };
 
-/* Fachliche Substep-Bezeichner fuer die UI.
+/* Domain substep labels for the UI.
  *
- * Die Keys (technische IDs aus PHASE_SUBSTEP_SEQUENCE) bleiben stabil
- * gegenueber Backend / Telemetrie; die Werte sind sprechende
- * Kurz-Bezeichner (max. 4 Worte) fuer das Story-Inspector-Flowchart. */
+ * Keys (technical IDs from PHASE_SUBSTEP_SEQUENCE) remain stable
+ * with respect to the backend / telemetry; values are human-readable
+ * short labels (max. 4 words) for the Story Inspector flowchart. */
 export const SUBSTEP_LABELS: Record<Substep, string> = {
   /* Setup */
   preflight: 'Preflight-Check',
@@ -345,16 +344,15 @@ export function substepLabel(substep: Substep): string {
   return SUBSTEP_LABELS[substep] ?? substep;
 }
 
-/* Substep-Metadaten:
- * - Optionalitaet: nur dann aktiv, wenn Vorbedingung erfuellt ist
- * - Loop-Gruppen: Substeps, die mehrfach durchlaufen werden koennen
+/* Substep metadata:
+ * - Optionality: only active when a precondition is met
+ * - Loop groups: substeps that may be traversed multiple times
  *
- * Loop-Gruppen-IDs sind UI-stabile Tokens; das Backend wird sie spaeter
- * aus den Phase-FKs ableiten. */
+ * Loop group IDs are UI-stable tokens; the backend will derive them
+ * from the phase FKs later. */
 export const SUBSTEP_META: Record<Substep, SubstepMeta> = {
-  /* Setup -- alle Pflicht, kein Loop. `guard_activation` ist nur im
-   * Fast-Mode ausgelassen, was ueber PHASE_SUBSTEP_SEQUENCE_FAST
-   * abgedeckt ist. */
+  /* Setup -- all mandatory, no loop. `guard_activation` is only
+   * omitted in Fast mode, which is covered via PHASE_SUBSTEP_SEQUENCE_FAST. */
   preflight: {},
   story_context: {},
   are_bundle: {},
@@ -363,10 +361,10 @@ export const SUBSTEP_META: Record<Substep, SubstepMeta> = {
   guard_activation: {},
   mode_resolution: {},
 
-  /* Exploration -- Design-Iteration ist die natuerliche Loop-Gruppe
-   * (Draft -> Strukturpruefung -> Konzepttreue -> Design-Review ->
-   * ggfs. zurueck zum Draft). Feindesign ist optional (FK-26): nur
-   * Stories mit Feindesign-Pflicht durchlaufen es. */
+  /* Exploration -- design iteration is the natural loop group
+   * (Draft -> structural validation -> doc fidelity -> design review ->
+   * optionally back to draft). Fine design is optional (FK-26): only
+   * stories that require detailed design go through it. */
   worker_spawn: {},
   draft: { loopGroup: 'design_iteration' },
   structural_validation: { loopGroup: 'design_iteration' },
@@ -376,10 +374,10 @@ export const SUBSTEP_META: Record<Substep, SubstepMeta> = {
   feindesign: { optional: true },
   freeze: {},
 
-  /* Implementation -- Remediation-Loop (FK-27): nach QA-Feedback geht
-   * der Worker ggfs. zurueck in `incremental` und faehrt die QA-Kette
-   * erneut. `inline_reviews` und `qa_feedback` sind optional (nicht
-   * jede Story nutzt Inline-Reviews; QA-Feedback nur wenn Findings). */
+  /* Implementation -- remediation loop (FK-27): after QA feedback the
+   * worker optionally returns to `incremental` and re-runs the QA chain.
+   * `inline_reviews` and `qa_feedback` are optional (not every story
+   * uses inline reviews; QA feedback only when findings exist). */
   worker_start: {},
   incremental: { loopGroup: 'remediation' },
   inline_reviews: { optional: true, loopGroup: 'remediation' },
@@ -391,8 +389,8 @@ export const SUBSTEP_META: Record<Substep, SubstepMeta> = {
   qa_layer4_policy: { loopGroup: 'remediation' },
   qa_feedback: { optional: true, loopGroup: 'remediation' },
 
-  /* Closure -- `finding_resolution` nur wenn Findings vorliegen;
-   * `vectordb_sync` nur, wenn die VectorDB im Projekt eingebunden ist. */
+  /* Closure -- `finding_resolution` only when findings exist;
+   * `vectordb_sync` only when the VectorDB is enabled for the project. */
   finding_resolution: { optional: true },
   integrity_gate: {},
   branch_push: {},
@@ -407,17 +405,17 @@ export const SUBSTEP_META: Record<Substep, SubstepMeta> = {
   guards_off: {},
 };
 
-/* Lesbare Bezeichner fuer Loop-Gruppen, die im UI sichtbar werden. */
+/* Human-readable labels for loop groups shown in the UI. */
 export const LOOP_GROUP_LABELS: Record<string, string> = {
   design_iteration: 'Design-Iteration',
   remediation: 'Remediation-Loop',
 };
 
-/* Konfigurierter Hard-Cap fuer Iterationen pro Loop-Gruppe. Der
- * Story-Inspector zeigt das als "max N" neben der aktuellen Runde,
- * damit klar ist, ab wann der Loop fail-closed greift. Werte sind
- * Prototyp-Defaults; das Backend wird sie spaeter aus den Phase-FKs
- * bzw. aus Project-Settings ableiten. */
+/* Configured hard cap for iterations per loop group. The Story
+ * Inspector displays this as "max N" next to the current round so
+ * it is clear when the loop fails closed. Values are prototype
+ * defaults; the backend will derive them from the phase FKs or
+ * project settings later. */
 export const LOOP_GROUP_MAX_ITERATIONS: Record<string, number> = {
   design_iteration: 3,
   remediation: 5,

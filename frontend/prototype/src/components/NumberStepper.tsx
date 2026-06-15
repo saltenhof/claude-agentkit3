@@ -1,9 +1,10 @@
 /*
- * NumberStepper — wiederverwendbarer Zahleneingabe-Stepper im Dark-Theme.
+ * NumberStepper — reusable numeric input stepper for the dark theme.
  *
- * Ersetzt das native <input type="number"> samt Browser-Spinner, die
- * sich nicht ins Theme einfuegen. Eigene Buttons + ein zentrierter
- * Input geben volle Kontrolle ueber Farben, Borders und Hover-States.
+ * Replaces the native <input type="number"> together with its browser
+ * spinner, which cannot be styled to match the theme. Custom buttons
+ * plus a centred input give full control over colors, borders and
+ * hover states.
  */
 
 import { Minus, Plus } from 'lucide-react';

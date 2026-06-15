@@ -9,9 +9,9 @@ export interface StoryCardProps {
   variant: StoryCardVariant;
   placeholderLabel?: string;
   onSelect?: (story: Story) => void;
-  /* Wenn gesetzt, wird ein Copy-Button im Card-Header rechts neben
-   * dem Size-Badge eingeblendet. Klick kopiert die Story-ID des
-   * konkreten Cards in den Zwischenspeicher. */
+  /* When set, a copy button is shown in the card header to the right
+   * of the size badge. Click copies this card's story ID to the
+   * clipboard. */
   showCopyId?: boolean;
 }
 

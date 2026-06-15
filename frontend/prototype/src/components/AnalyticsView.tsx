@@ -1,14 +1,14 @@
 /*
- * AnalyticsView — Hauptnavigations-Seite "Analytics" mit zwei Sub-Tabs:
+ * AnalyticsView — main navigation page "Analytics" with two sub-tabs:
  *
- * - "Übersicht": projektweite Aggregat-KPIs pro Story-Metrik
- *   (Mittelwert, Min, Max, 90-%-Quantil).
- * - "Zeitverläufe": pro Kalendertag aggregierte Werte als
- *   interaktives Linien-Chart (ECharts) mit Multi-Series-Auswahl,
- *   Zoom/Brush, Tooltip-Overlay und Min/Max-Hülle.
+ * - "Übersicht": project-wide aggregate KPIs per story metric
+ *   (mean, min, max, 90th-percentile).
+ * - "Zeitverläufe": per calendar day aggregated values as an
+ *   interactive line chart (ECharts) with multi-series selection,
+ *   zoom/brush, tooltip overlay and min/max band.
  *
- * Datenquelle sind die Selectoren `selectProjectKpiStats` und
- * `selectKpiDailySeries` aus dem Story-Store — single source of truth.
+ * Data source: the selectors `selectProjectKpiStats` and
+ * `selectKpiDailySeries` from the story store — single source of truth.
  */
 
 import { useMemo, useState } from 'react';
@@ -31,8 +31,8 @@ const TIMESERIES_PRESETS = [
   { value: 60, label: '60 Tage' },
 ] as const;
 
-/* Default-Serien fuer den Zeitverlauf: drei pruefnah zusammenhaengende
- * KPIs, die als initial gewaehlte Overlays angezeigt werden. */
+/* Default series for the time series view: three closely related
+ * KPIs shown as initially selected overlays. */
 const DEFAULT_TIMESERIES_KEYS = ['runtime_total', 'qa_rounds_implementation', 'solving_rate_implementation'];
 
 const SERIES_COLORS = [
@@ -237,12 +237,11 @@ function buildChartOption(
   const indexByKey = new Map(stats.map((s, i) => [s.key, i] as const));
   const selectedStats = stats.filter((s) => selectedKeys.has(s.key));
 
-  /* Yaxis-Auswahl: wenn mehrere Metriken mit dramatisch unterschiedlichen
-   * Wertebereichen aktiv sind (z. B. Token-Total ~100k vs. Solving Rate
-   * 80 %), bekommt die erste eine linke Achse, der Rest teilt sich eine
-   * skalierte rechte Achse. Wir vereinfachen: pro Serie eine eigene
-   * Achse, wenn die Skalen sich um > 100x unterscheiden -- sonst alle
-   * auf eine Achse. */
+  /* Y-axis selection: when multiple metrics with dramatically different
+   * value ranges are active (e.g. token total ~100 k vs. solving rate
+   * 80 %), the first gets a left axis and the rest share a scaled right
+   * axis. Simplified: a separate axis per series when scales differ by
+   * > 100x — otherwise all on one axis. */
   const ranges = selectedStats.map((s) => Math.max(1, s.max));
   const maxRange = Math.max(...ranges, 1);
   const minRange = Math.min(...ranges, 1);
@@ -282,8 +281,8 @@ function buildChartOption(
     const data = series.map((point) => point.values[stat.key] ?? null);
 
     if (showBand) {
-      /* Min/Max-Hülle als zwei stacked area-Serien (Trick: untere
-       * Linie unsichtbar, obere als getöntes Band). */
+      /* Min/max band as two stacked area series (trick: lower line
+       * invisible, upper rendered as a tinted band). */
       const lower = data.map((v) => (v === null ? null : v * 0.88));
       const upper = data.map((v) => (v === null ? null : v * 1.12));
       seriesItems.push({
@@ -340,7 +339,7 @@ function buildChartOption(
       borderWidth: 1,
       textStyle: { color: '#f0f0f0', fontSize: 12 },
       axisPointer: { type: 'cross', lineStyle: { color: '#48e7ff', opacity: 0.45 } },
-      /* Nur die "Haupt"-Serien (nicht die Band-Helper) anzeigen. */
+      /* Show only the "main" series (not the band helper series). */
       formatter: (params) => {
         if (!Array.isArray(params)) return '';
         const rows = params

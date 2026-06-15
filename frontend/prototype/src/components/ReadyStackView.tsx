@@ -1,48 +1,44 @@
 /*
- * Execution-Input-View — laufende und effektiv delegierbare Stories.
+ * Execution-Input-View — running and effectively delegatable stories.
  *
  * ---------------------------------------------------------------
- * Layout-Invarianten (normatives UI-Verhalten, FK-72 Prototyp):
+ * Layout invariants (normative UI behaviour, FK-72 prototype):
  * ---------------------------------------------------------------
  *
- * 1. Beide Sektionen ("Aktuell laufend" und "Effektiv delegierbar")
- *    sind IMMER sichtbar — auch wenn die jeweilige Liste leer ist.
- *    Headline und Sektion-Reihenfolge bleiben ortsfest. Damit hat
- *    der User keinen "ist die View kaputt?"-Eindruck bei leerem
- *    Backlog.
+ * 1. Both sections ("Currently running" and "Effectively delegatable")
+ *    are ALWAYS visible — even when their respective list is empty.
+ *    Headline and section order remain fixed. This prevents the user
+ *    getting a "is the view broken?" impression with an empty backlog.
  *
- * 2. Ist eine Liste leer, wird genau EINE Platzhalter-Saeule
- *    gerendert: drei Placeholder-Karten (Vorgaenger / "keine
- *    laufende Story" bzw. "keine ausfuehrbare Story" / Nachfolger).
- *    Damit gibt es eine visuelle Andocke, in die spaetere
- *    SSE-Updates Karten einfuegen koennen, ohne dass das Layout
- *    wandert.
+ * 2. When a list is empty, exactly ONE placeholder column is rendered:
+ *    three placeholder cards (predecessor / "no running story" or
+ *    "no executable story" / successor). This provides a visual anchor
+ *    into which later SSE updates can insert cards without the layout
+ *    shifting.
  *
- * 3. Bei echten Stories ersetzt eine echte Spalte die Platzhalter-
- *    Saeule; weitere Stories docken nach rechts an. Kein
- *    Layout-Sprung.
+ * 3. With real stories a real column replaces the placeholder column;
+ *    further stories dock to the right. No layout jump.
  *
- * 4. Logik (Triage gegen Caps, Round-Robin pro Repo, Critical-Path
- *    priorisiert) liegt im Store (`selectExecutionInput`). Diese
- *    View ist reine Praesentation.
+ * 4. Logic (triage against caps, round-robin per repo, critical-path
+ *    prioritized) lives in the store (`selectExecutionInput`). This
+ *    view is pure presentation.
  *
- * 5. Copy-Mechanik (Hand-off an Orchestrator):
- *    - Bulk-Copy hinter der Headline "Effektiv delegierbar"
- *      kopiert alle delegierbaren Story-IDs als
- *      "BB2-X, BB2-Y, BB2-Z"-String (Komma plus Leerzeichen
- *      getrennt). Disabled, solange die Sektion leer ist.
- *      Konsument: Operator, der das Set in einem Rutsch an
- *      einen Orchestrator-Skill weiterreichen will.
- *    - Per-Card-Copy oben rechts in jeder delegierbaren Story
- *      kopiert ausschliesslich diese eine Story-ID. Konsument:
- *      Operator, der eine gezielte Einzel-Story delegiert.
- *    Per-Card-Copy ist per showCopyId-Prop nur fuer Variant
- *    'current' aktiv. Vorgaenger, Nachfolger, Running- und
- *    Placeholder-Karten zeigen keinen Copy-Button — sie sind
- *    nicht das delegierbare Set.
- *    Aktive "Aktuell laufend"-Karten haben bewusst keinen
- *    Copy-Button: sie sind bereits delegiert, ein erneutes
- *    Kopieren fuer Hand-off ergibt fachlich keinen Sinn.
+ * 5. Copy mechanics (hand-off to orchestrator):
+ *    - Bulk-copy behind the "Effectively delegatable" headline
+ *      copies all delegatable story IDs as a
+ *      "BB2-X, BB2-Y, BB2-Z" string (comma + space separated).
+ *      Disabled while the section is empty.
+ *      Consumer: operator passing the set in one shot to an
+ *      orchestrator skill.
+ *    - Per-card copy in the top-right of each delegatable story
+ *      copies exclusively that one story ID.
+ *      Consumer: operator delegating a specific single story.
+ *    Per-card copy is active only for variant 'current' via the
+ *    showCopyId prop. Predecessor, successor, running and placeholder
+ *    cards show no copy button — they are not the delegatable set.
+ *    Active "Currently running" cards intentionally have no copy
+ *    button: they are already delegated, copying them again for
+ *    hand-off makes no domain sense.
  */
 
 import {
@@ -104,7 +100,7 @@ export function ReadyStackView({
           <h3 className="ready-stack-section__title">
             Effektiv delegierbar ({eligibleReady.length})
           </h3>
-          {/* Bulk-Copy — siehe §5 Copy-Mechanik im Header-Kommentar. */}
+          {/* Bulk copy — see §5 copy mechanics in the header comment. */}
           <CopyButton
             text={() => eligibleReady.map((s) => s.story.id).join(', ')}
             ariaLabel="Alle delegierbaren Story-IDs kopieren"
@@ -165,10 +161,10 @@ function StackColumn({
 }
 
 /*
- * PlaceholderColumn — wird gerendert, wenn die Sektion leer ist.
- * Gleiches dreiteiliges Layout wie eine echte Spalte (Vorgaenger /
- * Story / Nachfolger), damit das Layout der View ortsfest bleibt
- * und SSE-Updates ohne Layout-Sprung Karten einsetzen koennen.
+ * PlaceholderColumn — rendered when the section is empty.
+ * Same three-part layout as a real column (predecessor / story /
+ * successor) so the view layout stays fixed and SSE updates can
+ * insert cards without a layout jump.
  */
 function PlaceholderColumn({ centerLabel }: { centerLabel: string }) {
   return (

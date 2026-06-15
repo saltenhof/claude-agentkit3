@@ -1,52 +1,59 @@
 /*
- * Story-Datenmodell — die *eine* Quelle der Typen fuer alle Views.
+ * Story data model — the *single* source of types for all views.
  *
- * Single source of truth: jede UI-Sicht (Graph, Sheet, Kanban,
- * Inspector, KpiBar, ReadyStack, ExecutionLimits) konsumiert diese
- * Typen und arbeitet auf demselben Story-Bestand aus
- * `storyFixtures.ts`. Sichten sind reine Selectors auf diesem Modell.
+ * Single source of truth: every UI view (Graph, Sheet, Kanban,
+ * Inspector, KpiBar, ReadyStack, ExecutionLimits) consumes these
+ * types and operates on the same story dataset from
+ * `storyFixtures.ts`. Views are pure selectors over this model.
  */
 
 export type StoryStatus = 'Backlog' | 'Approved' | 'In Progress' | 'Done' | 'Cancelled';
+/*
+ * Runtime execution lifecycle (agentkit.story.models.StorySummary.lifecycle_status),
+ * exposed by the PUBLIC list/detail path (agentkit.story.service). This is the
+ * runtime projection ('defined', 'in_setup', ...) — NOT the approval status.
+ * It is modelled as its OWN field on Story and MUST NEVER be cast into the
+ * approval `status` union (two-StoryService split, Codex R3 adjudication).
+ */
+export type ExecutionLifecycle = string;
 export type StoryType = 'implementation' | 'bugfix' | 'concept' | 'research';
 export type StorySize = 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL';
 export type PhaseStatus = 'done' | 'active' | 'blocked' | 'idle' | 'skipped';
 export type ChangeImpact = 'Local' | 'Component' | 'Cross-Component' | 'Architecture Impact';
 export type ConceptQuality = 'High' | 'Medium' | 'Low';
 
-/* Story-Mode (FK-24): execution / exploration / fast */
+/* Story mode (FK-24): execution / exploration / fast */
 export type Mode = 'standard' | 'fast';
 
-/* 4-Phasen-Pipeline (FK-20) */
+/* 4-phase pipeline (FK-20) */
 export type Phase = 'setup' | 'exploration' | 'implementation' | 'closure';
 
-/* Substep-Sequenzen pro Phase, abgeleitet aus FK-22/23/26/27/29.
- * Im Prototyp als String typisiert; Backend kanonisiert das spaeter
- * als Phase-spezifische StrEnum (AG3-019). */
+/* Substep sequences per phase, derived from FK-22/23/26/27/29.
+ * Typed as string in the prototype; the backend will canonicalize
+ * this as a phase-specific StrEnum later (AG3-019). */
 export type Substep = string;
 
 export interface RuntimeState {
   phase: Phase;
   substep: Substep;
-  /* Aktuelle Iteration einer Loop-Gruppe innerhalb der Phase
-   * (z. B. Remediation-Loop in Implementation: Worker -> QA -> Worker
-   * -> QA ...). 1 = erste Runde, 2 = erste Wiederholung, usw.
+  /* Current iteration of a loop group within the phase
+   * (e.g. remediation loop in Implementation: Worker -> QA -> Worker
+   * -> QA ...). 1 = first round, 2 = first retry, etc.
    * Default 1. */
   iteration?: number;
 }
 
-/* Substep-Metadaten fuer Visualisierung im Story-Inspector "Ablauf"-Tab.
+/* Substep metadata for visualization in the Story Inspector "Ablauf" tab.
  *
- * - `optional = true`: Substep ist im Standard-Mode konzeptionell
- *   vorgesehen, wird aber nur dann ausgefuehrt, wenn eine Vorbedingung
- *   eintritt (Beispiel: `feindesign` nur fuer Stories mit erforderlicher
- *   Feindesign-Pflicht; `finding_resolution` nur, wenn QA-Findings
- *   vorliegen).
- * - `loopGroup`: zusammenhaengende Substep-Sequenz, die mehrfach
- *   durchlaufen werden kann (z. B. `remediation` in der Implementation,
- *   `design_iteration` in der Exploration). Substeps mit gleichem Wert
- *   bilden eine Loop-Region; das Phase-UI zeigt einen
- *   Iterations-Counter und eine Return-Markierung. */
+ * - `optional = true`: the substep is conceptually part of standard mode
+ *   but only executed when a precondition is met (example: `feindesign`
+ *   only for stories that require detailed design; `finding_resolution`
+ *   only when QA findings exist).
+ * - `loopGroup`: a contiguous substep sequence that may be traversed
+ *   multiple times (e.g. `remediation` in Implementation,
+ *   `design_iteration` in Exploration). Substeps with the same value
+ *   form a loop region; the phase UI shows an iteration counter and a
+ *   return marker. */
 export interface SubstepMeta {
   optional?: boolean;
   loopGroup?: string;
@@ -57,6 +64,10 @@ export interface Story {
   title: string;
   type: StoryType;
   status: StoryStatus;
+  /* Runtime execution lifecycle from the PUBLIC list/detail path
+   * (agentkit.story.service lifecycle_status). Separate from approval `status`;
+   * only set when sourced from the runtime list/detail path. Display-only. */
+  executionLifecycle?: ExecutionLifecycle;
   size: StorySize;
   owner: string;
   repo: string;
@@ -119,14 +130,14 @@ export interface Story {
   phases: Array<{ label: string; state: PhaseStatus; detail: string }>;
   events: Array<{ time: string; type: string; detail: string; severity: 'info' | 'warning' | 'error' }>;
   dependencies: string[];
-  /* Story-Mode (optional, Default = 'standard'). */
+  /* Story mode (optional, default = 'standard'). */
   mode?: Mode;
-  /* Aktueller Laufzeit-State; nur belegt fuer 'In Progress'-Stories. */
+  /* Current runtime state; only set for 'In Progress' stories. */
   runtime?: RuntimeState;
 }
 
-/* Execution-Limits (FK-70 §70.6.2): die fuenf Caps zwischen
- * Feasibility und max_allowed_batch. */
+/* Execution limits (FK-70 §70.6.2): the five caps between
+ * feasibility and max_allowed_batch. */
 export interface ExecutionLimits {
   repoParallelCap: number;
   mergeRiskCap: number;

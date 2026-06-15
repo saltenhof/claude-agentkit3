@@ -1,10 +1,10 @@
 /*
- * Story-Selectors — Pure Functions zur Sichtbildung auf dem Story-Modell.
+ * Story selectors — pure functions that derive views from the story model.
  *
- * Jede UI-Sicht (KpiBar, ReadyStackView, ExecutionLimitsView, kuenftig
- * Phase-Stepper / Substep-Liste / etc.) ist ein duenner Wrapper um
- * eine dieser Selector-Funktionen — Komponenten enthalten keine
- * Filter-/Aggregations-Logik mehr.
+ * Every UI view (KpiBar, ReadyStackView, ExecutionLimitsView, future
+ * phase stepper / substep list / etc.) is a thin wrapper around one
+ * of these selector functions — components contain no filter or
+ * aggregation logic of their own.
  */
 
 import type {
@@ -111,38 +111,38 @@ export function selectReadyStacks(stories: Story[]): ReadyStack[] {
   }));
 }
 
-/* ---- Execution-Input-Selector ----
+/* ---- Execution-Input selector ----
  *
- * Konzept-Anker: FK-70 §70.8a (Execution-Input-Top-Surface,
- * Doppel-Schnittstelle).
+ * Concept anchor: FK-70 §70.8a (Execution-Input top surface,
+ * dual interface).
  *
- * Liefert genau die Stories, die operativ relevant sind:
- *   - laufende (In-Progress) Stories
- *   - Ready-Stories nach Triage gegen die Execution-Limits, also nicht
- *     "alle theoretisch ready" sondern "diese duerfen jetzt starten".
+ * Returns exactly the stories that are operationally relevant:
+ *   - running (In-Progress) stories
+ *   - Ready stories after triage against the execution limits, i.e.
+ *     not "all theoretically ready" but "these may start now".
  *
  * Triage:
  *   1. globalCap = min(mergeRiskCap, maxParallelAgentCap, llmPoolCap,
- *      ciCapacityCap). Davon wird die Anzahl bereits laufender
- *      Stories abgezogen -> globalSlotsLeft.
- *   2. pro Repo: repoParallelCap - bereits laufend in diesem Repo.
- *   3. Bucketing nach Repo, intern sortiert nach criticalPath DESC,
- *      dann Story-Nummer ASC.
- *   4. Round-Robin ueber Repos: jeder Repo darf abwechselnd seine
- *      naechste Karte bringen, bis globalSlotsLeft erschoepft ist
- *      oder kein Repo mehr Slots/Karten hat.
+ *      ciCapacityCap). Subtract the number of already-running stories
+ *      -> globalSlotsLeft.
+ *   2. Per repo: repoParallelCap - already running in that repo.
+ *   3. Bucket by repo, sorted internally by criticalPath DESC,
+ *      then story number ASC.
+ *   4. Round-robin across repos: each repo may contribute its next
+ *      card in turn until globalSlotsLeft is exhausted or no repo
+ *      has remaining slots / cards.
  *
- * Determinismus: gleiche Eingabe -> gleiche Ausgabe (sortierte
- * Repo-Iteration und Story-IDs).
+ * Determinism: same input -> same output (sorted repo iteration and
+ * story IDs).
  *
- * Diese Funktion ist die Single-Source-Triage. Im Backend muss sie
- * exakt zwei Adapter speisen (FK-70 §70.8a, FK-91 §91.1a):
+ * This function is the single-source triage. In the backend it must
+ * feed exactly two adapters (FK-70 §70.8a, FK-91 §91.1a):
  *   - GET /v1/projects/{project_key}/execution-input/snapshot
- *     (Frontend, gibt das gesamte Pick-Ergebnis)
+ *     (frontend, returns the full pick result)
  *   - GET /v1/projects/{project_key}/execution-input/next
- *     (Orchestrator-Skill, gibt die erste Karte des Pick-Ergebnisses)
- * Eine Doppel-Implementierung der Triage-Logik ist explizit
- * unzulaessig.
+ *     (orchestrator skill, returns the first card of the pick result)
+ * A duplicate implementation of the triage logic is explicitly
+ * prohibited.
  */
 
 export interface ExecutionInputSnapshot {
@@ -193,20 +193,20 @@ export function selectExecutionInput(
 ): ExecutionInputSnapshot {
   const successors = buildSuccessorIndex(stories);
 
-  /* In-Progress (= bereits delegiert): Slots bereits belegt. */
+  /* In-Progress (= already delegated): slots already occupied. */
   const runningStories = stories.filter((s) => s.status === 'In Progress');
   const running: ReadyStack[] = runningStories.map((story) =>
     buildStackFor(story, stories, successors),
   );
 
-  /* Pro Repo: aktuell belegte Slots. */
+  /* Per repo: currently occupied slots. */
   const runningPerRepo = new Map<string, number>();
   for (const story of runningStories) {
     const repo = getRepoKey(story);
     runningPerRepo.set(repo, (runningPerRepo.get(repo) ?? 0) + 1);
   }
 
-  /* Globaler Slot-Cap aus den Caps, abzueglich Laufender. */
+  /* Global slot cap derived from the caps, minus running stories. */
   const globalCap = Math.min(
     limits.mergeRiskCap,
     limits.maxParallelAgentCap,
@@ -215,10 +215,10 @@ export function selectExecutionInput(
   );
   const globalSlotsLeft = Math.max(0, globalCap - runningStories.length);
 
-  /* Alle technisch ready Stories. */
+  /* All technically ready stories. */
   const allReady = selectReadyStacks(stories);
 
-  /* Triage: Bucket nach Repo, sortieren, Round-Robin picken. */
+  /* Triage: bucket by repo, sort, pick round-robin. */
   const buckets = new Map<string, ReadyStack[]>();
   for (const stack of allReady) {
     const repo = getRepoKey(stack.story);
@@ -266,13 +266,13 @@ export function selectExecutionInput(
   };
 }
 
-/* ---- Mode-Lock-Selector (FK-24 §24.3.3) ----
+/* ---- Mode-Lock selector (FK-24 §24.3.3) ----
  *
- * Projektweit kann zur Laufzeit nur ein Mode aktiv sein. Der UI-Wert
- * spiegelt den `mode_lock` der Control Plane: belegt ist er, sobald
- * mindestens eine In-Progress-Story laeuft; der Mode dieser Stories
- * bestimmt den Lock. Sind keine Stories in Bearbeitung, ist der Lock
- * `null` -> "Idle".
+ * Only one mode may be active at runtime across the whole project.
+ * The UI value mirrors the `mode_lock` of the control plane: it is
+ * set as soon as at least one In-Progress story is running; the mode
+ * of those stories determines the lock. When no story is in progress
+ * the lock is `null` -> "Idle".
  */
 
 export type ProjectModeLock = Mode | null;
@@ -285,33 +285,37 @@ export function selectActiveProjectMode(stories: Story[]): ProjectModeLock {
   return null;
 }
 
-/* ---- Flow-Selectors fuer den Story-Inspector "Ablauf"-Tab ---- */
+/* ---- Flow selectors for the Story Inspector "Ablauf" tab ---- */
 
-/* Substep-States im Flowchart.
+/* Substep states in the flowchart.
  *
- * - `done`     : in dieser oder einer frueheren Iteration erfolgreich abgeschlossen
- * - `active`   : aktuell in Bearbeitung (Runtime zeigt darauf)
- * - `pending`  : noch nicht erreicht (in dieser Iteration)
- * - `skipped`  : durch Mode/Phase-Sprung uebersprungen (z. B. Exploration im Fast)
- * - `optional-pending` : optionaler Substep, Vorbedingung noch offen
- * - `optional-skipped` : optionaler Substep, Vorbedingung war negativ
- *                        (Substep wurde nicht ausgefuehrt) */
+ * - `done`     : completed successfully in this or a prior iteration
+ * - `active`   : currently being executed (runtime points here)
+ * - `pending`  : not yet reached (in this iteration)
+ * - `skipped`  : skipped due to mode / phase jump (e.g. Exploration in Fast)
+ * - `optional-pending` : optional substep, precondition still open
+ * - `optional-skipped` : optional substep, precondition was negative
+ *                        (substep was not executed) */
 export type FlowState =
   | 'done'
   | 'active'
   | 'pending'
   | 'skipped'
   | 'optional-pending'
-  | 'optional-skipped';
+  | 'optional-skipped'
+  /* Hold-states (FK-72 §72.14.6 / AC10f): the phase is stalled and rendered with
+   * a distinct hold color + state_reason, never collapsed to 'active'. */
+  | 'paused'
+  | 'escalated'
+  | 'failed';
 
 export interface FlowSubstep {
   substep: Substep;
   state: FlowState;
   optional: boolean;
   loopGroup?: string;
-  /* Position innerhalb der Loop-Gruppe (1-basiert), nur gesetzt wenn
-   * `loopGroup` gesetzt ist. Hilft dem UI, Loop-Anfang und -Ende zu
-   * erkennen. */
+  /* Position within the loop group (1-based), only set when
+   * `loopGroup` is set. Helps the UI identify loop start and end. */
   loopPosition?: number;
   loopSize?: number;
 }
@@ -319,11 +323,13 @@ export interface FlowSubstep {
 export interface FlowPhase {
   phase: Phase;
   state: FlowState;
+  /* Human-readable reason for a hold-state (paused/escalated/failed), carried
+   * verbatim from the flow read-model's `state_reason` (AC10f). */
+  stateReason?: string;
   substeps: FlowSubstep[];
-  /* Aktuelle Iteration der aktiven Loop-Gruppe in dieser Phase
-   * (nur gesetzt, wenn die Phase aktiv ist UND der aktive Substep
-   * Teil einer Loop-Gruppe ist). 1 = Erstdurchlauf, ab 2 sichtbar
-   * als "Runde N". */
+  /* Current iteration of the active loop group in this phase
+   * (only set when the phase is active AND the active substep is
+   * part of a loop group). 1 = first pass, 2+ shown as "Round N". */
   iteration?: number;
   iterationLoopGroup?: string;
 }
@@ -332,13 +338,13 @@ export function selectStorySubstepSequence(mode: Mode): Record<Phase, Substep[]>
   return mode === 'fast' ? PHASE_SUBSTEP_SEQUENCE_FAST : PHASE_SUBSTEP_SEQUENCE;
 }
 
-/* Liefert die UI-Metadaten eines Substeps abhaengig vom Story-Mode.
+/* Returns the UI metadata for a substep depending on the story mode.
  *
- * Im Fast-Mode entfallen alle Loop-Gruppen: die Exploration ist OUT
- * und damit auch `design_iteration`; der `remediation`-Loop in
- * Implementation existiert ohne QA-Feedback (Schichten 2-4 + Feedback
- * OUT) nicht, weil ohne Feedback nichts mehr re-iteriert werden kann.
- * Quelle: AG3-018 §Mode-Profil. */
+ * In Fast mode all loop groups are dropped: Exploration is OUT and
+ * therefore so is `design_iteration`; the `remediation` loop in
+ * Implementation does not exist without QA feedback (layers 2-4 +
+ * feedback OUT) because without feedback there is nothing to
+ * re-iterate. Source: AG3-018 §Mode-profile. */
 function metaFor(substep: Substep, mode: Mode): { optional: boolean; loopGroup?: string } {
   const meta = SUBSTEP_META[substep];
   if (mode === 'fast') {
@@ -356,9 +362,8 @@ function annotateLoopPositions(
   substepIds: Substep[],
   mode: Mode,
 ): Array<{ substep: Substep; loopPosition?: number; loopSize?: number }> {
-  /* Loop-Region = maximaler zusammenhaengender Bereich gleicher
-   * `loopGroup`-Markierung. Substeps ohne `loopGroup` schliessen die
-   * Region. */
+  /* Loop region = the maximal contiguous range sharing the same
+   * `loopGroup` value. Substeps without `loopGroup` close the region. */
   const result: Array<{ substep: Substep; loopPosition?: number; loopSize?: number }> = [];
   let regionStart = -1;
   let regionGroup: string | undefined;
@@ -395,9 +400,8 @@ function buildSubstep(
   loopSize?: number,
 ): FlowSubstep {
   const { optional, loopGroup } = metaFor(substep, mode);
-  /* `pending` auf optionalen Substeps wird zu `optional-pending`
-   * gehoben — der UI-State bleibt damit klar von zwingenden
-   * Pending-Substeps unterschieden. */
+  /* `pending` on optional substeps is promoted to `optional-pending`
+   * so the UI state stays clearly distinct from mandatory pending substeps. */
   const finalState: FlowState =
     optional && state === 'pending' ? 'optional-pending' : state;
   return {
@@ -425,11 +429,10 @@ export function selectStoryFlow(story: Story): FlowPhase[] {
     const isExplorationSkippedByMode = phase === 'exploration' && mode === 'fast';
 
     if (isExplorationSkippedByMode) {
-      /* Fast-Mode laesst Exploration komplett aus. Wir zeigen die
-       * Phase mit "im Fast-Mode ausgelassen"-Pille, aber ohne
-       * Substep-Liste -- der Benutzer soll nicht sehen, was *theoretisch*
-       * in Exploration laufen wuerde, wenn er gerade gar nicht in
-       * Exploration ist. */
+      /* Fast mode drops Exploration entirely. We show the phase with
+       * a "skipped in Fast mode" pill but without the substep list —
+       * the user should not see what *theoretically* would run in
+       * Exploration when they are not in Exploration at all. */
       return {
         phase,
         state: 'skipped',
@@ -480,15 +483,14 @@ export function selectStoryFlow(story: Story): FlowPhase[] {
       };
     }
 
-    /* Aktive Phase. Substeps vor dem Runtime-Punkt sind in dieser
-     * Iteration `done`. Optionale Substeps, die nicht der Runtime-Punkt
-     * sind und vor ihm liegen, koennen im realen Lauf entweder
-     * ausgefuehrt oder uebersprungen worden sein. Der Prototyp kennt
-     * das nicht — wir nehmen optimistisch `done` an, mit Ausnahme von
-     * `feindesign`, das wir fuer die Demo bewusst als
-     * `optional-skipped` zeigen, sobald der Runtime-Punkt nach dem
-     * Substep liegt. Das verdeutlicht den Unterschied zwischen
-     * "ausgefuehrt" und "weil unnoetig uebersprungen". */
+    /* Active phase. Substeps before the runtime point are `done` in
+     * this iteration. Optional substeps that are not the runtime point
+     * and lie before it could have been executed or skipped in a real
+     * run. The prototype does not track this — we optimistically assume
+     * `done`, except for `feindesign` which we deliberately show as
+     * `optional-skipped` for the demo as soon as the runtime point
+     * is past the substep. This illustrates the difference between
+     * "executed" and "skipped as unnecessary". */
     const activeIndex = substepIds.indexOf(runtime.substep);
     const activeMeta = activeIndex >= 0 ? metaFor(substepIds[activeIndex], mode) : undefined;
 
@@ -520,11 +522,11 @@ export function selectStoryFlow(story: Story): FlowPhase[] {
   });
 }
 
-/* ---- Analytics-Selectors (Project-weite Aggregation) ----
+/* ---- Analytics selectors (project-wide aggregation) ----
  *
- * Liefert pro Metrik die Vier-Werte-Sicht avg / min / max / p90.
- * Die KPI-Seite zeigt das im Übersichts-Tab; der Zeitreihen-Tab nutzt
- * `selectKpiDailySeries` (siehe unten) als Verlaufs-Quelle. */
+ * Returns per metric a four-value view: avg / min / max / p90.
+ * The KPI page shows this in the overview tab; the time-series tab
+ * uses `selectKpiDailySeries` (see below) as its trend source. */
 
 export interface KpiStat {
   key: string;
@@ -538,7 +540,7 @@ export interface KpiStat {
 
 function parseProcessingMinutes(value: string | undefined): number | null {
   if (!value) return null;
-  const match = value.match(/(\d+(?:[\.,]\d+)?)/);
+  const match = value.match(/(\d+(?:[.,]\d+)?)/);
   if (!match) return null;
   const num = Number.parseFloat(match[1].replace(',', '.'));
   return Number.isFinite(num) ? num : null;
@@ -572,10 +574,10 @@ function stat(key: string, label: string, values: number[], unit?: string): KpiS
   };
 }
 
-/* Synthetische QA-Solving-Rate, konsistent mit der Inspector-Heuristik.
- * Verarbeitet keine Fast-Mode-spezifische Sonderlogik (Fast-Stories
- * tragen weder Exploration-QA noch Implementation-QA in Form, die wir
- * hier statistisch trennen koennten). */
+/* Synthetic QA solving rate, consistent with the inspector heuristic.
+ * Does not apply any Fast-mode-specific special logic (Fast stories
+ * carry neither Exploration QA nor Implementation QA in a form that
+ * can be statistically separated here). */
 function syntheticSolvingRate(story: Story, phase: 'exploration' | 'implementation'): number | null {
   if (story.mode === 'fast' && phase === 'exploration') return null;
   const rounds = phase === 'exploration' ? story.qaRoundsExploration ?? 0 : story.qaRoundsImplementation ?? story.qaRounds;
@@ -588,8 +590,8 @@ function syntheticSolvingRate(story: Story, phase: 'exploration' | 'implementati
 }
 
 export function selectProjectKpiStats(stories: Story[]): KpiStat[] {
-  /* Wir aggregieren nur Stories, die operativ relevant sind: Done und
-   * In Progress (Backlog/Approved liefern keine sinnvollen Werte). */
+  /* Aggregate only operationally relevant stories: Done and In Progress
+   * (Backlog/Approved yield no meaningful values). */
   const relevant = stories.filter((s) => s.status === 'Done' || s.status === 'In Progress');
 
   const runtimeTotals = relevant.map((s) => parseProcessingMinutes(s.processingTime)).filter((v): v is number => v !== null);
@@ -600,8 +602,8 @@ export function selectProjectKpiStats(stories: Story[]): KpiStat[] {
   const qaRoundsExpl = relevant.map((s) => s.qaRoundsExploration ?? 0);
   const qaRoundsImpl = relevant.map((s) => s.qaRoundsImplementation ?? s.qaRounds);
 
-  /* Tokens: synthetisch aus QA-Runden + In-Progress-Penalty,
-   * konsistent mit der Inspector-Logik (s. KpiTab). */
+  /* Tokens: synthetic from QA rounds + in-progress penalty,
+   * consistent with the inspector logic (see KpiTab). */
   const tokensIn = relevant.map((s) => Math.round(s.qaRounds * 22000 + 8000));
   const tokensOut = relevant.map((s) => Math.round(s.qaRounds * 8000 + 3000));
   const tokensTotal = tokensIn.map((v, i) => v + tokensOut[i]);
@@ -630,13 +632,12 @@ export function selectProjectKpiStats(stories: Story[]): KpiStat[] {
   ];
 }
 
-/* ---- Daily-Series Synthese ----
+/* ---- Daily-series synthesis ----
  *
- * Der Backend-Snapshot wird spaeter echte Per-Tag-Aggregationen liefern.
- * Bis dahin synthetisieren wir die letzten N Kalendertage aus dem
- * Story-Korpus: pro Tag wird ein deterministischer Wert berechnet, der
- * an die echten Werte angelehnt ist und um eine seedbasierte Schwankung
- * variiert. */
+ * The backend snapshot will later deliver real per-day aggregations.
+ * Until then we synthesize the last N calendar days from the story
+ * corpus: per day a deterministic value is computed that approximates
+ * the real values and varies by a seed-based noise term. */
 
 export interface KpiDailyPoint {
   date: string; // ISO YYYY-MM-DD
@@ -644,7 +645,7 @@ export interface KpiDailyPoint {
 }
 
 function seededNoise(seed: number): number {
-  /* Lineare Kongruenz-Pseudozufall; reproduzierbar pro Tag. */
+  /* Linear congruential pseudo-random; reproducible per day. */
   const x = Math.sin(seed * 9301 + 49297) * 233280;
   return x - Math.floor(x);
 }
@@ -686,26 +687,26 @@ export const EXECUTION_LIMIT_DESCRIPTORS: ExecutionLimitDescriptor[] = [
   {
     key: 'repoParallelCap',
     label: 'Repo Parallel Cap',
-    description: 'Max. gleichzeitig laufende Stories pro Repo (gegen Merge-Konflikte).',
+    description: 'Max. concurrent stories per repo (guards against merge conflicts).',
   },
   {
     key: 'mergeRiskCap',
     label: 'Merge Risk Cap',
-    description: 'Aggregiertes Merge-Risiko-Budget über alle aktiven Stories.',
+    description: 'Aggregate merge-risk budget across all active stories.',
   },
   {
     key: 'maxParallelAgentCap',
     label: 'Max Parallel Agent Cap',
-    description: 'Max. parallel laufende Worker-Agent-Sessions ueber alle Stories hinweg.',
+    description: 'Max. parallel worker-agent sessions across all stories.',
   },
   {
     key: 'llmPoolCap',
     label: 'LLM Pool Cap',
-    description: 'Summe der parallel belegbaren LLM-Pool-Slots (alle Backends).',
+    description: 'Total parallel LLM pool slots available (all backends combined).',
   },
   {
     key: 'ciCapacityCap',
     label: 'CI Capacity Cap',
-    description: 'Max. parallele CI- und Build-Slots.',
+    description: 'Max. parallel CI and build slots.',
   },
 ];
