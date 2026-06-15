@@ -130,14 +130,6 @@ class _NullStoryContextPort:
         return None
 
 
-_NULL_STORY_CONTEXT_PORT: StoryContextQueryPort = _NullStoryContextPort()
-
-#: Default Layer-2 review-completion sink (FK-27 §27.4.3 / §27.5.5): a No-op that
-#: drops ``llm_call_complete`` emissions on the test path. NOT a guard weakening:
-#: ``guard.multi_llm`` counts canonical events, so a dropped emission leaves the
-#: per-role count at 0 -> BLOCKING FAIL (fail-closed). The productive
-#: telemetry-emitting adapter is wired via ``composition_root.build_verify_system``.
-_NULL_REVIEW_COMPLETION_SINK: ReviewCompletionSink = NullReviewCompletionSink()
 
 
 @dataclass(frozen=True)
@@ -186,7 +178,9 @@ class VerifySystem:
     layer_3: QALayer
     policy_engine: PolicyEngine
     artifact_manager: ArtifactManager
-    story_context_port: StoryContextQueryPort = _NULL_STORY_CONTEXT_PORT
+    story_context_port: StoryContextQueryPort = field(
+        default_factory=_NullStoryContextPort
+    )
     sonar_gate_port: SonarGateInputPort = ABSENT_SONAR_GATE_PORT
     layer2_runner: ParallelEvalRunner | None = None
     layer2_llm_client: LlmClient | None = None
@@ -216,7 +210,15 @@ class VerifySystem:
     #: ``guard.multi_llm`` recurring guard counts a completed review (NOT a bare
     #: API response). Default is the No-op sink; the productive telemetry adapter
     #: is wired via ``composition_root.build_verify_system``.
-    review_completion_sink: ReviewCompletionSink = _NULL_REVIEW_COMPLETION_SINK
+    #: Default Layer-2 review-completion sink (FK-27 §27.4.3 / §27.5.5): a No-op
+    #: that drops ``llm_call_complete`` emissions on the test path. NOT a guard
+    #: weakening: ``guard.multi_llm`` counts canonical events, so a dropped
+    #: emission leaves the per-role count at 0 -> BLOCKING FAIL (fail-closed).
+    #: The productive telemetry adapter is wired via
+    #: ``composition_root.build_verify_system``.
+    review_completion_sink: ReviewCompletionSink = field(
+        default_factory=NullReviewCompletionSink
+    )
     #: Layer-3 adversarial spawner (FK-27 §27.6 / FK-48 §48.2, AG3-044). After
     #: Layer 2 yields BLOCKING findings, ``run_qa_subflow`` derives mandatory
     #: :class:`AdversarialTarget` from them, materialises the protected sandbox +
@@ -385,10 +387,16 @@ class VerifySystem:
         # PASS_WITH_CONCERNS), NOT pauschal per BLOCKING finding. Pass the FULL
         # Layer-2 findings so the assertion_weakness filter decides; the
         # remediation round is the QA-subflow attempt (FK-48 §48.2.2 source).
+        # FK-27 §27.5 Layer-2 reviewer role names (qa_review / semantic_review /
+        # doc_fidelity). Used here to collect Layer-2 BLOCKING findings that the
+        # adversarial spawn derives mandatory targets from (FK-48 §48.2, AG3-044).
+        _layer2_roles: frozenset[str] = frozenset(
+            {"qa_review", "semantic_review", "doc_fidelity"}
+        )
         layer2_checks = [
             finding
             for result in layer_results
-            if result.layer in _LAYER_2_ROLE_NAMES
+            if result.layer in _layer2_roles
             for finding in result.findings
         ]
         targets = spawner.extract_mandatory_targets(layer2_checks, ctx.attempt)
@@ -1370,7 +1378,7 @@ def _create_default(
             "agentkit.bootstrap.composition_root.build_verify_system "
             "for the wired default.",
         )
-    resolved_port = defaults.story_context_port or _NULL_STORY_CONTEXT_PORT
+    resolved_port = defaults.story_context_port or _NullStoryContextPort()
     resolved_sonar_port = defaults.sonar_gate_port or ABSENT_SONAR_GATE_PORT
     # AG3-042: the FK-27 §27.4 Layer-1 stage registry is bound to BOTH the
     # StructuralChecker (drives the checks) and the PolicyEngine (drives the
@@ -1479,7 +1487,7 @@ def _create_default(
         review_completion_sink=(
             defaults.review_completion_sink
             if defaults.review_completion_sink is not None
-            else _NULL_REVIEW_COMPLETION_SINK
+            else NullReviewCompletionSink()
         ),
         adversarial_spawner=adversarial_spawner,
         implementation_change_evidence_port=(
@@ -1911,12 +1919,6 @@ def _run_qa_subflow(
         closure_blocked=closure_blocked,
         adversarial_spawn=adversarial_spawn,
     )
-#: FK-27 §27.5 Layer-2 reviewer role names (qa_review / semantic_review /
-#: doc_fidelity). Used to collect the Layer-2 BLOCKING findings the adversarial
-#: spawn derives mandatory targets from (FK-27 §27.6 / FK-48 §48.2, AG3-044).
-_LAYER_2_ROLE_NAMES: frozenset[str] = frozenset(
-    {"qa_review", "semantic_review", "doc_fidelity"}
-)
 
 
 def _layer_escalation_requested(layer_results: tuple[LayerResult, ...]) -> bool:

@@ -81,6 +81,14 @@ __all__ = ["FULL_STAGE_REGISTRY", "AreGateProvider", "StructuralChecker"]
 _SECURITY_SECRETS_CHECK = "security.secrets"
 _SECURITY_SECRETS_CONTENT_CHECK = "security.secrets_content"
 
+# Integration-stabilization Layer-1 stage ID constants (S1192: each appears 3+x).
+# Values MUST remain byte-identical to stage_registry/data.py and
+# integration_stabilization/stability_gate_producer.py.
+_IS_STAGE_MANIFEST_APPROVAL = "integration.manifest_approval_required"
+_IS_STAGE_BINDING_INTEGRITY = "integration.binding_integrity"
+_IS_STAGE_DECLARED_SURFACES_ONLY = "integration.declared_surfaces_only"
+_IS_STAGE_BUDGET_NOT_EXHAUSTED = "integration.stabilization_budget_not_exhausted"
+
 
 @runtime_checkable
 class AreGateProvider(Protocol):
@@ -539,20 +547,20 @@ class StructuralChecker:
             # (filtered by StageRegistry.layer1_stages_for with contract param).
             # All load manifest/approval state from story_dir; absent state is
             # a fail-closed BLOCK (no state = no approved manifest = blocked).
-            "integration.manifest_approval_required": (
+            _IS_STAGE_MANIFEST_APPROVAL: (
                 lambda c, d, s: _check_is_manifest_approval_required(
                     c, s_dir, severity=s
                 )
             ),
-            "integration.binding_integrity": (
+            _IS_STAGE_BINDING_INTEGRITY: (
                 lambda c, d, s: _check_is_binding_integrity(c, s_dir, severity=s)
             ),
-            "integration.declared_surfaces_only": (
+            _IS_STAGE_DECLARED_SURFACES_ONLY: (
                 lambda c, d, s: _check_is_declared_surfaces_only(
                     c, s_dir, severity=s, evidence=ev
                 )
             ),
-            "integration.stabilization_budget_not_exhausted": (
+            _IS_STAGE_BUDGET_NOT_EXHAUSTED: (
                 lambda c, d, s: _check_is_stabilization_budget_not_exhausted(
                     c, s_dir, severity=s
                 )
@@ -702,7 +710,7 @@ def _check_is_manifest_approval_required(
     if approval is None:
         return Finding(
             layer="structural",
-            check="integration.manifest_approval_required",
+            check=_IS_STAGE_MANIFEST_APPROVAL,
             severity=severity,
             message=(
                 "No ManifestApprovalRecord found in story directory. "
@@ -747,7 +755,7 @@ def _check_is_binding_integrity(
         # but guard against a missing manifest here too (fail-closed).
         return Finding(
             layer="structural",
-            check="integration.binding_integrity",
+            check=_IS_STAGE_BINDING_INTEGRITY,
             severity=severity,
             message=(
                 "Missing manifest or approval record; cannot verify binding "
@@ -761,7 +769,7 @@ def _check_is_binding_integrity(
     if not result.binding_valid:
         return Finding(
             layer="structural",
-            check="integration.binding_integrity",
+            check=_IS_STAGE_BINDING_INTEGRITY,
             severity=severity,
             message=(
                 f"Manifest-approval binding integrity failed: {result.reason} "
@@ -813,7 +821,7 @@ def _check_is_declared_surfaces_only(
     if manifest is None:
         return Finding(
             layer="structural",
-            check="integration.declared_surfaces_only",
+            check=_IS_STAGE_DECLARED_SURFACES_ONLY,
             severity=severity,
             message=(
                 "No IntegrationScopeManifest found; cannot verify declared "
@@ -837,7 +845,7 @@ def _check_is_declared_surfaces_only(
         # Return the first BLOCKING finding; the stage loop collects one per run.
         return Finding(
             layer="structural",
-            check="integration.declared_surfaces_only",
+            check=_IS_STAGE_DECLARED_SURFACES_ONLY,
             severity=severity,
             message=result.findings[0].message,
             trust_class=TrustClass.SYSTEM,
@@ -885,7 +893,7 @@ def _check_is_stabilization_budget_not_exhausted(
     if manifest is None:
         return Finding(
             layer="structural",
-            check="integration.stabilization_budget_not_exhausted",
+            check=_IS_STAGE_BUDGET_NOT_EXHAUSTED,
             severity=severity,
             message=(
                 "No IntegrationScopeManifest found; cannot verify budget "
@@ -912,7 +920,7 @@ def _check_is_stabilization_budget_not_exhausted(
     if not result.within_budget:
         return Finding(
             layer="structural",
-            check="integration.stabilization_budget_not_exhausted",
+            check=_IS_STAGE_BUDGET_NOT_EXHAUSTED,
             severity=severity,
             message=(
                 f"Stabilization budget exhausted: {list(result.exhausted_caps)}. "

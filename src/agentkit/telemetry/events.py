@@ -11,6 +11,16 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+# Data companion: mandatory payload contracts extracted to reduce module-level
+# LOC (PY_MODULE_TOP_LEVEL_MAX_LOC_100). Re-exported here so all existing
+# imports (``from agentkit.telemetry.events import MANDATORY_PAYLOAD_FIELDS``)
+# remain unchanged. No circular import: _event_payload_contracts does NOT
+# import from events.py.
+from agentkit.telemetry._event_payload_contracts import (
+    _MANDATORY_PAYLOAD_FIELDS_RAW,
+    MANDATORY_PAYLOAD_FIELDS_BY_NAME,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
@@ -212,164 +222,12 @@ class Event:
 # ---------------------------------------------------------------------------
 # Mandatory payload contracts per EventType (FK-61 §61.12.2, FK-25 §25.8)
 # ---------------------------------------------------------------------------
-#
-# ``ExecutionEventRecord.payload`` stays ``dict[str, object]`` (no per-type
-# subclass explosion). The mandatory event-specific fields are pinned here as an
-# explicit, typed contract so producers can be validated fail-closed at the
-# write boundary. Only events with mandatory event-specific fields appear; an
-# event absent from this map carries no mandatory payload fields.
-#
-# The field *names* are the canonical wire keys (ARCH-55, English-only). The
-# concept-level value types (e.g. ``blocked_dimensions: list[IntegrityDimension]``,
-# ``verdict: LlmEnvelopeStatus``) are documented in FK-61 §61.12.2 / FK-25 §25.8;
-# this validator enforces field *presence* (FAIL-CLOSED), not cross-BC value
-# typing, to keep the AC8 import boundary (telemetry imports no governance enum).
+# Data lives in ``_event_payload_contracts`` (PY_MODULE_TOP_LEVEL_MAX_LOC_100).
+# ``_MANDATORY_PAYLOAD_FIELDS_RAW`` uses canonical wire-key strings (EventType
+# is a StrEnum so string == wire value); converted to EventType-keyed Mapping.
 
 MANDATORY_PAYLOAD_FIELDS: Mapping[EventType, tuple[str, ...]] = {
-    # FK-27 §27.4.3 — review-completion fact. ``guard.multi_llm`` Gate 2 counts
-    # this per mandatory reviewer ``role`` (FK-37 §37.1.6), so ``role`` is the
-    # load-bearing wire key and is mandatory (an unlabelled completion is
-    # uncountable -> FAIL-CLOSED). Added by AG3-042, reconciled here.
-    EventType.LLM_CALL_COMPLETE: ("role",),
-    # FK-68 §68.2 / §68.3.1 — every guard-hook block (exit 2) emits an
-    # ``integrity_violation`` carrying ``guard`` (the emitting guard) and
-    # ``detail`` (the block reason). These two are mandatory for EVERY
-    # ``integrity_violation`` (FK-30 §30.7.3). The ``stage`` field is
-    # prompt-integrity-specific (FK-61 §61.12.2 "for prompt_integrity_guard")
-    # and is enforced CONDITIONALLY (only for ``guard="prompt_integrity_guard"``)
-    # by :func:`validate_event_payload` — see ``INTEGRITY_VIOLATION_PROMPT_GUARD``
-    # and ``INTEGRITY_VIOLATION_STAGES`` below. AG3-086 introduced the first
-    # non-prompt-integrity emitters (``skill_usage_check``,
-    # ``web_call_budget_guard``) which write NO ``stage``; the canonical
-    # mandatory-payload contract owner is AG3-081 (this change is producer-driven
-    # and coordinated via ``depends_on: AG3-081``).
-    EventType.INTEGRITY_VIOLATION: ("guard", "detail"),
-    # ``review_response.verdict`` carries the LLM envelope status (PASS/REWORK/
-    # FAIL, FK-61 §61.12.2). Presence is mandatory; value typing stays at the
-    # producer (review_guard.py).
-    EventType.REVIEW_RESPONSE: ("verdict",),
-    # FK-34 §34.8.4 — review-pair divergence fact with optional quorum result.
-    EventType.REVIEW_DIVERGENCE: (
-        "story_id",
-        "reviewer_a",
-        "reviewer_b",
-        "divergent",
-        "quorum_triggered",
-        "final_verdict",
-    ),
-    # FK-61 §61.12.1 — new event payloads
-    EventType.VECTORDB_SEARCH: (
-        "total_hits",
-        "hits_above_threshold",
-        "hits_classified_conflict",
-        "threshold_value",
-    ),
-    EventType.COMPACTION_EVENT: ("story_id",),
-    EventType.IMPACT_VIOLATION_CHECK: (
-        "declared_impact",
-        "actual_impact",
-        "result",
-    ),
-    EventType.DOC_FIDELITY_CHECK: ("level", "result"),
-    EventType.CONFORMANCE_ASSESSMENT_STARTED: (
-        "assessment_id",
-        "level",
-        "story_id",
-        "run_id",
-    ),
-    EventType.CONFORMANCE_LEVEL_EVALUATED: (
-        "assessment_id",
-        "level",
-        "status",
-        "reason",
-    ),
-    EventType.CONFORMANCE_ASSESSMENT_COMPLETED: (
-        "assessment_id",
-        "level",
-        "status",
-        "references_used",
-    ),
-    # FK-25 §25.8 — exploration / mandate events
-    EventType.MANDATE_CLASSIFICATION: (
-        "escalation_class",
-        "decision_summary",
-        "story_id",
-        "run_id",
-    ),
-    EventType.FINE_DESIGN_DECISION: (
-        "decision_id",
-        "question",
-        "decision",
-        "llm_responses",
-        "normative_basis",
-        "story_id",
-    ),
-    EventType.SCOPE_EXPLOSION_CHECK: ("status", "indicators", "story_id"),
-    EventType.IMPACT_EXCEEDANCE_CHECK: (
-        "declared",
-        "actual",
-        "exceeded",
-        "story_id",
-    ),
-    # FK-68 §68.2.2 (Z. 380-389) — BC14 Execution-Planning events. The mandatory
-    # payload fields are the audit catalogue AG3-099 emits against; AG3-081 pins
-    # them here (one mandatory set per event name, no second contract system).
-    EventType.DEPENDENCY_RECORDED: ("story_id", "depends_on_id"),
-    EventType.STORY_READY: ("story_id",),
-    EventType.STORY_BLOCKED: ("story_id", "reason"),
-    EventType.PLAN_REVISED: ("plan_id", "trigger"),
-    EventType.SCHEDULING_DECIDED: ("story_id", "wave_id", "decision"),
-    EventType.GATE_RESOLVED: ("gate_id", "result"),
-    EventType.RULEBOOK_COMPILED: ("rulebook_id",),
-    EventType.WAVE_COLLAPSED: ("wave_id", "story_count"),
-    # FK-35 §35.3 / FK-91 Kapitel 35 — Governance-Observer events (AG3-085).
-    # ``GOVERNANCE_SIGNAL`` is consumed-only by the observer (produced by
-    # AG3-086 hook-sensors); its mandatory fields are pinned here so the
-    # hook-sensor producer can validate against the same contract.
-    EventType.GOVERNANCE_SIGNAL: ("risk_points", "signal_type", "actor"),
-    # The three observer-emitted events (FK-35 §35.3.7 / §35.3.6 / §35.3.8):
-    EventType.GOVERNANCE_ADJUDICATION: ("incident_type", "severity", "confidence", "recommended_action", "signal_type"),
-    EventType.GOVERNANCE_INCIDENT_OPENED: ("risk_score", "event_count", "dominant_signals"),
-    EventType.GOVERNANCE_MEASURE_APPLIED: ("measure", "severity"),
-    # FK-68 §68.2.2 (Z. 397-399) — BC15 ARE / Requirements events.
-    EventType.ARE_REQUIREMENTS_LINKED: ("story_id", "requirement_count"),
-    EventType.ARE_EVIDENCE_SUBMITTED: ("story_id", "evidence_type"),
-    # ARE-payload conflict resolution (story §2.1.3 / AC2, Owner = telemetry BC):
-    # FK-68 §68.2.2 is the canonical Single Source of Truth for ``are_gate_result``
-    # (mandatory = ``story_id``, ``result``). The FK-61 §61.12.2 metric fields
-    # ``covered``/``required``/``coverage_ratio`` stay ENRICHED but OPTIONAL (NOT
-    # mandatory) — one mandatory set per event name, no second String-Map path.
-    EventType.ARE_GATE_RESULT: ("story_id", "result"),
-    # Integration-stabilization contract events (FK-05 §5.14, AG3-069 AC11).
-    # Wire keys + producers per formal-spec/integration-stabilization/events.md.
-    # ``event_name`` is the canonical wire identifier on the payload; the other
-    # mandatory keys carry the audit-load-bearing facts (manifest binding,
-    # detected surface, exhausted caps, achieved targets). Every IS event is
-    # emitted through the real EventEmitter at its boundary (FAIL-CLOSED).
-    EventType.INTEGRATION_MANIFEST_APPROVED: (
-        "event_name",
-        "manifest_version",
-        "manifest_hash",
-    ),
-    EventType.UNDECLARED_SURFACE_DETECTED: ("event_name", "surface_path"),
-    EventType.STABILIZATION_BUDGET_EXHAUSTED: ("event_name", "exhausted_caps"),
-    EventType.STABILITY_GATE_PASSED: ("event_name", "achieved_targets"),
-}
-
-# ``integrity_gate_result`` is documented in FK-61 §61.12.2 with an enriched
-# payload but is not a member of this BC's ``EventType`` catalogue (its producer
-# lives in governance). Its mandatory fields are pinned by string key so
-# ``validate_event_payload`` can be called for it from its owning producer
-# without importing this BC's enum being a prerequisite.
-#
-# ``are_gate_result`` was previously pinned here (payload-pinning only); AG3-081
-# raises it to a full ``EventType`` member (see ``MANDATORY_PAYLOAD_FIELDS``
-# above). Per the §2.1.3 owner decision its mandatory set is FK-68's
-# ``story_id``/``result`` (the FK-61 metric fields stay optional/enriched), so it
-# is intentionally NO LONGER in this by-name map — exactly ONE mandatory set per
-# event name lives at the enum-keyed contract.
-MANDATORY_PAYLOAD_FIELDS_BY_NAME: Mapping[str, tuple[str, ...]] = {
-    "integrity_gate_result": ("blocked_dimensions",),
+    EventType(k): v for k, v in _MANDATORY_PAYLOAD_FIELDS_RAW.items()
 }
 
 # ---------------------------------------------------------------------------

@@ -386,7 +386,7 @@ class ClosurePhaseHandler:
         # rejected early (fail-closed). Gated on the IS contract so standard
         # stories are completely unaffected (CORE PRINCIPLE).
         is_precondition_error = _check_integration_stabilization_closure(
-            ctx, s_dir, source_state, progress
+            ctx, s_dir
         )
         if is_precondition_error is not None:
             return is_precondition_error
@@ -1293,8 +1293,6 @@ def _transition_story_done(
 def _check_integration_stabilization_closure(
     ctx: StoryContext,
     s_dir: Path,
-    source_state: PhaseState,
-    progress: ClosureProgress,
 ) -> HandlerResult | None:
     """AG3-069 (FK-05 §5.11): IS closure precondition gate.
 
@@ -1308,8 +1306,6 @@ def _check_integration_stabilization_closure(
     Args:
         ctx: Story context.
         s_dir: Story working directory.
-        source_state: Current phase state (for escalation).
-        progress: Current closure progress.
 
     Returns:
         A blocking ``HandlerResult`` when an IS precondition fails, or

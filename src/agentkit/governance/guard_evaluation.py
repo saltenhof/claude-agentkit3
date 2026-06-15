@@ -371,7 +371,8 @@ def _maybe_seam_guard(
                 "available or the allowlist file was unreadable after write "
                 "(FK-05 §5.14, fail-closed)"
             )
-    except Exception as exc:  # noqa: BLE001 -- a broken IS guard must BLOCK, not skip
+    # A broken IS guard must BLOCK, not skip (fail-closed, FK-05 §5.14).
+    except Exception as exc:  # noqa: BLE001
         return FailClosedSeamGuard(f"seam guard construction error: {exc}")
 
     emitter = _is_event_emitter(s_dir, project_key)
@@ -440,7 +441,8 @@ def _maybe_budget_guard(
         )
         if not binding.binding_valid:
             return FailClosedSeamGuard(f"manifest binding invalid: {binding.reason}")
-    except Exception as exc:  # noqa: BLE001 -- a broken IS guard must BLOCK, not skip
+    # A broken IS guard must BLOCK, not skip (fail-closed, FK-05 §5.9).
+    except Exception as exc:  # noqa: BLE001
         return FailClosedSeamGuard(f"budget guard construction error: {exc}")
 
     emitter = _is_event_emitter(s_dir, project_key)

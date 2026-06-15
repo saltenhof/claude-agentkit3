@@ -925,11 +925,11 @@ class TestStoryContextPortInjection:
         assert spy.calls == [bundle.story_dir]
 
     def test_create_default_defaults_to_null_story_context_port(self) -> None:
-        from agentkit.verify_system.system import _NULL_STORY_CONTEXT_PORT
+        from agentkit.verify_system.system import _NullStoryContextPort
 
         vs = VerifySystem.create_default(artifact_manager=_RecordingArtifactManager())
 
-        assert vs.story_context_port is _NULL_STORY_CONTEXT_PORT
+        assert isinstance(vs.story_context_port, _NullStoryContextPort)
         # No-op-Port liefert None -> _execute_layer faellt auf IMPLEMENTATION-Stub.
         assert vs.story_context_port.load(Path(".")) is None
 
