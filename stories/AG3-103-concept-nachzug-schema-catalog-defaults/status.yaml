@@ -1,10 +1,35 @@
 story_id: AG3-103
 title: "Konzept-Nachzug — Schema-Katalog-Realitaet + Defaults/Schwellwerte + interne FK-Widersprueche"
 type: concept
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
+completed: "2026-06-15"
 size: M
+# COMPLETED 2026-06-15 (doc-only concept story; concept/ prose only, no src/tests diff).
+# Reconciled FK prose with current code reality across 7 concept/technical-design docs:
+# FK-90 §90.1/§90.2 rewritten to the Pydantic-owner + contract-test reality (every
+# schema-owner module verified to exist on HEAD; {stage_id}.schema.json file-catalog
+# removed; "no *.schema.json" claim qualified — one unrelated harness fixture). FK-93
+# defaults reconciled with owner/status per value — MOST now KONFORM against live code
+# (request_ttl_s 1800; governance window/threshold/cooldown 50/30/300 + risk points;
+# VectorDbConfig 0.7/5; llm_evaluator send-timeout 2400 / acquire-retries 5;
+# failure-corpus rework 30min / FP>3 / 90-day effectiveness / promotion 3x-30d; enums
+# already English); genuinely-pending values keep their owner story; §93.2 conform.
+# Four internal FK contradictions resolved with named authoritative source: FK-01 §1.6
+# PostgreSQL-canonical; FK-02 §2.3.1 var/adversarial (FK-10/CLAUDE ban on _temp/);
+# FK-91 §91.1a project-scoped planning (real route /planning/dependency-graph);
+# FK-72 §72.8.2 KPI mount /kpis->/kpi (PO 2026-06-08, congruent with FK-63). FK-68 §68.2
+# glossary owner-split rewritten to the real divergence (code-enum values not yet in the
+# glossary); §68.2.2 review_divergence payload-field-row aligned to the authoritative
+# FK-34 §34.8.4 fieldset (story_id/reviewer_a/reviewer_b/divergent/quorum_triggered/
+# final_verdict — AG3-066 already emits it). KEY LESSON: the story's §1 evidence was
+# stale (written before AG3-066/078/085/086 + vectordb/llm-evaluator landed); the Codex
+# gate caught project-wide stale code-state claims + invented module paths over 3
+# remediation rounds — a reconciliation doc that lied about the code would be worse than
+# none. QA: Codex sole gate, APPROVE after 3 Sonnet remediation rounds. Gates:
+# concept-frontmatter, compile-formal-specs, GAC-1, concept-code-contracts; src/tests
+# diff empty. Jenkins #432 SUCCESS, Sonar gate OK. unblocks: none.
 depends_on:
   - AG3-070
   - AG3-085
