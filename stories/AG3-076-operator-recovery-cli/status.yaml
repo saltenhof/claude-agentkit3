@@ -1,10 +1,42 @@
 story_id: AG3-076
 title: "Operator-/Recovery-CLI (run-phase/resume/reset-escalation/cleanup/status/query): die FK-45/04/10-Operator-Oberflaeche an bestehende Services andocken (kein Service-Neubau)"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
+completed: "2026-06-15"
 size: M
+# COMPLETED 2026-06-15. Thin operator/recovery CLI adapter over EXISTING services
+# in cli/main.py (FK-45 §45.4, FK-04, FK-10) — no service rebuild. Each command
+# carries a service class: Class A docks onto the real service at the named anchor;
+# Class C (service missing) fail-closes (non-zero + machine-readable stderr finding,
+# NO state mutation, owner-routed); Class B (reset/split/exit) left to owner stories.
+# Commands: run-phase (full PhaseMutationRequest from named flags ->
+# ControlPlaneRuntimeService.start_phase), resume (loads StoryContext +
+# PhaseEnvelope via composition_root, no minting), status (+weekly-review block;
+# exit 0 on Class-A success, FC gaps to stderr), query-state (phase-state; --locks
+# = Class C), query-telemetry (--story via StateBackendEmitter.query; --run /
+# --event --since via project-global reader; selector mandatory; project_key
+# resolvable or fail-closed; --since {window}/ISO parsed; --event validated against
+# EventType; --config fail-closed incl. empty-string), weekly-review (non-zero +
+# stderr, substantively Class C), export-telemetry (--dry-run non-mutating), and the
+# Class-C commands reset-escalation / cleanup-PID-liveness / override-integrity /
+# weekly-review-FC-sections (all fail-closed with owner-routed findings to AG3-078
+# et al.). FIX-THE-MODEL: all state-backend reads route through
+# bootstrap.composition_root helpers (cli_load_story_context /
+# cli_read_phase_state_record / cli_load_execution_events_for_project_global /
+# build_phase_envelope_store) so the CLI imports NO agentkit.state_backend.store
+# internals — the speculative architecture-conformance boundary grant was REMOVED,
+# not widened. Routed follow-on service gaps (PO-assignment): ESCALATED-release
+# service, authorized integrity-override service, PID/TTL liveness, lock-listing
+# read repository, branch-deletion+artifact-purge (AG3-071), Failure-Corpus
+# producers (AG3-078). QA: Codex sole code-gate, APPROVE after 4 Sonnet remediation
+# rounds (private-repo import / Class-C exit codes / anchor bypass / dry-run mutation
+# / boundary narrowing / None-record fail-open / EventType+--since fail-open /
+# empty-config edge). Sonar Aufraeumrunde (S1192, S1110, 2x S3776, S5864 — all
+# behaviour-neutral, type: ignore removed). Gates: ruff, mypy strict default+linux
+# (718), GAC-1, four concept gates, 7317 unit+integration+contract tests,
+# coverage >=85%. Jenkins #427 + #428 + #430 SUCCESS, Sonar gate OK. unblocks: none.
 depends_on:
   - AG3-054
   - AG3-071
