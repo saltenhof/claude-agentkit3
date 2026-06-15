@@ -101,16 +101,17 @@
   --font-body: "Open Sans", "Aptos", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
   --font-display: "League Spartan", "Open Sans", sans-serif;
 
-  --text-xxs: 0.625rem;
-  --text-2xs: 0.6875rem;
-  --text-xs: 0.75rem;
-  --text-sm: 0.875rem;
-  --text-md: 0.9375rem;
-  --text-base: 1rem;
-  --text-lg: 1.125rem;
-  --text-xl: 1.375rem;
-  --text-2xl: 1.625rem;
-  --text-3xl: 2rem;
+  --text-xxs: 0.625em;
+  --text-2xs: 0.6875em;
+  --text-xs: 0.75em;
+  --text-sm: 0.875em;
+  --text-md: 0.9375em;
+  --text-base: 1em;
+  --text-lg: 1.125em;
+  --text-xl: 1.375em;
+  --text-2xl: 1.625em;
+  --text-3xl: 2em;
+  --text-kpi-display: 1.75em;
 
   --font-xs: var(--text-xs);
   --font-sm: var(--text-sm);
@@ -143,7 +144,7 @@
   --type-page-title-size: var(--text-2xl);
   --type-kpi-size: var(--text-2xl);
   --type-kpi-weight: var(--weight-black);
-  --type-kpi-display-size: 1.75rem;
+  --type-kpi-display-size: var(--text-kpi-display);
 
   --control-height-sm: 1.875rem;
   --control-height-md: 2.375rem;

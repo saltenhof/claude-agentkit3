@@ -61,6 +61,12 @@ class NeutralColorTokens(BaseModel):
     bg_tab_top: str = "#25282e"
     bg_tab_mid: str = "#1b1e23"
     bg_tab_bottom: str = "#121418"
+    bg_topbar_top: str = "#2b2d31"
+    bg_topbar_bottom: str = "#23252a"
+    # Warm metric tile (KPI accent surface)
+    metric_warm_top: str = "#421a36"
+    metric_warm_bottom: str = "#1b0e1a"
+    metric_warm_border: str = "#623052"
     # Surfaces
     surface: str = "#1e2023"
     surface_2: str = "#26282c"
@@ -166,6 +172,8 @@ class TypographyScaleTokens(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    text_xxs: str = "0.625em"
+    text_2xs: str = "0.6875em"
     text_xs: str = "0.75em"
     text_sm: str = "0.875em"
     text_md: str = "0.9375em"
@@ -174,6 +182,8 @@ class TypographyScaleTokens(BaseModel):
     text_xl: str = "1.375em"
     text_2xl: str = "1.625em"
     text_3xl: str = "2em"
+    # Semantic display size for KPI headline values (§64.6.2 — relative em).
+    text_kpi_display: str = "1.75em"
 
 
 class TypographyWeightTokens(BaseModel):
@@ -208,11 +218,14 @@ class SemanticTextRoleTokens(BaseModel):
     CSS ``var()`` references; here we store the *resolved* scale token key so
     the type is self-contained).
 
-    Roles: label / body / ui / title / panel_title / page_title / kpi.
+    Roles: micro / sub_label / label / body / ui / title / panel_title /
+    page_title / kpi / kpi_display.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    micro_size: str = "text_xxs"
+    sub_label_size: str = "text_2xs"
     label_size: str = "text_xs"
     label_weight: str = "semibold"
     body_size: str = "text_sm"
@@ -227,6 +240,7 @@ class SemanticTextRoleTokens(BaseModel):
     page_title_weight: str = "semibold"
     kpi_size: str = "text_2xl"
     kpi_weight: str = "black"
+    kpi_display_size: str = "text_kpi_display"
 
 
 class FontFamilyTokens(BaseModel):
@@ -449,6 +463,8 @@ def _weight_key_to_var(key: str) -> str:
 # absent — the prototype defines no corresponding ``--type-panel-title-weight``
 # token.
 _SEMANTIC_ROLE_CSS_FIELDS: tuple[tuple[str, str], ...] = (
+    ("micro_size",        "--type-micro-size"),
+    ("sub_label_size",    "--type-sub-label-size"),
     ("label_size",        "--type-label-size"),
     ("label_weight",      "--type-label-weight"),
     ("body_size",         "--type-body-size"),
@@ -461,6 +477,7 @@ _SEMANTIC_ROLE_CSS_FIELDS: tuple[tuple[str, str], ...] = (
     ("page_title_size",   "--type-page-title-size"),
     ("kpi_size",          "--type-kpi-size"),
     ("kpi_weight",        "--type-kpi-weight"),
+    ("kpi_display_size",  "--type-kpi-display-size"),
 )
 
 
@@ -563,6 +580,11 @@ def build_css_variables(ds: DesignSystem) -> dict[str, str]:
         "--ak-bg-tab-top": nc.bg_tab_top,
         "--ak-bg-tab-mid": nc.bg_tab_mid,
         "--ak-bg-tab-bottom": nc.bg_tab_bottom,
+        "--ak-bg-topbar-top": nc.bg_topbar_top,
+        "--ak-bg-topbar-bottom": nc.bg_topbar_bottom,
+        "--ak-metric-warm-top": nc.metric_warm_top,
+        "--ak-metric-warm-bottom": nc.metric_warm_bottom,
+        "--ak-metric-warm-border": nc.metric_warm_border,
         "--ak-surface": nc.surface,
         "--ak-surface-2": nc.surface_2,
         "--ak-surface-3": nc.surface_3,
@@ -659,11 +681,15 @@ def build_css_variables(ds: DesignSystem) -> dict[str, str]:
         "--font-sm": "var(--text-sm)",
         "--font-md": "var(--text-md)",
         "--font-lg": "var(--text-lg)",
+        "--font-xl": "var(--text-xl)",
+        "--font-2xl": "var(--text-2xl)",
     })
 
     # --- typography scale tokens (§64.6.2) ---
     sc = ds.typography.scale
     mapping.update({
+        "--text-xxs": sc.text_xxs,
+        "--text-2xs": sc.text_2xs,
         "--text-xs": sc.text_xs,
         "--text-sm": sc.text_sm,
         "--text-md": sc.text_md,
@@ -672,6 +698,7 @@ def build_css_variables(ds: DesignSystem) -> dict[str, str]:
         "--text-xl": sc.text_xl,
         "--text-2xl": sc.text_2xl,
         "--text-3xl": sc.text_3xl,
+        "--text-kpi-display": sc.text_kpi_display,
     })
 
     # --- font-weight tokens (§64.6) ---
