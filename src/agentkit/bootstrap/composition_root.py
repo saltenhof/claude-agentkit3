@@ -58,6 +58,7 @@ if TYPE_CHECKING:
     from agentkit.pipeline_engine.engine import PipelineEngine
     from agentkit.pipeline_engine.lifecycle import HandlerResult, PhaseHandlerRegistry
     from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+    from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
     from agentkit.requirements_coverage.contract import CoverageVerdict
     from agentkit.requirements_coverage.top import (
         RequirementsCoverage as RequirementsCoverageProto,
@@ -2191,6 +2192,31 @@ def _build_closure_progress_store(store_dir: Path) -> ClosureProgressStore:
     return PhaseEnvelopeStore(StateBackendPhaseEnvelopeRepository(store_dir))
 
 
+def build_phase_envelope_store(story_dir: Path) -> PhaseEnvelopeStore:
+    """Build a :class:`~agentkit.pipeline_engine.phase_envelope.store.PhaseEnvelopeStore`.
+
+    Public factory exposed to boundary-callers (e.g. the operator/recovery CLI,
+    AG3-076) so they can load PAUSED :class:`PhaseEnvelope` objects without
+    importing the private ``StateBackendPhaseEnvelopeRepository`` adapter directly.
+    The returned object satisfies the ``PhaseEnvelopeStore`` interface
+    (``load``, ``save``, ``exists``).
+
+    Args:
+        story_dir: The story working directory used as the persistence root for
+            the underlying ``StateBackendPhaseEnvelopeRepository``.
+
+    Returns:
+        A :class:`~agentkit.pipeline_engine.phase_envelope.store.PhaseEnvelopeStore`
+        backed by the state-backend phase-envelope repository.
+    """
+    from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+    from agentkit.state_backend.store.phase_envelope_repository import (
+        StateBackendPhaseEnvelopeRepository,
+    )
+
+    return PhaseEnvelopeStore(StateBackendPhaseEnvelopeRepository(story_dir))
+
+
 def build_pipeline_handler_registry(
     story_dir: Path,
     *,
@@ -3222,5 +3248,79 @@ def build_failure_corpus(
     )
 
 
+# ---------------------------------------------------------------------------
+# AG3-076: CLI read-only helpers (operator/recovery CLI surface).
+#
+# The CLI boundary (agentkit.cli) is an entry_boundary and may NOT import
+# agentkit.state_backend.store directly (that would require keeping the broad
+# state_backend_repository grant in the CLI's boundary declaration).  These
+# thin wrappers route ALL state-backend reads through the composition root
+# so the CLI imports ONLY agentkit.bootstrap.composition_root — which is
+# already its normal wiring surface.
+# ---------------------------------------------------------------------------
+
+
+def cli_load_story_context(story_dir: Path) -> StoryContext | None:
+    """Load a :class:`~agentkit.story_context_manager.models.StoryContext` for the CLI.
+
+    Thin composition-root wrapper over ``facade.load_story_context`` so the
+    operator/recovery CLI (AG3-076) can read story context without importing
+    ``agentkit.state_backend.store`` directly.
+
+    Args:
+        story_dir: Story working directory (``<project_root>/stories/<story_id>``).
+
+    Returns:
+        The persisted :class:`StoryContext`, or ``None`` when absent.
+    """
+    from agentkit.state_backend.store.facade import load_story_context
+
+    return load_story_context(story_dir)
+
+
+def cli_read_phase_state_record(story_dir: Path) -> object:
+    """Read the current phase-state record for the CLI.
+
+    Thin composition-root wrapper over ``facade.read_phase_state_record`` so
+    the operator/recovery CLI (AG3-076) can read phase state without importing
+    ``agentkit.state_backend.store`` directly.
+
+    Args:
+        story_dir: Story working directory (``<project_root>/stories/<story_id>``).
+
+    Returns:
+        The persisted phase-state model instance, or ``None`` when absent.
+    """
+    from agentkit.state_backend.store.facade import read_phase_state_record
+
+    return read_phase_state_record(story_dir)
+
+
+def cli_load_execution_events_for_project_global(
+    project_key: str,
+    *,
+    limit: int | None = None,
+) -> list[object]:
+    """Load all execution events for a project for the CLI.
+
+    Thin composition-root wrapper over
+    ``facade.load_execution_events_for_project_global`` so the
+    operator/recovery CLI (AG3-076) can read project-global telemetry without
+    importing ``agentkit.state_backend.store`` directly.
+
+    Args:
+        project_key: The project key to scope the query.
+        limit: Optional maximum number of records to return.
+
+    Returns:
+        A list of :class:`~agentkit.telemetry.records.ExecutionEventRecord`
+        instances (typed as ``object`` to avoid a hard import in the wrapper
+        signature).
+    """
+    from agentkit.state_backend.store.facade import load_execution_events_for_project_global
+
+    return load_execution_events_for_project_global(project_key, limit=limit)  # type: ignore[return-value]
+
+
 # Keep export metadata compact so module-level LOC stays under the project gate.
-__all__ = ["ClosureConfigUnavailableError", "SetupCoordinatesUnavailableError", "build_artifact_invalidation_sink", "build_review_completion_sink", "build_artifact_manager", "build_closure_phase_handler", "build_exploration_drafting", "build_exploration_phase_handler", "build_exploration_review", "build_failure_corpus", "build_integrity_gate", "build_phase_state_residue_probe", "build_pipeline_engine", "build_pipeline_handler_registry", "build_planning_projection_accessor", "build_planning_story_dependency_repository", "build_producer_registry", "build_projection_accessor", "build_runtime_execution_purge_port", "build_runtime_execution_residue_probe", "build_setup_config_for_run", "build_setup_phase_handler", "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_structural_are_provider", "build_structural_build_test_port", "build_verify_system"]  # noqa: E501
+__all__ = ["ClosureConfigUnavailableError", "SetupCoordinatesUnavailableError", "build_artifact_invalidation_sink", "build_review_completion_sink", "build_artifact_manager", "build_closure_phase_handler", "build_exploration_drafting", "build_exploration_phase_handler", "build_exploration_review", "build_failure_corpus", "build_integrity_gate", "build_phase_state_residue_probe", "build_pipeline_engine", "build_pipeline_handler_registry", "build_planning_projection_accessor", "build_planning_story_dependency_repository", "build_producer_registry", "build_projection_accessor", "build_runtime_execution_purge_port", "build_runtime_execution_residue_probe", "build_setup_config_for_run", "build_setup_phase_handler", "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_structural_are_provider", "build_structural_build_test_port", "build_verify_system", "cli_load_story_context", "cli_load_execution_events_for_project_global", "cli_read_phase_state_record"]  # noqa: E501

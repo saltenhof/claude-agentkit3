@@ -1288,6 +1288,15 @@ boundary_modules:
       - architecture-conformance.boundary.control_plane_http
       - architecture-conformance.boundary.control_plane_records
       - architecture-conformance.boundary.control_plane_runtime
+      # AG3-076 (REMEDIATION-2): The state_backend_repository grant has been
+      # removed. The operator/recovery CLI (AG3-076) routes ALL state-backend
+      # reads through agentkit.bootstrap.composition_root wrapper functions
+      # (cli_load_story_context, cli_read_phase_state_record,
+      # cli_load_execution_events_for_project_global) so the CLI never imports
+      # agentkit.state_backend.store directly. The agentkit.bootstrap module is
+      # not a classified boundary module (it is a wiring layer accessible to
+      # entry boundaries under may_import_component_groups: any); no additional
+      # boundary grant is required for the CLI to use composition_root.
 
   - id: architecture-conformance.boundary.control_plane_http
     name: ControlPlaneHttp
