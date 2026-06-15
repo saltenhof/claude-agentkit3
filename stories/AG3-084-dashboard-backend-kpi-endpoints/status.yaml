@@ -1,12 +1,43 @@
 story_id: AG3-084
 title: "Dashboard-Backend (/api/kpi/*, /api/live/stories) + Trust-Boundary-Fix"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
+completed: "2026-06-15"
 size: M
+# COMPLETED 2026-06-15. Five project-scoped KPI read endpoints on the
+# control_plane /v1 BFF convention (GET /v1/projects/{key}/kpi/
+# stories|guards|pools|pipeline|corpus) reading EXCLUSIVELY from the Fact-Rollups
+# (FactStore) — resolves DRIFT-AG3-038 (StoryService borrow removed from the
+# KPI/story-metrics read path; get_board live/Kanban path intentionally stays on
+# StoryService, different granularity). Typed KpiQueryFilter (+EntityFilter/
+# StoryFilter) binding FK-63 §63.4.2 params + comparison_period; fail-closed model
+# validation (reversed/equal bounds, guard+pool mutually exclusive, comparison
+# precedes main, tz-aware required via mode=after). DashboardViewStatus.EMPTY
+# (additive) — empty rollups -> 200 empty rows + EMPTY, never a StoryService
+# fallback; EMPTY only ever reflects a real zero-row FactStore read. All four
+# NotImplementedError view-kinds wired to real period-bounded FactStore reads;
+# unsupported filter/dimension combos -> 400. Comparison mode: real second
+# period-bounded read; typed DashboardFactRow union rows, JSON serialized only at
+# the HTTP edge. Production wiring: default control-plane app builds
+# StateBackendFactRepository -> FactStore -> KpiAnalytics -> KpiAnalyticsRoutes
+# (no unwired default); AnalyticsNotConfiguredError -> 503 on /kpi/* and
+# /dashboard/story-metrics. project_key mandatory + fail-closed (missing/ambiguous
+# rejected; path/query mismatch + duplicate/unknown params -> 400; no cross-project
+# leak). Reset/validity rule: reads only cleaned facts, no late-query compensation
+# (present-then-purged contract+integration tests). /api/live/stories explicitly
+# NOT built (AC8 — no runtime live-read port exists; routed to a future telemetry
+# live-read-port story); design tokens untouched (AG3-092 owner). QA: Codex sole
+# code-gate, APPROVE after 3 Sonnet remediation rounds (green-skeletons +
+# prod-wiring gap, comparison mode, reset-rule proof, typed rows, tz-aware). Sonar
+# Aufraeumrunde (S3776 routes.py -> 4 helpers, behaviour-neutral). Gates: ruff,
+# mypy strict default+linux (718), GAC-1, four concept gates, 7247 unit+integration
+# +contract tests, coverage 91.6%. Jenkins #418 + #420 SUCCESS, Sonar gate OK.
+# Unblocks AG3-094 (with AG3-093).
 depends_on:
   - AG3-082
   - AG3-091
 unblocks:
   - AG3-092
+  - AG3-094
