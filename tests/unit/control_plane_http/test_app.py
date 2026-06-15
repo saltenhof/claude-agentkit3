@@ -382,7 +382,7 @@ def _make_app(
             governance_routes=GovernanceRoutes(service_available=True),
             closure_routes=ClosureRoutes(service_available=True),
             artifacts_routes=ArtifactsRoutes(service_available=True),
-            kpi_analytics_routes=KpiAnalyticsRoutes(service_available=True),
+            kpi_analytics_routes=KpiAnalyticsRoutes(),  # no kpi_analytics → 503 on dim routes
             failure_corpus_routes=FailureCorpusRoutes(service_available=True),
             requirements_coverage_routes=RequirementsCoverageRoutes(service_available=True),
             read_model_routes=read_model_routes or _FakeReadModelRoutes(),  # type: ignore[arg-type]
@@ -525,21 +525,36 @@ def test_get_project_scoped_artifacts_returns_200() -> None:
     assert response.status_code == HTTPStatus.OK
 
 
-def test_get_project_scoped_kpi_returns_200() -> None:
+def test_get_project_scoped_kpi_returns_503_without_analytics() -> None:
+    """KPI dimension routes return 503 when kpi_analytics is not configured (fail-closed)."""
     app = _make_app()
     response = app.handle_request(
         method="GET",
         path="/v1/projects/myproj/kpi",
         body=b"",
     )
-    assert response.status_code == HTTPStatus.OK
+    # Without kpi_analytics wired, the dimension endpoint returns 503 (fail-closed).
+    assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
 
 
-def test_get_project_scoped_kpi_dimension_returns_200() -> None:
+def test_get_project_scoped_kpi_dimension_returns_503_without_analytics() -> None:
+    """KPI dimension routes return 503 when kpi_analytics is not configured (fail-closed)."""
     app = _make_app()
     response = app.handle_request(
         method="GET",
         path="/v1/projects/myproj/kpi/stories",
+        body=b"",
+    )
+    # Without kpi_analytics wired, the dimension endpoint returns 503 (fail-closed).
+    assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+
+
+def test_get_project_scoped_kpi_design_tokens_returns_200() -> None:
+    """Design-token route always available regardless of kpi_analytics wiring."""
+    app = _make_app()
+    response = app.handle_request(
+        method="GET",
+        path="/v1/projects/myproj/kpi/design-tokens",
         body=b"",
     )
     assert response.status_code == HTTPStatus.OK
@@ -898,7 +913,7 @@ def _make_app_with_real_story_routes(
             governance_routes=GovernanceRoutes(service_available=True),
             closure_routes=ClosureRoutes(service_available=True),
             artifacts_routes=ArtifactsRoutes(service_available=True),
-            kpi_analytics_routes=KpiAnalyticsRoutes(service_available=True),
+            kpi_analytics_routes=KpiAnalyticsRoutes(),  # no kpi_analytics → 503 on dim routes
             failure_corpus_routes=FailureCorpusRoutes(service_available=True),
             requirements_coverage_routes=RequirementsCoverageRoutes(service_available=True),
             read_model_routes=_FakeReadModelRoutes(),  # type: ignore[arg-type]

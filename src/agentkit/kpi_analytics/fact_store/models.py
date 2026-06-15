@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 _RECORD_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
@@ -181,14 +181,109 @@ class PeriodFilter(BaseModel):
     start: datetime
     end: datetime
 
+    @field_validator("start", "end", mode="after")
+    @classmethod
+    def _require_timezone_aware(cls, value: datetime) -> datetime:
+        """Reject naive datetimes (fail-closed — ambiguous UTC vs. local time).
+
+        Uses ``mode="after"`` so the validator runs on the final parsed
+        ``datetime`` value — this catches both an already-typed naive
+        ``datetime`` object AND a naive ISO-8601 string that Pydantic would
+        otherwise parse into a naive ``datetime`` after the "before" stage.
+        """
+        if value.tzinfo is None:
+            raise ValueError(
+                "PeriodFilter timestamps must be timezone-aware (tzinfo must not be None)"
+            )
+        return value
+
+
+class EntityFilter(BaseModel):
+    """Optional entity-scoping filter for KPI queries (FK-63 §63.4.2).
+
+    Narrows KPI results to a specific guard or LLM pool.  Both fields are
+    optional; supply at most one to avoid contradictory constraints.
+    """
+
+    model_config = _RECORD_CONFIG
+
+    guard: str | None = None
+    pool: str | None = None
+
+
+class StoryFilter(BaseModel):
+    """Optional story-attribute filter for KPI queries (FK-63 §63.4.2).
+
+    Narrows KPI results to stories with specific ``story_type`` or
+    ``story_size``.  Both fields are optional.
+    """
+
+    model_config = _RECORD_CONFIG
+
+    story_type: str | None = None
+    story_size: str | None = None
+
+
+class KpiQueryFilter(BaseModel):
+    """Typed KPI query filter model (FK-63 §63.3.3 / §63.4.2).
+
+    Binds the FK-63 §63.4.2 query parameters into a validated, deterministic
+    filter object.  Fail-closed: invalid or contradictory inputs are rejected
+    at model-validation time — no silent softening.
+
+    Rules enforced at construction:
+    - ``period`` is mandatory; ``start`` must be strictly before ``end``.
+    - ``entity_filter.guard`` and ``entity_filter.pool`` are mutually
+      exclusive (specifying both is contradictory for a single KPI dimension).
+    - ``comparison_period``, when provided, must be a non-overlapping window
+      that ends at or before ``period.start``.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    project_key: str
+    period: PeriodFilter
+    entity_filter: EntityFilter = EntityFilter()
+    story_filter: StoryFilter = StoryFilter()
+    comparison_period: PeriodFilter | None = None
+
+    def model_post_init(self, __context: object) -> None:
+        """Validate cross-field constraints (fail-closed)."""
+        if self.period.start >= self.period.end:
+            raise ValueError(
+                f"KpiQueryFilter.period.start must be < period.end; "
+                f"got start={self.period.start!r}, end={self.period.end!r}"
+            )
+        if (
+            self.entity_filter.guard is not None
+            and self.entity_filter.pool is not None
+        ):
+            raise ValueError(
+                "KpiQueryFilter.entity_filter: 'guard' and 'pool' are mutually exclusive"
+            )
+        if self.comparison_period is not None:
+            if self.comparison_period.start >= self.comparison_period.end:
+                raise ValueError(
+                    "KpiQueryFilter.comparison_period.start must be < comparison_period.end"
+                )
+            if self.comparison_period.end > self.period.start:
+                raise ValueError(
+                    "KpiQueryFilter.comparison_period must end at or before period.start "
+                    f"(comparison_period.end={self.comparison_period.end!r}, "
+                    f"period.start={self.period.start!r})"
+                )
+
 
 __all__ = [
+    "EntityFilter",
     "FactCorpusPeriod",
     "FactGuardPeriod",
     "FactPipelinePeriod",
     "FactPoolPeriod",
     "FactStory",
     "GuardInvocationCounter",
+    "KpiQueryFilter",
     "PeriodFilter",
+    "StoryFilter",
     "SyncState",
 ]

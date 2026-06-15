@@ -8,19 +8,23 @@ boundary), and the frozen Pydantic fact-record models.
 from __future__ import annotations
 
 from agentkit.kpi_analytics.fact_store.models import (
+    EntityFilter,
     FactCorpusPeriod,
     FactGuardPeriod,
     FactPipelinePeriod,
     FactPoolPeriod,
     FactStory,
     GuardInvocationCounter,
+    KpiQueryFilter,
     PeriodFilter,
+    StoryFilter,
     SyncState,
 )
 from agentkit.kpi_analytics.fact_store.repository import FactRepository
 from agentkit.kpi_analytics.fact_store.store import FactStore
 
 __all__ = [
+    "EntityFilter",
     "FactCorpusPeriod",
     "FactGuardPeriod",
     "FactPipelinePeriod",
@@ -29,6 +33,8 @@ __all__ = [
     "FactStore",
     "FactStory",
     "GuardInvocationCounter",
+    "KpiQueryFilter",
     "PeriodFilter",
+    "StoryFilter",
     "SyncState",
 ]

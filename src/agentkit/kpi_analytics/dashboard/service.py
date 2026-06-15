@@ -3,6 +3,10 @@
 Migrated from agentkit.dashboard.service (AG3-029).
 AG3-029 Pass-3: FK-64 §64.11 lifecycle_status -> column mapping introduced
 (ERROR-1 fix). Local DashboardStorySummary DTO used for board columns.
+AG3-084: DRIFT-AG3-038 resolved for the KPI/story-metrics read path —
+get_story_metrics now reads from FactStore (fact_story) instead of StoryService.
+The get_board live/Kanban path retains StoryService (different granularity:
+active stories vs. completed fact_story rows).
 """
 
 from __future__ import annotations
@@ -11,11 +15,6 @@ import logging
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
-# DRIFT-AG3-038: temporary StoryService leihe — DashboardService reads directly
-# from StoryService instead of from Fact-Tables. This is a known trust-boundary
-# violation (kpi-and-dashboard.C1/B1). The Fact-Table read path is implemented
-# in AG3-038. This import is explicitly permitted as a time-limited transition
-# exception per Story AG3-029 §AK7.
 from agentkit.kpi_analytics.dashboard.models import (
     BoardColumn,
     DashboardBoardResponse,
@@ -23,9 +22,12 @@ from agentkit.kpi_analytics.dashboard.models import (
     DashboardStoryMetricsResponse,
     DashboardStorySummary,
 )
+from agentkit.kpi_analytics.errors import AnalyticsNotConfiguredError
 from agentkit.story import StoryService
 
 if TYPE_CHECKING:
+    from agentkit.kpi_analytics.fact_store import FactStore
+    from agentkit.kpi_analytics.fact_store.models import PeriodFilter
     from agentkit.story.models import StorySummary
 
 logger = logging.getLogger(__name__)
@@ -87,10 +89,24 @@ class DashboardService:
     """Build read-only dashboard payloads from central story read models.
 
     FK-64 §64.11 / AG3-029.
+
+    Args:
+        story_service: Live story read service for the board/Kanban view
+            (active stories only).  Defaults to a bare ``StoryService``.
+        fact_store: Analytics fact store for the KPI/story-metrics read path
+            (completed stories from ``fact_story``).  When ``None``,
+            ``get_story_metrics`` raises ``AnalyticsNotConfiguredError``
+            (fail-closed — the HTTP layer maps this to 503).
     """
 
-    def __init__(self, *, story_service: StoryService | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        story_service: StoryService | None = None,
+        fact_store: FactStore | None = None,
+    ) -> None:
         self._story_service = story_service or StoryService()
+        self._fact_store = fact_store
 
     def get_board(self, project_key: str) -> DashboardBoardResponse:
         """Return a Kanban board view for the given project.
@@ -131,30 +147,61 @@ class DashboardService:
         ]
         return DashboardBoardResponse(project_key=project_key, columns=columns)
 
-    def get_story_metrics(self, project_key: str) -> DashboardStoryMetricsResponse:
-        """Return closure metrics for all completed stories in the project.
+    def get_story_metrics(
+        self,
+        project_key: str,
+        period: PeriodFilter | None = None,
+    ) -> DashboardStoryMetricsResponse:
+        """Return closure metrics for completed stories read from fact_story (AG3-084).
+
+        DRIFT-AG3-038 resolved: this path reads exclusively from the analytics
+        ``fact_story`` table via ``FactStore`` — no ``StoryService`` borrowing.
+        The ``get_board`` live/Kanban path (active stories) continues to use
+        ``StoryService`` as a separate concern.
+
+        Reset/validity rule (FK-63 §63.3.1): only already-cleaned facts are
+        read.  No late-query compensation for reset/corrupt-discarded runs.
+        Upstream purge (AG3-071/081/082) ensures deleted rows are absent.
 
         Args:
             project_key: Project scope.
+            period: Optional half-open ``[start, end)`` window.  When ``None``,
+                all completed stories for the project are returned.
 
         Returns:
-            DashboardStoryMetricsResponse sorted by completed_at descending.
+            ``DashboardStoryMetricsResponse`` sorted by ``completed_at``
+            descending.
+
+        Raises:
+            AnalyticsNotConfiguredError: When ``fact_store`` is not configured
+                (fail-closed — the HTTP layer maps this to 503).
         """
-        stories = self._story_service.list_stories(project_key).stories
-        items = [
-            DashboardStoryMetricsItem(
-                story_id=story.story_id,
-                title=story.title,
-                story_type=str(story.story_type),
-                story_size=story.story_size,
-                final_status=story.latest_metrics.final_status,
-                processing_time_min=story.latest_metrics.processing_time_min,
-                qa_rounds=story.latest_metrics.qa_rounds,
-                increments=story.latest_metrics.increments,
-                completed_at=story.latest_metrics.completed_at,
+        if self._fact_store is None:
+            raise AnalyticsNotConfiguredError(
+                "get_story_metrics requires FactStore; "
+                "wire a FactStore into DashboardService or ensure the "
+                "composition root provides one (AG3-084)."
             )
-            for story in stories
-            if story.latest_metrics is not None
-        ]
+
+        fact_stories = self._fact_store.list_fact_stories(project_key, period)
+        items: list[DashboardStoryMetricsItem] = []
+        for fact in fact_stories:
+            if fact.completed_at is None:
+                continue
+            items.append(
+                DashboardStoryMetricsItem(
+                    story_id=fact.story_id,
+                    title=fact.story_id,  # fact_story has no title column; story_id used as display key
+                    story_type=fact.story_type,
+                    story_size=fact.story_size,  # str coerces to StorySize (StrEnum)
+                    final_status=fact.are_gate_status or "UNKNOWN",
+                    processing_time_min=round(
+                        (fact.phase_implementation_ms or 0) / 60_000.0, 2
+                    ),
+                    qa_rounds=fact.qa_rounds,
+                    increments=fact.compaction_count or 0,
+                    completed_at=fact.completed_at,
+                )
+            )
         items.sort(key=lambda item: item.completed_at, reverse=True)
         return DashboardStoryMetricsResponse(project_key=project_key, stories=items)

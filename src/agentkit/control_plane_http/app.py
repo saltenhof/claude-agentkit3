@@ -215,9 +215,28 @@ def _build_default_artifacts_routes() -> ArtifactsRoutes:
 
 
 def _build_default_kpi_analytics_routes() -> KpiAnalyticsRoutes:
-    from agentkit.kpi_analytics.http.routes import KpiAnalyticsRoutes
+    """Build the default KpiAnalyticsRoutes backed by a real FactStore.
 
-    return KpiAnalyticsRoutes()
+    Wires ``StateBackendFactRepository`` (the production SQLite/Postgres
+    adapter) into a real ``FactStore`` and ``KpiAnalytics`` so that the five
+    KPI dimension endpoints read live data from the fact tables.  This is the
+    composition root for the kpi_analytics BC (AC1/AC3 — real FactStore reads,
+    not a stub).
+
+    The ``KpiCatalog`` and ``FactStore`` are the minimal dependencies required
+    for ``KpiAnalytics``; the optional ``RefreshWorker`` is omitted here
+    (refresh is triggered by the closure pipeline, not by the HTTP read path).
+    """
+    from agentkit.kpi_analytics.catalog import KpiCatalog
+    from agentkit.kpi_analytics.fact_store.store import FactStore
+    from agentkit.kpi_analytics.http.routes import KpiAnalyticsRoutes
+    from agentkit.kpi_analytics.top import KpiAnalytics
+    from agentkit.state_backend.store.fact_repository import StateBackendFactRepository
+
+    fact_repo = StateBackendFactRepository()
+    fact_store = FactStore(fact_repo)
+    kpi_analytics = KpiAnalytics(catalog=KpiCatalog(), fact_store=fact_store)
+    return KpiAnalyticsRoutes(kpi_analytics=kpi_analytics)
 
 
 def _build_default_failure_corpus_routes() -> FailureCorpusRoutes:
@@ -372,9 +391,17 @@ class ControlPlaneApplication:
         self._telemetry_service = telemetry_service or ControlPlaneTelemetryService()
         self._runtime_service = runtime_service or ControlPlaneRuntimeService()
         self._story_service = story_service or StoryService()
-        self._dashboard_service = dashboard_service or DashboardService(
-            story_service=self._story_service,
-        )
+        if dashboard_service is not None:
+            self._dashboard_service = dashboard_service
+        else:
+            from agentkit.kpi_analytics.fact_store.store import FactStore
+            from agentkit.state_backend.store.fact_repository import StateBackendFactRepository
+
+            _fact_store = FactStore(StateBackendFactRepository())
+            self._dashboard_service = DashboardService(
+                story_service=self._story_service,
+                fact_store=_fact_store,
+            )
         self._project_routes = r.project_routes or _build_default_project_routes()
         self._story_routes = r.story_routes or _build_default_story_routes()
         self._concept_routes = r.concept_routes or _build_default_concept_routes()
@@ -1235,9 +1262,11 @@ class ControlPlaneApplication:
         project_key: str,
         correlation_id: str,
     ) -> HttpResponse:
+        from agentkit.kpi_analytics.errors import AnalyticsNotConfiguredError
+
         try:
-            result = self._dashboard_service.get_story_metrics(project_key)
-        except RuntimeError as exc:
+            result = self._dashboard_service.get_story_metrics(project_key, period=None)
+        except (RuntimeError, AnalyticsNotConfiguredError) as exc:
             logger.warning("Dashboard metrics unavailable: %s", exc)
             return _error_response(
                 HTTPStatus.SERVICE_UNAVAILABLE,

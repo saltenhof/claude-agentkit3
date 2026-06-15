@@ -364,7 +364,7 @@ class _FakeDashboardService(DashboardService):
             ],
         )
 
-    def get_story_metrics(self, project_key: str) -> DashboardStoryMetricsResponse:
+    def get_story_metrics(self, project_key: str, period: object = None) -> DashboardStoryMetricsResponse:  # noqa: ARG002
         if self.error is not None:
             raise self.error
         self.calls.append(("metrics", project_key))

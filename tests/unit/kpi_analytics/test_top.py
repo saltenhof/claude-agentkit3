@@ -180,25 +180,38 @@ def test_get_dashboard_view_reads_factstore_story_rows() -> None:
 
     assert view.status == DashboardViewStatus.OK
     assert len(view.rows) == 1
-    assert view.rows[0]["story_id"] == "AG3-001"
+    assert view.rows[0].story_id == "AG3-001"  # type: ignore[union-attr]
 
 
 def test_get_dashboard_view_empty_when_no_data() -> None:
-    """AC7: an empty fact set yields an EMPTY view (status OK), not a stub error."""
+    """AC7 / AG3-084: an empty fact set yields status EMPTY (not OK), empty rows list."""
     analytics = KpiAnalytics(catalog=KpiCatalog(), fact_store=_DictFactStore([]))
 
     view = analytics.get_dashboard_view("tenant-a", "story")
 
-    assert view.status == DashboardViewStatus.OK
+    assert view.status == DashboardViewStatus.EMPTY
     assert view.rows == []
 
 
-def test_get_dashboard_view_unwired_kind_fails_closed() -> None:
-    """Period-rollup views are follow-up; requesting one fails closed, not empty."""
+def test_get_dashboard_view_period_rollup_kinds_require_filter() -> None:
+    """AG3-084 Finding #3: guards/pools/pipeline/corpus raise ValueError without a PeriodFilter.
+
+    Returning EMPTY without a real FactStore read violates the invariant.
+    All period-rollup dimensions MUST use get_dashboard_view_with_filter.
+    """
     analytics = KpiAnalytics(catalog=KpiCatalog(), fact_store=_DictFactStore([]))
 
-    with pytest.raises(NotImplementedError):
-        analytics.get_dashboard_view("tenant-a", "pipeline")
+    for kind in ("guards", "pools", "pipeline", "corpus"):
+        with pytest.raises(ValueError, match="use get_dashboard_view_with_filter"):
+            analytics.get_dashboard_view("tenant-a", kind)
+
+
+def test_get_dashboard_view_unknown_kind_fails_closed() -> None:
+    """AG3-084: an unknown view_kind raises ValueError (fail-closed), not NotImplementedError."""
+    analytics = KpiAnalytics(catalog=KpiCatalog(), fact_store=_DictFactStore([]))
+
+    with pytest.raises(ValueError, match="Unknown view_kind"):
+        analytics.get_dashboard_view("tenant-a", "live")
 
 
 def test_query_raises_not_implemented() -> None:

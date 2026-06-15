@@ -13,6 +13,18 @@ from agentkit.kpi_analytics.design_system import (
     SpacingFamily,
     TypographyTokens,
 )
+from agentkit.kpi_analytics.fact_store.models import (
+    FactCorpusPeriod,
+    FactGuardPeriod,
+    FactPipelinePeriod,
+    FactPoolPeriod,
+    FactStory,
+)
+
+# Type alias for the typed union of all five fact row types.
+# Serialization to plain dicts happens only at the HTTP edge
+# (kpi_analytics/http/routes.py via row.model_dump(mode="json")).
+DashboardFactRow = FactStory | FactGuardPeriod | FactPoolPeriod | FactPipelinePeriod | FactCorpusPeriod
 
 
 class RefreshStatus(StrEnum):
@@ -28,6 +40,7 @@ class DashboardViewStatus(StrEnum):
 
     OK = "OK"
     UNAVAILABLE = "UNAVAILABLE"
+    EMPTY = "EMPTY"
 
 
 class RefreshResult(BaseModel):
@@ -68,7 +81,8 @@ class DashboardView(BaseModel):
     view_name: str
     project_key: str
     status: DashboardViewStatus
-    rows: list[dict[str, object]]
+    rows: list[DashboardFactRow]
+    comparison_rows: list[DashboardFactRow] = []
 
 
 class DesignTokens(BaseModel):
