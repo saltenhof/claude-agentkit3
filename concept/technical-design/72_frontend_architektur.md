@@ -219,7 +219,7 @@ agentkit/governance/http/           # /v1/projects/{key}/governance
 agentkit/closure/http/              # /v1/projects/{key}/closure
 agentkit/artifacts/http/            # /v1/projects/{key}/artifacts
 agentkit/telemetry/http/            # /v1/projects/{key}/telemetry
-agentkit/kpi_analytics/http/        # /v1/projects/{key}/kpis
+agentkit/kpi_analytics/http/        # /v1/projects/{key}/kpi
 agentkit/failure_corpus/http/       # /v1/projects/{key}/failure-corpus
 agentkit/requirements_coverage/http/  # /v1/projects/{key}/coverage (inkl. /coverage/stories/{story_id}/are-evidence)
 agentkit/concept_catalog/http/      # /v1/concepts (projektneutral, Konzept-Korpus ist Repository-weit)

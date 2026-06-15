@@ -105,12 +105,12 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
 | `/v1/project-edge/sync` | `POST` | Lokalen Edge-Bundle-Stand fuer einen Projekt-Client bounded neu abgleichen |
 | `/v1/project-edge/operations/{op_id}` | `GET` | Unklare Remote-Lage eines mutierenden Requests ueber `op_id` reconciliieren |
 | `/v1/telemetry/events` | `POST` | Kanonisches Telemetrie-Event ingestieren |
-| `/v1/planning/graph` | `GET` | Projektgebundenen Abhaengigkeits- und Konfliktgraph lesen |
-| `/v1/planning/ready-set` | `GET` | Aktuell `READY`, blockierte und konfliktierte Stories mit Gruenden lesen |
-| `/v1/planning/execution-plan` | `GET` | Kritischen Pfad, Waves, empfohlenen Batch und maximale Parallelisierung lesen |
-| `/v1/planning/proposals` | `POST` | Strukturierte Agenten- oder Analyse-Proposals fuer Abhaengigkeiten, Gates und Waves offiziell einreichen |
-| `/v1/planning/proposals/{proposal_id}` | `GET` | Persistiertes Planning-Proposal mit Validierungs- und Anwendungsstatus lesen |
-| `/v1/planning/recompute` | `POST` | Offizielle Neuplanung nach Aenderung an Graph, Gates oder Story-Zustaenden ausloesen |
+| `/v1/projects/{project_key}/planning/dependency-graph` | `GET` | Projektgebundenen Abhaengigkeits- und Konfliktgraph lesen. Pfad-Autoritaet: Code `execution_planning/http/routes.py:51-52` (`_DEPENDENCY_GRAPH_PATH`); FK-72 §72.8.2 + AG3-091. Endpunkt-Bau: AG3-091. |
+| `/v1/projects/{project_key}/planning/ready-set` | `GET` | Aktuell `READY`, blockierte und konfliktierte Stories mit Gruenden lesen |
+| `/v1/projects/{project_key}/planning/execution-plan` | `GET` | Kritischen Pfad, Waves, empfohlenen Batch und maximale Parallelisierung lesen |
+| `/v1/projects/{project_key}/planning/proposals` | `POST` | Strukturierte Agenten- oder Analyse-Proposals fuer Abhaengigkeiten, Gates und Waves offiziell einreichen |
+| `/v1/projects/{project_key}/planning/proposals/{proposal_id}` | `GET` | Persistiertes Planning-Proposal mit Validierungs- und Anwendungsstatus lesen |
+| `/v1/projects/{project_key}/planning/recompute` | `POST` | Offizielle Neuplanung nach Aenderung an Graph, Gates oder Story-Zustaenden ausloesen |
 | `/v1/projects/{project_key}/execution-input/snapshot` | `GET` | Lebende Execution-Input-Sicht fuer das Frontend: laufende Stories + Triage-gefilterte delegierbare Stories + Counters (FK-70 §70.8a.1) |
 | `/v1/projects/{project_key}/execution-input/next` | `GET` | Agent-orientierter Pull: genau eine naechste delegierbare Story (oder `null`) plus Triage-Begruendung; idempotent (FK-70 §70.8a.2) |
 | `/v1/stories` | `POST` | Neue Story in der Control-Plane anlegen (kanonische Story-Wahrheit) |

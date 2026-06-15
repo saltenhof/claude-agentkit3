@@ -32,12 +32,77 @@ formal_refs:
 
 ## 90.1 Übersicht
 
-Alle JSON Schemas mit Owning-Chapter und Kurzbeschreibung.
-Detaillierte Felddefinitionen stehen im jeweiligen Owning-Chapter.
+**Schema-Owner in v3: Pydantic-Modelle + Contract-Tests.**
+
+Die v3-Linie ersetzt den dateibasierten JSON-Schema-Katalog durch
+typisierte Pydantic-v2-Modelle in `src/agentkit/` als einzige
+normative Schema-Quelle. Es gibt **keinen** FK-90-Stage-Artefakt-Schema-Katalog
+(`{stage_id}.schema.json`-Dateien) im Repository. Die einzige
+`*.schema.json`-Datei im Repo ist ein unverwandtes Harness-Test-Fixture
+(`tests/fixtures/harness_post_tool/codex_post_tool_use.command.input.schema.json`);
+sie gehoert nicht zum FK-90-Schema-Katalog und ist kein Stage-Artefakt-Schema.
+Dieser Zustand ist gewollt und entspricht dem
+Architekturziel "typisierte Modelle statt JSON-Wildwuchs" (CLAUDE.md
+SINGLE SOURCE OF TRUTH, FK-02 §2.1 Artefakt-Definition).
+
+**Stabilitaetsanker:** Contract-Tests in `tests/contract/` fixieren die
+Schema-Stabilitaet verbindlich:
+
+- `tests/contract/artifacts/test_envelope_schema.py` — Envelope-Modell
+- `tests/contract/implementation/test_handover_schema.py` — Handover-Artefakt
+- `tests/contract/implementation/test_worker_manifest.py` — Worker-Manifest
+
+Neue Artefaktklassen werden als Pydantic-v2-Modell unter
+`src/agentkit/artifacts/` angelegt und durch einen Contract-Test in
+`tests/contract/` abgesichert. Eine parallele `.schema.json`-Datei wird
+nicht erzeugt.
+
+**Owning-Chapter-Referenz:** Die folgende Tabelle listet die Artefaktklassen
+mit dem Pydantic-Modell-Modul als Schema-Owner und dem Owning-Chapter
+als fachliche Referenz.
+
+| Artefaktklasse | Pydantic-Modul (Schema-Owner) | Owning Chapter | Beschreibung |
+|----------------|-------------------------------|---------------|-------------|
+| Envelope | `artifacts.envelope` | 02 | Gemeinsame Metadaten aller QA-Artefakte |
+| Context | `story_context_manager.models` | 22 | Story-Context (autoritativer Snapshot) |
+| Structural | `verify_system.structural.checker` | 33 | Deterministische Check-Ergebnisse (kein eigenstaendiges models.py; Owner ist StructuralChecker in checker.py) |
+| QA-Review | `verify_system.llm_evaluator.reviewer` | 34 | LLM-Bewertung (12 Checks); Reviewer-Klasse: QaReviewReviewer |
+| Semantic-Review | `verify_system.llm_evaluator.reviewer` | 34 | Systemische Angemessenheit; Reviewer-Klasse: SemanticReviewer |
+| Doc-Fidelity | `verify_system.conformance_service.models` | 32 | Umsetzungstreue; FidelityResult + VerifyDecision |
+| Adversarial | `verify_system.adversarial_orchestrator.runtime.models` | 34 | Adversarial-Testing-Ergebnisse; AdversarialResultArtifact |
+| Policy | `verify_system.policy_engine.engine` | 33 | Policy-Entscheidung; VerifyDecision + PolicyEngine |
+| Closure | `pipeline_engine.phase_executor.models` | 25 | Closure-Ergebnis mit Metriken; ClosureProgress + ClosurePayload |
+| Phase-State | `pipeline_engine.phase_executor.models` | 20 | Pipeline-Zustand; PhaseState |
+| Worker-Manifest | `implementation.manifest.manifest` | 24 | Technische Worker-Deklaration; WorkerManifest |
+| Handover | `implementation.handover.packager` | 24 | Fachliche Uebergabe an Verify; HandoverData |
+| Entwurfsartefakt | `exploration.change_frame` | 23 | Change-Frame (Exploration); ChangeFrame |
+| Bugfix-Reproducer | `verify_system.structural.checks.bugfix_checks` | 24 | Bugfix-Reproducer (kein eigenstaendiges Artefaktmodell; Owner ist bugfix_checks) |
+| Guardrail | `verify_system.structural.checker` | 33 | Guardrail-Pruefung; Owner ist StructuralChecker in checker.py |
+| ARE-Evidence | `requirements_coverage.models` | 40 | ARE-Evidence-Einreichung |
+| Story-Reset-Record | `story_reset.models` | 53 | Auditierbarer Reset-Vorgang |
+| Story-Split-Plan | `story_split.models` | 54 | Menschlich freigegebener Plan fuer Nachfolger, Rebinding und Cancel-Pfad |
+| Story-Split-Record | `story_split.models` | 54 | Auditierbarer Split-Vorgang |
+| Capability-Freeze-Record | `governance.ccag.rules` | 55 | Storybezogener Freeze bei HARD-STOP-/Normkonflikten; CcagRule |
+| Conflict-Resolution-Record | `governance.ccag.rules` | 55 | Auditierbare menschliche oder offizielle Konfliktaufloesung; CcagRule |
+| Permission-Request-Record | `governance.ccag.requests` | 55 | Auditierbarer Einzelfall fuer unbekannte Freigaben mit TTL und Resolution; PermissionRequest |
+| Permission-Lease-Record | `governance.ccag.leases` | 55 | Befristete, story-/run-scoped Freigabe ausserhalb einer Dauerregel; PermissionLease |
+| Integration-Scope-Manifest | governance.ccag (Story-Typ-Enum; kein eigenstaendiges Artefaktmodell in HEAD) | 57 | Freigegebener Integrationsraum fuer systemische E2E-/Stabilisierungsstories |
+| Manifest-Approval-Record | governance.ccag (kein eigenstaendiges Artefaktmodell in HEAD) | 57 | Attestierte menschliche oder administrative Freigabe eines Integrations-Manifests |
+| Stabilization-Budget | governance.ccag (kein eigenstaendiges Artefaktmodell in HEAD) | 57 | Harte Schleifen-, Surface- und Regressionsgrenzen fuer Integrationsstabilisierung |
+| Story-Exit-Record | `story_exit.models` | 58 | Audit-Record fuer administrativen Story-Exit in Human-Takeover |
+| Exit-Manifest-Snapshot | `story_exit.models` | 58 | Letzter gebundener Story-/Manifest-/Budget-Stand beim Exit |
+| ARE-Gate-Result | `requirements_coverage.models` | 40 | ARE-Gate-Pruefergebnis |
+| Concept-Feedback | verify_system.stage_registry (Stage-ID; kein eigenstaendiges Artefaktmodell in HEAD) | 24 | Konzept-Feedback-Loop-Ergebnis |
+| Incident | `failure_corpus.incident` | 41 | Failure-Corpus-Incident; Incident (BaseModel) |
+| Pattern | `failure_corpus.pattern` | 41 | Failure-Corpus-Pattern; FailurePatternRecord |
+| Check-Proposal | `failure_corpus.top` | 41 | Failure-Corpus-Check-Proposal; CheckProposal |
+| Story-Search-Result | `integrations.vectordb.weaviate_adapter` | 13 | VektorDB-Suchergebnisse; StorySearchHit |
+| Feedback | `verify_system.remediation.feedback` | 25 | Maengelliste fuer Remediation; RemediationFeedback |
+| Governance-Adjudication | `governance.governance_observer.models` | 35 | Incident-Klassifikation; GovernanceAdjudicationVerdict |
 
 Der relationale PostgreSQL-State gehoert bewusst nicht in diesen
-JSON-Schema-Katalog. Fuer den kanonischen Speicherschnitt sind FK-18
-und `formal.state-storage.*` maßgeblich.
+Artefaktkatalog. Fuer den kanonischen Speicherschnitt sind FK-18
+und `formal.state-storage.*` massgeblich.
 
 Konsolidierte Vertragsregel gemaess FK-59:
 
@@ -47,48 +112,17 @@ Konsolidierte Vertragsregel gemaess FK-59:
 - `exit_class` ist **kein** freies Story-Hauptfeld, sondern nur in
   offiziellen Exit-/Split-/Reset-Records zulaessig
 
-| Schema | Datei | Owning Chapter | Beschreibung |
-|--------|-------|---------------|-------------|
-| Envelope | `envelope.schema.json` | 02 | Gemeinsame Metadaten aller QA-Artefakte |
-| Context | `context.schema.json` | 22 | Story-Context (autoritativer Snapshot) |
-| Structural | `structural.schema.json` | 33 | Deterministische Check-Ergebnisse |
-| QA-Review | `qa_review.schema.json` | 34 | LLM-Bewertung (12 Checks) |
-| Semantic-Review | `semantic_review.schema.json` | 34 | Systemische Angemessenheit |
-| Doc-Fidelity | `doc_fidelity_impl.schema.json` | 32 | Umsetzungstreue |
-| Adversarial | `adversarial.schema.json` | 34 | Adversarial-Testing-Ergebnisse |
-| Policy | `policy.schema.json` | 33 | Policy-Entscheidung |
-| Closure | `closure.schema.json` | 25 | Closure-Ergebnis mit Metriken |
-| Phase-State | `phase_state.schema.json` | 20 | Pipeline-Zustand |
-| Worker-Manifest | `worker_manifest.schema.json` | 24 | Technische Worker-Deklaration |
-| Handover | `handover.schema.json` | 24 | Fachliche Übergabe an Verify |
-| Entwurfsartefakt | `entwurfsartefakt.schema.json` | 23 | Change-Frame (Exploration) |
-| Bugfix-Reproducer | `bugfix_reproducer.schema.json` | 24 | Bugfix-Reproducer |
-| Guardrail | `guardrail.schema.json` | 33 | Guardrail-Prüfung |
-| ARE-Evidence | `are_evidence.schema.json` | 40 | ARE-Evidence-Einreichung |
-| Story-Reset-Record | `story_reset_record.schema.json` | 53 | Auditierbarer Reset-Vorgang |
-| Story-Split-Plan | `story_split_plan.schema.json` | 54 | Menschlich freigegebener Plan fuer Nachfolger, Rebinding und Cancel-Pfad |
-| Story-Split-Record | `story_split_record.schema.json` | 54 | Auditierbarer Split-Vorgang |
-| Capability-Freeze-Record | `capability_freeze_record.schema.json` | 55 | Storybezogener Freeze bei HARD-STOP-/Normkonflikten |
-| Conflict-Resolution-Record | `conflict_resolution_record.schema.json` | 55 | Auditierbare menschliche oder offizielle Konfliktaufloesung |
-| Permission-Request-Record | `permission_request_record.schema.json` | 55 | Auditierbarer Einzelfall fuer unbekannte Freigaben mit TTL und Resolution |
-| Permission-Lease-Record | `permission_lease_record.schema.json` | 55 | Befristete, story-/run-scoped Freigabe ausserhalb einer Dauerregel |
-| Integration-Scope-Manifest | `integration_scope_manifest.schema.json` | 57 | Freigegebener Integrationsraum fuer systemische E2E-/Stabilisierungsstories |
-| Manifest-Approval-Record | `manifest_approval_record.schema.json` | 57 | Attestierte menschliche oder administrative Freigabe eines Integrations-Manifests |
-| Stabilization-Budget | `stabilization_budget.schema.json` | 57 | Harte Schleifen-, Surface- und Regressionsgrenzen fuer Integrationsstabilisierung |
-| Story-Exit-Record | `story_exit_record.schema.json` | 58 | Audit-Record fuer administrativen Story-Exit in Human-Takeover |
-| Exit-Manifest-Snapshot | `exit_manifest_snapshot.schema.json` | 58 | Letzter gebundener Story-/Manifest-/Budget-Stand beim Exit |
-| ARE-Gate-Result | `are_gate_result.schema.json` | 40 | ARE-Gate-Prüfergebnis |
-| Concept-Feedback | `concept_feedback.schema.json` | 24 | Konzept-Feedback-Loop-Ergebnis |
-| Incident | `incident.schema.json` | 41 | Failure-Corpus-Incident |
-| Pattern | `pattern.schema.json` | 41 | Failure-Corpus-Pattern |
-| Check-Proposal | `check_proposal.schema.json` | 41 | Failure-Corpus-Check-Proposal |
-| Story-Search-Result | `story_search_result.schema.json` | 13 | VektorDB-Suchergebnisse |
-| Feedback | `feedback.schema.json` | 25 | Mängelliste für Remediation |
-| Governance-Adjudication | `governance_adjudication.schema.json` | 35 | Incident-Klassifikation |
-| Story-Reset-Record | `story_reset_record.schema.json` | 53 | Auditierbarer Reset-Vorgang mit Actor, Grund und Fortschritt |
-
 ## 90.2 Namenskonvention
 
-**Stage-ID = Dateiname:** Alle QA-Artefakte heißen `{stage_id}.json`
-(Kap. 33.2.3). Die Schema-Dateien folgen demselben Muster:
-`{stage_id}.schema.json`.
+**Pydantic-Modell als Schema-Owner:** In v3 ist das Pydantic-v2-Modell
+die einzig normative Schema-Quelle. Artefaktdateien im Dateisystem
+(z. B. als optionaler JSON-Export) erhalten den Namen des Stage-Kontexts
+(z. B. `structural.json`, `qa_review.json`), aber es gibt keine
+korrespondierenden `.schema.json`-Dateien. Das Muster
+`{stage_id}.schema.json` ist **nicht** Teil der v3-Namenskonvention und
+darf nicht eingefuehrt werden.
+
+**Autoritaetsquelle:** Code/v3-Linie ist autoritativ (AG3-103
+Nachzug-Entscheidung). FK-90 spiegelt die implementierte Realitaet.
+Contract-Tests in `tests/contract/` sind der maschinell pruefbare
+Stabilitaetsanker dieser Konvention.

@@ -421,7 +421,7 @@ stateDiagram-v2
 | Story-Paket | `{story_id}_{slug}` | `ODIN-042_implement-broker-api` | Story-Export |
 | Artefakt-Referenz | `artifact_id` | `art-structural-001` | Artifact Manager |
 | Lock-Record | `(project_key, story_id, run_id, lock_type)` | `(odin, ODIN-042, run-123, qa_artifact_write)` | Pipeline-Skripte |
-| Adversarial-Sandbox | `_temp/adversarial/{story_id}/` | `_temp/adversarial/ODIN-042/` | Phase Runner |
+| Adversarial-Sandbox | `var/adversarial/{story_id}/` | `var/adversarial/ODIN-042/` | Phase Runner. Autoritaet: FK-10 §10.3.2 + CLAUDE.md verbieten `_temp/`-Zustandsverzeichnisse; `var/` ist der erlaubte ephemere Laufzeitpfad. |
 | Incident-ID | `FC-{YYYY}-{NNNN}` | `FC-2026-0017` | Failure Corpus |
 | Pattern-ID | `FP-{NNNN}` | `FP-0003` | Failure Corpus |
 | Check-ID | `CHK-{NNNN}` | `CHK-0012` | Failure Corpus |

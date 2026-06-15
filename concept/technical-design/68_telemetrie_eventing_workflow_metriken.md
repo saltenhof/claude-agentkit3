@@ -70,6 +70,21 @@ glossary:
         Event-Katalog in FK-68 §68.2.2, z. B. agent_start, increment_commit,
         review_request. Jeder Event-Typ ist producer-neutral definiert und
         darf keine anbieterspezifische Variante erhalten.
+
+        OWNER-SPLIT (AG3-103 Nachzug, HEAD-verifiziert): Der Code-Enum
+        in src/agentkit/telemetry/events.py ist autoritativ. BC14-Werte
+        (dependency_recorded, story_ready, story_blocked, plan_revised,
+        scheduling_decided, gate_resolved, rulebook_compiled, wave_collapsed,
+        events.py:90-97) und BC15-Werte (are_requirements_linked,
+        are_evidence_submitted, are_gate_result, events.py:103-105) sind
+        sowohl im Code-Enum als auch in dieser value-Liste vorhanden —
+        kein Drift. Die value-Liste deckt die kanonischen FK-68-Katalogwerte.
+        Der Code-Enum enthaelt zusaetzlich Werte, die noch keinen
+        FK-68-Eintrag besitzen (z. B. llm_call_complete, review_guard_intervention,
+        mandate_classification, conformance_assessment_*, governance_*,
+        session_run_binding_*, story_execution_regime_*, artifact_invalidated).
+        Massgebend ist stets der Code-Enum; FK-68 wird bei Abschluss der
+        jeweiligen owning Stories ergaenzt.
       values:
         - agent_start
         - agent_end
@@ -359,7 +374,15 @@ hält die Pool-Abstraktion intakt (Kap. 01 P8, Kap. 11).
 
 | Event | Wann | Zusatzfelder | Erwartungswert | Quelle |
 |-------|------|-------------|----------------|--------|
-| `review_divergence` | Divergenz zwischen zwei Reviewern gemessen. Emittiert nach jedem Review-Paar durch den Divergenz-Score-Rechner (Kap. 28). | `reviewer_a`, `reviewer_b`, `score` (LOW/MEDIUM/HIGH), `routing` | 0..n pro Story | `agentkit.telemetry.hooks.divergence` |
+| `review_divergence` | Divergenz zwischen zwei Reviewern gemessen. Emittiert nach jedem Review-Paar durch den Divergenz-Score-Rechner (Kap. 28). | `story_id`, `reviewer_a`, `reviewer_b`, `divergent` (bool), `quorum_triggered` (bool), `final_verdict` (str, null wenn kein Quorum) | 0..n pro Story | `agentkit.telemetry.hooks.divergence` |
+
+**Feldsatz-Autoritaet:** FK-34 §34.8.4. FK-68 zieht auf den FK-34-§34.8.4-Feldsatz
+nach (AG3-103). Die fruehere Form `score` (LOW/MEDIUM/HIGH) / `routing`
+entfaellt vollstaendig — kein paralleles Format.
+**Code-Ist-Zustand (HEAD): KONFORM (AG3-066 abgeschlossen).** Der Hook
+`src/agentkit/telemetry/hooks/divergence_hook.py` emittiert bereits den
+FK-34-§34.8.4-Feldsatz (`story_id`, `reviewer_a`, `reviewer_b`, `divergent`,
+`quorum_triggered`, `final_verdict`, Zeilen 74-79); kein `score`/`routing` mehr.
 
 #### Governance
 

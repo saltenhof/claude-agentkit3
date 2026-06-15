@@ -524,8 +524,8 @@ flowchart TD
 | Hook-Sprache | Python | 3.14 | stdin/stdout, exit codes |
 | Konfiguration | YAML | — | Dateisystem |
 | Datenmodelle | Pydantic | 2.7+ | Python-Klassen |
-| Telemetrie | JSONL | — | Dateisystem (append) |
-| QA-Artefakte | JSON | — | Dateisystem + JSON Schema |
+| Telemetrie-Events (Laufzeit) | PostgreSQL | — | Kanonischer State-Backend-Store (P8); JSONL ist Archiv-/Export-Format, kein kanonischer Laufzeitspeicher |
+| QA-Artefakte | Strukturierte Records in PostgreSQL | — | Kanonisch im State-Backend (P8); optionale JSON-Exporte sind abgeleitetes Format, nicht dateibasiert kanonisch |
 | VCS | Git | 2.30+ | CLI (`git`) |
 | GitHub | GitHub API | REST v3 | CLI (`gh`) |
 | VektorDB | Weaviate | 1.25+ | gRPC + HTTP REST |
