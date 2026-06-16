@@ -314,6 +314,40 @@ def _handle_healthz(method: str, correlation_id: str) -> HttpResponse:
     )
 
 
+def _handle_get_operation(
+    runtime_service: ControlPlaneRuntimeService,
+    op_id: str,
+    correlation_id: str,
+) -> HttpResponse:
+    """Return the project-edge operation status (module-level helper, AG3-105 LOC split)."""
+    try:
+        result = runtime_service.get_operation(op_id)
+    except ConfigError as exc:
+        return _backend_requirement_response(
+            "project_edge_reconcile_unavailable", exc, correlation_id
+        )
+    except RuntimeError as exc:
+        logger.warning("Project-edge reconcile unavailable: %s", exc)
+        return _error_response(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            error_code="project_edge_reconcile_unavailable",
+            message=str(exc),
+            correlation_id=correlation_id,
+        )
+    if result is None:
+        return _error_response(
+            HTTPStatus.NOT_FOUND,
+            error_code="operation_not_found",
+            message="Operation not found",
+            correlation_id=correlation_id,
+        )
+    return _json_response(
+        HTTPStatus.OK,
+        result.model_dump(mode="json"),
+        correlation_id=correlation_id,
+    )
+
+
 def _read_only_method_not_allowed(
     read_model_routes: ReadModelRoutes,
     route_path: str,
@@ -680,8 +714,8 @@ class ControlPlaneApplication:
         # Legacy non-project project-edge operation GET:
         operation_match = _OPERATION_PATH_PATTERN.match(route_path)
         if operation_match is not None:
-            return self._handle_get_operation(
-                operation_match.group("op_id"), correlation_id,
+            return _handle_get_operation(
+                self._runtime_service, operation_match.group("op_id"), correlation_id,
             )
 
         return _error_response(
@@ -1118,38 +1152,6 @@ class ControlPlaneApplication:
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 error_code="project_edge_sync_unavailable",
                 message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _json_response(
-            HTTPStatus.OK,
-            result.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
-
-    def _handle_get_operation(
-        self,
-        op_id: str,
-        correlation_id: str,
-    ) -> HttpResponse:
-        try:
-            result = self._runtime_service.get_operation(op_id)
-        except ConfigError as exc:
-            return _backend_requirement_response(
-                "project_edge_reconcile_unavailable", exc, correlation_id
-            )
-        except RuntimeError as exc:
-            logger.warning("Project-edge reconcile unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="project_edge_reconcile_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        if result is None:
-            return _error_response(
-                HTTPStatus.NOT_FOUND,
-                error_code="operation_not_found",
-                message="Operation not found",
                 correlation_id=correlation_id,
             )
         return _json_response(

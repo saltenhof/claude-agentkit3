@@ -522,67 +522,88 @@ class TaskManagementRoutes:
         # Allocate task_id server-side with a single retry on collision.
         max_attempts = 2
         for attempt in range(max_attempts):
-            try:
-                task_id = _allocate_task_id(project_key, self.task_management)
-            except Exception as exc:  # noqa: BLE001
-                return _internal_error("task_id allocation failed", correlation_id, exc)
+            response = self._attempt_create_task(
+                project_key,
+                body,
+                correlation_id,
+                is_last_attempt=attempt == max_attempts - 1,
+            )
+            if response is not None:
+                return response
+            # None == allocation collision and retries remain.
+            logger.warning("task_id collision for project %s, retrying", project_key)
 
-            try:
-                task = Task(
-                    task_id=task_id,
-                    project_key=project_key,
-                    kind=body.kind,
-                    type=body.type,
-                    title=body.title,
-                    body=body.body,
-                    priority=body.priority,
-                    status=TaskStatus.OPEN,
-                    origin=body.origin,
-                    source_story_id=body.source_story_id,
-                    execution_report_ref=None,
-                    created_at=datetime.now(UTC),
-                    resolved_at=None,
-                    resolved_by=None,
-                )
-                created = self.task_management.create_task(task)
-                return bc_json_response(
-                    HTTPStatus.CREATED,
-                    {"task": created.model_dump(mode="json"), "project_key": project_key},
-                    correlation_id=correlation_id,
-                )
-            except TaskAlreadyExistsError:
-                if attempt < max_attempts - 1:
-                    # Collision on allocation — retry with next id
-                    logger.warning(
-                        "task_id collision on %s for project %s, retrying", task_id, project_key
-                    )
-                    continue
-                return bc_error_response(
-                    HTTPStatus.CONFLICT,
-                    error_code="task_already_exists",
-                    message=f"Task {task_id} already exists after {max_attempts} allocation attempts",
-                    correlation_id=correlation_id,
-                )
-            except InvalidTaskTransitionError as exc:
-                return bc_error_response(
-                    HTTPStatus.CONFLICT,
-                    error_code="invalid_task_transition",
-                    message=str(exc),
-                    correlation_id=correlation_id,
-                )
-            except ValueError as exc:
-                return bc_error_response(
-                    HTTPStatus.BAD_REQUEST,
-                    error_code="invalid_task",
-                    message=str(exc),
-                    correlation_id=correlation_id,
-                )
-            except Exception as exc:  # noqa: BLE001
-                return _internal_error("create_task failed unexpectedly", correlation_id, exc)
-
-        # Should never be reached — loop always returns
+        # Should never be reached — the loop always returns on the last attempt.
         return _internal_error(  # pragma: no cover
             "create_task allocation loop exhausted", correlation_id, RuntimeError("unreachable")
+        )
+
+    def _attempt_create_task(
+        self,
+        project_key: str,
+        body: _CreateTaskRequest,
+        correlation_id: str,
+        *,
+        is_last_attempt: bool,
+    ) -> BcRouteResponse | None:
+        """Run one create attempt; return ``None`` on a retryable id collision.
+
+        A ``None`` result means the allocated id collided and the caller still has
+        retries left. Every other outcome (success or terminal error) returns a
+        concrete ``BcRouteResponse``.
+        """
+        assert self.task_management is not None  # noqa: S101 — guarded by caller
+        try:
+            task_id = _allocate_task_id(project_key, self.task_management)
+        except Exception as exc:  # noqa: BLE001
+            return _internal_error("task_id allocation failed", correlation_id, exc)
+        try:
+            task = Task(
+                task_id=task_id,
+                project_key=project_key,
+                kind=body.kind,
+                type=body.type,
+                title=body.title,
+                body=body.body,
+                priority=body.priority,
+                status=TaskStatus.OPEN,
+                origin=body.origin,
+                source_story_id=body.source_story_id,
+                execution_report_ref=None,
+                created_at=datetime.now(UTC),
+                resolved_at=None,
+                resolved_by=None,
+            )
+            created = self.task_management.create_task(task)
+        except TaskAlreadyExistsError:
+            if not is_last_attempt:
+                return None
+            return bc_error_response(
+                HTTPStatus.CONFLICT,
+                error_code="task_already_exists",
+                message=f"Task {task_id} already exists after allocation retries",
+                correlation_id=correlation_id,
+            )
+        except InvalidTaskTransitionError as exc:
+            return bc_error_response(
+                HTTPStatus.CONFLICT,
+                error_code="invalid_task_transition",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+        except ValueError as exc:
+            return bc_error_response(
+                HTTPStatus.BAD_REQUEST,
+                error_code="invalid_task",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _internal_error("create_task failed unexpectedly", correlation_id, exc)
+        return bc_json_response(
+            HTTPStatus.CREATED,
+            {"task": created.model_dump(mode="json"), "project_key": project_key},
+            correlation_id=correlation_id,
         )
 
     def _handle_resolve_task(
