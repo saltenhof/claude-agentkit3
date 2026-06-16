@@ -31,8 +31,14 @@ size: L
 # skeleton) -> R2 (project-scoped client + read-models + harness) -> R3/OPUS (response-shape
 # adapter, public-path E2E, fail-closed, Sheet validate, archived UI, real tests) -> R4/OPUS
 # (approval-status-from-search not lifecycle-cast, spec/evidence/coverage tab wiring, flow
-# hold-states, public-create AC14) -> R5..R9 ARCH-55 German-comment sweep to APPROVE
-# (job-4c56ca31). No src/agentkit Python modified. unblocks: AG3-094, AG3-105.
+# hold-states, public-create AC14) -> R5..R9 ARCH-55 German-comment sweep to Codex APPROVE
+# (job-4c56ca31, commit f851079). THEN Jenkins #450 caught a real post-merge FK-64
+# CSS-conformance regression: AC11 tokenization added 12 :root tokens + drifted --text-*
+# em->rem without registering them in the kpi_analytics.DesignSystem owner SSOT (npm gates
+# don't run the Python conformance checker, so it escaped Codex+local). R6/OPUS registered
+# all new tokens in design_system.py owner + reverted to em (commit f390c43). Final gates:
+# Jenkins #451 SUCCESS, Sonar gate OK (0 new-code issues, 0 hotspots), conformance 83 passed,
+# ruff + mypy(+linux) clean (731), frontend build/test(102)/lint green. unblocks: AG3-094, AG3-105.
 depends_on:
   - AG3-090
   - AG3-091
