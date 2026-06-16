@@ -126,38 +126,48 @@ def test_build_kpi_analytics_wires_real_refresh_worker(tmp_path: Path) -> None:
 
 def test_productive_refresh_analytics_reaches_worker_not_skipped(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The facade dispatches into the REAL worker (not the SKIPPED-not-configured).
 
     The old wiring left ``refresh_worker=None``, so ``refresh_analytics`` returned
     SKIPPED in production. Now the productive builder injects the real worker, so
-    the facade dispatches into it. The worker then reads the project-global event
-    stream through the real source; that read is Postgres-canonical (FK-60 §60.3.2),
-    so on the Docker-free SQLite harness it fails closed with a clear "requires
-    postgres" error — which is itself proof the worker WAS reached (the
-    not-configured SKIPPED branch is gone), and a fail-closed (not silent) outcome.
+    the facade dispatches into it. The worker reads the project-global execution-
+    event stream through the real source.
+
+    AG3-094 (jenkins-460 scope-correction): the SQLite global execution-event store
+    is now a REAL read (it backs the SSE E2E and is asserted by the cross-backend
+    parity contract test), resolving its root from ``AGENTKIT_STORE_DIR`` (the same
+    isolated ``tmp_path`` the FactStore uses). With no seeded events the watermark is
+    ``None``, so the worker recomputes nothing and returns a NON-SKIPPED result
+    (``UP_TO_DATE``) — proof the worker WAS reached (the not-configured SKIPPED
+    branch is gone). This replaces the pre-AG3-094 assertion that the SQLite event
+    read was unsupported (``RuntimeError`` "requires postgres"), which AG3-094's real
+    SQLite event store deliberately superseded.
     """
+    monkeypatch.setenv("AGENTKIT_STORE_DIR", str(tmp_path))
     _seed_schema_version(FactStore(StateBackendFactRepository(tmp_path)))
     analytics = build_kpi_analytics(tmp_path, project_key=_PROJECT)
 
-    with pytest.raises(RuntimeError, match="postgres"):
-        analytics.refresh_analytics(_PROJECT, hint_story_id="AG3-700")
+    result = analytics.refresh_analytics(_PROJECT, hint_story_id="AG3-700")
+
+    assert result.status is not RefreshStatus.SKIPPED
 
 
 def test_productive_refresh_analytics_no_longer_returns_skipped(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The not-configured SKIPPED branch is unreachable once the worker is wired."""
+    monkeypatch.setenv("AGENTKIT_STORE_DIR", str(tmp_path))
     _seed_schema_version(FactStore(StateBackendFactRepository(tmp_path)))
     analytics = build_kpi_analytics(tmp_path, project_key=_PROJECT)
 
     # Both deps are configured, so the facade NEVER takes the SKIPPED branch — it
-    # dispatches to the worker (which fails closed on SQLite, asserted above).
-    try:
-        result = analytics.refresh_analytics(_PROJECT)
-    except RuntimeError:
-        result = None
-    assert result is None or result.status is not RefreshStatus.SKIPPED
+    # dispatches to the worker, which reads the (empty) SQLite event stream and
+    # returns a non-SKIPPED result.
+    result = analytics.refresh_analytics(_PROJECT)
+    assert result.status is not RefreshStatus.SKIPPED
 
 
 # ---------------------------------------------------------------------------

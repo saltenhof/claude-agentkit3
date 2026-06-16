@@ -11,12 +11,16 @@ from agentkit.config.sqlite_gate import ALLOW_SQLITE_ENV, sqlite_allowed
 
 STATE_BACKEND_ENV = "AGENTKIT_STATE_BACKEND"
 STATE_DATABASE_URL_ENV = "AGENTKIT_STATE_DATABASE_URL"
-# AG3-094 (E9, FIX THE MODEL): explicit root for the SQLite *global* (project=None)
-# store. The global execution-event store must NOT key off ``Path.cwd()`` — that
-# is hidden operational state that forces callers/harnesses to ``os.chdir``. The
-# global store resolves under this configured root exactly like a per-project
-# store dir resolves from its explicit ``store_dir`` Path. When unset the SQLite
-# global store FAILS CLOSED (see ``resolve_sqlite_global_store_dir``).
+# AG3-094 (E9, FIX THE MODEL): explicit root for the NEW SQLite execution-event
+# *global* store. That store must NOT key off ``Path.cwd()`` — that is hidden
+# operational state that forces callers/harnesses to ``os.chdir``. It resolves
+# under this configured root exactly like a per-project store dir resolves from
+# its explicit ``store_dir`` Path. When unset the execution-event global store
+# FAILS CLOSED (see ``resolve_sqlite_store_root`` and, in sqlite_store,
+# ``_execution_event_global_store_dir``). Pre-existing global reads
+# (story-context / phase-state / analytics / story-execution-lock) keep their
+# historical ``Path.cwd()`` resolution — narrowing the fail-closed back to the
+# AG3-094 addition is the jenkins-460 scope correction.
 STORE_DIR_ENV = "AGENTKIT_STORE_DIR"
 # AG3-051: test-only Postgres schema override. Production/runtime/build NEVER
 # set these; the override is honored fail-closed (gate active AND name matches

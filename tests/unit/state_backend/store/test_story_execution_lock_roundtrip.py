@@ -21,7 +21,6 @@ from agentkit.governance.guard_system.records import StoryExecutionLockRecord
 from agentkit.state_backend.config import (
     ALLOW_SQLITE_ENV,
     STATE_BACKEND_ENV,
-    STORE_DIR_ENV,
 )
 
 if TYPE_CHECKING:
@@ -67,11 +66,15 @@ def sqlite_env(
 ) -> Generator[None, None, None]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
-    # AG3-094 (E9): the SQLite global (project=None) store resolves its root from
-    # AGENTKIT_STORE_DIR (fail-closed), NOT from Path.cwd(). Point it at this
-    # test's tmp_path so the *_global lock roundtrips persist into an isolated,
-    # explicit store — replacing the previous os.chdir(tmp_path) crutch.
-    monkeypatch.setenv(STORE_DIR_ENV, str(tmp_path))
+    # AG3-094 jenkins-460 scope-correction: the story-execution-lock *_global
+    # functions are PRE-EXISTING AG3-031 global reads/writes that resolve their
+    # store via Path.cwd() (the historical default), NOT the AG3-094 explicit
+    # AGENTKIT_STORE_DIR fail-closed root (that narrowing applies ONLY to the new
+    # execution-event global store). Chdir into this test's tmp_path so the global
+    # save and the explicit-store LockRecordRepository(store_dir=tmp_path) read hit
+    # the SAME isolated DB. monkeypatch.chdir is auto-restored (no manual
+    # try/finally crutch) and isolates per test.
+    monkeypatch.chdir(tmp_path)
     from agentkit.state_backend.store import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()

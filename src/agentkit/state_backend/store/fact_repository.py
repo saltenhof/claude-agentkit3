@@ -433,6 +433,17 @@ class StateBackendFactRepository:
             When ``None`` and the SQLite backend is active, the root is resolved
             fail-closed from ``AGENTKIT_STORE_DIR`` (AG3-094 E9 — NO ``Path.cwd()``
             hidden state). Postgres never touches this value.
+
+    Note:
+        AG3-094 (E9 + jenkins-460 scope-correction): the implicit (no-arg) case
+        resolves the SQLite root from ``AGENTKIT_STORE_DIR`` (fail-closed) because
+        the REAL KPI read endpoint constructs this repository with NO ``store_dir``
+        (``control_plane_http.app``) and the AG3-094 SSE E2E harness sets
+        ``AGENTKIT_STORE_DIR`` (no ``os.chdir``) so the KPI seed (explicit dir) and
+        read (implicit) share one store. This explicit-root resolution is kept; the
+        narrowing of the broad fail-closed back out of UNRELATED pre-existing global
+        reads happens in ``sqlite_store`` (story-context / phase-state /
+        story-execution-lock) — see the AG3-094 jenkins-460 note.
     """
 
     def __init__(self, store_dir: Path | None = None) -> None:

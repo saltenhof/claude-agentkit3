@@ -1975,17 +1975,26 @@ def delete_story_are_link_row(
 # ---------------------------------------------------------------------------
 
 
-def _global_store_dir() -> Path:
-    """Resolve the SQLite *global* (project=None) store root, fail-closed.
+def _execution_event_global_store_dir() -> Path:
+    """Resolve the NEW SQLite execution-event *global* store root, fail-closed.
 
-    AG3-094 (E9, FIX THE MODEL): the global execution-event store used by the
-    SSE stream and the KPI source resolves from the SAME explicit configured root
-    that per-project / implicit stores resolve from (``AGENTKIT_STORE_DIR`` via
-    :func:`resolve_sqlite_store_root`), NOT from ``Path.cwd()`` — single source of
-    truth, fail-closed when no root is configured.
+    AG3-094 (E9, FIX THE MODEL): the global execution-event store added by
+    AG3-094 (consumed by the SSE stream and the KPI analytics source) resolves
+    from the EXPLICIT configured root (``AGENTKIT_STORE_DIR`` via
+    :func:`resolve_sqlite_store_root`), NOT from ``Path.cwd()`` — that was hidden
+    operational state forcing harnesses to ``os.chdir``. Fail-closed when no root
+    is configured.
+
+    This resolver is SCOPED to the new execution-event global functions
+    (``append_execution_event_global_row``, ``load_execution_event_rows_global``,
+    ``load_execution_event_rows_for_project_global``) which have no legacy callers.
+    Pre-existing global reads (story-context / phase-state / analytics /
+    story-execution-lock) keep resolving via :func:`_project_store_dir`'s
+    historical ``Path.cwd()`` default — see the scope-correction in
+    ``stories/AG3-094-dashboards-live-updates-sse/jenkins-460-integration-regression.md``.
 
     Returns:
-        The configured global store root directory.
+        The configured execution-event global store root directory.
 
     Raises:
         ConfigError: If ``AGENTKIT_STORE_DIR`` is unset or blank.
@@ -1994,8 +2003,18 @@ def _global_store_dir() -> Path:
 
 
 def _project_store_dir(store_dir: Path | None) -> Path:
+    """Resolve a store directory; ``None`` falls back to the process CWD.
+
+    The ``None`` (implicit/global) case resolves to ``Path.cwd()`` — the
+    historical pre-AG3-094 behavior for the pre-existing global reads
+    (story-context, phase-state, analytics, story-execution-lock). AG3-094's
+    fail-closed explicit-root resolution is intentionally scoped to the NEW
+    execution-event global store only (:func:`_execution_event_global_store_dir`);
+    broadening it to every global read is deferred to its own backend story (see
+    the AG3-094 jenkins-460 scope-correction note).
+    """
     if store_dir is None:
-        return _global_store_dir()
+        return Path.cwd()
     return store_dir
 
 
@@ -2521,9 +2540,9 @@ def append_execution_event_row(story_dir: Path, row: dict[str, Any]) -> None:
 def append_execution_event_global_row(row: dict[str, Any]) -> None:
     """Append a global execution-event row to the global SQLite store.
 
-    Resolves the store root via :func:`_global_store_dir` (the explicit
-    ``AGENTKIT_STORE_DIR`` root, fail-closed) so that the SSE stream and the KPI
-    analytics source can read it cross-story via
+    Resolves the store root via :func:`_execution_event_global_store_dir` (the
+    explicit ``AGENTKIT_STORE_DIR`` root, fail-closed) so that the SSE stream and
+    the KPI analytics source can read it cross-story via
     :func:`load_execution_event_rows_for_project_global`.
 
     AG3-094 (E8, backend parity): uses a *plain* ``INSERT`` (NOT
@@ -2535,7 +2554,7 @@ def append_execution_event_global_row(row: dict[str, Any]) -> None:
     that silently tolerated dups on SQLite can no longer pass while breaking on
     the Postgres path.
     """
-    with _connect(_project_store_dir(None)) as conn:
+    with _connect(_execution_event_global_store_dir()) as conn:
         conn.execute(
             """
             INSERT INTO execution_events (
@@ -2694,7 +2713,7 @@ def load_execution_event_rows_global(
     Returns:
         Row dicts ordered by ``occurred_at DESC``, capped at ``limit``.
     """
-    db_dir: Path = _global_store_dir()
+    db_dir: Path = _execution_event_global_store_dir()
     clauses: list[str] = [_CLAUSE_PROJECT_KEY, _CLAUSE_STORY_ID]
     params: list[object] = [project_key, story_id]
     if run_id is not None:
@@ -2730,7 +2749,7 @@ def load_execution_event_rows_for_project_global(
 
     Reads from the same global database that
     :func:`append_execution_event_global_row` writes to (resolved via
-    :func:`_global_store_dir`).
+    :func:`_execution_event_global_store_dir`).
 
     AG3-094 (E8, backend parity): the ordering/limit-window semantics MUST match
     :func:`postgres_store.load_execution_event_rows_for_project_global`. Postgres
@@ -2749,7 +2768,7 @@ def load_execution_event_rows_for_project_global(
     if limit is not None:
         limit_clause = "LIMIT ?"
         params.append(limit)
-    with _connect(_project_store_dir(None)) as conn:
+    with _connect(_execution_event_global_store_dir()) as conn:
         rows = conn.execute(
             f"""
             SELECT project_key, story_id, run_id, event_id, event_type,
@@ -3240,10 +3259,8 @@ def save_story_execution_lock_global_row(row: dict[str, Any]) -> None:
 
     AG3-031 Pass-7: SQLite path symmetric with postgres_store.
     Table DDL is bootstrapped via ``_ensure_schema_runtime_tables``.
-    Uses ``_project_store_dir(None)`` (the explicit ``AGENTKIT_STORE_DIR`` root
-    via :func:`_global_store_dir`, fail-closed — AG3-094 E9, NOT ``Path.cwd()``)
-    as the global store location, consistent with all other ``*_global_row``
-    functions.
+    Uses ``_project_store_dir(None)`` (= ``Path.cwd()``) as the global
+    store location, consistent with all other ``*_global_row`` functions.
     """
 
     with _connect(_project_store_dir(None)) as conn:
@@ -3286,9 +3303,8 @@ def load_story_execution_lock_global_row(
     """Return the raw story-execution-lock row, or None.
 
     AG3-031 Pass-7: SQLite path symmetric with postgres_store.
-    Uses ``_project_store_dir(None)`` (the explicit ``AGENTKIT_STORE_DIR`` root
-    via :func:`_global_store_dir`, fail-closed — AG3-094 E9, NOT ``Path.cwd()``)
-    as the global store location.
+    Uses ``_project_store_dir(None)`` (= ``Path.cwd()``) as the global
+    store location.
     """
 
     with _connect(_project_store_dir(None)) as conn:

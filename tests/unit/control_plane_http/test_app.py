@@ -16,7 +16,6 @@ from __future__ import annotations
 import json
 import re
 from http import HTTPStatus
-from typing import TYPE_CHECKING
 
 import pytest
 
@@ -32,9 +31,6 @@ from agentkit.control_plane_http.app import (
 )
 from agentkit.pipeline_engine.http.routes import PipelineEngineRoutes
 from agentkit.telemetry.http.routes import TelemetryRouteResponse
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # AC1 — compat re-export identity
@@ -1050,14 +1046,8 @@ def test_legacy_put_story_field_returns_404() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_project_scoped_story_collection_get_resolves(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_project_scoped_story_collection_get_resolves() -> None:
     """GET /v1/projects/{key}/stories resolves (tenant-scoped path, no legacy bypass) (AC2)."""
-    # The global story-context read resolves the SQLite store via AGENTKIT_STORE_DIR
-    # (fail-closed, never Path.cwd() — AG3-094 E9); give the test an explicit isolated root.
-    monkeypatch.setenv("AGENTKIT_STORE_DIR", str(tmp_path))
     app = _make_app_with_real_story_routes()
 
     get_resp = app.handle_request(
@@ -1080,10 +1070,7 @@ def test_project_scoped_story_collection_post() -> None:
     assert story_id.startswith("PA-")
 
 
-def test_project_scoped_story_detail_get_unknown_returns_404(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_project_scoped_story_detail_get_unknown_returns_404() -> None:
     """GET /v1/projects/{key}/stories/{id} resolves to a story-not-found 404 (AC2).
 
     The route IS reachable (project-scoped path resolves via tenant-scope) but
@@ -1091,9 +1078,6 @@ def test_project_scoped_story_detail_get_unknown_returns_404(
     different from a routing-404 (error_code='not_found') — it proves the
     project-scoped path dispatches correctly.
     """
-    # The global story-context read resolves the SQLite store via AGENTKIT_STORE_DIR
-    # (fail-closed, never Path.cwd() — AG3-094 E9); give the test an explicit isolated root.
-    monkeypatch.setenv("AGENTKIT_STORE_DIR", str(tmp_path))
     app = _make_app_with_real_story_routes()
 
     resp = app.handle_request(
