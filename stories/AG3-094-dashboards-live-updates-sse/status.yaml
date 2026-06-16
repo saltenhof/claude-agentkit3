@@ -31,7 +31,13 @@ size: M
 # resolve_sqlite_store_root(AGENTKIT_STORE_DIR), NOT Path.cwd() (FIX THE MODEL — removed the
 # os.chdir harness crutch). Gates: ruff, mypy strict default+linux (731), full Python suite
 # (incl. new parity contract test), frontend build/test (150, incl. 19 non-skipped AC10
-# e2e)/lint 0/0. Jenkins + Sonar confirmed at landing. unblocks: none.
+# e2e)/lint 0/0. POST-MERGE: Jenkins #459/#460 caught E9's fail-closed over-reaching onto the
+# shared _project_store_dir(None) resolver, breaking pre-existing global story-context/phase-state
+# reads (tests/unit control_plane_http + tests/integration read-model/analytics) — missed by the
+# npm gates + a too-narrow R3 verification. R5/OPUS scope-correction (commit b5a5098, Codex focused
+# re-review APPROVE): narrowed the explicit-root fail-closed to ONLY the NEW execution-event global
+# store; restored pre-existing global reads to Path.cwd(); broad CWD-hardening deferred to its own
+# backend story. FINAL: Jenkins #463 SUCCESS, Sonar gate OK (0 new-code issues). unblocks: none.
 depends_on:
   - AG3-084
   - AG3-093
