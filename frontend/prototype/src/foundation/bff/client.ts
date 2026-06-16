@@ -373,6 +373,79 @@ export interface KpiQueryParams {
   compare_to?: string;
 }
 
+// ── Task-management wire types (AG3-105 / FK-77) ─────────────────────────────
+// Wire shapes match Task.model_dump(mode="json") exactly (src/agentkit/task_management/models.py).
+// NO description/story_id/updated_at/due_at — those are wrong field names from the prior worker.
+
+/** Wire shape for a Task row (task_management.models.Task.model_dump(mode="json")). */
+export interface WireTask {
+  task_id: string;
+  project_key: string;
+  /** reminder | actionable */
+  kind: 'reminder' | 'actionable';
+  /** Freeform task category string (e.g. "general", "concept_update"). */
+  type: string;
+  title: string;
+  /** Task body text — NOT "description". */
+  body: string;
+  priority: 'low' | 'normal' | 'high';
+  status: 'open' | 'done' | 'dismissed';
+  origin: 'closure' | 'verify' | 'governance' | 'human';
+  /** Optional story that spawned this task — NOT "story_id". */
+  source_story_id: string | null;
+  /** Optional reference to an execution-report artifact. */
+  execution_report_ref: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  resolved_by: 'human' | 'agent' | null;
+}
+
+/** Wire shape for a TaskLink row (task_management.models.TaskLink.model_dump()).
+ * NOTE: the relation-type field is named `kind`, NOT `relation_kind`.
+ */
+export interface WireTaskLink {
+  project_key: string;
+  task_id: string;
+  target_kind: 'task' | 'story';
+  target_id: string;
+  /** Relation kind field name is literally `kind` (not `relation_kind`). */
+  kind: 'relates_to' | 'spawned_story' | 'duplicate_of';
+}
+
+/** Task list response wire shape. */
+export interface TaskListResponse {
+  project_key: string;
+  tasks: WireTask[];
+}
+
+/** Task-links list response wire shape (AG3-105/AC4 — GET /task-links). */
+export interface TaskLinkListResponse {
+  project_key: string;
+  links: WireTaskLink[];
+}
+
+/** Single task response wire shape. */
+export interface TaskResponse {
+  project_key: string;
+  task: WireTask;
+}
+
+/** Task link response (201 on create). */
+export interface TaskLinkResponse {
+  link: WireTaskLink;
+}
+
+/** Payload for createTask (no task_id — allocated server-side). */
+export interface CreateTaskPayload {
+  kind: WireTask['kind'];
+  type: string;
+  title: string;
+  body: string;
+  priority: WireTask['priority'];
+  origin: WireTask['origin'];
+  source_story_id?: string | null;
+}
+
 /** A required read failed: carries the parsed error_code for the FAIL-CLOSED error pill. */
 export class BffReadError extends Error {
   constructor(
@@ -809,5 +882,112 @@ export class BffClient {
   async cancelStory(projectKey: string, storyId: string, reason?: string, opId?: string): Promise<void> {
     const url = `${this.baseUrl}/v1/projects/${encodeURIComponent(projectKey)}/stories/${encodeURIComponent(storyId)}/cancel`;
     await this.mutate(url, { reason, op_id: opId });
+  }
+
+  // ── Task-management methods (AG3-105 / FK-77) ────────────────────────────────
+
+  /** GET /v1/projects/{key}/tasks — list tasks for a project (optional filter params). */
+  async listTasks(
+    projectKey: string,
+    params?: { status?: string; type?: string; kind?: string; origin?: string },
+  ): Promise<TaskListResponse> {
+    let url = `${this.baseUrl}/v1/projects/${encodeURIComponent(projectKey)}/tasks`;
+    if (params) {
+      const q = new URLSearchParams();
+      if (params.status) q.set('status', params.status);
+      if (params.type) q.set('type', params.type);
+      if (params.kind) q.set('kind', params.kind);
+      if (params.origin) q.set('origin', params.origin);
+      const qs = q.toString();
+      if (qs) url = `${url}?${qs}`;
+    }
+    return (await this.readJson(url)) as unknown as TaskListResponse;
+  }
+
+  /**
+   * GET /v1/projects/{key}/task-links — all task links for the project (AG3-105/AC4).
+   *
+   * The list view calls this once on load and buckets the links by ``task_id`` so
+   * each task's own (outgoing) link badges render from BACKEND truth, not from a
+   * session-local shadow (SSOT / FIX-THE-MODEL). Lives at a dedicated /task-links
+   * path so it is never shadowed by /tasks/{task_id}.
+   */
+  async listTaskLinks(projectKey: string): Promise<TaskLinkListResponse> {
+    const url = `${this.baseUrl}/v1/projects/${encodeURIComponent(projectKey)}/task-links`;
+    return (await this.readJson(url)) as unknown as TaskLinkListResponse;
+  }
+
+  /** GET /v1/projects/{key}/tasks/for-target/{target_kind}/{target_id} — bidirectional link view. */
+  async listTasksForTarget(
+    projectKey: string,
+    targetKind: 'task' | 'story',
+    targetId: string,
+  ): Promise<TaskListResponse> {
+    const url = `${this.baseUrl}/v1/projects/${encodeURIComponent(projectKey)}/tasks/for-target/${encodeURIComponent(targetKind)}/${encodeURIComponent(targetId)}`;
+    return (await this.readJson(url)) as unknown as TaskListResponse;
+  }
+
+  /** GET /v1/projects/{key}/tasks/{id} — fetch a single task. */
+  async getTask(projectKey: string, taskId: string): Promise<TaskResponse> {
+    const url = `${this.baseUrl}/v1/projects/${encodeURIComponent(projectKey)}/tasks/${encodeURIComponent(taskId)}`;
+    return (await this.readJson(url)) as unknown as TaskResponse;
+  }
+
+  /**
+   * POST /v1/projects/{key}/tasks — create a new task.
+   * task_id is allocated server-side (TM-YYYY-NNNN); do NOT send task_id.
+   * Returns the created task from the server response (AC3: no local shadow fabrication).
+   */
+  async createTask(projectKey: string, payload: CreateTaskPayload): Promise<TaskResponse> {
+    const url = `${this.baseUrl}/v1/projects/${encodeURIComponent(projectKey)}/tasks`;
+    const response = await this.mutate(url, payload as unknown as Record<string, unknown>);
+    return (await response.json()) as TaskResponse;
+  }
+
+  /** POST /v1/projects/{key}/tasks/{id}/resolve — mark a task as done (human). */
+  async resolveTask(projectKey: string, taskId: string): Promise<WireTask> {
+    const url = `${this.baseUrl}/v1/projects/${encodeURIComponent(projectKey)}/tasks/${encodeURIComponent(taskId)}/resolve`;
+    const response = await this.mutate(url, { resolved_by: 'human' });
+    const body = (await response.json()) as { task: WireTask };
+    return body.task;
+  }
+
+  /** POST /v1/projects/{key}/tasks/{id}/dismiss — dismiss a task (human). */
+  async dismissTask(projectKey: string, taskId: string): Promise<WireTask> {
+    const url = `${this.baseUrl}/v1/projects/${encodeURIComponent(projectKey)}/tasks/${encodeURIComponent(taskId)}/dismiss`;
+    const response = await this.mutate(url, { resolved_by: 'human' });
+    const body = (await response.json()) as { task: WireTask };
+    return body.task;
+  }
+
+  /**
+   * POST /v1/projects/{key}/tasks/{id}/links — link a task to a story or another task.
+   * target_kind ∈ {task, story} only — artifacts are not valid link targets (FK-77 §77.3).
+   */
+  async linkTask(
+    projectKey: string,
+    taskId: string,
+    targetKind: 'task' | 'story',
+    targetId: string,
+    kind: WireTaskLink['kind'],
+  ): Promise<TaskLinkResponse> {
+    const url = `${this.baseUrl}/v1/projects/${encodeURIComponent(projectKey)}/tasks/${encodeURIComponent(taskId)}/links`;
+    const response = await this.mutate(url, { target_kind: targetKind, target_id: targetId, kind });
+    return (await response.json()) as TaskLinkResponse;
+  }
+
+  /**
+   * POST /v1/projects/{key}/tasks/{id}/links/delete — remove a task link.
+   * Uses POST .../links/delete pattern (not HTTP DELETE) per the backend contract.
+   */
+  async unlinkTask(
+    projectKey: string,
+    taskId: string,
+    targetKind: 'task' | 'story',
+    targetId: string,
+    kind: WireTaskLink['kind'],
+  ): Promise<void> {
+    const url = `${this.baseUrl}/v1/projects/${encodeURIComponent(projectKey)}/tasks/${encodeURIComponent(taskId)}/links/delete`;
+    await this.mutate(url, { target_kind: targetKind, target_id: targetId, kind });
   }
 }

@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from agentkit.project_management.read_model_routes import ReadModelRoutes
     from agentkit.requirements_coverage.http.routes import RequirementsCoverageRoutes
     from agentkit.story_context_manager.http.routes import StoryContextRoutes, StoryRouteResponse
+    from agentkit.task_management.http.routes import TaskManagementRoutes
     from agentkit.telemetry.http.routes import TelemetryRouteResponse, TelemetryRoutes
     from agentkit.verify_system.http.routes import VerifySystemRoutes
 
@@ -239,6 +240,25 @@ def _build_default_kpi_analytics_routes() -> KpiAnalyticsRoutes:
     return KpiAnalyticsRoutes(kpi_analytics=kpi_analytics)
 
 
+def _build_default_task_management_routes() -> TaskManagementRoutes:
+    """Build the default task-management BC route handler backed by real storage."""
+    import os
+    import pathlib
+
+    from agentkit.state_backend.store.projection_repositories import (
+        build_projection_repositories,
+    )
+    from agentkit.task_management.http.routes import TaskManagementRoutes
+    from agentkit.task_management.service import TaskManagement
+    from agentkit.telemetry.projection_accessor import ProjectionAccessor
+
+    store_dir = pathlib.Path(os.environ.get("AGENTKIT_STORE_DIR", "."))
+    repos = build_projection_repositories(store_dir)
+    accessor = ProjectionAccessor(repos)
+    service = TaskManagement(accessor)
+    return TaskManagementRoutes(task_management=service)
+
+
 def _build_default_failure_corpus_routes() -> FailureCorpusRoutes:
     from agentkit.failure_corpus.http.routes import FailureCorpusRoutes
 
@@ -361,6 +381,7 @@ class ControlPlaneApplicationRoutes:
     failure_corpus_routes: FailureCorpusRoutes | None = None
     requirements_coverage_routes: RequirementsCoverageRoutes | None = None
     read_model_routes: ReadModelRoutes | None = None
+    task_management_routes: TaskManagementRoutes | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -438,6 +459,9 @@ class ControlPlaneApplication:
         )
         self._read_model_routes = (
             r.read_model_routes or _build_default_read_model_routes()
+        )
+        self._task_management_routes = (
+            r.task_management_routes or _build_default_task_management_routes()
         )
 
     def handle_request(
@@ -683,6 +707,7 @@ class ControlPlaneApplication:
             self._kpi_analytics_routes,
             self._failure_corpus_routes,
             self._requirements_coverage_routes,
+            self._task_management_routes,
         ):
             response = routes.handle_get(route_path, query, correlation_id)
             if response is not None:
@@ -817,6 +842,7 @@ class ControlPlaneApplication:
             self._kpi_analytics_routes,
             self._failure_corpus_routes,
             self._requirements_coverage_routes,
+            self._task_management_routes,
         ):
             response = routes.handle_post(route_path, payload, correlation_id)
             if response is not None:
@@ -883,6 +909,10 @@ class ControlPlaneApplication:
         )
         if planning_response is not None:
             return _planning_response_to_http_response(planning_response)
+
+        task_delete = self._task_management_routes.handle_delete(route_path, correlation_id)
+        if task_delete is not None:
+            return _bc_response_to_http_response(task_delete)
 
         return _error_response(
             HTTPStatus.NOT_FOUND,

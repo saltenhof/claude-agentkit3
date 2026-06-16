@@ -18,6 +18,7 @@ from agentkit.task_management.models import (
     TaskListFilter,
     TaskOrigin,
     TaskPriority,
+    TaskRelationKind,
     TaskStatus,
     TaskTargetKind,
 )
@@ -64,6 +65,10 @@ class TaskRepository(Protocol):
         """Load tasks linked to a project-scoped target."""
         ...
 
+    def list_task_links(self, project_key: str) -> list[TaskLink]:
+        """Load all task links within one project partition (AG3-105/AC4)."""
+        ...
+
     def story_target_exists(self, project_key: str, story_id: str) -> bool:
         """Return whether the canonical story identity exists."""
         ...
@@ -96,6 +101,16 @@ def _link_to_row(link: TaskLink) -> dict[str, object]:
         "target_id": link.target_id,
         "kind": link.kind.value,
     }
+
+
+def _row_to_link(row: dict[str, Any]) -> TaskLink:
+    return TaskLink(
+        project_key=str(row["project_key"]),
+        task_id=str(row["task_id"]),
+        target_kind=TaskTargetKind(str(row["target_kind"])),
+        target_id=str(row["target_id"]),
+        kind=TaskRelationKind(str(row["kind"])),
+    )
 
 
 def _row_to_task(row: dict[str, Any]) -> Task:
@@ -243,6 +258,22 @@ class StateBackendTaskRepository:
       AND l.target_id = %s
     ORDER BY t.created_at ASC, t.task_id ASC
 """
+    # AG3-105/AC4: project-wide link read so the task list hydrates its link
+    # badges from the backend in ONE call (no session-local shadow state).
+    # Deterministic order (task_id, target_kind, target_id, kind) keeps the
+    # SQLite/Postgres results byte-identical (Jenkins Postgres parity).
+    _SQLITE_SELECT_TASK_LINKS: str = """
+    SELECT project_key, task_id, target_kind, target_id, kind
+    FROM tm_task_links
+    WHERE project_key = ?
+    ORDER BY task_id ASC, target_kind ASC, target_id ASC, kind ASC
+"""
+    _PG_SELECT_TASK_LINKS: str = """
+    SELECT project_key, task_id, target_kind, target_id, kind
+    FROM tm_task_links
+    WHERE project_key = %s
+    ORDER BY task_id ASC, target_kind ASC, target_id ASC, kind ASC
+"""
 
     def __init__(self, store_dir: Path | None = None) -> None:
         from pathlib import Path as _Path
@@ -299,6 +330,12 @@ class StateBackendTaskRepository:
         if _is_postgres():
             return self._pg_list_tasks_for_target(project_key, target_kind, target_id)
         return self._sqlite_list_tasks_for_target(project_key, target_kind, target_id)
+
+    def list_task_links(self, project_key: str) -> list[TaskLink]:
+        """Load all task links within one project partition (AG3-105/AC4)."""
+        if _is_postgres():
+            return self._pg_list_task_links(project_key)
+        return self._sqlite_list_task_links(project_key)
 
     def story_target_exists(self, project_key: str, story_id: str) -> bool:
         """Return whether a canonical story row exists for the project."""
@@ -401,6 +438,22 @@ class StateBackendTaskRepository:
                 (project_key, target_kind.value, target_id),
             ).fetchall()
         return [_row_to_task(dict(row)) for row in rows]
+
+    def _sqlite_list_task_links(self, project_key: str) -> list[TaskLink]:
+        with _sqlite_connect_qa(self._store_dir) as conn:
+            rows = conn.execute(
+                self._SQLITE_SELECT_TASK_LINKS,
+                (project_key,),
+            ).fetchall()
+        return [_row_to_link(dict(row)) for row in rows]
+
+    def _pg_list_task_links(self, project_key: str) -> list[TaskLink]:
+        with _postgres_connect() as conn:
+            rows = conn.execute(
+                self._PG_SELECT_TASK_LINKS,
+                (project_key,),
+            ).fetchall()
+        return [_row_to_link(dict(row)) for row in rows]
 
     def _sqlite_story_target_exists(self, project_key: str, story_id: str) -> bool:
         with _sqlite_connect_qa(self._store_dir) as conn:

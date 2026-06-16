@@ -1,6 +1,6 @@
-export type ViewMode = 'graph' | 'kanban' | 'sheet' | 'analytics' | 'hub';
+export type ViewMode = 'graph' | 'kanban' | 'sheet' | 'analytics' | 'hub' | 'tasks';
 
-export const VIEW_MODES: ViewMode[] = ['graph', 'kanban', 'sheet', 'analytics', 'hub'];
+export const VIEW_MODES: ViewMode[] = ['graph', 'kanban', 'sheet', 'analytics', 'hub', 'tasks'];
 
 export const INSPECTOR_WIDTH_KEY = 'ak3.storyInspector.width';
 export const DEFAULT_INSPECTOR_WIDTH = 858;

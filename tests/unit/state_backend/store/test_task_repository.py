@@ -188,3 +188,67 @@ def test_task_link_roundtrip_sqlite(tmp_path: Path) -> None:
     ] == ["TM-2026-0002"]
     service.unlink_task(link)
     assert service.list_tasks_for_target("proj-a", TaskTargetKind.TASK, "TM-2026-0003") == []
+
+
+def test_list_task_links_project_wide_sqlite(tmp_path: Path) -> None:
+    """AG3-105/AC4: project-wide link read hydrates outgoing links per task."""
+    service = TaskManagement(ProjectionAccessor(build_projection_repositories(tmp_path)))
+    for task_id in ("TM-2026-0020", "TM-2026-0021", "TM-2026-0022"):
+        service.create_task(_task(task_id))
+    # Two outgoing links on TM-2026-0020, one on TM-2026-0021, none on TM-2026-0022.
+    service.link_task(
+        TaskLink(
+            project_key="proj-a",
+            task_id="TM-2026-0020",
+            target_kind=TaskTargetKind.TASK,
+            target_id="TM-2026-0021",
+            kind=TaskRelationKind.RELATES_TO,
+        ),
+    )
+    service.link_task(
+        TaskLink(
+            project_key="proj-a",
+            task_id="TM-2026-0020",
+            target_kind=TaskTargetKind.TASK,
+            target_id="TM-2026-0022",
+            kind=TaskRelationKind.DUPLICATE_OF,
+        ),
+    )
+    service.link_task(
+        TaskLink(
+            project_key="proj-a",
+            task_id="TM-2026-0021",
+            target_kind=TaskTargetKind.TASK,
+            target_id="TM-2026-0022",
+            kind=TaskRelationKind.RELATES_TO,
+        ),
+    )
+    # Tenant isolation: an identically keyed task in another project must not leak.
+    service.create_task(_task("TM-2026-0020", project_key="proj-b"))
+    service.create_task(_task("TM-2026-0021", project_key="proj-b"))
+    service.link_task(
+        TaskLink(
+            project_key="proj-b",
+            task_id="TM-2026-0020",
+            target_kind=TaskTargetKind.TASK,
+            target_id="TM-2026-0021",
+            kind=TaskRelationKind.RELATES_TO,
+        ),
+    )
+
+    links = service.list_task_links("proj-a")
+    # Deterministic ordering: (task_id, target_kind, target_id, kind).
+    assert [(link.task_id, link.target_id, link.kind.value) for link in links] == [
+        ("TM-2026-0020", "TM-2026-0021", "relates_to"),
+        ("TM-2026-0020", "TM-2026-0022", "duplicate_of"),
+        ("TM-2026-0021", "TM-2026-0022", "relates_to"),
+    ]
+    assert all(link.project_key == "proj-a" for link in links)
+    # Other project is strictly partitioned.
+    assert [link.task_id for link in service.list_task_links("proj-b")] == ["TM-2026-0020"]
+
+
+def test_list_task_links_requires_project_key(tmp_path: Path) -> None:
+    service = TaskManagement(ProjectionAccessor(build_projection_repositories(tmp_path)))
+    with pytest.raises(ValueError, match="project_key"):
+        service.list_task_links("")

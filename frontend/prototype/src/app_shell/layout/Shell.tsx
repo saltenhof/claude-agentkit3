@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BarChart3,
   Bot,
+  CheckSquare,
   GitBranch,
   KanbanSquare,
   Plus,
@@ -26,6 +27,7 @@ import { GraphTabs, type GraphTab } from '../../components/GraphTabs';
 import { ReadyStackView } from '../../contexts/execution_planning/ReadyStackView';
 import { ExecutionLimitsView } from '../../contexts/execution_planning/ExecutionLimitsView';
 import { AnalyticsSlot } from '../../contexts/kpi_analytics/AnalyticsSlot';
+import { TaskSlot } from '../../contexts/task_management/TaskSlot';
 import { useProjectSse, KANBAN_TOPICS, GRAPH_TOPICS } from '../../foundation/sse/useProjectSse';
 import { ModeIndicator } from './ModeIndicator';
 import { DetailInspector } from '../inspector/DetailInspector';
@@ -300,6 +302,23 @@ export function App() {
     setSelectedStory(story);
   }, []);
 
+  // AC4 (cross-slice navigation): a linked story badge in the task slice focuses
+  // the story in the story view. Switch away from 'tasks' to a story view and
+  // open the inspector. If the story is not in the current project set, surface
+  // a fail-closed pill instead of silently doing nothing.
+  const focusStoryById = useCallback((storyId: string) => {
+    const story = storyState.find((s) => s.id === storyId);
+    if (!story) {
+      showErrorPill(`Verlinkte Story ${storyId} ist im aktuellen Projekt nicht vorhanden.`);
+      return;
+    }
+    setView('kanban');
+    setSelectedStory(story);
+    setDetailOpen(true);
+    resetInspectorReads();
+    setInspectorRequestId((id) => id + 1);
+  }, [storyState, showErrorPill, resetInspectorReads]);
+
   // Fetch story detail + flow when inspector opens — REAL BFF calls (AC9).
   // last-request-wins guards both against out-of-order responses (AC10e).
   useEffect(() => {
@@ -399,6 +418,16 @@ export function App() {
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
+
+  // AC7/AC1: entering the tasks view must show NO story chrome. Close the story
+  // DetailInspector when the view switches to 'tasks' so a previously open story
+  // inspector does not leak into the task slice (the inspector is additionally
+  // gated by view !== 'tasks' in the render below — belt and suspenders).
+  useEffect(() => {
+    if (view === 'tasks') {
+      setDetailOpen(false);
+    }
+  }, [view]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -615,11 +644,65 @@ export function App() {
           <IconNav active={view === 'hub'} title="LLM Hub" onClick={() => setView('hub')}>
             <Bot size={18} />
           </IconNav>
+          <IconNav active={view === 'tasks'} title="Aufgaben" onClick={() => setView('tasks')}>
+            <CheckSquare size={18} />
+          </IconNav>
         </nav>
       </aside>
 
       <section className="workspace">
-        <header className="topbar">
+        {/* AC7: task view renders its own task-specific topbar — no Story Cockpit chrome,
+            no ModeIndicator, no story search, no story create button (FK-77 §77.6). */}
+        {view === 'tasks' ? (
+          <header className="topbar topbar--tasks" data-testid="tasks-topbar">
+            <div className="topbar-title">
+              <h1>Aufgabenverwaltung</h1>
+              <span className="title-separator" aria-hidden="true">|</span>
+              <div className="project-heading" data-project-menu="true">
+                <button
+                  className="project-heading__button"
+                  type="button"
+                  aria-expanded={projectMenuOpen}
+                  onClick={() => setProjectMenuOpen((open) => !open)}
+                >
+                  <span>{activeProjectName}</span>
+                  {projectArchived && <span className="project-archived-pill">archiviert</span>}
+                  <ChevronDown size={18} />
+                </button>
+                {projectMenuOpen && (
+                  <div className="project-menu">
+                    {projects.map((candidate) => (
+                      <button
+                        className={candidate.key === activeProjectKey ? 'active' : ''}
+                        key={candidate.key}
+                        type="button"
+                        onClick={() => handleProjectSwitch(candidate.key)}
+                      >
+                        <span>
+                          {candidate.name}
+                          {candidate.status === 'archived' && (
+                            <span className="project-archived-pill">archiviert</span>
+                          )}
+                        </span>
+                        <small>{candidate.key}</small>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="top-actions">
+              {isOffline && (
+                <span className="offline-indicator" role="status" data-testid="offline-indicator">
+                  <WifiOff size={14} />
+                  Verbindung verloren
+                </span>
+              )}
+              {/* No ModeIndicator, no story search, no story create — tasks are freestyle (FK-77 §77.6) */}
+            </div>
+          </header>
+        ) : (
+          <header className="topbar">
           <div className="topbar-title">
             <h1>Story Cockpit</h1>
             <span className="title-separator" aria-hidden="true">
@@ -691,6 +774,7 @@ export function App() {
             </button>
           </div>
         </header>
+        )}
 
         <section className="content">
           <div className="left-panel">
@@ -731,6 +815,13 @@ export function App() {
               />
             )}
             {view === 'hub' && <LlmHubView />}
+            {view === 'tasks' && (
+              <TaskSlot
+                projectKey={activeProjectKey}
+                baseUrl=""
+                onFocusStory={focusStoryById}
+              />
+            )}
             {view === 'graph' && (
               <div className="graph-main">
                 <GraphTabs active={graphTab} onChange={setGraphTab} />
@@ -755,7 +846,8 @@ export function App() {
         </section>
       </section>
 
-      {detailOpen && selectedStory && (
+      {/* AC7/AC1: never render the story inspector in the tasks view. */}
+      {detailOpen && selectedStory && view !== 'tasks' && (
         <DetailInspector
           story={selectedStory}
           storyDetail={storyDetail}
@@ -763,6 +855,8 @@ export function App() {
           flowError={flowError}
           coverageAcceptance={coverageAcceptance}
           coverageAreEvidence={coverageAreEvidence}
+          client={bffClient}
+          projectKey={activeProjectKey}
           width={inspectorWidth}
           onClose={() => setDetailOpen(false)}
           onResizeStart={() => setResizingInspector(true)}

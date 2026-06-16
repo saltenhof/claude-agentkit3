@@ -3,16 +3,19 @@
  * "KPIs", "Ablauf") AND each tab renders its FETCHED read-model (E2/E3), not local
  * fallback prose.
  */
-import { describe, it, expect } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { DetailInspector } from '../app_shell/inspector/DetailInspector';
 import type { Story } from '../store';
-import type {
-  StoryDetailResponse,
-  StoryFlowResponse,
-  CoverageAcceptanceResponse,
-  AreEvidenceResponse,
+import {
+  BffClient,
+  type StoryDetailResponse,
+  type StoryFlowResponse,
+  type CoverageAcceptanceResponse,
+  type AreEvidenceResponse,
+  type WireTask,
 } from '../foundation/bff/client';
+import { jsonResponse } from './testTransport';
 
 // Minimal story fixture for inspector tests
 const minimalStory: Story = {
@@ -201,5 +204,112 @@ describe('AC10f E3: flow hold-state + state_reason from the fetched snapshot', (
     );
     fireEvent.click(screen.getByText('Ablauf'));
     expect(screen.getByText(/story_flow_unavailable/)).toBeTruthy();
+  });
+});
+
+// AG3-105 r3 finding 1b: story-side reverse view ("Verlinkte Aufgaben") —
+// tasks linking TO this story via list_tasks_for_target(project_key,'story',id).
+describe('AG3-105 AC4 — DetailInspector story-side reverse view', () => {
+  const LINKING_TASK: WireTask = {
+    task_id: 'TM-2025-0042',
+    project_key: 'AG3',
+    kind: 'actionable',
+    type: 'general',
+    title: 'Task linking to the story',
+    body: 'body',
+    priority: 'normal',
+    status: 'open',
+    origin: 'human',
+    source_story_id: null,
+    execution_report_ref: null,
+    created_at: '2025-06-01T10:00:00Z',
+    resolved_at: null,
+    resolved_by: null,
+  };
+
+  it('lists the tasks returned by list_tasks_for_target("story", storyId)', async () => {
+    const transport = vi.fn().mockImplementation((url: string) => {
+      // Only the story-target read is expected for this section.
+      if (url.includes(`/tasks/for-target/story/${minimalStory.id}`)) {
+        return Promise.resolve(jsonResponse(200, { project_key: 'AG3', tasks: [LINKING_TASK] }));
+      }
+      return Promise.resolve(jsonResponse(404, { error_code: 'not_found' }));
+    });
+    const client = new BffClient('', transport);
+
+    await act(async () => {
+      render(
+        <DetailInspector
+          story={minimalStory}
+          client={client}
+          projectKey="AG3"
+          width={858}
+          onClose={() => undefined}
+          onResizeStart={() => undefined}
+        />,
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('inspector-linked-tasks-list')).toBeTruthy();
+      expect(screen.queryByTestId(`inspector-linked-task-${LINKING_TASK.task_id}`)).toBeTruthy();
+    });
+
+    // Proves the call targeted the story for-target read path.
+    const calls = transport.mock.calls as [string][];
+    expect(calls.some(([u]) => u.includes(`/tasks/for-target/story/${minimalStory.id}`))).toBe(true);
+  });
+
+  it('shows a quiet empty hint when no tasks link to the story', async () => {
+    const transport = vi.fn().mockImplementation(() =>
+      Promise.resolve(jsonResponse(200, { project_key: 'AG3', tasks: [] })),
+    );
+    const client = new BffClient('', transport);
+
+    await act(async () => {
+      render(
+        <DetailInspector
+          story={minimalStory}
+          client={client}
+          projectKey="AG3"
+          width={858}
+          onClose={() => undefined}
+          onResizeStart={() => undefined}
+        />,
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inspector-linked-tasks-empty').textContent).toContain(
+        'Keine verlinkten Aufgaben',
+      );
+    });
+  });
+
+  it('fails closed with an error pill incl. error_code on read failure', async () => {
+    const transport = vi.fn().mockImplementation(() =>
+      Promise.resolve(jsonResponse(503, { error_code: 'task_management_unavailable' })),
+    );
+    const client = new BffClient('', transport);
+
+    await act(async () => {
+      render(
+        <DetailInspector
+          story={minimalStory}
+          client={client}
+          projectKey="AG3"
+          width={858}
+          onClose={() => undefined}
+          onResizeStart={() => undefined}
+        />,
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inspector-linked-tasks-error')).toBeTruthy();
+      expect(screen.getByTestId('inspector-linked-tasks-error-code').textContent).toContain(
+        'task_management_unavailable',
+      );
+    });
   });
 });

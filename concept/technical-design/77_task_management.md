@@ -131,9 +131,15 @@ Menschen und andere BCs — Tasks anlegen, verlinken, schliessen **und lesen**:
 
 - Schreibend: `create_task`, `link_task`, `unlink_task`, `resolve_task`,
   `dismiss_task` (vgl. `formal.task-management.commands`).
-- Lesend: `get_task(task_id)`, `list_tasks(project_key, filter: status |
-  type | kind | origin)`, sowie `list_tasks_for_target(target_kind,
-  target_id)` fuer die Rueckschau von der Story-Detailseite.
+- Lesend: `get_task(project_key, task_id)`, `list_tasks(project_key,
+  filter: status | type | kind | origin)`,
+  `list_tasks_for_target(project_key, target_kind, target_id)` fuer die
+  Rueckschau von der Story-Detailseite, sowie
+  `list_task_links(project_key)` (AG3-105/AK11): liefert alle `TaskLink`-Kanten
+  einer Projekt-Partition, damit eine Task-Listensicht die *eigenen*
+  (ausgehenden) Links pro Task in EINEM Read aus der Backend-Wahrheit
+  hydrieren kann (kein Session-Schattenstate). Diese Read exponiert nur das
+  bereits modellierte `TaskLink` (FK-77 §77.3) und spiegelt keinen Status.
 
 Erster konkreter Konsument ist der **Agent**, der ueber die Schnittstelle
 Tasks anlegt und wieder ausliest; daneben der Mensch (Frontend/CLI). Die

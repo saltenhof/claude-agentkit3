@@ -30,8 +30,10 @@ if TYPE_CHECKING:
 
     from agentkit.control_plane_http.app import ControlPlaneApplication
 
-# Point to the real agentkit package
-_REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent  # T:/codebase/claude-agentkit3
+# Point to the real agentkit package.
+# Harness lives at: <repo>/frontend/prototype/tests/python_harness.py
+# So 4 levels up is the repo root T:/codebase/claude-agentkit3.
+_REPO_ROOT = Path(__file__).parent.parent.parent.parent  # T:/codebase/claude-agentkit3
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
 # Set AGENTKIT_STORE_DIR to a tmp dir for each test run.
@@ -193,6 +195,97 @@ def _emit_sse_event(body: bytes) -> tuple[int, bytes]:
     return 200, json.dumps({"event_id": record.event_id}).encode()
 
 
+def _seed_task(body: bytes) -> tuple[int, bytes]:
+    """POST /_test/seed-task -- create a real Task via TaskManagement.create_task.
+
+    Accepts a JSON payload matching the Task wire shape (Task.model_dump(mode="json")):
+      {
+        "project_key": "...",
+        "task_id": "TM-2025-0001",   # required for test seeding (bypasses HTTP allocation)
+        "kind": "actionable",
+        "priority": "normal",
+        "title": "...",
+        "body": "...",               # wire field is `body` (NOT description)
+        "source_story_id": "..."     # wire field is `source_story_id` (NOT story_id), optional
+      }
+
+    Uses the same ProjectionRepositories that the real task endpoints read from --
+    so the seeded task is immediately visible to GET /v1/projects/{key}/tasks.
+    No mocking.
+    """
+    from agentkit.state_backend.store.projection_repositories import build_projection_repositories
+    from agentkit.task_management.models import Task
+    from agentkit.task_management.service import TaskManagement
+    from agentkit.telemetry.projection_accessor import ProjectionAccessor
+
+    from datetime import UTC, datetime
+
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError as exc:
+        return 400, json.dumps({"error": f"Invalid JSON: {exc}"}).encode()
+
+    # Supply defaults for fields that the lightweight seed payload omits.
+    payload.setdefault("type", "general")
+    payload.setdefault("body", payload.get("title", "seeded task"))
+    payload.setdefault("status", "open")
+    if "created_at" not in payload:
+        payload["created_at"] = datetime.now(UTC)
+
+    try:
+        task = Task(**payload)
+    except Exception as exc:  # noqa: BLE001
+        return 400, json.dumps({"error": f"Invalid task payload: {exc}"}).encode()
+
+    try:
+        repos = build_projection_repositories(Path(_tmp_dir))
+        accessor = ProjectionAccessor(repos)
+        svc = TaskManagement(accessor)
+        svc.create_task(task)
+    except Exception as exc:  # noqa: BLE001
+        return 500, json.dumps({"error": f"Failed to seed task: {exc}"}).encode()
+
+    return 200, json.dumps({"task_id": task.task_id}).encode()
+
+
+def _seed_story(body: bytes) -> tuple[int, bytes]:
+    """POST /_test/seed-story -- persist a real Story row via the real repository.
+
+    Writes a canonical Story row into the SAME SQLite store the task-link
+    validator reads from (``story_target_exists``), so a UI-driven
+    ``link_task`` with ``target_kind=story`` can target it. Test-only seeding of
+    REAL data (mirrors ``/_test/seed-task``) — no backend/DB stub.
+
+    Payload (minimal):
+      { "project_key": "...", "story_display_id": "P-0001", "title": "..." }
+    """
+    from agentkit.state_backend.store.story_repository import (
+        StateBackendStoryRepository,
+    )
+    from agentkit.story_context_manager.story_model import Story
+
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError as exc:
+        return 400, json.dumps({"error": f"Invalid JSON: {exc}"}).encode()
+
+    payload.setdefault("story_number", 1)
+    payload.setdefault("title", "Seeded story")
+    payload.setdefault("story_type", "implementation")
+
+    try:
+        story = Story(**payload)
+    except Exception as exc:  # noqa: BLE001
+        return 400, json.dumps({"error": f"Invalid story payload: {exc}"}).encode()
+
+    try:
+        StateBackendStoryRepository(Path(_tmp_dir)).save(story)
+    except Exception as exc:  # noqa: BLE001
+        return 500, json.dumps({"error": f"Failed to seed story: {exc}"}).encode()
+
+    return 200, json.dumps({"story_display_id": story.story_display_id}).encode()
+
+
 def make_handler(app: ControlPlaneApplication) -> type[BaseHTTPRequestHandler]:
     _app = app
 
@@ -200,6 +293,8 @@ def make_handler(app: ControlPlaneApplication) -> type[BaseHTTPRequestHandler]:
     _test_endpoints: dict[str, Callable[[bytes], tuple[int, bytes]]] = {
         "/_test/seed-kpi-facts": _seed_kpi_facts,
         "/_test/emit-sse-event": _emit_sse_event,
+        "/_test/seed-task": _seed_task,
+        "/_test/seed-story": _seed_story,
     }
 
     class Handler(BaseHTTPRequestHandler):

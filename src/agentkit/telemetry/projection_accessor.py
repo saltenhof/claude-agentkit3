@@ -431,6 +431,10 @@ class ProjectionAccessor:
         """List tasks linked to one target inside the explicit project partition."""
         return self._repos.tasks.list_tasks_for_target(project_key, target_kind, target_id)
 
+    def list_task_links(self, project_key: str) -> list[TaskLink]:
+        """List all task links within one explicit project partition (AG3-105/AC4)."""
+        return self._repos.tasks.list_task_links(project_key)
+
     def story_target_exists(self, project_key: str, story_id: str) -> bool:
         """Return whether a project-scoped story target exists."""
         return self._repos.tasks.story_target_exists(project_key, story_id)

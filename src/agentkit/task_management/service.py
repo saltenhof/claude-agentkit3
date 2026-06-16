@@ -127,6 +127,20 @@ class TaskManagement:
             raise ValueError("target_id is required")
         return self._accessor.list_tasks_for_target(project_key, target, target_id)
 
+    def list_task_links(self, project_key: str) -> list[TaskLink]:
+        """List every outgoing task link of one project partition (AG3-105/AC4).
+
+        Returns all ``TaskLink`` edges in the project so a list view can bucket
+        them by ``task_id`` and render each task's own (outgoing) links from
+        backend truth in a single read. This complements the reverse read
+        ``list_tasks_for_target`` (tasks linking TO a target). The data is
+        already modeled (``TaskLink``); this read merely exposes it (FK-77
+        §77.7, AG3-105/AC11). It mirrors no status — the link edge is a pure
+        reference (FK-77 §77.3).
+        """
+        self._require_project_key(project_key)
+        return self._accessor.list_task_links(project_key)
+
     def _close_task(
         self,
         task: Task,
