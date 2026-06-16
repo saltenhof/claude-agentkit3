@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   Table2,
   ChevronDown,
+  WifiOff,
 } from 'lucide-react';
 import type { Edge, Node } from '@xyflow/react';
 import { useEdgesState, useNodesState } from '@xyflow/react';
@@ -25,6 +26,7 @@ import { GraphTabs, type GraphTab } from '../../components/GraphTabs';
 import { ReadyStackView } from '../../contexts/execution_planning/ReadyStackView';
 import { ExecutionLimitsView } from '../../contexts/execution_planning/ExecutionLimitsView';
 import { AnalyticsSlot } from '../../contexts/kpi_analytics/AnalyticsSlot';
+import { useProjectSse, KANBAN_TOPICS, GRAPH_TOPICS } from '../../foundation/sse/useProjectSse';
 import { ModeIndicator } from './ModeIndicator';
 import { DetailInspector } from '../inspector/DetailInspector';
 import { Kanban } from '../board/Kanban';
@@ -121,6 +123,12 @@ export function App() {
   const [inspectorRequestId, setInspectorRequestId] = useState(0);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  // Offline state (FK-72 §72.14.6 / AC6): true when SSE cannot connect.
+  const [isOffline, setIsOffline] = useState(false);
+  // SSE-triggered re-fetch counters: incrementing signals a live-update to the view.
+  // Used by the SSE hooks to trigger loadProjectData and re-render dependent sub-views.
+  const [_kanbanSseRevision, setKanbanSseRevision] = useState(0);
+  const [_graphSseRevision, setGraphSseRevision] = useState(0);
 
   const inspectorRequestIdRef = useRef(0);
 
@@ -513,6 +521,63 @@ export function App() {
   );
 
   const activeProjectName = activeProject?.name ?? activeProjectKey;
+  // E3 / AC6: mutating UI is disabled when archived OR when SSE is offline.
+  // Total-offline must disable ALL mutating controls, not just archived (FAIL-CLOSED).
+  const mutateLocked = projectArchived || isOffline;
+
+  // ── Mode-lock refresh callback (E2 / AC5) ────────────────────────────────────
+  // Called by AnalyticsSlot on a telemetry SSE event so mode-lock stays current.
+  const refreshModeLock = useCallback(async () => {
+    try {
+      const modeLockRes = await bffClient.getModeLock(activeProjectKey);
+      setActiveMode(toProjectMode(modeLockRes.mode_lock.mode));
+    } catch {
+      // Non-blocking: mode-lock refresh failure is surfaced via the existing error pill
+      // if the next full loadProjectData fails; a silent single-call failure is tolerated.
+    }
+  }, [activeProjectKey]);
+
+  // ── SSE: Kanban/Board — topics: stories, phases (FK-72 §72.5 / FK-91 §91.8.3) ──
+  // Re-sync: reload stories + counters on reconnect or relevant event.
+  useProjectSse({
+    baseUrl: '',
+    projectKey: activeProjectKey,
+    topics: KANBAN_TOPICS,
+    onReconnect: () => {
+      // Lossy re-sync: fresh initial-GET (FK-72 §72.12.4 Z.306).
+      void loadProjectData(activeProjectKey);
+    },
+    onEvent: (event) => {
+      // stories/phases events: re-fetch or increment revision for patch.
+      if (event.topic === 'stories' || event.topic === 'phases') {
+        setKanbanSseRevision((r) => r + 1);
+        void loadProjectData(activeProjectKey);
+      }
+    },
+    onOffline: () => setIsOffline(true),
+    onOnline: () => setIsOffline(false),
+    enabled: view === 'kanban' || view === 'sheet',
+  });
+
+  // ── SSE: Graph (incl. sub-tabs graph/ready/limits) — topic: planning ──────
+  // planning topic owns dependency_graph_changed / execution_input_changed / limits_changed.
+  useProjectSse({
+    baseUrl: '',
+    projectKey: activeProjectKey,
+    topics: GRAPH_TOPICS,
+    onReconnect: () => {
+      void loadProjectData(activeProjectKey);
+    },
+    onEvent: (event) => {
+      if (event.topic === 'planning') {
+        setGraphSseRevision((r) => r + 1);
+        void loadProjectData(activeProjectKey);
+      }
+    },
+    onOffline: () => setIsOffline(true),
+    onOnline: () => setIsOffline(false),
+    enabled: view === 'graph',
+  });
 
   return (
     <main className="shell">
@@ -594,6 +659,12 @@ export function App() {
             </div>
           </div>
           <div className="top-actions">
+            {isOffline && (
+              <span className="offline-indicator" role="status" data-testid="offline-indicator">
+                <WifiOff size={14} />
+                Verbindung verloren
+              </span>
+            )}
             <ModeIndicator mode={activeMode} />
             <div className="ak-input search">
               <Search size={17} />
@@ -606,8 +677,14 @@ export function App() {
             <button
               className="ak-button ak-button--primary"
               type="button"
-              disabled={projectArchived}
-              title={projectArchived ? 'Archiviertes Projekt — keine Mutationen möglich.' : undefined}
+              disabled={mutateLocked}
+              title={
+                projectArchived
+                  ? 'Archiviertes Projekt — keine Mutationen möglich.'
+                  : isOffline
+                    ? 'Verbindung verloren — keine Mutationen möglich.'
+                    : undefined
+              }
             >
               <Plus size={16} />
               Story
@@ -628,7 +705,7 @@ export function App() {
                 storyIdFilter={kanbanStoryIdFilter}
                 onStoryIdFilterChange={setKanbanStoryIdFilter}
                 kpis={counters}
-                readOnly={projectArchived}
+                readOnly={mutateLocked}
               />
             )}
             {view === 'sheet' && (
@@ -640,11 +717,19 @@ export function App() {
                 onSelect={selectStory}
                 onStatusFilterChange={setStatusFilter}
                 kpis={counters}
-                readOnly={projectArchived}
+                readOnly={mutateLocked}
                 onDraftsChange={setHasSheetDrafts}
               />
             )}
-            {view === 'analytics' && <AnalyticsSlot />}
+            {view === 'analytics' && (
+              <AnalyticsSlot
+                projectKey={activeProjectKey}
+                baseUrl=""
+                isOffline={isOffline}
+                onTelemetryEvent={() => { void refreshModeLock(); }}
+                onOfflineChange={setIsOffline}
+              />
+            )}
             {view === 'hub' && <LlmHubView />}
             {view === 'graph' && (
               <div className="graph-main">
@@ -662,7 +747,7 @@ export function App() {
                   <ReadyStackView stories={storyState} limits={executionLimits} onSelect={selectStory} />
                 )}
                 {graphTab === 'limits' && (
-                  <ExecutionLimitsView limits={executionLimits} onChange={setExecutionLimits} />
+                  <ExecutionLimitsView limits={executionLimits} onChange={setExecutionLimits} disabled={mutateLocked} />
                 )}
               </div>
             )}

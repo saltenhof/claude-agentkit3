@@ -16,6 +16,8 @@ export interface NumberStepperProps {
   max?: number;
   step?: number;
   ariaLabel?: string;
+  /** Disable all controls — used when offline or project is archived (AC6). */
+  disabled?: boolean;
 }
 
 export function NumberStepper({
@@ -25,6 +27,7 @@ export function NumberStepper({
   max,
   step = 1,
   ariaLabel,
+  disabled = false,
 }: NumberStepperProps) {
   const clamp = (next: number): number => {
     if (Number.isNaN(next)) return value;
@@ -43,7 +46,7 @@ export function NumberStepper({
         type="button"
         className="number-stepper__btn"
         onClick={decrement}
-        disabled={value <= min}
+        disabled={disabled || value <= min}
         aria-label="Verringern"
       >
         <Minus size={14} strokeWidth={2.5} />
@@ -55,6 +58,7 @@ export function NumberStepper({
         min={min}
         max={max}
         step={step}
+        disabled={disabled}
         onChange={(event) => {
           const parsed = Number(event.target.value);
           onChange(clamp(parsed));
@@ -64,7 +68,7 @@ export function NumberStepper({
         type="button"
         className="number-stepper__btn"
         onClick={increment}
-        disabled={max !== undefined && value >= max}
+        disabled={disabled || (max !== undefined && value >= max)}
         aria-label="Erhöhen"
       >
         <Plus size={14} strokeWidth={2.5} />

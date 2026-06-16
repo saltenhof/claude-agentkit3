@@ -116,7 +116,7 @@ def test_drift_check_owner_map_is_exhaustive() -> None:
     token_prefixes = (
         "--ak-", "--space-", "--text-", "--type-", "--control-",
         "--radius-", "--border-", "--weight-", "--font-", "--leading-",
-        "--graph-edge-",
+        "--graph-edge-", "--chart-series-",
     )
     for m in re.finditer(r"--(?P<name>[\w-]+)\s*:", root_match.group(1)):
         var_name = "--" + m.group("name")

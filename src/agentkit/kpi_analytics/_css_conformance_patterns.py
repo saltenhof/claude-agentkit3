@@ -147,6 +147,7 @@ _TOKEN_VAR_PREFIXES = (
     "--font-",
     "--leading-",
     "--graph-edge-",
+    "--chart-series-",
 )
 
 _ROOT_SELECTOR_PREFIX = ":root"

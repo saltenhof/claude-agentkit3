@@ -11,6 +11,13 @@ from agentkit.config.sqlite_gate import ALLOW_SQLITE_ENV, sqlite_allowed
 
 STATE_BACKEND_ENV = "AGENTKIT_STATE_BACKEND"
 STATE_DATABASE_URL_ENV = "AGENTKIT_STATE_DATABASE_URL"
+# AG3-094 (E9, FIX THE MODEL): explicit root for the SQLite *global* (project=None)
+# store. The global execution-event store must NOT key off ``Path.cwd()`` — that
+# is hidden operational state that forces callers/harnesses to ``os.chdir``. The
+# global store resolves under this configured root exactly like a per-project
+# store dir resolves from its explicit ``store_dir`` Path. When unset the SQLite
+# global store FAILS CLOSED (see ``resolve_sqlite_global_store_dir``).
+STORE_DIR_ENV = "AGENTKIT_STORE_DIR"
 # AG3-051: test-only Postgres schema override. Production/runtime/build NEVER
 # set these; the override is honored fail-closed (gate active AND name matches
 # the reserved test namespace) so a leaked override cannot point at production
@@ -222,6 +229,35 @@ def load_state_backend_config() -> StateBackendConfig:
     )
 
 
+def resolve_sqlite_store_root() -> str:
+    """Resolve the explicit SQLite store root from ``AGENTKIT_STORE_DIR``, fail-closed.
+
+    AG3-094 (E9, FIX THE MODEL): the SQLite store root for the *implicit* (no
+    explicit ``store_dir`` argument) case must come from the EXPLICIT configured
+    root — the same ``AGENTKIT_STORE_DIR`` env that callers point per-project
+    repositories at — NOT from ``Path.cwd()``. ``Path.cwd()`` was hidden
+    operational state that forced harnesses to ``os.chdir``. When the env is
+    unset/blank this FAILS CLOSED with a clear :class:`ConfigError` instead of
+    silently using the process working directory.
+
+    Returns:
+        The configured store-root directory string.
+
+    Raises:
+        ConfigError: If ``AGENTKIT_STORE_DIR`` is unset or blank.
+    """
+    from agentkit.exceptions import ConfigError
+
+    raw = os.environ.get(STORE_DIR_ENV)
+    if not raw or not raw.strip():
+        raise ConfigError(
+            f"{STORE_DIR_ENV} is not configured; the SQLite store has no explicit "
+            "root. Set it to the canonical store directory — the implicit store "
+            "MUST NOT rely on the process working directory (Path.cwd()).",
+        )
+    return raw
+
+
 def schema_version_slug(version: str | None = None) -> str:
     """Return the storage-safe slug for a SemVer schema version."""
 
@@ -291,7 +327,9 @@ def versioned_sqlite_db_file(version: str | None = None) -> str:
 __all__ = [
     "STATE_BACKEND_ENV",
     "STATE_DATABASE_URL_ENV",
+    "STORE_DIR_ENV",
     "ALLOW_SQLITE_ENV",
+    "resolve_sqlite_store_root",
     "SCHEMA_OVERRIDE_ENV",
     "SCHEMA_OVERRIDE_ALLOWED_ENV",
     "SCHEMA_VERSION",

@@ -153,6 +153,19 @@
   --control-font-size: var(--type-ui-size);
   --control-font-weight: var(--type-ui-weight);
 
+  --chart-series-0: #48e7ff;
+  --chart-series-1: #ffb32c;
+  --chart-series-2: #74d17f;
+  --chart-series-3: #b38cff;
+  --chart-series-4: #ff5b57;
+  --chart-series-5: #7ea7ff;
+  --chart-series-6: #ffd35e;
+  --chart-series-7: #82c4ff;
+  --chart-series-8: #a371f7;
+  --chart-series-9: #3fb950;
+  --chart-series-10: #d29922;
+  --chart-series-11: #9ff5ff;
+
   --rail-width: 4rem;
   --shadow-md: 0 0.625rem 1.625rem var(--overlay-black-32);
   --shadow-glow: 0 0 0 var(--border-hairline) color-mix(in srgb, var(--ak-accent), transparent 28%),

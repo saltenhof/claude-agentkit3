@@ -1,10 +1,37 @@
 story_id: AG3-094
 title: "Dashboards + Live-Updates (Charts + SSE)"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
+completed: "2026-06-16"
 size: M
+# COMPLETED 2026-06-16. Productive Analytics view (ECharts: overview avg/min/max/p90 +
+# timeseries multi-series, presets+custom-range, metric overlay, min/max-band, dataZoom
+# inside+slider, cross-axisPointer tooltip with band-helper filter) on the AG3-093
+# Analytics slot, fed by the REAL AG3-084 KPI endpoints /v1/projects/{key}/kpi/{stories|
+# guards|pools|pipeline|corpus} (+ /kpi/design-tokens consumed for chart theming) — no
+# client-side KPI synthesis. Frontend SSE consumer (browser EventSource) as a shell/slice
+# hook with strict per-view topic sets (Analytics=kpi,telemetry,failure_corpus;
+# Kanban=stories,phases; Graph=planning), lossy re-sync (fresh initial-GET on every
+# (re)connect, NO polling loop), re-fetch-only for the open-schema kpi/failure_corpus
+# topics; telemetry event refreshes mode-lock; filter/compare UI bound to the AG3-084
+# KpiQueryFilter (from/to, guard->/guards, pool->/pools, story_type, story_size,
+# comparison_period) as server query params; global offline state disables ALL mutating UI
+# + "Verbindung verloren" indicator. Chart colors from the owner-backed --chart-series-*
+# token family (registered in kpi_analytics.design_system) + --ak-*/--overlay-* tokens, no
+# loose hex. QA (Codex sole gate): R1 REJECT (only stories wired, dead dimension surface,
+# weak offline, loose hex, mocked-hollow tests, hollow AC10) -> R2 (shallow: fetch-then-
+# discard dims, raw rgba, SQLite/Postgres global-event parity drift + Path.cwd hidden-state)
+# -> R3/OPUS APPROVE (job-bd484946): render all dims + consume design-tokens, Analytics
+# offline->Shell, token chart colors, real option-level + real-useProjectSse tests, all-dim
+# event-driven-re-sync AC10 E2E; SQLite load_execution_event_rows_for_project_global made
+# Postgres-equivalent (chronological order via reversed(DESC+limit), plain INSERT dup-key)
+# + cross-backend parity contract test; global store resolved via fail-closed
+# resolve_sqlite_store_root(AGENTKIT_STORE_DIR), NOT Path.cwd() (FIX THE MODEL — removed the
+# os.chdir harness crutch). Gates: ruff, mypy strict default+linux (731), full Python suite
+# (incl. new parity contract test), frontend build/test (150, incl. 19 non-skipped AC10
+# e2e)/lint 0/0. Jenkins + Sonar confirmed at landing. unblocks: none.
 depends_on:
   - AG3-084
   - AG3-093

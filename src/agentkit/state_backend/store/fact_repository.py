@@ -430,11 +430,33 @@ class StateBackendFactRepository:
 
     Args:
         store_dir: Base directory for the SQLite store (Postgres ignores it).
-            Default: ``Path.cwd()``.
+            When ``None`` and the SQLite backend is active, the root is resolved
+            fail-closed from ``AGENTKIT_STORE_DIR`` (AG3-094 E9 — NO ``Path.cwd()``
+            hidden state). Postgres never touches this value.
     """
 
     def __init__(self, store_dir: Path | None = None) -> None:
-        self._store_dir: Path = store_dir or Path.cwd()
+        self._explicit_store_dir: Path | None = store_dir
+
+    @property
+    def _store_dir(self) -> Path:
+        """Resolve the SQLite store root (explicit arg or configured root).
+
+        AG3-094 (E9, FIX THE MODEL): the implicit (no-arg) case resolves from the
+        EXPLICIT ``AGENTKIT_STORE_DIR`` root via the shared
+        :func:`resolve_sqlite_store_root` — fail-closed — instead of defaulting to
+        ``Path.cwd()``. Only ever consulted on the SQLite path; Postgres ignores
+        the store dir entirely, so an unset root never breaks the Postgres backend.
+
+        Raises:
+            ConfigError: If no explicit dir was given AND ``AGENTKIT_STORE_DIR`` is
+                unset (SQLite path only).
+        """
+        if self._explicit_store_dir is not None:
+            return self._explicit_store_dir
+        from agentkit.state_backend.config import resolve_sqlite_store_root
+
+        return Path(resolve_sqlite_store_root())
 
     # ------------------------------------------------------------------
     # reads

@@ -547,11 +547,11 @@ def build_css_variables(ds: DesignSystem) -> dict[str, str]:
 
     Every exported ``--ak-*`` / ``--space-*`` / ``--text-*`` / ``--type-*`` /
     ``--control-*`` / ``--radius-*`` / ``--font-*`` / ``--weight-*`` /
-    ``--leading-*`` / ``--graph-edge-*`` / ``--border-hairline`` token
-    corresponds to one entry here.  Vars that are purely layout / overlay
-    helpers (``--overlay-*``, ``--rail-width``, ``--shadow-*``) are **not**
-    token-family members and therefore absent from this map — the drift checker
-    holds them in an explicit documented allowlist.
+    ``--leading-*`` / ``--graph-edge-*`` / ``--border-hairline`` /
+    ``--chart-series-*`` token corresponds to one entry here.  Vars that are
+    purely layout / overlay helpers (``--overlay-*``, ``--rail-width``,
+    ``--shadow-*``) are **not** token-family members and therefore absent from
+    this map — the drift checker holds them in an explicit documented allowlist.
 
     Args:
         ds: The fully-typed ``DesignSystem`` owner instance.
@@ -750,6 +750,24 @@ def build_css_variables(ds: DesignSystem) -> dict[str, str]:
         "--control-padding-md": ct.padding_md,
         "--control-font-size": _resolve_control_font_css_var(roles, ct.font_size, "size"),
         "--control-font-weight": _resolve_control_font_css_var(roles, ct.font_weight, "weight"),
+    })
+
+    # --- chart series color tokens (§64.15 / §64.17) ---
+    # Ordered series colors consumed by the ECharts binding (AG3-094).
+    cs = ds.chart.series
+    mapping.update({
+        "--chart-series-0": cs.series_0,
+        "--chart-series-1": cs.series_1,
+        "--chart-series-2": cs.series_2,
+        "--chart-series-3": cs.series_3,
+        "--chart-series-4": cs.series_4,
+        "--chart-series-5": cs.series_5,
+        "--chart-series-6": cs.series_6,
+        "--chart-series-7": cs.series_7,
+        "--chart-series-8": cs.series_8,
+        "--chart-series-9": cs.series_9,
+        "--chart-series-10": cs.series_10,
+        "--chart-series-11": cs.series_11,
     })
 
     return mapping

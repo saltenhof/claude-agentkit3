@@ -18,7 +18,11 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.governance.guard_system.records import StoryExecutionLockRecord
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.state_backend.config import (
+    ALLOW_SQLITE_ENV,
+    STATE_BACKEND_ENV,
+    STORE_DIR_ENV,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -59,9 +63,15 @@ def _has_postgres_url() -> bool:
 @pytest.fixture(autouse=True)
 def sqlite_env(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> Generator[None, None, None]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
+    # AG3-094 (E9): the SQLite global (project=None) store resolves its root from
+    # AGENTKIT_STORE_DIR (fail-closed), NOT from Path.cwd(). Point it at this
+    # test's tmp_path so the *_global lock roundtrips persist into an isolated,
+    # explicit store — replacing the previous os.chdir(tmp_path) crutch.
+    monkeypatch.setenv(STORE_DIR_ENV, str(tmp_path))
     from agentkit.state_backend.store import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
@@ -142,16 +152,12 @@ class TestStoryExecutionLockSQLiteRoundtrip:
         story_id = "TEST-LOCK-SAVE-001"
         record = _make_lock_record(story_id)
 
-        # Need to use cwd-based global store path; cd to tmp_path
-        old_cwd = os.getcwd()
-        os.chdir(tmp_path)
-        try:
-            save_story_execution_lock_global(record)
-            loaded = load_story_execution_lock_global(
-                _PROJECT_KEY, story_id, _RUN_ID, _LOCK_TYPE
-            )
-        finally:
-            os.chdir(old_cwd)
+        # Global store resolves from AGENTKIT_STORE_DIR (set to tmp_path by the
+        # autouse sqlite_env fixture) — no os.chdir needed.
+        save_story_execution_lock_global(record)
+        loaded = load_story_execution_lock_global(
+            _PROJECT_KEY, story_id, _RUN_ID, _LOCK_TYPE
+        )
 
         assert loaded is not None
         assert loaded.project_key == _PROJECT_KEY
@@ -168,14 +174,9 @@ class TestStoryExecutionLockSQLiteRoundtrip:
         """Loading a non-existent lock returns None."""
         from agentkit.state_backend.store import load_story_execution_lock_global
 
-        old_cwd = os.getcwd()
-        os.chdir(tmp_path)
-        try:
-            loaded = load_story_execution_lock_global(
-                "no-proj", "no-story", "no-run", "story_execution"
-            )
-        finally:
-            os.chdir(old_cwd)
+        loaded = load_story_execution_lock_global(
+            "no-proj", "no-story", "no-run", "story_execution"
+        )
 
         assert loaded is None
 
@@ -201,16 +202,11 @@ class TestStoryExecutionLockSQLiteRoundtrip:
             deactivated_at=_NOW,
         )
 
-        old_cwd = os.getcwd()
-        os.chdir(tmp_path)
-        try:
-            save_story_execution_lock_global(record_active)
-            save_story_execution_lock_global(record_inactive)
-            loaded = load_story_execution_lock_global(
-                _PROJECT_KEY, story_id, _RUN_ID, _LOCK_TYPE
-            )
-        finally:
-            os.chdir(old_cwd)
+        save_story_execution_lock_global(record_active)
+        save_story_execution_lock_global(record_inactive)
+        loaded = load_story_execution_lock_global(
+            _PROJECT_KEY, story_id, _RUN_ID, _LOCK_TYPE
+        )
 
         assert loaded is not None
         assert loaded.status == "INACTIVE"
@@ -238,23 +234,17 @@ class TestStoryExecutionLockDeactivateRoundtrip:
         story_id = "TEST-LOCK-DEACT-001"
         record = _make_lock_record(story_id)
 
-        old_cwd = os.getcwd()
-        os.chdir(tmp_path)
-        try:
-            # Activate
-            save_story_execution_lock_global(record)
-            loaded_before = load_story_execution_lock_global(
-                _PROJECT_KEY, story_id, _RUN_ID, _LOCK_TYPE
-            )
-            assert loaded_before is not None
-            assert loaded_before.status == "ACTIVE"
+        # Activate
+        save_story_execution_lock_global(record)
+        loaded_before = load_story_execution_lock_global(
+            _PROJECT_KEY, story_id, _RUN_ID, _LOCK_TYPE
+        )
+        assert loaded_before is not None
+        assert loaded_before.status == "ACTIVE"
 
-            # Deactivate via LockRecordRepository
-            repo = LockRecordRepository(store_dir=tmp_path)
-            deactivated_ids = repo.deactivate_locks_for_story(story_id)
-
-        finally:
-            os.chdir(old_cwd)
+        # Deactivate via LockRecordRepository
+        repo = LockRecordRepository(store_dir=tmp_path)
+        deactivated_ids = repo.deactivate_locks_for_story(story_id)
 
         assert len(deactivated_ids) >= 1
         assert any(story_id in lid for lid in deactivated_ids)
@@ -268,17 +258,12 @@ class TestStoryExecutionLockDeactivateRoundtrip:
 
         repo = LockRecordRepository(store_dir=tmp_path)
 
-        # Need schema to exist in that db first; trigger bootstrap via save
-        old_cwd = os.getcwd()
-        os.chdir(tmp_path)
-        try:
-            # Bootstrap the DB by saving a different story first
-            from agentkit.state_backend.store import save_story_execution_lock_global
+        # Need schema to exist in that db first; trigger bootstrap via save.
+        # Bootstrap the DB by saving a different story first.
+        from agentkit.state_backend.store import save_story_execution_lock_global
 
-            bootstrap_record = _make_lock_record("bootstrap-story")
-            save_story_execution_lock_global(bootstrap_record)
-        finally:
-            os.chdir(old_cwd)
+        bootstrap_record = _make_lock_record("bootstrap-story")
+        save_story_execution_lock_global(bootstrap_record)
 
         with pytest.raises(LockRecordNotFoundError, match="unknown-story"):
             repo.deactivate_locks_for_story("unknown-story")
@@ -293,17 +278,12 @@ class TestStoryExecutionLockDeactivateRoundtrip:
         story_id = "TEST-LOCK-IDEM-DEACT-001"
         record = _make_lock_record(story_id)
 
-        old_cwd = os.getcwd()
-        os.chdir(tmp_path)
-        try:
-            save_story_execution_lock_global(record)
-            repo = LockRecordRepository(store_dir=tmp_path)
-            # First deactivation
-            first = repo.deactivate_locks_for_story(story_id)
-            # Second deactivation (idempotent — story known but all INACTIVE)
-            second = repo.deactivate_locks_for_story(story_id)
-        finally:
-            os.chdir(old_cwd)
+        save_story_execution_lock_global(record)
+        repo = LockRecordRepository(store_dir=tmp_path)
+        # First deactivation
+        first = repo.deactivate_locks_for_story(story_id)
+        # Second deactivation (idempotent — story known but all INACTIVE)
+        second = repo.deactivate_locks_for_story(story_id)
 
         assert len(first) >= 1
         assert second == []

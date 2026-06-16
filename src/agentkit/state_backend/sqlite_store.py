@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
@@ -18,7 +19,12 @@ from agentkit.boundary.filesystem import atomic_write_json, load_json_object
 from agentkit.boundary.shared.time import now_iso
 from agentkit.core_types.qa_artifact_names import VERIFY_DECISION_FILE
 from agentkit.exceptions import CorruptStateError
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, _sqlite_allowed, versioned_sqlite_db_file
+from agentkit.state_backend.config import (
+    ALLOW_SQLITE_ENV,
+    _sqlite_allowed,
+    resolve_sqlite_store_root,
+    versioned_sqlite_db_file,
+)
 from agentkit.state_backend.paths import (
     CLOSURE_REPORT_FILE,
     CONTEXT_EXPORT_FILE,
@@ -28,7 +34,6 @@ from agentkit.state_backend.paths import (
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
 
     from agentkit.state_backend.scope import RuntimeStateScope
 
@@ -1970,11 +1975,27 @@ def delete_story_are_link_row(
 # ---------------------------------------------------------------------------
 
 
+def _global_store_dir() -> Path:
+    """Resolve the SQLite *global* (project=None) store root, fail-closed.
+
+    AG3-094 (E9, FIX THE MODEL): the global execution-event store used by the
+    SSE stream and the KPI source resolves from the SAME explicit configured root
+    that per-project / implicit stores resolve from (``AGENTKIT_STORE_DIR`` via
+    :func:`resolve_sqlite_store_root`), NOT from ``Path.cwd()`` — single source of
+    truth, fail-closed when no root is configured.
+
+    Returns:
+        The configured global store root directory.
+
+    Raises:
+        ConfigError: If ``AGENTKIT_STORE_DIR`` is unset or blank.
+    """
+    return Path(resolve_sqlite_store_root())
+
+
 def _project_store_dir(store_dir: Path | None) -> Path:
     if store_dir is None:
-        from pathlib import Path as _Path
-
-        return _Path.cwd()
+        return _global_store_dir()
     return store_dir
 
 
@@ -2498,12 +2519,46 @@ def append_execution_event_row(story_dir: Path, row: dict[str, Any]) -> None:
 
 
 def append_execution_event_global_row(row: dict[str, Any]) -> None:
-    """Global execution-event append is unsupported on SQLite."""
+    """Append a global execution-event row to the global SQLite store.
 
-    del row
-    raise RuntimeError(
-        "Global execution-event append requires the postgres state backend",
-    )
+    Resolves the store root via :func:`_global_store_dir` (the explicit
+    ``AGENTKIT_STORE_DIR`` root, fail-closed) so that the SSE stream and the KPI
+    analytics source can read it cross-story via
+    :func:`load_execution_event_rows_for_project_global`.
+
+    AG3-094 (E8, backend parity): uses a *plain* ``INSERT`` (NOT
+    ``INSERT OR IGNORE``) to match the Postgres global insert
+    (``postgres_store._insert_execution_event_row``). A duplicate
+    ``(project_key, run_id, event_id)`` therefore raises an
+    :class:`sqlite3.IntegrityError`, exactly as Postgres raises on its PK — the
+    idempotency/dup-key semantics are identical across backends, so a writer
+    that silently tolerated dups on SQLite can no longer pass while breaking on
+    the Postgres path.
+    """
+    with _connect(_project_store_dir(None)) as conn:
+        conn.execute(
+            """
+            INSERT INTO execution_events (
+                project_key, story_id, run_id, event_id, event_type,
+                occurred_at, source_component, severity, phase, flow_id,
+                node_id, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["project_key"],
+                row["story_id"],
+                row["run_id"],
+                row["event_id"],
+                row["event_type"],
+                row["occurred_at"],
+                row["source_component"],
+                row["severity"],
+                row["phase"],
+                row["flow_id"],
+                row["node_id"],
+                row["payload_json"],
+            ),
+        )
 
 
 # Execution-event WHERE-clause fragments (hoisted to avoid duplicated literals, Sonar S1192).
@@ -2639,9 +2694,7 @@ def load_execution_event_rows_global(
     Returns:
         Row dicts ordered by ``occurred_at DESC``, capped at ``limit``.
     """
-    from pathlib import Path as _Path
-
-    db_dir: Path = _Path.cwd()
+    db_dir: Path = _global_store_dir()
     clauses: list[str] = [_CLAUSE_PROJECT_KEY, _CLAUSE_STORY_ID]
     params: list[object] = [project_key, story_id]
     if run_id is not None:
@@ -2673,12 +2726,43 @@ def load_execution_event_rows_for_project_global(
     *,
     limit: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Global project execution-event reads are unsupported on SQLite."""
+    """Return global execution-event rows for ``project_key`` from the global SQLite store.
 
-    del project_key, limit
-    raise RuntimeError(
-        "Global project execution-event reads require the postgres state backend",
-    )
+    Reads from the same global database that
+    :func:`append_execution_event_global_row` writes to (resolved via
+    :func:`_global_store_dir`).
+
+    AG3-094 (E8, backend parity): the ordering/limit-window semantics MUST match
+    :func:`postgres_store.load_execution_event_rows_for_project_global`. Postgres
+    selects ``ORDER BY occurred_at DESC, event_id DESC LIMIT ?`` and then
+    ``reversed(rows)`` — i.e. it takes the *most-recent N* rows and returns them
+    in *ascending* (chronological) order. This SQLite implementation mirrors that
+    exactly: it selects the most-recent-N window descending and reverses it to
+    chronological order, so both backends return identical sequences for the same
+    arguments (no silent SSE-store drift between local SQLite and the Postgres
+    path on Jenkins).
+    """
+    if limit is not None and limit <= 0:
+        return []
+    params: list[object] = [project_key]
+    limit_clause = ""
+    if limit is not None:
+        limit_clause = "LIMIT ?"
+        params.append(limit)
+    with _connect(_project_store_dir(None)) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT project_key, story_id, run_id, event_id, event_type,
+                   occurred_at, source_component, severity, phase, flow_id,
+                   node_id, payload_json
+            FROM execution_events
+            WHERE project_key = ?
+            ORDER BY occurred_at DESC, event_id DESC
+            {limit_clause}
+            """,
+            tuple(params),
+        ).fetchall()
+    return [dict(row) for row in reversed(rows)]
 
 
 # ---------------------------------------------------------------------------
@@ -3156,8 +3240,10 @@ def save_story_execution_lock_global_row(row: dict[str, Any]) -> None:
 
     AG3-031 Pass-7: SQLite path symmetric with postgres_store.
     Table DDL is bootstrapped via ``_ensure_schema_runtime_tables``.
-    Uses ``_project_store_dir(None)`` (= ``Path.cwd()``) as the global
-    store location, consistent with all other ``*_global_row`` functions.
+    Uses ``_project_store_dir(None)`` (the explicit ``AGENTKIT_STORE_DIR`` root
+    via :func:`_global_store_dir`, fail-closed — AG3-094 E9, NOT ``Path.cwd()``)
+    as the global store location, consistent with all other ``*_global_row``
+    functions.
     """
 
     with _connect(_project_store_dir(None)) as conn:
@@ -3200,8 +3286,9 @@ def load_story_execution_lock_global_row(
     """Return the raw story-execution-lock row, or None.
 
     AG3-031 Pass-7: SQLite path symmetric with postgres_store.
-    Uses ``_project_store_dir(None)`` (= ``Path.cwd()``) as the global
-    store location.
+    Uses ``_project_store_dir(None)`` (the explicit ``AGENTKIT_STORE_DIR`` root
+    via :func:`_global_store_dir`, fail-closed — AG3-094 E9, NOT ``Path.cwd()``)
+    as the global store location.
     """
 
     with _connect(_project_store_dir(None)) as conn:

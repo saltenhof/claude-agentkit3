@@ -245,6 +245,134 @@ export interface ProjectListResponse {
   projects: ProjectItem[];
 }
 
+// ── KPI wire types (AG3-084 / AG3-094 — real backend shapes) ─────────────────
+
+/** Wire shape for a FactStory row (fact_story table). */
+export interface WireFactStory {
+  project_key: string;
+  story_id: string;
+  story_type: string;
+  story_size: string;
+  story_mode: string | null;
+  started_at: string;
+  completed_at: string | null;
+  qa_rounds: number;
+  compaction_count: number | null;
+  llm_call_count: number | null;
+  adversarial_findings: number | null;
+  adversarial_tests_created: number | null;
+  files_changed: number | null;
+  feedback_converged: boolean | null;
+  phase_setup_ms: number | null;
+  phase_implementation_ms: number | null;
+  phase_closure_ms: number | null;
+  are_gate_status: string | null;
+  agentkit_version: string;
+  agentkit_commit: string;
+}
+
+/** Wire shape for a FactGuardPeriod row. */
+export interface WireFactGuardPeriod {
+  project_key: string;
+  guard_id: string;
+  period_start: string;
+  period_end: string;
+  invocation_count: number;
+  violation_count: number;
+}
+
+/** Wire shape for a FactPoolPeriod row. */
+export interface WireFactPoolPeriod {
+  project_key: string;
+  llm_role: string;
+  period_start: string;
+  period_end: string;
+  call_count: number;
+  token_input_total: number;
+  token_output_total: number;
+  avg_latency_ms: number | null;
+}
+
+/** Wire shape for a FactPipelinePeriod row. */
+export interface WireFactPipelinePeriod {
+  project_key: string;
+  period_start: string;
+  period_end: string;
+  stories_completed: number;
+  stories_escalated: number;
+  avg_qa_rounds: number | null;
+  avg_phase_implementation_ms: number | null;
+}
+
+/** Wire shape for a FactCorpusPeriod row. */
+export interface WireFactCorpusPeriod {
+  project_key: string;
+  period_start: string;
+  period_end: string;
+  incidents_recorded: number;
+  patterns_promoted: number;
+  checks_approved: number;
+}
+
+/** Union of all KPI fact row wire shapes. */
+export type KpiFactRow =
+  | WireFactStory
+  | WireFactGuardPeriod
+  | WireFactPoolPeriod
+  | WireFactPipelinePeriod
+  | WireFactCorpusPeriod;
+
+/** KPI dimension endpoint response wire shape (AG3-084). */
+export interface KpiDimensionResponse {
+  project_key: string;
+  dimension: string;
+  status: 'OK' | 'EMPTY' | 'UNAVAILABLE';
+  rows: KpiFactRow[];
+  comparison_period?: { from: string; to: string };
+  comparison_rows?: KpiFactRow[];
+}
+
+/** Chart series tokens from the /kpi/design-tokens endpoint (AG3-092). */
+export interface KpiChartSeriesTokens {
+  series_0: string;
+  series_1: string;
+  series_2: string;
+  series_3: string;
+  series_4: string;
+  series_5: string;
+  series_6: string;
+  series_7: string;
+  series_8: string;
+  series_9: string;
+  series_10: string;
+  series_11: string;
+}
+
+/** Design tokens response from /kpi/design-tokens (AG3-092). */
+export interface KpiDesignTokensResponse {
+  project_key: string;
+  chart: { series: KpiChartSeriesTokens };
+  colors: Record<string, unknown>;
+  typography: Record<string, unknown>;
+  spacing: Record<string, unknown>;
+  control: Record<string, unknown>;
+}
+
+/**
+ * Query filter parameters for KPI endpoints (FK-63 §63.4.2 / AG3-084).
+ * All dates must be timezone-aware ISO-8601 (Z or +HH:MM).
+ */
+export interface KpiQueryParams {
+  from: string;
+  to: string;
+  guard?: string;
+  pool?: string;
+  story_type?: string;
+  story_size?: string;
+  compare_from?: string;
+  compare_to?: string;
+}
+
 /** A required read failed: carries the parsed error_code for the FAIL-CLOSED error pill. */
 export class BffReadError extends Error {
   constructor(
@@ -583,6 +711,62 @@ export class BffClient {
   async listProjects(): Promise<ProjectListResponse> {
     const url = `${this.baseUrl}/v1/projects`;
     return normalizeProjectList(await this.readJson(url));
+  }
+
+  // ── KPI analytics (AG3-084 / AG3-094) ────────────────────────────────────
+
+  /**
+   * Build the KPI endpoint URL for a given dimension with typed query params.
+   * Requires from/to (mandatory — backend rejects requests without a period).
+   */
+  private kpiUrl(projectKey: string, dimension: string, params: KpiQueryParams): string {
+    const base = `${this.baseUrl}/v1/projects/${encodeURIComponent(projectKey)}/kpi/${encodeURIComponent(dimension)}`;
+    const q = new URLSearchParams();
+    q.set('from', params.from);
+    q.set('to', params.to);
+    if (params.guard != null) q.set('guard', params.guard);
+    if (params.pool != null) q.set('pool', params.pool);
+    if (params.story_type != null) q.set('story_type', params.story_type);
+    if (params.story_size != null) q.set('story_size', params.story_size);
+    if (params.compare_from != null) q.set('compare_from', params.compare_from);
+    if (params.compare_to != null) q.set('compare_to', params.compare_to);
+    return `${base}?${q.toString()}`;
+  }
+
+  /** GET /v1/projects/{key}/kpi/stories — story KPI dimension (fact_story). */
+  async getKpiStories(projectKey: string, params: KpiQueryParams): Promise<KpiDimensionResponse> {
+    const url = this.kpiUrl(projectKey, 'stories', params);
+    return (await this.readJson(url)) as unknown as KpiDimensionResponse;
+  }
+
+  /** GET /v1/projects/{key}/kpi/guards — guards KPI dimension (fact_guard_period). */
+  async getKpiGuards(projectKey: string, params: KpiQueryParams): Promise<KpiDimensionResponse> {
+    const url = this.kpiUrl(projectKey, 'guards', params);
+    return (await this.readJson(url)) as unknown as KpiDimensionResponse;
+  }
+
+  /** GET /v1/projects/{key}/kpi/pools — pools KPI dimension (fact_pool_period). */
+  async getKpiPools(projectKey: string, params: KpiQueryParams): Promise<KpiDimensionResponse> {
+    const url = this.kpiUrl(projectKey, 'pools', params);
+    return (await this.readJson(url)) as unknown as KpiDimensionResponse;
+  }
+
+  /** GET /v1/projects/{key}/kpi/pipeline — pipeline KPI dimension (fact_pipeline_period). */
+  async getKpiPipeline(projectKey: string, params: KpiQueryParams): Promise<KpiDimensionResponse> {
+    const url = this.kpiUrl(projectKey, 'pipeline', params);
+    return (await this.readJson(url)) as unknown as KpiDimensionResponse;
+  }
+
+  /** GET /v1/projects/{key}/kpi/corpus — failure-corpus KPI dimension (fact_corpus_period). */
+  async getKpiCorpus(projectKey: string, params: KpiQueryParams): Promise<KpiDimensionResponse> {
+    const url = this.kpiUrl(projectKey, 'corpus', params);
+    return (await this.readJson(url)) as unknown as KpiDimensionResponse;
+  }
+
+  /** GET /v1/projects/{key}/kpi/design-tokens — static token family (AG3-092, FK-64). */
+  async getKpiDesignTokens(projectKey: string): Promise<KpiDesignTokensResponse> {
+    const url = `${this.baseUrl}/v1/projects/${encodeURIComponent(projectKey)}/kpi/design-tokens`;
+    return (await this.readJson(url)) as unknown as KpiDesignTokensResponse;
   }
 
   // ── Story mutations ───────────────────────────────────────────────────────
