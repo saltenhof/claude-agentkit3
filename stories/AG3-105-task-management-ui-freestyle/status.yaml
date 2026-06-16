@@ -1,10 +1,37 @@
 story_id: AG3-105
 title: "Task-Management-UI (Freestyle-To-Do, nicht pipeline-gemanagt)"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-07"
+completed: "2026-06-17"
 size: M
+# COMPLETED 2026-06-17. Freestyle Task-Management-UI (FK-77) als eigener BC-aligned
+# Slice in der AG3-093-App-Shell ('tasks' ViewMode + Nav), getrennt von den Story-
+# Sichten — Tasks sind NICHT pipeline-gemanagt (keine Phasen/Gates/Worktrees/Mode).
+# AC11 (User-Direktive 2026-06-11) zog die fehlende Transport-Schicht ueber der
+# task_management-BC (AG3-096) IN den Scope: neuer task_management/http/-BFF-Adapter
+# (TaskManagementRoutes) + Verdrahtung in control_plane_http/app.py, project-scoped
+# /v1/projects/{key}/tasks{,/{id}{,/resolve,/dismiss,/links,/links/delete},
+# /for-target/{kind}/{id}} + GET /task-links. Fail-closed (503 unavailable, 500
+# internal_error fuer unerwartete Fehler), server-seitige TM-YYYY-NNNN-Allokation,
+# Linkziele nur task|story. UI: Liste/Create/Resolve/Dismiss/Link/Unlink, Outgoing-
+# Link-Badges aus dem Backend hydriert, bidirektionale Reverse-Sicht via
+# list_tasks_for_target (Task-Seite + Story-Inspector "Verlinkte Aufgaben"),
+# Optimistic-Update mit Revert, error_code-Pillen, Empty-CTA, Cross-Slice-Story-Fokus,
+# Stale-Request-Guard gegen Cross-Tenant-Races, terminale Tasks ohne Mutate-Controls.
+# FIX-THE-MODEL: neues project-scoped list_task_links(project_key) ueber service/
+# accessor/repository (SQLite+Postgres-Paritaet) als faithful Expose der bereits
+# modellierten TaskLink-Daten; FK-77 §77.7 Read-Signaturen an den project_key-scoped
+# Code angeglichen. QA (Codex sole gate): R1 REJECT (green-skeleton frontend: nur
+# list/resolve/dismiss, falsches Wire-Shape, hohles E2E) -> R2/OPUS REJECT-fixes
+# (Backend-Link-Read + Hydration, terminal gating, cross-slice nav, inspector gating,
+# UI-only E2E) -> R3/OPUS REJECT-fixes (AC4 reverse view, AC6 fetch race guard, §77.7
+# alignment) -> r4 APPROVE (AC1-AC11 PASS). Gates: ruff, mypy strict default+linux
+# (733), full unit+contract (7072 passed) + frontend build/test (198, inkl. echtes
+# No-Stub-UI-E2E)/lint 0/0, architecture conformance OK. FINAL: Jenkins #477/#478/#479
+# SUCCESS, Sonar gate OK (0 new-code issues nach class-LOC/S3776 Aufraeumrunde).
+# unblocks: none.
 depends_on:
   - AG3-093
   - AG3-096
