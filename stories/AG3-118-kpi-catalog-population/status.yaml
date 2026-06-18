@@ -1,9 +1,10 @@
 story_id: AG3-118
 title: "KPI-Katalog (40 KPIs) + FK-61-Mapping + Contract-Tests"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-18"
+completed: "2026-06-19"
 size: M
 # Split aus AG3-083 (superseded) gemaess feasibility-analysis.md (Codex job-c53f109b):
 # dritte/letzte Story der Sequenz. Populiert KpiCatalog mit exakt den 40 AKTIV-KPIs
@@ -11,6 +12,20 @@ size: M
 # Contract-Tests (40-ID-Frozenset, fail-closed Ziel-Spalte gegen FK-62, Source-Owner-
 # Klassen). Der additive neue Wert; haengt von AG3-117 (FK-62-Spalten als
 # fail-closed-Aufloesungsziel).
+# QA (Codex sole gate): r1 REJECT (FactTarget konnte das einzige Mehr-Tabellen-FK-61-
+# Target execution_vs_exploration_ratio nicht abbilden -> KPI_FACT_TARGETS jetzt
+# dict[str, tuple[FactTarget,...]]; finding_resolution_quality als Class 2 falsch ->
+# FK-34 StructuredEvaluator-Output = Class 4; "Negativtests" waren Tautologien ->
+# echte crafted-invalid-Tests via typisierte Validatoren; stale Skeleton-Docstrings)
+# -> r2 REJECT (orchestrator_governance_violation_count data_available [R] statt FK-60
+# [N]; llm_finding_precision Katalog/Test-Klassen-Drift -> typisiertes source_owner_class
+# + faithful-class-Pin gegen Katalog) -> r3 REJECT (toter Test-Helper ohne neues
+# Pflichtfeld -> entfernt) -> r4 APPROVE. Typisiertes FK-61->FK-62-Mapping mit fail-
+# closed-Aufloesung gegen fact_store/models.py (AG3-117-Schema); prompt_integrity auf
+# FK-62-Namen ohne _count-Suffix gepinnt; P95 bleibt INVENTAR. FINAL: Jenkins #531
+# SUCCESS (echter Postgres), Sonar-Aufraeumrunde (function-LOC/S138/2x S1192/module-LOC,
+# verhaltensneutral) -> Jenkins #532 SUCCESS, Sonar gate OK (0 new-code issues).
+# Schliesst den AG3-083-Split ab (AG3-116 DTO + AG3-117 Schema + AG3-118 Katalog).
 depends_on:
   - AG3-117
 unblocks: []
