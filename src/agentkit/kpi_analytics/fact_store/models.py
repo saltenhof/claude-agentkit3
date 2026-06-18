@@ -1,9 +1,10 @@
 """Pydantic record models for the analytics fact tables (FK-62 §62.2).
 
 These frozen, ``extra="forbid"`` models are the typed shape of the five fact
-tables plus ``sync_state`` (FK-62 §62.2.7). They mirror the column subset pinned
-in story AG3-038 §2.1.1 (the binding spec); FK-62 §62.2 carries the full KPI
-inventory that the follow-up RefreshWorker story will populate.
+tables plus ``sync_state`` (FK-62 §62.2.7). They carry the full FK-62 §62.2
+column set (AG3-117 reconciliation): renames, new columns, drops and the
+``are_gate_passed`` bool type-change are all applied here. The RefreshWorker
+fill-logic for the still-defaulting new columns is AG3-082 territory.
 
 Mandantenregel (FK-62 §62.2): ``project_key`` is the leading scope key on every
 record, so analytics stays per-project isolable even on a central database.
@@ -25,8 +26,10 @@ _RECORD_CONFIG = ConfigDict(frozen=True, extra="forbid")
 class FactStory(BaseModel):
     """One analytics row per completed story (grain: 1 row per story).
 
-    Primary key: ``(project_key, story_id)`` (FK-62 §62.2.1, story §2.1.1).
-    Written/updated at story closure by the (follow-up) RefreshWorker.
+    Primary key: ``(project_key, story_id)`` (FK-62 §62.2.1).
+    Written/updated at story closure by the RefreshWorker. Carries the full
+    FK-62 §62.2.1 column set (AG3-117 reconciliation); the RefreshWorker
+    fill-logic for the still-defaulting columns is AG3-082 territory.
     """
 
     model_config = _RECORD_CONFIG
@@ -35,89 +38,175 @@ class FactStory(BaseModel):
     story_id: str
     story_type: str
     story_size: str
-    story_mode: str | None = None
-    started_at: datetime
-    completed_at: datetime | None = None
-    qa_rounds: int
-    compaction_count: int | None = None
-    llm_call_count: int | None = None
-    adversarial_findings: int | None = None
-    adversarial_tests_created: int | None = None
-    files_changed: int | None = None
+    pipeline_mode: str | None = None
+    opened_at: datetime
+    closed_at: datetime | None = None
+
+    # Domain 1: story sizing
+    processing_time_ms: int | None = None
+    compaction_count: int = 0
+    qa_round_count: int = 0
     feedback_converged: bool | None = None
+    blocked_ac_count: int = 0
+    blocked_ac_detail_json: str | None = None
+
+    # Domain 2: LLM selection
+    llm_call_count: int = 0
+
+    # Domain 5: QA effectiveness
+    adversarial_findings_count: int = 0
+    adversarial_tests_created: int = 0
+    adversarial_hit_rate: float | None = None
+    findings_fully_resolved: int = 0
+    findings_partially_resolved: int = 0
+    findings_not_resolved: int = 0
+
+    # Status (also for escalated/paused stories)
+    final_status: str | None = None
+
+    # Domain 8: ARE
+    are_gate_passed: bool | None = None
+    are_total_requirements: int | None = None
+    are_covered_requirements: int | None = None
+
+    # Domain 10: process efficiency
+    files_changed: int = 0
+    increment_count: int = 0
     phase_setup_ms: int | None = None
+    phase_exploration_ms: int | None = None
     phase_implementation_ms: int | None = None
+    phase_verify_ms: int | None = None
     phase_closure_ms: int | None = None
-    are_gate_status: str | None = None
-    agentkit_version: str
-    agentkit_commit: str
+
+    # Meta
+    computed_at: datetime
 
 
 class FactGuardPeriod(BaseModel):
     """One row per guard per period (FK-62 §62.2.2).
 
-    Primary key: ``(project_key, guard_id, period_start)`` (story §2.1.1).
+    Primary key: ``(project_key, guard_key, period_start)``.
     """
 
     model_config = _RECORD_CONFIG
 
     project_key: str
-    guard_id: str
+    guard_key: str
     period_start: datetime
-    period_end: datetime
-    invocation_count: int
-    violation_count: int
+    period_grain: str = "week"
+
+    # Domain 3: governance
+    invocation_count: int = 0
+    violation_count: int = 0
+    violation_rate: float | None = None
+    violation_stage_escape: int = 0
+    violation_stage_schema: int = 0
+    violation_stage_template: int = 0
+    escape_detection_count: int = 0
+
+    # Meta
+    computed_at: datetime
 
 
 class FactPoolPeriod(BaseModel):
-    """One row per LLM role/pool per period (FK-62 §62.2.3).
+    """One row per LLM pool per period (FK-62 §62.2.3).
 
-    Primary key: ``(project_key, llm_role, period_start)`` (story §2.1.1).
+    Primary key: ``(project_key, pool_key, period_start)``.
+    ``response_time_p95_ms`` is INVENTAR (FK-62 §62.2.3) — not a column yet.
     """
 
     model_config = _RECORD_CONFIG
 
     project_key: str
-    llm_role: str
+    pool_key: str
     period_start: datetime
-    period_end: datetime
-    call_count: int
-    token_input_total: int
-    token_output_total: int
-    avg_latency_ms: int | None = None
+    period_grain: str = "week"
+
+    # Domain 2: LLM performance
+    call_count: int = 0
+    response_time_p50_ms: int | None = None
+    verdict_adopted_count: int = 0
+    verdict_total_count: int = 0
+    finding_true_positive_count: int = 0
+    finding_false_positive_count: int = 0
+    quorum_triggered_count: int = 0
+
+    # Domain 6: review quality
+    template_finding_rate_json: str | None = None
+
+    # Meta
+    computed_at: datetime
 
 
 class FactPipelinePeriod(BaseModel):
     """One row per period of global pipeline KPIs (FK-62 §62.2.4).
 
-    Primary key: ``(project_key, period_start)`` (story §2.1.1).
+    Primary key: ``(project_key, period_start)``.
     """
 
     model_config = _RECORD_CONFIG
 
     project_key: str
     period_start: datetime
-    period_end: datetime
-    stories_completed: int
-    stories_escalated: int
-    avg_qa_rounds: float | None = None
-    avg_phase_implementation_ms: int | None = None
+    period_grain: str = "week"
+
+    # Domain 1: story sizing
+    story_count: int = 0
+    story_count_closed: int = 0
+    execution_count: int = 0
+    exploration_count: int = 0
+    stage_miss_count: int = 0
+    stage_miss_detail_json: str | None = None
+
+    # Domain 3: governance
+    impact_violation_count: int = 0
+    impact_check_count: int = 0
+    integrity_gate_block_count: int = 0
+    integrity_gate_total_count: int = 0
+
+    # Domain 4: document fidelity
+    doc_fidelity_conflict_by_level_json: str | None = None
+
+    # Domain 5: QA effectiveness
+    first_pass_count: int = 0
+    finding_survival_count: int = 0
+    finding_total_count: int = 0
+    effective_check_ids_json: str | None = None
+
+    # Domain 7: VectorDB
+    vectordb_total_hits: int = 0
+    vectordb_above_threshold: int = 0
+    vectordb_classified_conflict: int = 0
+    vectordb_duplicate_detected: int = 0
+
+    # Domain 10: process efficiency
+    processing_time_avg_ms: int | None = None
+    processing_time_variance_ms2: float | None = None
+    qa_round_avg: float | None = None
+
+    # Meta
+    computed_at: datetime
 
 
 class FactCorpusPeriod(BaseModel):
     """One row per period of failure-corpus KPIs (FK-62 §62.2.5).
 
-    Primary key: ``(project_key, period_start)`` (story §2.1.1).
+    Primary key: ``(project_key, period_start)``.
     """
 
     model_config = _RECORD_CONFIG
 
     project_key: str
     period_start: datetime
-    period_end: datetime
-    incidents_recorded: int
-    patterns_promoted: int
-    checks_approved: int
+    period_grain: str = "month"
+
+    # Domain 9: failure corpus
+    new_incident_count: int = 0
+    patterns_total_count: int = 0
+    patterns_with_active_check: int = 0
+
+    # Meta
+    computed_at: datetime
 
 
 class SyncState(BaseModel):

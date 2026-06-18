@@ -971,79 +971,138 @@
         -- TEXT (no native timestamptz affinity), the mapper roundtrips datetime.
         --
         -- Mandantenregel (FK-62 §62.2): project_key is the leading scope key.
+        -- AG3-117: FK-62 §62.2 reconciled fact-table column sets (renames, new
+        -- columns, drops, are_gate_passed bool). Postgres-canonical dialect
+        -- (TIMESTAMPTZ/BIGINT/BOOLEAN/DOUBLE PRECISION) mirrors the SQLite
+        -- migration v_3_6_fact_reconciliation.sql column set + nullability.
+        --
+        -- AG3-117 EXISTING-DB RECONCILIATION: these ``CREATE TABLE IF NOT EXISTS``
+        -- statements build the FK-62 fact tables on a FRESH database. A Postgres DB
+        -- that still carries the OLD (pre-AG3-117 / AG3-038) fact tables is brought
+        -- onto this FK-62 shape by ``postgres_store._reconcile_fact_tables_fk62``,
+        -- which runs just BEFORE this script and DROPs (CASCADE) a ``fact_*`` table
+        -- ONLY when its current column set differs from FK-62 — so an old table is
+        -- dropped here and rebuilt FK-62-shaped (and the ``closed_at`` /
+        -- ``period_start`` indexes below then apply cleanly), while an already-FK-62
+        -- table is left intact (its recompute-disposable rollups are NOT wiped on
+        -- every startup). The column-conditional DROP lives in Python (not this
+        -- file) because ``iter_sql_statements`` cannot parse a ``DO $$`` body.
         CREATE TABLE IF NOT EXISTS fact_story (
-            project_key               TEXT NOT NULL,
-            story_id                  TEXT NOT NULL,
-            story_type                TEXT NOT NULL,
-            story_size                TEXT NOT NULL,
-            story_mode                TEXT,
-            started_at                TIMESTAMPTZ NOT NULL,
-            completed_at              TIMESTAMPTZ,
-            qa_rounds                 INTEGER NOT NULL,
-            compaction_count          INTEGER,
-            llm_call_count            INTEGER,
-            adversarial_findings      INTEGER,
-            adversarial_tests_created INTEGER,
-            files_changed             INTEGER,
-            feedback_converged        BOOLEAN,
-            phase_setup_ms            BIGINT,
-            phase_implementation_ms   BIGINT,
-            phase_closure_ms          BIGINT,
-            are_gate_status           TEXT,
-            agentkit_version          TEXT NOT NULL,
-            agentkit_commit           TEXT NOT NULL,
+            project_key                 TEXT NOT NULL,
+            story_id                    TEXT NOT NULL,
+            story_type                  TEXT NOT NULL,
+            story_size                  TEXT NOT NULL,
+            pipeline_mode               TEXT,
+            opened_at                   TIMESTAMPTZ NOT NULL,
+            closed_at                   TIMESTAMPTZ,
+            processing_time_ms          BIGINT,
+            compaction_count            BIGINT NOT NULL DEFAULT 0,
+            qa_round_count              BIGINT NOT NULL DEFAULT 0,
+            feedback_converged          BOOLEAN,
+            blocked_ac_count            BIGINT NOT NULL DEFAULT 0,
+            blocked_ac_detail_json      TEXT,
+            llm_call_count              BIGINT NOT NULL DEFAULT 0,
+            adversarial_findings_count  BIGINT NOT NULL DEFAULT 0,
+            adversarial_tests_created   BIGINT NOT NULL DEFAULT 0,
+            adversarial_hit_rate        DOUBLE PRECISION,
+            findings_fully_resolved     BIGINT NOT NULL DEFAULT 0,
+            findings_partially_resolved BIGINT NOT NULL DEFAULT 0,
+            findings_not_resolved       BIGINT NOT NULL DEFAULT 0,
+            final_status                TEXT,
+            are_gate_passed             BOOLEAN,
+            are_total_requirements      BIGINT,
+            are_covered_requirements    BIGINT,
+            files_changed               BIGINT NOT NULL DEFAULT 0,
+            increment_count             BIGINT NOT NULL DEFAULT 0,
+            phase_setup_ms              BIGINT,
+            phase_exploration_ms        BIGINT,
+            phase_implementation_ms     BIGINT,
+            phase_verify_ms             BIGINT,
+            phase_closure_ms            BIGINT,
+            computed_at                 TIMESTAMPTZ NOT NULL,
             PRIMARY KEY (project_key, story_id)
         );
 
-        CREATE INDEX IF NOT EXISTS idx_fact_story_project_completed
-            ON fact_story (project_key, completed_at);
+        CREATE INDEX IF NOT EXISTS idx_fact_story_project_closed
+            ON fact_story (project_key, closed_at);
 
         CREATE TABLE IF NOT EXISTS fact_guard_period (
-            project_key      TEXT NOT NULL,
-            guard_id         TEXT NOT NULL,
-            period_start     TIMESTAMPTZ NOT NULL,
-            period_end       TIMESTAMPTZ NOT NULL,
-            invocation_count BIGINT NOT NULL,
-            violation_count  BIGINT NOT NULL,
-            PRIMARY KEY (project_key, guard_id, period_start)
+            project_key              TEXT NOT NULL,
+            guard_key                TEXT NOT NULL,
+            period_start             TIMESTAMPTZ NOT NULL,
+            period_grain             TEXT NOT NULL DEFAULT 'week',
+            invocation_count         BIGINT NOT NULL DEFAULT 0,
+            violation_count          BIGINT NOT NULL DEFAULT 0,
+            violation_rate           DOUBLE PRECISION,
+            violation_stage_escape   BIGINT NOT NULL DEFAULT 0,
+            violation_stage_schema   BIGINT NOT NULL DEFAULT 0,
+            violation_stage_template BIGINT NOT NULL DEFAULT 0,
+            escape_detection_count   BIGINT NOT NULL DEFAULT 0,
+            computed_at              TIMESTAMPTZ NOT NULL,
+            PRIMARY KEY (project_key, guard_key, period_start)
         );
 
         CREATE INDEX IF NOT EXISTS idx_fact_guard_period_project_start
             ON fact_guard_period (project_key, period_start);
 
         CREATE TABLE IF NOT EXISTS fact_pool_period (
-            project_key        TEXT NOT NULL,
-            llm_role           TEXT NOT NULL,
-            period_start       TIMESTAMPTZ NOT NULL,
-            period_end         TIMESTAMPTZ NOT NULL,
-            call_count         BIGINT NOT NULL,
-            token_input_total  BIGINT NOT NULL,
-            token_output_total BIGINT NOT NULL,
-            avg_latency_ms     BIGINT,
-            PRIMARY KEY (project_key, llm_role, period_start)
+            project_key                  TEXT NOT NULL,
+            pool_key                     TEXT NOT NULL,
+            period_start                 TIMESTAMPTZ NOT NULL,
+            period_grain                 TEXT NOT NULL DEFAULT 'week',
+            call_count                   BIGINT NOT NULL DEFAULT 0,
+            response_time_p50_ms         BIGINT,
+            verdict_adopted_count        BIGINT NOT NULL DEFAULT 0,
+            verdict_total_count          BIGINT NOT NULL DEFAULT 0,
+            finding_true_positive_count  BIGINT NOT NULL DEFAULT 0,
+            finding_false_positive_count BIGINT NOT NULL DEFAULT 0,
+            quorum_triggered_count       BIGINT NOT NULL DEFAULT 0,
+            template_finding_rate_json   TEXT,
+            computed_at                  TIMESTAMPTZ NOT NULL,
+            PRIMARY KEY (project_key, pool_key, period_start)
         );
 
         CREATE INDEX IF NOT EXISTS idx_fact_pool_period_project_start
             ON fact_pool_period (project_key, period_start);
 
         CREATE TABLE IF NOT EXISTS fact_pipeline_period (
-            project_key                 TEXT NOT NULL,
-            period_start                TIMESTAMPTZ NOT NULL,
-            period_end                  TIMESTAMPTZ NOT NULL,
-            stories_completed           INTEGER NOT NULL,
-            stories_escalated           INTEGER NOT NULL,
-            avg_qa_rounds               NUMERIC,
-            avg_phase_implementation_ms BIGINT,
+            project_key                         TEXT NOT NULL,
+            period_start                        TIMESTAMPTZ NOT NULL,
+            period_grain                        TEXT NOT NULL DEFAULT 'week',
+            story_count                         BIGINT NOT NULL DEFAULT 0,
+            story_count_closed                  BIGINT NOT NULL DEFAULT 0,
+            execution_count                     BIGINT NOT NULL DEFAULT 0,
+            exploration_count                   BIGINT NOT NULL DEFAULT 0,
+            stage_miss_count                    BIGINT NOT NULL DEFAULT 0,
+            stage_miss_detail_json              TEXT,
+            impact_violation_count              BIGINT NOT NULL DEFAULT 0,
+            impact_check_count                  BIGINT NOT NULL DEFAULT 0,
+            integrity_gate_block_count          BIGINT NOT NULL DEFAULT 0,
+            integrity_gate_total_count          BIGINT NOT NULL DEFAULT 0,
+            doc_fidelity_conflict_by_level_json TEXT,
+            first_pass_count                    BIGINT NOT NULL DEFAULT 0,
+            finding_survival_count              BIGINT NOT NULL DEFAULT 0,
+            finding_total_count                 BIGINT NOT NULL DEFAULT 0,
+            effective_check_ids_json            TEXT,
+            vectordb_total_hits                 BIGINT NOT NULL DEFAULT 0,
+            vectordb_above_threshold            BIGINT NOT NULL DEFAULT 0,
+            vectordb_classified_conflict        BIGINT NOT NULL DEFAULT 0,
+            vectordb_duplicate_detected         BIGINT NOT NULL DEFAULT 0,
+            processing_time_avg_ms              BIGINT,
+            processing_time_variance_ms2        DOUBLE PRECISION,
+            qa_round_avg                        DOUBLE PRECISION,
+            computed_at                         TIMESTAMPTZ NOT NULL,
             PRIMARY KEY (project_key, period_start)
         );
 
         CREATE TABLE IF NOT EXISTS fact_corpus_period (
-            project_key        TEXT NOT NULL,
-            period_start       TIMESTAMPTZ NOT NULL,
-            period_end         TIMESTAMPTZ NOT NULL,
-            incidents_recorded INTEGER NOT NULL,
-            patterns_promoted  INTEGER NOT NULL,
-            checks_approved    INTEGER NOT NULL,
+            project_key                TEXT NOT NULL,
+            period_start               TIMESTAMPTZ NOT NULL,
+            period_grain               TEXT NOT NULL DEFAULT 'month',
+            new_incident_count         BIGINT NOT NULL DEFAULT 0,
+            patterns_total_count       BIGINT NOT NULL DEFAULT 0,
+            patterns_with_active_check BIGINT NOT NULL DEFAULT 0,
+            computed_at                TIMESTAMPTZ NOT NULL,
             PRIMARY KEY (project_key, period_start)
         );
 

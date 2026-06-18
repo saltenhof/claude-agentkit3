@@ -75,10 +75,9 @@ def test_non_empty_rollup_yields_ok_status() -> None:
         story_id="AG3-001",
         story_type="implementation",
         story_size="L",
-        started_at=datetime(2026, 1, 1, tzinfo=UTC),
-        qa_rounds=1,
-        agentkit_version="3.0.0",
-        agentkit_commit="abc",
+        opened_at=datetime(2026, 1, 1, tzinfo=UTC),
+        qa_round_count=1,
+        computed_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
 
     class _OneRowFactStore:
@@ -118,10 +117,9 @@ class _SpyFactStore:
                 story_id="SPY-001",
                 story_type="implementation",
                 story_size="S",
-                started_at=_NOW,
-                qa_rounds=1,
-                agentkit_version="0.0.0",
-                agentkit_commit="spy",
+                opened_at=_NOW,
+                qa_round_count=1,
+                computed_at=_NOW,
             )
         ]
 
@@ -132,11 +130,11 @@ class _SpyFactStore:
         return [
             FactGuardPeriod(
                 project_key=project_key,
-                guard_id="spy-guard",
+                guard_key="spy-guard",
                 period_start=period.start,
-                period_end=period.end,
                 invocation_count=1,
                 violation_count=0,
+                computed_at=period.end,
             )
         ]
 
@@ -147,12 +145,10 @@ class _SpyFactStore:
         return [
             FactPoolPeriod(
                 project_key=project_key,
-                llm_role="spy-pool",
+                pool_key="spy-pool",
                 period_start=period.start,
-                period_end=period.end,
                 call_count=1,
-                token_input_total=100,
-                token_output_total=50,
+                computed_at=period.end,
             )
         ]
 
@@ -164,9 +160,9 @@ class _SpyFactStore:
             FactPipelinePeriod(
                 project_key=project_key,
                 period_start=period.start,
-                period_end=period.end,
-                stories_completed=1,
-                stories_escalated=0,
+                story_count=1,
+                story_count_closed=1,
+                computed_at=period.end,
             )
         ]
 
@@ -178,10 +174,8 @@ class _SpyFactStore:
             FactCorpusPeriod(
                 project_key=project_key,
                 period_start=period.start,
-                period_end=period.end,
-                incidents_recorded=1,
-                patterns_promoted=0,
-                checks_approved=1,
+                new_incident_count=1,
+                computed_at=period.end,
             )
         ]
 
@@ -389,22 +383,20 @@ def test_reset_story_purged_upstream_is_absent_from_kpi() -> None:
         story_id="CLEAN-001",
         story_type="implementation",
         story_size="M",
-        started_at=datetime(2026, 5, 1, tzinfo=UTC),
-        completed_at=datetime(2026, 5, 10, tzinfo=UTC),
-        qa_rounds=1,
-        agentkit_version="3.0.0",
-        agentkit_commit="abc",
+        opened_at=datetime(2026, 5, 1, tzinfo=UTC),
+        closed_at=datetime(2026, 5, 10, tzinfo=UTC),
+        qa_round_count=1,
+        computed_at=datetime(2026, 5, 10, tzinfo=UTC),
     )
     reset_story = FactStory(
         project_key="tenant-a",
         story_id="RESET-002",
         story_type="implementation",
         story_size="S",
-        started_at=datetime(2026, 4, 1, tzinfo=UTC),
-        completed_at=datetime(2026, 4, 10, tzinfo=UTC),
-        qa_rounds=0,
-        agentkit_version="3.0.0",
-        agentkit_commit="def",
+        opened_at=datetime(2026, 4, 1, tzinfo=UTC),
+        closed_at=datetime(2026, 4, 10, tzinfo=UTC),
+        qa_round_count=0,
+        computed_at=datetime(2026, 4, 10, tzinfo=UTC),
     )
 
     # Phase 1: before purge — both stories present.

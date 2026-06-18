@@ -51,16 +51,15 @@ def _story(story_id: str = "AG3-001", *, qa: int = 3) -> FactStory:
         story_id=story_id,
         story_type="implementation",
         story_size="L",
-        story_mode="standard",
-        started_at=_NOW,
-        completed_at=_LATER,
-        qa_rounds=qa,
+        pipeline_mode="standard",
+        opened_at=_NOW,
+        closed_at=_LATER,
+        qa_round_count=qa,
         compaction_count=1,
         llm_call_count=12,
         feedback_converged=True,
         files_changed=4,
-        agentkit_version="3.19.0",
-        agentkit_commit="deadbeef",
+        computed_at=_LATER,
     )
 
 
@@ -217,7 +216,7 @@ def test_real_store_upsert_then_list(tmp_path: Path) -> None:
     rows = store.list_fact_stories("p1")
     assert [r.story_id for r in rows] == ["AG3-001", "AG3-002"]
     assert rows[0].feedback_converged is True
-    assert rows[1].qa_rounds == 5
+    assert rows[1].qa_round_count == 5
 
 
 def test_real_store_upsert_is_idempotent(tmp_path: Path) -> None:
@@ -227,7 +226,7 @@ def test_real_store_upsert_is_idempotent(tmp_path: Path) -> None:
     store.upsert_fact_story(_story("AG3-001", qa=9))  # same PK, new value
     rows = store.list_fact_stories("p1")
     assert len(rows) == 1
-    assert rows[0].qa_rounds == 9
+    assert rows[0].qa_round_count == 9
 
 
 def test_real_store_list_stories_period_filter(tmp_path: Path) -> None:
@@ -251,50 +250,46 @@ def test_real_store_all_five_fact_tables_roundtrip(tmp_path: Path) -> None:
     store.upsert_fact_guard(
         FactGuardPeriod(
             project_key="p1",
-            guard_id="g1",
+            guard_key="g1",
             period_start=_NOW,
-            period_end=_LATER,
             invocation_count=7,
             violation_count=1,
+            computed_at=_LATER,
         )
     )
     store.upsert_fact_pool(
         FactPoolPeriod(
             project_key="p1",
-            llm_role="worker",
+            pool_key="worker",
             period_start=_NOW,
-            period_end=_LATER,
             call_count=3,
-            token_input_total=100,
-            token_output_total=40,
-            avg_latency_ms=250,
+            response_time_p50_ms=250,
+            computed_at=_LATER,
         )
     )
     store.upsert_fact_pipeline(
         FactPipelinePeriod(
             project_key="p1",
             period_start=_NOW,
-            period_end=_LATER,
-            stories_completed=2,
-            stories_escalated=0,
-            avg_qa_rounds=2.5,
+            story_count=2,
+            story_count_closed=2,
+            qa_round_avg=2.5,
+            computed_at=_LATER,
         )
     )
     store.upsert_fact_corpus(
         FactCorpusPeriod(
             project_key="p1",
             period_start=_NOW,
-            period_end=_LATER,
-            incidents_recorded=1,
-            patterns_promoted=0,
-            checks_approved=0,
+            new_incident_count=1,
+            computed_at=_LATER,
         )
     )
     assert len(store.list_fact_stories("p1")) == 1
     assert store.list_fact_guards("p1", _PERIOD)[0].invocation_count == 7
-    assert store.list_fact_pool("p1", _PERIOD)[0].avg_latency_ms == 250
-    assert store.list_fact_pipeline("p1", _PERIOD)[0].avg_qa_rounds == 2.5
-    assert store.list_fact_corpus("p1", _PERIOD)[0].incidents_recorded == 1
+    assert store.list_fact_pool("p1", _PERIOD)[0].response_time_p50_ms == 250
+    assert store.list_fact_pipeline("p1", _PERIOD)[0].qa_round_avg == 2.5
+    assert store.list_fact_corpus("p1", _PERIOD)[0].new_incident_count == 1
 
 
 def test_real_store_sync_state_roundtrip(tmp_path: Path) -> None:

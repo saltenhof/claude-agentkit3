@@ -133,11 +133,10 @@ class _FakeSource:
             story_id=story_id,
             story_type="implementation",
             story_size="L",
-            started_at=_NOW,
-            completed_at=_NOW,
-            qa_rounds=3,
-            agentkit_version="3.20.0",
-            agentkit_commit="deadbeef",
+            opened_at=_NOW,
+            closed_at=_NOW,
+            qa_round_count=3,
+            computed_at=_NOW,
         )
 
     def recompute_fact_pool_period(
@@ -145,13 +144,11 @@ class _FakeSource:
     ) -> FactPoolPeriod:
         return FactPoolPeriod(
             project_key=project_key,
-            llm_role=pool_key,
+            pool_key=pool_key,
             period_start=datetime.fromisoformat(week_start).replace(tzinfo=UTC),
-            period_end=_NOW,
             call_count=2,
-            token_input_total=100,
-            token_output_total=50,
-            avg_latency_ms=300,
+            response_time_p50_ms=300,
+            computed_at=_NOW,
         )
 
     def recompute_fact_pipeline_period(
@@ -160,9 +157,9 @@ class _FakeSource:
         return FactPipelinePeriod(
             project_key=project_key,
             period_start=datetime.fromisoformat(week_start).replace(tzinfo=UTC),
-            period_end=_NOW,
-            stories_completed=1,
-            stories_escalated=0,
+            story_count=1,
+            story_count_closed=1,
+            computed_at=_NOW,
         )
 
     def recompute_fact_corpus_period(
@@ -171,10 +168,8 @@ class _FakeSource:
         return FactCorpusPeriod(
             project_key=project_key,
             period_start=datetime.fromisoformat(month_start).replace(tzinfo=UTC),
-            period_end=_NOW,
-            incidents_recorded=0,
-            patterns_promoted=0,
-            checks_approved=0,
+            new_incident_count=0,
+            computed_at=_NOW,
         )
 
     def recompute_fact_guard_period(
@@ -182,11 +177,11 @@ class _FakeSource:
     ) -> FactGuardPeriod:
         return FactGuardPeriod(
             project_key=project_key,
-            guard_id=guard_key,
+            guard_key=guard_key,
             period_start=datetime.fromisoformat(week_start).replace(tzinfo=UTC),
-            period_end=_NOW,
             invocation_count=self.guard_invocations,
             violation_count=self.guard_violations,
+            computed_at=_NOW,
         )
 
     def purge_run_read_models(
@@ -255,7 +250,7 @@ def test_sync_reads_and_advances_cursor(tmp_path: Path) -> None:
     assert cursor.value_text == "evt-0005"
     # The pool slice was written from the delta event.
     pools = store.list_fact_pool(_PROJECT, _WIDE)
-    assert [p.llm_role for p in pools] == ["qa"]
+    assert [p.pool_key for p in pools] == ["qa"]
 
 
 # ---------------------------------------------------------------------------
@@ -349,12 +344,10 @@ def test_failure_after_replace_rolls_back_whole_transaction(tmp_path: Path) -> N
     store.upsert_fact_pool(
         FactPoolPeriod(
             project_key=_PROJECT,
-            llm_role="qa",
+            pool_key="qa",
             period_start=datetime.fromisoformat(_WEEK).replace(tzinfo=UTC),
-            period_end=_NOW,
             call_count=99,
-            token_input_total=1,
-            token_output_total=1,
+            computed_at=_NOW,
         )
     )
     store.upsert_sync_state(
@@ -469,20 +462,19 @@ def test_purge_deletes_fact_story_calls_port_and_recomputes(tmp_path: Path) -> N
             story_id="AG3-300",
             story_type="implementation",
             story_size="L",
-            started_at=_NOW,
-            qa_rounds=1,
-            agentkit_version="3.20.0",
-            agentkit_commit="abc",
+            opened_at=_NOW,
+            qa_round_count=1,
+            computed_at=_NOW,
         )
     )
     store.upsert_fact_guard(
         FactGuardPeriod(
             project_key=_PROJECT,
-            guard_id="orchestrator_guard",
+            guard_key="orchestrator_guard",
             period_start=datetime.fromisoformat(_WEEK).replace(tzinfo=UTC),
-            period_end=_NOW,
             invocation_count=99,
             violation_count=9,
+            computed_at=_NOW,
         )
     )
     counters = StateBackendGuardCounterRepository(tmp_path)
@@ -536,10 +528,9 @@ def test_purge_rolls_back_analytics_writes_on_failure(tmp_path: Path) -> None:
             story_id="AG3-300",
             story_type="implementation",
             story_size="S",
-            started_at=_NOW,
-            qa_rounds=1,
-            agentkit_version="3.20.0",
-            agentkit_commit="abc",
+            opened_at=_NOW,
+            qa_round_count=1,
+            computed_at=_NOW,
         )
     )
     source = _PurgeFailSource(watermark=None)
@@ -573,12 +564,10 @@ def test_replace_empties_slice_with_no_recomputed_row(tmp_path: Path) -> None:
     store.upsert_fact_pool(
         FactPoolPeriod(
             project_key=_PROJECT,
-            llm_role="qa",
+            pool_key="qa",
             period_start=datetime.fromisoformat(_WEEK).replace(tzinfo=UTC),
-            period_end=_NOW,
             call_count=42,
-            token_input_total=1,
-            token_output_total=1,
+            computed_at=_NOW,
         )
     )
 

@@ -69,7 +69,7 @@ def _read_dimension_rows(
             fact
             for fact in guard_facts
             if kpi_filter.entity_filter.guard is None
-            or fact.guard_id == kpi_filter.entity_filter.guard
+            or fact.guard_key == kpi_filter.entity_filter.guard
         ]
     if view_kind == "pools":
         pool_facts = fact_store.list_fact_pool(project_key, period)
@@ -77,7 +77,7 @@ def _read_dimension_rows(
             fact
             for fact in pool_facts
             if kpi_filter.entity_filter.pool is None
-            or fact.llm_role == kpi_filter.entity_filter.pool
+            or fact.pool_key == kpi_filter.entity_filter.pool
         ]
     if view_kind == "pipeline":
         return list(fact_store.list_fact_pipeline(project_key, period))
@@ -326,7 +326,7 @@ class KpiAnalytics:
         if view_kind != "guards" and kpi_filter.entity_filter.guard is not None:
             raise ValueError(
                 f"entity_filter.guard is only supported for dimension 'guards'; "
-                f"dimension {view_kind!r} does not carry a guard_id column. "
+                f"dimension {view_kind!r} does not carry a guard_key column. "
                 f"Remove the guard filter or use dimension='guards'."
             )
 
@@ -334,7 +334,7 @@ class KpiAnalytics:
         if view_kind != "pools" and kpi_filter.entity_filter.pool is not None:
             raise ValueError(
                 f"entity_filter.pool is only supported for dimension 'pools'; "
-                f"dimension {view_kind!r} does not carry a llm_role column. "
+                f"dimension {view_kind!r} does not carry a pool_key column. "
                 f"Remove the pool filter or use dimension='pools'."
             )
 

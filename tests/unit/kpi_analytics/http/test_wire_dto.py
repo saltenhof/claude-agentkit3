@@ -27,20 +27,19 @@ _END = datetime(2026, 3, 31, 12, 0, 0, tzinfo=UTC)
 
 
 def test_fact_story_mapping_renames() -> None:
-    """AC3 (story): story_mode→pipeline_mode, started_at→opened_at, etc."""
+    """AC3 (story): FK-62 record fields → frozen AG3-116 wire keys."""
     record = FactStory(
         project_key="pk",
         story_id="S-1",
         story_type="implementation",
         story_size="M",
-        story_mode="standard",
-        started_at=_NOW,
-        completed_at=_END,
-        qa_rounds=5,
-        are_gate_status="PASS",
-        adversarial_findings=3,
-        agentkit_version="3.0.0",
-        agentkit_commit="abc",
+        pipeline_mode="standard",
+        opened_at=_NOW,
+        closed_at=_END,
+        qa_round_count=5,
+        are_gate_passed=True,
+        adversarial_findings_count=3,
+        computed_at=_END,
     )
     wire = map_fact_row_to_wire(record)
 
@@ -48,10 +47,10 @@ def test_fact_story_mapping_renames() -> None:
     assert wire["opened_at"] == _NOW.isoformat()
     assert wire["closed_at"] == _END.isoformat()
     assert wire["qa_round_count"] == 5
-    assert wire["are_gate_passed"] == "PASS"
+    assert wire["are_gate_passed"] == "PASS"  # bool True maps to "PASS" (R2)
     assert wire["adversarial_findings_count"] == 3
 
-    # Internal names must not be present
+    # Internal / renamed / dropped names must not be present
     assert "story_mode" not in wire
     assert "started_at" not in wire
     assert "completed_at" not in wire
@@ -69,13 +68,12 @@ def test_fact_story_null_optional_fields_preserved() -> None:
         story_id="S-2",
         story_type="spike",
         story_size="S",
-        story_mode=None,
-        started_at=_NOW,
-        completed_at=None,
-        qa_rounds=0,
-        are_gate_status=None,
-        agentkit_version="3.0.0",
-        agentkit_commit="abc",
+        pipeline_mode=None,
+        opened_at=_NOW,
+        closed_at=None,
+        qa_round_count=0,
+        are_gate_passed=None,
+        computed_at=_NOW,
     )
     wire = map_fact_row_to_wire(record)
 
@@ -91,13 +89,12 @@ def test_fact_story_static_fields_unchanged() -> None:
         story_id="S-99",
         story_type="bug",
         story_size="L",
-        started_at=_NOW,
-        qa_rounds=2,
+        opened_at=_NOW,
+        qa_round_count=2,
         compaction_count=3,
         llm_call_count=100,
         files_changed=12,
-        agentkit_version="3.0.0",
-        agentkit_commit="abc",
+        computed_at=_NOW,
     )
     wire = map_fact_row_to_wire(record)
 
@@ -119,11 +116,11 @@ def test_fact_guard_mapping_renames() -> None:
     """AC3 (guard): guard_id→guard_key; period_end dropped."""
     record = FactGuardPeriod(
         project_key="pk",
-        guard_id="arch_conformance",
+        guard_key="arch_conformance",
         period_start=_NOW,
-        period_end=_END,
         invocation_count=20,
         violation_count=5,
+        computed_at=_END,
     )
     wire = map_fact_row_to_wire(record)
 
@@ -145,13 +142,10 @@ def test_fact_pool_mapping_renames() -> None:
     """AC3 (pool): llm_role→pool_key; tokens/latency/period_end dropped."""
     record = FactPoolPeriod(
         project_key="pk",
-        llm_role="orchestrator",
+        pool_key="orchestrator",
         period_start=_NOW,
-        period_end=_END,
         call_count=55,
-        token_input_total=9000,
-        token_output_total=4000,
-        avg_latency_ms=800,
+        computed_at=_END,
     )
     wire = map_fact_row_to_wire(record)
 
@@ -176,11 +170,10 @@ def test_fact_pipeline_mapping_renames() -> None:
     record = FactPipelinePeriod(
         project_key="pk",
         period_start=_NOW,
-        period_end=_END,
-        stories_completed=14,
-        stories_escalated=2,
-        avg_qa_rounds=3.5,
-        avg_phase_implementation_ms=60000,
+        story_count=16,
+        story_count_closed=14,
+        qa_round_avg=3.5,
+        computed_at=_END,
     )
     wire = map_fact_row_to_wire(record)
 
@@ -200,10 +193,10 @@ def test_fact_pipeline_qa_round_avg_none() -> None:
     record = FactPipelinePeriod(
         project_key="pk",
         period_start=_NOW,
-        period_end=_END,
-        stories_completed=0,
-        stories_escalated=0,
-        avg_qa_rounds=None,
+        story_count=0,
+        story_count_closed=0,
+        qa_round_avg=None,
+        computed_at=_END,
     )
     wire = map_fact_row_to_wire(record)
     assert wire["qa_round_avg"] is None
@@ -219,10 +212,10 @@ def test_fact_corpus_mapping_renames() -> None:
     record = FactCorpusPeriod(
         project_key="pk",
         period_start=_NOW,
-        period_end=_END,
-        incidents_recorded=10,
-        patterns_promoted=4,
-        checks_approved=3,
+        new_incident_count=10,
+        patterns_total_count=4,
+        patterns_with_active_check=3,
+        computed_at=_END,
     )
     wire = map_fact_row_to_wire(record)
 
@@ -246,24 +239,23 @@ def test_map_fact_row_dispatches_correctly_to_each_variant() -> None:
     """map_fact_row_to_wire dispatches to the correct mapping per variant."""
     story = FactStory(
         project_key="pk", story_id="S-1", story_type="implementation",
-        story_size="S", started_at=_NOW, qa_rounds=1,
-        agentkit_version="3.0.0", agentkit_commit="abc",
+        story_size="S", opened_at=_NOW, qa_round_count=1, computed_at=_END,
     )
     guard = FactGuardPeriod(
-        project_key="pk", guard_id="g", period_start=_NOW, period_end=_END,
-        invocation_count=1, violation_count=0,
+        project_key="pk", guard_key="g", period_start=_NOW,
+        invocation_count=1, violation_count=0, computed_at=_END,
     )
     pool = FactPoolPeriod(
-        project_key="pk", llm_role="r", period_start=_NOW, period_end=_END,
-        call_count=1, token_input_total=10, token_output_total=5,
+        project_key="pk", pool_key="r", period_start=_NOW,
+        call_count=1, computed_at=_END,
     )
     pipeline = FactPipelinePeriod(
-        project_key="pk", period_start=_NOW, period_end=_END,
-        stories_completed=1, stories_escalated=0,
+        project_key="pk", period_start=_NOW,
+        story_count=1, story_count_closed=1, computed_at=_END,
     )
     corpus = FactCorpusPeriod(
-        project_key="pk", period_start=_NOW, period_end=_END,
-        incidents_recorded=1, patterns_promoted=0, checks_approved=1,
+        project_key="pk", period_start=_NOW,
+        new_incident_count=1, computed_at=_END,
     )
 
     assert "pipeline_mode" in map_fact_row_to_wire(story)

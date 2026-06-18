@@ -32,25 +32,29 @@ def _fact_story() -> FactStory:
         story_id="AG3-001",
         story_type="implementation",
         story_size="L",
-        started_at=_NOW,
-        qa_rounds=3,
-        agentkit_version="3.19.0",
-        agentkit_commit="deadbeef",
+        opened_at=_NOW,
+        qa_round_count=3,
+        computed_at=_LATER,
     )
 
 
 def test_fact_story_minimal_required_fields_and_optional_defaults() -> None:
     fact = _fact_story()
-    assert fact.story_mode is None
-    assert fact.completed_at is None
+    assert fact.pipeline_mode is None
+    assert fact.closed_at is None
     assert fact.feedback_converged is None
-    assert fact.qa_rounds == 3
+    assert fact.are_gate_passed is None
+    assert fact.qa_round_count == 3
+    # FK-62 NOT NULL DEFAULT 0 columns default to 0 on the typed record.
+    assert fact.compaction_count == 0
+    assert fact.files_changed == 0
+    assert fact.increment_count == 0
 
 
 def test_fact_story_is_frozen() -> None:
     fact = _fact_story()
     with pytest.raises(ValidationError):
-        fact.qa_rounds = 4  # type: ignore[misc]
+        fact.qa_round_count = 4  # type: ignore[misc]
 
 
 def test_fact_story_forbids_extra_fields() -> None:
@@ -60,10 +64,9 @@ def test_fact_story_forbids_extra_fields() -> None:
             story_id="AG3-001",
             story_type="implementation",
             story_size="L",
-            started_at=_NOW,
-            qa_rounds=3,
-            agentkit_version="3.19.0",
-            agentkit_commit="deadbeef",
+            opened_at=_NOW,
+            qa_round_count=3,
+            computed_at=_LATER,
             unexpected="x",  # type: ignore[call-arg]
         )
 
@@ -75,62 +78,78 @@ def test_fact_story_missing_required_field_raises() -> None:
             story_id="AG3-001",
             story_type="implementation",
             story_size="L",
-            started_at=_NOW,
-            qa_rounds=3,
-            agentkit_version="3.19.0",
-            # agentkit_commit missing
+            opened_at=_NOW,
+            qa_round_count=3,
+            # computed_at missing (FK-62 NOT NULL)
         )
+
+
+def test_fact_story_are_gate_passed_is_bool() -> None:
+    """AG3-117 R2: are_gate_passed is a real bool (FK-62 §62.2.1 INTEGER)."""
+    fact = FactStory(
+        project_key="p1",
+        story_id="AG3-001",
+        story_type="implementation",
+        story_size="L",
+        opened_at=_NOW,
+        qa_round_count=0,
+        are_gate_passed=True,
+        computed_at=_LATER,
+    )
+    assert fact.are_gate_passed is True
 
 
 def test_fact_guard_period_roundtrips() -> None:
     fact = FactGuardPeriod(
         project_key="p1",
-        guard_id="changed-file-policy",
+        guard_key="changed-file-policy",
         period_start=_NOW,
-        period_end=_LATER,
         invocation_count=10,
         violation_count=2,
+        computed_at=_LATER,
     )
     assert fact.invocation_count == 10
+    assert fact.period_grain == "week"
     with pytest.raises(ValidationError):
         fact.invocation_count = 11  # type: ignore[misc]
 
 
-def test_fact_pool_period_optional_latency() -> None:
+def test_fact_pool_period_optional_p50() -> None:
     fact = FactPoolPeriod(
         project_key="p1",
-        llm_role="worker",
+        pool_key="worker",
         period_start=_NOW,
-        period_end=_LATER,
         call_count=5,
-        token_input_total=100,
-        token_output_total=50,
+        computed_at=_LATER,
     )
-    assert fact.avg_latency_ms is None
+    assert fact.response_time_p50_ms is None
+    assert fact.period_grain == "week"
 
 
 def test_fact_pipeline_period_optional_averages() -> None:
     fact = FactPipelinePeriod(
         project_key="p1",
         period_start=_NOW,
-        period_end=_LATER,
-        stories_completed=4,
-        stories_escalated=1,
+        story_count=4,
+        story_count_closed=3,
+        computed_at=_LATER,
     )
-    assert fact.avg_qa_rounds is None
-    assert fact.avg_phase_implementation_ms is None
+    assert fact.qa_round_avg is None
+    assert fact.processing_time_avg_ms is None
+    assert fact.period_grain == "week"
 
 
 def test_fact_corpus_period_required_counts() -> None:
     fact = FactCorpusPeriod(
         project_key="p1",
         period_start=_NOW,
-        period_end=_LATER,
-        incidents_recorded=2,
-        patterns_promoted=1,
-        checks_approved=1,
+        new_incident_count=2,
+        patterns_total_count=1,
+        patterns_with_active_check=1,
+        computed_at=_LATER,
     )
-    assert fact.incidents_recorded == 2
+    assert fact.new_incident_count == 2
+    assert fact.period_grain == "month"
 
 
 def test_sync_state_is_project_scoped_key_value() -> None:

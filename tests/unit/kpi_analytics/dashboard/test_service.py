@@ -171,12 +171,12 @@ def test_get_story_metrics_reads_from_fact_store_not_story_service() -> None:
         story_id="AG3-101",
         story_type="implementation",
         story_size="S",
-        started_at=datetime(2026, 4, 22, 9, 0, tzinfo=UTC),
-        completed_at=datetime(2026, 4, 22, 11, 0, tzinfo=UTC),
-        qa_rounds=2,
-        are_gate_status="passed",
-        agentkit_version="3.19.0",
-        agentkit_commit="abc",
+        opened_at=datetime(2026, 4, 22, 9, 0, tzinfo=UTC),
+        closed_at=datetime(2026, 4, 22, 11, 0, tzinfo=UTC),
+        qa_round_count=2,
+        final_status="DONE",
+        are_gate_passed=True,
+        computed_at=datetime(2026, 4, 22, 11, 0, tzinfo=UTC),
     )
     fact_store = _FakeFactStore([completed_story])
     service = DashboardService(story_service=_FakeStoryService(), fact_store=fact_store)

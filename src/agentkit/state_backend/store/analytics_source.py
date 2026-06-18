@@ -49,23 +49,66 @@ if TYPE_CHECKING:
     from agentkit.telemetry.projection_accessor import ProjectionAccessor
 
 #: FK-62 §62.3.4: ``llm_call`` / ``review_*`` events feed the pool weeks.
+#:
+#: AG3-117: the pool-identity payload key is NOT uniform across these event types.
+#: Each producer emits its pool identity under a DIFFERENT canonical wire key, so a
+#: single ``payload[...]`` lookup silently misses most of them. The authoritative
+#: per-type key lives in :data:`_POOL_PAYLOAD_KEY_BY_TYPE` (the SINGLE SOURCE OF
+#: TRUTH for the read-boundary mapping); this set is derived from it so the set and
+#: the key-map cannot drift (a guard test asserts the two stay in lock-step).
+_POOL_PAYLOAD_KEY_BY_TYPE: dict[EventType, str | None] = {
+    # ``llm_call``: producers (``structured_evaluator.py:806``,
+    # ``adversarial_orchestrator/runtime/sparring.py:178``) emit BOTH ``pool`` and
+    # ``role``; the telemetry contract (``telemetry_contract.py:239-241``) makes
+    # ``pool`` AUTHORITATIVE (a self-reported ``role`` alone is NOT accepted).
+    EventType.LLM_CALL: "pool",
+    # ``llm_call_complete``: the review-completion sink
+    # (``composition_root.py:1464``) emits ONLY ``role`` (the reviewer pool); pinned
+    # mandatory by ``_event_payload_contracts.py:51``.
+    EventType.LLM_CALL_COMPLETE: "role",
+    # ``review_request`` / ``review_response`` / ``review_compliant``: the review
+    # sentinel hook (``review_sentinel_hook.py:80``) emits the reviewer pool under
+    # ``reviewer_role`` (NOT ``role`` / ``pool``); ``review_guard.py:166`` reads the
+    # same key back.
+    EventType.REVIEW_REQUEST: "reviewer_role",
+    EventType.REVIEW_RESPONSE: "reviewer_role",
+    EventType.REVIEW_COMPLIANT: "reviewer_role",
+    # ``review_guard_intervention``: emitted by ``review_guard.py:104-110`` as a
+    # cross-pool coverage fact carrying ``missing_roles`` / ``required_roles``
+    # (LISTS) — it has NO single scalar pool dimension, so it intentionally maps to
+    # ``None`` (it dirties the pipeline week, never a specific pool week). Explicit
+    # ``None`` (a deliberate decision, NOT a default-guess) so the fail-closed guard
+    # distinguishes it from an unmapped/forgotten event type.
+    EventType.REVIEW_GUARD_INTERVENTION: None,
+    # ``review_divergence``: emitted by ``divergence_hook.py:73-80`` as a
+    # reviewer-PAIR fact (``reviewer_a`` / ``reviewer_b``) — a divergence between two
+    # pools, with no single pool dimension, so it likewise maps to explicit ``None``.
+    EventType.REVIEW_DIVERGENCE: None,
+}
+
+#: Wire-value-keyed view of :data:`_POOL_PAYLOAD_KEY_BY_TYPE` (event filtering is on
+#: ``ExecutionEventRecord.event_type``, a wire string).
 _POOL_EVENT_TYPES: frozenset[str] = frozenset(
-    {
-        EventType.LLM_CALL.value,
-        EventType.LLM_CALL_COMPLETE.value,
-        EventType.REVIEW_REQUEST.value,
-        EventType.REVIEW_RESPONSE.value,
-        EventType.REVIEW_COMPLIANT.value,
-        EventType.REVIEW_GUARD_INTERVENTION.value,
-        EventType.REVIEW_DIVERGENCE.value,
-    }
+    et.value for et in _POOL_PAYLOAD_KEY_BY_TYPE
 )
 
-#: FK-62 §62.3.4: ``integrity_violation`` events feed the guard weeks.
-_GUARD_EVENT_TYPE = EventType.INTEGRITY_VIOLATION.value
+#: FK-62 §62.3.4: ``integrity_violation`` events feed the guard weeks. AG3-117:
+#: same event-type-aware mapping as the pool side. ``integrity_violation`` carries
+#: the emitting guard under ``guard`` (``_event_payload_contracts.py:64``; producers
+#: ``prompt_integrity_guard.py``, ``skill_usage_check.py``,
+#: ``web_call_budget_guard.py`` — all ``payload={"guard": ...}``).
+_GUARD_PAYLOAD_KEY_BY_TYPE: dict[EventType, str | None] = {
+    EventType.INTEGRITY_VIOLATION: "guard",
+}
 
-#: FK-62 §62.2.4: ``final_status`` value that marks an escalated (non-closed) story
-#: for ``fact_pipeline_period.stories_escalated`` (the ``story_count_closed`` split).
+#: Wire-value-keyed view of :data:`_GUARD_PAYLOAD_KEY_BY_TYPE`.
+_GUARD_EVENT_TYPES: frozenset[str] = frozenset(
+    et.value for et in _GUARD_PAYLOAD_KEY_BY_TYPE
+)
+
+#: FK-62 §62.2.4: ``final_status`` value that marks an escalated (non-closed) story.
+#: The pipeline week splits ``story_count`` (all stories in the week) from
+#: ``story_count_closed`` (the non-escalated subset, FK-62 §62.2.4).
 _ESCALATED_STATUS = "ESCALATED"
 
 
@@ -171,16 +214,12 @@ class StateBackendAnalyticsSource:
             and _pool_of(e) == pool_key
             and week_start_for(e.occurred_at) == week_start
         ]
-        period_end = max((e.occurred_at for e in events), default=period_start)
         return FactPoolPeriod(
             project_key=project_key,
-            llm_role=pool_key,
+            pool_key=pool_key,
             period_start=period_start,
-            period_end=period_end,
             call_count=len(events),
-            token_input_total=0,
-            token_output_total=0,
-            avg_latency_ms=None,
+            computed_at=datetime.now(UTC),
         )
 
     def recompute_fact_pipeline_period(
@@ -188,11 +227,12 @@ class StateBackendAnalyticsSource:
     ) -> FactPipelinePeriod:
         """Recompute one pipeline-week from ``story_metrics`` (FK-62 §62.2.4).
 
-        ``stories_completed`` / ``stories_escalated`` derive from the closed-week of
+        ``story_count`` / ``story_count_closed`` derive from the closed-week of
         each ``story_metrics`` row (its ``completed_at``), not from raw events — the
         finalised story read-model is the consistent source at closure (FK-62
-        §62.3.4: story facts are finalised at closure). ``avg_qa_rounds`` is the
-        mean over the week's completed stories.
+        §62.3.4: story facts are finalised at closure). ``qa_round_avg`` is the
+        mean over the week's stories. The remaining FK-62 §62.2.4 columns keep
+        their typed defaults; their fill-logic is AG3-082 territory.
         """
         period_start = _week_start_dt(week_start)
         in_week = [
@@ -201,22 +241,17 @@ class StateBackendAnalyticsSource:
             if m.completed_at
             and week_start_for(_parse_iso(m.completed_at)) == week_start
         ]
-        period_end = max(
-            (_parse_iso(m.completed_at) for m in in_week),
-            default=period_start,
-        )
-        completed = [m for m in in_week if m.final_status != _ESCALATED_STATUS]
-        escalated = [m for m in in_week if m.final_status == _ESCALATED_STATUS]
+        closed = [m for m in in_week if m.final_status != _ESCALATED_STATUS]
         avg_qa = (
             sum(m.qa_rounds for m in in_week) / len(in_week) if in_week else None
         )
         return FactPipelinePeriod(
             project_key=project_key,
             period_start=period_start,
-            period_end=period_end,
-            stories_completed=len(completed),
-            stories_escalated=len(escalated),
-            avg_qa_rounds=avg_qa,
+            story_count=len(in_week),
+            story_count_closed=len(closed),
+            qa_round_avg=avg_qa,
+            computed_at=datetime.now(UTC),
         )
 
     def recompute_fact_corpus_period(
@@ -233,17 +268,11 @@ class StateBackendAnalyticsSource:
             for inc in incidents
             if _month_start(_incident_recorded_at(inc)) == period_start
         ]
-        period_end = max(
-            (_incident_recorded_at(inc) for inc in in_month),
-            default=period_start,
-        )
         return FactCorpusPeriod(
             project_key=project_key,
             period_start=period_start,
-            period_end=period_end,
-            incidents_recorded=len(in_month),
-            patterns_promoted=0,
-            checks_approved=0,
+            new_incident_count=len(in_month),
+            computed_at=datetime.now(UTC),
         )
 
     def recompute_fact_guard_period(
@@ -259,18 +288,17 @@ class StateBackendAnalyticsSource:
         events = [
             e
             for e in self._load_project_events(project_key)
-            if e.event_type == _GUARD_EVENT_TYPE
+            if e.event_type in _GUARD_EVENT_TYPES
             and _guard_of(e) == guard_key
             and week_start_for(e.occurred_at) == week_start
         ]
-        period_end = max((e.occurred_at for e in events), default=period_start)
         return FactGuardPeriod(
             project_key=project_key,
-            guard_id=guard_key,
+            guard_key=guard_key,
             period_start=period_start,
-            period_end=period_end,
             invocation_count=len(events),
             violation_count=len(events),
+            computed_at=datetime.now(UTC),
         )
 
     # -- reset purge (FK-62 §62.3.3 / FK-69 §69.10.1) -----------------------
@@ -349,13 +377,69 @@ def _to_delta_event(record: ExecutionEventRecord) -> DeltaEvent:
     )
 
 
+def _resolve_payload_key(
+    event_type: str, key_map: dict[EventType, str | None]
+) -> str | None:
+    """Resolve the authoritative pool/guard payload key for ``event_type``.
+
+    AG3-117 (R3): the pool/guard identity is carried under DIFFERENT canonical wire
+    keys per event type (``llm_call`` -> ``pool``, ``llm_call_complete`` -> ``role``,
+    ``review_*`` -> ``reviewer_role``, ``integrity_violation`` -> ``guard``), so a
+    single payload lookup silently misses most of them. This function selects the
+    correct key per event type from the SINGLE-SOURCE-OF-TRUTH ``key_map``.
+
+    FAIL-CLOSED (project rule): an event type that is a MEMBER of the rollup set but
+    has no entry in ``key_map`` (e.g. a future addition to ``_POOL_EVENT_TYPES`` /
+    ``_GUARD_EVENT_TYPES`` whose key the author forgot to pin) raises ``KeyError``
+    rather than silently defaulting to ``None`` — a silent ``None`` would re-create
+    exactly the AG3-117 data bug (the slice would capture nothing without anyone
+    noticing). Callers (``_pool_of`` / ``_guard_of``) only invoke this for events
+    already filtered to the rollup set, so the lookup is total over that domain.
+
+    Args:
+        event_type: The wire ``event_type`` string of the record.
+        key_map: The per-``EventType`` authoritative payload-key map (pool or guard).
+
+    Returns:
+        The payload key to read, or ``None`` for an event type that is in the rollup
+        set but carries no single scalar pool/guard dimension (explicitly mapped to
+        ``None``, e.g. ``review_divergence`` / ``review_guard_intervention``).
+
+    Raises:
+        KeyError: The event type has no entry in ``key_map`` (fail-closed: an
+            unmapped member of the rollup set is a contract gap, not a no-op).
+    """
+    return key_map[EventType(event_type)]
+
+
 def _pool_of(record: ExecutionEventRecord) -> str | None:
-    value = record.payload.get("pool_key") or record.payload.get("llm_role")
+    # Select the CANONICAL pool-identity wire key for THIS event type
+    # (event-type-aware, AG3-117 R3) and translate it to the ``pool_key`` FK-62
+    # §62.2 fact dimension. Records outside ``_POOL_EVENT_TYPES`` carry no pool
+    # dimension; an event type in the set but absent from the key-map fails closed
+    # (see ``_resolve_payload_key``). NO producer emits the bare fact-column name
+    # ``pool_key`` on the payload — that lookup is the bug this story fixes.
+    if record.event_type not in _POOL_EVENT_TYPES:
+        return None
+    payload_key = _resolve_payload_key(record.event_type, _POOL_PAYLOAD_KEY_BY_TYPE)
+    if payload_key is None:
+        return None
+    value = record.payload.get(payload_key)
     return str(value) if value is not None else None
 
 
 def _guard_of(record: ExecutionEventRecord) -> str | None:
-    value = record.payload.get("guard_key") or record.payload.get("guard_id")
+    # Select the CANONICAL guard-identity wire key for THIS event type
+    # (event-type-aware, AG3-117 R3) and translate it to the ``guard_key`` FK-62
+    # §62.2 fact dimension. Records outside ``_GUARD_EVENT_TYPES`` carry no guard
+    # dimension; an event type in the set but absent from the key-map fails closed.
+    # NO producer emits the bare fact-column name ``guard_key`` on the payload.
+    if record.event_type not in _GUARD_EVENT_TYPES:
+        return None
+    payload_key = _resolve_payload_key(record.event_type, _GUARD_PAYLOAD_KEY_BY_TYPE)
+    if payload_key is None:
+        return None
+    value = record.payload.get(payload_key)
     return str(value) if value is not None else None
 
 
@@ -374,23 +458,25 @@ def _incident_recorded_at(incident: object) -> datetime:
 
 
 def _to_fact_story(record: StoryMetricsRecord) -> FactStory:
-    started = _parse_iso(record.completed_at)
-    completed = _parse_iso(record.completed_at) if record.completed_at else None
+    opened = _parse_iso(record.completed_at)
+    closed = _parse_iso(record.completed_at) if record.completed_at else None
     return FactStory(
         project_key=record.project_key,
         story_id=record.story_id,
         story_type=record.story_type,
         story_size=record.story_size,
-        story_mode=record.mode,
-        started_at=started,
-        completed_at=completed,
-        qa_rounds=record.qa_rounds,
-        llm_call_count=len(record.llm_roles) or None,
-        adversarial_findings=record.adversarial_findings,
-        adversarial_tests_created=record.adversarial_tests_created,
-        files_changed=record.files_changed,
-        agentkit_version=record.agentkit_version or "unknown",
-        agentkit_commit=record.agentkit_commit or "unknown",
+        pipeline_mode=record.mode,
+        opened_at=opened,
+        closed_at=closed,
+        processing_time_ms=round(record.processing_time_min * 60_000),
+        qa_round_count=record.qa_rounds,
+        final_status=record.final_status,
+        llm_call_count=len(record.llm_roles),
+        adversarial_findings_count=record.adversarial_findings or 0,
+        adversarial_tests_created=record.adversarial_tests_created or 0,
+        files_changed=record.files_changed or 0,
+        increment_count=record.increments,
+        computed_at=datetime.now(UTC),
     )
 
 

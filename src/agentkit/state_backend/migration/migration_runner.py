@@ -8,10 +8,15 @@ FK-62 §62.4's ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS`` /
 
 Idempotency contract (story AC5):
 
-- Every migration statement is itself idempotent (``CREATE ... IF NOT EXISTS``)
-  — no ``DROP``/``RECREATE``.
+- Every migration statement is itself re-runnable: schema-introducing migrations
+  use ``CREATE ... IF NOT EXISTS``; the AG3-117 reconciliation (v3.6) additionally
+  uses ``DROP TABLE IF EXISTS`` + ``CREATE TABLE`` to rebuild the five
+  recompute-disposable ``fact_*`` rollup tables onto the FK-62 §62.2 column set
+  (the rows are a derivable projection the RefreshWorker recomputes, FK-60 §60
+  P3 — not a data corpus to preserve). Both forms are re-runnable without error.
 - A version already present in ``schema_versions`` is skipped, so a double run
-  produces no error, no duplicate cursor row, and no schema churn.
+  produces no error, no duplicate cursor row, and no schema churn — the v3.6
+  drop+rebuild therefore runs at most once per database.
 - The cursor insert uses ``INSERT ... ON CONFLICT (version) DO NOTHING`` so even
   a forced re-apply cannot create a duplicate cursor row.
 
@@ -40,6 +45,7 @@ _VERSIONS_DIR = Path(__file__).with_name("versions")
 _MIGRATIONS: tuple[tuple[str, str], ...] = (
     ("3.4", "v_3_4_analytics.sql"),
     ("3.5", "v_3_5_compaction_epochs.sql"),
+    ("3.6", "v_3_6_fact_reconciliation.sql"),
 )
 
 
@@ -110,14 +116,22 @@ class MigrationRunner:
         cursor = conn.execute("SELECT version FROM schema_versions")
         return {_version_of(row) for row in cursor.fetchall()}
 
-    def run(self, conn: _MigrationConnection) -> list[str]:
+    def run(self, conn: _MigrationConnection, *, replay_ddl: bool = True) -> list[str]:
         """Apply every not-yet-applied migration in order.
 
         Args:
             conn: An open connection (caller owns the transaction/commit).
+            replay_ddl: When ``True`` (SQLite path) the versioned DDL files are
+                the authoritative schema builder and are executed for each
+                not-yet-applied version. When ``False`` (Postgres path, AG3-117)
+                the canonical typed DDL already lives in ``postgres_schema.sql``;
+                the runner then ONLY records the version cursor and does NOT
+                replay the historical DDL (whose renamed columns / DROP+rebuild
+                would otherwise conflict with the already-typed FK-62 tables).
+                Either way each version is recorded exactly once.
 
         Returns:
-            The list of versions newly applied by this call (empty on a re-run
+            The list of versions newly recorded by this call (empty on a re-run
             where everything is already present — proving idempotency).
         """
         self.ensure_cursor_table(conn)
@@ -126,7 +140,8 @@ class MigrationRunner:
         for version, ddl_file in _MIGRATIONS:
             if version in already:
                 continue
-            self._apply_ddl(conn, ddl_file)
+            if replay_ddl:
+                self._apply_ddl(conn, ddl_file)
             self._record_version(conn, version)
             newly_applied.append(version)
         return newly_applied

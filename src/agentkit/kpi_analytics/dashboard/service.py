@@ -186,7 +186,7 @@ class DashboardService:
         fact_stories = self._fact_store.list_fact_stories(project_key, period)
         items: list[DashboardStoryMetricsItem] = []
         for fact in fact_stories:
-            if fact.completed_at is None:
+            if fact.closed_at is None:
                 continue
             items.append(
                 DashboardStoryMetricsItem(
@@ -194,13 +194,13 @@ class DashboardService:
                     title=fact.story_id,  # fact_story has no title column; story_id used as display key
                     story_type=fact.story_type,
                     story_size=fact.story_size,  # str coerces to StorySize (StrEnum)
-                    final_status=fact.are_gate_status or "UNKNOWN",
+                    final_status=fact.final_status or "UNKNOWN",
                     processing_time_min=round(
-                        (fact.phase_implementation_ms or 0) / 60_000.0, 2
+                        (fact.processing_time_ms or 0) / 60_000.0, 2
                     ),
-                    qa_rounds=fact.qa_rounds,
-                    increments=fact.compaction_count or 0,
-                    completed_at=fact.completed_at,
+                    qa_rounds=fact.qa_round_count,
+                    increments=fact.increment_count,
+                    completed_at=fact.closed_at,
                 )
             )
         items.sort(key=lambda item: item.completed_at, reverse=True)

@@ -322,7 +322,7 @@ class RefreshWorker:
             self._source.recompute_fact_pool_period(pk, pool_key, week_start)
             for pk, pool_key, week_start in slices
         ]
-        keys = [(r.project_key, r.llm_role, r.period_start) for r in rows]
+        keys = [(r.project_key, r.pool_key, r.period_start) for r in rows]
         session.replace_pool_period(keys, rows)
 
     def _replace_pipeline_periods(

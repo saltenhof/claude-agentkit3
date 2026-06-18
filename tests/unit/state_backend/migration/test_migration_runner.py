@@ -1,8 +1,9 @@
-"""MigrationRunner idempotency tests (AG3-038 AC5, FK-62 §62.4).
+"""MigrationRunner idempotency tests (AG3-038 AC5, FK-62 §62.4; AG3-117 head 3.6).
 
-Proves a double run produces no error, no duplicate cursor row, and no
-DROP/RECREATE: the second run applies nothing and the data inserted between runs
-survives (a DROP/RECREATE would have wiped it).
+Proves a double run produces no error, no duplicate cursor row, and the second run
+applies nothing: data inserted AFTER the full first run survives a second run (the
+already-recorded versions — including the v3.6 drop+rebuild — are skipped, so no
+schema churn touches the data).
 """
 
 from __future__ import annotations
@@ -22,12 +23,12 @@ def _open(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def test_first_run_applies_v3_4_and_v3_5_and_creates_tables(tmp_path: Path) -> None:
+def test_first_run_applies_v3_4_v3_5_v3_6_and_creates_tables(tmp_path: Path) -> None:
     conn = _open(tmp_path / "m.sqlite")
     try:
         applied = MigrationRunner().run(conn)
         conn.commit()
-        assert applied == ["3.4", "3.5"]
+        assert applied == ["3.4", "3.5", "3.6"]
         tables = {
             str(row[0])
             for row in conn.execute(
@@ -45,6 +46,33 @@ def test_first_run_applies_v3_4_and_v3_5_and_creates_tables(tmp_path: Path) -> N
             "compaction_epochs",
             "schema_versions",
         } <= tables
+        # AG3-117: after v3.6 the fact tables carry the FK-62 reconciled columns.
+        guard_cols = {
+            str(row[1])
+            for row in conn.execute(
+                "PRAGMA table_info(fact_guard_period)"
+            ).fetchall()
+        }
+        assert "guard_key" in guard_cols
+        assert "guard_id" not in guard_cols
+        assert "period_grain" in guard_cols
+        assert "period_end" not in guard_cols
+        pool_cols = {
+            str(row[1])
+            for row in conn.execute("PRAGMA table_info(fact_pool_period)").fetchall()
+        }
+        assert "pool_key" in pool_cols
+        assert "response_time_p50_ms" in pool_cols
+        assert "response_time_p95_ms" not in pool_cols
+        story_cols = {
+            str(row[1])
+            for row in conn.execute("PRAGMA table_info(fact_story)").fetchall()
+        }
+        assert {"opened_at", "closed_at", "qa_round_count", "are_gate_passed"} <= (
+            story_cols
+        )
+        assert "started_at" not in story_cols
+        assert "agentkit_version" not in story_cols
     finally:
         conn.close()
 
@@ -55,12 +83,13 @@ def test_double_run_is_idempotent_no_error_no_dup_no_drop(tmp_path: Path) -> Non
 
     conn = _open(db_path)
     try:
-        assert runner.run(conn) == ["3.4", "3.5"]
-        # Insert a row to prove the second run does NOT drop/recreate the table.
+        assert runner.run(conn) == ["3.4", "3.5", "3.6"]
+        # Insert a row (FK-62 reconciled schema) to prove the second run does NOT
+        # re-run the v3.6 drop+rebuild that would have wiped it.
         conn.execute(
             "INSERT INTO fact_corpus_period (project_key, period_start, "
-            "period_end, incidents_recorded, patterns_promoted, checks_approved) "
-            "VALUES ('p1', '2026-06-01', '2026-07-01', 3, 1, 1)"
+            "new_incident_count, patterns_total_count, patterns_with_active_check, "
+            "computed_at) VALUES ('p1', '2026-06-01', 3, 1, 1, '2026-06-02')"
         )
         conn.commit()
     finally:
@@ -80,9 +109,14 @@ def test_double_run_is_idempotent_no_error_no_dup_no_drop(tmp_path: Path) -> Non
             "SELECT COUNT(*) FROM schema_versions WHERE version = '3.5'"
         ).fetchone()[0]
         assert count == 1
-        # Data survived -> no DROP/RECREATE happened.
+        count = conn.execute(
+            "SELECT COUNT(*) FROM schema_versions WHERE version = '3.6'"
+        ).fetchone()[0]
+        assert count == 1
+        # Data survived -> the second run did not re-run the v3.6 drop+rebuild.
         survived = conn.execute(
-            "SELECT incidents_recorded FROM fact_corpus_period WHERE project_key = 'p1'"
+            "SELECT new_incident_count FROM fact_corpus_period "
+            "WHERE project_key = 'p1'"
         ).fetchone()[0]
         assert survived == 3
     finally:
@@ -98,5 +132,6 @@ def test_applied_versions_reports_recorded_cursor(tmp_path: Path) -> None:
         conn.commit()
         assert "3.4" in runner.applied_versions(conn)
         assert "3.5" in runner.applied_versions(conn)
+        assert "3.6" in runner.applied_versions(conn)
     finally:
         conn.close()

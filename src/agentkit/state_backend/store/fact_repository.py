@@ -7,11 +7,13 @@ backing the FactStore (FK-62 §62.3). Mirrors ``project_registration_repository`
 - Postgres is the canonical truth (FK-60 §60.3.2); SQLite is the test-only
   parallel path (``AGENTKIT_ALLOW_SQLITE=1``). No co-equal dual-backend run.
 - Analytics DDL has ONE authoritative path per backend: the typed Postgres truth
-  is ``postgres_schema.sql``; the SQLite truth is the versioned migration
-  ``migration/versions/v_3_4_analytics.sql`` applied by the ``MigrationRunner``
-  (FK-62 §62.4) from ``sqlite_store._ensure_analytics_tables``. Both bootstraps
-  also run the MigrationRunner so it records logical analytics version 3.4 in the
-  idempotent ``schema_versions`` cursor — wired in production, not dead code.
+  is ``postgres_schema.sql``; the SQLite truth is the versioned migration chain
+  applied by the ``MigrationRunner`` (FK-62 §62.4) from
+  ``sqlite_store._ensure_analytics_tables`` — v_3_4 introduced the analytics
+  tables, v_3_6 (AG3-117) drops+rebuilds the five ``fact_*`` tables onto the
+  FK-62 §62.2 column set. Both bootstraps also run the MigrationRunner so it
+  records the logical analytics versions in the idempotent ``schema_versions``
+  cursor (head 3.6) — wired in production, not dead code.
   This adapter carries no DDL truth; it bootstraps the canonical schema and only
   reads/writes.
 - ``upsert_*`` is INSERT-or-replace on the natural PK (idempotent re-write, no
@@ -196,24 +198,38 @@ def _fact_story_params(fact: FactStory, *, is_postgres: bool) -> dict[str, Any]:
         "story_id": fact.story_id,
         "story_type": fact.story_type,
         "story_size": fact.story_size,
-        "story_mode": fact.story_mode,
-        "started_at": _ts(fact.started_at, is_postgres=is_postgres),
-        "completed_at": _ts(fact.completed_at, is_postgres=is_postgres),
-        "qa_rounds": fact.qa_rounds,
+        "pipeline_mode": fact.pipeline_mode,
+        "opened_at": _ts(fact.opened_at, is_postgres=is_postgres),
+        "closed_at": _ts(fact.closed_at, is_postgres=is_postgres),
+        "processing_time_ms": fact.processing_time_ms,
         "compaction_count": fact.compaction_count,
-        "llm_call_count": fact.llm_call_count,
-        "adversarial_findings": fact.adversarial_findings,
-        "adversarial_tests_created": fact.adversarial_tests_created,
-        "files_changed": fact.files_changed,
+        "qa_round_count": fact.qa_round_count,
         "feedback_converged": _bool_param(
             fact.feedback_converged, is_postgres=is_postgres
         ),
+        "blocked_ac_count": fact.blocked_ac_count,
+        "blocked_ac_detail_json": fact.blocked_ac_detail_json,
+        "llm_call_count": fact.llm_call_count,
+        "adversarial_findings_count": fact.adversarial_findings_count,
+        "adversarial_tests_created": fact.adversarial_tests_created,
+        "adversarial_hit_rate": fact.adversarial_hit_rate,
+        "findings_fully_resolved": fact.findings_fully_resolved,
+        "findings_partially_resolved": fact.findings_partially_resolved,
+        "findings_not_resolved": fact.findings_not_resolved,
+        "final_status": fact.final_status,
+        "are_gate_passed": _bool_param(
+            fact.are_gate_passed, is_postgres=is_postgres
+        ),
+        "are_total_requirements": fact.are_total_requirements,
+        "are_covered_requirements": fact.are_covered_requirements,
+        "files_changed": fact.files_changed,
+        "increment_count": fact.increment_count,
         "phase_setup_ms": fact.phase_setup_ms,
+        "phase_exploration_ms": fact.phase_exploration_ms,
         "phase_implementation_ms": fact.phase_implementation_ms,
+        "phase_verify_ms": fact.phase_verify_ms,
         "phase_closure_ms": fact.phase_closure_ms,
-        "are_gate_status": fact.are_gate_status,
-        "agentkit_version": fact.agentkit_version,
-        "agentkit_commit": fact.agentkit_commit,
+        "computed_at": _ts(fact.computed_at, is_postgres=is_postgres),
     }
 
 
@@ -227,24 +243,35 @@ def _bool_param(value: bool | None, *, is_postgres: bool) -> Any:
 def _fact_guard_params(fact: FactGuardPeriod, *, is_postgres: bool) -> dict[str, Any]:
     return {
         "project_key": fact.project_key,
-        "guard_id": fact.guard_id,
+        "guard_key": fact.guard_key,
         "period_start": _ts(fact.period_start, is_postgres=is_postgres),
-        "period_end": _ts(fact.period_end, is_postgres=is_postgres),
+        "period_grain": fact.period_grain,
         "invocation_count": fact.invocation_count,
         "violation_count": fact.violation_count,
+        "violation_rate": fact.violation_rate,
+        "violation_stage_escape": fact.violation_stage_escape,
+        "violation_stage_schema": fact.violation_stage_schema,
+        "violation_stage_template": fact.violation_stage_template,
+        "escape_detection_count": fact.escape_detection_count,
+        "computed_at": _ts(fact.computed_at, is_postgres=is_postgres),
     }
 
 
 def _fact_pool_params(fact: FactPoolPeriod, *, is_postgres: bool) -> dict[str, Any]:
     return {
         "project_key": fact.project_key,
-        "llm_role": fact.llm_role,
+        "pool_key": fact.pool_key,
         "period_start": _ts(fact.period_start, is_postgres=is_postgres),
-        "period_end": _ts(fact.period_end, is_postgres=is_postgres),
+        "period_grain": fact.period_grain,
         "call_count": fact.call_count,
-        "token_input_total": fact.token_input_total,
-        "token_output_total": fact.token_output_total,
-        "avg_latency_ms": fact.avg_latency_ms,
+        "response_time_p50_ms": fact.response_time_p50_ms,
+        "verdict_adopted_count": fact.verdict_adopted_count,
+        "verdict_total_count": fact.verdict_total_count,
+        "finding_true_positive_count": fact.finding_true_positive_count,
+        "finding_false_positive_count": fact.finding_false_positive_count,
+        "quorum_triggered_count": fact.quorum_triggered_count,
+        "template_finding_rate_json": fact.template_finding_rate_json,
+        "computed_at": _ts(fact.computed_at, is_postgres=is_postgres),
     }
 
 
@@ -254,11 +281,32 @@ def _fact_pipeline_params(
     return {
         "project_key": fact.project_key,
         "period_start": _ts(fact.period_start, is_postgres=is_postgres),
-        "period_end": _ts(fact.period_end, is_postgres=is_postgres),
-        "stories_completed": fact.stories_completed,
-        "stories_escalated": fact.stories_escalated,
-        "avg_qa_rounds": fact.avg_qa_rounds,
-        "avg_phase_implementation_ms": fact.avg_phase_implementation_ms,
+        "period_grain": fact.period_grain,
+        "story_count": fact.story_count,
+        "story_count_closed": fact.story_count_closed,
+        "execution_count": fact.execution_count,
+        "exploration_count": fact.exploration_count,
+        "stage_miss_count": fact.stage_miss_count,
+        "stage_miss_detail_json": fact.stage_miss_detail_json,
+        "impact_violation_count": fact.impact_violation_count,
+        "impact_check_count": fact.impact_check_count,
+        "integrity_gate_block_count": fact.integrity_gate_block_count,
+        "integrity_gate_total_count": fact.integrity_gate_total_count,
+        "doc_fidelity_conflict_by_level_json": (
+            fact.doc_fidelity_conflict_by_level_json
+        ),
+        "first_pass_count": fact.first_pass_count,
+        "finding_survival_count": fact.finding_survival_count,
+        "finding_total_count": fact.finding_total_count,
+        "effective_check_ids_json": fact.effective_check_ids_json,
+        "vectordb_total_hits": fact.vectordb_total_hits,
+        "vectordb_above_threshold": fact.vectordb_above_threshold,
+        "vectordb_classified_conflict": fact.vectordb_classified_conflict,
+        "vectordb_duplicate_detected": fact.vectordb_duplicate_detected,
+        "processing_time_avg_ms": fact.processing_time_avg_ms,
+        "processing_time_variance_ms2": fact.processing_time_variance_ms2,
+        "qa_round_avg": fact.qa_round_avg,
+        "computed_at": _ts(fact.computed_at, is_postgres=is_postgres),
     }
 
 
@@ -268,36 +316,48 @@ def _fact_corpus_params(
     return {
         "project_key": fact.project_key,
         "period_start": _ts(fact.period_start, is_postgres=is_postgres),
-        "period_end": _ts(fact.period_end, is_postgres=is_postgres),
-        "incidents_recorded": fact.incidents_recorded,
-        "patterns_promoted": fact.patterns_promoted,
-        "checks_approved": fact.checks_approved,
+        "period_grain": fact.period_grain,
+        "new_incident_count": fact.new_incident_count,
+        "patterns_total_count": fact.patterns_total_count,
+        "patterns_with_active_check": fact.patterns_with_active_check,
+        "computed_at": _ts(fact.computed_at, is_postgres=is_postgres),
     }
 
 
 def _row_to_fact_story(row: dict[str, Any]) -> FactStory:
-    feedback = row["feedback_converged"]
     return FactStory(
         project_key=str(row["project_key"]),
         story_id=str(row["story_id"]),
         story_type=str(row["story_type"]),
         story_size=str(row["story_size"]),
-        story_mode=_opt_str(row["story_mode"]),
-        started_at=_require_dt(row["started_at"], "fact_story.started_at"),
-        completed_at=_dt(row["completed_at"]),
-        qa_rounds=int(row["qa_rounds"]),
-        compaction_count=_opt_int(row["compaction_count"]),
-        llm_call_count=_opt_int(row["llm_call_count"]),
-        adversarial_findings=_opt_int(row["adversarial_findings"]),
-        adversarial_tests_created=_opt_int(row["adversarial_tests_created"]),
-        files_changed=_opt_int(row["files_changed"]),
-        feedback_converged=None if feedback is None else bool(feedback),
+        pipeline_mode=_opt_str(row["pipeline_mode"]),
+        opened_at=_require_dt(row["opened_at"], "fact_story.opened_at"),
+        closed_at=_dt(row["closed_at"]),
+        processing_time_ms=_opt_int(row["processing_time_ms"]),
+        compaction_count=int(row["compaction_count"]),
+        qa_round_count=int(row["qa_round_count"]),
+        feedback_converged=_opt_bool(row["feedback_converged"]),
+        blocked_ac_count=int(row["blocked_ac_count"]),
+        blocked_ac_detail_json=_opt_str(row["blocked_ac_detail_json"]),
+        llm_call_count=int(row["llm_call_count"]),
+        adversarial_findings_count=int(row["adversarial_findings_count"]),
+        adversarial_tests_created=int(row["adversarial_tests_created"]),
+        adversarial_hit_rate=_opt_float(row["adversarial_hit_rate"]),
+        findings_fully_resolved=int(row["findings_fully_resolved"]),
+        findings_partially_resolved=int(row["findings_partially_resolved"]),
+        findings_not_resolved=int(row["findings_not_resolved"]),
+        final_status=_opt_str(row["final_status"]),
+        are_gate_passed=_opt_bool(row["are_gate_passed"]),
+        are_total_requirements=_opt_int(row["are_total_requirements"]),
+        are_covered_requirements=_opt_int(row["are_covered_requirements"]),
+        files_changed=int(row["files_changed"]),
+        increment_count=int(row["increment_count"]),
         phase_setup_ms=_opt_int(row["phase_setup_ms"]),
+        phase_exploration_ms=_opt_int(row["phase_exploration_ms"]),
         phase_implementation_ms=_opt_int(row["phase_implementation_ms"]),
+        phase_verify_ms=_opt_int(row["phase_verify_ms"]),
         phase_closure_ms=_opt_int(row["phase_closure_ms"]),
-        are_gate_status=_opt_str(row["are_gate_status"]),
-        agentkit_version=str(row["agentkit_version"]),
-        agentkit_commit=str(row["agentkit_commit"]),
+        computed_at=_require_dt(row["computed_at"], "fact_story.computed_at"),
     )
 
 
@@ -313,27 +373,43 @@ def _opt_str(value: Any) -> str | None:
     return None if value is None else str(value)
 
 
+def _opt_bool(value: Any) -> bool | None:
+    """Read a nullable boolean (BOOLEAN on Postgres, 0/1 INTEGER on SQLite)."""
+    return None if value is None else bool(value)
+
+
 def _row_to_fact_guard(row: dict[str, Any]) -> FactGuardPeriod:
     return FactGuardPeriod(
         project_key=str(row["project_key"]),
-        guard_id=str(row["guard_id"]),
+        guard_key=str(row["guard_key"]),
         period_start=_require_dt(row["period_start"], "fact_guard_period.period_start"),
-        period_end=_require_dt(row["period_end"], "fact_guard_period.period_end"),
+        period_grain=str(row["period_grain"]),
         invocation_count=int(row["invocation_count"]),
         violation_count=int(row["violation_count"]),
+        violation_rate=_opt_float(row["violation_rate"]),
+        violation_stage_escape=int(row["violation_stage_escape"]),
+        violation_stage_schema=int(row["violation_stage_schema"]),
+        violation_stage_template=int(row["violation_stage_template"]),
+        escape_detection_count=int(row["escape_detection_count"]),
+        computed_at=_require_dt(row["computed_at"], "fact_guard_period.computed_at"),
     )
 
 
 def _row_to_fact_pool(row: dict[str, Any]) -> FactPoolPeriod:
     return FactPoolPeriod(
         project_key=str(row["project_key"]),
-        llm_role=str(row["llm_role"]),
+        pool_key=str(row["pool_key"]),
         period_start=_require_dt(row["period_start"], "fact_pool_period.period_start"),
-        period_end=_require_dt(row["period_end"], "fact_pool_period.period_end"),
+        period_grain=str(row["period_grain"]),
         call_count=int(row["call_count"]),
-        token_input_total=int(row["token_input_total"]),
-        token_output_total=int(row["token_output_total"]),
-        avg_latency_ms=_opt_int(row["avg_latency_ms"]),
+        response_time_p50_ms=_opt_int(row["response_time_p50_ms"]),
+        verdict_adopted_count=int(row["verdict_adopted_count"]),
+        verdict_total_count=int(row["verdict_total_count"]),
+        finding_true_positive_count=int(row["finding_true_positive_count"]),
+        finding_false_positive_count=int(row["finding_false_positive_count"]),
+        quorum_triggered_count=int(row["quorum_triggered_count"]),
+        template_finding_rate_json=_opt_str(row["template_finding_rate_json"]),
+        computed_at=_require_dt(row["computed_at"], "fact_pool_period.computed_at"),
     )
 
 
@@ -343,11 +419,36 @@ def _row_to_fact_pipeline(row: dict[str, Any]) -> FactPipelinePeriod:
         period_start=_require_dt(
             row["period_start"], "fact_pipeline_period.period_start"
         ),
-        period_end=_require_dt(row["period_end"], "fact_pipeline_period.period_end"),
-        stories_completed=int(row["stories_completed"]),
-        stories_escalated=int(row["stories_escalated"]),
-        avg_qa_rounds=_opt_float(row["avg_qa_rounds"]),
-        avg_phase_implementation_ms=_opt_int(row["avg_phase_implementation_ms"]),
+        period_grain=str(row["period_grain"]),
+        story_count=int(row["story_count"]),
+        story_count_closed=int(row["story_count_closed"]),
+        execution_count=int(row["execution_count"]),
+        exploration_count=int(row["exploration_count"]),
+        stage_miss_count=int(row["stage_miss_count"]),
+        stage_miss_detail_json=_opt_str(row["stage_miss_detail_json"]),
+        impact_violation_count=int(row["impact_violation_count"]),
+        impact_check_count=int(row["impact_check_count"]),
+        integrity_gate_block_count=int(row["integrity_gate_block_count"]),
+        integrity_gate_total_count=int(row["integrity_gate_total_count"]),
+        doc_fidelity_conflict_by_level_json=_opt_str(
+            row["doc_fidelity_conflict_by_level_json"]
+        ),
+        first_pass_count=int(row["first_pass_count"]),
+        finding_survival_count=int(row["finding_survival_count"]),
+        finding_total_count=int(row["finding_total_count"]),
+        effective_check_ids_json=_opt_str(row["effective_check_ids_json"]),
+        vectordb_total_hits=int(row["vectordb_total_hits"]),
+        vectordb_above_threshold=int(row["vectordb_above_threshold"]),
+        vectordb_classified_conflict=int(row["vectordb_classified_conflict"]),
+        vectordb_duplicate_detected=int(row["vectordb_duplicate_detected"]),
+        processing_time_avg_ms=_opt_int(row["processing_time_avg_ms"]),
+        processing_time_variance_ms2=_opt_float(
+            row["processing_time_variance_ms2"]
+        ),
+        qa_round_avg=_opt_float(row["qa_round_avg"]),
+        computed_at=_require_dt(
+            row["computed_at"], "fact_pipeline_period.computed_at"
+        ),
     )
 
 
@@ -355,10 +456,11 @@ def _row_to_fact_corpus(row: dict[str, Any]) -> FactCorpusPeriod:
     return FactCorpusPeriod(
         project_key=str(row["project_key"]),
         period_start=_require_dt(row["period_start"], "fact_corpus_period.period_start"),
-        period_end=_require_dt(row["period_end"], "fact_corpus_period.period_end"),
-        incidents_recorded=int(row["incidents_recorded"]),
-        patterns_promoted=int(row["patterns_promoted"]),
-        checks_approved=int(row["checks_approved"]),
+        period_grain=str(row["period_grain"]),
+        new_incident_count=int(row["new_incident_count"]),
+        patterns_total_count=int(row["patterns_total_count"]),
+        patterns_with_active_check=int(row["patterns_with_active_check"]),
+        computed_at=_require_dt(row["computed_at"], "fact_corpus_period.computed_at"),
     )
 
 
@@ -476,7 +578,7 @@ class StateBackendFactRepository:
     def list_fact_stories(
         self, project_key: str, period: PeriodFilter | None = None
     ) -> list[FactStory]:
-        """Return ``fact_story`` rows for ``project_key`` (period bounds completed_at)."""
+        """Return ``fact_story`` rows for ``project_key`` (period bounds closed_at)."""
         if period is None:
             query = (
                 "SELECT * FROM fact_story WHERE project_key = ? "
@@ -486,7 +588,7 @@ class StateBackendFactRepository:
         else:
             query = (
                 "SELECT * FROM fact_story WHERE project_key = ? "
-                "AND completed_at >= ? AND completed_at < ? ORDER BY story_id"
+                "AND closed_at >= ? AND closed_at < ? ORDER BY story_id"
             )
             params = (project_key, *self._period_bounds(period))
         return [_row_to_fact_story(r) for r in self._select(query, params)]
@@ -498,7 +600,7 @@ class StateBackendFactRepository:
         query = (
             "SELECT * FROM fact_guard_period WHERE project_key = ? "
             "AND period_start >= ? AND period_start < ? "
-            "ORDER BY guard_id, period_start"
+            "ORDER BY guard_key, period_start"
         )
         params = (project_key, *self._period_bounds(period))
         return [_row_to_fact_guard(r) for r in self._select(query, params)]
@@ -510,7 +612,7 @@ class StateBackendFactRepository:
         query = (
             "SELECT * FROM fact_pool_period WHERE project_key = ? "
             "AND period_start >= ? AND period_start < ? "
-            "ORDER BY llm_role, period_start"
+            "ORDER BY pool_key, period_start"
         )
         params = (project_key, *self._period_bounds(period))
         return [_row_to_fact_pool(r) for r in self._select(query, params)]
@@ -769,7 +871,7 @@ class _FactWriteSession:
         """DELETE the guard-week slices, then INSERT the recomputed rows."""
         self._delete_keys(
             "fact_guard_period",
-            ("project_key", "guard_id", "period_start"),
+            ("project_key", "guard_key", "period_start"),
             keys,
         )
         for row in rows:
@@ -787,7 +889,7 @@ class _FactWriteSession:
         """DELETE the pool-week slices, then INSERT the recomputed rows."""
         self._delete_keys(
             "fact_pool_period",
-            ("project_key", "llm_role", "period_start"),
+            ("project_key", "pool_key", "period_start"),
             keys,
         )
         for row in rows:

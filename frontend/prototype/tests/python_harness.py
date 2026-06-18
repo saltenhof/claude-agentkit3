@@ -70,7 +70,7 @@ def _coerce_datetimes(raw: dict[str, Any], field_names: tuple[str, ...]) -> None
         val = raw.get(field_name)
         if isinstance(val, str) and val:
             raw[field_name] = datetime.fromisoformat(val.replace("Z", "+00:00"))
-        elif field_name in ("started_at", "period_start") and not val:
+        elif field_name in ("opened_at", "period_start", "computed_at") and not val:
             raw[field_name] = datetime.now(UTC)
 
 
@@ -116,13 +116,13 @@ def _seed_kpi_facts(body: bytes) -> tuple[int, bytes]:
     repo = StateBackendFactRepository(store_dir=Path(_tmp_dir))
     seeded = 0
 
-    period_fields = ("period_start", "period_end")
+    # AG3-117: the internal Fact-record shape is the FK-62 §62.2 column set
+    # (no period_end; period_start + computed_at are the temporal columns).
+    period_fields = ("period_start", "computed_at")
     try:
         for raw in payload.get("facts", []):
-            _coerce_datetimes(raw, ("started_at", "completed_at"))
+            _coerce_datetimes(raw, ("opened_at", "closed_at", "computed_at"))
             raw.setdefault("project_key", project_key)
-            raw.setdefault("agentkit_version", "3.0.0-test")
-            raw.setdefault("agentkit_commit", "test-commit")
             repo.upsert_fact_story(FactStory(**raw))
             seeded += 1
         for raw in payload.get("guards", []):

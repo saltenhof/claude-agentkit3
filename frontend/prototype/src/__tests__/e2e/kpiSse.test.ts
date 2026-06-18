@@ -355,36 +355,38 @@ describe('AC10: Real KPI facts persistence + SSE event delivery (core AC10)', ()
         facts: [
           {
             story_id: 'KPIE2E-001', story_type: 'implementation', story_size: 'M',
-            story_mode: 'standard', started_at: fiveMinAgo, completed_at: fiveMinAgo,
-            qa_rounds: 5, compaction_count: 1, llm_call_count: 42, adversarial_findings: 2,
+            pipeline_mode: 'standard', opened_at: fiveMinAgo, closed_at: fiveMinAgo,
+            qa_round_count: 5, compaction_count: 1, llm_call_count: 42,
+            adversarial_findings_count: 2,
             adversarial_tests_created: 3, files_changed: 7, feedback_converged: true,
             phase_setup_ms: 1200, phase_implementation_ms: 45000, phase_closure_ms: 3000,
-            are_gate_status: 'PASS',
+            are_gate_passed: true, computed_at: fiveMinAgo,
           },
         ],
         guards: [
           {
-            guard_id: 'no_competing_mode', period_start: periodStart, period_end: periodEnd,
-            invocation_count: 12, violation_count: 3,
+            guard_key: 'no_competing_mode', period_start: periodStart,
+            invocation_count: 12, violation_count: 3, computed_at: periodEnd,
           },
         ],
         pools: [
           {
-            llm_role: 'worker', period_start: periodStart, period_end: periodEnd,
-            call_count: 99, token_input_total: 1000, token_output_total: 500, avg_latency_ms: 1200,
+            pool_key: 'worker', period_start: periodStart,
+            call_count: 99, response_time_p50_ms: 1200, computed_at: periodEnd,
           },
         ],
         pipeline: [
           {
-            period_start: periodStart, period_end: periodEnd,
-            stories_completed: 7, stories_escalated: 1, avg_qa_rounds: 2.5,
-            avg_phase_implementation_ms: 40000,
+            period_start: periodStart,
+            story_count: 8, story_count_closed: 7, qa_round_avg: 2.5,
+            processing_time_avg_ms: 40000, computed_at: periodEnd,
           },
         ],
         corpus: [
           {
-            period_start: periodStart, period_end: periodEnd,
-            incidents_recorded: 8, patterns_promoted: 3, checks_approved: 2,
+            period_start: periodStart,
+            new_incident_count: 8, patterns_total_count: 3,
+            patterns_with_active_check: 2, computed_at: periodEnd,
           },
         ],
       }),
@@ -440,11 +442,12 @@ describe('AC10: Real KPI facts persistence + SSE event delivery (core AC10)', ()
         facts: [
           {
             story_id: 'KPIE2E-002', story_type: 'implementation', story_size: 'L',
-            story_mode: 'standard', started_at: fiveMinAgo, completed_at: fiveMinAgo,
-            qa_rounds: 9, compaction_count: 0, llm_call_count: 70, adversarial_findings: 1,
+            pipeline_mode: 'standard', opened_at: fiveMinAgo, closed_at: fiveMinAgo,
+            qa_round_count: 9, compaction_count: 0, llm_call_count: 70,
+            adversarial_findings_count: 1,
             adversarial_tests_created: 4, files_changed: 12, feedback_converged: true,
             phase_setup_ms: 1500, phase_implementation_ms: 60000, phase_closure_ms: 3500,
-            are_gate_status: 'PASS',
+            are_gate_passed: true, computed_at: fiveMinAgo,
           },
         ],
       }),

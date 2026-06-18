@@ -122,46 +122,42 @@ def _make_story() -> FactStory:
         story_id="AG3-001",
         story_type="implementation",
         story_size="M",
-        story_mode="standard",
-        started_at=_NOW,
-        completed_at=_END,
-        qa_rounds=3,
+        pipeline_mode="standard",
+        opened_at=_NOW,
+        closed_at=_END,
+        qa_round_count=3,
         compaction_count=1,
         llm_call_count=45,
-        adversarial_findings=2,
+        adversarial_findings_count=2,
         adversarial_tests_created=5,
         files_changed=8,
         feedback_converged=True,
         phase_setup_ms=1200,
         phase_implementation_ms=45000,
         phase_closure_ms=3000,
-        are_gate_status="PASS",
-        agentkit_version="3.0.0",
-        agentkit_commit="abc123",
+        are_gate_passed=True,
+        computed_at=_END,
     )
 
 
 def _make_guard() -> FactGuardPeriod:
     return FactGuardPeriod(
         project_key="tenant-a",
-        guard_id="no_competing_mode",
+        guard_key="no_competing_mode",
         period_start=_NOW,
-        period_end=_END,
         invocation_count=12,
         violation_count=3,
+        computed_at=_END,
     )
 
 
 def _make_pool() -> FactPoolPeriod:
     return FactPoolPeriod(
         project_key="tenant-a",
-        llm_role="worker",
+        pool_key="worker",
         period_start=_NOW,
-        period_end=_END,
         call_count=99,
-        token_input_total=1000,
-        token_output_total=500,
-        avg_latency_ms=1200,
+        computed_at=_END,
     )
 
 
@@ -169,11 +165,10 @@ def _make_pipeline() -> FactPipelinePeriod:
     return FactPipelinePeriod(
         project_key="tenant-a",
         period_start=_NOW,
-        period_end=_END,
-        stories_completed=7,
-        stories_escalated=1,
-        avg_qa_rounds=2.5,
-        avg_phase_implementation_ms=40000,
+        story_count=8,
+        story_count_closed=7,
+        qa_round_avg=2.5,
+        computed_at=_END,
     )
 
 
@@ -181,10 +176,10 @@ def _make_corpus() -> FactCorpusPeriod:
     return FactCorpusPeriod(
         project_key="tenant-a",
         period_start=_NOW,
-        period_end=_END,
-        incidents_recorded=8,
-        patterns_promoted=3,
-        checks_approved=2,
+        new_incident_count=8,
+        patterns_total_count=3,
+        patterns_with_active_check=2,
+        computed_at=_END,
     )
 
 
@@ -260,30 +255,34 @@ def test_dropped_fields_absent_from_all_wire_outputs(dropped_field: str) -> None
 
 
 def test_story_dto_renames_applied_correctly() -> None:
-    """AC3: FactStory(story_mode, started_at, are_gate_status) → DTO with FK-62 names."""
+    """AC3: FactStory FK-62 record fields → DTO with frozen AG3-116 wire keys.
+
+    The internal record now carries the FK-62 names (``pipeline_mode``,
+    ``opened_at``, ``are_gate_passed: bool``); the wire keys are unchanged and
+    ``are_gate_passed`` is mapped bool→string (AG3-117 R2).
+    """
     record = FactStory(
         project_key="tenant-a",
         story_id="AG3-042",
         story_type="implementation",
         story_size="S",
-        story_mode="fast-track",
-        started_at=_NOW,
-        completed_at=_END,
-        qa_rounds=7,
-        are_gate_status="PASS",
-        agentkit_version="3.1.0",
-        agentkit_commit="deadbeef",
+        pipeline_mode="fast-track",
+        opened_at=_NOW,
+        closed_at=_END,
+        qa_round_count=7,
+        are_gate_passed=True,
+        computed_at=_END,
     )
     wire = map_fact_row_to_wire(record)
 
-    # Renames verified
-    assert wire["pipeline_mode"] == "fast-track", "story_mode must be mapped to pipeline_mode"
-    assert wire["opened_at"] == _NOW.isoformat(), "started_at must be mapped to opened_at"
-    assert wire["closed_at"] == _END.isoformat(), "completed_at must be mapped to closed_at"
-    assert wire["qa_round_count"] == 7, "qa_rounds must be mapped to qa_round_count"
-    assert wire["are_gate_passed"] == "PASS", "are_gate_status must be mapped to are_gate_passed"
+    # Wire keys verified (frozen AG3-116 contract).
+    assert wire["pipeline_mode"] == "fast-track"
+    assert wire["opened_at"] == _NOW.isoformat()
+    assert wire["closed_at"] == _END.isoformat()
+    assert wire["qa_round_count"] == 7
+    assert wire["are_gate_passed"] == "PASS", "are_gate_passed bool True maps to 'PASS'"
 
-    # Dropped fields must not be present
+    # Internal/renamed/dropped raw field names must not be present.
     assert "story_mode" not in wire
     assert "started_at" not in wire
     assert "completed_at" not in wire
@@ -348,34 +347,32 @@ def test_corpus_dto_renames_applied_correctly() -> None:
 
 
 def test_story_are_gate_passed_maps_none_faithfully() -> None:
-    """AC3: are_gate_status=None → are_gate_passed=None (name-only rename, no value change)."""
+    """AC3 (R2): are_gate_passed=None → wire are_gate_passed=None (faithful)."""
     record = FactStory(
         project_key="tenant-a",
         story_id="AG3-099",
         story_type="spike",
         story_size="S",
-        started_at=_NOW,
-        qa_rounds=0,
-        are_gate_status=None,
-        agentkit_version="3.0.0",
-        agentkit_commit="abc",
+        opened_at=_NOW,
+        qa_round_count=0,
+        are_gate_passed=None,
+        computed_at=_NOW,
     )
     wire = map_fact_row_to_wire(record)
     assert wire["are_gate_passed"] is None
 
 
 def test_story_are_gate_passed_maps_fail_value_faithfully() -> None:
-    """AC3: are_gate_status='FAIL' → are_gate_passed='FAIL' (semantics faithful)."""
+    """AC3 (R2): are_gate_passed=False → wire are_gate_passed='FAIL' (bool→string)."""
     record = FactStory(
         project_key="tenant-a",
         story_id="AG3-100",
         story_type="implementation",
         story_size="M",
-        started_at=_NOW,
-        qa_rounds=2,
-        are_gate_status="FAIL",
-        agentkit_version="3.0.0",
-        agentkit_commit="abc",
+        opened_at=_NOW,
+        qa_round_count=2,
+        are_gate_passed=False,
+        computed_at=_NOW,
     )
     wire = map_fact_row_to_wire(record)
     assert wire["are_gate_passed"] == "FAIL"

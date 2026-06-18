@@ -113,8 +113,8 @@ class _InMemoryFactRepo:
             rows = [
                 s
                 for s in rows
-                if s.completed_at is not None
-                and period.start <= s.completed_at < period.end
+                if s.closed_at is not None
+                and period.start <= s.closed_at < period.end
             ]
         return rows
 
@@ -348,11 +348,10 @@ def test_stories_endpoint_with_data_returns_ok_status(tmp_path: object) -> None:
         story_id="AG3-101",
         story_type="implementation",
         story_size="M",
-        started_at=_NOW,
-        completed_at=datetime(2026, 3, 1, tzinfo=UTC),
-        qa_rounds=2,
-        agentkit_version="3.0.0",
-        agentkit_commit="abc",
+        opened_at=_NOW,
+        closed_at=datetime(2026, 3, 1, tzinfo=UTC),
+        qa_round_count=2,
+        computed_at=datetime(2026, 3, 1, tzinfo=UTC),
     )
     analytics = _make_kpi_analytics(stories=[story])
     app = _make_app(tmp_path, analytics)
@@ -375,11 +374,11 @@ def test_guards_endpoint_with_data_returns_ok_status(tmp_path: object) -> None:
     """AC4: guards endpoint with matching-period data returns status=OK."""
     guard = FactGuardPeriod(
         project_key=_PROJECT,
-        guard_id="review-guard",
+        guard_key="review-guard",
         period_start=datetime(2026, 3, 1, tzinfo=UTC),
-        period_end=datetime(2026, 4, 1, tzinfo=UTC),
         invocation_count=5,
         violation_count=1,
+        computed_at=datetime(2026, 4, 1, tzinfo=UTC),
     )
     analytics = _make_kpi_analytics(guards=[guard])
     app = _make_app(tmp_path, analytics)
@@ -402,11 +401,11 @@ def test_guards_outside_period_returns_empty(tmp_path: object) -> None:
     # Guard period_start is 2025-06-01, but the query period is 2026.
     guard = FactGuardPeriod(
         project_key=_PROJECT,
-        guard_id="old-guard",
+        guard_key="old-guard",
         period_start=datetime(2025, 6, 1, tzinfo=UTC),
-        period_end=datetime(2025, 7, 1, tzinfo=UTC),
         invocation_count=3,
         violation_count=0,
+        computed_at=datetime(2025, 7, 1, tzinfo=UTC),
     )
     analytics = _make_kpi_analytics(guards=[guard])
     app = _make_app(tmp_path, analytics)
@@ -423,12 +422,10 @@ def test_pools_endpoint_with_data_returns_ok_status(tmp_path: object) -> None:
     """AC4: pools endpoint with matching-period data returns status=OK."""
     pool = FactPoolPeriod(
         project_key=_PROJECT,
-        llm_role="primary",
+        pool_key="primary",
         period_start=datetime(2026, 3, 1, tzinfo=UTC),
-        period_end=datetime(2026, 4, 1, tzinfo=UTC),
         call_count=100,
-        token_input_total=50000,
-        token_output_total=20000,
+        computed_at=datetime(2026, 4, 1, tzinfo=UTC),
     )
     analytics = _make_kpi_analytics(pools=[pool])
     app = _make_app(tmp_path, analytics)
@@ -446,9 +443,9 @@ def test_pipeline_endpoint_with_data_returns_ok_status(tmp_path: object) -> None
     pipeline = FactPipelinePeriod(
         project_key=_PROJECT,
         period_start=datetime(2026, 3, 1, tzinfo=UTC),
-        period_end=datetime(2026, 4, 1, tzinfo=UTC),
-        stories_completed=10,
-        stories_escalated=1,
+        story_count=11,
+        story_count_closed=10,
+        computed_at=datetime(2026, 4, 1, tzinfo=UTC),
     )
     analytics = _make_kpi_analytics(pipeline=[pipeline])
     app = _make_app(tmp_path, analytics)
@@ -465,10 +462,10 @@ def test_corpus_endpoint_with_data_returns_ok_status(tmp_path: object) -> None:
     corpus = FactCorpusPeriod(
         project_key=_PROJECT,
         period_start=datetime(2026, 3, 1, tzinfo=UTC),
-        period_end=datetime(2026, 4, 1, tzinfo=UTC),
-        incidents_recorded=3,
-        patterns_promoted=1,
-        checks_approved=5,
+        new_incident_count=3,
+        patterns_total_count=1,
+        patterns_with_active_check=5,
+        computed_at=datetime(2026, 4, 1, tzinfo=UTC),
     )
     analytics = _make_kpi_analytics(corpus=[corpus])
     app = _make_app(tmp_path, analytics)
@@ -719,22 +716,20 @@ def test_kpi_stories_scoped_to_project_key(tmp_path: object) -> None:
         story_id="A-001",
         story_type="implementation",
         story_size="S",
-        started_at=_NOW,
-        completed_at=datetime(2026, 3, 1, tzinfo=UTC),
-        qa_rounds=1,
-        agentkit_version="3.0.0",
-        agentkit_commit="abc",
+        opened_at=_NOW,
+        closed_at=datetime(2026, 3, 1, tzinfo=UTC),
+        qa_round_count=1,
+        computed_at=datetime(2026, 3, 1, tzinfo=UTC),
     )
     story_b = FactStory(
         project_key="tenant-b",
         story_id="B-001",
         story_type="bugfix",
         story_size="XS",
-        started_at=_NOW,
-        completed_at=datetime(2026, 3, 1, tzinfo=UTC),
-        qa_rounds=1,
-        agentkit_version="3.0.0",
-        agentkit_commit="def",
+        opened_at=_NOW,
+        closed_at=datetime(2026, 3, 1, tzinfo=UTC),
+        qa_round_count=1,
+        computed_at=datetime(2026, 3, 1, tzinfo=UTC),
     )
     analytics = _make_kpi_analytics(stories=[story_a, story_b])
     tenant_scope = TenantScopeMiddleware(repository=project_repo)
@@ -795,22 +790,20 @@ def test_reset_story_purged_upstream_is_absent_from_kpi(tmp_path: object) -> Non
         story_id="CLEAN-001",
         story_type="implementation",
         story_size="M",
-        started_at=_NOW,
-        completed_at=datetime(2026, 2, 1, tzinfo=UTC),
-        qa_rounds=1,
-        agentkit_version="3.0.0",
-        agentkit_commit="abc",
+        opened_at=_NOW,
+        closed_at=datetime(2026, 2, 1, tzinfo=UTC),
+        qa_round_count=1,
+        computed_at=datetime(2026, 2, 1, tzinfo=UTC),
     )
     reset_story = FactStory(
         project_key=_PROJECT,
         story_id="RESET-002",
         story_type="implementation",
         story_size="S",
-        started_at=_NOW,
-        completed_at=datetime(2026, 3, 1, tzinfo=UTC),
-        qa_rounds=0,
-        agentkit_version="3.0.0",
-        agentkit_commit="def",
+        opened_at=_NOW,
+        closed_at=datetime(2026, 3, 1, tzinfo=UTC),
+        qa_round_count=0,
+        computed_at=datetime(2026, 3, 1, tzinfo=UTC),
     )
 
     # Phase 1: before purge — both stories are in the repo.
@@ -881,22 +874,20 @@ def test_comparison_period_triggers_second_factstore_read(tmp_path: object) -> N
         story_id="PRIMARY-001",
         story_type="implementation",
         story_size="M",
-        started_at=_NOW,
-        completed_at=datetime(2026, 6, 1, tzinfo=UTC),
-        qa_rounds=1,
-        agentkit_version="3.0.0",
-        agentkit_commit="abc",
+        opened_at=_NOW,
+        closed_at=datetime(2026, 6, 1, tzinfo=UTC),
+        qa_round_count=1,
+        computed_at=datetime(2026, 6, 1, tzinfo=UTC),
     )
     comparison_story = FactStory(
         project_key=_PROJECT,
         story_id="COMP-002",
         story_type="implementation",
         story_size="S",
-        started_at=datetime(2025, 1, 1, tzinfo=UTC),
-        completed_at=datetime(2025, 6, 1, tzinfo=UTC),
-        qa_rounds=2,
-        agentkit_version="3.0.0",
-        agentkit_commit="def",
+        opened_at=datetime(2025, 1, 1, tzinfo=UTC),
+        closed_at=datetime(2025, 6, 1, tzinfo=UTC),
+        qa_round_count=2,
+        computed_at=datetime(2025, 6, 1, tzinfo=UTC),
     )
     analytics = _make_kpi_analytics(stories=[primary_story, comparison_story])
     app = _make_app(tmp_path, analytics)

@@ -49,7 +49,7 @@ class FactRepository(Protocol):
     def list_fact_stories(
         self, project_key: str, period: PeriodFilter | None = None
     ) -> list[FactStory]:
-        """Return ``fact_story`` rows for ``project_key`` (period bounds ``completed_at``)."""
+        """Return ``fact_story`` rows for ``project_key`` (period bounds ``closed_at``)."""
         ...
 
     def list_fact_guards(
@@ -151,7 +151,7 @@ class FactWriteSession(Protocol):
         keys: Sequence[tuple[str, str, datetime]],
         rows: list[FactGuardPeriod],
     ) -> None:
-        """DELETE the ``(project_key, guard_id, period_start)`` slices, then INSERT ``rows``.
+        """DELETE the ``(project_key, guard_key, period_start)`` slices, then INSERT ``rows``.
 
         The ``period_start`` key element is the SAME ``datetime`` the recomputed
         rows carry, so the DELETE matches the stored row regardless of backend
@@ -164,7 +164,7 @@ class FactWriteSession(Protocol):
         keys: Sequence[tuple[str, str, datetime]],
         rows: list[FactPoolPeriod],
     ) -> None:
-        """DELETE the ``(project_key, llm_role, period_start)`` slices, then INSERT ``rows``."""
+        """DELETE the ``(project_key, pool_key, period_start)`` slices, then INSERT ``rows``."""
         ...
 
     def replace_pipeline_period(

@@ -505,6 +505,7 @@ def _ensure_failure_corpus_constraints(conn: _CompatConnection) -> None:
 
 def _ensure_schema(conn: _CompatConnection) -> None:
     conn.execute("SELECT pg_advisory_xact_lock(hashtext('agentkit_postgres_schema_ddl'))")
+    _reconcile_fact_tables_fk62(conn)
     conn.executescript(_schema_create_script())
     for statement in _schema_alter_statements():
         conn.execute(statement)
@@ -514,19 +515,144 @@ def _ensure_schema(conn: _CompatConnection) -> None:
     _ensure_analytics_migration(conn)
 
 
+#: AG3-117 (FK-62 §62.2.1-62.2.5): the five recompute-disposable rollup tables.
+_FACT_TABLE_NAMES: tuple[str, ...] = (
+    "fact_story",
+    "fact_guard_period",
+    "fact_pool_period",
+    "fact_pipeline_period",
+    "fact_corpus_period",
+)
+
+
+def _fact_fk62_column_sets() -> dict[str, frozenset[str]]:
+    """Return the FK-62 final column set per ``fact_*`` table.
+
+    Parsed from ``postgres_schema.sql`` itself — the canonical Postgres DDL that
+    :func:`_ensure_schema` is about to apply — so the reconciliation compares an
+    existing table against the EXACT shape the schema script will (re)create. This
+    keeps the FK-62 truth single-sourced WITHOUT crossing the StateBackendDrivers ->
+    StateBackendRepository boundary (AC010) that a ``store._fact_sql`` import would.
+    """
+    script = _schema_create_script()
+    return {table: _create_table_columns(script, table) for table in _FACT_TABLE_NAMES}
+
+
+def _create_table_columns(script: str, table: str) -> frozenset[str]:
+    """Extract the column names of a ``CREATE TABLE ... <table> ( ... )`` block.
+
+    Reads the first identifier of each definition line inside the parenthesised
+    body, skipping table-level constraint clauses (PRIMARY KEY, ...).
+    """
+    marker = f"CREATE TABLE IF NOT EXISTS {table} ("
+    start = script.find(marker)
+    if start < 0:  # pragma: no cover - defensive: the schema always carries them
+        raise RuntimeError(f"{table}: CREATE TABLE block not found in schema script")
+    depth = 0
+    i = start + len(marker) - 1
+    body_start = i + 1
+    while i < len(script):
+        if script[i] == "(":
+            depth += 1
+            if depth == 1:
+                body_start = i + 1
+        elif script[i] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        i += 1
+    columns: set[str] = set()
+    for raw_line in script[body_start:i].split("\n"):
+        line = raw_line.strip().rstrip(",")
+        if not line or line.startswith("--"):
+            continue
+        first = line.split()[0]
+        if first.upper() in {"PRIMARY", "FOREIGN", "UNIQUE", "CHECK", "CONSTRAINT"}:
+            continue
+        columns.add(first)
+    return frozenset(columns)
+
+
+def _reconcile_fact_tables_fk62(conn: _CompatConnection) -> None:
+    """Reconcile any pre-AG3-117 ``fact_*`` table to the FK-62 §62.2 column set.
+
+    MECHANISM (AG3-117 Finding 1). ``postgres_schema.sql`` (run by
+    :func:`_ensure_schema` right after this) is the canonical typed DDL builder and
+    creates the five ``fact_*`` tables with ``CREATE TABLE IF NOT EXISTS``. Because
+    ``_ensure_schema`` runs on EVERY connection (see :func:`_connect_global`), an
+    UNCONDITIONAL ``DROP TABLE`` would discard the recompute-disposable rollups on
+    every ordinary startup. The fact tables are recompute-disposable rollups
+    (FK-60 §60 P3), so the safe reconciliation is a COLUMN-SET-CONDITIONAL drop:
+
+    * fresh PG (table absent) -> no drop; the schema script creates the FK-62 table.
+    * existing-OLD PG (column set differs from FK-62) -> ``DROP TABLE ... CASCADE``;
+      the schema script then rebuilds the table on the FK-62 column set, and the
+      ``closed_at``/``period_start`` indexes apply cleanly. The discarded rows are a
+      derivable projection the RefreshWorker recomputes (FK-60 §60 P3) — not a data
+      corpus to preserve.
+    * already-FK-62 PG (column set matches) -> NO drop; the rollups survive every
+      startup (no repeated wipe).
+
+    Each table's reconciliation is ONE idempotent ``DO`` block executed via psycopg
+    (which handles dollar-quoting natively); it is NOT placed in
+    ``postgres_schema.sql`` because that file is split by :func:`iter_sql_statements`,
+    which has no dollar-quote awareness and would mis-split a ``DO $$`` body.
+    The DROP is restricted to exactly the five disposable ``fact_*`` rollup tables.
+    """
+    schema = resolve_schema_name()
+    for table, fk62_columns in _fact_fk62_column_sets().items():
+        column_csv = ",".join(sorted(fk62_columns))
+        # A PL/pgSQL ``DO`` body cannot receive bind parameters (Postgres has no
+        # placeholders inside a DO block), so the comparison values are inlined as
+        # SAFELY-QUOTED SQL string literals. All three are internal, non-user
+        # values: ``schema`` is the resolver-validated schema name, ``table`` is one
+        # of the fixed five fact-table names, ``column_csv`` is built from the
+        # ``_fact_sql`` column constants. ``_sql_text_literal`` doubles single
+        # quotes (defence-in-depth). The lookup is scoped to the resolved schema so
+        # a same-named table in another schema is never touched.
+        conn.execute(
+            "DO $$\n"
+            "DECLARE\n"
+            "    existing_columns text;\n"
+            f"    expected_columns text := {_sql_text_literal(column_csv)};\n"
+            "BEGIN\n"
+            "    SELECT string_agg(column_name, ',' ORDER BY column_name)\n"
+            "      INTO existing_columns\n"
+            "      FROM information_schema.columns\n"
+            f"     WHERE table_schema = {_sql_text_literal(schema)}\n"
+            f"       AND table_name = {_sql_text_literal(table)};\n"
+            "    IF existing_columns IS NOT NULL\n"
+            "       AND existing_columns IS DISTINCT FROM expected_columns THEN\n"
+            f"        DROP TABLE IF EXISTS {table} CASCADE;\n"
+            "    END IF;\n"
+            "END $$;",
+        )
+
+
+def _sql_text_literal(value: str) -> str:
+    """Return ``value`` as a single-quoted SQL text literal (quotes doubled)."""
+    escaped = value.replace("'", "''")
+    return f"'{escaped}'"
+
+
 def _ensure_analytics_migration(conn: _CompatConnection) -> None:
     """Run the analytics MigrationRunner so it is wired in production (FK-62 §62.4).
 
-    The canonical typed analytics DDL lives in ``postgres_schema.sql`` and is
-    already applied above; the MigrationRunner records logical analytics version
-    ``3.4`` in the idempotent ``schema_versions`` cursor (FK-62 §62.4.3). Its
-    ``CREATE TABLE IF NOT EXISTS`` statements are no-ops here (the typed tables
-    exist), so there is no second DDL truth — only the version cursor is written.
-    A double run records nothing new (proven idempotent).
+    AG3-117: ``postgres_schema.sql`` (applied just above) is the canonical typed
+    Postgres truth and already carries the five ``fact_*`` tables on the FK-62
+    §62.2 final shape. The MigrationRunner runs afterwards purely to record the
+    logical analytics versions (3.4 -> 3.5 -> 3.6, head ``3.6``) in the idempotent
+    ``schema_versions`` cursor (FK-62 §62.4.3); its DDL is a no-op against the
+    already-typed tables. To keep the historical v_3_4 / v_3_6 statements
+    no-op-safe against the FK-62-shaped tables on Postgres (where v_3_4's
+    ``completed_at`` index and v_3_6's ``DROP TABLE`` would otherwise conflict
+    with / discard the canonical typed tables), the runner records the analytics
+    versions WITHOUT replaying their DDL on this backend. A double run records
+    nothing new (proven idempotent).
     """
     from agentkit.state_backend.migration import MigrationRunner
 
-    MigrationRunner().run(conn)
+    MigrationRunner().run(conn, replay_ddl=False)
 
 
 def _story_id_for(story_dir: Path) -> str | None:

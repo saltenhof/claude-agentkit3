@@ -167,10 +167,9 @@ def test_get_dashboard_view_reads_factstore_story_rows() -> None:
         story_id="AG3-001",
         story_type="implementation",
         story_size="L",
-        started_at=datetime(2026, 6, 5, tzinfo=UTC),
-        qa_rounds=3,
-        agentkit_version="3.19.0",
-        agentkit_commit="abc",
+        opened_at=datetime(2026, 6, 5, tzinfo=UTC),
+        qa_round_count=3,
+        computed_at=datetime(2026, 6, 5, tzinfo=UTC),
     )
     analytics = KpiAnalytics(
         catalog=KpiCatalog(), fact_store=_DictFactStore([story])

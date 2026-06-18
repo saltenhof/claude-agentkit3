@@ -132,6 +132,19 @@ class WireKpiCorpusRow(BaseModel):
     patterns_with_active_check: int
 
 
+def _are_gate_passed_to_wire(value: bool | None) -> str | None:
+    """Map the internal ``are_gate_passed`` bool to the frozen AG3-116 wire string.
+
+    Anti-corruption mapping (AG3-117 R2): the internal record carries a real
+    ``bool | None`` (FK-62 §62.2.1 ``are_gate_passed INTEGER``), while the frozen
+    AG3-116 wire contract + production frontend keep the legacy string shape
+    (``"PASS"`` / ``"FAIL"`` / ``None``). The mapping is faithful and total.
+    """
+    if value is None:
+        return None
+    return "PASS" if value else "FAIL"
+
+
 def _map_story(record: FactStory) -> dict[str, object]:
     """Map a FactStory record to its FK-62-named wire projection."""
     return WireKpiStoryRow(
@@ -139,20 +152,20 @@ def _map_story(record: FactStory) -> dict[str, object]:
         story_id=record.story_id,
         story_type=record.story_type,
         story_size=record.story_size,
-        pipeline_mode=record.story_mode,
-        opened_at=record.started_at.isoformat(),
-        closed_at=record.completed_at.isoformat() if record.completed_at is not None else None,
-        qa_round_count=record.qa_rounds,
+        pipeline_mode=record.pipeline_mode,
+        opened_at=record.opened_at.isoformat(),
+        closed_at=record.closed_at.isoformat() if record.closed_at is not None else None,
+        qa_round_count=record.qa_round_count,
         compaction_count=record.compaction_count,
         llm_call_count=record.llm_call_count,
-        adversarial_findings_count=record.adversarial_findings,
+        adversarial_findings_count=record.adversarial_findings_count,
         adversarial_tests_created=record.adversarial_tests_created,
         files_changed=record.files_changed,
         feedback_converged=record.feedback_converged,
         phase_setup_ms=record.phase_setup_ms,
         phase_implementation_ms=record.phase_implementation_ms,
         phase_closure_ms=record.phase_closure_ms,
-        are_gate_passed=record.are_gate_status,
+        are_gate_passed=_are_gate_passed_to_wire(record.are_gate_passed),
     ).model_dump(mode="json")
 
 
@@ -160,7 +173,7 @@ def _map_guard(record: FactGuardPeriod) -> dict[str, object]:
     """Map a FactGuardPeriod record to its FK-62-named wire projection."""
     return WireKpiGuardRow(
         project_key=record.project_key,
-        guard_key=record.guard_id,
+        guard_key=record.guard_key,
         period_start=record.period_start.isoformat(),
         invocation_count=record.invocation_count,
         violation_count=record.violation_count,
@@ -171,7 +184,7 @@ def _map_pool(record: FactPoolPeriod) -> dict[str, object]:
     """Map a FactPoolPeriod record to its FK-62-named wire projection."""
     return WireKpiPoolRow(
         project_key=record.project_key,
-        pool_key=record.llm_role,
+        pool_key=record.pool_key,
         period_start=record.period_start.isoformat(),
         call_count=record.call_count,
     ).model_dump(mode="json")
@@ -182,8 +195,8 @@ def _map_pipeline(record: FactPipelinePeriod) -> dict[str, object]:
     return WireKpiPipelineRow(
         project_key=record.project_key,
         period_start=record.period_start.isoformat(),
-        story_count_closed=record.stories_completed,
-        qa_round_avg=record.avg_qa_rounds,
+        story_count_closed=record.story_count_closed,
+        qa_round_avg=record.qa_round_avg,
     ).model_dump(mode="json")
 
 
@@ -192,9 +205,9 @@ def _map_corpus(record: FactCorpusPeriod) -> dict[str, object]:
     return WireKpiCorpusRow(
         project_key=record.project_key,
         period_start=record.period_start.isoformat(),
-        new_incident_count=record.incidents_recorded,
-        patterns_total_count=record.patterns_promoted,
-        patterns_with_active_check=record.checks_approved,
+        new_incident_count=record.new_incident_count,
+        patterns_total_count=record.patterns_total_count,
+        patterns_with_active_check=record.patterns_with_active_check,
     ).model_dump(mode="json")
 
 

@@ -39,68 +39,127 @@ class _FactSql(NamedTuple):
 def _build_fact_sql() -> _FactSql:
     """Return the bundle of fact-table UPSERT SQL fragments."""
     fact_story_columns = (
-        "project_key, story_id, story_type, story_size, story_mode, started_at, "
-        "completed_at, qa_rounds, compaction_count, llm_call_count, "
-        "adversarial_findings, adversarial_tests_created, files_changed, "
-        "feedback_converged, phase_setup_ms, phase_implementation_ms, "
-        "phase_closure_ms, are_gate_status, agentkit_version, agentkit_commit"
+        "project_key, story_id, story_type, story_size, pipeline_mode, "
+        "opened_at, closed_at, processing_time_ms, compaction_count, "
+        "qa_round_count, feedback_converged, blocked_ac_count, "
+        "blocked_ac_detail_json, llm_call_count, adversarial_findings_count, "
+        "adversarial_tests_created, adversarial_hit_rate, findings_fully_resolved, "
+        "findings_partially_resolved, findings_not_resolved, final_status, "
+        "are_gate_passed, are_total_requirements, are_covered_requirements, "
+        "files_changed, increment_count, phase_setup_ms, phase_exploration_ms, "
+        "phase_implementation_ms, phase_verify_ms, phase_closure_ms, computed_at"
     )
     fact_story_update = (
         "story_type=excluded.story_type, story_size=excluded.story_size, "
-        "story_mode=excluded.story_mode, started_at=excluded.started_at, "
-        "completed_at=excluded.completed_at, qa_rounds=excluded.qa_rounds, "
+        "pipeline_mode=excluded.pipeline_mode, opened_at=excluded.opened_at, "
+        "closed_at=excluded.closed_at, "
+        "processing_time_ms=excluded.processing_time_ms, "
         "compaction_count=excluded.compaction_count, "
-        "llm_call_count=excluded.llm_call_count, "
-        "adversarial_findings=excluded.adversarial_findings, "
-        "adversarial_tests_created=excluded.adversarial_tests_created, "
-        "files_changed=excluded.files_changed, "
+        "qa_round_count=excluded.qa_round_count, "
         "feedback_converged=excluded.feedback_converged, "
+        "blocked_ac_count=excluded.blocked_ac_count, "
+        "blocked_ac_detail_json=excluded.blocked_ac_detail_json, "
+        "llm_call_count=excluded.llm_call_count, "
+        "adversarial_findings_count=excluded.adversarial_findings_count, "
+        "adversarial_tests_created=excluded.adversarial_tests_created, "
+        "adversarial_hit_rate=excluded.adversarial_hit_rate, "
+        "findings_fully_resolved=excluded.findings_fully_resolved, "
+        "findings_partially_resolved=excluded.findings_partially_resolved, "
+        "findings_not_resolved=excluded.findings_not_resolved, "
+        "final_status=excluded.final_status, "
+        "are_gate_passed=excluded.are_gate_passed, "
+        "are_total_requirements=excluded.are_total_requirements, "
+        "are_covered_requirements=excluded.are_covered_requirements, "
+        "files_changed=excluded.files_changed, "
+        "increment_count=excluded.increment_count, "
         "phase_setup_ms=excluded.phase_setup_ms, "
+        "phase_exploration_ms=excluded.phase_exploration_ms, "
         "phase_implementation_ms=excluded.phase_implementation_ms, "
+        "phase_verify_ms=excluded.phase_verify_ms, "
         "phase_closure_ms=excluded.phase_closure_ms, "
-        "are_gate_status=excluded.are_gate_status, "
-        "agentkit_version=excluded.agentkit_version, "
-        "agentkit_commit=excluded.agentkit_commit"
+        "computed_at=excluded.computed_at"
     )
     fact_guard_columns = (
-        "project_key, guard_id, period_start, period_end, "
-        "invocation_count, violation_count"
+        "project_key, guard_key, period_start, period_grain, invocation_count, "
+        "violation_count, violation_rate, violation_stage_escape, "
+        "violation_stage_schema, violation_stage_template, "
+        "escape_detection_count, computed_at"
     )
     fact_guard_update = (
-        "period_end=excluded.period_end, "
+        "period_grain=excluded.period_grain, "
         "invocation_count=excluded.invocation_count, "
-        "violation_count=excluded.violation_count"
+        "violation_count=excluded.violation_count, "
+        "violation_rate=excluded.violation_rate, "
+        "violation_stage_escape=excluded.violation_stage_escape, "
+        "violation_stage_schema=excluded.violation_stage_schema, "
+        "violation_stage_template=excluded.violation_stage_template, "
+        "escape_detection_count=excluded.escape_detection_count, "
+        "computed_at=excluded.computed_at"
     )
     fact_pool_columns = (
-        "project_key, llm_role, period_start, period_end, call_count, "
-        "token_input_total, token_output_total, avg_latency_ms"
+        "project_key, pool_key, period_start, period_grain, call_count, "
+        "response_time_p50_ms, verdict_adopted_count, verdict_total_count, "
+        "finding_true_positive_count, finding_false_positive_count, "
+        "quorum_triggered_count, template_finding_rate_json, computed_at"
     )
     fact_pool_update = (
-        "period_end=excluded.period_end, call_count=excluded.call_count, "
-        "token_input_total=excluded.token_input_total, "
-        "token_output_total=excluded.token_output_total, "
-        "avg_latency_ms=excluded.avg_latency_ms"
+        "period_grain=excluded.period_grain, call_count=excluded.call_count, "
+        "response_time_p50_ms=excluded.response_time_p50_ms, "
+        "verdict_adopted_count=excluded.verdict_adopted_count, "
+        "verdict_total_count=excluded.verdict_total_count, "
+        "finding_true_positive_count=excluded.finding_true_positive_count, "
+        "finding_false_positive_count=excluded.finding_false_positive_count, "
+        "quorum_triggered_count=excluded.quorum_triggered_count, "
+        "template_finding_rate_json=excluded.template_finding_rate_json, "
+        "computed_at=excluded.computed_at"
     )
     fact_pipeline_columns = (
-        "project_key, period_start, period_end, stories_completed, "
-        "stories_escalated, avg_qa_rounds, avg_phase_implementation_ms"
+        "project_key, period_start, period_grain, story_count, "
+        "story_count_closed, execution_count, exploration_count, "
+        "stage_miss_count, stage_miss_detail_json, impact_violation_count, "
+        "impact_check_count, integrity_gate_block_count, "
+        "integrity_gate_total_count, doc_fidelity_conflict_by_level_json, "
+        "first_pass_count, finding_survival_count, finding_total_count, "
+        "effective_check_ids_json, vectordb_total_hits, vectordb_above_threshold, "
+        "vectordb_classified_conflict, vectordb_duplicate_detected, "
+        "processing_time_avg_ms, processing_time_variance_ms2, qa_round_avg, "
+        "computed_at"
     )
     fact_pipeline_update = (
-        "period_end=excluded.period_end, "
-        "stories_completed=excluded.stories_completed, "
-        "stories_escalated=excluded.stories_escalated, "
-        "avg_qa_rounds=excluded.avg_qa_rounds, "
-        "avg_phase_implementation_ms=excluded.avg_phase_implementation_ms"
+        "period_grain=excluded.period_grain, story_count=excluded.story_count, "
+        "story_count_closed=excluded.story_count_closed, "
+        "execution_count=excluded.execution_count, "
+        "exploration_count=excluded.exploration_count, "
+        "stage_miss_count=excluded.stage_miss_count, "
+        "stage_miss_detail_json=excluded.stage_miss_detail_json, "
+        "impact_violation_count=excluded.impact_violation_count, "
+        "impact_check_count=excluded.impact_check_count, "
+        "integrity_gate_block_count=excluded.integrity_gate_block_count, "
+        "integrity_gate_total_count=excluded.integrity_gate_total_count, "
+        "doc_fidelity_conflict_by_level_json="
+        "excluded.doc_fidelity_conflict_by_level_json, "
+        "first_pass_count=excluded.first_pass_count, "
+        "finding_survival_count=excluded.finding_survival_count, "
+        "finding_total_count=excluded.finding_total_count, "
+        "effective_check_ids_json=excluded.effective_check_ids_json, "
+        "vectordb_total_hits=excluded.vectordb_total_hits, "
+        "vectordb_above_threshold=excluded.vectordb_above_threshold, "
+        "vectordb_classified_conflict=excluded.vectordb_classified_conflict, "
+        "vectordb_duplicate_detected=excluded.vectordb_duplicate_detected, "
+        "processing_time_avg_ms=excluded.processing_time_avg_ms, "
+        "processing_time_variance_ms2=excluded.processing_time_variance_ms2, "
+        "qa_round_avg=excluded.qa_round_avg, computed_at=excluded.computed_at"
     )
     fact_corpus_columns = (
-        "project_key, period_start, period_end, incidents_recorded, "
-        "patterns_promoted, checks_approved"
+        "project_key, period_start, period_grain, new_incident_count, "
+        "patterns_total_count, patterns_with_active_check, computed_at"
     )
     fact_corpus_update = (
-        "period_end=excluded.period_end, "
-        "incidents_recorded=excluded.incidents_recorded, "
-        "patterns_promoted=excluded.patterns_promoted, "
-        "checks_approved=excluded.checks_approved"
+        "period_grain=excluded.period_grain, "
+        "new_incident_count=excluded.new_incident_count, "
+        "patterns_total_count=excluded.patterns_total_count, "
+        "patterns_with_active_check=excluded.patterns_with_active_check, "
+        "computed_at=excluded.computed_at"
     )
     sync_state_update = (
         "value_int=excluded.value_int, "
@@ -111,10 +170,10 @@ def _build_fact_sql() -> _FactSql:
         fact_story_columns=fact_story_columns,
         fact_story_update=fact_story_update,
         fact_guard_columns=fact_guard_columns,
-        fact_guard_conflict="project_key, guard_id, period_start",
+        fact_guard_conflict="project_key, guard_key, period_start",
         fact_guard_update=fact_guard_update,
         fact_pool_columns=fact_pool_columns,
-        fact_pool_conflict="project_key, llm_role, period_start",
+        fact_pool_conflict="project_key, pool_key, period_start",
         fact_pool_update=fact_pool_update,
         fact_pipeline_columns=fact_pipeline_columns,
         fact_pipeline_conflict="project_key, period_start",

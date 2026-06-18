@@ -190,10 +190,9 @@ def test_purge_consumes_real_purge_run_with_run_id(tmp_path: Path) -> None:
             story_id="AG3-701",
             story_type="implementation",
             story_size="M",
-            started_at=_NOW,
-            qa_rounds=1,
-            agentkit_version="3.20.0",
-            agentkit_commit="abc",
+            opened_at=_NOW,
+            qa_round_count=1,
+            computed_at=_NOW,
         )
     )
     counters = StateBackendGuardCounterRepository(tmp_path)
