@@ -147,8 +147,8 @@ class KpiAnalytics:
         """Return all KPI definitions from the catalog.
 
         Returns:
-            Snapshot of all registered KpiDefinition entries.
-            May be incomplete while ``catalog.catalog_status == SKELETON``.
+            Snapshot of all 40 registered KpiDefinition entries.
+            ``catalog_status`` is ``COMPLETE`` — the full set is always returned.
         """
         return self._catalog.list_definitions()
 

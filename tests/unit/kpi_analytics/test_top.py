@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentkit.kpi_analytics.catalog import KpiCatalog, KpiCollectionPoint, KpiDefinition, KpiDomain, KpiGranularity
+from agentkit.kpi_analytics.catalog import KpiCatalog
 from agentkit.kpi_analytics.errors import AnalyticsNotConfiguredError
 from agentkit.kpi_analytics.fact_store import FactStory, PeriodFilter
 from agentkit.kpi_analytics.top import KpiAnalytics
@@ -31,41 +31,25 @@ class _DictFactStore:
         return [s for s in self._stories if s.project_key == project_key]
 
 
-def _make_catalog_with_one_kpi() -> KpiCatalog:
-    catalog = KpiCatalog()
-    catalog.register(
-        KpiDefinition(
-            kpi_id="qa_round_count",
-            name="QA Round Count",
-            decision_question="Are stories well-specified?",
-            formula_repr="count(qa_rounds) per story",
-            granularity=KpiGranularity.STORY,
-            collection_point=KpiCollectionPoint(
-                hook_or_event="story_closure_event",
-                data_available=True,
-            ),
-            domain=KpiDomain.STORY_SIZING,
-        )
-    )
-    return catalog
-
-
 def test_list_kpis_returns_catalog_definitions() -> None:
-    catalog = _make_catalog_with_one_kpi()
+    """AG3-118: KpiCatalog is now COMPLETE with 40 KPIs; list_kpis returns all 40."""
+    catalog = KpiCatalog()
     analytics = KpiAnalytics(catalog=catalog)
 
     result = analytics.list_kpis()
 
-    assert len(result) == 1
-    assert result[0].kpi_id == "qa_round_count"
+    # COMPLETE catalog has exactly 40 KPIs — qa_round_count is one of them
+    assert len(result) == 40
+    assert any(d.kpi_id == "qa_round_count" for d in result)
 
 
-def test_list_kpis_returns_empty_for_empty_catalog() -> None:
+def test_list_kpis_returns_all_40_kpis_for_complete_catalog() -> None:
+    """AG3-118: KpiCatalog() is COMPLETE — list_kpis returns 40 definitions, not empty."""
     analytics = KpiAnalytics(catalog=KpiCatalog())
 
     result = analytics.list_kpis()
 
-    assert result == []
+    assert len(result) == 40
 
 
 def test_refresh_analytics_returns_skipped_when_no_fact_store() -> None:

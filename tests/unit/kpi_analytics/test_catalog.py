@@ -1,4 +1,7 @@
-"""Unit tests for KpiCatalog, KpiDefinition, and related enums."""
+"""Unit tests for KpiCatalog, KpiDefinition, and related enums.
+
+AG3-118: catalog_status is now COMPLETE with 40 registered KPIs (FK-60 §60.4).
+"""
 
 from __future__ import annotations
 
@@ -25,6 +28,7 @@ def _sample_definition(kpi_id: str = "qa_round_count") -> KpiDefinition:
         collection_point=KpiCollectionPoint(
             hook_or_event="story_closure_event",
             data_available=True,
+            source_owner_class=1,
         ),
         domain=KpiDomain.STORY_SIZING,
     )
@@ -73,13 +77,17 @@ def test_kpi_domain_covers_all_fk60_domains() -> None:
 
 
 def test_kpi_collection_point_is_frozen() -> None:
-    point = KpiCollectionPoint(hook_or_event="story_closure_event", data_available=True)
+    point = KpiCollectionPoint(
+        hook_or_event="story_closure_event",
+        data_available=True,
+        source_owner_class=1,
+    )
     with pytest.raises(ValidationError):
         point.hook_or_event = "other"  # type: ignore[misc]
 
 
 def test_kpi_collection_point_notes_defaults_to_empty() -> None:
-    point = KpiCollectionPoint(hook_or_event="evt", data_available=False)
+    point = KpiCollectionPoint(hook_or_event="evt", data_available=False, source_owner_class=2)
     assert point.notes == ""
 
 
@@ -102,46 +110,58 @@ def test_kpi_definition_rejects_extra_fields() -> None:
             decision_question="?",
             formula_repr="count(x)",
             granularity=KpiGranularity.STORY,
-            collection_point=KpiCollectionPoint(hook_or_event="evt", data_available=True),
+            collection_point=KpiCollectionPoint(
+                hook_or_event="evt",
+                data_available=True,
+                source_owner_class=1,
+            ),
             domain=KpiDomain.GOVERNANCE,
             unknown_field="boom",
         )
 
 
 # ---------------------------------------------------------------------------
-# KpiCatalog
+# KpiCatalog — AG3-118: status is COMPLETE with 40 KPIs
 # ---------------------------------------------------------------------------
 
 
-def test_catalog_status_is_skeleton_by_default() -> None:
+def test_catalog_status_is_complete() -> None:
+    """AG3-118: catalog_status is COMPLETE (was SKELETON in skeleton era)."""
     catalog = KpiCatalog()
-    assert catalog.catalog_status == CatalogStatus.SKELETON
+    assert catalog.catalog_status == CatalogStatus.COMPLETE
+
+
+def test_catalog_contains_exactly_40_kpis() -> None:
+    """AG3-118: exactly 40 AKTIV-KPIs registered (FK-60 §60.4.12)."""
+    catalog = KpiCatalog()
+    assert len(catalog.list_definitions()) == 40
 
 
 def test_catalog_register_and_list() -> None:
+    """Register adds a definition; list_definitions returns it."""
     catalog = KpiCatalog()
-    defn = _sample_definition()
+    initial_count = len(catalog.list_definitions())
+    defn = _sample_definition("test_extra_kpi")
     catalog.register(defn)
 
     result = catalog.list_definitions()
 
-    assert len(result) == 1
-    assert result[0].kpi_id == "qa_round_count"
+    assert len(result) == initial_count + 1
+    assert any(d.kpi_id == "test_extra_kpi" for d in result)
 
 
 def test_catalog_register_multiple_definitions() -> None:
     catalog = KpiCatalog()
-    catalog.register(_sample_definition("kpi_a"))
-    catalog.register(_sample_definition("kpi_b"))
+    initial_count = len(catalog.list_definitions())
+    catalog.register(_sample_definition("kpi_extra_a"))
+    catalog.register(_sample_definition("kpi_extra_b"))
 
-    assert len(catalog.list_definitions()) == 2
+    assert len(catalog.list_definitions()) == initial_count + 2
 
 
 def test_catalog_get_returns_definition() -> None:
     catalog = KpiCatalog()
-    defn = _sample_definition("qa_round_count")
-    catalog.register(defn)
-
+    # qa_round_count is a real registered KPI
     result = catalog.get("qa_round_count")
 
     assert result is not None
@@ -155,18 +175,23 @@ def test_catalog_get_returns_none_for_unknown_id() -> None:
 
 def test_catalog_register_overwrites_duplicate_id() -> None:
     catalog = KpiCatalog()
-    catalog.register(_sample_definition("qa_round_count"))
+    initial_count = len(catalog.list_definitions())
     updated = KpiDefinition(
         kpi_id="qa_round_count",
         name="Updated Name",
         decision_question="Updated question?",
         formula_repr="count(x)",
         granularity=KpiGranularity.PERIOD,
-        collection_point=KpiCollectionPoint(hook_or_event="evt", data_available=False),
+        collection_point=KpiCollectionPoint(
+            hook_or_event="evt",
+            data_available=False,
+            source_owner_class=1,
+        ),
         domain=KpiDomain.QA_EFFECTIVENESS,
     )
     catalog.register(updated)
 
     result = catalog.list_definitions()
-    assert len(result) == 1
-    assert result[0].name == "Updated Name"
+    # Overwrite should not increase count
+    assert len(result) == initial_count
+    assert catalog.get("qa_round_count").name == "Updated Name"  # type: ignore[union-attr]
