@@ -1,12 +1,21 @@
 story_id: AG3-083
 title: "KPI-Katalog (40 KPIs) + Fact-Table-Spaltensaetze nach §62.2"
 type: implementation
-status: draft
+status: superseded
 phase: review_pending
 created: "2026-06-07"
 size: L
+# SUPERSEDED 2026-06-18. Split per feasibility-analysis.md (Codex job-c53f109b)
+# into AG3-116 (KPI-Wire-DTO / Anti-Corruption-Layer am HTTP-Rand)
+#      + AG3-117 (Fact-Column-Reconciliation nach FK-62)
+#      + AG3-118 (KPI-Katalog-Population 40 KPIs + FK-61-Mapping).
+# Reason: the combined story is too large, and the FK-62 renames are a
+# hard-to-reverse breaking change to shipped AG3-082/AG3-084 + the live frontend
+# wire contract (raw model_dump at routes.py:461 leaks DB column names to the
+# browser). The new DTO story (AG3-116) shields the wire contract so the rename
+# (AG3-117) no longer reaches the frontend. Files (story.md + feasibility-analysis.md)
+# kept as the decision record. The three split stories carry the real deps.
 depends_on:
   - AG3-038
   - AG3-081
-unblocks:
-  - AG3-082
+unblocks: []

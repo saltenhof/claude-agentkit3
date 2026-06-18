@@ -1,0 +1,21 @@
+story_id: AG3-117
+title: "Fact-Column-Reconciliation nach FK-62 §62.2"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-18"
+size: L
+# Split aus AG3-083 (superseded) gemaess feasibility-analysis.md (Codex job-c53f109b):
+# zweite Story der Sequenz. Bringt die fuenf fact_*-Tabellen auf den FK-62-Sollstand
+# (11 Renames inkl. 2 PK-Renames + are_gate_passed-Typwechsel, 54 echt neue Spalten
+# + 2 semantische-Rename-Ziele, Drops der Nicht-FK-62-Spalten) konsistent ueber alle
+# Wahrheitsorte + alle ausgelieferten Backend-Konsumenten. Migration als NEUE
+# Versionsdatei v_3_6_fact_reconciliation.sql (Drop+Rebuild, recompute-disposabel,
+# Head -> 3.6); keine In-place-Editierung von v_3_4 (run() skippt applied versions).
+# Frontend NICHT angefasst — das AG3-116-Wire-DTO schirmt den Browser ab.
+depends_on:
+  - AG3-038
+  - AG3-081
+  - AG3-116
+unblocks:
+  - AG3-118

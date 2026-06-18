@@ -1,0 +1,16 @@
+story_id: AG3-118
+title: "KPI-Katalog (40 KPIs) + FK-61-Mapping + Contract-Tests"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-18"
+size: M
+# Split aus AG3-083 (superseded) gemaess feasibility-analysis.md (Codex job-c53f109b):
+# dritte/letzte Story der Sequenz. Populiert KpiCatalog mit exakt den 40 AKTIV-KPIs
+# (FK-60 §60.4, catalog_status -> COMPLETE), dem typisierten FK-61-Mapping-Vertrag und
+# Contract-Tests (40-ID-Frozenset, fail-closed Ziel-Spalte gegen FK-62, Source-Owner-
+# Klassen). Der additive neue Wert; haengt von AG3-117 (FK-62-Spalten als
+# fail-closed-Aufloesungsziel).
+depends_on:
+  - AG3-117
+unblocks: []

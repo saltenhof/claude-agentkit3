@@ -1,0 +1,16 @@
+story_id: AG3-116
+title: "KPI-Wire-DTO (Anti-Corruption-Layer am KPI-HTTP-Rand)"
+type: implementation
+status: draft
+phase: review_pending
+created: "2026-06-18"
+size: M
+# Split aus AG3-083 (superseded) gemaess feasibility-analysis.md (Codex job-c53f109b):
+# erste, unabhaengige Story der Sequenz AG3-116 (DTO) -> AG3-117 (Schema-Reconciliation)
+# -> AG3-118 (Katalog-Population). Fuehrt einen Anti-Corruption-Layer (Wire-DTO) am
+# KPI-HTTP-Rand ein, damit der spaetere FK-62-Rename (AG3-117) nicht bis in den
+# Browser leckt. Aendert KEINE DB-Spalte/kein Fact-Record-Feld.
+depends_on:
+  - AG3-084
+unblocks:
+  - AG3-117
