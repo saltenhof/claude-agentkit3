@@ -198,11 +198,15 @@ export const REAL_ARE_EVIDENCE_RESPONSE = {
 } as const;
 
 /**
- * GET /v1/projects/{key}/kpi/stories — KpiAnalytics dimension endpoint (AG3-084).
- * Wire shape: { project_key, dimension, status, rows: FactStory[] }
- * Captured empirically via ControlPlaneApplication probe; rows are empty because
- * the fact tables start empty in a fresh SQLite store. The status field is "EMPTY"
- * when no fact rows exist.
+ * GET /v1/projects/{key}/kpi/stories — KpiAnalytics dimension endpoint (AG3-084 / AG3-116).
+ * Wire shape: FK-62 §62.2.1 named projection via WireKpiStoryRow DTO.
+ * Rows are empty because the fact tables start empty in a fresh SQLite store.
+ * The status field is "EMPTY" when no fact rows exist.
+ *
+ * Field renames at HTTP edge (AG3-116): story_mode→pipeline_mode,
+ * started_at→opened_at, completed_at→closed_at, qa_rounds→qa_round_count,
+ * adversarial_findings→adversarial_findings_count, are_gate_status→are_gate_passed.
+ * Dropped: agentkit_version, agentkit_commit.
  */
 export const REAL_KPI_STORIES_RESPONSE = {
   project_key: 'kpitest',
@@ -213,28 +217,27 @@ export const REAL_KPI_STORIES_RESPONSE = {
     story_id: string;
     story_type: string;
     story_size: string;
-    story_mode: string | null;
-    started_at: string;
-    completed_at: string | null;
-    qa_rounds: number;
+    pipeline_mode: string | null;
+    opened_at: string;
+    closed_at: string | null;
+    qa_round_count: number;
     compaction_count: number | null;
     llm_call_count: number | null;
-    adversarial_findings: number | null;
+    adversarial_findings_count: number | null;
     adversarial_tests_created: number | null;
     files_changed: number | null;
     feedback_converged: boolean | null;
     phase_setup_ms: number | null;
     phase_implementation_ms: number | null;
     phase_closure_ms: number | null;
-    are_gate_status: string | null;
-    agentkit_version: string;
-    agentkit_commit: string;
+    are_gate_passed: string | null;
   }>,
 } as const;
 
 /**
- * GET /v1/projects/{key}/kpi/guards — KpiAnalytics guards dimension.
- * Wire shape: { project_key, dimension, status, rows: FactGuardPeriod[] }
+ * GET /v1/projects/{key}/kpi/guards — KpiAnalytics guards dimension (AG3-116).
+ * Wire shape: FK-62 §62.2.2 named projection via WireKpiGuardRow DTO.
+ * Renamed: guard_id→guard_key. Dropped: period_end.
  */
 export const REAL_KPI_GUARDS_RESPONSE = {
   project_key: 'kpitest',
@@ -242,17 +245,18 @@ export const REAL_KPI_GUARDS_RESPONSE = {
   status: 'EMPTY',
   rows: [] as Array<{
     project_key: string;
-    guard_id: string;
+    guard_key: string;
     period_start: string;
-    period_end: string;
     invocation_count: number;
     violation_count: number;
   }>,
 } as const;
 
 /**
- * GET /v1/projects/{key}/kpi/pools — KpiAnalytics pools dimension.
- * Wire shape: { project_key, dimension, status, rows: FactPoolPeriod[] }
+ * GET /v1/projects/{key}/kpi/pools — KpiAnalytics pools dimension (AG3-116).
+ * Wire shape: FK-62 §62.2.3 named projection via WireKpiPoolRow DTO.
+ * Renamed: llm_role→pool_key. Dropped: period_end, token_input_total,
+ * token_output_total, avg_latency_ms.
  */
 export const REAL_KPI_POOLS_RESPONSE = {
   project_key: 'kpitest',
@@ -260,19 +264,17 @@ export const REAL_KPI_POOLS_RESPONSE = {
   status: 'EMPTY',
   rows: [] as Array<{
     project_key: string;
-    llm_role: string;
+    pool_key: string;
     period_start: string;
-    period_end: string;
     call_count: number;
-    token_input_total: number;
-    token_output_total: number;
-    avg_latency_ms: number | null;
   }>,
 } as const;
 
 /**
- * GET /v1/projects/{key}/kpi/pipeline — KpiAnalytics pipeline dimension.
- * Wire shape: { project_key, dimension, status, rows: FactPipelinePeriod[] }
+ * GET /v1/projects/{key}/kpi/pipeline — KpiAnalytics pipeline dimension (AG3-116).
+ * Wire shape: FK-62 §62.2.4 named projection via WireKpiPipelineRow DTO.
+ * Renamed: stories_completed→story_count_closed, avg_qa_rounds→qa_round_avg.
+ * Dropped: period_end, stories_escalated, avg_phase_implementation_ms.
  */
 export const REAL_KPI_PIPELINE_RESPONSE = {
   project_key: 'kpitest',
@@ -281,17 +283,17 @@ export const REAL_KPI_PIPELINE_RESPONSE = {
   rows: [] as Array<{
     project_key: string;
     period_start: string;
-    period_end: string;
-    stories_completed: number;
-    stories_escalated: number;
-    avg_qa_rounds: number | null;
-    avg_phase_implementation_ms: number | null;
+    story_count_closed: number;
+    qa_round_avg: number | null;
   }>,
 } as const;
 
 /**
- * GET /v1/projects/{key}/kpi/corpus — KpiAnalytics corpus dimension.
- * Wire shape: { project_key, dimension, status, rows: FactCorpusPeriod[] }
+ * GET /v1/projects/{key}/kpi/corpus — KpiAnalytics corpus dimension (AG3-116).
+ * Wire shape: FK-62 §62.2.5 named projection via WireKpiCorpusRow DTO.
+ * Renamed: incidents_recorded→new_incident_count,
+ * patterns_promoted→patterns_total_count, checks_approved→patterns_with_active_check.
+ * Dropped: period_end.
  */
 export const REAL_KPI_CORPUS_RESPONSE = {
   project_key: 'kpitest',
@@ -300,10 +302,9 @@ export const REAL_KPI_CORPUS_RESPONSE = {
   rows: [] as Array<{
     project_key: string;
     period_start: string;
-    period_end: string;
-    incidents_recorded: number;
-    patterns_promoted: number;
-    checks_approved: number;
+    new_incident_count: number;
+    patterns_total_count: number;
+    patterns_with_active_check: number;
   }>,
 } as const;
 

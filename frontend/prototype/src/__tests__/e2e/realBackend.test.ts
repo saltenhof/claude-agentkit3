@@ -266,3 +266,282 @@ describe('AC14: Real E2E round-trip THROUGH THE PUBLIC BFF paths (no stubs, real
     expect(patchWithStatus).toHaveLength(0);
   });
 });
+
+// ── AG3-116: KPI Wire DTO real-backend contract ───────────────────────────────
+//
+// AC5: Analytics dimensions still render against the REAL AG3-084 KPI surface
+// via the new FK-62-named DTO wire.  No stub at the backend/BFF/DB boundary.
+// The test seeds a fact row using internal field names (seed endpoint speaks the
+// DB/record language), then reads back through the DTO (wire speaks FK-62).
+
+describe('AG3-116: KPI wire DTO — real backend contract (no stubs)', () => {
+  const KPI_PROJECT = 'e2etest';
+  const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString().split('.')[0] + 'Z';
+
+  it('AG3-116-KPI-DTO-1: seed a FactStory via /_test/seed-kpi-facts (internal field names)', async () => {
+    // The seed endpoint writes to the DB using the INTERNAL FactStory field names.
+    const seedResp = await fetch(`${baseUrl}/_test/seed-kpi-facts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        project_key: KPI_PROJECT,
+        facts: [
+          {
+            story_id: 'AG3116-E2E-001',
+            story_type: 'implementation',
+            story_size: 'M',
+            story_mode: 'standard',
+            started_at: fiveMinAgo,
+            completed_at: fiveMinAgo,
+            qa_rounds: 4,
+            adversarial_findings: 1,
+            are_gate_status: 'PASS',
+            agentkit_version: '3.0.0',
+            agentkit_commit: 'ag3116',
+          },
+        ],
+      }),
+    });
+    expect(seedResp.status).toBe(200);
+    const body = await seedResp.json() as Record<string, unknown>;
+    expect(body['seeded']).toBeGreaterThanOrEqual(1);
+  }, TIMEOUT);
+
+  it('AG3-116-KPI-DTO-2: GET /kpi/stories responds with FK-62-named wire keys (DTO applied)', async () => {
+    // The REAL backend applies the DTO mapping at the HTTP edge (AG3-116).
+    // Wire response must carry FK-62 names, NOT internal record field names.
+    const from = new Date(Date.now() - 24 * 3600_000).toISOString();
+    const to = new Date(Date.now() + 60_000).toISOString();
+    const url = `${baseUrl}/v1/projects/${KPI_PROJECT}/kpi/stories?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+    const resp = await fetch(url);
+    expect(resp.status).toBe(200);
+    const body = await resp.json() as Record<string, unknown>;
+    expect(body['status']).toBe('OK');
+
+    const rows = body['rows'] as Array<Record<string, unknown>>;
+    const seededRow = rows.find((r) => r['story_id'] === 'AG3116-E2E-001');
+    expect(seededRow).toBeDefined();
+
+    // FK-62 wire keys MUST be present (DTO applied at HTTP edge).
+    expect(seededRow).toHaveProperty('pipeline_mode', 'standard');
+    expect(seededRow).toHaveProperty('opened_at');
+    expect(seededRow).toHaveProperty('qa_round_count', 4);
+    expect(seededRow).toHaveProperty('adversarial_findings_count', 1);
+    expect(seededRow).toHaveProperty('are_gate_passed', 'PASS');
+
+    // Internal record field names MUST NOT leak to the wire (DTO gate).
+    expect(seededRow).not.toHaveProperty('story_mode');
+    expect(seededRow).not.toHaveProperty('started_at');
+    expect(seededRow).not.toHaveProperty('qa_rounds');
+    expect(seededRow).not.toHaveProperty('adversarial_findings');
+    expect(seededRow).not.toHaveProperty('are_gate_status');
+    expect(seededRow).not.toHaveProperty('agentkit_version');
+    expect(seededRow).not.toHaveProperty('agentkit_commit');
+  }, TIMEOUT);
+
+  it('AG3-116-KPI-DTO-3: GET /kpi/guards responds with FK-62-named guard_key (no guard_id)', async () => {
+    // Seed a guard row first.
+    const periodStart = new Date(Date.now() - 7 * 86_400_000).toISOString().split('.')[0] + 'Z';
+    const periodEnd = new Date(Date.now() - 1 * 86_400_000).toISOString().split('.')[0] + 'Z';
+    const seedResp = await fetch(`${baseUrl}/_test/seed-kpi-facts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        project_key: KPI_PROJECT,
+        guards: [
+          {
+            guard_id: 'ag3116_test_guard',
+            period_start: periodStart,
+            period_end: periodEnd,
+            invocation_count: 7,
+            violation_count: 1,
+          },
+        ],
+      }),
+    });
+    expect(seedResp.status).toBe(200);
+
+    const from = new Date(Date.now() - 14 * 86_400_000).toISOString();
+    const to = new Date(Date.now() + 60_000).toISOString();
+    const url = `${baseUrl}/v1/projects/${KPI_PROJECT}/kpi/guards?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+    const resp = await fetch(url);
+    expect(resp.status).toBe(200);
+    const body = await resp.json() as Record<string, unknown>;
+    expect(body['status']).toBe('OK');
+
+    const rows = body['rows'] as Array<Record<string, unknown>>;
+    const guardRow = rows.find((r) => r['guard_key'] === 'ag3116_test_guard');
+    expect(guardRow).toBeDefined();
+
+    // FK-62 wire key guard_key must be present; guard_id must not.
+    expect(guardRow).toHaveProperty('guard_key', 'ag3116_test_guard');
+    expect(guardRow).not.toHaveProperty('guard_id');
+    expect(guardRow).not.toHaveProperty('period_end');
+  }, TIMEOUT);
+
+  it('AG3-116-KPI-DTO-4: GET /kpi/pools responds with FK-62-named pool_key/call_count (no llm_role/token_* etc.)', async () => {
+    // Seed a FactPoolPeriod row using INTERNAL field names (llm_role, token_input_total, etc.).
+    // The DTO must rename llm_role→pool_key and drop period_end/token_input_total/
+    // token_output_total/avg_latency_ms from the wire.
+    const periodStart = new Date(Date.now() - 7 * 86_400_000).toISOString().split('.')[0] + 'Z';
+    const periodEnd = new Date(Date.now() - 1 * 86_400_000).toISOString().split('.')[0] + 'Z';
+    const seedResp = await fetch(`${baseUrl}/_test/seed-kpi-facts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        project_key: KPI_PROJECT,
+        pools: [
+          {
+            llm_role: 'ag3116_test_pool',
+            period_start: periodStart,
+            period_end: periodEnd,
+            call_count: 42,
+            token_input_total: 10000,
+            token_output_total: 5000,
+            avg_latency_ms: 350,
+          },
+        ],
+      }),
+    });
+    expect(seedResp.status).toBe(200);
+    const seedBody = await seedResp.json() as Record<string, unknown>;
+    expect(seedBody['seeded']).toBeGreaterThanOrEqual(1);
+
+    const from = new Date(Date.now() - 14 * 86_400_000).toISOString();
+    const to = new Date(Date.now() + 60_000).toISOString();
+    const url = `${baseUrl}/v1/projects/${KPI_PROJECT}/kpi/pools?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+    const resp = await fetch(url);
+    expect(resp.status).toBe(200);
+    const body = await resp.json() as Record<string, unknown>;
+    expect(body['status']).toBe('OK');
+
+    const rows = body['rows'] as Array<Record<string, unknown>>;
+    const poolRow = rows.find((r) => r['pool_key'] === 'ag3116_test_pool');
+    expect(poolRow).toBeDefined();
+
+    // FK-62 wire keys MUST be present (DTO applied at HTTP edge).
+    expect(poolRow).toHaveProperty('pool_key', 'ag3116_test_pool');
+    expect(poolRow).toHaveProperty('call_count', 42);
+    expect(poolRow).toHaveProperty('period_start');
+
+    // Internal record field names and FK-62-dropped fields MUST NOT appear on wire.
+    expect(poolRow).not.toHaveProperty('llm_role');
+    expect(poolRow).not.toHaveProperty('period_end');
+    expect(poolRow).not.toHaveProperty('token_input_total');
+    expect(poolRow).not.toHaveProperty('token_output_total');
+    expect(poolRow).not.toHaveProperty('avg_latency_ms');
+  }, TIMEOUT);
+
+  it('AG3-116-KPI-DTO-5: GET /kpi/pipeline responds with FK-62-named story_count_closed/qa_round_avg (no stories_completed/stories_escalated etc.)', async () => {
+    // Seed a FactPipelinePeriod row using INTERNAL field names (stories_completed,
+    // stories_escalated, avg_qa_rounds, avg_phase_implementation_ms, period_end).
+    // The DTO must rename stories_completed→story_count_closed, avg_qa_rounds→qa_round_avg
+    // and drop period_end/stories_escalated/avg_phase_implementation_ms.
+    const periodStart = new Date(Date.now() - 7 * 86_400_000).toISOString().split('.')[0] + 'Z';
+    const periodEnd = new Date(Date.now() - 1 * 86_400_000).toISOString().split('.')[0] + 'Z';
+    const seedResp = await fetch(`${baseUrl}/_test/seed-kpi-facts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        project_key: KPI_PROJECT,
+        pipeline: [
+          {
+            period_start: periodStart,
+            period_end: periodEnd,
+            stories_completed: 12,
+            stories_escalated: 2,
+            avg_qa_rounds: 3.5,
+            avg_phase_implementation_ms: 90000,
+          },
+        ],
+      }),
+    });
+    expect(seedResp.status).toBe(200);
+    const seedBody = await seedResp.json() as Record<string, unknown>;
+    expect(seedBody['seeded']).toBeGreaterThanOrEqual(1);
+
+    const from = new Date(Date.now() - 14 * 86_400_000).toISOString();
+    const to = new Date(Date.now() + 60_000).toISOString();
+    const url = `${baseUrl}/v1/projects/${KPI_PROJECT}/kpi/pipeline?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+    const resp = await fetch(url);
+    expect(resp.status).toBe(200);
+    const body = await resp.json() as Record<string, unknown>;
+    expect(body['status']).toBe('OK');
+
+    const rows = body['rows'] as Array<Record<string, unknown>>;
+    // Pipeline has one row per period; find the one matching our period_start prefix.
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    const pipelineRow = rows.find(
+      (r) => typeof r['period_start'] === 'string' && (r['period_start'] as string).startsWith(periodStart.slice(0, 10)),
+    );
+    expect(pipelineRow).toBeDefined();
+
+    // FK-62 wire keys MUST be present (DTO applied at HTTP edge).
+    expect(pipelineRow).toHaveProperty('story_count_closed', 12);
+    expect(pipelineRow).toHaveProperty('qa_round_avg', 3.5);
+    expect(pipelineRow).toHaveProperty('period_start');
+
+    // Internal record field names and FK-62-dropped fields MUST NOT appear on wire.
+    expect(pipelineRow).not.toHaveProperty('stories_completed');
+    expect(pipelineRow).not.toHaveProperty('stories_escalated');
+    expect(pipelineRow).not.toHaveProperty('avg_qa_rounds');
+    expect(pipelineRow).not.toHaveProperty('avg_phase_implementation_ms');
+    expect(pipelineRow).not.toHaveProperty('period_end');
+  }, TIMEOUT);
+
+  it('AG3-116-KPI-DTO-6: GET /kpi/corpus responds with FK-62-named new_incident_count/patterns_total_count/patterns_with_active_check (no incidents_recorded etc.)', async () => {
+    // Seed a FactCorpusPeriod row using INTERNAL field names (incidents_recorded,
+    // patterns_promoted, checks_approved, period_end).
+    // The DTO must rename incidents_recorded→new_incident_count,
+    // patterns_promoted→patterns_total_count, checks_approved→patterns_with_active_check
+    // and drop period_end.
+    const periodStart = new Date(Date.now() - 7 * 86_400_000).toISOString().split('.')[0] + 'Z';
+    const periodEnd = new Date(Date.now() - 1 * 86_400_000).toISOString().split('.')[0] + 'Z';
+    const seedResp = await fetch(`${baseUrl}/_test/seed-kpi-facts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        project_key: KPI_PROJECT,
+        corpus: [
+          {
+            period_start: periodStart,
+            period_end: periodEnd,
+            incidents_recorded: 5,
+            patterns_promoted: 8,
+            checks_approved: 6,
+          },
+        ],
+      }),
+    });
+    expect(seedResp.status).toBe(200);
+    const seedBody = await seedResp.json() as Record<string, unknown>;
+    expect(seedBody['seeded']).toBeGreaterThanOrEqual(1);
+
+    const from = new Date(Date.now() - 14 * 86_400_000).toISOString();
+    const to = new Date(Date.now() + 60_000).toISOString();
+    const url = `${baseUrl}/v1/projects/${KPI_PROJECT}/kpi/corpus?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+    const resp = await fetch(url);
+    expect(resp.status).toBe(200);
+    const body = await resp.json() as Record<string, unknown>;
+    expect(body['status']).toBe('OK');
+
+    const rows = body['rows'] as Array<Record<string, unknown>>;
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    const corpusRow = rows.find(
+      (r) => typeof r['period_start'] === 'string' && (r['period_start'] as string).startsWith(periodStart.slice(0, 10)),
+    );
+    expect(corpusRow).toBeDefined();
+
+    // FK-62 wire keys MUST be present (DTO applied at HTTP edge).
+    expect(corpusRow).toHaveProperty('new_incident_count', 5);
+    expect(corpusRow).toHaveProperty('patterns_total_count', 8);
+    expect(corpusRow).toHaveProperty('patterns_with_active_check', 6);
+    expect(corpusRow).toHaveProperty('period_start');
+
+    // Internal record field names and FK-62-dropped fields MUST NOT appear on wire.
+    expect(corpusRow).not.toHaveProperty('incidents_recorded');
+    expect(corpusRow).not.toHaveProperty('patterns_promoted');
+    expect(corpusRow).not.toHaveProperty('checks_approved');
+    expect(corpusRow).not.toHaveProperty('period_end');
+  }, TIMEOUT);
+});

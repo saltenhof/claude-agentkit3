@@ -247,71 +247,89 @@ export interface ProjectListResponse {
 
 // ── KPI wire types (AG3-084 / AG3-094 — real backend shapes) ─────────────────
 
-/** Wire shape for a FactStory row (fact_story table). */
+/**
+ * Wire shape for a FactStory row — FK-62 §62.2.1 named projection (AG3-116).
+ *
+ * Internal record renames applied here: story_mode→pipeline_mode,
+ * started_at→opened_at, completed_at→closed_at, qa_rounds→qa_round_count,
+ * adversarial_findings→adversarial_findings_count,
+ * are_gate_status→are_gate_passed.
+ * Dropped (no FK-62 equivalent): agentkit_version, agentkit_commit.
+ */
 export interface WireFactStory {
   project_key: string;
   story_id: string;
   story_type: string;
   story_size: string;
-  story_mode: string | null;
-  started_at: string;
-  completed_at: string | null;
-  qa_rounds: number;
+  pipeline_mode: string | null;
+  opened_at: string;
+  closed_at: string | null;
+  qa_round_count: number;
   compaction_count: number | null;
   llm_call_count: number | null;
-  adversarial_findings: number | null;
+  adversarial_findings_count: number | null;
   adversarial_tests_created: number | null;
   files_changed: number | null;
   feedback_converged: boolean | null;
   phase_setup_ms: number | null;
   phase_implementation_ms: number | null;
   phase_closure_ms: number | null;
-  are_gate_status: string | null;
-  agentkit_version: string;
-  agentkit_commit: string;
+  are_gate_passed: string | null;
 }
 
-/** Wire shape for a FactGuardPeriod row. */
+/**
+ * Wire shape for a FactGuardPeriod row — FK-62 §62.2.2 named projection (AG3-116).
+ *
+ * Renamed: guard_id→guard_key.  Dropped: period_end.
+ */
 export interface WireFactGuardPeriod {
   project_key: string;
-  guard_id: string;
+  guard_key: string;
   period_start: string;
-  period_end: string;
   invocation_count: number;
   violation_count: number;
 }
 
-/** Wire shape for a FactPoolPeriod row. */
+/**
+ * Wire shape for a FactPoolPeriod row — FK-62 §62.2.3 named projection (AG3-116).
+ *
+ * Renamed: llm_role→pool_key.  Dropped: period_end, token_input_total,
+ * token_output_total, avg_latency_ms.
+ */
 export interface WireFactPoolPeriod {
   project_key: string;
-  llm_role: string;
+  pool_key: string;
   period_start: string;
-  period_end: string;
   call_count: number;
-  token_input_total: number;
-  token_output_total: number;
-  avg_latency_ms: number | null;
 }
 
-/** Wire shape for a FactPipelinePeriod row. */
+/**
+ * Wire shape for a FactPipelinePeriod row — FK-62 §62.2.4 named projection (AG3-116).
+ *
+ * Renamed: stories_completed→story_count_closed, avg_qa_rounds→qa_round_avg.
+ * Dropped: period_end, stories_escalated, avg_phase_implementation_ms.
+ */
 export interface WireFactPipelinePeriod {
   project_key: string;
   period_start: string;
-  period_end: string;
-  stories_completed: number;
-  stories_escalated: number;
-  avg_qa_rounds: number | null;
-  avg_phase_implementation_ms: number | null;
+  story_count_closed: number;
+  qa_round_avg: number | null;
 }
 
-/** Wire shape for a FactCorpusPeriod row. */
+/**
+ * Wire shape for a FactCorpusPeriod row — FK-62 §62.2.5 named projection (AG3-116).
+ *
+ * Renamed: incidents_recorded→new_incident_count,
+ * patterns_promoted→patterns_total_count,
+ * checks_approved→patterns_with_active_check.
+ * Dropped: period_end.
+ */
 export interface WireFactCorpusPeriod {
   project_key: string;
   period_start: string;
-  period_end: string;
-  incidents_recorded: number;
-  patterns_promoted: number;
-  checks_approved: number;
+  new_incident_count: number;
+  patterns_total_count: number;
+  patterns_with_active_check: number;
 }
 
 /** Union of all KPI fact row wire shapes. */

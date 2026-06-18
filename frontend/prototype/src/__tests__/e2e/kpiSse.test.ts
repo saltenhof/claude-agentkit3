@@ -400,7 +400,8 @@ describe('AC10: Real KPI facts persistence + SSE event delivery (core AC10)', ()
     const storiesBody = await (await fetch(kpiUrl('stories'))).json() as Record<string, unknown>;
     expect(storiesBody['status']).toBe('OK');
     const storyRows = storiesBody['rows'] as Array<Record<string, unknown>>;
-    expect(storyRows.find((r) => r['story_id'] === 'KPIE2E-001')?.['qa_rounds']).toBe(5);
+    // AG3-116: wire key is qa_round_count (FK-62 rename from qa_rounds).
+    expect(storyRows.find((r) => r['story_id'] === 'KPIE2E-001')?.['qa_round_count']).toBe(5);
 
     // guards
     const guardsBody = await (await fetch(kpiUrl('guards'))).json() as Record<string, unknown>;
@@ -479,7 +480,8 @@ describe('AC10: Real KPI facts persistence + SSE event delivery (core AC10)', ()
     expect(afterRows.length).toBe(beforeCount + 1);
     const newRow = afterRows.find((r) => r['story_id'] === 'KPIE2E-002');
     expect(newRow).toBeDefined();
-    expect(newRow?.['qa_rounds']).toBe(9);
+    // AG3-116: wire key is qa_round_count (FK-62 rename from qa_rounds).
+    expect(newRow?.['qa_round_count']).toBe(9);
   }, 15_000);
 });
 

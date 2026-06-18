@@ -50,6 +50,7 @@ from agentkit.control_plane.models import (
     bc_unavailable_response,
 )
 from agentkit.kpi_analytics.design_system import get_design_system
+from agentkit.kpi_analytics.http.wire_dto import map_fact_row_to_wire
 
 if TYPE_CHECKING:
     from agentkit.kpi_analytics.fact_store.models import KpiQueryFilter, PeriodFilter
@@ -450,15 +451,15 @@ class KpiAnalyticsRoutes:
     ) -> dict[str, object]:
         """Serialize a ``DashboardView`` to the wire payload at the HTTP edge.
 
-        Typed fact rows are dumped to plain dicts here (the same edge pattern as
-        ``_handle_design_tokens``).  The comparison block is included only when a
-        comparison window was requested (AC5).
+        Typed fact rows are mapped through FK-62-named wire DTOs here (the same
+        edge pattern as ``_handle_design_tokens``).  The comparison block is
+        included only when a comparison window was requested (AC5).
         """
         payload: dict[str, object] = {
             "project_key": view.project_key,
             "dimension": url_dimension,
             "status": view.status,
-            "rows": [row.model_dump(mode="json") for row in view.rows],
+            "rows": [map_fact_row_to_wire(row) for row in view.rows],
         }
         if comparison_period is not None:
             payload["comparison_period"] = {
@@ -466,7 +467,7 @@ class KpiAnalyticsRoutes:
                 "to": comparison_period.end.isoformat(),
             }
             payload["comparison_rows"] = [
-                row.model_dump(mode="json") for row in view.comparison_rows
+                map_fact_row_to_wire(row) for row in view.comparison_rows
             ]
         return payload
 

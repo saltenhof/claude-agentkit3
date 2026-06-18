@@ -390,7 +390,8 @@ def test_guards_endpoint_with_data_returns_ok_status(tmp_path: object) -> None:
     assert status == 200
     assert body["status"] == "OK"
     assert len(body["rows"]) == 1
-    assert body["rows"][0]["guard_id"] == "review-guard"
+    # AG3-116: guard_id renamed to guard_key on the wire (FK-62 DTO).
+    assert body["rows"][0]["guard_key"] == "review-guard"
 
 
 def test_guards_outside_period_returns_empty(tmp_path: object) -> None:

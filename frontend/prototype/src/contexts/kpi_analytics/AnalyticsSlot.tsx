@@ -136,13 +136,13 @@ function agg(values: number[]): { avg: number; min: number; max: number; p90: nu
 }
 
 function deriveKpiStats(rows: WireFactStory[]): KpiStat[] {
-  const qaRounds = rows.map((r) => r.qa_rounds);
+  const qaRounds = rows.map((r) => r.qa_round_count);
   const llmCalls = rows.map((r) => r.llm_call_count ?? 0);
   const filesChanged = rows.map((r) => r.files_changed ?? 0);
   const setupMs = rows.map((r) => r.phase_setup_ms ?? 0);
   const implMs = rows.map((r) => r.phase_implementation_ms ?? 0);
   const closureMs = rows.map((r) => r.phase_closure_ms ?? 0);
-  const advFindings = rows.map((r) => r.adversarial_findings ?? 0);
+  const advFindings = rows.map((r) => r.adversarial_findings_count ?? 0);
   const compactions = rows.map((r) => r.compaction_count ?? 0);
 
   const stat = (key: string, label: string, vals: number[], unit?: string): KpiStat => ({
@@ -164,17 +164,17 @@ function deriveKpiStats(rows: WireFactStory[]): KpiStat[] {
   ];
 }
 
-/** Build daily timeseries from FactStory rows grouped by started_at date. */
+/** Build daily timeseries from FactStory rows grouped by opened_at date (FK-62 AG3-116). */
 function deriveKpiDailySeries(rows: WireFactStory[], days: number): KpiDailyPoint[] {
   const now = new Date();
   const points: KpiDailyPoint[] = [];
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(now.getTime() - i * 86400000);
     const iso = d.toISOString().slice(0, 10);
-    const dayRows = rows.filter((r) => r.started_at.slice(0, 10) === iso);
+    const dayRows = rows.filter((r) => r.opened_at.slice(0, 10) === iso);
     const values: Record<string, number> = {};
     if (dayRows.length > 0) {
-      values['qa_rounds'] = dayRows.reduce((s, r) => s + r.qa_rounds, 0) / dayRows.length;
+      values['qa_rounds'] = dayRows.reduce((s, r) => s + r.qa_round_count, 0) / dayRows.length;
       values['llm_calls'] = dayRows.reduce((s, r) => s + (r.llm_call_count ?? 0), 0) / dayRows.length;
       values['files_changed'] = dayRows.reduce((s, r) => s + (r.files_changed ?? 0), 0) / dayRows.length;
       values['phase_setup_ms'] = dayRows.reduce((s, r) => s + (r.phase_setup_ms ?? 0), 0) / dayRows.length;
@@ -730,9 +730,9 @@ function CorpusFunnel({ rows }: { rows: WireFactCorpusPeriod[] }): ReactElement 
       </section>
     );
   }
-  const totalIncidents = rows.reduce((s, r) => s + r.incidents_recorded, 0);
-  const totalPromoted = rows.reduce((s, r) => s + r.patterns_promoted, 0);
-  const totalApproved = rows.reduce((s, r) => s + r.checks_approved, 0);
+  const totalIncidents = rows.reduce((s, r) => s + r.new_incident_count, 0);
+  const totalPromoted = rows.reduce((s, r) => s + r.patterns_total_count, 0);
+  const totalApproved = rows.reduce((s, r) => s + r.patterns_with_active_check, 0);
   return (
     <section className="analytics-funnel" data-testid="corpus-funnel">
       <h3 className="analytics-funnel__title">Failure Corpus Funnel</h3>
@@ -779,10 +779,10 @@ function GuardsDimensionPanel({ rows }: { rows: WireFactGuardPeriod[] }): ReactE
           {rows.map((r) => (
             <li
               className="analytics-dimension__row"
-              key={`${r.guard_id}-${r.period_start}`}
-              data-testid={`guards-row-${r.guard_id}`}
+              key={`${r.guard_key}-${r.period_start}`}
+              data-testid={`guards-row-${r.guard_key}`}
             >
-              <span className="analytics-dimension__row-label">{r.guard_id}</span>
+              <span className="analytics-dimension__row-label">{r.guard_key}</span>
               <span className="analytics-dimension__row-metric">
                 {formatNumber(r.invocation_count)} Invocations
               </span>
@@ -810,14 +810,11 @@ function PoolsDimensionPanel({ rows }: { rows: WireFactPoolPeriod[] }): ReactEle
           {rows.map((r) => (
             <li
               className="analytics-dimension__row"
-              key={`${r.llm_role}-${r.period_start}`}
-              data-testid={`pools-row-${r.llm_role}`}
+              key={`${r.pool_key}-${r.period_start}`}
+              data-testid={`pools-row-${r.pool_key}`}
             >
-              <span className="analytics-dimension__row-label">{r.llm_role}</span>
+              <span className="analytics-dimension__row-label">{r.pool_key}</span>
               <span className="analytics-dimension__row-metric">{formatNumber(r.call_count)} Calls</span>
-              <span className="analytics-dimension__row-metric">
-                {formatNumber(r.token_input_total + r.token_output_total)} Tokens
-              </span>
             </li>
           ))}
         </ul>
@@ -846,10 +843,7 @@ function PipelineDimensionPanel({ rows }: { rows: WireFactPipelinePeriod[] }): R
                 {r.period_start.slice(0, 10)}
               </span>
               <span className="analytics-dimension__row-metric">
-                {formatNumber(r.stories_completed)} abgeschlossen
-              </span>
-              <span className="analytics-dimension__row-metric">
-                {formatNumber(r.stories_escalated)} eskaliert
+                {formatNumber(r.story_count_closed)} abgeschlossen
               </span>
             </li>
           ))}

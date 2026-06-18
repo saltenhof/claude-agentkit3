@@ -22,8 +22,8 @@ from agentkit.kpi_analytics.fact_store.models import (
 )
 
 # Type alias for the typed union of all five fact row types.
-# Serialization to plain dicts happens only at the HTTP edge
-# (kpi_analytics/http/routes.py via row.model_dump(mode="json")).
+# Serialization to plain dicts happens only at the HTTP edge via
+# map_fact_row_to_wire (kpi_analytics/http/wire_dto.py, AG3-116).
 DashboardFactRow = FactStory | FactGuardPeriod | FactPoolPeriod | FactPipelinePeriod | FactCorpusPeriod
 
 

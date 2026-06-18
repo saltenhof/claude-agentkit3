@@ -132,14 +132,14 @@ function kpiStoriesTransport(rows: unknown[]): (url: string) => Promise<Response
   };
 }
 
+// FK-62-named wire DTO shape (AG3-116): internal record fields are renamed at the HTTP edge.
 const FAKE_STORY_ROW = {
   project_key: 'AG3', story_id: 'AG3-001', story_type: 'implementation',
-  story_size: 'M', story_mode: null, started_at: new Date().toISOString(),
-  completed_at: null, qa_rounds: 3, compaction_count: 1, llm_call_count: 45,
-  adversarial_findings: 2, adversarial_tests_created: 5, files_changed: 8,
+  story_size: 'M', pipeline_mode: null, opened_at: new Date().toISOString(),
+  closed_at: null, qa_round_count: 3, compaction_count: 1, llm_call_count: 45,
+  adversarial_findings_count: 2, adversarial_tests_created: 5, files_changed: 8,
   feedback_converged: true, phase_setup_ms: 1200, phase_implementation_ms: 45000,
-  phase_closure_ms: 3000, are_gate_status: 'PASS',
-  agentkit_version: '3.0.0', agentkit_commit: 'abc123',
+  phase_closure_ms: 3000, are_gate_passed: 'PASS',
 };
 
 describe('AC1/AC2: AnalyticsSlot is the productive analytics view (AG3-094)', () => {
@@ -168,7 +168,7 @@ describe('AC1/AC2: AnalyticsSlot is the productive analytics view (AG3-094)', ()
 
   it('AC2: selectKpiDailySeries / selectProjectKpiStats are NOT productive source', async () => {
     // The view calls BffClient.getKpiStories; the card value reflects the BACKEND row.
-    const rowWith7Rounds = { ...FAKE_STORY_ROW, qa_rounds: 7 };
+    const rowWith7Rounds = { ...FAKE_STORY_ROW, qa_round_count: 7 };
     const client = new BffClient('', kpiStoriesTransport([rowWith7Rounds]));
     const { findByTestId } = render(
       <AnalyticsSlot projectKey="AG3" client={client} sseEnabled={false} />,
@@ -333,9 +333,10 @@ describe('AC1/AC2: AnalyticsSlot is the productive analytics view (AG3-094)', ()
   });
 
   it('E1/AC7: guard filter renders the guards dimension with REAL fetched rows', async () => {
+    // FK-62-named wire DTO shape: guard_id→guard_key, period_end dropped (AG3-116).
     const guardRow = {
-      project_key: 'AG3', guard_id: 'no_competing_mode', period_start: '2026-06-01T00:00:00Z',
-      period_end: '2026-06-15T00:00:00Z', invocation_count: 12, violation_count: 3,
+      project_key: 'AG3', guard_key: 'no_competing_mode', period_start: '2026-06-01T00:00:00Z',
+      invocation_count: 12, violation_count: 3,
     };
     const transport = async (url: string): Promise<Response> => {
       const dim = url.match(/\/kpi\/(stories|guards|pools|pipeline|corpus)/)?.[1] ?? 'stories';
@@ -356,10 +357,10 @@ describe('AC1/AC2: AnalyticsSlot is the productive analytics view (AG3-094)', ()
   });
 
   it('E1/AC7: pool filter renders the pools dimension with REAL fetched rows', async () => {
+    // FK-62-named wire DTO shape: llm_role→pool_key, period_end/tokens/latency dropped (AG3-116).
     const poolRow = {
-      project_key: 'AG3', llm_role: 'worker', period_start: '2026-06-01T00:00:00Z',
-      period_end: '2026-06-15T00:00:00Z', call_count: 99, token_input_total: 1000,
-      token_output_total: 500, avg_latency_ms: 1200,
+      project_key: 'AG3', pool_key: 'worker', period_start: '2026-06-01T00:00:00Z',
+      call_count: 99,
     };
     const transport = async (url: string): Promise<Response> => {
       const dim = url.match(/\/kpi\/(stories|guards|pools|pipeline|corpus)/)?.[1] ?? 'stories';
@@ -378,9 +379,10 @@ describe('AC1/AC2: AnalyticsSlot is the productive analytics view (AG3-094)', ()
   });
 
   it('E1/AC7: story_type filter renders the pipeline dimension with REAL fetched rows', async () => {
+    // FK-62-named wire DTO shape: stories_completed→story_count_closed, period_end/escalated/impl_ms dropped (AG3-116).
     const pipelineRow = {
-      project_key: 'AG3', period_start: '2026-06-10T00:00:00Z', period_end: '2026-06-11T00:00:00Z',
-      stories_completed: 7, stories_escalated: 1, avg_qa_rounds: 2.5, avg_phase_implementation_ms: 40000,
+      project_key: 'AG3', period_start: '2026-06-10T00:00:00Z',
+      story_count_closed: 7, qa_round_avg: 2.5,
     };
     const transport = async (url: string): Promise<Response> => {
       const dim = url.match(/\/kpi\/(stories|guards|pools|pipeline|corpus)/)?.[1] ?? 'stories';
