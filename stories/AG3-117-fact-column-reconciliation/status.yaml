@@ -1,9 +1,10 @@
 story_id: AG3-117
 title: "Fact-Column-Reconciliation nach FK-62 §62.2"
 type: implementation
-status: draft
-phase: review_pending
+status: completed
+phase: closure
 created: "2026-06-18"
+completed: "2026-06-18"
 size: L
 # Split aus AG3-083 (superseded) gemaess feasibility-analysis.md (Codex job-c53f109b):
 # zweite Story der Sequenz. Bringt die fuenf fact_*-Tabellen auf den FK-62-Sollstand
@@ -13,6 +14,21 @@ size: L
 # Versionsdatei v_3_6_fact_reconciliation.sql (Drop+Rebuild, recompute-disposabel,
 # Head -> 3.6); keine In-place-Editierung von v_3_4 (run() skippt applied versions).
 # Frontend NICHT angefasst — das AG3-116-Wire-DTO schirmt den Browser ab.
+# QA (Codex sole gate): R1 REJECT (PG existing-DB reconcile fehlte: postgres_schema.sql
+# CREATE-IF-NOT-EXISTS reconciliierte bestehende fact_*-Tabellen nie + closed_at-Index-
+# Crash; hohler Identity-Test; analytics_source old-key fallback; deutsche Kommentare) ->
+# R2 REJECT (R1 ueber-entfernte den fallback: analytics las nur pool_key/guard_key,
+# Producer emittieren role/guard -> Rollups still leer; real-payload-Tests) -> R3 REJECT
+# (_pool_of las nur role, llm_call->pool fehlte; review_*->reviewer_role still gedroppt;
+# erschoepfendes EventType->Payload-Key-Mapping) -> r4 APPROVE. Reconciliation als column-
+# set-conditional DROP CASCADE (DO-Block, auf die 5 fact_*-Tabellen beschraenkt) in
+# postgres_store._ensure_schema (laeuft pro Connection -> recompute-disposable Rollups
+# nicht unbedingt wipen). Identity-Contract-Test ueber alle 5 Wahrheitsorte; live-Docker-
+# PG-Reconcile-Test. FINAL: Jenkins #517 SUCCESS (echter Postgres), Sonar-Aufraeumrunde
+# S3776 (postgres_store: _create_table_body aus _create_table_columns extrahiert) ->
+# Jenkins #527 SUCCESS, Sonar gate OK (0 new-code issues, new-coverage 86.3%).
+# FOLLOW-UP (Codex r4 WARNING, Backlog/Task #85): telemetry_contract._roles() liest
+# payload["role"] statt reviewer_role -> eigene kleine Story nach dem 083-Split.
 depends_on:
   - AG3-038
   - AG3-081
