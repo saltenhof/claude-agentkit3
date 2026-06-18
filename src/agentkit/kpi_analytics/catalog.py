@@ -233,6 +233,19 @@ _D8 = KpiDomain.ARE_INTEGRATION
 _D9 = KpiDomain.FAILURE_CORPUS
 _D10 = KpiDomain.PROCESS_EFFICIENCY
 
+# ---------------------------------------------------------------------------
+# Shared string constants (Sonar S1192: no duplicate literals)
+# ARCH-55: English identifiers; FK-60/FK-61 section refs preserved in value.
+# ---------------------------------------------------------------------------
+
+_HOOK_STORY_METRICS_PROCESSING_TIME_MIN = "story_metrics.processing_time_min"
+"""Canonical hook_or_event identifier for processing-time fields (FK-61 §61.2/§61.11)."""
+
+_NOTE_CLOSURE_VIA_METRICS_COLLECTOR_D5 = (
+    "Closure via MetricsCollector (FK-61 §61.6.1, Class 1)"
+)
+"""Collection-point note for Domain 5 KPIs sourced from MetricsCollector at story closure."""
+
 
 def _register_all(catalog: KpiCatalog) -> None:
     """Register all 40 AKTIV-KPIs (FK-60 §60.4) into ``catalog``.
@@ -240,16 +253,28 @@ def _register_all(catalog: KpiCatalog) -> None:
     Domain balance per FK-60 §60.4.12: D1=7, D2=5, D3=7, D4=1, D5=7,
     D6=1, D7=2, D8=2, D9=2, D10=6 → total 40 AKTIV.
 
-    Collection-point encoding (FK-61 §61.2–§61.11):
-    - hook_or_event: source event/payload/scratchpad identifier
-    - data_available: True=[R] (existing), False=[N] (new/enriched)
-    - notes: process point / producer note
+    Delegates to one private helper per FK-60 domain so each helper stays
+    within the Sonar LOC limit (S138/PY_FUNCTION_MAX_LOC_500).
     """
+    _register_story_sizing(catalog)
+    _register_llm_selection(catalog)
+    _register_governance(catalog)
+    _register_doc_fidelity(catalog)
+    _register_qa_effectiveness(catalog)
+    _register_review_quality(catalog)
+    _register_vectordb(catalog)
+    _register_are(catalog)
+    _register_failure_corpus(catalog)
+    _register_process_efficiency(catalog)
 
-    # -----------------------------------------------------------------------
-    # Domain 1 — Story Sizing (7 AKTIV, FK-60 §60.4.2)
-    # -----------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Per-domain registration helpers (FK-60 §60.4 domains 1–10)
+# ---------------------------------------------------------------------------
+
+
+def _register_story_sizing(catalog: KpiCatalog) -> None:
+    """Register Domain 1 — Story Sizing (7 AKTIV, FK-60 §60.4.2)."""
     catalog.register(_kpi(
         kpi_id="compaction_count_per_story",
         name="Compaction Count per Story",
@@ -290,7 +315,7 @@ def _register_all(catalog: KpiCatalog) -> None:
         ),
         granularity=_S,
         collection_point=_cp(
-            "story_metrics.processing_time_min",
+            _HOOK_STORY_METRICS_PROCESSING_TIME_MIN,
             True,
             1,
             "Closure: MetricsCollector reads story_contexts (FK-61 §61.2.1, Class 1)",
@@ -363,10 +388,9 @@ def _register_all(catalog: KpiCatalog) -> None:
         domain=_D1,
     ))
 
-    # -----------------------------------------------------------------------
-    # Domain 2 — LLM Selection (5 AKTIV, FK-60 §60.4.3)
-    # -----------------------------------------------------------------------
 
+def _register_llm_selection(catalog: KpiCatalog) -> None:
+    """Register Domain 2 — LLM Selection (5 AKTIV, FK-60 §60.4.3)."""
     catalog.register(_kpi(
         kpi_id="llm_response_time_p50",
         name="LLM Response Time P50",
@@ -447,10 +471,9 @@ def _register_all(catalog: KpiCatalog) -> None:
         domain=_D2,
     ))
 
-    # -----------------------------------------------------------------------
-    # Domain 3 — Governance (7 AKTIV, FK-60 §60.4.4)
-    # -----------------------------------------------------------------------
 
+def _register_governance(catalog: KpiCatalog) -> None:
+    """Register Domain 3 — Governance (7 AKTIV, FK-60 §60.4.4)."""
     catalog.register(_kpi(
         kpi_id="guard_violation_count_by_type",
         name="Guard Violation Count by Type",
@@ -579,10 +602,9 @@ def _register_all(catalog: KpiCatalog) -> None:
         domain=_D3,
     ))
 
-    # -----------------------------------------------------------------------
-    # Domain 4 — Doc Fidelity (1 AKTIV, FK-60 §60.4.5)
-    # -----------------------------------------------------------------------
 
+def _register_doc_fidelity(catalog: KpiCatalog) -> None:
+    """Register Domain 4 — Doc Fidelity (1 AKTIV, FK-60 §60.4.5)."""
     catalog.register(_kpi(
         kpi_id="doc_fidelity_conflict_rate_by_level",
         name="Doc Fidelity Conflict Rate by Level",
@@ -602,10 +624,9 @@ def _register_all(catalog: KpiCatalog) -> None:
         domain=_D4,
     ))
 
-    # -----------------------------------------------------------------------
-    # Domain 5 — QA Effectiveness (7 AKTIV, FK-60 §60.4.6)
-    # -----------------------------------------------------------------------
 
+def _register_qa_effectiveness(catalog: KpiCatalog) -> None:
+    """Register Domain 5 — QA Effectiveness (7 AKTIV, FK-60 §60.4.6)."""
     catalog.register(_kpi(
         kpi_id="first_pass_success_rate",
         name="First Pass Success Rate",
@@ -665,7 +686,7 @@ def _register_all(catalog: KpiCatalog) -> None:
             "story_metrics.adversarial_findings / story_metrics.adversarial_tests_created",
             True,
             1,
-            "Closure via MetricsCollector (FK-61 §61.6.1, Class 1)",
+            _NOTE_CLOSURE_VIA_METRICS_COLLECTOR_D5,
         ),
         domain=_D5,
     ))
@@ -680,7 +701,7 @@ def _register_all(catalog: KpiCatalog) -> None:
             "story_metrics.adversarial_findings",
             True,
             1,
-            "Closure via MetricsCollector (FK-61 §61.6.1, Class 1)",
+            _NOTE_CLOSURE_VIA_METRICS_COLLECTOR_D5,
         ),
         domain=_D5,
     ))
@@ -695,7 +716,7 @@ def _register_all(catalog: KpiCatalog) -> None:
             "story_metrics.adversarial_tests_created",
             True,
             1,
-            "Closure via MetricsCollector (FK-61 §61.6.1, Class 1)",
+            _NOTE_CLOSURE_VIA_METRICS_COLLECTOR_D5,
         ),
         domain=_D5,
     ))
@@ -720,10 +741,9 @@ def _register_all(catalog: KpiCatalog) -> None:
         domain=_D5,
     ))
 
-    # -----------------------------------------------------------------------
-    # Domain 6 — Review Quality (1 AKTIV, FK-60 §60.4.7)
-    # -----------------------------------------------------------------------
 
+def _register_review_quality(catalog: KpiCatalog) -> None:
+    """Register Domain 6 — Review Quality (1 AKTIV, FK-60 §60.4.7)."""
     catalog.register(_kpi(
         kpi_id="review_template_effectiveness",
         name="Review Template Effectiveness",
@@ -742,10 +762,9 @@ def _register_all(catalog: KpiCatalog) -> None:
         domain=_D6,
     ))
 
-    # -----------------------------------------------------------------------
-    # Domain 7 — VectorDB (2 AKTIV, FK-60 §60.4.8)
-    # -----------------------------------------------------------------------
 
+def _register_vectordb(catalog: KpiCatalog) -> None:
+    """Register Domain 7 — VectorDB (2 AKTIV, FK-60 §60.4.8)."""
     catalog.register(_kpi(
         kpi_id="vectordb_similarity_threshold_calibration",
         name="VectorDB Similarity Threshold Calibration",
@@ -779,10 +798,9 @@ def _register_all(catalog: KpiCatalog) -> None:
         domain=_D7,
     ))
 
-    # -----------------------------------------------------------------------
-    # Domain 8 — ARE Integration (2 AKTIV, FK-60 §60.4.9)
-    # -----------------------------------------------------------------------
 
+def _register_are(catalog: KpiCatalog) -> None:
+    """Register Domain 8 — ARE Integration (2 AKTIV, FK-60 §60.4.9)."""
     catalog.register(_kpi(
         kpi_id="are_gate_result",
         name="ARE Gate Result",
@@ -814,10 +832,9 @@ def _register_all(catalog: KpiCatalog) -> None:
         domain=_D8,
     ))
 
-    # -----------------------------------------------------------------------
-    # Domain 9 — Failure Corpus (2 AKTIV, FK-60 §60.4.10)
-    # -----------------------------------------------------------------------
 
+def _register_failure_corpus(catalog: KpiCatalog) -> None:
+    """Register Domain 9 — Failure Corpus (2 AKTIV, FK-60 §60.4.10)."""
     catalog.register(_kpi(
         kpi_id="incident_volume_per_month",
         name="Incident Volume per Month",
@@ -851,10 +868,9 @@ def _register_all(catalog: KpiCatalog) -> None:
         domain=_D9,
     ))
 
-    # -----------------------------------------------------------------------
-    # Domain 10 — Process Efficiency (6 AKTIV, FK-60 §60.4.11)
-    # -----------------------------------------------------------------------
 
+def _register_process_efficiency(catalog: KpiCatalog) -> None:
+    """Register Domain 10 — Process Efficiency (6 AKTIV, FK-60 §60.4.11)."""
     catalog.register(_kpi(
         kpi_id="phase_time_distribution",
         name="Phase Time Distribution",
@@ -883,7 +899,7 @@ def _register_all(catalog: KpiCatalog) -> None:
         ),
         granularity=_P,
         collection_point=_cp(
-            "story_metrics.processing_time_min",
+            _HOOK_STORY_METRICS_PROCESSING_TIME_MIN,
             False,
             4,
             "No new event; RefreshWorker computes variance in Python"
@@ -899,7 +915,7 @@ def _register_all(catalog: KpiCatalog) -> None:
         formula_repr="ROLLING_AVG(story_metrics.processing_time_min) per week",
         granularity=_P,
         collection_point=_cp(
-            "story_metrics.processing_time_min",
+            _HOOK_STORY_METRICS_PROCESSING_TIME_MIN,
             True,
             1,
             "RefreshWorker computes rolling average (FK-61 §61.11.1, Class 1)",

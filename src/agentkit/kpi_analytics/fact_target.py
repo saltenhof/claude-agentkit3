@@ -78,137 +78,143 @@ _PP = FactTable.FACT_PIPELINE_PERIOD
 _C = FactTable.FACT_CORPUS_PERIOD
 
 
-# ---------------------------------------------------------------------------
-# Canonical KPI → fact-column mapping (FK-61 §61.2–§61.11, FK-62 §62.2)
-#
-# Each value is a tuple of one or more FactTarget entries.  Most KPIs have
-# exactly one entry (single fact table).  Multi-table KPIs have one entry
-# per table.
-#
-# NOTE: ``prompt_integrity_violation_by_stage`` targets FK-62 column names
-# WITHOUT the ``_count`` suffix (FK-62 §62.2.2 is authoritative).  The
-# FK-61 §61.4.2 names with ``_count`` suffix are a documentation drift;
-# this is the sole known FK-61↔FK-62 divergence (story.md §2.1.2).
-# ---------------------------------------------------------------------------
+def _build_kpi_fact_targets() -> dict[str, tuple[FactTarget, ...]]:
+    """Build and return the canonical KPI → fact-column mapping.
 
-KPI_FACT_TARGETS: dict[str, tuple[FactTarget, ...]] = {
-    # -----------------------------------------------------------------------
-    # Domain 1 — Story Sizing (7 AKTIV)
-    # -----------------------------------------------------------------------
-    "compaction_count_per_story": (_t(_S, "compaction_count"),),
-    "qa_round_count": (_t(_S, "qa_round_count"),),
-    "processing_time_by_type_and_size": (_t(_S, "processing_time_ms", "story_type", "story_size"),),
-    "feedback_loop_convergence": (_t(_S, "feedback_converged"),),
-    # FK-61 §61.2.2: raw source fact_story.pipeline_mode; aggregated into
-    # fact_pipeline_period.execution_count and fact_pipeline_period.exploration_count.
-    # Both fact tables are represented as separate FactTarget entries.
-    "execution_vs_exploration_ratio": (
-        _t(_S, "pipeline_mode"),
-        _t(_PP, "execution_count", "exploration_count"),
-    ),
-    "blocked_ac_distribution": (_t(_S, "blocked_ac_count", "blocked_ac_detail_json"),),
-    "policy_required_stage_miss_rate": (
-        _t(_PP, "stage_miss_count", "stage_miss_detail_json"),
-    ),
-    # -----------------------------------------------------------------------
-    # Domain 2 — LLM Selection (5 AKTIV)
-    # -----------------------------------------------------------------------
-    "llm_response_time_p50": (_t(_P, "response_time_p50_ms"),),
-    "llm_verdict_adoption_rate": (_t(_P, "verdict_adopted_count", "verdict_total_count"),),
-    "llm_finding_precision": (
-        _t(_P, "finding_true_positive_count", "finding_false_positive_count"),
-    ),
-    "llm_call_count_per_story": (_t(_S, "llm_call_count"),),
-    "quorum_trigger_rate": (_t(_P, "quorum_triggered_count"),),
-    # -----------------------------------------------------------------------
-    # Domain 3 — Governance (7 AKTIV)
-    # -----------------------------------------------------------------------
-    "guard_violation_count_by_type": (_t(_G, "violation_count"),),
-    "guard_violation_rate_by_guard": (_t(_G, "invocation_count", "violation_rate"),),
-    # FK-62 §62.2.2 authoritative (no _count suffix); FK-61 §61.4.2 drift documented in story.md §2.1.2
-    "prompt_integrity_violation_by_stage": (
-        _t(
-            _G,
-            "violation_stage_escape",
-            "violation_stage_schema",
-            "violation_stage_template",
+    Called exactly once at module load to populate ``KPI_FACT_TARGETS``.
+    Wrapping the large literal in a function keeps module-level LOC within
+    the Sonar PY_MODULE_TOP_LEVEL_MAX_LOC_100 limit.
+
+    Mapping rationale (FK-61 §61.2–§61.11, FK-62 §62.2):
+    - Each value is a tuple of one or more FactTarget entries.
+    - Most KPIs have exactly one entry (single fact table).
+    - Multi-table KPIs have one entry per table.
+    - ``prompt_integrity_violation_by_stage`` targets FK-62 column names
+      WITHOUT the ``_count`` suffix (FK-62 §62.2.2 is authoritative).
+      FK-61 §61.4.2 names with ``_count`` suffix are a documentation drift;
+      this is the sole known FK-61↔FK-62 divergence (story.md §2.1.2).
+    """
+    return {
+        # -----------------------------------------------------------------------
+        # Domain 1 — Story Sizing (7 AKTIV)
+        # -----------------------------------------------------------------------
+        "compaction_count_per_story": (_t(_S, "compaction_count"),),
+        "qa_round_count": (_t(_S, "qa_round_count"),),
+        "processing_time_by_type_and_size": (_t(_S, "processing_time_ms", "story_type", "story_size"),),
+        "feedback_loop_convergence": (_t(_S, "feedback_converged"),),
+        # FK-61 §61.2.2: raw source fact_story.pipeline_mode; aggregated into
+        # fact_pipeline_period.execution_count and fact_pipeline_period.exploration_count.
+        # Both fact tables are represented as separate FactTarget entries.
+        "execution_vs_exploration_ratio": (
+            _t(_S, "pipeline_mode"),
+            _t(_PP, "execution_count", "exploration_count"),
         ),
-    ),
-    "governance_escape_detection_count": (_t(_G, "escape_detection_count"),),
-    "orchestrator_governance_violation_count": (_t(_G, "violation_count"),),
-    "impact_violation_rate": (_t(_PP, "impact_violation_count", "impact_check_count"),),
-    "integrity_gate_block_rate": (
-        _t(_PP, "integrity_gate_block_count", "integrity_gate_total_count"),
-    ),
-    # -----------------------------------------------------------------------
-    # Domain 4 — Doc Fidelity (1 AKTIV)
-    # -----------------------------------------------------------------------
-    "doc_fidelity_conflict_rate_by_level": (
-        _t(_PP, "doc_fidelity_conflict_by_level_json"),
-    ),
-    # -----------------------------------------------------------------------
-    # Domain 5 — QA Effectiveness (7 AKTIV)
-    # -----------------------------------------------------------------------
-    "first_pass_success_rate": (_t(_PP, "first_pass_count", "story_count"),),
-    "finding_survival_rate": (
-        _t(_PP, "finding_survival_count", "finding_total_count"),
-    ),
-    "check_effectiveness_by_id": (_t(_PP, "effective_check_ids_json"),),
-    "adversarial_hit_rate": (_t(_S, "adversarial_hit_rate"),),
-    "adversarial_findings_count": (_t(_S, "adversarial_findings_count"),),
-    "adversarial_tests_created_count": (_t(_S, "adversarial_tests_created"),),
-    "finding_resolution_quality": (
-        _t(
-            _S,
-            "findings_fully_resolved",
-            "findings_partially_resolved",
-            "findings_not_resolved",
+        "blocked_ac_distribution": (_t(_S, "blocked_ac_count", "blocked_ac_detail_json"),),
+        "policy_required_stage_miss_rate": (
+            _t(_PP, "stage_miss_count", "stage_miss_detail_json"),
         ),
-    ),
-    # -----------------------------------------------------------------------
-    # Domain 6 — Review Quality (1 AKTIV)
-    # -----------------------------------------------------------------------
-    "review_template_effectiveness": (_t(_P, "template_finding_rate_json"),),
-    # -----------------------------------------------------------------------
-    # Domain 7 — VectorDB (2 AKTIV)
-    # -----------------------------------------------------------------------
-    "vectordb_similarity_threshold_calibration": (
-        _t(_PP, "vectordb_total_hits", "vectordb_above_threshold", "vectordb_classified_conflict"),
-    ),
-    "vectordb_duplicate_detection_rate": (_t(_PP, "vectordb_duplicate_detected"),),
-    # -----------------------------------------------------------------------
-    # Domain 8 — ARE Integration (2 AKTIV)
-    # -----------------------------------------------------------------------
-    "are_gate_result": (_t(_S, "are_gate_passed"),),
-    "are_evidence_coverage_rate": (
-        _t(_S, "are_total_requirements", "are_covered_requirements"),
-    ),
-    # -----------------------------------------------------------------------
-    # Domain 9 — Failure Corpus (2 AKTIV)
-    # -----------------------------------------------------------------------
-    "incident_volume_per_month": (_t(_C, "new_incident_count"),),
-    "pattern_to_check_conversion_rate": (
-        _t(_C, "patterns_with_active_check", "patterns_total_count"),
-    ),
-    # -----------------------------------------------------------------------
-    # Domain 10 — Process Efficiency (6 AKTIV)
-    # -----------------------------------------------------------------------
-    "phase_time_distribution": (
-        _t(
-            _S,
-            "phase_setup_ms",
-            "phase_exploration_ms",
-            "phase_implementation_ms",
-            "phase_verify_ms",
-            "phase_closure_ms",
+        # -----------------------------------------------------------------------
+        # Domain 2 — LLM Selection (5 AKTIV)
+        # -----------------------------------------------------------------------
+        "llm_response_time_p50": (_t(_P, "response_time_p50_ms"),),
+        "llm_verdict_adoption_rate": (_t(_P, "verdict_adopted_count", "verdict_total_count"),),
+        "llm_finding_precision": (
+            _t(_P, "finding_true_positive_count", "finding_false_positive_count"),
         ),
-    ),
-    "story_predictability": (_t(_PP, "processing_time_variance_ms2"),),
-    "processing_time_trend": (_t(_PP, "processing_time_avg_ms"),),
-    "qa_round_trend": (_t(_PP, "qa_round_avg"),),
-    "files_changed_per_story": (_t(_S, "files_changed"),),
-    "increment_count_per_story": (_t(_S, "increment_count"),),
-}
+        "llm_call_count_per_story": (_t(_S, "llm_call_count"),),
+        "quorum_trigger_rate": (_t(_P, "quorum_triggered_count"),),
+        # -----------------------------------------------------------------------
+        # Domain 3 — Governance (7 AKTIV)
+        # -----------------------------------------------------------------------
+        "guard_violation_count_by_type": (_t(_G, "violation_count"),),
+        "guard_violation_rate_by_guard": (_t(_G, "invocation_count", "violation_rate"),),
+        # FK-62 §62.2.2 authoritative (no _count suffix); FK-61 §61.4.2 drift documented in story.md §2.1.2
+        "prompt_integrity_violation_by_stage": (
+            _t(
+                _G,
+                "violation_stage_escape",
+                "violation_stage_schema",
+                "violation_stage_template",
+            ),
+        ),
+        "governance_escape_detection_count": (_t(_G, "escape_detection_count"),),
+        "orchestrator_governance_violation_count": (_t(_G, "violation_count"),),
+        "impact_violation_rate": (_t(_PP, "impact_violation_count", "impact_check_count"),),
+        "integrity_gate_block_rate": (
+            _t(_PP, "integrity_gate_block_count", "integrity_gate_total_count"),
+        ),
+        # -----------------------------------------------------------------------
+        # Domain 4 — Doc Fidelity (1 AKTIV)
+        # -----------------------------------------------------------------------
+        "doc_fidelity_conflict_rate_by_level": (
+            _t(_PP, "doc_fidelity_conflict_by_level_json"),
+        ),
+        # -----------------------------------------------------------------------
+        # Domain 5 — QA Effectiveness (7 AKTIV)
+        # -----------------------------------------------------------------------
+        "first_pass_success_rate": (_t(_PP, "first_pass_count", "story_count"),),
+        "finding_survival_rate": (
+            _t(_PP, "finding_survival_count", "finding_total_count"),
+        ),
+        "check_effectiveness_by_id": (_t(_PP, "effective_check_ids_json"),),
+        "adversarial_hit_rate": (_t(_S, "adversarial_hit_rate"),),
+        "adversarial_findings_count": (_t(_S, "adversarial_findings_count"),),
+        "adversarial_tests_created_count": (_t(_S, "adversarial_tests_created"),),
+        "finding_resolution_quality": (
+            _t(
+                _S,
+                "findings_fully_resolved",
+                "findings_partially_resolved",
+                "findings_not_resolved",
+            ),
+        ),
+        # -----------------------------------------------------------------------
+        # Domain 6 — Review Quality (1 AKTIV)
+        # -----------------------------------------------------------------------
+        "review_template_effectiveness": (_t(_P, "template_finding_rate_json"),),
+        # -----------------------------------------------------------------------
+        # Domain 7 — VectorDB (2 AKTIV)
+        # -----------------------------------------------------------------------
+        "vectordb_similarity_threshold_calibration": (
+            _t(_PP, "vectordb_total_hits", "vectordb_above_threshold", "vectordb_classified_conflict"),
+        ),
+        "vectordb_duplicate_detection_rate": (_t(_PP, "vectordb_duplicate_detected"),),
+        # -----------------------------------------------------------------------
+        # Domain 8 — ARE Integration (2 AKTIV)
+        # -----------------------------------------------------------------------
+        "are_gate_result": (_t(_S, "are_gate_passed"),),
+        "are_evidence_coverage_rate": (
+            _t(_S, "are_total_requirements", "are_covered_requirements"),
+        ),
+        # -----------------------------------------------------------------------
+        # Domain 9 — Failure Corpus (2 AKTIV)
+        # -----------------------------------------------------------------------
+        "incident_volume_per_month": (_t(_C, "new_incident_count"),),
+        "pattern_to_check_conversion_rate": (
+            _t(_C, "patterns_with_active_check", "patterns_total_count"),
+        ),
+        # -----------------------------------------------------------------------
+        # Domain 10 — Process Efficiency (6 AKTIV)
+        # -----------------------------------------------------------------------
+        "phase_time_distribution": (
+            _t(
+                _S,
+                "phase_setup_ms",
+                "phase_exploration_ms",
+                "phase_implementation_ms",
+                "phase_verify_ms",
+                "phase_closure_ms",
+            ),
+        ),
+        "story_predictability": (_t(_PP, "processing_time_variance_ms2"),),
+        "processing_time_trend": (_t(_PP, "processing_time_avg_ms"),),
+        "qa_round_trend": (_t(_PP, "qa_round_avg"),),
+        "files_changed_per_story": (_t(_S, "files_changed"),),
+        "increment_count_per_story": (_t(_S, "increment_count"),),
+    }
+
+
+KPI_FACT_TARGETS: dict[str, tuple[FactTarget, ...]] = _build_kpi_fact_targets()
 
 def resolve_kpi_fact_columns(
     kpi_id: str,
