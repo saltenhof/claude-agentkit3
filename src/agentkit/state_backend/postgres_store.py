@@ -538,31 +538,38 @@ def _fact_fk62_column_sets() -> dict[str, frozenset[str]]:
     return {table: _create_table_columns(script, table) for table in _FACT_TABLE_NAMES}
 
 
-def _create_table_columns(script: str, table: str) -> frozenset[str]:
-    """Extract the column names of a ``CREATE TABLE ... <table> ( ... )`` block.
+def _create_table_body(script: str, table: str) -> str:
+    """Return the parenthesised body of a ``CREATE TABLE ... <table> ( ... )`` block.
 
-    Reads the first identifier of each definition line inside the parenthesised
-    body, skipping table-level constraint clauses (PRIMARY KEY, ...).
+    Brace-matched so nested parens (e.g. ``NUMERIC(10,2)``) don't end the body early.
     """
     marker = f"CREATE TABLE IF NOT EXISTS {table} ("
     start = script.find(marker)
     if start < 0:  # pragma: no cover - defensive: the schema always carries them
         raise RuntimeError(f"{table}: CREATE TABLE block not found in schema script")
     depth = 0
-    i = start + len(marker) - 1
-    body_start = i + 1
-    while i < len(script):
-        if script[i] == "(":
+    body_start = start + len(marker)
+    for i in range(start + len(marker) - 1, len(script)):
+        char = script[i]
+        if char == "(":
             depth += 1
             if depth == 1:
                 body_start = i + 1
-        elif script[i] == ")":
+        elif char == ")":
             depth -= 1
             if depth == 0:
-                break
-        i += 1
+                return script[body_start:i]
+    raise RuntimeError(f"{table}: unterminated CREATE TABLE block in schema script")  # pragma: no cover
+
+
+def _create_table_columns(script: str, table: str) -> frozenset[str]:
+    """Extract the column names of a ``CREATE TABLE ... <table> ( ... )`` block.
+
+    Reads the first identifier of each definition line inside the parenthesised
+    body, skipping table-level constraint clauses (PRIMARY KEY, ...).
+    """
     columns: set[str] = set()
-    for raw_line in script[body_start:i].split("\n"):
+    for raw_line in _create_table_body(script, table).split("\n"):
         line = raw_line.strip().rstrip(",")
         if not line or line.startswith("--"):
             continue
