@@ -178,7 +178,7 @@ class TelemetryContract:
         events = self._reader.read_run_events(run_id)
         requests = _by_type(events, EventType.REVIEW_REQUEST)
         compliant_count = _count(events, EventType.REVIEW_COMPLIANT)
-        present_roles = _roles(requests)
+        present_roles = _reviewer_roles(requests)
         missing_roles = sorted(required_roles - present_roles)
         if missing_roles:
             return rule_fail(
@@ -385,11 +385,17 @@ def _count(events: Iterable[ExecutionEventRecord], event_type: EventType) -> int
     return sum(1 for e in events if e.event_type == event_type.value)
 
 
-def _roles(events: Iterable[ExecutionEventRecord]) -> set[str]:
+def _reviewer_roles(events: Iterable[ExecutionEventRecord]) -> set[str]:
+    """Return the set of non-empty reviewer roles from ``review_request`` payloads.
+
+    Reads the canonical ``reviewer_role`` key (AG3-036 AC4 / analytics_source.py).
+    The old ``role`` key is intentionally NOT read here; the contract must align
+    with the producer wire format (NO ERROR BYPASSING).
+    """
     roles: set[str] = set()
     for event in events:
-        role = event.payload.get("role")
-        if isinstance(role, str):
+        role = event.payload.get("reviewer_role")
+        if isinstance(role, str) and role:
             roles.add(role)
     return roles
 

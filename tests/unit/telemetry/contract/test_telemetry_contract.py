@@ -40,19 +40,22 @@ def _event(
     event_type: EventType,
     *,
     role: str | None = None,
+    reviewer_role: str | None = None,
     pool: str | None = None,
     run_id: str = _RUN,
 ) -> ExecutionEventRecord:
     payload: dict[str, object] = {}
     if role is not None:
         payload["role"] = role
+    if reviewer_role is not None:
+        payload["reviewer_role"] = reviewer_role
     if pool is not None:
         payload["pool"] = pool
     return ExecutionEventRecord(
         project_key="proj",
         story_id="AG3-001",
         run_id=run_id,
-        event_id=f"evt-{event_type.value}-{role or ''}-{pool or ''}-{id(payload)}",
+        event_id=f"evt-{event_type.value}-{role or ''}-{reviewer_role or ''}-{pool or ''}-{id(payload)}",
         event_type=event_type.value,
         occurred_at=datetime.now(UTC),
         source_component="test",
@@ -111,10 +114,14 @@ def test_agent_pairing_fail_when_duplicate_start() -> None:
 
 
 def test_review_coverage_pass_when_roles_and_compliant_present() -> None:
+    # Reproducing-intent test (AG3-119 AK2): events seeded in real producer shape
+    # — ``reviewer_role`` only, no ``role``. This test would FAIL against the
+    # unfixed code that reads ``payload["role"]`` (present_roles would be empty
+    # → both roles reported missing).
     contract, _ = _contract(
         [
-            _event(EventType.REVIEW_REQUEST, role="qa"),
-            _event(EventType.REVIEW_REQUEST, role="architecture"),
+            _event(EventType.REVIEW_REQUEST, reviewer_role="qa"),
+            _event(EventType.REVIEW_REQUEST, reviewer_role="architecture"),
             _event(EventType.REVIEW_COMPLIANT),
             _event(EventType.REVIEW_COMPLIANT),
         ]
@@ -124,9 +131,10 @@ def test_review_coverage_pass_when_roles_and_compliant_present() -> None:
 
 
 def test_review_coverage_fail_when_required_role_missing() -> None:
+    # Only ``qa`` is present via ``reviewer_role``; ``architecture`` is absent.
     contract, _ = _contract(
         [
-            _event(EventType.REVIEW_REQUEST, role="qa"),
+            _event(EventType.REVIEW_REQUEST, reviewer_role="qa"),
             _event(EventType.REVIEW_COMPLIANT),
         ]
     )
@@ -138,8 +146,8 @@ def test_review_coverage_fail_when_required_role_missing() -> None:
 def test_review_coverage_fail_when_compliant_undercounts() -> None:
     contract, _ = _contract(
         [
-            _event(EventType.REVIEW_REQUEST, role="qa"),
-            _event(EventType.REVIEW_REQUEST, role="qa"),
+            _event(EventType.REVIEW_REQUEST, reviewer_role="qa"),
+            _event(EventType.REVIEW_REQUEST, reviewer_role="qa"),
             _event(EventType.REVIEW_COMPLIANT),
         ]
     )
@@ -153,7 +161,7 @@ def test_review_coverage_fail_when_compliant_overcounts() -> None:
     # pass (fail-closed against overcount).
     contract, _ = _contract(
         [
-            _event(EventType.REVIEW_REQUEST, role="qa"),
+            _event(EventType.REVIEW_REQUEST, reviewer_role="qa"),
             _event(EventType.REVIEW_COMPLIANT),
             _event(EventType.REVIEW_COMPLIANT),
         ]
@@ -161,6 +169,23 @@ def test_review_coverage_fail_when_compliant_overcounts() -> None:
     result = contract.check_review_compliant_coverage(_RUN, {"qa"})
     assert result.status is ContractStatus.FAIL
     assert "must equal" in result.detail
+
+
+def test_review_coverage_fail_closed_old_role_key_not_counted() -> None:
+    # Fail-closed regression test (AG3-119 AK3): a ``review_request`` carrying
+    # ONLY the old ``role`` key (without ``reviewer_role``) must NOT be counted
+    # as a present reviewer role. The required role must be reported as missing.
+    # This pins the canonical key and prevents a silent regression to the old
+    # ``payload["role"]`` read path.
+    contract, _ = _contract(
+        [
+            _event(EventType.REVIEW_REQUEST, role="qa"),  # old key only — not canonical
+            _event(EventType.REVIEW_COMPLIANT),
+        ]
+    )
+    result = contract.check_review_compliant_coverage(_RUN, {"qa"})
+    assert result.status is ContractStatus.FAIL
+    assert "qa" in result.detail
 
 
 # ---------------------------------------------------------------------------
@@ -337,7 +362,7 @@ def _complete_run_events() -> list[ExecutionEventRecord]:
     return [
         _event(EventType.AGENT_START),
         _event(EventType.AGENT_END),
-        _event(EventType.REVIEW_REQUEST, role="qa"),
+        _event(EventType.REVIEW_REQUEST, reviewer_role="qa"),  # canonical key
         _event(EventType.REVIEW_COMPLIANT),
         _event(EventType.PREFLIGHT_REQUEST),
         _event(EventType.PREFLIGHT_RESPONSE),

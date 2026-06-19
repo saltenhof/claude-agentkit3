@@ -93,13 +93,13 @@ def _emit_complete_run(emitter: StateBackendEmitter) -> None:
             story_id=_STORY,
             event_type=EventType.REVIEW_REQUEST,
             run_id=_RUN,
-            payload={"role": "qa", "pool": "chatgpt"},
+            payload={"reviewer_role": "qa", "pool": "chatgpt"},  # canonical key (AG3-119)
         ),
         Event(
             story_id=_STORY,
             event_type=EventType.REVIEW_RESPONSE,
             run_id=_RUN,
-            payload={"role": "qa", "verdict": "PASS"},
+            payload={"reviewer_role": "qa", "verdict": "PASS"},  # canonical key (AG3-119)
         ),
         Event(
             story_id=_STORY,

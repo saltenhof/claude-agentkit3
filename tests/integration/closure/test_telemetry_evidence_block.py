@@ -120,13 +120,13 @@ def _complete_run_events() -> list[Event]:
             story_id=_STORY,
             event_type=EventType.REVIEW_REQUEST,
             run_id=_RUN,
-            payload={"role": _REQUIRED_ROLE, "pool": _POOL},
+            payload={"reviewer_role": _REQUIRED_ROLE, "pool": _POOL},
         ),
         Event(
             story_id=_STORY,
             event_type=EventType.REVIEW_RESPONSE,
             run_id=_RUN,
-            payload={"role": _REQUIRED_ROLE, "verdict": "PASS"},
+            payload={"reviewer_role": _REQUIRED_ROLE, "verdict": "PASS"},
         ),
         Event(
             story_id=_STORY,
