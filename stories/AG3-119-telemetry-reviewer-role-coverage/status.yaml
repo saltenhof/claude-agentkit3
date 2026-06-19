@@ -1,0 +1,26 @@
+story_id: AG3-119
+title: "Telemetry-Contract Review-Rollen-Coverage auf reviewer_role ausrichten"
+type: implementation
+status: completed
+phase: closure
+created: "2026-06-19"
+completed: "2026-06-19"
+size: S
+# Folge-Story aus dem Codex-r4-WARNING zu AG3-117: telemetry_contract._roles()
+# liest payload["role"], die Review-Producer (review_guard/sentinel/divergence +
+# kanonisches analytics_source-Mapping) emittieren aber reviewer_role -> die
+# Review-Rollen-Coverage-Pruefung (check_review_compliant_coverage, FK-68 §68.4)
+# greift in Prod ins Leere; Tests seeden role und maskieren es. Fix: _roles ->
+# _reviewer_roles liest reviewer_role + reproduzierender + fail-closed-Regressionstest.
+# Vom User priorisiert (#85 zuerst) nach Abschluss des AG3-083-Splits.
+# QA (Codex sole gate): r1 REJECT (eine dritte Maskierungs-Fixture in
+# tests/integration/closure/test_telemetry_evidence_block.py seedete REVIEW_REQUEST
+# mit role; vom Impl-Worker nicht ausgefuehrt -> gruen maskiert) -> Closure- +
+# Contract-Run-Fixtures auf reviewer_role ausgerichtet + vollstaendiger Masking-Sweep
+# -> r2 APPROVE. Prod-Fix: _roles -> _reviewer_roles liest payload['reviewer_role'];
+# reproduzierender + fail-closed-Regressionstest (role-only zaehlt nicht). LLM-Coverage
+# (_pools/pool) unberuehrt; strikte 1:1 review_compliant==review_request erhalten.
+# FINAL: Jenkins #539 SUCCESS (echter Postgres), Sonar gate OK (0 new-code issues).
+depends_on:
+  - AG3-117
+unblocks: []
