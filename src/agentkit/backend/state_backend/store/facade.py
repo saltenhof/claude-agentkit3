@@ -7,6 +7,7 @@ Drivers (postgres_store, sqlite_store) only handle raw ``dict[str, Any]`` rows.
 
 from __future__ import annotations
 
+import sys
 from functools import lru_cache
 from typing import TYPE_CHECKING, cast
 
@@ -88,6 +89,15 @@ def reset_backend_cache_for_tests() -> None:
     """Clear cached backend selection for test-time env switching."""
 
     _backend_module.cache_clear()
+    postgres_store = sys.modules.get("agentkit.backend.state_backend.postgres_store")
+    if postgres_store is not None:
+        reset_schema_cache = getattr(
+            postgres_store,
+            "_reset_schema_bootstrap_cache_for_tests",
+            None,
+        )
+        if callable(reset_schema_cache):
+            reset_schema_cache()
 
 
 def active_backend_is_sqlite() -> bool:

@@ -48,7 +48,7 @@ _PROJECT_KEY_FILTER = "project_key = ?"
 _STORY_ID_FILTER = "story_id = ?"
 _RUN_ID_FILTER = "run_id = ?"
 _SCHEMA_ENSURE_LOCK = threading.Lock()
-_SCHEMA_ENSURED = False
+_SCHEMA_ENSURED_NAMES: set[str] = set()
 _JsonRecord = dict[str, object]
 _OptionalString = str | None
 
@@ -240,6 +240,10 @@ def _connect_global() -> Iterator[_CompatConnection]:
     compat = _CompatConnection(conn)
     _ensure_versioned_schema(compat)
     _ensure_schema_once(compat)
+    # ``ensure_versioned_schema`` uses a transaction-scoped advisory DDL lock.
+    # Release it before the actual store operation so parallel test/runtime
+    # connections do not serialize behind a schema bootstrap lock.
+    conn.commit()
     try:
         yield compat
         conn.commit()
@@ -273,17 +277,24 @@ def _ensure_schema_once(conn: _CompatConnection) -> None:
     ``search_path`` is correct. The table/index/ALTER bootstrap is idempotent
     but expensive on Postgres and must not run on every HTTP request.
     """
-    global _SCHEMA_ENSURED
-    if _SCHEMA_ENSURED:
+    schema_name = current_schema_name()
+    if schema_name in _SCHEMA_ENSURED_NAMES:
         return
     with _SCHEMA_ENSURE_LOCK:
-        if _SCHEMA_ENSURED:
+        if schema_name in _SCHEMA_ENSURED_NAMES:
             return
         if _schema_is_bootstrapped(conn):
-            _SCHEMA_ENSURED = True
+            _SCHEMA_ENSURED_NAMES.add(schema_name)
             return
         _ensure_schema(conn)
-        _SCHEMA_ENSURED = True
+        _SCHEMA_ENSURED_NAMES.add(schema_name)
+
+
+def _reset_schema_bootstrap_cache_for_tests() -> None:
+    """Clear the process-local Postgres schema-bootstrap cache."""
+
+    with _SCHEMA_ENSURE_LOCK:
+        _SCHEMA_ENSURED_NAMES.clear()
 
 
 def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
