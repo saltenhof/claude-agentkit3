@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     options {
-        timeout(time: 30, unit: 'MINUTES')
+        timeout(time: 90, unit: 'MINUTES')
         ansiColor('xterm')
         timestamps()
         disableConcurrentBuilds()
@@ -23,23 +23,7 @@ pipeline {
                 deleteDir()
                 sh '''
                     rm -rf agentkit-src
-                    mkdir -p agentkit-src
-                    tar \
-                        --exclude=.git \
-                        --exclude=.tmp \
-                        --exclude=tmp \
-                        --exclude=./tmp \
-                        --exclude=.venv \
-                        --exclude=.pytest-temp* \
-                        --exclude=.mypy_cache \
-                        --exclude=.pytest_cache \
-                        --exclude=.ruff_cache \
-                        --exclude=.coverage \
-                        --exclude=coverage.xml \
-                        --exclude=reports \
-                        --exclude=test-results \
-                        -C /codebase/claude-agentkit3 \
-                        -cf - . | tar -C agentkit-src -xf -
+                    git clone --depth 1 --branch main --single-branch https://github.com/saltenhof/claude-agentkit3.git agentkit-src
                 '''
             }
         }
@@ -240,7 +224,7 @@ PY
         stage('SonarQube') {
             steps {
                 dir('agentkit-src') {
-                    withSonarQubeEnv('brainbox-sonar') {
+                    withSonarQubeEnv('agentkit3-sonar') {
                         sh 'sonar-scanner'
                     }
                 }
@@ -250,7 +234,7 @@ PY
         stage('Quality Gate') {
             steps {
                 dir('agentkit-src') {
-                    withSonarQubeEnv('brainbox-sonar') {
+                    withSonarQubeEnv('agentkit3-sonar') {
                         script {
                             int gateStatus = sh(
                                 returnStatus: true,
@@ -263,7 +247,7 @@ PY
                                 ''',
                             )
                             if (gateStatus != 0) {
-                                echo 'Sonar quality gate is red on existing project debt; analysis is published, but Jenkins execution remains non-blocking.'
+                                error 'Sonar quality gate is red.'
                             }
                         }
                     }
