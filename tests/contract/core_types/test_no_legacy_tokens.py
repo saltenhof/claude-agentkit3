@@ -68,7 +68,14 @@ _NOT_APPLICABLE_ALLOWLIST: frozenset[str] = frozenset(
 _QUALIFIED_ACSTATUS = re.compile(r"\bACStatus\.NOT_APPLICABLE\b")
 #: The ONE module that DEFINES ``ACStatus``; a bare member declaration is only
 #: legitimate here (an enum member cannot be written in qualified form).
-_ACSTATUS_HOME = Path("src") / "agentkit" / "implementation" / "handover" / "packager.py"
+_ACSTATUS_HOME = (
+    Path("src")
+    / "agentkit"
+    / "backend"
+    / "implementation"
+    / "handover"
+    / "packager.py"
+)
 #: The EXACT ``ACStatus`` enum-member declaration line -- the ONLY legitimate
 #: bare occurrence inside the enum home. A whole-file home skip would let an
 #: unrelated bare sentinel hide in packager.py; this pins the exemption to the
