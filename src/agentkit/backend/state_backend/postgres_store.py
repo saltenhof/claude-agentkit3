@@ -239,10 +239,11 @@ def _connect_global() -> Iterator[_CompatConnection]:
     )
     compat = _CompatConnection(conn)
     _ensure_versioned_schema(compat)
+    # ``ensure_versioned_schema`` creates/selects the target schema under a
+    # global advisory DDL lock. Release that lock before the heavy table/index
+    # bootstrap; otherwise parallel test schemas serialize behind one worker.
+    conn.commit()
     _ensure_schema_once(compat)
-    # ``ensure_versioned_schema`` uses a transaction-scoped advisory DDL lock.
-    # Release it before the actual store operation so parallel test/runtime
-    # connections do not serialize behind a schema bootstrap lock.
     conn.commit()
     try:
         yield compat
@@ -571,7 +572,10 @@ def _ensure_failure_corpus_constraints(conn: _CompatConnection) -> None:
 
 
 def _ensure_schema(conn: _CompatConnection) -> None:
-    conn.execute("SELECT pg_advisory_xact_lock(hashtext('agentkit_postgres_schema_ddl'))")
+    conn.execute(
+        "SELECT pg_advisory_xact_lock(hashtext(%s))",
+        (f"agentkit_postgres_schema_ddl:{current_schema_name()}",),
+    )
     _reconcile_fact_tables_fk62(conn)
     conn.executescript(_schema_create_script())
     for statement in _schema_alter_statements():
