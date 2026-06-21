@@ -1,4 +1,4 @@
-"""Unit tests for agentkit.telemetry.events."""
+"""Unit tests for agentkit.backend.telemetry.events."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentkit.telemetry.events import Event, EventType
+from agentkit.backend.telemetry.events import Event, EventType
 
 
 class TestEventType:

@@ -696,7 +696,7 @@ agentkit export-story-md \
 5. Als `story.md` schreiben
 6. Validierung: Datei > 500 Bytes, Frontmatter vorhanden
 
-**Python-Modul:** `agentkit.story_creation.story_md_export`
+**Python-Modul:** `agentkit.backend.story_creation.story_md_export`
 
 ```python
 @dataclass(frozen=True)
@@ -751,7 +751,7 @@ Export fehl.
 1. **Weaviate-Readiness** (Pflichtprüfung):
 
 ```bash
-python -m agentkit.vectordb.wait_for_weaviate --timeout 10
+python -m agentkit.backend.vectordb.wait_for_weaviate --timeout 10
 ```
 
 Exit 0 → Weaviate bereit, VektorDB-Suche verfügbar.

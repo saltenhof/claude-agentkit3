@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.verify_system.errors import MandatoryTargetReadError
-from agentkit.verify_system.policy_engine.engine import PolicyEngine
-from agentkit.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
-from agentkit.verify_system.remediation.feedback import (
+from agentkit.backend.verify_system.errors import MandatoryTargetReadError
+from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
+from agentkit.backend.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
+from agentkit.backend.verify_system.remediation.feedback import (
     RemediationFeedback,
     build_feedback,
     mandatory_target_findings_from_adversarial,
@@ -156,7 +156,7 @@ class TestFindingResolutionInFeedback:
     """AG3-041 §2.1.6/§2.1.5: finding_resolution + has_open_findings."""
 
     def test_has_open_findings_true_when_not_resolved(self) -> None:
-        from agentkit.verify_system.remediation.finding_resolution import (
+        from agentkit.backend.verify_system.remediation.finding_resolution import (
             FindingResolutionStatus,
         )
 
@@ -175,7 +175,7 @@ class TestFindingResolutionInFeedback:
 
     def test_has_open_findings_true_when_partially_resolved(self) -> None:
         """E7 (AG3-041 / FK-34): PARTIALLY_RESOLVED is open/blocking too."""
-        from agentkit.verify_system.remediation.finding_resolution import (
+        from agentkit.backend.verify_system.remediation.finding_resolution import (
             FindingResolutionStatus,
         )
 
@@ -194,7 +194,7 @@ class TestFindingResolutionInFeedback:
         assert "PARTIALLY_RESOLVED" in fb.to_prompt_text()
 
     def test_has_open_findings_false_when_resolved(self) -> None:
-        from agentkit.verify_system.remediation.finding_resolution import (
+        from agentkit.backend.verify_system.remediation.finding_resolution import (
             FindingResolutionStatus,
         )
 
@@ -221,7 +221,7 @@ class TestFindingResolutionInFeedback:
         assert fb.has_open_findings() is False
 
     def test_build_feedback_carries_resolution_map(self) -> None:
-        from agentkit.verify_system.remediation.finding_resolution import (
+        from agentkit.backend.verify_system.remediation.finding_resolution import (
             FindingResolutionStatus,
         )
 

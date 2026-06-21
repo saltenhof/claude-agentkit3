@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.governance.guard_evaluation import HookEvent
-from agentkit.governance.principal_capabilities import (
+from agentkit.backend.governance.guard_evaluation import HookEvent
+from agentkit.backend.governance.principal_capabilities import (
     CapabilityEnforcement,
     CapabilityMatrix,
     ConflictFreezeOverlay,
@@ -14,10 +14,10 @@ from agentkit.governance.principal_capabilities import (
     PathClassifier,
     PrincipalResolver,
 )
-from agentkit.governance.principal_capabilities.enforcement import (
+from agentkit.backend.governance.principal_capabilities.enforcement import (
     UNCLASSIFIED_TARGET_REASON,
 )
-from agentkit.state_backend.store.freeze_repository import (
+from agentkit.backend.state_backend.store.freeze_repository import (
     FreezeRepository,
     LocalFreezeJsonExport,
 )

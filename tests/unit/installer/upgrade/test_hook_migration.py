@@ -12,13 +12,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.governance.hook_registration import (
+from agentkit.backend.governance.hook_registration import (
     HookDefinition,
     HookEventName,
     RegistrationResult,
 )
-from agentkit.installer.upgrade.config_migration import BACKUP_SUFFIX
-from agentkit.installer.upgrade.hook_migration import (
+from agentkit.backend.installer.upgrade.config_migration import BACKUP_SUFFIX
+from agentkit.backend.installer.upgrade.hook_migration import (
     GIT_HOOK_DISPATCH_MARKERS,
     determine_hook_definitions,
     has_dispatch_block,

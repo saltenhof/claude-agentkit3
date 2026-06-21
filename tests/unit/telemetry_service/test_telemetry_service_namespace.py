@@ -1,4 +1,4 @@
-from agentkit.telemetry_service import (
+from agentkit.backend.telemetry_service import (
     Event,
     EventEmitter,
     EventType,

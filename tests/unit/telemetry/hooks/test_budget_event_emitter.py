@@ -2,17 +2,17 @@
 
 AG3-086 migration: the emitter is purely observational again (FK-68 §68.6.0).
 The blocking double role was moved to
-:class:`agentkit.governance.guard_system.WebCallBudgetGuard`. The emitter now
+:class:`agentkit.backend.governance.guard_system.WebCallBudgetGuard`. The emitter now
 NEVER returns a ``GuardVerdict`` — it only emits the ``web_call`` counter for a
 RESOLVED research web call.
 """
 
 from __future__ import annotations
 
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import Event, EventType
-from agentkit.telemetry.hooks.base import HookContext, HookTrigger
-from agentkit.telemetry.hooks.budget_event_emitter import BudgetEventEmitter
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import Event, EventType
+from agentkit.backend.telemetry.hooks.base import HookContext, HookTrigger
+from agentkit.backend.telemetry.hooks.budget_event_emitter import BudgetEventEmitter
 
 
 def _context(

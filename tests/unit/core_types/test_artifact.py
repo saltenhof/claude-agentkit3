@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.core_types import ArtifactClass, EnvelopeStatus
+from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus
 
 
 class TestArtifactClass:

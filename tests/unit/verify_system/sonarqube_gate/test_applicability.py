@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.story_context_manager.types import StoryType
-from agentkit.verify_system.sonarqube_gate import (
+from agentkit.backend.story_context_manager.types import StoryType
+from agentkit.backend.verify_system.sonarqube_gate import (
     SonarApplicability,
     resolve_applicability,
 )

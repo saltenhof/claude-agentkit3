@@ -9,15 +9,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.governance.errors import StoryModeResolutionError
-from agentkit.governance.setup_preflight_gate.context_builder import (
+from agentkit.backend.governance.errors import StoryModeResolutionError
+from agentkit.backend.governance.setup_preflight_gate.context_builder import (
     _extract_mode,
     _extract_story_type,
     build_internal_story_context,
     build_story_context,
 )
-from agentkit.integrations.github.issues import IssueData
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.story_context_manager.story_model import (
     ChangeImpact,
     ConceptQuality,
     Story,
@@ -25,11 +24,12 @@ from agentkit.story_context_manager.story_model import (
     WireStoryMode,
     WireStoryType,
 )
-from agentkit.story_context_manager.types import (
+from agentkit.backend.story_context_manager.types import (
     ImplementationContract,
     StoryMode,
     StoryType,
 )
+from agentkit.integration_clients.github.issues import IssueData
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -156,7 +156,7 @@ class TestBuildStoryContext:
         SEPARATE fast axis — execution_route stays a normal path value.
         """
         monkeypatch.setattr(
-            "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+            "agentkit.backend.governance.setup_preflight_gate.context_builder.get_issue",
             lambda owner, repo, nr: _make_issue(labels=("fast",)),
         )
         ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
@@ -167,7 +167,7 @@ class TestBuildStoryContext:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     ) -> None:
         monkeypatch.setattr(
-            "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+            "agentkit.backend.governance.setup_preflight_gate.context_builder.get_issue",
             lambda owner, repo, nr: _make_issue(labels=()),
         )
         ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
@@ -178,7 +178,7 @@ class TestBuildStoryContext:
     ) -> None:
         """Label ``"bug"`` results in StoryType.BUGFIX."""
         monkeypatch.setattr(
-            "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+            "agentkit.backend.governance.setup_preflight_gate.context_builder.get_issue",
             lambda owner, repo, nr: _make_issue(labels=("bug",)),
         )
         ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
@@ -190,7 +190,7 @@ class TestBuildStoryContext:
     ) -> None:
         """Label ``"concept"`` results in StoryType.CONCEPT."""
         monkeypatch.setattr(
-            "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+            "agentkit.backend.governance.setup_preflight_gate.context_builder.get_issue",
             lambda owner, repo, nr: _make_issue(labels=("concept",)),
         )
         ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
@@ -202,7 +202,7 @@ class TestBuildStoryContext:
     ) -> None:
         """Label ``"research"`` results in StoryType.RESEARCH."""
         monkeypatch.setattr(
-            "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+            "agentkit.backend.governance.setup_preflight_gate.context_builder.get_issue",
             lambda owner, repo, nr: _make_issue(labels=("research",)),
         )
         ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
@@ -214,7 +214,7 @@ class TestBuildStoryContext:
     ) -> None:
         """No recognised label defaults to IMPLEMENTATION."""
         monkeypatch.setattr(
-            "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+            "agentkit.backend.governance.setup_preflight_gate.context_builder.get_issue",
             lambda owner, repo, nr: _make_issue(labels=("enhancement",)),
         )
         ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
@@ -226,7 +226,7 @@ class TestBuildStoryContext:
     ) -> None:
         """story_id is derived as ``"STORY-{issue_nr}"`` when not provided."""
         monkeypatch.setattr(
-            "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+            "agentkit.backend.governance.setup_preflight_gate.context_builder.get_issue",
             lambda owner, repo, nr: _make_issue(number=42),
         )
         ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
@@ -237,7 +237,7 @@ class TestBuildStoryContext:
     ) -> None:
         """Explicit story_id overrides the auto-generated one."""
         monkeypatch.setattr(
-            "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+            "agentkit.backend.governance.setup_preflight_gate.context_builder.get_issue",
             lambda owner, repo, nr: _make_issue(),
         )
         ctx = build_story_context(
@@ -255,7 +255,7 @@ class TestBuildStoryContext:
             labels=("bug", "priority:high"),
         )
         monkeypatch.setattr(
-            "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+            "agentkit.backend.governance.setup_preflight_gate.context_builder.get_issue",
             lambda owner, repo, nr: issue,
         )
         ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
@@ -273,7 +273,7 @@ class TestBuildStoryContext:
     ) -> None:
         """Mode is set from the story type profile's default_mode."""
         monkeypatch.setattr(
-            "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+            "agentkit.backend.governance.setup_preflight_gate.context_builder.get_issue",
             lambda owner, repo, nr: _make_issue(labels=("concept",)),
         )
         ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project")
@@ -299,7 +299,7 @@ class TestBuildInternalStoryContext:
             raise AssertionError("get_issue must NOT be called for an internal story")
 
         monkeypatch.setattr(
-            "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+            "agentkit.backend.governance.setup_preflight_gate.context_builder.get_issue",
             _explode,
         )
         service = _FakeStoryServiceWithRecord(_internal_story())
@@ -580,7 +580,7 @@ class TestConceptRefsToConceptPathsProjection:
         Trigger 1 fires for implementing story types.
         """
         monkeypatch.setattr(
-            "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+            "agentkit.backend.governance.setup_preflight_gate.context_builder.get_issue",
             lambda owner, repo, nr: _make_issue(labels=("implementation",)),
         )
         ctx = build_story_context(
@@ -617,7 +617,7 @@ class TestConceptRefsToConceptPathsProjection:
             spec=spec,
         )
         monkeypatch.setattr(
-            "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+            "agentkit.backend.governance.setup_preflight_gate.context_builder.get_issue",
             lambda owner, repo, nr: _make_issue(number=42, labels=()),
         )
         ctx = build_story_context(
@@ -640,12 +640,12 @@ class TestNewStructuresPersistenceRoundTrip:
 
     def test_create_story_persists_new_structures_true(self) -> None:
         """create_story with new_structures=True stores the flag on the Story record."""
-        from agentkit.project_management.entities import Project, ProjectConfiguration
-        from agentkit.story_context_manager.idempotency import (
+        from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+        from agentkit.backend.story_context_manager.idempotency import (
             InMemoryIdempotencyKeyRepository,
         )
-        from agentkit.story_context_manager.service import StoryService
-        from agentkit.story_context_manager.story_repository import (
+        from agentkit.backend.story_context_manager.service import StoryService
+        from agentkit.backend.story_context_manager.story_repository import (
             InMemoryStoryRepository,
         )
 
@@ -671,7 +671,7 @@ class TestNewStructuresPersistenceRoundTrip:
             idempotency_repository=InMemoryIdempotencyKeyRepository(),
             event_emitter=lambda *a: None,
         )
-        from agentkit.story_context_manager.story_model import CreateStoryInput
+        from agentkit.backend.story_context_manager.story_model import CreateStoryInput
 
         story = svc.create_story(
             CreateStoryInput(
@@ -691,14 +691,14 @@ class TestNewStructuresPersistenceRoundTrip:
         This is the direct reproducing test for ERROR-2: creating the same op_id
         with a different new_structures value must raise IdempotencyMismatchError.
         """
-        from agentkit.project_management.entities import Project, ProjectConfiguration
-        from agentkit.story_context_manager.errors import IdempotencyMismatchError
-        from agentkit.story_context_manager.idempotency import (
+        from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+        from agentkit.backend.story_context_manager.errors import IdempotencyMismatchError
+        from agentkit.backend.story_context_manager.idempotency import (
             InMemoryIdempotencyKeyRepository,
         )
-        from agentkit.story_context_manager.service import StoryService
-        from agentkit.story_context_manager.story_model import CreateStoryInput
-        from agentkit.story_context_manager.story_repository import (
+        from agentkit.backend.story_context_manager.service import StoryService
+        from agentkit.backend.story_context_manager.story_model import CreateStoryInput
+        from agentkit.backend.story_context_manager.story_repository import (
             InMemoryStoryRepository,
         )
 

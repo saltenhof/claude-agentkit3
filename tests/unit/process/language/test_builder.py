@@ -6,19 +6,19 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.exceptions import WorkflowError
-from agentkit.process.language.builder import Workflow, WorkflowBuilder
-from agentkit.process.language.gates import Gate, GateStage
-from agentkit.process.language.guards import GuardResult
-from agentkit.process.language.model import (
+from agentkit.backend.exceptions import WorkflowError
+from agentkit.backend.process.language.builder import Workflow, WorkflowBuilder
+from agentkit.backend.process.language.gates import Gate, GateStage
+from agentkit.backend.process.language.guards import GuardResult
+from agentkit.backend.process.language.model import (
     ExecutionPolicy,
     NodeKind,
     WorkflowDefinition,
 )
 
 if TYPE_CHECKING:
-    from agentkit.pipeline_engine.phase_executor import PhaseState
-    from agentkit.story_context_manager.models import StoryContext
+    from agentkit.backend.pipeline_engine.phase_executor import PhaseState
+    from agentkit.backend.story_context_manager.models import StoryContext
 
 
 def _trivial_guard(ctx: StoryContext, state: PhaseState) -> GuardResult:

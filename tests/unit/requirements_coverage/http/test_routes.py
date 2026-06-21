@@ -15,13 +15,13 @@ from __future__ import annotations
 import json
 from http import HTTPStatus
 
-from agentkit.requirements_coverage.http.routes import RequirementsCoverageRoutes
+from agentkit.backend.requirements_coverage.http.routes import RequirementsCoverageRoutes
 
 _CORR = "test-corr-rc-001"
 
 
 def _json(response: object) -> object:
-    from agentkit.control_plane.models import BcRouteResponse
+    from agentkit.backend.control_plane.models import BcRouteResponse
 
     assert isinstance(response, BcRouteResponse)
     return json.loads(response.body)

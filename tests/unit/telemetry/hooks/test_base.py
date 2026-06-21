@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.governance.protocols import GuardVerdict
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import Event, EventType
-from agentkit.telemetry.hooks.base import (
+from agentkit.backend.governance.protocols import GuardVerdict
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import Event, EventType
+from agentkit.backend.telemetry.hooks.base import (
     EmittingHook,
     HookContext,
     HookResult,
@@ -67,7 +67,7 @@ def test_emitting_hook_persists_each_event() -> None:
 
 
 def test_concrete_hooks_satisfy_protocol() -> None:
-    from agentkit.telemetry.hooks.agent_lifecycle_hook import AgentLifecycleHook
+    from agentkit.backend.telemetry.hooks.agent_lifecycle_hook import AgentLifecycleHook
 
     hook = AgentLifecycleHook(MemoryEmitter())
     assert isinstance(hook, TelemetryHook)

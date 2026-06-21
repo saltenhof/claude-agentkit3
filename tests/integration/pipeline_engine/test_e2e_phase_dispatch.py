@@ -18,27 +18,27 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
 
-from agentkit.control_plane.dispatch import PhaseDispatcher, PreStartGuard
-from agentkit.control_plane.models import PhaseMutationRequest
-from agentkit.control_plane.runtime import ControlPlaneRuntimeService
-from agentkit.installer import InstallConfig, install_agentkit
-from agentkit.installer.paths import story_dir as resolve_story_dir
-from agentkit.pipeline_engine.engine import PipelineEngine
-from agentkit.pipeline_engine.lifecycle import (
+from agentkit.backend.control_plane.dispatch import PhaseDispatcher, PreStartGuard
+from agentkit.backend.control_plane.models import PhaseMutationRequest
+from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
+from agentkit.backend.installer import InstallConfig, install_agentkit
+from agentkit.backend.installer.paths import story_dir as resolve_story_dir
+from agentkit.backend.pipeline_engine.engine import PipelineEngine
+from agentkit.backend.pipeline_engine.lifecycle import (
     HandlerResult,
     NoOpHandler,
     PhaseHandlerRegistry,
 )
-from agentkit.pipeline_engine.phase_executor import PhaseStatus
-from agentkit.process.language.definitions import resolve_workflow
-from agentkit.state_backend.store import save_story_context
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
+from agentkit.backend.process.language.definitions import resolve_workflow
+from agentkit.backend.state_backend.store import save_story_context
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+    from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
 
 
 # ---------------------------------------------------------------------------

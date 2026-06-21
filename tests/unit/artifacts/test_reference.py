@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from agentkit.artifacts.reference import ArtifactReference
-from agentkit.core_types import ArtifactClass
+from agentkit.backend.artifacts.reference import ArtifactReference
+from agentkit.backend.core_types import ArtifactClass
 
 
 class TestArtifactReference:

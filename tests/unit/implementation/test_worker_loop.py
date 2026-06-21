@@ -5,20 +5,20 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from agentkit.core_types import SpawnReason
-from agentkit.implementation.worker_loop import (
+from agentkit.backend.core_types import SpawnReason
+from agentkit.backend.implementation.worker_loop import (
     INCREMENT_STEPS,
     IncrementInput,
     IncrementStep,
     WorkerLoop,
 )
-from agentkit.implementation.worker_session import WorkerSession
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import EventType
-from agentkit.telemetry.hooks.commit_hook import CommitHook
-from agentkit.telemetry.hooks.drift_check_hook import DriftCheckHook
+from agentkit.backend.implementation.worker_session import WorkerSession
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import EventType
+from agentkit.backend.telemetry.hooks.commit_hook import CommitHook
+from agentkit.backend.telemetry.hooks.drift_check_hook import DriftCheckHook
 
 if TYPE_CHECKING:
     from pathlib import Path

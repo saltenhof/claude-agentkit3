@@ -1,1 +1,1 @@
-"""Unit-Tests fuer agentkit.artifacts (AG3-022)."""
+"""Unit-Tests fuer agentkit.backend.artifacts (AG3-022)."""

@@ -16,8 +16,8 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from agentkit.exceptions import IntegrationError
-from agentkit.integrations.github.client import (
+from agentkit.backend.exceptions import IntegrationError
+from agentkit.integration_clients.github.client import (
     _resolve_token_from_credentials_file,
     _resolve_token_from_keyring,
     resolve_token_for_owner,
@@ -33,7 +33,7 @@ class TestRunGh:
 
     def test_successful_command(self) -> None:
         """run_gh returns stdout on success."""
-        with patch("agentkit.integrations.github.client.subprocess.run") as mock_run:
+        with patch("agentkit.integration_clients.github.client.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0, stdout="ok\n", stderr=""
             )
@@ -43,7 +43,7 @@ class TestRunGh:
 
     def test_failed_command_raises(self) -> None:
         """run_gh raises IntegrationError on non-zero exit."""
-        with patch("agentkit.integrations.github.client.subprocess.run") as mock_run:
+        with patch("agentkit.integration_clients.github.client.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=1, stdout="", stderr="error msg"
             )
@@ -52,7 +52,7 @@ class TestRunGh:
 
     def test_failed_command_check_false(self) -> None:
         """run_gh with check=False does not raise on non-zero exit."""
-        with patch("agentkit.integrations.github.client.subprocess.run") as mock_run:
+        with patch("agentkit.integration_clients.github.client.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=1, stdout="some output", stderr="warning"
             )
@@ -63,7 +63,7 @@ class TestRunGh:
         """run_gh raises IntegrationError if gh not found."""
         with (
             patch(
-                "agentkit.integrations.github.client.subprocess.run",
+                "agentkit.integration_clients.github.client.subprocess.run",
                 side_effect=FileNotFoundError,
             ),
             pytest.raises(IntegrationError, match="gh CLI not found"),
@@ -74,7 +74,7 @@ class TestRunGh:
         """run_gh raises IntegrationError on timeout."""
         with (
             patch(
-                "agentkit.integrations.github.client.subprocess.run",
+                "agentkit.integration_clients.github.client.subprocess.run",
                 side_effect=subprocess.TimeoutExpired(cmd="gh", timeout=30),
             ),
             pytest.raises(IntegrationError, match="timed out"),
@@ -83,7 +83,7 @@ class TestRunGh:
 
     def test_error_detail_contains_stderr(self) -> None:
         """IntegrationError detail includes stderr and returncode."""
-        with patch("agentkit.integrations.github.client.subprocess.run") as mock_run:
+        with patch("agentkit.integration_clients.github.client.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=128, stdout="", stderr="fatal: not a repo"
             )
@@ -99,7 +99,7 @@ class TestRunGhJson:
 
     def test_valid_json(self) -> None:
         """run_gh_json parses valid JSON output."""
-        with patch("agentkit.integrations.github.client.subprocess.run") as mock_run:
+        with patch("agentkit.integration_clients.github.client.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0, stdout='{"key": "value"}', stderr=""
             )
@@ -108,7 +108,7 @@ class TestRunGhJson:
 
     def test_valid_json_list(self) -> None:
         """run_gh_json parses a JSON list."""
-        with patch("agentkit.integrations.github.client.subprocess.run") as mock_run:
+        with patch("agentkit.integration_clients.github.client.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0, stdout='[1, 2, 3]', stderr=""
             )
@@ -117,7 +117,7 @@ class TestRunGhJson:
 
     def test_invalid_json_raises(self) -> None:
         """run_gh_json raises IntegrationError on invalid JSON."""
-        with patch("agentkit.integrations.github.client.subprocess.run") as mock_run:
+        with patch("agentkit.integration_clients.github.client.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0, stdout="not json at all", stderr=""
             )
@@ -131,7 +131,7 @@ class TestRunGhGraphql:
 
     def test_successful_query(self) -> None:
         """run_gh_graphql returns the parsed response."""
-        with patch("agentkit.integrations.github.client.subprocess.run") as mock_run:
+        with patch("agentkit.integration_clients.github.client.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0,
                 stdout='{"data": {"viewer": {"login": "test"}}}',
@@ -142,7 +142,7 @@ class TestRunGhGraphql:
 
     def test_graphql_errors_raise(self) -> None:
         """run_gh_graphql raises on GraphQL-level errors."""
-        with patch("agentkit.integrations.github.client.subprocess.run") as mock_run:
+        with patch("agentkit.integration_clients.github.client.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0,
                 stdout='{"errors": [{"message": "bad query"}]}',
@@ -153,7 +153,7 @@ class TestRunGhGraphql:
 
     def test_variables_passed_correctly(self) -> None:
         """run_gh_graphql passes variables via -f flags."""
-        with patch("agentkit.integrations.github.client.subprocess.run") as mock_run:
+        with patch("agentkit.integration_clients.github.client.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0,
                 stdout='{"data": {}}',
@@ -175,7 +175,7 @@ class TestResolveTokenForOwner:
     def test_prefers_keyring_token(self) -> None:
         """When keyring has a token, it takes precedence over cred file."""
         with patch(
-            "agentkit.integrations.github.client._resolve_token_from_keyring",
+            "agentkit.integration_clients.github.client._resolve_token_from_keyring",
             return_value="gho_keyring_token",
         ):
             token = resolve_token_for_owner("testowner")
@@ -190,7 +190,7 @@ class TestResolveTokenForOwner:
         monkeypatch.setenv("USERPROFILE", str(tmp_path))
         monkeypatch.setenv("HOME", str(tmp_path))
         with patch(
-            "agentkit.integrations.github.client._resolve_token_from_keyring",
+            "agentkit.integration_clients.github.client._resolve_token_from_keyring",
             return_value=None,
         ):
             token = resolve_token_for_owner("testowner")
@@ -203,7 +203,7 @@ class TestResolveTokenForOwner:
         monkeypatch.setenv("USERPROFILE", str(tmp_path))
         monkeypatch.setenv("HOME", str(tmp_path))
         with patch(
-            "agentkit.integrations.github.client._resolve_token_from_keyring",
+            "agentkit.integration_clients.github.client._resolve_token_from_keyring",
             return_value=None,
         ):
             token = resolve_token_for_owner("unknown")
@@ -218,7 +218,7 @@ class TestResolveTokenForOwner:
         monkeypatch.setenv("USERPROFILE", str(tmp_path))
         monkeypatch.setenv("HOME", str(tmp_path))
         with patch(
-            "agentkit.integrations.github.client._resolve_token_from_keyring",
+            "agentkit.integration_clients.github.client._resolve_token_from_keyring",
             return_value=None,
         ):
             token = resolve_token_for_owner("testowner")
@@ -233,7 +233,7 @@ class TestResolveTokenForOwner:
         monkeypatch.setenv("USERPROFILE", str(tmp_path))
         monkeypatch.setenv("HOME", str(tmp_path))
         with patch(
-            "agentkit.integrations.github.client._resolve_token_from_keyring",
+            "agentkit.integration_clients.github.client._resolve_token_from_keyring",
             return_value=None,
         ):
             token = resolve_token_for_owner("testowner")
@@ -251,7 +251,7 @@ class TestResolveTokenForOwner:
         monkeypatch.setenv("USERPROFILE", str(tmp_path))
         monkeypatch.setenv("HOME", str(tmp_path))
         with patch(
-            "agentkit.integrations.github.client._resolve_token_from_keyring",
+            "agentkit.integration_clients.github.client._resolve_token_from_keyring",
             return_value=None,
         ):
             token = resolve_token_for_owner("testowner")
@@ -265,7 +265,7 @@ class TestResolveTokenFromKeyring:
     def test_returns_token_from_keyring(self) -> None:
         """Returns token when gh auth token succeeds."""
         with patch(
-            "agentkit.integrations.github.client.subprocess.run",
+            "agentkit.integration_clients.github.client.subprocess.run",
         ) as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0, stdout="gho_keyring123\n", stderr="",
@@ -282,7 +282,7 @@ class TestResolveTokenFromKeyring:
     def test_returns_none_on_failure(self) -> None:
         """Returns None when gh auth token fails."""
         with patch(
-            "agentkit.integrations.github.client.subprocess.run",
+            "agentkit.integration_clients.github.client.subprocess.run",
         ) as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=1, stdout="", stderr="not logged in",
@@ -293,7 +293,7 @@ class TestResolveTokenFromKeyring:
     def test_returns_none_on_gh_not_found(self) -> None:
         """Returns None when gh binary is not installed."""
         with patch(
-            "agentkit.integrations.github.client.subprocess.run",
+            "agentkit.integration_clients.github.client.subprocess.run",
             side_effect=FileNotFoundError,
         ):
             token = _resolve_token_from_keyring("testowner")
@@ -333,11 +333,11 @@ class TestRunGhOwnerRouting:
         """When owner has a token, GH_TOKEN is set in subprocess env."""
         with (
             patch(
-                "agentkit.integrations.github.client.resolve_token_for_owner",
+                "agentkit.integration_clients.github.client.resolve_token_for_owner",
                 return_value="ghp_xxx",
             ),
             patch(
-                "agentkit.integrations.github.client.subprocess.run",
+                "agentkit.integration_clients.github.client.subprocess.run",
             ) as mock_run,
         ):
             mock_run.return_value = MagicMock(
@@ -351,7 +351,7 @@ class TestRunGhOwnerRouting:
     def test_run_gh_no_env_without_owner(self) -> None:
         """Without owner, env is None (inherits current environment)."""
         with patch(
-            "agentkit.integrations.github.client.subprocess.run",
+            "agentkit.integration_clients.github.client.subprocess.run",
         ) as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0, stdout="ok\n", stderr="",
@@ -364,11 +364,11 @@ class TestRunGhOwnerRouting:
         """When owner is given but no token found, env is None."""
         with (
             patch(
-                "agentkit.integrations.github.client.resolve_token_for_owner",
+                "agentkit.integration_clients.github.client.resolve_token_for_owner",
                 return_value=None,
             ),
             patch(
-                "agentkit.integrations.github.client.subprocess.run",
+                "agentkit.integration_clients.github.client.subprocess.run",
             ) as mock_run,
         ):
             mock_run.return_value = MagicMock(
@@ -382,11 +382,11 @@ class TestRunGhOwnerRouting:
         """run_gh_json forwards owner to run_gh."""
         with (
             patch(
-                "agentkit.integrations.github.client.resolve_token_for_owner",
+                "agentkit.integration_clients.github.client.resolve_token_for_owner",
                 return_value="ghp_json",
             ),
             patch(
-                "agentkit.integrations.github.client.subprocess.run",
+                "agentkit.integration_clients.github.client.subprocess.run",
             ) as mock_run,
         ):
             mock_run.return_value = MagicMock(
@@ -401,11 +401,11 @@ class TestRunGhOwnerRouting:
         """run_gh_graphql forwards owner to run_gh."""
         with (
             patch(
-                "agentkit.integrations.github.client.resolve_token_for_owner",
+                "agentkit.integration_clients.github.client.resolve_token_for_owner",
                 return_value="ghp_gql",
             ),
             patch(
-                "agentkit.integrations.github.client.subprocess.run",
+                "agentkit.integration_clients.github.client.subprocess.run",
             ) as mock_run,
         ):
             mock_run.return_value = MagicMock(

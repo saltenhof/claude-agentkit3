@@ -23,8 +23,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.installer.runner import InstallConfig, _register_default_governance_hooks
-from agentkit.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.installer.runner import InstallConfig, _register_default_governance_hooks
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
 if TYPE_CHECKING:
     from collections.abc import Generator

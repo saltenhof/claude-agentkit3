@@ -11,15 +11,15 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from agentkit.config.models import SonarQubeConfig
-from agentkit.installer.integration_checkpoints import (
+from agentkit.backend.config.models import SonarQubeConfig
+from agentkit.backend.installer.integration_checkpoints import (
     check_sonarqube_preconditions,
 )
-from agentkit.installer.integration_checkpoints.sonar_preflight import (
+from agentkit.backend.installer.integration_checkpoints.sonar_preflight import (
     ADMINISTER_ISSUES,
     CheckpointStatus,
 )
-from agentkit.integrations.sonar import SonarApiError, SonarHttpResponse
+from agentkit.integration_clients.sonar import SonarApiError, SonarHttpResponse
 
 _TOKEN_OK = frozenset({ADMINISTER_ISSUES, "Execute Analysis"})
 
@@ -45,7 +45,7 @@ class _StubSonarClient:
 
 
 def _profile(tmp_path: Path) -> SonarQubeConfig:
-    profile = tmp_path / "resources" / "target_project" / "sonar" / "ak3-default-gate.json"
+    profile = tmp_path / "bundles" / "target_project" / "sonar" / "ak3-default-gate.json"
     profile.parent.mkdir(parents=True, exist_ok=True)
     profile.write_text("{}", encoding="utf-8")
     return SonarQubeConfig(
@@ -143,7 +143,7 @@ def test_shipped_default_profile_carries_overall_condition() -> None:
         repo_root
         / "src"
         / "agentkit"
-        / "resources"
+        / "bundles"
         / "target_project"
         / "sonar"
         / "ak3-default-gate.json"

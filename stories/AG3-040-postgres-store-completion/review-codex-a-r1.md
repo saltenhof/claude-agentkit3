@@ -90,7 +90,7 @@ erhoeht.
    `tests/contract/project_management/test_project_summary_wire.py:47`).
 
 3. **ERROR - StoryService-Wahl.** Die Wahl von
-   `story_context_manager.StoryService` statt `agentkit.story` ist als Top-Surface
+   `story_context_manager.StoryService` statt `agentkit.backend.story` ist als Top-Surface
    richtig (`src/agentkit/story_context_manager/service.py:136`,
    `src/agentkit/story_context_manager/service.py:218`). Sie liefert Status,
    Blocker und Mode ueber das `Story`-Modell

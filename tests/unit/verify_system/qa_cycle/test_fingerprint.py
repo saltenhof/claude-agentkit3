@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.verify_system.qa_cycle.fingerprint import (
+from agentkit.backend.verify_system.qa_cycle.fingerprint import (
     FingerprintComputationError,
     compute_evidence_fingerprint,
 )

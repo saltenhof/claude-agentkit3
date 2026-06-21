@@ -1,4 +1,4 @@
-"""Unit tests for agentkit.story.types.
+"""Unit tests for agentkit.backend.story.types.
 
 ``StoryMode`` enthaelt seit AG3-021 ausschliesslich EXECUTION,
 EXPLORATION und FAST; ``NOT_APPLICABLE`` ist entfallen. Profile fuer
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.story_context_manager.types import (
+from agentkit.backend.story_context_manager.types import (
     PROFILES,
     ImplementationContract,
     StoryMode,

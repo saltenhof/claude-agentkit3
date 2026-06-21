@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.prompt_runtime.templates import TEMPLATES
+from agentkit.backend.prompt_runtime.templates import TEMPLATES
 
 
 class TestTemplateRegistry:

@@ -22,15 +22,15 @@ import typing
 import pytest
 
 # AK8 / AK6: canonical importable surface from the story-contracts BC.
-from agentkit.story_context_manager import (
+from agentkit.backend.story_context_manager import (
     ExitClass,
     TerminalState,
     derive_terminal_state,
     validate_exit_class_constraints,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import Story, StoryStatus
-from agentkit.story_context_manager.types import StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import Story, StoryStatus
+from agentkit.backend.story_context_manager.types import StoryType
 
 # ---------------------------------------------------------------------------
 # AK1 — derive_terminal_state: derivation + exhaustiveness
@@ -196,8 +196,8 @@ def test_implementation_contract_only_allowed_for_implementation() -> None:
     empty ``allowed_implementation_contracts`` set, so any non-None contract is
     rejected; an implementation story accepts ``standard``.
     """
-    from agentkit.core_types import StoryMode
-    from agentkit.story_context_manager.types import ImplementationContract
+    from agentkit.backend.core_types import StoryMode
+    from agentkit.backend.story_context_manager.types import ImplementationContract
 
     # Positive: implementation accepts the standard contract.
     ok = StoryContext(
@@ -241,8 +241,8 @@ def test_operating_mode_is_runtime_derived_not_story_persisted() -> None:
     """
     from datetime import UTC, datetime
 
-    from agentkit.control_plane.runtime import _resolve_operating_mode
-    from agentkit.governance.guard_system.records import StoryExecutionLockRecord
+    from agentkit.backend.control_plane.runtime import _resolve_operating_mode
+    from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
 
     now = datetime.now(UTC)
     lock = StoryExecutionLockRecord(
@@ -273,9 +273,9 @@ def test_binding_invalid_is_not_free_ai_augmented() -> None:
     """
     from datetime import UTC, datetime
 
-    from agentkit.control_plane.records import SessionRunBindingRecord
-    from agentkit.control_plane.runtime import _resolve_operating_mode
-    from agentkit.governance.guard_system.records import StoryExecutionLockRecord
+    from agentkit.backend.control_plane.records import SessionRunBindingRecord
+    from agentkit.backend.control_plane.runtime import _resolve_operating_mode
+    from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
 
     now = datetime.now(UTC)
     binding = SessionRunBindingRecord(
@@ -315,8 +315,8 @@ def test_integration_stabilization_is_not_third_operating_mode() -> None:
     """
     import typing
 
-    from agentkit.control_plane import runtime as cp_runtime
-    from agentkit.story_context_manager.types import ImplementationContract
+    from agentkit.backend.control_plane import runtime as cp_runtime
+    from agentkit.backend.story_context_manager.types import ImplementationContract
 
     assert ImplementationContract.INTEGRATION_STABILIZATION.value == (
         "integration_stabilization"
@@ -334,8 +334,8 @@ def test_phase_state_mode_is_execution_route_alias() -> None:
     ``StoryMode`` execution_route values; ``fast`` is NOT a ``StoryMode``
     execution_route value but a separate mode-axis member.
     """
-    from agentkit.core_types import StoryMode
-    from agentkit.pipeline_engine.phase_executor import PhaseStateMode
+    from agentkit.backend.core_types import StoryMode
+    from agentkit.backend.pipeline_engine.phase_executor import PhaseStateMode
 
     # The standard family aliases the execution_route (StoryMode) values.
     assert PhaseStateMode.EXECUTION.value == StoryMode.EXECUTION.value

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.telemetry.events import (
+from agentkit.backend.telemetry.events import (
     EventPayloadContractError,
     EventType,
     validate_event_payload,

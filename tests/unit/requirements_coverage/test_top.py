@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from pathlib import Path
 
-from agentkit.artifacts import ArtifactReference
-from agentkit.config.models import SUPPORTED_CONFIG_VERSION, Features, PipelineConfig
-from agentkit.core_types import StoryMode
-from agentkit.requirements_coverage.contract import (
+from agentkit.backend.artifacts import ArtifactReference
+from agentkit.backend.config.models import SUPPORTED_CONFIG_VERSION, Features, PipelineConfig
+from agentkit.backend.core_types import StoryMode
+from agentkit.backend.requirements_coverage.contract import (
     AreContext,
     AreDockpointStatus,
     AreEvidence,
@@ -23,12 +23,12 @@ from agentkit.requirements_coverage.contract import (
     EvidenceSubmitResult,
     EvidenceType,
 )
-from agentkit.requirements_coverage.errors import StoryAreLinkConflictError
-from agentkit.requirements_coverage.models import StoryAreLink, StoryAreLinkKind
-from agentkit.requirements_coverage.scope_mapping import ScopeMapping
-from agentkit.requirements_coverage.top import RequirementsCoverage
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryType
+from agentkit.backend.requirements_coverage.errors import StoryAreLinkConflictError
+from agentkit.backend.requirements_coverage.models import StoryAreLink, StoryAreLinkKind
+from agentkit.backend.requirements_coverage.scope_mapping import ScopeMapping
+from agentkit.backend.requirements_coverage.top import RequirementsCoverage
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryType
 
 
 def _config(are_enabled: bool) -> PipelineConfig:

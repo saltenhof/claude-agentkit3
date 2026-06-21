@@ -23,16 +23,16 @@ from tests.unit.governance.governance_observer.conftest import (
     ScriptedEventReader,
 )
 
-from agentkit.governance.governance_observer.models import (
+from agentkit.backend.governance.governance_observer.models import (
     AdjudicationIncidentType,
     AdjudicationRecommendedAction,
     AdjudicationSeverity,
     GovernanceAdjudicationVerdict,
     GovernanceMeasure,
 )
-from agentkit.governance.governance_observer.observer import GovernanceObserver
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import EventType
+from agentkit.backend.governance.governance_observer.observer import GovernanceObserver
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import EventType
 
 _PROJECT = "PRJ"
 _STORY = "AG3-085"
@@ -383,7 +383,7 @@ def test_unknown_signal_type_in_window_raises_before_adjudication() -> None:
     fix, _validate_window_payloads raises immediately and the adjudicator is
     never called.
     """
-    from agentkit.governance.governance_observer.score import GovernanceSignalPayloadError
+    from agentkit.backend.governance.governance_observer.score import GovernanceSignalPayloadError
 
     # Mix one valid row (above threshold alone) with one unknown-signal row.
     # The unknown row in the same window must trigger fail-closed rejection.
@@ -414,7 +414,7 @@ def test_non_int_risk_points_in_window_raises_before_adjudication() -> None:
     With the fix, _validate_window_payloads raises fail-closed before any
     candidate construction, incident_opened emission, or adjudication call.
     """
-    from agentkit.governance.governance_observer.score import GovernanceSignalPayloadError
+    from agentkit.backend.governance.governance_observer.score import GovernanceSignalPayloadError
 
     # One valid high-score row plus one row with a float risk_points (forbidden).
     malformed_payloads = [

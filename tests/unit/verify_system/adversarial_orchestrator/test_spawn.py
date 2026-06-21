@@ -6,19 +6,19 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.bootstrap.composition_root import build_artifact_manager
-from agentkit.core_types import SpawnKind, SpawnReason
-from agentkit.governance.guard_system.protected_paths import (
+from agentkit.backend.bootstrap.composition_root import build_artifact_manager
+from agentkit.backend.core_types import SpawnKind, SpawnReason
+from agentkit.backend.governance.guard_system.protected_paths import (
     is_adversarial_sandbox_path,
 )
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.verify_system.adversarial_orchestrator.spawn import (
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.verify_system.adversarial_orchestrator.spawn import (
     AdversarialSpawner,
     render_mandatory_targets_section,
 )
-from agentkit.verify_system.contract import VerifyContextBundle
-from agentkit.verify_system.protocols import (
+from agentkit.backend.verify_system.contract import VerifyContextBundle
+from agentkit.backend.verify_system.protocols import (
     ASSERTION_WEAKNESS_FINDING_TYPE,
     Finding,
     Severity,
@@ -161,7 +161,7 @@ def test_request_spawn_fails_closed_on_unprotected_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A sandbox path that is not Protected fails closed (AG3-023)."""
-    import agentkit.verify_system.adversarial_orchestrator.spawn as spawn_mod
+    import agentkit.backend.verify_system.adversarial_orchestrator.spawn as spawn_mod
 
     story_dir = tmp_path / "AG3-044"
     story_dir.mkdir()
@@ -177,13 +177,13 @@ def test_apply_to_state_sets_agents_to_spawn(tmp_path: Path) -> None:
     """apply_to_state writes the spawn orders into PhaseState.agents_to_spawn."""
     from datetime import UTC, datetime
 
-    from agentkit.pipeline_engine.phase_executor.models import (
+    from agentkit.backend.pipeline_engine.phase_executor.models import (
         PhaseState,
         PhaseStateMode,
         PhaseStateProducer,
         PhaseStatus,
     )
-    from agentkit.story_context_manager.types import StoryType
+    from agentkit.backend.story_context_manager.types import StoryType
 
     story_dir = tmp_path / "AG3-044"
     story_dir.mkdir()

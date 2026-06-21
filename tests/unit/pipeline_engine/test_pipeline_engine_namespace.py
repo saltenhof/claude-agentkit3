@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import agentkit.pipeline_engine as _pe
+import agentkit.backend.pipeline_engine as _pe
 
 
 def test_pipeline_engine_namespace_exposes_orchestrator_surface() -> None:
-    """``agentkit.pipeline_engine.*`` must expose orchestration symbols only.
+    """``agentkit.backend.pipeline_engine.*`` must expose orchestration symbols only.
 
     Phase handler classes live in their owning bounded contexts and must
     not be re-exported by the engine namespace.

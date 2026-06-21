@@ -1,4 +1,4 @@
-"""Unit tests for agentkit.utils.git -- worktree creation and removal."""
+"""Unit tests for agentkit.backend.utils.git -- worktree creation and removal."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from agentkit.exceptions import WorktreeError
-from agentkit.utils.git import (
+from agentkit.backend.exceptions import WorktreeError
+from agentkit.backend.utils.git import (
     create_worktree,
     remove_worktree,
     tree_hash_of_commit,

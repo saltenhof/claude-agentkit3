@@ -5,21 +5,21 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from http import HTTPStatus
 
-from agentkit.control_plane.http import ControlPlaneApplication
-from agentkit.control_plane_http.app import ControlPlaneApplicationRoutes
-from agentkit.execution_planning.entities import (
+from agentkit.backend.control_plane.http import ControlPlaneApplication
+from agentkit.backend.control_plane_http.app import ControlPlaneApplicationRoutes
+from agentkit.backend.execution_planning.entities import (
     ParallelizationConfig,
     StoryDependency,
     StoryDependencyKind,
     StoryRefForPlanning,
 )
-from agentkit.execution_planning.errors import (
+from agentkit.backend.execution_planning.errors import (
     StoryDependencyConflictError,
     StoryDependencyNotFoundError,
 )
-from agentkit.execution_planning.http.routes import ExecutionPlanningRoutes
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.project_management.lifecycle import archive_project, create_project
+from agentkit.backend.execution_planning.http.routes import ExecutionPlanningRoutes
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.project_management.lifecycle import archive_project, create_project
 
 
 @dataclass
@@ -136,7 +136,7 @@ def test_routes_default_dependency_repo_is_planning_write_path() -> None:
     (FK-70 §70.10.2). Construction is side-effect-free (no DB connect), so the
     other repos are injected to isolate the dependency-wiring branch.
     """
-    from agentkit.state_backend.store.planning_story_dependency_repository import (
+    from agentkit.backend.state_backend.store.planning_story_dependency_repository import (
         PlanningWritePathStoryDependencyRepository,
     )
 

@@ -14,22 +14,22 @@ import time
 
 import pytest
 
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.verify_system.llm_evaluator.bundle import ReviewBundle
-from agentkit.verify_system.llm_evaluator.llm_client import (
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.verify_system.llm_evaluator.bundle import ReviewBundle
+from agentkit.backend.verify_system.llm_evaluator.llm_client import (
     FailClosedLlmClient,
     LlmClientError,
 )
-from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import (
     QA_REVIEW_CHECK_IDS,
     LlmVerdict,
     ReviewerRole,
     StructuredEvaluator,
     StructuredEvaluatorError,
 )
-from agentkit.verify_system.protocols import Finding, Severity, TrustClass
-from agentkit.verify_system.remediation.finding_resolution import (
+from agentkit.backend.verify_system.protocols import Finding, Severity, TrustClass
+from agentkit.backend.verify_system.remediation.finding_resolution import (
     FindingResolutionStatus,
 )
 
@@ -185,7 +185,7 @@ def test_doc_fidelity_single_check() -> None:
 
 def test_story_creation_review_role_is_registered_in_maps() -> None:
     """AC4: the new role is wired into the SHARED role maps (no 2nd path)."""
-    from agentkit.verify_system.llm_evaluator.roles import (
+    from agentkit.backend.verify_system.llm_evaluator.roles import (
         ROLE_CHECK_IDS,
         ROLE_TEMPLATE,
         STORY_CREATION_REVIEW_CHECK_IDS,

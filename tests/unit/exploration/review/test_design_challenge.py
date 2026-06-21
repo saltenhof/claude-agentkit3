@@ -11,20 +11,20 @@ from tests.unit.exploration.review.scripted import (
     build_scripted_evaluator,
 )
 
-from agentkit.artifacts.reference import ArtifactReference
-from agentkit.core_types import ArtifactClass, Severity
-from agentkit.exploration.review.design_challenge import (
+from agentkit.backend.artifacts.reference import ArtifactReference
+from agentkit.backend.core_types import ArtifactClass, Severity
+from agentkit.backend.exploration.review.design_challenge import (
     DesignChallengeResult,
     DesignChallengeRunner,
 )
-from agentkit.exploration.review.design_review import DesignReviewResult
-from agentkit.exploration.review.doc_fidelity import DocFidelityResult
-from agentkit.verify_system.protocols import Finding, TrustClass
+from agentkit.backend.exploration.review.design_review import DesignReviewResult
+from agentkit.backend.exploration.review.doc_fidelity import DocFidelityResult
+from agentkit.backend.verify_system.protocols import Finding, TrustClass
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.story_context_manager.models import StoryContext
+    from agentkit.backend.story_context_manager.models import StoryContext
 
 
 def _runner(

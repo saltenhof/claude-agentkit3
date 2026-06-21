@@ -137,7 +137,7 @@ Aufgerufen wird `purge_run` aus dem `StoryResetService` (out of scope dieser Sto
 
 #### 2.1.4 ProjectionAccessor in Composition-Root
 
-`ProjectionAccessor` wird im App-Bootstrap (`agentkit.bootstrap`-Modul oder Control-Plane-Init) instanziiert mit allen konkreten Repositories.
+`ProjectionAccessor` wird im App-Bootstrap (`agentkit.backend.bootstrap`-Modul oder Control-Plane-Init) instanziiert mit allen konkreten Repositories.
 
 #### 2.1.5 Tests
 
@@ -184,7 +184,7 @@ Aufgerufen wird `purge_run` aus dem `StoryResetService` (out of scope dieser Sto
 4. **Migration**: `verify_system/qa_read_models.py` und Closure-Schreibstellen rufen jetzt `ProjectionAccessor.write_projection`, nicht direkt das Repository.
 5. **`purge_run(project_key, story_id, run_id)`** loescht qa_stage_results, qa_findings, story_metrics, phase_state_projection fuer den angegebenen `run_id` (run-scoped, FK-69 §69.10.1). fc_*-Purge ist auf AG3-028 vertagt (Tabellen existieren noch nicht; FK-69 §69.9-Pflicht wird dort umgesetzt). `PurgeResult.purged_rows` enthaelt Zaehlung pro Tabelle.
 6. **Read-Roundtrip funktioniert**: write -> read liefert den geschriebenen Record (Integration-Test mit echtem SQLite).
-7. **Architecture-Conformance**: `ProjectionAccessor` ist im `agentkit.telemetry`-Paket; importiert konkrete Repositories nur ueber `ProjectionRepositories`-Dataclass (Dependency-Injection); kein direkter `state_backend.store`-Fassaden-Import.
+7. **Architecture-Conformance**: `ProjectionAccessor` ist im `agentkit.backend.telemetry`-Paket; importiert konkrete Repositories nur ueber `ProjectionRepositories`-Dataclass (Dependency-Injection); kein direkter `state_backend.store`-Fassaden-Import.
 8. **Pflichtbefehle gruen**: pytest unit + integration + contract; mypy --strict; ruff clean; Coverage haelt 85%.
 
 ## 5. Definition of Done

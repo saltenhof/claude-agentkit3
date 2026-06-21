@@ -157,7 +157,7 @@ class CheckpointResult(BaseModel):
 6. **`CheckpointResult` und `CheckpointStatus`** sind typisiert verfuegbar.
 7. **`InstallResult.checkpoint_results`** enthaelt mindestens einen Eintrag (fuer CP 7) nach einem Installer-Lauf.
 8. **`RuntimeProfile`-StrEnum** mit `CORE`, `ARE`.
-9. **Architecture-Conformance**: `agentkit.installer.registration` und `agentkit.installer.repository` halten BC-Grenze; Repository-Implementierung im state_backend.
+9. **Architecture-Conformance**: `agentkit.backend.installer.registration` und `agentkit.backend.installer.repository` halten BC-Grenze; Repository-Implementierung im state_backend.
 10. **Pflichtbefehle gruen**: pytest unit + integration; mypy --strict; ruff clean; Coverage haelt 85%.
 
 ## 5. Definition of Done

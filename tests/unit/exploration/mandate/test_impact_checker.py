@@ -9,16 +9,16 @@ from __future__ import annotations
 
 from tests.exploration_change_frame_fixture import example_change_frame
 
-from agentkit.exploration.change_frame import (
+from agentkit.backend.exploration.change_frame import (
     AffectedBuildingBlocks,
     ContractChanges,
 )
-from agentkit.exploration.mandate.impact_checker import (
+from agentkit.backend.exploration.mandate.impact_checker import (
     IMPACT_ORDER,
     ImpactExceedanceChecker,
     impact_rank,
 )
-from agentkit.story_context_manager.story_model import ChangeImpact
+from agentkit.backend.story_context_manager.story_model import ChangeImpact
 
 
 def _architecture_frame() -> object:

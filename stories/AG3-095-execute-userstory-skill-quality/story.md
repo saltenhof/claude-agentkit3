@@ -8,7 +8,7 @@
 - `FK-43 §43.3.2` — Optionale Skill-Identitaeten (`manage-requirements`, `semantic-review`; `bundle_id` `-core`-suffigiert); `Research` = kein Bundle, Worker-Prompt.
 - `FK-43 §F-43-029` — Semantic-Review-Skill (mind. 12 Pruefdimensionen, normierter Score je Dimension, Begruendung, strukturiertes QA-Artefakt)
 - `FK-43 §43.3.3` — Execute-User-Story-Orchestrator-Skill (4-Phasen-Orchestrierung als SKILL.md-Bundle, 8-Schritte-Ablauf)
-- `FK-43 §43.6.2` — `SkillQualityMetric` (Sub `agentkit.skills.quality_metric`), `collect_quality_metrics` aggregiert Telemetrie-Projektionen + Failure-Corpus-Befunde
+- `FK-43 §43.6.2` — `SkillQualityMetric` (Sub `agentkit.backend.skills.quality_metric`), `collect_quality_metrics` aggregiert Telemetrie-Projektionen + Failure-Corpus-Befunde
 
 ---
 

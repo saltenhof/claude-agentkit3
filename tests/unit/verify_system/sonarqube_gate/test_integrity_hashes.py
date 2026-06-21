@@ -13,12 +13,12 @@ from typing import Any
 
 import pytest
 
-from agentkit.integrations.sonar import SonarApiError, SonarHttpResponse
-from agentkit.verify_system.sonarqube_gate.integrity_hashes import (
+from agentkit.backend.verify_system.sonarqube_gate.integrity_hashes import (
     compute_analysis_scope_hash,
     compute_quality_gate_hash,
     compute_quality_profile_hash,
 )
+from agentkit.integration_clients.sonar import SonarApiError, SonarHttpResponse
 
 _PROJECT = "proj"
 

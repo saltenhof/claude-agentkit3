@@ -46,10 +46,10 @@ Code-Werte stimmen mit FK-93 ueberein:
 **Status: KONFORM**
 
 Code-Werte stimmen mit FK-93 ueberein. Die Defaults sind in
-`src/agentkit/config/models.py:518-519` (`VectorDbConfig`) implementiert
-und werden in `src/agentkit/story_creation/vectordb_reconciliation.py:230-234`
-aktiv genutzt. Der `integrations/vectordb/`-Pfad ist nicht der Owner dieser
-Defaults — der kanonische Owner ist `VectorDbConfig` in `config/models.py`.
+`src/agentkit/backend/config/models.py:518-519` (`VectorDbConfig`) implementiert
+und werden in `src/agentkit/backend/story_creation/vectordb_reconciliation.py:230-234`
+aktiv genutzt. Der `integration_clients/vectordb/`-Pfad ist nicht der Owner dieser
+Defaults — der kanonische Owner ist `VectorDbConfig` in `backend/config/models.py`.
 
 | Parameter | Default | Config-Pfad | FK | Kapitel |
 |-----------|---------|-------------|-----|---------|
@@ -69,13 +69,13 @@ Defaults — der kanonische Owner ist `VectorDbConfig` in `config/models.py`.
 
 Die Governance-Sensorik ist vollstaendig implementiert. Alle drei Defaults
 stimmen mit FK-93 ueberein (verifiziert gegen
-`src/agentkit/governance/governance_observer/config.py`):
+`src/agentkit/backend/governance/governance_observer/config.py`):
 - `DEFAULT_RISK_THRESHOLD = 30` (`:20`)
 - `DEFAULT_WINDOW_SIZE = 50` (`:18`)
 - `DEFAULT_COOLDOWN_S = 300` (`:22`)
 
 Config-Pfade sind ebenfalls gebunden via `GovernanceConfig` in
-`src/agentkit/config/models.py`.
+`src/agentkit/backend/config/models.py`.
 
 | Parameter | Default | Config-Pfad | FK | Kapitel |
 |-----------|---------|-------------|-----|---------|
@@ -88,9 +88,9 @@ Config-Pfade sind ebenfalls gebunden via `GovernanceConfig` in
 **Status Permission-Request-TTL: KONFORM (implementiert durch AG3-086 + AG3-070)**
 
 FK-93-Sollwert 1800s (30 Min) ist deckungsgleich mit dem Code:
-`src/agentkit/governance/ccag/requests.py:46` `DEFAULT_TTL_SECONDS: int = 1800`.
+`src/agentkit/backend/governance/ccag/requests.py:46` `DEFAULT_TTL_SECONDS: int = 1800`.
 Der Config-Pfad `permissions.request_ttl_s` ist als getyptes Feld implementiert:
-`src/agentkit/config/models.py:570` `request_ttl_s: int = 1800` in
+`src/agentkit/backend/config/models.py:570` `request_ttl_s: int = 1800` in
 `PermissionsConfig`. Kein Drift. Kein PO-Klaerbedarf mehr.
 
 | Parameter | Default (FK-Soll) | Config-Pfad | FK | Kapitel |
@@ -107,7 +107,7 @@ Der Config-Pfad `permissions.request_ttl_s` ist als getyptes Feld implementiert:
 
 Die folgende Punktetabelle ist normative FK-93-Sollwert-Quelle.
 Die Governance-Sensorik ist implementiert (siehe §93.5). Signal-Gewichte
-sind in `src/agentkit/governance/governance_observer/models.py:54-62`
+sind in `src/agentkit/backend/governance/governance_observer/models.py:54-62`
 (`RISK_POINTS`-Dict) kodiert; alle Punkt-Werte entsprechen den
 FK-93-Sollwerten (+10, +8, +8, +15, +12, +10, +12, +15).
 
@@ -129,7 +129,7 @@ FK-93-Sollwerten (+10, +8, +8, +15, +12, +10, +12, +15).
 **Status: KONFORM**
 
 Alle vier Werte sind im Code implementiert. Der Owner ist
-`src/agentkit/verify_system/llm_evaluator/llm_client.py`, nicht
+`src/agentkit/backend/verify_system/llm_evaluator/llm_client.py`, nicht
 `integrations/llm_pools/` (dieses Verzeichnis enthaelt nur ein leeres
 `__init__.py` und ist kein Owner dieser Konstanten).
 
@@ -171,14 +171,14 @@ Alle vier Werte sind im Code implementiert. Der Owner ist
 
 Alle FK-93-relevanten Failure-Corpus-Schwellwerte sind im Code implementiert:
 
-- `src/agentkit/failure_corpus/incident_triage.py:53` `_REWORK_THRESHOLD_MIN = 30` (Aufnahmeschwelle 30 Min)
-- `src/agentkit/failure_corpus/pattern_promotion.py:74` `_REPETITION_WINDOW_DAYS = 30`, `:77` `_REPETITION_MIN_COUNT = 3`
-- `src/agentkit/failure_corpus/effectiveness.py:44` `_AUTO_DEACTIVATE_MIN_FP = 3` (fp > 3)
-- `src/agentkit/failure_corpus/effectiveness.py:119` `window_days: int = 90` (90-Tage-Fenster)
-- `src/agentkit/failure_corpus/effectiveness.py` `report_effectiveness()` ist der Wirksamkeits-Report-Einstiegspunkt
+- `src/agentkit/backend/failure_corpus/incident_triage.py:53` `_REWORK_THRESHOLD_MIN = 30` (Aufnahmeschwelle 30 Min)
+- `src/agentkit/backend/failure_corpus/pattern_promotion.py:74` `_REPETITION_WINDOW_DAYS = 30`, `:77` `_REPETITION_MIN_COUNT = 3`
+- `src/agentkit/backend/failure_corpus/effectiveness.py:44` `_AUTO_DEACTIVATE_MIN_FP = 3` (fp > 3)
+- `src/agentkit/backend/failure_corpus/effectiveness.py:119` `window_days: int = 90` (90-Tage-Fenster)
+- `src/agentkit/backend/failure_corpus/effectiveness.py` `report_effectiveness()` ist der Wirksamkeits-Report-Einstiegspunkt
 
 **ARCH-55-Status (bereits saniert):** `PromotionRule`- und `PatternRiskLevel`-Enum-Werte
-in `src/agentkit/failure_corpus/pattern.py` sind englisch:
+in `src/agentkit/backend/failure_corpus/pattern.py` sind englisch:
 `repetition`, `high_severity`, `favorable_checkability` (`pattern.py:49-51`);
 `medium`, `high`, `critical` (`pattern.py:57-59`). Kein ARCH-55-Verstoss.
 

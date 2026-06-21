@@ -7,7 +7,7 @@
 - `FK-71 §71.2` — `concept/technical-design/71_artefakt_envelope_und_stage_registry.md` (Envelope-Pflichtfelder, ArtifactManager-Vertrag, Z. 109-181)
 - `concept/_meta/bc-cut-decisions.md §BC 8 artifacts` — Z. 715-770 (ArtifactManager-Top-Surface `write/read/exists`)
 - `FK-31 §31.3` — `concept/technical-design/31_branch_guard_orchestrator_guard_artefaktschutz.md` (QA-Artefakt-Schutz, Z. 420-487; **Protected-Path-Listen gehoeren in governance-and-guards**)
-- `concept/_meta/bc-cut-decisions.md §BC 4 governance-and-guards` — Z. 285-338 (Modul-Pfad `agentkit.governance.guard_system`; PROTECTED_ARTIFACTS-Liste pt. 24 der Refactor-Liste Z. 1900)
+- `concept/_meta/bc-cut-decisions.md §BC 4 governance-and-guards` — Z. 285-338 (Modul-Pfad `agentkit.backend.governance.guard_system`; PROTECTED_ARTIFACTS-Liste pt. 24 der Refactor-Liste Z. 1900)
 - `concept/_meta/bc-cut-decisions.md §BC 8 Konzept-Refactor-Liste Pkt. 24` — Z. 1900 (PROTECTED_ARTIFACTS gehoert zur Hook-Konfiguration in BC 4, nicht zu artifacts)
 - `FK-18 §18.9a` — `concept/technical-design/18_relationales_abbildungsmodell_postgres.md` (Schema-Versionierung, Side-by-Side-DBs, Z. 428-507)
 
@@ -136,15 +136,15 @@ Aktuelle Konstanten in `state_backend/paths.py`:
 
 Konzept-Quelle:
 - `FK-31 §31.3` (`concept/technical-design/31_branch_guard_orchestrator_guard_artefaktschutz.md`, Z. 420-487) — `qa-artifact-protection` Hook ist Teil des GuardSystem.
-- `concept/_meta/bc-cut-decisions.md §BC 4 governance-and-guards` (Z. 285-338) — Modul-Pfad `agentkit.governance.guard_system`; refactor-Liste Pkt. 24 (Z. 1900): "PROTECTED_ARTIFACTS-Liste gehoert zur Hook-Konfiguration in BC 4 (governance.guard_system), nicht zu artifacts".
+- `concept/_meta/bc-cut-decisions.md §BC 4 governance-and-guards` (Z. 285-338) — Modul-Pfad `agentkit.backend.governance.guard_system`; refactor-Liste Pkt. 24 (Z. 1900): "PROTECTED_ARTIFACTS-Liste gehoert zur Hook-Konfiguration in BC 4 (governance.guard_system), nicht zu artifacts".
 
 **Verbindliches Zielmodul**: `src/agentkit/governance/guard_system/protected_paths.py`.
 
-Begruendung: die Konstanten sind Hook-Konfiguration des QA-Artefakt-Schutzes (FK-31 §31.3); BC-Cut §BC 4 setzt das Sub `GuardSystem` unter `agentkit.governance.guard_system`. Damit liegt `protected_paths.py` als Datei in genau diesem Sub. **Nicht** in `src/agentkit/governance/protected_paths.py` (BC-Top-Level — zu hoch) und **nicht** in `src/agentkit/governance/guards/artifact_guard.py` (das ist der Konsument, nicht der Owner der Liste).
+Begruendung: die Konstanten sind Hook-Konfiguration des QA-Artefakt-Schutzes (FK-31 §31.3); BC-Cut §BC 4 setzt das Sub `GuardSystem` unter `agentkit.backend.governance.guard_system`. Damit liegt `protected_paths.py` als Datei in genau diesem Sub. **Nicht** in `src/agentkit/governance/protected_paths.py` (BC-Top-Level — zu hoch) und **nicht** in `src/agentkit/governance/guards/artifact_guard.py` (das ist der Konsument, nicht der Owner der Liste).
 
 Ueblicher Importpfad nach der Migration:
 ```python
-from agentkit.governance.guard_system.protected_paths import (
+from agentkit.backend.governance.guard_system.protected_paths import (
     PROTECTED_QA_ARTIFACTS,
     LAYER_ARTIFACT_FILES,
     VERIFY_DECISION_FILE,
@@ -154,17 +154,17 @@ from agentkit.governance.guard_system.protected_paths import (
 ##### 2.1.5.2 Re-Export-Verbot am Alt-Ort
 
 - `state_backend/paths.py` exportiert die drei Konstanten **nicht** mehr (Zero Debt; kein Deprecation-Shim).
-- Auch **kein** Re-Export aus `agentkit.governance.__init__` oder `agentkit.governance.protected_paths` (BC-Top-Level) — die einzige kanonische Importquelle ist `agentkit.governance.guard_system.protected_paths`.
+- Auch **kein** Re-Export aus `agentkit.backend.governance.__init__` oder `agentkit.backend.governance.protected_paths` (BC-Top-Level) — die einzige kanonische Importquelle ist `agentkit.backend.governance.guard_system.protected_paths`.
 - Importer `governance/guards/artifact_guard.py` wird auf den neuen Pfad umgestellt.
 - Ein neuer Test in `tests/unit/governance/test_protected_paths_no_legacy_reexport.py` verifiziert, dass:
-  - `from agentkit.state_backend.paths import PROTECTED_QA_ARTIFACTS` einen `ImportError` wirft;
-  - `from agentkit.governance.protected_paths import PROTECTED_QA_ARTIFACTS` einen `ImportError` wirft (kein BC-Top-Level Re-Export);
-  - `from agentkit.governance.guard_system.protected_paths import PROTECTED_QA_ARTIFACTS` erfolgreich ist.
+  - `from agentkit.backend.state_backend.paths import PROTECTED_QA_ARTIFACTS` einen `ImportError` wirft;
+  - `from agentkit.backend.governance.protected_paths import PROTECTED_QA_ARTIFACTS` einen `ImportError` wirft (kein BC-Top-Level Re-Export);
+  - `from agentkit.backend.governance.guard_system.protected_paths import PROTECTED_QA_ARTIFACTS` erfolgreich ist.
 
 ##### 2.1.5.3 Alle Importer umstellen
 
 - `governance/guards/artifact_guard.py` -> direkter Import aus dem neuen Pfad.
-- Hook-Module (falls vorhanden, z.B. `agentkit.governance.hooks.qa_artifact_lock_hook`) -> direkter Import.
+- Hook-Module (falls vorhanden, z.B. `agentkit.backend.governance.hooks.qa_artifact_lock_hook`) -> direkter Import.
 - Tests, die heute Pfadlisten verwenden -> auf neuen Pfad.
 - Suchpfad fuer den Worker: `grep -rn "state_backend.paths" src/` und `grep -rn "PROTECTED_QA_ARTIFACTS\|LAYER_ARTIFACT_FILES\|VERIFY_DECISION_FILE" src/ tests/`.
 
@@ -176,8 +176,8 @@ Variantenwahl: **`register_verify_producers(registry: ProducerRegistry)`-Funktio
 
 ```python
 # src/agentkit/verify_system/register.py
-from agentkit.artifacts import ProducerRegistry, ProducerType
-from agentkit.core_types import ArtifactClass
+from agentkit.backend.artifacts import ProducerRegistry, ProducerType
+from agentkit.backend.core_types import ArtifactClass
 
 
 def register_verify_producers(registry: ProducerRegistry) -> None:
@@ -281,10 +281,10 @@ Keine globalen Test-Singletons; jede Test-Funktion baut die Registry frisch (ode
 6. **`Producer`-Registrierung fuer verify-system** ist vorhanden: vier Producer (`layer-1-structural`, `layer-2-llm`, `layer-3-adversarial`, `layer-4-policy`) sind in der Registry bekannt; jede QA-Artefakt-Persistenz waehlt einen davon.
 7. **Schema-Migration**: `state_backend/postgres_schema.sql` und SQLite-Schema enthalten die erweiterten Envelope-Spalten gemaess 2.1.4 (Backfill-Regeln 2.1.4.1, Idempotenz 2.1.4.2). Bootstrap ist idempotent re-runnable nach FK-18 §18.9a-Mechanik (Side-by-Side-DB pro `SCHEMA_VERSION`). Alte DB-Stand unter alter Versions-Kennung bleibt unangetastet. Postgres `CHECK`-Constraint auf `artifact_class IN ('worker', 'qa', 'pipeline', 'telemetry', 'governance', 'entwurf', 'handover', 'adversarial_test_sandbox')`.
 8. **`_artifact_class_for`-Heuristik entfernt**: artifact_class wird aus Envelope direkt persistiert. Tests bestaetigen, dass alle acht Klassen schreib- und lesbar sind.
-9. **Konstanten verschoben**: `PROTECTED_QA_ARTIFACTS`, `LAYER_ARTIFACT_FILES`, `VERIFY_DECISION_FILE` leben **ausschliesslich** in `agentkit.governance.guard_system.protected_paths` (siehe 2.1.5.1). `state_backend/paths.py` und `agentkit.governance.protected_paths` (BC-Top-Level) exportieren sie nicht; alle Importer wurden umgestellt; Re-Export-Verbot durch Test 2.1.5.2 abgesichert.
+9. **Konstanten verschoben**: `PROTECTED_QA_ARTIFACTS`, `LAYER_ARTIFACT_FILES`, `VERIFY_DECISION_FILE` leben **ausschliesslich** in `agentkit.backend.governance.guard_system.protected_paths` (siehe 2.1.5.1). `state_backend/paths.py` und `agentkit.backend.governance.protected_paths` (BC-Top-Level) exportieren sie nicht; alle Importer wurden umgestellt; Re-Export-Verbot durch Test 2.1.5.2 abgesichert.
 10. **`governance/guards/artifact_guard.py`** importiert aus `governance.guard_system.protected_paths`. Tests des ArtifactGuards laufen unveraendert.
 11. **Integration-Test** beweist, dass ein verify-system-Lauf vier Layer-Artefakte schreibt und liest, alle mit korrekten Envelope-Pflichtfeldern.
-12. **Architecture-Conformance**: `agentkit.artifacts` darf nicht von `agentkit.state_backend` importieren (nur das umgekehrte ist erlaubt via Protocol-Dependency-Injection). `verify_system` darf nicht direkt `state_backend.store` als Persistenz-Facade verwenden — nur ueber `ArtifactManager`.
+12. **Architecture-Conformance**: `agentkit.backend.artifacts` darf nicht von `agentkit.backend.state_backend` importieren (nur das umgekehrte ist erlaubt via Protocol-Dependency-Injection). `verify_system` darf nicht direkt `state_backend.store` als Persistenz-Facade verwenden — nur ueber `ArtifactManager`.
 13. **Producer-Registrierung explizit im Composition-Root** (kein `__init__.py`-Side-Effect): `bootstrap/composition_root.build_producer_registry()` ruft `register_verify_producers(registry)`. Re-Run der Registry-Bootstrap-Funktion ist idempotent (zweiter Aufruf wirft keinen Fehler).
 14. **Pflichtbefehle gruen**: pytest unit + integration + contract; mypy --strict; ruff clean; Coverage haelt 85%.
 
@@ -301,7 +301,7 @@ Keine globalen Test-Singletons; jede Test-Funktion baut die Registry frisch (ode
 
 - **FK-71 §71.2** — `concept/technical-design/71_artefakt_envelope_und_stage_registry.md` (Z. 109-181) — Envelope-Pflichtfelder, ArtifactManager-Vertrag
 - **`concept/_meta/bc-cut-decisions.md §BC 8 artifacts`** — Z. 715-770 — ArtifactManager als Top-Surface
-- **`concept/_meta/bc-cut-decisions.md §BC 4 governance-and-guards`** — Z. 285-338 — `agentkit.governance.guard_system`-Modul-Pfad fuer Protected-Path-Listen; refactor-Liste Pkt. 24 (Z. 1900)
+- **`concept/_meta/bc-cut-decisions.md §BC 4 governance-and-guards`** — Z. 285-338 — `agentkit.backend.governance.guard_system`-Modul-Pfad fuer Protected-Path-Listen; refactor-Liste Pkt. 24 (Z. 1900)
 - **FK-18 §18.9a** — `concept/technical-design/18_relationales_abbildungsmodell_postgres.md` (Z. 428-507) — Schema-Versionierung (Side-by-Side-DBs)
 - **FK-31 §31.3** — `concept/technical-design/31_branch_guard_orchestrator_guard_artefaktschutz.md` (Z. 420-487) — QA-Artefakt-Schutz; Protected-Path-Listen als Hook-Konfiguration im GuardSystem
 - **FK-27 §27.4-§27.7** — `concept/technical-design/27_verify_pipeline_closure_orchestration.md` — Layer-1/2/3/4 Begruendung der vier verify-system-Producer (siehe 2.1.6.1)
@@ -319,6 +319,6 @@ Keine globalen Test-Singletons; jede Test-Funktion baut die Registry frisch (ode
 
 - Pydantic v2: bestehende `frozen=True`-Modelle aus AG3-022 muessen unveraendert bleiben.
 - Schema-Bootstrap nach FK-18 §18.9a-Mechanik: neue `SCHEMA_VERSION` -> neue DB unter neuer Versions-Kennung (`agentkit_X_Y_Z.sqlite` bzw. Postgres-Schema `ak3_vX_Y_Z`). Nicht `ALTER TABLE` auf der alten DB — alte DB bleibt unangetastet. Re-Run-Safety durch `CREATE TABLE IF NOT EXISTS` und `CREATE INDEX IF NOT EXISTS`; bei Definitions-Drift hartes Fail mit `SchemaIntegrityError`. Details siehe 2.1.4.2.
-- Composition-Root: ProducerRegistry als Singleton. Wenn das App-Bootstrap-Layer noch nicht existiert, lege ein neues `agentkit.bootstrap`-Modul (separat von `installer/`) an. Test-Fixtures bauen Registry pro Test frisch (siehe 2.1.6.3); Produktivcode nutzt den Composition-Root-Singleton (siehe 2.1.6.2).
+- Composition-Root: ProducerRegistry als Singleton. Wenn das App-Bootstrap-Layer noch nicht existiert, lege ein neues `agentkit.backend.bootstrap`-Modul (separat von `installer/`) an. Test-Fixtures bauen Registry pro Test frisch (siehe 2.1.6.3); Produktivcode nutzt den Composition-Root-Singleton (siehe 2.1.6.2).
 - Performance: write ist Pfad-kritisch (jede QA-Runde schreibt mehrere Envelopes). Pruefe, dass kein zusaetzliches Roundtrip-Read auf `write` passiert.
 - AK2 (`T:/codebase/claude-agentkit/`) NICHT veraendern.

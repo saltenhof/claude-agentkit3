@@ -7,13 +7,13 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentkit.skills.errors import UnknownSkillNameError
-from agentkit.skills.quality_metric import (
+from agentkit.backend.skills.errors import UnknownSkillNameError
+from agentkit.backend.skills.quality_metric import (
     AttributionState,
     SourceWindow,
     collect_quality_metrics,
 )
-from agentkit.telemetry.projection_accessor import ProjectionFilter, ProjectionKind
+from agentkit.backend.telemetry.projection_accessor import ProjectionFilter, ProjectionKind
 
 
 @dataclass(frozen=True)

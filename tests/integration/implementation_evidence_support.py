@@ -7,20 +7,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agentkit.core_types.qa_artifact_names import (
+from agentkit.backend.core_types.qa_artifact_names import (
     HANDOVER_FILE,
     PROTOCOL_FILE,
     WORKER_MANIFEST_FILE,
 )
-from agentkit.implementation.manifest import WorkerManifest, WorkerManifestStatus
-from agentkit.state_backend.store import save_story_context
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.verify_system.protocols import RunScope
-from agentkit.verify_system.structural.system_evidence import ChangeEvidence
+from agentkit.backend.implementation.manifest import WorkerManifest, WorkerManifestStatus
+from agentkit.backend.state_backend.store import save_story_context
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.verify_system.protocols import RunScope
+from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
-    from agentkit.verify_system.system import VerifySystem
+    from agentkit.backend.verify_system.system import VerifySystem
 
 
 _AK3_REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -146,7 +146,7 @@ def write_implementation_qa_preconditions(
         status=WorkerManifestStatus.COMPLETED,
         completed_at=datetime(2026, 6, 1, tzinfo=UTC),
         commit_sha="fixture",
-        files_changed=["src/agentkit/fixture_impl.py"],
+        files_changed=["src/agentkit/backend/fixture_impl.py"],
         tests_added=["tests/test_fixture.py"],
         acceptance_criteria_status={"AC-1": "ADDRESSED"},
     )

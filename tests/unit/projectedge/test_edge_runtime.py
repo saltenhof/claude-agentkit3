@@ -4,7 +4,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal
 
-from agentkit.control_plane.models import (
+from agentkit.backend.control_plane.models import (
     ControlPlaneMutationResult,
     EdgeBundle,
     EdgePointer,
@@ -12,8 +12,8 @@ from agentkit.control_plane.models import (
     SessionRunBindingView,
     StoryExecutionLockView,
 )
-from agentkit.projectedge import ProjectEdgeResolver, build_project_edge_client
-from agentkit.projectedge.client import (
+from agentkit.harness_client.projectedge import ProjectEdgeResolver, build_project_edge_client
+from agentkit.harness_client.projectedge.client import (
     HttpsJsonTransport,
     LocalEdgePublisher,
 )
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     # Canonical FK-56 operating-mode literal -- the SINGLE foundation definition
     # (``core_types.operating_mode``). Annotation-only here (PEP 563 deferred), so
     # it lives in the type-checking block; no inline literal redeclaration.
-    from agentkit.core_types.operating_mode import OperatingMode
+    from agentkit.backend.core_types.operating_mode import OperatingMode
 
 
 def _bundle(
@@ -173,7 +173,7 @@ def test_resolver_performs_bounded_sync_for_stale_bundle(tmp_path: Path, monkeyp
     )
     from typing import cast as _cast
 
-    from agentkit.projectedge.client import ProjectEdgeClient as _ProjectEdgeClient
+    from agentkit.harness_client.projectedge.client import ProjectEdgeClient as _ProjectEdgeClient
     fake_client = _FakeClient(fresh_result)
     resolver = ProjectEdgeResolver(
         project_root=tmp_path,
@@ -351,13 +351,13 @@ def test_build_project_edge_client_uses_local_control_plane_config(
 
 
 def test_freeze_state_absent_when_no_file(tmp_path: Path) -> None:
-    from agentkit.projectedge.runtime import read_change_frame_freeze_state
+    from agentkit.harness_client.projectedge.runtime import read_change_frame_freeze_state
 
     assert read_change_frame_freeze_state(tmp_path / "change_frame.json") == "absent"
 
 
 def test_freeze_state_frozen_true(tmp_path: Path) -> None:
-    from agentkit.projectedge.runtime import read_change_frame_freeze_state
+    from agentkit.harness_client.projectedge.runtime import read_change_frame_freeze_state
 
     path = tmp_path / "change_frame.json"
     path.write_text(json.dumps({"frozen": True}), encoding="utf-8")
@@ -365,7 +365,7 @@ def test_freeze_state_frozen_true(tmp_path: Path) -> None:
 
 
 def test_freeze_state_frozen_false_is_editable(tmp_path: Path) -> None:
-    from agentkit.projectedge.runtime import read_change_frame_freeze_state
+    from agentkit.harness_client.projectedge.runtime import read_change_frame_freeze_state
 
     path = tmp_path / "change_frame.json"
     path.write_text(json.dumps({"frozen": False}), encoding="utf-8")
@@ -374,7 +374,7 @@ def test_freeze_state_frozen_false_is_editable(tmp_path: Path) -> None:
 
 def test_freeze_state_missing_flag_is_unreadable(tmp_path: Path) -> None:
     """``{}`` has no freeze decision -> unknown -> fail-closed (not editable)."""
-    from agentkit.projectedge.runtime import read_change_frame_freeze_state
+    from agentkit.harness_client.projectedge.runtime import read_change_frame_freeze_state
 
     path = tmp_path / "change_frame.json"
     path.write_text(json.dumps({}), encoding="utf-8")
@@ -383,7 +383,7 @@ def test_freeze_state_missing_flag_is_unreadable(tmp_path: Path) -> None:
 
 def test_freeze_state_non_bool_flag_is_unreadable(tmp_path: Path) -> None:
     """A truthy-but-not-True flag (``"true"`` / ``null``) must NOT read editable."""
-    from agentkit.projectedge.runtime import read_change_frame_freeze_state
+    from agentkit.harness_client.projectedge.runtime import read_change_frame_freeze_state
 
     for raw in ('{"frozen": "true"}', '{"frozen": null}', '{"frozen": 1}'):
         path = tmp_path / "change_frame.json"
@@ -392,7 +392,7 @@ def test_freeze_state_non_bool_flag_is_unreadable(tmp_path: Path) -> None:
 
 
 def test_freeze_state_non_object_json_is_unreadable(tmp_path: Path) -> None:
-    from agentkit.projectedge.runtime import read_change_frame_freeze_state
+    from agentkit.harness_client.projectedge.runtime import read_change_frame_freeze_state
 
     path = tmp_path / "change_frame.json"
     path.write_text("[1, 2, 3]", encoding="utf-8")
@@ -400,7 +400,7 @@ def test_freeze_state_non_object_json_is_unreadable(tmp_path: Path) -> None:
 
 
 def test_freeze_state_garbage_json_is_unreadable(tmp_path: Path) -> None:
-    from agentkit.projectedge.runtime import read_change_frame_freeze_state
+    from agentkit.harness_client.projectedge.runtime import read_change_frame_freeze_state
 
     path = tmp_path / "change_frame.json"
     path.write_text("{not json", encoding="utf-8")
@@ -409,7 +409,7 @@ def test_freeze_state_garbage_json_is_unreadable(tmp_path: Path) -> None:
 
 def test_freeze_state_directory_at_path_is_unreadable(tmp_path: Path) -> None:
     """A directory at the change-frame path is present-but-not-a-file -> unknown."""
-    from agentkit.projectedge.runtime import read_change_frame_freeze_state
+    from agentkit.harness_client.projectedge.runtime import read_change_frame_freeze_state
 
     path = tmp_path / "change_frame.json"
     path.mkdir()

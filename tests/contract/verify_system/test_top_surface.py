@@ -3,8 +3,8 @@
 Pins:
   - VerifySystem.run_qa_subflow parameter names and type annotations
   - Return-type annotation is exactly QaSubflowOutcome (AG3-026 Pass-2 Befund A)
-  - VerifyContextBundle is exported from agentkit.verify_system
-  - VerifySystem is exported from agentkit.verify_system
+  - VerifyContextBundle is exported from agentkit.backend.verify_system
+  - VerifySystem is exported from agentkit.backend.verify_system
   - PolicyVerdictResult is NOT in __init__.__all__ (AK11)
   - VerifyTarget, VerifyTargetType, QaSubflowExecutionResult NOT exported (AK11)
 """
@@ -15,14 +15,14 @@ import inspect
 
 import pytest
 
-import agentkit.verify_system as _vs_module
-from agentkit.core_types import QaContext
-from agentkit.verify_system import (
+import agentkit.backend.verify_system as _vs_module
+from agentkit.backend.core_types import QaContext
+from agentkit.backend.verify_system import (
     QaSubflowOutcome,
     VerifyContextBundle,
     VerifySystem,
 )
-from agentkit.verify_system.system import VerifySystem as _VerifySystemDirect
+from agentkit.backend.verify_system.system import VerifySystem as _VerifySystemDirect
 
 
 def _resolved_hints() -> dict[str, object]:
@@ -69,7 +69,7 @@ class TestRunQaSubflowSignature:
         assert hints["qa_context"] is QaContext
 
     def test_target_annotation_is_artifact_reference(self) -> None:
-        from agentkit.artifacts import ArtifactReference
+        from agentkit.backend.artifacts import ArtifactReference
 
         hints = _resolved_hints()
         assert hints["target"] is ArtifactReference
@@ -82,7 +82,7 @@ class TestRunQaSubflowSignature:
 
 @pytest.mark.contract
 class TestVerifySystemPublicExports:
-    """VerifySystem and required types are exported from agentkit.verify_system."""
+    """VerifySystem and required types are exported from agentkit.backend.verify_system."""
 
     def test_verify_system_in_all(self) -> None:
         assert "VerifySystem" in _vs_module.__all__
@@ -102,7 +102,7 @@ class TestVerifySystemPublicExports:
 
 @pytest.mark.contract
 class TestForbiddenExports:
-    """Internal types must NOT be exported from agentkit.verify_system (AK11)."""
+    """Internal types must NOT be exported from agentkit.backend.verify_system (AK11)."""
 
     def test_policy_verdict_result_not_in_all(self) -> None:
         assert "PolicyVerdictResult" not in _vs_module.__all__
@@ -132,15 +132,15 @@ class TestForbiddenExports:
 
 @pytest.mark.contract
 class TestVerifySystemIsDirectlyImportable:
-    """VerifySystem can be imported via 'from agentkit.verify_system import VerifySystem'."""
+    """VerifySystem can be imported via 'from agentkit.backend.verify_system import VerifySystem'."""
 
     def test_import_verify_system(self) -> None:
-        from agentkit.verify_system import VerifySystem as ImportedVerifySystem
+        from agentkit.backend.verify_system import VerifySystem as ImportedVerifySystem
 
         assert ImportedVerifySystem is _VerifySystemDirect
 
     def test_import_verify_context_bundle(self) -> None:
-        from agentkit.verify_system import (
+        from agentkit.backend.verify_system import (
             VerifyContextBundle as ImportedVerifyContextBundle,
         )
 

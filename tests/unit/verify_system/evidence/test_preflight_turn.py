@@ -9,12 +9,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.telemetry.contract.preflight_sentinel import PreflightSentinel
-from agentkit.telemetry.contract.records import ExecutionEventRecord
-from agentkit.telemetry.contract.results import ContractStatus
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import Event, EventType
-from agentkit.verify_system.evidence import (
+from agentkit.backend.telemetry.contract.preflight_sentinel import PreflightSentinel
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.telemetry.contract.results import ContractStatus
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import Event, EventType
+from agentkit.backend.verify_system.evidence import (
     AuthorityClass,
     BundleEntry,
     BundleManifest,

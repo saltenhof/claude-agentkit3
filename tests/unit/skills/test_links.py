@@ -14,8 +14,8 @@ import types
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agentkit.skills import links as links_mod
-from agentkit.skills.binding import SkillBindingMode
+from agentkit.backend.skills import links as links_mod
+from agentkit.backend.skills.binding import SkillBindingMode
 
 if TYPE_CHECKING:
     import pytest

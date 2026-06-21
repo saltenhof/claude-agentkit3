@@ -13,17 +13,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
-from agentkit.telemetry.errors import (
+from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
+from agentkit.backend.telemetry.errors import (
     ProjectionKindNotAccessorOwnedError,
     ProjectionRecordTypeMismatchError,
 )
-from agentkit.telemetry.projection_accessor import (
+from agentkit.backend.telemetry.projection_accessor import (
     ProjectionAccessor,
     ProjectionFilter,
     ProjectionKind,
 )
-from agentkit.verify_system.stage_registry.records import (
+from agentkit.backend.verify_system.stage_registry.records import (
     QAFindingRecord,
     QAStageResultRecord,
 )
@@ -90,9 +90,9 @@ def _make_incident() -> object:
     from datetime import UTC as _UTC
     from datetime import datetime as _dt
 
-    from agentkit.core_types import FailureCategory
-    from agentkit.failure_corpus.incident import Incident
-    from agentkit.failure_corpus.types import (
+    from agentkit.backend.core_types import FailureCategory
+    from agentkit.backend.failure_corpus.incident import Incident
+    from agentkit.backend.failure_corpus.types import (
         IncidentId,
         IncidentRole,
         IncidentSeverity,
@@ -118,9 +118,9 @@ def _make_draft() -> object:
     from datetime import UTC as _UTC
     from datetime import datetime as _dt
 
-    from agentkit.core_types import FailureCategory
-    from agentkit.failure_corpus.incident import IncidentDraft
-    from agentkit.failure_corpus.types import IncidentRole, IncidentSeverity
+    from agentkit.backend.core_types import FailureCategory
+    from agentkit.backend.failure_corpus.incident import IncidentDraft
+    from agentkit.backend.failure_corpus.types import IncidentRole, IncidentSeverity
 
     return IncidentDraft(
         project_key="pk",
@@ -267,8 +267,8 @@ def test_fc_incidents_record_calls_repo() -> None:
     Die generische write_projection-API ist fail-closed (id muss zurueck);
     der dedizierte Pfad delegiert an fc_incidents.record_incident und gibt die id.
     """
-    from agentkit.failure_corpus.types import IncidentId
-    from agentkit.telemetry.errors import FCIncidentWriteViaDedicatedMethodError
+    from agentkit.backend.failure_corpus.types import IncidentId
+    from agentkit.backend.telemetry.errors import FCIncidentWriteViaDedicatedMethodError
 
     repos = _make_repos()
     repos.fc_incidents.record_incident.return_value = IncidentId("FC-2026-0007")

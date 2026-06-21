@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-from agentkit.integration_stabilization.models import (
+from agentkit.backend.integration_stabilization.models import (
     IntegrationScopeManifest,
     ManifestApprovalRecord,
     StabilizationBudget,

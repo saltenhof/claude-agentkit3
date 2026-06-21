@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.kpi_analytics.catalog import KpiCatalog
-from agentkit.kpi_analytics.design_system import (
+from agentkit.backend.kpi_analytics.catalog import KpiCatalog
+from agentkit.backend.kpi_analytics.design_system import (
     ColorTokens,
     ControlTokens,
     DesignSystem,
@@ -26,8 +26,8 @@ from agentkit.kpi_analytics.design_system import (
     build_css_variables,
     get_design_system,
 )
-from agentkit.kpi_analytics.top import KpiAnalytics
-from agentkit.kpi_analytics.views import DesignTokens
+from agentkit.backend.kpi_analytics.top import KpiAnalytics
+from agentkit.backend.kpi_analytics.views import DesignTokens
 
 # ---------------------------------------------------------------------------
 # AC1 — token owner structure

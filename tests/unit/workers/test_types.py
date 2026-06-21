@@ -1,8 +1,8 @@
-"""Unit tests for agentkit.workers.types."""
+"""Unit tests for agentkit.backend.workers.types."""
 
 from __future__ import annotations
 
-from agentkit.workers.types import SpawnReason
+from agentkit.backend.workers.types import SpawnReason
 
 
 class TestSpawnReason:

@@ -12,19 +12,19 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.e2e._helpers import seed_approved_story
 
-from agentkit.bootstrap.composition_root import build_setup_phase_handler
-from agentkit.governance.setup_preflight_gate.phase import SetupConfig
-from agentkit.installer import InstallConfig, install_agentkit
-from agentkit.installer.paths import story_dir
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.bootstrap.composition_root import build_setup_phase_handler
+from agentkit.backend.governance.setup_preflight_gate.phase import SetupConfig
+from agentkit.backend.installer import InstallConfig, install_agentkit
+from agentkit.backend.installer.paths import story_dir
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseState,
     PhaseStatus,
 )
-from agentkit.state_backend.store import read_story_context_record
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import WireStoryType
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.state_backend.store import read_story_context_record
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import WireStoryType
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path

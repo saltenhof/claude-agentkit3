@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from agentkit.core_types import Severity
-from agentkit.integration_stabilization.declared_surfaces_check import (
+from agentkit.backend.core_types import Severity
+from agentkit.backend.integration_stabilization.declared_surfaces_check import (
     check_declared_surfaces_only,
     is_path_within_seam_allowlist,
 )
-from agentkit.integration_stabilization.models import (
+from agentkit.backend.integration_stabilization.models import (
     IntegrationScopeManifest,
     StabilizationBudgetCaps,
 )

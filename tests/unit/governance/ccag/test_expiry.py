@@ -12,16 +12,16 @@ from typing import TYPE_CHECKING
 
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.config.models import PermissionsConfig
-from agentkit.governance.ccag.expiry import (
+from agentkit.backend.config.models import PermissionsConfig
+from agentkit.backend.governance.ccag.expiry import (
     PermissionExpiryEscalator,
     escalate_run_to_phase_state,
 )
-from agentkit.governance.ccag.requests import (
+from agentkit.backend.governance.ccag.requests import (
     DEFAULT_TTL_SECONDS,
     PermissionRequestStore,
 )
-from agentkit.pipeline_engine.phase_executor.models import (
+from agentkit.backend.pipeline_engine.phase_executor.models import (
     EscalationReason,
     PhaseName,
     PhaseState,
@@ -145,7 +145,7 @@ def test_no_phase_state_cannot_escalate(tmp_path: Path) -> None:
 def test_escalate_helper_clears_pause_reason() -> None:
     # A PAUSED state (with pause_reason) escalates cleanly: pause_reason cleared,
     # escalation_reason set, satisfying the PhaseState consistency invariant.
-    from agentkit.core_types import PauseReason
+    from agentkit.backend.core_types import PauseReason
 
     paused = make_phase_state(
         status=PhaseStatus.PAUSED, pause_reason=PauseReason.GOVERNANCE_INCIDENT

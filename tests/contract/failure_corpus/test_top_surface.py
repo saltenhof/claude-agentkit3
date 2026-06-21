@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import inspect
 
-from agentkit import failure_corpus
-from agentkit.failure_corpus.top import (
+from agentkit.backend import failure_corpus
+from agentkit.backend.failure_corpus.top import (
     CheckApprovalDecision,
     EffectivenessReport,
     FailureCorpus,

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from agentkit.task_management import (
+from agentkit.backend.task_management import (
     Task,
     TaskKind,
     TaskLink,

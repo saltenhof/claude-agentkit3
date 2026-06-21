@@ -6,14 +6,14 @@ import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from agentkit.closure.gates import evaluate_implementation_evidence_gate
-from agentkit.core_types.qa_artifact_names import (
+from agentkit.backend.closure.gates import evaluate_implementation_evidence_gate
+from agentkit.backend.core_types.qa_artifact_names import (
     HANDOVER_FILE,
     PROTOCOL_FILE,
     WORKER_MANIFEST_FILE,
 )
-from agentkit.story_context_manager.types import StoryType
-from agentkit.verify_system.structural.system_evidence import ChangeEvidence
+from agentkit.backend.story_context_manager.types import StoryType
+from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -63,7 +63,7 @@ def test_implementation_evidence_gate_required_artifacts_and_system_diff_pass(
         story_dir=tmp_path,
         change_evidence=ChangeEvidence(
             available=True,
-            changed_files=("src/agentkit/example.py",),
+            changed_files=("src/agentkit/backend/example.py",),
         ),
     )
 
@@ -80,7 +80,7 @@ def _write_required_worker_artifacts(story_dir: Path) -> None:
                 "run_id": "run-test-001",
                 "status": "completed",
                 "completed_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
-                "files_changed": ["src/agentkit/example.py"],
+                "files_changed": ["src/agentkit/backend/example.py"],
                 "tests_added": [],
                 "acceptance_criteria_status": {"AC1": "done"},
             }

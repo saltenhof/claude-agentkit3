@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.core_types import Severity
-from agentkit.verify_system.errors import ResolutionMetadataError
-from agentkit.verify_system.protocols import Finding, TrustClass
-from agentkit.verify_system.remediation.finding_resolution import (
+from agentkit.backend.core_types import Severity
+from agentkit.backend.verify_system.errors import ResolutionMetadataError
+from agentkit.backend.verify_system.protocols import Finding, TrustClass
+from agentkit.backend.verify_system.remediation.finding_resolution import (
     LLM_RESOLUTION_METADATA_KEY,
     FindingResolutionAssessor,
     FindingResolutionStatus,

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from agentkit.execution_planning.dependency_graph import DependencyGraph
-from agentkit.execution_planning.entities import (
+from agentkit.backend.execution_planning.dependency_graph import DependencyGraph
+from agentkit.backend.execution_planning.entities import (
     BlockingConditionKind,
     ExecutionCapacityBudgets,
     ExternalGate,
@@ -16,7 +16,7 @@ from agentkit.execution_planning.entities import (
     StoryDependencyKind,
     StoryRefForPlanning,
 )
-from agentkit.execution_planning.readiness import compute_readiness, derive_plan
+from agentkit.backend.execution_planning.readiness import compute_readiness, derive_plan
 
 
 def _story(number: int, *, status: str = "defined") -> StoryRefForPlanning:

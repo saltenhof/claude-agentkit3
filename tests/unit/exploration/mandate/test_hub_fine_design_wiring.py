@@ -17,20 +17,20 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.exploration_change_frame_fixture import example_change_frame
 
-from agentkit.exploration.mandate.fine_design import (
+from agentkit.backend.exploration.mandate.fine_design import (
     FineDesignEvaluatorUnavailableError,
 )
-from agentkit.exploration.mandate.hub_fine_design_wiring import (
+from agentkit.backend.exploration.mandate.hub_fine_design_wiring import (
     ChangeFrameFineDesignPromptBuilder,
     LlmConvergenceJudge,
 )
-from agentkit.verify_system.llm_evaluator.llm_client import (
+from agentkit.backend.verify_system.llm_evaluator.llm_client import (
     FailClosedLlmClient,
     LlmClientError,
 )
 
 if TYPE_CHECKING:
-    from agentkit.multi_llm_hub.entities import HubBackendName
+    from agentkit.integration_clients.multi_llm_hub.entities import HubBackendName
 
 _RESPONSES: dict[HubBackendName, str] = {"chatgpt": "use one key", "qwen": "agree"}
 

@@ -7,14 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.verify_system.evidence import (
+from agentkit.backend.verify_system.evidence import (
     AuthorityClass,
     BundleEntry,
     EvidenceAssembler,
     EvidenceAssemblyError,
     RepoContext,
 )
-from agentkit.verify_system.structural.system_evidence import ChangeEvidence
+from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
 
 @dataclass(frozen=True)

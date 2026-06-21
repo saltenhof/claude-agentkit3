@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentkit.artifacts import (
+from agentkit.backend.artifacts import (
     ArtifactEnvelope,
     ArtifactManager,
     ArtifactNotFoundError,
@@ -25,7 +25,7 @@ from agentkit.artifacts import (
     ProducerRegistry,
     ProducerType,
 )
-from agentkit.core_types import ArtifactClass, EnvelopeStatus
+from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus
 
 
 class _InMemoryRepository:

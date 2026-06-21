@@ -8,12 +8,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from agentkit.config.models import JenkinsConfig
-from agentkit.installer.integration_checkpoints.ci_preflight import (
+from agentkit.backend.config.models import JenkinsConfig
+from agentkit.backend.installer.integration_checkpoints.ci_preflight import (
     CheckpointStatus,
     check_ci_preconditions,
 )
-from agentkit.integrations.jenkins import JenkinsApiError
+from agentkit.integration_clients.jenkins import JenkinsApiError
 
 
 @dataclass

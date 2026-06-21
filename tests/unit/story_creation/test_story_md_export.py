@@ -9,16 +9,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.integrations.vectordb import VectorDbWriteError
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.story_context_manager.story_model import (
     Story,
     StorySpecification,
     WireStoryType,
 )
-from agentkit.story_creation.story_md_export import (
+from agentkit.backend.story_creation.story_md_export import (
     StoryMdExportResult,
     export_story_md,
 )
+from agentkit.integration_clients.vectordb import VectorDbWriteError
 
 if TYPE_CHECKING:
     from pathlib import Path

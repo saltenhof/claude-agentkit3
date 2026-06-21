@@ -7,13 +7,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.core_types import StorySize
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.projection_repositories import (
+from agentkit.backend.core_types import StorySize
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.projection_repositories import (
     build_projection_repositories,
 )
-from agentkit.state_backend.store.story_repository import StateBackendStoryRepository
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.state_backend.store.story_repository import StateBackendStoryRepository
+from agentkit.backend.story_context_manager.story_model import (
     ChangeImpact,
     ConceptQuality,
     RiskLevel,
@@ -21,7 +21,7 @@ from agentkit.story_context_manager.story_model import (
     StoryStatus,
     WireStoryType,
 )
-from agentkit.task_management import (
+from agentkit.backend.task_management import (
     InvalidTaskLinkTargetError,
     InvalidTaskTransitionError,
     ResolvedBy,
@@ -39,7 +39,7 @@ from agentkit.task_management import (
     TaskStatus,
     TaskTargetKind,
 )
-from agentkit.telemetry.projection_accessor import ProjectionAccessor
+from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

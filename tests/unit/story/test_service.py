@@ -4,18 +4,18 @@ from datetime import UTC, datetime
 
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.phase_executor import PhaseStatus
-from agentkit.story.repository import StoryRepository
-from agentkit.story.service import StoryService
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import (
+from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
+from agentkit.backend.story.repository import StoryRepository
+from agentkit.backend.story.service import StoryService
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import (
     ImplementationContract,
     StoryMode,
     StoryType,
 )
-from agentkit.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 
 def _context(story_id: str) -> StoryContext:

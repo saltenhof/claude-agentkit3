@@ -20,15 +20,15 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from agentkit.config.models import SonarQubeConfig
-from agentkit.verify_system.pre_merge_runner.build_test_runner import CiBuildTestRunner
-from agentkit.verify_system.pre_merge_runner.ci_run import (
+from agentkit.backend.config.models import SonarQubeConfig
+from agentkit.backend.verify_system.pre_merge_runner.build_test_runner import CiBuildTestRunner
+from agentkit.backend.verify_system.pre_merge_runner.ci_run import (
     CandidateRunCache,
     JenkinsCiBackend,
 )
-from agentkit.verify_system.pre_merge_runner.contract import CandidateRef
-from agentkit.verify_system.pre_merge_runner.scan_runner import CiSonarScanRunner
-from agentkit.verify_system.sonarqube_gate.ledger import AcceptedExceptionLedger
+from agentkit.backend.verify_system.pre_merge_runner.contract import CandidateRef
+from agentkit.backend.verify_system.pre_merge_runner.scan_runner import CiSonarScanRunner
+from agentkit.backend.verify_system.sonarqube_gate.ledger import AcceptedExceptionLedger
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -62,7 +62,7 @@ class _StubJenkinsClient:
         del pipeline, parameters
         self.trigger_calls += 1
         if self.unreachable:
-            from agentkit.integrations.jenkins import JenkinsApiError
+            from agentkit.integration_clients.jenkins import JenkinsApiError
 
             raise JenkinsApiError("jenkins unreachable")
         return _JenkinsResp(headers={"location": "http://jenkins/queue/item/3/"})

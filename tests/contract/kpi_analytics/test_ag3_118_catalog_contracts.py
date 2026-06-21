@@ -58,15 +58,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.kpi_analytics.catalog import KpiCatalog, KpiGranularity
-from agentkit.kpi_analytics.fact_store.models import (
+from agentkit.backend.kpi_analytics.catalog import KpiCatalog, KpiGranularity
+from agentkit.backend.kpi_analytics.fact_store.models import (
     FactCorpusPeriod,
     FactGuardPeriod,
     FactPipelinePeriod,
     FactPoolPeriod,
     FactStory,
 )
-from agentkit.kpi_analytics.fact_target import (
+from agentkit.backend.kpi_analytics.fact_target import (
     KPI_FACT_TARGETS,
     FactTable,
     resolve_kpi_fact_columns,
@@ -792,7 +792,7 @@ def test_negative_unknown_fact_column_is_rejected() -> None:
     column that does not exist in the Pydantic model and asserts the
     resolver returns it as missing.
     """
-    import agentkit.kpi_analytics.fact_target as ft_module
+    import agentkit.backend.kpi_analytics.fact_target as ft_module
 
     nonexistent_column = "this_column_does_not_exist_in_any_fk62_model"
     fake_target: tuple[ft_module.FactTarget, ...] = (
@@ -991,6 +991,6 @@ def test_prompt_integrity_violation_by_stage_uses_fk62_names_without_count_suffi
 
 def test_catalog_status_is_complete(catalog: KpiCatalog) -> None:
     """AG3-118: catalog_status must be COMPLETE (not SKELETON) after population."""
-    from agentkit.kpi_analytics.catalog import CatalogStatus
+    from agentkit.backend.kpi_analytics.catalog import CatalogStatus
 
     assert catalog.catalog_status == CatalogStatus.COMPLETE

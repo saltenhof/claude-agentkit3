@@ -14,27 +14,27 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.bootstrap.composition_root import (
+from agentkit.backend.bootstrap.composition_root import (
     build_planning_projection_accessor,
     build_planning_story_dependency_repository,
 )
-from agentkit.core_types import StoryDependencyKind
-from agentkit.execution_planning.entities import PlannedStory, StoryDependency
-from agentkit.execution_planning.errors import (
+from agentkit.backend.core_types import StoryDependencyKind
+from agentkit.backend.execution_planning.entities import PlannedStory, StoryDependency
+from agentkit.backend.execution_planning.errors import (
     StoryDependencyConflictError,
     StoryDependencyNotFoundError,
 )
-from agentkit.execution_planning.lifecycle import add_dependency
-from agentkit.execution_planning.persistence.errors import (
+from agentkit.backend.execution_planning.lifecycle import add_dependency
+from agentkit.backend.execution_planning.persistence.errors import (
     PlanningProjectionDeleteNotSupportedError,
 )
-from agentkit.execution_planning.persistence.filter import (
+from agentkit.backend.execution_planning.persistence.filter import (
     DependencyEdgeDeleteKey,
     PlanningProjectionFilter,
 )
-from agentkit.execution_planning.persistence.schema_kind import PlanningSchemaKind
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.execution_planning.persistence.schema_kind import PlanningSchemaKind
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -110,8 +110,8 @@ def test_no_direct_state_backend_dependency_write(story_dir: Path) -> None:
     """
     import sqlite3
 
-    from agentkit.state_backend.config import versioned_sqlite_db_file
-    from agentkit.state_backend.paths import state_backend_dir
+    from agentkit.backend.state_backend.config import versioned_sqlite_db_file
+    from agentkit.backend.state_backend.paths import state_backend_dir
 
     dep_repo = build_planning_story_dependency_repository(story_dir)
     dep_repo.add(
@@ -179,10 +179,10 @@ def test_remove_routes_delete_through_accessor_top_surface(story_dir: Path) -> N
     used and that no row survives.
     """
     accessor = build_planning_projection_accessor(story_dir)
-    from agentkit.state_backend.store.planning_projection_repository import (
+    from agentkit.backend.state_backend.store.planning_projection_repository import (
         StateBackendDependencyEdgeProjectionRepository,
     )
-    from agentkit.state_backend.store.planning_story_dependency_repository import (
+    from agentkit.backend.state_backend.store.planning_story_dependency_repository import (
         PlanningWritePathStoryDependencyRepository,
     )
 
@@ -247,10 +247,10 @@ def test_remove_fail_closed_on_zero_row_delete_after_resolution(
     AFTER a real edge has been written, leaving the resolving read intact.
     """
     accessor = build_planning_projection_accessor(story_dir)
-    from agentkit.state_backend.store.planning_projection_repository import (
+    from agentkit.backend.state_backend.store.planning_projection_repository import (
         StateBackendDependencyEdgeProjectionRepository,
     )
-    from agentkit.state_backend.store.planning_story_dependency_repository import (
+    from agentkit.backend.state_backend.store.planning_story_dependency_repository import (
         PlanningWritePathStoryDependencyRepository,
     )
 
@@ -287,11 +287,11 @@ def test_write_projection_fail_closed_for_unmapped_kind(
     well-formed record, proving ``PlanningSchemaKindUnknownError`` is raised
     instead of a silent miss.
     """
-    from agentkit.execution_planning.persistence import accessor as accessor_module
-    from agentkit.execution_planning.persistence.errors import (
+    from agentkit.backend.execution_planning.persistence import accessor as accessor_module
+    from agentkit.backend.execution_planning.persistence.errors import (
         PlanningSchemaKindUnknownError,
     )
-    from agentkit.execution_planning.persistence.records import PlannedStoryRecord
+    from agentkit.backend.execution_planning.persistence.records import PlannedStoryRecord
 
     real_map = accessor_module.planning_kind_to_record_type()
     crippled = {

@@ -11,23 +11,23 @@ version drift, missing config) all fail closed with ``SONAR_NOT_GREEN``.
 
 from __future__ import annotations
 
-from agentkit.config.models import (
+from agentkit.backend.config.models import (
     SonarQubeBranchPluginConfig,
     SonarQubeConfig,
     SonarQubePluginsConfig,
 )
-from agentkit.governance.integrity_gate import DimensionResult, IntegrityDimension
-from agentkit.governance.integrity_gate.dim9_drift import detect_version_drift
-from agentkit.governance.integrity_gate.dim9_sonar import (
+from agentkit.backend.governance.integrity_gate import DimensionResult, IntegrityDimension
+from agentkit.backend.governance.integrity_gate.dim9_drift import detect_version_drift
+from agentkit.backend.governance.integrity_gate.dim9_sonar import (
     SONAR_NOT_GREEN,
     FreshAttestation,
     verify_fresh_attestation,
 )
-from agentkit.verify_system.sonarqube_gate import (
+from agentkit.backend.verify_system.sonarqube_gate import (
     SonarApplicability,
     SonarGateOutcome,
 )
-from agentkit.verify_system.sonarqube_gate.attestation import (
+from agentkit.backend.verify_system.sonarqube_gate.attestation import (
     ATTESTATION_STATUS_READ,
     SonarAttestation,
 )

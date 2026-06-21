@@ -11,15 +11,15 @@ from dataclasses import dataclass
 
 import pytest
 
-from agentkit.config.models import VectorDbConfig
-from agentkit.integrations.vectordb import StorySearchHit, VectorDbUnavailableError
-from agentkit.story_creation.vectordb_reconciliation import (
+from agentkit.backend.config.models import VectorDbConfig
+from agentkit.backend.story_creation.vectordb_reconciliation import (
     VectorDbReconciliation,
     resolve_vectordb_conflict_flag,
 )
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import EventType
-from agentkit.verify_system.llm_evaluator.roles import LlmVerdict, ReviewerRole
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import EventType
+from agentkit.backend.verify_system.llm_evaluator.roles import LlmVerdict, ReviewerRole
+from agentkit.integration_clients.vectordb import StorySearchHit, VectorDbUnavailableError
 
 
 @dataclass

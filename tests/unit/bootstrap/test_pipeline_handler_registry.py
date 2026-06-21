@@ -21,18 +21,18 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.bootstrap.composition_root import (
+from agentkit.backend.bootstrap.composition_root import (
     build_pipeline_engine,
     build_pipeline_handler_registry,
 )
-from agentkit.process.language.definitions import resolve_workflow
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import (
+from agentkit.backend.process.language.definitions import resolve_workflow
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import (
     reset_backend_cache_for_tests,
     save_story_context,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -175,9 +175,9 @@ class TestRegistryWiring:
         is ever ENTERED it ESCALATES rather than running against empty coordinates.
         It must NOT be a real SetupPhaseHandler carrying empty coordinates.
         """
-        from agentkit.governance.setup_preflight_gate.phase import SetupPhaseHandler
-        from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-        from agentkit.pipeline_engine.phase_executor import PhaseStatus
+        from agentkit.backend.governance.setup_preflight_gate.phase import SetupPhaseHandler
+        from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+        from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
 
         story_dir = _persist_ctx(tmp_path, StoryType.IMPLEMENTATION)
         registry = build_pipeline_handler_registry(
@@ -299,8 +299,8 @@ class TestProductiveSetupConfigComposition:
     def test_build_setup_config_for_run_uses_real_coordinates(
         self, tmp_path: Path
     ) -> None:
-        from agentkit.bootstrap.composition_root import build_setup_config_for_run
-        from agentkit.governance.setup_preflight_gate.phase import SetupConfig
+        from agentkit.backend.bootstrap.composition_root import build_setup_config_for_run
+        from agentkit.backend.governance.setup_preflight_gate.phase import SetupConfig
 
         _write_project_config(
             tmp_path, github_owner="acme-org", github_repo="trading"
@@ -321,7 +321,7 @@ class TestProductiveSetupConfigComposition:
 
     def test_productive_engine_wires_real_setup_config(self, tmp_path: Path) -> None:
         """The productive engine factory threads the real SetupConfig into setup."""
-        from agentkit.bootstrap.composition_root import build_setup_config_for_run
+        from agentkit.backend.bootstrap.composition_root import build_setup_config_for_run
 
         _write_project_config(
             tmp_path, github_owner="acme-org", github_repo="trading"
@@ -354,7 +354,7 @@ class TestProductiveSetupConfigComposition:
         asserts the resolved setup handler carries the run's real coordinates and
         project root -- the W10 regression that hid E1/E7.
         """
-        from agentkit.control_plane.dispatch import build_phase_dispatcher
+        from agentkit.backend.control_plane.dispatch import build_phase_dispatcher
 
         _write_project_config(
             tmp_path, github_owner="acme-org", github_repo="trading"
@@ -379,13 +379,13 @@ class TestProductiveSetupConfigComposition:
         be rejected fail-closed (setup must never run against empty coordinates) --
         not silently dispatched against a dummy.
         """
-        from agentkit.control_plane.dispatch import build_phase_dispatcher
+        from agentkit.backend.control_plane.dispatch import build_phase_dispatcher
 
         _write_project_config(tmp_path, github_owner=None, github_repo=None)
         ctx = _persist_ctx_with_issue(tmp_path, issue_nr=7)
         story_dir = tmp_path / "stories" / ctx.story_id
 
-        from agentkit.control_plane.dispatch import PreStartGuard
+        from agentkit.backend.control_plane.dispatch import PreStartGuard
 
         class _Allow:
             def is_approved(self, project_key: str, story_display_id: str) -> bool:
@@ -421,7 +421,7 @@ class TestProductiveSetupConfigComposition:
 
     def test_missing_github_coordinates_fail_closed(self, tmp_path: Path) -> None:
         """Fail-closed (E1): no github_owner/repo -> SetupCoordinatesUnavailableError."""
-        from agentkit.bootstrap.composition_root import (
+        from agentkit.backend.bootstrap.composition_root import (
             SetupCoordinatesUnavailableError,
             build_setup_config_for_run,
         )
@@ -434,7 +434,7 @@ class TestProductiveSetupConfigComposition:
 
     def test_missing_issue_nr_fail_closed(self, tmp_path: Path) -> None:
         """Fail-closed (E1): no issue_nr -> SetupCoordinatesUnavailableError."""
-        from agentkit.bootstrap.composition_root import (
+        from agentkit.backend.bootstrap.composition_root import (
             SetupCoordinatesUnavailableError,
             build_setup_config_for_run,
         )
@@ -455,7 +455,7 @@ class TestProductiveSetupConfigComposition:
         ``0`` is not a real GitHub issue; a code-producing setup must never run
         against it. ``build_setup_config_for_run`` requires ``issue_nr > 0``.
         """
-        from agentkit.bootstrap.composition_root import (
+        from agentkit.backend.bootstrap.composition_root import (
             SetupCoordinatesUnavailableError,
             build_setup_config_for_run,
         )
@@ -485,8 +485,8 @@ class TestProductiveSetupConfigComposition:
         the E5 regression: the prior E1 fix wrongly blocked these legitimately
         non-GitHub stories.
         """
-        from agentkit.bootstrap.composition_root import build_setup_config_for_run
-        from agentkit.governance.setup_preflight_gate.phase import SetupConfig
+        from agentkit.backend.bootstrap.composition_root import build_setup_config_for_run
+        from agentkit.backend.governance.setup_preflight_gate.phase import SetupConfig
 
         # No github_owner/repo and no issue_nr -- an internal story carries none.
         _write_project_config(
@@ -542,7 +542,7 @@ class TestLayer2ClientThreadingAC7:
     def test_registry_threads_client_into_impl_and_closure(
         self, tmp_path: Path
     ) -> None:
-        from agentkit.verify_system.llm_evaluator.llm_client import FailClosedLlmClient
+        from agentkit.backend.verify_system.llm_evaluator.llm_client import FailClosedLlmClient
 
         client = _RecordingLlmClient()
         story_dir = _persist_ctx(tmp_path, StoryType.IMPLEMENTATION)

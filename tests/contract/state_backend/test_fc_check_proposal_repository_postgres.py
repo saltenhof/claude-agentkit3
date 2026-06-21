@@ -13,25 +13,25 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from agentkit.core_types import (
+from agentkit.backend.core_types import (
     CheckStatus,
     CheckType,
     FailureCategory,
     PatternStatus,
 )
-from agentkit.failure_corpus.check_proposal import (
+from agentkit.backend.failure_corpus.check_proposal import (
     CheckProposalRecord,
     FalsePositiveRisk,
 )
-from agentkit.failure_corpus.pattern import (
+from agentkit.backend.failure_corpus.pattern import (
     FailurePatternRecord,
     PatternRiskLevel,
     PromotionRule,
 )
-from agentkit.state_backend.store.fc_check_proposal_repository import (
+from agentkit.backend.state_backend.store.fc_check_proposal_repository import (
     StateBackendFcCheckProposalRepository,
 )
-from agentkit.state_backend.store.fc_pattern_repository import (
+from agentkit.backend.state_backend.store.fc_pattern_repository import (
     StateBackendFcPatternRepository,
 )
 
@@ -226,7 +226,7 @@ def _pg_raw_insert_check(values: tuple[object, ...]) -> None:
     """Raw INSERT into fc_check_proposals via the canonical Postgres connect path."""
     import psycopg
 
-    from agentkit.state_backend.store.projection_repositories import _postgres_connect
+    from agentkit.backend.state_backend.store.projection_repositories import _postgres_connect
 
     with pytest.raises(psycopg.errors.Error), _postgres_connect() as conn:
         conn.execute(_CHECK_INSERT, values)
@@ -300,7 +300,7 @@ def test_postgres_rejects_unknown_check_ref_fk(
     """
     import psycopg
 
-    from agentkit.state_backend.store.projection_repositories import _postgres_connect
+    from agentkit.backend.state_backend.store.projection_repositories import _postgres_connect
 
     cols = _PATTERN_COLUMNS + ", check_ref"
     insert = (

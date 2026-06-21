@@ -8,14 +8,14 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from agentkit.control_plane.records import (
+from agentkit.backend.control_plane.records import (
     BindingDeleteScope,
     ControlPlaneOperationRecord,
     SessionRunBindingRecord,
 )
-from agentkit.control_plane.repository import ControlPlaneRuntimeRepository
-from agentkit.governance.principal_capabilities.principals import Principal
-from agentkit.story_exit import (
+from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
+from agentkit.backend.governance.principal_capabilities.principals import Principal
+from agentkit.backend.story_exit import (
     AdmissibilityAssessment,
     AlternativeReview,
     ExitClass,
@@ -31,8 +31,8 @@ from agentkit.story_exit import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.governance.guard_system.records import StoryExecutionLockRecord
-    from agentkit.telemetry.contract.records import ExecutionEventRecord
+    from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
+    from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 
 NOW = datetime(2026, 6, 9, 12, 0, tzinfo=UTC)

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.governance.harness_adapters.post_tool_outcome import map_post_tool_outcome
+from agentkit.harness_client.harness_adapters.post_tool_outcome import map_post_tool_outcome
 
 # ---------------------------------------------------------------------------
 # Regression: newline-separated patterns must still yield a parsed exit_code

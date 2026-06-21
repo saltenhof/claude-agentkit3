@@ -12,14 +12,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.governance.integrity_gate import (
+from agentkit.backend.governance.integrity_gate import (
     IntegrityDimension,
     IntegrityGate,
     IntegrityGateStatus,
     required_phases_for,
 )
-from agentkit.governance.integrity_gate.dimensions import dimensions_for
-from agentkit.story_context_manager.types import StoryType
+from agentkit.backend.governance.integrity_gate.dimensions import dimensions_for
+from agentkit.backend.story_context_manager.types import StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -29,7 +29,7 @@ class _NonCodePort:
     """State-port stub for concept/research (no QA artifacts, only context)."""
 
     def resolve_runtime_scope(self, story_dir: object) -> object:
-        from agentkit.exceptions import CorruptStateError
+        from agentkit.backend.exceptions import CorruptStateError
 
         raise CorruptStateError("no scope")
 

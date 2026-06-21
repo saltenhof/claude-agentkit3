@@ -24,13 +24,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.governance.errors import HookRegistrationError
-from agentkit.governance.harness_adapters.settings_writer import (
+from agentkit.backend.governance.errors import HookRegistrationError
+from agentkit.backend.governance.hook_registration import HookDefinition, HookEventName
+from agentkit.harness_client.harness_adapters.settings_writer import (
     CodexSettingsWriter,
     map_claude_matcher,
     remap_command,
 )
-from agentkit.governance.hook_registration import HookDefinition, HookEventName
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -514,8 +514,8 @@ class TestFailClosed:
 class TestRegisterHooksWritesCodex:
     @staticmethod
     def _make_governance(tmp_path: Path) -> object:
-        from agentkit.governance.hook_registration import RegistrationResult
-        from agentkit.governance.runner import Governance
+        from agentkit.backend.governance.hook_registration import RegistrationResult
+        from agentkit.backend.governance.runner import Governance
 
         class _RecordingHookRepo:
             def register(

@@ -5,23 +5,23 @@ from __future__ import annotations
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.core_types import ExplorationGateStatus
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.core_types import ExplorationGateStatus
+from agentkit.backend.pipeline_engine.phase_executor import (
     ExplorationPayload,
     PhaseState,
     PhaseStatus,
 )
-from agentkit.process.language.gates import Gate, GateStage
-from agentkit.process.language.guards import GuardResult
-from agentkit.process.language.model import (
+from agentkit.backend.process.language.gates import Gate, GateStage
+from agentkit.backend.process.language.guards import GuardResult
+from agentkit.backend.process.language.model import (
     HookPoints,
     PhaseDefinition,
     Precondition,
     TransitionRule,
     WorkflowDefinition,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if False:  # TYPE_CHECKING — avoid import for type checkers only
     pass

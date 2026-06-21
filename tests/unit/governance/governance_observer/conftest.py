@@ -11,14 +11,14 @@ from typing import Any
 
 import pytest
 
-from agentkit.governance.governance_observer.models import (
+from agentkit.backend.governance.governance_observer.models import (
     AdjudicationIncidentType,
     AdjudicationRecommendedAction,
     AdjudicationSeverity,
     GovernanceAdjudicationVerdict,
     GovernanceIncidentCandidate,
 )
-from agentkit.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.emitters import MemoryEmitter
 
 # ---------------------------------------------------------------------------
 # Test-double: ScriptedEventReader

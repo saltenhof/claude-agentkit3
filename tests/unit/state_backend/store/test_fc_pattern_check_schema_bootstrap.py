@@ -15,9 +15,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.sqlite_store import _connect, state_db_path_for
-from agentkit.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.sqlite_store import _connect, state_db_path_for
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -149,7 +149,7 @@ class TestSideBySideMigration:
             conn.commit()
 
         new_db = state_db_path_for(old_dir)
-        from agentkit.state_backend.config import versioned_sqlite_db_file
+        from agentkit.backend.state_backend.config import versioned_sqlite_db_file
 
         assert new_db.name == versioned_sqlite_db_file()
         assert new_db.name != old_db.name

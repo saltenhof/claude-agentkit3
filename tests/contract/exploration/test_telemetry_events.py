@@ -9,19 +9,19 @@ from __future__ import annotations
 
 from tests.exploration_change_frame_fixture import EXAMPLE_RUN_ID, example_change_frame
 
-from agentkit.exploration.change_frame import (
+from agentkit.backend.exploration.change_frame import (
     AffectedBuildingBlocks,
     ContractChanges,
     OpenPoints,
 )
-from agentkit.exploration.mandate.classification import MandateClassification
-from agentkit.exploration.mandate.fine_design import FineDesignDecision
-from agentkit.exploration.mandate.impact_checker import ImpactExceedanceChecker
-from agentkit.exploration.mandate.scope_detector import ScopeExplosionDetector
-from agentkit.exploration.mandate.telemetry import MandateTelemetry
-from agentkit.story_context_manager.story_model import ChangeImpact
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import (
+from agentkit.backend.exploration.mandate.classification import MandateClassification
+from agentkit.backend.exploration.mandate.fine_design import FineDesignDecision
+from agentkit.backend.exploration.mandate.impact_checker import ImpactExceedanceChecker
+from agentkit.backend.exploration.mandate.scope_detector import ScopeExplosionDetector
+from agentkit.backend.exploration.mandate.telemetry import MandateTelemetry
+from agentkit.backend.story_context_manager.story_model import ChangeImpact
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import (
     MANDATORY_PAYLOAD_FIELDS,
     EventType,
     validate_event_payload,

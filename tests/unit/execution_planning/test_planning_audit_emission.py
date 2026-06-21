@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.execution_planning.audit import PlanningAuditEmitter
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import EventPayloadContractError, EventType
+from agentkit.backend.execution_planning.audit import PlanningAuditEmitter
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import EventPayloadContractError, EventType
 
 _BC14_EVENT_TYPES = {
     EventType.DEPENDENCY_RECORDED,

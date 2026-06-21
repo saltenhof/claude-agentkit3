@@ -22,13 +22,13 @@ schema_version: 1
 kind: invariant-set
 context: truth-boundary-checker
 protected_module_prefixes:
-  - agentkit.governance
+  - agentkit.backend.governance
   - agentkit.pipeline
   - agentkit.qa.structural
 allowed_module_prefixes:
-  - agentkit.cli
+  - agentkit.backend.cli
   - agentkit.migrations
-  - agentkit.utils.io
+  - agentkit.backend.utils.io
   - tests
 forbidden_loader_symbols:
   - load_json_object

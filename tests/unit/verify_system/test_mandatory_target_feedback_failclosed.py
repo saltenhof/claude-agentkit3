@@ -17,13 +17,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.artifacts import ArtifactNotFoundError
-from agentkit.verify_system.errors import MandatoryTargetReadError
-from agentkit.verify_system.protocols import Severity
-from agentkit.verify_system.system import _mandatory_target_feedback_findings
+from agentkit.backend.artifacts import ArtifactNotFoundError
+from agentkit.backend.verify_system.errors import MandatoryTargetReadError
+from agentkit.backend.verify_system.protocols import Severity
+from agentkit.backend.verify_system.system import _mandatory_target_feedback_findings
 
 if TYPE_CHECKING:
-    from agentkit.core_types import ArtifactClass
+    from agentkit.backend.core_types import ArtifactClass
 
 
 @dataclass

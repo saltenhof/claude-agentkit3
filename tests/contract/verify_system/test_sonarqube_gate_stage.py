@@ -18,8 +18,8 @@ from typing import Any
 
 import yaml
 
-from agentkit.core_types.qa_artifact_names import SONARQUBE_GATE_PRODUCER
-from agentkit.verify_system.sonarqube_gate import (
+from agentkit.backend.core_types.qa_artifact_names import SONARQUBE_GATE_PRODUCER
+from agentkit.backend.verify_system.sonarqube_gate import (
     SONARQUBE_GATE_STAGE,
     AcceptedExceptionLedgerEntry,
     SonarAttestation,

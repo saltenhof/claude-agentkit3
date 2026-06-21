@@ -32,58 +32,58 @@ from tests.unit.exploration.review.scripted import (
     build_scripted_evaluator,
 )
 
-from agentkit.artifacts import (
+from agentkit.backend.artifacts import (
     ArtifactEnvelope,
     EnvelopeStatus,
     Producer,
     ProducerId,
     ProducerType,
 )
-from agentkit.bootstrap.composition_root import (
+from agentkit.backend.bootstrap.composition_root import (
     build_artifact_manager,
     build_exploration_phase_handler,
 )
-from agentkit.core_types import ArtifactClass
-from agentkit.core_types.qa_artifact_names import CHANGE_FRAME_FILE
-from agentkit.exploration.change_frame import (
+from agentkit.backend.core_types import ArtifactClass
+from agentkit.backend.core_types.qa_artifact_names import CHANGE_FRAME_FILE
+from agentkit.backend.exploration.change_frame import (
     AffectedBuildingBlocks,
     ChangeFrame,
     ContractChanges,
     OpenPoints,
 )
-from agentkit.exploration.register import (
+from agentkit.backend.exploration.register import (
     EXPLORATION_ENTWURF_PRODUCER,
     EXPLORATION_ENTWURF_STAGE,
 )
-from agentkit.exploration.review.design_review import DesignReviewRunner
-from agentkit.exploration.review.doc_fidelity import DocFidelityChecker
-from agentkit.exploration.review.review import ExplorationReview
-from agentkit.installer.paths import resolve_qa_story_dir
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.exploration.review.design_review import DesignReviewRunner
+from agentkit.backend.exploration.review.doc_fidelity import DocFidelityChecker
+from agentkit.backend.exploration.review.review import ExplorationReview
+from agentkit.backend.installer.paths import resolve_qa_story_dir
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import (
     ExplorationPayload,
     PhaseState,
     PhaseStatus,
 )
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import (
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import (
     load_execution_events,
     reset_backend_cache_for_tests,
     save_flow_execution,
 )
-from agentkit.state_backend.store.exploration_change_frame_repository import (
+from agentkit.backend.state_backend.store.exploration_change_frame_repository import (
     StateBackendExplorationChangeFrameAdapter,
 )
-from agentkit.state_backend.store.story_repository import StateBackendStoryRepository
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.state_backend.store.story_repository import StateBackendStoryRepository
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import (
     ChangeImpact,
     Story,
     WireStoryType,
 )
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.telemetry.events import EventType
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.telemetry.events import EventType
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -359,8 +359,8 @@ def test_fine_design_non_reachability_fails_closed_no_freeze(tmp_path: Path) -> 
     AttemptRecord.failure_cause by the engine) -- NOT ESCALATED, NOT PAUSED, NO
     infra_unavailable triple. The change-frame is NOT frozen (NO ERROR BYPASSING).
     """
-    from agentkit.bootstrap.composition_root import _UnavailableFineDesignEvaluator
-    from agentkit.exploration.mandate.fine_design import FineDesignSubprocess
+    from agentkit.backend.bootstrap.composition_root import _UnavailableFineDesignEvaluator
+    from agentkit.backend.exploration.mandate.fine_design import FineDesignSubprocess
 
     story_dir = _story_dir(tmp_path)
     _bind_flow(story_dir)
@@ -407,13 +407,13 @@ def test_productive_wiring_uses_hub_fine_design_evaluator_by_default(
     handler's fine-design evaluator IS the hub evaluator wired with the real hub
     client + the productive prompt builder + the LLM-delegating convergence judge.
     """
-    from agentkit.bootstrap.composition_root import _UnavailableFineDesignEvaluator
-    from agentkit.exploration.mandate.hub_fine_design import HubFineDesignEvaluator
-    from agentkit.exploration.mandate.hub_fine_design_wiring import (
+    from agentkit.backend.bootstrap.composition_root import _UnavailableFineDesignEvaluator
+    from agentkit.backend.exploration.mandate.hub_fine_design import HubFineDesignEvaluator
+    from agentkit.backend.exploration.mandate.hub_fine_design_wiring import (
         ChangeFrameFineDesignPromptBuilder,
         LlmConvergenceJudge,
     )
-    from agentkit.multi_llm_hub.client import HubClient
+    from agentkit.integration_clients.multi_llm_hub.client import HubClient
 
     story_dir = _story_dir(tmp_path)
     ctx = _ctx(story_dir)
@@ -445,7 +445,7 @@ def test_productive_hub_fine_design_run_drives_the_hub_path(tmp_path: Path) -> N
     """
     from tests.unit.exploration.mandate.test_hub_fine_design import _FakeHub
 
-    from agentkit.bootstrap.composition_root import build_hub_fine_design_evaluator
+    from agentkit.backend.bootstrap.composition_root import build_hub_fine_design_evaluator
 
     story_dir = _story_dir(tmp_path)
     _bind_flow(story_dir)
@@ -521,7 +521,7 @@ def test_converged_hub_fine_design_persists_decisions_into_frozen_artifact(
     """
     from tests.unit.exploration.mandate.test_hub_fine_design import _FakeHub
 
-    from agentkit.bootstrap.composition_root import build_hub_fine_design_evaluator
+    from agentkit.backend.bootstrap.composition_root import build_hub_fine_design_evaluator
 
     story_dir = _story_dir(tmp_path)
     _bind_flow(story_dir)

@@ -6,28 +6,28 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agentkit.bootstrap.composition_root import build_artifact_manager
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.phase_executor.models import (
+from agentkit.backend.bootstrap.composition_root import build_artifact_manager
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.phase_executor.models import (
     PhaseSnapshot,
     PhaseState,
     PhaseStateMode,
     PhaseStateProducer,
     PhaseStatus,
 )
-from agentkit.state_backend.sqlite_store import state_db_path_for
-from agentkit.state_backend.store import (
+from agentkit.backend.state_backend.sqlite_store import state_db_path_for
+from agentkit.backend.state_backend.store import (
     record_layer_artifacts,
     save_flow_execution,
     save_phase_snapshot,
     save_phase_state,
     save_story_context,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.verify_system.artifacts import write_layer_artifacts
-from agentkit.verify_system.protocols import LayerResult, Severity, TrustClass
-from agentkit.verify_system.structural.checks import (
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.verify_system.artifacts import write_layer_artifacts
+from agentkit.backend.verify_system.protocols import LayerResult, Severity, TrustClass
+from agentkit.backend.verify_system.structural.checks import (
     check_artifacts_present,
     check_context_exists,
     check_context_valid,

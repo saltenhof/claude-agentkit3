@@ -7,9 +7,9 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from agentkit.core_types.attempt import AttemptOutcome, FailureCause
-from agentkit.pipeline_engine.phase_executor import PhaseName
-from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
+from agentkit.backend.core_types.attempt import AttemptOutcome, FailureCause
+from agentkit.backend.pipeline_engine.phase_executor import PhaseName
+from agentkit.backend.pipeline_engine.phase_executor.records import AttemptRecord
 
 _NOW = datetime(2026, 1, 15, 10, 0, 0, tzinfo=UTC)
 _LATER = datetime(2026, 1, 15, 10, 5, 0, tzinfo=UTC)

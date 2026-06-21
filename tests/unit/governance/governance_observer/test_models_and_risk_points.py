@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.governance.governance_observer.models import (
+from agentkit.backend.governance.governance_observer.models import (
     IMMEDIATE_STOP_SIGNALS,
     RISK_POINTS,
     GovernanceSignalType,
 )
-from agentkit.governance.governance_observer.observer import (
+from agentkit.backend.governance.governance_observer.observer import (
     _parse_signal_type,
     lookup_risk_points,
 )

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.state_backend.store.compaction_epoch_repository import (
+from agentkit.backend.state_backend.store.compaction_epoch_repository import (
     StateBackendCompactionEpochRepository,
 )
 

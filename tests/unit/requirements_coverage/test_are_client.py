@@ -8,13 +8,13 @@ from typing import Any
 
 import pytest
 
-from agentkit.requirements_coverage.are_client import AreClient, AreHttpResponse
-from agentkit.requirements_coverage.contract import (
+from agentkit.backend.requirements_coverage.are_client import AreClient, AreHttpResponse
+from agentkit.backend.requirements_coverage.contract import (
     AreDockpointStatus,
     AreRequirementType,
     EvidenceType,
 )
-from agentkit.requirements_coverage.errors import (
+from agentkit.backend.requirements_coverage.errors import (
     AreClientDecodeError,
     AreClientHttpError,
 )

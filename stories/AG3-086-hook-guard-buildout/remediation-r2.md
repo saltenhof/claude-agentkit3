@@ -14,7 +14,7 @@ another story, because both belong to the guards AG3-086 builds.
 ## ERROR 1 — `integrity_violation` not covered for all new guards (FK-68 §68.3.1 / FK-30 §30.7.3)
 
 **Verification.** FK-68 §68.3.1 (`68_telemetrie_eventing_workflow_metriken.md:447`) lists the
-row "Guard-Hooks (inkl. SkillUsageCheck) | `agentkit.governance.guard_system` | PreToolUse |
+row "Guard-Hooks (inkl. SkillUsageCheck) | `agentkit.backend.governance.guard_system` | PreToolUse |
 Blockade (exit 2) | `integrity_violation`" — so **every** guard block path emits
 `integrity_violation`, not only Prompt-Integrity. §68.2 (`:368`) confirms `integrity_violation`
 = "Ein Guard wurde verletzt" and scopes the `stage` field to "bei prompt_integrity_guard"

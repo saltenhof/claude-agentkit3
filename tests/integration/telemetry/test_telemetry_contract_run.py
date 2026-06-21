@@ -18,26 +18,26 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import (
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import (
     reset_backend_cache_for_tests,
     save_flow_execution,
     save_story_context,
 )
-from agentkit.state_backend.store.projection_repositories import (
+from agentkit.backend.state_backend.store.projection_repositories import (
     build_projection_repositories,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.telemetry.contract.records import ExecutionEventRecord
-from agentkit.telemetry.contract.results import TelemetryScope
-from agentkit.telemetry.contract.telemetry_contract import TelemetryContract
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import Event, EventType
-from agentkit.telemetry.projection_accessor import ProjectionAccessor
-from agentkit.telemetry.risk_window.normalizer import EventNormalizer
-from agentkit.telemetry.storage import (
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.telemetry.contract.results import TelemetryScope
+from agentkit.backend.telemetry.contract.telemetry_contract import TelemetryContract
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import Event, EventType
+from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
+from agentkit.backend.telemetry.risk_window.normalizer import EventNormalizer
+from agentkit.backend.telemetry.storage import (
     StateBackendEmitter,
     StateBackendExecutionEventReader,
 )
@@ -256,7 +256,7 @@ def test_risk_window_write_and_purge_roundtrip(tmp_path: Path) -> None:
 
 
 def _read_risk_window(story_dir: Path) -> list[dict[str, object]]:
-    from agentkit.state_backend.store.projection_repositories import _sqlite_connect_qa
+    from agentkit.backend.state_backend.store.projection_repositories import _sqlite_connect_qa
 
     with _sqlite_connect_qa(story_dir) as conn:
         rows = conn.execute("SELECT * FROM risk_window").fetchall()

@@ -11,14 +11,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from agentkit.telemetry.contract.records import ExecutionEventRecord
-from agentkit.telemetry.contract.results import TelemetryScope
-from agentkit.telemetry.contract.telemetry_contract import (
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.telemetry.contract.results import TelemetryScope
+from agentkit.backend.telemetry.contract.telemetry_contract import (
     ContractStatus,
     TelemetryContract,
 )
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import EventType
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import EventType
 
 _RUN = "run-001"
 _PROJECT = "proj"

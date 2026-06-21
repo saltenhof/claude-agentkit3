@@ -135,7 +135,7 @@ CHECK-Constraints auf `failure_category` (12 Werte), `promotion_status` (5 Werte
 
 **Wichtig**: Diese Tabellen liegen in `fc_*`-Namespace. Schema-Owner laut FK-41 ist `failure-corpus`-BC; aber die SQL-Definition lebt in `state_backend/postgres_schema.sql` (technischer Adapter).
 
-Repository-Klassen `FcPatternRepository`, `FcCheckProposalRepository` als Protocols in `agentkit.failure_corpus.repository` (Erweiterung), Implementierungen in `state_backend/store/`.
+Repository-Klassen `FcPatternRepository`, `FcCheckProposalRepository` als Protocols in `agentkit.backend.failure_corpus.repository` (Erweiterung), Implementierungen in `state_backend/store/`.
 
 Achtung: PatternPromotion- und CheckFactory-Subs (Full-Logik) sind weiter Out of Scope der Erst-Welle (vgl. AG3-028 Out of Scope). Diese Story stellt nur die Tabellen + Repository-Skelette bereit, damit das Schema vorhanden ist; aktive Beschreibung passiert in spaeteren Stories.
 

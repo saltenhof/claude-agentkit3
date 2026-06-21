@@ -17,22 +17,22 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.config.models import VectorDbConfig
-from agentkit.integrations.vectordb import StorySearchHit, VectorDbError
-from agentkit.story_creation.conflict_adjudicator import (
+from agentkit.backend.config.models import VectorDbConfig
+from agentkit.backend.story_creation.conflict_adjudicator import (
     CreateScopePromptMaterializer,
     CreateTimeConflictAdjudicationError,
     CreateTimeConflictAdjudicator,
 )
-from agentkit.story_creation.vectordb_reconciliation import (
+from agentkit.backend.story_creation.vectordb_reconciliation import (
     VectorDbReconciliation,
 )
-from agentkit.verify_system.llm_evaluator.bundle import ReviewBundle
-from agentkit.verify_system.llm_evaluator.llm_client import (
+from agentkit.backend.verify_system.llm_evaluator.bundle import ReviewBundle
+from agentkit.backend.verify_system.llm_evaluator.llm_client import (
     LlmClientError,
     LoginRequiredError,
 )
-from agentkit.verify_system.llm_evaluator.roles import LlmVerdict, ReviewerRole
+from agentkit.backend.verify_system.llm_evaluator.roles import LlmVerdict, ReviewerRole
+from agentkit.integration_clients.vectordb import StorySearchHit, VectorDbError
 
 # ---------------------------------------------------------------------------
 # Fake ONLY at the LLM-hub/model edge (CLAUDE.md mocks-exception).
@@ -130,7 +130,7 @@ def test_pass_with_concerns_collapses_to_binary_fail() -> None:
     conflict) would have slipped through as "no conflict" -- a fail-open gap.
     The adjudicator collapses it to a blocking FAIL fail-closed.
     """
-    from agentkit.verify_system.protocols import Severity
+    from agentkit.backend.verify_system.protocols import Severity
 
     client = _FakeLlmClient(response=_concern_json("overlaps AG3-012 partially"))
     adjudicator = CreateTimeConflictAdjudicator(client)
@@ -305,7 +305,7 @@ def test_port_substitutable_into_real_reconciler() -> None:
 
 def test_abgleich_protocol_counters_from_reconciliation() -> None:
     """AC5: the §21.4.2 counters project owner-faithfully from the result."""
-    from agentkit.story_creation.vectordb_reconciliation import (
+    from agentkit.backend.story_creation.vectordb_reconciliation import (
         AbgleichProtocol,
         ReconciliationResult,
     )
@@ -393,7 +393,7 @@ def test_no_pass_when_in_doubt_on_malformed_llm_response() -> None:
     the tool — never escaping as a raw ``StructuredEvaluatorError`` traceback and
     never masked as a PASS verdict.
     """
-    from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+    from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import (
         StructuredEvaluatorError,
     )
 
@@ -422,7 +422,7 @@ def test_malformed_output_chains_structured_evaluator_error() -> None:
     preserved for diagnostics while the stable, fail-closed type is what callers
     catch.
     """
-    from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+    from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import (
         StructuredEvaluatorError,
     )
 

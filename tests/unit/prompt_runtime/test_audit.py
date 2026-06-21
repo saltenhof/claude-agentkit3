@@ -10,21 +10,21 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.artifacts import (
+from agentkit.backend.artifacts import (
     ArtifactManager,
     EnvelopeValidator,
     ProducerRegistry,
 )
-from agentkit.core_types import ArtifactClass, EnvelopeStatus
-from agentkit.prompt_runtime.audit import (
+from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus
+from agentkit.backend.prompt_runtime.audit import (
     PROMPT_AUDIT_PRODUCER_NAME,
     PromptAuditHash,
     build_prompt_audit_envelope,
     compute_prompt_audit_hash,
     persist_prompt_audit,
 )
-from agentkit.prompt_runtime.register import register_prompt_runtime_producers
-from agentkit.state_backend.store.artifact_repository import (
+from agentkit.backend.prompt_runtime.register import register_prompt_runtime_producers
+from agentkit.backend.state_backend.store.artifact_repository import (
     StateBackendArtifactRepository,
 )
 
@@ -152,7 +152,7 @@ class TestPromptAuditPersistence:
             audit_hash=self._hash(),
             artifact_path=".agentkit/prompts/run-audit-2/inv-1/prompt.md",
         )
-        from agentkit.artifacts import ProducerNotRegisteredError
+        from agentkit.backend.artifacts import ProducerNotRegisteredError
 
         with pytest.raises(ProducerNotRegisteredError):
             persist_prompt_audit(manager, envelope)

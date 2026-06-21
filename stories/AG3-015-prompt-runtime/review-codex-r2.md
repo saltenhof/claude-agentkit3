@@ -49,7 +49,7 @@ werden muessen (`concept/technical-design/44_prompt_bundles_materialization_audi
 Ich habe das mit einem gezielten lokalen Python-Reproducer gegen den aktuellen
 Stand bestaetigt: v99 pinnen, v100 in den Store schreiben, `runtime.update_binding("project-bound", "100")`,
 dann `materialize_qa_prompt_audit(...)` mit `RunScope(run_id="run-1", ...)`
-aufrufen. Ergebnis: `agentkit.exceptions.ProjectError: Prompt run pin mismatch`.
+aufrufen. Ergebnis: `agentkit.backend.exceptions.ProjectError: Prompt run pin mismatch`.
 
 Erwartung: Verify-System darf nicht vor jedem Evaluator-Prompt gegen die
 aktuelle Lock repinnen. Der Pfad muss den bestehenden Run-Pin konsumieren

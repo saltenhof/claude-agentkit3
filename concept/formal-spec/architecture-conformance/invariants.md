@@ -25,27 +25,27 @@ context: architecture-conformance
 dependency_rules:
   - id: architecture-conformance.rule.story_dashboard_must_not_depend_on_transport_or_hook_adapters
     source_module_prefixes:
-      - agentkit.story
+      - agentkit.backend.story
       - agentkit.dashboard
     forbidden_module_prefixes:
-      - agentkit.control_plane.http
-      - agentkit.projectedge.client
-      - agentkit.governance.hookruntime
+      - agentkit.backend.control_plane.http
+      - agentkit.harness_client.projectedge.client
+      - agentkit.backend.governance.hookruntime
     message: story and dashboard application code may not depend on control-plane transport, project-edge transport, or hook runtime adapters
   - id: architecture-conformance.rule.story_dashboard_control_plane_must_not_depend_on_raw_state_drivers
     source_module_prefixes:
-      - agentkit.story
+      - agentkit.backend.story
       - agentkit.dashboard
-      - agentkit.control_plane
+      - agentkit.backend.control_plane
     forbidden_module_prefixes:
-      - agentkit.state_backend.postgres_store
-      - agentkit.state_backend.sqlite_store
+      - agentkit.backend.state_backend.postgres_store
+      - agentkit.backend.state_backend.sqlite_store
     message: application and control-plane modules may not import raw state-backend drivers directly
   - id: architecture-conformance.rule.projectedge_must_not_depend_on_control_plane_http
     source_module_prefixes:
-      - agentkit.projectedge
+      - agentkit.harness_client.projectedge
     forbidden_module_prefixes:
-      - agentkit.control_plane.http
+      - agentkit.backend.control_plane.http
     message: project-edge client must not depend on the control-plane HTTP adapter implementation
 acyclic_group_sets:
   - id: architecture-conformance.acyclic.application_surface
@@ -74,21 +74,21 @@ mutation_surface_rules:
     writer_symbols:
       - save_story_context
     allowed_module_prefixes:
-      - agentkit.state_backend
-      - agentkit.pipeline_engine
-      - agentkit.exploration
-      - agentkit.implementation
-      - agentkit.closure
-      - agentkit.state_backend.store
+      - agentkit.backend.state_backend
+      - agentkit.backend.pipeline_engine
+      - agentkit.backend.exploration
+      - agentkit.backend.implementation
+      - agentkit.backend.closure
+      - agentkit.backend.state_backend.store
     message: "story context mutation may only be imported from state-backend or pipeline-phase surfaces (governance.setup_preflight_gate removed: now uses SetupContextRepository Protocol + adapter -- Fix E9 AG3-031)"
   - id: architecture-conformance.rule.phase_state_projection_write_surface
     writer_symbols:
       - save_phase_state
       - save_phase_snapshot
     allowed_module_prefixes:
-      - agentkit.state_backend
+      - agentkit.backend.state_backend
       - agentkit.pipeline
-      - agentkit.pipeline_engine
+      - agentkit.backend.pipeline_engine
     message: phase-state projection mutation may only be imported from pipeline surfaces
   - id: architecture-conformance.rule.execution_runtime_write_surface
     writer_symbols:
@@ -96,28 +96,28 @@ mutation_surface_rules:
       - save_node_execution_ledger
       - save_override_record
     allowed_module_prefixes:
-      - agentkit.state_backend
+      - agentkit.backend.state_backend
       - agentkit.pipeline
-      - agentkit.pipeline_engine
-      - agentkit.phase_state_store
+      - agentkit.backend.pipeline_engine
+      - agentkit.backend.phase_state_store
     message: execution ledger mutation may only be imported from pipeline or phase-state-store surfaces
   - id: architecture-conformance.rule.attempt_write_surface
     writer_symbols:
       - save_attempt
     allowed_module_prefixes:
-      - agentkit.state_backend
+      - agentkit.backend.state_backend
       - agentkit.pipeline
-      - agentkit.pipeline_engine
+      - agentkit.backend.pipeline_engine
     message: attempt mutation may only be imported from pipeline surfaces
   - id: architecture-conformance.rule.telemetry_event_write_surface
     writer_symbols:
       - append_execution_event
       - append_execution_event_global
     allowed_module_prefixes:
-      - agentkit.state_backend
-      - agentkit.telemetry
-      - agentkit.telemetry_service
-      - agentkit.control_plane
+      - agentkit.backend.state_backend
+      - agentkit.backend.telemetry
+      - agentkit.backend.telemetry_service
+      - agentkit.backend.control_plane
     message: execution event append may only be imported from telemetry or control-plane surfaces
   - id: architecture-conformance.rule.control_plane_binding_write_surface
     writer_symbols:
@@ -126,16 +126,16 @@ mutation_surface_rules:
       - save_story_execution_lock_global
       - save_control_plane_operation_global
     allowed_module_prefixes:
-      - agentkit.state_backend
-      - agentkit.control_plane
+      - agentkit.backend.state_backend
+      - agentkit.backend.control_plane
     message: session, lock, and control-plane operation mutation may only be imported from control-plane surfaces
   - id: architecture-conformance.rule.closure_projection_write_surface
     writer_symbols:
       - upsert_story_metrics
       - record_closure_report
     allowed_module_prefixes:
-      - agentkit.state_backend
-      - agentkit.closure
+      - agentkit.backend.state_backend
+      - agentkit.backend.closure
     message: closure projections may only be imported from closure surfaces
 read_surface_rules:
   - id: architecture-conformance.rule.story_read_surface
@@ -147,8 +147,8 @@ read_surface_rules:
       - load_latest_story_metrics_global
       - load_execution_events_global
     allowed_module_prefixes:
-      - agentkit.state_backend
-      - agentkit.story.repository
+      - agentkit.backend.state_backend
+      - agentkit.backend.story.repository
     message: story read loaders may only be imported from the explicit story repository surface
   - id: architecture-conformance.rule.control_plane_runtime_read_surface
     reader_symbols:
@@ -156,8 +156,8 @@ read_surface_rules:
       - load_session_run_binding_global
       - load_story_execution_lock_global
     allowed_module_prefixes:
-      - agentkit.state_backend
-      - agentkit.control_plane.repository
+      - agentkit.backend.state_backend
+      - agentkit.backend.control_plane.repository
     message: control-plane runtime read loaders may only be imported from the explicit control-plane repository surface
 invariants:
   - id: architecture-conformance.invariant.story_dashboard_transport_boundary

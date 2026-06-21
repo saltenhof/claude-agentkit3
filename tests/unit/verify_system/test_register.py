@@ -13,14 +13,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentkit.artifacts import ProducerRegistry, ProducerType
-from agentkit.core_types import ArtifactClass
-from agentkit.core_types.qa_artifact_names import (
+from agentkit.backend.artifacts import ProducerRegistry, ProducerType
+from agentkit.backend.core_types import ArtifactClass
+from agentkit.backend.core_types.qa_artifact_names import (
     CONTEXT_SUFFICIENCY_PRODUCER,
     SONARQUBE_GATE_PRODUCER,
     STABILITY_GATE_PRODUCER,
 )
-from agentkit.verify_system.register import register_verify_producers
+from agentkit.backend.verify_system.register import register_verify_producers
 
 #: Erwartete Producer-Liste nach AG3-026 Re-Review (+ AG3-069 IS stability-gate).
 EXPECTED_QA_PRODUCERS: frozenset[str] = frozenset(
@@ -57,7 +57,7 @@ def test_register_verify_producers_is_idempotent() -> None:
 def test_layer_1_and_4_are_deterministic() -> None:
     registry = ProducerRegistry()
     register_verify_producers(registry)
-    from agentkit.verify_system.register import _VERIFY_PRODUCERS
+    from agentkit.backend.verify_system.register import _VERIFY_PRODUCERS
 
     types_by_name = {name: ptype for _, name, ptype in _VERIFY_PRODUCERS}
     assert types_by_name["verify-system.layer-1-structural"] is ProducerType.DETERMINISTIC

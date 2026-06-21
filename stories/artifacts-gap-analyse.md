@@ -14,7 +14,7 @@
 
 ## 1. Executive Summary
 
-Das Modul `agentkit.artifacts` existiert als eigenstaendiges Paket nicht. Die im Konzept definierten Klassen `ArtifactManager`, `ArtifactEnvelope`, `ArtifactClass`, `ArtifactReference`, `EnvelopeValidator`, `ProducerRegistry` und verwandte Typen sind vollstaendig unimplementiert. Artefakt-relevante Logik ist stattdessen ueber `state_backend/` (Schema-Tabellen, rudimentaere artifact_class-Heuristik), `verify_system/artifacts.py` (QA-Artefakt-Persistenz) und `verify_system/policy_engine/projections.py` (Envelope-Serialisierung) verstreut — ohne Eigentuemer, ohne typisiertes Envelope-Modell, ohne Producer-Registry-Validierung. Die Implementierung entspricht konzeptionell dem v2-Muster (implizite Datenfluesse, unklare Ownership), das v3 explizit vermeiden soll.
+Das Modul `agentkit.backend.artifacts` existiert als eigenstaendiges Paket nicht. Die im Konzept definierten Klassen `ArtifactManager`, `ArtifactEnvelope`, `ArtifactClass`, `ArtifactReference`, `EnvelopeValidator`, `ProducerRegistry` und verwandte Typen sind vollstaendig unimplementiert. Artefakt-relevante Logik ist stattdessen ueber `state_backend/` (Schema-Tabellen, rudimentaere artifact_class-Heuristik), `verify_system/artifacts.py` (QA-Artefakt-Persistenz) und `verify_system/policy_engine/projections.py` (Envelope-Serialisierung) verstreut — ohne Eigentuemer, ohne typisiertes Envelope-Modell, ohne Producer-Registry-Validierung. Die Implementierung entspricht konzeptionell dem v2-Muster (implizite Datenfluesse, unklare Ownership), das v3 explizit vermeiden soll.
 
 | Kategorie | Anzahl |
 |---|---|
@@ -24,13 +24,13 @@ Das Modul `agentkit.artifacts` existiert als eigenstaendiges Paket nicht. Die im
 
 ## 2. Konzept-Soll (Kurzfassung)
 
-- **Paket `agentkit.artifacts` als Top-Modul** mit ca. 9 Klassen: `ArtifactManager`, `ArtifactClass`, `ArtifactReference`, `ArtifactEnvelope`, `EnvelopeStatus`, `Producer`, `ProducerType`, `ProducerId`, `EnvelopeValidator` — `bc-cut-decisions.md §BC 8`
+- **Paket `agentkit.backend.artifacts` als Top-Modul** mit ca. 9 Klassen: `ArtifactManager`, `ArtifactClass`, `ArtifactReference`, `ArtifactEnvelope`, `EnvelopeStatus`, `Producer`, `ProducerType`, `ProducerId`, `EnvelopeValidator` — `bc-cut-decisions.md §BC 8`
 - **`ArtifactManager` mit typisierter Top-Surface** (`write`, `read`, `exists` gegen State-Backend-Driver) als zentrale Schreib-/Lese-Koordination fuer alle Artefaktklassen — `bc-cut-decisions.md §BC 8`
 - **`ArtifactEnvelope` als typisiertes Pydantic-Modell** mit Pflichtfeldern `schema_version="3.0"`, `story_id`, `run_id`, `stage`, `attempt`, `producer.type`, `producer.name`, `started_at`, `finished_at`, `status` — `FK-71 §71.2`
 - **`EnvelopeValidator` im Top** fuer Pflichtfeld-Pruefung (nicht producer-spezifisch) — `bc-cut-decisions.md §BC 8`
 - **Typisierte Artefaktklassen** (`ArtifactClass`-Enum): Worker-Artefakt, QA-Artefakt, Pipeline-Artefakt, Telemetrie, Governance-Artefakt, Entwurfsartefakt, Handover-Artefakt, Adversarial-Test-Sandbox — `FK-71 §71.1.1`
 - **Typisierte `ArtifactReference`** mit Feldern `artifact_class`, `story_id`, `run_id` und kanonalem Pfad/Record-ID — `FK-71 Glossar`
-- **`ProducerRegistry` als Sub** (`agentkit.artifacts.producer_registry`) mit Mapping Export-Artefakt -> erlaubter Producer-Name, Producer-Validierung, LLM-Check-Status -> Envelope-Status-Mapping (`PASS_WITH_CONCERNS` -> `WARN`) — `FK-71 §71.2`, `bc-cut-decisions.md §BC 8`
+- **`ProducerRegistry` als Sub** (`agentkit.backend.artifacts.producer_registry`) mit Mapping Export-Artefakt -> erlaubter Producer-Name, Producer-Validierung, LLM-Check-Status -> Envelope-Status-Mapping (`PASS_WITH_CONCERNS` -> `WARN`) — `FK-71 §71.2`, `bc-cut-decisions.md §BC 8`
 - **Integrity-Gate validiert Envelope-Pflichtfelder bei Closure** gegen Producer- und Provenienzfelder der kanonischen Records — `FK-71 §71.2`
 - **`schema_version="3.0"` als Pflichtfeld im Envelope** — `FK-71 §71.2`
 - **Typisierte Producer-Modelle** (`Producer`, `ProducerType`, `ProducerId`) — `bc-cut-decisions.md §BC 8`
@@ -56,11 +56,11 @@ Das Modul `agentkit.artifacts` existiert als eigenstaendiges Paket nicht. Die im
 
 | # | Thema | Konzept-Referenz | Anmerkung |
 |---|---|---|---|
-| A1 | Paket `agentkit.artifacts` (Top-Modul) | `bc-cut-decisions.md §BC 8` | Kein Verzeichnis `src/agentkit/artifacts/` vorhanden; kein `__init__.py` |
+| A1 | Paket `agentkit.backend.artifacts` (Top-Modul) | `bc-cut-decisions.md §BC 8` | Kein Verzeichnis `src/agentkit/artifacts/` vorhanden; kein `__init__.py` |
 | A2 | `ArtifactManager` (write/read/exists) | `bc-cut-decisions.md §BC 8` | Schreib-/Lese-Koordination gegen State-Backend-Driver vollstaendig fehlend; Logik verstreut in `postgres_store.py` und `verify_system/artifacts.py` |
 | A3 | `ArtifactEnvelope` als typisiertes Pydantic-Modell | `FK-71 §71.2` | Kein Modell; Envelope-Felder werden als rohe dicts produziert ohne `schema_version`, `story_id`, `run_id`, `stage`, `attempt`, `started_at`, `finished_at` |
 | A4 | `EnvelopeValidator` fuer Pflichtfeld-Pruefung | `bc-cut-decisions.md §BC 8` | Nicht vorhanden; `IntegrityGate` prueft nur Existenz, keine Feldinhalte gemaess FK-71 §71.2 |
-| A5 | `ProducerRegistry` als Sub mit Producer-Validierung und LLM-Status-Mapping | `FK-71 §71.2`, `bc-cut-decisions.md §BC 8` | Kein Sub `agentkit.artifacts.producer_registry`; kein Producer-Mapping; kein `PASS_WITH_CONCERNS` -> `WARN`-Mapping |
+| A5 | `ProducerRegistry` als Sub mit Producer-Validierung und LLM-Status-Mapping | `FK-71 §71.2`, `bc-cut-decisions.md §BC 8` | Kein Sub `agentkit.backend.artifacts.producer_registry`; kein Producer-Mapping; kein `PASS_WITH_CONCERNS` -> `WARN`-Mapping |
 | A6 | Typisierte Klassen `Producer`, `ProducerType`, `ProducerId` | `bc-cut-decisions.md §BC 8` | Nicht vorhanden; Producer wird als freier String `producer_component` im SQL gespeichert |
 | A7 | Typisierte `ArtifactReference` | `FK-71 Glossar` | Nicht vorhanden; Artefakte werden ueber `artifact_kind`-Strings und Dateinamen referenziert, kein typisierter Verweis |
 
@@ -79,7 +79,7 @@ Das Modul `agentkit.artifacts` existiert als eigenstaendiges Paket nicht. Die im
 
 | # | Thema | Code-Referenz | Konzept-Referenz | Drift / Fehler |
 |---|---|---|---|---|
-| C1 | BC-Ownership der QA-Artefakt-Persistenz liegt in `verify_system` | `src/agentkit/verify_system/artifacts.py` | `bc-cut-decisions.md §BC 8` | `verify_system/artifacts.py` ist als Owner der QA-Artefakt-Persistenz positioniert; gemaess BC-Schnitt gehoert Schreib-/Lese-Koordination in `agentkit.artifacts.ArtifactManager`. Das ist eine Konzept-Verletzung der BC-Grenze: verify-system konsumiert artifacts, produziert aber nicht die Artefakt-Infrastruktur selbst |
+| C1 | BC-Ownership der QA-Artefakt-Persistenz liegt in `verify_system` | `src/agentkit/verify_system/artifacts.py` | `bc-cut-decisions.md §BC 8` | `verify_system/artifacts.py` ist als Owner der QA-Artefakt-Persistenz positioniert; gemaess BC-Schnitt gehoert Schreib-/Lese-Koordination in `agentkit.backend.artifacts.ArtifactManager`. Das ist eine Konzept-Verletzung der BC-Grenze: verify-system konsumiert artifacts, produziert aber nicht die Artefakt-Infrastruktur selbst |
 | C2 | `PROTECTED_QA_ARTIFACTS` und `LAYER_ARTIFACT_FILES` in `state_backend/paths.py` | `src/agentkit/state_backend/paths.py` | `FK-71 §71.1.2`, `bc-cut-decisions.md §BC 8 Konzept-Refactor-Liste Pkt. 3` | Die Liste der geschuetzten Artefakt-Dateinamen liegt in `state_backend`, obwohl das Konzept diese als Hook-Konfiguration in `governance-and-guards` (FK-31) fordert; `state_backend` ist ein T-Adapter und darf keine fachliche Schutz-Liste halten |
 | C3 | `schema_version` in `state_backend/config.py` ist `"3.3.0"` (SemVer) statt `"3.0"` | `src/agentkit/state_backend/config.py:SCHEMA_VERSION` | `FK-71 §71.2` | `SCHEMA_VERSION = "3.3.0"` ist das interne Storage-Schema-Versionsformat fuer PostgreSQL-Schemas. Das Envelope-Pflichtfeld `schema_version` laut FK-71 §71.2 muss `"3.0"` sein. Beide Konstanten existieren nicht getrennt und klar benannt; Verwechslungspotenzial bei kuenftiger Envelope-Implementierung |
 

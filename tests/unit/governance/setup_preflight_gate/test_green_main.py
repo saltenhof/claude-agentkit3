@@ -12,14 +12,14 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.governance.setup_preflight_gate.green_main import (
+from agentkit.backend.governance.setup_preflight_gate.green_main import (
     MainAttestationView,
     MainGreenStatus,
     check_main_green_precondition,
 )
-from agentkit.story_context_manager.story_model import WireStoryMode
-from agentkit.story_context_manager.types import StoryType
-from agentkit.verify_system.sonarqube_gate import SonarAttestation
+from agentkit.backend.story_context_manager.story_model import WireStoryMode
+from agentkit.backend.story_context_manager.types import StoryType
+from agentkit.backend.verify_system.sonarqube_gate import SonarAttestation
 
 _HEAD = "main-head-1"
 

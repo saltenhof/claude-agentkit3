@@ -28,39 +28,39 @@ from tests.exploration_worker_result_fixture import (
 )
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.bootstrap.composition_root import (
+from agentkit.backend.bootstrap.composition_root import (
     build_artifact_manager,
     build_exploration_drafting,
     build_exploration_phase_handler,
 )
-from agentkit.core_types.qa_artifact_names import (
+from agentkit.backend.core_types.qa_artifact_names import (
     CHANGE_FRAME_DRAFT_FILE,
     CHANGE_FRAME_FILE,
 )
-from agentkit.exploration.drafting.drafting import (
+from agentkit.backend.exploration.drafting.drafting import (
     ExplorationDrafting,
     ExplorationDraftRequest,
 )
-from agentkit.exploration.drafting.persistence import ArtifactChangeFrameSink
-from agentkit.exploration.phase import _NO_CHANGE_FRAME_MESSAGE
-from agentkit.installer.paths import resolve_qa_story_dir
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.exploration.drafting.persistence import ArtifactChangeFrameSink
+from agentkit.backend.exploration.phase import _NO_CHANGE_FRAME_MESSAGE
+from agentkit.backend.installer.paths import resolve_qa_story_dir
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import (
     ExplorationPayload,
     PhaseStatus,
 )
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import (
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import (
     reset_backend_cache_for_tests,
     save_flow_execution,
     save_story_context,
 )
-from agentkit.state_backend.store.exploration_change_frame_repository import (
+from agentkit.backend.state_backend.store.exploration_change_frame_repository import (
     StateBackendExplorationChangeFrameAdapter,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -159,7 +159,7 @@ def test_handler_no_frame_no_draft_emits_worker_spawn(tmp_path: Path) -> None:
     ``SpawnRequest`` (WORKER / INITIAL) into ``agents_to_spawn`` and returns
     ``IN_PROGRESS`` -- the AG3-044/054 spawn-and-await, NOT a dead-end ESCALATED.
     """
-    from agentkit.core_types import SpawnKind, SpawnReason
+    from agentkit.backend.core_types import SpawnKind, SpawnReason
 
     sd = _story_dir(tmp_path)
     _bind_flow(sd)
@@ -278,9 +278,9 @@ def test_worker_runner_fails_closed_on_context_scope_divergence(
     fail-closed BEFORE the prompt is materialized and BEFORE any draft is read --
     no prompt, no draft, no artifact.
     """
-    from agentkit.exceptions import CorruptStateError
-    from agentkit.prompt_runtime import PromptRuntime
-    from agentkit.state_backend.store.exploration_worker_runner import (
+    from agentkit.backend.exceptions import CorruptStateError
+    from agentkit.backend.prompt_runtime import PromptRuntime
+    from agentkit.backend.state_backend.store.exploration_worker_runner import (
         StateBackendExplorationWorkerRunner,
     )
 
@@ -331,18 +331,18 @@ def _install_prompt_bundle(project_root: Path | None) -> None:
     import hashlib
     import importlib.resources
 
-    from agentkit.installer.paths import (
+    from agentkit.backend.installer.paths import (
         prompt_bundle_lock_path,
         prompt_bundle_store_dir,
     )
-    from agentkit.prompt_runtime.runtime import build_prompt_bundle_lock_content
+    from agentkit.backend.prompt_runtime.runtime import build_prompt_bundle_lock_content
 
     bundle_id, version = "test-bundle", "1.0.0"
     bundle_root = prompt_bundle_store_dir(bundle_id, version)
     prompts_dir = bundle_root / "prompts"
     prompts_dir.mkdir(parents=True, exist_ok=True)
     template = (
-        importlib.resources.files("agentkit.resources.internal.prompts")
+        importlib.resources.files("agentkit.bundles.internal.prompts")
         / "worker-exploration.md"
     ).read_text(encoding="utf-8")
     (prompts_dir / "worker-exploration.md").write_text(template, encoding="utf-8")

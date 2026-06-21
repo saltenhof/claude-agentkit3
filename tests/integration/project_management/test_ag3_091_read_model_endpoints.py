@@ -22,40 +22,40 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.control_plane.http import ControlPlaneApplication
-from agentkit.control_plane_http.app import ControlPlaneApplicationRoutes
-from agentkit.control_plane_http.tenant_scope import TenantScopeMiddleware
-from agentkit.execution_planning.entities import ParallelizationConfig
-from agentkit.project_management.entities import ProjectConfiguration
-from agentkit.project_management.http.routes import (
+from agentkit.backend.control_plane.http import ControlPlaneApplication
+from agentkit.backend.control_plane_http.app import ControlPlaneApplicationRoutes
+from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
+from agentkit.backend.execution_planning.entities import ParallelizationConfig
+from agentkit.backend.project_management.entities import ProjectConfiguration
+from agentkit.backend.project_management.http.routes import (
     ProjectManagementRoutes,
     _no_repos_in_use,
 )
-from agentkit.project_management.lifecycle import create_project
-from agentkit.project_management.read_model_routes import ReadModelRoutes
-from agentkit.project_management.service import ProjectDetailService
-from agentkit.requirements_coverage.models import StoryAreLink, StoryAreLinkKind
-from agentkit.state_backend.store import facade
-from agentkit.state_backend.store.parallelization_config_repository import (
+from agentkit.backend.project_management.lifecycle import create_project
+from agentkit.backend.project_management.read_model_routes import ReadModelRoutes
+from agentkit.backend.project_management.service import ProjectDetailService
+from agentkit.backend.requirements_coverage.models import StoryAreLink, StoryAreLinkKind
+from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.store.parallelization_config_repository import (
     StateBackendParallelizationConfigRepository,
 )
-from agentkit.state_backend.store.project_management_repository import (
+from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
-from agentkit.state_backend.store.story_are_link_repository import (
+from agentkit.backend.state_backend.store.story_are_link_repository import (
     StateBackendStoryAreLinkRepository,
 )
-from agentkit.state_backend.store.story_context_repository import (
+from agentkit.backend.state_backend.store.story_context_repository import (
     StateBackendStoryContextRepository,
 )
-from agentkit.state_backend.store.story_repository import (
+from agentkit.backend.state_backend.store.story_repository import (
     StateBackendIdempotencyKeyRepository,
     StateBackendStoryRepository,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.service import StoryService
-from agentkit.story_context_manager.story_model import CreateStoryInput, Story
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.service import StoryService
+from agentkit.backend.story_context_manager.story_model import CreateStoryInput, Story
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -74,7 +74,7 @@ def _reset_backend(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _story_service(tmp_path: Path) -> StoryService:
-    from agentkit.state_backend.store.story_dependency_repository import (
+    from agentkit.backend.state_backend.store.story_dependency_repository import (
         StateBackendStoryDependencyRepository,
     )
 
@@ -810,8 +810,8 @@ def test_story_flow_active_when_phase_state_persisted(tmp_path: Path) -> None:
     """
     from tests.phase_state_factory import make_phase_state
 
-    from agentkit.pipeline_engine.phase_executor.models import PhaseStatus
-    from agentkit.state_backend.store.facade import save_phase_state
+    from agentkit.backend.pipeline_engine.phase_executor.models import PhaseStatus
+    from agentkit.backend.state_backend.store.facade import save_phase_state
 
     _seed_project(tmp_path)
     svc = _story_service(tmp_path)
@@ -839,7 +839,7 @@ def test_story_flow_active_when_phase_state_persisted(tmp_path: Path) -> None:
 
     # Wire the app with a custom phase_state_loader that passes tmp_path as
     # store_dir so the global lookup targets the same SQLite file written above.
-    from agentkit.state_backend.store.facade import load_phase_state_global
+    from agentkit.backend.state_backend.store.facade import load_phase_state_global
 
     def _phase_loader(sid: str) -> object:
         return load_phase_state_global(sid, tmp_path)
@@ -1001,8 +1001,8 @@ def test_are_evidence_coverage_status_with_are_client_fake_transport(tmp_path: P
     Also verifies ERROR 3: evidence_paths is populated from AreClient.list_evidence
     (GET /stories/{id}/evidence) — the fake transport routes by URL suffix.
     """
-    from agentkit.requirements_coverage.are_client import AreClient, AreHttpResponse
-    from agentkit.requirements_coverage.contract import (
+    from agentkit.backend.requirements_coverage.are_client import AreClient, AreHttpResponse
+    from agentkit.backend.requirements_coverage.contract import (
         AreDockpointStatus,
         AreEvidence,
         AreRequirement,
@@ -1168,8 +1168,8 @@ def _app_with_real_phase_state(
     that targets the SAME tmp_path-scoped SQLite store via the real
     ``load_phase_state_global`` — no stub at the backend/DB boundary.
     """
-    from agentkit.pipeline_engine.phase_executor import PhaseState
-    from agentkit.state_backend.store.facade import (
+    from agentkit.backend.pipeline_engine.phase_executor import PhaseState
+    from agentkit.backend.state_backend.store.facade import (
         load_phase_state_global,
         save_phase_state,
     )
@@ -1237,7 +1237,7 @@ def test_flow_implementation_payload_qa_cycle_round_through_real_db(
     """
     from tests.phase_state_factory import make_phase_state
 
-    from agentkit.pipeline_engine.phase_executor.models import (
+    from agentkit.backend.pipeline_engine.phase_executor.models import (
         ImplementationPayload,
         PhaseStatus,
         QaCycleStatus,
@@ -1289,7 +1289,7 @@ def test_flow_closure_payload_progress_through_real_db(tmp_path: Path) -> None:
     """
     from tests.phase_state_factory import make_phase_state
 
-    from agentkit.pipeline_engine.phase_executor.models import (
+    from agentkit.backend.pipeline_engine.phase_executor.models import (
         ClosurePayload,
         ClosureProgress,
         PhaseStatus,
@@ -1348,8 +1348,8 @@ def test_flow_exploration_payload_gate_status_through_real_db(tmp_path: Path) ->
     """
     from tests.phase_state_factory import make_phase_state
 
-    from agentkit.core_types import ExplorationGateStatus
-    from agentkit.pipeline_engine.phase_executor.models import (
+    from agentkit.backend.core_types import ExplorationGateStatus
+    from agentkit.backend.pipeline_engine.phase_executor.models import (
         ExplorationPayload,
         PhaseStatus,
     )

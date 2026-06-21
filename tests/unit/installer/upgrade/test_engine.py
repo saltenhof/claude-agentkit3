@@ -18,15 +18,15 @@ from tests.unit.installer.upgrade.conftest import (
     write_valid_project_yaml,
 )
 
-from agentkit.governance.hook_registration import (
+from agentkit.backend.governance.hook_registration import (
     HookDefinition,
     HookEventName,
     RegistrationResult,
 )
-from agentkit.installer.checkpoint_engine.engine import CheckpointEngine
-from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
-from agentkit.installer.upgrade._digest import config_file_digest
-from agentkit.installer.upgrade.engine import (
+from agentkit.backend.installer.checkpoint_engine.engine import CheckpointEngine
+from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
+from agentkit.backend.installer.upgrade._digest import config_file_digest
+from agentkit.backend.installer.upgrade.engine import (
     UP_01_DETECT_FOOTPRINT,
     UP_04_MIGRATE_HOOKS,
     UpgradeRequest,
@@ -35,8 +35,8 @@ from agentkit.installer.upgrade.engine import (
     build_upgrade_flow,
     build_upgrade_handler_registry,
 )
-from agentkit.installer.upgrade.upgrade_flow import run_upgrade
-from agentkit.process.language.model import FlowLevel, NodeKind
+from agentkit.backend.installer.upgrade.upgrade_flow import run_upgrade
+from agentkit.backend.process.language.model import FlowLevel, NodeKind
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agentkit.integration_stabilization.events import (
+from agentkit.backend.integration_stabilization.events import (
     INTEGRATION_MANIFEST_APPROVED,
     STABILITY_GATE_PASSED,
     STABILIZATION_BUDGET_EXHAUSTED,
@@ -12,7 +12,7 @@ from agentkit.integration_stabilization.events import (
     emit_stabilization_budget_exhausted,
     emit_undeclared_surface_detected,
 )
-from agentkit.telemetry.events import Event
+from agentkit.backend.telemetry.events import Event
 
 
 class TestEventWireKeys:
@@ -146,7 +146,7 @@ class TestMandatoryPayloadContract:
     """AC11/ERROR G: the four IS events carry registered mandatory payload keys."""
 
     def test_all_four_events_have_mandatory_fields(self) -> None:
-        from agentkit.telemetry.events import MANDATORY_PAYLOAD_FIELDS, EventType
+        from agentkit.backend.telemetry.events import MANDATORY_PAYLOAD_FIELDS, EventType
 
         for event_type in (
             EventType.INTEGRATION_MANIFEST_APPROVED,
@@ -160,7 +160,7 @@ class TestMandatoryPayloadContract:
     def test_missing_mandatory_field_fails_closed(self) -> None:
         import pytest
 
-        from agentkit.telemetry.events import (
+        from agentkit.backend.telemetry.events import (
             EventPayloadContractError,
             EventType,
             validate_event_payload,
@@ -173,7 +173,7 @@ class TestMandatoryPayloadContract:
             )
 
     def test_emitted_events_pass_validation(self) -> None:
-        from agentkit.telemetry.events import EventType, validate_event_payload
+        from agentkit.backend.telemetry.events import EventType, validate_event_payload
 
         event = emit_stabilization_budget_exhausted(
             story_id="PROJ-42",
@@ -189,7 +189,7 @@ class TestGuardsEmitAtBoundaryViaRealEmitter:
     """AC11/ERROR G: guards EMIT through the real emitter at their boundary."""
 
     def _manifest(self) -> object:
-        from agentkit.integration_stabilization.models import (
+        from agentkit.backend.integration_stabilization.models import (
             IntegrationScopeManifest,
             StabilizationBudgetCaps,
         )
@@ -212,11 +212,11 @@ class TestGuardsEmitAtBoundaryViaRealEmitter:
         )
 
     def test_seam_guard_emits_undeclared_surface_on_block(self) -> None:
-        from agentkit.integration_stabilization.seam_allowlist_guard import (
+        from agentkit.backend.integration_stabilization.seam_allowlist_guard import (
             SeamAllowlistGuard,
         )
-        from agentkit.telemetry.emitters import MemoryEmitter
-        from agentkit.telemetry.events import EventType
+        from agentkit.backend.telemetry.emitters import MemoryEmitter
+        from agentkit.backend.telemetry.events import EventType
 
         emitter = MemoryEmitter()
         guard = SeamAllowlistGuard(
@@ -235,11 +235,11 @@ class TestGuardsEmitAtBoundaryViaRealEmitter:
     def test_budget_guard_emits_budget_exhausted_on_block(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
         import json
 
-        from agentkit.integration_stabilization.budget_guard import (
+        from agentkit.backend.integration_stabilization.budget_guard import (
             StabilizationBudgetGuard,
         )
-        from agentkit.telemetry.emitters import MemoryEmitter
-        from agentkit.telemetry.events import EventType
+        from agentkit.backend.telemetry.emitters import MemoryEmitter
+        from agentkit.backend.telemetry.events import EventType
 
         story_dir = tmp_path / "PROJ-42"
         story_dir.mkdir(parents=True, exist_ok=True)

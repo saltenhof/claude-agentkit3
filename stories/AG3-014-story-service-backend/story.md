@@ -545,6 +545,6 @@ Wenn Schritt 5 fehlschlaegt: Schritte 1-4 werden zurueckgerollt
 - Tests muessen sowohl SQLite als auch Postgres-Backends abdecken
   (parametrisierte Fixtures, vergleichbar mit AG3-005-Pattern).
 - Architecture-Conformance: keine generische
-  `agentkit.state_backend.store`-Fassade importieren —
+  `agentkit.backend.state_backend.store`-Fassade importieren —
   komponentenspezifische Repository-Vertraege halten (AC003/AC004
   aus dem Workbook).

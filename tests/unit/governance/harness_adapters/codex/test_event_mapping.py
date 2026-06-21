@@ -5,21 +5,21 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agentkit.governance.harness_adapters.codex.cli import _parse_hook_event
-from agentkit.governance.harness_adapters.codex.event_mapping import (
+from agentkit.backend.governance.protocols import GuardVerdict
+from agentkit.backend.implementation.worker_health import PostToolOutcome, apply_post_tool_use
+from agentkit.backend.state_backend.store.worker_health_repository import (
+    StateBackendWorkerHealthRepository,
+)
+from agentkit.harness_client.harness_adapters.codex.cli import _parse_hook_event
+from agentkit.harness_client.harness_adapters.codex.event_mapping import (
     CodexHookEvent,
     to_neutral_event,
-)
-from agentkit.governance.protocols import GuardVerdict
-from agentkit.implementation.worker_health import PostToolOutcome, apply_post_tool_use
-from agentkit.state_backend.store.worker_health_repository import (
-    StateBackendWorkerHealthRepository,
 )
 
 if TYPE_CHECKING:
     import pytest
 
-    from agentkit.governance.guard_evaluation import HookEvent
+    from agentkit.backend.governance.guard_evaluation import HookEvent
 
 _FIXTURE_DIR = Path(__file__).parents[4] / "fixtures" / "harness_post_tool"
 
@@ -146,7 +146,7 @@ def test_codex_partial_post_payload_defaults_and_string_response() -> None:
 def test_codex_phase_aware_cli_sends_post_outcome_to_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from agentkit.governance.harness_adapters.codex.cli import main
+    from agentkit.harness_client.harness_adapters.codex.cli import main
 
     raw = (_FIXTURE_DIR / "codex_post_tool_use_success.json").read_text(
         encoding="utf-8",
@@ -165,7 +165,7 @@ def test_codex_phase_aware_cli_sends_post_outcome_to_runner(
 
     monkeypatch.setattr("sys.stdin", io.StringIO(raw))
     monkeypatch.setattr(
-        "agentkit.governance.runner.Governance.run_hook",
+        "agentkit.backend.governance.runner.Governance.run_hook",
         staticmethod(_spy),
     )
 
@@ -179,7 +179,7 @@ def test_codex_post_tool_input_malformed_fails_closed_without_runner_or_health_m
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    from agentkit.governance.harness_adapters.codex.cli import main
+    from agentkit.harness_client.harness_adapters.codex.cli import main
 
     captured: list[HookEvent] = []
     malformed = json.dumps(
@@ -208,7 +208,7 @@ def test_codex_post_tool_input_malformed_fails_closed_without_runner_or_health_m
     monkeypatch.setenv("AGENTKIT_WORKER_ID", "worker-1")
     monkeypatch.setattr("sys.stdin", io.StringIO(malformed))
     monkeypatch.setattr(
-        "agentkit.governance.runner.Governance.run_hook",
+        "agentkit.backend.governance.runner.Governance.run_hook",
         staticmethod(_spy),
     )
 

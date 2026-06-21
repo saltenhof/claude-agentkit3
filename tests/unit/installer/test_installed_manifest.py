@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from agentkit.installer.installed_manifest import (
+from agentkit.backend.installer.installed_manifest import (
     SKILL_PROOF_KEY,
     InstalledManifest,
     build_installed_manifest,

@@ -22,15 +22,15 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from agentkit.core_types.plane_artifact_names import (
+from agentkit.backend.core_types.plane_artifact_names import (
     GOVERNANCE_FREEZE_EXPORT_PARTS,
     GOVERNANCE_FREEZE_EXPORT_RELPATH,
 )
-from agentkit.governance.guard_system.protected_paths import (
+from agentkit.backend.governance.guard_system.protected_paths import (
     PROTECTED_GOVERNANCE_FREEZE_EXPORT,
 )
-from agentkit.governance.principal_capabilities.freeze import FREEZE_EXPORT_RELPATH
-from agentkit.state_backend.store.freeze_repository import _FREEZE_EXPORT_RELPATH
+from agentkit.backend.governance.principal_capabilities.freeze import FREEZE_EXPORT_RELPATH
+from agentkit.backend.state_backend.store.freeze_repository import _FREEZE_EXPORT_RELPATH
 
 _LITERAL = ".agentkit/governance/freeze.json"
 _SRC_ROOT = Path(__file__).resolve().parents[3] / "src" / "agentkit"

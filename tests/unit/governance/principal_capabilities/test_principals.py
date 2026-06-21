@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from agentkit.governance.guard_evaluation import HookEvent
-from agentkit.governance.principal_capabilities import Principal, PrincipalResolver
+from agentkit.backend.governance.guard_evaluation import HookEvent
+from agentkit.backend.governance.principal_capabilities import Principal, PrincipalResolver
 
 _RESOLVER = PrincipalResolver()
 _ATTEST = "--ak3-principal-attest"

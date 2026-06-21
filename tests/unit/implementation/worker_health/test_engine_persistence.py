@@ -7,15 +7,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.config.worker_health import WorkerHealthConfig, WorkerHealthToolCallLogConfig
-from agentkit.governance.guard_evaluation import HookEvent
-from agentkit.implementation.worker_health import PostToolOutcome, apply_post_tool_use
-from agentkit.implementation.worker_health.artifacts import (
+from agentkit.backend.config.worker_health import WorkerHealthConfig, WorkerHealthToolCallLogConfig
+from agentkit.backend.governance.guard_evaluation import HookEvent
+from agentkit.backend.implementation.worker_health import PostToolOutcome, apply_post_tool_use
+from agentkit.backend.implementation.worker_health.artifacts import (
     AGENT_HEALTH_FILE,
     TOOL_CALL_LOG_FILE,
     export_agent_health,
 )
-from agentkit.state_backend.store.worker_health_repository import (
+from agentkit.backend.state_backend.store.worker_health_repository import (
     StateBackendWorkerHealthRepository,
 )
 

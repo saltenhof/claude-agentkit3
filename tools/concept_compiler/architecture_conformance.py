@@ -6,7 +6,7 @@ import ast
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
-from agentkit.exceptions import AgentKitError
+from agentkit.backend.exceptions import AgentKitError
 
 if TYPE_CHECKING:
     from pathlib import Path

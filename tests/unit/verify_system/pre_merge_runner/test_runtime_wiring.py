@@ -12,14 +12,14 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.config.models import JenkinsConfig, SonarQubeConfig
-from agentkit.verify_system.pre_merge_runner.build_test_runner import CiBuildTestRunner
-from agentkit.verify_system.pre_merge_runner.runtime_wiring import (
+from agentkit.backend.config.models import JenkinsConfig, SonarQubeConfig
+from agentkit.backend.verify_system.pre_merge_runner.build_test_runner import CiBuildTestRunner
+from agentkit.backend.verify_system.pre_merge_runner.runtime_wiring import (
     PreMergeRunnerUnavailableError,
     build_build_test_runner,
     build_pre_merge_runners,
 )
-from agentkit.verify_system.pre_merge_runner.scan_runner import CiSonarScanRunner
+from agentkit.backend.verify_system.pre_merge_runner.scan_runner import CiSonarScanRunner
 
 _REPO = Path("/repo/candidate")
 

@@ -11,12 +11,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.bootstrap.composition_root import _StateBackendDeclaredImpactReader
-from agentkit.exceptions import CorruptStateError
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.story_repository import StateBackendStoryRepository
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.bootstrap.composition_root import _StateBackendDeclaredImpactReader
+from agentkit.backend.exceptions import CorruptStateError
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.story_repository import StateBackendStoryRepository
+from agentkit.backend.story_context_manager.story_model import (
     ChangeImpact,
     Story,
     WireStoryType,

@@ -126,7 +126,7 @@ Der Drift wurde verschoben, nicht geloest. `VerifySystem` kennt weiterhin `state
 
 Konkreter Fix:
 
-StoryContext als Port/Parameter in die VerifySystem-Top-Surface injizieren, z. B. ueber Composition Root oder einen klaren Query-Port. Den Direct Import aus `verify_system/system.py` entfernen und einen Test schreiben, der `agentkit.state_backend.store`-Importe in `verify_system` fuer StoryContext verbietet.
+StoryContext als Port/Parameter in die VerifySystem-Top-Surface injizieren, z. B. ueber Composition Root oder einen klaren Query-Port. Den Direct Import aus `verify_system/system.py` entfernen und einen Test schreiben, der `agentkit.backend.state_backend.store`-Importe in `verify_system` fuer StoryContext verbietet.
 
 ### 7. WARNING: Tests beweisen die kritischen Negativpfade nicht an echten Phasen-/Persistenzgrenzen
 
@@ -156,7 +156,7 @@ Integrationstest ueber den echten Implementation-/Verify-Pfad: QA-Subflow laufen
 | AK4 | teilweise | Closure schreibt ueber Accessor (`src/agentkit/closure/phase.py:258` bis `phase.py:269`); produktive QA-Schreibroute geht aber weiter ueber `record_layer_artifacts`/Backend-Treiber (`src/agentkit/implementation/phase.py:168`, `src/agentkit/state_backend/postgres_store.py:2268` bis `postgres_store.py:2288`). |
 | AK5 | teilweise | Run-scoped Delete fuer vier Tabellen ist vorhanden (`projection_accessor.py:321` bis `projection_accessor.py:350`), aber `purge_for_story` fehlt, `workflow_metrics` fehlt, und fc_*-Reset widerspricht FK-69 (`concept/.../69_qa_telemetrie_aggregation_dashboard.md:365` bis `:368`). |
 | AK6 | teilweise | SQLite/unit Roundtrips existieren, aber der Integrationstest ist nur Smoke (`tests/integration/telemetry/test_projection_roundtrip.py:13` bis `:48`) und beweist nicht den echten verify-system Schreibpfad via Accessor. |
-| AK7 | erfuellt | `ProjectionAccessor` liegt in `agentkit.telemetry` (`projection_accessor.py:1`) und importiert keine konkrete `state_backend.store`-Fassade; `ProjectionRepositories` ist nur unter `TYPE_CHECKING` referenziert (`projection_accessor.py:34` bis `:38`), konkrete Verdrahtung liegt im Composition Root (`src/agentkit/bootstrap/composition_root.py:154` bis `:181`). |
+| AK7 | erfuellt | `ProjectionAccessor` liegt in `agentkit.backend.telemetry` (`projection_accessor.py:1`) und importiert keine konkrete `state_backend.store`-Fassade; `ProjectionRepositories` ist nur unter `TYPE_CHECKING` referenziert (`projection_accessor.py:34` bis `:38`), konkrete Verdrahtung liegt im Composition Root (`src/agentkit/bootstrap/composition_root.py:154` bis `:181`). |
 | AK8 | teilweise | Lokal geprueft: `.venv\Scripts\python -m pytest tests/unit/telemetry tests/contract/telemetry -q` = 105 passed; `.venv\Scripts\python -m pytest tests/integration/telemetry -q` = 3 passed; `ruff check src tests` und `mypy src` gruen. Nicht geprueft in diesem Review: Coverage 85%, Jenkins, Sonar Quality Gate. |
 
 ## Was gut ist

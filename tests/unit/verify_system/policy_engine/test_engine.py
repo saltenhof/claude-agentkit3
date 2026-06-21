@@ -6,9 +6,9 @@ Wertebereich seit AG3-021: ``Severity`` ist BLOCKING/MAJOR/MINOR,
 
 from __future__ import annotations
 
-from agentkit.core_types import PolicyVerdict
-from agentkit.verify_system.policy_engine.engine import PolicyEngine
-from agentkit.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
+from agentkit.backend.core_types import PolicyVerdict
+from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
+from agentkit.backend.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
 
 
 def _finding(

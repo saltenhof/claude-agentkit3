@@ -24,14 +24,16 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.exploration_change_frame_fixture import example_change_frame
 
-from agentkit.exploration.mandate.fine_design import (
+from agentkit.backend.exploration.mandate.fine_design import (
     FineDesignDecision,
     FineDesignEvaluatorUnavailableError,
     FineDesignRoundOutcome,
     FineDesignSubprocess,
 )
-from agentkit.exploration.mandate.hub_fine_design import HubFineDesignEvaluator
-from agentkit.multi_llm_hub.entities import (
+from agentkit.backend.exploration.mandate.hub_fine_design import HubFineDesignEvaluator
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import EventType
+from agentkit.integration_clients.multi_llm_hub.entities import (
     HubBackendMetric,
     HubBackendName,
     HubBackendSessionStats,
@@ -39,12 +41,10 @@ from agentkit.multi_llm_hub.entities import (
     HubSessionLease,
     HubSessionStats,
 )
-from agentkit.multi_llm_hub.errors import HubUnavailableError
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import EventType
+from agentkit.integration_clients.multi_llm_hub.errors import HubUnavailableError
 
 if TYPE_CHECKING:
-    from agentkit.exploration.change_frame import ChangeFrame
+    from agentkit.backend.exploration.change_frame import ChangeFrame
 
 
 # --------------------------------------------------------------------------

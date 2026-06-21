@@ -9,7 +9,7 @@ from urllib.error import HTTPError
 
 import pytest
 
-from agentkit.control_plane.models import (
+from agentkit.backend.control_plane.models import (
     ClosureCompleteRequest,
     ControlPlaneMutationResult,
     EdgeBundle,
@@ -19,7 +19,7 @@ from agentkit.control_plane.models import (
     SessionRunBindingView,
     StoryExecutionLockView,
 )
-from agentkit.projectedge import (
+from agentkit.harness_client.projectedge import (
     HttpsJsonTransport,
     LocalEdgePublisher,
     ProjectEdgeClient,

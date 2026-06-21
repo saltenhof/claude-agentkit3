@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from agentkit.implementation.worker_health import (
+from agentkit.backend.implementation.worker_health import (
     AgentHealthState,
     CommitFailureCategory,
     PostToolOutcome,
@@ -13,7 +13,7 @@ from agentkit.implementation.worker_health import (
     compute_health_score,
     intervention_decision_result,
 )
-from agentkit.implementation.worker_health.scoring import register_commit_failure
+from agentkit.backend.implementation.worker_health.scoring import register_commit_failure
 
 
 def _state(score: int = 0) -> AgentHealthState:

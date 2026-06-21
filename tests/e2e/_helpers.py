@@ -15,8 +15,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import NAMESPACE_URL, uuid5
 
-from agentkit.state_backend.store.story_repository import StateBackendStoryRepository
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.state_backend.store.story_repository import StateBackendStoryRepository
+from agentkit.backend.story_context_manager.story_model import (
     Story,
     StoryStatus,
     WireStoryType,

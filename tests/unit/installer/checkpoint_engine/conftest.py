@@ -13,11 +13,11 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
 
-from agentkit.installer.registration import ProjectRegistration, RuntimeProfile
-from agentkit.installer.runner import MANDATORY_SKILLS, InstallConfig
-from agentkit.skills import Skills
-from agentkit.skills.bundle_store import SkillBundle, SkillBundleStore
-from agentkit.skills.repository import InMemorySkillBindingRepository
+from agentkit.backend.installer.registration import ProjectRegistration, RuntimeProfile
+from agentkit.backend.installer.runner import MANDATORY_SKILLS, InstallConfig
+from agentkit.backend.skills import Skills
+from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore
+from agentkit.backend.skills.repository import InMemorySkillBindingRepository
 
 if TYPE_CHECKING:
     from datetime import datetime

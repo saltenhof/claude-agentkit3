@@ -14,32 +14,32 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.implementation.phase import (
+from agentkit.backend.implementation.phase import (
     ImplementationConfig,
     ImplementationPhaseHandler,
 )
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.engine import PipelineEngine
-from agentkit.pipeline_engine.lifecycle import PhaseHandlerRegistry
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.engine import PipelineEngine
+from agentkit.backend.pipeline_engine.lifecycle import PhaseHandlerRegistry
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseStatus,
 )
-from agentkit.process.language.definitions import IMPLEMENTATION_WORKFLOW
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import (
+from agentkit.backend.process.language.definitions import IMPLEMENTATION_WORKFLOW
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import (
     reset_backend_cache_for_tests,
     save_flow_execution,
     save_story_context,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from agentkit.verify_system.contract import QaSubflowOutcome, VerifyContextBundle
+    from agentkit.backend.verify_system.contract import QaSubflowOutcome, VerifyContextBundle
 
 
 @pytest.fixture(autouse=True)

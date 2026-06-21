@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.core_types import ExplorationGateStatus
+from agentkit.backend.core_types import ExplorationGateStatus
 
 
 def test_each_value_constructable() -> None:

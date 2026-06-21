@@ -13,8 +13,8 @@ symbolic link on POSIX, a Windows directory junction. A junction needs no
 Developer Mode, so binding works on EVERY supported platform; the tests no
 longer skip on Windows-without-Developer-Mode. They assert against
 ``is_directory_link`` (symlink OR junction), not ``Path.is_symlink``, and the
-link-layer is monkeypatched via :mod:`agentkit.skills.links` (re-exported into
-``agentkit.skills.top``) rather than ``Path.symlink_to``.
+link-layer is monkeypatched via :mod:`agentkit.backend.skills.links` (re-exported into
+``agentkit.backend.skills.top``) rather than ``Path.symlink_to``.
 """
 
 from __future__ import annotations
@@ -24,22 +24,22 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.skills import SourceWindow
-from agentkit.skills.binding import SkillBindingMode, SkillLifecycleStatus
-from agentkit.skills.bundle_store import SkillBundleStore
-from agentkit.skills.errors import (
+from agentkit.backend.skills import SourceWindow
+from agentkit.backend.skills.binding import SkillBindingMode, SkillLifecycleStatus
+from agentkit.backend.skills.bundle_store import SkillBundleStore
+from agentkit.backend.skills.errors import (
     SkillBindingFailedError,
     SkillBundleDigestMismatchError,
     SkillProfileNotSupportedError,
     SkillQualityMetricSourceUnavailableError,
 )
-from agentkit.skills.links import (
+from agentkit.backend.skills.links import (
     create_directory_link,
     is_directory_link,
     platform_binding_mode,
 )
-from agentkit.skills.repository import InMemorySkillBindingRepository
-from agentkit.skills.top import Skills
+from agentkit.backend.skills.repository import InMemorySkillBindingRepository
+from agentkit.backend.skills.top import Skills
 
 
 def _directory_links_supported() -> bool:
@@ -305,7 +305,7 @@ class TestBindSkillFailClosed:
         """Host-independent: an OSError from the link layer is converted to a
         fail-closed ``SkillBindingFailedError`` — never a file-copy fallback
         (invariant project_binding_is_link_only)."""
-        import agentkit.skills.top as top_mod
+        import agentkit.backend.skills.top as top_mod
 
         bundle_root = tmp_path / "bundle"
         bundle_root.mkdir()
@@ -362,8 +362,8 @@ class TestBindSkillSelfAtomicCleanup:
         link privilege. (AG3-048 Codex-r6 FINDING 1: this is now the ONE shared
         removal discipline used by cleanup AND unbind.)
         """
-        from agentkit.skills.binding import HarnessKind
-        from agentkit.skills.top import _harness_skill_dir
+        from agentkit.backend.skills.binding import HarnessKind
+        from agentkit.backend.skills.top import _harness_skill_dir
 
         project_root = tmp_path / "project"
         project_root.mkdir()
@@ -390,7 +390,7 @@ class TestBindSkillSelfAtomicCleanup:
         ``save`` exercises the full self-atomic guard — the ``except Exception``
         branch runs the cleanup and the original error propagates.
         """
-        import agentkit.skills.top as top_mod
+        import agentkit.backend.skills.top as top_mod
 
         bundle_root = tmp_path / "bundle"
         bundle_root.mkdir()
@@ -414,8 +414,8 @@ class TestBindSkillSelfAtomicCleanup:
         """Host-independent happy path: with link creation + verification
         stubbed, a successful bind persists a VERIFIED binding (covers the
         BOUND->VERIFIED save sequence without a real link privilege)."""
-        import agentkit.skills.top as top_mod
-        from agentkit.skills.repository import InMemorySkillBindingRepository
+        import agentkit.backend.skills.top as top_mod
+        from agentkit.backend.skills.repository import InMemorySkillBindingRepository
 
         bundle_root = tmp_path / "bundle"
         bundle_root.mkdir()
@@ -466,8 +466,8 @@ class TestBindSkillSelfAtomicCleanup:
         outcome is binary (fully bound or fully clean). Host-independent: link
         creation is stubbed (succeeds for the first bind, fails on the rebind).
         """
-        import agentkit.skills.top as top_mod
-        from agentkit.skills.repository import InMemorySkillBindingRepository
+        import agentkit.backend.skills.top as top_mod
+        from agentkit.backend.skills.repository import InMemorySkillBindingRepository
 
         bundle1 = tmp_path / "b1"
         bundle1.mkdir()
@@ -531,10 +531,10 @@ class TestBindSkillNoSilentPartialState:
         raises ``SkillBindingPartialStateError`` whose detail REPORTS the
         residual link path. Not silent, not "clean".
         """
-        import agentkit.skills.top as top_mod
-        from agentkit.skills.binding import HarnessKind
-        from agentkit.skills.errors import SkillBindingPartialStateError
-        from agentkit.skills.top import _harness_skill_dir
+        import agentkit.backend.skills.top as top_mod
+        from agentkit.backend.skills.binding import HarnessKind
+        from agentkit.backend.skills.errors import SkillBindingPartialStateError
+        from agentkit.backend.skills.top import _harness_skill_dir
 
         bundle_root = tmp_path / "bundle"
         bundle_root.mkdir()
@@ -591,8 +591,8 @@ class TestBindSkillNoSilentPartialState:
         ``SkillBindingPartialStateError`` with ``persisted_row_remains=True``.
         Host-independent (links stubbed to no-op, so no residual link).
         """
-        import agentkit.skills.top as top_mod
-        from agentkit.skills.errors import SkillBindingPartialStateError
+        import agentkit.backend.skills.top as top_mod
+        from agentkit.backend.skills.errors import SkillBindingPartialStateError
 
         bundle_root = tmp_path / "bundle"
         bundle_root.mkdir()
@@ -618,8 +618,8 @@ class TestBindSkillNoSilentPartialState:
         """When cleanup IS fully clean, the binary outcome holds: the ORIGINAL
         error propagates (NOT the partial-state error). Host-independent.
         """
-        import agentkit.skills.top as top_mod
-        from agentkit.skills.errors import SkillBindingPartialStateError
+        import agentkit.backend.skills.top as top_mod
+        from agentkit.backend.skills.errors import SkillBindingPartialStateError
 
         bundle_root = tmp_path / "bundle"
         bundle_root.mkdir()
@@ -645,10 +645,10 @@ class TestBindSkillNoSilentPartialState:
         harness; the removal of the rolled-back stand-in uses the real
         Path.unlink (host-independent).
         """
-        import agentkit.skills.top as top_mod
-        from agentkit.skills.binding import HarnessKind
-        from agentkit.skills.errors import SkillBindingFailedError
-        from agentkit.skills.top import _create_harness_links, _harness_skill_dir
+        import agentkit.backend.skills.top as top_mod
+        from agentkit.backend.skills.binding import HarnessKind
+        from agentkit.backend.skills.errors import SkillBindingFailedError
+        from agentkit.backend.skills.top import _create_harness_links, _harness_skill_dir
 
         bundle_root = tmp_path / "bundle"
         bundle_root.mkdir()
@@ -686,10 +686,10 @@ class TestBindSkillNoSilentPartialState:
         ``SkillBindingPartialStateError`` REPORTING link-1 as residual — never
         silent, and never only the link-2 ``SkillBindingFailedError``.
         """
-        import agentkit.skills.top as top_mod
-        from agentkit.skills.binding import HarnessKind
-        from agentkit.skills.errors import SkillBindingPartialStateError
-        from agentkit.skills.top import _create_harness_links, _harness_skill_dir
+        import agentkit.backend.skills.top as top_mod
+        from agentkit.backend.skills.binding import HarnessKind
+        from agentkit.backend.skills.errors import SkillBindingPartialStateError
+        from agentkit.backend.skills.top import _create_harness_links, _harness_skill_dir
 
         bundle_root = tmp_path / "bundle"
         bundle_root.mkdir()
@@ -769,11 +769,11 @@ class TestUnbindSkillHostIndependent:
     def test_unbind_deletes_persisted_binding(self, tmp_path: Path) -> None:
         from datetime import UTC, datetime
 
-        from agentkit.skills.binding import (
+        from agentkit.backend.skills.binding import (
             SkillBinding,
             SkillLifecycleStatus,
         )
-        from agentkit.skills.repository import InMemorySkillBindingRepository
+        from agentkit.backend.skills.repository import InMemorySkillBindingRepository
 
         project_root = tmp_path / "project"
         project_root.mkdir()
@@ -815,8 +815,8 @@ class TestUnbindSkillHostIndependent:
         the installer maps it to ``RollbackIncomplete`` rather than a false-clean
         rollback.
         """
-        from agentkit.skills.errors import SkillBindingPartialStateError
-        from agentkit.skills.repository import InMemorySkillBindingRepository
+        from agentkit.backend.skills.errors import SkillBindingPartialStateError
+        from agentkit.backend.skills.repository import InMemorySkillBindingRepository
 
         project_root = tmp_path / "project"
         project_root.mkdir()
@@ -894,11 +894,11 @@ class TestListBoundSkills:
     def test_lists_persisted_bindings_host_independent(self, tmp_path: Path) -> None:
         from datetime import UTC, datetime
 
-        from agentkit.skills.binding import (
+        from agentkit.backend.skills.binding import (
             SkillBinding,
             SkillLifecycleStatus,
         )
-        from agentkit.skills.repository import InMemorySkillBindingRepository
+        from agentkit.backend.skills.repository import InMemorySkillBindingRepository
 
         project_root = tmp_path / "project"
         project_root.mkdir()

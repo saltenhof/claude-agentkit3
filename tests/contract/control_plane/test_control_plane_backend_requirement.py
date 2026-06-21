@@ -19,11 +19,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.control_plane.models import PhaseMutationRequest
-from agentkit.control_plane.runtime import ControlPlaneRuntimeService
-from agentkit.exceptions import ConfigError
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.control_plane.models import PhaseMutationRequest
+from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
+from agentkit.backend.exceptions import ConfigError
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -85,7 +85,7 @@ def test_every_default_store_entrypoint_fails_closed_on_sqlite(
     store entrypoint of the productive default service, never just ``start_phase``.
     """
     del sqlite_backend_env
-    from agentkit.control_plane.models import ClosureCompleteRequest
+    from agentkit.backend.control_plane.models import ClosureCompleteRequest
 
     service = ControlPlaneRuntimeService()
 

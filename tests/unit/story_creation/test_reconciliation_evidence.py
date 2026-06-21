@@ -11,8 +11,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from agentkit.story_creation.reconciliation_evidence import ReconciliationEvidence
-from agentkit.verify_system.llm_evaluator.roles import LlmVerdict
+from agentkit.backend.story_creation.reconciliation_evidence import ReconciliationEvidence
+from agentkit.backend.verify_system.llm_evaluator.roles import LlmVerdict
 
 
 def _evidence(**overrides: object) -> ReconciliationEvidence:

@@ -6,13 +6,13 @@ from http import HTTPStatus
 from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, cast
 
-from agentkit.control_plane.http import (
+from agentkit.backend.control_plane.http import (
     ControlPlaneApplication,
     ControlPlaneApplicationRoutes,
     HttpResponse,
     serve_control_plane,
 )
-from agentkit.control_plane.models import (
+from agentkit.backend.control_plane.models import (
     ControlPlaneMutationResult,
     EdgeBundle,
     EdgePointer,
@@ -21,24 +21,24 @@ from agentkit.control_plane.models import (
     StoryExecutionLockView,
     TelemetryEventAccepted,
 )
-from agentkit.control_plane.runtime import ControlPlaneRuntimeService
-from agentkit.control_plane.telemetry import ControlPlaneTelemetryService
-from agentkit.kpi_analytics.dashboard.models import (
+from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
+from agentkit.backend.control_plane.telemetry import ControlPlaneTelemetryService
+from agentkit.backend.kpi_analytics.dashboard.models import (
     BoardColumn,
     DashboardBoardResponse,
     DashboardStoryMetricsItem,
     DashboardStoryMetricsResponse,
     DashboardStorySummary,
 )
-from agentkit.kpi_analytics.dashboard.service import DashboardService
-from agentkit.story.models import StoryDetail, StoryListResponse, StorySummary
-from agentkit.story.service import StoryService
-from agentkit.story_context_manager.http.routes import (
+from agentkit.backend.kpi_analytics.dashboard.service import DashboardService
+from agentkit.backend.story.models import StoryDetail, StoryListResponse, StorySummary
+from agentkit.backend.story.service import StoryService
+from agentkit.backend.story_context_manager.http.routes import (
     StoryContextRoutes,
     StoryRouteResponse,
 )
-from agentkit.story_context_manager.sizing import StorySize
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.sizing import StorySize
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     import pytest
@@ -1033,7 +1033,7 @@ _CONFIG_ERROR_MESSAGE = "The control-plane runtime requires the Postgres state b
 
 
 def _config_error_app() -> ControlPlaneApplication:
-    from agentkit.exceptions import ConfigError
+    from agentkit.backend.exceptions import ConfigError
 
     runtime = _FakeRuntimeService()
     runtime.error = ConfigError(_CONFIG_ERROR_MESSAGE)
@@ -1176,7 +1176,7 @@ def test_serve_control_plane_runs_and_closes_server(monkeypatch: pytest.MonkeyPa
         def server_close(self) -> None:
             captured["closed"] = True
 
-    monkeypatch.setattr("agentkit.control_plane_http.app.ThreadingHTTPSServer", _FakeServer)
+    monkeypatch.setattr("agentkit.backend.control_plane_http.app.ThreadingHTTPSServer", _FakeServer)
 
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),

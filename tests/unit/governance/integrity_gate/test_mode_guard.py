@@ -13,12 +13,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.governance.integrity_gate import (
+from agentkit.backend.governance.integrity_gate import (
     IntegrityGate,
     IntegrityGateNotApplicableError,
 )
-from agentkit.governance.integrity_gate.mode_guard import guard_integrity_gate_mode
-from agentkit.story_context_manager.types import StoryType
+from agentkit.backend.governance.integrity_gate.mode_guard import guard_integrity_gate_mode
+from agentkit.backend.story_context_manager.types import StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path

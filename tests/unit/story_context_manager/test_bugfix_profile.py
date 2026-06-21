@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import (
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import (
     PROFILES,
     StoryMode,
     StoryType,

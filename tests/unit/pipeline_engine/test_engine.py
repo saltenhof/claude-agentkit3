@@ -13,16 +13,16 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.core_types import OverrideType, PauseReason
-from agentkit.core_types.attempt import AttemptOutcome, FailureCause
-from agentkit.exceptions import PipelineError
-from agentkit.phase_state_store import (
+from agentkit.backend.core_types import OverrideType, PauseReason
+from agentkit.backend.core_types.attempt import AttemptOutcome, FailureCause
+from agentkit.backend.exceptions import PipelineError
+from agentkit.backend.phase_state_store import (
     OverrideRecord,
     load_flow_execution,
     load_node_execution_ledger,
     save_override_record,
 )
-from agentkit.pipeline_engine.engine import (
+from agentkit.backend.pipeline_engine.engine import (
     PipelineEngine,
     _can_enter_phase,
     _engine_status_for,
@@ -30,32 +30,32 @@ from agentkit.pipeline_engine.engine import (
     _failure_cause_for_terminal,
     _outcome_for_terminal,
 )
-from agentkit.pipeline_engine.lifecycle import (
+from agentkit.backend.pipeline_engine.lifecycle import (
     HandlerResult,
     NoOpHandler,
     PhaseHandlerRegistry,
 )
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import PhaseState, PhaseStatus
-from agentkit.process.language.builder import Workflow
-from agentkit.process.language.guards import GuardResult, guard
-from agentkit.process.language.model import ExecutionPolicy
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import (
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import PhaseState, PhaseStatus
+from agentkit.backend.process.language.builder import Workflow
+from agentkit.backend.process.language.guards import GuardResult, guard
+from agentkit.backend.process.language.model import ExecutionPolicy
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import (
     load_attempts,
     load_execution_events,
     read_phase_state_record,
     reset_backend_cache_for_tests,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.telemetry.events import EventType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.telemetry.events import EventType
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+    from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
 
 
 def _make_envelope(state: PhaseState) -> PhaseEnvelope:

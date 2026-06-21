@@ -69,7 +69,7 @@ boundary_modules:
     bloodgroup: R
     boundary_kind: entry_boundary
     module_prefixes:
-      - agentkit.cli
+      - agentkit.backend.cli
     importable_by: []
     may_import_component_groups: any
     may_import_boundary_modules:
@@ -79,7 +79,7 @@ boundary_modules:
     bloodgroup: R
     boundary_kind: config_foundation
     module_prefixes:
-      - agentkit.config
+      - agentkit.backend.config
     importable_by: any
     may_import_component_groups: []
     may_import_boundary_modules: []
@@ -374,14 +374,14 @@ def test_ac009_boundary_module_assigned_no_violation(tmp_path: Path) -> None:
     """AC009: Ein Modul das einem Boundary-Modul entspricht erzeugt keine Verletzung."""
     root = _write_boundary_spec(
         tmp_path,
-        files={"agentkit.config.loader": "def load(): pass"},
+        files={"agentkit.backend.config.loader": "def load(): pass"},
         module_completeness_check=True,
     )
     compiled = compile_formal_specs(root / "concept" / "formal-spec")
     violations = audit_architecture_conformance(compiled, root / "src")
 
     ac009 = [v for v in violations if v.code == "AC009"]
-    assert not any("agentkit.config" in v.module for v in ac009)
+    assert not any("agentkit.backend.config" in v.module for v in ac009)
 
 
 def test_ac009_component_module_assigned_no_violation(tmp_path: Path) -> None:
@@ -408,7 +408,7 @@ def test_ac010_boundary_imports_forbidden_component(tmp_path: Path) -> None:
     root = _write_boundary_spec(
         tmp_path,
         files={
-            "agentkit.config.loader": dedent("""
+            "agentkit.backend.config.loader": dedent("""
                 from agentkit.domain_a import service
             """),
         },
@@ -426,7 +426,7 @@ def test_ac010_boundary_may_import_any_component_allowed(tmp_path: Path) -> None
     root = _write_boundary_spec(
         tmp_path,
         files={
-            "agentkit.cli.main": dedent("""
+            "agentkit.backend.cli.main": dedent("""
                 from agentkit.domain_a import service
                 from agentkit.domain_b import service
             """),
@@ -435,7 +435,7 @@ def test_ac010_boundary_may_import_any_component_allowed(tmp_path: Path) -> None
     compiled = compile_formal_specs(root / "concept" / "formal-spec")
     violations = audit_architecture_conformance(compiled, root / "src")
 
-    ac010 = [v for v in violations if v.code == "AC010" and "agentkit.cli" in v.module]
+    ac010 = [v for v in violations if v.code == "AC010" and "agentkit.backend.cli" in v.module]
     assert not ac010, f"Unexpected AC010 violations: {ac010}"
 
 
@@ -444,7 +444,7 @@ def test_ac010_boundary_imports_forbidden_boundary(tmp_path: Path) -> None:
     root = _write_boundary_spec(
         tmp_path,
         files={
-            "agentkit.config.loader": dedent("""
+            "agentkit.backend.config.loader": dedent("""
                 from agentkit.repo import store
             """),
         },
@@ -462,8 +462,8 @@ def test_ac010_boundary_allowed_boundary_import_no_violation(tmp_path: Path) -> 
     root = _write_boundary_spec(
         tmp_path,
         files={
-            "agentkit.cli.main": dedent("""
-                from agentkit.config import loader
+            "agentkit.backend.cli.main": dedent("""
+                from agentkit.backend.config import loader
             """),
         },
     )
@@ -473,7 +473,7 @@ def test_ac010_boundary_allowed_boundary_import_no_violation(tmp_path: Path) -> 
     ac010 = [
         v
         for v in violations
-        if v.code == "AC010" and "agentkit.cli" in v.module
+        if v.code == "AC010" and "agentkit.backend.cli" in v.module
     ]
     assert not ac010, f"Unexpected AC010 violations: {ac010}"
 
@@ -489,7 +489,7 @@ def test_ac011_entry_boundary_must_not_be_imported(tmp_path: Path) -> None:
         tmp_path,
         files={
             "agentkit.domain_a.service": dedent("""
-                from agentkit.cli import main
+                from agentkit.backend.cli import main
             """),
         },
     )
@@ -498,7 +498,7 @@ def test_ac011_entry_boundary_must_not_be_imported(tmp_path: Path) -> None:
 
     ac011 = [v for v in violations if v.code == "AC011"]
     assert ac011, "Expected AC011 violation for import of entry_boundary"
-    assert any("agentkit.cli" in v.message for v in ac011)
+    assert any("agentkit.backend.cli" in v.message for v in ac011)
 
 
 def test_ac011_any_importable_boundary_no_violation(tmp_path: Path) -> None:
@@ -507,7 +507,7 @@ def test_ac011_any_importable_boundary_no_violation(tmp_path: Path) -> None:
         tmp_path,
         files={
             "agentkit.domain_a.service": dedent("""
-                from agentkit.config import loader
+                from agentkit.backend.config import loader
             """),
         },
     )
@@ -517,7 +517,7 @@ def test_ac011_any_importable_boundary_no_violation(tmp_path: Path) -> None:
     ac011 = [
         v
         for v in violations
-        if v.code == "AC011" and "agentkit.config" in v.message
+        if v.code == "AC011" and "agentkit.backend.config" in v.message
     ]
     assert not ac011, f"Unexpected AC011 violations: {ac011}"
 

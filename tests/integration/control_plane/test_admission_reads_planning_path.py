@@ -20,24 +20,24 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.bootstrap.composition_root import (
+from agentkit.backend.bootstrap.composition_root import (
     build_planning_story_dependency_repository,
 )
-from agentkit.control_plane.dispatch import build_execution_planning_admission_reader
-from agentkit.core_types import StoryDependencyKind
-from agentkit.execution_planning.entities import StoryDependency
-from agentkit.project_management.entities import ProjectConfiguration
-from agentkit.project_management.lifecycle import create_project
-from agentkit.state_backend.store import facade
-from agentkit.state_backend.store.project_management_repository import (
+from agentkit.backend.control_plane.dispatch import build_execution_planning_admission_reader
+from agentkit.backend.core_types import StoryDependencyKind
+from agentkit.backend.execution_planning.entities import StoryDependency
+from agentkit.backend.project_management.entities import ProjectConfiguration
+from agentkit.backend.project_management.lifecycle import create_project
+from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
-from agentkit.state_backend.store.story_repository import (
+from agentkit.backend.state_backend.store.story_repository import (
     StateBackendIdempotencyKeyRepository,
     StateBackendStoryRepository,
 )
-from agentkit.story_context_manager.service import StoryService
-from agentkit.story_context_manager.story_model import CreateStoryInput
+from agentkit.backend.story_context_manager.service import StoryService
+from agentkit.backend.story_context_manager.story_model import CreateStoryInput
 
 if TYPE_CHECKING:
     from pathlib import Path

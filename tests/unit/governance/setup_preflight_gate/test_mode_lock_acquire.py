@@ -11,19 +11,19 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from agentkit.governance.setup_preflight_gate.mode_lock_marker import (
+from agentkit.backend.governance.setup_preflight_gate.mode_lock_marker import (
     acquired_mode,
     mode_lock_acquired,
 )
-from agentkit.governance.setup_preflight_gate.phase import (
+from agentkit.backend.governance.setup_preflight_gate.phase import (
     SetupConfig,
     SetupPhaseHandler,
 )
-from agentkit.pipeline_engine.phase_executor import PhaseStatus
-from agentkit.state_backend.store.mode_lock_repository import ModeLockConflictError
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import WireStoryMode
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
+from agentkit.backend.state_backend.store.mode_lock_repository import ModeLockConflictError
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import WireStoryMode
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path

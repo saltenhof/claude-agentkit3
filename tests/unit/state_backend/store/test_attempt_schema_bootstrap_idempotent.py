@@ -14,12 +14,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.core_types.attempt import AttemptOutcome, FailureCause
-from agentkit.pipeline_engine.phase_executor import PhaseName
-from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.sqlite_store import _connect, state_db_path_for
-from agentkit.state_backend.store import (
+from agentkit.backend.core_types.attempt import AttemptOutcome, FailureCause
+from agentkit.backend.pipeline_engine.phase_executor import PhaseName
+from agentkit.backend.pipeline_engine.phase_executor.records import AttemptRecord
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.sqlite_store import _connect, state_db_path_for
+from agentkit.backend.state_backend.store import (
     load_attempts,
     reset_backend_cache_for_tests,
     save_attempt,
@@ -209,8 +209,8 @@ class TestAttemptsSchemaConstraints:
 
         # Neue DB (aktuelle SCHEMA_VERSION) oeffnen — beruehrt die alte
         # nicht. Derived from config so it does not drift on schema bumps.
-        from agentkit.state_backend.config import versioned_sqlite_db_file
-        from agentkit.state_backend.sqlite_store import state_db_path_for as sdb
+        from agentkit.backend.state_backend.config import versioned_sqlite_db_file
+        from agentkit.backend.state_backend.sqlite_store import state_db_path_for as sdb
         new_db_path = sdb(old_db_dir)
         expected_name = versioned_sqlite_db_file()
         assert new_db_path.name == expected_name, (

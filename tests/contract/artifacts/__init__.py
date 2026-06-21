@@ -1,1 +1,1 @@
-"""Contract-Tests fuer agentkit.artifacts (AG3-022)."""
+"""Contract-Tests fuer agentkit.backend.artifacts (AG3-022)."""

@@ -17,31 +17,31 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.control_plane.records import ControlPlaneOperationRecord
-from agentkit.control_plane.repository import ControlPlaneRuntimeRepository
-from agentkit.core_types import StoryDependencyKind
-from agentkit.execution_planning.entities import StoryDependency
-from agentkit.execution_planning.errors import (
+from agentkit.backend.control_plane.records import ControlPlaneOperationRecord
+from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
+from agentkit.backend.core_types import StoryDependencyKind
+from agentkit.backend.execution_planning.entities import StoryDependency
+from agentkit.backend.execution_planning.errors import (
     StoryDependencyConflictError,
     StoryDependencyNotFoundError,
 )
-from agentkit.governance.principal_capabilities.principals import Principal
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.story_context_manager.idempotency import (
+from agentkit.backend.governance.principal_capabilities.principals import Principal
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.story_context_manager.idempotency import (
     InMemoryIdempotencyKeyRepository,
 )
-from agentkit.story_context_manager.service import StoryService
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.story_context_manager.service import StoryService
+from agentkit.backend.story_context_manager.story_model import (
     CreateStoryInput,
     StoryStatus,
     WireStoryType,
 )
-from agentkit.story_context_manager.story_repository import InMemoryStoryRepository
-from agentkit.story_creation.story_md_export import (
+from agentkit.backend.story_context_manager.story_repository import InMemoryStoryRepository
+from agentkit.backend.story_creation.story_md_export import (
     StoryMdExportResult,
     export_story_md,
 )
-from agentkit.story_split import (
+from agentkit.backend.story_split import (
     SplitPlan,
     SplitSourceState,
     StorySplitError,
@@ -1238,7 +1238,7 @@ class _ControllableIndex:
     def index_story(
         self, *, story_id: str, objects: object
     ) -> int:
-        from agentkit.integrations.vectordb import VectorDbWriteError
+        from agentkit.integration_clients.vectordb import VectorDbWriteError
 
         del objects
         fail = story_id in self.fail_ids or (

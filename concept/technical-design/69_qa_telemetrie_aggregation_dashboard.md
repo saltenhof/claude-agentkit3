@@ -173,25 +173,25 @@ FK-69 definiert **nicht**:
 ## 69.3 Tabellenumfang
 
 FK-69 autorisiert folgende Tabellen (DB-Zugriffsschicht via
-`agentkit.telemetry.read_models`):
+`agentkit.backend.telemetry.read_models`):
 
 **QA-Read-Models (Schema-Owner: verify-system):**
 
-- `qa_stage_results` — `agentkit.telemetry.read_models.qa_stage_results`
-- `qa_findings` — `agentkit.telemetry.read_models.qa_findings`
-- `qa_check_outcomes` — `agentkit.telemetry.read_models.qa_check_outcomes`
+- `qa_stage_results` — `agentkit.backend.telemetry.read_models.qa_stage_results`
+- `qa_findings` — `agentkit.backend.telemetry.read_models.qa_findings`
+- `qa_check_outcomes` — `agentkit.backend.telemetry.read_models.qa_check_outcomes`
 
 **Story-Metriken (Schema-Owner: story-closure):**
 
-- `story_metrics` — `agentkit.telemetry.read_models.story_metrics`
+- `story_metrics` — `agentkit.backend.telemetry.read_models.story_metrics`
 
 **Failure-Corpus-Read-Models (Schema-Owner: failure-corpus, FK-41):**
 
-- `fc_incidents` — `agentkit.telemetry.read_models.fc_incidents`
-- `fc_patterns` — `agentkit.telemetry.read_models.fc_patterns`
-- `fc_check_proposals` — `agentkit.telemetry.read_models.fc_check_proposals`
+- `fc_incidents` — `agentkit.backend.telemetry.read_models.fc_incidents`
+- `fc_patterns` — `agentkit.backend.telemetry.read_models.fc_patterns`
+- `fc_check_proposals` — `agentkit.backend.telemetry.read_models.fc_check_proposals`
 
-`phase_state_projection` — `agentkit.telemetry.read_models.phase_state_projection`
+`phase_state_projection` — `agentkit.backend.telemetry.read_models.phase_state_projection`
 (Schema-Owner: pipeline-framework)
 
 **Hinweis:** telemetry-and-events ist fuer alle Tabellen der **DB-Owner**
@@ -211,7 +211,7 @@ liegt bei den jeweiligen Owner-BCs wie oben angegeben.
 | `fc_patterns` | failure-corpus | `failure_corpus.FailureCorpus` | Pattern-Lifecycle |
 | `fc_check_proposals` | failure-corpus | `failure_corpus.FailureCorpus` | Check-Vorschlaege und Wirksamkeit |
 
-**DB-Owner fuer alle Tabellen:** telemetry-and-events (`agentkit.telemetry.projection_accessor`).
+**DB-Owner fuer alle Tabellen:** telemetry-and-events (`agentkit.backend.telemetry.projection_accessor`).
 Schema-Owner ist das jeweilige BC; FK-69 definiert nur die Zugriffsschicht und Konsistenzregeln.
 
 ## 69.5 Abgrenzung zu anderen Schichten
@@ -239,7 +239,7 @@ Diese gehoeren in die Analytics-Schicht.
 
 ## 69.6 Tabelle `qa_stage_results`
 
-**Modul:** `agentkit.telemetry.read_models.qa_stage_results`
+**Modul:** `agentkit.backend.telemetry.read_models.qa_stage_results`
 **Schema-Owner:** verify-system
 
 ### 69.6.1 Zweck
@@ -279,7 +279,7 @@ bei verify-system (FK-33).
 
 ## 69.7 Tabelle `qa_findings`
 
-**Modul:** `agentkit.telemetry.read_models.qa_findings`
+**Modul:** `agentkit.backend.telemetry.read_models.qa_findings`
 **Schema-Owner:** verify-system
 
 ### 69.7.1 Zweck
@@ -325,7 +325,7 @@ JSON-Artefakt parsen zu muessen. Schema-Verantwortung liegt bei verify-system
 
 ## 69.8 Tabelle `story_metrics`
 
-**Modul:** `agentkit.telemetry.read_models.story_metrics`
+**Modul:** `agentkit.backend.telemetry.read_models.story_metrics`
 **Schema-Owner:** story-closure
 
 ### 69.8.1 Zweck
@@ -377,7 +377,7 @@ die Zugriffsschicht.
 ## 69.9 Failure-Corpus-Read-Models
 
 **Schema-Owner:** failure-corpus (FK-41)
-**Modul (DB-Zugriffsschicht):** `agentkit.telemetry.read_models.fc_*`
+**Modul (DB-Zugriffsschicht):** `agentkit.backend.telemetry.read_models.fc_*`
 
 Die Tabellen `fc_incidents`, `fc_patterns` und `fc_check_proposals`
 gehoeren **fachlich zu BC failure-corpus** (FK-41). Ihre inhaltliche
@@ -469,7 +469,7 @@ Diese Dateien sind jedoch nie die alleinige operative Wahrheit.
 
 ## 69.15 Tabelle `qa_check_outcomes`
 
-**Modul:** `agentkit.telemetry.read_models.qa_check_outcomes`
+**Modul:** `agentkit.backend.telemetry.read_models.qa_check_outcomes`
 **Schema-Owner:** verify-system
 
 ### 69.15.1 Zweck
@@ -618,8 +618,8 @@ erneut in ein dateibasiertes Parallelmodell wie in AK2 zurueckzufallen.
 
 | Schicht | Verantwortliche Komponente | Zweck |
 |---------|---------------------------|-------|
-| DB-Zugriffsschicht | `telemetry-and-events.ProjectionAccessor` (`agentkit.telemetry.projection_accessor`) | Lesen und Schreiben operativer Read-Models; keine Sicht-Semantik |
-| Sicht-Schicht | `kpi-and-dashboard.Dashboard` (`agentkit.kpi_analytics`, FK-63) | Visualisierung periodischer KPI-Rollups; liest aus analytics-Facts |
+| DB-Zugriffsschicht | `telemetry-and-events.ProjectionAccessor` (`agentkit.backend.telemetry.projection_accessor`) | Lesen und Schreiben operativer Read-Models; keine Sicht-Semantik |
+| Sicht-Schicht | `kpi-and-dashboard.Dashboard` (`agentkit.backend.kpi_analytics`, FK-63) | Visualisierung periodischer KPI-Rollups; liest aus analytics-Facts |
 
 `ProjectionAccessor` ist kein Dashboard. `Dashboard` greift nicht direkt
 auf operative Read-Models zu, sondern konsumiert periodisch aggregierte

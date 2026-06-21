@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.story_split.plan_loader import SplitPlanError, load_split_plan
+from agentkit.backend.story_split.plan_loader import SplitPlanError, load_split_plan
 
 if TYPE_CHECKING:
     from pathlib import Path

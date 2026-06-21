@@ -8,18 +8,18 @@ from __future__ import annotations
 
 from tests.exploration_change_frame_fixture import example_change_frame
 
-from agentkit.exploration.change_frame import (
+from agentkit.backend.exploration.change_frame import (
     AffectedBuildingBlocks,
     ContractChanges,
     OpenPoints,
 )
-from agentkit.exploration.mandate.classification import (
+from agentkit.backend.exploration.mandate.classification import (
     MandateClass,
     MandateClassification,
 )
-from agentkit.exploration.mandate.impact_checker import ImpactExceedanceChecker
-from agentkit.exploration.mandate.scope_detector import ScopeExplosionDetector
-from agentkit.story_context_manager.story_model import ChangeImpact
+from agentkit.backend.exploration.mandate.impact_checker import ImpactExceedanceChecker
+from agentkit.backend.exploration.mandate.scope_detector import ScopeExplosionDetector
+from agentkit.backend.story_context_manager.story_model import ChangeImpact
 
 
 def test_mandate_class_catalogue_is_english() -> None:

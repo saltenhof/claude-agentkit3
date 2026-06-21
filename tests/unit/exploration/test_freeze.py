@@ -15,10 +15,10 @@ from typing import TYPE_CHECKING
 
 from tests.exploration_change_frame_fixture import EXAMPLE_RUN_ID, example_change_frame
 
-from agentkit.exploration.freeze import DesignFreezeMarker
+from agentkit.backend.exploration.freeze import DesignFreezeMarker
 
 if TYPE_CHECKING:
-    from agentkit.exploration.change_frame import ChangeFrame
+    from agentkit.backend.exploration.change_frame import ChangeFrame
 
 _FROZEN_AT = datetime(2026, 6, 7, 12, 0, tzinfo=UTC)
 

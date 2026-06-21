@@ -15,13 +15,13 @@ from typing import TYPE_CHECKING
 import pytest
 import yaml
 
-from agentkit.exceptions import ProjectError
-from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
-from agentkit.installer.paths import project_config_path
-from agentkit.installer.registration import ProjectRegistration, RuntimeProfile
-from agentkit.installer.upgrade.entry import run_checkpoint_upgrade
-from agentkit.installer.upgrade.scenarios import UpgradeScenario
-from agentkit.state_backend.store.project_registration_repository import (
+from agentkit.backend.exceptions import ProjectError
+from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
+from agentkit.backend.installer.paths import project_config_path
+from agentkit.backend.installer.registration import ProjectRegistration, RuntimeProfile
+from agentkit.backend.installer.upgrade.entry import run_checkpoint_upgrade
+from agentkit.backend.installer.upgrade.scenarios import UpgradeScenario
+from agentkit.backend.state_backend.store.project_registration_repository import (
     StateBackendProjectRegistrationRepository,
 )
 

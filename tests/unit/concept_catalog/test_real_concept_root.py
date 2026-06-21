@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentkit.concept_catalog.index import ConceptIndex
+from agentkit.backend.concept_catalog.index import ConceptIndex
 
 
 def test_real_concept_root_loads() -> None:

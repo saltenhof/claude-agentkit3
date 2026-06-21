@@ -12,11 +12,11 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentkit.kpi_analytics.catalog import KpiCatalog
-from agentkit.kpi_analytics.errors import AnalyticsNotConfiguredError
-from agentkit.kpi_analytics.fact_store import FactStory, PeriodFilter
-from agentkit.kpi_analytics.top import KpiAnalytics
-from agentkit.kpi_analytics.views import DashboardViewStatus, RefreshStatus
+from agentkit.backend.kpi_analytics.catalog import KpiCatalog
+from agentkit.backend.kpi_analytics.errors import AnalyticsNotConfiguredError
+from agentkit.backend.kpi_analytics.fact_store import FactStory, PeriodFilter
+from agentkit.backend.kpi_analytics.top import KpiAnalytics
+from agentkit.backend.kpi_analytics.views import DashboardViewStatus, RefreshStatus
 
 
 class _DictFactStore:
@@ -94,7 +94,7 @@ class _SpyRefreshWorker:
         project_key: str,
         hint_story_id: str | None = None,
     ) -> object:
-        from agentkit.kpi_analytics.aggregation.models import SyncResult, SyncStatus
+        from agentkit.backend.kpi_analytics.aggregation.models import SyncResult, SyncStatus
 
         self.calls.append((trigger, project_key, hint_story_id))
         return SyncResult(
@@ -107,7 +107,7 @@ class _SpyRefreshWorker:
 
 def test_refresh_analytics_calls_real_worker_with_closure_trigger() -> None:
     """AC5: with both deps set, the facade calls the worker with CLOSURE (no info loss)."""
-    from agentkit.kpi_analytics.aggregation import RefreshTrigger
+    from agentkit.backend.kpi_analytics.aggregation import RefreshTrigger
 
     worker = _SpyRefreshWorker()
     analytics = KpiAnalytics(

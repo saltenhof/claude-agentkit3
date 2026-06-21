@@ -12,7 +12,7 @@ import hashlib
 
 import pytest
 
-from agentkit.governance.guard_system import (
+from agentkit.backend.governance.guard_system import (
     OPAQUE_MESSAGE,
     PromptIntegrityGuard,
     PromptIntegrityStage,
@@ -20,8 +20,8 @@ from agentkit.governance.guard_system import (
     SpawnObservation,
     parse_spawn_header,
 )
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import EventType, validate_event_payload
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import EventType, validate_event_payload
 
 _PROOF = "proof-token-xyz"
 

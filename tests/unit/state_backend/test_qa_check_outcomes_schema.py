@@ -21,14 +21,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.state_backend.store.projection_repositories import (
+from agentkit.backend.state_backend.store.projection_repositories import (
     FacadeQACheckOutcomesRepository,
 )
-from agentkit.telemetry.projection_accessor import (
+from agentkit.backend.telemetry.projection_accessor import (
     ProjectionFilter,
     ProjectionKind,
 )
-from agentkit.verify_system.stage_registry.records import (
+from agentkit.backend.verify_system.stage_registry.records import (
     CheckOutcome,
     QACheckOutcomeRecord,
 )
@@ -322,7 +322,7 @@ def test_since_days_via_public_accessor_includes_recent(tmp_path: Path) -> None:
     Proves AG3-108 ERROR 4 fix: the injectable clock is threaded through
     read_projection so tests drive the PUBLIC accessor, not accessor._repos.
     """
-    from agentkit.bootstrap.composition_root import build_projection_accessor
+    from agentkit.backend.bootstrap.composition_root import build_projection_accessor
 
     accessor = build_projection_accessor(tmp_path)
     now = _now_dt()
@@ -343,7 +343,7 @@ def test_since_days_via_public_accessor_includes_recent(tmp_path: Path) -> None:
 
 def test_since_days_via_public_accessor_excludes_old(tmp_path: Path) -> None:
     """read_projection with _now excludes rows outside the since_days window."""
-    from agentkit.bootstrap.composition_root import build_projection_accessor
+    from agentkit.backend.bootstrap.composition_root import build_projection_accessor
 
     accessor = build_projection_accessor(tmp_path)
     now = _now_dt()
@@ -362,7 +362,7 @@ def test_since_days_via_public_accessor_excludes_old(tmp_path: Path) -> None:
 
 def test_since_days_boundary_via_public_accessor(tmp_path: Path) -> None:
     """Row at exactly the since_days boundary is included via the PUBLIC accessor."""
-    from agentkit.bootstrap.composition_root import build_projection_accessor
+    from agentkit.backend.bootstrap.composition_root import build_projection_accessor
 
     accessor = build_projection_accessor(tmp_path)
     now = _now_dt()

@@ -5,14 +5,14 @@ Pure deterministic logic -- no external boundary, no mocks.
 
 from __future__ import annotations
 
-from agentkit.config.models import (
+from agentkit.backend.config.models import (
     SUPPORTED_CONFIG_VERSION,
     Features,
     PipelineConfig,
     ProjectConfig,
     RepositoryConfig,
 )
-from agentkit.story_creation.repo_affinity import resolve_repo_affinity
+from agentkit.backend.story_creation.repo_affinity import resolve_repo_affinity
 
 
 def _project(repos: list[tuple[str, str]]) -> ProjectConfig:

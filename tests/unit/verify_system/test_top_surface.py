@@ -16,31 +16,31 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.artifacts import (
+from agentkit.backend.artifacts import (
     ArtifactEnvelope,
     ArtifactManager,
     ArtifactReference,
 )
-from agentkit.core_types import ArtifactClass, PolicyVerdict, QaContext, Severity
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.verify_system import (
+from agentkit.backend.core_types import ArtifactClass, PolicyVerdict, QaContext, Severity
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.verify_system import (
     QaSubflowOutcome,
     VerifyContextBundle,
     VerifySystem,
     VerifyTargetUnknownError,
 )
-from agentkit.verify_system.policy_engine.engine import PolicyEngine
-from agentkit.verify_system.protocols import Finding, LayerResult, TrustClass
-from agentkit.verify_system.stage_registry import StageRegistry
-from agentkit.verify_system.structural.system_evidence import ChangeEvidence
+from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
+from agentkit.backend.verify_system.protocols import Finding, LayerResult, TrustClass
+from agentkit.backend.verify_system.stage_registry import StageRegistry
+from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
-    from agentkit.verify_system.adversarial_orchestrator.challenger import (
+    from agentkit.backend.verify_system.adversarial_orchestrator.challenger import (
         AdversarialChallenger,
     )
-    from agentkit.verify_system.llm_evaluator.reviewer import SemanticReviewer
-    from agentkit.verify_system.structural.checker import StructuralChecker
+    from agentkit.backend.verify_system.llm_evaluator.reviewer import SemanticReviewer
+    from agentkit.backend.verify_system.structural.checker import StructuralChecker
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +125,7 @@ class _RecordingArtifactManager(ArtifactManager):
         # fail-closed (AG3-067 def-5): only a genuinely-absent artifact means "no
         # targets", so the double must signal absence honestly rather than rely on
         # a swallowed AttributeError from the bypassed real repository.
-        from agentkit.artifacts import ArtifactNotFoundError
+        from agentkit.backend.artifacts import ArtifactNotFoundError
 
         raise ArtifactNotFoundError("no artifact recorded by the test double")
 
@@ -215,7 +215,7 @@ def _make_system(
     if review_completion_sink is not None:
         kwargs["review_completion_sink"] = review_completion_sink
     change_port = implementation_change_evidence_port or _StaticChangeEvidencePort(
-        ChangeEvidence(available=True, changed_files=("src/agentkit/done.py",))
+        ChangeEvidence(available=True, changed_files=("src/agentkit/backend/done.py",))
     )
     vs = VerifySystem(
         layer_1=layer_1 or _RecordingLayer("structural"),
@@ -602,7 +602,7 @@ class TestRunQaSubflowLayerException:
             e for e in manager.written_envelopes if e.stage == "qa-layer-structural"
         ]
         assert len(structural_envs) == 1
-        from agentkit.core_types import EnvelopeStatus
+        from agentkit.backend.core_types import EnvelopeStatus
         assert structural_envs[0].status is EnvelopeStatus.FAIL
 
     def test_execution_continues_after_one_layer_fails(
@@ -712,7 +712,7 @@ class TestQaSubflowOutcomeCarriesDecision:
             qa_context=QaContext.IMPLEMENTATION_INITIAL,
             target=_make_target(),
         )
-        from agentkit.verify_system.policy_engine.engine import VerifyDecision
+        from agentkit.backend.verify_system.policy_engine.engine import VerifyDecision
 
         decision = outcome.decision
         assert isinstance(decision, VerifyDecision)
@@ -775,7 +775,7 @@ class TestQaSubflowOutcomeCarriesDecision:
         )
         assert outcome.verdict is PolicyVerdict.FAIL
         assert outcome.feedback is not None
-        from agentkit.verify_system.remediation.feedback import RemediationFeedback
+        from agentkit.backend.verify_system.remediation.feedback import RemediationFeedback
 
         assert isinstance(outcome.feedback, RemediationFeedback)
 
@@ -807,7 +807,7 @@ class TestAk8QaCycleFieldsInPayload:
     ) -> None:
         from datetime import UTC, datetime
 
-        from agentkit.verify_system.contract import PhaseEnvelopeView
+        from agentkit.backend.verify_system.contract import PhaseEnvelopeView
 
         qa_cycle_id = "a1b2c3d4e5f6"
         epoch = datetime(2026, 5, 19, 14, 0, 0, tzinfo=UTC)
@@ -879,7 +879,7 @@ class TestCreateDefaultFailClosed:
     """AG3-026 §2.1.4 + Re-Review-Befund 3: fail-closed bei manager=None."""
 
     def test_create_default_without_manager_raises(self) -> None:
-        from agentkit.verify_system.errors import VerifySystemError
+        from agentkit.backend.verify_system.errors import VerifySystemError
 
         with pytest.raises(VerifySystemError, match="ArtifactManager"):
             VerifySystem.create_default(artifact_manager=None)  # type: ignore[arg-type]
@@ -925,7 +925,7 @@ class TestStoryContextPortInjection:
         assert spy.calls == [bundle.story_dir]
 
     def test_create_default_defaults_to_null_story_context_port(self) -> None:
-        from agentkit.verify_system.system import _NullStoryContextPort
+        from agentkit.backend.verify_system.system import _NullStoryContextPort
 
         vs = VerifySystem.create_default(artifact_manager=_RecordingArtifactManager())
 
@@ -1021,7 +1021,7 @@ class TestImplementationEvidencePrecondition:
         _write_required_worker_artifacts(tmp_path)
         ctx = _implementation_ctx(StoryType.IMPLEMENTATION)
         port = _StaticChangeEvidencePort(
-            ChangeEvidence(available=True, changed_files=("src/agentkit/done.py",))
+            ChangeEvidence(available=True, changed_files=("src/agentkit/backend/done.py",))
         )
         vs, manager = _make_system(
             story_context_port=_SpyStoryContextPort(ctx),
@@ -1052,7 +1052,7 @@ def _write_required_worker_artifacts(story_dir: Path) -> None:
     import json
     from datetime import UTC, datetime
 
-    from agentkit.core_types.qa_artifact_names import (
+    from agentkit.backend.core_types.qa_artifact_names import (
         HANDOVER_FILE,
         PROTOCOL_FILE,
         WORKER_MANIFEST_FILE,
@@ -1067,7 +1067,7 @@ def _write_required_worker_artifacts(story_dir: Path) -> None:
                 "run_id": "run-test-001",
                 "status": "completed",
                 "completed_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
-                "files_changed": ["src/agentkit/done.py"],
+                "files_changed": ["src/agentkit/backend/done.py"],
                 "tests_added": [],
                 "acceptance_criteria_status": {"AC1": "done"},
             }
@@ -1092,7 +1092,7 @@ class TestReviewCompletionEmission:
         role; the emission must carry the role the guard filters on
         (qa_review / semantic_review / doc_fidelity).
         """
-        from agentkit.verify_system.review_completion import (
+        from agentkit.backend.verify_system.review_completion import (
             RecordingReviewCompletionSink,
         )
 
@@ -1123,7 +1123,7 @@ class TestReviewCompletionEmission:
         run-scoped Gate-2 count stays at 0 per mandatory role and
         ``guard.multi_llm`` fails closed (FK-27 §27.4.3 / FK-37 §37.1.6).
         """
-        from agentkit.verify_system.review_completion import (
+        from agentkit.backend.verify_system.review_completion import (
             RecordingReviewCompletionSink,
         )
 

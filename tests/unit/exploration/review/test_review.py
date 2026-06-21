@@ -11,22 +11,22 @@ from tests.unit.exploration.review.scripted import (
     build_scripted_evaluator,
 )
 
-from agentkit.core_types import ExplorationGateStatus
-from agentkit.exploration.review.design_challenge import DesignChallengeRunner
-from agentkit.exploration.review.design_review import DesignReviewRunner
-from agentkit.exploration.review.doc_fidelity import DocFidelityChecker
-from agentkit.exploration.review.review import ExplorationGateResult, ExplorationReview
-from agentkit.verify_system.llm_evaluator.structured_evaluator import ReviewerRole
+from agentkit.backend.core_types import ExplorationGateStatus
+from agentkit.backend.exploration.review.design_challenge import DesignChallengeRunner
+from agentkit.backend.exploration.review.design_review import DesignReviewRunner
+from agentkit.backend.exploration.review.doc_fidelity import DocFidelityChecker
+from agentkit.backend.exploration.review.review import ExplorationGateResult, ExplorationReview
+from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import ReviewerRole
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.exploration.review.design_challenge import (
+    from agentkit.backend.exploration.review.design_challenge import (
         DesignChallengeRunner as _ChallengeRunner,
     )
-    from agentkit.story_context_manager.models import StoryContext
+    from agentkit.backend.story_context_manager.models import StoryContext
 
-from agentkit.bootstrap.composition_root import build_artifact_manager
+from agentkit.backend.bootstrap.composition_root import build_artifact_manager
 
 
 def _review(

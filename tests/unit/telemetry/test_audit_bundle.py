@@ -14,26 +14,26 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.state_backend.store import (
+from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.state_backend.store import (
     reset_backend_cache_for_tests,
     save_flow_execution,
     save_story_context,
 )
-from agentkit.state_backend.store.projection_repositories import (
+from agentkit.backend.state_backend.store.projection_repositories import (
     build_projection_repositories,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.telemetry.audit_bundle import (
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.telemetry.audit_bundle import (
     AuditBundleExporter,
     AuditBundleExportError,
 )
-from agentkit.telemetry.events import Event, EventType
-from agentkit.telemetry.projection_accessor import ProjectionAccessor, ProjectionKind
-from agentkit.telemetry.storage import StateBackendEmitter
-from agentkit.verify_system.stage_registry.records import (
+from agentkit.backend.telemetry.events import Event, EventType
+from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor, ProjectionKind
+from agentkit.backend.telemetry.storage import StateBackendEmitter
+from agentkit.backend.verify_system.stage_registry.records import (
     QAFindingRecord,
     QAStageResultRecord,
 )
@@ -242,7 +242,7 @@ def test_export_refused_for_reset_or_incomplete_run(story_dir: Path) -> None:
 
 
 def test_dataclass_to_dict_rejects_non_dataclass() -> None:
-    from agentkit.telemetry.audit_bundle import _dataclass_to_dict
+    from agentkit.backend.telemetry.audit_bundle import _dataclass_to_dict
 
     with pytest.raises(TypeError):
         _dataclass_to_dict({"not": "a dataclass"})

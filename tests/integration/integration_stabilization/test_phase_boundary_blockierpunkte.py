@@ -20,40 +20,40 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.governance.protocols import ViolationType
-from agentkit.governance.runner import GuardRunner
-from agentkit.integration_stabilization.models import (
+from agentkit.backend.governance.protocols import ViolationType
+from agentkit.backend.governance.runner import GuardRunner
+from agentkit.backend.integration_stabilization.models import (
     IntegrationScopeManifest,
     ManifestApprovalRecord,
     StabilizationBudgetCaps,
 )
-from agentkit.integration_stabilization.seam_allowlist_guard import (
+from agentkit.backend.integration_stabilization.seam_allowlist_guard import (
     SeamAllowlistGuard,
     materialize_seam_allowlist,
 )
-from agentkit.integration_stabilization.state import (
+from agentkit.backend.integration_stabilization.state import (
     save_integration_manifest,
     save_manifest_approval,
 )
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import (
     ClosurePayload,
     ClosureProgress,
     PhaseSnapshot,
     PhaseStatus,
 )
-from agentkit.state_backend.store import save_phase_snapshot, save_story_context
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import ChangeImpact
-from agentkit.story_context_manager.types import (
+from agentkit.backend.state_backend.store import save_phase_snapshot, save_story_context
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import ChangeImpact
+from agentkit.backend.story_context_manager.types import (
     ImplementationContract,
     StoryMode,
     StoryType,
 )
-from agentkit.verify_system.stage_registry.data import ALL_STAGES
-from agentkit.verify_system.stage_registry.registry import StageRegistry
-from agentkit.verify_system.structural.checker import StructuralChecker
-from agentkit.verify_system.structural.system_evidence import ChangeEvidence
+from agentkit.backend.verify_system.stage_registry.data import ALL_STAGES
+from agentkit.backend.verify_system.stage_registry.registry import StageRegistry
+from agentkit.backend.verify_system.structural.checker import StructuralChecker
+from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -189,7 +189,7 @@ def _make_checker(
     changed_files: tuple[str, ...] = (),
 ) -> StructuralChecker:
     """Real StructuralChecker with IS registry and fake evidence."""
-    from agentkit.verify_system.structural.checks import BuildTestEvidence
+    from agentkit.backend.verify_system.structural.checks import BuildTestEvidence
 
     class _Bt:
         def evaluate(self, story_dir: Path) -> BuildTestEvidence:  # noqa: ARG002
@@ -233,7 +233,7 @@ class TestStructuralCheckerISBlocksWithoutManifest:
         result = checker.evaluate(ctx, story_dir)
 
         # The IS stage must have fired and produced a BLOCKING finding.
-        from agentkit.verify_system.protocols import Severity
+        from agentkit.backend.verify_system.protocols import Severity
 
         blocking = [
             f
@@ -347,7 +347,7 @@ class TestStructuralCheckerISBlocksWithoutManifest:
         checker = _make_checker()
         result = checker.evaluate(ctx, story_dir)
 
-        from agentkit.verify_system.protocols import Severity
+        from agentkit.backend.verify_system.protocols import Severity
 
         blocking = [
             f
@@ -375,7 +375,7 @@ class TestStructuralCheckerISBlocksWithoutManifest:
         checker = _make_checker(changed_files=("src/unrelated/hack.py",))
         result = checker.evaluate(ctx, story_dir)
 
-        from agentkit.verify_system.protocols import Severity
+        from agentkit.backend.verify_system.protocols import Severity
 
         blocking = [
             f
@@ -476,7 +476,7 @@ class _FakeChangeEvidencePortImpl:
     """Injects deterministic implementation change evidence for closure tests."""
 
     def __init__(self) -> None:
-        from agentkit.story_context_manager.story_model import ChangeImpact
+        from agentkit.backend.story_context_manager.story_model import ChangeImpact
 
         self._ev = ChangeEvidence(
             available=True,
@@ -495,12 +495,12 @@ def _write_implementation_artifacts(story_dir: Path) -> None:
     """Write minimum delivery artifacts so the implementation-evidence gate passes."""
     from datetime import datetime as _dt
 
-    from agentkit.core_types.qa_artifact_names import (
+    from agentkit.backend.core_types.qa_artifact_names import (
         HANDOVER_FILE,
         PROTOCOL_FILE,
         WORKER_MANIFEST_FILE,
     )
-    from agentkit.implementation.manifest.manifest import (
+    from agentkit.backend.implementation.manifest.manifest import (
         WorkerManifest,
         WorkerManifestStatus,
     )
@@ -566,7 +566,7 @@ class TestClosurePhaseHandlerISPrecondition:
         precondition runs BEFORE the finalization-collaborator check in
         _run_sequence so we never need doc_fidelity_port etc. for the IS block test.
         """
-        from agentkit.closure.phase import ClosureConfig, ClosurePhaseHandler
+        from agentkit.backend.closure.phase import ClosureConfig, ClosurePhaseHandler
 
         class _NullStore:
             def save_state(self, state: object) -> None:
@@ -659,7 +659,7 @@ class TestClosurePhaseHandlerISPrecondition:
             )
         _write_implementation_artifacts(story_dir)
 
-        from agentkit.closure.phase import ClosureConfig, ClosurePhaseHandler
+        from agentkit.backend.closure.phase import ClosureConfig, ClosurePhaseHandler
 
         class _NullStore:
             def save_state(self, state: object) -> None:
@@ -772,7 +772,7 @@ class TestStabilizationBudgetGuardViaGuardRunner:
 
     def test_within_budget_allows_writes(self, tmp_path: Path) -> None:
         """AC4: write allowed when budget is within caps via GuardRunner."""
-        from agentkit.integration_stabilization.budget_guard import (
+        from agentkit.backend.integration_stabilization.budget_guard import (
             StabilizationBudgetGuard,
         )
 
@@ -788,7 +788,7 @@ class TestStabilizationBudgetGuardViaGuardRunner:
 
     def test_exhausted_budget_blocks_writes_via_runner(self, tmp_path: Path) -> None:
         """AC4: write blocked when loop budget exhausted via real GuardRunner."""
-        from agentkit.integration_stabilization.budget_guard import (
+        from agentkit.backend.integration_stabilization.budget_guard import (
             StabilizationBudgetGuard,
         )
 
@@ -812,7 +812,7 @@ class TestStabilizationBudgetGuardViaGuardRunner:
 
     def test_read_allowed_even_when_budget_exhausted(self, tmp_path: Path) -> None:
         """AC4: read operations not blocked even when budget is exhausted."""
-        from agentkit.integration_stabilization.budget_guard import (
+        from agentkit.backend.integration_stabilization.budget_guard import (
             StabilizationBudgetGuard,
         )
 
@@ -831,7 +831,7 @@ class TestStabilizationBudgetGuardViaGuardRunner:
 
     def test_budget_guard_name(self, tmp_path: Path) -> None:
         """AC4: StabilizationBudgetGuard.name is correct."""
-        from agentkit.integration_stabilization.budget_guard import (
+        from agentkit.backend.integration_stabilization.budget_guard import (
             StabilizationBudgetGuard,
         )
 
@@ -857,7 +857,7 @@ class TestImplementationPhaseHandlerISApprovalBlock:
 
     def _make_impl_handler(self, story_dir: Path) -> object:
         """Build a minimal real ImplementationPhaseHandler for IS testing."""
-        from agentkit.implementation.phase import (
+        from agentkit.backend.implementation.phase import (
             ImplementationConfig,
             ImplementationPhaseHandler,
         )
@@ -868,8 +868,8 @@ class TestImplementationPhaseHandlerISApprovalBlock:
     def _make_envelope(self) -> object:
         from tests.phase_state_factory import make_phase_state
 
-        from agentkit.core_types import QaContext
-        from agentkit.pipeline_engine.phase_executor import (
+        from agentkit.backend.core_types import QaContext
+        from agentkit.backend.pipeline_engine.phase_executor import (
             ImplementationPayload,
             QaCycleStatus,
         )
@@ -883,7 +883,7 @@ class TestImplementationPhaseHandlerISApprovalBlock:
                 verify_context=QaContext.IMPLEMENTATION_INITIAL,
             ),
         )
-        from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+        from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
         return PhaseEnvelopeStore.make_fresh_envelope(state)
 
     def test_implementation_escalates_without_is_manifest(
@@ -909,8 +909,8 @@ class TestImplementationPhaseHandlerISApprovalBlock:
         )
 
     def _persist_flow(self, story_dir: Path, run_id: str = "run-is069") -> None:
-        from agentkit.phase_state_store.models import FlowExecution
-        from agentkit.state_backend.store import save_flow_execution
+        from agentkit.backend.phase_state_store.models import FlowExecution
+        from agentkit.backend.state_backend.store import save_flow_execution
 
         save_flow_execution(
             story_dir,
@@ -1089,7 +1089,7 @@ class TestImplementationPhaseHandlerISApprovalBlock:
         related -- any other failure (e.g. missing FlowExecution) is acceptable
         proof that the IS guard did not fire.
         """
-        from agentkit.exceptions import CorruptStateError
+        from agentkit.backend.exceptions import CorruptStateError
 
         story_dir = tmp_path / "stories" / _STORY_ID
         story_dir.mkdir(parents=True, exist_ok=True)

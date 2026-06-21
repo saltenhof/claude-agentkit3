@@ -16,12 +16,12 @@ if TYPE_CHECKING:
 
 
 def test_truth_boundary_loads_formal_policy(tmp_path: Path) -> None:
-    root = _write_fixture(tmp_path, protected_module="agentkit.governance.guard")
+    root = _write_fixture(tmp_path, protected_module="agentkit.backend.governance.guard")
 
     compiled = compile_formal_specs(root / "concept" / "formal-spec")
     config = load_truth_boundary_config(compiled)
 
-    assert "agentkit.governance" in config.protected_module_prefixes
+    assert "agentkit.backend.governance" in config.protected_module_prefixes
     assert "context.json" in config.forbidden_json_truth_filenames
     assert "load_verify_decision_artifact" in config.forbidden_loader_symbols
 
@@ -29,7 +29,7 @@ def test_truth_boundary_loads_formal_policy(tmp_path: Path) -> None:
 def test_truth_boundary_rejects_json_load_in_protected_module(tmp_path: Path) -> None:
     root = _write_fixture(
         tmp_path,
-        protected_module="agentkit.governance.guard",
+        protected_module="agentkit.backend.governance.guard",
         source="""
             import json
 
@@ -50,7 +50,7 @@ def test_truth_boundary_rejects_forbidden_loader_import(tmp_path: Path) -> None:
         tmp_path,
         protected_module="agentkit.pipeline.verify_gate",
         source="""
-            from agentkit.verify_system.artifacts import load_verify_decision_artifact
+            from agentkit.backend.verify_system.artifacts import load_verify_decision_artifact
 
             def evaluate(story_dir):
                 return load_verify_decision_artifact(story_dir)
@@ -86,7 +86,7 @@ def test_truth_boundary_rejects_builtin_open_on_forbidden_export(
 ) -> None:
     root = _write_fixture(
         tmp_path,
-        protected_module="agentkit.governance.guard",
+        protected_module="agentkit.backend.governance.guard",
         source="""
             def evaluate(story_dir):
                 with open(story_dir / "decision.json", "r", encoding="utf-8") as handle:
@@ -103,7 +103,7 @@ def test_truth_boundary_rejects_builtin_open_on_forbidden_export(
 def test_truth_boundary_allows_cli_export_modules(tmp_path: Path) -> None:
     root = _write_fixture(
         tmp_path,
-        protected_module="agentkit.cli.export_artifacts",
+        protected_module="agentkit.backend.cli.export_artifacts",
         source="""
             import json
 
@@ -123,7 +123,7 @@ def test_truth_boundary_allows_cli_export_modules(tmp_path: Path) -> None:
 def test_truth_boundary_accepts_clean_protected_module(tmp_path: Path) -> None:
     root = _write_fixture(
         tmp_path,
-        protected_module="agentkit.governance.guard",
+        protected_module="agentkit.backend.governance.guard",
         source="""
             def evaluate(state_reader, story_id):
                 return state_reader.get_story_context(story_id)
@@ -171,11 +171,11 @@ def _write_fixture(
             kind: invariant-set
             context: truth-boundary-checker
             protected_module_prefixes:
-              - agentkit.governance
+              - agentkit.backend.governance
               - agentkit.pipeline
-              - agentkit.verify_system.structural
+              - agentkit.backend.verify_system.structural
             allowed_module_prefixes:
-              - agentkit.cli
+              - agentkit.backend.cli
               - tests
             forbidden_loader_symbols:
               - load_json_object
@@ -185,7 +185,7 @@ def _write_fixture(
               - load_story_context
             forbidden_import_modules:
               - agentkit.pipeline.state
-              - agentkit.verify_system.artifacts
+              - agentkit.backend.verify_system.artifacts
             forbidden_json_truth_filenames:
               - context.json
               - decision.json

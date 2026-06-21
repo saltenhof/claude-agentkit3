@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agentkit.governance.guard_system.protected_paths import (
+from agentkit.backend.governance.guard_system.protected_paths import (
     PROTECTED_ADVERSARIAL_SANDBOX_PREFIX,
     is_adversarial_sandbox_path,
 )
@@ -26,5 +26,5 @@ def test_sandbox_paths_are_protected() -> None:
 def test_non_sandbox_paths_are_not_protected() -> None:
     """Unrelated paths are NOT classified as the protected sandbox (fail-closed)."""
     assert not is_adversarial_sandbox_path("_temp/qa/AG3-044/handover.json")
-    assert not is_adversarial_sandbox_path("src/agentkit/x.py")
+    assert not is_adversarial_sandbox_path("src/agentkit/backend/x.py")
     assert not is_adversarial_sandbox_path("_temp/adversarialish/x")

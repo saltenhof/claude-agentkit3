@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from tests.fixtures import postgres_backend
 
-from agentkit.state_backend.config import STATE_BACKEND_ENV, STATE_DATABASE_URL_ENV
+from agentkit.backend.state_backend.config import STATE_BACKEND_ENV, STATE_DATABASE_URL_ENV
 
 
 def test_explicit_postgres_env_uses_import_time_snapshot(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.core_types import OverrideType
+from agentkit.backend.core_types import OverrideType
 
 
 def test_override_type_value_range() -> None:

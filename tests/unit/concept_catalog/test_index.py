@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.concept_catalog.errors import ConceptRefNotFoundError
-from agentkit.concept_catalog.index import ConceptIndex
+from agentkit.backend.concept_catalog.errors import ConceptRefNotFoundError
+from agentkit.backend.concept_catalog.index import ConceptIndex
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -18,13 +18,13 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.bootstrap.composition_root import build_failure_corpus
-from agentkit.core_types import FailureCategory, IncidentStatus
-from agentkit.failure_corpus import IncidentCandidate, IncidentRole, IncidentSeverity
-from agentkit.state_backend.store.projection_repositories import (
+from agentkit.backend.bootstrap.composition_root import build_failure_corpus
+from agentkit.backend.core_types import FailureCategory, IncidentStatus
+from agentkit.backend.failure_corpus import IncidentCandidate, IncidentRole, IncidentSeverity
+from agentkit.backend.state_backend.store.projection_repositories import (
     build_projection_repositories,
 )
-from agentkit.telemetry.projection_accessor import (
+from agentkit.backend.telemetry.projection_accessor import (
     ProjectionAccessor,
     ProjectionFilter,
     ProjectionKind,
@@ -204,7 +204,7 @@ def test_postgres_db_checks_reject_malformed_rows() -> None:
     """
     import psycopg
 
-    from agentkit.state_backend.store.projection_repositories import _postgres_connect
+    from agentkit.backend.state_backend.store.projection_repositories import _postgres_connect
 
     cols = (
         "project_key, incident_id, run_id, story_id, category, severity, "

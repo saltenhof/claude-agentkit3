@@ -10,10 +10,10 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from agentkit.core_types import PauseReason
-from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
-from agentkit.pipeline_engine.phase_envelope.runtime import PhaseOrigin, RuntimeMetadata
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.core_types import PauseReason
+from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+from agentkit.backend.pipeline_engine.phase_envelope.runtime import PhaseOrigin, RuntimeMetadata
+from agentkit.backend.pipeline_engine.phase_executor import (
     EscalationReason,
     PhaseName,
     PhaseState,
@@ -21,7 +21,7 @@ from agentkit.pipeline_engine.phase_executor import (
     PhaseStateProducer,
     PhaseStatus,
 )
-from agentkit.story_context_manager.types import StoryType
+from agentkit.backend.story_context_manager.types import StoryType
 
 
 def _state_data(**overrides: object) -> dict[str, object]:
@@ -137,8 +137,8 @@ def test_phase_state_consistency_validators_reject_invalid_states(
 
 
 def test_phase_state_models_import_from_phase_executor_owner() -> None:
-    import agentkit.pipeline_engine.phase_executor as owner
-    import agentkit.story_context_manager as bridge
+    import agentkit.backend.pipeline_engine.phase_executor as owner
+    import agentkit.backend.story_context_manager as bridge
 
     assert owner.PhaseState is PhaseState
     assert bridge.PhaseState is PhaseState
@@ -165,7 +165,7 @@ def test_no_production_importer_sources_phase_models_from_story_context_manager(
         for node in ast.walk(tree):
             if not isinstance(node, ast.ImportFrom):
                 continue
-            if node.module != "agentkit.story_context_manager.models":
+            if node.module != "agentkit.backend.story_context_manager.models":
                 continue
             if any(alias.name in forbidden for alias in node.names):
                 offenders.append(str(path.relative_to(repo_root)))

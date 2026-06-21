@@ -13,15 +13,15 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from http import HTTPStatus
 
-from agentkit.execution_planning.entities import (
+from agentkit.backend.execution_planning.entities import (
     ParallelizationConfig,
     StoryDependency,
     StoryDependencyKind,
     StoryRefForPlanning,
 )
-from agentkit.execution_planning.http.routes import ExecutionPlanningRoutes
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.project_management.lifecycle import create_project
+from agentkit.backend.execution_planning.http.routes import ExecutionPlanningRoutes
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.project_management.lifecycle import create_project
 
 _PROJECT = "tenant-a"
 _SNAPSHOT = f"/v1/projects/{_PROJECT}/execution-input/snapshot"

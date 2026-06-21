@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from agentkit.execution_planning.dependency_graph import DependencyGraph
-from agentkit.execution_planning.entities import StoryDependency, StoryDependencyKind
+from agentkit.backend.execution_planning.dependency_graph import DependencyGraph
+from agentkit.backend.execution_planning.entities import StoryDependency, StoryDependencyKind
 
 
 def _edge(

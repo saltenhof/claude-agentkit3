@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from agentkit.governance.protocols import ViolationType
-from agentkit.integration_stabilization.models import (
+from agentkit.backend.governance.protocols import ViolationType
+from agentkit.backend.integration_stabilization.models import (
     IntegrationScopeManifest,
     StabilizationBudgetCaps,
 )
-from agentkit.integration_stabilization.seam_allowlist_guard import (
+from agentkit.backend.integration_stabilization.seam_allowlist_guard import (
     SeamAllowlistGuard,
     materialize_seam_allowlist,
 )

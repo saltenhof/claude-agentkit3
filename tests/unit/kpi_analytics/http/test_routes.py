@@ -19,13 +19,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.kpi_analytics.catalog import KpiCatalog
-from agentkit.kpi_analytics.fact_store.store import FactStore
-from agentkit.kpi_analytics.http.routes import KpiAnalyticsRoutes
-from agentkit.kpi_analytics.top import KpiAnalytics
+from agentkit.backend.kpi_analytics.catalog import KpiCatalog
+from agentkit.backend.kpi_analytics.fact_store.store import FactStore
+from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
+from agentkit.backend.kpi_analytics.top import KpiAnalytics
 
 if TYPE_CHECKING:
-    from agentkit.kpi_analytics.fact_store.models import FactStory, PeriodFilter
+    from agentkit.backend.kpi_analytics.fact_store.models import FactStory, PeriodFilter
 
 _CORR = "test-corr-kpi-001"
 _KPI_DIMENSIONS = ("stories", "guards", "pools", "pipeline", "corpus")
@@ -77,7 +77,7 @@ def _make_analytics() -> KpiAnalytics:
 
 
 def _json(response: object) -> object:
-    from agentkit.control_plane.models import BcRouteResponse
+    from agentkit.backend.control_plane.models import BcRouteResponse
 
     assert isinstance(response, BcRouteResponse)
     return json.loads(response.body)

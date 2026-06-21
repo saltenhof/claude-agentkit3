@@ -13,12 +13,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.bootstrap.composition_root import build_planning_projection_accessor
-from agentkit.execution_planning.persistence.errors import (
+from agentkit.backend.bootstrap.composition_root import build_planning_projection_accessor
+from agentkit.backend.execution_planning.persistence.errors import (
     PlanningProjectionRecordTypeMismatchError,
 )
-from agentkit.execution_planning.persistence.filter import PlanningProjectionFilter
-from agentkit.execution_planning.persistence.records import (
+from agentkit.backend.execution_planning.persistence.filter import PlanningProjectionFilter
+from agentkit.backend.execution_planning.persistence.records import (
     BlockingConditionRecord,
     DependencyEdgeRecord,
     ExecutionPlanRecord,
@@ -30,15 +30,15 @@ from agentkit.execution_planning.persistence.records import (
     SchedulingBudgetRecord,
     SchedulingPolicyRecord,
 )
-from agentkit.execution_planning.persistence.schema_kind import PlanningSchemaKind
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.execution_planning.persistence.schema_kind import PlanningSchemaKind
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from agentkit.execution_planning.persistence.accessor import (
+    from agentkit.backend.execution_planning.persistence.accessor import (
         PlanningProjectionAccessor,
     )
 

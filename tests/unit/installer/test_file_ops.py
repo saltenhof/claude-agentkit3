@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.exceptions import ProjectError
-from agentkit.installer import file_ops
+from agentkit.backend.exceptions import ProjectError
+from agentkit.backend.installer import file_ops
 
 if TYPE_CHECKING:
     from pathlib import Path

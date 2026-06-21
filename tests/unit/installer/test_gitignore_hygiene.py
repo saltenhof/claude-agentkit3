@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.installer.runner import _ensure_link_bindpoint_gitignore
+from agentkit.backend.installer.runner import _ensure_link_bindpoint_gitignore
 
 if TYPE_CHECKING:
     from pathlib import Path

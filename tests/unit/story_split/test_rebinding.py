@@ -6,9 +6,9 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentkit.core_types import StoryDependencyKind
-from agentkit.execution_planning.entities import StoryDependency
-from agentkit.story_split.rebinding import (
+from agentkit.backend.core_types import StoryDependencyKind
+from agentkit.backend.execution_planning.entities import StoryDependency
+from agentkit.backend.story_split.rebinding import (
     RebindingError,
     plan_rebinding,
 )

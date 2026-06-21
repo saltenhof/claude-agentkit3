@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from agentkit.integrations.sonar import SonarApiError, SonarClient
+from agentkit.integration_clients.sonar import SonarApiError, SonarClient
 
 
 class _FakeResponse:

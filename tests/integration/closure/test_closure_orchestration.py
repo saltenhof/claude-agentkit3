@@ -24,14 +24,14 @@ from tests.unit.closure.closure_fakes import (
     StubGitBackend,
 )
 
-from agentkit.bootstrap.composition_root import (
+from agentkit.backend.bootstrap.composition_root import (
     build_artifact_manager,
     build_closure_phase_handler,
 )
-from agentkit.closure.gates import ABSENT_TELEMETRY_EVIDENCE_PORT
-from agentkit.closure.phase import ClosureConfig, ClosurePhaseHandler
-from agentkit.core_types import ArtifactClass
-from agentkit.core_types.qa_artifact_names import (
+from agentkit.backend.closure.gates import ABSENT_TELEMETRY_EVIDENCE_PORT
+from agentkit.backend.closure.phase import ClosureConfig, ClosurePhaseHandler
+from agentkit.backend.core_types import ArtifactClass
+from agentkit.backend.core_types.qa_artifact_names import (
     DOC_FIDELITY_PRODUCER,
     DOC_FIDELITY_STAGE,
     QA_REVIEW_PRODUCER,
@@ -39,25 +39,25 @@ from agentkit.core_types.qa_artifact_names import (
     SEMANTIC_REVIEW_PRODUCER,
     SEMANTIC_REVIEW_STAGE,
 )
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import (
     ClosurePayload,
     ClosureProgress,
     PhaseSnapshot,
     PhaseStatus,
 )
-from agentkit.state_backend.store import (
+from agentkit.backend.state_backend.store import (
     append_execution_event,
     load_phase_state,
     save_flow_execution,
     save_phase_snapshot,
     save_story_context,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.telemetry.contract.records import ExecutionEventRecord
-from agentkit.telemetry.events import EventType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.telemetry.events import EventType
 from integration.implementation_evidence_support import (
     init_git_story_worktree,
     write_implementation_qa_preconditions,
@@ -70,7 +70,7 @@ if TYPE_CHECKING:
 
 @pytest.fixture(autouse=True)
 def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
-    from agentkit.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
@@ -140,7 +140,7 @@ def _prepare(tmp_path: Path, story_id: str = "TEST-001") -> Path:
 
 
 def _write_all_layer2(s_dir: Path, *, story_id: str) -> None:
-    from agentkit.artifacts import (
+    from agentkit.backend.artifacts import (
         ArtifactEnvelope,
         EnvelopeStatus,
         Producer,
@@ -223,7 +223,7 @@ def test_built_handler_registers_on_phase_registry(tmp_path: Path) -> None:
     wired handler from ``build_closure_phase_handler`` -- never a bare
     ``ClosurePhaseHandler(ClosureConfig(...))`` that would run un-wired.
     """
-    from agentkit.pipeline_engine.lifecycle import PhaseHandlerRegistry
+    from agentkit.backend.pipeline_engine.lifecycle import PhaseHandlerRegistry
 
     s_dir = tmp_path / "stories" / "TEST-001"
     s_dir.mkdir(parents=True)
@@ -256,7 +256,7 @@ def test_e2e_impl_closure_completes(tmp_path: Path) -> None:
     # productive Build/Test port is fail-closed without a wired runner, so the
     # e2e happy path injects a recording build/test boundary -- the real runner
     # is an AG3-018-style follow-up capability).
-    from agentkit.closure.merge_sequence import MergeApplicability
+    from agentkit.backend.closure.merge_sequence import MergeApplicability
 
     git = StubGitBackend()
     config.scan_port = RecordingScanPort()
@@ -289,7 +289,7 @@ def test_e2e_impl_closure_completes(tmp_path: Path) -> None:
 
 def test_fix2_missing_story_context_fails_closed(tmp_path: Path) -> None:
     """FIX-2: a missing/unreadable story context fails closed (no silent skip)."""
-    from agentkit.bootstrap.composition_root import ClosureConfigUnavailableError
+    from agentkit.backend.bootstrap.composition_root import ClosureConfigUnavailableError
 
     s_dir = tmp_path / "stories" / "TEST-404"
     s_dir.mkdir(parents=True)
@@ -301,8 +301,8 @@ def test_fix2_missing_story_context_fails_closed(tmp_path: Path) -> None:
 
 def test_fix2_malformed_project_config_fails_closed(tmp_path: Path) -> None:
     """FIX-2: a PRESENT-but-malformed project config fails closed (not absence)."""
-    from agentkit.bootstrap.composition_root import ClosureConfigUnavailableError
-    from agentkit.config.defaults import DEFAULT_CONFIG_DIR, DEFAULT_CONFIG_FILE
+    from agentkit.backend.bootstrap.composition_root import ClosureConfigUnavailableError
+    from agentkit.backend.config.defaults import DEFAULT_CONFIG_DIR, DEFAULT_CONFIG_FILE
 
     s_dir = tmp_path / "stories" / "TEST-500"
     s_dir.mkdir(parents=True)
@@ -341,7 +341,7 @@ def test_e2e_integrity_fail_aborts_before_push(tmp_path: Path) -> None:
     handler = build_closure_phase_handler(
         config, store_dir=s_dir, project_key="test-project"
     )
-    from agentkit.closure.merge_sequence import MergeApplicability
+    from agentkit.backend.closure.merge_sequence import MergeApplicability
 
     git = StubGitBackend()
     config.scan_port = RecordingScanPort()

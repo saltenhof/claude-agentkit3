@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.core_types import FailureCategory, IncidentStatus
-from agentkit.failure_corpus import (
+from agentkit.backend.core_types import FailureCategory, IncidentStatus
+from agentkit.backend.failure_corpus import (
     IncidentCandidate,
     IncidentDraft,
     IncidentNormalizer,
@@ -23,12 +23,12 @@ from agentkit.failure_corpus import (
     IncidentTriage,
     IngressCriteria,
 )
-from agentkit.failure_corpus.errors import IncidentRejectedError, IncidentRejectReason
-from agentkit.failure_corpus.types import IncidentId
+from agentkit.backend.failure_corpus.errors import IncidentRejectedError, IncidentRejectReason
+from agentkit.backend.failure_corpus.types import IncidentId
 
 if TYPE_CHECKING:
-    from agentkit.telemetry.projection_accessor import ProjectionFilter, ProjectionKind
-    from agentkit.telemetry.projection_records import ProjectionRecord
+    from agentkit.backend.telemetry.projection_accessor import ProjectionFilter, ProjectionKind
+    from agentkit.backend.telemetry.projection_records import ProjectionRecord
 
 _NOW = datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC)
 
@@ -205,7 +205,7 @@ class TestIncidentTriageIngest:
         writer, reader = _SpyWriter(), _SpyReader()
         self._triage(writer, reader).ingest(_candidate())
 
-        from agentkit.telemetry.projection_accessor import ProjectionKind
+        from agentkit.backend.telemetry.projection_accessor import ProjectionKind
 
         assert len(reader.reads) == 1
         kind, flt = reader.reads[0]
@@ -215,7 +215,7 @@ class TestIncidentTriageIngest:
     def test_reject_does_not_persist(self) -> None:
         # Existierender Incident gleicher (project, category) -> nicht novel;
         # LOW + nicht merge-blocked + kein Rework -> NOT_SIGNIFICANT.
-        from agentkit.failure_corpus import Incident
+        from agentkit.backend.failure_corpus import Incident
 
         existing = Incident(
             project_key="proj-a",
@@ -244,7 +244,7 @@ class TestIncidentTriageIngest:
     def test_not_significant_when_in_corpus_and_no_trigger(self) -> None:
         # Existierender Incident gleicher (project, category) -> nicht novel;
         # LOW, kein Merge-Block, Rework klein -> NOT_SIGNIFICANT (reines ODER).
-        from agentkit.failure_corpus import Incident
+        from agentkit.backend.failure_corpus import Incident
 
         existing = Incident(
             project_key="proj-a",
@@ -275,7 +275,7 @@ class TestIncidentTriageIngest:
     def test_exact_duplicate_in_corpus_rejected(self) -> None:
         # Exakter Duplikat (gleiche fachliche Signatur) bereits im Corpus ->
         # DUPLICATE_WINDOW, auch wenn Severity/Trigger eine Aufnahme erlauben.
-        from agentkit.failure_corpus import Incident
+        from agentkit.backend.failure_corpus import Incident
 
         existing = Incident(
             project_key="proj-a",

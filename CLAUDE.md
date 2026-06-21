@@ -81,9 +81,10 @@ Die v2-Erfahrung ist hier lehrreich: Fehler entstehen oft durch unklare Ownershi
 
 ### SINGLE SOURCE OF TRUTH IST PFLICHT
 
-- Deployte Zielprojekt-Dateien existieren genau einmal unter `src/agentkit/resources/target_project/`.
+- Deployte Zielprojekt-Dateien existieren genau einmal unter `src/agentkit/bundles/target_project/`.
 - Produktionscode liegt nur unter `src/agentkit/`.
-- `resources/` enthaelt Dateien, aber keinen Python-Code.
+- `src/agentkit/` ist Deployment-Unit-first: `backend/`, `frontend/`, `harness_client/`, `integration_clients/`, `bundles/`.
+- `bundles/` enthaelt paketierte Skills, Prompts und Zielprojekt-Assets, aber keine Laufzeitdaten.
 - `var/` ist ephemer und niemals fachliche Wahrheit.
 - GitHub-Felder sind Eingabe fuer Setup, aber nicht die operative Wahrheit waehrend eines Runs; danach gilt der autoritative Snapshot/State des Runs.
 
@@ -203,9 +204,13 @@ Ratespiel ist hier kein akzeptabler Modus.
 ### Architektur
 
 - Produktionscode nur in `src/agentkit/`
-- Fachlogik nicht in `integrations/` oder `utils/`
-- `integrations/` bleiben duenne Adapter
-- `resources/` bleibt Python-frei
+- Backend-Fachlogik unter `src/agentkit/backend/`
+- Produktiver Frontend-Code unter `src/agentkit/frontend/app/`
+- Harness-/ProjectEdge-Code unter `src/agentkit/harness_client/`
+- Drittsystem-Clients unter `src/agentkit/integration_clients/`
+- Fachlogik nicht in `integration_clients/` oder `utils/`
+- `integration_clients/` bleiben duenne Adapter
+- `bundles/` bleibt frei von Runtime-State und Backend-Fachlogik
 - Orchestrierung und Geschaeftslogik trennen
 - Seiteneffekte an die Raender, Kernlogik moeglichst rein
 - Immutability und unidirektionaler Datenfluss als Default

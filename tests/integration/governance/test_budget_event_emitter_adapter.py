@@ -34,17 +34,17 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.control_plane.models import (
+from agentkit.backend.control_plane.models import (
     EdgeBundle,
     EdgePointer,
     SessionRunBindingView,
     StoryExecutionLockView,
 )
-from agentkit.governance import runner as runner_mod
-from agentkit.governance.harness_adapters.claude_code import main as claude_main
-from agentkit.governance.harness_adapters.codex.cli import main as codex_main
-from agentkit.projectedge.client import LocalEdgePublisher
-from agentkit.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.governance import runner as runner_mod
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.harness_client.harness_adapters.claude_code import main as claude_main
+from agentkit.harness_client.harness_adapters.codex.cli import main as codex_main
+from agentkit.harness_client.projectedge.client import LocalEdgePublisher
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -72,7 +72,7 @@ def test_capability_enforcement_is_not_patched_out() -> None:
     # ``None`` to fake-reach the budget guard; this assertion fails if that returns.
     assert (
         runner_mod._run_capability_enforcement.__module__
-        == "agentkit.governance.runner"
+        == "agentkit.backend.governance.runner"
     )
     assert runner_mod._run_capability_enforcement.__name__ == "_run_capability_enforcement"
 

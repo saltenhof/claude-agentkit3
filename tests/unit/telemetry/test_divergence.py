@@ -8,7 +8,7 @@ from typing import get_type_hints
 
 import pytest
 
-from agentkit.telemetry.divergence import (
+from agentkit.backend.telemetry.divergence import (
     VERDICT_NORMALIZATION,
     ReviewPairDivergence,
     apply_quorum,

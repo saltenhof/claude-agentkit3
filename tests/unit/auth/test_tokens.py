@@ -5,15 +5,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.auth.errors import AuthFailedError, ProjectMismatchError
-from agentkit.auth.tokens import (
+from agentkit.backend.auth.errors import AuthFailedError, ProjectMismatchError
+from agentkit.backend.auth.tokens import (
     hash_project_api_token,
     issue_project_api_token,
     validate_project_api_token,
 )
 
 if TYPE_CHECKING:
-    from agentkit.auth.entities import ProjectApiToken
+    from agentkit.backend.auth.entities import ProjectApiToken
 
 
 class _InMemoryTokenRepository:

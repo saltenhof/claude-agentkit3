@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from agentkit.process.language.model import (
+from agentkit.backend.process.language.model import (
     HookPoints,
     PhaseDefinition,
     TransitionRule,
     WorkflowDefinition,
     YieldPoint,
 )
-from agentkit.process.language.validators import ValidationError, WorkflowValidator
+from agentkit.backend.process.language.validators import ValidationError, WorkflowValidator
 
 
 class TestWorkflowValidatorValid:

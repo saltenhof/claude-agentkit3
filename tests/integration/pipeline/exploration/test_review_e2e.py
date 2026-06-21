@@ -33,43 +33,43 @@ from tests.unit.exploration.review.scripted import (
     build_scripted_evaluator,
 )
 
-from agentkit.bootstrap.composition_root import (
+from agentkit.backend.bootstrap.composition_root import (
     build_artifact_manager,
     build_exploration_phase_handler,
 )
-from agentkit.core_types import ExplorationGateStatus, PauseReason
-from agentkit.exploration.review.design_challenge import DesignChallengeRunner
-from agentkit.exploration.review.design_review import DesignReviewRunner
-from agentkit.exploration.review.doc_fidelity import DocFidelityChecker
-from agentkit.exploration.review.review import ExplorationReview
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.core_types import ExplorationGateStatus, PauseReason
+from agentkit.backend.exploration.review.design_challenge import DesignChallengeRunner
+from agentkit.backend.exploration.review.design_review import DesignReviewRunner
+from agentkit.backend.exploration.review.doc_fidelity import DocFidelityChecker
+from agentkit.backend.exploration.review.review import ExplorationReview
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import (
     ExplorationPayload,
     PhaseName,
     PhaseState,
     PhaseStatus,
 )
-from agentkit.process.language.guards import exploration_gate_approved
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import (
+from agentkit.backend.process.language.guards import exploration_gate_approved
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import (
     reset_backend_cache_for_tests,
     save_flow_execution,
 )
-from agentkit.state_backend.store.story_repository import StateBackendStoryRepository
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.state_backend.store.story_repository import StateBackendStoryRepository
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import (
     ChangeImpact,
     Story,
     WireStoryType,
 )
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from agentkit.pipeline_engine.lifecycle import HandlerResult
+    from agentkit.backend.pipeline_engine.lifecycle import HandlerResult
 
 #: FK-02 §2.3.1: ``run_id`` is a UUID; this must match the fixture frame run id.
 _RUN_ID = "11111111-1111-4111-8111-111111111111"
@@ -197,20 +197,20 @@ def _persist_trivial_frame(story_dir: Path) -> None:
     GATE outcomes without the (fail-closed) productive fine-design evaluator
     escalating first (ERROR-1).
     """
-    from agentkit.artifacts import (
+    from agentkit.backend.artifacts import (
         ArtifactEnvelope,
         EnvelopeStatus,
         Producer,
         ProducerId,
         ProducerType,
     )
-    from agentkit.core_types import ArtifactClass
-    from agentkit.exploration.change_frame import OpenPoints
-    from agentkit.exploration.register import (
+    from agentkit.backend.core_types import ArtifactClass
+    from agentkit.backend.exploration.change_frame import OpenPoints
+    from agentkit.backend.exploration.register import (
         EXPLORATION_ENTWURF_PRODUCER,
         EXPLORATION_ENTWURF_STAGE,
     )
-    from agentkit.state_backend.store.exploration_change_frame_repository import (
+    from agentkit.backend.state_backend.store.exploration_change_frame_repository import (
         StateBackendExplorationChangeFrameAdapter,
     )
 
@@ -319,11 +319,11 @@ def test_stage2b_fail_rejects_and_blocks_implementation(tmp_path: Path) -> None:
     ``run_design_challenge`` defaults to ``True`` and Stage 2b runs (the
     mandate-gating of Stage 2b is covered by the AG3-047 mandate tests).
     """
-    from agentkit.exploration.phase import (
+    from agentkit.backend.exploration.phase import (
         ExplorationConfig,
         ExplorationPhaseHandler,
     )
-    from agentkit.state_backend.store.exploration_change_frame_repository import (
+    from agentkit.backend.state_backend.store.exploration_change_frame_repository import (
         StateBackendExplorationChangeFrameAdapter,
     )
 

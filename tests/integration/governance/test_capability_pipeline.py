@@ -14,16 +14,16 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.control_plane.models import (
+from agentkit.backend.control_plane.models import (
     EdgeBundle,
     EdgePointer,
     SessionRunBindingView,
     StoryExecutionLockView,
 )
-from agentkit.governance import runner as runner_mod
-from agentkit.governance.guard_evaluation import HookEvent
-from agentkit.governance.runner import run_hook
-from agentkit.projectedge.client import LocalEdgePublisher
+from agentkit.backend.governance import runner as runner_mod
+from agentkit.backend.governance.guard_evaluation import HookEvent
+from agentkit.backend.governance.runner import run_hook
+from agentkit.harness_client.projectedge.client import LocalEdgePublisher
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -212,7 +212,7 @@ def test_capability_allow_proceeds_to_ccag(
 
     def _spy_ccag(event: HookEvent, *, project_root: object = None) -> object:
         _ = project_root
-        from agentkit.governance.protocols import GuardVerdict
+        from agentkit.backend.governance.protocols import GuardVerdict
 
         ccag_calls.append("ccag")
         return GuardVerdict.allow("ccag_gatekeeper")
@@ -304,7 +304,7 @@ def test_capability_normal_mode_defers_unclassified_nonmutating_to_ccag(
 
     def _spy_ccag(event: HookEvent, *, project_root: object = None) -> object:
         _ = project_root
-        from agentkit.governance.protocols import GuardVerdict
+        from agentkit.backend.governance.protocols import GuardVerdict
 
         ccag_calls.append("ccag")
         return GuardVerdict.allow("ccag_gatekeeper")
@@ -368,7 +368,7 @@ def test_capability_unknown_tool_normal_mode_defers_to_ccag(
 
     def _spy_ccag(event: HookEvent, *, project_root: object = None) -> object:
         _ = project_root
-        from agentkit.governance.protocols import GuardVerdict
+        from agentkit.backend.governance.protocols import GuardVerdict
 
         ccag_calls.append("ccag")
         return GuardVerdict.allow("ccag_gatekeeper")
@@ -524,7 +524,7 @@ def test_ai_augmented_unknown_tool_still_defers_to_ccag(
 
     def _spy_ccag(event: HookEvent, *, project_root: object = None) -> object:
         _ = project_root
-        from agentkit.governance.protocols import GuardVerdict
+        from agentkit.backend.governance.protocols import GuardVerdict
 
         ccag_calls.append("ccag")
         return GuardVerdict.allow("ccag_gatekeeper")

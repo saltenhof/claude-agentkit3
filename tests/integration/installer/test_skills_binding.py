@@ -28,17 +28,17 @@ from pathlib import Path
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
 
-from agentkit.exceptions import InstallationError
-from agentkit.installer.runner import (
+from agentkit.backend.exceptions import InstallationError
+from agentkit.backend.installer.runner import (
     MANDATORY_SKILLS,
     InstallConfig,
     install_agentkit,
 )
-from agentkit.skills import Skills
-from agentkit.skills.bundle_store import SkillBundle, SkillBundleStore
-from agentkit.skills.links import create_directory_link, is_directory_link
-from agentkit.skills.repository import InMemorySkillBindingRepository
-from agentkit.state_backend.store.skill_binding_repository import (
+from agentkit.backend.skills import Skills
+from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore
+from agentkit.backend.skills.links import create_directory_link, is_directory_link
+from agentkit.backend.skills.repository import InMemorySkillBindingRepository
+from agentkit.backend.state_backend.store.skill_binding_repository import (
     StateBackendSkillBindingRepository,
 )
 
@@ -184,7 +184,7 @@ def test_no_skill_config_fails_closed_when_bundles_unprovisioned(
     """
     import os
 
-    from agentkit.skills.bundle_store import SKILL_BUNDLE_STORE_ENV
+    from agentkit.backend.skills.bundle_store import SKILL_BUNDLE_STORE_ENV
 
     root = tmp_path / "proj-no-config"
     root.mkdir()

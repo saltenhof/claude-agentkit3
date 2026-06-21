@@ -8,7 +8,7 @@ interpolation at support points + the empty/single-value edge cases.
 
 from __future__ import annotations
 
-from agentkit.kpi_analytics.aggregation import percentile
+from agentkit.backend.kpi_analytics.aggregation import percentile
 
 
 def test_empty_input_returns_none() -> None:

@@ -13,12 +13,12 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.artifacts import ArtifactReference
-from agentkit.core_types import ArtifactClass, QaContext
-from agentkit.verify_system._artifact_specs import ARTIFACT_CLASS_TO_TARGET_TYPE
-from agentkit.verify_system.contract import VerifyContextBundle
-from agentkit.verify_system.errors import VerifyTargetUnknownError
-from agentkit.verify_system.system import VerifySystem
+from agentkit.backend.artifacts import ArtifactReference
+from agentkit.backend.core_types import ArtifactClass, QaContext
+from agentkit.backend.verify_system._artifact_specs import ARTIFACT_CLASS_TO_TARGET_TYPE
+from agentkit.backend.verify_system.contract import VerifyContextBundle
+from agentkit.backend.verify_system.errors import VerifyTargetUnknownError
+from agentkit.backend.verify_system.system import VerifySystem
 
 #: Classes that are deliberately not verify targets (structural, not QA-able).
 _DELIBERATELY_EXCLUDED = frozenset(

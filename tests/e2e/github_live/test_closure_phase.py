@@ -21,37 +21,37 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.e2e._helpers import seed_approved_story
 
-from agentkit.bootstrap.composition_root import (
+from agentkit.backend.bootstrap.composition_root import (
     build_closure_phase_handler,
     build_setup_phase_handler,
 )
-from agentkit.closure.phase import ClosureConfig
-from agentkit.governance.setup_preflight_gate.phase import SetupConfig
-from agentkit.installer import InstallConfig, install_agentkit
-from agentkit.installer.paths import qa_story_dir, story_dir
-from agentkit.integrations.github.issues import (
-    create_issue,
-    get_issue,
-    reopen_issue,
-)
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.closure.phase import ClosureConfig
+from agentkit.backend.governance.setup_preflight_gate.phase import SetupConfig
+from agentkit.backend.installer import InstallConfig, install_agentkit
+from agentkit.backend.installer.paths import qa_story_dir, story_dir
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseSnapshot,
     PhaseState,
     PhaseStatus,
 )
-from agentkit.state_backend.store import (
+from agentkit.backend.state_backend.store import (
     append_execution_event,
     save_flow_execution,
     save_phase_snapshot,
     save_story_context,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import StoryStatus, WireStoryType
-from agentkit.story_context_manager.types import StoryType
-from agentkit.telemetry.contract.records import ExecutionEventRecord
-from agentkit.telemetry.events import EventType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import StoryStatus, WireStoryType
+from agentkit.backend.story_context_manager.types import StoryType
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.telemetry.events import EventType
+from agentkit.integration_clients.github.issues import (
+    create_issue,
+    get_issue,
+    reopen_issue,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -23,15 +23,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.core_types import FailureCategory, PatternStatus
-from agentkit.failure_corpus.pattern import (
+from agentkit.backend.core_types import FailureCategory, PatternStatus
+from agentkit.backend.failure_corpus.pattern import (
     FailurePatternRecord,
     PatternRiskLevel,
     PromotionRule,
 )
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.fc_pattern_repository import (
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.fc_pattern_repository import (
     FcPatternRepository,
     StateBackendFcPatternRepository,
 )
@@ -45,12 +45,12 @@ _NOW = datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC)
 
 def _seed_check(tmp_path: Path, *, check_id: str, pattern_ref: str) -> None:
     """Persistiere ein Check-Proposal als FK-Ziel fuer fc_patterns.check_ref."""
-    from agentkit.core_types import CheckStatus, CheckType
-    from agentkit.failure_corpus.check_proposal import (
+    from agentkit.backend.core_types import CheckStatus, CheckType
+    from agentkit.backend.failure_corpus.check_proposal import (
         CheckProposalRecord,
         FalsePositiveRisk,
     )
-    from agentkit.state_backend.store.fc_check_proposal_repository import (
+    from agentkit.backend.state_backend.store.fc_check_proposal_repository import (
         StateBackendFcCheckProposalRepository,
     )
 
@@ -109,7 +109,7 @@ def sqlite_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
 
 
 def _sqlite(tmp_path: Path) -> sqlite3.Connection:
-    from agentkit.state_backend.sqlite_store import _connect
+    from agentkit.backend.state_backend.sqlite_store import _connect
 
     return _connect(tmp_path)  # type: ignore[return-value]
 

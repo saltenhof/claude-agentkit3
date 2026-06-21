@@ -18,12 +18,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agentkit.multi_llm_hub.client import (
+from agentkit.integration_clients.multi_llm_hub.client import (
     HubClient,
     UrllibJsonTransport,
     _hub_error_from_http_error,
 )
-from agentkit.multi_llm_hub.errors import (
+from agentkit.integration_clients.multi_llm_hub.errors import (
     HubAcquireQueuedError,
     HubLoginRequiredError,
     HubSessionNotFoundError,

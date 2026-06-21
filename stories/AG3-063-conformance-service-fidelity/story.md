@@ -4,7 +4,7 @@
 **Groesse:** L
 **Bounded Context:** `verify-system` / Dokumententreue (BC3) — der gemeinsame Conformance-Service, der alle vier Fidelity-Ebenen ueber **eine** `check_fidelity(level, …)`-Funktion bedient, statt verteilter Ad-hoc-Loesungen.
 **Quell-Konzepte (autoritativ):**
-- `FK-32 §32.1/§32.2` — `ConformanceService` (Subkomponente von VerifySystem, `agentkit.verify_system.conformance_service`) mit vier Fidelity-Ebenen: Zieltreue (`goal`), Entwurfstreue (`design`), Umsetzungstreue (`impl`), Rueckkopplungstreue (`feedback`); exportierte Glossarterme `fidelity-level` (Werte `goal`/`design`/`impl`/`feedback`) und `conformance-verdict` (Werte `PASS`/`PASS_WITH_CONCERNS`/`FAIL`)
+- `FK-32 §32.1/§32.2` — `ConformanceService` (Subkomponente von VerifySystem, `agentkit.backend.verify_system.conformance_service`) mit vier Fidelity-Ebenen: Zieltreue (`goal`), Entwurfstreue (`design`), Umsetzungstreue (`impl`), Rueckkopplungstreue (`feedback`); exportierte Glossarterme `fidelity-level` (Werte `goal`/`design`/`impl`/`feedback`) und `conformance-verdict` (Werte `PASS`/`PASS_WITH_CONCERNS`/`FAIL`)
 - `FK-32 §32.3` — gemeinsames technisches Pattern: ein `check_fidelity` fuer alle vier Ebenen (5 Schritte inkl. **Schritt 5 Telemetrie-Event**, `concept/technical-design/32_dokumententreue_conformance_service.md:123-135`)
 - `FK-32 §32.4/§32.4.3/§32.4.4` — Referenzdokument-Identifikation + Manifest-Index; **kuratierte** Datei `_guardrails/manifest-index.json`, **kein automatisches Scanning**, Pflege obliegt dem Menschen (`32_dokumententreue_conformance_service.md:260-271`)
 - `FK-32 §32.4b` — 3-Tier-Prompt-Groessenkontrolle (`FILE_UPLOAD_THRESHOLD_BYTES` 50 KB / `HARD_LIMIT_BYTES` 500 KB; Tier 3 ≥ 500 KB → sofortiges FAIL ohne LLM-Aufruf; kein Trunkieren)

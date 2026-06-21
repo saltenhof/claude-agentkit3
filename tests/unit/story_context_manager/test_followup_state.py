@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 
 def test_story_context_accepts_typed_implementation_followup_flags() -> None:

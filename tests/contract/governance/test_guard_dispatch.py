@@ -13,28 +13,28 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.governance import runner as runner_mod
-from agentkit.governance.guard_evaluation import HookEvent
-from agentkit.governance.guards import SelfProtectionGuard, StoryCreationGuard
-from agentkit.governance.guards.self_protection_guard import (
+from agentkit.backend.governance import runner as runner_mod
+from agentkit.backend.governance.guard_evaluation import HookEvent
+from agentkit.backend.governance.guards import SelfProtectionGuard, StoryCreationGuard
+from agentkit.backend.governance.guards.self_protection_guard import (
     GUARD_NAME as SELF_PROTECTION_NAME,
 )
-from agentkit.governance.guards.self_protection_guard import (
+from agentkit.backend.governance.guards.self_protection_guard import (
     RULE_ID as SELF_PROTECTION_RULE_ID,
 )
-from agentkit.governance.guards.story_creation_guard import (
+from agentkit.backend.governance.guards.story_creation_guard import (
     GUARD_NAME as STORY_CREATION_NAME,
 )
-from agentkit.governance.guards.story_creation_guard import (
+from agentkit.backend.governance.guards.story_creation_guard import (
     RULE_ID as STORY_CREATION_RULE_ID,
 )
-from agentkit.governance.guards.story_creation_guard import SKILL_MARKER_VALUE
-from agentkit.governance.hook_registration import HookEventName, HookId
-from agentkit.governance.principal_capabilities import (
+from agentkit.backend.governance.guards.story_creation_guard import SKILL_MARKER_VALUE
+from agentkit.backend.governance.hook_registration import HookEventName, HookId
+from agentkit.backend.governance.principal_capabilities import (
     OperationClassifier,
     PrincipalResolver,
 )
-from agentkit.governance.principal_capabilities.operations import canonical_web_tool
+from agentkit.backend.governance.principal_capabilities.operations import canonical_web_tool
 
 #: The pinned hook-id -> dedicated dispatch-function mapping (AG3-033).
 EXPECTED_DEDICATED_DISPATCH: dict[str, str] = {
@@ -63,7 +63,7 @@ def test_story_creation_hook_id_maps_to_story_creation_guard() -> None:
 
 def test_guards_are_re_exported() -> None:
     # The guards/__init__ re-export surface is part of the contract.
-    from agentkit.governance import guards
+    from agentkit.backend.governance import guards
 
     assert guards.SelfProtectionGuard is SelfProtectionGuard
     assert guards.StoryCreationGuard is StoryCreationGuard
@@ -143,16 +143,16 @@ def test_http_get_v1_stories_is_not_a_creation_mutation() -> None:
 def test_production_adapters_do_not_yet_emit_http_method_url() -> None:
     # Honest pin of ERROR C branch 2: neither production adapter populates
     # method/url, so the HTTP detection is unreachable through a harness today.
-    from agentkit.governance.harness_adapters.claude_code import (
+    from agentkit.harness_client.harness_adapters.claude_code import (
         ClaudeCodeHookEvent,
     )
-    from agentkit.governance.harness_adapters.claude_code import (
+    from agentkit.harness_client.harness_adapters.claude_code import (
         to_neutral_event as claude_to_neutral,
     )
-    from agentkit.governance.harness_adapters.codex.event_mapping import (
+    from agentkit.harness_client.harness_adapters.codex.event_mapping import (
         CodexHookEvent,
     )
-    from agentkit.governance.harness_adapters.codex.event_mapping import (
+    from agentkit.harness_client.harness_adapters.codex.event_mapping import (
         to_neutral_event as codex_to_neutral,
     )
 

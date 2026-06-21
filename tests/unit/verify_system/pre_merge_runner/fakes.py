@@ -14,13 +14,13 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-from agentkit.integrations.sonar import SonarApiError
-from agentkit.verify_system.pre_merge_runner.ci_run import (
+from agentkit.backend.verify_system.pre_merge_runner.ci_run import (
     CandidateRunCache,
     CiRunResult,
     CiRunUnavailableError,
 )
-from agentkit.verify_system.sonarqube_gate.ledger import AcceptedExceptionLedger
+from agentkit.backend.verify_system.sonarqube_gate.ledger import AcceptedExceptionLedger
+from agentkit.integration_clients.sonar import SonarApiError
 
 #: Default tree hash a fake :func:`fake_tree_resolver` returns for any commit.
 FAKE_TREE_HASH = "tree9999"

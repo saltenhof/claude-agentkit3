@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from agentkit.governance.guard_system.records import ConflictFreezeProofRecord
-from agentkit.state_backend.store.conflict_freeze_proof_repository import (
+from agentkit.backend.governance.guard_system.records import ConflictFreezeProofRecord
+from agentkit.backend.state_backend.store.conflict_freeze_proof_repository import (
     ConflictFreezeProofRepository,
 )
 

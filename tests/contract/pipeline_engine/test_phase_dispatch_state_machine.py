@@ -20,18 +20,18 @@ import pytest
 import yaml
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.control_plane.dispatch import _enforce_transition, _normalize
-from agentkit.core_types import ExplorationGateStatus
-from agentkit.pipeline_engine.engine import EngineResult
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.control_plane.dispatch import _enforce_transition, _normalize
+from agentkit.backend.core_types import ExplorationGateStatus
+from agentkit.backend.pipeline_engine.engine import EngineResult
+from agentkit.backend.pipeline_engine.phase_executor import (
     ExplorationPayload,
     PhaseName,
     PhaseState,
     PhaseStatus,
 )
-from agentkit.process.language.definitions import resolve_workflow
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.process.language.definitions import resolve_workflow
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 _SPEC_ROOT = (
     Path(__file__).resolve().parents[3]

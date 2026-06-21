@@ -9,9 +9,9 @@ from typing import Any
 
 import yaml
 
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import EventType
-from agentkit.verify_system.conformance_service import (
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import EventType
+from agentkit.backend.verify_system.conformance_service import (
     ConformanceEvaluation,
     ConformanceService,
     ConformanceVerdict,

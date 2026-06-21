@@ -14,9 +14,9 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from agentkit.bootstrap.composition_root import build_artifact_manager
-from agentkit.exploration.review.persistence import ArtifactReviewResultSink
-from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+from agentkit.backend.bootstrap.composition_root import build_artifact_manager
+from agentkit.backend.exploration.review.persistence import ArtifactReviewResultSink
+from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import (
     DOC_FIDELITY_CHECK_IDS,
     SEMANTIC_REVIEW_CHECK_IDS,
     ReviewerRole,
@@ -26,10 +26,10 @@ from agentkit.verify_system.llm_evaluator.structured_evaluator import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.exploration.review.persistence import ReviewResultSink
-    from agentkit.story_context_manager.models import StoryContext
-    from agentkit.verify_system.llm_evaluator.bundle import ReviewBundle
-    from agentkit.verify_system.llm_evaluator.llm_client import LlmClient
+    from agentkit.backend.exploration.review.persistence import ReviewResultSink
+    from agentkit.backend.story_context_manager.models import StoryContext
+    from agentkit.backend.verify_system.llm_evaluator.bundle import ReviewBundle
+    from agentkit.backend.verify_system.llm_evaluator.llm_client import LlmClient
 
 #: The single check-id each exploration-review role expects (FK-34 §34.2.3/.4).
 _ROLE_CHECK_ID = {

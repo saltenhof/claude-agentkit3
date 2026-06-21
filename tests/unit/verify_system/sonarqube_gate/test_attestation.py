@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.verify_system.sonarqube_gate import SonarAttestation, is_green
+from agentkit.backend.verify_system.sonarqube_gate import SonarAttestation, is_green
 
 
 def _attestation(**overrides: object) -> SonarAttestation:

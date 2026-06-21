@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.verify_system.protocols import Severity, TrustClass
-from agentkit.verify_system.stage_registry import StageRegistry
-from agentkit.verify_system.structural.checker import StructuralChecker
-from agentkit.verify_system.structural.checks import (
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.verify_system.protocols import Severity, TrustClass
+from agentkit.backend.verify_system.stage_registry import StageRegistry
+from agentkit.backend.verify_system.structural.checker import StructuralChecker
+from agentkit.backend.verify_system.structural.checks import (
     ABSENT_BUGFIX_EVIDENCE_PORT,
     BugfixEvidence,
     check_bugfix_green_evidence,

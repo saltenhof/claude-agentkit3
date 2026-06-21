@@ -14,9 +14,9 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.installer.registration import ProjectRegistration, RuntimeProfile
-from agentkit.installer.repository import ProjectRegistrationRepository
-from agentkit.state_backend.store.project_registration_repository import (
+from agentkit.backend.installer.registration import ProjectRegistration, RuntimeProfile
+from agentkit.backend.installer.repository import ProjectRegistrationRepository
+from agentkit.backend.state_backend.store.project_registration_repository import (
     StateBackendProjectRegistrationRepository,
 )
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agentkit.installer.paths import (
+from agentkit.backend.installer.paths import (
     MATERIALIZED_SKILL_VARIANT_STORE_ENV,
     default_materialized_skill_variant_store_root,
     materialized_skill_variant_dir,
@@ -103,7 +103,7 @@ class TestReadSkillBundleManifest:
     def test_reads_present_manifest(self, tmp_path: Path) -> None:
         import json
 
-        from agentkit.installer.runner import _read_skill_bundle_manifest
+        from agentkit.backend.installer.runner import _read_skill_bundle_manifest
 
         bundle = tmp_path / "bundle"
         bundle.mkdir()
@@ -116,14 +116,14 @@ class TestReadSkillBundleManifest:
         assert info["bundle_version"] == "5.1.0"
 
     def test_missing_manifest_returns_empty(self, tmp_path: Path) -> None:
-        from agentkit.installer.runner import _read_skill_bundle_manifest
+        from agentkit.backend.installer.runner import _read_skill_bundle_manifest
 
         bundle = tmp_path / "bundle"
         bundle.mkdir()
         assert _read_skill_bundle_manifest(bundle) == {}
 
     def test_non_object_manifest_returns_empty(self, tmp_path: Path) -> None:
-        from agentkit.installer.runner import _read_skill_bundle_manifest
+        from agentkit.backend.installer.runner import _read_skill_bundle_manifest
 
         bundle = tmp_path / "bundle"
         bundle.mkdir()
@@ -137,7 +137,7 @@ class TestVariantDirForUsesManifestKeys:
     def test_uses_manifest_bundle_keys_in_path(self, tmp_path: Path) -> None:
         import json
 
-        from agentkit.config.models import (
+        from agentkit.backend.config.models import (
             SUPPORTED_CONFIG_VERSION,
             Features,
             JenkinsConfig,
@@ -146,11 +146,11 @@ class TestVariantDirForUsesManifestKeys:
             RepositoryConfig,
             SonarQubeConfig,
         )
-        from agentkit.core_types.plane_artifact_names import (
+        from agentkit.backend.core_types.plane_artifact_names import (
             AGENT_SPAWN_SKILL_PROOF_KEY,
             INSTALLED_MANIFEST_FILENAME,
         )
-        from agentkit.installer.runner import (
+        from agentkit.backend.installer.runner import (
             InstallConfig,
             _materialized_variant_dir_for,
         )

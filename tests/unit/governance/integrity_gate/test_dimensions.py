@@ -16,10 +16,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.artifacts.envelope import ArtifactEnvelope
-from agentkit.artifacts.producer import Producer, ProducerId, ProducerType
-from agentkit.core_types import ArtifactClass, EnvelopeStatus
-from agentkit.core_types.qa_artifact_names import (
+from agentkit.backend.artifacts.envelope import ArtifactEnvelope
+from agentkit.backend.artifacts.producer import Producer, ProducerId, ProducerType
+from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus
+from agentkit.backend.core_types.qa_artifact_names import (
     ADVERSARIAL_PRODUCER,
     ADVERSARIAL_STAGE,
     QA_REVIEW_PRODUCER,
@@ -31,16 +31,16 @@ from agentkit.core_types.qa_artifact_names import (
     VERIFY_DECISION_PRODUCER,
     VERIFY_DECISION_STAGE,
 )
-from agentkit.governance.integrity_gate import (
+from agentkit.backend.governance.integrity_gate import (
     IntegrityDimension,
     IntegrityGate,
     IntegrityGateStatus,
 )
-from agentkit.governance.integrity_gate.dimensions import (
+from agentkit.backend.governance.integrity_gate.dimensions import (
     ENVELOPE_VIOLATION,
     TIMESTAMP_VIOLATION,
 )
-from agentkit.story_context_manager.types import StoryType
+from agentkit.backend.story_context_manager.types import StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -117,7 +117,7 @@ def _deep_structural_payload() -> dict[str, object]:
             "severity": "MINOR",
             "message": f"informational finding number {i} with some descriptive text",
             "trust_class": "SYSTEM",
-            "file_path": f"src/agentkit/module_{i}.py",
+            "file_path": f"src/agentkit/backend/module_{i}.py",
             "line_number": i,
             "suggestion": None,
         }
@@ -208,7 +208,7 @@ class _StubPort:
         self.context_problem: str | None = None
 
     def resolve_runtime_scope(self, story_dir: object) -> object:
-        from agentkit.exceptions import CorruptStateError
+        from agentkit.backend.exceptions import CorruptStateError
 
         raise CorruptStateError("no scope in stub")  # forces story_dir fallback
 
@@ -271,8 +271,8 @@ class _NotApplicableSonarPort:
     """Resolves Dim 9 NOT_APPLICABLE so these tests isolate Dim 1-8."""
 
     def resolve_dim9_outcome(self, gate_ctx: object) -> object:
-        from agentkit.governance.integrity_gate.dim9_sonar import Dim9Resolution
-        from agentkit.verify_system.sonarqube_gate import SonarApplicability
+        from agentkit.backend.governance.integrity_gate.dim9_sonar import Dim9Resolution
+        from agentkit.backend.verify_system.sonarqube_gate import SonarApplicability
 
         _ = gate_ctx
         return Dim9Resolution(

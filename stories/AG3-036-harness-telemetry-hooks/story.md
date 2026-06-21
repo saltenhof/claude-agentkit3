@@ -17,7 +17,7 @@
 
 THEME-007 aus `stories/_priorisierungsempfehlung.md`. Befunde aus `telemetry-and-events`-GAP-Analyse:
 
-- `telemetry-and-events.A1`: Harness-Hooks fehlen als vollstaendige Referenz-Implementierung. Kein Modul `agentkit.telemetry.hooks.*`. Hook-Namen sind nur als String-Referenz im governance-runner vermerkt.
+- `telemetry-and-events.A1`: Harness-Hooks fehlen als vollstaendige Referenz-Implementierung. Kein Modul `agentkit.backend.telemetry.hooks.*`. Hook-Namen sind nur als String-Referenz im governance-runner vermerkt.
 - `telemetry-and-events.A2`: DivergenceHook fehlt. `review_divergence`-EventType existiert in events.py, wird aber nicht emittiert.
 - `telemetry-and-events.A4`: JSONL-Audit-Bundle-Export bei Closure fehlt — keine `export_jsonl`-Funktion.
 
@@ -181,7 +181,7 @@ Aufruf erfolgt aus Closure-Phase (nicht in dieser Story; Closure-Vollausbau ist 
 7. **`DriftCheckHook`** emittiert `drift_check` mit `drift_detected: bool` nach Increment-Commits.
 8. **`DivergenceHook`** emittiert `review_divergence` bei verschiedenen Verdikten.
 9. **`AuditBundleExporter.export(story_id, run_id, output_dir)`** produziert sechs JSONL/JSON-Dateien plus `manifest.json` mit Hashes. Roundtrip: gelesen liefert genau die geschriebenen Datensaetze.
-10. **Architecture-Conformance**: Hooks importieren aus dem governance-BC ausschliesslich aus `agentkit.governance.protocols` (der kanonische Heimatort von `GuardVerdict`/`ViolationType`) — zusaetzlich aus `agentkit.core_types` und `agentkit.telemetry`. Die Hooks reagieren auf einen **self-contained `HookContext`** (`telemetry.hooks.base`), nicht auf `guard_evaluation.HookEvent`. Begruendung (AG3-036 FIX-4): der self-contained Context haelt die Hooks frei von config-/story-context-/installer-Importen (werte wie `story_type`, `required_roles`, `web_call_limit` werden als plain values injiziert), und `GuardVerdict` wird aus seinem kanonischen Heimatort `protocols` bezogen — kein Re-Export-Shim allein zur Erfuellung alter Formulierung. Kein Import von config/story-context/installer/`guard_evaluation` im Hook-Paket.
+10. **Architecture-Conformance**: Hooks importieren aus dem governance-BC ausschliesslich aus `agentkit.backend.governance.protocols` (der kanonische Heimatort von `GuardVerdict`/`ViolationType`) — zusaetzlich aus `agentkit.backend.core_types` und `agentkit.backend.telemetry`. Die Hooks reagieren auf einen **self-contained `HookContext`** (`telemetry.hooks.base`), nicht auf `guard_evaluation.HookEvent`. Begruendung (AG3-036 FIX-4): der self-contained Context haelt die Hooks frei von config-/story-context-/installer-Importen (werte wie `story_type`, `required_roles`, `web_call_limit` werden als plain values injiziert), und `GuardVerdict` wird aus seinem kanonischen Heimatort `protocols` bezogen — kein Re-Export-Shim allein zur Erfuellung alter Formulierung. Kein Import von config/story-context/installer/`guard_evaluation` im Hook-Paket.
 11. **Pflichtbefehle gruen**: pytest unit + integration; mypy --strict; ruff clean; Coverage haelt 85%.
 
 ## 5. Definition of Done

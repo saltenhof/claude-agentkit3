@@ -17,17 +17,17 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from agentkit.governance.hook_registration import (
+from agentkit.backend.governance.hook_registration import (
     HookDefinition,
     HookEventName,
     HookId,
 )
-from agentkit.state_backend.config import (
+from agentkit.backend.state_backend.config import (
     ALLOW_SQLITE_ENV,
     STATE_BACKEND_ENV,
     STATE_DATABASE_URL_ENV,
 )
-from agentkit.state_backend.store.governance_hook_repository import (
+from agentkit.backend.state_backend.store.governance_hook_repository import (
     StateBackendHookRegistrationRepository,
 )
 

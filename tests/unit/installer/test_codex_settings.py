@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.installer.codex_settings import (
+from agentkit.backend.installer.codex_settings import (
     CODEX_HOOK_COMMAND,
     build_codex_config_toml,
     remove_codex_settings,

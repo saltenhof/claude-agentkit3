@@ -28,53 +28,53 @@ from tests.exploration_change_frame_fixture import (
 )
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.artifacts import (
+from agentkit.backend.artifacts import (
     ArtifactEnvelope,
     EnvelopeStatus,
     Producer,
     ProducerId,
     ProducerType,
 )
-from agentkit.bootstrap.composition_root import (
+from agentkit.backend.bootstrap.composition_root import (
     build_artifact_manager,
     build_exploration_phase_handler,
 )
-from agentkit.core_types import ArtifactClass, ExplorationGateStatus
-from agentkit.core_types.qa_artifact_names import CHANGE_FRAME_FILE
-from agentkit.exceptions import CorruptStateError
-from agentkit.exploration.phase import ExplorationConfig, ExplorationPhaseHandler
-from agentkit.exploration.register import (
+from agentkit.backend.core_types import ArtifactClass, ExplorationGateStatus
+from agentkit.backend.core_types.qa_artifact_names import CHANGE_FRAME_FILE
+from agentkit.backend.exceptions import CorruptStateError
+from agentkit.backend.exploration.phase import ExplorationConfig, ExplorationPhaseHandler
+from agentkit.backend.exploration.register import (
     EXPLORATION_ENTWURF_PRODUCER,
     EXPLORATION_ENTWURF_STAGE,
 )
-from agentkit.installer.paths import resolve_qa_story_dir
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.lifecycle import PhaseHandler
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.installer.paths import resolve_qa_story_dir
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.lifecycle import PhaseHandler
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import (
     ExplorationPayload,
     PhaseState,
     PhaseStatus,
 )
-from agentkit.process.language.guards import exploration_gate_approved
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import (
+from agentkit.backend.process.language.guards import exploration_gate_approved
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import (
     reset_backend_cache_for_tests,
     save_flow_execution,
 )
-from agentkit.state_backend.store.exploration_change_frame_repository import (
+from agentkit.backend.state_backend.store.exploration_change_frame_repository import (
     StateBackendExplorationChangeFrameAdapter,
 )
-from agentkit.story_context_manager.models import (
+from agentkit.backend.story_context_manager.models import (
     StoryContext as _StoryContext,
 )
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+    from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
 
 #: FK-02 §2.3.1: ``run_id`` is a UUID. Pinned stable UUIDs for the tests.
 _RUN_ID = "22222222-2222-4222-8222-222222222222"
@@ -196,7 +196,7 @@ def test_on_enter_no_frame_no_draft_emits_worker_spawn(
     into ``agents_to_spawn`` and returns ``IN_PROGRESS`` (spawn-and-await), the
     AG3-044/054 engine re-entry mechanism. The gate stays denied (no fake APPROVE).
     """
-    from agentkit.core_types import SpawnKind, SpawnReason
+    from agentkit.backend.core_types import SpawnKind, SpawnReason
 
     sd = _story_dir(tmp_path)
     _bind_flow(sd)

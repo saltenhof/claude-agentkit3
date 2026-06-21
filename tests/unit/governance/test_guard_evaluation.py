@@ -3,18 +3,18 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal
 
-from agentkit.control_plane.models import (
+from agentkit.backend.control_plane.models import (
     EdgeBundle,
     EdgePointer,
     SessionRunBindingView,
     StoryExecutionLockView,
 )
-from agentkit.governance.guard_evaluation import (
+from agentkit.backend.governance.guard_evaluation import (
     HookEvent,
     _normalize_event,
     evaluate_pre_tool_use,
 )
-from agentkit.projectedge.client import LocalEdgePublisher
+from agentkit.harness_client.projectedge.client import LocalEdgePublisher
 
 if TYPE_CHECKING:
     from pathlib import Path

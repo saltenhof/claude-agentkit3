@@ -20,10 +20,10 @@ from tests.exploration_worker_result_fixture import (
     recorded_worker_payload,
 )
 
-from agentkit.core_types import SpawnReason
-from agentkit.exploration.change_frame import SEVEN_PARTS, ChangeFrame
-from agentkit.prompt_runtime.selectors import select_template_name
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.core_types import SpawnReason
+from agentkit.backend.exploration.change_frame import SEVEN_PARTS, ChangeFrame
+from agentkit.backend.prompt_runtime.selectors import select_template_name
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 _STORY_ID = "PROJ-128"
 _RUN_ID = "77777777-7777-4777-8777-777777777777"

@@ -18,31 +18,31 @@ from tests.unit.installer.checkpoint_engine.conftest import (
     make_config,
 )
 
-from agentkit.installer.bootstrap_checkpoints.cp01_to_06 import (
+from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
     REASON_REPO_UNREACHABLE,
     cp01_package_check,
     cp02_repo_check,
     cp03_reserved,
     cp04_reserved,
 )
-from agentkit.installer.bootstrap_checkpoints.cp10 import (
+from agentkit.backend.installer.bootstrap_checkpoints.cp10 import (
     cp10_mcp_registration,
     cp10c_are_scope_validation,
 )
-from agentkit.installer.bootstrap_checkpoints.orchestrator import (
+from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
     build_checkpoint_context,
     run_checkpoint_install,
 )
-from agentkit.installer.checkpoint_engine.context import ScopeInteractionMode
-from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
-from agentkit.installer.checkpoint_engine.reasons import (
+from agentkit.backend.installer.checkpoint_engine.context import ScopeInteractionMode
+from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
+from agentkit.backend.installer.checkpoint_engine.reasons import (
     REASON_ARE_DISABLED,
     REASON_PENDING_SELECTION,
     REASON_RESERVED,
     REASON_VECTORDB_DISABLED,
 )
-from agentkit.installer.registration import CheckpointStatus
-from agentkit.installer.repo_probe import RepoProbeResult
+from agentkit.backend.installer.registration import CheckpointStatus
+from agentkit.backend.installer.repo_probe import RepoProbeResult
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -134,7 +134,7 @@ def test_cp08_calls_prompt_runtime_update_binding(
 ) -> None:
     """AC6: CP 8 invokes PromptRuntime.update_binding (the second binding path)."""
     calls: list[tuple[str, str]] = []
-    from agentkit.prompt_runtime.runtime import PromptRuntime
+    from agentkit.backend.prompt_runtime.runtime import PromptRuntime
 
     original = PromptRuntime.update_binding
 
@@ -161,7 +161,7 @@ def test_cp09_calls_governance_register_hooks(
 ) -> None:
     """AC7: CP 9 invokes Governance.register_hooks."""
     calls: list[int] = []
-    from agentkit.governance.runner import Governance
+    from agentkit.backend.governance.runner import Governance
 
     original = Governance.register_hooks
 
@@ -197,7 +197,7 @@ def test_cp10_skipped_when_both_features_off(
     )
     ctx = _ctx(config, ExecutionMode.REGISTER)
     # CP 5 must publish project.yaml on the run-state for CP 10 to read it.
-    from agentkit.installer.bootstrap_checkpoints.cp01_to_06 import cp05_pipeline_config
+    from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import cp05_pipeline_config
 
     cp05_pipeline_config(ctx)  # type: ignore[arg-type]
     result = cp10_mcp_registration(ctx)  # type: ignore[arg-type]
@@ -270,8 +270,8 @@ def _are_ctx(
     )
     ctx = build_checkpoint_context(config, mode, scope_interaction_mode=interaction)
     # Publish project.yaml + register the ARE-MCP server (CP 10 precondition).
-    from agentkit.installer.bootstrap_checkpoints.cp01_to_06 import cp05_pipeline_config
-    from agentkit.installer.bootstrap_checkpoints.cp10 import cp10_mcp_registration
+    from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import cp05_pipeline_config
+    from agentkit.backend.installer.bootstrap_checkpoints.cp10 import cp10_mcp_registration
 
     cp05_pipeline_config(ctx)
     cp10_mcp_registration(ctx)
@@ -323,7 +323,7 @@ def test_cp10c_resolved_mapping_idempotent_skip(
     result = cp10c_are_scope_validation(ctx)  # type: ignore[arg-type]
     assert result.status is CheckpointStatus.SKIPPED
     # Idempotent re-run on a complete mapping -> already_satisfied (not pending).
-    from agentkit.installer.checkpoint_engine.reasons import REASON_ALREADY_SATISFIED
+    from agentkit.backend.installer.checkpoint_engine.reasons import REASON_ALREADY_SATISFIED
 
     assert result.reason == REASON_ALREADY_SATISFIED
 

@@ -6,7 +6,7 @@ R3 (Opus) resolved E5 (archived-project UI) + E6 (Sheet validate-before-draft), 
 architectural adjudication landed FAVORABLY. 5 ERROR remain, now sharper.
 
 ## Architecture adjudication (ACCEPTED by Codex — do NOT re-litigate)
-- Two-StoryService split is real: public detail/list = `agentkit.story.service` (`app.py:1176`,
+- Two-StoryService split is real: public detail/list = `agentkit.backend.story.service` (`app.py:1176`,
   runtime `lifecycle_status`); search + mutations = `story_context_manager` (`wire_adapter.py:44`,
   approval status). Exposing approval status on public detail/list is a foreign-owner backend
   concern → does NOT block AG3-093.

@@ -18,14 +18,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.exceptions import InstallationError
-from agentkit.installer.runner import (
+from agentkit.backend.exceptions import InstallationError
+from agentkit.backend.installer.runner import (
     MANDATORY_SKILLS,
     InstallConfig,
     _bind_mandatory_skills,
     _rollback_bindings,
 )
-from agentkit.skills.bundle_store import SkillBundle, SkillBundleStore
+from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -236,7 +236,7 @@ def test_failing_skill_partial_state_is_reported_as_rollback_incomplete(
     treat that as a real orphan/incomplete (``RollbackIncomplete``) — NEVER as a
     clean ``BindFailed``. Host-independent (no symlinks, no DB).
     """
-    from agentkit.skills.errors import SkillBindingPartialStateError
+    from agentkit.backend.skills.errors import SkillBindingPartialStateError
 
     class _PartialStateSkills:
         """First skill binds cleanly; the SECOND skill's bind fails AND leaves
@@ -323,13 +323,13 @@ def test_real_unbind_residual_maps_to_rollback_incomplete(
     from datetime import UTC, datetime
     from pathlib import Path as _Path
 
-    from agentkit.skills.binding import (
+    from agentkit.backend.skills.binding import (
         SkillBinding,
         SkillBindingMode,
         SkillLifecycleStatus,
     )
-    from agentkit.skills.repository import InMemorySkillBindingRepository
-    from agentkit.skills.top import Skills
+    from agentkit.backend.skills.repository import InMemorySkillBindingRepository
+    from agentkit.backend.skills.top import Skills
 
     first = MANDATORY_SKILLS[0]
     second = MANDATORY_SKILLS[1]
@@ -384,18 +384,18 @@ def test_real_unbind_residual_maps_to_rollback_incomplete(
 
 def test_real_store_discovery_resolves_shipped_bundles() -> None:
     """REAL-code proof for Codex-r2 ERROR 1: a default-built ``SkillBundleStore``
-    resolves all four FK-43 §43.3.1 mandatory bundles from the SHIPPED resources
+    resolves all four FK-43 §43.3.1 mandatory bundles from the SHIPPED bundles
     via filesystem discovery — no register_bundle, no monkeypatch.
     """
-    store = SkillBundleStore()  # default root == shipped resources
+    store = SkillBundleStore()  # default root == shipped bundles
     for skill_name in MANDATORY_SKILLS:
         bundle = store.get_bundle(f"{skill_name}-core")
         assert bundle.bundle_version == "4.0.0"
         assert (bundle.bundle_root / "SKILL.md").is_file()
         assert (bundle.bundle_root / "manifest.json").is_file()
-        # Bundle is resolved from AK3's own packaged resources tree, NOT from
+        # Bundle is resolved from AK3's own packaged bundles tree, NOT from
         # the AK2 source repo (which lives under .../claude-agentkit/userstory).
         assert bundle.bundle_root.parts[-2:] == (f"{skill_name}-core", "4.0.0")
-        assert "resources" in bundle.bundle_root.parts
+        assert "bundles" in bundle.bundle_root.parts
         assert "skill_bundles" in bundle.bundle_root.parts
         assert "userstory" not in bundle.bundle_root.parts

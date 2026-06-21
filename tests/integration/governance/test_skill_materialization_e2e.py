@@ -36,30 +36,30 @@ from tests.integration.governance.test_prompt_integrity_dispatch import (
     _publish_story_binding,
 )
 
-from agentkit.governance.guard_system import OPAQUE_MESSAGE
-from agentkit.governance.runner import _run_prompt_integrity_guard
-from agentkit.installer.installed_manifest import SKILL_PROOF_KEY
-from agentkit.installer.paths import installed_manifest_path
-from agentkit.installer.registration import RuntimeProfile
-from agentkit.installer.runner import (
+from agentkit.backend.governance.guard_system import OPAQUE_MESSAGE
+from agentkit.backend.governance.runner import _run_prompt_integrity_guard
+from agentkit.backend.installer.installed_manifest import SKILL_PROOF_KEY
+from agentkit.backend.installer.paths import installed_manifest_path
+from agentkit.backend.installer.registration import RuntimeProfile
+from agentkit.backend.installer.runner import (
     MANDATORY_SKILLS,
     InstallConfig,
     install_agentkit,
 )
-from agentkit.skills import (
+from agentkit.backend.skills import (
     Skills,
     is_directory_link,
     read_directory_link_target,
 )
-from agentkit.skills.bundle_store import SkillBundle, SkillBundleStore, shipped_skill_bundles_root
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.project_registration_repository import (
+from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore, shipped_skill_bundles_root
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.project_registration_repository import (
     StateBackendProjectRegistrationRepository,
 )
-from agentkit.state_backend.store.skill_binding_repository import (
+from agentkit.backend.state_backend.store.skill_binding_repository import (
     StateBackendSkillBindingRepository,
 )
-from agentkit.utils.io import read_json_object
+from agentkit.backend.utils.io import read_json_object
 
 if TYPE_CHECKING:
     from collections.abc import Generator

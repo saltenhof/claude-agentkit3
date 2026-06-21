@@ -35,18 +35,18 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.phase_executor import PhaseSnapshot, PhaseStatus
-from agentkit.state_backend.store import save_phase_snapshot, save_story_context
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import ChangeImpact
-from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
-from agentkit.telemetry.projection_accessor import ProjectionFilter, ProjectionKind
-from agentkit.verify_system.check_outcome_emitter import CheckOutcomeEmitter
-from agentkit.verify_system.stage_registry import StageRegistry
-from agentkit.verify_system.stage_registry.records import CheckOutcome
-from agentkit.verify_system.structural.checks import BuildTestEvidence
-from agentkit.verify_system.structural.system_evidence import ChangeEvidence
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.phase_executor import PhaseSnapshot, PhaseStatus
+from agentkit.backend.state_backend.store import save_phase_snapshot, save_story_context
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import ChangeImpact
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType, get_profile
+from agentkit.backend.telemetry.projection_accessor import ProjectionFilter, ProjectionKind
+from agentkit.backend.verify_system.check_outcome_emitter import CheckOutcomeEmitter
+from agentkit.backend.verify_system.stage_registry import StageRegistry
+from agentkit.backend.verify_system.stage_registry.records import CheckOutcome
+from agentkit.backend.verify_system.structural.checks import BuildTestEvidence
+from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -198,8 +198,8 @@ def test_emitter_wiring_persists_clean_rows_for_passing_layer1(tmp_path: Path) -
     rows to the SQLite qa_check_outcomes table.  We then read them back through
     the PUBLIC ProjectionAccessor.read_projection to confirm end-to-end wiring.
     """
-    from agentkit.bootstrap.composition_root import build_projection_accessor
-    from agentkit.verify_system.structural.checker import StructuralChecker
+    from agentkit.backend.bootstrap.composition_root import build_projection_accessor
+    from agentkit.backend.verify_system.structural.checker import StructuralChecker
 
     story_dir = _prepare_story_dir(tmp_path)
     ctx = _ctx()
@@ -265,8 +265,8 @@ def test_emitter_wiring_persists_triggered_row_for_failed_check(tmp_path: Path) 
     Proves both triggered and clean rows are emitted in one shot when some
     checks pass and one fails.  The emitter must NOT drop PASS checks.
     """
-    from agentkit.bootstrap.composition_root import build_projection_accessor
-    from agentkit.verify_system.structural.checker import StructuralChecker
+    from agentkit.backend.bootstrap.composition_root import build_projection_accessor
+    from agentkit.backend.verify_system.structural.checker import StructuralChecker
 
     story_dir = _prepare_story_dir(tmp_path)
     ctx = _ctx()
@@ -317,10 +317,10 @@ def test_emitter_wiring_persists_triggered_row_for_failed_check(tmp_path: Path) 
 
 def test_emitter_wiring_persists_overridden_row(tmp_path: Path) -> None:
     """An override matching a check_id produces an overridden outcome row."""
-    from agentkit.bootstrap.composition_root import build_projection_accessor
-    from agentkit.core_types.override import OverrideType
-    from agentkit.phase_state_store.models import OverrideRecord
-    from agentkit.verify_system.structural.checker import StructuralChecker
+    from agentkit.backend.bootstrap.composition_root import build_projection_accessor
+    from agentkit.backend.core_types.override import OverrideType
+    from agentkit.backend.phase_state_store.models import OverrideRecord
+    from agentkit.backend.verify_system.structural.checker import StructuralChecker
 
     story_dir = _prepare_story_dir(tmp_path)
     ctx = _ctx()
@@ -419,7 +419,7 @@ def _flow_ac4() -> FlowExecution:
 
 def _prepare_story_dir_ac4(tmp_path: Path) -> Path:
     """Minimal story dir for AC4: FlowExecution + OverrideRecord persisted."""
-    from agentkit.state_backend.store import save_flow_execution, save_override_record
+    from agentkit.backend.state_backend.store import save_flow_execution, save_override_record
 
     story_dir = tmp_path / "stories" / _STORY_ID_AC4
     story_dir.mkdir(parents=True, exist_ok=True)
@@ -443,8 +443,8 @@ def _prepare_story_dir_ac4(tmp_path: Path) -> Path:
     # Persist FlowExecution (required by phase.py load_flow_execution check).
     save_flow_execution(story_dir, _flow_ac4())
     # Persist an OverrideRecord suppressing the artifact.protocol check.
-    from agentkit.core_types.override import OverrideType
-    from agentkit.phase_state_store.models import OverrideRecord
+    from agentkit.backend.core_types.override import OverrideType
+    from agentkit.backend.phase_state_store.models import OverrideRecord
 
     override = OverrideRecord(
         override_id=_OVERRIDE_ID,
@@ -524,11 +524,11 @@ class _PassVerifySystemWithOverridableCheck:
         *,
         previous_findings: tuple[object, ...] = (),
     ) -> object:
-        from agentkit.core_types import PolicyVerdict
-        from agentkit.core_types.qa_artifact_names import ALL_QA_ARTIFACT_FILES
-        from agentkit.verify_system.contract import QaSubflowOutcome
-        from agentkit.verify_system.policy_engine.engine import PolicyEngine
-        from agentkit.verify_system.protocols import LayerResult
+        from agentkit.backend.core_types import PolicyVerdict
+        from agentkit.backend.core_types.qa_artifact_names import ALL_QA_ARTIFACT_FILES
+        from agentkit.backend.verify_system.contract import QaSubflowOutcome
+        from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
+        from agentkit.backend.verify_system.protocols import LayerResult
 
         del story_id, qa_context, target, previous_findings
 
@@ -577,10 +577,10 @@ def test_phase_wiring_emits_overridden_outcome_via_production_path(
     override_records — it is the real phase.py code path that Codex flagged
     as the gap in round-1 review.
     """
-    from agentkit.bootstrap.composition_root import build_projection_accessor
-    from agentkit.implementation.phase import ImplementationConfig, ImplementationPhaseHandler
-    from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-    from agentkit.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.bootstrap.composition_root import build_projection_accessor
+    from agentkit.backend.implementation.phase import ImplementationConfig, ImplementationPhaseHandler
+    from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     story_dir = _prepare_story_dir_ac4(tmp_path)

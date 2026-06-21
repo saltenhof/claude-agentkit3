@@ -14,10 +14,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.state_backend import sqlite_store
-from agentkit.state_backend.config import versioned_sqlite_db_file
-from agentkit.state_backend.paths import state_backend_dir
-from agentkit.state_backend.store.fact_repository import StateBackendFactRepository
+from agentkit.backend.state_backend import sqlite_store
+from agentkit.backend.state_backend.config import versioned_sqlite_db_file
+from agentkit.backend.state_backend.paths import state_backend_dir
+from agentkit.backend.state_backend.store.fact_repository import StateBackendFactRepository
 
 if TYPE_CHECKING:
     from pathlib import Path

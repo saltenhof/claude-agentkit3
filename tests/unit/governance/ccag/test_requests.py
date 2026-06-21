@@ -1,11 +1,11 @@
-"""Tests for agentkit.governance.ccag.requests — PermissionRequest store."""
+"""Tests for agentkit.backend.governance.ccag.requests — PermissionRequest store."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from agentkit.governance.ccag.requests import (
+from agentkit.backend.governance.ccag.requests import (
     PermissionRequest,
     PermissionRequestStore,
 )

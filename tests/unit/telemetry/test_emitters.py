@@ -1,11 +1,11 @@
-"""Unit tests for agentkit.telemetry.emitters."""
+"""Unit tests for agentkit.backend.telemetry.emitters."""
 
 from __future__ import annotations
 
 from typing import runtime_checkable
 
-from agentkit.telemetry.emitters import EventEmitter, MemoryEmitter, NullEmitter
-from agentkit.telemetry.events import Event, EventType
+from agentkit.backend.telemetry.emitters import EventEmitter, MemoryEmitter, NullEmitter
+from agentkit.backend.telemetry.events import Event, EventType
 
 
 class TestMemoryEmitter:

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from agentkit.verify_system.evidence import (
+from agentkit.backend.verify_system.evidence import (
     MAX_REQUESTS,
     RequestResolver,
     RequestResult,
@@ -18,8 +18,8 @@ from agentkit.verify_system.evidence import (
     ReviewerRequest,
     parse_preflight_response,
 )
-from agentkit.verify_system.evidence import request_resolver as resolver_module
-from agentkit.verify_system.evidence.repo_context import RepoContext
+from agentkit.backend.verify_system.evidence import request_resolver as resolver_module
+from agentkit.backend.verify_system.evidence.repo_context import RepoContext
 
 if TYPE_CHECKING:
     from pathlib import Path

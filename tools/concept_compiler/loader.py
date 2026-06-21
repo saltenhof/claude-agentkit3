@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from agentkit.exceptions import AgentKitError
+from agentkit.backend.exceptions import AgentKitError
 
 if TYPE_CHECKING:
     from pathlib import Path

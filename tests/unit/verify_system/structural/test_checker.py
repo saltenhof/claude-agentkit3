@@ -5,12 +5,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agentkit.pipeline_engine.phase_executor.models import PhaseSnapshot, PhaseStatus
-from agentkit.state_backend.store import save_phase_snapshot, save_story_context
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
-from agentkit.verify_system.protocols import QALayer, Severity
-from agentkit.verify_system.structural.checker import StructuralChecker
+from agentkit.backend.pipeline_engine.phase_executor.models import PhaseSnapshot, PhaseStatus
+from agentkit.backend.state_backend.store import save_phase_snapshot, save_story_context
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType, get_profile
+from agentkit.backend.verify_system.protocols import QALayer, Severity
+from agentkit.backend.verify_system.structural.checker import StructuralChecker
 
 
 def _story_dir(root: object, story_id: str = "TEST-001") -> Path:

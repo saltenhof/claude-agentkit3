@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.state_backend.store.custom_field_repository import (
+from agentkit.backend.state_backend.store.custom_field_repository import (
     StoryCustomFieldRepository,
     StoryCustomFieldWriteRejectedError,
 )
-from agentkit.story_context_manager.custom_fields import (
+from agentkit.backend.story_context_manager.custom_fields import (
     ProviderSyncStatus,
     StoryCustomFieldDefinition,
     StoryCustomFieldSource,

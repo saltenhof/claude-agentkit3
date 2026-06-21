@@ -16,51 +16,51 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.core_types import (
+from agentkit.backend.core_types import (
     PolicyVerdict,
     SpawnKind,
     SpawnReason,
     SpawnRequest,
 )
-from agentkit.core_types.qa_artifact_names import ALL_QA_ARTIFACT_FILES
-from agentkit.implementation.phase import (
+from agentkit.backend.core_types.qa_artifact_names import ALL_QA_ARTIFACT_FILES
+from agentkit.backend.implementation.phase import (
     ImplementationConfig,
     ImplementationPhaseHandler,
 )
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.engine import PipelineEngine
-from agentkit.pipeline_engine.lifecycle import HandlerResult, PhaseHandlerRegistry
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.engine import PipelineEngine
+from agentkit.backend.pipeline_engine.lifecycle import HandlerResult, PhaseHandlerRegistry
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseStatus,
     QaCycleStatus,
 )
-from agentkit.process.language.definitions import IMPLEMENTATION_WORKFLOW
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import (
+from agentkit.backend.process.language.definitions import IMPLEMENTATION_WORKFLOW
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import (
     read_phase_state_record,
     reset_backend_cache_for_tests,
     save_flow_execution,
     save_story_context,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.verify_system.contract import QaSubflowOutcome
-from agentkit.verify_system.policy_engine.engine import PolicyEngine
-from agentkit.verify_system.protocols import (
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.verify_system.contract import QaSubflowOutcome
+from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
+from agentkit.backend.verify_system.protocols import (
     Finding,
     LayerResult,
     Severity,
     TrustClass,
 )
-from agentkit.verify_system.remediation.feedback import build_feedback
+from agentkit.backend.verify_system.remediation.feedback import build_feedback
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
-    from agentkit.verify_system.contract import VerifyContextBundle
+    from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+    from agentkit.backend.verify_system.contract import VerifyContextBundle
 
 
 @pytest.fixture(autouse=True)

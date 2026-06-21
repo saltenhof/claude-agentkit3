@@ -12,19 +12,19 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.closure.post_merge_finalization.metrics import (
+from agentkit.backend.closure.post_merge_finalization.metrics import (
     build_story_metrics_record,
 )
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.state_backend.store import (
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.state_backend.store import (
     append_execution_event,
     save_flow_execution,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import WireStoryMode
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.telemetry.contract.records import ExecutionEventRecord
-from agentkit.telemetry.events import EventType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import WireStoryMode
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.telemetry.events import EventType
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 @pytest.fixture(autouse=True)
 def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
-    from agentkit.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")

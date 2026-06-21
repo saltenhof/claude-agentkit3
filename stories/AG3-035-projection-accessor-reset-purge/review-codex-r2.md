@@ -152,7 +152,7 @@ Beleg:
 - Die Story sagt selbst, dass diese Story den Drift schliesst oder andernfalls
   der `# DRIFT-AG3-035`-Kommentar im Code bleibt: `stories/AG3-035-projection-accessor-reset-purge/story.md:196` bis `:204`.
 - `verify_system/system.py` importiert weiterhin direkt aus
-  `agentkit.state_backend.store`: `src/agentkit/verify_system/system.py:299` bis `:306`.
+  `agentkit.backend.state_backend.store`: `src/agentkit/verify_system/system.py:299` bis `:306`.
 - Der Kontext wird dann an `_execute_layer` injiziert: `src/agentkit/verify_system/system.py:327` bis `:331`, `system.py:343` bis `:348`.
 - `_execute_layer` selbst nutzt den injizierten Wert oder faellt auf einen Stub
   zurueck: `src/agentkit/verify_system/system.py:514` bis `:529`.

@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.story_context_manager.types import StoryType
-from agentkit.verify_system.sonarqube_gate import (
+from agentkit.backend.story_context_manager.types import StoryType
+from agentkit.backend.verify_system.sonarqube_gate import (
     AcceptedExceptionLedgerEntry,
     SonarApplicability,
     SonarAttestation,
@@ -19,7 +19,7 @@ from agentkit.verify_system.sonarqube_gate import (
     evaluate_sonarqube_gate,
     resolve_for_context,
 )
-from agentkit.verify_system.sonarqube_gate.port import PostApplyGateState
+from agentkit.backend.verify_system.sonarqube_gate.port import PostApplyGateState
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -211,7 +211,7 @@ class TestReconcilerBeforeVerdict:
 
     def test_single_match_apply_failure_fails_closed(self) -> None:
         """A failed Sonar transition (apply) fails the gate closed (E4)."""
-        from agentkit.verify_system.sonarqube_gate import ReconcilerApplyError
+        from agentkit.backend.verify_system.sonarqube_gate import ReconcilerApplyError
 
         entry = AcceptedExceptionLedgerEntry(
             rule_key="python:S1192",

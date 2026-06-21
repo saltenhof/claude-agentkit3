@@ -30,27 +30,27 @@ from tests.exploration_worker_result_fixture import (
     recorded_worker_payload,
 )
 
-from agentkit.artifacts.errors import ArtifactNotFoundError
-from agentkit.bootstrap.composition_root import build_artifact_manager
-from agentkit.core_types import ArtifactClass
-from agentkit.core_types.qa_artifact_names import CHANGE_FRAME_FILE
-from agentkit.exploration.change_frame import SEVEN_PARTS, ChangeFrame
-from agentkit.exploration.drafting.drafting import (
+from agentkit.backend.artifacts.errors import ArtifactNotFoundError
+from agentkit.backend.bootstrap.composition_root import build_artifact_manager
+from agentkit.backend.core_types import ArtifactClass
+from agentkit.backend.core_types.qa_artifact_names import CHANGE_FRAME_FILE
+from agentkit.backend.exploration.change_frame import SEVEN_PARTS, ChangeFrame
+from agentkit.backend.exploration.drafting.drafting import (
     DraftingError,
     ExplorationDrafting,
     ExplorationDraftRequest,
 )
-from agentkit.exploration.drafting.persistence import ArtifactChangeFrameSink
-from agentkit.exploration.drafting.ports import ExplorationWorkerResult
-from agentkit.exploration.register import EXPLORATION_ENTWURF_STAGE
-from agentkit.installer.paths import resolve_qa_story_dir
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.exploration_change_frame_repository import (
+from agentkit.backend.exploration.drafting.persistence import ArtifactChangeFrameSink
+from agentkit.backend.exploration.drafting.ports import ExplorationWorkerResult
+from agentkit.backend.exploration.register import EXPLORATION_ENTWURF_STAGE
+from agentkit.backend.installer.paths import resolve_qa_story_dir
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.exploration_change_frame_repository import (
     StateBackendExplorationChangeFrameAdapter,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from collections.abc import Generator

@@ -154,7 +154,7 @@ modelliert. Jeder Checkpoint ist ein expliziter `step`-Knoten innerhalb
 eines `FlowDefinition(level="component", owner="Installer")`.
 
 **Cross-BC-Beziehung:** `FlowDefinition` ist eine DSL-Klasse aus BC
-`pipeline-framework` (`agentkit.pipeline_engine.flow_orchestrator`, FK-20).
+`pipeline-framework` (`agentkit.backend.pipeline_engine.flow_orchestrator`, FK-20).
 `installation-and-bootstrap` konsumiert diese Klasse als strukturelle
 Wiederverwendung der Einheits-DSL; die Checkpoint-Engine ist kein Teil von
 `PipelineEngine` und teilt keinen Laufzeit-State mit ihr.
@@ -598,7 +598,7 @@ Der Installer bindet projektlokale Skills ueber die Top-Surface des BC
 `agent-skills`. Fuer jeden zu bindenden Skill wird aufgerufen:
 
 ```python
-# Top-Surface BC agent-skills (agentkit.installer ruft agentkit.skills.Skills auf)
+# Top-Surface BC agent-skills (agentkit.backend.installer ruft agentkit.backend.skills.Skills auf)
 Skills.bind_skill(skill_name, bundle_root, project_root)
 ```
 
@@ -612,7 +612,7 @@ nicht direkt; er delegiert an die kanonische Schnittstelle des Owner-BC.
 Analog dazu wird die Prompt-Bundle-Bindung ueber:
 
 ```python
-# Top-Surface BC prompt-runtime (agentkit.installer ruft agentkit.prompt_runtime.PromptRuntime auf)
+# Top-Surface BC prompt-runtime (agentkit.backend.installer ruft agentkit.backend.prompt_runtime.PromptRuntime auf)
 PromptRuntime.update_binding(bundle_id, version)
 ```
 

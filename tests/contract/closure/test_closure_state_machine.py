@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from agentkit.closure.phase import ClosureVerdict
-from agentkit.pipeline_engine.phase_executor import ClosureProgress
+from agentkit.backend.closure.phase import ClosureVerdict
+from agentkit.backend.pipeline_engine.phase_executor import ClosureProgress
 
 _SPEC_ROOT = (
     Path(__file__).resolve().parents[3]

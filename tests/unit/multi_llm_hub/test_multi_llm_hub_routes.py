@@ -4,9 +4,9 @@ import json
 from datetime import UTC, datetime
 from http import HTTPStatus
 
-from agentkit.control_plane.http import ControlPlaneApplication
-from agentkit.control_plane_http.app import ControlPlaneApplicationRoutes
-from agentkit.multi_llm_hub.entities import (
+from agentkit.backend.control_plane.http import ControlPlaneApplication
+from agentkit.backend.control_plane_http.app import ControlPlaneApplicationRoutes
+from agentkit.integration_clients.multi_llm_hub.entities import (
     HubBackendMetric,
     HubBackendName,
     HubBackendSessionStats,
@@ -16,8 +16,8 @@ from agentkit.multi_llm_hub.entities import (
     HubSessionLease,
     HubSessionStats,
 )
-from agentkit.multi_llm_hub.errors import HubUnavailableError
-from agentkit.multi_llm_hub.http.routes import MultiLlmHubRoutes
+from agentkit.integration_clients.multi_llm_hub.errors import HubUnavailableError
+from agentkit.integration_clients.multi_llm_hub.http.routes import MultiLlmHubRoutes
 
 
 class _FakeHubClient:

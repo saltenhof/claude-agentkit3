@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.multi_llm_hub.client import HubClient
-from agentkit.multi_llm_hub.errors import HubSessionNotFoundError, HubUnavailableError
+from agentkit.integration_clients.multi_llm_hub.client import HubClient
+from agentkit.integration_clients.multi_llm_hub.errors import HubSessionNotFoundError, HubUnavailableError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

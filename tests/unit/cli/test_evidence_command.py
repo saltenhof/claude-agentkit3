@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
     import pytest
 
-from agentkit.cli.main import main
+from agentkit.backend.cli.main import main
 
 
 def test_evidence_assemble_command_writes_manifest_and_prints_merge_paths(

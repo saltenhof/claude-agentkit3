@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.telemetry.events import (
+from agentkit.backend.telemetry.events import (
     MANDATORY_PAYLOAD_FIELDS,
     MANDATORY_PAYLOAD_FIELDS_BY_NAME,
     EventPayloadContractError,

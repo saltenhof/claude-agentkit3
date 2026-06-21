@@ -14,7 +14,7 @@
 
 ## 1. Executive Summary
 
-Der BC `prompt-runtime` existiert noch nicht als eigenstaendiges Paket `src/agentkit/prompt_runtime/`. Die konzeptionell geforderten Subs `BundleStore`, `BundlePinning` und `Materialization` unter dem Modul-Prefix `agentkit.prompt_runtime` sind nicht angelegt. Stattdessen deckt das Paket `src/agentkit/prompt_composer/` grosse Teile der Run-Pinning- und Materialisierungslogik ab, jedoch unter falschem Modul-Prefix, ohne die normierte Top-Surface `PromptRuntime` und ohne Anbindung an `artifacts.ArtifactManager`. Die formale State-Machine mit ihren Zustandsuebergaengen, das typisierte `PromptAuditHash`-Pydantic-Schema sowie die konzeptionelle `reject-stale-local-prompt-cache`-Kommandoebene fehlen vollstaendig.
+Der BC `prompt-runtime` existiert noch nicht als eigenstaendiges Paket `src/agentkit/prompt_runtime/`. Die konzeptionell geforderten Subs `BundleStore`, `BundlePinning` und `Materialization` unter dem Modul-Prefix `agentkit.backend.prompt_runtime` sind nicht angelegt. Stattdessen deckt das Paket `src/agentkit/prompt_composer/` grosse Teile der Run-Pinning- und Materialisierungslogik ab, jedoch unter falschem Modul-Prefix, ohne die normierte Top-Surface `PromptRuntime` und ohne Anbindung an `artifacts.ArtifactManager`. Die formale State-Machine mit ihren Zustandsuebergaengen, das typisierte `PromptAuditHash`-Pydantic-Schema sowie die konzeptionelle `reject-stale-local-prompt-cache`-Kommandoebene fehlen vollstaendig.
 
 | Kategorie | Anzahl |
 |---|---|
@@ -29,9 +29,9 @@ Der BC `prompt-runtime` existiert noch nicht als eigenstaendiges Paket `src/agen
 - **Top-Surface `PromptRuntime.create_run_pin(run_id) -> RunPromptPin`** — `bc-cut-decisions.md §BC 10`, `FK-44 §44.3`
 - **Top-Surface `PromptRuntime.update_binding(bundle_id, version) -> None`** — `FK-44 §44.3`, `bc-cut-decisions.md §BC 10`
 - **Top-Surface `PromptRuntime.compute_audit_hash(invocation_id, output_bytes) -> PromptAuditHash`** — `bc-cut-decisions.md §BC 10`, `FK-44 §44.6`
-- **Sub `agentkit.prompt_runtime.bundle_store`: `BundleStore`, `PromptBundle`, `PromptTemplate`, `BundleVersion`** — `bc-cut-decisions.md §BC 10`
-- **Sub `agentkit.prompt_runtime.bundle_pinning`: `BundlePinning`, `ProjectPromptPin`, `RunPromptPin`, `PinResolver`, `PinPersistence`** — `bc-cut-decisions.md §BC 10`, `FK-44 §44.3`, `FK-44 §44.5`
-- **Sub `agentkit.prompt_runtime.materialization`: `BundleMaterializer`, `StaticPromptMaterializer`, `DynamicPromptRenderer`, `RenderMode`, `PromptAuditHash`, `AuditRecord`** — `bc-cut-decisions.md §BC 10`, `FK-44 §44.4`, `FK-44 §44.6`
+- **Sub `agentkit.backend.prompt_runtime.bundle_store`: `BundleStore`, `PromptBundle`, `PromptTemplate`, `BundleVersion`** — `bc-cut-decisions.md §BC 10`
+- **Sub `agentkit.backend.prompt_runtime.bundle_pinning`: `BundlePinning`, `ProjectPromptPin`, `RunPromptPin`, `PinResolver`, `PinPersistence`** — `bc-cut-decisions.md §BC 10`, `FK-44 §44.3`, `FK-44 §44.5`
+- **Sub `agentkit.backend.prompt_runtime.materialization`: `BundleMaterializer`, `StaticPromptMaterializer`, `DynamicPromptRenderer`, `RenderMode`, `PromptAuditHash`, `AuditRecord`** — `bc-cut-decisions.md §BC 10`, `FK-44 §44.4`, `FK-44 §44.6`
 - **Run-scoped Prompt-Instanzpfad `.agentkit/prompts/{run_id}/{invocation_id}/prompt.md`** — `FK-44 §44.4.1`, `formal.prompt-runtime.commands §materialize-agent-prompt-instance`
 - **Audit-Records via `artifacts.ArtifactManager` persistieren** — `FK-44 §44.6`, `bc-cut-decisions.md §BC 10`
 - **State-Machine: Zustaende `binding_resolved`, `run_pinned`, `instance_materialized`, `rejected` mit definierten Uebergaengen** — `formal.prompt-runtime.state-machine`
@@ -66,9 +66,9 @@ Der BC `prompt-runtime` existiert noch nicht als eigenstaendiges Paket `src/agen
 
 | # | Thema | Konzept-Referenz | Anmerkung |
 |---|---|---|---|
-| A1 | Paket `src/agentkit/prompt_runtime/` fehlt vollstaendig | `bc-cut-decisions.md §BC 10` | Kein `__init__.py`, kein Top-Modul, keine Sub-Pakete unter `agentkit.prompt_runtime.*`; AG3-015 plant Erstanlage |
+| A1 | Paket `src/agentkit/prompt_runtime/` fehlt vollstaendig | `bc-cut-decisions.md §BC 10` | Kein `__init__.py`, kein Top-Modul, keine Sub-Pakete unter `agentkit.backend.prompt_runtime.*`; AG3-015 plant Erstanlage |
 | A2 | Top-Klasse `PromptRuntime` mit den vier normierten Top-Surface-Methoden fehlt | `bc-cut-decisions.md §BC 10`, `FK-44 §44.3–44.4` | `create_run_pin`, `materialize_prompt`, `update_binding`, `compute_audit_hash` sind nicht als Klassen-API vorhanden |
-| A3 | Sub `agentkit.prompt_runtime.bundle_store` fehlt | `bc-cut-decisions.md §BC 10` | `BundleStore`, `PromptBundle`, `PromptTemplate`, `BundleVersion`, `LogicalPromptId` nicht vorhanden |
+| A3 | Sub `agentkit.backend.prompt_runtime.bundle_store` fehlt | `bc-cut-decisions.md §BC 10` | `BundleStore`, `PromptBundle`, `PromptTemplate`, `BundleVersion`, `LogicalPromptId` nicht vorhanden |
 | A4 | Typisiertes Pydantic-`PromptAuditHash`-Schema fehlt | `FK-44 §44.6`, `bc-cut-decisions.md §BC 10`, `formal.prompt-runtime.entities` | Audit-Hash-Felder existieren nur lose als Felder in `ComposedPrompt` (Dataclass), nicht als eigenes, versioniertes Pydantic-v2-Schema im Besitz von `Materialization`-Sub |
 | A5 | `AuditRecord`-Persistenz via `artifacts.ArtifactManager` fehlt | `FK-44 §44.6`, `bc-cut-decisions.md §BC 10 Punkt 1` | Kein `ArtifactManager`-Aufruf im Codebase gefunden; AuditRecords werden derzeit als lose JSON-Dateien geschrieben — Invariante `prompt_usage_is_auditable_to_exact_template_and_output_digest` nicht vollstaendig erfuellt |
 | A6 | Kommando `reject-stale-local-prompt-cache` nicht implementiert | `formal.prompt-runtime.commands §reject-stale-local-prompt-cache`, `formal.prompt-runtime.invariants §project_local_prompt_copy_is_never_authoritative` | Kein aktiver Pruefmechanismus, der mutable lokale Prompt-Kopien zurueckweist und Event `prompt.stale_cache_detected` emittiert |
@@ -92,7 +92,7 @@ Der BC `prompt-runtime` existiert noch nicht als eigenstaendiges Paket `src/agen
 
 | # | Thema | Code-Referenz | Konzept-Referenz | Drift / Fehler |
 |---|---|---|---|---|
-| C1 | Modul-Prefix-Verletzung: Gesamtes BC unter `prompt_composer` statt `prompt_runtime` | `src/agentkit/prompt_composer/` (alle Module) | `bc-cut-decisions.md §BC 10`, `formal.prompt-runtime.*` | Die BC-Cut-Entscheidung weist `agentkit.prompt_runtime.*` als Modul-Prefix aus. Der aktuelle Code liegt unter `agentkit.prompt_composer.*`. Andere BCs (FK-44 §44.4.2, bc-cut-decisions) referenzieren `PromptRuntime.materialize_prompt` — diese Schnittstelle existiert unter dem falschen Prefix. Verletzt SINGLE SOURCE OF TRUTH fuer Modul-Lokation. |
+| C1 | Modul-Prefix-Verletzung: Gesamtes BC unter `prompt_composer` statt `prompt_runtime` | `src/agentkit/prompt_composer/` (alle Module) | `bc-cut-decisions.md §BC 10`, `formal.prompt-runtime.*` | Die BC-Cut-Entscheidung weist `agentkit.backend.prompt_runtime.*` als Modul-Prefix aus. Der aktuelle Code liegt unter `agentkit.prompt_composer.*`. Andere BCs (FK-44 §44.4.2, bc-cut-decisions) referenzieren `PromptRuntime.materialize_prompt` — diese Schnittstelle existiert unter dem falschen Prefix. Verletzt SINGLE SOURCE OF TRUTH fuer Modul-Lokation. |
 | C2 | `resolve_run_prompt_binding` verletzt Invariante `binding_changes_affect_only_future_runs` | `src/agentkit/prompt_composer/pins.py:resolve_run_prompt_binding` (Z. 155–175) | `formal.prompt-runtime.invariants §binding_changes_affect_only_future_runs`, `FK-44 §44.3` | Die Funktion vergleicht den persistierten Run-Pin gegen die *aktuelle* Projektbindung (`resolve_project_prompt_binding`) und wirft einen Fehler, wenn Bindung und Pin voneinander abweichen. Das ist korrekt fuer Mismatch-Erkennung, aber nach einem legitimen `update_binding`-Aufruf durch den Installer wuerden neue Rebinds — sofern der Run-Pin noch von der alten Version abgeleitet wurde — faelschlicherweise als Fehler behandelt, anstatt stabil den gepinnten Bundle weiterzuverwenden. Die Invariante erfordert, dass der Run-Pin immun gegen spaetere Projektbindungsaenderungen bleibt; stattdessen wirft der Code `PROMPT_RUN_PIN_MISMATCH`, wenn Lock und Pin auseinanderdriften. |
 | C3 | `PromptRunPin`-Dataclass statt Pydantic-v2-Modell | `src/agentkit/prompt_composer/pins.py:PromptRunPin` | `bc-cut-decisions.md §BC 10`, Coding-Regeln in `CLAUDE.md §Pydantic v2 fuer Konfigurationen und Artefaktmodelle` | `PromptRunPin` ist als `@dataclass(frozen=True)` implementiert. Das CLAUDE.md schreibt Pydantic v2 fuer Artefaktmodelle vor. Andere Artefakt-Owner-Klassen im Projekt nutzen Pydantic. Fehlende Pydantic-Validation bedeutet kein automatisches Schema-Contract-Testing. |
 
@@ -102,7 +102,7 @@ Der BC `prompt-runtime` existiert noch nicht als eigenstaendiges Paket `src/agen
 
 2. **Top-Klasse `PromptRuntime` mit normierten vier Top-Surface-Methoden implementieren:** Ohne diese Klasse kann kein anderer BC die Schnittstelle korrekt aufrufen. Besonders `update_binding` (Aufruf durch `installation-and-bootstrap`) und `materialize_prompt` (Aufruf durch `verify-system`) sind fuer die Pipeline-Integritaet kritisch.
 
-3. **`PromptAuditHash` als Pydantic-v2-Schema in `agentkit.prompt_runtime.materialization` definieren und `AuditRecord`-Persistenz via `artifacts.ArtifactManager` herstellen:** Ohne typisiertes Schema ist Audit-Contract-Testing nicht moeglich; ohne `ArtifactManager`-Anbindung verletzt jede Prompt-Nutzung die Invariante `prompt_usage_is_auditable_to_exact_template_and_output_digest`.
+3. **`PromptAuditHash` als Pydantic-v2-Schema in `agentkit.backend.prompt_runtime.materialization` definieren und `AuditRecord`-Persistenz via `artifacts.ArtifactManager` herstellen:** Ohne typisiertes Schema ist Audit-Contract-Testing nicht moeglich; ohne `ArtifactManager`-Anbindung verletzt jede Prompt-Nutzung die Invariante `prompt_usage_is_auditable_to_exact_template_and_output_digest`.
 
 4. **`resolve_run_prompt_binding` semantisch korrigieren (C2):** Der Run-Pin muss immun gegen spaetere Lock-Aktualisierungen sein. Nach einem `update_binding` durch den Installer soll ein bereits gepinnter Run stabil auf seinem alten Bundle bleiben — kein Fehler, keine stille Mutation. Der Vergleich zwischen Lock und Pin muss umgebaut werden: Run-Pin hat Vorrang, Abweichung ist kein Fehler, solange der Pin valide und konsistent ist.
 

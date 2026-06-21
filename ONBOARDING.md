@@ -207,7 +207,7 @@ beziehen bzw. beim Aufsetzen neu vergeben.
 ### Persistenz-Konvention (wichtig)
 **Postgres ist kanonisch; SQLite nur test-parallel** (fail-closed ueber
 `AGENTKIT_ALLOW_SQLITE=1`). Schema-Definitionen werden **symmetrisch** in
-`src/agentkit/state_backend/postgres_schema.sql` (+ `postgres_store.py`) und
+`src/agentkit/backend/state_backend/postgres_schema.sql` (+ `postgres_store.py`) und
 `sqlite_store.py` gehalten. Niemals eine zweite operative Wahrheit einfuehren.
 
 ### Jenkins-Build triggern (Crumb-Cookie-Muster)
@@ -322,7 +322,7 @@ Freigabe mit eingearbeiteten Auflagen.
 | **AG3-035 Jenkins/Sonar gruen** | offen | Build nach `a7e4ea0` getriggert (HTTP 201); Sonar-Quality-Gate noch verifizieren |
 | **AG3-035 giftige Codex-Review** | offen | FK-lesende Codex-Review (FK-69/FK-29/FK-39) noch nicht gefahren |
 | **AG3-049 Worker beauftragen** | offen | Story re-scoped + von Codex „Segen mit Auflagen"; wartet bewusst auf FK-76-Basis. Reihenfolge: AG3-040/028/048 zuerst |
-| **Code-Migration harness_adapters → harness_integration** | offen (optional) | `agentkit.governance.harness_adapters.*` → `agentkit.harness_integration.*` (Paketname = BC-Name). Rein kosmetisch; BC-Zugehoerigkeit + Importrichtung sind bereits via FK-76 normativ. Eigene Folge-Story |
+| **Code-Migration harness_adapters → harness_integration** | offen (optional) | `agentkit.harness_client.harness_adapters.*` → `agentkit.harness_integration.*` (Paketname = BC-Name). Rein kosmetisch; BC-Zugehoerigkeit + Importrichtung sind bereits via FK-76 normativ. Eigene Folge-Story |
 | **Concept-Index Re-Ingest** | offen | Nach FK-76 + §30.11-Sweep: concepts-MCP `concept_ingest`, damit die Suche FK-76 + neue Verweise kennt |
 | **AG3-028 ↔ AG3-040 Zyklus** | beachten | Aufloesung: AG3-040 in zwei Sub-Bloecken (ohne fc_-Tabellen zuerst). Siehe `_bearbeitungsreihenfolge.md` Anmerkung 1 |
 

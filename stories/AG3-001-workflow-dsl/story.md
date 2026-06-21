@@ -134,8 +134,8 @@ Guards sind Funktionsreferenzen, mypy prueft Signaturen.
 
 ### Abhaengigkeiten
 
-- Foundation-Layer: `agentkit.story` (StoryType, StoryMode, StoryContext, PhaseState, PhaseStatus)
-- Foundation-Layer: `agentkit.exceptions` (WorkflowError, TransitionError, GuardError, GateError)
+- Foundation-Layer: `agentkit.backend.story` (StoryType, StoryMode, StoryContext, PhaseState, PhaseStatus)
+- Foundation-Layer: `agentkit.backend.exceptions` (WorkflowError, TransitionError, GuardError, GateError)
 - Externe Library: `transitions` (leichtgewichtige State-Machine, wird in pyproject.toml ergaenzt)
 
 ### Offene Designfragen (im Sparring zu klaeren)

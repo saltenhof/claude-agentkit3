@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.governance.principal_capabilities import (
+from agentkit.backend.governance.principal_capabilities import (
     CapabilityDecision,
     CapabilityMatrix,
     OperationClass,
     PathClass,
     Principal,
 )
-from agentkit.governance.principal_capabilities.matrix_data import (
+from agentkit.backend.governance.principal_capabilities.matrix_data import (
     EXPECTED_MATRIX_CELLS,
     build_matrix,
 )

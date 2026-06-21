@@ -7,9 +7,9 @@ from dataclasses import FrozenInstanceError, asdict, is_dataclass
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
-from agentkit.pipeline_engine.phase_envelope.runtime import PhaseOrigin, RuntimeMetadata
-from agentkit.pipeline_engine.phase_executor import PhaseState, PhaseStatus
+from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+from agentkit.backend.pipeline_engine.phase_envelope.runtime import PhaseOrigin, RuntimeMetadata
+from agentkit.backend.pipeline_engine.phase_executor import PhaseState, PhaseStatus
 
 
 def _make_runtime(*, origin: PhaseOrigin = PhaseOrigin.NEW) -> RuntimeMetadata:

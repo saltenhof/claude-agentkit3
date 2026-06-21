@@ -28,10 +28,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.governance.harness_adapters.claude_code import main as claude_main
-from agentkit.governance.harness_adapters.codex.cli import main as codex_main
-from agentkit.governance.protocols import GuardVerdict
-from agentkit.governance.runner import POST_HOOK_IDS, PRE_HOOK_IDS, SUPPORTED_HOOK_IDS
+from agentkit.backend.governance.protocols import GuardVerdict
+from agentkit.backend.governance.runner import POST_HOOK_IDS, PRE_HOOK_IDS, SUPPORTED_HOOK_IDS
+from agentkit.harness_client.harness_adapters.claude_code import main as claude_main
+from agentkit.harness_client.harness_adapters.codex.cli import main as codex_main
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -121,7 +121,7 @@ class TestSharedDispatcher:
             return GuardVerdict.allow("guard_evaluation")
 
         monkeypatch.setattr(
-            "agentkit.governance.runner.Governance.run_hook",
+            "agentkit.backend.governance.runner.Governance.run_hook",
             staticmethod(_spy),
         )
         monkeypatch.setattr("sys.stdin", io.StringIO(_CLAUDE_ALLOW_EVENT))
@@ -140,7 +140,7 @@ class TestSharedDispatcher:
             return GuardVerdict.allow("guard_evaluation")
 
         monkeypatch.setattr(
-            "agentkit.governance.runner.Governance.run_hook",
+            "agentkit.backend.governance.runner.Governance.run_hook",
             staticmethod(_spy),
         )
         monkeypatch.setattr("sys.stdin", io.StringIO(_CODEX_ALLOW_EVENT))

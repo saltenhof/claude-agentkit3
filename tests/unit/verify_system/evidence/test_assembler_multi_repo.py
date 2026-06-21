@@ -15,14 +15,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.verify_system.evidence import (
+from agentkit.backend.verify_system.evidence import (
     AuthorityClass,
     BundleEntry,
     EvidenceAssembler,
     EvidenceAssemblyError,
     RepoContext,
 )
-from agentkit.verify_system.structural.system_evidence import ChangeEvidence
+from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -628,7 +628,7 @@ def test_iso_epoch_rejects_timezone_naive_datetime() -> None:
     """A timezone-naive datetime passed as evidence_epoch must raise ValueError."""
     from datetime import datetime
 
-    from agentkit.verify_system.evidence import AuthorityClass, BundleEntry, BundleManifest
+    from agentkit.backend.verify_system.evidence import AuthorityClass, BundleEntry, BundleManifest
 
     entry = BundleEntry(
         repo_id="app",
@@ -651,7 +651,7 @@ def test_iso_epoch_rejects_timezone_naive_datetime() -> None:
 
 def test_bundle_manifest_rejects_duplicate_entries() -> None:
     """BundleManifest validator must reject duplicate repo/path entries."""
-    from agentkit.verify_system.evidence import AuthorityClass, BundleEntry, BundleManifest
+    from agentkit.backend.verify_system.evidence import AuthorityClass, BundleEntry, BundleManifest
 
     entry = BundleEntry(
         repo_id="app",

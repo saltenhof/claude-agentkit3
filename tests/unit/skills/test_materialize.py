@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.config.models import (
+from agentkit.backend.config.models import (
     SUPPORTED_CONFIG_VERSION,
     Features,
     JenkinsConfig,
@@ -23,26 +23,26 @@ from agentkit.config.models import (
     RepositoryConfig,
     SonarQubeConfig,
 )
-from agentkit.core_types.plane_artifact_names import (
+from agentkit.backend.core_types.plane_artifact_names import (
     AGENT_SPAWN_SKILL_PROOF_KEY,
     INSTALLED_MANIFEST_FILENAME,
 )
-from agentkit.installer.paths import (
+from agentkit.backend.installer.paths import (
     materialized_skill_variant_dir,
     materialized_skill_variant_input_digest,
 )
-from agentkit.skills import (
+from agentkit.backend.skills import (
     bundle_has_placeholders,
     is_directory_link,
     read_directory_link_target,
 )
-from agentkit.skills.errors import (
+from agentkit.backend.skills.errors import (
     SkillBindingFailedError,
     SkillBindingPartialStateError,
     UnknownPlaceholderError,
 )
-from agentkit.skills.materialize import bind_skill_materialized
-from agentkit.skills.repository import InMemorySkillBindingRepository
+from agentkit.backend.skills.materialize import bind_skill_materialized
+from agentkit.backend.skills.repository import InMemorySkillBindingRepository
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -295,7 +295,7 @@ class TestTransactionalRollback:
         bundle = _bundle(proj.parent)
         variant_dir = _variant_dir(tmp_path)
 
-        import agentkit.skills.materialize as mat
+        import agentkit.backend.skills.materialize as mat
 
         calls = {"n": 0}
         real_create = mat.create_directory_link
@@ -327,7 +327,7 @@ class TestTransactionalRollback:
         bundle = _bundle(proj.parent)
         variant_dir = _variant_dir(tmp_path)
 
-        import agentkit.skills.materialize as mat
+        import agentkit.backend.skills.materialize as mat
 
         calls = {"n": 0}
         real_create = mat.create_directory_link
@@ -371,7 +371,7 @@ class TestTransactionalRollback:
                 self._calls += 1
                 if self._calls == 2:
                     raise RuntimeError("provoked second-save failure")
-                from agentkit.skills.binding import SkillBinding
+                from agentkit.backend.skills.binding import SkillBinding
 
                 assert isinstance(binding, SkillBinding)
                 self._store[(binding.project_key, binding.skill_name)] = binding
@@ -386,7 +386,7 @@ class TestTransactionalRollback:
                 self._store.pop((project_key, skill_name), None)
 
         repo = _PartialRepo()
-        from agentkit.skills.materialize import bind_skill_materialized
+        from agentkit.backend.skills.materialize import bind_skill_materialized
 
         with pytest.raises(RuntimeError, match="provoked second-save failure"):
             bind_skill_materialized(

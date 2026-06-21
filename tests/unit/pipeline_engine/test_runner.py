@@ -7,20 +7,20 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from agentkit.exceptions import CorruptStateError
-from agentkit.pipeline_engine.engine import EngineResult
-from agentkit.pipeline_engine.phase_executor import PhaseState, PhaseStatus
-from agentkit.pipeline_engine.runner import run_pipeline
-from agentkit.process.language.model import FlowDefinition, NodeDefinition
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.exceptions import CorruptStateError
+from agentkit.backend.pipeline_engine.engine import EngineResult
+from agentkit.backend.pipeline_engine.phase_executor import PhaseState, PhaseStatus
+from agentkit.backend.pipeline_engine.runner import run_pipeline
+from agentkit.backend.process.language.model import FlowDefinition, NodeDefinition
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.pipeline_engine.lifecycle import PhaseHandlerRegistry
-    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
-    from agentkit.process.language.model import WorkflowDefinition
+    from agentkit.backend.pipeline_engine.lifecycle import PhaseHandlerRegistry
+    from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+    from agentkit.backend.process.language.model import WorkflowDefinition
 
 
 def _story_context() -> StoryContext:
@@ -74,19 +74,19 @@ def test_run_pipeline_resolves_workflow_and_initializes_phase_state(
     )
 
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.resolve_workflow",
+        "agentkit.backend.pipeline_engine.runner.resolve_workflow",
         lambda story_type: workflow,
     )
     # Patch the repository's load to return None (fresh start)
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
+        "agentkit.backend.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
         lambda story_dir: _make_null_repo(),
     )
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.save_phase_state",
+        "agentkit.backend.pipeline_engine.runner.save_phase_state",
         lambda story_dir, state: saved.append(state),
     )
-    monkeypatch.setattr("agentkit.pipeline_engine.runner.PipelineEngine", engine_factory)
+    monkeypatch.setattr("agentkit.backend.pipeline_engine.runner.PipelineEngine", engine_factory)
 
     result = run_pipeline(ctx, tmp_path, cast("PhaseHandlerRegistry", object()))
 
@@ -107,7 +107,7 @@ def test_run_pipeline_fails_closed_on_corrupt_phase_state(
     ctx = _story_context()
 
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
+        "agentkit.backend.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
         lambda story_dir: _make_corrupt_repo(),
     )
 
@@ -135,14 +135,14 @@ def test_run_pipeline_returns_yielded_result(
     )
 
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
+        "agentkit.backend.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
         lambda story_dir: _make_null_repo(),
     )
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.save_phase_state",
+        "agentkit.backend.pipeline_engine.runner.save_phase_state",
         lambda story_dir, state: None,
     )
-    monkeypatch.setattr("agentkit.pipeline_engine.runner.PipelineEngine", engine_factory)
+    monkeypatch.setattr("agentkit.backend.pipeline_engine.runner.PipelineEngine", engine_factory)
 
     result = run_pipeline(ctx, tmp_path, cast("PhaseHandlerRegistry", object()), workflow=_workflow("setup"))
 
@@ -170,14 +170,14 @@ def test_run_pipeline_returns_terminal_engine_statuses(
     )
 
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
+        "agentkit.backend.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
         lambda story_dir: _make_null_repo(),
     )
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.save_phase_state",
+        "agentkit.backend.pipeline_engine.runner.save_phase_state",
         lambda story_dir, state: None,
     )
-    monkeypatch.setattr("agentkit.pipeline_engine.runner.PipelineEngine", engine_factory)
+    monkeypatch.setattr("agentkit.backend.pipeline_engine.runner.PipelineEngine", engine_factory)
 
     result = run_pipeline(ctx, tmp_path, cast("PhaseHandlerRegistry", object()), workflow=_workflow("implementation"))
 
@@ -208,14 +208,14 @@ def test_run_pipeline_advances_and_saves_next_phase(
     )
 
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
+        "agentkit.backend.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
         lambda story_dir: _make_null_repo(),
     )
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.save_phase_state",
+        "agentkit.backend.pipeline_engine.runner.save_phase_state",
         lambda story_dir, phase_state: saved.append(phase_state),
     )
-    monkeypatch.setattr("agentkit.pipeline_engine.runner.PipelineEngine", engine_factory)
+    monkeypatch.setattr("agentkit.backend.pipeline_engine.runner.PipelineEngine", engine_factory)
 
     result = run_pipeline(
         ctx,
@@ -255,14 +255,14 @@ def test_run_pipeline_reloads_persisted_context_between_phases(
     )
 
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
+        "agentkit.backend.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
         lambda story_dir: _make_null_repo(),
     )
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.save_phase_state",
+        "agentkit.backend.pipeline_engine.runner.save_phase_state",
         lambda story_dir, phase_state: None,
     )
-    monkeypatch.setattr("agentkit.pipeline_engine.runner.PipelineEngine", engine_factory)
+    monkeypatch.setattr("agentkit.backend.pipeline_engine.runner.PipelineEngine", engine_factory)
 
     result = run_pipeline(
         ctx,
@@ -294,14 +294,14 @@ def test_run_pipeline_fails_when_iteration_limit_is_reached(
     )
 
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
+        "agentkit.backend.pipeline_engine.runner.StateBackendPhaseEnvelopeRepository",
         lambda story_dir: _make_null_repo(),
     )
     monkeypatch.setattr(
-        "agentkit.pipeline_engine.runner.save_phase_state",
+        "agentkit.backend.pipeline_engine.runner.save_phase_state",
         lambda story_dir, phase_state: None,
     )
-    monkeypatch.setattr("agentkit.pipeline_engine.runner.PipelineEngine", engine_factory)
+    monkeypatch.setattr("agentkit.backend.pipeline_engine.runner.PipelineEngine", engine_factory)
 
     result = run_pipeline(
         ctx,

@@ -24,7 +24,7 @@ es gibt keine Projekt-lokale "aktiver Harness"-Konfiguration.
 
 ### In Scope
 
-- Installer-Erweiterung in `agentkit.installer.runner`:
+- Installer-Erweiterung in `agentkit.backend.installer.runner`:
   - Bestehende Claude-Code-Settings-Anlage bleibt
   - Neue Codex-Settings-Anlage parallel:
     - Codex-Konfigurations-Datei-Pfad pruefen (vermutlich

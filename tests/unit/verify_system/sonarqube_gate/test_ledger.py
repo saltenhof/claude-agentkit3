@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.verify_system.sonarqube_gate import (
+from agentkit.backend.verify_system.sonarqube_gate import (
     AcceptedExceptionLedger,
     AcceptedExceptionLedgerEntry,
     LedgerInvalidError,

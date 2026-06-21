@@ -6,7 +6,7 @@ import pytest
 
 
 class TestPublicAPI:
-    """All expected symbols are importable from agentkit.process.language."""
+    """All expected symbols are importable from agentkit.backend.process.language."""
 
     @pytest.mark.parametrize(
         "symbol",
@@ -50,15 +50,15 @@ class TestPublicAPI:
     )
     def test_symbol_importable(self, symbol: str) -> None:
         """Each expected symbol is importable from the process language package."""
-        import agentkit.process.language as wf_mod
+        import agentkit.backend.process.language as wf_mod
 
         assert hasattr(wf_mod, symbol), (
-            f"Symbol {symbol!r} not found in agentkit.process.language"
+            f"Symbol {symbol!r} not found in agentkit.backend.process.language"
         )
 
     def test_all_exports_listed(self) -> None:
         """__all__ contains all expected symbols."""
-        import agentkit.process.language as wf_mod
+        import agentkit.backend.process.language as wf_mod
 
         expected = {
             "WorkflowDefinition",

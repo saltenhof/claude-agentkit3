@@ -15,21 +15,21 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.core_types import PolicyVerdict
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.core_types import PolicyVerdict
+from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseSnapshot,
     PhaseStatus,
 )
-from agentkit.state_backend.store import save_phase_snapshot, save_story_context
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import ChangeImpact
-from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
-from agentkit.verify_system.policy_engine.engine import PolicyEngine
-from agentkit.verify_system.protocols import LayerResult
-from agentkit.verify_system.stage_registry import StageRegistry
-from agentkit.verify_system.structural.checker import StructuralChecker
-from agentkit.verify_system.structural.checks import BuildTestEvidence
-from agentkit.verify_system.structural.system_evidence import ChangeEvidence
+from agentkit.backend.state_backend.store import save_phase_snapshot, save_story_context
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import ChangeImpact
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType, get_profile
+from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
+from agentkit.backend.verify_system.protocols import LayerResult
+from agentkit.backend.verify_system.stage_registry import StageRegistry
+from agentkit.backend.verify_system.structural.checker import StructuralChecker
+from agentkit.backend.verify_system.structural.checks import BuildTestEvidence
+from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
     from pathlib import Path

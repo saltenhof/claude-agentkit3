@@ -126,15 +126,15 @@ PASS oder FAIL des gesamten QA-Subflows.
 **Architekturzuordnung:** `StructuralChecker`, `PolicyEngine` und
 `StageRegistry` sind Subkomponenten von `VerifySystem`:
 
-- `StageRegistry` → `agentkit.verify_system.stage_registry`
-- `PolicyEngine` → `agentkit.verify_system.policy_engine`
+- `StageRegistry` → `agentkit.backend.verify_system.stage_registry`
+- `PolicyEngine` → `agentkit.backend.verify_system.policy_engine`
 
 Die `StageRegistry` wird nicht nur vom QA-Subflow konsumiert,
 sondern ist auch Ziel der Pattern-/Check-Promotion aus dem `FailureCorpus`.
 
 **Schema-Owner (verify-system):** Die Pydantic-Schemas `QaStageResult`,
 `QaFinding` und `StageDefinition` liegen in
-`agentkit.verify_system.stage_registry`. Sie sind kein Teil von
+`agentkit.backend.verify_system.stage_registry`. Sie sind kein Teil von
 `telemetry-and-events` — der `ProjectionAccessor` (BC 9) schreibt
 Instanzen dieser Schemas via `Telemetry.write_projection`, ownt aber
 nicht die Schema-Definition.
@@ -627,7 +627,7 @@ deklariert in **FK-03** (`sonarqube`-Config-Stanza), als Installer-Vorbedingung
 **fail-closed** geprüft in **FK-50** (Checkpoint) und im Index der
 Laufzeit-Abhängigkeiten **FK-10 §10.2.2** als Pflicht geführt. Das
 **Default-Quality-Gate-Profil „ab Werk"** ist ein ausgeliefertes Artefakt unter
-`resources/target_project/` (SSOT); der Projektverantwortliche darf es durch
+`bundles/target_project/` (SSOT); der Projektverantwortliche darf es durch
 ein eigenes Regelwerk ersetzen.
 
 ### 33.6.4 Bewusste Einzelfall-Ausnahmen (Accepted) — zielorientiertes Quorum

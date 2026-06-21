@@ -15,8 +15,8 @@
 
 THEME-005 aus `stories/_priorisierungsempfehlung.md`. Befunde:
 
-- `kpi-and-dashboard.A1`: Modul `agentkit.kpi_analytics` mit Top-Klasse `KpiAnalytics` fehlt komplett.
-- `kpi-and-dashboard.C2`: vorhandener `agentkit.dashboard`-Code liegt im falschen Paket; das Modul-Praefixsystem `agentkit.kpi_analytics.*` ist nicht hergestellt.
+- `kpi-and-dashboard.A1`: Modul `agentkit.backend.kpi_analytics` mit Top-Klasse `KpiAnalytics` fehlt komplett.
+- `kpi-and-dashboard.C2`: vorhandener `agentkit.dashboard`-Code liegt im falschen Paket; das Modul-Praefixsystem `agentkit.backend.kpi_analytics.*` ist nicht hergestellt.
 - `kpi-and-dashboard.C1`: `DashboardService` liest direkt aus `StoryService` statt aus Fact-Tabellen — Trust-Boundary-Verletzung; gleichzeitig fehlen die Fact-Tabellen.
 - `kpi-and-dashboard.C3`: Kanban-Statusspalten weichen ab (`defined/active/failed/blocked` statt `Backlog/Approved/In Progress/Done/Cancelled`).
 
@@ -112,7 +112,7 @@ Pydantic-v2:
 
 `src/agentkit/dashboard/service.py:_COLUMN_ORDER` wird auf die FK-64-§64.11-Werte korrigiert: `Backlog`, `Approved`, `In Progress`, `Done`, `Cancelled`. Diese Aenderung wird VOR der Paket-Migration durchgefuehrt (siehe 2.1.5 — wir verschieben den Code, korrigieren parallel den Drift).
 
-#### 2.1.5 Migration von `agentkit.dashboard` -> `agentkit.kpi_analytics.dashboard`
+#### 2.1.5 Migration von `agentkit.dashboard` -> `agentkit.backend.kpi_analytics.dashboard`
 
 `src/agentkit/dashboard/` wird umbenannt und unter `agentkit/kpi_analytics/dashboard/` re-organisiert. Konkret:
 
@@ -120,7 +120,7 @@ Pydantic-v2:
 - `src/agentkit/dashboard/service.py` -> `src/agentkit/kpi_analytics/dashboard/service.py`
 - Alle Importer werden auf neuen Pfad umgestellt
 - `agentkit.dashboard` als Paket wird entfernt (keine Re-Export-Shims — Zero Debt)
-- `agentkit.telemetry.kpis` (leere Datei) wird entfernt
+- `agentkit.backend.telemetry.kpis` (leere Datei) wird entfernt
 
 `DashboardService` bleibt funktional erhalten (es liest weiter aus `StoryService` — der Drift zur Fact-Tabelle ist nicht in dieser Story zu beheben, weil Fact-Tabellen erst AG3-038 bringt). Aber: die fehlerhaften Statusspalten sind korrigiert.
 
@@ -161,7 +161,7 @@ Pydantic-v2:
 | `src/agentkit/kpi_analytics/dashboard/service.py` | Verschoben aus `agentkit/dashboard/service.py` | Statusspalten-Drift korrigiert |
 | `src/agentkit/dashboard/` | Geloescht | Migration abgeschlossen |
 | `src/agentkit/telemetry/kpis/__init__.py` | Geloescht | leere Datei am falschen Ort |
-| Alle Importer | Modifiziert | `agentkit.dashboard` -> `agentkit.kpi_analytics.dashboard` |
+| Alle Importer | Modifiziert | `agentkit.dashboard` -> `agentkit.backend.kpi_analytics.dashboard` |
 | `tests/unit/kpi_analytics/test_top.py` | Neu | KpiAnalytics-Top-Tests |
 | `tests/unit/kpi_analytics/test_catalog.py` | Neu | KpiCatalog-Tests |
 | `tests/unit/kpi_analytics/dashboard/...` | Verschoben aus `tests/unit/dashboard/...` | Test-Migration |
@@ -173,9 +173,9 @@ Pydantic-v2:
 2. **Klasse `KpiAnalytics` hat fuenf Top-Methoden** mit den genannten Signaturen: `list_kpis`, `refresh_analytics`, `get_dashboard_view`, `query` (NotImplementedError), `get_design_tokens`.
 3. **`KpiDefinition`-Pflichtfelder**: `kpi_id`, `name`, `decision_question`, `formula_repr`, `granularity`, `collection_point`, `domain`. Pydantic-v2 frozen.
 4. **`KpiGranularity` und `KpiDomain` sind StrEnums** mit den konzept-normativen Werten.
-5. **Paket-Migration abgeschlossen**: `agentkit.dashboard` existiert nicht mehr; Importe auf `agentkit.kpi_analytics.dashboard` umgestellt; `agentkit.telemetry.kpis` entfernt.
+5. **Paket-Migration abgeschlossen**: `agentkit.dashboard` existiert nicht mehr; Importe auf `agentkit.backend.kpi_analytics.dashboard` umgestellt; `agentkit.backend.telemetry.kpis` entfernt.
 6. **Statusspalten-Drift behoben**: `_COLUMN_ORDER` (oder Aequivalent) enthaelt `["Backlog", "Approved", "In Progress", "Done", "Cancelled"]`.
-7. **Architecture-Conformance**: `agentkit.kpi_analytics` importiert nur `agentkit.core_types`; alle **neuen** KpiAnalytics-Top-Methoden duerfen nicht direkt aus `state_backend` oder alten Dashboard-/Story-Fassaden lesen. **Uebergangs-Ausnahme** (zeitlich begrenzt): `agentkit.kpi_analytics.dashboard.service` darf bis AG3-038 in einem klar markierten Uebergangspfad (Inline-Kommentar `# DRIFT-AG3-038: temporary StoryService leihe`) den bestehenden `StoryService` lesen. Der Drift zur FactStore-Leseseite ist in AG3-038 zu schliessen und wird nicht als neue Architektur legitimiert. <!-- AG3-029 deep-review: StoryService-Leihe nur fuer dashboard.service, nicht fuer alle neuen Methoden. -->
+7. **Architecture-Conformance**: `agentkit.backend.kpi_analytics` importiert nur `agentkit.backend.core_types`; alle **neuen** KpiAnalytics-Top-Methoden duerfen nicht direkt aus `state_backend` oder alten Dashboard-/Story-Fassaden lesen. **Uebergangs-Ausnahme** (zeitlich begrenzt): `agentkit.backend.kpi_analytics.dashboard.service` darf bis AG3-038 in einem klar markierten Uebergangspfad (Inline-Kommentar `# DRIFT-AG3-038: temporary StoryService leihe`) den bestehenden `StoryService` lesen. Der Drift zur FactStore-Leseseite ist in AG3-038 zu schliessen und wird nicht als neue Architektur legitimiert. <!-- AG3-029 deep-review: StoryService-Leihe nur fuer dashboard.service, nicht fuer alle neuen Methoden. -->
 8. **Pflichtbefehle gruen**: pytest unit + contract; mypy --strict; ruff clean; Coverage haelt 85%.
 
 ## 5. Definition of Done

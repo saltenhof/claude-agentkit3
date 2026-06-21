@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentkit.state_backend.postgres_store import iter_sql_statements
+from agentkit.backend.state_backend.postgres_store import iter_sql_statements
 
 
 def test_semicolon_inside_line_comment_does_not_split() -> None:
@@ -76,6 +76,7 @@ def test_real_postgres_schema_parses_without_bogus_fragment() -> None:
         Path(__file__).resolve().parents[3]
         / "src"
         / "agentkit"
+        / "backend"
         / "state_backend"
         / "postgres_schema.sql"
     )

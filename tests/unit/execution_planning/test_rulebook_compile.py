@@ -14,29 +14,29 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.bootstrap.composition_root import build_planning_projection_accessor
-from agentkit.execution_planning.audit import PlanningAuditEmitter
-from agentkit.execution_planning.persistence.filter import PlanningProjectionFilter
-from agentkit.execution_planning.persistence.schema_kind import PlanningSchemaKind
-from agentkit.execution_planning.planning_model.rulebook import (
+from agentkit.backend.bootstrap.composition_root import build_planning_projection_accessor
+from agentkit.backend.execution_planning.audit import PlanningAuditEmitter
+from agentkit.backend.execution_planning.persistence.filter import PlanningProjectionFilter
+from agentkit.backend.execution_planning.persistence.schema_kind import PlanningSchemaKind
+from agentkit.backend.execution_planning.planning_model.rulebook import (
     RulebookCompileStatus,
     RulebookRevision,
 )
-from agentkit.execution_planning.rulebook_compile import (
+from agentkit.backend.execution_planning.rulebook_compile import (
     RulebookMutationNotAuthorizedError,
     compile_rulebook,
     update_rulebook_revision,
 )
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import EventType
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import EventType
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from agentkit.execution_planning.persistence.accessor import (
+    from agentkit.backend.execution_planning.persistence.accessor import (
         PlanningProjectionAccessor,
     )
 

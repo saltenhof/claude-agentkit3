@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.core_types import StoryDependencyKind
+from agentkit.backend.core_types import StoryDependencyKind
 
 
 def test_each_value_constructable() -> None:

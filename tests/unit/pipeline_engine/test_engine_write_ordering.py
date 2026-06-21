@@ -11,22 +11,22 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.core_types.attempt import AttemptOutcome, FailureCause
-from agentkit.pipeline_engine.engine import PipelineEngine
-from agentkit.pipeline_engine.lifecycle import HandlerResult, PhaseHandlerRegistry
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import PhaseState, PhaseStatus
-from agentkit.process.language.builder import Workflow
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.core_types.attempt import AttemptOutcome, FailureCause
+from agentkit.backend.pipeline_engine.engine import PipelineEngine
+from agentkit.backend.pipeline_engine.lifecycle import HandlerResult, PhaseHandlerRegistry
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import PhaseState, PhaseStatus
+from agentkit.backend.process.language.builder import Workflow
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
+    from agentkit.backend.pipeline_engine.phase_executor.records import AttemptRecord
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +159,7 @@ def _instrument_engine(
     attempt_repo = RecordingAttemptRepo(log, raise_after=crash_on_save_attempt)
     phase_repo = RecordingPhaseRepo(log)
 
-    import agentkit.state_backend.store as _store
+    import agentkit.backend.state_backend.store as _store
 
     def _fake_save_attempt(story_dir: object, record: AttemptRecord) -> None:
         attempt_repo.save(record)
@@ -172,8 +172,8 @@ def _instrument_engine(
     monkeypatch.setattr(_store, "save_phase_state", _fake_save_phase_state)
 
     # Patch save_phase_completion module — it holds its own bound references
-    # (module-level imports from agentkit.state_backend.store)
-    import agentkit.pipeline_engine.phase_executor.save_phase_completion as _spc
+    # (module-level imports from agentkit.backend.state_backend.store)
+    import agentkit.backend.pipeline_engine.phase_executor.save_phase_completion as _spc
     monkeypatch.setattr(_spc, "save_attempt", _fake_save_attempt)
     monkeypatch.setattr(_spc, "save_phase_state", _fake_save_phase_state)
 
@@ -292,7 +292,7 @@ class TestGuardFailureResultWriteOrdering:
         story_ctx: StoryContext,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from agentkit.process.language.guards import GuardResult, guard
+        from agentkit.backend.process.language.guards import GuardResult, guard
 
         @guard("always_fail", description="Always fails")
         def _always_fail(ctx: StoryContext, state: PhaseState) -> GuardResult:

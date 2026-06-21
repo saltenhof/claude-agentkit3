@@ -272,7 +272,7 @@ Alle Enums sind `StrEnum` (Python 3.11+ stdlib) und unveraendert; die *Wire-Wert
 `src/agentkit/verify_system/protocols.py:Severity` wird ersetzt:
 
 - alter Wertebereich `CRITICAL/HIGH/MEDIUM/LOW/INFO` entfaellt
-- neuer Wertebereich `BLOCKING/MAJOR/MINOR` (Import aus `agentkit.core_types`)
+- neuer Wertebereich `BLOCKING/MAJOR/MINOR` (Import aus `agentkit.backend.core_types`)
 - alle Stellen, die alte Werte vergleichen, werden migriert
 - Mapping: keine 1:1-Konversion noetig — alte Tests wandern auf neuen Wertebereich; alte Produktivdaten existieren nicht (greenfield)
 
@@ -283,7 +283,7 @@ Alle Enums sind `StrEnum` (Python 3.11+ stdlib) und unveraendert; die *Wire-Wert
 `src/agentkit/story_context_manager/models.py:VerifyContext` wird umbenannt und auf vier Werte gehoben:
 
 - alt: `POST_IMPLEMENTATION`, `POST_REMEDIATION` (nur zwei Werte)
-- neu: `QaContext` mit `IMPLEMENTATION_INITIAL`, `IMPLEMENTATION_REMEDIATION`, `EXPLORATION_INITIAL`, `EXPLORATION_REMEDIATION` (aus `agentkit.core_types`)
+- neu: `QaContext` mit `IMPLEMENTATION_INITIAL`, `IMPLEMENTATION_REMEDIATION`, `EXPLORATION_INITIAL`, `EXPLORATION_REMEDIATION` (aus `agentkit.backend.core_types`)
 - alle Importer im Repo werden umgestellt
 - Wenn das Modell `VerifyContext` an Aufrufstellen exportiert wurde, bleibt ein Deprecation-Alias **nicht** zurueck (greenfield, Zero Debt)
 
@@ -334,12 +334,12 @@ Der Worker waehlt eine der beiden Varianten **am Anfang der Implementation** und
 
 `src/agentkit/workers/types.py:SpawnReason` existiert bereits korrekt. Aber:
 
-- `src/agentkit/prompt_composer/selectors.py:select_template_name` vergleicht `spawn_reason == "remediation"` als String. Signatur wird umgestellt: Parameter wird `SpawnReason` (Import aus `agentkit.core_types`), Vergleiche werden typisiert.
-- Bestehende `SpawnReason`-Definition in `workers/types.py` wird zugunsten von `agentkit.core_types.SpawnReason` aufgegeben (Re-Export erlaubt, aber kanonische Definition wandert ins Core-Modul).
+- `src/agentkit/prompt_composer/selectors.py:select_template_name` vergleicht `spawn_reason == "remediation"` als String. Signatur wird umgestellt: Parameter wird `SpawnReason` (Import aus `agentkit.backend.core_types`), Vergleiche werden typisiert.
+- Bestehende `SpawnReason`-Definition in `workers/types.py` wird zugunsten von `agentkit.backend.core_types.SpawnReason` aufgegeben (Re-Export erlaubt, aber kanonische Definition wandert ins Core-Modul).
 
 #### 2.1.8 Migration — EnvelopeStatus (artifacts.B3)
 
-Die in `verify_system/policy_engine/projections.py` verwendeten Status-Werte (`PASS`, `PASS_WITH_WARNINGS`) werden auf `EnvelopeStatus` aus `agentkit.core_types` umgestellt:
+Die in `verify_system/policy_engine/projections.py` verwendeten Status-Werte (`PASS`, `PASS_WITH_WARNINGS`) werden auf `EnvelopeStatus` aus `agentkit.backend.core_types` umgestellt:
 
 - Wertebereich `PASS`, `FAIL`, `WARN`, `ERROR`
 - `PASS_WITH_WARNINGS` faellt weg (passt zu 2.1.2-Policy-Engine-Migration)
@@ -450,7 +450,7 @@ Implementierungshinweis: die Wire-Werte werden im Test als Konstante in einem Mo
 
 ## 4. Akzeptanzkriterien
 
-1. **Modul `src/agentkit/core_types/` existiert** mit allen oben aufgefuehrten Sub-Modulen; `from agentkit.core_types import Severity, QaContext, PolicyVerdict, ExplorationGateStatus, PauseReason, AttemptOutcome, FailureCause, ArtifactClass, EnvelopeStatus, StorySize, StoryMode, ClosureVerdict, MergePolicy, StoryDependencyKind, FailureCategory, PromotionStatus, BlockingCategory, SpawnReason` ist erfolgreich.
+1. **Modul `src/agentkit/core_types/` existiert** mit allen oben aufgefuehrten Sub-Modulen; `from agentkit.backend.core_types import Severity, QaContext, PolicyVerdict, ExplorationGateStatus, PauseReason, AttemptOutcome, FailureCause, ArtifactClass, EnvelopeStatus, StorySize, StoryMode, ClosureVerdict, MergePolicy, StoryDependencyKind, FailureCategory, PromotionStatus, BlockingCategory, SpawnReason` ist erfolgreich.
 2. **`Severity` hat genau die Werte `BLOCKING`, `MAJOR`, `MINOR`** (keine `CRITICAL`/`HIGH`/`MEDIUM`/`LOW`/`INFO`). Wire-Werte sind **upper-case** Strings exakt `"BLOCKING"`, `"MAJOR"`, `"MINOR"` (siehe 2.1.1.1, Quelle FK-27 §27.4.2 Tabelle).
 3. **`PolicyVerdict` enthaelt nur `PASS` und `FAIL`** — kein `PASS_WITH_WARNINGS`. `PolicyEngine.decide` gibt nur diese beiden Verdicts zurueck. Wire-Werte siehe 2.1.1.1. (Der LLM-Status `PASS_WITH_CONCERNS` ist davon abgegrenzt und gehoert in AG3-022.)
 4. **`QaContext` enthaelt exakt vier Werte**: `IMPLEMENTATION_INITIAL`, `IMPLEMENTATION_REMEDIATION`, `EXPLORATION_INITIAL`, `EXPLORATION_REMEDIATION`. Wire-Werte sind upper-case Strings (siehe 2.1.1.1). Code, der frueher `VerifyContext` importierte, importiert jetzt `QaContext` und alle Aufrufstellen verwenden die neuen Werte.
@@ -510,7 +510,7 @@ Implementierungshinweis: die Wire-Werte werden im Test als Konstante in einem Mo
 - **FIX THE MODEL, NOT THE SYMPTOM**: ein Owner-Modul fuer Cross-Cutting-Typen; keine zweite Severity-Definition pro BC, keine String-Fallbacks.
 - **ZERO DEBT**: keine Deprecation-Shims; alle alten Werte werden in einem Wurf migriert.
 - **FAIL CLOSED**: unbekannte PauseReason-/AttemptOutcome-/Severity-Werte werden hart abgewiesen (`ValueError` beim StrEnum-Lookup).
-- **SINGLE SOURCE OF TRUTH**: `agentkit.core_types` ist die einzige kanonische Definition jeder hier gelisteten Enum.
+- **SINGLE SOURCE OF TRUTH**: `agentkit.backend.core_types` ist die einzige kanonische Definition jeder hier gelisteten Enum.
 - **NO ERROR BYPASSING**: keine `# type: ignore`-Workarounds; kein freier String fuer einen Wert, der jetzt typisiert ist.
 
 ## 8. Hinweise fuer den Sub-Agent
@@ -518,5 +518,5 @@ Implementierungshinweis: die Wire-Werte werden im Test als Konstante in einem Mo
 - Reihenfolge: ZUERST Core-Types schreiben + isolierte Unit-Tests, DANN die Migrationen pro Datei. Migration kann in nachfolgenden Commits, aber alles muss in einem PR landen (gleiche Story).
 - `StrEnum` aus `enum` (Python 3.11+), nicht `str, Enum`-Mixin. Pflicht: `from __future__ import annotations` pro Modul.
 - Wire-Wert pro Enum-Member: **exakt** der String aus Abschnitt 2.1.1.1 (siehe Tabellen pro Enum). Die Werte sind normativ; der Contract-Test in 2.1.9.2 pinnt jeden Wert. Casing-Konvention: in 2.1.1.1 pro Enum ausgezeichnet (upper-case fuer Severity/PolicyVerdict/QaContext/PauseReason/AttemptOutcome/FailureCause/EnvelopeStatus/StorySize/ClosureVerdict/BlockingCategory; lower-case fuer ExplorationGateStatus/StoryMode/ArtifactClass/MergePolicy/StoryDependencyKind/FailureCategory/PromotionStatus/SpawnReason).
-- Architecture-Conformance: `agentkit.core_types` ist ein Foundation-Modul; es darf von **keinem** anderen Modul importieren (kein zyklischer Import). Pruefen via `check_architecture_conformance.py`.
+- Architecture-Conformance: `agentkit.backend.core_types` ist ein Foundation-Modul; es darf von **keinem** anderen Modul importieren (kein zyklischer Import). Pruefen via `check_architecture_conformance.py`.
 - AK2 (`T:/codebase/claude-agentkit/`) NICHT veraendern. Lesen erlaubt zur Orientierung, schreiben verboten.

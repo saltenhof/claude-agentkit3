@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from agentkit.kpi_analytics.fact_store.models import (
+from agentkit.backend.kpi_analytics.fact_store.models import (
     FactCorpusPeriod,
     FactGuardPeriod,
     FactPipelinePeriod,

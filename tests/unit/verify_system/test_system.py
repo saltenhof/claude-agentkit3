@@ -3,7 +3,7 @@
 The facade is the sole entry point for cross-BC callers
 (``concept/_meta/bc-cut-decisions.md`` §"BC 2: verify-system",
 FK-07 §7.4.2, FK-27). These tests cover construction and pure-delegation
-behaviour for the operations consumed by ``agentkit.implementation``.
+behaviour for the operations consumed by ``agentkit.backend.implementation``.
 
 Wertebereich seit AG3-021: ``Severity`` ist BLOCKING/MAJOR/MINOR und
 ``PolicyVerdict`` ist PASS/FAIL.
@@ -11,12 +11,12 @@ Wertebereich seit AG3-021: ``Severity`` ist BLOCKING/MAJOR/MINOR und
 
 from __future__ import annotations
 
-from agentkit.verify_system import VerifySystem
-from agentkit.verify_system.adversarial_orchestrator.challenger import (
+from agentkit.backend.verify_system import VerifySystem
+from agentkit.backend.verify_system.adversarial_orchestrator.challenger import (
     AdversarialChallenger,
 )
-from agentkit.verify_system.policy_engine.engine import PolicyEngine
-from agentkit.verify_system.protocols import (
+from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
+from agentkit.backend.verify_system.protocols import (
     Finding,
     LayerResult,
     QALayer,
@@ -141,9 +141,9 @@ class TestVerifySystemFacade:
 # ohne Cross-Module-Helper, um pytest/mypy-Pfad-Konflikte zu vermeiden).
 # ---------------------------------------------------------------------------
 
-from agentkit.artifacts import ArtifactEnvelope as _AGAEnvelope  # noqa: E402
-from agentkit.artifacts import ArtifactManager as _AGAManager  # noqa: E402
-from agentkit.artifacts import ArtifactReference as _AGARef  # noqa: E402
+from agentkit.backend.artifacts import ArtifactEnvelope as _AGAEnvelope  # noqa: E402
+from agentkit.backend.artifacts import ArtifactManager as _AGAManager  # noqa: E402
+from agentkit.backend.artifacts import ArtifactReference as _AGARef  # noqa: E402
 
 
 class _RecordingArtifactManagerForTests(_AGAManager):

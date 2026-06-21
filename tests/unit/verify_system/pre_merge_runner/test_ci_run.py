@@ -11,12 +11,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.verify_system.pre_merge_runner.ci_run import (
+from agentkit.backend.verify_system.pre_merge_runner.ci_run import (
     CandidateRunCache,
     CiRunUnavailableError,
     JenkinsCiBackend,
 )
-from agentkit.verify_system.pre_merge_runner.contract import CandidateRef
+from agentkit.backend.verify_system.pre_merge_runner.contract import CandidateRef
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

@@ -7,11 +7,11 @@ from __future__ import annotations
 
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
-from agentkit.pipeline_engine.phase_envelope.repository import PhaseEnvelopeRepository
-from agentkit.pipeline_engine.phase_envelope.runtime import PhaseOrigin
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import PhaseName, PhaseState, PhaseStatus
+from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+from agentkit.backend.pipeline_engine.phase_envelope.repository import PhaseEnvelopeRepository
+from agentkit.backend.pipeline_engine.phase_envelope.runtime import PhaseOrigin
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import PhaseName, PhaseState, PhaseStatus
 
 
 class _InMemoryRepository:

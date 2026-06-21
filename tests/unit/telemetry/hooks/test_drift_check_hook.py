@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import EventType
-from agentkit.telemetry.hooks.base import HookContext, HookTrigger
-from agentkit.telemetry.hooks.drift_check_hook import DriftCheckHook
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import EventType
+from agentkit.backend.telemetry.hooks.base import HookContext, HookTrigger
+from agentkit.backend.telemetry.hooks.drift_check_hook import DriftCheckHook
 
 if TYPE_CHECKING:
     from pathlib import Path

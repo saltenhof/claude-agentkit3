@@ -13,14 +13,14 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.governance.setup_preflight_gate.preflight import (
+from agentkit.backend.governance.setup_preflight_gate.preflight import (
     PreflightCheckId,
     PreflightContext,
     PreflightStatus,
     run_preflight,
 )
-from agentkit.state_backend.store.mode_lock_repository import ModeLockRecord
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.state_backend.store.mode_lock_repository import ModeLockRecord
+from agentkit.backend.story_context_manager.story_model import (
     StoryStatus,
     WireStoryMode,
     WireStoryType,
@@ -46,7 +46,7 @@ class _StubStory:
         participating_repos: list[str] | None = None,
         dependencies: list[str] | None = None,
     ) -> None:
-        from agentkit.core_types import StorySize
+        from agentkit.backend.core_types import StorySize
 
         self.story_display_id = story_display_id
         self.title = title

@@ -6,11 +6,11 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentkit.artifacts.envelope import ArtifactEnvelope
-from agentkit.artifacts.errors import LlmStatusMappingError, ProducerNotRegisteredError
-from agentkit.artifacts.producer import Producer, ProducerId, ProducerType
-from agentkit.artifacts.producer_registry import ProducerRegistry
-from agentkit.core_types import ArtifactClass, EnvelopeStatus
+from agentkit.backend.artifacts.envelope import ArtifactEnvelope
+from agentkit.backend.artifacts.errors import LlmStatusMappingError, ProducerNotRegisteredError
+from agentkit.backend.artifacts.producer import Producer, ProducerId, ProducerType
+from agentkit.backend.artifacts.producer_registry import ProducerRegistry
+from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus
 
 
 def _now() -> datetime:
@@ -169,7 +169,7 @@ class TestProducerTypeMismatch:
     """Codex-Finding ERROR: gleicher Name + abweichender ProducerType abgelehnt."""
 
     def test_same_name_drift_to_llm_rejected(self) -> None:
-        from agentkit.artifacts.errors import ProducerTypeMismatchError
+        from agentkit.backend.artifacts.errors import ProducerTypeMismatchError
 
         registry = ProducerRegistry()
         registry.register(ArtifactClass.QA, "qa-structural", ProducerType.DETERMINISTIC)
@@ -193,7 +193,7 @@ class TestProducerTypeMismatch:
             registry.validate(envelope)
 
     def test_same_name_drift_to_worker_rejected(self) -> None:
-        from agentkit.artifacts.errors import ProducerTypeMismatchError
+        from agentkit.backend.artifacts.errors import ProducerTypeMismatchError
 
         registry = ProducerRegistry()
         registry.register(ArtifactClass.WORKER, "impl-worker", ProducerType.WORKER)

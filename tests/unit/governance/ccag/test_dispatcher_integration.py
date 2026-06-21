@@ -12,9 +12,9 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from agentkit.governance.guard_evaluation import HookEvent
-from agentkit.governance.protocols import GuardVerdict
-from agentkit.governance.runner import Governance, run_hook
+from agentkit.backend.governance.guard_evaluation import HookEvent
+from agentkit.backend.governance.protocols import GuardVerdict
+from agentkit.backend.governance.runner import Governance, run_hook
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -67,7 +67,7 @@ class TestDispatcherRouting:
         )
 
         # Patch CcagPermissionRuntime to use our rules_dir
-        from agentkit.governance.ccag.runtime import CcagPermissionRuntime
+        from agentkit.backend.governance.ccag.runtime import CcagPermissionRuntime
 
         original_init = CcagPermissionRuntime.__init__
 
@@ -98,7 +98,7 @@ class TestDispatcherRouting:
             [{"id": "deny-curl", "tool": "Bash", "block_pattern": r"curl\s"}],
         )
 
-        from agentkit.governance.ccag.runtime import CcagPermissionRuntime
+        from agentkit.backend.governance.ccag.runtime import CcagPermissionRuntime
 
         original_init = CcagPermissionRuntime.__init__
 
@@ -142,7 +142,7 @@ class TestDispatcherRouting:
             [{"id": "allow-all", "tool": "Bash", "allow_pattern": ".*"}],
         )
 
-        from agentkit.governance.ccag.runtime import CcagPermissionRuntime
+        from agentkit.backend.governance.ccag.runtime import CcagPermissionRuntime
 
         original_init = CcagPermissionRuntime.__init__
 
@@ -176,8 +176,8 @@ class TestUnknownPermissionDispatch:
         """
         rules_dir = tmp_path / "rules"
         rules_dir.mkdir()
-        from agentkit.governance.ccag.requests import PermissionRequestStore
-        from agentkit.governance.ccag.runtime import CcagPermissionRuntime
+        from agentkit.backend.governance.ccag.requests import PermissionRequestStore
+        from agentkit.backend.governance.ccag.runtime import CcagPermissionRuntime
 
         request_store = PermissionRequestStore(tmp_path / "req.db")
         original_init = CcagPermissionRuntime.__init__

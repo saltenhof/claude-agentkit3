@@ -14,46 +14,46 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.artifacts import ArtifactReference
-from agentkit.bootstrap.composition_root import build_artifact_manager
-from agentkit.core_types import ArtifactClass, QaContext, SpawnKind, SpawnReason
-from agentkit.governance.guard_system.protected_paths import (
+from agentkit.backend.artifacts import ArtifactReference
+from agentkit.backend.bootstrap.composition_root import build_artifact_manager
+from agentkit.backend.core_types import ArtifactClass, QaContext, SpawnKind, SpawnReason
+from agentkit.backend.governance.guard_system.protected_paths import (
     is_adversarial_sandbox_path,
 )
-from agentkit.implementation.phase import (
+from agentkit.backend.implementation.phase import (
     ImplementationConfig,
     ImplementationPhaseHandler,
 )
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.engine import PipelineEngine
-from agentkit.pipeline_engine.lifecycle import PhaseHandlerRegistry
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.engine import PipelineEngine
+from agentkit.backend.pipeline_engine.lifecycle import PhaseHandlerRegistry
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseStatus,
 )
-from agentkit.process.language.definitions import IMPLEMENTATION_WORKFLOW
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import (
+from agentkit.backend.process.language.definitions import IMPLEMENTATION_WORKFLOW
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import (
     read_phase_state_record,
     reset_backend_cache_for_tests,
     save_flow_execution,
     save_story_context,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.verify_system.adversarial_orchestrator.challenger import (
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.verify_system.adversarial_orchestrator.challenger import (
     AdversarialChallenger,
 )
-from agentkit.verify_system.adversarial_orchestrator.spawn import AdversarialSpawner
-from agentkit.verify_system.contract import VerifyContextBundle
-from agentkit.verify_system.protocols import (
+from agentkit.backend.verify_system.adversarial_orchestrator.spawn import AdversarialSpawner
+from agentkit.backend.verify_system.contract import VerifyContextBundle
+from agentkit.backend.verify_system.protocols import (
     ASSERTION_WEAKNESS_FINDING_TYPE,
     Finding,
     LayerResult,
     Severity,
     TrustClass,
 )
-from agentkit.verify_system.system import VerifySystem
+from agentkit.backend.verify_system.system import VerifySystem
 from integration.implementation_evidence_support import (
     bind_implementation_qa_preconditions,
 )
@@ -62,7 +62,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput
+    from agentkit.backend.verify_system.llm_evaluator.inputs import Layer2ReviewInput
 
 
 @pytest.fixture(autouse=True)

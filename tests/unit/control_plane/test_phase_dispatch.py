@@ -15,32 +15,32 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.control_plane.dispatch import (
+from agentkit.backend.control_plane.dispatch import (
     PhaseDispatcher,
     PreStartGuard,
     _enforce_transition,
 )
-from agentkit.pipeline_engine.engine import PipelineEngine
-from agentkit.pipeline_engine.lifecycle import (
+from agentkit.backend.pipeline_engine.engine import PipelineEngine
+from agentkit.backend.pipeline_engine.lifecycle import (
     HandlerResult,
     NoOpHandler,
     PhaseHandlerRegistry,
 )
-from agentkit.pipeline_engine.phase_executor import PhaseState, PhaseStatus
-from agentkit.process.language.definitions import resolve_workflow
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import (
+from agentkit.backend.pipeline_engine.phase_executor import PhaseState, PhaseStatus
+from agentkit.backend.process.language.definitions import resolve_workflow
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import (
     reset_backend_cache_for_tests,
     save_story_context,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+    from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
 
 
 @pytest.fixture(autouse=True)
@@ -769,8 +769,8 @@ class TestTransitionGuardEnforcement:
         guard PASSES: the engine selects the second, which targets implementation,
         so the requested implementation transition is ADMITTED.
         """
-        from agentkit.process.language.guards import GuardResult
-        from agentkit.process.language.model import (
+        from agentkit.backend.process.language.guards import GuardResult
+        from agentkit.backend.process.language.model import (
             EdgeRule,
             FlowDefinition,
             NodeDefinition,
@@ -836,8 +836,8 @@ class TestTransitionGuardEnforcement:
         to the requested target passes would wrongly admit ``implementation`` even
         though the engine would have entered ``exploration`` instead.
         """
-        from agentkit.process.language.guards import GuardResult
-        from agentkit.process.language.model import (
+        from agentkit.backend.process.language.guards import GuardResult
+        from agentkit.backend.process.language.model import (
             EdgeRule,
             FlowDefinition,
             NodeDefinition,
@@ -902,8 +902,8 @@ class TestTransitionGuardEnforcement:
 
     def test_all_edges_fail_rejects(self, tmp_path: Path) -> None:
         """W9: when EVERY edge to the target fails its guard, the transition rejects."""
-        from agentkit.process.language.guards import GuardResult
-        from agentkit.process.language.model import (
+        from agentkit.backend.process.language.guards import GuardResult
+        from agentkit.backend.process.language.model import (
             EdgeRule,
             FlowDefinition,
             NodeDefinition,
@@ -1010,8 +1010,8 @@ class TestRunScopedAdmissionGate:
         )
         assert old.status == "phase_completed"
         # Probe: the story-scoped setup phase-state IS persisted (the prior run's).
-        from agentkit.control_plane.dispatch import _load_phase_state
-        from agentkit.process.language.definitions import resolve_workflow
+        from agentkit.backend.control_plane.dispatch import _load_phase_state
+        from agentkit.backend.process.language.definitions import resolve_workflow
 
         phase_names = tuple(resolve_workflow(ctx.story_type).phase_names)
         persisted = _load_phase_state(ctx, story_dir, phase_names)

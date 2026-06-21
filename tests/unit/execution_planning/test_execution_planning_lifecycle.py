@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentkit.execution_planning.audit import PlanningAuditEmitter
-from agentkit.execution_planning.entities import (
+from agentkit.backend.execution_planning.audit import PlanningAuditEmitter
+from agentkit.backend.execution_planning.entities import (
     ExecutionWave,
     ExecutionWaveLifecycle,
     ParallelizationConfig,
@@ -15,19 +15,19 @@ from agentkit.execution_planning.entities import (
     StoryRefForPlanning,
     WaveStory,
 )
-from agentkit.execution_planning.errors import (
+from agentkit.backend.execution_planning.errors import (
     StoryDependencyConflictError,
     StoryDependencyCycleError,
     StoryDependencyNotFoundError,
 )
-from agentkit.execution_planning.lifecycle import (
+from agentkit.backend.execution_planning.lifecycle import (
     add_dependency,
     assess_readiness,
     mark_wave_after_results,
     remove_dependency,
 )
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import EventType
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import EventType
 
 
 @dataclass
@@ -291,8 +291,8 @@ def test_emit_readiness_audit_without_plan_derivation_emits_ready_only() -> None
     emit ``story_ready``. This proves the defensive guard rather than crashing on
     ``None.blocked_set``.
     """
-    from agentkit.execution_planning.entities import ReadinessAssessment, WaveStory
-    from agentkit.execution_planning.lifecycle import _emit_readiness_audit
+    from agentkit.backend.execution_planning.entities import ReadinessAssessment, WaveStory
+    from agentkit.backend.execution_planning.lifecycle import _emit_readiness_audit
 
     assessment = ReadinessAssessment(
         next_ready=[

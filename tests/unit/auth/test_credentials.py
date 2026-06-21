@@ -7,9 +7,9 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from agentkit.auth.credentials import StrategistCredentialStore
-from agentkit.auth.entities import StrategistCredentials
-from agentkit.auth.errors import AuthFailedError
+from agentkit.backend.auth.credentials import StrategistCredentialStore
+from agentkit.backend.auth.entities import StrategistCredentials
+from agentkit.backend.auth.errors import AuthFailedError
 
 
 def test_strategist_password_is_hashed_and_verified(tmp_path: Path) -> None:

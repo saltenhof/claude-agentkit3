@@ -25,8 +25,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agentkit.execution_planning.entities import ParallelizationConfig
-from agentkit.project_management.read_models import (
+from agentkit.backend.execution_planning.entities import ParallelizationConfig
+from agentkit.backend.project_management.read_models import (
     _SUBSTEP_SEQUENCE_FAST,
     _SUBSTEP_SEQUENCE_STANDARD,
     AreVerdictRequiredError,
@@ -36,13 +36,13 @@ from agentkit.project_management.read_models import (
     build_mode_lock,
     build_story_flow_snapshot,
 )
-from agentkit.project_management.views import (
+from agentkit.backend.project_management.views import (
     ExecutionLimits,
     StoryAreEvidence,
     StoryCoverageAcceptance,
     StoryFlowSnapshot,
 )
-from agentkit.requirements_coverage.models import StoryAreLink, StoryAreLinkKind
+from agentkit.backend.requirements_coverage.models import StoryAreLink, StoryAreLinkKind
 
 # ---------------------------------------------------------------------------
 # build_execution_limits
@@ -382,7 +382,7 @@ def test_flow_snapshot_implementation_qa_cycle_round_sets_iteration() -> None:
     """
     from tests.phase_state_factory import make_phase_state
 
-    from agentkit.pipeline_engine.phase_executor.models import (
+    from agentkit.backend.pipeline_engine.phase_executor.models import (
         ImplementationPayload,
         PhaseStatus,
         QaCycleStatus,
@@ -421,7 +421,7 @@ def test_flow_snapshot_implementation_no_qa_cycle_no_iteration() -> None:
     """ImplementationPayload with qa_cycle_round=0 produces no iteration on the phase."""
     from tests.phase_state_factory import make_phase_state
 
-    from agentkit.pipeline_engine.phase_executor.models import (
+    from agentkit.backend.pipeline_engine.phase_executor.models import (
         ImplementationPayload,
         PhaseStatus,
     )
@@ -451,7 +451,7 @@ def test_flow_snapshot_closure_progress_drives_substep_states() -> None:
     """
     from tests.phase_state_factory import make_phase_state
 
-    from agentkit.pipeline_engine.phase_executor.models import (
+    from agentkit.backend.pipeline_engine.phase_executor.models import (
         ClosurePayload,
         ClosureProgress,
         PhaseStatus,
@@ -491,8 +491,8 @@ def test_flow_snapshot_exploration_gate_approved_all_substeps_done() -> None:
     """ExplorationPayload.gate_status=approved -> all exploration substeps done."""
     from tests.phase_state_factory import make_phase_state
 
-    from agentkit.core_types import ExplorationGateStatus
-    from agentkit.pipeline_engine.phase_executor.models import (
+    from agentkit.backend.core_types import ExplorationGateStatus
+    from agentkit.backend.pipeline_engine.phase_executor.models import (
         ExplorationPayload,
         PhaseStatus,
     )
@@ -580,7 +580,7 @@ def test_are_evidence_empty_links() -> None:
 
 def test_are_evidence_sorted_by_are_item_id() -> None:
     """Non-empty links require a verdict (FAIL-CLOSED); sort order is by are_item_id."""
-    from agentkit.requirements_coverage.contract import AreDockpointStatus, CoverageVerdict
+    from agentkit.backend.requirements_coverage.contract import AreDockpointStatus, CoverageVerdict
 
     links = [
         StoryAreLink(story_id="AG3-020", are_item_id="ARE-B", kind=StoryAreLinkKind.PARTIAL),
@@ -600,7 +600,7 @@ def test_are_evidence_sorted_by_are_item_id() -> None:
 
 def test_are_evidence_kind_is_lowercased_value() -> None:
     """Non-empty links require a verdict; kind value is the lowercase string."""
-    from agentkit.requirements_coverage.contract import AreDockpointStatus, CoverageVerdict
+    from agentkit.backend.requirements_coverage.contract import AreDockpointStatus, CoverageVerdict
 
     links = [
         StoryAreLink(story_id="AG3-020", are_item_id="ARE-Z", kind=StoryAreLinkKind.RECURRING),
@@ -653,11 +653,11 @@ def test_build_mode_lock_delegates_to_derive_mode_lock_ssot() -> None:
     it is called exactly once, proving no parallel computation happens inside
     build_mode_lock itself (AC2: single source of truth).
     """
-    from agentkit.project_management.views import ProjectModeLock
+    from agentkit.backend.project_management.views import ProjectModeLock
 
     sentinel = ProjectModeLock(project_key="proj-ssot", mode="idle")
     with patch(
-        "agentkit.project_management.read_models.derive_mode_lock",
+        "agentkit.backend.project_management.read_models.derive_mode_lock",
         return_value=sentinel,
     ) as spy:
         result = build_mode_lock("proj-ssot", [])
@@ -673,7 +673,7 @@ def test_build_mode_lock_fast_mode_story_returns_fast() -> None:
     Constructs a real Story with mode=fast and status=In Progress and asserts the
     read-model returns mode='fast'.
     """
-    from agentkit.story_context_manager.story_model import Story, StoryStatus, WireStoryMode, WireStoryType
+    from agentkit.backend.story_context_manager.story_model import Story, StoryStatus, WireStoryMode, WireStoryType
 
     # Build a minimal real Story with mode=fast and status=In Progress.
     story = Story(

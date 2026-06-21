@@ -8,7 +8,7 @@ from unittest.mock import call, patch
 
 import pytest
 
-from agentkit.config.models import (
+from agentkit.backend.config.models import (
     SUPPORTED_CONFIG_VERSION,
     Features,
     JenkinsConfig,
@@ -17,14 +17,14 @@ from agentkit.config.models import (
     RepositoryConfig,
     SonarQubeConfig,
 )
-from agentkit.exceptions import WorktreeError
-from agentkit.governance.setup_preflight_gate.worktree import (
+from agentkit.backend.exceptions import WorktreeError
+from agentkit.backend.governance.setup_preflight_gate.worktree import (
     RepoNotFoundError,
     setup_worktree,
     setup_worktrees,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -70,10 +70,10 @@ def test_setup_worktrees_creates_one_worktree_per_participating_repo(
 
     with (
         patch(
-            "agentkit.governance.setup_preflight_gate.worktree.branch_exists",
+            "agentkit.backend.governance.setup_preflight_gate.worktree.branch_exists",
             return_value=False,
         ),
-        patch("agentkit.governance.setup_preflight_gate.worktree.create_worktree") as create,
+        patch("agentkit.backend.governance.setup_preflight_gate.worktree.create_worktree") as create,
     ):
         results = setup_worktrees(
             "AG3-010",
@@ -108,11 +108,11 @@ def test_setup_worktrees_fails_for_unknown_participating_repo(
 
     with (
         patch(
-            "agentkit.governance.setup_preflight_gate.worktree.branch_exists",
+            "agentkit.backend.governance.setup_preflight_gate.worktree.branch_exists",
             return_value=False,
         ),
-        patch("agentkit.governance.setup_preflight_gate.worktree.create_worktree"),
-        patch("agentkit.governance.setup_preflight_gate.worktree.remove_worktree") as remove,
+        patch("agentkit.backend.governance.setup_preflight_gate.worktree.create_worktree"),
+        patch("agentkit.backend.governance.setup_preflight_gate.worktree.remove_worktree") as remove,
         pytest.raises(RepoNotFoundError, match="missing"),
     ):
         setup_worktrees("AG3-010", context, project, project_root=tmp_path)
@@ -130,10 +130,10 @@ def test_setup_worktree_fails_when_story_branch_already_exists(
 
     with (
         patch(
-            "agentkit.governance.setup_preflight_gate.worktree.branch_exists",
+            "agentkit.backend.governance.setup_preflight_gate.worktree.branch_exists",
             return_value=True,
         ),
-        patch("agentkit.governance.setup_preflight_gate.worktree.create_worktree") as create,
+        patch("agentkit.backend.governance.setup_preflight_gate.worktree.create_worktree") as create,
         pytest.raises(WorktreeError, match="Story branch already exists"),
     ):
         setup_worktree(
@@ -164,14 +164,14 @@ def test_setup_worktrees_cleans_up_previous_repos_on_later_failure(
 
     with (
         patch(
-            "agentkit.governance.setup_preflight_gate.worktree.branch_exists",
+            "agentkit.backend.governance.setup_preflight_gate.worktree.branch_exists",
             return_value=False,
         ),
         patch(
-            "agentkit.governance.setup_preflight_gate.worktree.create_worktree",
+            "agentkit.backend.governance.setup_preflight_gate.worktree.create_worktree",
             side_effect=_create_side_effect,
         ),
-        patch("agentkit.governance.setup_preflight_gate.worktree.remove_worktree") as remove,
+        patch("agentkit.backend.governance.setup_preflight_gate.worktree.remove_worktree") as remove,
         pytest.raises(WorktreeError, match="boom"),
     ):
         setup_worktrees("AG3-010", context, project, project_root=tmp_path)

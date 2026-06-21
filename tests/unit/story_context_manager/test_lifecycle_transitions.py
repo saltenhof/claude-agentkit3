@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.story_context_manager.errors import InvalidStatusTransitionError
-from agentkit.story_context_manager.service import (
+from agentkit.backend.story_context_manager.errors import InvalidStatusTransitionError
+from agentkit.backend.story_context_manager.service import (
     _check_transition,
     is_story_runnable_status,
 )
-from agentkit.story_context_manager.story_model import StoryStatus
+from agentkit.backend.story_context_manager.story_model import StoryStatus
 
 # All valid (from, to) transitions:
 _VALID = [
@@ -95,7 +95,7 @@ def test_cancelled_is_terminal_no_further_transitions() -> None:
 
 def test_reset_axis_is_not_terminal() -> None:
     """RESETTING / RESET_FAILED are administrative, NOT terminal (FK-53 §53.8)."""
-    from agentkit.story_context_manager.service import _TERMINAL_STATUSES
+    from agentkit.backend.story_context_manager.service import _TERMINAL_STATUSES
 
     assert StoryStatus.RESETTING not in _TERMINAL_STATUSES
     assert StoryStatus.RESET_FAILED not in _TERMINAL_STATUSES

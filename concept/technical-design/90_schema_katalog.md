@@ -53,7 +53,7 @@ Schema-Stabilitaet verbindlich:
 - `tests/contract/implementation/test_worker_manifest.py` — Worker-Manifest
 
 Neue Artefaktklassen werden als Pydantic-v2-Modell unter
-`src/agentkit/artifacts/` angelegt und durch einen Contract-Test in
+`src/agentkit/backend/artifacts/` angelegt und durch einen Contract-Test in
 `tests/contract/` abgesichert. Eine parallele `.schema.json`-Datei wird
 nicht erzeugt.
 

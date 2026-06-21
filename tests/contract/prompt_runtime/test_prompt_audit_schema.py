@@ -15,9 +15,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from agentkit.core_types import ArtifactClass
-from agentkit.prompt_runtime.audit import PromptAuditHash, compute_prompt_audit_hash
-from agentkit.prompt_runtime.pins import PromptRunPin
+from agentkit.backend.core_types import ArtifactClass
+from agentkit.backend.prompt_runtime.audit import PromptAuditHash, compute_prompt_audit_hash
+from agentkit.backend.prompt_runtime.pins import PromptRunPin
 
 
 def test_prompt_audit_hash_field_set() -> None:

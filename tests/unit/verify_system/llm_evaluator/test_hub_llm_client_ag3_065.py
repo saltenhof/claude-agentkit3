@@ -15,19 +15,12 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from agentkit.artifacts.envelope import ArtifactEnvelope
-from agentkit.multi_llm_hub.entities import HubMessage, HubSessionLease
-from agentkit.multi_llm_hub.errors import (
-    HubAcquireQueuedError,
-    HubLoginRequiredError,
-    HubSessionNotFoundError,
-    HubUnavailableError,
-)
-from agentkit.verify_system.llm_evaluator.dialogue_runner import (
+from agentkit.backend.artifacts.envelope import ArtifactEnvelope
+from agentkit.backend.verify_system.llm_evaluator.dialogue_runner import (
     DialogueResult,
     DialogueRunner,
 )
-from agentkit.verify_system.llm_evaluator.llm_client import (
+from agentkit.backend.verify_system.llm_evaluator.llm_client import (
     ACQUIRE_TIMEOUT_SECONDS,
     MAX_ACQUIRE_RETRIES,
     RELEASE_TIMEOUT_SECONDS,
@@ -37,6 +30,13 @@ from agentkit.verify_system.llm_evaluator.llm_client import (
     HubLlmClient,
     LlmClientError,
     LoginRequiredError,
+)
+from agentkit.integration_clients.multi_llm_hub.entities import HubMessage, HubSessionLease
+from agentkit.integration_clients.multi_llm_hub.errors import (
+    HubAcquireQueuedError,
+    HubLoginRequiredError,
+    HubSessionNotFoundError,
+    HubUnavailableError,
 )
 
 if TYPE_CHECKING:
@@ -324,7 +324,7 @@ def test_hub_llm_client_queued_acquire_retries_and_succeeds() -> None:
     hub.send_responses.append(_chat_response("SUCCESS"))
 
     import unittest.mock as mock
-    with mock.patch("agentkit.verify_system.llm_evaluator.llm_client.time.sleep"):
+    with mock.patch("agentkit.backend.verify_system.llm_evaluator.llm_client.time.sleep"):
         client = HubLlmClient(hub, _StaticResolver("chatgpt"))
         result = client.complete(role="qa_review", prompt="P")
 
@@ -341,7 +341,7 @@ def test_hub_llm_client_queued_exhaustion_raises_llm_client_error() -> None:
         hub.acquire_responses.append(HubAcquireQueuedError("q", estimated_wait_seconds=0.0))
 
     import unittest.mock as mock
-    with mock.patch("agentkit.verify_system.llm_evaluator.llm_client.time.sleep"):
+    with mock.patch("agentkit.backend.verify_system.llm_evaluator.llm_client.time.sleep"):
         client = HubLlmClient(hub, _StaticResolver("chatgpt"))
         with pytest.raises(LlmClientError):
             client.complete(role="qa_review", prompt="P")
@@ -652,7 +652,7 @@ def test_dialogue_runner_acquire_queued_then_succeeds() -> None:
     hub.send_responses.append(_chat_response("R"))
 
     import unittest.mock as mock
-    with mock.patch("agentkit.verify_system.llm_evaluator.dialogue_runner.time.sleep"):
+    with mock.patch("agentkit.backend.verify_system.llm_evaluator.dialogue_runner.time.sleep"):
         runner = DialogueRunner(hub, _StaticResolver("chatgpt"))
         result = runner.run(role="qa_review", prompts=["P"])
 
@@ -671,7 +671,7 @@ def test_dialogue_runner_acquire_login_required_raises() -> None:
 
 def test_dialogue_runner_acquire_hub_error_raises_llm_client_error() -> None:
     """AC7: general MultiLlmHubError on acquire → LlmClientError."""
-    from agentkit.multi_llm_hub.errors import MultiLlmHubError
+    from agentkit.integration_clients.multi_llm_hub.errors import MultiLlmHubError
     hub = _FakeHub()
     hub.acquire_responses.append(MultiLlmHubError("generic error"))
 
@@ -682,7 +682,7 @@ def test_dialogue_runner_acquire_hub_error_raises_llm_client_error() -> None:
 
 def test_dialogue_runner_release_failure_not_propagated() -> None:
     """AC7: release errors are swallowed (best-effort, FK-11 §11.2.3)."""
-    from agentkit.multi_llm_hub.errors import MultiLlmHubError
+    from agentkit.integration_clients.multi_llm_hub.errors import MultiLlmHubError
 
     class _FailingReleaseHub(_FakeHub):
         def release(self, *, session_id: str, token: str, timeout: float | None = None) -> None:

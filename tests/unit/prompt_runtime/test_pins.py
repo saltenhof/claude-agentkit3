@@ -8,16 +8,16 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.exceptions import ProjectError
-from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
-from agentkit.prompt_runtime.pins import (
+from agentkit.backend.exceptions import ProjectError
+from agentkit.backend.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
+from agentkit.backend.prompt_runtime.pins import (
     ensure_prompt_run_pin,
     ensure_run_prompt_pin_present,
     initialize_prompt_run_pin,
     load_prompt_run_pin,
     resolve_run_prompt_binding,
 )
-from agentkit.prompt_runtime.resources import PROJECT_LOCK_RELPATH
+from agentkit.backend.prompt_runtime.resources import PROJECT_LOCK_RELPATH
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -271,7 +271,7 @@ def test_run_pin_carries_project_key_when_config_present(
     resolved from the canonical project config (no second project-key truth)
     and round-trips through write/read.
     """
-    from agentkit.installer import InstallConfig, install_agentkit
+    from agentkit.backend.installer import InstallConfig, install_agentkit
 
     project_root = tmp_path / "project"
     project_root.mkdir()

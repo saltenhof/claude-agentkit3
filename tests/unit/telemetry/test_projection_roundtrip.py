@@ -21,16 +21,16 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
-from agentkit.state_backend.store.projection_repositories import (
+from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
+from agentkit.backend.state_backend.store.projection_repositories import (
     build_projection_repositories,
 )
-from agentkit.telemetry.projection_accessor import (
+from agentkit.backend.telemetry.projection_accessor import (
     ProjectionAccessor,
     ProjectionFilter,
     ProjectionKind,
 )
-from agentkit.verify_system.stage_registry.records import (
+from agentkit.backend.verify_system.stage_registry.records import (
     QAFindingRecord,
     QAStageResultRecord,
 )
@@ -47,7 +47,7 @@ def sqlite_accessor(
     """Erzeugt ProjectionAccessor gegen echtes SQLite via tmp_path."""
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-    from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     repos = build_projection_repositories(tmp_path)
@@ -125,7 +125,7 @@ def test_qa_finding_write_read_roundtrip(sqlite_accessor: ProjectionAccessor) ->
         artifact_id="art-int-002",
         occurred_at=datetime(2026, 5, 25, 10, 1, 0, tzinfo=UTC),
         description="Type error in module X",
-        detail="src/agentkit/x.py:42",
+        detail="src/agentkit/backend/x.py:42",
         metadata={"trust_class": "SYSTEM"},
     )
 
@@ -368,17 +368,17 @@ def test_record_qa_layer_artifacts_runs_real_batch_chain(
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
 
-    from agentkit.bootstrap.composition_root import build_artifact_manager
-    from agentkit.phase_state_store.models import FlowExecution
-    from agentkit.state_backend.store import (
+    from agentkit.backend.bootstrap.composition_root import build_artifact_manager
+    from agentkit.backend.phase_state_store.models import FlowExecution
+    from agentkit.backend.state_backend.store import (
         reset_backend_cache_for_tests,
         save_flow_execution,
         save_story_context,
     )
-    from agentkit.story_context_manager.models import StoryContext
-    from agentkit.story_context_manager.types import StoryMode, StoryType
-    from agentkit.verify_system.artifacts import write_layer_artifacts
-    from agentkit.verify_system.protocols import (
+    from agentkit.backend.story_context_manager.models import StoryContext
+    from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+    from agentkit.backend.verify_system.artifacts import write_layer_artifacts
+    from agentkit.backend.verify_system.protocols import (
         Finding,
         LayerResult,
         Severity,

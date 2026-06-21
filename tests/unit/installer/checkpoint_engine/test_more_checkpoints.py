@@ -9,28 +9,28 @@ from tests.unit.installer.checkpoint_engine.conftest import (
     make_config,
 )
 
-from agentkit.installer.bootstrap_checkpoints.cp01_to_06 import cp05_pipeline_config
-from agentkit.installer.bootstrap_checkpoints.cp10 import (
+from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import cp05_pipeline_config
+from agentkit.backend.installer.bootstrap_checkpoints.cp10 import (
     cp10_mcp_registration,
     cp10a_concept_context_properties,
     cp10b_concept_validation_hook,
     cp10d_sonarqube,
 )
-from agentkit.installer.bootstrap_checkpoints.cp11_to_12 import (
+from agentkit.backend.installer.bootstrap_checkpoints.cp11_to_12 import (
     cp11_git_hooks_and_claude,
     cp12_verify_registration,
 )
-from agentkit.installer.bootstrap_checkpoints.orchestrator import (
+from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
     build_checkpoint_context,
 )
-from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
-from agentkit.installer.checkpoint_engine.reasons import (
+from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
+from agentkit.backend.installer.checkpoint_engine.reasons import (
     DRY_RUN_PLAN_MARKER,
     REASON_PLANNED_NO_MUTATION,
     REASON_VECTORDB_DISABLED,
 )
-from agentkit.installer.registration import CheckpointStatus
-from agentkit.installer.repo_probe import GhCliRepoExistenceProbe
+from agentkit.backend.installer.registration import CheckpointStatus
+from agentkit.backend.installer.repo_probe import GhCliRepoExistenceProbe
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -142,7 +142,7 @@ def test_cp11_dry_run_does_not_write(
 def test_cp12_verify_passes_after_profile_and_config(
     tmp_path: Path, registration_repo: InMemoryRegistrationRepo
 ) -> None:
-    from agentkit.installer.bootstrap_checkpoints.cp01_to_06 import (
+    from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
         cp06_profile_resolution,
     )
 

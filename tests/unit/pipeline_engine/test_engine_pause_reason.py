@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.core_types import PauseReason
-from agentkit.pipeline_engine.engine import _coerce_pause_reason
-from agentkit.pipeline_engine.phase_envelope.errors import InvalidPauseReasonError
+from agentkit.backend.core_types import PauseReason
+from agentkit.backend.pipeline_engine.engine import _coerce_pause_reason
+from agentkit.backend.pipeline_engine.phase_envelope.errors import InvalidPauseReasonError
 
 
 def test_coerce_pause_reason_none_returns_none() -> None:
@@ -44,7 +44,7 @@ def test_coerce_pause_reason_unknown_string_raises_invalid_pause_reason_error() 
 
 def test_invalid_pause_reason_error_is_subclass_of_pipeline_error() -> None:
     """InvalidPauseReasonError is a subclass of PipelineError (type hierarchy)."""
-    from agentkit.exceptions import PipelineError
+    from agentkit.backend.exceptions import PipelineError
     assert issubclass(InvalidPauseReasonError, PipelineError)
 
 

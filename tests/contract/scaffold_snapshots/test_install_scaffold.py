@@ -5,7 +5,7 @@ expected directory structure. Changes to the scaffold break these
 tests -- forcing conscious review.
 
 The expected structure is derived from
-``src/agentkit/resources/target_project/`` (single source of truth)
+``src/agentkit/bundles/target_project/`` (single source of truth)
 plus the generated ``project.yaml``.
 """
 
@@ -17,13 +17,13 @@ from typing import Any
 
 import pytest
 
-from agentkit.config.loader import load_project_config
-from agentkit.installer import InstallConfig, install_agentkit
-from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV
-from agentkit.installer.runner import MANDATORY_SKILLS
-from agentkit.skills import Skills, create_directory_link
-from agentkit.skills.bundle_store import SkillBundle, SkillBundleStore
-from agentkit.skills.repository import InMemorySkillBindingRepository
+from agentkit.backend.config.loader import load_project_config
+from agentkit.backend.installer import InstallConfig, install_agentkit
+from agentkit.backend.installer.paths import PROMPT_BUNDLE_STORE_ENV
+from agentkit.backend.installer.runner import MANDATORY_SKILLS
+from agentkit.backend.skills import Skills, create_directory_link
+from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore
+from agentkit.backend.skills.repository import InMemorySkillBindingRepository
 
 
 def _directory_links_supported() -> bool:
@@ -219,12 +219,12 @@ class TestInstallScaffoldContract:
     def test_scaffold_matches_resource_directories(
         self, tmp_path: Path,
     ) -> None:
-        """Installed directories must correspond to resources/target_project/.
+        """Installed directories must correspond to bundles/target_project/.
 
         This test ensures the installer deploys from the single source
-        of truth (resources/target_project/) and not from hardcoded paths.
+        of truth (bundles/target_project/) and not from hardcoded paths.
         """
-        from agentkit.installer.runner import (
+        from agentkit.backend.installer.runner import (
             _resources_target_project_dir,
         )
 

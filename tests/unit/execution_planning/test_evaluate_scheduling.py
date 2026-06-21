@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from agentkit.core_types import StoryDependencyKind
-from agentkit.execution_planning import (
+from agentkit.backend.core_types import StoryDependencyKind
+from agentkit.backend.execution_planning import (
     DependencyGraph,
     EvaluateSchedulingResult,
     ExecutionCapacityBudgets,

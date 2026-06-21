@@ -7,7 +7,7 @@ import psycopg
 import pytest
 from psycopg import sql
 
-from agentkit.state_backend.config import resolve_schema_name
+from agentkit.backend.state_backend.config import resolve_schema_name
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

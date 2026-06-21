@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agentkit.cli.main import main
-from agentkit.verify_system.evidence import AuthorityClass, ConfidenceLabel
+from agentkit.backend.cli.main import main
+from agentkit.backend.verify_system.evidence import AuthorityClass, ConfidenceLabel
 
 
 def test_evidence_assemble_cli_wires_import_resolver_into_stage2(

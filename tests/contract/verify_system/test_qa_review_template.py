@@ -17,8 +17,8 @@ import re
 
 import pytest
 
-from agentkit.prompt_runtime.resources import load_prompt_template
-from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+from agentkit.backend.prompt_runtime.resources import load_prompt_template
+from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import (
     DOC_FIDELITY_CHECK_IDS,
     QA_REVIEW_CHECK_IDS,
     SEMANTIC_REVIEW_CHECK_IDS,

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from agentkit.exceptions import AgentKitError
+from agentkit.backend.exceptions import AgentKitError
 
 from .loader import FormalSpecDocument, discover_formal_spec_files, load_formal_spec
 from .scenario_runner import ScenarioValidation, validate_scenarios

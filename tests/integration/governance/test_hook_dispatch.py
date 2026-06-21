@@ -21,10 +21,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.governance import runner as runner_mod
-from agentkit.governance.guard_evaluation import HookEvent
-from agentkit.governance.protocols import GuardVerdict
-from agentkit.governance.runner import run_hook
+from agentkit.backend.governance import runner as runner_mod
+from agentkit.backend.governance.guard_evaluation import HookEvent
+from agentkit.backend.governance.protocols import GuardVerdict
+from agentkit.backend.governance.runner import run_hook
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -110,7 +110,7 @@ def test_other_hook_keeps_generic_path(
 
     monkeypatch.setattr(runner_mod, "_run_self_protection_guard", _fail_self)
     monkeypatch.setattr(runner_mod, "_run_story_creation_guard", _fail_story)
-    import agentkit.governance.guard_evaluation as ge_mod
+    import agentkit.backend.governance.guard_evaluation as ge_mod
 
     monkeypatch.setattr(ge_mod, "evaluate_pre_tool_use", _spy_generic)
 
@@ -177,8 +177,8 @@ def test_self_protection_blocks_codex_hooks_json_via_guard_direct(
     # Prove the self_protection GUARD itself (not only the capability layer)
     # owns .codex/hooks.json: drive the guard directly with a project-relative
     # path so the harness zone match fires regardless of capability ordering.
-    from agentkit.governance.guards.self_protection_guard import SelfProtectionGuard
-    from agentkit.governance.principal_capabilities import (
+    from agentkit.backend.governance.guards.self_protection_guard import SelfProtectionGuard
+    from agentkit.backend.governance.principal_capabilities import (
         OperationClassifier,
         PathClassifier,
         PrincipalResolver,

@@ -13,12 +13,12 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.skills.binding import (
+from agentkit.backend.skills.binding import (
     SkillBinding,
     SkillBindingMode,
     SkillLifecycleStatus,
 )
-from agentkit.state_backend.store.skill_binding_repository import (
+from agentkit.backend.state_backend.store.skill_binding_repository import (
     StateBackendSkillBindingRepository,
 )
 

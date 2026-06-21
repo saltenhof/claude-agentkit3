@@ -63,7 +63,7 @@ Version 24 aendert BC-Ownership der Harness-Adapter-Inseln
 (`harness_adapters_claude_code`, `harness_adapters_codex`) auf
 `harness-integration` gemaess FK-76. Physische Modul-Pfade bleiben
 unveraendert (Migration folgt als Folge-Story).
-Version 25 ergaenzt `agentkit.state_backend.schema_bootstrap` als
+Version 25 ergaenzt `agentkit.backend.state_backend.schema_bootstrap` als
 module_prefix des boundary_modules `state_backend_drivers` (AG3-051):
 Der gemeinsame Driver-Helper `ensure_versioned_schema` ist ein
 T-Bluttyp-Driver wie `config`/`postgres_store`/`sqlite_store`, importiert
@@ -72,7 +72,7 @@ T-Bluttyp-Driver wie `config`/`postgres_store`/`sqlite_store`, importiert
 Keine Lockerung einer globalen Regel.
 Version 26 zielt den bestehenden Governance-Sub `principal_capability`
 auf den real geschnittenen Paketpfad
-`agentkit.governance.principal_capabilities` (Plural, AG3-032 §3) um.
+`agentkit.backend.governance.principal_capabilities` (Plural, AG3-032 §3) um.
 Der Stub zeigte zuvor auf einen nicht existierenden Singular-Pfad; das
 Capability-Paket (FK-55) lebt unter dem Plural. Reine Modul-Prefix-
 Praezisierung, kein neuer Sub, keine gelockerte Regel. Zusaetzlich wird
@@ -82,14 +82,14 @@ harness-neutralen `HookEvent` aus `guard_evaluation` (FK-55 §55.10.3,
 AG3-032 AK10) und liegt damit fachlich eine Schicht ueber dem
 HookEvent-Kern.
 Version 27 ergaenzt den verify-system-Sub `sonarqube_gate`
-(`agentkit.verify_system.sonarqube_gate`, sub_exposed, AG3-052): die
+(`agentkit.backend.verify_system.sonarqube_gate`, sub_exposed, AG3-052): die
 SonarQube-Green-Gate-Capability (FK-33 §33.6). In `intra_bc_layer_order`
 hinter `adversarial_orchestrator` und vor `policy_engine` einsortiert
 (klassifikatorisch Layer 1, Abfolge nach Schicht 3, FK-33 §33.8.3).
 sub_exposed, damit die drei Lifecycle-Gate-Punkte (QA-Subflow hier;
 Setup-green-main FK-22 / Closure-Dim-9 FK-29/FK-35 als Konsumenten,
 AG3-034) die Capability-API aufrufen koennen. Keine gelockerte Regel.
-Version 28 ergaenzt `agentkit.state_backend.migration` als module_prefix
+Version 28 ergaenzt `agentkit.backend.state_backend.migration` als module_prefix
 des boundary_modules `state_backend_drivers` (AG3-038): der idempotente
 Schema-MigrationRunner (FK-62 §62.4, FK-18 §18.9a) ist ein T-Bluttyp-
 Driver wie `postgres_store`/`sqlite_store`/`schema_bootstrap`. Er fuehrt
@@ -97,13 +97,13 @@ versionierte DDL gegen rohe Connections aus, nutzt den Same-Boundary-
 Helper `postgres_store.iter_sql_statements` (reines SQL-Statement-
 Splitting) und den `shared`-Helper `now_iso`. Reine Modul-Prefix-
 Erweiterung, keine gelockerte Regel.
-Version 29 modelliert `agentkit.core_types` explizit als boundary_module
+Version 29 modelliert `agentkit.backend.core_types` explizit als boundary_module
 `core_types` (boundary_kind `domain_core_foundation`, Bluttyp A,
 importable_by any). Schliesst die Modell-Luecke aus AG3-097: die
 Domaenen-Kern-Foundation (ArtifactClass/Severity/Story/QaContext/...
 und der lokale OperatingMode, FK-56 §56.5/§56.7a) war bislang in keiner
 Komponenten-Gruppe und keinem Boundary-Modul modelliert. Importe der
-R-Adapter-Boundaries auf `agentkit.core_types` (control_plane.models /
+R-Adapter-Boundaries auf `agentkit.backend.core_types` (control_plane.models /
 control_plane.runtime / projectedge.runtime sowie die state_backend-
 Driver/Repository) wurden dadurch nur als unbekannte stdlib/third-party-
 Importe durchgewunken (Fallthrough), nicht per Regel erlaubt. Mit der
@@ -167,7 +167,7 @@ component_groups:
     name: PipelineEngine
     bloodgroup: A
     module_prefixes:
-      - agentkit.pipeline_engine
+      - agentkit.backend.pipeline_engine
     parent_group_id: null
     exposure: top
     top_surface_modules: []
@@ -184,7 +184,7 @@ component_groups:
     name: PhaseStateStore
     bloodgroup: A
     module_prefixes:
-      - agentkit.pipeline_engine.phase_state_store
+      - agentkit.backend.pipeline_engine.phase_state_store
     parent_group_id: architecture-conformance.group.pipeline_engine
     exposure: sub_exposed
     component_kind: domain
@@ -197,7 +197,7 @@ component_groups:
     name: FlowOrchestrator
     bloodgroup: A
     module_prefixes:
-      - agentkit.pipeline_engine.flow_orchestrator
+      - agentkit.backend.pipeline_engine.flow_orchestrator
     parent_group_id: architecture-conformance.group.pipeline_engine
     exposure: internal
     component_kind: domain
@@ -206,7 +206,7 @@ component_groups:
     name: PhaseExecutor
     bloodgroup: A
     module_prefixes:
-      - agentkit.pipeline_engine.phase_executor
+      - agentkit.backend.pipeline_engine.phase_executor
     parent_group_id: architecture-conformance.group.pipeline_engine
     exposure: sub_exposed
     component_kind: domain
@@ -215,7 +215,7 @@ component_groups:
     name: PhaseEnvelopeStore
     bloodgroup: A
     module_prefixes:
-      - agentkit.pipeline_engine.phase_envelope_store
+      - agentkit.backend.pipeline_engine.phase_envelope_store
     parent_group_id: architecture-conformance.group.pipeline_engine
     exposure: internal
     component_kind: domain
@@ -224,7 +224,7 @@ component_groups:
     name: PipelineRegistry
     bloodgroup: A
     module_prefixes:
-      - agentkit.pipeline_engine.pipeline_registry
+      - agentkit.backend.pipeline_engine.pipeline_registry
     parent_group_id: architecture-conformance.group.pipeline_engine
     exposure: internal
     component_kind: domain
@@ -233,7 +233,7 @@ component_groups:
     name: CompactionResilience
     bloodgroup: A
     module_prefixes:
-      - agentkit.pipeline_engine.compaction_resilience
+      - agentkit.backend.pipeline_engine.compaction_resilience
     parent_group_id: architecture-conformance.group.pipeline_engine
     exposure: sub_exposed
     component_kind: domain
@@ -246,7 +246,7 @@ component_groups:
     name: VerifySystem
     bloodgroup: A
     module_prefixes:
-      - agentkit.verify_system
+      - agentkit.backend.verify_system
     parent_group_id: null
     exposure: top
     top_surface_modules: []
@@ -267,7 +267,7 @@ component_groups:
     name: QaReadModels
     bloodgroup: A
     module_prefixes:
-      - agentkit.verify_system.qa_read_models
+      - agentkit.backend.verify_system.qa_read_models
     parent_group_id: architecture-conformance.group.verify_system
     exposure: sub_exposed
     component_kind: domain
@@ -279,7 +279,7 @@ component_groups:
     name: StageRegistry
     bloodgroup: A
     module_prefixes:
-      - agentkit.verify_system.stage_registry
+      - agentkit.backend.verify_system.stage_registry
     parent_group_id: architecture-conformance.group.verify_system
     exposure: sub_exposed
     component_kind: domain
@@ -288,7 +288,7 @@ component_groups:
     name: SonarqubeGate
     bloodgroup: A
     module_prefixes:
-      - agentkit.verify_system.sonarqube_gate
+      - agentkit.backend.verify_system.sonarqube_gate
     parent_group_id: architecture-conformance.group.verify_system
     exposure: sub_exposed
     component_kind: domain
@@ -303,7 +303,7 @@ component_groups:
     name: PreMergeRunner
     bloodgroup: A
     module_prefixes:
-      - agentkit.verify_system.pre_merge_runner
+      - agentkit.backend.verify_system.pre_merge_runner
     parent_group_id: architecture-conformance.group.verify_system
     exposure: sub_exposed
     component_kind: domain
@@ -320,7 +320,7 @@ component_groups:
     name: LlmEvaluator
     bloodgroup: A
     module_prefixes:
-      - agentkit.verify_system.llm_evaluator
+      - agentkit.backend.verify_system.llm_evaluator
     parent_group_id: architecture-conformance.group.verify_system
     exposure: sub_exposed
     component_kind: domain
@@ -329,7 +329,7 @@ component_groups:
     name: ConformanceService
     bloodgroup: A
     module_prefixes:
-      - agentkit.verify_system.conformance_service
+      - agentkit.backend.verify_system.conformance_service
     parent_group_id: architecture-conformance.group.verify_system
     exposure: sub_exposed
     component_kind: domain
@@ -338,7 +338,7 @@ component_groups:
     name: EvidenceAssembler
     bloodgroup: A
     module_prefixes:
-      - agentkit.verify_system.evidence_assembler
+      - agentkit.backend.verify_system.evidence_assembler
     parent_group_id: architecture-conformance.group.verify_system
     exposure: internal
     component_kind: domain
@@ -347,7 +347,7 @@ component_groups:
     name: AdversarialOrchestrator
     bloodgroup: A
     module_prefixes:
-      - agentkit.verify_system.adversarial_orchestrator
+      - agentkit.backend.verify_system.adversarial_orchestrator
     parent_group_id: architecture-conformance.group.verify_system
     exposure: internal
     component_kind: domain
@@ -356,7 +356,7 @@ component_groups:
     name: PolicyEngine
     bloodgroup: A
     module_prefixes:
-      - agentkit.verify_system.policy_engine
+      - agentkit.backend.verify_system.policy_engine
     parent_group_id: architecture-conformance.group.verify_system
     exposure: internal
     component_kind: domain
@@ -365,7 +365,7 @@ component_groups:
     name: QaCycleCoordinator
     bloodgroup: A
     module_prefixes:
-      - agentkit.verify_system.qa_cycle_coordinator
+      - agentkit.backend.verify_system.qa_cycle_coordinator
     parent_group_id: architecture-conformance.group.verify_system
     exposure: internal
     component_kind: domain
@@ -378,7 +378,7 @@ component_groups:
     name: StoryContextManager
     bloodgroup: A
     module_prefixes:
-      - agentkit.story_context_manager
+      - agentkit.backend.story_context_manager
     parent_group_id: null
     exposure: top
     top_surface_modules: []
@@ -396,19 +396,19 @@ component_groups:
     name: StoryTypes
     bloodgroup: A
     module_prefixes:
-      - agentkit.story_context_manager.story_types
+      - agentkit.backend.story_context_manager.story_types
     parent_group_id: architecture-conformance.group.story_context_manager
     exposure: sub_exposed
     component_kind: domain
-    # Story-Domaenentypen (frueher unter agentkit.story als Stub-Top
-    # gefuehrt). Code-Pfad-Migration nach agentkit.story_context_manager.
+    # Story-Domaenentypen (frueher unter agentkit.backend.story als Stub-Top
+    # gefuehrt). Code-Pfad-Migration nach agentkit.backend.story_context_manager.
     # story_types erfolgt im Code-Refactor-Schritt.
 
   - id: architecture-conformance.group.story_identity
     name: StoryIdentity
     bloodgroup: A
     module_prefixes:
-      - agentkit.story_context_manager.story_identity
+      - agentkit.backend.story_context_manager.story_identity
     parent_group_id: architecture-conformance.group.story_context_manager
     exposure: sub_exposed
     component_kind: domain
@@ -417,7 +417,7 @@ component_groups:
     name: StoryCreationFlow
     bloodgroup: A
     module_prefixes:
-      - agentkit.story_context_manager.story_creation_flow
+      - agentkit.backend.story_context_manager.story_creation_flow
     parent_group_id: architecture-conformance.group.story_context_manager
     exposure: sub_exposed
     component_kind: domain
@@ -426,7 +426,7 @@ component_groups:
     name: StoryContractMatrix
     bloodgroup: A
     module_prefixes:
-      - agentkit.story_context_manager.story_contract_matrix
+      - agentkit.backend.story_context_manager.story_contract_matrix
     parent_group_id: architecture-conformance.group.story_context_manager
     exposure: sub_exposed
     component_kind: domain
@@ -435,7 +435,7 @@ component_groups:
     name: StoryAdministration
     bloodgroup: A
     module_prefixes:
-      - agentkit.story_context_manager.story_administration
+      - agentkit.backend.story_context_manager.story_administration
     parent_group_id: architecture-conformance.group.story_context_manager
     exposure: sub_exposed
     component_kind: domain
@@ -444,7 +444,7 @@ component_groups:
     name: OperatingModeResolver
     bloodgroup: A
     module_prefixes:
-      - agentkit.story_context_manager.operating_mode_resolver
+      - agentkit.backend.story_context_manager.operating_mode_resolver
     parent_group_id: architecture-conformance.group.story_context_manager
     # sub_exposed (AG3-097): the named operating-mode resolution owner is
     # consumed cross-BC by governance-and-guards (guard_evaluation + the
@@ -458,7 +458,7 @@ component_groups:
     name: StoryStorageBackend
     bloodgroup: A
     module_prefixes:
-      - agentkit.story_context_manager.story_storage_backend
+      - agentkit.backend.story_context_manager.story_storage_backend
     parent_group_id: architecture-conformance.group.story_context_manager
     exposure: internal
     component_kind: domain
@@ -471,7 +471,7 @@ component_groups:
     name: Governance
     bloodgroup: A
     module_prefixes:
-      - agentkit.governance
+      - agentkit.backend.governance
     parent_group_id: null
     exposure: top
     top_surface_modules: []
@@ -492,7 +492,7 @@ component_groups:
     name: GuardSystem
     bloodgroup: A
     module_prefixes:
-      - agentkit.governance.guard_system
+      - agentkit.backend.governance.guard_system
     parent_group_id: architecture-conformance.group.governance
     exposure: sub_exposed
     component_kind: domain
@@ -501,29 +501,29 @@ component_groups:
     name: GuardEvaluation
     bloodgroup: A
     module_prefixes:
-      - agentkit.governance.guard_evaluation
+      - agentkit.backend.governance.guard_evaluation
     parent_group_id: architecture-conformance.group.governance
     exposure: sub_exposed
     component_kind: domain
     # Harness-neutraler A-Kern fuer GuardSystem. Die historische
     # HookRuntime-ID bleibt stabil, der Python-Kompatibilitaetspfad
-    # `agentkit.governance.hookruntime` gehoert zur Adapter-Insel.
+    # `agentkit.backend.governance.hookruntime` gehoert zur Adapter-Insel.
 
   - id: architecture-conformance.group.harness_adapters_claude_code
     name: HarnessAdaptersClaudeCode
     bloodgroup: A
     module_prefixes:
-      - agentkit.governance.harness_adapters.claude_code
-      - agentkit.governance.hookruntime
+      - agentkit.harness_client.harness_adapters.claude_code
+      - agentkit.backend.governance.hookruntime
     parent_group_id: architecture-conformance.group.governance
     exposure: internal
     component_kind: domain
     # Lokalisierte Claude-Code-Mediation: Tool-Namen, Hook-Payload und
     # Exit-Code-Vertrag bleiben hier und werden auf HookEvent gemappt.
     # BC ownership: harness-integration (FK-76) — nicht governance-and-guards.
-    # Physical module path: agentkit.governance.harness_adapters.claude_code (Legacy, temporaer).
+    # Physical module path: agentkit.harness_client.harness_adapters.claude_code (Legacy, temporaer).
     # Migration target: agentkit.harness_integration.claude_code (Folge-Story).
-    # NOTE: Physical module path is temporarily still agentkit.governance.harness_adapters.claude_code.
+    # NOTE: Physical module path is temporarily still agentkit.harness_client.harness_adapters.claude_code.
     # BC ownership is already harness-integration per FK-76; physical package migration
     # is a follow-up and must not be used to infer governance ownership.
 
@@ -531,16 +531,16 @@ component_groups:
     name: HarnessAdaptersCodex
     bloodgroup: A
     module_prefixes:
-      - agentkit.governance.harness_adapters.codex
+      - agentkit.harness_client.harness_adapters.codex
     parent_group_id: architecture-conformance.group.governance
     exposure: internal
     component_kind: domain
     # Lokalisierte Codex-Mediation: Tool-Namen, Hook-Payload und
     # Exit-Code-Vertrag bleiben hier und werden auf HookEvent gemappt.
     # BC ownership: harness-integration (FK-76) — nicht governance-and-guards.
-    # Physical module path: agentkit.governance.harness_adapters.codex (Legacy, temporaer).
+    # Physical module path: agentkit.harness_client.harness_adapters.codex (Legacy, temporaer).
     # Migration target: agentkit.harness_integration.codex (Folge-Story).
-    # NOTE: Physical module path is temporarily still agentkit.governance.harness_adapters.codex.
+    # NOTE: Physical module path is temporarily still agentkit.harness_client.harness_adapters.codex.
     # BC ownership is already harness-integration per FK-76; physical package migration
     # is a follow-up and must not be used to infer governance ownership.
 
@@ -548,7 +548,7 @@ component_groups:
     name: CcagPermissionRuntime
     bloodgroup: A
     module_prefixes:
-      - agentkit.governance.ccag_permission_runtime
+      - agentkit.backend.governance.ccag_permission_runtime
     parent_group_id: architecture-conformance.group.governance
     exposure: sub_exposed
     component_kind: domain
@@ -557,7 +557,7 @@ component_groups:
     name: GovernanceObserver
     bloodgroup: A
     module_prefixes:
-      - agentkit.governance.governance_observer
+      - agentkit.backend.governance.governance_observer
     parent_group_id: architecture-conformance.group.governance
     exposure: sub_exposed
     component_kind: domain
@@ -566,7 +566,7 @@ component_groups:
     name: IntegrityGate
     bloodgroup: A
     module_prefixes:
-      - agentkit.governance.integrity_gate
+      - agentkit.backend.governance.integrity_gate
     parent_group_id: architecture-conformance.group.governance
     exposure: sub_exposed
     component_kind: domain
@@ -575,7 +575,7 @@ component_groups:
     name: PrincipalCapability
     bloodgroup: A
     module_prefixes:
-      - agentkit.governance.principal_capabilities
+      - agentkit.backend.governance.principal_capabilities
     parent_group_id: architecture-conformance.group.governance
     exposure: sub_exposed
     component_kind: domain
@@ -584,7 +584,7 @@ component_groups:
     name: SetupPreflightGate
     bloodgroup: A
     module_prefixes:
-      - agentkit.governance.setup_preflight_gate
+      - agentkit.backend.governance.setup_preflight_gate
     parent_group_id: architecture-conformance.group.governance
     exposure: sub_exposed
     component_kind: domain
@@ -593,7 +593,7 @@ component_groups:
     name: EscalationMechanism
     bloodgroup: A
     module_prefixes:
-      - agentkit.governance.escalation_mechanism
+      - agentkit.backend.governance.escalation_mechanism
     parent_group_id: architecture-conformance.group.governance
     exposure: internal
     component_kind: domain
@@ -606,7 +606,7 @@ component_groups:
     name: Exploration
     bloodgroup: A
     module_prefixes:
-      - agentkit.exploration
+      - agentkit.backend.exploration
     parent_group_id: null
     exposure: top
     top_surface_modules: []   # leer initial; wird mit konkreten Module-FQN gefuellt sobald Code-Refactor laeuft
@@ -621,7 +621,7 @@ component_groups:
     name: ModeRouter
     bloodgroup: A
     module_prefixes:
-      - agentkit.exploration.mode_router
+      - agentkit.backend.exploration.mode_router
     parent_group_id: architecture-conformance.group.exploration
     exposure: sub_exposed
     component_kind: domain
@@ -630,7 +630,7 @@ component_groups:
     name: ExplorationDrafting
     bloodgroup: A
     module_prefixes:
-      - agentkit.exploration.drafting
+      - agentkit.backend.exploration.drafting
     parent_group_id: architecture-conformance.group.exploration
     exposure: internal
     component_kind: domain
@@ -639,7 +639,7 @@ component_groups:
     name: ExplorationReview
     bloodgroup: A
     module_prefixes:
-      - agentkit.exploration.review
+      - agentkit.backend.exploration.review
     parent_group_id: architecture-conformance.group.exploration
     exposure: internal
     component_kind: domain
@@ -648,7 +648,7 @@ component_groups:
     name: MandateClassification
     bloodgroup: A
     module_prefixes:
-      - agentkit.exploration.mandate_classification
+      - agentkit.backend.exploration.mandate_classification
     parent_group_id: architecture-conformance.group.exploration
     exposure: internal
     component_kind: domain
@@ -661,7 +661,7 @@ component_groups:
     name: Implementation
     bloodgroup: A
     module_prefixes:
-      - agentkit.implementation
+      - agentkit.backend.implementation
     parent_group_id: null
     exposure: top
     top_surface_modules: []
@@ -676,7 +676,7 @@ component_groups:
     name: WorkerSession
     bloodgroup: A
     module_prefixes:
-      - agentkit.implementation.worker_session
+      - agentkit.backend.implementation.worker_session
     parent_group_id: architecture-conformance.group.implementation
     exposure: internal
     component_kind: domain
@@ -685,7 +685,7 @@ component_groups:
     name: WorkerLoop
     bloodgroup: A
     module_prefixes:
-      - agentkit.implementation.worker_loop
+      - agentkit.backend.implementation.worker_loop
     parent_group_id: architecture-conformance.group.implementation
     exposure: internal
     component_kind: domain
@@ -694,7 +694,7 @@ component_groups:
     name: HandoverPackager
     bloodgroup: A
     module_prefixes:
-      - agentkit.implementation.handover_packager
+      - agentkit.backend.implementation.handover_packager
     parent_group_id: architecture-conformance.group.implementation
     exposure: internal
     component_kind: domain
@@ -703,7 +703,7 @@ component_groups:
     name: WorkerHealthMonitor
     bloodgroup: A
     module_prefixes:
-      - agentkit.implementation.worker_health
+      - agentkit.backend.implementation.worker_health
     parent_group_id: architecture-conformance.group.implementation
     exposure: sub_exposed
     component_kind: domain
@@ -716,7 +716,7 @@ component_groups:
     name: Closure
     bloodgroup: A
     module_prefixes:
-      - agentkit.closure
+      - agentkit.backend.closure
     parent_group_id: null
     exposure: top
     top_surface_modules: []
@@ -731,7 +731,7 @@ component_groups:
     name: ClosureGates
     bloodgroup: A
     module_prefixes:
-      - agentkit.closure.gates
+      - agentkit.backend.closure.gates
     parent_group_id: architecture-conformance.group.closure
     exposure: internal
     component_kind: domain
@@ -740,7 +740,7 @@ component_groups:
     name: MergeSequence
     bloodgroup: A
     module_prefixes:
-      - agentkit.closure.merge_sequence
+      - agentkit.backend.closure.merge_sequence
     parent_group_id: architecture-conformance.group.closure
     exposure: internal
     component_kind: domain
@@ -749,7 +749,7 @@ component_groups:
     name: PostMergeFinalization
     bloodgroup: A
     module_prefixes:
-      - agentkit.closure.post_merge_finalization
+      - agentkit.backend.closure.post_merge_finalization
     parent_group_id: architecture-conformance.group.closure
     exposure: internal
     component_kind: domain
@@ -758,7 +758,7 @@ component_groups:
     name: ExecutionReport
     bloodgroup: A
     module_prefixes:
-      - agentkit.closure.execution_report
+      - agentkit.backend.closure.execution_report
     parent_group_id: architecture-conformance.group.closure
     exposure: internal
     component_kind: domain
@@ -771,7 +771,7 @@ component_groups:
     name: Artifacts
     bloodgroup: A
     module_prefixes:
-      - agentkit.artifacts
+      - agentkit.backend.artifacts
     parent_group_id: null
     exposure: top
     top_surface_modules: []
@@ -783,7 +783,7 @@ component_groups:
     name: ProducerRegistry
     bloodgroup: A
     module_prefixes:
-      - agentkit.artifacts.producer_registry
+      - agentkit.backend.artifacts.producer_registry
     parent_group_id: architecture-conformance.group.artifacts
     exposure: internal
     component_kind: domain
@@ -796,7 +796,7 @@ component_groups:
     name: Telemetry
     bloodgroup: A
     module_prefixes:
-      - agentkit.telemetry
+      - agentkit.backend.telemetry
     parent_group_id: null
     exposure: top
     top_surface_modules: []
@@ -810,7 +810,7 @@ component_groups:
     name: TelemetryHooks
     bloodgroup: A
     module_prefixes:
-      - agentkit.telemetry.hooks
+      - agentkit.backend.telemetry.hooks
     parent_group_id: architecture-conformance.group.telemetry
     exposure: sub_exposed
     component_kind: domain
@@ -819,7 +819,7 @@ component_groups:
     name: ProjectionAccessor
     bloodgroup: A
     module_prefixes:
-      - agentkit.telemetry.projection_accessor
+      - agentkit.backend.telemetry.projection_accessor
     parent_group_id: architecture-conformance.group.telemetry
     exposure: sub_exposed
     component_kind: domain
@@ -828,7 +828,7 @@ component_groups:
     name: TelemetryContract
     bloodgroup: A
     module_prefixes:
-      - agentkit.telemetry.contract
+      - agentkit.backend.telemetry.contract
     parent_group_id: architecture-conformance.group.telemetry
     exposure: sub_exposed
     component_kind: domain
@@ -841,7 +841,7 @@ component_groups:
     name: PromptRuntime
     bloodgroup: A
     module_prefixes:
-      - agentkit.prompt_runtime
+      - agentkit.backend.prompt_runtime
     parent_group_id: null
     exposure: top
     top_surface_modules: []
@@ -855,7 +855,7 @@ component_groups:
     name: BundleStore
     bloodgroup: A
     module_prefixes:
-      - agentkit.prompt_runtime.bundle_store
+      - agentkit.backend.prompt_runtime.bundle_store
     parent_group_id: architecture-conformance.group.prompt_runtime
     exposure: internal
     component_kind: domain
@@ -864,7 +864,7 @@ component_groups:
     name: BundlePinning
     bloodgroup: A
     module_prefixes:
-      - agentkit.prompt_runtime.bundle_pinning
+      - agentkit.backend.prompt_runtime.bundle_pinning
     parent_group_id: architecture-conformance.group.prompt_runtime
     exposure: internal
     component_kind: domain
@@ -873,7 +873,7 @@ component_groups:
     name: Materialization
     bloodgroup: A
     module_prefixes:
-      - agentkit.prompt_runtime.materialization
+      - agentkit.backend.prompt_runtime.materialization
     parent_group_id: architecture-conformance.group.prompt_runtime
     exposure: internal
     component_kind: domain
@@ -886,7 +886,7 @@ component_groups:
     name: Skills
     bloodgroup: A
     module_prefixes:
-      - agentkit.skills
+      - agentkit.backend.skills
     parent_group_id: null
     exposure: top
     top_surface_modules: []
@@ -900,7 +900,7 @@ component_groups:
     name: SkillBundleStore
     bloodgroup: A
     module_prefixes:
-      - agentkit.skills.bundle_store
+      - agentkit.backend.skills.bundle_store
     parent_group_id: architecture-conformance.group.skills
     exposure: internal
     component_kind: domain
@@ -909,7 +909,7 @@ component_groups:
     name: SkillBinding
     bloodgroup: A
     module_prefixes:
-      - agentkit.skills.binding
+      - agentkit.backend.skills.binding
     parent_group_id: architecture-conformance.group.skills
     exposure: internal
     component_kind: domain
@@ -918,7 +918,7 @@ component_groups:
     name: SkillQualityMetric
     bloodgroup: A
     module_prefixes:
-      - agentkit.skills.quality_metric
+      - agentkit.backend.skills.quality_metric
     parent_group_id: architecture-conformance.group.skills
     exposure: internal
     component_kind: domain
@@ -931,7 +931,7 @@ component_groups:
     name: Installer
     bloodgroup: A
     module_prefixes:
-      - agentkit.installer
+      - agentkit.backend.installer
     parent_group_id: null
     exposure: top
     top_surface_modules: []
@@ -946,7 +946,7 @@ component_groups:
     name: CheckpointEngine
     bloodgroup: A
     module_prefixes:
-      - agentkit.installer.checkpoint_engine
+      - agentkit.backend.installer.checkpoint_engine
     parent_group_id: architecture-conformance.group.installer
     exposure: internal
     component_kind: domain
@@ -955,7 +955,7 @@ component_groups:
     name: BootstrapCheckpoints
     bloodgroup: A
     module_prefixes:
-      - agentkit.installer.bootstrap_checkpoints
+      - agentkit.backend.installer.bootstrap_checkpoints
     parent_group_id: architecture-conformance.group.installer
     exposure: internal
     component_kind: domain
@@ -964,7 +964,7 @@ component_groups:
     name: IntegrationCheckpoints
     bloodgroup: A
     module_prefixes:
-      - agentkit.installer.integration_checkpoints
+      - agentkit.backend.installer.integration_checkpoints
     parent_group_id: architecture-conformance.group.installer
     exposure: internal
     component_kind: domain
@@ -973,7 +973,7 @@ component_groups:
     name: Upgrade
     bloodgroup: A
     module_prefixes:
-      - agentkit.installer.upgrade
+      - agentkit.backend.installer.upgrade
     parent_group_id: architecture-conformance.group.installer
     exposure: internal
     component_kind: domain
@@ -986,7 +986,7 @@ component_groups:
     name: FailureCorpus
     bloodgroup: A
     module_prefixes:
-      - agentkit.failure_corpus
+      - agentkit.backend.failure_corpus
     parent_group_id: null
     exposure: top
     top_surface_modules: []
@@ -1000,7 +1000,7 @@ component_groups:
     name: IncidentTriage
     bloodgroup: A
     module_prefixes:
-      - agentkit.failure_corpus.incident_triage
+      - agentkit.backend.failure_corpus.incident_triage
     parent_group_id: architecture-conformance.group.failure_corpus
     exposure: internal
     component_kind: domain
@@ -1009,7 +1009,7 @@ component_groups:
     name: PatternPromotion
     bloodgroup: A
     module_prefixes:
-      - agentkit.failure_corpus.pattern_promotion
+      - agentkit.backend.failure_corpus.pattern_promotion
     parent_group_id: architecture-conformance.group.failure_corpus
     exposure: internal
     component_kind: domain
@@ -1018,7 +1018,7 @@ component_groups:
     name: CheckFactory
     bloodgroup: A
     module_prefixes:
-      - agentkit.failure_corpus.check_factory
+      - agentkit.backend.failure_corpus.check_factory
     parent_group_id: architecture-conformance.group.failure_corpus
     exposure: internal
     component_kind: domain
@@ -1031,7 +1031,7 @@ component_groups:
     name: ExecutionPlanning
     bloodgroup: A
     module_prefixes:
-      - agentkit.execution_planning
+      - agentkit.backend.execution_planning
     parent_group_id: null
     exposure: top
     top_surface_modules: []
@@ -1047,7 +1047,7 @@ component_groups:
     name: PlanningModel
     bloodgroup: A
     module_prefixes:
-      - agentkit.execution_planning.planning_model
+      - agentkit.backend.execution_planning.planning_model
     parent_group_id: architecture-conformance.group.execution_planning
     exposure: internal
     component_kind: domain
@@ -1056,7 +1056,7 @@ component_groups:
     name: ProposalIngest
     bloodgroup: A
     module_prefixes:
-      - agentkit.execution_planning.proposal_ingest
+      - agentkit.backend.execution_planning.proposal_ingest
     parent_group_id: architecture-conformance.group.execution_planning
     exposure: internal
     component_kind: domain
@@ -1065,7 +1065,7 @@ component_groups:
     name: ReadinessAssessment
     bloodgroup: A
     module_prefixes:
-      - agentkit.execution_planning.readiness_assessment
+      - agentkit.backend.execution_planning.readiness_assessment
     parent_group_id: architecture-conformance.group.execution_planning
     exposure: internal
     component_kind: domain
@@ -1074,7 +1074,7 @@ component_groups:
     name: SchedulingPolicy
     bloodgroup: A
     module_prefixes:
-      - agentkit.execution_planning.scheduling_policy
+      - agentkit.backend.execution_planning.scheduling_policy
     parent_group_id: architecture-conformance.group.execution_planning
     exposure: internal
     component_kind: domain
@@ -1083,7 +1083,7 @@ component_groups:
     name: PlanDerivation
     bloodgroup: A
     module_prefixes:
-      - agentkit.execution_planning.plan_derivation
+      - agentkit.backend.execution_planning.plan_derivation
     parent_group_id: architecture-conformance.group.execution_planning
     exposure: internal
     component_kind: domain
@@ -1096,7 +1096,7 @@ component_groups:
     name: RequirementsCoverage
     bloodgroup: A
     module_prefixes:
-      - agentkit.requirements_coverage
+      - agentkit.backend.requirements_coverage
     parent_group_id: null
     exposure: top
     top_surface_modules: []
@@ -1110,7 +1110,7 @@ component_groups:
     name: AreClient
     bloodgroup: R
     module_prefixes:
-      - agentkit.requirements_coverage.are_client
+      - agentkit.backend.requirements_coverage.are_client
     parent_group_id: architecture-conformance.group.requirements_coverage
     exposure: internal
     component_kind: domain
@@ -1119,7 +1119,7 @@ component_groups:
     name: ScopeMapping
     bloodgroup: A
     module_prefixes:
-      - agentkit.requirements_coverage.scope_mapping
+      - agentkit.backend.requirements_coverage.scope_mapping
     parent_group_id: architecture-conformance.group.requirements_coverage
     exposure: internal
     component_kind: domain
@@ -1128,7 +1128,7 @@ component_groups:
     name: AreIntegration
     bloodgroup: A
     module_prefixes:
-      - agentkit.requirements_coverage.are_integration
+      - agentkit.backend.requirements_coverage.are_integration
     parent_group_id: architecture-conformance.group.requirements_coverage
     exposure: internal
     component_kind: domain
@@ -1141,7 +1141,7 @@ component_groups:
     name: KpiAnalytics
     bloodgroup: A
     module_prefixes:
-      - agentkit.kpi_analytics
+      - agentkit.backend.kpi_analytics
     parent_group_id: null
     exposure: top
     top_surface_modules: []
@@ -1157,7 +1157,7 @@ component_groups:
     name: KpiCatalog
     bloodgroup: A
     module_prefixes:
-      - agentkit.kpi_analytics.catalog
+      - agentkit.backend.kpi_analytics.catalog
     parent_group_id: architecture-conformance.group.kpi_analytics
     exposure: internal
     component_kind: domain
@@ -1166,7 +1166,7 @@ component_groups:
     name: FactStore
     bloodgroup: A
     module_prefixes:
-      - agentkit.kpi_analytics.fact_store
+      - agentkit.backend.kpi_analytics.fact_store
     parent_group_id: architecture-conformance.group.kpi_analytics
     exposure: internal
     component_kind: domain
@@ -1175,7 +1175,7 @@ component_groups:
     name: Aggregation
     bloodgroup: A
     module_prefixes:
-      - agentkit.kpi_analytics.aggregation
+      - agentkit.backend.kpi_analytics.aggregation
     parent_group_id: architecture-conformance.group.kpi_analytics
     exposure: internal
     component_kind: domain
@@ -1184,7 +1184,7 @@ component_groups:
     name: Dashboard
     bloodgroup: A
     module_prefixes:
-      - agentkit.kpi_analytics.dashboard
+      - agentkit.backend.kpi_analytics.dashboard
     parent_group_id: architecture-conformance.group.kpi_analytics
     exposure: internal
     component_kind: domain
@@ -1193,7 +1193,7 @@ component_groups:
     name: DesignSystem
     bloodgroup: A
     module_prefixes:
-      - agentkit.kpi_analytics.design_system
+      - agentkit.backend.kpi_analytics.design_system
     parent_group_id: architecture-conformance.group.kpi_analytics
     exposure: internal
     component_kind: domain
@@ -1206,7 +1206,7 @@ component_groups:
     name: ProjectManagement
     bloodgroup: A
     module_prefixes:
-      - agentkit.project_management
+      - agentkit.backend.project_management
     parent_group_id: null
     exposure: top
     top_surface_modules: []
@@ -1226,7 +1226,7 @@ component_groups:
     name: TaskManagement
     bloodgroup: A
     module_prefixes:
-      - agentkit.task_management
+      - agentkit.backend.task_management
     parent_group_id: null
     exposure: top
     top_surface_modules: []
@@ -1278,7 +1278,7 @@ boundary_modules:
     bloodgroup: R
     boundary_kind: entry_boundary
     module_prefixes:
-      - agentkit.cli
+      - agentkit.backend.cli
     importable_by: []
     may_import_component_groups: any
     may_import_boundary_modules:
@@ -1290,10 +1290,10 @@ boundary_modules:
       - architecture-conformance.boundary.control_plane_runtime
       # AG3-076 (REMEDIATION-2): The state_backend_repository grant has been
       # removed. The operator/recovery CLI (AG3-076) routes ALL state-backend
-      # reads through agentkit.bootstrap.composition_root wrapper functions
+      # reads through agentkit.backend.bootstrap.composition_root wrapper functions
       # (cli_load_story_context, cli_read_phase_state_record,
       # cli_load_execution_events_for_project_global) so the CLI never imports
-      # agentkit.state_backend.store directly. The agentkit.bootstrap module is
+      # agentkit.backend.state_backend.store directly. The agentkit.backend.bootstrap module is
       # not a classified boundary module (it is a wiring layer accessible to
       # entry boundaries under may_import_component_groups: any); no additional
       # boundary grant is required for the CLI to use composition_root.
@@ -1303,8 +1303,8 @@ boundary_modules:
     bloodgroup: R
     boundary_kind: entry_boundary
     module_prefixes:
-      - agentkit.control_plane_http
-      - agentkit.control_plane.http
+      - agentkit.backend.control_plane_http
+      - agentkit.backend.control_plane.http
     importable_by:
       - architecture-conformance.boundary.cli
     may_import_component_groups: any
@@ -1326,8 +1326,8 @@ boundary_modules:
     bloodgroup: R
     boundary_kind: adapter_boundary
     module_prefixes:
-      - agentkit.control_plane.models
-      - agentkit.control_plane.records
+      - agentkit.backend.control_plane.models
+      - agentkit.backend.control_plane.records
     importable_by: any
     may_import_component_groups:
       - architecture-conformance.group.telemetry
@@ -1345,9 +1345,9 @@ boundary_modules:
     bloodgroup: R
     boundary_kind: adapter_boundary
     module_prefixes:
-      - agentkit.control_plane.runtime
-      - agentkit.control_plane.repository
-      - agentkit.control_plane.telemetry
+      - agentkit.backend.control_plane.runtime
+      - agentkit.backend.control_plane.repository
+      - agentkit.backend.control_plane.telemetry
     importable_by: any
     may_import_component_groups: any
     may_import_boundary_modules:
@@ -1370,7 +1370,7 @@ boundary_modules:
     bloodgroup: R
     boundary_kind: adapter_boundary
     module_prefixes:
-      - agentkit.integrations
+      - agentkit.integration_clients
     importable_by: any
     may_import_component_groups: []
     may_import_boundary_modules:
@@ -1382,7 +1382,7 @@ boundary_modules:
     bloodgroup: R
     boundary_kind: adapter_boundary
     module_prefixes:
-      - agentkit.projectedge
+      - agentkit.harness_client.projectedge
     importable_by: any
     may_import_component_groups: []
     may_import_boundary_modules:
@@ -1396,7 +1396,7 @@ boundary_modules:
     bloodgroup: R
     boundary_kind: adapter_boundary
     module_prefixes:
-      - agentkit.concept_catalog
+      - agentkit.backend.concept_catalog
     importable_by: any
     may_import_component_groups: []
     may_import_boundary_modules:
@@ -1416,7 +1416,7 @@ boundary_modules:
     bloodgroup: R
     boundary_kind: adapter_boundary
     module_prefixes:
-      - agentkit.multi_llm_hub
+      - agentkit.integration_clients.multi_llm_hub
     importable_by: any
     may_import_component_groups: []
     may_import_boundary_modules:
@@ -1434,7 +1434,7 @@ boundary_modules:
     bloodgroup: R
     boundary_kind: adapter_boundary
     module_prefixes:
-      - agentkit.auth
+      - agentkit.backend.auth
     importable_by: any
     may_import_component_groups: []
     may_import_boundary_modules:
@@ -1449,7 +1449,7 @@ boundary_modules:
     bloodgroup: R
     boundary_kind: adapter_boundary
     module_prefixes:
-      - agentkit.state_backend.store
+      - agentkit.backend.state_backend.store
     importable_by: any
     may_import_component_groups: any
     may_import_boundary_modules:
@@ -1472,7 +1472,7 @@ boundary_modules:
     bloodgroup: R
     boundary_kind: adapter_boundary
     module_prefixes:
-      - agentkit.state_backend.scope
+      - agentkit.backend.state_backend.scope
     importable_by: any
     may_import_component_groups: any
     may_import_boundary_modules:
@@ -1492,7 +1492,7 @@ boundary_modules:
     bloodgroup: R
     boundary_kind: config_foundation
     module_prefixes:
-      - agentkit.config
+      - agentkit.backend.config
     importable_by: any
     may_import_component_groups: []
     may_import_boundary_modules:
@@ -1509,7 +1509,7 @@ boundary_modules:
     boundary_kind: shared_foundation
     module_prefixes:
       - agentkit.shared
-      - agentkit.exceptions
+      - agentkit.backend.exceptions
     importable_by: any
     may_import_component_groups: []
     may_import_boundary_modules: []
@@ -1529,7 +1529,7 @@ boundary_modules:
     bloodgroup: A
     boundary_kind: domain_core_foundation
     module_prefixes:
-      - agentkit.core_types
+      - agentkit.backend.core_types
     importable_by: any
     may_import_component_groups: []
     may_import_boundary_modules: []
@@ -1544,7 +1544,7 @@ boundary_modules:
     # 0, in jedes Projekt kopierbar) traegt core_types Domaenenwissen und
     # ist deshalb KEINE Null-Software. Aber wie shared ein importierbares
     # Blattmodul ohne I/O: es importiert NUR stdlib/pydantic und sich
-    # selbst (agentkit.core_types.*), nichts anderes AK3-Spezifisches
+    # selbst (agentkit.backend.core_types.*), nichts anderes AK3-Spezifisches
     # (may_import_component_groups: [] und may_import_boundary_modules:
     # []). Damit kann JEDER Konsument — A-BCs ebenso wie die R-Adapter-
     # Boundaries control_plane.models / control_plane.runtime /
@@ -1564,8 +1564,8 @@ boundary_modules:
     bloodgroup: R
     boundary_kind: infrastructure_io
     module_prefixes:
-      - agentkit.boundary.filesystem
-      - agentkit.state_backend.paths
+      - agentkit.backend.boundary.filesystem
+      - agentkit.backend.state_backend.paths
     importable_by: any
     may_import_component_groups: []
     may_import_boundary_modules:
@@ -1575,7 +1575,7 @@ boundary_modules:
     # Schreiben passiert hier. Verhindert, dass A-BCs Filesystem-I/O
     # direkt importieren.
     #
-    # `agentkit.state_backend.paths` haelt Filesystem-Pfad-Konstanten
+    # `agentkit.backend.state_backend.paths` haelt Filesystem-Pfad-Konstanten
     # (STATE_DB_DIR/STATE_DB_FILE/LAYER_ARTIFACT_FILES/...) und
     # gehoert konzeptionell hierher; physisch unter state_backend/
     # bis Phase E den Pfad konsolidiert.
@@ -1591,11 +1591,11 @@ boundary_modules:
     bloodgroup: T
     boundary_kind: infrastructure_driver
     module_prefixes:
-      - agentkit.state_backend.postgres_store
-      - agentkit.state_backend.sqlite_store
-      - agentkit.state_backend.config
-      - agentkit.state_backend.schema_bootstrap
-      - agentkit.state_backend.migration
+      - agentkit.backend.state_backend.postgres_store
+      - agentkit.backend.state_backend.sqlite_store
+      - agentkit.backend.state_backend.config
+      - agentkit.backend.state_backend.schema_bootstrap
+      - agentkit.backend.state_backend.migration
     importable_by:
       - architecture-conformance.boundary.state_backend_repository
     may_import_component_groups: []

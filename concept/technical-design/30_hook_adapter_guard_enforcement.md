@@ -346,7 +346,7 @@ vorliegen; andernfalls `binding_invalid` bzw. Blockade.
 |----------|------|
 | Aufrufer | Installer (BC 12, FK-50 CP 9) |
 | Eingabe | `hook_definitions: list[HookDefinition]` |
-| Effekt | Schreibt die harness-spezifische Settings-Datei (Beispiel Claude Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent) ueber den Harness-Adapter — Owner: `agentkit.governance.guard_system` plus zugehoeriger Adapter |
+| Effekt | Schreibt die harness-spezifische Settings-Datei (Beispiel Claude Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent) ueber den Harness-Adapter — Owner: `agentkit.backend.governance.guard_system` plus zugehoeriger Adapter |
 | Idempotenz | Ja — bestehende identische Hook-Eintraege werden nicht doppelt eingetragen; veraltete oder abweichende Eintraege werden ueberschrieben |
 | Fehlerverhalten | Fail-closed: kaputte Settings-Datei (z. B. ungueltiges JSON in `.claude/settings.json`) fuehrt zu Exception, kein stilles Weiterlaufen |
 
@@ -355,7 +355,7 @@ vorliegen; andernfalls `binding_invalid` bzw. Blockade.
 und `command` (str).
 
 Die interne Settings-Manipulation liegt ausschliesslich bei
-`agentkit.governance.guard_system` und dem zugehoerigen Harness-Adapter.
+`agentkit.backend.governance.guard_system` und dem zugehoerigen Harness-Adapter.
 Der Installer haelt keinen eigenen Schreibpfad fuer harness-spezifische
 Settings — er delegiert vollstaendig.
 
@@ -364,7 +364,7 @@ Hooks werden in der harness-spezifischen Settings-Datei (Claude Code:
 Der Installer (Checkpoint 8 / FK-50 CP 9) ruft dazu
 `Governance.register_hooks(hook_definitions)` auf (Top-Surface von BC
 `governance-and-guards`). Die JSON-/TOML-Manipulation gehoert zu
-`agentkit.governance.guard_system` plus dem Harness-Adapter.
+`agentkit.backend.governance.guard_system` plus dem Harness-Adapter.
 
 Beispiel der eingetragenen Eintraege (Claude-Code-Materialisierung;
 Tool-Matcher sind dabei Claude-Code-Tool-Namen — der Codex-Adapter
@@ -445,8 +445,8 @@ ruft den Codex-/Claude-Adapter zur Normalisierung auf das
 `HookEvent`-Schema und trifft dann die harness-neutrale
 `Governance`-Top-Surface mit dem benannten Hook-Identifikator.
 Die konkreten Implementierungs-Module liegen unter
-`agentkit.governance.guards.{branch,orchestrator,...}` bzw.
-`agentkit.governance.guard_system.*` und sind nicht direkt vom
+`agentkit.backend.governance.guards.{branch,orchestrator,...}` bzw.
+`agentkit.backend.governance.guard_system.*` und sind nicht direkt vom
 Harness aus aufrufbar.
 
 ### 30.3.2 Matcher-Syntax
@@ -561,19 +561,19 @@ Immer PreToolUse. Exit 0 oder 2.
 | `adversarial_guard` | Adversarial schreibt außerhalb Sandbox (Story-Execution) | Kap. 31.6 |
 | `self_protection` | Governance-Dateien manipuliert (immer aktiv) | Kap. 30.5.3 |
 | `story_creation_guard` | Direkte Story-Backend-Mutationen am Skill vorbei | Kap. 31.5 |
-| `budget` | Web-Calls über Limit (nur Research) — Event-Emission: `agentkit.telemetry.hooks`; blockierender Anteil: `agentkit.governance.guard_system.WebCallBudgetGuard` | Kap. 68.6 |
-| `skill_usage_check` | Agent ruft Tool-Methode ad-hoc auf, obwohl ein passender Skill existiert und dessen Voraussetzung erfuellt ist — blockiert Tool-Call, fordert Skill-Aufruf. Sub: `agentkit.governance.guard_system`. Normative Erkennungsregeln (F-43-030): FK-43 §43.6.2. | FK-43 §43.6.2 |
+| `budget` | Web-Calls über Limit (nur Research) — Event-Emission: `agentkit.backend.telemetry.hooks`; blockierender Anteil: `agentkit.backend.governance.guard_system.WebCallBudgetGuard` | Kap. 68.6 |
+| `skill_usage_check` | Agent ruft Tool-Methode ad-hoc auf, obwohl ein passender Skill existiert und dessen Voraussetzung erfuellt ist — blockiert Tool-Call, fordert Skill-Aufruf. Sub: `agentkit.backend.governance.guard_system`. Normative Erkennungsregeln (F-43-030): FK-43 §43.6.2. | FK-43 §43.6.2 |
 | `health_monitor pre` | Worker-Stagnation/Loop erkannt (Score-basiert) | §30.10.2 |
 
 ### 30.5.1a Klasse `WebCallBudgetGuard` (governance.guard_system)
 
-**Klasse: `agentkit.governance.guard_system.WebCallBudgetGuard`**
+**Klasse: `agentkit.backend.governance.guard_system.WebCallBudgetGuard`**
 
 | Attribut | Wert |
 |----------|------|
-| Klassenpfad | `agentkit.governance.guard_system.WebCallBudgetGuard` |
+| Klassenpfad | `agentkit.backend.governance.guard_system.WebCallBudgetGuard` |
 | Verantwortung | Schwellenwert-Pruefung des Web-Call-Counters gegen das konfigurierte Budget-Limit; Block-Aktion (exit 2) bei Ueberschreitung des Hard-Limits fuer Research-Stories |
-| Eingangs-Signal | `web_call`-Event, emittiert von `agentkit.telemetry.hooks.BudgetEventEmitter` (PostToolUse fuer WebSearch/WebFetch) |
+| Eingangs-Signal | `web_call`-Event, emittiert von `agentkit.backend.telemetry.hooks.BudgetEventEmitter` (PostToolUse fuer WebSearch/WebFetch) |
 | Konfiguration | Hard-Limit pro Pool/Story: `telemetry.web_call_limit` (Default: 200); Warnschwelle: `telemetry.web_call_warning` (Default: 180) |
 | Scope | Nur Research-Stories (`story_type == "research"`); bei allen anderen Story-Typen: kein Blockieren |
 | Entscheidungslogik | Counter-Lesen aus State-Backend; Count < Warnschwelle → exit 0; Count >= Warnschwelle → exit 0 + Warnung; Count >= Hard-Limit → exit 2 (Blockade) |
@@ -581,9 +581,9 @@ Immer PreToolUse. Exit 0 oder 2.
 
 **Begruendung der Trennung (FK-68 §68.6.0):** Telemetrie-Hooks sind
 rein observational; Blocking-Entscheidungen sind Governance-Verantwortung.
-`BudgetEventEmitter` in `agentkit.telemetry.hooks.budget` schreibt das
+`BudgetEventEmitter` in `agentkit.backend.telemetry.hooks.budget` schreibt das
 `web_call`-Event ohne Blockieren. `WebCallBudgetGuard` in
-`agentkit.governance.guard_system` liest den Counter und entscheidet.
+`agentkit.backend.governance.guard_system` liest den Counter und entscheidet.
 
 ### 30.5.2 Telemetrie-Hooks (observational)
 
@@ -693,7 +693,7 @@ Governance-Dateien manipulieren.
 | Aufrufer | ClosureSequence (BC 7 / FK-29 §29.5) |
 | Eingabe | `story_id: StoryId` |
 | Effekt | Setzt alle Lock-Records fuer die Story auf inaktiv; entfernt optionale Lock-Exporte (`_temp/governance/locks/{story_id}/qa-lock.json`, `.agent-guard/lock.json` in betroffenen Worktrees); schaltet den Betriebsmodus zurueck auf `ai_augmented` |
-| Owner | `agentkit.governance.guard_system` (Lock-Record-Verwaltung als Sub von guard_system) |
+| Owner | `agentkit.backend.governance.guard_system` (Lock-Record-Verwaltung als Sub von guard_system) |
 | Idempotenz | Ja — mehrfaches Aufrufen fuer dieselbe Story-ID hat denselben Effekt wie einmaliges Aufrufen |
 | Fehlerverhalten | Fail-closed bei unbekannter Story-ID: Exception, kein stilles Ignorieren; Closure-Phase darf den Lock nicht "leise vergessen" |
 

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import os
 
-from agentkit.governance.guards.scope_guard import ScopeGuard
-from agentkit.governance.protocols import ViolationType
+from agentkit.backend.governance.guards.scope_guard import ScopeGuard
+from agentkit.backend.governance.protocols import ViolationType
 
 
 class TestScopeGuardAllowed:

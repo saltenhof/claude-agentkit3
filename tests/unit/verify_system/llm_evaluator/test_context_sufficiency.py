@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 
-from agentkit.verify_system.llm_evaluator.context_sufficiency import (
+from agentkit.backend.verify_system.llm_evaluator.context_sufficiency import (
     CONTEXT_SUFFICIENCY_STAGE,
     ContextSufficiencyBuilder,
     SufficiencyLevel,
 )
-from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput
+from agentkit.backend.verify_system.llm_evaluator.inputs import Layer2ReviewInput
 
 
 def test_builder_loads_four_loader_fields_and_caller_fields(tmp_path) -> None:

@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from agentkit.verify_system.contract import (
+from agentkit.backend.verify_system.contract import (
     PhaseEnvelopeView,
     VerifyContextBundle,
     VerifyTarget,

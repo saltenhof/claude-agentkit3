@@ -15,10 +15,10 @@ path root mirrors ``installer.paths.QA_DIR`` (one path truth, E4).
 
 from __future__ import annotations
 
-from agentkit.core_types import PolicyVerdict
-from agentkit.installer.paths import QA_DIR
-from agentkit.verify_system.contract import PolicyVerdictResult
-from agentkit.verify_system.qa_cycle.invalidation import (
+from agentkit.backend.core_types import PolicyVerdict
+from agentkit.backend.installer.paths import QA_DIR
+from agentkit.backend.verify_system.contract import PolicyVerdictResult
+from agentkit.backend.verify_system.qa_cycle.invalidation import (
     CYCLE_BOUND_QA_ARTIFACTS,
     QA_ARTIFACT_SUBDIR,
     STALE_SUBDIR,
@@ -33,7 +33,7 @@ class TestCycleBoundArtifactContract:
         truth — not a test-local duplicate. A drift in any QA filename in the
         SSOT that is NOT mirrored into the invalidation set breaks this test.
         """
-        from agentkit.core_types.qa_artifact_names import (
+        from agentkit.backend.core_types.qa_artifact_names import (
             ALL_QA_ARTIFACT_FILES,
             GUARDRAIL_FILE,
         )

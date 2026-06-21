@@ -19,8 +19,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentkit.kpi_analytics.catalog import KpiCatalog
-from agentkit.kpi_analytics.fact_store.models import (
+from agentkit.backend.kpi_analytics.catalog import KpiCatalog
+from agentkit.backend.kpi_analytics.fact_store.models import (
     FactCorpusPeriod,
     FactGuardPeriod,
     FactPipelinePeriod,
@@ -29,8 +29,8 @@ from agentkit.kpi_analytics.fact_store.models import (
     KpiQueryFilter,
     PeriodFilter,
 )
-from agentkit.kpi_analytics.top import KpiAnalytics
-from agentkit.kpi_analytics.views import DashboardViewStatus
+from agentkit.backend.kpi_analytics.top import KpiAnalytics
+from agentkit.backend.kpi_analytics.views import DashboardViewStatus
 
 _NOW = datetime(2026, 1, 1, tzinfo=UTC)
 _END = datetime(2026, 12, 31, tzinfo=UTC)
@@ -279,7 +279,7 @@ def test_kpi_analytics_top_does_not_import_story_service() -> None:
     checks the module's actual imports (not docstrings that may reference
     StoryService as a negative example).
     """
-    import agentkit.kpi_analytics.top as top_module
+    import agentkit.backend.kpi_analytics.top as top_module
 
     # Check imports in the module, not docstrings.
     # StoryService must not be imported (directly or transitively at module level).
@@ -289,7 +289,7 @@ def test_kpi_analytics_top_does_not_import_story_service() -> None:
         "kpi_analytics.top must NOT import StoryService; "
         "live-read port is not implemented (AG3-084 §2.2)"
     )
-    # Also confirm agentkit.story is not a direct module-level import
+    # Also confirm agentkit.backend.story is not a direct module-level import
     # (only TYPE_CHECKING imports are acceptable, which don't execute).
     story_module = vars(top_module).get("agentkit")
     assert story_module is None, (
@@ -299,7 +299,7 @@ def test_kpi_analytics_top_does_not_import_story_service() -> None:
 
 def test_kpi_analytics_http_routes_does_not_import_story_service() -> None:
     """Contract AC8: kpi_analytics.http.routes module does NOT import StoryService."""
-    import agentkit.kpi_analytics.http.routes as routes_module
+    import agentkit.backend.kpi_analytics.http.routes as routes_module
 
     source = inspect.getsource(routes_module)
     assert "StoryService" not in source, (
@@ -317,9 +317,9 @@ def test_get_story_metrics_does_not_call_story_service_list_stories() -> None:
 
     A spy StoryService that raises on list_stories() must NOT be triggered.
     """
-    from agentkit.kpi_analytics.dashboard.service import DashboardService
-    from agentkit.story.models import StoryListResponse  # noqa: TC001
-    from agentkit.story.service import StoryService
+    from agentkit.backend.kpi_analytics.dashboard.service import DashboardService
+    from agentkit.backend.story.models import StoryListResponse  # noqa: TC001
+    from agentkit.backend.story.service import StoryService
 
     class _SpyStoryService(StoryService):
         def list_stories(self, project_key: str) -> StoryListResponse:
@@ -342,9 +342,9 @@ def test_get_story_metrics_does_not_call_story_service_list_stories() -> None:
 
 def test_get_board_still_reads_story_service() -> None:
     """Contract regression: get_board (live Kanban) still uses StoryService.list_stories."""
-    from agentkit.kpi_analytics.dashboard.service import DashboardService
-    from agentkit.story.models import StoryListResponse
-    from agentkit.story.service import StoryService
+    from agentkit.backend.kpi_analytics.dashboard.service import DashboardService
+    from agentkit.backend.story.models import StoryListResponse
+    from agentkit.backend.story.service import StoryService
 
     called: list[str] = []
 
@@ -376,7 +376,7 @@ def test_reset_story_purged_upstream_is_absent_from_kpi() -> None:
     """
     from datetime import UTC, datetime
 
-    from agentkit.kpi_analytics.dashboard.service import DashboardService
+    from agentkit.backend.kpi_analytics.dashboard.service import DashboardService
 
     clean_story = FactStory(
         project_key="tenant-a",
@@ -436,7 +436,7 @@ def test_no_late_query_fix_in_get_story_metrics_source() -> None:
     runtime compensation column.  (Docstring mentions of 'reset' or 'purge'
     are documentation, not compensating logic.)
     """
-    from agentkit.kpi_analytics.dashboard import service as svc_module
+    from agentkit.backend.kpi_analytics.dashboard import service as svc_module
 
     source = inspect.getsource(svc_module.DashboardService.get_story_metrics)
     # Compensating query logic keywords that would indicate an inline late-fix.

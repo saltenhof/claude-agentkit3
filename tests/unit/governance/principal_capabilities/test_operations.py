@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from agentkit.governance.principal_capabilities import OperationClass, OperationClassifier
-from agentkit.governance.principal_capabilities.operations import (
+from agentkit.backend.governance.principal_capabilities import OperationClass, OperationClassifier
+from agentkit.backend.governance.principal_capabilities.operations import (
     bash_mutation_targets,
     is_subagent_spawn,
 )

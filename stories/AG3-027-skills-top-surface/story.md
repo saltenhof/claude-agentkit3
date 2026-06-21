@@ -238,7 +238,7 @@ Diese Story liefert nur `Skills.bind_skill` als konsumierbare Top-Surface plus e
 6. **`PlaceholderSubstitutor` ersetzt die vier Pflicht-Platzhalter** korrekt. Unbekannte Platzhalter -> `UnknownPlaceholderError`.
 7. **Persistenz-Protocol**: `SkillBindingRepository`-Protocol ist definiert; InMemory-Implementierung liegt im Skills-BC und ist Unit-/Contract-test-fest. **Produktive SQLite/Postgres-Persistenz ist explizit AG3-048**.
 8. **Installer-Konsumierbarkeits-Probe**: Contract-Test beweist, dass `Skills.bind_skill` mit der vom Installer erwarteten Signatur aufrufbar ist (keine tatsaechliche Aenderung am Installer in dieser Story — siehe AG3-048).
-9. **Architecture-Conformance**: `agentkit.skills` importiert nur aus `agentkit.core_types`, `agentkit.artifacts` (ggf. fuer Bundle-Records spaeter — heute optional), `agentkit.config` (PipelineConfig); nicht direkt aus `agentkit.state_backend.store`-Fassaden.
+9. **Architecture-Conformance**: `agentkit.backend.skills` importiert nur aus `agentkit.backend.core_types`, `agentkit.backend.artifacts` (ggf. fuer Bundle-Records spaeter — heute optional), `agentkit.backend.config` (PipelineConfig); nicht direkt aus `agentkit.backend.state_backend.store`-Fassaden.
 10. **Pflichtbefehle gruen**: pytest unit + contract; mypy --strict; ruff clean; Coverage haelt 85%.
 
 ## 5. Definition of Done

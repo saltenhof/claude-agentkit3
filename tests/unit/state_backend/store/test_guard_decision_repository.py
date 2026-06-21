@@ -5,11 +5,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from agentkit.governance.guard_system.records import (
+from agentkit.backend.governance.guard_system.records import (
     GuardDecision,
     GuardDecisionOutcome,
 )
-from agentkit.state_backend.store.guard_decision_repository import (
+from agentkit.backend.state_backend.store.guard_decision_repository import (
     GuardDecisionRepository,
 )
 

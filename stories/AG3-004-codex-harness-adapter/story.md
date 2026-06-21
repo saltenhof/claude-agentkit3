@@ -12,10 +12,10 @@
 AK3 muss **ab Tag 1 zwei Harnesses parallel** unterstuetzen — Claude
 Code und Codex. Der Claude-Code-Adapter existiert in `agentkit.
 governance.harness_adapters.claude_code` (mit Backward-Compat-Pfad
-`agentkit.governance.hookruntime`). Der Codex-Adapter fehlt.
+`agentkit.backend.governance.hookruntime`). Der Codex-Adapter fehlt.
 
 Beide Adapter mappen die harness-spezifische Hook-Mechanik auf die
-generische `HookEvent`-Struktur in `agentkit.governance.guard_evaluation`
+generische `HookEvent`-Struktur in `agentkit.backend.governance.guard_evaluation`
 (harness-neutraler A-Kern). Damit funktioniert der gesamte Guard-/
 Capability-/Worker-Health-Apparat fuer beide Harnesses gleichermassen.
 
@@ -23,7 +23,7 @@ Capability-/Worker-Health-Apparat fuer beide Harnesses gleichermassen.
 
 ### In Scope
 
-- Neues Modul `agentkit.governance.harness_adapters.codex` als
+- Neues Modul `agentkit.harness_client.harness_adapters.codex` als
   AT-Insel (Bluttyp A, fachlich Mediation; siehe FK-30 §30.11.3)
 - Eingangs-Mapping: Codex-Hook-Event → generische `HookEvent`
   - Tool-Namen-Mapping auf `operation` (mutating: `bash_command`,
@@ -72,7 +72,7 @@ Capability-/Worker-Health-Apparat fuer beide Harnesses gleichermassen.
 
 ## Akzeptanzkriterien
 
-1. **`agentkit.governance.harness_adapters.codex`-Modul existiert** und ist als A-Sub von `governance` in `entities.md` modelliert (analog zu `harness_adapters_claude_code`).
+1. **`agentkit.harness_client.harness_adapters.codex`-Modul existiert** und ist als A-Sub von `governance` in `entities.md` modelliert (analog zu `harness_adapters_claude_code`).
 2. **Eingangs-Mapping vollstaendig**: alle Codex-Tool-Namen werden auf eine `HookEvent.operation` abgebildet; unbekannte Tools werden auf `unknown_tool` gemappt.
 3. **Ausgangs-Mapping vollstaendig**: jede `GuardVerdict`-Decision wird auf das Codex-spezifische Output-Format gemappt (Block/Allow, Begruendung).
 4. **Roundtrip funktioniert**: synthetischer Codex-Hook-Event durch Adapter → `evaluate_pre_tool_use` → Decision → Codex-Output.
@@ -92,7 +92,7 @@ Capability-/Worker-Health-Apparat fuer beide Harnesses gleichermassen.
 
 - FK-30 (`concept/technical-design/30_hook_adapter_guard_enforcement.md`) §30.11 — Multi-Harness-Festlegung
 - `concept/methodology/software-blutgruppen.md` §4.2 — AT-Mediation als legitime Mischform
-- `agentkit.governance.harness_adapters.claude_code` als Referenz-Implementation
+- `agentkit.harness_client.harness_adapters.claude_code` als Referenz-Implementation
 
 ## Guardrail-Referenzen
 

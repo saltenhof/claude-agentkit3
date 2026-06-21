@@ -3,7 +3,7 @@
 These tests exercise REAL production code (no fantasised pipeline state):
 
   - the genuine closure-step-4 function
-    ``agentkit.closure.phase._transition_story_done`` (called by
+    ``agentkit.backend.closure.phase._transition_story_done`` (called by
     ``ClosurePhaseHandler.on_enter`` step 4) delegating to the single
     ``StoryService.complete_story`` ``In Progress -> Done`` path; and
   - the existing administrative ``StoryService.cancel_story`` path
@@ -17,23 +17,23 @@ thus ``derive_terminal_state == Cancelled``) is a VALID result.
 
 from __future__ import annotations
 
-from agentkit.closure.phase import ClosureConfig, _transition_story_done
-from agentkit.project_management.entities import (
+from agentkit.backend.closure.phase import ClosureConfig, _transition_story_done
+from agentkit.backend.project_management.entities import (
     Project,
     ProjectConfiguration,
 )
-from agentkit.story_context_manager.idempotency import (
+from agentkit.backend.story_context_manager.idempotency import (
     InMemoryIdempotencyKeyRepository,
 )
-from agentkit.story_context_manager.service import StoryService
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.story_context_manager.service import StoryService
+from agentkit.backend.story_context_manager.story_model import (
     CreateStoryInput,
     Story,
     StoryStatus,
     WireStoryType,
 )
-from agentkit.story_context_manager.story_repository import InMemoryStoryRepository
-from agentkit.story_context_manager.terminal_state import (
+from agentkit.backend.story_context_manager.story_repository import InMemoryStoryRepository
+from agentkit.backend.story_context_manager.terminal_state import (
     TerminalState,
     derive_terminal_state,
 )

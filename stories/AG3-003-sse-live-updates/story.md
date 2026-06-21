@@ -29,12 +29,12 @@ Endpoints (FK-91 §91.8):
 
 ### In Scope
 
-- SSE-Endpoint `/v1/projects/{project_key}/events` in `agentkit.telemetry.http`
+- SSE-Endpoint `/v1/projects/{project_key}/events` in `agentkit.backend.telemetry.http`
   - Query-Parameter `?topics=stories,phases,gates,governance,closure,artifacts,telemetry,kpi,planning,failure_corpus,coverage`
   - Server filtert serverseitig pro `project_key` und Topics
   - SSE-Format: `event:`, `data:` (JSON), Heartbeat alle 30 Sekunden
   - Lossy: bei Backpressure Events droppen (kein Buffering ohne Limit)
-- SSE-Endpoint `/v1/events/hub` in `agentkit.multi_llm_hub.http`
+- SSE-Endpoint `/v1/events/hub` in `agentkit.integration_clients.multi_llm_hub.http`
   - Query-Parameter `?topics=backend_status,sessions,session_messages`
   - Same Lossy-Verhalten
 - Telemetry-Producer-Mechanik:

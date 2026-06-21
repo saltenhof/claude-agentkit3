@@ -14,15 +14,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.core_types import FailureCategory, IncidentStatus
-from agentkit.failure_corpus import IncidentDraft, IncidentRole, IncidentSeverity
-from agentkit.state_backend.store.projection_repositories import (
+from agentkit.backend.core_types import FailureCategory, IncidentStatus
+from agentkit.backend.failure_corpus import IncidentDraft, IncidentRole, IncidentSeverity
+from agentkit.backend.state_backend.store.projection_repositories import (
     build_projection_repositories,
 )
-from agentkit.telemetry.errors import (
+from agentkit.backend.telemetry.errors import (
     FCIncidentWriteViaDedicatedMethodError,
 )
-from agentkit.telemetry.projection_accessor import (
+from agentkit.backend.telemetry.projection_accessor import (
     ProjectionAccessor,
     ProjectionFilter,
     ProjectionKind,
@@ -41,7 +41,7 @@ def accessor(
 ) -> Iterator[ProjectionAccessor]:
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-    from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     yield ProjectionAccessor(build_projection_repositories(tmp_path))
@@ -113,8 +113,8 @@ def test_write_projection_fc_incidents_fail_closed(
     accessor: ProjectionAccessor,
 ) -> None:
     # FK-41 §41.3.1: id muss zurueckkommen -> generische write_projection verboten.
-    from agentkit.failure_corpus import Incident
-    from agentkit.failure_corpus.types import IncidentId
+    from agentkit.backend.failure_corpus import Incident
+    from agentkit.backend.failure_corpus.types import IncidentId
 
     incident = Incident(
         project_key="proj-a",
@@ -195,9 +195,9 @@ def test_cross_project_isolation(accessor: ProjectionAccessor) -> None:
 
 def test_fc_patterns_wrong_type_raises_mismatch(accessor: ProjectionAccessor) -> None:
     """AG3-078: FC_PATTERNS is accessor-owned; writing wrong type raises TypeMismatch."""
-    from agentkit.failure_corpus import Incident
-    from agentkit.failure_corpus.types import IncidentId
-    from agentkit.telemetry.errors import ProjectionRecordTypeMismatchError
+    from agentkit.backend.failure_corpus import Incident
+    from agentkit.backend.failure_corpus.types import IncidentId
+    from agentkit.backend.telemetry.errors import ProjectionRecordTypeMismatchError
 
     incident = Incident(
         project_key="proj-a",

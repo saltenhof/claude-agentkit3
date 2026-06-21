@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.governance.governance_observer.measures import select_measure
-from agentkit.governance.governance_observer.models import (
+from agentkit.backend.governance.governance_observer.measures import select_measure
+from agentkit.backend.governance.governance_observer.models import (
     AdjudicationSeverity,
     GovernanceMeasure,
 )

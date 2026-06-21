@@ -5,13 +5,13 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.project_management.errors import (
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.project_management.errors import (
     ProjectAlreadyArchivedError,
     ProjectImmutableFieldError,
     ProjectRepositoriesInvalidError,
 )
-from agentkit.project_management.lifecycle import (
+from agentkit.backend.project_management.lifecycle import (
     archive_project,
     create_project,
     update_configuration,

@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.process.language.gates import Gate
-from agentkit.process.language.guards import GuardResult
-from agentkit.process.language.model import (
+from agentkit.backend.process.language.gates import Gate
+from agentkit.backend.process.language.guards import GuardResult
+from agentkit.backend.process.language.model import (
     ExecutionPolicy,
     FlowLevel,
     HookPoints,
@@ -24,8 +24,8 @@ from agentkit.process.language.model import (
 )
 
 if TYPE_CHECKING:
-    from agentkit.pipeline_engine.phase_executor import PhaseState
-    from agentkit.story_context_manager.models import StoryContext
+    from agentkit.backend.pipeline_engine.phase_executor import PhaseState
+    from agentkit.backend.story_context_manager.models import StoryContext
 
 
 class TestYieldPoint:

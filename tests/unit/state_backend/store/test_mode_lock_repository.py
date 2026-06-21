@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.state_backend.store.mode_lock_repository import (
+from agentkit.backend.state_backend.store.mode_lock_repository import (
     ModeLockRecord,
     ModeLockRepository,
 )

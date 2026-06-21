@@ -17,8 +17,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.governance.guard_system.records import StoryExecutionLockRecord
-from agentkit.state_backend.config import (
+from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
+from agentkit.backend.state_backend.config import (
     ALLOW_SQLITE_ENV,
     STATE_BACKEND_ENV,
 )
@@ -75,7 +75,7 @@ def sqlite_env(
     # the SAME isolated DB. monkeypatch.chdir is auto-restored (no manual
     # try/finally crutch) and isolates per test.
     monkeypatch.chdir(tmp_path)
-    from agentkit.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     yield
@@ -92,7 +92,7 @@ class TestStoryExecutionLocksSchemaBootstrap:
 
     def test_table_created_by_ensure_schema(self, tmp_path: Path) -> None:
         """_ensure_schema_runtime_tables creates story_execution_locks."""
-        from agentkit.state_backend.sqlite_store import _connect
+        from agentkit.backend.state_backend.sqlite_store import _connect
 
         story_dir = tmp_path / "TEST-LOCK-SCHEMA"
         story_dir.mkdir(parents=True, exist_ok=True)
@@ -111,7 +111,7 @@ class TestStoryExecutionLocksSchemaBootstrap:
 
     def test_double_bootstrap_idempotent(self, tmp_path: Path) -> None:
         """Repeated bootstrap (CREATE TABLE IF NOT EXISTS) does not raise."""
-        from agentkit.state_backend.sqlite_store import _connect
+        from agentkit.backend.state_backend.sqlite_store import _connect
 
         story_dir = tmp_path / "TEST-LOCK-IDEM"
         story_dir.mkdir(parents=True, exist_ok=True)
@@ -147,7 +147,7 @@ class TestStoryExecutionLockSQLiteRoundtrip:
 
     def test_save_and_load(self, tmp_path: Path) -> None:
         """Persisted lock record is loadable with all fields intact."""
-        from agentkit.state_backend.store import (
+        from agentkit.backend.state_backend.store import (
             load_story_execution_lock_global,
             save_story_execution_lock_global,
         )
@@ -175,7 +175,7 @@ class TestStoryExecutionLockSQLiteRoundtrip:
 
     def test_load_nonexistent_returns_none(self, tmp_path: Path) -> None:
         """Loading a non-existent lock returns None."""
-        from agentkit.state_backend.store import load_story_execution_lock_global
+        from agentkit.backend.state_backend.store import load_story_execution_lock_global
 
         loaded = load_story_execution_lock_global(
             "no-proj", "no-story", "no-run", "story_execution"
@@ -185,7 +185,7 @@ class TestStoryExecutionLockSQLiteRoundtrip:
 
     def test_upsert_on_conflict(self, tmp_path: Path) -> None:
         """Second save with same PK updates the row (upsert semantics)."""
-        from agentkit.state_backend.store import (
+        from agentkit.backend.state_backend.store import (
             load_story_execution_lock_global,
             save_story_execution_lock_global,
         )
@@ -226,11 +226,11 @@ class TestStoryExecutionLockDeactivateRoundtrip:
 
     def test_activate_then_deactivate(self, tmp_path: Path) -> None:
         """Lock activated via save, then deactivated via LockRecordRepository."""
-        from agentkit.state_backend.store import (
+        from agentkit.backend.state_backend.store import (
             load_story_execution_lock_global,
             save_story_execution_lock_global,
         )
-        from agentkit.state_backend.store.lock_record_repository import (
+        from agentkit.backend.state_backend.store.lock_record_repository import (
             LockRecordRepository,
         )
 
@@ -254,8 +254,8 @@ class TestStoryExecutionLockDeactivateRoundtrip:
 
     def test_deactivate_unknown_story_raises(self, tmp_path: Path) -> None:
         """Deactivating a story with no lock records raises LockRecordNotFoundError."""
-        from agentkit.governance.errors import LockRecordNotFoundError
-        from agentkit.state_backend.store.lock_record_repository import (
+        from agentkit.backend.governance.errors import LockRecordNotFoundError
+        from agentkit.backend.state_backend.store.lock_record_repository import (
             LockRecordRepository,
         )
 
@@ -263,7 +263,7 @@ class TestStoryExecutionLockDeactivateRoundtrip:
 
         # Need schema to exist in that db first; trigger bootstrap via save.
         # Bootstrap the DB by saving a different story first.
-        from agentkit.state_backend.store import save_story_execution_lock_global
+        from agentkit.backend.state_backend.store import save_story_execution_lock_global
 
         bootstrap_record = _make_lock_record("bootstrap-story")
         save_story_execution_lock_global(bootstrap_record)
@@ -273,8 +273,8 @@ class TestStoryExecutionLockDeactivateRoundtrip:
 
     def test_idempotent_deactivation(self, tmp_path: Path) -> None:
         """Re-deactivating an already-inactive story returns empty list (idempotent)."""
-        from agentkit.state_backend.store import save_story_execution_lock_global
-        from agentkit.state_backend.store.lock_record_repository import (
+        from agentkit.backend.state_backend.store import save_story_execution_lock_global
+        from agentkit.backend.state_backend.store.lock_record_repository import (
             LockRecordRepository,
         )
 
@@ -309,15 +309,15 @@ class TestStoryExecutionLockPostgresRoundtrip:
     ) -> None:
         """Postgres roundtrip: activate then deactivate."""
         monkeypatch.setenv(STATE_BACKEND_ENV, "postgres")
-        from agentkit.state_backend.store import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
         reset_backend_cache_for_tests()
         try:
-            from agentkit.state_backend.store import (
+            from agentkit.backend.state_backend.store import (
                 load_story_execution_lock_global,
                 save_story_execution_lock_global,
             )
-            from agentkit.state_backend.store.lock_record_repository import (
+            from agentkit.backend.state_backend.store.lock_record_repository import (
                 LockRecordRepository,
             )
 

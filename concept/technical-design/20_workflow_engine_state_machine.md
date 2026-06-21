@@ -128,7 +128,7 @@ deterministische Laufzeitimplementierung.
 | `SetupPhase`, `ExplorationPhase`, `ImplementationPhase`, `ClosurePhase` | Subkomponenten der `PipelineEngine` | Innere Fachlogik je Phase. Output-QA wird intern aus `ExplorationPhase` (Exit-Gate, FK-23 §23.5) und `ImplementationPhase` (QA-Subflow, FK-27) gegen die Capability `VerifySystem` aufgerufen — kein eigenstaendiger `VerifyPhase`-Top-Knoten. |
 | `PreflightChecker`, `ModeResolver` | Subkomponenten von `SetupPhase` | Vorbedingungen und Modusermittlung |
 | `StructuralChecker`, `PolicyEngine` | Subkomponenten der Capability `VerifySystem` (BC verify-system) | Layer-1-Pruefung und finale Aggregation des QA-Subflows |
-| `IntegrityGate` | Sub von `agentkit.governance.integrity_gate` (BC governance-and-guards); wird von `ClosurePhase` aufgerufen | Vorbedingung fuer Merge/Abschluss |
+| `IntegrityGate` | Sub von `agentkit.backend.governance.integrity_gate` (BC governance-and-guards); wird von `ClosurePhase` aufgerufen | Vorbedingung fuer Merge/Abschluss |
 
 **Abgrenzung:** Der vollstaendige Story-Reset ist **keine**
 Subkomponente der `PipelineEngine`. Er ist eine separate
@@ -256,7 +256,7 @@ administrativ und schafft einen neuen sauberen Startzustand.
 ### 20.1.6 Evolution der bestehenden Workflow-DSL
 
 Die bereits implementierte Workflow-DSL unter
-`agentkit.pipeline_engine.flow_orchestrator` ist die **erste Auspraegung** der
+`agentkit.backend.pipeline_engine.flow_orchestrator` ist die **erste Auspraegung** der
 hierarchischen Prozess-DSL und wird nicht verworfen, sondern
 verallgemeinert.
 

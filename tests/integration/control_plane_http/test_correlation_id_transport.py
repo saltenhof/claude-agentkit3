@@ -1,6 +1,6 @@
 """Production-transport correlation-id round-trip (AG3-114 R2, Codex finding #2).
 
-The official :class:`~agentkit.projectedge.client.HttpsJsonTransport` sends the
+The official :class:`~agentkit.harness_client.projectedge.client.HttpsJsonTransport` sends the
 stable correlation id as the ``X-Correlation-Id`` request header (FK-91 §91.1a
 Regel #7). ``urllib.request.Request`` capitalizes header names on the wire
 (``X-Correlation-Id`` -> ``X-correlation-id``); HTTP header names are
@@ -24,11 +24,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.control_plane_http.app import (
+from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
     _build_handler,
 )
-from agentkit.projectedge.client import HttpsJsonTransport
+from agentkit.harness_client.projectedge.client import HttpsJsonTransport
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -77,7 +77,7 @@ def test_correlation_id_adopted_over_real_transport_on_error(
     the adopted id — which must equal the client's, proving the case-insensitive
     server lookup on the error path too.
     """
-    from agentkit.exceptions import ControlPlaneApiError
+    from agentkit.backend.exceptions import ControlPlaneApiError
 
     transport = HttpsJsonTransport(base_url=control_plane_base_url)
 

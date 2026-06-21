@@ -28,21 +28,21 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.closure.runtime_ports import ProductiveDocFidelityFeedbackPort
-from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.prompt_runtime.resources import (
+from agentkit.backend.closure.runtime_ports import ProductiveDocFidelityFeedbackPort
+from agentkit.backend.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.prompt_runtime.resources import (
     PROJECT_LOCK_RELPATH,
     load_prompt_template,
 )
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import (
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import (
     reset_backend_cache_for_tests,
     save_flow_execution,
     save_story_context,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path

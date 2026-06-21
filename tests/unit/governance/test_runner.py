@@ -7,27 +7,27 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.governance.guard_evaluation import HookEvent
-from agentkit.governance.guards.artifact_guard import ArtifactGuard
-from agentkit.governance.guards.branch_guard import BranchGuard
-from agentkit.governance.guards.scope_guard import ScopeGuard
-from agentkit.governance.protocols import GuardVerdict, ViolationType
-from agentkit.governance.runner import (
+from agentkit.backend.governance.guard_evaluation import HookEvent
+from agentkit.backend.governance.guards.artifact_guard import ArtifactGuard
+from agentkit.backend.governance.guards.branch_guard import BranchGuard
+from agentkit.backend.governance.guards.scope_guard import ScopeGuard
+from agentkit.backend.governance.protocols import GuardVerdict, ViolationType
+from agentkit.backend.governance.runner import (
     GuardRunner,
     _authoritative_required_roles,
     _event_tool,
     _is_code_producing_story,
     _resolve_local_story_type,
 )
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.story_repository import StateBackendStoryRepository
-from agentkit.story_context_manager.story_model import Story, WireStoryType
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.story_repository import StateBackendStoryRepository
+from agentkit.backend.story_context_manager.story_model import Story, WireStoryType
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from agentkit.governance.guard_system.records import GuardDecision
+    from agentkit.backend.governance.guard_system.records import GuardDecision
 
 _TYPE_TO_WIRE = {
     "implementation": WireStoryType.IMPLEMENTATION,
@@ -266,7 +266,7 @@ class TestResolveLocalStoryType:
     ) -> None:
         # FIX-A: a backend fault is UNRESOLVED (fail-closed downstream), never a
         # silently-downgraded story type. Force the repository read to raise.
-        import agentkit.state_backend.store.story_repository as story_repo_mod
+        import agentkit.backend.state_backend.store.story_repository as story_repo_mod
 
         def _boom(self: object, display_id: str) -> object:
             raise RuntimeError("backend down")

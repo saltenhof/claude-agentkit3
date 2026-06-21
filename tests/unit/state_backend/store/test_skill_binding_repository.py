@@ -26,14 +26,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.skills.binding import (
+from agentkit.backend.skills.binding import (
     SkillBinding,
     SkillBindingMode,
     SkillLifecycleStatus,
 )
-from agentkit.skills.repository import SkillBindingRepository
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store.skill_binding_repository import (
+from agentkit.backend.skills.repository import SkillBindingRepository
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store.skill_binding_repository import (
     StateBackendSkillBindingRepository,
 )
 
@@ -73,7 +73,7 @@ def _make_binding(
 def sqlite_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
-    from agentkit.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     yield
@@ -193,7 +193,7 @@ class TestSqliteRoundtrip:
         """A row written with an unknown status is rejected by the DB CHECK and,
         if forced past it, by the mapper (NO ERROR BYPASSING).
         """
-        from agentkit.state_backend.store.skill_binding_repository import (
+        from agentkit.backend.state_backend.store.skill_binding_repository import (
             _sqlite_connect,
         )
 
@@ -221,7 +221,7 @@ class TestSqliteRoundtrip:
     def test_db_check_rejects_non_symlink_mode(
         self, sqlite_env: None, tmp_path: Path
     ) -> None:
-        from agentkit.state_backend.store.skill_binding_repository import (
+        from agentkit.backend.state_backend.store.skill_binding_repository import (
             _sqlite_connect,
         )
 

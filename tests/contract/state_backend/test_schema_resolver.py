@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.state_backend.config import (
+from agentkit.backend.state_backend.config import (
     SCHEMA_OVERRIDE_ALLOWED_ENV,
     SCHEMA_OVERRIDE_ENV,
     resolve_schema_name,

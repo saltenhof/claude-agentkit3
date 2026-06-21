@@ -8,14 +8,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from agentkit.kpi_analytics.fact_store.models import (
+from agentkit.backend.kpi_analytics.fact_store.models import (
     FactCorpusPeriod,
     FactGuardPeriod,
     FactPipelinePeriod,
     FactPoolPeriod,
     FactStory,
 )
-from agentkit.kpi_analytics.http.wire_dto import map_fact_row_to_wire
+from agentkit.backend.kpi_analytics.http.wire_dto import map_fact_row_to_wire
 
 _NOW = datetime(2026, 3, 1, 12, 0, 0, tzinfo=UTC)
 _END = datetime(2026, 3, 31, 12, 0, 0, tzinfo=UTC)

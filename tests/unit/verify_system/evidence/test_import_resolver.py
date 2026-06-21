@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.verify_system.evidence import (
+from agentkit.backend.verify_system.evidence import (
     AuthorityClass,
     BundleEntry,
     ConfidenceLabel,
@@ -15,14 +15,14 @@ from agentkit.verify_system.evidence import (
     ImportResolver,
     RepoContext,
 )
-from agentkit.verify_system.evidence.import_resolver import (
+from agentkit.backend.verify_system.evidence.import_resolver import (
     CONFIDENCE_PRIORITY,
     JAVA_CLASS_DECL,
     JAVA_IMPORT,
     JAVA_PACKAGE,
     JAVA_TYPE_REFERENCE,
 )
-from agentkit.verify_system.structural.system_evidence import ChangeEvidence
+from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
 
 class StaticChangeEvidencePort:

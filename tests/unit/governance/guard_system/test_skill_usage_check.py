@@ -7,13 +7,13 @@ and its precondition is met; allow otherwise. Each block emits an
 
 from __future__ import annotations
 
-from agentkit.governance.guard_system import (
+from agentkit.backend.governance.guard_system import (
     SkillPrecondition,
     SkillUsageCheckGuard,
     SkillUsageObservation,
 )
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import EventType, validate_event_payload
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import EventType, validate_event_payload
 
 
 class _FakeBindingLookup:

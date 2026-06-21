@@ -23,15 +23,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.verify_system.llm_evaluator.inputs import Layer2InputMissingError, Layer2ReviewInput
-from agentkit.verify_system.llm_evaluator.reviewer import (
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.verify_system.llm_evaluator.inputs import Layer2InputMissingError, Layer2ReviewInput
+from agentkit.backend.verify_system.llm_evaluator.reviewer import (
     DocFidelityReviewer,
     QaReviewReviewer,
     SemanticReviewer,
 )
-from agentkit.verify_system.protocols import QALayer, Severity
+from agentkit.backend.verify_system.protocols import QALayer, Severity
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -160,7 +160,7 @@ class TestQaReviewReviewer:
         Pass-4 ERROR-5: pin empty-Layer2ReviewInput emits MAJOR ``layer2_input.missing``
         (no silent PASS) while overall result stays passed=True (no BLOCKING).
         """
-        from agentkit.verify_system.protocols import Severity
+        from agentkit.backend.verify_system.protocols import Severity
 
         _write_test_file(tmp_path, "test_feature.py", n_tests=3)
         (tmp_path / ".coverage").write_text("", encoding="utf-8")
@@ -291,7 +291,7 @@ class TestSemanticReviewer:
 
         Pass-4 ERROR-5: pin empty Layer2ReviewInput emits MAJOR ``layer2_input.missing``.
         """
-        from agentkit.verify_system.protocols import Severity
+        from agentkit.backend.verify_system.protocols import Severity
 
         result = SemanticReviewer().evaluate(_minimal_ctx(), tmp_path, review_input=_empty_ri())
         # layer2_input.missing emitted but no BLOCKING.
@@ -453,7 +453,7 @@ class TestDocFidelityReviewer:
 
         Pass-4 ERROR-5: pin empty Layer2ReviewInput emits MAJOR ``layer2_input.missing``.
         """
-        from agentkit.verify_system.protocols import Severity
+        from agentkit.backend.verify_system.protocols import Severity
 
         result = DocFidelityReviewer().evaluate(_minimal_ctx(), tmp_path, review_input=_empty_ri())
 

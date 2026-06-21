@@ -20,14 +20,14 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from agentkit.core_types import PolicyVerdict
+from agentkit.backend.core_types import PolicyVerdict
 
 if TYPE_CHECKING:
     from pathlib import Path
-from agentkit.story_context_manager.types import ImplementationContract, StoryType
-from agentkit.verify_system.policy_engine.engine import PolicyEngine
-from agentkit.verify_system.protocols import LayerResult
-from agentkit.verify_system.stage_registry import StageRegistry
+from agentkit.backend.story_context_manager.types import ImplementationContract, StoryType
+from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
+from agentkit.backend.verify_system.protocols import LayerResult
+from agentkit.backend.verify_system.stage_registry import StageRegistry
 
 _IS = ImplementationContract.INTEGRATION_STABILIZATION
 
@@ -169,15 +169,15 @@ def _make_approved_story_dir(tmp_path: Path) -> Path:
 
     Returns the story_dir ready for ``produce_stability_gate_layer_result``.
     """
-    from agentkit.integration_stabilization.models import (
+    from agentkit.backend.integration_stabilization.models import (
         IntegrationScopeManifest,
         ManifestApprovalRecord,
         StabilizationBudgetCaps,
     )
-    from agentkit.integration_stabilization.stability_gate_producer import (
+    from agentkit.backend.integration_stabilization.stability_gate_producer import (
         IS_TARGETS_FILE,
     )
-    from agentkit.integration_stabilization.state import (
+    from agentkit.backend.integration_stabilization.state import (
         save_integration_manifest,
         save_manifest_approval,
     )
@@ -242,7 +242,7 @@ class TestRealProducerToEngine:
         ``missing_checks`` -- proving the producer emits the correct prefixed
         stage id for ``integration.integration_target_matrix_passed``.
         """
-        from agentkit.integration_stabilization.stability_gate_producer import (
+        from agentkit.backend.integration_stabilization.stability_gate_producer import (
             produce_stability_gate_layer_result,
         )
 

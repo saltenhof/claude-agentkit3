@@ -14,7 +14,7 @@ from __future__ import annotations
 
 def test_projection_accessor_module_importable() -> None:
     """ProjectionAccessor und ProjectionKind sind korrekt importierbar."""
-    from agentkit.telemetry.projection_accessor import (
+    from agentkit.backend.telemetry.projection_accessor import (
         ProjectionKind,
     )
 
@@ -30,7 +30,7 @@ def test_projection_repositories_buildable() -> None:
     """build_projection_repositories kann ohne Fehler aufgerufen werden."""
     from pathlib import Path
 
-    from agentkit.state_backend.store.projection_repositories import (
+    from agentkit.backend.state_backend.store.projection_repositories import (
         build_projection_repositories,
     )
 
@@ -46,7 +46,7 @@ def test_composition_root_builds_accessor() -> None:
     """build_projection_accessor in Composition-Root funktioniert."""
     from pathlib import Path
 
-    from agentkit.bootstrap.composition_root import build_projection_accessor
+    from agentkit.backend.bootstrap.composition_root import build_projection_accessor
 
     accessor = build_projection_accessor(Path("."))
     assert accessor is not None

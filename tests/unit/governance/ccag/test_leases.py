@@ -1,4 +1,4 @@
-"""Tests for agentkit.governance.ccag.leases — consume-once Permission-Lease."""
+"""Tests for agentkit.backend.governance.ccag.leases — consume-once Permission-Lease."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.governance.ccag.leases import (
+from agentkit.backend.governance.ccag.leases import (
     LeaseExhaustedError,
     LeaseExpiredError,
     LeaseNotFoundError,

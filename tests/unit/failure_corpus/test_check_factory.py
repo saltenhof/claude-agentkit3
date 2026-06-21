@@ -21,17 +21,17 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from agentkit.core_types import CheckStatus, FailureCategory, PatternStatus
-from agentkit.failure_corpus.check_factory import (
+from agentkit.backend.core_types import CheckStatus, FailureCategory, PatternStatus
+from agentkit.backend.failure_corpus.check_factory import (
     F41_070_REFERENCE_EXAMPLE,
     CheckFactory,
     InvariantSharpenerPort,
     StoryCreationPort,
 )
-from agentkit.failure_corpus.errors import FailureCorpusError
-from agentkit.failure_corpus.pattern import FailurePatternRecord, PatternRiskLevel, PromotionRule
-from agentkit.failure_corpus.top import CheckApprovalDecision
-from agentkit.failure_corpus.types import CheckId, PatternId
+from agentkit.backend.failure_corpus.errors import FailureCorpusError
+from agentkit.backend.failure_corpus.pattern import FailurePatternRecord, PatternRiskLevel, PromotionRule
+from agentkit.backend.failure_corpus.top import CheckApprovalDecision
+from agentkit.backend.failure_corpus.types import CheckId, PatternId
 
 # ---------------------------------------------------------------------------
 # F-41-070 Reference Example gate
@@ -122,11 +122,11 @@ class TestDeriveCheck:
     ) -> tuple[object, object, CheckFactory]:
         monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
-        from agentkit.state_backend.store.fc_check_proposal_repository import (
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.fc_check_proposal_repository import (
             StateBackendFcCheckProposalRepository,
         )
-        from agentkit.state_backend.store.fc_pattern_repository import (
+        from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
 
@@ -145,7 +145,7 @@ class TestDeriveCheck:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _, _, factory = self._setup(tmp_path, monkeypatch)
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         try:
             with pytest.raises(FailureCorpusError, match="not found"):
@@ -157,7 +157,7 @@ class TestDeriveCheck:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         pattern_repo, _, factory = self._setup(tmp_path, monkeypatch)
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         try:
             # Save a REJECTED pattern
@@ -182,7 +182,7 @@ class TestDeriveCheck:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         pattern_repo, check_repo, factory = self._setup(tmp_path, monkeypatch)
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         try:
             # Save an ACCEPTED pattern
@@ -218,11 +218,11 @@ class TestDeriveCheck:
         """
         monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
-        from agentkit.state_backend.store.fc_check_proposal_repository import (
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.fc_check_proposal_repository import (
             StateBackendFcCheckProposalRepository,
         )
-        from agentkit.state_backend.store.fc_pattern_repository import (
+        from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
 
@@ -271,11 +271,11 @@ class TestNextCheckId:
     ) -> object:
         monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
-        from agentkit.state_backend.store.fc_check_proposal_repository import (
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.fc_check_proposal_repository import (
             StateBackendFcCheckProposalRepository,
         )
-        from agentkit.state_backend.store.fc_pattern_repository import (
+        from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
 
@@ -303,10 +303,10 @@ class TestNextCheckId:
         """_next_check_id must not return an id that already exists."""
         from datetime import UTC, datetime
 
-        from agentkit.core_types import CheckStatus, CheckType
-        from agentkit.failure_corpus.check_factory import _next_check_id
-        from agentkit.failure_corpus.check_proposal import CheckProposalRecord, FalsePositiveRisk
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.core_types import CheckStatus, CheckType
+        from agentkit.backend.failure_corpus.check_factory import _next_check_id
+        from agentkit.backend.failure_corpus.check_proposal import CheckProposalRecord, FalsePositiveRisk
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         repo = self._make_check_repo(tmp_path, monkeypatch)
         try:
@@ -350,10 +350,10 @@ class TestNextCheckId:
         """
         from datetime import UTC, datetime
 
-        from agentkit.core_types import CheckStatus, CheckType
-        from agentkit.failure_corpus.check_factory import _next_check_id
-        from agentkit.failure_corpus.check_proposal import CheckProposalRecord, FalsePositiveRisk
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.core_types import CheckStatus, CheckType
+        from agentkit.backend.failure_corpus.check_factory import _next_check_id
+        from agentkit.backend.failure_corpus.check_proposal import CheckProposalRecord, FalsePositiveRisk
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         repo = self._make_check_repo(tmp_path, monkeypatch)
         try:
@@ -386,8 +386,8 @@ class TestNextCheckId:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """_next_check_id returns CHK-0001 when no proposals exist at all."""
-        from agentkit.failure_corpus.check_factory import _next_check_id
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.failure_corpus.check_factory import _next_check_id
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         repo = self._make_check_repo(tmp_path, monkeypatch)
         try:
@@ -408,11 +408,11 @@ class TestNextCheckId:
         """
         from datetime import UTC, datetime
 
-        from agentkit.core_types import CheckStatus, CheckType
-        from agentkit.failure_corpus.check_factory import _next_check_id
-        from agentkit.failure_corpus.check_proposal import CheckProposalRecord, FalsePositiveRisk
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
-        from agentkit.state_backend.store.fc_pattern_repository import (
+        from agentkit.backend.core_types import CheckStatus, CheckType
+        from agentkit.backend.failure_corpus.check_factory import _next_check_id
+        from agentkit.backend.failure_corpus.check_proposal import CheckProposalRecord, FalsePositiveRisk
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
 
@@ -504,11 +504,11 @@ class TestApproveCheck:
     ) -> tuple[object, object, CheckFactory, _MockStoryCreation]:
         monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
-        from agentkit.state_backend.store.fc_check_proposal_repository import (
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.fc_check_proposal_repository import (
             StateBackendFcCheckProposalRepository,
         )
-        from agentkit.state_backend.store.fc_pattern_repository import (
+        from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
 
@@ -556,7 +556,7 @@ class TestApproveCheck:
         pattern_repo, check_repo, factory, mock_story_creation = self._setup(
             tmp_path, monkeypatch
         )
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         try:
             check_id = self._seed_accepted_pattern_and_draft(pattern_repo, check_repo, factory)
@@ -580,11 +580,11 @@ class TestApproveCheck:
         """
         monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
-        from agentkit.state_backend.store.fc_check_proposal_repository import (
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.fc_check_proposal_repository import (
             StateBackendFcCheckProposalRepository,
         )
-        from agentkit.state_backend.store.fc_pattern_repository import (
+        from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
 
@@ -630,7 +630,7 @@ class TestApproveCheck:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         pattern_repo, check_repo, factory, _ = self._setup(tmp_path, monkeypatch)
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         try:
             check_id = self._seed_accepted_pattern_and_draft(pattern_repo, check_repo, factory)
@@ -649,7 +649,7 @@ class TestApproveCheck:
     ) -> None:
         """REVISE: old proposal gets REJECTED + 'superseded_by_revision'; new DRAFT created."""
         pattern_repo, check_repo, factory, _ = self._setup(tmp_path, monkeypatch)
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         try:
             check_id = self._seed_accepted_pattern_and_draft(pattern_repo, check_repo, factory)
@@ -673,8 +673,8 @@ class TestApproveCheck:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """ERROR B: re-approving an already-ACTIVE check raises; no 2nd story, no state change."""
-        from agentkit.failure_corpus.errors import FailureCorpusError
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.failure_corpus.errors import FailureCorpusError
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         pattern_repo, check_repo, factory, mock_story_creation = self._setup(
             tmp_path, monkeypatch
@@ -705,8 +705,8 @@ class TestApproveCheck:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """ERROR B: approving an already-REJECTED check raises; no story, no state change."""
-        from agentkit.failure_corpus.errors import FailureCorpusError
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.failure_corpus.errors import FailureCorpusError
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         pattern_repo, check_repo, factory, mock_story_creation = self._setup(
             tmp_path, monkeypatch

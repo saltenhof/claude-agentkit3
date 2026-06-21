@@ -32,7 +32,7 @@ CONTROL_PLANE_READ_RULE_ID = (
 
 
 def test_architecture_conformance_loads_formal_policy(tmp_path: Path) -> None:
-    root = _write_fixture(tmp_path, module_name="agentkit.story.service")
+    root = _write_fixture(tmp_path, module_name="agentkit.backend.story.service")
 
     compiled = compile_formal_specs(root / "concept" / "formal-spec")
     config = load_architecture_conformance_config(compiled)
@@ -44,9 +44,9 @@ def test_architecture_conformance_loads_formal_policy(tmp_path: Path) -> None:
 def test_architecture_conformance_rejects_forbidden_import(tmp_path: Path) -> None:
     root = _write_fixture(
         tmp_path,
-        module_name="agentkit.story.service",
+        module_name="agentkit.backend.story.service",
         source="""
-            from agentkit.control_plane.http import ControlPlaneApplication
+            from agentkit.backend.control_plane.http import ControlPlaneApplication
 
             def build() -> type[ControlPlaneApplication]:
                 return ControlPlaneApplication
@@ -67,14 +67,14 @@ def test_architecture_conformance_rejects_component_cycle(tmp_path: Path) -> Non
     root = _write_fixture(
         tmp_path,
         files={
-            "agentkit.story.service": """
-                from agentkit.kpi_analytics.dashboard.service import DashboardService
+            "agentkit.backend.story.service": """
+                from agentkit.backend.kpi_analytics.dashboard.service import DashboardService
 
                 def build() -> type[DashboardService]:
                     return DashboardService
             """,
-            "agentkit.kpi_analytics.dashboard.service": """
-                from agentkit.story.service import build
+            "agentkit.backend.kpi_analytics.dashboard.service": """
+                from agentkit.backend.story.service import build
 
                 def call() -> object:
                     return build()
@@ -93,9 +93,9 @@ def test_architecture_conformance_rejects_unauthorized_writer_surface_import(
 ) -> None:
     root = _write_fixture(
         tmp_path,
-        module_name="agentkit.story.service",
+        module_name="agentkit.backend.story.service",
         source="""
-            from agentkit.state_backend import save_story_context
+            from agentkit.backend.state_backend import save_story_context
 
             def expose() -> object:
                 return save_story_context
@@ -114,9 +114,9 @@ def test_architecture_conformance_rejects_unauthorized_read_surface_import(
 ) -> None:
     root = _write_fixture(
         tmp_path,
-        module_name="agentkit.kpi_analytics.service",
+        module_name="agentkit.backend.kpi_analytics.service",
         source="""
-            from agentkit.state_backend import load_execution_events_global
+            from agentkit.backend.state_backend import load_execution_events_global
 
             def expose() -> object:
                 return load_execution_events_global
@@ -127,8 +127,8 @@ def test_architecture_conformance_rejects_unauthorized_read_surface_import(
                 reader_symbols:
                   - load_execution_events_global
                 allowed_module_prefixes:
-                  - agentkit.state_backend
-                  - agentkit.story.repository
+                  - agentkit.backend.state_backend
+                  - agentkit.backend.story.repository
                 message: >
                   story read loaders may only be imported from the
                   explicit story repository surface
@@ -147,9 +147,9 @@ def test_architecture_conformance_rejects_unauthorized_control_plane_read_import
 ) -> None:
     root = _write_fixture(
         tmp_path,
-        module_name="agentkit.control_plane.runtime",
+        module_name="agentkit.backend.control_plane.runtime",
         source="""
-            from agentkit.state_backend import load_session_run_binding_global
+            from agentkit.backend.state_backend import load_session_run_binding_global
 
             def expose() -> object:
                 return load_session_run_binding_global
@@ -160,8 +160,8 @@ def test_architecture_conformance_rejects_unauthorized_control_plane_read_import
                 reader_symbols:
                   - load_session_run_binding_global
                 allowed_module_prefixes:
-                  - agentkit.state_backend
-                  - agentkit.control_plane.repository
+                  - agentkit.backend.state_backend
+                  - agentkit.backend.control_plane.repository
                 message: >
                   control-plane runtime read loaders may only be imported
                   from the explicit control-plane repository surface
@@ -247,22 +247,22 @@ def _write_fixture(
                 name: StoryApplication
                 bloodgroup: A
                 module_prefixes:
-                  - agentkit.story
+                  - agentkit.backend.story
               - id: architecture-conformance.group.kpi_analytics
                 name: KpiAnalyticsApplication
                 bloodgroup: A
                 module_prefixes:
-                  - agentkit.kpi_analytics
+                  - agentkit.backend.kpi_analytics
               - id: architecture-conformance.group.control_plane
                 name: ControlPlaneHttp
                 bloodgroup: R
                 module_prefixes:
-                  - agentkit.control_plane
+                  - agentkit.backend.control_plane
               - id: architecture-conformance.group.projectedge
                 name: ProjectEdgeClient
                 bloodgroup: R
                 module_prefixes:
-                  - agentkit.projectedge
+                  - agentkit.harness_client.projectedge
             ```
             <!-- FORMAL-SPEC:END -->
             """,
@@ -296,16 +296,16 @@ def _write_fixture(
             dependency_rules:
               - id: {RULE_ID}
                 source_module_prefixes:
-                  - agentkit.story
-                  - agentkit.kpi_analytics
+                  - agentkit.backend.story
+                  - agentkit.backend.kpi_analytics
                 forbidden_module_prefixes:
-                  - agentkit.control_plane.http
-                  - agentkit.projectedge.client
+                  - agentkit.backend.control_plane.http
+                  - agentkit.harness_client.projectedge.client
                 message: >
                   story and kpi_analytics application code may not depend on
                   control-plane transport or project-edge transport
                 transition_exceptions:
-                  - agentkit.kpi_analytics.dashboard.service
+                  - agentkit.backend.kpi_analytics.dashboard.service
             acyclic_group_sets:
               - id: architecture-conformance.acyclic.application_surface
                 group_ids:

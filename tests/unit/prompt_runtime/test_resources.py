@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.exceptions import ProjectError
-from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
-from agentkit.prompt_runtime.resources import (
+from agentkit.backend.exceptions import ProjectError
+from agentkit.backend.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
+from agentkit.backend.prompt_runtime.resources import (
     MANIFEST_PATH,
     PROJECT_LOCK_RELPATH,
     load_prompt_template,

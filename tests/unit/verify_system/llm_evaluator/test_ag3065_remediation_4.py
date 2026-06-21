@@ -40,22 +40,21 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
-from agentkit.multi_llm_hub.entities import HubMessage, HubSessionLease
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.verify_system.llm_evaluator.bundle import ReviewBundle
-from agentkit.verify_system.llm_evaluator.llm_client import (
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.verify_system.llm_evaluator.bundle import ReviewBundle
+from agentkit.backend.verify_system.llm_evaluator.llm_client import (
     _EVAL_DEADLINE_CV,
     RELEASE_TIMEOUT_SECONDS,
     TOTAL_TIMEOUT_SECONDS,
     HubLlmClient,
     bind_eval_deadline,
 )
-from agentkit.verify_system.llm_evaluator.parallel_runner import (
+from agentkit.backend.verify_system.llm_evaluator.parallel_runner import (
     LAYER2_ROLES,
     ParallelEvalRunner,
 )
-from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import (
     DOC_FIDELITY_CHECK_IDS,
     QA_REVIEW_CHECK_IDS,
     SEMANTIC_REVIEW_CHECK_IDS,
@@ -63,6 +62,7 @@ from agentkit.verify_system.llm_evaluator.structured_evaluator import (
     ReviewerRole,
     StructuredEvaluator,
 )
+from agentkit.integration_clients.multi_llm_hub.entities import HubMessage, HubSessionLease
 
 # ---------------------------------------------------------------------------
 # Shared fakes
@@ -490,7 +490,7 @@ class TestError2ReleaseTimeoutClamped:
         ])
 
         with mock.patch(
-            "agentkit.verify_system.llm_evaluator.llm_client.time.monotonic",
+            "agentkit.backend.verify_system.llm_evaluator.llm_client.time.monotonic",
             side_effect=call_seq,
         ):
             # Set a deadline that leaves tight_budget remaining after the fake_now_base.
@@ -557,7 +557,7 @@ class TestError2ReleaseTimeoutClamped:
         ])
 
         with mock.patch(
-            "agentkit.verify_system.llm_evaluator.llm_client.time.monotonic",
+            "agentkit.backend.verify_system.llm_evaluator.llm_client.time.monotonic",
             side_effect=call_seq,
         ):
             client.complete(role="qa_review", prompt="P")

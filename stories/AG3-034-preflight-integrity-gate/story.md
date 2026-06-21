@@ -283,7 +283,7 @@ Dim 5 (LLM_REVIEW_COMPLIANT), Dim 6 (ADVERSARIAL_NACHWEIS) **und Dim 9 (SONARQUB
 ## 8. Hinweise fuer den Sub-Agent
 
 - Mode-Lock-Tabelle: falls AG3-018 die Tabelle schon gebaut hat, NICHT neu anlegen. Lookup auf `state_backend/postgres_schema.sql`.
-- **Dim 9 + green-main KONSUMIEREN AG3-052, NICHT neu bauen.** Aufrufbare API: `agentkit.verify_system.sonarqube_gate` (`resolve_for_context`, `build_sonar_gate_port_for_run`, `evaluate_sonarqube_gate`, `SonarApplicability`, `SonarAttestation`, `is_green`/`is_green_status`, `SonarGateOutcome`). Keine eigene Attestation/Reconciler/Green-Definition; kein direkter `integrations.sonar`-Zugriff aus `governance`/`setup` (Capability ist die Grenze).
+- **Dim 9 + green-main KONSUMIEREN AG3-052, NICHT neu bauen.** Aufrufbare API: `agentkit.backend.verify_system.sonarqube_gate` (`resolve_for_context`, `build_sonar_gate_port_for_run`, `evaluate_sonarqube_gate`, `SonarApplicability`, `SonarAttestation`, `is_green`/`is_green_status`, `SonarGateOutcome`). Keine eigene Attestation/Reconciler/Green-Definition; kein direkter `integrations.sonar`-Zugriff aus `governance`/`setup` (Capability ist die Grenze).
 - **Mode-Achse:** `fast` aus `StoryContext.mode` (`WireStoryMode.FAST`) lesen — NICHT aus `execution_route` (FK-24 §24.3.3 entkoppelt die Achsen; das war der alte Achsen-Bug).
 - **Applicability vor Bewertung:** an beiden Andockpunkten zuerst `resolve_for_context(...)` aufloesen; `available:false`/`mode:fast` = Skip; `available:true`+unerreichbar = APPLICABLE + fail-closed (absent ≠ kaputt).
 - Sonar im Test: KEINE Live-Sonar-Abhaengigkeit; nur die Capability-/HTTP-Grenze stubben (MOCKS-Ausnahme: externes System), Applicability-/Verifikationslogik echt testen.

@@ -11,17 +11,17 @@ from tests.unit.exploration.review.scripted import (
     build_scripted_evaluator,
 )
 
-from agentkit.core_types import ArtifactClass
-from agentkit.exploration.review.doc_fidelity import (
+from agentkit.backend.core_types import ArtifactClass
+from agentkit.backend.exploration.review.doc_fidelity import (
     DocFidelityChecker,
     DocFidelityResult,
 )
-from agentkit.verify_system.llm_evaluator.structured_evaluator import ReviewerRole
+from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import ReviewerRole
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.story_context_manager.models import StoryContext
+    from agentkit.backend.story_context_manager.models import StoryContext
 
 
 def _checker(

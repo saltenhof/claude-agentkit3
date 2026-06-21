@@ -11,8 +11,8 @@ leaking into FK-69, not against legitimate FK-69 extensions.
 
 from __future__ import annotations
 
-from agentkit.execution_planning.persistence.schema_kind import PlanningSchemaKind
-from agentkit.telemetry.projection_accessor import ProjectionKind
+from agentkit.backend.execution_planning.persistence.schema_kind import PlanningSchemaKind
+from agentkit.backend.telemetry.projection_accessor import ProjectionKind
 
 
 def test_fk69_projection_kind_still_has_seven_values() -> None:

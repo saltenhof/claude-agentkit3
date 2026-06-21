@@ -158,7 +158,7 @@ Beim Modul-Load (`verify_system/__init__.py` Init-Hook, etabliert in AG3-023): d
 
 ## 4. Akzeptanzkriterien
 
-1. **Klasse `VerifySystem`** ist in `src/agentkit/verify_system/system.py` definiert und ueber `from agentkit.verify_system import VerifySystem` importierbar.
+1. **Klasse `VerifySystem`** ist in `src/agentkit/verify_system/system.py` definiert und ueber `from agentkit.backend.verify_system import VerifySystem` importierbar.
 2. **Methode `run_qa_subflow(ctx, story_id, qa_context, target)`** existiert mit den genannten Parametern. Return-Type ist exakt `PolicyVerdict` (PASS | FAIL). Contract-Test prueft die Annotation und dass ausschliesslich `PolicyVerdict.PASS` oder `PolicyVerdict.FAIL` zurueckgegeben werden. <!-- AG3-026 deep-review: Return-Type aus FK-27 §27.7 + formal.verify.commands -->
 3. **`VerifyContextBundle`** ist Pydantic-v2-Modell, frozen, extra forbid, mit Pflichtfeldern wie in 2.1.1 beschrieben. `VerifyTarget` ist ein internes Wrapper-Modell und NICHT Teil der oeffentlichen Surface (kein Methodenparameter, kein `__init__.py`-Export).
 4. **Routing-Regel**: `select_layers(QaContext.IMPLEMENTATION_INITIAL)` und `IMPLEMENTATION_REMEDIATION` liefern alle vier Layer (Structural, LLM-Evaluator, Adversarial, Policy); `EXPLORATION_INITIAL`/`EXPLORATION_REMEDIATION` liefern die reduzierte Exploration-Layer-Auswahl (Layer 2 + Policy) gemaess QA-Subflow-Vertrag (BC-Cut).

@@ -30,10 +30,10 @@ Themen-IDs: `THEME-NNN` (dreistellig, in Priorisierungsreihenfolge).
 **Voraussetzungen:** keine
 **Warum jetzt?** Solange Code unter falschen Modul-Pfaden liegt, importieren alle nachfolgenden BCs gegen tote oder ambivalente Pfade. Jede weitere Story auf bestehendem Doppel-Code (z.B. `guard_system` + `governance.guard_system`) verfestigt den Drift. Klassischer v2-Wiederholungsfehler.
 **Umfasste Befunde:**
-- `pipeline-framework.B1` — Migration `agentkit.pipeline` -> `agentkit.pipeline_engine` (Facades aufloesen)
+- `pipeline-framework.B1` — Migration `agentkit.pipeline` -> `agentkit.backend.pipeline_engine` (Facades aufloesen)
 - `pipeline-framework.C5` — Doppel-Facade `phase_state_store` vs. `pipeline.state`
 - `prompt-runtime.C1` — Gesamt-BC unter `prompt_composer` statt `prompt_runtime`
-- `kpi-and-dashboard.C2` — Code unter `agentkit.dashboard` + `agentkit.telemetry.kpis` statt `agentkit.kpi_analytics`
+- `kpi-and-dashboard.C2` — Code unter `agentkit.dashboard` + `agentkit.backend.telemetry.kpis` statt `agentkit.backend.kpi_analytics`
 - `governance-and-guards.C1` — Duplikat `guard_system` vs. `governance.guard_system`
 - `governance-and-guards.C2` — `governance.monitoring` leer statt `governance.governance_observer`
 - `governance-and-guards.C3` — `doc_fidelity` und `policies` faelschlich unter `governance/`
@@ -78,9 +78,9 @@ Themen-IDs: `THEME-NNN` (dreistellig, in Priorisierungsreihenfolge).
 ### THEME-003: Artefakt-BC — ArtifactEnvelope, ArtifactManager, ProducerRegistry
 
 **Voraussetzungen:** THEME-001, THEME-002
-**Warum jetzt?** Das Paket `agentkit.artifacts` existiert nicht. Jede QA-, Prompt-, Worker- und Closure-Schreiblogik baut deshalb rohe dicts ohne Envelope-Pflichtfelder. Ohne ArtifactEnvelope kann das IntegrityGate keine Pflichtfelder pruefen, die Producer-Registry kein LLM-Status-Mapping liefern und keine BC-Grenze fuer QA-Artefakte sauber gezogen werden. Direkter v2-Wiederholungsfehler (JSON-Wildwuchs ohne Owner).
+**Warum jetzt?** Das Paket `agentkit.backend.artifacts` existiert nicht. Jede QA-, Prompt-, Worker- und Closure-Schreiblogik baut deshalb rohe dicts ohne Envelope-Pflichtfelder. Ohne ArtifactEnvelope kann das IntegrityGate keine Pflichtfelder pruefen, die Producer-Registry kein LLM-Status-Mapping liefern und keine BC-Grenze fuer QA-Artefakte sauber gezogen werden. Direkter v2-Wiederholungsfehler (JSON-Wildwuchs ohne Owner).
 **Umfasste Befunde:**
-- `artifacts.A1` — Paket `agentkit.artifacts` fehlt
+- `artifacts.A1` — Paket `agentkit.backend.artifacts` fehlt
 - `artifacts.A2` — `ArtifactManager` fehlt
 - `artifacts.A3` — `ArtifactEnvelope`-Pydantic-Modell fehlt
 - `artifacts.A4` — `EnvelopeValidator` fehlt

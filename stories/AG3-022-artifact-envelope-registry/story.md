@@ -6,19 +6,19 @@
 **Quell-Konzepte (autoritativ, mit `rel_path` ab Repo-Root):**
 - `FK-71 §71.1.1` — `concept/technical-design/71_artefakt_envelope_und_stage_registry.md` (acht Artefaktklassen, Z. 84-99)
 - `FK-71 §71.2` — `concept/technical-design/71_artefakt_envelope_und_stage_registry.md` (Envelope-Pflichtfelder, Producer-Registry, `schema_version="3.0"`, LLM-Status-Mapping, Z. 109-181)
-- `concept/_meta/bc-cut-decisions.md §BC 8 artifacts` — Z. 715-770 (Paket `agentkit.artifacts`, Top-Surface, Sub-Komponenten)
+- `concept/_meta/bc-cut-decisions.md §BC 8 artifacts` — Z. 715-770 (Paket `agentkit.backend.artifacts`, Top-Surface, Sub-Komponenten)
 - `FK-71 Glossar` — `concept/technical-design/71_artefakt_envelope_und_stage_registry.md` (Eintrag `ArtifactReference`)
 
 ---
 
 ## 1. Kontext
 
-THEME-003 aus `stories/_priorisierungsempfehlung.md`, Teil 1. Das Paket `agentkit.artifacts` existiert noch nicht (`artifacts.A1`). Ohne dieses BC-Modul bauen alle Schreibstellen (Worker-Handover, QA-Layer, Closure, Prompt-Audit, ARE-Bundle) rohe dicts ohne Envelope-Pflichtfelder; IntegrityGate kann nur Existenz pruefen, keine Pflichtfeld-Validierung (`artifacts.B4`); Producer-Registry-Validierung fehlt (`artifacts.A5`).
+THEME-003 aus `stories/_priorisierungsempfehlung.md`, Teil 1. Das Paket `agentkit.backend.artifacts` existiert noch nicht (`artifacts.A1`). Ohne dieses BC-Modul bauen alle Schreibstellen (Worker-Handover, QA-Layer, Closure, Prompt-Audit, ARE-Bundle) rohe dicts ohne Envelope-Pflichtfelder; IntegrityGate kann nur Existenz pruefen, keine Pflichtfeld-Validierung (`artifacts.B4`); Producer-Registry-Validierung fehlt (`artifacts.A5`).
 
 Diese Story legt das **Foundation-Layer**: typisierte Pydantic-Modelle und Producer-Registry. **Ohne Persistenz-Wechsel und ohne Migration der bestehenden QA-Persistenz**. Die Migration der existierenden `verify_system/artifacts.py`-Persistenz auf `ArtifactManager` ist Inhalt von AG3-023.
 
 Spezifische Befunde:
-- `artifacts.A1`: Paket `agentkit.artifacts` fehlt
+- `artifacts.A1`: Paket `agentkit.backend.artifacts` fehlt
 - `artifacts.A3`: `ArtifactEnvelope`-Pydantic-Modell fehlt
 - `artifacts.A4`: `EnvelopeValidator` fehlt
 - `artifacts.A5`: `ProducerRegistry` mit LLM-Status-Mapping fehlt
@@ -108,7 +108,7 @@ LLM-Status-Mapping (FK-71 §71.2, `concept/technical-design/71_artefakt_envelope
 **Wichtige Abgrenzung** (Codex-Befund §"Konzept-Spannungen" Pkt. 1):
 - `PASS_WITH_CONCERNS` ist **ausschliesslich** LLM-Check-Wire-String. Er wird hier zu `EnvelopeStatus.WARN` gemappt — keine Wiedereinfuehrung des historischen `PASS_WITH_WARNINGS` ins `PolicyVerdict`-Enum oder in die Policy-Engine (siehe AG3-021 §2.1.1.2 Begriffskasten).
 
-`validate(envelope)` wirft `ProducerNotRegisteredError` (eine neue typisierte Exception unter `agentkit.artifacts.errors`) fail-closed.
+`validate(envelope)` wirft `ProducerNotRegisteredError` (eine neue typisierte Exception unter `agentkit.backend.artifacts.errors`) fail-closed.
 
 ##### 2.1.5.1 Producer-Registry-Init-Strategie (Codex-Befund 2)
 
@@ -161,14 +161,14 @@ Der `EnvelopeValidator` enforced diese Matrix als Schritt 4 (s.u.). Falls eine K
 4. **`status`-vs-`artifact_class`-Konsistenz** anhand der Matrix 2.1.6.1 -> `EnvelopeFieldError`.
 5. **`finished_at >= started_at`** (durch Pydantic Model-Validator gegeben; hier redundant fail-closed) -> `EnvelopeFieldError`.
 
-Erwartetes Fehlermodell: `EnvelopeValidationError` (Basisfehler), Sub-Klassen `ProducerNotRegisteredError`, `EnvelopeFieldError`, `LlmStatusMappingError`. Alle in `agentkit.artifacts.errors`. Keine Telemetry-Special-Regel mit Epsilon-Differenz — das war in der ersten Story-Skizze; FK-71 §71.2 verlangt nur `finished_at >= started_at` ohne Epsilon (Z. 144).
+Erwartetes Fehlermodell: `EnvelopeValidationError` (Basisfehler), Sub-Klassen `ProducerNotRegisteredError`, `EnvelopeFieldError`, `LlmStatusMappingError`. Alle in `agentkit.backend.artifacts.errors`. Keine Telemetry-Special-Regel mit Epsilon-Differenz — das war in der ersten Story-Skizze; FK-71 §71.2 verlangt nur `finished_at >= started_at` ohne Epsilon (Z. 144).
 
 Hinweis fuer den Worker: Falls die Matrix in 2.1.6.1 sich beim Bauen als zu restriktiv erweist (z.B. `TELEMETRY` benoetigt doch `WARN`), ist das ein Konzeptkonflikt und muss vor Implementierung gemeldet werden — nicht stillschweigend gelockert. Die Matrix folgt aus FK-71 §71.2 plus der fachlichen Klassen-Beschreibung in §71.1.1.
 
 #### 2.1.7 Schema-Versions-Konstanten-Trennung (artifacts.C3)
 
-- `agentkit.artifacts.envelope.ENVELOPE_SCHEMA_VERSION: Final[str] = "3.0"` — Wire-Schema des Envelope
-- `agentkit.state_backend.config.SCHEMA_VERSION` bleibt als Storage-Schema-Version unveraendert ("3.3.0" o.ae.) — die Datei wird **nicht angefasst**, aber ein Modul-Docstring erklaert die Unterscheidung
+- `agentkit.backend.artifacts.envelope.ENVELOPE_SCHEMA_VERSION: Final[str] = "3.0"` — Wire-Schema des Envelope
+- `agentkit.backend.state_backend.config.SCHEMA_VERSION` bleibt als Storage-Schema-Version unveraendert ("3.3.0" o.ae.) — die Datei wird **nicht angefasst**, aber ein Modul-Docstring erklaert die Unterscheidung
 - Contract-Test: ENVELOPE_SCHEMA_VERSION ist "3.0"; jede Envelope-Instanz hat `schema_version="3.0"`
 
 #### 2.1.8 Tests
@@ -229,7 +229,7 @@ Hinweis fuer den Worker: Falls die Matrix in 2.1.6.1 sich beim Bauen als zu rest
    - unbekannte Strings -> `LlmStatusMappingError` (in `errors.py`).
 8. **`EnvelopeValidator.validate(envelope)`** durchlaeuft genau die fuenf Pruefschritte aus 2.1.6.2 (Pydantic, Producer-Registry, attempt-Plausibilitaet, status-vs-class-Konsistenz gemaess Matrix 2.1.6.1, `finished_at >= started_at`). Fehler werden mit den spezifischen Sub-Exceptions (`ProducerNotRegisteredError`, `EnvelopeFieldError`, `LlmStatusMappingError`) geworfen — keine generische `EnvelopeValidationError`-Direktwuerfe.
 9. **`ENVELOPE_SCHEMA_VERSION`** ist als `Final[str]` in `envelope.py` exportiert; Wert ist `"3.0"`. Modul-Docstring in `envelope.py` erlaeutert die Abgrenzung zu `state_backend.config.SCHEMA_VERSION`.
-10. **Architecture-Conformance**: das Paket `agentkit.artifacts` importiert **nicht** aus `agentkit.state_backend`, `agentkit.verify_system`, `agentkit.governance` (kein Persistenz-Cross-Talk). Es importiert nur `agentkit.core_types`.
+10. **Architecture-Conformance**: das Paket `agentkit.backend.artifacts` importiert **nicht** aus `agentkit.backend.state_backend`, `agentkit.backend.verify_system`, `agentkit.backend.governance` (kein Persistenz-Cross-Talk). Es importiert nur `agentkit.backend.core_types`.
 11. **Pflichtbefehle gruen**: pytest unit + contract; mypy --strict; ruff clean; Coverage haelt 85%.
 12. **Contract-Test `test_envelope_schema.py`** prueft `ENVELOPE_SCHEMA_VERSION == "3.0"`, alle acht `ArtifactClass`-Werte sind im Registry-Default seeded, das exakte LLM-Status-Mapping aus FK-71 §71.2.
 
@@ -247,7 +247,7 @@ Hinweis fuer den Worker: Falls die Matrix in 2.1.6.1 sich beim Bauen als zu rest
 - **FK-71 §71.1.1** — `concept/technical-design/71_artefakt_envelope_und_stage_registry.md` (Z. 84-99) — acht Artefaktklassen
 - **FK-71 §71.2** — `concept/technical-design/71_artefakt_envelope_und_stage_registry.md` (Z. 109-181) — Envelope-Pflichtfelder, Producer-Mapping, LLM-Status-Mapping (Z. 145-161), `schema_version="3.0"`
 - **FK-71 Glossar** — `concept/technical-design/71_artefakt_envelope_und_stage_registry.md` — Eintrag `ArtifactReference`
-- **`concept/_meta/bc-cut-decisions.md §BC 8 artifacts`** — `concept/_meta/bc-cut-decisions.md` (Z. 715-770) — Paket `agentkit.artifacts`, Top-Surface, Klassen-Skizzen
+- **`concept/_meta/bc-cut-decisions.md §BC 8 artifacts`** — `concept/_meta/bc-cut-decisions.md` (Z. 715-770) — Paket `agentkit.backend.artifacts`, Top-Surface, Klassen-Skizzen
 - **AG3-021 §2.1.1.2** — `stories/AG3-021-kern-enums/story.md` — Begriffskasten `PASS_WITH_WARNINGS` (Policy) vs. `PASS_WITH_CONCERNS` (LLM-Status), den AG3-022 anwendet
 - **FK-18 §18.9a** — `concept/technical-design/18_relationales_abbildungsmodell_postgres.md` — Schema-Versionierung (Hintergrund fuer `state_backend.config.SCHEMA_VERSION` vs. `ENVELOPE_SCHEMA_VERSION`)
 
@@ -264,6 +264,6 @@ Hinweis fuer den Worker: Falls die Matrix in 2.1.6.1 sich beim Bauen als zu rest
 - Pydantic v2: `model_config = ConfigDict(frozen=True, extra="forbid")`. Validators als `@field_validator`/`@model_validator`.
 - ENVELOPE_SCHEMA_VERSION ist `Final[str]`, nicht in einem StrEnum (es ist eine Versions-Konstante, kein Enum).
 - ProducerRegistry: thread-safe muss nicht erzwungen werden (Registry wird zur App-Init befuellt, danach read-only). Aber: Implementierung als `dict[ArtifactClass, set[str]]` ist ausreichend.
-- Architecture-Conformance: `agentkit.artifacts` darf nur von `agentkit.core_types` importieren. Pruefen mit `check_architecture_conformance.py`.
+- Architecture-Conformance: `agentkit.backend.artifacts` darf nur von `agentkit.backend.core_types` importieren. Pruefen mit `check_architecture_conformance.py`.
 - Keine MagicMock-Stubs in den Tests; reale Pydantic-Instanzen, reale Registry-Calls.
 - AK2 (`T:/codebase/claude-agentkit/`) NICHT veraendern.

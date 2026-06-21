@@ -11,15 +11,15 @@ AgentKit existiert in zwei Formen. Diese Dualitaet bestimmt die gesamte Struktur
 
 | Form | Beschreibung |
 |---|---|
-| **Development-Codebase** (dieses Repo) | Python-Paket mit src-Layout, Tests, CI — hier wird AgentKit entwickelt |
+| **Development-Codebase** (dieses Repo) | AgentKit-Produkt mit Deployment Units unter `src/agentkit/`, Tests, CI — hier wird AgentKit entwickelt |
 | **Installiert im Zielprojekt** | AgentKit deployt `.agentkit/`, Prompts, Skills, Hooks, Config in ein fremdes Projekt |
 
 Die Codebase ist in drei Ebenen entkoppelt:
 
 | Ebene | Ort | Zweck |
 |---|---|---|
-| Package-Code | `src/agentkit/` | Implementierung der Orchestrierungsmaschine |
-| Deployte Assets | `src/agentkit/resources/target_project/` | Einzige Source of Truth fuer alles was ins Zielprojekt geht |
+| AgentKit-Source | `src/agentkit/` | Einziger Produkt-Source-Root; darunter zuerst Deployment Units, dann fachliche Komponenten |
+| Deployte Assets | `src/agentkit/bundles/target_project/` | Einzige Source of Truth fuer alles was ins Zielprojekt geht |
 | Test-Sandboxes | `tests/integration/target_project_sim/` | Simulierte Zielprojekte in Temp-Verzeichnissen |
 
 ---
@@ -30,14 +30,13 @@ Die Codebase ist in drei Ebenen entkoppelt:
 
 | Verzeichnis | Zweck | Regeln |
 |---|---|---|
-| `src/agentkit/` | Package-Code | Einziger Ort fuer Produktionscode. Kein Produktionscode ausserhalb. |
+| `src/agentkit/` | AgentKit-Produkt-Source | Einziger Ort fuer Produktionscode und paketierte AgentKit-Artefakte. Darunter nur Deployment Units. |
 | `tests/` | Alle Tests | Vier Ebenen: `unit/`, `integration/`, `contract/`, `e2e/`. Details unten. |
 | `stories/` | Story-Artefakte | Hier landen Story-bezogene Arbeitsergebnisse waehrend der Ausfuehrung. |
 | `concept/` | Autoritative Fachkonzepte | Nur Markdown. Aenderungen nur mit explizitem User-Consent. |
 | `docs/` | Publizierte Entwicklerdoku | Architecture, API, Guides, ADRs. |
 | `examples/` | Demo-Zielprojekte | Lauffaehige Beispiele wie ein installiertes Zielprojekt aussieht. |
 | `scripts/` | Dev/CI/Release-Hilfsskripte | Unterteilt in `dev/`, `ci/`, `release/`. |
-| `frontend/` | Frontend-Module | Aktuell nur `frontend/prototype/` (UI-Prototyp, normative Quelle fuer UI-Verhalten gemaess FK-72 §72.13). `node_modules/` und Build-Output gitignored. |
 | `var/` | Lokale ephemere Daten | **Gitignored.** Temp-Files, Logs, Sandboxes. Nie Source of Truth. |
 
 ### VERBOTEN auf Root-Ebene
@@ -73,306 +72,133 @@ concept/
 
 ---
 
-## src/agentkit/ — Package-Module
+## src/agentkit/ — Deployment Units
 
-### Strukturprinzip: Komponenten vor Technik
+### Strukturprinzip: Deployment Unit vor Fachkomponente
 
-Die Namespace-Struktur von AK3 folgt dem fachlichen
-Komponentenmodell. Package-Namen werden aus der fachlichen
-Verantwortung abgeleitet, nicht aus technischen Querschnitten wie
-"pipeline", "qa" oder "governance", sofern diese nur
-Implementierungs-Sammelcontainer waeren.
+`src/agentkit/` ist der AgentKit-Namespace. Direkt darunter liegen
+keine beliebigen fachlichen oder technischen Sammelordner, sondern nur
+auslieferbare Teilanwendungen bzw. paketierte Artefaktfamilien.
+Erst innerhalb einer Deployment Unit wird nach fachlichen Komponenten
+geschnitten.
 
 Der normative Top-Level-Schnitt ist definiert in
 `concept/formal-spec/architecture-conformance/entities.md`.
 
-**Sollzustand:** 17 fachliche Bounded Contexts + shared + Boundary-Module (schema_version 2)
+**Sollzustand:** Deployment-Unit-first:
 
 ```text
 src/agentkit/
-  # ---- BC 1: pipeline-framework ----
-  pipeline_engine/
-    flow_orchestrator/         # FlowOrchestrator: Knotenkomposition + Uebergangssteuerung
-    phase_executor/            # PhaseExecutor: Ausfuehrung einzelner Phasenknoten
-    phase_envelope_store/      # PhaseEnvelopeStore: Persistenz von Phasen-Envelopes
-    pipeline_registry/         # PipelineRegistry: Registrierung ausfuehrbarer Pipelines
-    compaction_resilience/     # CompactionResilience: Kontext-Kompaktierung + Resilienz
-    phase_state_store/         # PhaseStateStore: Schema-Owner fuer FlowExecution und PhaseState
+  backend/                     # Python-Service: BFF, Orchestrierung, State, Installer, CLI
+    control_plane_http/        # HTTP(S)-Server und Router
+    control_plane/             # Control-Plane Runtime/Modelle/Repository
+    auth/
+    project_management/
+    story_context_manager/
+    execution_planning/
+    pipeline_engine/
+    verify_system/
+    governance/
+    kpi_analytics/
+    task_management/
+    skills/                    # Skill-Verwaltung, nicht Skill-Inhalte
+    ...
 
-  # ---- BC 2: verify-system ----
-  verify_system/
-    stage_registry/            # StageRegistry: autoritativer Stage-Katalog
-    qa_read_models/            # QaReadModels: Schema-Owner fuer QA-Read-Models
-    llm_evaluator/             # LlmEvaluator: strukturierte schema-validierte LLM-Bewertungen
-    conformance_service/       # ConformanceService: gestufte Dokumententreue-Pruefung
-    evidence_assembler/        # EvidenceAssembler: QA-Evidenz-Aggregation
-    adversarial_orchestrator/  # AdversarialOrchestrator: gezielte Edge-Case-Pruefung
-    policy_engine/             # PolicyEngine: deterministische Trust-Aggregation
-    qa_cycle_coordinator/      # QaCycleCoordinator: Koordination des mehrschichtigen QA-Zyklus
+  frontend/                    # Produktives Web-Frontend
+    app/                       # TypeScript/React-Quellen; kein zweites src/
 
-  # ---- BC 3: story-lifecycle ----
-  story_context_manager/
-    story_types/               # StoryTypes: Story-Domaenentypen (ehem. story/-Stub)
-    story_identity/            # StoryIdentity: kanonische Story-Identifier und Typen
-    story_creation_flow/       # StoryCreationFlow: Erstellung und initiale Bindung
-    story_contract_matrix/     # StoryContractMatrix: Story-Typen und Vertragsregeln
-    story_administration/      # StoryAdministration: administrative Lifecycle-Mutationen
-    operating_mode_resolver/   # OperatingModeResolver: Betriebsmodus-Aufloesung
-    story_storage_backend/     # StoryStorageBackend: Persistenz-Abbildung von Stories
+  harness_client/              # Code, den Harnesses oder Zielprojekt-Tools nutzen
+    projectedge/               # Client/Resolver fuer Zielprojekt <-> Backend
+    harness_adapters/          # Claude/Codex Hook-/Settings-/CLI-Adapter
 
-  # ---- BC 4: governance-and-guards ----
-  governance/
-    guard_system/              # GuardSystem: harte Guard- und Capability-Enforcement-Regeln
-    hookruntime/               # HookRuntime: Claude-Code-Adapter fuer Guard-Ketten
-    ccag_permission_runtime/   # CcagPermissionRuntime: lernfaehige sessionpersistente Permissions
-    governance_observer/       # GovernanceObserver: verdichtet Governance-Signale zu Incidents
-    integrity_gate/            # IntegrityGate: deterministisches Integritaets-Gate vor Closure
-    principal_capability/      # PrincipalCapability: Capability-Definitionen und -Pruefungen
-    setup_preflight_gate/      # SetupPreflightGate: Kontext-Vorpruefung vor Phase 1
-    escalation_mechanism/      # EscalationMechanism: Eskalations- und Adjudikationspfade
+  integration_clients/         # Drittsystem-Clients, die AgentKit aufruft
+    github/
+    jenkins/
+    sonar/
+    vectordb/
+    multi_llm_hub/
 
-  # ---- BC 5: exploration-and-design ----
-  exploration/
-    mode_router/               # ModeRouter: Routing zwischen Explorations-Typen
-    drafting/                  # ExplorationDrafting: Entwurfsartefakt-Erzeugung
-    review/                    # ExplorationReview: Entwurfsbewertung
-    mandate_classification/    # MandateClassification: Klassifikation des Explorationsauftrags
-
-  # ---- BC 6: implementation-phase ----
-  implementation/
-    worker_session/            # WorkerSession: Worker-Session-Binding und Lifecycle
-    worker_loop/               # WorkerLoop: iterative Implementierungs-Iteration
-    handover_packager/         # HandoverPackager: Handover-Artefakt-Erzeugung
-    worker_health/             # WorkerHealthMonitor: Health-Ueberwachung des Workers
-
-  # ---- BC 7: story-closure ----
-  closure/
-    gates/                     # ClosureGates: Integrity-Gate-Pruefungen vor Merge
-    merge_sequence/            # MergeSequence: deterministischer Merge-Ablauf
-    post_merge_finalization/   # PostMergeFinalization: Aufraeum- und Abschlussschritte
-    execution_report/          # ExecutionReport: Abschluss-Telemetrie und KPI-Materialiserung
-
-  # ---- BC 8: artifacts ----
-  artifacts/
-    producer_registry/         # ProducerRegistry: Artefakt-Producer und Envelope-Vertraege
-
-  # ---- BC 9: telemetry-and-events ----
-  telemetry/
-    hooks/                     # TelemetryHooks: Event-Emission-Schnittstellen
-    projection_accessor/       # ProjectionAccessor: Lese-Zugriff auf Telemetrie-Projektionen
-    contract/                  # TelemetryContract: Event-Schema-Definitionen und Versioning
-
-  # ---- BC 10: prompt-runtime ----
-  prompt_runtime/
-    bundle_store/              # BundleStore: Speicherung von Prompt-Bundles
-    bundle_pinning/            # BundlePinning: Versionspinning von Prompt-Bundles
-    materialization/           # Materialization: Prompt-Rendering aus Bundle + Kontext
-
-  # ---- BC 11: agent-skills ----
-  skills/
-    bundle_store/              # SkillBundleStore: Speicherung von Skill-Bundles
-    binding/                   # SkillBinding: Skill-Bindung an Zielprojekt
-    quality_metric/            # SkillQualityMetric: Qualitaetsmetriken fuer Skills
-
-  # ---- BC 12: installation-and-bootstrap ----
-  installer/
-    checkpoint_engine/         # CheckpointEngine: idempotente Checkpoint-Ausfuehrung
-    bootstrap_checkpoints/     # BootstrapCheckpoints: Erstregistrierungs-Checkpoints
-    integration_checkpoints/   # IntegrationCheckpoints: Integrations-spezifische Checkpoints
-    upgrade/                   # Upgrade: Upgrade bestehender Installationen
-
-  # ---- BC 13: failure-corpus ----
-  failure_corpus/
-    incident_triage/           # IncidentTriage: Aufnahme und Klassifikation von Incidents
-    pattern_promotion/         # PatternPromotion: Muster-Promotion aus Incidents
-    check_factory/             # CheckFactory: Erzeugung deterministischer Pruefregeln
-
-  # ---- BC 14: execution-planning ----
-  execution_planning/
-    planning_model/            # PlanningModel: Planungsmodell-Typen und Invarianten
-    proposal_ingest/           # ProposalIngest: Aufnahme von Planungsvorschlaegen
-    readiness_assessment/      # ReadinessAssessment: Story-Bereitschaftspruefung
-    scheduling_policy/         # SchedulingPolicy: Scheduling-Policy zwischen Backlog und Orchestrator
-    plan_derivation/           # PlanDerivation: Ableitung des Ausfuehrungsplans
-
-  # ---- BC 15: requirements-and-scope-coverage ----
-  requirements_coverage/
-    are_client/                # AreClient: ARE-Adapter fuer Requirements-Zugriff
-    scope_mapping/             # ScopeMapping: Story-zu-Requirement-Abbildung
-    are_integration/           # AreIntegration: ARE-Integrations-Logik
-
-  # ---- BC 16: kpi-and-dashboard ----
-  kpi_analytics/
-    catalog/                   # KpiCatalog: kanonischer KPI-Katalog
-    fact_store/                # FactStore: KPI-Faktentabellen
-    aggregation/               # Aggregation: KPI-Rollup und Aggregationsregeln
-    dashboard/                 # Dashboard: Story-Liste, Board, Live-Sichten
-    design_system/             # DesignSystem: Dashboard-Designsystem
-
-  # ---- BC 17: harness-integration ----
-  # Soll-Namespace: agentkit.harness_integration (FK-76 §76.3, kosmetisch);
-  # reale Code-Verortung heute unter governance/harness_adapters/ (s.u.).
-  governance/
-    harness_adapters/          # HarnessAdapters [BC harness-integration]: harness-spezifische AT-Mediation (claude_code, codex), Settings-Writer; reale Code-Heimat des BC (Soll: agentkit.harness_integration, FK-76 §76.3)
-
-  # ---- Shared ----
-  worktree_manager/            # WorktreeManager [shared]: Worktree-/Branch-Lifecycle
-
-  # ---- Boundary-Module (in entities.md schema_version 2 modelliert) ----
-  # entry_boundary (R): Eingangs-Punkte, rufen fachliche BCs auf
-  cli/                         # CommandLineInterface: CLI-Entrypoints und Command-Routing
-  control_plane/
-    http.py                    # ControlPlaneHttp: HTTP-Transport-Schicht (entry_boundary)
-    models.py                  # ControlPlaneRecords: Pydantic-Modelle (adapter_boundary)
-    records.py                 # ControlPlaneRecords: Persistenz-Records (adapter_boundary)
-    runtime.py                 # ControlPlaneRuntime: Runtime-Service (adapter_boundary)
-    repository.py              # ControlPlaneRuntime: Repository-Adapter (adapter_boundary)
-    telemetry.py               # ControlPlaneRuntime: Telemetrie-Adapter (adapter_boundary)
-
-  # adapter_boundary (R): duenne Wrapper; werden von BCs genutzt
-  integrations/                # Integrations: Adapter zu externen Systemen (GitHub, LLM, ARE, VectorDB, MCP)
-  projectedge/                 # ProjectEdge: lokaler Projekt-Adapter fuer Sync und Bundle-Publish
-  state_backend/
-    store.py                   # StateBackendRepository: Repository-Schicht, Anti-Korruptions-Schicht (adapter_boundary, R)
-    scope.py                   # StatePersistenceScope: Cross-BC-Persistenz-Identitaet (adapter_boundary, R)
-    paths.py                   # Filesystem: Pfad-Konstanten; konzeptionell boundary.filesystem (infrastructure_io, R)
-    postgres_store.py          # StateBackendDrivers: Postgres-Treiber (infrastructure_driver, T)
-    sqlite_store.py            # StateBackendDrivers: SQLite-Treiber (infrastructure_driver, T)
-    config.py                  # StateBackendDrivers: Driver-Konfiguration (infrastructure_driver, T)
-
-  # infrastructure_io (R): Filesystem-Writer; trennt Builder (A) von Writer (R/T)
-  boundary/
-    filesystem/                # Filesystem: Atomic-Write-Helpers, Artifact-Writer
-      atomic.py
-      read.py
-    shared/                    # (Unter-Namespace von boundary; kein eigenes boundary_module)
-      time.py
-
-  # config_foundation (R) + shared_foundation (A)
-  config/                      # Config: Pydantic-v2-Konfigurationsmodelle, Loader, Schema-Validierung
-  shared/                      # Shared: fachneutrale Basistypen, Exceptions, stateless Hilfen
-
-  # kein Python-Code
-  resources/                   # Deployte Assets und interne Prompts/Schemas
+  bundles/                     # Paketierte, auslieferbare Nicht-Code-Artefakte
+    skill_bundles/
+    internal/prompts/
+    target_project/
 ```
 
-**Regeln:**
+### Deployment-Unit-Regeln
 
-1. Ein fachlicher Top-Level-Namespace unter `src/agentkit/`
-   repraesentiert genau eine fachliche Komponente.
-2. Subkomponenten werden als Unterpakete **nur dann** angelegt, wenn
-   sie ausschliesslich der uebergeordneten Komponente dienen.
-3. Querschnittsmodule wie `utils/`, `workers/`, `qa/`, `governance/`
-   oder `pipeline/` sind als dauerhafte Zielstruktur **nicht**
-   zulaessig, wenn sie mehrere fachliche Komponenten vermischen.
-4. `integrations/` bleibt als technischer Adapter-Schnitt bestehen,
-   weil dies bewusst eine Infrastrukturgrenze und keine Fachkomponente
-   ist.
-5. `shared/` ist streng minimal zu halten: Basistypen, Exceptions,
-   kleine stateless Hilfen. Keine Geschaeftslogik.
+1. Direkt unter `src/agentkit/` duerfen nur Deployment Units bzw.
+   paketierte Artefaktfamilien liegen: `backend/`, `frontend/`,
+   `harness_client/`, `integration_clients/`, `bundles/` plus
+   Paketmarker.
+2. Fachliche Bounded Contexts liegen unter der Deployment Unit, die sie
+   ausliefert. Backend-BCs liegen unter `src/agentkit/backend/`.
+3. Externe Drittsystem-Adapter liegen unter
+   `src/agentkit/integration_clients/`, nicht als allgemeiner
+   Top-Level-Ordner.
+4. Harness-spezifische Adapter und ProjectEdge liegen unter
+   `src/agentkit/harness_client/`, nicht im Backend-Governance-BC.
+5. Auslieferbare Skill-, Prompt- und Zielprojekt-Artefakte liegen unter
+   `src/agentkit/bundles/`; Backend-Code, der sie verwaltet, liegt unter
+   `src/agentkit/backend/`.
+6. `frontend/prototype/` ist kein produktives Frontend. Es ist
+   read-only Concept-as-Code/Quarantaene fuer historische UI-Arbeit.
+   Produktive Frontend-Quellen liegen ausschliesslich unter
+   `src/agentkit/frontend/app/`.
 
-### Modulstruktur und Verantwortlichkeiten
+### Backend-Fachkomponenten
 
-Normativer Schnitt gemaess `concept/formal-spec/architecture-conformance/entities.md`.
+Innerhalb von `src/agentkit/backend/` folgt AK3 weiter dem fachlichen
+Komponentenmodell. Package-Namen werden aus der fachlichen
+Verantwortung abgeleitet, nicht aus technischen Querschnitten wie
+`pipeline`, `qa` oder `utils`, sofern diese nur Sammelcontainer waeren.
 
-| Namespace | Verantwortlichkeit | Abhaengigkeitsrichtung |
-|---|---|---|
-| `pipeline_engine/` | 5-Phasen-Orchestrierung, Knotenkomposition, Run-Steuerung, Transitionen (BC 1) | Nutzt StoryContext, Worktree, VerifySystem, Telemetrie, State |
-| `verify_system/` | Mehrschichtige QA-Capability: Stages, LLM-Evaluationen, Konformanz, Policy-Aggregation (BC 2) | Nutzt Telemetrie, Artifacts, FailureCorpus |
-| `story_context_manager/` | Autoritativer Story-Kontext, Story-Lifecycle, Story-Identity und Vertragsmatrix (BC 3) | Wird von Pipeline, PromptRuntime, Governance genutzt |
-| `governance/` | Guards, Permissions, Governance-Observation, Integrity-Gate, Setup-Preflight (BC 4) | Nutzt Telemetrie, Artifacts, Config |
-| `exploration/` | Explorations-Routing, Entwurfsartefakt-Erzeugung, Mandats-Klassifikation (BC 5) | Nutzt StoryContext, PromptRuntime, Artifacts |
-| `implementation/` | Worker-Session, iterative Implementierungsschleife, Handover-Erzeugung (BC 6) | Nutzt StoryContext, PromptRuntime, Artifacts, Governance |
-| `closure/` | Integrity-Gate-Pruefungen, Merge-Ablauf, Post-Merge-Finalisierung, Abschluss-Report (BC 7) | Nutzt StoryContext, Governance, Telemetrie, Worktree |
-| `artifacts/` | Artefakt-Envelopes, Producer-Registry, Envelope-Vertraege (BC 8) | Wird von Pipeline, Verify, Governance, Implementation genutzt |
-| `telemetry/` | ExecutionEvents, Telemetrie-Emission, Projektion-Lesezugriff, Event-Vertraege (BC 9) | Wird von Pipeline, Governance, Closure genutzt |
-| `prompt_runtime/` | Prompt-Bundle-Speicher, Versionspinning, Prompt-Materialisierung (BC 10) | Nutzt StoryContext, Resources |
-| `skills/` | Skill-Bundle-Speicher, Skill-Bindung ans Zielprojekt, Qualitaetsmetriken (BC 11) | Nutzt Resources, Installer |
-| `installer/` | Projektregistrierung, Bootstrap-Checkpoints, Integrations-Checkpoints, Upgrade (BC 12) | Nutzt Config, Integrationen, Resources |
-| `failure_corpus/` | Incident-Triage, Muster-Promotion, Pruefregeln-Erzeugung (BC 13) | Nutzt VerifySystem.StageRegistry |
-| `execution_planning/` | Planungsmodell, Proposal-Ingest, Bereitschaftspruefung, Scheduling-Policy, Plan-Ableitung (BC 14) | Nutzt StoryContext, Integrationen |
-| `requirements_coverage/` | ARE-Client, Story-zu-Requirement-Mapping, ARE-Integration (BC 15) | Nutzt Integrationen |
-| `kpi_analytics/` | KPI-Katalog, Faktentabellen, Aggregation, Dashboard-Serving (BC 16) | Nutzt Telemetrie |
-| `governance/harness_adapters/` | Harness-Integration: harness-spezifische Adapter (claude_code, codex), CLI-Wrapper, Settings-Schemas (.claude/settings.json, .codex/hooks.json), Sub-Agent-/Hybrid-Lifecycle; trifft keine Policy (BC 17 `harness-integration`, `bounded-contexts.yaml:245`) | Importiert harness-neutrale Contracts aus `governance`; wird von `installation-and-bootstrap` und `prompt-runtime` ueber den `HarnessPort` genutzt (FK-76 §76.9). Reale Code-Heimat heute `governance/harness_adapters/`; Soll-Paket `agentkit.harness_integration` (kosmetisch, FK-76 §76.3) |
-| `worktree_manager/` | Worktree- und Branch-Lifecycle [shared] | Wird von Pipeline, StoryContextManager genutzt |
-| `cli/` | CLI-Entrypoints und Command-Routing [boundary: entry_boundary, R] | Ruft fachliche Top-Level-Namespaces auf; nichts importiert cli von innen |
-| `control_plane/` | HTTP-Transport, Pydantic-Modelle, Runtime-Service, Repository, Telemetrie [boundary: entry_boundary + adapter_boundary, R] | http.py ist entry_boundary; models/records/runtime/repository/telemetry sind adapter_boundary |
-| `integrations/` | Duenne Adapter zu externen Systemen [boundary: adapter_boundary, R] | Wird von BCs genutzt; importiert keine BCs |
-| `projectedge/` | Lokaler Projekt-Adapter fuer Sync und Bundle-Publish [boundary: adapter_boundary, R] | Wird von BCs genutzt; importiert keine BCs |
-| `state_backend/` | Repository-Schicht, Persistenz-Identitaet, Pfade, Postgres-/SQLite-Treiber [boundary: adapter_boundary + infrastructure_io + infrastructure_driver] | store.py/scope.py sind R; paths.py ist infrastructure_io (R); postgres_store.py/sqlite_store.py/config.py sind T |
-| `boundary/filesystem/` | Filesystem-Writer und Atomic-Write-Helpers [boundary: infrastructure_io, R] | Trennt Builder (A) von Writer; A-BCs importieren keinen direkten Filesystem-I/O |
-| `config/` | Pydantic-v2-Konfigurationsmodelle, Loader, Schema-Validierung [boundary: config_foundation, R] | Wird gelesen, nie geschrieben; keine Domain-Logik |
-| `shared/` | Fachneutrale Basistypen, Exceptions, stateless Hilfen [boundary: shared_foundation, A] | Importiert nichts Fachliches und keine Boundary-Module mit I/O |
+**Backend-Namespaces:** `artifacts/`, `auth/`, `bootstrap/`,
+`boundary/`, `cli/`, `closure/`, `concept_catalog/`, `config/`,
+`control_plane/`, `control_plane_http/`, `core_types/`,
+`execution_planning/`, `exploration/`, `failure_corpus/`,
+`governance/`, `implementation/`, `installer/`,
+`integration_stabilization/`, `kpi_analytics/`, `phase_state_store/`,
+`pipeline_engine/`, `process/`, `project/`, `project_management/`,
+`project_ops/`, `prompt_runtime/`, `requirements_coverage/`,
+`schemas/`, `skills/`, `state_backend/`, `story/`,
+`story_context_manager/`, `story_creation/`, `story_exit/`,
+`story_reset/`, `story_split/`, `task_management/`, `telemetry/`,
+`telemetry_service/`, `utils/`, `vectordb/`, `verify_system/`.
 
-> **Hinweis BC 17 `harness-integration` — Code-Soll vs. Code-Realitaet:**
-> Die Registry kennt `harness-integration` bereits als vollwertigen BC
-> (`concept/technical-design/_meta/bounded-contexts.yaml:245`, `owns:
-> HarnessAdapter/HarnessPort/HarnessSettings/HarnessInvocation/
-> HarnessCapability/SubAgentSpawn`); diese Tabelle und die Baum-Aufzaehlung
-> ziehen das jetzt konsistent nach (BC-Zaehlung „17"). Zwei abgrenzbare
-> Code-Folgen:
->
-> - **Paketverschiebung nach `agentkit.harness_integration` (FK-76 §76.3):
->   OPTIONAL.** Sie ist ausdruecklich **kosmetisch** (Paketname = BC-Name);
->   verbindlich sind die BC-Zugehoerigkeit (dieses Doc) und die
->   Importrichtung (FK-76 §76.9), nicht der Verzeichnisname. Reale
->   Code-Heimat bleibt bis dahin `src/agentkit/governance/harness_adapters/`.
-> - **Oeffentliche Port-Surface (FK-76 §76.8): VERBINDLICH und geownet.**
->   `HarnessPort`, `HarnessInvocation`, `HarnessHookEnvelope`,
->   `HarnessCapability`, `HarnessAdapterResult` plus die Settings-Writer
->   sind eine **geownete Code-Soll-Surface** (Owner-BC `harness-integration`,
->   `bounded-contexts.yaml:245`) und existieren noch **nicht** als benannte
->   Symbole — kein optionaler Sammelhinweis. Da heute **keine** Code-Folge-
->   Story diese Surface traegt, ist sie als nummerierte PO-Eskalation (CP2)
->   gefuehrt (Remediation-Report AG3-104); **kein** Code-Fix in dieser
->   doc-only-Story.
+**Backend-Regeln:**
 
-### Boundary-Module (schema_version 2)
+1. Ein fachlicher Namespace unter `src/agentkit/backend/`
+   repraesentiert genau eine fachliche Komponente oder klar benannte
+   Backend-Boundary.
+2. Subkomponenten werden als Unterpakete nur dann angelegt, wenn sie
+   ausschliesslich der uebergeordneten Komponente dienen.
+3. Querschnittsmodule wie `utils/`, `workers/`, `qa/` oder `pipeline/`
+   sind als dauerhafte Zielstruktur nicht zulaessig, wenn sie mehrere
+   fachliche Komponenten vermischen. Bestehende Altlasten sind
+   Migrationskandidaten, keine Vorlage fuer neue Struktur.
+4. Backend-Fachlogik importiert Drittsysteme ueber
+   `agentkit.integration_clients.*` und Harness-/ProjectEdge-Mechanik
+   ueber `agentkit.harness_client.*`.
+5. Backend-Code darf paketierte Artefakte aus `agentkit.bundles`
+   lesen, aber niemals dorthin Laufzeitdaten schreiben.
 
-Die Boundary-Module sind in
-`concept/formal-spec/architecture-conformance/entities.md` (schema_version 2)
-als `boundary_modules` neben den `component_groups` modelliert. Sie sind
-keine fachlichen BCs, sondern Eingangs-, Adapter-, Infrastruktur- und
-Foundation-Schichten mit klar definierten Importregeln.
+### Boundary-Module
 
-Sechs Boundary-Module-Arten (`boundary_module_kinds`):
+Boundary-Module bleiben fachlich relevant, liegen aber innerhalb der
+Deployment Unit, die sie ausliefert:
 
-| Art | Code | Bedeutung |
-|---|---|---|
-| Eingangs-Boundary | `entry_boundary` | Ruft fachliche BCs auf, hat keine Geschaeftslogik; nichts importiert sie von innen |
-| Adapter-Boundary | `adapter_boundary` | Duenne Wrapper ueber externe APIs; werden von BCs aufgerufen, importieren keine BCs |
-| Konfigurations-Foundation | `config_foundation` | Konfiguration und Schema-Validierung; wird gelesen, nie geschrieben |
-| Shared-Foundation | `shared_foundation` | Fachneutrale Basistypen, Exceptions, stateless Hilfen; importiert nichts Fachliches |
-| Infrastruktur-Driver | `infrastructure_driver` | Persistenz-/Infrastrukturtreiber (T-Bluttyp); nur von R-Adaptern aufgerufen |
-| Infrastruktur-IO | `infrastructure_io` | Filesystem-Writer; trennt Builder (A) von Writer (R/T) |
+| Boundary | Code-Heimat |
+|---|---|
+| CLI / Backend-Eingang | `src/agentkit/backend/cli/` |
+| Control-Plane HTTP | `src/agentkit/backend/control_plane_http/` |
+| Control-Plane Runtime/Records | `src/agentkit/backend/control_plane/` |
+| State-Backend Repository/Driver | `src/agentkit/backend/state_backend/` |
+| Filesystem Boundary | `src/agentkit/backend/boundary/filesystem/` |
+| Drittsystem-Adapter | `src/agentkit/integration_clients/` |
+| Harness-/ProjectEdge-Client | `src/agentkit/harness_client/` |
 
-Uebersicht der 12 Boundary-Module:
-
-| Namespace | Boundary-ID | Art | Bluttyp |
-|---|---|---|---|
-| `cli/` | `boundary.cli` | entry_boundary | R |
-| `control_plane/http.py` | `boundary.control_plane_http` | entry_boundary | R |
-| `control_plane/models.py` + `records.py` | `boundary.control_plane_records` | adapter_boundary | R |
-| `control_plane/runtime.py` + `repository.py` + `telemetry.py` | `boundary.control_plane_runtime` | adapter_boundary | R |
-| `integrations/` | `boundary.integrations` | adapter_boundary | R |
-| `projectedge/` | `boundary.projectedge` | adapter_boundary | R |
-| `state_backend/store.py` | `boundary.state_backend_repository` | adapter_boundary | R |
-| `state_backend/scope.py` | `boundary.state_persistence_scope` | adapter_boundary | R |
-| `config/` | `boundary.config` | config_foundation | R |
-| `shared/` + `exceptions/` | `boundary.shared` | shared_foundation | A |
-| `boundary/filesystem/` + `state_backend/paths.py` | `boundary.filesystem` | infrastructure_io | R |
-| `state_backend/postgres_store.py` + `sqlite_store.py` + `config.py` | `boundary.state_backend_drivers` | infrastructure_driver | T |
-
-`resources/` enthaelt deployte Assets und interne Prompts/Schemas; **kein Python-Code**.
-
-### Regeln fuer Module
-
-1. **Keine zirkulaeren Imports.** Abhaengigkeitsrichtung ist top-down: `cli` -> fachliche Top-Level-Namespaces -> `integrations|config|resources|shared`.
-2. **Neue Namespaces** nur mit fachlicher Begruendung. Keine technischen Sammelcontainer ohne eigene Verantwortung.
-3. **Fachliche Top-Level-Namespaces sind der Normalfall fuer Produktionslogik.** Neue Fachlogik gehoert dorthin, nicht in querschnittige Restkategorien.
-4. **`resources/` enthaelt keinen Python-Code.** Nur Templates, Prompts, Schemas, Config-Dateien.
-5. **`integrations/` sind Adapter.** Geschaeftslogik gehoert in die fachlichen Komponenten, nicht in die Adapter.
-6. **`shared/` bleibt klein.** Wenn ein Modul Fachwissen ueber Pipeline, Guards, QA, Storys oder Installer enthaelt, gehoert es nicht nach `shared/`.
+Neue Boundary-Module duerfen nicht als weitere direkte Kinder von
+`src/agentkit/` entstehen. Sie gehoeren in die passende Deployment Unit.
 
 ### tools/ — Architektur- und Build-Tooling
 
@@ -391,8 +217,9 @@ tools/
 
 ### Installer-Komponente
 
-`installer/` (BC 12) ist die fachliche Komponente fuer Projektregistrierung
-und Bootstrap. Substruktur gemaess `entities.md`:
+`src/agentkit/backend/installer/` (BC 12) ist die fachliche Komponente
+fuer Projektregistrierung und Bootstrap. Substruktur gemaess
+`entities.md`:
 
 - `checkpoint_engine/` — idempotente Checkpoint-Ausfuehrung
 - `bootstrap_checkpoints/` — Erstregistrierungs-Checkpoints
@@ -406,37 +233,39 @@ keine Subverzeichnisse unter `pipeline_engine/`:
 
 | Phase | BC | Namespace |
 |---|---|---|
-| 1 — Setup | BC 4 governance | `governance/setup_preflight_gate/` |
-| 2 — Exploration | BC 5 exploration | `exploration/` |
-| 3 — Implementation | BC 6 implementation | `implementation/` |
-| 4 — Verify | BC 2 verify_system | `verify_system/` |
-| 5 — Closure | BC 7 closure | `closure/` |
+| 1 — Setup | BC 4 governance | `backend/governance/setup_preflight_gate/` |
+| 2 — Exploration | BC 5 exploration | `backend/exploration/` |
+| 3 — Implementation | BC 6 implementation | `backend/implementation/` |
+| 4 — Verify | BC 2 verify_system | `backend/verify_system/` |
+| 5 — Closure | BC 7 closure | `backend/closure/` |
 
-`pipeline_engine/` (BC 1) ist die Orchestrierungsmaschine, die diese BCs
-aufruft — nicht ihr Container. Neue Phasen-Logik gehoert in den jeweiligen
-BC, nicht in `pipeline_engine/`.
+`backend/pipeline_engine/` (BC 1) ist die Orchestrierungsmaschine, die
+diese BCs aufruft — nicht ihr Container. Neue Phasen-Logik gehoert in
+den jeweiligen BC, nicht in `pipeline_engine/`.
 
-### resources/ — Single Source of Truth
+### bundles/ — Single Source of Truth
 
 ```
-resources/
+bundles/
+  skill_bundles/      # Paketierte Skill-Bundles
+  internal/prompts/   # Interne Prompt-Bundles
   target_project/     # Was ins Zielprojekt deployt wird
     .agentkit/        # Prompts, Hooks, Config, Manifests
     .claude/          # Skills, Context
+    .codex/           # Codex-Konfiguration
     templates/        # Jinja2-Templates (CLAUDE.md.j2, project.yaml.j2, ...)
     tools/
       agentkit/
         projectedge.py  # Zielprojekt-Code (kein AgentKit3-Produktionscode)
-  internal/           # Interne Prompts und Schemas (werden NICHT deployt)
 ```
 
 **Regeln:**
-- Jede deployte Datei existiert GENAU EINMAL unter `resources/target_project/`.
-- Keine Kopien in `tests/fixtures/` — Tests lesen aus `resources/` oder vergleichen gegen `tests/golden/`.
+- Jede deployte Datei existiert GENAU EINMAL unter `src/agentkit/bundles/target_project/`.
+- Keine Kopien in `tests/fixtures/` — Tests lesen aus `bundles/` oder vergleichen gegen `tests/golden/`.
 - Aenderungen an deploybaren Assets erfordern Aktualisierung der Golden Files.
-- `resources/target_project/tools/agentkit/projectedge.py` ist Zielprojekt-Code, kein
+- `bundles/target_project/tools/agentkit/projectedge.py` ist Zielprojekt-Code, kein
   AgentKit3-Produktionscode. Es wird ins Zielprojekt deployt und laeuft dort als lokaler
-  Projekt-Adapter (entspricht `boundary.projectedge` auf der Zielseite).
+  Projekt-Adapter.
 
 ---
 
@@ -453,8 +282,9 @@ resources/
 
 ### Regeln
 
-1. **Unit-Tests spiegeln die Code-Heimat.** `src/agentkit/pipeline_engine/` ->
-   `tests/unit/pipeline_engine/`. Analog fuer alle BCs.
+1. **Unit-Tests spiegeln die Code-Heimat innerhalb der Deployment Unit.**
+   `src/agentkit/backend/pipeline_engine/` -> `tests/unit/pipeline_engine/`.
+   Analog fuer alle BCs.
 2. **Integration-Tests sind szenariobasiert**, nicht modulbasiert. Beispiel: `install_fresh/`, `upgrade_preserve_local_edits/`.
 3. **Contract-Tests schuetzen Stabilitaet.** Prompt-Sentinels, Schema-Versionen, Manifest-Formate. Brechen wenn sich ein oeffentliches Format aendert.
 4. **E2E-Tests sind IMMER opt-in.** Marker: `@pytest.mark.e2e`. Nie in Standard-CI. Brauchen echte Credentials.
@@ -529,12 +359,12 @@ Diese Verzeichnisse werden von Python-Tools automatisch erzeugt und bleiben dort
 | Muster | Warum verboten |
 |---|---|
 | Zielprojekt-Struktur im Repo-Root | Development-Codebase ist nicht das Zielprojekt |
-| Deployte Dateien mehrfach vorhalten | Genau eine Source of Truth: `resources/target_project/` |
-| Phasen-Logik als Subdirectory von `pipeline_engine/` | Exploration, Implementation, Verify, Closure sind eigenstaendige BCs |
+| Deployte Dateien mehrfach vorhalten | Genau eine Source of Truth: `src/agentkit/bundles/target_project/` |
+| Phasen-Logik als Subdirectory von `backend/pipeline_engine/` | Exploration, Implementation, Verify, Closure sind eigenstaendige BCs |
 | E2E-Tests in Standard-CI | Brauchen Credentials, sind langsam, nicht deterministic |
 | Tool-Caches umleiten | Erzeugt nur Friction, `.gitignore` reicht |
-| Geschaeftslogik in `integrations/` | Adapter sind duenn, Logik gehoert in fachliche Komponenten |
-| Python-Code in `resources/` | Nur Templates, Prompts, Schemas, Config-Dateien |
+| Geschaeftslogik in `integration_clients/` | Adapter sind duenn, Logik gehoert in fachliche Komponenten |
+| Laufzeitdaten oder Backend-Code in `bundles/` | Nur paketierte Skills, Prompts und Zielprojekt-Assets |
 | Neue Top-Level-Verzeichnisse ohne Consent | Struktur ist bewusst designed, nicht ad-hoc erweiterbar |
 | Lose Python-Dateien im Root | Alles unter `src/agentkit/` |
 | Zirkulaere Imports zwischen Modulen | Abhaengigkeitsrichtung ist top-down |
@@ -543,16 +373,22 @@ Diese Verzeichnisse werden von Python-Tools automatisch erzeugt und bleiben dort
 
 ## Kurzreferenz fuer Agents
 
-**Ich will neuen Produktionscode schreiben** -> `src/agentkit/<passendes-modul>/`
+**Ich will Backend-Produktionscode schreiben** -> `src/agentkit/backend/<passendes-modul>/`
+
+**Ich will produktiven Frontend-Code schreiben** -> `src/agentkit/frontend/app/`
+
+**Ich will Harness-/ProjectEdge-Code schreiben** -> `src/agentkit/harness_client/`
+
+**Ich will einen Drittsystem-Client schreiben** -> `src/agentkit/integration_clients/<system>/`
 
 **Ich will ein neues Modul anlegen** -> Fachliche Begruendung noetig. Kein Modul fuer eine Klasse.
 
 **Ich will einen Test schreiben** -> Richtige Ebene waehlen: `unit/` (Logik), `integration/` (Dateisystem/Szenarien), `contract/` (Stabilitaet), `e2e/` (Live-Systeme).
 
-**Ich will ein Deploy-Asset aendern** -> `src/agentkit/resources/target_project/` aendern, dann Golden Files in `tests/golden/` aktualisieren.
+**Ich will ein Deploy-Asset aendern** -> `src/agentkit/bundles/target_project/` aendern, dann Golden Files in `tests/golden/` aktualisieren.
 
 **Ich will temporaere Dateien erzeugen** -> `var/` oder `tmp_path` (in Tests). Nie in `src/` oder `tests/fixtures/`.
 
-**Ich will eine Integration hinzufuegen** -> `src/agentkit/integrations/<name>/` als duenner Adapter. Geschaeftslogik im fachlichen Modul.
+**Ich will eine Integration hinzufuegen** -> `src/agentkit/integration_clients/<name>/` als duenner Adapter. Geschaeftslogik im fachlichen Backend-Modul.
 
 **Ich will die Struktur erweitern** -> Dieses Dokument konsultieren. Neue Top-Level-Verzeichnisse nur mit User-Consent.

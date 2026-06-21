@@ -7,11 +7,11 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from agentkit.story_context_manager.terminal_state import (
+from agentkit.backend.story_context_manager.terminal_state import (
     ExitClass,
     TerminalState,
 )
-from agentkit.story_split.models import (
+from agentkit.backend.story_split.models import (
     DependencyRebinding,
     SplitPlan,
     SplitStatus,

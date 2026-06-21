@@ -18,34 +18,34 @@ from typing import TYPE_CHECKING
 from tests.exploration_change_frame_fixture import EXAMPLE_RUN_ID, example_change_frame
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.core_types import ExplorationGateStatus
-from agentkit.exploration.change_frame import AffectedBuildingBlocks, OpenPoints
-from agentkit.exploration.freeze import DesignFreezeMarker
-from agentkit.exploration.mandate.classification import MandateClassification
-from agentkit.exploration.mandate.fine_design import (
+from agentkit.backend.core_types import ExplorationGateStatus
+from agentkit.backend.exploration.change_frame import AffectedBuildingBlocks, OpenPoints
+from agentkit.backend.exploration.freeze import DesignFreezeMarker
+from agentkit.backend.exploration.mandate.classification import MandateClassification
+from agentkit.backend.exploration.mandate.fine_design import (
     FineDesignRoundOutcome,
     FineDesignSubprocess,
 )
-from agentkit.exploration.mandate.impact_checker import ImpactExceedanceChecker
-from agentkit.exploration.mandate.scope_detector import ScopeExplosionDetector
-from agentkit.exploration.mandate.telemetry import MandateTelemetry
-from agentkit.exploration.phase import ExplorationConfig, ExplorationPhaseHandler
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.exploration.mandate.impact_checker import ImpactExceedanceChecker
+from agentkit.backend.exploration.mandate.scope_detector import ScopeExplosionDetector
+from agentkit.backend.exploration.mandate.telemetry import MandateTelemetry
+from agentkit.backend.exploration.phase import ExplorationConfig, ExplorationPhaseHandler
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import (
     ExplorationPayload,
     PhaseStatus,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import ChangeImpact
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import EventType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import ChangeImpact
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import EventType
 
 if TYPE_CHECKING:
     import pytest
 
-    from agentkit.exploration.change_frame import ChangeFrame
-    from agentkit.exploration.review import ExplorationGateResult
+    from agentkit.backend.exploration.change_frame import ChangeFrame
+    from agentkit.backend.exploration.review import ExplorationGateResult
 
 _STORY_ID = "AG3-047"
 
@@ -231,7 +231,7 @@ class _AlwaysUnreachable:
     def run_round(
         self, change_frame: ChangeFrame, *, round_number: int
     ) -> FineDesignRoundOutcome:
-        from agentkit.exploration.mandate.fine_design import (
+        from agentkit.backend.exploration.mandate.fine_design import (
             FineDesignEvaluatorUnavailableError,
         )
 
@@ -293,7 +293,7 @@ class _ConvergesThenFinalizeZeroAnswer:
         return FineDesignRoundOutcome(converged=True, decisions=())
 
     def finalize(self) -> None:
-        from agentkit.exploration.mandate.fine_design import (
+        from agentkit.backend.exploration.mandate.fine_design import (
             FineDesignEvaluatorUnavailableError,
         )
 
@@ -339,9 +339,9 @@ def test_fine_design_finalize_failure_after_convergence_is_failed_not_taken() ->
 
 def test_gate_rejected_maps_to_escalated() -> None:
     """A REJECTED gate (no freeze) -> ESCALATED with gate REJECTED."""
-    from agentkit.exploration.review.doc_fidelity import DocFidelityResult
-    from agentkit.exploration.review.review import ExplorationGateResult
-    from agentkit.verify_system.protocols import Finding, Severity, TrustClass
+    from agentkit.backend.exploration.review.doc_fidelity import DocFidelityResult
+    from agentkit.backend.exploration.review.review import ExplorationGateResult
+    from agentkit.backend.verify_system.protocols import Finding, Severity, TrustClass
 
     rejected = ExplorationGateResult(
         stage1_result=DocFidelityResult(
@@ -438,7 +438,7 @@ class _ConvergeWithDecisions:
     def run_round(
         self, change_frame: ChangeFrame, *, round_number: int
     ) -> FineDesignRoundOutcome:
-        from agentkit.exploration.mandate.fine_design import FineDesignDecision
+        from agentkit.backend.exploration.mandate.fine_design import FineDesignDecision
 
         del change_frame
         decision = FineDesignDecision(
@@ -534,7 +534,7 @@ def test_exploration_for_implementation_sets_execution_pending(
         _ctx().model_copy(update={"project_root": tmp_path}), _envelope()
     )
 
-    from agentkit.state_backend.store import load_story_context
+    from agentkit.backend.state_backend.store import load_story_context
 
     persisted = load_story_context(story_dir)
     assert result.status is PhaseStatus.COMPLETED
@@ -579,8 +579,8 @@ def test_exploration_writes_human_readable_summary(
 
 
 def _dummy_ref() -> object:
-    from agentkit.artifacts.reference import ArtifactReference
-    from agentkit.core_types import ArtifactClass
+    from agentkit.backend.artifacts.reference import ArtifactReference
+    from agentkit.backend.core_types import ArtifactClass
 
     return ArtifactReference(
         artifact_class=ArtifactClass.QA,
@@ -591,8 +591,8 @@ def _dummy_ref() -> object:
 
 
 def _dummy_approved() -> object:
-    from agentkit.exploration.review.doc_fidelity import DocFidelityResult
-    from agentkit.exploration.review.review import ExplorationGateResult
+    from agentkit.backend.exploration.review.doc_fidelity import DocFidelityResult
+    from agentkit.backend.exploration.review.review import ExplorationGateResult
 
     return ExplorationGateResult(
         stage1_result=DocFidelityResult(
@@ -606,8 +606,8 @@ def _dummy_approved() -> object:
 
 
 def _enable_sqlite(monkeypatch: pytest.MonkeyPatch) -> None:
-    from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-    from agentkit.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")

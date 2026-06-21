@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 from http import HTTPStatus
 
-from agentkit.control_plane.http import ControlPlaneApplication
-from agentkit.control_plane_http.app import ControlPlaneApplicationRoutes
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.project_management.http.routes import ProjectManagementRoutes
+from agentkit.backend.control_plane.http import ControlPlaneApplication
+from agentkit.backend.control_plane_http.app import ControlPlaneApplicationRoutes
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.project_management.http.routes import ProjectManagementRoutes
 
 
 class _InMemoryProjectRepository:
@@ -28,7 +28,7 @@ class _InMemoryProjectRepository:
                 existing.key != project.key
                 and existing.story_id_prefix == project.story_id_prefix
             ):
-                from agentkit.project_management.errors import (
+                from agentkit.backend.project_management.errors import (
                     ProjectStoryIdPrefixConflictError,
                 )
 
@@ -61,8 +61,8 @@ def _app(
     *,
     stories: list[object] | None = None,
 ) -> ControlPlaneApplication:
-    from agentkit.project_management.http.routes import _no_repos_in_use
-    from agentkit.project_management.service import ProjectDetailService
+    from agentkit.backend.project_management.http.routes import _no_repos_in_use
+    from agentkit.backend.project_management.service import ProjectDetailService
 
     detail_service = ProjectDetailService(
         project_repository=repository,

@@ -17,15 +17,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from agentkit.closure.multi_repo_saga import GitCommandResult
-from agentkit.closure.runtime_ports import (
+from agentkit.backend.closure.multi_repo_saga import GitCommandResult
+from agentkit.backend.closure.runtime_ports import (
     CiBuildTestFastRunner,
     ProductiveDocFidelityFeedbackPort,
     ProductiveSanityGatePort,
     ProductiveVectorDbSyncPort,
 )
-from agentkit.story_context_manager.types import StoryType
-from agentkit.verify_system.pre_merge_runner.contract import (
+from agentkit.backend.story_context_manager.types import StoryType
+from agentkit.backend.verify_system.pre_merge_runner.contract import (
     BuildTestOutcome,
     CandidateRef,
 )
@@ -33,7 +33,7 @@ from agentkit.verify_system.pre_merge_runner.contract import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.closure.multi_repo_saga import ClosureRepo
+    from agentkit.backend.closure.multi_repo_saga import ClosureRepo
 
 
 @dataclass
@@ -281,7 +281,7 @@ class _RecordingModeLockRepo:
 
 def test_mode_lock_release_no_marker_is_noop(tmp_path: Path) -> None:
     """A story that never acquired (no marker) owes no release (idempotent)."""
-    from agentkit.closure.runtime_ports import ProductiveModeLockReleasePort
+    from agentkit.backend.closure.runtime_ports import ProductiveModeLockReleasePort
 
     repo = _RecordingModeLockRepo()
     port = ProductiveModeLockReleasePort(mode_lock_repo=repo)  # type: ignore[arg-type]
@@ -295,8 +295,8 @@ def test_mode_lock_release_no_marker_is_noop(tmp_path: Path) -> None:
 
 def test_mode_lock_release_uses_acquired_mode_from_marker(tmp_path: Path) -> None:
     """The release uses the mode recorded in the durable acquire marker."""
-    from agentkit.closure.runtime_ports import ProductiveModeLockReleasePort
-    from agentkit.governance.setup_preflight_gate.mode_lock_marker import (
+    from agentkit.backend.closure.runtime_ports import ProductiveModeLockReleasePort
+    from agentkit.backend.governance.setup_preflight_gate.mode_lock_marker import (
         record_mode_lock_acquired,
     )
 

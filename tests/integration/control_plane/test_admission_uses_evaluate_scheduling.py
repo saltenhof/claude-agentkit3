@@ -21,39 +21,39 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.bootstrap.composition_root import (
+from agentkit.backend.bootstrap.composition_root import (
     build_planning_story_dependency_repository,
 )
-from agentkit.control_plane.dispatch import (
+from agentkit.backend.control_plane.dispatch import (
     build_execution_planning_admission_reader,
     build_pre_start_guard,
 )
-from agentkit.core_types import StoryDependencyKind
-from agentkit.execution_planning.dependency_graph import DependencyGraph
-from agentkit.execution_planning.entities import (
+from agentkit.backend.core_types import StoryDependencyKind
+from agentkit.backend.execution_planning.dependency_graph import DependencyGraph
+from agentkit.backend.execution_planning.entities import (
     ExecutionCapacityBudgets,
     ParallelizationConfig,
     StoryDependency,
 )
-from agentkit.execution_planning.scheduling import evaluate_scheduling
-from agentkit.project_management.entities import ProjectConfiguration
-from agentkit.project_management.lifecycle import create_project
-from agentkit.state_backend.store import facade
-from agentkit.state_backend.store.parallelization_config_repository import (
+from agentkit.backend.execution_planning.scheduling import evaluate_scheduling
+from agentkit.backend.project_management.entities import ProjectConfiguration
+from agentkit.backend.project_management.lifecycle import create_project
+from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.store.parallelization_config_repository import (
     StateBackendParallelizationConfigRepository,
 )
-from agentkit.state_backend.store.planning_story_repository import (
+from agentkit.backend.state_backend.store.planning_story_repository import (
     StateBackendPlanningStoryRepository,
 )
-from agentkit.state_backend.store.project_management_repository import (
+from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
-from agentkit.state_backend.store.story_repository import (
+from agentkit.backend.state_backend.store.story_repository import (
     StateBackendIdempotencyKeyRepository,
     StateBackendStoryRepository,
 )
-from agentkit.story_context_manager.service import StoryService
-from agentkit.story_context_manager.story_model import CreateStoryInput
+from agentkit.backend.story_context_manager.service import StoryService
+from agentkit.backend.story_context_manager.story_model import CreateStoryInput
 
 if TYPE_CHECKING:
     from pathlib import Path

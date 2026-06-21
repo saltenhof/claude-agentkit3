@@ -15,8 +15,8 @@ import json
 from datetime import UTC, datetime
 from http import HTTPStatus
 
-from agentkit.control_plane_http.tenant_scope import TenantScopeMiddleware
-from agentkit.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
 
 # ---------------------------------------------------------------------------
 # Fakes
@@ -85,7 +85,7 @@ class _FailingRepository:
 
 
 def _json_body(response: object) -> object:
-    from agentkit.control_plane_http.app import HttpResponse
+    from agentkit.backend.control_plane_http.app import HttpResponse
 
     assert isinstance(response, HttpResponse)
     return json.loads(response.body)
@@ -137,7 +137,7 @@ def test_unknown_project_get_returns_404() -> None:
         route_path="/v1/projects/no-such-project/phases",
         correlation_id="corr-3",
     )
-    from agentkit.control_plane_http.app import HttpResponse
+    from agentkit.backend.control_plane_http.app import HttpResponse
 
     assert isinstance(result, HttpResponse)
     assert result.status_code == int(HTTPStatus.NOT_FOUND)
@@ -157,7 +157,7 @@ def test_unknown_project_post_returns_404() -> None:
         route_path="/v1/projects/no-such-project/stories",
         correlation_id="corr-4",
     )
-    from agentkit.control_plane_http.app import HttpResponse
+    from agentkit.backend.control_plane_http.app import HttpResponse
 
     assert isinstance(result, HttpResponse)
     assert result.status_code == int(HTTPStatus.NOT_FOUND)
@@ -177,7 +177,7 @@ def test_archived_project_post_returns_403() -> None:
         route_path="/v1/projects/archived/stories",
         correlation_id="corr-5",
     )
-    from agentkit.control_plane_http.app import HttpResponse
+    from agentkit.backend.control_plane_http.app import HttpResponse
 
     assert isinstance(result, HttpResponse)
     assert result.status_code == int(HTTPStatus.FORBIDDEN)
@@ -196,7 +196,7 @@ def test_archived_project_put_returns_403() -> None:
         route_path="/v1/projects/archived/stories/ARC-001/fields/title",
         correlation_id="corr-6",
     )
-    from agentkit.control_plane_http.app import HttpResponse
+    from agentkit.backend.control_plane_http.app import HttpResponse
 
     assert isinstance(result, HttpResponse)
     assert result.status_code == int(HTTPStatus.FORBIDDEN)
@@ -211,7 +211,7 @@ def test_archived_project_patch_returns_403() -> None:
         route_path="/v1/projects/archived/stories/ARC-001",
         correlation_id="corr-7",
     )
-    from agentkit.control_plane_http.app import HttpResponse
+    from agentkit.backend.control_plane_http.app import HttpResponse
 
     assert isinstance(result, HttpResponse)
     assert result.status_code == int(HTTPStatus.FORBIDDEN)
@@ -226,7 +226,7 @@ def test_archived_project_delete_returns_403() -> None:
         route_path="/v1/projects/archived/stories/ARC-001",
         correlation_id="corr-8",
     )
-    from agentkit.control_plane_http.app import HttpResponse
+    from agentkit.backend.control_plane_http.app import HttpResponse
 
     assert isinstance(result, HttpResponse)
     assert result.status_code == int(HTTPStatus.FORBIDDEN)
@@ -293,7 +293,7 @@ def test_repo_exception_returns_503() -> None:
         route_path="/v1/projects/myproj/phases",
         correlation_id="corr-12",
     )
-    from agentkit.control_plane_http.app import HttpResponse
+    from agentkit.backend.control_plane_http.app import HttpResponse
 
     assert isinstance(result, HttpResponse)
     assert result.status_code == int(HTTPStatus.SERVICE_UNAVAILABLE)
@@ -316,7 +316,7 @@ def test_404_carries_correlation_id_header() -> None:
         route_path="/v1/projects/ghost/phases",
         correlation_id="trace-abc",
     )
-    from agentkit.control_plane_http.app import HttpResponse
+    from agentkit.backend.control_plane_http.app import HttpResponse
 
     assert isinstance(result, HttpResponse)
     header_map = dict(result.headers)

@@ -19,7 +19,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from agentkit.config import (
+from agentkit.backend.config import (
     REQUIRED_LLM_ROLES,
     SUPPORTED_CONFIG_VERSION,
     GovernanceConfig,
@@ -33,14 +33,14 @@ from agentkit.config import (
     TelemetryConfig,
     VectorDbConfig,
 )
-from agentkit.config.loader import load_project_config
-from agentkit.config.models import (
+from agentkit.backend.config.loader import load_project_config
+from agentkit.backend.config.models import (
     Features,
     JenkinsConfig,
     StageOverride,
     StageOverrideConfig,
 )
-from agentkit.exceptions import ConfigError
+from agentkit.backend.exceptions import ConfigError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -133,9 +133,9 @@ class TestConfigVersionField:
         """config_version (project.yaml) must NOT be confused with DB SCHEMA_VERSION.
 
         Regression guard: the DB schema version lives in
-        agentkit.state_backend.config and is a separate versioning area.
+        agentkit.backend.state_backend.config and is a separate versioning area.
         """
-        from agentkit.state_backend import config as state_cfg
+        from agentkit.backend.state_backend import config as state_cfg
 
         # DB schema version is a SemVer like "3.20.0"; config version is "3.0"
         assert state_cfg.SCHEMA_VERSION != SUPPORTED_CONFIG_VERSION, (
@@ -355,7 +355,7 @@ class TestMultiLlmAndLlmRoles:
         coverage enforcement for the ReviewGuard) and is NOT a parallel
         duplicate of LlmRolesConfig (AC3 SSOT rule).
         """
-        from agentkit.config.models import ReviewConfig
+        from agentkit.backend.config.models import ReviewConfig
 
         # ReviewConfig is for reviewer COVERAGE (which reviewers must have
         # reviewed) — not for provider assignment
@@ -671,8 +671,8 @@ class TestConfigVersionVersioningCut:
 
     def test_artifact_schema_version_is_out_of_cut(self) -> None:
         """Artefact-schema_version owners are in their own BCs, not config (FK-03 §3.3.4)."""
-        from agentkit.artifacts import ENVELOPE_SCHEMA_VERSION
-        from agentkit.artifacts.envelope import ArtifactEnvelope
+        from agentkit.backend.artifacts import ENVELOPE_SCHEMA_VERSION
+        from agentkit.backend.artifacts.envelope import ArtifactEnvelope
 
         # ArtifactEnvelope.schema_version is the artefact-BC owner
         assert "schema_version" in ArtifactEnvelope.model_fields

@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from agentkit.project_management.views import (
+from agentkit.backend.project_management.views import (
     ExecutionLimits,
     ProjectModeLock,
     StoryAreEvidence,

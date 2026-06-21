@@ -23,28 +23,28 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from agentkit.core_types import (
+from agentkit.backend.core_types import (
     CheckStatus,
     CheckType,
     FailureCategory,
     PatternStatus,
 )
-from agentkit.failure_corpus.check_proposal import (
+from agentkit.backend.failure_corpus.check_proposal import (
     CheckProposalRecord,
     FalsePositiveRisk,
 )
-from agentkit.failure_corpus.pattern import (
+from agentkit.backend.failure_corpus.pattern import (
     FailurePatternRecord,
     PatternRiskLevel,
     PromotionRule,
 )
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.fc_check_proposal_repository import (
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.fc_check_proposal_repository import (
     FcCheckProposalRepository,
     StateBackendFcCheckProposalRepository,
 )
-from agentkit.state_backend.store.fc_pattern_repository import (
+from agentkit.backend.state_backend.store.fc_pattern_repository import (
     StateBackendFcPatternRepository,
 )
 
@@ -118,7 +118,7 @@ def sqlite_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
 
 
 def _sqlite(tmp_path: Path) -> sqlite3.Connection:
-    from agentkit.state_backend.sqlite_store import _connect
+    from agentkit.backend.state_backend.sqlite_store import _connect
 
     return _connect(tmp_path)  # type: ignore[return-value]
 
@@ -262,7 +262,7 @@ class TestSqliteRoundtrip:
         Proves the real repository query is used — not a fixed-range scan.
         Seeds CHK-0250 and CHK-12000 and asserts both are returned.
         """
-        from agentkit.failure_corpus.check_proposal import CheckProposalRecord
+        from agentkit.backend.failure_corpus.check_proposal import CheckProposalRecord
 
         _seed_pattern(tmp_path, "FP-0001")
         repo = StateBackendFcCheckProposalRepository(tmp_path)

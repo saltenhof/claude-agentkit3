@@ -31,7 +31,7 @@ Konzeptionell festgelegt (FK-18 §18.9a):
 
 ### In Scope
 
-- Neue Konstante `agentkit.state_backend.config.SCHEMA_VERSION`
+- Neue Konstante `agentkit.backend.state_backend.config.SCHEMA_VERSION`
   (z. B. `"3.0.0"`)
 - Postgres-Driver:
   - Schema-Name aus Versions-Konstante ableiten
@@ -80,7 +80,7 @@ Konzeptionell festgelegt (FK-18 §18.9a):
 
 ## Akzeptanzkriterien
 
-1. **`SCHEMA_VERSION`-Konstante existiert** in `agentkit.state_backend.config` und wird als SemVer-String gepflegt.
+1. **`SCHEMA_VERSION`-Konstante existiert** in `agentkit.backend.state_backend.config` und wird als SemVer-String gepflegt.
 2. **Postgres-Schema-Name enthaelt die Version**: `ak3_v3_0_0` (oder analog). DDL-Anwendung erfolgt im versionierten Schema.
 3. **SQLite-Datei-Name enthaelt die Version**: `agentkit_3_0_0.sqlite` (oder analog).
 4. **Bootstrap legt automatisch eine neue, leere DB an**, wenn die Version geaendert wurde. Alte DB bleibt erreichbar.

@@ -11,10 +11,9 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from agentkit.config.models import SonarQubeConfig
-from agentkit.integrations.sonar import SonarApiError, SonarHttpResponse
-from agentkit.story_context_manager.types import StoryType
-from agentkit.verify_system.sonarqube_gate import (
+from agentkit.backend.config.models import SonarQubeConfig
+from agentkit.backend.story_context_manager.types import StoryType
+from agentkit.backend.verify_system.sonarqube_gate import (
     AcceptedExceptionLedger,
     AcceptedExceptionLedgerEntry,
     BoundAnalysis,
@@ -24,6 +23,7 @@ from agentkit.verify_system.sonarqube_gate import (
     build_issue_applier,
     resolve_analysis_id,
 )
+from agentkit.integration_clients.sonar import SonarApiError, SonarHttpResponse
 
 _HEAD = "rev-9"
 

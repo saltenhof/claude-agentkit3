@@ -16,12 +16,12 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentkit.verify_system.check_outcome_emitter import (
+from agentkit.backend.verify_system.check_outcome_emitter import (
     CheckOutcomeEmitter,
     build_check_outcomes,
 )
-from agentkit.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
-from agentkit.verify_system.stage_registry.records import CheckOutcome
+from agentkit.backend.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
+from agentkit.backend.verify_system.stage_registry.records import CheckOutcome
 
 # ---------------------------------------------------------------------------
 # Minimal stand-ins for FlowExecution and OverrideRecord
@@ -372,7 +372,7 @@ def test_origin_check_ref_echoed_into_check_proposal_ref() -> None:
 
     verify-system echoes origin_check_ref verbatim; no FC interpretation.
     """
-    from agentkit.verify_system.check_outcome_emitter import build_check_outcomes
+    from agentkit.backend.verify_system.check_outcome_emitter import build_check_outcomes
 
     flow = _FakeFlow()
     result = _layer_result(
@@ -400,7 +400,7 @@ def test_native_stage_produces_null_check_proposal_ref() -> None:
 
     FK-33 §33.2.1: origin_check_ref is None for native checks (not FC-derived).
     """
-    from agentkit.verify_system.check_outcome_emitter import build_check_outcomes
+    from agentkit.backend.verify_system.check_outcome_emitter import build_check_outcomes
 
     flow = _FakeFlow()
     result = _layer_result(

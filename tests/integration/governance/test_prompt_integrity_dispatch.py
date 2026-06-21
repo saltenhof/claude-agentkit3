@@ -39,28 +39,28 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.control_plane.models import (
+from agentkit.backend.control_plane.models import (
     EdgeBundle,
     EdgePointer,
     SessionRunBindingView,
     StoryExecutionLockView,
 )
-from agentkit.governance.guard_evaluation import HookEvent
-from agentkit.governance.guard_system import OPAQUE_MESSAGE
-from agentkit.governance.harness_adapters.claude_code import (
-    ClaudeCodeHookEvent,
-    to_neutral_event,
-)
-from agentkit.governance.runner import (
+from agentkit.backend.governance.guard_evaluation import HookEvent
+from agentkit.backend.governance.guard_system import OPAQUE_MESSAGE
+from agentkit.backend.governance.runner import (
     _pinned_prompt_output_hashes,
     _resolve_prompt_file_content,
     _run_prompt_integrity_guard,
     run_hook,
 )
-from agentkit.projectedge.client import LocalEdgePublisher
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.telemetry.events import EventType
-from agentkit.telemetry.storage import StateBackendEmitter
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.telemetry.events import EventType
+from agentkit.backend.telemetry.storage import StateBackendEmitter
+from agentkit.harness_client.harness_adapters.claude_code import (
+    ClaudeCodeHookEvent,
+    to_neutral_event,
+)
+from agentkit.harness_client.projectedge.client import LocalEdgePublisher
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -96,8 +96,8 @@ def _persist_prompt_audit(project_root: Path, prompt_text: str) -> None:
     is the install-pinned, manifest-hashed Stage-3 baseline the guard resolves via
     ``_pinned_prompt_output_hashes`` (FK-31 §31.7.4).
     """
-    from agentkit.bootstrap.composition_root import build_artifact_manager
-    from agentkit.prompt_runtime.audit import (
+    from agentkit.backend.bootstrap.composition_root import build_artifact_manager
+    from agentkit.backend.prompt_runtime.audit import (
         PromptAuditHash,
         build_prompt_audit_envelope,
         empty_render_input_digest,

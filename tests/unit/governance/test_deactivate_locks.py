@@ -19,9 +19,9 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.governance.errors import LockRecordNotFoundError
-from agentkit.governance.hook_registration import RegistrationResult
-from agentkit.governance.locks import LockRecordId
+from agentkit.backend.governance.errors import LockRecordNotFoundError
+from agentkit.backend.governance.hook_registration import RegistrationResult
+from agentkit.backend.governance.locks import LockRecordId
 
 # ---------------------------------------------------------------------------
 # Recording test doubles
@@ -120,7 +120,7 @@ def _make_governance(
     project_key: str = "test-project",
     worktree_repo: _RecordingWorktreeRepo | None = None,
 ) -> object:
-    from agentkit.governance.runner import Governance
+    from agentkit.backend.governance.runner import Governance
 
     return Governance(
         hook_repo=_RecordingHookRepo(),  # type: ignore[arg-type]
@@ -292,7 +292,7 @@ class TestDeactivationResultModel:
     """DeactivationResult Pydantic model works correctly."""
 
     def test_empty_defaults(self) -> None:
-        from agentkit.governance.locks import DeactivationResult
+        from agentkit.backend.governance.locks import DeactivationResult
 
         result = DeactivationResult()
         assert result.deactivated_locks == []
@@ -300,7 +300,7 @@ class TestDeactivationResultModel:
         assert result.errors == []
 
     def test_populated_result(self) -> None:
-        from agentkit.governance.locks import DeactivationResult
+        from agentkit.backend.governance.locks import DeactivationResult
 
         lid = LockRecordId("proj|story|run|type")
         p = Path("_temp/governance/story/edge-bundle.json")

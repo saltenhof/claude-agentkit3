@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.governance.guards.artifact_guard import ArtifactGuard
-from agentkit.governance.protocols import ViolationType
+from agentkit.backend.governance.guards.artifact_guard import ArtifactGuard
+from agentkit.backend.governance.protocols import ViolationType
 
 
 @pytest.fixture()
@@ -202,7 +202,7 @@ class TestArtifactGuardAllowed:
     """Non-scoped or non-subagent writes must be allowed."""
 
     def test_write_normal_code(self, guard: ArtifactGuard) -> None:
-        v = guard.evaluate("file_write", {"file_path": "/src/agentkit/main.py"})
+        v = guard.evaluate("file_write", {"file_path": "/src/agentkit/backend/main.py"})
         assert v.allowed is True
 
     def test_write_protocol_md(self, guard: ArtifactGuard) -> None:

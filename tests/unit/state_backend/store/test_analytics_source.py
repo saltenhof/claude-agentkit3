@@ -16,15 +16,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.analytics_source import StateBackendAnalyticsSource
-from agentkit.state_backend.store.projection_repositories import (
+from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.analytics_source import StateBackendAnalyticsSource
+from agentkit.backend.state_backend.store.projection_repositories import (
     build_projection_repositories,
 )
-from agentkit.telemetry.contract.records import ExecutionEventRecord
-from agentkit.telemetry.events import EventType
-from agentkit.telemetry.projection_accessor import (
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.telemetry.events import EventType
+from agentkit.backend.telemetry.projection_accessor import (
     ProjectionAccessor,
     ProjectionFilter,
     ProjectionKind,
@@ -317,7 +317,7 @@ def test_recompute_fact_guard_period_counts_violation_events(
 
 
 def _delta_one(record: ExecutionEventRecord) -> tuple[str | None, str | None]:
-    from agentkit.state_backend.store.analytics_source import _to_delta_event
+    from agentkit.backend.state_backend.store.analytics_source import _to_delta_event
 
     delta = _to_delta_event(record)
     return delta.pool_key, delta.guard_key
@@ -633,7 +633,7 @@ def test_every_rollup_event_type_has_a_key_mapping() -> None:
     hard failure at CI time, and ``_resolve_payload_key`` makes it fail-closed at
     runtime.
     """
-    from agentkit.state_backend.store.analytics_source import (
+    from agentkit.backend.state_backend.store.analytics_source import (
         _GUARD_EVENT_TYPES,
         _GUARD_PAYLOAD_KEY_BY_TYPE,
         _POOL_EVENT_TYPES,
@@ -655,7 +655,7 @@ def test_resolve_payload_key_fails_closed_for_unmapped_event_type() -> None:
     A future addition to the rollup set that forgot its key-map entry must NOT
     silently default to ``None`` (that re-creates the AG3-117 data bug).
     """
-    from agentkit.state_backend.store.analytics_source import (
+    from agentkit.backend.state_backend.store.analytics_source import (
         _POOL_PAYLOAD_KEY_BY_TYPE,
         _resolve_payload_key,
     )

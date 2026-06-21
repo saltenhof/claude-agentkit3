@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentkit.telemetry.contract.records import ExecutionEventRecord
-from agentkit.telemetry.sse_stream import (
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.telemetry.sse_stream import (
     parse_project_topics,
     project_event_to_sse,
     render_heartbeat,

@@ -38,9 +38,9 @@ dev = [
 ]
 
 [project.scripts]
-agentkit = "agentkit.cli.main:main"
-agentkit-hook-claude = "agentkit.governance.harness_adapters.claude_code:main"
-agentkit-hook-codex = "agentkit.governance.harness_adapters.codex.cli:main"
+agentkit = "agentkit.backend.cli.main:main"
+agentkit-hook-claude = "agentkit.harness_client.harness_adapters.claude_code:main"
+agentkit-hook-codex = "agentkit.harness_client.harness_adapters.codex.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agentkit"]

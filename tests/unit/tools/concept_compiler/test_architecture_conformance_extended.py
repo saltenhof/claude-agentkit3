@@ -104,17 +104,17 @@ def _write_spec(
         "    name: StoryApplication\n"
         "    bloodgroup: A\n"
         "    module_prefixes:\n"
-        "      - agentkit.story\n"
+        "      - agentkit.backend.story\n"
         "  - id: architecture-conformance.group.kpi_analytics\n"
         "    name: KpiAnalyticsApplication\n"
         "    bloodgroup: A\n"
         "    module_prefixes:\n"
-        "      - agentkit.kpi_analytics\n"
+        "      - agentkit.backend.kpi_analytics\n"
         "  - id: architecture-conformance.group.control_plane\n"
         "    name: ControlPlaneHttp\n"
         "    bloodgroup: R\n"
         "    module_prefixes:\n"
-        "      - agentkit.control_plane\n"
+        "      - agentkit.backend.control_plane\n"
         "  - id: architecture-conformance.group.infra_driver\n"
         "    name: InfraDriver\n"
         "    bloodgroup: T\n"
@@ -151,10 +151,10 @@ def _write_spec(
         f"dependency_rules:\n"
         f"  - id: {_BASE_RULE_ID}\n"
         "    source_module_prefixes:\n"
-        "      - agentkit.story\n"
-        "      - agentkit.kpi_analytics\n"
+        "      - agentkit.backend.story\n"
+        "      - agentkit.backend.kpi_analytics\n"
         "    forbidden_module_prefixes:\n"
-        "      - agentkit.control_plane.http\n"
+        "      - agentkit.backend.control_plane.http\n"
         "    message: story must not depend on control-plane transport\n"
         "acyclic_group_sets:\n"
         "  - id: architecture-conformance.acyclic.application_surface\n"
@@ -205,7 +205,7 @@ def test_parent_group_id_resolves_correctly(tmp_path: Path) -> None:
                 name: StorySubComponent
                 bloodgroup: A
                 module_prefixes:
-                  - agentkit.story.sub
+                  - agentkit.backend.story.sub
                 parent_group_id: architecture-conformance.group.story
                 exposure: sub_exposed
             """
@@ -295,7 +295,7 @@ def test_default_exposure_internal_for_child_group(tmp_path: Path) -> None:
                 name: StoryInner
                 bloodgroup: A
                 module_prefixes:
-                  - agentkit.story.inner
+                  - agentkit.backend.story.inner
                 parent_group_id: architecture-conformance.group.story
             """
         ),
@@ -402,7 +402,7 @@ def test_shared_allowed_importer_must_be_top_level(tmp_path: Path) -> None:
                 name: StorySub
                 bloodgroup: A
                 module_prefixes:
-                  - agentkit.story.sub
+                  - agentkit.backend.story.sub
                 parent_group_id: architecture-conformance.group.story
               - id: architecture-conformance.group.shared_x
                 name: SharedX
@@ -435,7 +435,7 @@ def test_top_surface_modules_must_be_subprefix(tmp_path: Path) -> None:
                 name: BadSurface
                 bloodgroup: A
                 module_prefixes:
-                  - agentkit.story
+                  - agentkit.backend.story
                 top_surface_modules:
                   - agentkit.other.module
             """
@@ -479,7 +479,7 @@ def test_ac008_assigned_module_no_violation(tmp_path: Path) -> None:
         tmp_path,
         extra_invariants=_AC008_OPT_IN,
         files={
-            "agentkit.story.service": "def noop():\n    return None\n",
+            "agentkit.backend.story.service": "def noop():\n    return None\n",
         },
     )
     compiled = compile_formal_specs(root / "concept" / "formal-spec")
@@ -536,21 +536,21 @@ def test_cross_bc_import_to_internal_subcomponent_raises_ac001(tmp_path: Path) -
                 name: KpiAnalyticsInner
                 bloodgroup: A
                 module_prefixes:
-                  - agentkit.kpi_analytics.inner
+                  - agentkit.backend.kpi_analytics.inner
                 parent_group_id: architecture-conformance.group.kpi_analytics
                 exposure: internal
             """
         ),
         files={
-            "agentkit.story.service": dedent(
+            "agentkit.backend.story.service": dedent(
                 """
-                from agentkit.kpi_analytics.inner import something
+                from agentkit.backend.kpi_analytics.inner import something
 
                 def use() -> None:
                     pass
                 """
             ),
-            "agentkit.kpi_analytics.inner": "def something() -> None:\n    pass\n",
+            "agentkit.backend.kpi_analytics.inner": "def something() -> None:\n    pass\n",
         },
     )
     compiled = compile_formal_specs(root / "concept" / "formal-spec")
@@ -576,21 +576,21 @@ def test_cross_bc_import_to_sub_exposed_subcomponent_no_violation(
                 name: KpiAnalyticsApi
                 bloodgroup: A
                 module_prefixes:
-                  - agentkit.kpi_analytics.api
+                  - agentkit.backend.kpi_analytics.api
                 parent_group_id: architecture-conformance.group.kpi_analytics
                 exposure: sub_exposed
             """
         ),
         files={
-            "agentkit.story.service": dedent(
+            "agentkit.backend.story.service": dedent(
                 """
-                from agentkit.kpi_analytics.api import something
+                from agentkit.backend.kpi_analytics.api import something
 
                 def use() -> None:
                     pass
                 """
             ),
-            "agentkit.kpi_analytics.api": "def something() -> None:\n    pass\n",
+            "agentkit.backend.kpi_analytics.api": "def something() -> None:\n    pass\n",
         },
     )
     compiled = compile_formal_specs(root / "concept" / "formal-spec")
@@ -713,26 +713,26 @@ def test_intra_bc_layer_order_absent_no_check(tmp_path: Path) -> None:
                 name: StoryA
                 bloodgroup: A
                 module_prefixes:
-                  - agentkit.story.amod
+                  - agentkit.backend.story.amod
                 parent_group_id: architecture-conformance.group.story
               - id: architecture-conformance.group.story_b
                 name: StoryB
                 bloodgroup: A
                 module_prefixes:
-                  - agentkit.story.bmod
+                  - agentkit.backend.story.bmod
                 parent_group_id: architecture-conformance.group.story
             """
         ),
         files={
-            "agentkit.story.amod.service": dedent(
+            "agentkit.backend.story.amod.service": dedent(
                 """
-                from agentkit.story.bmod.impl import something
+                from agentkit.backend.story.bmod.impl import something
 
                 def use() -> None:
                     pass
                 """
             ),
-            "agentkit.story.bmod.impl": "def something() -> None:\n    pass\n",
+            "agentkit.backend.story.bmod.impl": "def something() -> None:\n    pass\n",
         },
     )
     compiled = compile_formal_specs(root / "concept" / "formal-spec")
@@ -766,7 +766,7 @@ def test_ac005_a_imports_t_raises_violation(tmp_path: Path) -> None:
             """
         ),
         files={
-            "agentkit.story.service": dedent(
+            "agentkit.backend.story.service": dedent(
                 """
                 from agentkit.infra_driver.store import run_query
 
@@ -800,15 +800,15 @@ def test_ac005_no_violation_allowed_bloodgroup(tmp_path: Path) -> None:
             """
         ),
         files={
-            "agentkit.story.service": dedent(
+            "agentkit.backend.story.service": dedent(
                 """
-                from agentkit.control_plane.gateway import call
+                from agentkit.backend.control_plane.gateway import call
 
                 def execute() -> None:
                     pass
                 """
             ),
-            "agentkit.control_plane.gateway": "def call() -> None:\n    pass\n",
+            "agentkit.backend.control_plane.gateway": "def call() -> None:\n    pass\n",
         },
     )
     compiled = compile_formal_specs(root / "concept" / "formal-spec")
@@ -824,7 +824,7 @@ def test_ac005_empty_rules_no_violations(tmp_path: Path) -> None:
         tmp_path,
         extra_invariants="bloodtype_dependency_rules: []",
         files={
-            "agentkit.story.service": dedent(
+            "agentkit.backend.story.service": dedent(
                 """
                 from agentkit.infra_driver.store import run_query
 
@@ -869,7 +869,7 @@ def test_ac005_anti_laundering_r_re_exports_t(tmp_path: Path) -> None:
             """
         ),
         files={
-            "agentkit.story.service": dedent(
+            "agentkit.backend.story.service": dedent(
                 """
                 from agentkit.middleware.facade import run_query
 
@@ -917,7 +917,7 @@ def test_ac006_persistence_surface_violation(tmp_path: Path) -> None:
             """
         ),
         files={
-            "agentkit.story.service": dedent(
+            "agentkit.backend.story.service": dedent(
                 """
                 from sqlalchemy.orm import Session
 
@@ -951,7 +951,7 @@ def test_ac006_filesystem_surface_wildcard_violation(tmp_path: Path) -> None:
             """
         ),
         files={
-            "agentkit.story.service": dedent(
+            "agentkit.backend.story.service": dedent(
                 """
                 import os.path
 
@@ -986,7 +986,7 @@ def test_ac006_network_surface_not_forbidden_for_r_no_violation(tmp_path: Path) 
         ),
         files={
             # control_plane is bloodgroup R — should not be flagged
-            "agentkit.control_plane.client": dedent(
+            "agentkit.backend.control_plane.client": dedent(
                 """
                 import httpx
 
@@ -1009,7 +1009,7 @@ def test_ac006_empty_surfaces_no_violations(tmp_path: Path) -> None:
         tmp_path,
         extra_invariants="effect_surfaces: []",
         files={
-            "agentkit.story.service": "import os\ndef noop() -> None:\n    pass\n",
+            "agentkit.backend.story.service": "import os\ndef noop() -> None:\n    pass\n",
         },
     )
     compiled = compile_formal_specs(root / "concept" / "formal-spec")
@@ -1058,7 +1058,7 @@ def test_ac007_type_taint_simple_import_annotation(tmp_path: Path) -> None:
                     pass
                 """
             ),
-            "agentkit.story.service": dedent(
+            "agentkit.backend.story.service": dedent(
                 """
                 from agentkit.infra_driver.models import DbRecord
 
@@ -1096,7 +1096,7 @@ def test_ac007_type_taint_subscript_list_annotation(tmp_path: Path) -> None:
                     pass
                 """
             ),
-            "agentkit.story.service": dedent(
+            "agentkit.backend.story.service": dedent(
                 """
                 from __future__ import annotations
                 from agentkit.infra_driver.models import DbRecord
@@ -1135,7 +1135,7 @@ def test_ac007_type_taint_forward_ref_string_annotation(tmp_path: Path) -> None:
                     pass
                 """
             ),
-            "agentkit.story.service": dedent(
+            "agentkit.backend.story.service": dedent(
                 """
                 from agentkit.infra_driver.models import DbRecord
 
@@ -1173,7 +1173,7 @@ def test_ac007_forbidden_instantiation(tmp_path: Path) -> None:
                     pass
                 """
             ),
-            "agentkit.story.service": dedent(
+            "agentkit.backend.story.service": dedent(
                 """
                 from agentkit.infra_driver.models import DbRecord
 
@@ -1215,7 +1215,7 @@ def test_ac007_private_function_not_checked(tmp_path: Path) -> None:
                     pass
                 """
             ),
-            "agentkit.story.service": dedent(
+            "agentkit.backend.story.service": dedent(
                 """
                 from agentkit.infra_driver.models import DbRecord
 
@@ -1248,7 +1248,7 @@ def test_ac007_empty_rules_no_violations(tmp_path: Path) -> None:
         ),
         files={
             "agentkit.infra_driver.models": "class DbRecord:\n    pass\n",
-            "agentkit.story.service": dedent(
+            "agentkit.backend.story.service": dedent(
                 """
                 from agentkit.infra_driver.models import DbRecord
 
@@ -1295,7 +1295,7 @@ def test_render_component_tree_with_children(tmp_path: Path) -> None:
                 name: StorySubComponent
                 bloodgroup: A
                 module_prefixes:
-                  - agentkit.story.sub
+                  - agentkit.backend.story.sub
                 parent_group_id: architecture-conformance.group.story
                 exposure: sub_exposed
             """
@@ -1348,9 +1348,9 @@ def test_existing_ac001_still_works_after_refactor(tmp_path: Path) -> None:
     root = _write_spec(
         tmp_path,
         files={
-            "agentkit.story.service": dedent(
+            "agentkit.backend.story.service": dedent(
                 """
-                from agentkit.control_plane.http import App
+                from agentkit.backend.control_plane.http import App
 
                 def build() -> object:
                     return App

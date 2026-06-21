@@ -23,20 +23,20 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from agentkit.control_plane_http.app import (
+from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
     ControlPlaneApplicationRoutes,
 )
-from agentkit.control_plane_http.tenant_scope import TenantScopeMiddleware
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.project_management.lifecycle import create_project
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.projection_repositories import (
+from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.project_management.lifecycle import create_project
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.projection_repositories import (
     build_projection_repositories,
 )
-from agentkit.task_management.http.routes import TaskManagementRoutes
-from agentkit.task_management.service import TaskManagement
-from agentkit.telemetry.projection_accessor import ProjectionAccessor
+from agentkit.backend.task_management.http.routes import TaskManagementRoutes
+from agentkit.backend.task_management.service import TaskManagement
+from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
 
 _PROJ = "test-proj"
 _PROJ_A = "proj-a"

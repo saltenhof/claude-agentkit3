@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from agentkit.exploration.change_frame import (
+from agentkit.backend.exploration.change_frame import (
     CHANGE_FRAME_SCHEMA_VERSION,
     SEVEN_PARTS,
     AffectedBuildingBlocks,
@@ -297,7 +297,7 @@ def test_fine_design_decisions_defaults_empty() -> None:
 
 def test_fine_design_decisions_carries_decisions_and_serializes() -> None:
     """The 8th field carries FineDesignDecision items + serializes (AK9)."""
-    from agentkit.exploration.mandate.fine_design import FineDesignDecision
+    from agentkit.backend.exploration.mandate.fine_design import FineDesignDecision
 
     decision = FineDesignDecision(
         decision_id="FD-001",

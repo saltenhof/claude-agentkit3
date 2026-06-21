@@ -16,17 +16,17 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.artifacts import (
+from agentkit.backend.artifacts import (
     ArtifactEnvelope,
     Producer,
     ProducerId,
     ProducerType,
 )
-from agentkit.core_types import ArtifactClass, EnvelopeStatus
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.sqlite_store import _connect
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.artifact_repository import (
+from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.sqlite_store import _connect
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.artifact_repository import (
     StateBackendArtifactRepository,
 )
 

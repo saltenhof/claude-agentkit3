@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.config.models import (
+from agentkit.backend.config.models import (
     SUPPORTED_CONFIG_VERSION,
     Features,
     PipelineConfig,
@@ -37,12 +37,12 @@ from agentkit.config.models import (
     RepositoryConfig,
     VectorDbConfig,
 )
-from agentkit.control_plane.models import CreateStoryInputs
-from agentkit.exceptions import ControlPlaneApiError
-from agentkit.integrations.vectordb import StorySearchHit, VectorDbUnavailableError
-from agentkit.projectedge import LocalEdgePublisher, ProjectEdgeClient
-from agentkit.story_creation.create_flow import StoryCreationReconciler
-from agentkit.verify_system.llm_evaluator.roles import LlmVerdict, ReviewerRole
+from agentkit.backend.control_plane.models import CreateStoryInputs
+from agentkit.backend.exceptions import ControlPlaneApiError
+from agentkit.backend.story_creation.create_flow import StoryCreationReconciler
+from agentkit.backend.verify_system.llm_evaluator.roles import LlmVerdict, ReviewerRole
+from agentkit.harness_client.projectedge import LocalEdgePublisher, ProjectEdgeClient
+from agentkit.integration_clients.vectordb import StorySearchHit, VectorDbUnavailableError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -521,7 +521,7 @@ def test_create_story_request_rejects_hand_built_evidence_dict() -> None:
     is required: an internally inconsistent attestation is rejected at the model
     boundary, so a forged self-consistent dict cannot reach the create surface.
     """
-    from agentkit.control_plane.models import CreateStoryRequest
+    from agentkit.backend.control_plane.models import CreateStoryRequest
 
     with pytest.raises(ValueError, match="reconciliation|weaviate"):
         CreateStoryRequest.model_validate(

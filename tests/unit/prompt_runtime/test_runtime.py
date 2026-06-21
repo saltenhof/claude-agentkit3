@@ -13,29 +13,29 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.artifacts import (
+from agentkit.backend.artifacts import (
     ArtifactManager,
     EnvelopeValidator,
     ProducerRegistry,
 )
-from agentkit.core_types import ArtifactClass
-from agentkit.exceptions import ProjectError
-from agentkit.installer.paths import (
+from agentkit.backend.core_types import ArtifactClass
+from agentkit.backend.exceptions import ProjectError
+from agentkit.backend.installer.paths import (
     PROMPT_BUNDLE_STORE_ENV,
     prompt_bundle_store_dir,
 )
-from agentkit.pipeline_engine.compaction_resilience.models import SpawnSpec
-from agentkit.pipeline_engine.compaction_resilience.paths import (
+from agentkit.backend.pipeline_engine.compaction_resilience.models import SpawnSpec
+from agentkit.backend.pipeline_engine.compaction_resilience.paths import (
     resume_capsule_path,
     spawn_spec_path,
 )
-from agentkit.prompt_runtime.composer import ComposeConfig
-from agentkit.prompt_runtime.pins import PromptRunPin
-from agentkit.prompt_runtime.register import register_prompt_runtime_producers
-from agentkit.prompt_runtime.resources import PROJECT_LOCK_RELPATH
-from agentkit.prompt_runtime.runtime import PromptInstance, PromptRuntime
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.prompt_runtime.composer import ComposeConfig
+from agentkit.backend.prompt_runtime.pins import PromptRunPin
+from agentkit.backend.prompt_runtime.register import register_prompt_runtime_producers
+from agentkit.backend.prompt_runtime.resources import PROJECT_LOCK_RELPATH
+from agentkit.backend.prompt_runtime.runtime import PromptInstance, PromptRuntime
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -123,7 +123,7 @@ def manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ArtifactManager:
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
     registry = ProducerRegistry()
     register_prompt_runtime_producers(registry)
-    from agentkit.state_backend.store.artifact_repository import (
+    from agentkit.backend.state_backend.store.artifact_repository import (
         StateBackendArtifactRepository,
     )
 
@@ -214,7 +214,7 @@ class TestUpdateBinding:
         _write_binding(tmp_path, version="100")
         runtime.update_binding("project-bound", "100")
 
-        from agentkit.prompt_runtime.pins import resolve_run_prompt_binding
+        from agentkit.backend.prompt_runtime.pins import resolve_run_prompt_binding
 
         binding = resolve_run_prompt_binding(tmp_path, "run-1")
         assert binding.bundle_version == "99"  # still pinned

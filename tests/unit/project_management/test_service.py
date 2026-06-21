@@ -16,15 +16,15 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.core_types import StorySize
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.project_management.errors import ProjectNotFoundError
-from agentkit.project_management.service import (
+from agentkit.backend.core_types import StorySize
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.project_management.errors import ProjectNotFoundError
+from agentkit.backend.project_management.service import (
     ProjectDetailService,
     compute_story_counters,
     derive_mode_lock,
 )
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.story_context_manager.story_model import (
     Story,
     StoryStatus,
     WireStoryMode,

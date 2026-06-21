@@ -1,4 +1,4 @@
-"""Tests for agentkit.installer.ccag_settings — deploy and remove."""
+"""Tests for agentkit.backend.installer.ccag_settings — deploy and remove."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from agentkit.installer.ccag_settings import (
+from agentkit.backend.installer.ccag_settings import (
     CCAG_RULES_SUBDIR,
     build_claude_hook_entry,
     build_claude_settings_snippet,

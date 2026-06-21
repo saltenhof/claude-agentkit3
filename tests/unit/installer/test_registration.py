@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from agentkit.installer.registration import (
+from agentkit.backend.installer.registration import (
     CP7_STATE_BACKEND_REGISTRATION,
     CheckpointResult,
     CheckpointStatus,

@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.story_context_manager.errors import IdempotencyMismatchError
-from agentkit.story_context_manager.idempotency import (
+from agentkit.backend.story_context_manager.errors import IdempotencyMismatchError
+from agentkit.backend.story_context_manager.idempotency import (
     IdempotencyKeyStore,
     InMemoryIdempotencyKeyRepository,
     compute_body_hash,
@@ -137,7 +137,7 @@ def test_in_memory_repo_get_returns_none_for_missing() -> None:
 def test_in_memory_repo_save_and_retrieve() -> None:
     from datetime import UTC, datetime
 
-    from agentkit.story_context_manager.idempotency import IdempotencyRecord
+    from agentkit.backend.story_context_manager.idempotency import IdempotencyRecord
 
     repo = InMemoryIdempotencyKeyRepository()
     now = datetime(2026, 1, 1, tzinfo=UTC)
@@ -162,7 +162,7 @@ def test_in_memory_repo_saves_most_recent_record() -> None:
     """InMemoryIdempotencyKeyRepository stores the latest save per op_id."""
     from datetime import UTC, datetime
 
-    from agentkit.story_context_manager.idempotency import IdempotencyRecord
+    from agentkit.backend.story_context_manager.idempotency import IdempotencyRecord
 
     repo = InMemoryIdempotencyKeyRepository()
     now = datetime(2026, 1, 1, tzinfo=UTC)

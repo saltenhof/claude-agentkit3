@@ -30,11 +30,11 @@ from __future__ import annotations
 import copy
 from typing import TYPE_CHECKING
 
-from agentkit.exploration.change_frame import CHANGE_FRAME_SCHEMA_VERSION
-from agentkit.exploration.drafting.ports import ExplorationWorkerResult
+from agentkit.backend.exploration.change_frame import CHANGE_FRAME_SCHEMA_VERSION
+from agentkit.backend.exploration.drafting.ports import ExplorationWorkerResult
 
 if TYPE_CHECKING:
-    from agentkit.story_context_manager.models import StoryContext
+    from agentkit.backend.story_context_manager.models import StoryContext
 
 #: A recorded REAL worker run id (FK-02 §2.3.1 UUID). The replay re-stamps the
 #: requested run id over this so the recorded content can be replayed under any

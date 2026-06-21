@@ -171,7 +171,7 @@ Implementation:
 6. **`deactivate_locks` fail-closed bei unbekannter Story-ID**: Komplett unbekannte Story-ID (kein Lock-Record im Backend) → `LockRecordNotFoundError` in `errors[0]`. Bereits komplett inaktive Story (alle Locks INACTIVE) → leere `deactivated_locks`-Liste ohne Fehler (idempotente Re-Deaktivierung). <!-- AG3-031 Pass-3 FK-30-Korrektur 2026-05-24 Fix E6: AK5 auf fail-closed korrigiert -->
 7. **Fail-closed-Verhalten**: IO-Fehler bei Edge-Bundle-Loeschung landen in `errors[]`, werden nicht silent verschluckt; bei kritischen Fehlern (DB-Fehler) wird gehoben.
 8. **Persistenz**: `governance_hook_registrations`-Tabelle in SQLite + Postgres mit Schema `(project_key, hook_event_name, matcher, command, registered_at)`, PK/UNIQUE `(project_key, hook_event_name, matcher)`.
-9. **Architecture-Conformance**: `agentkit.governance` (ausser Repository-Modul) importiert nicht direkt aus state_backend.store-Fassaden.
+9. **Architecture-Conformance**: `agentkit.backend.governance` (ausser Repository-Modul) importiert nicht direkt aus state_backend.store-Fassaden.
 10. **Pflichtbefehle gruen**: pytest unit + contract; mypy --strict; ruff clean; Coverage haelt 85%.
 
 ## 5. Definition of Done

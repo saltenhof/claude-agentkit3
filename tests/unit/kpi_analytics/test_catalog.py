@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from agentkit.kpi_analytics.catalog import (
+from agentkit.backend.kpi_analytics.catalog import (
     CatalogStatus,
     KpiCatalog,
     KpiCollectionPoint,

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.config.models import (
+from agentkit.backend.config.models import (
     SUPPORTED_CONFIG_VERSION,
     Features,
     PipelineConfig,
@@ -26,22 +26,22 @@ from agentkit.config.models import (
     RepositoryConfig,
     VectorDbConfig,
 )
-from agentkit.integrations.vectordb import StorySearchHit, VectorDbUnavailableError
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.story_context_manager.idempotency import (
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.story_context_manager.idempotency import (
     InMemoryIdempotencyKeyRepository,
 )
-from agentkit.story_context_manager.service import StoryService
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.story_context_manager.service import StoryService
+from agentkit.backend.story_context_manager.story_model import (
     CreateStoryInput,
     StoryStatus,
     WireStoryType,
 )
-from agentkit.story_context_manager.story_repository import InMemoryStoryRepository
-from agentkit.story_creation.create_flow import StoryCreationReconciler
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import EventType
-from agentkit.verify_system.llm_evaluator.roles import LlmVerdict, ReviewerRole
+from agentkit.backend.story_context_manager.story_repository import InMemoryStoryRepository
+from agentkit.backend.story_creation.create_flow import StoryCreationReconciler
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import EventType
+from agentkit.backend.verify_system.llm_evaluator.roles import LlmVerdict, ReviewerRole
+from agentkit.integration_clients.vectordb import StorySearchHit, VectorDbUnavailableError
 
 # ---------------------------------------------------------------------------
 # Boundary doubles (Weaviate adapter + LLM evaluator only)
@@ -328,7 +328,7 @@ def test_reconciler_produces_route_consumable_evidence() -> None:
     # Affinity carried in the evidence matches the persisted participating_repos.
     assert evidence.participating_repos == tuple(outcome.story.participating_repos)
     # The evidence wire payload re-validates (route-consumable round-trip).
-    from agentkit.story_creation.reconciliation_evidence import ReconciliationEvidence
+    from agentkit.backend.story_creation.reconciliation_evidence import ReconciliationEvidence
 
     assert (
         ReconciliationEvidence.model_validate(evidence.model_dump())
@@ -366,7 +366,7 @@ def test_real_flow_evidence_carries_full_21_4_2_counters() -> None:
     assert evidence.threshold_value == 0.7
     assert evidence.search_mode == "hybrid"
     # The evidence re-validates as a route-consumable payload with the new keys.
-    from agentkit.story_creation.reconciliation_evidence import ReconciliationEvidence
+    from agentkit.backend.story_creation.reconciliation_evidence import ReconciliationEvidence
 
     revalidated = ReconciliationEvidence.model_validate(evidence.model_dump())
     assert revalidated.candidates_evaluated == 2

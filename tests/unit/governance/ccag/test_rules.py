@@ -1,4 +1,4 @@
-"""Tests for agentkit.governance.ccag.rules — YAML loader and evaluation engine."""
+"""Tests for agentkit.backend.governance.ccag.rules — YAML loader and evaluation engine."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from agentkit.governance.ccag.rules import (
+from agentkit.backend.governance.ccag.rules import (
     CcagRule,
     _load_yaml_rules,
     _serialise_input,

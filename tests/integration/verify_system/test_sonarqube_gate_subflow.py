@@ -32,20 +32,20 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.artifacts import ArtifactEnvelope, ArtifactManager, ArtifactReference
-from agentkit.core_types import ArtifactClass, PolicyVerdict, QaContext
-from agentkit.story_context_manager.types import StoryType
-from agentkit.verify_system import VerifyContextBundle, VerifySystem
-from agentkit.verify_system.policy_engine.engine import PolicyEngine
-from agentkit.verify_system.protocols import LayerResult
-from agentkit.verify_system.sonarqube_gate import (
+from agentkit.backend.artifacts import ArtifactEnvelope, ArtifactManager, ArtifactReference
+from agentkit.backend.core_types import ArtifactClass, PolicyVerdict, QaContext
+from agentkit.backend.story_context_manager.types import StoryType
+from agentkit.backend.verify_system import VerifyContextBundle, VerifySystem
+from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
+from agentkit.backend.verify_system.protocols import LayerResult
+from agentkit.backend.verify_system.sonarqube_gate import (
     AcceptedExceptionLedgerEntry,
     SonarApplicability,
     SonarAttestation,
     SonarIssue,
 )
-from agentkit.verify_system.sonarqube_gate.port import PostApplyGateState, SonarGateInputs
-from agentkit.verify_system.stage_registry import StageRegistry
+from agentkit.backend.verify_system.sonarqube_gate.port import PostApplyGateState, SonarGateInputs
+from agentkit.backend.verify_system.stage_registry import StageRegistry
 from integration.implementation_evidence_support import (
     bind_implementation_qa_preconditions,
 )

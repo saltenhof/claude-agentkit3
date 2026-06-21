@@ -14,17 +14,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from agentkit.kpi_analytics.dashboard.service import (
+from agentkit.backend.kpi_analytics.dashboard.service import (
     _COLUMN_ORDER,
     _LIFECYCLE_TO_COLUMN,
     DashboardService,
     _map_lifecycle_to_column,
 )
-from agentkit.kpi_analytics.fact_store.models import FactStory
-from agentkit.story.models import StoryListResponse, StorySummary
-from agentkit.story.service import StoryService
-from agentkit.story_context_manager.sizing import StorySize
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.kpi_analytics.fact_store.models import FactStory
+from agentkit.backend.story.models import StoryListResponse, StorySummary
+from agentkit.backend.story.service import StoryService
+from agentkit.backend.story_context_manager.sizing import StorySize
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 
 class _FakeStoryService(StoryService):
@@ -133,7 +133,7 @@ def test_get_board_groups_stories_by_fk64_column() -> None:
 
 def test_get_board_returns_dashboard_story_summary_dtos() -> None:
     """Stories in columns are DashboardStorySummary instances (local DTO, not StorySummary)."""
-    from agentkit.kpi_analytics.dashboard.models import DashboardStorySummary
+    from agentkit.backend.kpi_analytics.dashboard.models import DashboardStorySummary
 
     service = DashboardService(story_service=_FakeStoryService())
     response = service.get_board("tenant-a")
@@ -151,7 +151,7 @@ def test_get_story_metrics_no_fact_store_raises() -> None:
     """
     import pytest as _pytest
 
-    from agentkit.kpi_analytics.errors import AnalyticsNotConfiguredError
+    from agentkit.backend.kpi_analytics.errors import AnalyticsNotConfiguredError
 
     service = DashboardService(story_service=_FakeStoryService(), fact_store=None)
 

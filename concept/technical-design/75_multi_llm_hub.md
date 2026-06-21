@@ -63,7 +63,7 @@ Kimi, …). Dieses Foundation-Modul stellt den Adapter dazu bereit.
 ## 75.4 Datenfluss
 
 ```
-Multi-LLM-Hub (extern)  ◄──REST──►  agentkit.multi_llm_hub  ──►  control_plane_http
+Multi-LLM-Hub (extern)  ◄──REST──►  agentkit.integration_clients.multi_llm_hub  ──►  control_plane_http
                                             │                          │
                                             └──►  Konsumenten:         ▼
                                                   - prompt_runtime   /v1/hub

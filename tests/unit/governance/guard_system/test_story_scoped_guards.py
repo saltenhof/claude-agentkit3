@@ -10,15 +10,15 @@ FK-24 §24.3.4 Mode-Profil + ``formal.operating-modes.invariants``:
 
 from __future__ import annotations
 
-from agentkit.governance.guard_system.story_scoped_guards import (
+from agentkit.backend.governance.guard_system.story_scoped_guards import (
     BASELINE_GUARD_IDS,
     STORY_SCOPED_GUARD_IDS,
     should_activate_story_scoped_guards,
     should_create_story_lock_records,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import WireStoryMode
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import WireStoryMode
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 
 def _ctx(*, mode: WireStoryMode) -> StoryContext:

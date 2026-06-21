@@ -13,15 +13,15 @@ import threading
 
 import pytest
 
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.verify_system.llm_evaluator.bundle import ReviewBundle
-from agentkit.verify_system.llm_evaluator.parallel_runner import (
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.verify_system.llm_evaluator.bundle import ReviewBundle
+from agentkit.backend.verify_system.llm_evaluator.parallel_runner import (
     LAYER2_ROLES,
     ParallelEvalError,
     ParallelEvalRunner,
 )
-from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import (
     LlmVerdict,
     ReviewerRole,
     StructuredEvaluator,

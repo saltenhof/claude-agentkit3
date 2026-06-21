@@ -14,7 +14,7 @@ references are reflected in the rewritten `story.md`.
 ### ERROR — Concept-Corpus-Freshness (FK-21 §21.11.4 Step 0 #2) fehlte
 **Resolution: routed OUT to owner.** §21.11.4 Step 0 has two preflight checks.
 Check 1 (Weaviate-Readiness) is genuinely this story's runtime concern and is now an
-explicit in-scope item: §2.1.2 + AC2 add the canonical `agentkit.vectordb.wait_for_weaviate`
+explicit in-scope item: §2.1.2 + AC2 add the canonical `agentkit.backend.vectordb.wait_for_weaviate`
 entrypoint with Exit 0/1 fail-closed semantics. Check 2 (Concept-Corpus-Freshness) is
 explicitly Concept-Graph/dev-tooling (Kap. 13.9.9, `concept_graph.json`/`corpus_revision`,
 `agentkit concept build`), deterministic and **independent of the VectorDB** — outside this
@@ -74,7 +74,7 @@ No second owner.
 
 ### WARNING — Modulpfad Weaviate-Readiness unklar
 **Resolution: fixed — canonical path pinned.** §2.1.2 + AC2 set the canonical FK module
-path `agentkit.vectordb.wait_for_weaviate` (§21.11.4) as a thin App-layer CLI shim that
+path `agentkit.backend.vectordb.wait_for_weaviate` (§21.11.4) as a thin App-layer CLI shim that
 consumes the `integrations/vectordb` adapter — satisfies both the FK-named entrypoint and
 the "integrations bleibt duenn" rule.
 

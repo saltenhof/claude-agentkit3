@@ -1,10 +1,10 @@
-"""Unit tests for agentkit.config.validators."""
+"""Unit tests for agentkit.backend.config.validators."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from agentkit.config.models import (
+from agentkit.backend.config.models import (
     SUPPORTED_CONFIG_VERSION,
     Features,
     JenkinsConfig,
@@ -13,7 +13,7 @@ from agentkit.config.models import (
     RepositoryConfig,
     SonarQubeConfig,
 )
-from agentkit.config.validators import validate_project_config
+from agentkit.backend.config.validators import validate_project_config
 
 #: AG3-052 E6: code-producing projects must declare sonarqube explicitly.
 _OPT_OUT_SONAR = SonarQubeConfig(available=False, enabled=False)

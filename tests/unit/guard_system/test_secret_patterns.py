@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from agentkit.governance.guard_system import secret_patterns
-from agentkit.governance.guard_system.secret_scan import scan_paths_and_diff
+from agentkit.backend.governance.guard_system import secret_patterns
+from agentkit.backend.governance.guard_system.secret_scan import scan_paths_and_diff
 
 AWS_PREFIX = "AK" "IA"
 GITHUB_PREFIX = "gh" "p_"

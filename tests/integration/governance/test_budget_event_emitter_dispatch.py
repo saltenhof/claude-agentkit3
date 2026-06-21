@@ -7,12 +7,12 @@ AG3-086 migration (FK-30 §30.5.1a / FK-68 §68.6.0): the previous double-role
 now:
 
 - dispatches the PreToolUse ``budget`` guard-hook to
-  :class:`agentkit.governance.guard_system.WebCallBudgetGuard` — the SINGLE block
+  :class:`agentkit.backend.governance.guard_system.WebCallBudgetGuard` — the SINGLE block
   owner (no double blockade, no wrong owner). A research web call at/above the
   hard budget, AND an UNRESOLVED story type on a web call, are fail-closed BLOCKS
   from the GOVERNANCE owner that emit an ``integrity_violation`` block audit.
 - dispatches the PostToolUse ``budget`` hook to the OBSERVATIONAL
-  :class:`agentkit.telemetry.hooks.budget_event_emitter.BudgetEventEmitter`,
+  :class:`agentkit.backend.telemetry.hooks.budget_event_emitter.BudgetEventEmitter`,
   which emits the ``web_call`` counter and NEVER blocks.
 
 NO CHEATING: the capability layer runs LIVE (no monkeypatched shim). WebFetch /
@@ -29,21 +29,21 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.control_plane.models import (
+from agentkit.backend.control_plane.models import (
     EdgeBundle,
     EdgePointer,
     SessionRunBindingView,
     StoryExecutionLockView,
 )
-from agentkit.governance import runner as runner_mod
-from agentkit.governance.guard_evaluation import HookEvent
-from agentkit.governance.runner import POST_HOOK_IDS, PRE_HOOK_IDS, run_hook
-from agentkit.projectedge.client import LocalEdgePublisher
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.story_repository import StateBackendStoryRepository
-from agentkit.story_context_manager.story_model import Story, WireStoryType
-from agentkit.telemetry.events import Event, EventType, validate_event_payload
-from agentkit.telemetry.storage import StateBackendEmitter
+from agentkit.backend.governance import runner as runner_mod
+from agentkit.backend.governance.guard_evaluation import HookEvent
+from agentkit.backend.governance.runner import POST_HOOK_IDS, PRE_HOOK_IDS, run_hook
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.story_repository import StateBackendStoryRepository
+from agentkit.backend.story_context_manager.story_model import Story, WireStoryType
+from agentkit.backend.telemetry.events import Event, EventType, validate_event_payload
+from agentkit.backend.telemetry.storage import StateBackendEmitter
+from agentkit.harness_client.projectedge.client import LocalEdgePublisher
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -168,7 +168,7 @@ def test_capability_enforcement_is_not_patched_out() -> None:
     # Anti-cheat guard: the genuine ``_run_capability_enforcement`` runs here.
     assert (
         runner_mod._run_capability_enforcement.__module__
-        == "agentkit.governance.runner"
+        == "agentkit.backend.governance.runner"
     )
     assert runner_mod._run_capability_enforcement.__name__ == "_run_capability_enforcement"
 

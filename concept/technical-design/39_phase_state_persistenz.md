@@ -536,7 +536,7 @@ und `PhaseMemory`) ist **Eigentuemer-BC pipeline-framework** (dieses Dokument).
 DB-Zugriffsschicht (Lesen/Schreiben via `Telemetry.write_projection` und
 `Telemetry.read_projection`). Das Schema selbst — d.h. die Pydantic-Modelle
 fuer `PhaseStateCore`, `PhasePayload`, `PhaseMemory`, `AttemptRecord` — bleibt
-in `agentkit.pipeline_engine.phase_executor` (PhaseExecutor-Sub).
+in `agentkit.backend.pipeline_engine.phase_executor` (PhaseExecutor-Sub).
 
 Querverweise: BC-Schnitt-Entscheidung Row 33; FK-10 §10.5 (State-Backend);
 `concept/formal-spec/architecture-conformance/entities.md`

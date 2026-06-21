@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import TYPE_CHECKING
 
-from agentkit.skills.bundle_store import SkillBundleStore, shipped_skill_bundles_root
+from agentkit.backend.skills.bundle_store import SkillBundleStore, shipped_skill_bundles_root
 
 if TYPE_CHECKING:
     from pathlib import Path

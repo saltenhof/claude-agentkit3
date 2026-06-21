@@ -7,9 +7,9 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
-from agentkit.artifacts.envelope import ENVELOPE_SCHEMA_VERSION, ArtifactEnvelope
-from agentkit.artifacts.producer import Producer, ProducerId, ProducerType
-from agentkit.core_types import ArtifactClass, EnvelopeStatus
+from agentkit.backend.artifacts.envelope import ENVELOPE_SCHEMA_VERSION, ArtifactEnvelope
+from agentkit.backend.artifacts.producer import Producer, ProducerId, ProducerType
+from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus
 
 
 def _make_producer(name: str = "test-worker") -> Producer:

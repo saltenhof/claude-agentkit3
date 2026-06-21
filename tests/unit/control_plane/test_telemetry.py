@@ -3,12 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from agentkit.control_plane.models import TelemetryEventIngestRequest
-from agentkit.control_plane.telemetry import ControlPlaneTelemetryService
-from agentkit.telemetry.events import EventType
+from agentkit.backend.control_plane.models import TelemetryEventIngestRequest
+from agentkit.backend.control_plane.telemetry import ControlPlaneTelemetryService
+from agentkit.backend.telemetry.events import EventType
 
 if TYPE_CHECKING:
-    from agentkit.telemetry.contract.records import ExecutionEventRecord
+    from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 
 def test_ingest_event_persists_canonical_execution_record() -> None:

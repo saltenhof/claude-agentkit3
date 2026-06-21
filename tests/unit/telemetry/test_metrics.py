@@ -1,11 +1,11 @@
-"""Unit tests for agentkit.telemetry.metrics."""
+"""Unit tests for agentkit.backend.telemetry.metrics."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from agentkit.telemetry.events import Event, EventType
-from agentkit.telemetry.metrics import (
+from agentkit.backend.telemetry.events import Event, EventType
+from agentkit.backend.telemetry.metrics import (
     PipelineMetrics,
     compute_phase_duration,
     compute_pipeline_metrics,

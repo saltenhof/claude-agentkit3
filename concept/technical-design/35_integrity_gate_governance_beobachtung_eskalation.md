@@ -505,7 +505,7 @@ prüfen und entscheiden:
 ### 35.3.1 Architektur (FK 6.6)
 
 **Komponentenzuordnung:** Die Governance-Beobachtung ist in
-`agentkit.governance.governance_observer` implementiert. Die
+`agentkit.backend.governance.governance_observer` implementiert. Die
 Risikoscore-Akkumulation (Rolling-Window) liegt ebenfalls dort
 (Owner: `governance.GovernanceObserver`).
 
@@ -535,7 +535,7 @@ flowchart TD
 
 ### 35.3.1a GovernanceObserver: Score-Akkumulation (normative Verantwortung)
 
-**Klasse: `agentkit.governance.governance_observer.GovernanceObserver`**
+**Klasse: `agentkit.backend.governance.governance_observer.GovernanceObserver`**
 
 Diese Sektion ist die normative Quelle fuer Scoring-Algorithmus,
 Gewichtungen und Trigger-Bedingungen der Risikoscore-Akkumulation.
@@ -604,7 +604,7 @@ INSERT INTO execution_events (
     project_key, story_id, run_id, event_id, event_type, occurred_at,
     source_component, severity, payload
 )
-VALUES ($1, $2, $3, $4, 'governance_signal', NOW(), 'agentkit.governance.guard_system', 'warning', $5);
+VALUES ($1, $2, $3, $4, 'governance_signal', NOW(), 'agentkit.backend.governance.guard_system', 'warning', $5);
 ```
 
 Payload:

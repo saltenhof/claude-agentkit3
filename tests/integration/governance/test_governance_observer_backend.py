@@ -23,11 +23,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.governance.governance_observer.reader import StateBackendGovernanceEventReader
-from agentkit.governance.governance_observer.score import compute_risk_score
-from agentkit.state_backend.store import facade
-from agentkit.state_backend.store.facade import append_execution_event
-from agentkit.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.governance.governance_observer.reader import StateBackendGovernanceEventReader
+from agentkit.backend.governance.governance_observer.score import compute_risk_score
+from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.store.facade import append_execution_event
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 if TYPE_CHECKING:
     from pathlib import Path

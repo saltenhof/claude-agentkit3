@@ -18,20 +18,20 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.artifacts import ArtifactEnvelope, ArtifactManager, ArtifactReference
-from agentkit.core_types import ArtifactClass, PolicyVerdict, QaContext
-from agentkit.story_context_manager.types import StoryType
-from agentkit.verify_system import VerifyContextBundle, VerifySystem
-from agentkit.verify_system.contract import PhaseEnvelopeView
-from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput
-from agentkit.verify_system.llm_evaluator.parallel_runner import ParallelEvalRunner
-from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+from agentkit.backend.artifacts import ArtifactEnvelope, ArtifactManager, ArtifactReference
+from agentkit.backend.core_types import ArtifactClass, PolicyVerdict, QaContext
+from agentkit.backend.story_context_manager.types import StoryType
+from agentkit.backend.verify_system import VerifyContextBundle, VerifySystem
+from agentkit.backend.verify_system.contract import PhaseEnvelopeView
+from agentkit.backend.verify_system.llm_evaluator.inputs import Layer2ReviewInput
+from agentkit.backend.verify_system.llm_evaluator.parallel_runner import ParallelEvalRunner
+from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import (
     ReviewerRole,
     StructuredEvaluator,
 )
-from agentkit.verify_system.policy_engine.engine import PolicyEngine
-from agentkit.verify_system.protocols import Finding, Severity, TrustClass
-from agentkit.verify_system.stage_registry import StageRegistry
+from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
+from agentkit.backend.verify_system.protocols import Finding, Severity, TrustClass
+from agentkit.backend.verify_system.stage_registry import StageRegistry
 from integration.implementation_evidence_support import (
     bind_implementation_qa_preconditions,
 )
@@ -76,15 +76,15 @@ class _RecordingArtifactManager(ArtifactManager):
         # absent (ArtifactNotFoundError). Mandatory-target feedback read is
         # fail-closed (AG3-067 def-5): only a genuinely-absent artifact means
         # "no targets", so the double signals absence honestly.
-        from agentkit.artifacts import ArtifactNotFoundError
+        from agentkit.backend.artifacts import ArtifactNotFoundError
 
         raise ArtifactNotFoundError("no artifact recorded by the test double")
 
 
 class _StubMaterializer:
     def context_for(self, bundle: object) -> tuple[object, str]:
-        from agentkit.story_context_manager.models import StoryContext
-        from agentkit.story_context_manager.types import StoryMode, StoryType
+        from agentkit.backend.story_context_manager.models import StoryContext
+        from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
         story_id = getattr(bundle, "story_id", "TEST-001")
         ctx = StoryContext(
@@ -201,7 +201,7 @@ class _PassingLayer:
         return self._name
 
     def evaluate(self, ctx: object, story_dir: object, *, review_input: object = None) -> object:
-        from agentkit.verify_system.protocols import LayerResult
+        from agentkit.backend.verify_system.protocols import LayerResult
 
         del ctx, story_dir, review_input
         return LayerResult(
@@ -403,8 +403,8 @@ def test_build_verify_system_wires_layer2_runner_productively(tmp_path: Path) ->
     and FAILS CLOSED (FK-27 §27.5 "Reviews finden IMMER statt"; FK-34 §34.5.1).
     Verified at the REAL productive entry point, not just a test double.
     """
-    from agentkit.bootstrap.composition_root import build_verify_system
-    from agentkit.verify_system.llm_evaluator.llm_client import FailClosedLlmClient
+    from agentkit.backend.bootstrap.composition_root import build_verify_system
+    from agentkit.backend.verify_system.llm_evaluator.llm_client import FailClosedLlmClient
 
     vs = build_verify_system(tmp_path)
     assert isinstance(vs.layer2_llm_client, FailClosedLlmClient)

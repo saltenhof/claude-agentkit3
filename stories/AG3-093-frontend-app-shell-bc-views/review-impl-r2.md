@@ -30,7 +30,7 @@ RESOLVED; 6 ERROR remain/new.
   (`Shell.tsx:329-330`); Flow renders from local Story (`DetailInspector.tsx:36`).
 - **E3 — AC14** `realBackend.test.ts:153`: persistence proof reads via `/_test/story-status`
   (`python_harness.py:80` → `story_context_manager.service.StoryService`), NOT the public
-  `GET /v1/projects/{key}/stories/{id}` (`app.py:1176` → `agentkit.story.service.StoryService.get_story`).
+  `GET /v1/projects/{key}/stories/{id}` (`app.py:1176` → `agentkit.backend.story.service.StoryService.get_story`).
   Test admits seeded stories not visible via public getStoryDetail (`realBackend.test.ts:188`).
   Proves internal service write/read, not the UI-required public BFF read path. Fix: assert
   persisted status through `BffClient.getStoryDetail`/`listStories` against the real app, with

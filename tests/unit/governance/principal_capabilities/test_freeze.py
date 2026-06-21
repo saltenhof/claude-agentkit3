@@ -7,16 +7,16 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.governance.principal_capabilities import (
+from agentkit.backend.governance.principal_capabilities import (
     CapabilityDecision,
     CapabilityVerdict,
     ConflictFreezeOverlay,
     OperationClass,
     Principal,
 )
-from agentkit.governance.principal_capabilities.errors import FreezePersistenceError
-from agentkit.governance.principal_capabilities.freeze import FREEZE_EXPORT_RELPATH
-from agentkit.state_backend.store.freeze_repository import (
+from agentkit.backend.governance.principal_capabilities.errors import FreezePersistenceError
+from agentkit.backend.governance.principal_capabilities.freeze import FREEZE_EXPORT_RELPATH
+from agentkit.backend.state_backend.store.freeze_repository import (
     FreezeRepository,
     LocalFreezeJsonExport,
 )

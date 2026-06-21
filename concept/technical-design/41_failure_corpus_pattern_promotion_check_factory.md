@@ -149,7 +149,7 @@ Failure-Corpus-Daten sind **permanent**, nicht temporaer.
 **Kanonische Wahrheit:** Postgres-Tabellen `fc_incidents`, `fc_patterns`,
 `fc_check_proposals` im zentralen State-Backend.
 **DB-Owner:** `telemetry-and-events.ProjectionAccessor`
-(`agentkit.telemetry.read_models.fc_*`); Schema-Owner ist `failure-corpus`
+(`agentkit.backend.telemetry.read_models.fc_*`); Schema-Owner ist `failure-corpus`
 (dieses Dokument).
 **Schreib-Komponente:** `failure_corpus.FailureCorpus` via
 `Telemetry.write_projection`.
@@ -167,7 +167,7 @@ fuer alle Implementierungs- und Weiterentwicklungsentscheidungen.
 
 ### 41.3.1 Tabelle `fc_incidents`
 
-**Modul:** `agentkit.telemetry.read_models.fc_incidents`
+**Modul:** `agentkit.backend.telemetry.read_models.fc_incidents`
 **Schema-Owner:** failure-corpus
 **Writer-Komponente:** `failure_corpus.FailureCorpus`
 
@@ -208,7 +208,7 @@ Fachregeln:
 
 ### 41.3.2 Tabelle `fc_patterns`
 
-**Modul:** `agentkit.telemetry.read_models.fc_patterns`
+**Modul:** `agentkit.backend.telemetry.read_models.fc_patterns`
 **Schema-Owner:** failure-corpus
 **Writer-Komponente:** `failure_corpus.PatternPromotion`
 
@@ -243,7 +243,7 @@ Fachregeln:
 
 ### 41.3.3 Tabelle `fc_check_proposals`
 
-**Modul:** `agentkit.telemetry.read_models.fc_check_proposals`
+**Modul:** `agentkit.backend.telemetry.read_models.fc_check_proposals`
 **Schema-Owner:** failure-corpus
 **Writer-Komponente:** `failure_corpus.CheckFactory`
 
@@ -345,7 +345,7 @@ class FailureCategory(Enum):
 
 | Akteur | Trigger | Schwerpunkt | Aufruf-Schnittstelle |
 |--------|---------|-------------|---------------------|
-| **Governance-Beobachtung** (`agentkit.governance.governance_observer`, Kap. 35.3) | Schwellenuberschreitung, LLM-klassifiziert | Anomalien im Agent-Verhalten, Prozessverletzungen | `FailureCorpus.record_incident` (Top-Surface) |
+| **Governance-Beobachtung** (`agentkit.backend.governance.governance_observer`, Kap. 35.3) | Schwellenuberschreitung, LLM-klassifiziert | Anomalien im Agent-Verhalten, Prozessverletzungen | `FailureCorpus.record_incident` (Top-Surface) |
 | **Pipeline** (automatisch) | QA-Gate FAIL, Verify-Failure, Impact-Violation | Harte Trigger, erzeugt Roh-Incident | `FailureCorpus.record_incident` (Top-Surface) |
 | **QA Evaluation** (`verify-system.LlmEvaluator`) | Neuartiges Fehlerbild im QA-Check erkannt | Normalisierung und Uebergabe als Incident-Kandidat | `FailureCorpus.record_incident` (direkt, siehe F-41-069) |
 | **Adversarial Agent** | Gezielte Provokation | Systemische Schwaehen | `FailureCorpus.record_incident` (Top-Surface) |
@@ -472,11 +472,11 @@ flowchart TD
 ### 41.6.2 Schritt 1: Invariante schaerfen (FK-10-040 bis FK-10-042)
 
 **Wer:** `verify-system.LlmEvaluator`
-(`agentkit.verify_system.llm_evaluator.LlmEvaluator`, LLM als Bewertungsfunktion)
+(`agentkit.backend.verify_system.llm_evaluator.LlmEvaluator`, LLM als Bewertungsfunktion)
 
 **Prompt-Materialisierung:** Das Prompt-Template wird via
 `prompt-runtime.PromptRuntime.materialize_prompt`
-(`agentkit.prompt_runtime.materialization`) aufgeloest; kein hartkodierter
+(`agentkit.backend.prompt_runtime.materialization`) aufgeloest; kein hartkodierter
 Prompt-String in `LlmEvaluator`.
 
 **Input:** Bestaetiges Pattern mit Incident-Referenzen und
@@ -518,7 +518,7 @@ Bei Mehrdeutigkeit: einfachster Typ (FK-10-051).
 ### 41.6.4 Schritt 3: Check-Proposal erstellen (FK-10-053 bis FK-10-057)
 
 **Wer:** `verify-system.LlmEvaluator`
-(`agentkit.verify_system.llm_evaluator.LlmEvaluator`, LLM als Bewertungsfunktion)
+(`agentkit.backend.verify_system.llm_evaluator.LlmEvaluator`, LLM als Bewertungsfunktion)
 
 **Prompt-Materialisierung:** Analog §41.6.2 via
 `prompt-runtime.PromptRuntime.materialize_prompt`.
@@ -568,14 +568,14 @@ Fuer jeden freigegebenen Proposal wird **automatisch eine Story vom Typ
 Implementation** erzeugt.
 
 **Akteur:** `failure_corpus.CheckFactory`
-(`agentkit.failure_corpus.check_factory.CheckFactory`)
+(`agentkit.backend.failure_corpus.check_factory.CheckFactory`)
 
 **Story-Erzeugung:** `CheckFactory` ruft den AK3-Story-Service auf,
 um die Story im AK3-Story-Backend anzulegen. `CheckFactory` ist
 transport-agnostisch; der Service-Aufruf abstrahiert die Persistenz.
 
 **Cross-BC-Beziehung:** Die erzeugte Story wird von `pipeline-framework`
-(BC 1, `agentkit.pipeline_engine`) als regulaere Implementation-Story
+(BC 1, `agentkit.backend.pipeline_engine`) als regulaere Implementation-Story
 aufgenommen und durchlaeuft die vollstaendige 4-Phasen-Pipeline (mit QA-Subflow innerhalb Implementation). `failure-corpus`
 hat nach der Story-Erzeugung keine weitere Steuerungsverantwortung;
 Pipeline-Framework und verify-system uebernehmen ab diesem Punkt.
@@ -632,12 +632,12 @@ Status wechselt auf `active`.
 ### 41.6.7 Schritt 6: Wirksamkeitspruefung (FK-10-072 bis FK-10-085)
 
 **Wer:** `failure_corpus.CheckEffectivenessTracker`
-(`agentkit.failure_corpus.check_factory.CheckEffectivenessTracker`)
+(`agentkit.backend.failure_corpus.check_factory.CheckEffectivenessTracker`)
 
 **Datenquelle:** `qa_check_outcomes` (FK-69 §69.15) — die kanonische
 Per-Check-Outcome-Wahrheit (Owner verify-system: ein Outcome pro ausgefuehrtem
 Check, `triggered | clean | overridden`). Lesezugriff ausschliesslich via
-`Telemetry.read_projection` (`agentkit.telemetry.projection_accessor`,
+`Telemetry.read_projection` (`agentkit.backend.telemetry.projection_accessor`,
 sub_exposed). `story_metrics` (FK-69 §69.8) ist run-level (eine Zeile pro
 Story-Run) und ist **keine** Quelle der Per-Check-Effektivitaet. Der
 `CheckEffectivenessTracker` schreibt nie direkt in `qa_check_outcomes` (Owner
@@ -745,7 +745,7 @@ Die `failure-corpus`-CLI-Befehle sind **Boundary-Controls des aufrufenden
 BC** (typischerweise `pipeline-framework` oder ein menschlicher Operator).
 `FailureCorpus`, `PatternPromotion` und `CheckFactory` sind
 transport-agnostisch; sie kennen keine CLI-Schnittstellen und werden von
-einer CLI-Adapter-Schicht (`agentkit.failure_corpus.cli`) aufgerufen, die
+einer CLI-Adapter-Schicht (`agentkit.backend.failure_corpus.cli`) aufgerufen, die
 lediglich Argumente entgegennimmt und an die Top-Surface delegiert.
 
 **Beispielaufrufe (zur Illustration — normative Schnittstellen sind die

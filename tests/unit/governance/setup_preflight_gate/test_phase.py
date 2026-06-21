@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.config.models import (
+from agentkit.backend.config.models import (
     SUPPORTED_CONFIG_VERSION,
     Features,
     JenkinsConfig,
@@ -25,22 +25,22 @@ from agentkit.config.models import (
     RepositoryConfig,
     SonarQubeConfig,
 )
-from agentkit.exceptions import WorktreeError
-from agentkit.governance.setup_preflight_gate.phase import SetupConfig, SetupPhaseHandler
-from agentkit.governance.setup_preflight_gate.worktree import WorktreeResult
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.exceptions import WorktreeError
+from agentkit.backend.governance.setup_preflight_gate.phase import SetupConfig, SetupPhaseHandler
+from agentkit.backend.governance.setup_preflight_gate.worktree import WorktreeResult
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import (
     AreBundleStatus,
     PhaseState,
     PhaseStatus,
     SetupPayload,
 )
-from agentkit.requirements_coverage.contract import (
+from agentkit.backend.requirements_coverage.contract import (
     AreDockpointStatus,
     ContextLoadResult,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -90,7 +90,7 @@ def _make_preflight_pass() -> object:
 
 def _make_preflight_fail(message: str = "issue not open") -> object:
     """Return a fake PreflightResult that fails (AG3-034 model)."""
-    from agentkit.governance.setup_preflight_gate.preflight import (
+    from agentkit.backend.governance.setup_preflight_gate.preflight import (
         PreflightCheckId,
         PreflightCheckResult,
         PreflightResult,
@@ -207,19 +207,19 @@ class TestSetupPhaseHandlerWorktree:
 
         with (
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
                 return_value=_make_preflight_pass(),
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.load_project_config",
+                "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
                 return_value=_make_project_config(tmp_path),
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.setup_worktrees",
+                "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees",
                 return_value=[_make_worktree_result(tmp_path)],
             ) as mock_setup,
         ):
@@ -261,20 +261,20 @@ class TestSetupPhaseHandlerWorktree:
 
         with (
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
                 return_value=_make_preflight_pass(),
             ),
             # AG3-054 (#2): a CONCEPT (non-code-producing) story builds its context
             # via build_internal_story_context (NO GitHub), not build_story_context.
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.build_internal_story_context",
+                "agentkit.backend.governance.setup_preflight_gate.phase.build_internal_story_context",
                 return_value=enriched,
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
             ) as mock_github_ctx,
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.setup_worktrees"
+                "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees"
             ) as mock_setup,
         ):
             result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
@@ -321,20 +321,20 @@ class TestSetupPhaseHandlerWorktree:
 
         with (
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
                 return_value=_make_preflight_pass(),
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.context_builder.get_issue",
+                "agentkit.backend.governance.setup_preflight_gate.context_builder.get_issue",
                 _explode_get_issue,
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase."
+                "agentkit.backend.governance.setup_preflight_gate.phase."
                 "build_internal_story_context",
                 return_value=enriched,
             ) as mock_internal,
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.setup_worktrees"
+                "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees"
             ) as mock_setup,
         ):
             result = handler.on_enter(
@@ -367,33 +367,33 @@ class TestSetupPhaseHandlerWorktree:
         state = _make_phase_state(story_id="AG3-005")
         enriched = _make_story_context(story_id="AG3-005", project_root=tmp_path)
 
-        from agentkit.governance.setup_preflight_gate.green_main import (
+        from agentkit.backend.governance.setup_preflight_gate.green_main import (
             MainGreenResult,
             MainGreenStatus,
         )
 
         with (
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
                 return_value=_make_preflight_pass(),
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
             ) as mock_github_ctx,
             patch(
-                "agentkit.governance.setup_preflight_gate.phase."
+                "agentkit.backend.governance.setup_preflight_gate.phase."
                 "build_internal_story_context",
             ) as mock_internal,
             # A code-producing story evaluates the green-main precondition; stub it
             # GREEN so this test isolates the GitHub-vs-internal routing assertion.
             patch(
-                "agentkit.governance.setup_preflight_gate.green_main."
+                "agentkit.backend.governance.setup_preflight_gate.green_main."
                 "check_main_green_precondition",
                 return_value=MainGreenResult(status=MainGreenStatus.GREEN),
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.setup_worktrees"
+                "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees"
             ),
         ):
             result = handler.on_enter(
@@ -424,19 +424,19 @@ class TestSetupPhaseHandlerWorktree:
 
         with (
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
                 return_value=_make_preflight_pass(),
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.load_project_config",
+                "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
                 return_value=_make_project_config(tmp_path),
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.setup_worktrees",
+                "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees",
                 side_effect=WorktreeError(
                     "Worktree path already exists: /some/path"
                 ),
@@ -475,23 +475,23 @@ class TestSetupPhaseHandlerWorktree:
 
         with (
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
                 return_value=_make_preflight_pass(),
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.load_project_config",
+                "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
                 return_value=_make_project_config(tmp_path),
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.setup_worktrees",
+                "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees",
                 return_value=[_make_worktree_result(tmp_path, "AG3-005")],
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.remove_worktree",
+                "agentkit.backend.governance.setup_preflight_gate.phase.remove_worktree",
             ) as mock_remove,
         ):
             result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
@@ -516,14 +516,14 @@ class TestSetupPhaseHandlerWorktree:
 
         with (
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
                 return_value=_make_preflight_fail("issue is closed"),
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.build_story_context"
+                "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context"
             ) as mock_build,
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.setup_worktrees"
+                "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees"
             ) as mock_setup,
         ):
             result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
@@ -563,15 +563,15 @@ class TestSetupPhaseBeginProgress:
 
         with (
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
                 return_value=_make_preflight_pass(),
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.load_project_config",
+                "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
                 return_value=_make_project_config(tmp_path),
             ),
         ):
@@ -612,21 +612,21 @@ class TestSetupPhaseBeginProgress:
         tracking_svc = _TrackingService()
         with (
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
                 return_value=_make_preflight_pass(),
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.load_project_config",
+                "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
                 return_value=_make_project_config(tmp_path),
             ),
             # Patch StoryService at its source so the default construction
             # inside on_enter returns our tracking service (Befund 9).
             patch(
-                "agentkit.story_context_manager.service.StoryService",
+                "agentkit.backend.story_context_manager.service.StoryService",
                 return_value=tracking_svc,
             ),
         ):
@@ -659,15 +659,15 @@ class TestSetupPhaseBeginProgress:
 
         with (
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
                 return_value=_make_preflight_pass(),
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.load_project_config",
+                "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
                 return_value=_make_project_config(tmp_path),
             ),
         ):
@@ -718,15 +718,15 @@ class TestSetupPhaseGreenMain:
         )
         with (
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
                 return_value=_make_preflight_pass(),
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.load_project_config",
+                "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
                 return_value=config,
             ),
         ):
@@ -754,7 +754,7 @@ class TestSetupPhaseGreenMain:
 
     def test_mode_lock_read_wired_into_preflight(self, tmp_path: Path) -> None:
         # Check-10 wiring: the mode-lock repository read path reaches preflight.
-        from agentkit.state_backend.store.mode_lock_repository import ModeLockRecord
+        from agentkit.backend.state_backend.store.mode_lock_repository import ModeLockRecord
 
         seen: list[object] = []
 
@@ -808,15 +808,15 @@ class TestSetupPhaseGreenMain:
         enriched = _make_story_context(story_id="AG3-010", project_root=tmp_path)
         with (
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
                 _fake_run_preflight,
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.load_project_config",
+                "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
                 return_value=ProjectConfig(
                     project_key="test-project",
                     project_name="Test Project",
@@ -890,19 +890,19 @@ class TestSetupPhaseAreBundle:
 
         with (
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
                 return_value=_make_preflight_pass(),
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.load_project_config",
+                "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
                 return_value=_make_project_config(tmp_path),
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.setup_worktrees",
+                "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees",
                 _worktrees,
             ),
         ):
@@ -951,15 +951,15 @@ class TestSetupPhaseAreBundle:
 
         with (
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
                 return_value=_make_preflight_pass(),
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.load_project_config",
+                "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
                 return_value=_make_project_config(tmp_path),
             ),
         ):
@@ -1013,15 +1013,15 @@ class TestSetupPhaseAreBundle:
 
         with (
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.run_preflight",
+                "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
                 return_value=_make_preflight_pass(),
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.build_story_context",
+                "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
             ),
             patch(
-                "agentkit.governance.setup_preflight_gate.phase.setup_worktrees",
+                "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees",
             ) as mock_worktrees,
         ):
             result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))

@@ -19,27 +19,27 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.e2e._helpers import seed_approved_story
 
-from agentkit.bootstrap.composition_root import (
+from agentkit.backend.bootstrap.composition_root import (
     build_closure_phase_handler,
     build_setup_phase_handler,
 )
-from agentkit.closure.phase import ClosureConfig
-from agentkit.governance.setup_preflight_gate.phase import SetupConfig
-from agentkit.installer import InstallConfig, install_agentkit
-from agentkit.installer.paths import qa_story_dir, story_dir
-from agentkit.integrations.github.client import run_gh, run_gh_json
-from agentkit.integrations.github.issues import (
+from agentkit.backend.closure.phase import ClosureConfig
+from agentkit.backend.governance.setup_preflight_gate.phase import SetupConfig
+from agentkit.backend.installer import InstallConfig, install_agentkit
+from agentkit.backend.installer.paths import qa_story_dir, story_dir
+from agentkit.backend.pipeline_engine.lifecycle import NoOpHandler, PhaseHandlerRegistry
+from agentkit.backend.pipeline_engine.runner import run_pipeline
+from agentkit.backend.process.language.definitions import resolve_workflow
+from agentkit.backend.state_backend.store import read_story_context_record, save_story_context
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import WireStoryType
+from agentkit.backend.story_context_manager.types import StoryType
+from agentkit.integration_clients.github.client import run_gh, run_gh_json
+from agentkit.integration_clients.github.issues import (
     create_issue,
     get_issue,
     reopen_issue,
 )
-from agentkit.pipeline_engine.lifecycle import NoOpHandler, PhaseHandlerRegistry
-from agentkit.pipeline_engine.runner import run_pipeline
-from agentkit.process.language.definitions import resolve_workflow
-from agentkit.state_backend.store import read_story_context_record, save_story_context
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import WireStoryType
-from agentkit.story_context_manager.types import StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path

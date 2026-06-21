@@ -14,7 +14,7 @@
 
 ## 1. Executive Summary
 
-Der BC `kpi-and-dashboard` ist konzeptionell vollstaendig und detailliert ausgearbeitet (FK-60 bis FK-64, bc-cut-decisions.md §BC-16), aber in der Codebase nahezu vollstaendig nicht umgesetzt. Die vorhandene `src/agentkit/dashboard/`-Implementierung entspricht nicht dem konzipierten BC-Schnitt: Sie liest aus Story-Read-Models statt aus PostgreSQL-Fact-Tabellen, kennt weder KpiAnalytics-Top noch FactStore, RefreshWorker oder KpiCatalog. Das definierte Modul-Praefixsystem `agentkit.kpi_analytics.*` existiert nicht. Das analytics-Schema in PostgreSQL, alle fuenf Fact-Tabellen sowie der Sync-State-Mechanismus fehlen vollstaendig. Es handelt sich damit um den BC mit dem groessten absoluten Implementierungsrueckstand im gesamten AK3-System.
+Der BC `kpi-and-dashboard` ist konzeptionell vollstaendig und detailliert ausgearbeitet (FK-60 bis FK-64, bc-cut-decisions.md §BC-16), aber in der Codebase nahezu vollstaendig nicht umgesetzt. Die vorhandene `src/agentkit/dashboard/`-Implementierung entspricht nicht dem konzipierten BC-Schnitt: Sie liest aus Story-Read-Models statt aus PostgreSQL-Fact-Tabellen, kennt weder KpiAnalytics-Top noch FactStore, RefreshWorker oder KpiCatalog. Das definierte Modul-Praefixsystem `agentkit.backend.kpi_analytics.*` existiert nicht. Das analytics-Schema in PostgreSQL, alle fuenf Fact-Tabellen sowie der Sync-State-Mechanismus fehlen vollstaendig. Es handelt sich damit um den BC mit dem groessten absoluten Implementierungsrueckstand im gesamten AK3-System.
 
 | Kategorie | Anzahl |
 |---|---|
@@ -51,7 +51,7 @@ Der BC `kpi-and-dashboard` ist konzeptionell vollstaendig und detailliert ausgea
 - `src/agentkit/telemetry/metrics.py:compute_pipeline_metrics` — pure Funktion auf Event-Stream; SQLite-unabhaengig, kein PostgreSQL
 - `src/agentkit/telemetry/kpis/__init__.py` — leere Datei (1 Zeile: implizit leer)
 
-Das Modul-Praefixsystem `agentkit.kpi_analytics.*` (KpiCatalog, FactStore, Aggregation, Dashboard, DesignSystem) existiert nicht. Kein `kpi_analytics/`-Paket in `src/agentkit/`.
+Das Modul-Praefixsystem `agentkit.backend.kpi_analytics.*` (KpiCatalog, FactStore, Aggregation, Dashboard, DesignSystem) existiert nicht. Kein `kpi_analytics/`-Paket in `src/agentkit/`.
 
 ## 4. GAP-Analyse
 
@@ -64,17 +64,17 @@ Das Modul-Praefixsystem `agentkit.kpi_analytics.*` (KpiCatalog, FactStore, Aggre
 
 | # | Thema | Konzept-Referenz | Anmerkung |
 |---|---|---|---|
-| A1 | Modul `agentkit.kpi_analytics` mit Top-Klasse `KpiAnalytics` | `bc-cut-decisions.md §BC-16` | Kein `kpi_analytics/`-Paket in `src/agentkit/`. Die Top-Surface (`list_kpis`, `refresh_analytics`, `get_dashboard_view`, `query`, `get_design_tokens`) existiert nicht. |
-| A2 | Sub-Komponente `KpiCatalog` (Modul `agentkit.kpi_analytics.catalog`) | `FK-60 §60.4, bc-cut-decisions.md §BC-16` | Kein KpiDefinition, kein KpiCollectionPoint, kein KpiCatalogStore. 40 aktive KPIs aus FK-60 Katalog nicht maschinenlesbar modelliert. |
-| A3 | Sub-Komponente `FactStore` (Modul `agentkit.kpi_analytics.fact_store`) | `FK-62 §62.2, bc-cut-decisions.md §BC-16` | Keine Fact-Tabellen-Modelle: FactStory, FactGuardPeriod, FactPoolPeriod, FactPipelinePeriod, FactCorpusPeriod. T-Driver auf analytics-Schema nicht implementiert. |
+| A1 | Modul `agentkit.backend.kpi_analytics` mit Top-Klasse `KpiAnalytics` | `bc-cut-decisions.md §BC-16` | Kein `kpi_analytics/`-Paket in `src/agentkit/`. Die Top-Surface (`list_kpis`, `refresh_analytics`, `get_dashboard_view`, `query`, `get_design_tokens`) existiert nicht. |
+| A2 | Sub-Komponente `KpiCatalog` (Modul `agentkit.backend.kpi_analytics.catalog`) | `FK-60 §60.4, bc-cut-decisions.md §BC-16` | Kein KpiDefinition, kein KpiCollectionPoint, kein KpiCatalogStore. 40 aktive KPIs aus FK-60 Katalog nicht maschinenlesbar modelliert. |
+| A3 | Sub-Komponente `FactStore` (Modul `agentkit.backend.kpi_analytics.fact_store`) | `FK-62 §62.2, bc-cut-decisions.md §BC-16` | Keine Fact-Tabellen-Modelle: FactStory, FactGuardPeriod, FactPoolPeriod, FactPipelinePeriod, FactCorpusPeriod. T-Driver auf analytics-Schema nicht implementiert. |
 | A4 | PostgreSQL analytics-Schema mit allen fuenf Fact-Tabellen | `FK-62 §62.2.1–62.2.5` | `fact_story`, `fact_guard_period`, `fact_pool_period`, `fact_pipeline_period`, `fact_corpus_period` nicht angelegt. Kein `sync_state`. |
-| A5 | Sub-Komponente `Aggregation` / RefreshWorker (`agentkit.kpi_analytics.aggregation`) | `FK-62 §62.3, bc-cut-decisions.md §BC-16` | `sync_analytics()` fehlt. Kein Dirty-Set-Mechanismus, kein event-getriebener Trigger bei Story-Closure oder Dashboard-Start. |
+| A5 | Sub-Komponente `Aggregation` / RefreshWorker (`agentkit.backend.kpi_analytics.aggregation`) | `FK-62 §62.3, bc-cut-decisions.md §BC-16` | `sync_analytics()` fehlt. Kein Dirty-Set-Mechanismus, kein event-getriebener Trigger bei Story-Closure oder Dashboard-Start. |
 | A6 | `guard_invocation_counters` Scratchpad-Tabelle | `FK-61 §61.4.3, FK-62 §62.2.6` | Tabelle nicht existierend. Guard-Invokationszaehler fehlen vollstaendig. |
 | A7 | Reset-Purge-Mechanismus (`purge_story_analytics`) | `FK-60 §60.3.6, FK-62 §62.2.8, §62.3.3` | Kein aktives Entfernen von Analytics-Ableitungen bei Story-Reset. |
 | A8 | KPI-Erhebungspunkte fuer neue Event-Typen (FK-61) | `FK-61 §61.12.1` | Neue Event-Typen `impact_violation_check`, `doc_fidelity_check`, `vectordb_search`, `compaction_event` nicht implementiert. |
 | A9 | Angereicherte Payloads fuer bestehende Events | `FK-61 §61.12.2` | Felder `stage` in `integrity_violation`, `blocked_dimensions[]` in `integrity_gate_result`, `verdict` in `review_response`, Coverage-Felder in `are_gate_result` fehlen. |
-| A10 | Sub-Komponente `Dashboard` (Modul `agentkit.kpi_analytics.dashboard`) | `FK-63 §63.3, bc-cut-decisions.md §BC-16` | Geplante sechs Tabs und sechs API-Endpoints (`/api/kpi/stories`, `/api/kpi/guards` etc.) nicht implementiert. |
-| A11 | Sub-Komponente `DesignSystem` (Modul `agentkit.kpi_analytics.design_system`) | `FK-64, bc-cut-decisions.md §BC-16` | Design-System-Tokens, Typografie-Skala, Komponentenregeln (FK-64) nicht als Python/CSS-Artefakt realisiert. |
+| A10 | Sub-Komponente `Dashboard` (Modul `agentkit.backend.kpi_analytics.dashboard`) | `FK-63 §63.3, bc-cut-decisions.md §BC-16` | Geplante sechs Tabs und sechs API-Endpoints (`/api/kpi/stories`, `/api/kpi/guards` etc.) nicht implementiert. |
+| A11 | Sub-Komponente `DesignSystem` (Modul `agentkit.backend.kpi_analytics.design_system`) | `FK-64, bc-cut-decisions.md §BC-16` | Design-System-Tokens, Typografie-Skala, Komponentenregeln (FK-64) nicht als Python/CSS-Artefakt realisiert. |
 | A12 | Schema-Migrations-Strategie (`_ensure_column`, `schema_version`) | `FK-62 §62.4` | Idempotente Migration via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` und Versions-Cursor nicht vorhanden. |
 
 ### 4.2 B — Teilweise umgesetzt
@@ -84,7 +84,7 @@ Das Modul-Praefixsystem `agentkit.kpi_analytics.*` (KpiCatalog, FactStore, Aggre
 | B1 | Story-Metriken-Auswertung im Dashboard | `src/agentkit/dashboard/service.py:DashboardService.get_story_metrics` | `FK-62 §62.2.1, FK-63 §63.3.2` | Liest aus `story.latest_metrics` (StoryService) statt aus `fact_story` im PostgreSQL analytics-Schema. Felder `compaction_count`, `feedback_converged`, `blocked_ac_count`, `llm_call_count`, `adversarial_*`, `are_*`, `phase_*_ms` fehlen. Kein Zeitraum-Filter, kein `project_key`-Scoping ueber Fact-Store. |
 | B2 | Board-Ansicht (Kanban-Spalten) | `src/agentkit/dashboard/service.py:DashboardService.get_board` | `FK-63 §63.3.2 (Live-Sicht), FK-64 §64.11` | Statusmapping weicht vom Konzept ab: `_COLUMN_ORDER` enthaelt `defined`, `active`, `failed` die im FK-64 §64.11 nicht als Kanban-Statusspalten normiert sind. Live-Sicht aus Runtime-Schema (laufende Stories) fehlt. Design-Token-Konformitaet gemaess FK-64 nicht pruefsbar. |
 | B3 | Event-basierte Metriken-Berechnung | `src/agentkit/telemetry/metrics.py:compute_pipeline_metrics` | `FK-62 §62.3.5, FK-61 §61.11` | Pure Funktion auf In-Memory-Event-List; kein Schreiben in Fact-Tabellen, kein Bezug zu PostgreSQL, kein `project_key`-Scope. `qa_rounds` zaehlt `NODE_RESULT` fuer Phase `implementation` — Konzept (FK-61 §61.2.1) setzt `story_metrics.qa_rounds` aus dem Closure-Schritt, nicht aus Event-Zaehlung. Mapping nicht konform. |
-| B4 | KPIs-Modul-Platzhalter | `src/agentkit/telemetry/kpis/__init__.py` | `FK-60 §60.1, bc-cut-decisions.md §BC-16` | Datei ist leer (1 Zeile). Kein Inhalt, kein Export, kein Bezug zu `agentkit.kpi_analytics`. Liegt im falschen Paket (`agentkit.telemetry.kpis` statt `agentkit.kpi_analytics`). |
+| B4 | KPIs-Modul-Platzhalter | `src/agentkit/telemetry/kpis/__init__.py` | `FK-60 §60.1, bc-cut-decisions.md §BC-16` | Datei ist leer (1 Zeile). Kein Inhalt, kein Export, kein Bezug zu `agentkit.backend.kpi_analytics`. Liegt im falschen Paket (`agentkit.backend.telemetry.kpis` statt `agentkit.backend.kpi_analytics`). |
 
 ### 4.3 C — Drift / Fehler
 
@@ -95,7 +95,7 @@ Das Modul-Praefixsystem `agentkit.kpi_analytics.*` (KpiCatalog, FactStore, Aggre
 | # | Thema | Code-Referenz | Konzept-Referenz | Drift / Fehler |
 |---|---|---|---|---|
 | C1 | `DashboardService` liest direkt aus StoryService, nicht aus Fact-Tabellen | `src/agentkit/dashboard/service.py:DashboardService` | `FK-62 §62.6.2, bc-cut-decisions.md §BC-16` | Trust-Boundary-Verletzung: `kpi-and-dashboard.Dashboard` soll Daten aus `FactStore` (analytics-Schema, eigener Owner) lesen. Direktzugriff auf StoryService umgeht die Fact-Schicht und erzeugt eine zweite operative Wahrheit neben dem definierten State-Artefaktmodell. Verstoss gegen SINGLE SOURCE OF TRUTH (CLAUDE.md). |
-| C2 | Modul-Praefixsystem falsch platziert | `src/agentkit/telemetry/kpis/__init__.py`, `src/agentkit/dashboard/` | `bc-cut-decisions.md §BC-16 (Modul-Prefixes)` | Das BC-Modul soll unter `agentkit.kpi_analytics.*` liegen. Der vorhandene Code liegt unter `agentkit.dashboard` und `agentkit.telemetry.kpis`. Diese Platzierung widerspricht dem BC-Schnitt und erzeugt falsche Modul-Ownership-Signale. `agentkit.dashboard` ist kein registrierter Sub-Praefixname gemaess bc-cut-decisions.md. |
+| C2 | Modul-Praefixsystem falsch platziert | `src/agentkit/telemetry/kpis/__init__.py`, `src/agentkit/dashboard/` | `bc-cut-decisions.md §BC-16 (Modul-Prefixes)` | Das BC-Modul soll unter `agentkit.backend.kpi_analytics.*` liegen. Der vorhandene Code liegt unter `agentkit.dashboard` und `agentkit.backend.telemetry.kpis`. Diese Platzierung widerspricht dem BC-Schnitt und erzeugt falsche Modul-Ownership-Signale. `agentkit.dashboard` ist kein registrierter Sub-Praefixname gemaess bc-cut-decisions.md. |
 | C3 | Kanban-Statusspalten weichen von FK-64 ab | `src/agentkit/dashboard/service.py:_COLUMN_ORDER` | `FK-64 §64.11` | `_COLUMN_ORDER` enthaelt `"defined"`, `"active"`, `"failed"`, `"blocked"` als Kanban-Status. FK-64 §64.11 normiert ausschliesslich `Backlog`, `Approved`, `In Progress`, `Done`, `Cancelled` als Kanban-Spalten. `Blocked` ist explizit kein eigener Story-Status (FK-64 §64.14). Drift zwischen Implementierung und normalem Konzept. |
 
 ## 5. Ableitungen / Empfehlungen
@@ -105,7 +105,7 @@ Das Modul-Praefixsystem `agentkit.kpi_analytics.*` (KpiCatalog, FactStore, Aggre
 > User. Pro Eintrag: Was sollte als naechstes adressiert werden und
 > warum (Risiko, Bloecker fuer andere BCs, Konzept-Compliance).
 
-1. **Paket `agentkit.kpi_analytics` anlegen und BC-Modul-Struktur herstellen.** Solange das Paket fehlt, koennen weder KpiCatalog, FactStore, Aggregation noch Dashboard am richtigen Ort implementiert werden. Der aktuelle `agentkit.dashboard`-Code muss migriert oder ersetzt werden. Bloecker fuer alle weiteren Punkte.
+1. **Paket `agentkit.backend.kpi_analytics` anlegen und BC-Modul-Struktur herstellen.** Solange das Paket fehlt, koennen weder KpiCatalog, FactStore, Aggregation noch Dashboard am richtigen Ort implementiert werden. Der aktuelle `agentkit.dashboard`-Code muss migriert oder ersetzt werden. Bloecker fuer alle weiteren Punkte.
 
 2. **PostgreSQL analytics-Schema und Fact-Tabellen erstellen (A4, A5).** Fact-Tabellen sind Voraussetzung fuer RefreshWorker und Dashboard. Ohne sie kann die gesamte KPI-Aggregation nicht gestartet werden. Migrations-Strategie (A12) sollte parallel definiert werden.
 
@@ -144,7 +144,7 @@ Das Modul-Praefixsystem `agentkit.kpi_analytics.*` (KpiCatalog, FactStore, Aggre
 - **Code-Scan (Glob/Grep):**
   - Glob `src/agentkit/dashboard/**/*`: vollstaendige Dashboard-Dateien gefunden (3 Python-Module + __pycache__)
   - Glob `src/agentkit/kpi*/**`: kein Treffer (kpi_analytics-Paket nicht vorhanden)
-  - Glob `src/agentkit/**/*.py`: vollstaendige Dateiliste gescannt, `agentkit.telemetry.kpis` als einziger KPI-naher Pfad identifiziert
+  - Glob `src/agentkit/**/*.py`: vollstaendige Dateiliste gescannt, `agentkit.backend.telemetry.kpis` als einziger KPI-naher Pfad identifiziert
   - Grep `kpi|KpiAnalytics|FactStore|fact_story|sync_analytics|RefreshWorker|kpi_analytics` in `src/agentkit/`: Treffer nur in `multi_llm_hub` (unrelated) und `telemetry/sse_stream.py` (metric card, unrelated)
   - Glob `tests/**/*kpi*`, `tests/**/*dashboard*`: keine Treffer — keine Tests fuer diesen BC vorhanden
   - Glob `concept/technical-design/6*.md`: alle FK-60..64 und FK-68/69 gefunden

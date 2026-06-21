@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import EventType
-from agentkit.telemetry.hooks.base import HookContext, HookTrigger
-from agentkit.telemetry.hooks.commit_hook import CommitHook
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import EventType
+from agentkit.backend.telemetry.hooks.base import HookContext, HookTrigger
+from agentkit.backend.telemetry.hooks.commit_hook import CommitHook
 
 
 def _context(**overrides: object) -> HookContext:

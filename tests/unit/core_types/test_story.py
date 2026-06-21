@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.core_types import StoryMode, StorySize
+from agentkit.backend.core_types import StoryMode, StorySize
 
 
 class TestStorySize:

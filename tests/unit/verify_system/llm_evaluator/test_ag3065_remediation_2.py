@@ -38,7 +38,7 @@ from typing import Any
 
 import pytest
 
-from agentkit.artifacts import (
+from agentkit.backend.artifacts import (
     ArtifactEnvelope,
     ArtifactManager,
     ArtifactReference,
@@ -46,15 +46,14 @@ from agentkit.artifacts import (
     ProducerRegistry,
     ProducerType,
 )
-from agentkit.core_types import ArtifactClass
-from agentkit.multi_llm_hub.entities import HubMessage, HubSessionLease
-from agentkit.prompt_runtime.audit import PROMPT_AUDIT_PRODUCER_NAME
-from agentkit.verify_system.llm_evaluator.dialogue_runner import DialogueRunner
-from agentkit.verify_system.llm_evaluator.llm_client import (
+from agentkit.backend.core_types import ArtifactClass
+from agentkit.backend.prompt_runtime.audit import PROMPT_AUDIT_PRODUCER_NAME
+from agentkit.backend.verify_system.llm_evaluator.dialogue_runner import DialogueRunner
+from agentkit.backend.verify_system.llm_evaluator.llm_client import (
     TOTAL_TIMEOUT_SECONDS,
     LlmClientError,
 )
-from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import (
     DOC_FIDELITY_CHECK_IDS,
     QA_REVIEW_CHECK_IDS,
     SEMANTIC_REVIEW_CHECK_IDS,
@@ -62,7 +61,8 @@ from agentkit.verify_system.llm_evaluator.structured_evaluator import (
     ReviewerRole,
     StructuredEvaluator,
 )
-from agentkit.verify_system.register import register_verify_producers
+from agentkit.backend.verify_system.register import register_verify_producers
+from agentkit.integration_clients.multi_llm_hub.entities import HubMessage, HubSessionLease
 
 # ---------------------------------------------------------------------------
 # Shared helpers / fakes
@@ -132,7 +132,7 @@ def _real_artifact_manager() -> ArtifactManager:
     — no separate verify-system PROMPT_AUDIT producers needed.
     """
     registry = ProducerRegistry()
-    from agentkit.prompt_runtime.register import register_prompt_runtime_producers
+    from agentkit.backend.prompt_runtime.register import register_prompt_runtime_producers
     register_prompt_runtime_producers(registry)
     register_verify_producers(registry)
     validator = EnvelopeValidator(registry)
@@ -143,8 +143,8 @@ class _StubMaterializer:
     """Prompt materializer stub — no filesystem / PromptRuntime dependency."""
 
     def context_for(self, bundle: Any) -> tuple[Any, str]:
-        from agentkit.story_context_manager.models import StoryContext
-        from agentkit.story_context_manager.types import StoryMode, StoryType
+        from agentkit.backend.story_context_manager.models import StoryContext
+        from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
         ctx = StoryContext(
             project_key="test",
@@ -184,7 +184,7 @@ def _all_pass_doc_fidelity() -> str:
 
 
 def _bundle(story_id: str = "AG3-065") -> Any:
-    from agentkit.verify_system.llm_evaluator.bundle import ReviewBundle
+    from agentkit.backend.verify_system.llm_evaluator.bundle import ReviewBundle
 
     return ReviewBundle(
         story_id=story_id,
@@ -310,7 +310,7 @@ class TestError1WholeEvaluateTotalBound:
 
         with (
             mock.patch(
-                "agentkit.verify_system.llm_evaluator.structured_evaluator.time.monotonic",
+                "agentkit.backend.verify_system.llm_evaluator.structured_evaluator.time.monotonic",
                 side_effect=call_seq,
             ),
             pytest.raises(LlmClientError) as exc_info,
@@ -341,7 +341,7 @@ class TestError1WholeEvaluateTotalBound:
         ])
 
         with mock.patch(
-            "agentkit.verify_system.llm_evaluator.structured_evaluator.time.monotonic",
+            "agentkit.backend.verify_system.llm_evaluator.structured_evaluator.time.monotonic",
             side_effect=call_seq,
         ):
             result = evaluator.evaluate(ReviewerRole.SEMANTIC_REVIEW, _bundle(), None, 1)
@@ -361,10 +361,10 @@ class TestError1WholeEvaluateTotalBound:
         ``_EVAL_DEADLINE_CV`` (not as an instance attribute) so concurrent roles on the
         same ThreadPoolExecutor thread cannot clobber each other's deadline.
         """
-        from agentkit.verify_system.llm_evaluator.llm_client import (
+        from agentkit.backend.verify_system.llm_evaluator.llm_client import (
             _EVAL_DEADLINE_CV,
         )
-        from agentkit.verify_system.llm_evaluator.llm_client import (
+        from agentkit.backend.verify_system.llm_evaluator.llm_client import (
             TOTAL_TIMEOUT_SECONDS as _TOTAL,
         )
 
@@ -394,7 +394,7 @@ class TestError1WholeEvaluateTotalBound:
         threads. ``set_eval_deadline()`` calls ``_EVAL_DEADLINE_CV.set(deadline)``
         so the value is visible within the current thread context.
         """
-        from agentkit.verify_system.llm_evaluator.llm_client import (
+        from agentkit.backend.verify_system.llm_evaluator.llm_client import (
             _EVAL_DEADLINE_CV,
             HubLlmClient,
         )
@@ -531,7 +531,7 @@ class TestError2RealArtifactManagerPromptAudit:
 
         import logging
         with mock.patch.object(
-            logging.getLogger("agentkit.verify_system.llm_evaluator.structured_evaluator"),
+            logging.getLogger("agentkit.backend.verify_system.llm_evaluator.structured_evaluator"),
             "warning",
         ) as mock_warn:
             result = evaluator.evaluate(
@@ -583,13 +583,13 @@ class TestError2RealSQLiteMultiRoleNoCollision:
         monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
 
-        from agentkit.state_backend.store.artifact_repository import (
+        from agentkit.backend.state_backend.store.artifact_repository import (
             StateBackendArtifactRepository,
         )
 
         repo = StateBackendArtifactRepository(store_dir=tmp_path)
         registry = ProducerRegistry()
-        from agentkit.prompt_runtime.register import register_prompt_runtime_producers
+        from agentkit.backend.prompt_runtime.register import register_prompt_runtime_producers
         register_prompt_runtime_producers(registry)
         register_verify_producers(registry)
         validator = EnvelopeValidator(registry)
@@ -624,7 +624,7 @@ class TestError2RealSQLiteMultiRoleNoCollision:
             )
 
         # Query the REAL SQLite database directly to count rows.
-        from agentkit.state_backend.store.artifact_repository import _sqlite_db_path
+        from agentkit.backend.state_backend.store.artifact_repository import _sqlite_db_path
         db_path = _sqlite_db_path(tmp_path)
         with sqlite3.connect(str(db_path)) as conn:
             rows = conn.execute(
@@ -667,7 +667,7 @@ class TestError3Layer2AuditWiringParallelRunner:
 
     def test_run_roles_passes_run_id_to_evaluate(self) -> None:
         """ERROR 3: ParallelEvalRunner.run_roles() threads run_id to evaluate()."""
-        from agentkit.verify_system.llm_evaluator.parallel_runner import ParallelEvalRunner
+        from agentkit.backend.verify_system.llm_evaluator.parallel_runner import ParallelEvalRunner
 
         manager = _real_artifact_manager()
         evaluator = StructuredEvaluator(
@@ -701,7 +701,7 @@ class TestError3Layer2AuditWiringParallelRunner:
 
     def test_run_roles_without_run_id_skips_audit(self) -> None:
         """ERROR 3: run_roles() with run_id=None -> no audit envelope written."""
-        from agentkit.verify_system.llm_evaluator.parallel_runner import ParallelEvalRunner
+        from agentkit.backend.verify_system.llm_evaluator.parallel_runner import ParallelEvalRunner
 
         manager = _real_artifact_manager()
         evaluator = StructuredEvaluator(
@@ -811,7 +811,7 @@ class TestError4RealArtifactManagerDialogueTranscript:
 
         import logging
         with mock.patch.object(
-            logging.getLogger("agentkit.verify_system.llm_evaluator.dialogue_runner"),
+            logging.getLogger("agentkit.backend.verify_system.llm_evaluator.dialogue_runner"),
             "warning",
         ) as mock_warn:
             result = runner.run(
@@ -840,7 +840,7 @@ class TestError4RealArtifactManagerDialogueTranscript:
         producers).
         """
         registry = ProducerRegistry()
-        from agentkit.prompt_runtime.register import register_prompt_runtime_producers
+        from agentkit.backend.prompt_runtime.register import register_prompt_runtime_producers
         register_prompt_runtime_producers(registry)
         known = registry.known_producers(ArtifactClass.PROMPT_AUDIT)
         assert PROMPT_AUDIT_PRODUCER_NAME in known, (

@@ -11,8 +11,8 @@ closed with a reason.
 
 from __future__ import annotations
 
-from agentkit.verify_system.pre_merge_runner.binding import prove_binding
-from agentkit.verify_system.sonarqube_gate.attestation import SonarAttestation
+from agentkit.backend.verify_system.pre_merge_runner.binding import prove_binding
+from agentkit.backend.verify_system.sonarqube_gate.attestation import SonarAttestation
 
 _CANDIDATE_SHA = "cafe1234"
 

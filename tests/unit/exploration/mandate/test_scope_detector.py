@@ -9,11 +9,11 @@ from __future__ import annotations
 
 from tests.exploration_change_frame_fixture import example_change_frame
 
-from agentkit.exploration.change_frame import (
+from agentkit.backend.exploration.change_frame import (
     AffectedBuildingBlocks,
     ContractChanges,
 )
-from agentkit.exploration.mandate.scope_detector import (
+from agentkit.backend.exploration.mandate.scope_detector import (
     ScopeExplosionDetector,
     ScopeIndicatorWeight,
 )

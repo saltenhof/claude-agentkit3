@@ -28,27 +28,27 @@ from tests.unit.closure.closure_fakes import (
     build_progress_store,
 )
 
-from agentkit.artifacts import (
+from agentkit.backend.artifacts import (
     ArtifactEnvelope,
     EnvelopeStatus,
     Producer,
     ProducerId,
     ProducerType,
 )
-from agentkit.bootstrap.composition_root import build_artifact_manager
-from agentkit.closure.execution_report.writer import (
+from agentkit.backend.bootstrap.composition_root import build_artifact_manager
+from agentkit.backend.closure.execution_report.writer import (
     ExecutionReport,
     write_execution_report,
 )
-from agentkit.closure.gates import TelemetryEvidenceVerdict
-from agentkit.closure.multi_repo_saga import GitCommandResult
-from agentkit.closure.phase import (
+from agentkit.backend.closure.gates import TelemetryEvidenceVerdict
+from agentkit.backend.closure.multi_repo_saga import GitCommandResult
+from agentkit.backend.closure.phase import (
     ClosureConfig,
     ClosurePhaseHandler,
     ClosureVerdict,
 )
-from agentkit.core_types import ArtifactClass
-from agentkit.core_types.qa_artifact_names import (
+from agentkit.backend.core_types import ArtifactClass
+from agentkit.backend.core_types.qa_artifact_names import (
     DOC_FIDELITY_PRODUCER,
     DOC_FIDELITY_STAGE,
     HANDOVER_FILE,
@@ -59,10 +59,10 @@ from agentkit.core_types.qa_artifact_names import (
     SEMANTIC_REVIEW_STAGE,
     WORKER_MANIFEST_FILE,
 )
-from agentkit.installer.paths import qa_story_dir
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.installer.paths import qa_story_dir
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import (
     ClosurePayload,
     ClosureProgress,
     EscalationReason,
@@ -70,19 +70,19 @@ from agentkit.pipeline_engine.phase_executor import (
     PhaseState,
     PhaseStatus,
 )
-from agentkit.state_backend.store import (
+from agentkit.backend.state_backend.store import (
     append_execution_event,
     load_phase_state,
     load_story_context,
     save_flow_execution,
     save_phase_snapshot,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import WireStoryMode
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.telemetry.contract.records import ExecutionEventRecord
-from agentkit.telemetry.events import EventType
-from agentkit.verify_system.structural.system_evidence import ChangeEvidence
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import WireStoryMode
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.telemetry.events import EventType
+from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -96,7 +96,7 @@ if TYPE_CHECKING:
 
 @pytest.fixture(autouse=True)
 def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
-    from agentkit.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
@@ -301,7 +301,7 @@ def _write_required_worker_artifacts(story_dir: Path, story_id: str = "TEST-001"
                 "run_id": _run_id_for(story_id),
                 "status": "completed",
                 "completed_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
-                "files_changed": ["src/agentkit/done.py"],
+                "files_changed": ["src/agentkit/backend/done.py"],
                 "tests_added": [],
                 "acceptance_criteria_status": {"AC1": "done"},
             }
@@ -383,7 +383,7 @@ def _impl_config(
             change_evidence
             or ChangeEvidence(
                 available=True,
-                changed_files=("src/agentkit/done.py",),
+                changed_files=("src/agentkit/backend/done.py",),
             )
         ),
         telemetry_evidence_port=telemetry_evidence,
@@ -428,7 +428,7 @@ class TestImplClosureHappyPath:
             change_evidence_port=_StaticChangeEvidencePort(
                 ChangeEvidence(
                     available=True,
-                    changed_files=("src/agentkit/done.py",),
+                    changed_files=("src/agentkit/backend/done.py",),
                 )
             ),
         )
@@ -586,7 +586,7 @@ class TestImplClosureHappyPath:
         config = _impl_config(s_dir)
         config.artifact_manager = manager
         config.change_evidence_port = _StaticChangeEvidencePort(
-            ChangeEvidence(available=True, changed_files=("src/agentkit/done.py",))
+            ChangeEvidence(available=True, changed_files=("src/agentkit/backend/done.py",))
         )
         ctx = _make_ctx(project_root=tmp_path).model_copy(
             update={
@@ -1105,7 +1105,7 @@ class TestImplClosureEscalation:
     ) -> None:
         """FIX-3: FULL applicability with no Build/Test runner is a wiring bug ->
         ESCALATED (never merge without a confirmed integrated-candidate build)."""
-        from agentkit.closure.merge_sequence import MergeApplicability
+        from agentkit.backend.closure.merge_sequence import MergeApplicability
 
         s_dir = _prepare_impl_story(tmp_path)
         manager = build_artifact_manager(s_dir)
@@ -1128,7 +1128,7 @@ class TestImplClosureEscalation:
             change_evidence_port=_StaticChangeEvidencePort(
                 ChangeEvidence(
                     available=True,
-                    changed_files=("src/agentkit/done.py",),
+                    changed_files=("src/agentkit/backend/done.py",),
                 )
             ),
         )
@@ -1147,7 +1147,7 @@ class TestImplClosureEscalation:
         candidate cannot be verified -> cannot merge unverified code (FK-29
         §29.1a / FK-33 §33.6.5). Decided at the applicability layer.
         """
-        from agentkit.closure.merge_sequence import MergeApplicability
+        from agentkit.backend.closure.merge_sequence import MergeApplicability
 
         s_dir = _prepare_impl_story(tmp_path)
         manager = build_artifact_manager(s_dir)
@@ -1171,7 +1171,7 @@ class TestImplClosureEscalation:
             change_evidence_port=_StaticChangeEvidencePort(
                 ChangeEvidence(
                     available=True,
-                    changed_files=("src/agentkit/done.py",),
+                    changed_files=("src/agentkit/backend/done.py",),
                 )
             ),
         )
@@ -1190,7 +1190,7 @@ class TestImplClosureEscalation:
     ) -> None:
         """FIX-3: Sonar declared absent (CI present) -> Build/Test runs, scan+Dim9
         skipped, merge still gated + proceeds (no SONAR_NOT_GREEN)."""
-        from agentkit.closure.merge_sequence import MergeApplicability
+        from agentkit.backend.closure.merge_sequence import MergeApplicability
 
         s_dir = _prepare_impl_story(tmp_path)
         manager = build_artifact_manager(s_dir)
@@ -1217,7 +1217,7 @@ class TestImplClosureEscalation:
             change_evidence_port=_StaticChangeEvidencePort(
                 ChangeEvidence(
                     available=True,
-                    changed_files=("src/agentkit/done.py",),
+                    changed_files=("src/agentkit/backend/done.py",),
                 )
             ),
         )
@@ -1317,11 +1317,11 @@ class TestMultiRepo:
 
     def test_multi_repo_all_green_merges_all(self, tmp_path: Path) -> None:
         """FIX-6: all repos green -> per-repo barrier + push + ff-merge + CAS."""
-        from agentkit.closure.merge_sequence import (
+        from agentkit.backend.closure.merge_sequence import (
             MergeBlockStatus,
             run_pre_merge_and_merge_block,
         )
-        from agentkit.closure.multi_repo_saga import ClosureRepo
+        from agentkit.backend.closure.multi_repo_saga import ClosureRepo
 
         repos = (
             ClosureRepo(name="repo-a", repo_root=tmp_path / "a"),
@@ -1359,11 +1359,11 @@ class TestMultiRepo:
 
     def test_multi_repo_one_repo_gate_fail_blocks_all(self, tmp_path: Path) -> None:
         """FIX-6: one repo's Dim 9 fail escalates the whole block, no repo merged."""
-        from agentkit.closure.merge_sequence import (
+        from agentkit.backend.closure.merge_sequence import (
             MergeBlockStatus,
             run_pre_merge_and_merge_block,
         )
-        from agentkit.closure.multi_repo_saga import ClosureRepo
+        from agentkit.backend.closure.multi_repo_saga import ClosureRepo
 
         repos = (
             ClosureRepo(name="repo-a", repo_root=tmp_path / "a"),
@@ -1391,11 +1391,11 @@ class TestMultiRepo:
         self, tmp_path: Path
     ) -> None:
         """FIX-6: a per-repo CAS rejection rolls back local merges + escalates."""
-        from agentkit.closure.merge_sequence import (
+        from agentkit.backend.closure.merge_sequence import (
             MergeBlockStatus,
             run_pre_merge_and_merge_block,
         )
-        from agentkit.closure.multi_repo_saga import ClosureRepo
+        from agentkit.backend.closure.multi_repo_saga import ClosureRepo
 
         class _LeaseRejectGit(StubGitBackend):
             """Rejects every force-with-lease main push (concurrent advance)."""
@@ -1440,11 +1440,11 @@ class TestMultiRepo:
         ``--force-with-lease`` leased against the sha this run just wrote (a CAS,
         never a clobber), then the block escalates.
         """
-        from agentkit.closure.merge_sequence import (
+        from agentkit.backend.closure.merge_sequence import (
             MergeBlockStatus,
             run_pre_merge_and_merge_block,
         )
-        from agentkit.closure.multi_repo_saga import ClosureRepo
+        from agentkit.backend.closure.multi_repo_saga import ClosureRepo
 
         class _RepoBCasFailsGit(StubGitBackend):
             """repo-a's forward CAS push succeeds; repo-b's forward CAS fails."""
@@ -1509,11 +1509,11 @@ class TestMultiRepo:
         local ff-merge, and escalate -- EVEN THOUGH the CAS push command itself
         would have succeeded.
         """
-        from agentkit.closure.merge_sequence import (
+        from agentkit.backend.closure.merge_sequence import (
             MergeBlockStatus,
             run_pre_merge_and_merge_block,
         )
-        from agentkit.closure.multi_repo_saga import ClosureRepo
+        from agentkit.backend.closure.multi_repo_saga import ClosureRepo
 
         class _RepoAHeadUnreadableGit(StubGitBackend):
             """repo-a's 3rd ``rev-parse HEAD`` (the ``_local_head`` read) returns ``.
@@ -1581,12 +1581,12 @@ class TestMultiRepo:
         keyed by ``repo.repo_root`` -- repo-a's runner verifies repo-a, repo-b's
         runner verifies repo-b (no shared first-repo root/ledger/tree).
         """
-        from agentkit.closure.merge_sequence import (
+        from agentkit.backend.closure.merge_sequence import (
             MergeBlockStatus,
             RepoRunners,
             run_pre_merge_and_merge_block,
         )
-        from agentkit.closure.multi_repo_saga import ClosureRepo
+        from agentkit.backend.closure.multi_repo_saga import ClosureRepo
 
         root_a = tmp_path / "a"
         root_b = tmp_path / "b"
@@ -1805,7 +1805,7 @@ class TestCheckpointAndConfig:
             change_evidence_port=_StaticChangeEvidencePort(
                 ChangeEvidence(
                     available=True,
-                    changed_files=("src/agentkit/done.py",),
+                    changed_files=("src/agentkit/backend/done.py",),
                 )
             ),
         )

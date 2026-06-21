@@ -90,7 +90,7 @@ Governance-Entscheidungen sein.
 Für folgende Codezonen gilt ein hartes Leserverbot gegen nicht-
 kanonische Story-Exports:
 
-- `agentkit.governance.*`
+- `agentkit.backend.governance.*`
 - `agentkit.pipeline.*`
 - `agentkit.qa.structural.*`
 - weitere im Contract-Checker explizit geschützte Runtime-/Verify-

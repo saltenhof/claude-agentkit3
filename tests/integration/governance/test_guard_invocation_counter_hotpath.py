@@ -17,26 +17,26 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.control_plane.models import (
+from agentkit.backend.control_plane.models import (
     EdgeBundle,
     EdgePointer,
     SessionRunBindingView,
     StoryExecutionLockView,
 )
-from agentkit.governance import runner as runner_mod
-from agentkit.governance.guard_evaluation import HookEvent
-from agentkit.governance.runner import run_hook
-from agentkit.projectedge.client import LocalEdgePublisher
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.guard_counter_repository import (
+from agentkit.backend.governance import runner as runner_mod
+from agentkit.backend.governance.guard_evaluation import HookEvent
+from agentkit.backend.governance.runner import run_hook
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.guard_counter_repository import (
     StateBackendGuardCounterRepository,
 )
+from agentkit.harness_client.projectedge.client import LocalEdgePublisher
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from agentkit.kpi_analytics.fact_store.models import GuardInvocationCounter
+    from agentkit.backend.kpi_analytics.fact_store.models import GuardInvocationCounter
 
 _PROJECT = "tenant-a"
 _STORY = "AG3-200"
@@ -110,7 +110,7 @@ def _read_event(worktree: str) -> HookEvent:
             "cwd": worktree,
             "session_id": _SESSION,
             "principal_kind": "subagent",
-            "operation_args": {"file_path": "src/agentkit/x.py"},
+            "operation_args": {"file_path": "src/agentkit/backend/x.py"},
         }
     )
 
@@ -270,14 +270,14 @@ def _health_post_event(worktree: str) -> HookEvent:
             "cwd": worktree,
             "session_id": _SESSION,
             "principal_kind": "subagent",
-            "operation_args": {"story_id": _STORY, "file_path": "src/agentkit/x.py"},
+            "operation_args": {"story_id": _STORY, "file_path": "src/agentkit/backend/x.py"},
             "post_tool_outcome": {"exit_code": 0, "stdout": "", "stderr": ""},
         }
     )
 
 
 def test_health_monitor_post_hook_sweeps_stale_counters(tmp_path: Path) -> None:
-    from agentkit.kpi_analytics.fact_store.guard_counter import (
+    from agentkit.backend.kpi_analytics.fact_store.guard_counter import (
         HOUSEKEEPING_MAX_AGE,
         GuardCounterService,
     )

@@ -7,11 +7,11 @@ from pathlib import Path
 
 
 def test_task_management_imports_no_pipeline_phase_or_gate_modules() -> None:
-    package_root = Path("src/agentkit/task_management")
+    package_root = Path("src/agentkit/backend/task_management")
     forbidden_prefixes = (
-        "agentkit.pipeline_engine",
+        "agentkit.backend.pipeline_engine",
         "agentkit.pipeline",
-        "agentkit.story_exit",
+        "agentkit.backend.story_exit",
     )
     forbidden_fragments = (".phase", ".gate")
     offenders: list[str] = []

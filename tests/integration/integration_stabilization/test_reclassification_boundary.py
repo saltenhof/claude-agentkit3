@@ -21,32 +21,32 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.integration_stabilization.models import (
+from agentkit.backend.integration_stabilization.models import (
     IntegrationScopeManifest,
     ManifestApprovalRecord,
     StabilizationBudgetCaps,
 )
-from agentkit.integration_stabilization.reclassification import (
+from agentkit.backend.integration_stabilization.reclassification import (
     reclassify_standard_to_integration_stabilization,
 )
-from agentkit.integration_stabilization.state import (
+from agentkit.backend.integration_stabilization.state import (
     read_quarantine_state,
     save_integration_manifest,
     save_manifest_approval,
 )
-from agentkit.state_backend.store import load_story_context, save_story_context
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import ChangeImpact
-from agentkit.story_context_manager.types import (
+from agentkit.backend.state_backend.store import load_story_context, save_story_context
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import ChangeImpact
+from agentkit.backend.story_context_manager.types import (
     ImplementationContract,
     StoryMode,
     StoryType,
 )
-from agentkit.verify_system.protocols import Severity
-from agentkit.verify_system.stage_registry.data import ALL_STAGES
-from agentkit.verify_system.stage_registry.registry import StageRegistry
-from agentkit.verify_system.structural.checker import StructuralChecker
-from agentkit.verify_system.structural.system_evidence import ChangeEvidence
+from agentkit.backend.verify_system.protocols import Severity
+from agentkit.backend.verify_system.stage_registry.data import ALL_STAGES
+from agentkit.backend.verify_system.stage_registry.registry import StageRegistry
+from agentkit.backend.verify_system.structural.checker import StructuralChecker
+from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -130,7 +130,7 @@ class _FakeTelemetry:
 
 
 def _checker(story_id: str, changed_files: tuple[str, ...]) -> StructuralChecker:
-    from agentkit.verify_system.structural.checks import BuildTestEvidence
+    from agentkit.backend.verify_system.structural.checks import BuildTestEvidence
 
     class _Bt:
         def evaluate(self, story_dir: Path) -> BuildTestEvidence:  # noqa: ARG002
@@ -156,11 +156,11 @@ def _reclassified_is_story(tmp_path: Path, story_id: str) -> Path:
     story_dir.mkdir(parents=True, exist_ok=True)
     save_story_context(story_dir, _standard_ctx(story_id))
     for phase in ("setup", "exploration"):
-        from agentkit.pipeline_engine.phase_executor import (
+        from agentkit.backend.pipeline_engine.phase_executor import (
             PhaseSnapshot,
             PhaseStatus,
         )
-        from agentkit.state_backend.store import save_phase_snapshot
+        from agentkit.backend.state_backend.store import save_phase_snapshot
 
         save_phase_snapshot(
             story_dir,

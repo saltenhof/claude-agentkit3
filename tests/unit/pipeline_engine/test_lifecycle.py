@@ -5,17 +5,17 @@ from __future__ import annotations
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.exceptions import PipelineError
-from agentkit.pipeline_engine.lifecycle import (
+from agentkit.backend.exceptions import PipelineError
+from agentkit.backend.pipeline_engine.lifecycle import (
     HandlerResult,
     NoOpHandler,
     PhaseHandler,
     PhaseHandlerRegistry,
 )
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import PhaseState, PhaseStatus
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import PhaseState, PhaseStatus
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 
 def _make_ctx() -> StoryContext:

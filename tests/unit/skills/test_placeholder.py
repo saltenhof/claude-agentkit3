@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.config.models import (
+from agentkit.backend.config.models import (
     SUPPORTED_CONFIG_VERSION,
     Features,
     JenkinsConfig,
@@ -17,8 +17,8 @@ from agentkit.config.models import (
     RepositoryConfig,
     SonarQubeConfig,
 )
-from agentkit.skills.errors import UnknownPlaceholderError
-from agentkit.skills.placeholder import (
+from agentkit.backend.skills.errors import UnknownPlaceholderError
+from agentkit.backend.skills.placeholder import (
     SPAWN_SKILL_PROOF_PLACEHOLDER,
     PlaceholderSubstitutor,
 )
@@ -275,7 +275,7 @@ _RECUT_BUNDLES = (
 
 
 def _bundle_md_files(bundle_id: str) -> list[Path]:
-    from agentkit.skills.bundle_store import shipped_skill_bundles_root
+    from agentkit.backend.skills.bundle_store import shipped_skill_bundles_root
 
     root = shipped_skill_bundles_root() / bundle_id / "4.0.0"
     return sorted(root.glob("**/*.md"))
@@ -285,7 +285,7 @@ def test_fk43_vocabulary_matches_concept_table() -> None:
     # AC2: the substitutor's config-fed vocabulary is exactly the FK-43 §43.4.2
     # lowercase table (4 identity tokens + the surviving wiki_stories_dir layout
     # token). The manifest-fed proof is separate and NOT in this set.
-    from agentkit.skills.placeholder import _MANDATORY_PLACEHOLDERS
+    from agentkit.backend.skills.placeholder import _MANDATORY_PLACEHOLDERS
 
     expected = [
         "gh_owner",
@@ -341,7 +341,7 @@ class TestShippedBundleFullResolution:
 
 def _residual_placeholders_after_blocks(text: str) -> list[str]:
     """Return residual ``{{...}}`` tokens after removing block directives."""
-    from agentkit.skills.placeholder import _PLACEHOLDER_RE
+    from agentkit.backend.skills.placeholder import _PLACEHOLDER_RE
 
     without_blocks = _BLOCK_DIRECTIVE_RE.sub("", text)
     return _PLACEHOLDER_RE.findall(without_blocks)

@@ -8,14 +8,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.verify_system.contract import PhaseEnvelopeView
-from agentkit.verify_system.errors import VerifySystemError
-from agentkit.verify_system.qa_cycle.invalidation import (
+from agentkit.backend.verify_system.contract import PhaseEnvelopeView
+from agentkit.backend.verify_system.errors import VerifySystemError
+from agentkit.backend.verify_system.qa_cycle.invalidation import (
     CYCLE_BOUND_QA_ARTIFACTS,
     RecordingArtifactInvalidationSink,
     qa_artifact_dir,
 )
-from agentkit.verify_system.qa_cycle.lifecycle import QaCycleLifecycle, QaCycleState
+from agentkit.backend.verify_system.qa_cycle.lifecycle import QaCycleLifecycle, QaCycleState
 
 if TYPE_CHECKING:
     from pathlib import Path

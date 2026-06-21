@@ -63,7 +63,7 @@ Added §2.1.1 defining the cleanup scope hard: Locks (in scope, real), Worktree 
 Added the global `agentkit query-state --locks` (no `--story`) form explicitly (Befehl 6) for the FK-04 §4.2.1 line, separate from the story-scoped `--story --locks`. AC 6 now requires a test for both the story-scoped and the global `--locks` case. The stale-candidate marking is described as descriptive-only while the PID anchor (Klasse C) is open.
 
 **WARNING (3) — No AC checks that Agent/Control-Plane paths do not use the CLI (FK-45 §45.4 normative rule).**
-Added AC 10: an architecture/import test asserts no productive agent/control-plane module imports `agentkit.cli.main` (or references the existing import guard if one already covers this boundary), plus an explicit non-goal citing FK-45 §45.4 + FK-91 §91.1a (agents go via `Project Edge Client` → Control-Plane-API).
+Added AC 10: an architecture/import test asserts no productive agent/control-plane module imports `agentkit.backend.cli.main` (or references the existing import guard if one already covers this boundary), plus an explicit non-goal citing FK-45 §45.4 + FK-91 §91.1a (agents go via `Project Edge Client` → Control-Plane-API).
 
 ---
 

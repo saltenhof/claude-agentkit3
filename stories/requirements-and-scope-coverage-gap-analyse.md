@@ -77,7 +77,7 @@ Der BC `requirements-and-scope-coverage` ist in der Codebase nahezu nicht implem
 
 | # | Thema | Code-Referenz | Konzept-Referenz | Drift / Fehler |
 |---|---|---|---|---|
-| C1 | BC-Surface exportiert keine `RequirementsCoverage`-Klasse | `src/agentkit/requirements_coverage/__init__.py` | `FK-40 §40.2, concept/_meta/bc-cut-decisions.md §BC-15` | Laut bc-cut-decisions ist `RequirementsCoverage` die Top-Surface des BC (prefix `agentkit.requirements_coverage`). Die aktuelle `__init__.py` exportiert ausschliesslich `StoryAreLink`-bezogene Symbole. Aufrufer-BCs koennen die vorgesehene Top-Surface nicht importieren; kein Aktivierungs-Check (`features.are`) abrufbar. |
+| C1 | BC-Surface exportiert keine `RequirementsCoverage`-Klasse | `src/agentkit/requirements_coverage/__init__.py` | `FK-40 §40.2, concept/_meta/bc-cut-decisions.md §BC-15` | Laut bc-cut-decisions ist `RequirementsCoverage` die Top-Surface des BC (prefix `agentkit.backend.requirements_coverage`). Die aktuelle `__init__.py` exportiert ausschliesslich `StoryAreLink`-bezogene Symbole. Aufrufer-BCs koennen die vorgesehene Top-Surface nicht importieren; kein Aktivierungs-Check (`features.are`) abrufbar. |
 
 ## 5. Ableitungen / Empfehlungen
 

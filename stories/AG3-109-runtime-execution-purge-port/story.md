@@ -2,7 +2,7 @@
 
 **Typ:** Implementation
 **Groesse:** M
-**Bounded Context:** Per-Entitaet-Purge der **Runtime-Execution-Persistenz-Subdomaene** an den jeweiligen Owner-Modulen + **ein koordinierender `RuntimeExecutionPurgePort`** an der State-Backend-/Persistenz-Grenze (`agentkit.state_backend.store`, wo die `save_*`-Facade und die bestehenden `purge_run`-Adapter leben). Konsument: `story-lifecycle` (`StoryResetService`, AG3-071) — hier **nicht** gebaut.
+**Bounded Context:** Per-Entitaet-Purge der **Runtime-Execution-Persistenz-Subdomaene** an den jeweiligen Owner-Modulen + **ein koordinierender `RuntimeExecutionPurgePort`** an der State-Backend-/Persistenz-Grenze (`agentkit.backend.state_backend.store`, wo die `save_*`-Facade und die bestehenden `purge_run`-Adapter leben). Konsument: `story-lifecycle` (`StoryResetService`, AG3-071) — hier **nicht** gebaut.
 
 > **Ownership-Praezisierung (Review job-75d1ebfe, MED-5):** Registry-Ownership (`bounded-contexts.yaml`), FK-18-Tabellenfamilien-Ownership und die **reale Modul-Platzierung** im Code sind **drei verschiedene Achsen** und werden hier nicht als deckungsgleich „bewiesen" dargestellt. Maßgeblich fuer die Implementierung ist die **physische Mapping-Tabelle** in §1.3.
 
@@ -99,7 +99,7 @@ FK-18/FK-53-Prosa nennt teils andere Tabellennamen als der reale Code. Die Imple
 - **Code ist Ground Truth fuer Tabellennamen** — folge §1.3, nicht der FK-18/FK-53-Prosa. Lege **keine** Tabellen `attempt_records`/`node_executions`/`artifact_records` an und referenziere sie nicht.
 - **Kanonische `phase_states` purgen** (Runtime), **`phase_state_projection` NICHT** (Read-Model, hat schon `purge_run` `:1049`).
 - **Neue Owner-Purge-APIs** an Facade/Repository ergaenzen (heute nur `save_*`); SQL in den Driver-Helper; der Port ruft die APIs — **kein** Port-eigener Fremd-SQL (GAC-1/Importrichtung beachten).
-- **GAC-1-Platzierung (Re-Review-Hinweis):** Port- und Repository-Purge-Arbeit unter der **registrierten** Boundary `agentkit.state_backend.store` halten (Adapter, darf Component-Groups importieren — `entities.md:1386-1404`). **Keine** neuen Purge-Implementierungsmodule unter dem **unregistrierten** physischen Pfad `agentkit.phase_state_store` als Workaround anlegen. Das kanonische `PhaseState`-Modell liegt in `pipeline_engine/phase_executor/models.py:279`; persistiert wird ueber `state_backend/store/facade.py` (`save_phase_state:470`).
+- **GAC-1-Platzierung (Re-Review-Hinweis):** Port- und Repository-Purge-Arbeit unter der **registrierten** Boundary `agentkit.backend.state_backend.store` halten (Adapter, darf Component-Groups importieren — `entities.md:1386-1404`). **Keine** neuen Purge-Implementierungsmodule unter dem **unregistrierten** physischen Pfad `agentkit.backend.phase_state_store` als Workaround anlegen. Das kanonische `PhaseState`-Modell liegt in `pipeline_engine/phase_executor/models.py:279`; persistiert wird ueber `state_backend/store/facade.py` (`save_phase_state:470`).
 - **Eigener Runtime-Ergebnistyp** — `projection_accessor.PurgeResult` (`:149`) ist FK-69-projektionsspezifisch und tabu fuer den Runtime-Purge.
 - **Run-bound vs. durable Artefakte** am realen `artifact_envelopes`-Schluessel unterscheiden; bei Unklarheit melden, nicht raten.
 - Verify ist **Runtime-Residue**-Pruefung (Baustein fuer AG3-071/§53.10), **nicht** die volle Clean-State-Pruefung.

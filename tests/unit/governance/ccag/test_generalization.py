@@ -13,12 +13,12 @@ from typing import TYPE_CHECKING
 import pytest
 import yaml
 
-from agentkit.governance.ccag.generalization import (
+from agentkit.backend.governance.ccag.generalization import (
     RuleGeneralizer,
     RuleProposal,
     RuleProposalError,
 )
-from agentkit.governance.ccag.rules import RULE_FILE_APPROVED, load_rules
+from agentkit.backend.governance.ccag.rules import RULE_FILE_APPROVED, load_rules
 
 if TYPE_CHECKING:
     from pathlib import Path

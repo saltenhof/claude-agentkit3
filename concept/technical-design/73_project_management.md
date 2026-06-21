@@ -125,11 +125,11 @@ Erwartungswert** und gehoert zu den `configuration`-Feldern der Project-Entitaet
 
 > **Code-Realitaet / Owner pro Wert (FEHLT heute):** Das `configuration`-Objekt
 > der Project-Entitaet traegt heute **kein** Baseline-Hash-Feld:
-> `ProjectConfiguration` (`src/agentkit/project_management/entities.py:14`)
+> `ProjectConfiguration` (`src/agentkit/backend/project_management/entities.py:14`)
 > kennt nur `repo_url` (`:34`), `default_branch` (`:35`), `are_url`,
 > `default_worker_count` und `repositories` — keinen erwarteten
 > Config-Baseline-Hash. Das Integrity-Gate bestaetigt das Fehlen ausdruecklich
-> (`src/agentkit/governance/integrity_gate/dim9_drift.py:26-30`: „no
+> (`src/agentkit/backend/governance/integrity_gate/dim9_drift.py:26-30`: „no
 > captured/registered baseline … the state backend stores no expected
 > config-hash … deliberately does NOT fabricate one"). **Code-Owner ist der
 > `project-management`-BC** (Project-Entitaet/`ProjectConfiguration`) — **nicht**

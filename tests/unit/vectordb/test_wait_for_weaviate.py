@@ -10,14 +10,14 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from agentkit.integrations.vectordb import VectorDbUnavailableError
-from agentkit.vectordb.wait_for_weaviate import (
+from agentkit.backend.vectordb.wait_for_weaviate import (
     DEFAULT_HOST,
     DEFAULT_PORT,
     _resolve_host_port,
     main,
     wait_for_weaviate,
 )
+from agentkit.integration_clients.vectordb import VectorDbUnavailableError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -102,7 +102,7 @@ def test_wait_returns_false_when_unreachable() -> None:
 
 
 def test_main_exit_zero_when_ready(monkeypatch: pytest.MonkeyPatch) -> None:
-    import agentkit.vectordb.wait_for_weaviate as mod
+    import agentkit.backend.vectordb.wait_for_weaviate as mod
 
     monkeypatch.setattr(mod, "wait_for_weaviate", lambda **_: True)
     assert main(["--timeout", "1", "--host", "localhost", "--port", "8080"]) == 0
@@ -110,7 +110,7 @@ def test_main_exit_zero_when_ready(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_main_exit_one_when_not_reachable(monkeypatch: pytest.MonkeyPatch) -> None:
     """NEGATIVE: exit 1 when Weaviate is not reachable within the timeout."""
-    import agentkit.vectordb.wait_for_weaviate as mod
+    import agentkit.backend.vectordb.wait_for_weaviate as mod
 
     monkeypatch.setattr(mod, "wait_for_weaviate", lambda **_: False)
     assert main(["--timeout", "1", "--host", "localhost", "--port", "8080"]) == 1

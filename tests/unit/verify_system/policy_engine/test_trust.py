@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from agentkit.verify_system.policy_engine.trust import TRUST_WEIGHT, effective_severity
-from agentkit.verify_system.protocols import Finding, Severity, TrustClass
+from agentkit.backend.verify_system.policy_engine.trust import TRUST_WEIGHT, effective_severity
+from agentkit.backend.verify_system.protocols import Finding, Severity, TrustClass
 
 
 class TestTrustWeight:

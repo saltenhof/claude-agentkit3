@@ -458,17 +458,17 @@ DB bleibt unangetastet.
 
 ### 18.9a.1 Schema-Version als Konstante
 
-Eine Code-Konstante (z. B. `agentkit.state_backend.config.SCHEMA_VERSION`)
+Eine Code-Konstante (z. B. `agentkit.backend.state_backend.config.SCHEMA_VERSION`)
 haelt die aktuelle Schema-Version im SemVer-Stil — z. B. `"3.0.0"`.
 Diese Version wird bei AK3-Builds mitgepflegt; Schema-Aenderungen
 fuehren zu einer Versions-Erhoehung.
 
-Implementierungsanker: `agentkit.state_backend.config.SCHEMA_VERSION`
+Implementierungsanker: `agentkit.backend.state_backend.config.SCHEMA_VERSION`
 ist die einzige Quelle fuer die Ableitung der physischen
 Speicherorte. Postgres verwendet daraus
-`agentkit.state_backend.config.versioned_postgres_schema_name()` (z. B.
+`agentkit.backend.state_backend.config.versioned_postgres_schema_name()` (z. B.
 `ak3_v3_0_0`); SQLite verwendet
-`agentkit.state_backend.config.versioned_sqlite_db_file()` (z. B.
+`agentkit.backend.state_backend.config.versioned_sqlite_db_file()` (z. B.
 `agentkit_3_0_0.sqlite`).
 
 **Innerhalb einer Major-Version (z. B. 3.0.0 → 3.0.1, 3.1.0 etc.)

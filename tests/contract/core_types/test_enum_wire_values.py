@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from enum import StrEnum
 
-from agentkit.core_types import (
+from agentkit.backend.core_types import (
     ArtifactClass,
     AttemptOutcome,
     BlockingCategory,

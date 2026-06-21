@@ -2,7 +2,7 @@
 
 **Typ:** Implementation
 **Groesse:** L
-**Bounded Context:** `pipeline-framework` (BC1) — deterministische Wiederherstellung des Sub-Agenten-Kontexts nach einer Claude-Code-Context-Compaction. Producer-/Hook-Logik (Resume-Kapsel/Spawn-Spec/Recovery-Entscheidung/Epoch-Konsum) ist explizit AK3-Python-Scope (FK-36 §36.8.1 nennt `python -m agentkit.pipeline_engine.compaction_resilience.*`). **Der zentrale Epoch-Store-Persistenz-Owner ist das bestehende `state_backend`** (Tabelle/Migration/Repository), das `compaction_resilience` ueber eine schmale atomare Repository-API konsumiert — der Store ist nicht projektlokales SQLite und keine zweite Persistenzwahrheit (siehe §2.1 In-Scope 9).
+**Bounded Context:** `pipeline-framework` (BC1) — deterministische Wiederherstellung des Sub-Agenten-Kontexts nach einer Claude-Code-Context-Compaction. Producer-/Hook-Logik (Resume-Kapsel/Spawn-Spec/Recovery-Entscheidung/Epoch-Konsum) ist explizit AK3-Python-Scope (FK-36 §36.8.1 nennt `python -m agentkit.backend.pipeline_engine.compaction_resilience.*`). **Der zentrale Epoch-Store-Persistenz-Owner ist das bestehende `state_backend`** (Tabelle/Migration/Repository), das `compaction_resilience` ueber eine schmale atomare Repository-API konsumiert — der Store ist nicht projektlokales SQLite und keine zweite Persistenzwahrheit (siehe §2.1 In-Scope 9).
 
 **Quell-Konzepte (autoritativ):**
 - `FK-36 §36.4` — Resume-Kapsel: Compose-Time-Artefakt aus strukturierten Quelldaten (kein Prompt-Truncation), max **8.000 Zeichen**, Positiv-/Negativ-Liste, Guardrail-Invarianten-Block (§36.4.6, versioniert via `guardrail_version`)
@@ -71,7 +71,7 @@ Kontext-Konflikt-Check (korrigiert): FK-36 verwendet `_temp/qa/{story_id}/...`- 
 - **Epoch-Store-Persistenz selbst bleibt IN Scope dieser Story, aber mit Owner `state_backend`** (siehe In-Scope 9): Tabelle/Migration/Repository entstehen im `state_backend` (dem bestehenden zentralen Persistenz-Owner), nicht in `compaction_resilience`. `compaction_resilience` konsumiert nur die schmale Repository-API. Dies ist **kein** Scope-Transfer an eine andere Story (es gibt im `_STORY_INDEX.md` keine Story, die diesen Store liefert; AG3-075 ist sein einziger Konsument und alleiniger Lieferant), sondern eine korrekte Modul-Schicht-Zuordnung innerhalb des AG3-075-Cuts.
 
 ## 3. Akzeptanzkriterien
-1. `pipeline_engine/compaction_resilience/` existiert mit den vier Modulen `manifest_writer`/`recovery_injector`/`epoch_writer`/`cleanup`, jeweils via `python -m agentkit.pipeline_engine.compaction_resilience.<name>` aufrufbar.
+1. `pipeline_engine/compaction_resilience/` existiert mit den vier Modulen `manifest_writer`/`recovery_injector`/`epoch_writer`/`cleanup`, jeweils via `python -m agentkit.backend.pipeline_engine.compaction_resilience.<name>` aufrufbar.
 2. Resume-Kapsel + Spawn-Spec werden **am realen `prompt_runtime`-Compose-Pfad** (nicht `agentkit.prompting.compose`) zeitgleich mit `prompt_file` erzeugt; die Kapsel stammt aus strukturierten Quelldaten, nicht aus Prompt-Truncation (Test).
 3. Die Resume-Kapsel ueberschreitet **nie** 8.000 Zeichen und enthaelt den versionierten Guardrail-Invarianten-Block (§36.4.6); Negativ-Liste-Inhalte fehlen (Test inkl. Ueberschreitungs-/Truncation-Verhalten).
 4. Der Spawn-Spec enthaelt alle §36.5.2-Felder **plus `project_key`** inkl. korrekter SHA256-Hashes; ein nachtraeglich ueberschriebenes `prompt_file`/Kapsel wird via Drift-Hash erkannt (Test).

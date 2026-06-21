@@ -18,29 +18,29 @@ import pytest
 from tests.exploration_change_frame_fixture import persist_example_change_frame
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.bootstrap.composition_root import (
+from agentkit.backend.bootstrap.composition_root import (
     build_artifact_manager,
     build_exploration_phase_handler,
 )
-from agentkit.core_types import ArtifactClass, ExplorationGateStatus
-from agentkit.core_types.qa_artifact_names import CHANGE_FRAME_FILE
-from agentkit.exploration.register import EXPLORATION_ENTWURF_STAGE
-from agentkit.installer.paths import resolve_qa_story_dir
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.core_types import ArtifactClass, ExplorationGateStatus
+from agentkit.backend.core_types.qa_artifact_names import CHANGE_FRAME_FILE
+from agentkit.backend.exploration.register import EXPLORATION_ENTWURF_STAGE
+from agentkit.backend.installer.paths import resolve_qa_story_dir
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import (
     ExplorationPayload,
     PhaseState,
     PhaseStatus,
 )
-from agentkit.process.language.guards import exploration_gate_approved
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import (
+from agentkit.backend.process.language.guards import exploration_gate_approved
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import (
     reset_backend_cache_for_tests,
     save_flow_execution,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -147,7 +147,7 @@ def test_on_enter_without_change_frame_emits_worker_spawn(tmp_path: Path) -> Non
     worker draft present it EMITS a typed exploration-worker ``SpawnRequest`` and
     returns ``IN_PROGRESS`` (not a dead-end ESCALATED). The gate stays denied.
     """
-    from agentkit.core_types import SpawnKind
+    from agentkit.backend.core_types import SpawnKind
 
     story_dir = _story_dir(tmp_path)
     _bind_flow(story_dir)

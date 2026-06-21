@@ -8,17 +8,17 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.core_types import SpawnReason
-from agentkit.exceptions import CorruptStateError
-from agentkit.implementation.worker_session import (
+from agentkit.backend.core_types import SpawnReason
+from agentkit.backend.exceptions import CorruptStateError
+from agentkit.backend.implementation.worker_session import (
     WorkerContextItemKey,
     WorkerSession,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
-    from agentkit.prompt_runtime.composer import ComposeConfig
+    from agentkit.backend.prompt_runtime.composer import ComposeConfig
 
 
 class _FakeLoader:

@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.bootstrap.story_reset_adapters import (
+from agentkit.backend.bootstrap.story_reset_adapters import (
     AnalyticsPurgeAdapter,
     LockPurgeAdapter,
     ReadModelPurgeAdapter,
@@ -32,47 +32,47 @@ from agentkit.bootstrap.story_reset_adapters import (
     WorkspacePurgeAdapter,
     WorktreePurgeAdapter,
 )
-from agentkit.core_types.attempt import AttemptOutcome
-from agentkit.governance.runner import Governance
-from agentkit.kpi_analytics.aggregation import RefreshWorker
-from agentkit.kpi_analytics.fact_store import FactStore
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import (
+from agentkit.backend.core_types.attempt import AttemptOutcome
+from agentkit.backend.governance.runner import Governance
+from agentkit.backend.kpi_analytics.aggregation import RefreshWorker
+from agentkit.backend.kpi_analytics.fact_store import FactStore
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.phase_executor.records import AttemptRecord
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import (
     facade,
     reset_backend_cache_for_tests,
 )
-from agentkit.state_backend.store.analytics_source import StateBackendAnalyticsSource
-from agentkit.state_backend.store.fact_repository import StateBackendFactRepository
-from agentkit.state_backend.store.governance_hook_repository import (
+from agentkit.backend.state_backend.store.analytics_source import StateBackendAnalyticsSource
+from agentkit.backend.state_backend.store.fact_repository import StateBackendFactRepository
+from agentkit.backend.state_backend.store.governance_hook_repository import (
     StateBackendHookRegistrationRepository,
 )
-from agentkit.state_backend.store.lock_record_repository import LockRecordRepository
-from agentkit.state_backend.store.runtime_execution_purge import (
+from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
+from agentkit.backend.state_backend.store.runtime_execution_purge import (
     RuntimeExecutionPurgePort,
     RuntimeExecutionResidueProbe,
 )
-from agentkit.state_backend.store.worktree_repository import (
+from agentkit.backend.state_backend.store.worktree_repository import (
     StateBackendWorktreeRepository,
 )
-from agentkit.story_context_manager.idempotency import InMemoryIdempotencyKeyRepository
-from agentkit.story_context_manager.service import StoryService
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.story_context_manager.idempotency import InMemoryIdempotencyKeyRepository
+from agentkit.backend.story_context_manager.service import StoryService
+from agentkit.backend.story_context_manager.story_model import (
     CreateStoryInput,
     StoryStatus,
     WireStoryType,
 )
-from agentkit.story_context_manager.story_repository import InMemoryStoryRepository
-from agentkit.story_reset import (
+from agentkit.backend.story_context_manager.story_repository import InMemoryStoryRepository
+from agentkit.backend.story_reset import (
     FileResetRecordStore,
     ResetStatus,
     StoryResetRecord,
     StoryResetRequest,
     StoryResetService,
 )
-from agentkit.verify_system.stage_registry.records import QAFindingRecord
+from agentkit.backend.verify_system.stage_registry.records import QAFindingRecord
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -184,7 +184,7 @@ def _seed_real_state(store_dir: Path, story_id: str) -> None:
             ended_at=_NOW,
         ),
     )
-    from agentkit.bootstrap.composition_root import build_projection_accessor
+    from agentkit.backend.bootstrap.composition_root import build_projection_accessor
 
     accessor = build_projection_accessor(store_dir)
     accessor._repos.qa_findings.write(  # noqa: SLF001 — seed via the real repo
@@ -214,7 +214,7 @@ def _build_service(store_dir: Path, story_service: StoryService) -> StoryResetSe
         project_root=store_dir,
         worktree_repo=StateBackendWorktreeRepository(store_dir),
     )
-    from agentkit.bootstrap.composition_root import build_projection_accessor
+    from agentkit.backend.bootstrap.composition_root import build_projection_accessor
 
     accessor = build_projection_accessor(store_dir)
     refresh_worker = RefreshWorker(
@@ -272,7 +272,7 @@ def test_reset_purges_real_runtime_locks_and_read_models(store_dir: Path) -> Non
     # Pre-conditions: the real rows exist (verified through the real owners).
     probe_before = RuntimeExecutionResidueProbe(store_dir)
     assert probe_before.check_run(_PROJECT, story_id, _RUN).is_clean is False
-    from agentkit.bootstrap.composition_root import build_projection_accessor
+    from agentkit.backend.bootstrap.composition_root import build_projection_accessor
 
     accessor = build_projection_accessor(store_dir)
     assert accessor._repos.qa_findings.read(story_id=story_id)  # noqa: SLF001

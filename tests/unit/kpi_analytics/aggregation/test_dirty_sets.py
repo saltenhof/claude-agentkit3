@@ -10,10 +10,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from agentkit.kpi_analytics.aggregation import derive_dirty_sets
-from agentkit.kpi_analytics.aggregation.dirty_sets import month_start_for
-from agentkit.kpi_analytics.aggregation.source_port import DeltaEvent
-from agentkit.telemetry.events import EventType
+from agentkit.backend.kpi_analytics.aggregation import derive_dirty_sets
+from agentkit.backend.kpi_analytics.aggregation.dirty_sets import month_start_for
+from agentkit.backend.kpi_analytics.aggregation.source_port import DeltaEvent
+from agentkit.backend.telemetry.events import EventType
 
 _PROJECT = "tenant-a"
 # 2026-06-11 is a Thursday; ISO week starts Monday 2026-06-08.

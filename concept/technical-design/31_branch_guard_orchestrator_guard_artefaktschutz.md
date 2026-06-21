@@ -564,7 +564,7 @@ ist die lernfähige Permission-Schicht für menschliche Freigaben
 Sicherheitsregeln. Harte Regeln gehören in Hooks
 (Plattform-Enforcement, Kap. 01 P2).
 
-**Hook-Modul:** `agentkit.governance.adversarial_guard`
+**Hook-Modul:** `agentkit.backend.governance.adversarial_guard`
 
 ```python
 def check(tool_name: str, tool_input: dict, is_subagent: bool,
@@ -588,7 +588,7 @@ Codex-Adapter materialisiert das Aequivalent):
 ```json
 {
   "matcher": "Write|Edit",
-  "command": "python -m agentkit.governance.adversarial_guard"
+  "command": "python -m agentkit.backend.governance.adversarial_guard"
 }
 ```
 

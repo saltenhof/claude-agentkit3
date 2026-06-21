@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.story_context_manager.story_model import (
     Story,
     StorySpecification,
     WireStoryType,
 )
-from agentkit.story_creation.repair_story_md import repair_story_md
+from agentkit.backend.story_creation.repair_story_md import repair_story_md
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -53,7 +53,7 @@ class _Index:
 
 class _FailIndex:
     def index_story(self, *, story_id: str, objects: object) -> int:
-        from agentkit.integrations.vectordb import VectorDbWriteError
+        from agentkit.integration_clients.vectordb import VectorDbWriteError
 
         del story_id, objects
         raise VectorDbWriteError("rejected")

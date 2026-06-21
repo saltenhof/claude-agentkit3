@@ -8,34 +8,34 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from agentkit.pipeline_engine.compaction_resilience.artifacts import (
+from agentkit.backend.pipeline_engine.compaction_resilience.artifacts import (
     GUARDRAIL_VERSION,
     RESUME_CAPSULE_MAX_CHARS,
     build_resume_capsule,
     sha256_file,
     write_compaction_artifacts,
 )
-from agentkit.pipeline_engine.compaction_resilience.cleanup import run as cleanup_run
-from agentkit.pipeline_engine.compaction_resilience.epoch_writer import run as epoch_run
-from agentkit.pipeline_engine.compaction_resilience.manifest_writer import (
+from agentkit.backend.pipeline_engine.compaction_resilience.cleanup import run as cleanup_run
+from agentkit.backend.pipeline_engine.compaction_resilience.epoch_writer import run as epoch_run
+from agentkit.backend.pipeline_engine.compaction_resilience.manifest_writer import (
     run as manifest_run,
 )
-from agentkit.pipeline_engine.compaction_resilience.models import (
+from agentkit.backend.pipeline_engine.compaction_resilience.models import (
     AgentManifest,
     SpawnSpec,
     parse_spawn_key,
 )
-from agentkit.pipeline_engine.compaction_resilience.paths import (
+from agentkit.backend.pipeline_engine.compaction_resilience.paths import (
     first_tool_path,
     manifest_path,
 )
-from agentkit.pipeline_engine.compaction_resilience.recovery_injector import (
+from agentkit.backend.pipeline_engine.compaction_resilience.recovery_injector import (
     run as recovery_run,
 )
-from agentkit.prompt_runtime.composer import ComposeConfig
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.utils.io import atomic_write_text
+from agentkit.backend.prompt_runtime.composer import ComposeConfig
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.utils.io import atomic_write_text
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -320,7 +320,7 @@ def test_hook_modules_are_python_m_invocable(tmp_path: Path, module_name: str) -
         [
             sys.executable,
             "-m",
-            f"agentkit.pipeline_engine.compaction_resilience.{module_name}",
+            f"agentkit.backend.pipeline_engine.compaction_resilience.{module_name}",
         ],
         input=json.dumps({"cwd": str(tmp_path)}),
         text=True,

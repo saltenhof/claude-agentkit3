@@ -14,21 +14,21 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.state_backend.store import (
+from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.state_backend.store import (
     reset_backend_cache_for_tests,
     save_flow_execution,
     save_story_context,
 )
-from agentkit.state_backend.store.projection_repositories import (
+from agentkit.backend.state_backend.store.projection_repositories import (
     build_projection_repositories,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.telemetry.audit_bundle import AuditBundleExporter
-from agentkit.telemetry.events import EventType
-from agentkit.telemetry.hooks import (
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.telemetry.audit_bundle import AuditBundleExporter
+from agentkit.backend.telemetry.events import EventType
+from agentkit.backend.telemetry.hooks import (
     AgentLifecycleHook,
     BudgetEventEmitter,
     CommitHook,
@@ -37,9 +37,9 @@ from agentkit.telemetry.hooks import (
     ReviewGuard,
     ReviewSentinelHook,
 )
-from agentkit.telemetry.hooks.base import HookContext, HookTrigger
-from agentkit.telemetry.projection_accessor import ProjectionAccessor, ProjectionKind
-from agentkit.telemetry.storage import StateBackendEmitter
+from agentkit.backend.telemetry.hooks.base import HookContext, HookTrigger
+from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor, ProjectionKind
+from agentkit.backend.telemetry.storage import StateBackendEmitter
 
 if TYPE_CHECKING:
     from collections.abc import Generator

@@ -15,9 +15,9 @@ import typing
 
 import pytest
 
-from agentkit.telemetry import projection_records
-from agentkit.telemetry.errors import ProjectionKindNotAccessorOwnedError
-from agentkit.telemetry.projection_accessor import (
+from agentkit.backend.telemetry import projection_records
+from agentkit.backend.telemetry.errors import ProjectionKindNotAccessorOwnedError
+from agentkit.backend.telemetry.projection_accessor import (
     ProjectionFilter,
     ProjectionKind,
 )
@@ -27,7 +27,7 @@ def test_projection_union_resolves_phase_state_to_ag3_059_record() -> None:
     # The operative surface is TYPED: the union resolves to the AG3-059-owned
     # PhaseState record (Schema-Owner pipeline_engine.phase_executor), not a
     # local re-definition.
-    from agentkit.pipeline_engine.phase_executor import PhaseState as OwnedPhaseState
+    from agentkit.backend.pipeline_engine.phase_executor import PhaseState as OwnedPhaseState
 
     assert projection_records.PhaseState is OwnedPhaseState
     union_args = typing.get_args(projection_records.ProjectionRecord)
@@ -56,22 +56,22 @@ def test_telemetry_does_not_import_pipeline_engine_at_module_init() -> None:
     evicted: dict[str, object] = {
         name: module
         for name, module in sys.modules.items()
-        if name.startswith("agentkit.pipeline_engine")
-        or name == "agentkit.telemetry.projection_records"
+        if name.startswith("agentkit.backend.pipeline_engine")
+        or name == "agentkit.backend.telemetry.projection_records"
     }
     for name in evicted:
         del sys.modules[name]
     try:
-        import agentkit.telemetry.projection_records as fresh  # noqa: F401
+        import agentkit.backend.telemetry.projection_records as fresh  # noqa: F401
 
-        assert "agentkit.pipeline_engine.phase_executor" not in sys.modules
+        assert "agentkit.backend.pipeline_engine.phase_executor" not in sys.modules
     finally:
         # Restore the original module identities so no later test observes a
         # re-minted class (global sys.modules state stays as it was on entry).
         for name in list(sys.modules):
             if (
-                name.startswith("agentkit.pipeline_engine")
-                or name == "agentkit.telemetry.projection_records"
+                name.startswith("agentkit.backend.pipeline_engine")
+                or name == "agentkit.backend.telemetry.projection_records"
             ):
                 del sys.modules[name]
         sys.modules.update(evicted)
@@ -80,7 +80,7 @@ def test_telemetry_does_not_import_pipeline_engine_at_module_init() -> None:
 def test_accessor_still_refuses_phase_state_write_fail_closed() -> None:
     # AC4(b): the Write-Owner stays pipeline_engine.PhaseExecutor — the accessor
     # refuses PHASE_STATE_PROJECTION writes fail-closed (no ownership migration).
-    from agentkit.pipeline_engine.phase_executor import PhaseState as OwnedPhaseState
+    from agentkit.backend.pipeline_engine.phase_executor import PhaseState as OwnedPhaseState
 
     # A real PhaseState record is still refused on the write path (external owner).
     record = object.__new__(OwnedPhaseState)
@@ -102,7 +102,7 @@ def test_accessor_still_refuses_phase_state_read_fail_closed() -> None:
 
 
 def _accessor_with_no_repos() -> object:
-    from agentkit.telemetry.projection_accessor import ProjectionAccessor
+    from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
 
     # The refusal is decided BEFORE any repo dispatch, so a bare accessor suffices.
     return ProjectionAccessor.__new__(ProjectionAccessor)

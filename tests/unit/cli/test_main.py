@@ -1,6 +1,6 @@
 """Unit tests for the AgentKit CLI entrypoint.
 
-Tests the ``main()`` function from ``agentkit.cli.main`` to verify
+Tests the ``main()`` function from ``agentkit.backend.cli.main`` to verify
 that all subcommands parse correctly and return the expected exit codes.
 """
 
@@ -13,8 +13,8 @@ from types import SimpleNamespace
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
 
-from agentkit.cli.main import main
-from agentkit.skills import create_directory_link, is_directory_link
+from agentkit.backend.cli.main import main
+from agentkit.backend.skills import create_directory_link, is_directory_link
 
 
 def _directory_links_supported() -> bool:
@@ -71,7 +71,7 @@ class TestCLIMain:
             captured["cli_args"] = cli_args
             return 0
 
-        monkeypatch.setattr("agentkit.cli.main._cmd_exit_story", fake_exit_story)
+        monkeypatch.setattr("agentkit.backend.cli.main._cmd_exit_story", fake_exit_story)
 
         exit_code = main([
             "exit-story",
@@ -104,7 +104,7 @@ class TestCLIMain:
             captured["reason"] = args.reason
             return 0
 
-        monkeypatch.setattr("agentkit.cli.main._cmd_split_story", fake_split_story)
+        monkeypatch.setattr("agentkit.backend.cli.main._cmd_split_story", fake_split_story)
 
         exit_code = main([
             "split-story",
@@ -139,7 +139,7 @@ class TestCLIMain:
             captured["force"] = args.force
             return 0
 
-        monkeypatch.setattr("agentkit.cli.main._cmd_reset_story", fake_reset_story)
+        monkeypatch.setattr("agentkit.backend.cli.main._cmd_reset_story", fake_reset_story)
 
         exit_code = main([
             "reset-story",
@@ -171,7 +171,7 @@ class TestCLIMain:
         """AC2: --dry-run prints the planned purge domains and does not mutate."""
         import json as _json
 
-        from agentkit.story_reset import (
+        from agentkit.backend.story_reset import (
             PlannedPurge,
             ResetPurgeDomain,
             StoryResetService,
@@ -197,7 +197,7 @@ class TestCLIMain:
                 )
 
         monkeypatch.setattr(
-            "agentkit.bootstrap.composition_root.build_story_reset_service",
+            "agentkit.backend.bootstrap.composition_root.build_story_reset_service",
             lambda **_kw: _DryRunService(),
         )
 
@@ -238,7 +238,7 @@ class TestCLIMain:
             _good_source_state,
         )
 
-        from agentkit.governance.principal_capabilities.principals import Principal
+        from agentkit.backend.governance.principal_capabilities.principals import Principal
 
         # The hidden attestation flag must no longer exist on the split parser:
         # passing it is an argparse error (the bare interface is the contract).
@@ -271,7 +271,7 @@ class TestCLIMain:
             return harness.split_service
 
         monkeypatch.setattr(
-            "agentkit.bootstrap.composition_root.build_story_split_service",
+            "agentkit.backend.bootstrap.composition_root.build_story_split_service",
             _fake_build,
         )
         monkeypatch.setenv("AGENTKIT_PROJECT_KEY", "ak3")
@@ -332,7 +332,7 @@ class TestCLIMain:
             raise AssertionError("service must not be built for an invalid plan")
 
         monkeypatch.setattr(
-            "agentkit.bootstrap.composition_root.build_story_split_service",
+            "agentkit.backend.bootstrap.composition_root.build_story_split_service",
             _explode,
         )
         bad_plan = tmp_path / "plan.json"
@@ -356,7 +356,7 @@ class TestCLIMain:
             captured["project_root"] = args.project_root
             return 0
 
-        monkeypatch.setattr("agentkit.cli.main._cmd_watch_worker", fake_watch_worker)
+        monkeypatch.setattr("agentkit.backend.cli.main._cmd_watch_worker", fake_watch_worker)
 
         exit_code = main([
             "watch-worker",
@@ -396,11 +396,11 @@ class TestCLIMain:
         ``skill_bindings`` row exist. A weaker ``.agentkit``/``project.yaml``
         check would not prove binding.
         """
-        from agentkit.installer.runner import MANDATORY_SKILLS
-        from agentkit.skills import Skills
-        from agentkit.skills.binding import SkillLifecycleStatus
-        from agentkit.skills.bundle_store import SkillBundleStore
-        from agentkit.state_backend.store.skill_binding_repository import (
+        from agentkit.backend.installer.runner import MANDATORY_SKILLS
+        from agentkit.backend.skills import Skills
+        from agentkit.backend.skills.binding import SkillLifecycleStatus
+        from agentkit.backend.skills.bundle_store import SkillBundleStore
+        from agentkit.backend.state_backend.store.skill_binding_repository import (
             StateBackendSkillBindingRepository,
         )
 
@@ -453,7 +453,7 @@ class TestCLIMain:
         """``install`` into non-existent directory raises ProjectError."""
         import pytest as pt
 
-        from agentkit.exceptions import ProjectError
+        from agentkit.backend.exceptions import ProjectError
 
         with pt.raises(ProjectError):
             main([
@@ -481,7 +481,7 @@ class TestCLIMain:
             )
 
         monkeypatch.setattr(
-            "agentkit.installer.install_agentkit",
+            "agentkit.backend.installer.install_agentkit",
             fake_install_agentkit,
         )
 
@@ -508,7 +508,7 @@ class TestCLIMain:
         fails closed (exit 1, BundleNotFound) — it does NOT silently produce an
         install without the four mandatory skills (AG3-048 ERROR 1, AC#5/AC#7).
         """
-        from agentkit.skills.bundle_store import SKILL_BUNDLE_STORE_ENV
+        from agentkit.backend.skills.bundle_store import SKILL_BUNDLE_STORE_ENV
 
         # Point the default systemwide store at an empty dir (no bundles).
         monkeypatch.setenv(
@@ -545,7 +545,7 @@ class TestCLIMain:
         but the stub makes the precondition explicit and platform-independent).
         """
         monkeypatch.setattr(
-            "agentkit.installer.github_coordinates.derive_github_coordinates",
+            "agentkit.backend.installer.github_coordinates.derive_github_coordinates",
             lambda _root: None,
         )
         exit_code = main([
@@ -575,7 +575,7 @@ class TestCLIMain:
         a late CP 7 failure after a neutral scaffold / project.yaml exists.
         """
         monkeypatch.setattr(
-            "agentkit.installer.github_coordinates.derive_github_coordinates",
+            "agentkit.backend.installer.github_coordinates.derive_github_coordinates",
             lambda _root: None,
         )
         exit_code = main([
@@ -637,11 +637,11 @@ class TestCLIMain:
             return SimpleNamespace(success=True, created_files=[], errors=[])
 
         monkeypatch.setattr(
-            "agentkit.installer.install_agentkit",
+            "agentkit.backend.installer.install_agentkit",
             fake_install_agentkit,
         )
         monkeypatch.setattr(
-            "agentkit.installer.github_coordinates.derive_github_coordinates",
+            "agentkit.backend.installer.github_coordinates.derive_github_coordinates",
             lambda _root: ("derived-org", "derived-repo"),
         )
 
@@ -672,11 +672,11 @@ class TestCLIMain:
             return SimpleNamespace(success=True, created_files=[], errors=[])
 
         monkeypatch.setattr(
-            "agentkit.installer.install_agentkit",
+            "agentkit.backend.installer.install_agentkit",
             fake_install_agentkit,
         )
         monkeypatch.setattr(
-            "agentkit.installer.github_coordinates.derive_github_coordinates",
+            "agentkit.backend.installer.github_coordinates.derive_github_coordinates",
             lambda _root: ("derived-org", "derived-repo"),
         )
 
@@ -780,7 +780,7 @@ class TestCLIMain:
             captured["keyfile"] = str(keyfile) if keyfile is not None else None
 
         monkeypatch.setattr(
-            "agentkit.control_plane.http.serve_control_plane",
+            "agentkit.backend.control_plane.http.serve_control_plane",
             fake_serve_control_plane,
         )
 
@@ -815,7 +815,7 @@ class TestCLIMain:
         boundary control), the default mode is mutating ``register`` and the
         target version is forwarded.
         """
-        from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
+        from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
 
         captured: dict[str, object] = {}
 
@@ -828,7 +828,7 @@ class TestCLIMain:
             )
 
         monkeypatch.setattr(
-            "agentkit.installer.upgrade.entry.run_checkpoint_upgrade", fake_upgrade
+            "agentkit.backend.installer.upgrade.entry.run_checkpoint_upgrade", fake_upgrade
         )
 
         exit_code = main([
@@ -856,7 +856,7 @@ class TestCLIMain:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """``--dry-run`` maps to the read-only ``dry_run`` mode (no mutation)."""
-        from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
+        from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
 
         captured: dict[str, object] = {}
 
@@ -868,7 +868,7 @@ class TestCLIMain:
             )
 
         monkeypatch.setattr(
-            "agentkit.installer.upgrade.entry.run_checkpoint_upgrade", fake_upgrade
+            "agentkit.backend.installer.upgrade.entry.run_checkpoint_upgrade", fake_upgrade
         )
 
         exit_code = main([
@@ -896,7 +896,7 @@ class TestCLIMain:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """A F-51-023 preservation block surfaces as a non-zero exit (fail-closed)."""
-        from agentkit.installer.upgrade.footprint import (
+        from agentkit.backend.installer.upgrade.footprint import (
             CustomizationPreservationError,
         )
 
@@ -906,7 +906,7 @@ class TestCLIMain:
             )
 
         monkeypatch.setattr(
-            "agentkit.installer.upgrade.entry.run_checkpoint_upgrade", fake_upgrade
+            "agentkit.backend.installer.upgrade.entry.run_checkpoint_upgrade", fake_upgrade
         )
 
         exit_code = main([

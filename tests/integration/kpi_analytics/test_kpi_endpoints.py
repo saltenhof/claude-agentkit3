@@ -29,11 +29,11 @@ import pytest
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-from agentkit.control_plane.http import ControlPlaneApplication
-from agentkit.control_plane_http.app import ControlPlaneApplicationRoutes
-from agentkit.control_plane_http.tenant_scope import TenantScopeMiddleware
-from agentkit.kpi_analytics.catalog import KpiCatalog
-from agentkit.kpi_analytics.fact_store.models import (
+from agentkit.backend.control_plane.http import ControlPlaneApplication
+from agentkit.backend.control_plane_http.app import ControlPlaneApplicationRoutes
+from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
+from agentkit.backend.kpi_analytics.catalog import KpiCatalog
+from agentkit.backend.kpi_analytics.fact_store.models import (
     FactCorpusPeriod,
     FactGuardPeriod,
     FactPipelinePeriod,
@@ -41,13 +41,13 @@ from agentkit.kpi_analytics.fact_store.models import (
     FactStory,
     PeriodFilter,
 )
-from agentkit.kpi_analytics.fact_store.store import FactStore
-from agentkit.kpi_analytics.http.routes import KpiAnalyticsRoutes
-from agentkit.kpi_analytics.top import KpiAnalytics
-from agentkit.project_management.entities import ProjectConfiguration
-from agentkit.project_management.lifecycle import create_project
-from agentkit.state_backend.store import facade
-from agentkit.state_backend.store.project_management_repository import (
+from agentkit.backend.kpi_analytics.fact_store.store import FactStore
+from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
+from agentkit.backend.kpi_analytics.top import KpiAnalytics
+from agentkit.backend.project_management.entities import ProjectConfiguration
+from agentkit.backend.project_management.lifecycle import create_project
+from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
 
@@ -695,7 +695,7 @@ def test_kpi_stories_scoped_to_project_key(tmp_path: object) -> None:
     """AC2: KPI reads are scoped by project_key (tenant-a ≠ tenant-b)."""
     from pathlib import Path
 
-    from agentkit.state_backend.store.project_management_repository import (
+    from agentkit.backend.state_backend.store.project_management_repository import (
         StateBackendProjectRepository,
     )
 
@@ -762,7 +762,7 @@ def test_kpi_routes_do_not_access_story_service() -> None:
     """AC3: KpiAnalyticsRoutes uses KpiAnalytics (FactStore); StoryService not in path."""
     import inspect
 
-    from agentkit.kpi_analytics.http import routes as routes_module
+    from agentkit.backend.kpi_analytics.http import routes as routes_module
 
     source = inspect.getsource(routes_module)
     assert "StoryService" not in source, (
@@ -840,8 +840,8 @@ def test_read_path_has_no_late_compensation_code(tmp_path: object) -> None:
     """
     import inspect
 
-    from agentkit.kpi_analytics import top as top_module
-    from agentkit.kpi_analytics.http import routes as routes_module
+    from agentkit.backend.kpi_analytics import top as top_module
+    from agentkit.backend.kpi_analytics.http import routes as routes_module
 
     forbidden = ["reset_flag", "is_corrupt", "is_discarded", "late_compensat"]
 
@@ -966,7 +966,7 @@ def test_default_builder_produces_wired_kpi_analytics_routes(tmp_path: object) -
     """
     import os
 
-    from agentkit.control_plane_http.app import _build_default_kpi_analytics_routes
+    from agentkit.backend.control_plane_http.app import _build_default_kpi_analytics_routes
 
     # Set env so SQLite path is used (no Postgres needed in test).
     os.environ["AGENTKIT_STATE_BACKEND"] = "sqlite"

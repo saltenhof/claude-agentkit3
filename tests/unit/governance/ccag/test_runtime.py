@@ -1,4 +1,4 @@
-"""Tests for agentkit.governance.ccag.runtime — CcagPermissionRuntime."""
+"""Tests for agentkit.backend.governance.ccag.runtime — CcagPermissionRuntime."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from agentkit.governance.ccag.requests import PermissionRequestStore
-from agentkit.governance.ccag.runtime import (
+from agentkit.backend.governance.ccag.requests import PermissionRequestStore
+from agentkit.backend.governance.ccag.runtime import (
     _AI_AUGMENTED,
     _INTERACTIVE_AGENT,
     _STORY_EXECUTION,
@@ -15,13 +15,13 @@ from agentkit.governance.ccag.runtime import (
     CcagPermissionRuntime,
     _extract_operating_mode,
 )
-from agentkit.governance.guard_evaluation import HookEvent, Operation
-from agentkit.governance.principal_capabilities import CapabilityHull
+from agentkit.backend.governance.guard_evaluation import HookEvent, Operation
+from agentkit.backend.governance.principal_capabilities import CapabilityHull
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.projectedge.runtime import FreshnessClass
+    from agentkit.harness_client.projectedge.runtime import FreshnessClass
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -350,7 +350,7 @@ class TestCapabilityHullFailClosed:
         # previous fail-OPEN allow. Force the internal evaluation to raise.
         import pytest
 
-        from agentkit.governance.ccag import runtime as runtime_mod
+        from agentkit.backend.governance.ccag import runtime as runtime_mod
 
         rules_dir = tmp_path / "rules"
         rules_dir.mkdir()

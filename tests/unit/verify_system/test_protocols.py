@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
+from agentkit.backend.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
 
 
 class TestSeverity:

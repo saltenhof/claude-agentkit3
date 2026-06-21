@@ -44,9 +44,9 @@ Kurzurteil:
 ### P0 - CLI-Entrypoint ist kaputt, damit ist der echte Produktpfad derzeit nicht lauffaehig
 
 Beleg:
-- `pyproject.toml:32` definiert `agentkit = "agentkit.cli.main:main"`
+- `pyproject.toml:32` definiert `agentkit = "agentkit.backend.cli.main:main"`
 - `src/agentkit/cli/main.py` ist leer
-- Ein Import-Check `from agentkit.cli.main import main` faellt entsprechend mit `ImportError`
+- Ein Import-Check `from agentkit.backend.cli.main import main` faellt entsprechend mit `ImportError`
 
 Warum das kritisch ist:
 - Der deklarierte Einstiegspunkt des Pakets existiert faktisch nicht.
@@ -156,7 +156,7 @@ Warum das relevant ist:
 ### P2 - Pipeline- und Prompting-Kern haengen bereits an `project_ops.shared`
 
 Beleg:
-- `pipeline/state.py:60` importiert `agentkit.project_ops.shared.file_ops.atomic_write_text`.
+- `pipeline/state.py:60` importiert `agentkit.backend.project_ops.shared.file_ops.atomic_write_text`.
 - `pipeline/phases/setup/phase.py` und `pipeline/phases/closure/execution_report.py` greifen ebenfalls auf `project_ops.shared` zu.
 - `prompting/composer.py:8` schreibt ueber `project_ops.shared.file_ops.atomic_write_text`.
 

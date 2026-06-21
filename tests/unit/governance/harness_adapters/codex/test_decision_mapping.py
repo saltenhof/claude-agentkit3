@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from agentkit.governance.harness_adapters.codex.decision_mapping import (
+from agentkit.backend.governance.protocols import GuardVerdict, ViolationType
+from agentkit.harness_client.harness_adapters.codex.decision_mapping import (
     codex_exit_code,
     to_codex_output,
 )
-from agentkit.governance.protocols import GuardVerdict, ViolationType
 
 
 def test_allow_verdict_maps_to_codex_allow_output() -> None:

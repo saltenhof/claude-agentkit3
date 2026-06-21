@@ -18,37 +18,37 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.execution_planning.entities import (
+from agentkit.backend.execution_planning.entities import (
     StoryDependency,
     StoryDependencyKind,
 )
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.project_management.lifecycle import archive_project, create_project
-from agentkit.state_backend.store import facade
-from agentkit.state_backend.store.project_management_repository import (
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.project_management.lifecycle import archive_project, create_project
+from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
-from agentkit.state_backend.store.story_dependency_repository import (
+from agentkit.backend.state_backend.store.story_dependency_repository import (
     StateBackendStoryDependencyRepository,
 )
-from agentkit.state_backend.store.story_repository import (
+from agentkit.backend.state_backend.store.story_repository import (
     StateBackendIdempotencyKeyRepository,
     StateBackendStoryRepository,
 )
-from agentkit.story_context_manager.display_id import (
+from agentkit.backend.story_context_manager.display_id import (
     format_story_display_id,
 )
-from agentkit.story_context_manager.errors import (
+from agentkit.backend.story_context_manager.errors import (
     ForbiddenError,
     StoryProjectNotFoundError,
 )
-from agentkit.story_context_manager.service import StoryService
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.story_context_manager.service import StoryService
+from agentkit.backend.story_context_manager.story_model import (
     CreateStoryInput,
     Story,
     WireStoryType,
 )
-from agentkit.story_context_manager.story_repository import InMemoryStoryRepository
+from agentkit.backend.story_context_manager.story_repository import InMemoryStoryRepository
 
 
 def _configuration() -> ProjectConfiguration:
@@ -90,7 +90,7 @@ def _service(
     in_memory: bool = False,
 ) -> StoryService:
     if in_memory:
-        from agentkit.story_context_manager.idempotency import (
+        from agentkit.backend.story_context_manager.idempotency import (
             InMemoryIdempotencyKeyRepository,
         )
 
@@ -540,4 +540,4 @@ def test_lifecycle_create_story_module_removed() -> None:
     ).exists()
 
     with pytest.raises(ImportError):
-        __import__("agentkit.story_context_manager.lifecycle")
+        __import__("agentkit.backend.story_context_manager.lifecycle")

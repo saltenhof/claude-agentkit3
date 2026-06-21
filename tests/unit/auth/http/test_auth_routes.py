@@ -4,17 +4,17 @@ import json
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 
-from agentkit.auth.credentials import StrategistCredentialStore
-from agentkit.auth.http.routes import AuthRoutes
-from agentkit.auth.middleware import AuthMiddleware
-from agentkit.auth.sessions import InMemorySessionStore
-from agentkit.control_plane.http import ControlPlaneApplication, HttpResponse
-from agentkit.control_plane_http.app import ControlPlaneApplicationRoutes
+from agentkit.backend.auth.credentials import StrategistCredentialStore
+from agentkit.backend.auth.http.routes import AuthRoutes
+from agentkit.backend.auth.middleware import AuthMiddleware
+from agentkit.backend.auth.sessions import InMemorySessionStore
+from agentkit.backend.control_plane.http import ControlPlaneApplication, HttpResponse
+from agentkit.backend.control_plane_http.app import ControlPlaneApplicationRoutes
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.auth.entities import ProjectApiToken
+    from agentkit.backend.auth.entities import ProjectApiToken
 
 
 class _InMemoryTokenRepository:
@@ -39,7 +39,7 @@ class _InMemoryTokenRepository:
     def revoke(self, project_key: str, token_id: str) -> None:
         token = self.tokens.get(token_id)
         if token is None or token.project_key != project_key:
-            from agentkit.auth.errors import TokenNotFoundError
+            from agentkit.backend.auth.errors import TokenNotFoundError
 
             raise TokenNotFoundError("Project API token not found")
         self.tokens[token_id] = token.model_copy(update={"revoked_at": token.created_at})

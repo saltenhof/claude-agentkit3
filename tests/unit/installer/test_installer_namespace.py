@@ -7,16 +7,16 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
 
-from agentkit.installer import InstallConfig, install_agentkit
-from agentkit.installer.runner import MANDATORY_SKILLS
-from agentkit.skills import Skills, create_directory_link
-from agentkit.skills.bundle_store import SkillBundle, SkillBundleStore
-from agentkit.skills.repository import InMemorySkillBindingRepository
+from agentkit.backend.installer import InstallConfig, install_agentkit
+from agentkit.backend.installer.runner import MANDATORY_SKILLS
+from agentkit.backend.skills import Skills, create_directory_link
+from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore
+from agentkit.backend.skills.repository import InMemorySkillBindingRepository
 
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from agentkit.installer.registration import ProjectRegistration
+    from agentkit.backend.installer.registration import ProjectRegistration
 
 
 class _InMemoryRegistrationRepo:

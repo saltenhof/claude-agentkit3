@@ -27,10 +27,10 @@ from tests.unit.closure.closure_fakes import (
     build_progress_store,
 )
 
-from agentkit.bootstrap.composition_root import build_artifact_manager
-from agentkit.closure.phase import ClosureConfig, ClosurePhaseHandler
-from agentkit.core_types import ArtifactClass
-from agentkit.core_types.qa_artifact_names import (
+from agentkit.backend.bootstrap.composition_root import build_artifact_manager
+from agentkit.backend.closure.phase import ClosureConfig, ClosurePhaseHandler
+from agentkit.backend.core_types import ArtifactClass
+from agentkit.backend.core_types.qa_artifact_names import (
     DOC_FIDELITY_PRODUCER,
     DOC_FIDELITY_STAGE,
     HANDOVER_FILE,
@@ -41,36 +41,36 @@ from agentkit.core_types.qa_artifact_names import (
     SEMANTIC_REVIEW_STAGE,
     WORKER_MANIFEST_FILE,
 )
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import (
     ClosurePayload,
     ClosureProgress,
     PhaseSnapshot,
     PhaseStatus,
 )
-from agentkit.state_backend.store import (
+from agentkit.backend.state_backend.store import (
     append_execution_event,
     load_phase_state,
     save_flow_execution,
     save_phase_snapshot,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.telemetry.contract.records import ExecutionEventRecord
-from agentkit.telemetry.events import EventType
-from agentkit.verify_system.structural.system_evidence import ChangeEvidence
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.telemetry.events import EventType
+from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from agentkit.artifacts import ArtifactManager
+    from agentkit.backend.artifacts import ArtifactManager
 
 
 @pytest.fixture(autouse=True)
 def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
-    from agentkit.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
@@ -137,7 +137,7 @@ def _write_required_worker_artifacts(story_dir: Path, story_id: str) -> None:
                 "run_id": f"run-{story_id.lower()}",
                 "status": "completed",
                 "completed_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
-                "files_changed": ["src/agentkit/done.py"],
+                "files_changed": ["src/agentkit/backend/done.py"],
                 "tests_added": [],
                 "acceptance_criteria_status": {"AC1": "done"},
             }
@@ -151,12 +151,12 @@ class _StaticChangeEvidencePort:
         del story_dir
         return ChangeEvidence(
             available=True,
-            changed_files=("src/agentkit/done.py",),
+            changed_files=("src/agentkit/backend/done.py",),
         )
 
 
 def _write_all_layer2(manager: ArtifactManager, *, story_id: str) -> None:
-    from agentkit.artifacts import (
+    from agentkit.backend.artifacts import (
         ArtifactEnvelope,
         EnvelopeStatus,
         Producer,
@@ -387,7 +387,7 @@ class TestClosureResume:
         the resume FAILS CLOSED (escalates) -- it never re-scans silently and never
         forces a non-ff merge over the concurrent advance.
         """
-        from agentkit.closure.multi_repo_saga import GitCommandResult
+        from agentkit.backend.closure.multi_repo_saga import GitCommandResult
 
         class _LeaseRejectGit(StubGitBackend):
             def run(self, repo, *args):  # type: ignore[no-untyped-def]
@@ -427,7 +427,7 @@ class TestClosureResume:
     ) -> None:
         """FIX-5: a metrics_written resume re-materialises metrics WITHOUT a second
         ``write_projection`` (no rewrite/clobber)."""
-        from agentkit.bootstrap import composition_root as comp_root
+        from agentkit.backend.bootstrap import composition_root as comp_root
 
         s_dir = _prepare(tmp_path)
         handler = ClosurePhaseHandler(
@@ -468,8 +468,8 @@ class TestClosureResume:
     ) -> None:
         """FIX-D: a metrics_written resume returns the PERSISTED row (same
         ``completed_at``), NOT a rebuild with a fresh timestamp."""
-        from agentkit.closure import phase as phase_mod
-        from agentkit.state_backend.store import load_story_metrics
+        from agentkit.backend.closure import phase as phase_mod
+        from agentkit.backend.state_backend.store import load_story_metrics
 
         s_dir = _prepare(tmp_path)
         handler = ClosurePhaseHandler(

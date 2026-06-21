@@ -37,8 +37,8 @@ Pflichtfelder (Pydantic-v2-Modell, `frozen=True`, `extra="forbid"`):
 - `run_id: str`
 - `phase: PhaseName`
 - `attempt: int` (>=1)
-- `outcome: AttemptOutcome` (aus `agentkit.core_types`)
-- `failure_cause: FailureCause | None` (aus `agentkit.core_types`; gesetzt wenn `outcome in {FAILED, BLOCKED, ESCALATED}` — Wertegruppe konsistent mit FK-39 §39.4.3 Z. 425 "nur gesetzt wenn `outcome` in (`FAILED`, `BLOCKED`, `ESCALATED`)")
+- `outcome: AttemptOutcome` (aus `agentkit.backend.core_types`)
+- `failure_cause: FailureCause | None` (aus `agentkit.backend.core_types`; gesetzt wenn `outcome in {FAILED, BLOCKED, ESCALATED}` — Wertegruppe konsistent mit FK-39 §39.4.3 Z. 425 "nur gesetzt wenn `outcome` in (`FAILED`, `BLOCKED`, `ESCALATED`)")
 - `started_at: datetime`
 - `ended_at: datetime` (>= started_at)
 - `detail: dict[str, Any] | None`

@@ -15,7 +15,7 @@ verify-system). Die Anzahl steigt auf 8.
 
 from __future__ import annotations
 
-from agentkit.telemetry.projection_accessor import ProjectionKind
+from agentkit.backend.telemetry.projection_accessor import ProjectionKind
 
 # ---------------------------------------------------------------------------
 # FK-69 §69.3 + §69.15: Genau 8 Tabellen (AG3-108 erweitert um qa_check_outcomes)
@@ -117,9 +117,9 @@ def test_drift_ag3_035_resolved_in_verify_system() -> None:
     system_py = pathlib.Path(__file__).parents[3] / "src" / "agentkit" / "verify_system" / "system.py"
     content = system_py.read_text(encoding="utf-8")
     # Kein direkter state_backend.store-Import mehr (der eigentliche Drift):
-    assert "from agentkit.state_backend.store import" not in content, (
+    assert "from agentkit.backend.state_backend.store import" not in content, (
         "verify_system/system.py importiert weiterhin direkt aus "
-        "agentkit.state_backend.store. AG3-035 verlangt Aufloesung des "
+        "agentkit.backend.state_backend.store. AG3-035 verlangt Aufloesung des "
         "BC-Topologie-Drifts via StoryContextQueryPort-Injection."
     )
     # Der Port wird tatsaechlich genutzt (kein toter Pfad):

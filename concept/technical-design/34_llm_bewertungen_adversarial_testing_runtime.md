@@ -88,7 +88,7 @@ Prompt-Inhalte und die Ergebnis-Verarbeitung im Verify-Kontext.
 sind in FK-48 (Adversarial-Testing-Runtime) ausgegliedert.**
 
 **Architekturzuordnung:** `LlmEvaluator` ist eine Subkomponente von
-`VerifySystem` (`agentkit.verify_system.llm_evaluator`). Alle
+`VerifySystem` (`agentkit.backend.verify_system.llm_evaluator`). Alle
 Prompt-Templates werden via `PromptRuntime.materialize_prompt` (BC 10,
 FK-44) aufgeloest — `LlmEvaluator` hat keinen direkten Dateizugriff auf
 Bundle-Inhalte, sondern ruft ausschliesslich die `materialize_prompt`-

@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.process.language.definitions import (
+from agentkit.backend.process.language.definitions import (
     BUGFIX_WORKFLOW,
     CONCEPT_WORKFLOW,
     IMPLEMENTATION_WORKFLOW,
     RESEARCH_WORKFLOW,
     resolve_workflow,
 )
-from agentkit.process.language.validators import WorkflowValidator
-from agentkit.story_context_manager.types import StoryType
+from agentkit.backend.process.language.validators import WorkflowValidator
+from agentkit.backend.story_context_manager.types import StoryType
 
 
 class TestWorkflowsBuildSuccessfully:
@@ -131,7 +131,7 @@ class TestResolveWorkflow:
 
     def test_resolve_workflow_invalid_type_raises(self) -> None:
         """resolve_workflow with an unknown story type raises WorkflowError."""
-        from agentkit.exceptions import WorkflowError
+        from agentkit.backend.exceptions import WorkflowError
 
         with pytest.raises(WorkflowError):
             resolve_workflow("invalid_type")  # type: ignore[arg-type]

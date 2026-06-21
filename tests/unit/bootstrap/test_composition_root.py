@@ -1,4 +1,4 @@
-"""Test fuer agentkit.bootstrap.composition_root (AG3-023 §2.1.6.2).
+"""Test fuer agentkit.backend.bootstrap.composition_root (AG3-023 §2.1.6.2).
 
 Verifiziert, dass ``build_producer_registry`` eine frische Registry
 liefert, in die alle bekannten BC-Init-Hooks eingehaengt sind.
@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.artifacts import ProducerRegistry
-from agentkit.bootstrap import build_producer_registry
-from agentkit.core_types import ArtifactClass
+from agentkit.backend.artifacts import ProducerRegistry
+from agentkit.backend.bootstrap import build_producer_registry
+from agentkit.backend.core_types import ArtifactClass
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -27,7 +27,7 @@ def test_build_producer_registry_includes_prompt_runtime_producer() -> None:
     """E2 (Review R1): the prompt-runtime audit producer is wired in the real
     composition root -- not only in test-local registries.
     """
-    from agentkit.prompt_runtime.audit import PROMPT_AUDIT_PRODUCER_NAME
+    from agentkit.backend.prompt_runtime.audit import PROMPT_AUDIT_PRODUCER_NAME
 
     registry = build_producer_registry()
     assert PROMPT_AUDIT_PRODUCER_NAME in registry.known_producers(
@@ -44,8 +44,8 @@ def test_build_artifact_manager_writes_prompt_audit_envelope(
     """
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-    from agentkit.bootstrap.composition_root import build_artifact_manager
-    from agentkit.prompt_runtime.audit import (
+    from agentkit.backend.bootstrap.composition_root import build_artifact_manager
+    from agentkit.backend.prompt_runtime.audit import (
         build_prompt_audit_envelope,
         compute_prompt_audit_hash,
     )
@@ -99,8 +99,8 @@ def test_build_verify_system_wires_story_context_port(tmp_path: Path) -> None:
     state-backed StoryContextQueryPort-Adapter, damit verify_system NICHT
     direkt aus state_backend.store importiert (BC-Topologie).
     """
-    from agentkit.bootstrap.composition_root import build_verify_system
-    from agentkit.state_backend.store.verify_story_context_repository import (
+    from agentkit.backend.bootstrap.composition_root import build_verify_system
+    from agentkit.backend.state_backend.store.verify_story_context_repository import (
         StateBackendVerifyStoryContextAdapter,
     )
 
@@ -117,8 +117,8 @@ def test_build_verify_system_wires_productive_invalidation_sink(
     The lifecycle's sink must NOT be the no-op default in production — it must
     be the telemetry-emitting adapter (FK-27 §27.2.3 / AG3-041 §2.1.3).
     """
-    from agentkit.bootstrap.composition_root import build_verify_system
-    from agentkit.verify_system.qa_cycle.invalidation import (
+    from agentkit.backend.bootstrap.composition_root import build_verify_system
+    from agentkit.backend.verify_system.qa_cycle.invalidation import (
         NullArtifactInvalidationSink,
     )
 
@@ -132,7 +132,7 @@ def test_build_verify_system_threads_max_feedback_rounds(tmp_path: Path) -> None
     """AG3-041 E3: build_verify_system threads max_feedback_rounds into the
     RemediationLoopController (the hard owner of the round ceiling).
     """
-    from agentkit.bootstrap.composition_root import build_verify_system
+    from agentkit.backend.bootstrap.composition_root import build_verify_system
 
     vs = build_verify_system(tmp_path, max_feedback_rounds=2)
 
@@ -145,12 +145,12 @@ def test_artifact_invalidation_sink_emits_event(tmp_path: Path) -> None:
     Uses an in-memory ``MemoryEmitter`` to prove the adapter builds and emits a
     well-formed telemetry event (no no-op swallow).
     """
-    from agentkit.bootstrap.composition_root import (
+    from agentkit.backend.bootstrap.composition_root import (
         _TelemetryArtifactInvalidationSink,
     )
-    from agentkit.telemetry.emitters import MemoryEmitter
-    from agentkit.telemetry.events import EventType
-    from agentkit.verify_system.qa_cycle.invalidation import (
+    from agentkit.backend.telemetry.emitters import MemoryEmitter
+    from agentkit.backend.telemetry.events import EventType
+    from agentkit.backend.verify_system.qa_cycle.invalidation import (
         ArtifactInvalidationEvent,
     )
 
@@ -174,7 +174,7 @@ def test_artifact_invalidation_sink_emits_event(tmp_path: Path) -> None:
 
 
 def _sonar_config(*, available: bool) -> object:
-    from agentkit.config.models import SonarQubeConfig
+    from agentkit.backend.config.models import SonarQubeConfig
 
     if available:
         return SonarQubeConfig(
@@ -188,7 +188,7 @@ def _sonar_config(*, available: bool) -> object:
 
 
 def _bound_analysis() -> object:
-    from agentkit.verify_system.sonarqube_gate.adapter import BoundAnalysis
+    from agentkit.backend.verify_system.sonarqube_gate.adapter import BoundAnalysis
 
     return BoundAnalysis(
         ce_task_id="CE-1",
@@ -202,8 +202,8 @@ def _bound_analysis() -> object:
 
 def test_build_sonar_gate_port_absent_returns_absent_default() -> None:
     """available:false => the absent default port (NOT the fail-closed adapter)."""
-    from agentkit.bootstrap.composition_root import build_sonar_gate_port
-    from agentkit.verify_system.sonarqube_gate.port import ABSENT_SONAR_GATE_PORT
+    from agentkit.backend.bootstrap.composition_root import build_sonar_gate_port
+    from agentkit.backend.verify_system.sonarqube_gate.port import ABSENT_SONAR_GATE_PORT
 
     port = build_sonar_gate_port(
         _sonar_config(available=False),
@@ -219,13 +219,13 @@ def test_build_sonar_gate_port_absent_returns_absent_default() -> None:
 
 def test_build_sonar_gate_port_available_returns_configured_adapter() -> None:
     """available:true => the productive ConfiguredSonarGateInputPort."""
-    from agentkit.bootstrap.composition_root import build_sonar_gate_port
-    from agentkit.integrations.sonar import SonarClient
-    from agentkit.story_context_manager.types import StoryType
-    from agentkit.verify_system.sonarqube_gate import AcceptedExceptionLedger
-    from agentkit.verify_system.sonarqube_gate.adapter import (
+    from agentkit.backend.bootstrap.composition_root import build_sonar_gate_port
+    from agentkit.backend.story_context_manager.types import StoryType
+    from agentkit.backend.verify_system.sonarqube_gate import AcceptedExceptionLedger
+    from agentkit.backend.verify_system.sonarqube_gate.adapter import (
         ConfiguredSonarGateInputPort,
     )
+    from agentkit.integration_clients.sonar import SonarClient
 
     port = build_sonar_gate_port(
         _sonar_config(available=True),
@@ -243,9 +243,9 @@ def test_build_sonar_gate_port_rejects_bad_collaborator_types() -> None:
     """Fail-closed type guards in the builder (defensive wiring)."""
     import pytest
 
-    from agentkit.bootstrap.composition_root import build_sonar_gate_port
-    from agentkit.integrations.sonar import SonarClient
-    from agentkit.verify_system.sonarqube_gate import AcceptedExceptionLedger
+    from agentkit.backend.bootstrap.composition_root import build_sonar_gate_port
+    from agentkit.backend.verify_system.sonarqube_gate import AcceptedExceptionLedger
+    from agentkit.integration_clients.sonar import SonarClient
 
     good_client = SonarClient("http://sonar:9901", "tok")
     good_ledger = AcceptedExceptionLedger()
@@ -284,16 +284,16 @@ def test_build_sonar_gate_port_rejects_bad_collaborator_types() -> None:
 
 def test_build_verify_system_wires_injected_sonar_gate_port(tmp_path: Path) -> None:
     """build_verify_system threads the injected sonar_gate_port (AG3-052 E1)."""
-    from agentkit.bootstrap.composition_root import (
+    from agentkit.backend.bootstrap.composition_root import (
         build_sonar_gate_port,
         build_verify_system,
     )
-    from agentkit.integrations.sonar import SonarClient
-    from agentkit.story_context_manager.types import StoryType
-    from agentkit.verify_system.sonarqube_gate import AcceptedExceptionLedger
-    from agentkit.verify_system.sonarqube_gate.adapter import (
+    from agentkit.backend.story_context_manager.types import StoryType
+    from agentkit.backend.verify_system.sonarqube_gate import AcceptedExceptionLedger
+    from agentkit.backend.verify_system.sonarqube_gate.adapter import (
         ConfiguredSonarGateInputPort,
     )
+    from agentkit.integration_clients.sonar import SonarClient
 
     port = build_sonar_gate_port(
         _sonar_config(available=True),
@@ -317,10 +317,10 @@ def test_build_verify_system_wires_injected_sonar_gate_port(tmp_path: Path) -> N
 
 
 def _save_ctx_with_project_root(story_dir: Path, project_root: Path) -> None:
-    from agentkit.state_backend.store import save_story_context
-    from agentkit.story_context_manager.models import StoryContext
-    from agentkit.story_context_manager.story_model import WireStoryMode
-    from agentkit.story_context_manager.types import StoryMode, StoryType
+    from agentkit.backend.state_backend.store import save_story_context
+    from agentkit.backend.story_context_manager.models import StoryContext
+    from agentkit.backend.story_context_manager.story_model import WireStoryMode
+    from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
     save_story_context(
         story_dir,
@@ -337,10 +337,10 @@ def _save_ctx_with_project_root(story_dir: Path, project_root: Path) -> None:
 
 
 def _save_ctx_without_project_root(story_dir: Path) -> None:
-    from agentkit.state_backend.store import save_story_context
-    from agentkit.story_context_manager.models import StoryContext
-    from agentkit.story_context_manager.story_model import WireStoryMode
-    from agentkit.story_context_manager.types import StoryMode, StoryType
+    from agentkit.backend.state_backend.store import save_story_context
+    from agentkit.backend.story_context_manager.models import StoryContext
+    from agentkit.backend.story_context_manager.story_model import WireStoryMode
+    from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
     save_story_context(
         story_dir,
@@ -357,8 +357,8 @@ def _save_ctx_without_project_root(story_dir: Path) -> None:
 
 
 def _gate_ctx(story_dir: Path) -> object:
-    from agentkit.governance.integrity_gate import IntegrityGateContext
-    from agentkit.story_context_manager.types import StoryType
+    from agentkit.backend.governance.integrity_gate import IntegrityGateContext
+    from agentkit.backend.story_context_manager.types import StoryType
 
     return IntegrityGateContext(
         story_dir=story_dir, story_type=StoryType.IMPLEMENTATION
@@ -366,7 +366,7 @@ def _gate_ctx(story_dir: Path) -> object:
 
 
 def _gate_ctx_for(story_dir: Path, story_type: object) -> object:
-    from agentkit.governance.integrity_gate import IntegrityGateContext
+    from agentkit.backend.governance.integrity_gate import IntegrityGateContext
 
     return IntegrityGateContext(story_dir=story_dir, story_type=story_type)
 
@@ -384,9 +384,9 @@ def test_load_sonar_config_propagates_config_error_no_silent_skip(
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
     import pytest
 
-    from agentkit.bootstrap.composition_root import _load_sonar_config
-    from agentkit.exceptions import ConfigError
-    from agentkit.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.bootstrap.composition_root import _load_sonar_config
+    from agentkit.backend.exceptions import ConfigError
+    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     try:
@@ -420,9 +420,9 @@ def test_load_sonar_config_available_false_is_declared_absence_none(
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
-    from agentkit.bootstrap.composition_root import _load_sonar_config
-    from agentkit.config.models import SonarQubeConfig
-    from agentkit.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.bootstrap.composition_root import _load_sonar_config
+    from agentkit.backend.config.models import SonarQubeConfig
+    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     try:
@@ -467,9 +467,9 @@ def test_load_sonar_config_no_project_root_code_story_fails_closed(
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
     import pytest
 
-    from agentkit.bootstrap.composition_root import _load_sonar_config
-    from agentkit.exceptions import ConfigError
-    from agentkit.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.bootstrap.composition_root import _load_sonar_config
+    from agentkit.backend.exceptions import ConfigError
+    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     try:
@@ -494,9 +494,9 @@ def test_load_sonar_config_no_project_root_non_code_story_is_absence_none(
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
-    from agentkit.bootstrap.composition_root import _load_sonar_config
-    from agentkit.state_backend.store import reset_backend_cache_for_tests
-    from agentkit.story_context_manager.types import StoryType
+    from agentkit.backend.bootstrap.composition_root import _load_sonar_config
+    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.story_context_manager.types import StoryType
 
     reset_backend_cache_for_tests()
     try:
@@ -517,8 +517,8 @@ def test_load_sonar_config_no_project_root_non_code_story_is_absence_none(
 
 def test_derive_actual_impact_diff_proxy() -> None:
     """FIX-3: the SYSTEM actual-impact proxy escalates with components touched."""
-    from agentkit.bootstrap.composition_root import _derive_actual_impact
-    from agentkit.story_context_manager.story_model import ChangeImpact
+    from agentkit.backend.bootstrap.composition_root import _derive_actual_impact
+    from agentkit.backend.story_context_manager.story_model import ChangeImpact
 
     assert _derive_actual_impact(()) is None
     assert _derive_actual_impact(("pkg/a.py",)) is ChangeImpact.LOCAL
@@ -542,7 +542,7 @@ def test_change_evidence_provider_failclosed_on_bad_base_ref(tmp_path: Path) -> 
     the evidence is ``available=False`` (the BLOCKING checks then fail closed --
     never a fall-back to worker self-report).
     """
-    from agentkit.bootstrap.composition_root import (
+    from agentkit.backend.bootstrap.composition_root import (
         _SubprocessGitChangeEvidenceProvider,
     )
 
@@ -555,10 +555,10 @@ def test_build_structural_build_test_port_absent_ci_is_failclosed(
     tmp_path: Path,
 ) -> None:
     """FIX-1: declared-absent CI yields the fail-closed absent build/test port."""
-    from agentkit.bootstrap.composition_root import (
+    from agentkit.backend.bootstrap.composition_root import (
         build_structural_build_test_port,
     )
-    from agentkit.verify_system.structural.checks import ABSENT_BUILD_TEST_PORT
+    from agentkit.backend.verify_system.structural.checks import ABSENT_BUILD_TEST_PORT
 
     port = build_structural_build_test_port(None, tmp_path)
     assert port is ABSENT_BUILD_TEST_PORT
@@ -567,8 +567,8 @@ def test_build_structural_build_test_port_absent_ci_is_failclosed(
 
 def test_build_structural_are_provider_activation() -> None:
     """FIX-1: the ARE provider reflects features.are and never silently disables."""
-    from agentkit.bootstrap.composition_root import build_structural_are_provider
-    from agentkit.config.models import SUPPORTED_CONFIG_VERSION, Features, PipelineConfig
+    from agentkit.backend.bootstrap.composition_root import build_structural_are_provider
+    from agentkit.backend.config.models import SUPPORTED_CONFIG_VERSION, Features, PipelineConfig
 
     off = PipelineConfig(  # type: ignore[call-arg]
         config_version=SUPPORTED_CONFIG_VERSION,
@@ -587,21 +587,21 @@ def test_build_structural_are_provider_activation() -> None:
 
 
 def test_are_client_construction_from_project_config(tmp_path: Path) -> None:
-    from agentkit.bootstrap.composition_root import (
+    from agentkit.backend.bootstrap.composition_root import (
         build_are_client_from_project_config,
         build_structural_are_provider,
     )
-    from agentkit.config.models import (
+    from agentkit.backend.config.models import (
         AreConfig,
         JenkinsConfig,
         ProjectConfig,
         RepositoryConfig,
         SonarQubeConfig,
     )
-    from agentkit.requirements_coverage.are_client import AreClient
+    from agentkit.backend.requirements_coverage.are_client import AreClient
 
     def _project(rest_base_url: str | None, *, enabled: bool) -> ProjectConfig:
-        from agentkit.config.models import SUPPORTED_CONFIG_VERSION, Features, PipelineConfig
+        from agentkit.backend.config.models import SUPPORTED_CONFIG_VERSION, Features, PipelineConfig
 
         return ProjectConfig(
             project_key="ak3",
@@ -644,8 +644,8 @@ def test_build_setup_phase_handler_wires_are_bundle_loader(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from agentkit.bootstrap import composition_root as cr
-    from agentkit.config.models import (
+    from agentkit.backend.bootstrap import composition_root as cr
+    from agentkit.backend.config.models import (
         SUPPORTED_CONFIG_VERSION,
         AreConfig,
         Features,
@@ -655,7 +655,7 @@ def test_build_setup_phase_handler_wires_are_bundle_loader(
         RepositoryConfig,
         SonarQubeConfig,
     )
-    from agentkit.governance.setup_preflight_gate.phase import SetupConfig
+    from agentkit.backend.governance.setup_preflight_gate.phase import SetupConfig
 
     project = ProjectConfig(
         project_key="ak3",
@@ -675,7 +675,7 @@ def test_build_setup_phase_handler_wires_are_bundle_loader(
     )
     monkeypatch.setattr(cr, "load_project_config", lambda _root: project, raising=False)
     monkeypatch.setattr(
-        "agentkit.config.loader.load_project_config",
+        "agentkit.backend.config.loader.load_project_config",
         lambda _root: project,
     )
 
@@ -699,7 +699,7 @@ def test_telemetry_count_port_run_scoped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """WARNING (FK-33 §33.3.2): the count port filters by (project, story, run)."""
-    from agentkit.bootstrap import composition_root as cr
+    from agentkit.backend.bootstrap import composition_root as cr
 
     captured: dict[str, object] = {}
 
@@ -720,7 +720,7 @@ def test_telemetry_count_port_run_scoped(
         return []
 
     monkeypatch.setattr(
-        "agentkit.state_backend.store.load_execution_events", _fake_load
+        "agentkit.backend.state_backend.store.load_execution_events", _fake_load
     )
     port = cr._StateBackendTelemetryEventCountPort()
     port.count_events(
@@ -746,7 +746,7 @@ def test_telemetry_count_port_failclosed_on_unresolvable_run_scope(
     counts across ALL runs, fail-open). It returns ``0`` and reports the scope as
     unresolvable so the BLOCKING recurring guards fail closed.
     """
-    from agentkit.bootstrap import composition_root as cr
+    from agentkit.backend.bootstrap import composition_root as cr
 
     called = {"load": False}
 
@@ -758,10 +758,10 @@ def test_telemetry_count_port_failclosed_on_unresolvable_run_scope(
         story_id = "S-1"
 
     monkeypatch.setattr(
-        "agentkit.state_backend.store.load_execution_events", _fail_load
+        "agentkit.backend.state_backend.store.load_execution_events", _fail_load
     )
     monkeypatch.setattr(
-        "agentkit.state_backend.store.facade.resolve_runtime_scope",
+        "agentkit.backend.state_backend.store.facade.resolve_runtime_scope",
         lambda story_dir: _NoScope(),
     )
     port = cr._StateBackendTelemetryEventCountPort()
@@ -809,7 +809,7 @@ class _FakeBuildTestPort:
         self._reason = reason
 
     def run(self, candidate: object) -> object:
-        from agentkit.verify_system.pre_merge_runner.contract import BuildTestOutcome
+        from agentkit.backend.verify_system.pre_merge_runner.contract import BuildTestOutcome
 
         del candidate
         return BuildTestOutcome(green=self._green, reason=self._reason)
@@ -817,7 +817,7 @@ class _FakeBuildTestPort:
 
 def test_ci_build_test_evidence_adapter_maps_green(tmp_path: Path) -> None:
     """FIX-1: a CI-green run maps to build_ok + tests_green; diff drives count."""
-    from agentkit.bootstrap.composition_root import _CiBuildTestEvidenceAdapter
+    from agentkit.backend.bootstrap.composition_root import _CiBuildTestEvidenceAdapter
 
     git = _FakeGitBackend(
         {
@@ -841,7 +841,7 @@ def test_ci_build_test_evidence_adapter_maps_green(tmp_path: Path) -> None:
 
 def test_ci_build_test_evidence_adapter_failclosed_red(tmp_path: Path) -> None:
     """FIX-1: a red CI run maps to build_ok=False (BLOCKING checks fail closed)."""
-    from agentkit.bootstrap.composition_root import _CiBuildTestEvidenceAdapter
+    from agentkit.backend.bootstrap.composition_root import _CiBuildTestEvidenceAdapter
 
     git = _FakeGitBackend(
         {
@@ -862,7 +862,7 @@ def test_ci_build_test_evidence_adapter_failclosed_red(tmp_path: Path) -> None:
 
 def test_ci_build_test_evidence_adapter_failclosed_no_head(tmp_path: Path) -> None:
     """FIX-1: an unresolvable HEAD yields None (evidence unconfirmable)."""
-    from agentkit.bootstrap.composition_root import _CiBuildTestEvidenceAdapter
+    from agentkit.backend.bootstrap.composition_root import _CiBuildTestEvidenceAdapter
 
     git = _FakeGitBackend({})  # every git call returns empty -> None HEAD
     adapter = _CiBuildTestEvidenceAdapter(
@@ -873,8 +873,8 @@ def test_ci_build_test_evidence_adapter_failclosed_no_head(tmp_path: Path) -> No
 
 def test_are_provider_coverage_verdict_when_enabled() -> None:
     """FIX-1: when ARE is enabled, coverage_verdict delegates to check_gate."""
-    from agentkit.bootstrap.composition_root import _RequirementsCoverageAreProvider
-    from agentkit.requirements_coverage.contract import (
+    from agentkit.backend.bootstrap.composition_root import _RequirementsCoverageAreProvider
+    from agentkit.backend.requirements_coverage.contract import (
         AreDockpointStatus,
         CoverageVerdict,
     )

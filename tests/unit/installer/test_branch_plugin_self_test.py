@@ -11,11 +11,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from agentkit.installer.integration_checkpoints.branch_plugin_self_test import (
+from agentkit.backend.installer.integration_checkpoints.branch_plugin_self_test import (
     SelfTestScan,
     run_branch_plugin_conformance_self_test,
 )
-from agentkit.integrations.sonar import SonarApiError, SonarHttpResponse
+from agentkit.integration_clients.sonar import SonarApiError, SonarHttpResponse
 
 
 @dataclass

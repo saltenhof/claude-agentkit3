@@ -184,7 +184,7 @@ Das existing `HookEvent` (`src/agentkit/governance/guard_evaluation.py`) wird um
 7. **`CapabilityEnforcement.evaluate` durchlaeuft Schritte 1-5 von FK-55 §55.10.3** in der konzept-normierten Reihenfolge. Bei DENY in einem der Schritte wird CCAG nicht mehr aufgerufen — Test mit Mock-CCAG bestaetigt das.
 8. **`Governance.run_hook` ruft `CapabilityEnforcement.evaluate` vor CCAG** (governance-and-guards.B5 Fix).
 9. **Fail-closed**: unbekannte Principals/PathClasses/OperationClasses oder fehlende Matrix-Eintraege -> DENY mit klarem `reason`.
-10. **Architecture-Conformance**: `principal_capabilities`-Paket importiert nur `agentkit.core_types`, `agentkit.governance.guard_evaluation` (HookEvent); nicht aus state_backend.store-Fassaden ausserhalb Repository.
+10. **Architecture-Conformance**: `principal_capabilities`-Paket importiert nur `agentkit.backend.core_types`, `agentkit.backend.governance.guard_evaluation` (HookEvent); nicht aus state_backend.store-Fassaden ausserhalb Repository.
 11. **Pflichtbefehle gruen**: pytest unit + integration + contract; mypy --strict; ruff clean; Coverage haelt 85%.
 
 ## 5. Definition of Done

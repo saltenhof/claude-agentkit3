@@ -3,9 +3,9 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.project_management.errors import ProjectRepositoriesInvalidError
-from agentkit.project_management.lifecycle import create_project
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.project_management.errors import ProjectRepositoriesInvalidError
+from agentkit.backend.project_management.lifecycle import create_project
 
 
 def _configuration() -> ProjectConfiguration:

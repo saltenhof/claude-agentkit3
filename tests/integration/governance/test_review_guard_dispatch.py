@@ -24,21 +24,21 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.control_plane.models import (
+from agentkit.backend.control_plane.models import (
     EdgeBundle,
     EdgePointer,
     SessionRunBindingView,
     StoryExecutionLockView,
 )
-from agentkit.governance import runner as runner_mod
-from agentkit.governance.guard_evaluation import HookEvent
-from agentkit.governance.runner import POST_HOOK_IDS, PRE_HOOK_IDS, run_hook
-from agentkit.projectedge.client import LocalEdgePublisher
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.story_repository import StateBackendStoryRepository
-from agentkit.story_context_manager.story_model import Story, WireStoryType
-from agentkit.telemetry.events import Event, EventType
-from agentkit.telemetry.storage import StateBackendEmitter
+from agentkit.backend.governance import runner as runner_mod
+from agentkit.backend.governance.guard_evaluation import HookEvent
+from agentkit.backend.governance.runner import POST_HOOK_IDS, PRE_HOOK_IDS, run_hook
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.story_repository import StateBackendStoryRepository
+from agentkit.backend.story_context_manager.story_model import Story, WireStoryType
+from agentkit.backend.telemetry.events import Event, EventType
+from agentkit.backend.telemetry.storage import StateBackendEmitter
+from agentkit.harness_client.projectedge.client import LocalEdgePublisher
 
 if TYPE_CHECKING:
     from collections.abc import Generator

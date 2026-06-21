@@ -1,1 +1,1 @@
-"""Unit tests for the agentkit.telemetry subsystem."""
+"""Unit tests for the agentkit.backend.telemetry subsystem."""

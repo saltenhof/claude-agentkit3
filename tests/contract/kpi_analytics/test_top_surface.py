@@ -16,8 +16,8 @@ import inspect
 
 import pytest
 
-from agentkit.kpi_analytics.catalog import KpiCatalog
-from agentkit.kpi_analytics.top import KpiAnalytics
+from agentkit.backend.kpi_analytics.catalog import KpiCatalog
+from agentkit.backend.kpi_analytics.top import KpiAnalytics
 
 
 @pytest.fixture()
@@ -34,7 +34,7 @@ def test_list_kpis_signature() -> None:
     sig = inspect.signature(KpiAnalytics.list_kpis)
     params = list(sig.parameters)
     assert params == ["self"]
-    assert str(sig.return_annotation) in {"list[KpiDefinition]", "list[agentkit.kpi_analytics.catalog.KpiDefinition]"}
+    assert str(sig.return_annotation) in {"list[KpiDefinition]", "list[agentkit.backend.kpi_analytics.catalog.KpiDefinition]"}
 
 
 def test_refresh_analytics_signature() -> None:

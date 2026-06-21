@@ -4,8 +4,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from agentkit.auth.errors import AuthFailedError
-from agentkit.auth.sessions import InMemorySessionStore
+from agentkit.backend.auth.errors import AuthFailedError
+from agentkit.backend.auth.sessions import InMemorySessionStore
 
 
 def test_session_validation_slides_expiry() -> None:

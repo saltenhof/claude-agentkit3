@@ -11,16 +11,16 @@ from __future__ import annotations
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.pipeline_engine.phase_executor import PhaseState, PhaseStatus
-from agentkit.process.language.definitions import IMPLEMENTATION_WORKFLOW
-from agentkit.process.language.guards import mode_is_exploration
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.routing_rules import (
+from agentkit.backend.pipeline_engine.phase_executor import PhaseState, PhaseStatus
+from agentkit.backend.process.language.definitions import IMPLEMENTATION_WORKFLOW
+from agentkit.backend.process.language.guards import mode_is_exploration
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.routing_rules import (
     get_phases_for_story,
     should_run_exploration,
 )
-from agentkit.story_context_manager.story_model import WireStoryMode
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.story_model import WireStoryMode
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 
 def _ctx(

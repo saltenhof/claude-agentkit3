@@ -72,7 +72,7 @@ glossary:
         darf keine anbieterspezifische Variante erhalten.
 
         OWNER-SPLIT (AG3-103 Nachzug, HEAD-verifiziert): Der Code-Enum
-        in src/agentkit/telemetry/events.py ist autoritativ. BC14-Werte
+        in src/agentkit/backend/telemetry/events.py ist autoritativ. BC14-Werte
         (dependency_recorded, story_ready, story_blocked, plan_revised,
         scheduling_decided, gate_resolved, rulebook_compiled, wave_collapsed,
         events.py:90-97) und BC15-Werte (are_requirements_linked,
@@ -374,13 +374,13 @@ hält die Pool-Abstraktion intakt (Kap. 01 P8, Kap. 11).
 
 | Event | Wann | Zusatzfelder | Erwartungswert | Quelle |
 |-------|------|-------------|----------------|--------|
-| `review_divergence` | Divergenz zwischen zwei Reviewern gemessen. Emittiert nach jedem Review-Paar durch den Divergenz-Score-Rechner (Kap. 28). | `story_id`, `reviewer_a`, `reviewer_b`, `divergent` (bool), `quorum_triggered` (bool), `final_verdict` (str, null wenn kein Quorum) | 0..n pro Story | `agentkit.telemetry.hooks.divergence` |
+| `review_divergence` | Divergenz zwischen zwei Reviewern gemessen. Emittiert nach jedem Review-Paar durch den Divergenz-Score-Rechner (Kap. 28). | `story_id`, `reviewer_a`, `reviewer_b`, `divergent` (bool), `quorum_triggered` (bool), `final_verdict` (str, null wenn kein Quorum) | 0..n pro Story | `agentkit.backend.telemetry.hooks.divergence` |
 
 **Feldsatz-Autoritaet:** FK-34 §34.8.4. FK-68 zieht auf den FK-34-§34.8.4-Feldsatz
 nach (AG3-103). Die fruehere Form `score` (LOW/MEDIUM/HIGH) / `routing`
 entfaellt vollstaendig — kein paralleles Format.
 **Code-Ist-Zustand (HEAD): KONFORM (AG3-066 abgeschlossen).** Der Hook
-`src/agentkit/telemetry/hooks/divergence_hook.py` emittiert bereits den
+`src/agentkit/backend/telemetry/hooks/divergence_hook.py` emittiert bereits den
 FK-34-§34.8.4-Feldsatz (`story_id`, `reviewer_a`, `reviewer_b`, `divergent`,
 `quorum_triggered`, `final_verdict`, Zeilen 74-79); kein `score`/`routing` mehr.
 
@@ -389,7 +389,7 @@ FK-34-§34.8.4-Feldsatz (`story_id`, `reviewer_a`, `reviewer_b`, `divergent`,
 | Event | Wann | Zusatzfelder | Erwartungswert | Quelle |
 |-------|------|-------------|----------------|--------|
 | `integrity_violation` | Ein Guard wurde verletzt | `guard`, `detail`, `stage` (bei prompt_integrity_guard: escape_detection/schema_validation/template_integrity) | Erwartet: 0 (jeder Eintrag ist ein Befund) | Guard-Hooks bei Blockade |
-| `web_call` | Agent fuehrt Web-Suche/-Abruf durch | — | <= konfiguriertes Budget (Default: 200) | `agentkit.telemetry.hooks.budget` (BudgetEventEmitter, PostToolUse fuer WebSearch/WebFetch) |
+| `web_call` | Agent fuehrt Web-Suche/-Abruf durch | — | <= konfiguriertes Budget (Default: 200) | `agentkit.backend.telemetry.hooks.budget` (BudgetEventEmitter, PostToolUse fuer WebSearch/WebFetch) |
 | ~~`guard_invocation`~~ | Guard-Invokationen werden NICHT als Event erfasst (Volumen: 2500-10000/Story). Stattdessen Scratchpad-Counter `runtime.guard_invocation_counters` im State-Backend. Siehe FK-61 §61.4.3. | — | — | — |
 | `impact_violation_check` | Impact-Violation wird geprueft | `declared_impact`, `actual_impact`, `result` (pass/violation) | 1 pro implementierender Story | Structural Check im QA-Subflow innerhalb Implementation (FK-33). Ergaenzt FK-61 §61.4.2. |
 | `doc_fidelity_check` | Dokumententreue wird geprueft | `level` (goal/design/implementation/feedback_fidelity), `result` (pass/conflict/skipped) | 1-4 pro Story (je nach Typ und Modus) | Dokumententreue-Service (FK-32). Ergaenzt FK-61 §61.5.1. |
@@ -460,14 +460,14 @@ Mitwirkung des Agents beobachten koennen.
 
 | Hook | Modul | Typ | Erkennung | Events |
 |------|-------|-----|-----------|--------|
-| AgentLifecycleHook | `agentkit.telemetry.hooks.agent_lifecycle` | PostToolUse (Agent) | Tool = `Agent`, `subagent_type` aus Prompt | `agent_start`, `agent_end`, `adversarial_start`, `adversarial_end` |
-| LlmCallHook | `agentkit.telemetry.hooks.llm_call` | PostToolUse (Pool-Send) | Tool enthaelt `_send`, Story aus aktivem Run im State-Backend | `llm_call` |
-| CommitHook | `agentkit.telemetry.hooks.commit` | PreToolUse (Bash) | `git commit` im Worktree | `increment_commit` |
-| DriftCheckHook | `agentkit.telemetry.hooks.drift_check` | PreToolUse (Bash) | Marker-Befehl `DRIFT_CHECK:` | `drift_check` |
-| ReviewSentinelHook | `agentkit.telemetry.hooks.review_sentinel` | PostToolUse (Pool-Send) | Review-Template-Sentinel erkannt | `review_request`, `review_response` |
-| ReviewGuard | `agentkit.telemetry.hooks.review_guard` | PostToolUse (Pool-Send) | Template-Sentinel-Pattern | `review_compliant` |
-| BudgetEventEmitter | `agentkit.telemetry.hooks.budget` | PostToolUse (WebSearch/WebFetch) | Tool-Name | `web_call` |
-| Guard-Hooks (inkl. SkillUsageCheck) | `agentkit.governance.guard_system` | PreToolUse | Blockade (exit 2) | `integrity_violation` |
+| AgentLifecycleHook | `agentkit.backend.telemetry.hooks.agent_lifecycle` | PostToolUse (Agent) | Tool = `Agent`, `subagent_type` aus Prompt | `agent_start`, `agent_end`, `adversarial_start`, `adversarial_end` |
+| LlmCallHook | `agentkit.backend.telemetry.hooks.llm_call` | PostToolUse (Pool-Send) | Tool enthaelt `_send`, Story aus aktivem Run im State-Backend | `llm_call` |
+| CommitHook | `agentkit.backend.telemetry.hooks.commit` | PreToolUse (Bash) | `git commit` im Worktree | `increment_commit` |
+| DriftCheckHook | `agentkit.backend.telemetry.hooks.drift_check` | PreToolUse (Bash) | Marker-Befehl `DRIFT_CHECK:` | `drift_check` |
+| ReviewSentinelHook | `agentkit.backend.telemetry.hooks.review_sentinel` | PostToolUse (Pool-Send) | Review-Template-Sentinel erkannt | `review_request`, `review_response` |
+| ReviewGuard | `agentkit.backend.telemetry.hooks.review_guard` | PostToolUse (Pool-Send) | Template-Sentinel-Pattern | `review_compliant` |
+| BudgetEventEmitter | `agentkit.backend.telemetry.hooks.budget` | PostToolUse (WebSearch/WebFetch) | Tool-Name | `web_call` |
+| Guard-Hooks (inkl. SkillUsageCheck) | `agentkit.backend.governance.guard_system` | PreToolUse | Blockade (exit 2) | `integrity_violation` |
 
 ### 68.3.2 Skript-basierte Erfassung
 
@@ -657,10 +657,10 @@ observational:
 Das Budget-Tracking ist ein Hybrid aus zwei Verantwortlichkeiten:
 
 - **Event-Emission (telemetry-and-events):** `telemetry.hooks.BudgetEventEmitter`
-  (`agentkit.telemetry.hooks.budget`) schreibt bei jedem WebSearch/WebFetch-Aufruf
+  (`agentkit.backend.telemetry.hooks.budget`) schreibt bei jedem WebSearch/WebFetch-Aufruf
   ein `web_call`-Event. Kein Blockieren, nur Beobachtung.
 - **Blocking (governance-and-guards):** `governance.guard_system.WebCallBudgetGuard`
-  (`agentkit.governance.guard_system`) liest den Counter aus dem State-Backend
+  (`agentkit.backend.governance.guard_system`) liest den Counter aus dem State-Backend
   und blockiert (exit 2) bei Ueberschreitung des Hard-Limits fuer Research-Stories.
 
 Diese Trennung folgt dem Prinzip: Telemetrie-Hooks sind rein observational;
@@ -668,7 +668,7 @@ Blocking-Entscheidungen sind Governance-Verantwortung.
 
 ### 68.6.1 Web-Call-Budget
 
-`BudgetEventEmitter` (`agentkit.telemetry.hooks.budget`) trackt Web-Aufrufe
+`BudgetEventEmitter` (`agentkit.backend.telemetry.hooks.budget`) trackt Web-Aufrufe
 (WebSearch, WebFetch) **nur für Research-Stories**.
 
 **Begründung:** Der Research-Prompt animiert den Agent explizit zur

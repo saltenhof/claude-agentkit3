@@ -9,7 +9,7 @@
 
 ## Kontext
 
-Die Control-Plane-HTTP-Schicht (`agentkit.control_plane_http`) ist
+Die Control-Plane-HTTP-Schicht (`agentkit.backend.control_plane_http`) ist
 heute ohne Authentifizierung erreichbar. Mit der Einfuehrung der
 UI-BFF (Port 9701) und der Project-API (Port 9702) braucht AK3
 eine minimal-pragmatische Auth-Schicht. Konzeptionell festgelegt
@@ -31,7 +31,7 @@ fachlichen Routern.
 
 ### In Scope
 
-- Neues Boundary-Modul `agentkit.auth` (Bluttyp R, `boundary_kind:
+- Neues Boundary-Modul `agentkit.backend.auth` (Bluttyp R, `boundary_kind:
   adapter_boundary`)
 - Pydantic-v2-Modelle: `StrategistCredentials`, `ProjectApiToken`,
   `Session`
@@ -97,7 +97,7 @@ fachlichen Routern.
 
 ## Akzeptanzkriterien
 
-1. **`agentkit.auth`-Modul existiert** als R-Boundary in `entities.md` (Bluttyp R, `adapter_boundary`).
+1. **`agentkit.backend.auth`-Modul existiert** als R-Boundary in `entities.md` (Bluttyp R, `adapter_boundary`).
 2. **Strategen-Login funktioniert**: lokales Passwort (Argon2id), Cookie-Session mit HttpOnly/Secure/SameSite-strict, CSRF-Token.
 3. **Session-Verlaengerung** bei Aktivitaet (gleitende 24h-Lebensdauer).
 4. **Project-API-Token-Verwaltung**: Tokens werden erzeugt, projektgebunden persistiert, einmal im Klartext angezeigt, danach nur gehasht.
@@ -108,7 +108,7 @@ fachlichen Routern.
 6. **Worker-Agent-Pfad** (Trusted-Path im selben Prozess) wird **nicht** durch HTTP-Auth gehindert — Worker laufen direkt ueber die fachlichen Komponenten, nicht ueber HTTP.
 7. **Auth-Modul ist als R-Boundary lint-konform**: keine A-BC-Importe ausser `state_backend_repository`.
 8. **Tests gruen**: alle Unit- und Integration-Tests, ruff, mypy strict, alle drei concept-lints, architecture-conformance-Audit.
-9. **Keine AC012-Warnings** im `agentkit.auth`-Modul.
+9. **Keine AC012-Warnings** im `agentkit.backend.auth`-Modul.
 
 ## Definition of Done
 

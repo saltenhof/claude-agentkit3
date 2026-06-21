@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.state_backend.store.projection_repositories import (
+from agentkit.backend.state_backend.store.projection_repositories import (
     build_projection_repositories,
 )
-from agentkit.task_management import (
+from agentkit.backend.task_management import (
     ResolvedBy,
     Task,
     TaskKind,
@@ -22,7 +22,7 @@ from agentkit.task_management import (
     TaskStatus,
     TaskTargetKind,
 )
-from agentkit.telemetry.projection_accessor import ProjectionAccessor
+from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -53,7 +53,7 @@ def _task(task_id: str, *, project_key: str = "proj-pg") -> Task:
 
 @pytest.mark.contract
 def test_postgres_task_tables_exist(postgres_backend_env: object) -> None:
-    from agentkit.state_backend.store.projection_repositories import _postgres_connect
+    from agentkit.backend.state_backend.store.projection_repositories import _postgres_connect
 
     with _postgres_connect() as conn:
         tables = {

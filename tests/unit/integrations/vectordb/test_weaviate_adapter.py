@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.integrations.vectordb import (
+from agentkit.integration_clients.vectordb import (
     VectorDbUnavailableError,
     VectorDbWriteError,
     WeaviateStoryAdapter,
@@ -291,7 +291,7 @@ def _install_fake_filter(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _real_client(connection: _FakeConnection) -> object:
-    from agentkit.integrations.vectordb.weaviate_adapter import _RealWeaviateClient
+    from agentkit.integration_clients.vectordb.weaviate_adapter import _RealWeaviateClient
 
     return _RealWeaviateClient(connection)
 

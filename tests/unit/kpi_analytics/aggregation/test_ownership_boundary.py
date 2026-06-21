@@ -16,19 +16,19 @@ import importlib.util
 from pathlib import Path
 
 _AGGREGATION_MODULES = (
-    "agentkit.kpi_analytics.aggregation.worker",
-    "agentkit.kpi_analytics.aggregation.dirty_sets",
-    "agentkit.kpi_analytics.aggregation.source_port",
-    "agentkit.kpi_analytics.aggregation.percentile",
-    "agentkit.kpi_analytics.aggregation.models",
+    "agentkit.backend.kpi_analytics.aggregation.worker",
+    "agentkit.backend.kpi_analytics.aggregation.dirty_sets",
+    "agentkit.backend.kpi_analytics.aggregation.source_port",
+    "agentkit.backend.kpi_analytics.aggregation.percentile",
+    "agentkit.backend.kpi_analytics.aggregation.models",
 )
 
 #: Forbidden import prefixes (FK-62 §62.6.1/§62.6.2): the runtime-schema drivers
 #: and the state-backend write facade. The worker never holds its own DB handle.
 _FORBIDDEN_PREFIXES = (
-    "agentkit.state_backend.store",
-    "agentkit.state_backend.sqlite_store",
-    "agentkit.state_backend.postgres_store",
+    "agentkit.backend.state_backend.store",
+    "agentkit.backend.state_backend.sqlite_store",
+    "agentkit.backend.state_backend.postgres_store",
 )
 
 
@@ -70,10 +70,10 @@ def test_aggregation_modules_do_not_import_runtime_or_store_facade() -> None:
 
 def test_worker_imports_only_factstore_protocol_for_writes() -> None:
     """The worker depends on the consumer-owned FactStore/Protocol, not a driver."""
-    source = _source_path("agentkit.kpi_analytics.aggregation.worker").read_text(
+    source = _source_path("agentkit.backend.kpi_analytics.aggregation.worker").read_text(
         encoding="utf-8"
     )
     imports = _imported_modules(source)
-    assert "agentkit.kpi_analytics.fact_store.store" in imports
+    assert "agentkit.backend.kpi_analytics.fact_store.store" in imports
     # And specifically NOT the concrete adapter module.
-    assert "agentkit.state_backend.store.fact_repository" not in imports
+    assert "agentkit.backend.state_backend.store.fact_repository" not in imports

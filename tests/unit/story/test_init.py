@@ -1,8 +1,8 @@
-"""Unit tests for agentkit.story package re-exports."""
+"""Unit tests for agentkit.backend.story package re-exports."""
 
 from __future__ import annotations
 
-import agentkit.story_context_manager as story_pkg
+import agentkit.backend.story_context_manager as story_pkg
 
 
 class TestPackageExports:

@@ -13,7 +13,7 @@ Drift in any field set fails this test.
 
 from __future__ import annotations
 
-from agentkit.project_management.views import (
+from agentkit.backend.project_management.views import (
     ProjectDetailView,
     ProjectModeLock,
     StoryCounters,

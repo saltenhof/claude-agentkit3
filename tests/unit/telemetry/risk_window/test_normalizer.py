@@ -6,10 +6,10 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentkit.core_types import Severity
-from agentkit.telemetry.contract.records import ExecutionEventRecord
-from agentkit.telemetry.risk_window.normalized_event import NormalizedEvent, RiskCategory
-from agentkit.telemetry.risk_window.normalizer import EventNormalizer
+from agentkit.backend.core_types import Severity
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.telemetry.risk_window.normalized_event import NormalizedEvent, RiskCategory
+from agentkit.backend.telemetry.risk_window.normalizer import EventNormalizer
 
 
 def _record(event_type: str, *, payload: dict[str, object] | None = None) -> ExecutionEventRecord:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agentkit.verify_system.evidence import AuthorityClass, BundleEntry, BundleManifest
+from agentkit.backend.verify_system.evidence import AuthorityClass, BundleEntry, BundleManifest
 
 
 def _entry(path: str, authority: AuthorityClass, size: int = 3) -> BundleEntry:

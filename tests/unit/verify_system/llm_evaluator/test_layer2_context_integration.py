@@ -5,18 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput
-from agentkit.verify_system.llm_evaluator.layer2_integration import run_layer2_llm
-from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+from agentkit.backend.verify_system.llm_evaluator.inputs import Layer2ReviewInput
+from agentkit.backend.verify_system.llm_evaluator.layer2_integration import run_layer2_llm
+from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import (
     LlmVerdict,
     ReviewerRole,
     StructuredEvaluatorResult,
 )
-from agentkit.verify_system.protocols import LayerResult
+from agentkit.backend.verify_system.protocols import LayerResult
 
 if TYPE_CHECKING:
-    from agentkit.verify_system.llm_evaluator.bundle import ReviewBundle
-    from agentkit.verify_system.protocols import Finding
+    from agentkit.backend.verify_system.llm_evaluator.bundle import ReviewBundle
+    from agentkit.backend.verify_system.protocols import Finding
 
 
 @dataclass

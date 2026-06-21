@@ -5,13 +5,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.pipeline_engine.phase_executor import (
     PHASE_STATE_SCHEMA_VERSION,
     PhaseState,
     PhaseStateMode,
     PhaseStateProducer,
 )
-from agentkit.story_context_manager.types import StoryType
+from agentkit.backend.story_context_manager.types import StoryType
 
 
 def make_phase_state(**overrides: Any) -> PhaseState:

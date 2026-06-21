@@ -12,14 +12,14 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentkit.kpi_analytics.fact_store.models import (
+from agentkit.backend.kpi_analytics.fact_store.models import (
     FactCorpusPeriod,
     FactGuardPeriod,
     FactPipelinePeriod,
     FactPoolPeriod,
     FactStory,
 )
-from agentkit.kpi_analytics.http.wire_dto import (
+from agentkit.backend.kpi_analytics.http.wire_dto import (
     WireKpiCorpusRow,
     WireKpiGuardRow,
     WireKpiPipelineRow,
@@ -392,7 +392,7 @@ def test_routes_does_not_use_raw_model_dump_for_fact_rows() -> None:
     """
     import inspect
 
-    from agentkit.kpi_analytics.http.routes import KpiAnalyticsRoutes
+    from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
 
     source = inspect.getsource(KpiAnalyticsRoutes._build_kpi_payload)
     # The raw per-row dump pattern must be gone.

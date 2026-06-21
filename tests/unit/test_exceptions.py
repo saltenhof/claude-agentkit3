@@ -1,10 +1,10 @@
-"""Unit tests for agentkit.exceptions."""
+"""Unit tests for agentkit.backend.exceptions."""
 
 from __future__ import annotations
 
 import pytest
 
-from agentkit.exceptions import (
+from agentkit.backend.exceptions import (
     AgentKitError,
     ArtifactError,
     ConfigError,

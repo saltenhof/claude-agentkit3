@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from agentkit.project_management.views import (
+from agentkit.backend.project_management.views import (
     ProjectDetailView,
     ProjectModeLock,
     ProjectSummary,

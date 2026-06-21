@@ -8,12 +8,12 @@ enforced structurally (CP 10 before CP 10a/CP 10c; CP 10b after CP 11).
 
 from __future__ import annotations
 
-from agentkit.installer.checkpoint_engine import node_ids as nid
-from agentkit.installer.checkpoint_engine.flow import (
+from agentkit.backend.installer.checkpoint_engine import node_ids as nid
+from agentkit.backend.installer.checkpoint_engine.flow import (
     BRANCH_VECTORDB_ENABLED_STAGE2,
     build_installer_flow,
 )
-from agentkit.process.language.model import FlowLevel, NodeKind
+from agentkit.backend.process.language.model import FlowLevel, NodeKind
 
 _EXPECTED_STEP_IDS = (
     nid.CP_01_PACKAGE_CHECK,

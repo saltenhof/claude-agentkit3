@@ -7,8 +7,8 @@ workflow-DSL yield-points to their typed stages (exploration-and-design.B3).
 
 from __future__ import annotations
 
-from agentkit.process.language.definitions import IMPLEMENTATION_WORKFLOW
-from agentkit.process.language.gates import (
+from agentkit.backend.process.language.definitions import IMPLEMENTATION_WORKFLOW
+from agentkit.backend.process.language.gates import (
     ExplorationGateStage,
     ExplorationGateStageSpec,
 )
@@ -56,7 +56,7 @@ def test_implementation_workflow_yield_points_are_typed() -> None:
 
 def test_design_challenge_stage_value_matches_persistence() -> None:
     """The persistence stage wire-id matches the typed DESIGN_CHALLENGE value."""
-    from agentkit.exploration.review import design_challenge
+    from agentkit.backend.exploration.review import design_challenge
 
     persistence_stage = design_challenge._DESIGN_CHALLENGE_STAGE  # noqa: SLF001
     assert persistence_stage == ExplorationGateStage.DESIGN_CHALLENGE.value

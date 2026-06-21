@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agentkit.integration_stabilization.fk37_checks import (
+from agentkit.backend.integration_stabilization.fk37_checks import (
     FK37CheckName,
     check_fk37_binding_integrity,
     check_fk37_declared_surfaces_only,
@@ -11,7 +11,7 @@ from agentkit.integration_stabilization.fk37_checks import (
     check_fk37_stability_gate,
     check_fk37_stabilization_budget_not_exhausted,
 )
-from agentkit.integration_stabilization.models import (
+from agentkit.backend.integration_stabilization.models import (
     IntegrationScopeManifest,
     ManifestApprovalRecord,
     StabilizationBudget,

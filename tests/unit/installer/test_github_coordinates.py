@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.installer.github_coordinates import (
+from agentkit.backend.installer.github_coordinates import (
     derive_github_coordinates,
     parse_github_remote_url,
     validate_github_coordinate,

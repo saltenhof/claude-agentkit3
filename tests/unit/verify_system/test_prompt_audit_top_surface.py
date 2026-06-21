@@ -14,7 +14,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-import agentkit.verify_system.prompt_audit as prompt_audit_module
+import agentkit.backend.verify_system.prompt_audit as prompt_audit_module
 
 _FORBIDDEN_NAMES = frozenset(
     {

@@ -146,7 +146,7 @@ Im Remediation-Modus (qa_cycle_round > 1):
 
 #### 2.1.8 Legacy-Migration
 
-`src/agentkit/llm_evaluator/`-Top-Level-Shim (`verify-system.C4`) wird ENTFERNT — dieser Paket-Drift wird hier endlich abgeschlossen. Alle Importer wandern auf `agentkit.verify_system.llm_evaluator`.
+`src/agentkit/llm_evaluator/`-Top-Level-Shim (`verify-system.C4`) wird ENTFERNT — dieser Paket-Drift wird hier endlich abgeschlossen. Alle Importer wandern auf `agentkit.backend.verify_system.llm_evaluator`.
 
 #### 2.1.9 Tests
 
@@ -195,7 +195,7 @@ Im Remediation-Modus (qa_cycle_round > 1):
 4. **Prompt-Lookup** erfolgt via `PromptRuntime.materialize_prompt` (AG3-015); Tests verifizieren, dass der materialisierte Pfad genutzt wird (kein direkter Resource-Read).
 5. **JSON-Schema-Validierung**: Ungueltige LLM-Antwort -> `StructuredEvaluatorError`, kein silent skip.
 6. **Finding-Resolution im Remediation-Modus** wird im LLM-Aufruf mitgegeben; LLM-Antwort liefert `finding_resolutions`-Map; gemappt auf `FindingResolutionStatus` aus AG3-041.
-7. **Legacy `agentkit.llm_evaluator`-Top-Level-Shim entfernt**; alle Importer auf `agentkit.verify_system.llm_evaluator` umgestellt.
+7. **Legacy `agentkit.llm_evaluator`-Top-Level-Shim entfernt**; alle Importer auf `agentkit.backend.verify_system.llm_evaluator` umgestellt.
 8. **`VerifySystem.run_qa_subflow`** ruft `ParallelEvalRunner` als Layer 2; Result wird in `PolicyVerdictResult.layer_results` aggregiert.
 9. **Pflichtbefehle gruen**: pytest unit + integration + contract; mypy --strict; ruff clean; Coverage haelt 85%.
 

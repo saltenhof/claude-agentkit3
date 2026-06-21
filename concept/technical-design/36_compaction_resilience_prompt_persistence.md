@@ -322,7 +322,7 @@ relevanten Teile mechanisch extrahieren.
 
 - **Trigger**: `SubagentStart`-Hook (Parent-Kontext, feuert nach Agent-ID-Erzeugung,
   vor Agent-Start)
-- **Hook-Script**: `python -m agentkit.pipeline_engine.compaction_resilience.manifest_writer`
+- **Hook-Script**: `python -m agentkit.backend.pipeline_engine.compaction_resilience.manifest_writer`
 - **Verfuegbare Daten im Hook-Input**:
   - `agent_id` (Required, Kind-Agent-ID)
   - `agent_type` (Required, = spawn_key, z.B. `qa-semantic--story=BB2-056--r2`)
@@ -358,7 +358,7 @@ relevanten Teile mechanisch extrahieren.
 ### 36.7.3 Schritt 2: Autoritative Recovery bei PreToolUse
 
 - **Trigger**: `PreToolUse`-Hook (beliebiges Tool, Sub-Agent-Kontext)
-- **Hook-Script**: `python -m agentkit.pipeline_engine.compaction_resilience.recovery_injector`
+- **Hook-Script**: `python -m agentkit.backend.pipeline_engine.compaction_resilience.recovery_injector`
 - **Verfuegbare Daten im Hook-Input**:
   - `agent_id` (aus `toolUseContext`, nur im Sub-Agent)
   - `tool_name`, `tool_input`
@@ -404,7 +404,7 @@ relevanten Teile mechanisch extrahieren.
 ### 36.7.4 Schritt 3: Story-Scoped Compaction-Epoch (PostCompact)
 
 - **Trigger**: `PostCompact`-Hook (read-only, kein Decision Control)
-- **Hook-Script**: `python -m agentkit.pipeline_engine.compaction_resilience.epoch_writer`
+- **Hook-Script**: `python -m agentkit.backend.pipeline_engine.compaction_resilience.epoch_writer`
 - **Verfuegbare Daten**: `trigger` (manual/auto), `compact_summary`, `session_id`,
   `cwd` — **kein `agent_id`**, **kein `agent_type`**
 - **Ablauf**:
@@ -426,7 +426,7 @@ relevanten Teile mechanisch extrahieren.
 ### 36.7.5 Schritt 4: Cleanup
 
 - **Trigger**: `SubagentStop`-Hook (Parent-Kontext)
-- **Hook-Script**: `python -m agentkit.pipeline_engine.compaction_resilience.cleanup`
+- **Hook-Script**: `python -m agentkit.backend.pipeline_engine.compaction_resilience.cleanup`
 - **Verfuegbare Daten**: `agent_id` (Required), `agent_type`
 - **Ablauf**:
   1. Lese `agent_id` aus Hook-Input
@@ -444,19 +444,19 @@ relevanten Teile mechanisch extrahieren.
 ```python
 # Schritt 1: Ein-Phasen-Manifest bei Agent-Spawn
 SubagentStart:
-  python -m agentkit.pipeline_engine.compaction_resilience.manifest_writer
+  python -m agentkit.backend.pipeline_engine.compaction_resilience.manifest_writer
 
 # Schritt 2: Autoritative Recovery (jeder Tool-Call im Sub-Agent)
 PreToolUse:
-  python -m agentkit.pipeline_engine.compaction_resilience.recovery_injector
+  python -m agentkit.backend.pipeline_engine.compaction_resilience.recovery_injector
 
 # Schritt 3: Compaction-Epoch-Signal (agent-unabhaengig)
 PostCompact:
-  python -m agentkit.pipeline_engine.compaction_resilience.epoch_writer
+  python -m agentkit.backend.pipeline_engine.compaction_resilience.epoch_writer
 
 # Schritt 4: Cleanup nach Agent-Ende
 SubagentStop:
-  python -m agentkit.pipeline_engine.compaction_resilience.cleanup
+  python -m agentkit.backend.pipeline_engine.compaction_resilience.cleanup
 ```
 
 ### 36.8.2 Interaktion mit bestehenden Hooks

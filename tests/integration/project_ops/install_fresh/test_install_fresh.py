@@ -2,7 +2,7 @@
 
 Tests the full install flow using real filesystem operations via
 ``tmp_path``.  Validates that the generated ``project.yaml`` is
-loadable by :func:`agentkit.config.load_project_config`.
+loadable by :func:`agentkit.backend.config.load_project_config`.
 """
 
 from __future__ import annotations
@@ -14,10 +14,10 @@ from typing import Any
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
 
-from agentkit.config import load_project_config
-from agentkit.exceptions import ProjectError
-from agentkit.installer import InstallConfig, InstallResult, install_agentkit
-from agentkit.installer.paths import (
+from agentkit.backend.config import load_project_config
+from agentkit.backend.exceptions import ProjectError
+from agentkit.backend.installer import InstallConfig, InstallResult, install_agentkit
+from agentkit.backend.installer.paths import (
     PROMPT_BUNDLE_STORE_ENV,
     prompt_bundle_store_dir,
 )
@@ -244,7 +244,7 @@ class TestInstallFresh:
     ) -> None:
         """FK-50 §50.5 / AG3-015 AK9: install routes the binding update through
         ``PromptRuntime.update_binding`` (Owner-BC principle)."""
-        from agentkit.prompt_runtime import runtime as runtime_module
+        from agentkit.backend.prompt_runtime import runtime as runtime_module
 
         calls: list[tuple[str, str]] = []
         original = runtime_module.PromptRuntime.update_binding

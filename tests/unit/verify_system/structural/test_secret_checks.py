@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.pipeline_engine.phase_executor.models import PhaseSnapshot, PhaseStatus
-from agentkit.state_backend.store import save_phase_snapshot, save_story_context
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import ChangeImpact
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.verify_system.structural.checker import FULL_STAGE_REGISTRY, StructuralChecker
-from agentkit.verify_system.structural.system_evidence import ChangeEvidence
+from agentkit.backend.pipeline_engine.phase_executor.models import PhaseSnapshot, PhaseStatus
+from agentkit.backend.state_backend.store import save_phase_snapshot, save_story_context
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import ChangeImpact
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.verify_system.structural.checker import FULL_STAGE_REGISTRY, StructuralChecker
+from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
     from pathlib import Path

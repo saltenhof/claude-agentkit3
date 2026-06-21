@@ -187,7 +187,7 @@ Defense-in-Depth (FK-23 §23.5.0): COMPLETED ohne APPROVED-gate_status -> Guard 
 7. **`ChangeFrame`-Persistenz** ueber `ArtifactManager` mit `ArtifactClass.ENTWURF`; Envelope-Pflichtfelder gesetzt; auch JSON unter `_temp/qa/{story_id}/change_frame.json` geschrieben.
 8. **Protected-Path**: Entwurfsartefakt-Pfad ist nach Freeze (siehe AG3-047) write-protected; die Konstante ist hier vorbereitet, der Freeze-Wechsel passiert in AG3-047.
 9. **Provisorium-Pfad in `ExplorationPhaseHandler.on_enter`**: setzt `gate_status=APPROVED` direkt nach Drafting **mit explizitem TODO-Verweis auf AG3-046** (Review-Methodik) — das ist die einzige Stelle mit dokumentiertem Provisorium; alle anderen Pfade sind konzeptkonform. (Aufgabe von AG3-046 ist diesen Provisorium-Pfad zu ersetzen.)
-10. **Architecture-Conformance**: `pipeline/phases/exploration/` importiert nur `agentkit.core_types`, `agentkit.artifacts`, `agentkit.story_context_manager.models`, `agentkit.process.language`.
+10. **Architecture-Conformance**: `pipeline/phases/exploration/` importiert nur `agentkit.backend.core_types`, `agentkit.backend.artifacts`, `agentkit.backend.story_context_manager.models`, `agentkit.backend.process.language`.
 11. **Pflichtbefehle gruen**: pytest unit + integration + contract; mypy --strict; ruff clean; Coverage haelt 85%.
 
 ## 5. Definition of Done

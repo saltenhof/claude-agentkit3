@@ -9,52 +9,52 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.artifacts import ArtifactEnvelope, ArtifactManager, ArtifactReference
-from agentkit.bootstrap.composition_root import build_artifact_manager
-from agentkit.core_types import PolicyVerdict, QaContext
-from agentkit.core_types.qa_artifact_names import (
+from agentkit.backend.artifacts import ArtifactEnvelope, ArtifactManager, ArtifactReference
+from agentkit.backend.bootstrap.composition_root import build_artifact_manager
+from agentkit.backend.core_types import PolicyVerdict, QaContext
+from agentkit.backend.core_types.qa_artifact_names import (
     ALL_QA_ARTIFACT_FILES,
     HANDOVER_FILE,
     PROTOCOL_FILE,
     WORKER_MANIFEST_FILE,
 )
-from agentkit.implementation.phase import (
+from agentkit.backend.implementation.phase import (
     ImplementationConfig,
     ImplementationPhaseHandler,
 )
-from agentkit.installer.paths import qa_story_dir
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.lifecycle import PhaseHandler
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.installer.paths import qa_story_dir
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.lifecycle import PhaseHandler
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseSnapshot,
     PhaseState,
     PhaseStatus,
 )
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import (
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import (
     reset_backend_cache_for_tests,
     save_flow_execution,
     save_phase_snapshot,
     save_story_context,
 )
-from agentkit.state_backend.store.verify_story_context_repository import (
+from agentkit.backend.state_backend.store.verify_story_context_repository import (
     StateBackendVerifyStoryContextAdapter,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType, get_profile
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.verify_system import VerifySystem
-from agentkit.verify_system.contract import QaSubflowOutcome, VerifyContextBundle
-from agentkit.verify_system.policy_engine.engine import PolicyEngine
-from agentkit.verify_system.protocols import LayerResult
-from agentkit.verify_system.structural.system_evidence import ChangeEvidence
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType, get_profile
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.verify_system import VerifySystem
+from agentkit.backend.verify_system.contract import QaSubflowOutcome, VerifyContextBundle
+from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
+from agentkit.backend.verify_system.protocols import LayerResult
+from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+    from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +77,7 @@ def test_conformance_config_flows_from_project_config_to_verify_system(
     flow from ProjectConfig -> build_verify_system -> VerifySystem.conformance_config
     -> _run_impl_conformance -> ConformanceService tier decision.
     """
-    from agentkit.config.models import (
+    from agentkit.backend.config.models import (
         SUPPORTED_CONFIG_VERSION,
         ConformanceConfig,
         Features,
@@ -87,7 +87,7 @@ def test_conformance_config_flows_from_project_config_to_verify_system(
         RepositoryConfig,
         SonarQubeConfig,
     )
-    from agentkit.implementation.phase import _resolve_conformance_config
+    from agentkit.backend.implementation.phase import _resolve_conformance_config
 
     custom_threshold = 7  # deliberate non-default to prove flow
     project = ProjectConfig(
@@ -105,7 +105,7 @@ def test_conformance_config_flows_from_project_config_to_verify_system(
             ),
         ),
     )
-    monkeypatch.setattr("agentkit.config.loader.load_project_config", lambda _root: project)
+    monkeypatch.setattr("agentkit.backend.config.loader.load_project_config", lambda _root: project)
 
     ctx = StoryContext(
         project_key="ak3",
@@ -124,7 +124,7 @@ def test_conformance_config_flows_from_project_config_to_verify_system(
     # Use monkeypatching so we don't need the full state-backend on this unit path.
     captured: dict[str, object] = {}
 
-    from agentkit.bootstrap import composition_root as _cr
+    from agentkit.backend.bootstrap import composition_root as _cr
 
     original_build = _cr.build_verify_system
 
@@ -147,10 +147,10 @@ def test_conformance_config_flows_from_project_config_to_verify_system(
     # This proves the project-config value flows through the productive factory.
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-    from agentkit.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
-    from agentkit.bootstrap.composition_root import build_verify_system
+    from agentkit.backend.bootstrap.composition_root import build_verify_system
 
     vs = build_verify_system(
         tmp_path,
@@ -169,7 +169,7 @@ def test_structural_are_provider_gets_configured_are_client(
 ) -> None:
     """AG3-077: Layer-1 provider receives the real client from ProjectConfig.are."""
 
-    from agentkit.config.models import (
+    from agentkit.backend.config.models import (
         SUPPORTED_CONFIG_VERSION,
         AreConfig,
         Features,
@@ -179,7 +179,7 @@ def test_structural_are_provider_gets_configured_are_client(
         RepositoryConfig,
         SonarQubeConfig,
     )
-    from agentkit.implementation.phase import _resolve_structural_evidence_ports
+    from agentkit.backend.implementation.phase import _resolve_structural_evidence_ports
 
     project = ProjectConfig(
         project_key="ak3",
@@ -197,7 +197,7 @@ def test_structural_are_provider_gets_configured_are_client(
             auth_token="token",
         ),
     )
-    monkeypatch.setattr("agentkit.config.loader.load_project_config", lambda _root: project)
+    monkeypatch.setattr("agentkit.backend.config.loader.load_project_config", lambda _root: project)
 
     ctx = StoryContext(
         project_key="ak3",
@@ -299,8 +299,8 @@ def _make_fail_outcome(
     Returns:
         A ``QaSubflowOutcome`` with FAIL verdict and one blocking layer.
     """
-    from agentkit.verify_system.protocols import Finding, Severity, TrustClass
-    from agentkit.verify_system.remediation.feedback import build_feedback
+    from agentkit.backend.verify_system.protocols import Finding, Severity, TrustClass
+    from agentkit.backend.verify_system.remediation.feedback import build_feedback
 
     blocking_result = LayerResult(
         layer="structural",
@@ -615,7 +615,7 @@ def _write_required_worker_artifacts(story_dir: Path) -> None:
                 "run_id": "run-implementation-001",
                 "status": "completed",
                 "completed_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
-                "files_changed": ["src/agentkit/done.py"],
+                "files_changed": ["src/agentkit/backend/done.py"],
                 "tests_added": ["tests/test_story.py"],
                 "acceptance_criteria_status": {"AC1": "done"},
             }
@@ -713,7 +713,7 @@ class TestImplementationPhaseHandler:
         result = handler.on_enter(ctx, _make_envelope(state))
         assert result.status == PhaseStatus.COMPLETED
         payload = result.updated_state.payload
-        from agentkit.pipeline_engine.phase_executor import ImplementationPayload
+        from agentkit.backend.pipeline_engine.phase_executor import ImplementationPayload
 
         assert isinstance(payload, ImplementationPayload)
         assert payload.qa_cycle_id is not None

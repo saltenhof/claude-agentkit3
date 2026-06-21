@@ -32,14 +32,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.governance.governance_observer.reader import (
+from agentkit.backend.governance.governance_observer.reader import (
     StateBackendGovernanceEventReader,
 )
-from agentkit.state_backend.store.facade import (
+from agentkit.backend.state_backend.store.facade import (
     append_execution_event,
     load_last_adjudication_ts,
 )
-from agentkit.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -117,7 +117,7 @@ def test_cooldown_query_executes_and_returns_max_on_postgres(tmp_path: Path) -> 
     )
 
     # Direct store call — exercises the exact cooldown SQL on Postgres.
-    from agentkit.state_backend import postgres_store
+    from agentkit.backend.state_backend import postgres_store
 
     raw = postgres_store.max_adjudication_occurred_at(
         tmp_path,

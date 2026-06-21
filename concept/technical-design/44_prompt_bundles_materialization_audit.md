@@ -55,7 +55,7 @@ glossary:
         .agentkit/config/prompt-bundle.lock.json. Die read-only Dateien
         unter prompts/ sind nur eine Projektion dieses Pins, nicht die
         Pin-Autoritaet selbst. Klasse: ProjectPromptPin
-        (agentkit.prompt_runtime.bundle_pinning).
+        (agentkit.backend.prompt_runtime.bundle_pinning).
     - id: prompt-audit-hash
       definition: >
         Der kryptografische Nachweis einer Prompt-Nutzung, bestehend aus
@@ -270,7 +270,7 @@ Ein langlebiger, projektlokaler Prompt-Cache oder eine lokale
 Prompt-Kopie ist als Produktionspfad verboten.
 
 Das Schema fuer den projektspezifischen Pin (`ProjectPromptPin`) liegt
-im Sub `agentkit.prompt_runtime.bundle_pinning`. Der Lock-Datensatz
+im Sub `agentkit.backend.prompt_runtime.bundle_pinning`. Der Lock-Datensatz
 `.agentkit/config/prompt-bundle.lock.json` ist die laufzeitautorative
 Projektion dieses Schemas; das Schema selbst ist nicht projektlokal.
 Run-Pins werden als `RunPromptPin`-Instanzen materialisiert.
@@ -315,7 +315,7 @@ Minimaler Nachweis pro Prompt-Nutzung:
 
 Das Pydantic-Schema `PromptAuditHash` (Felder: `template_sha256`,
 `render_input_digest`, `output_sha256`) wird vom Sub
-`agentkit.prompt_runtime.materialization` definiert und ist Bestandteil
+`agentkit.backend.prompt_runtime.materialization` definiert und ist Bestandteil
 jedes vollstaendigen Audit-Records.
 
 Audit-Records werden als typisierte Artefakte ueber

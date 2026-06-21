@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentkit.closure.multi_repo_saga import (
+from agentkit.backend.closure.multi_repo_saga import (
     ClosureRepo,
     GitCommandResult,
     SagaStage,

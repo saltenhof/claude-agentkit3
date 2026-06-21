@@ -14,20 +14,20 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.artifacts import ArtifactEnvelope, ArtifactManager, ArtifactReference
-from agentkit.core_types import ArtifactClass, PolicyVerdict, QaContext
-from agentkit.core_types.qa_artifact_names import (
+from agentkit.backend.artifacts import ArtifactEnvelope, ArtifactManager, ArtifactReference
+from agentkit.backend.core_types import ArtifactClass, PolicyVerdict, QaContext
+from agentkit.backend.core_types.qa_artifact_names import (
     HANDOVER_FILE,
     PROTOCOL_FILE,
     WORKER_MANIFEST_FILE,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import WireStoryMode
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.verify_system import VerifyContextBundle, VerifySystem
-from agentkit.verify_system.policy_engine.engine import PolicyEngine
-from agentkit.verify_system.protocols import LayerResult
-from agentkit.verify_system.structural.system_evidence import ChangeEvidence
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import WireStoryMode
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.verify_system import VerifyContextBundle, VerifySystem
+from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
+from agentkit.backend.verify_system.protocols import LayerResult
+from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -134,7 +134,7 @@ def _make_fast_system(
             or _StaticChangeEvidencePort(
                 ChangeEvidence(
                     available=True,
-                    changed_files=("src/agentkit/done.py",),
+                    changed_files=("src/agentkit/backend/done.py",),
                 )
             )
         ),
@@ -152,7 +152,7 @@ def _write_required_worker_artifacts(story_dir: Path) -> None:
                 "run_id": "run-test-001",
                 "status": "completed",
                 "completed_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
-                "files_changed": ["src/agentkit/done.py"],
+                "files_changed": ["src/agentkit/backend/done.py"],
                 "tests_added": [],
                 "acceptance_criteria_status": {"AC1": "done"},
             }

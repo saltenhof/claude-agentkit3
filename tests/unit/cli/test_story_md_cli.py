@@ -17,13 +17,13 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from agentkit.cli import main as cli_main
-from agentkit.integrations.vectordb import VectorDbWriteError
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.cli import main as cli_main
+from agentkit.backend.story_context_manager.story_model import (
     Story,
     StorySpecification,
     WireStoryType,
 )
+from agentkit.integration_clients.vectordb import VectorDbWriteError
 
 if TYPE_CHECKING:
     from pathlib import Path

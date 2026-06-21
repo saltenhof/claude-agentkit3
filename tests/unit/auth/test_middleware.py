@@ -3,12 +3,12 @@ from __future__ import annotations
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 
-from agentkit.auth.middleware import AuthMiddleware, AuthMiddlewareResponse
-from agentkit.auth.sessions import InMemorySessionStore
-from agentkit.auth.tokens import issue_project_api_token
+from agentkit.backend.auth.middleware import AuthMiddleware, AuthMiddlewareResponse
+from agentkit.backend.auth.sessions import InMemorySessionStore
+from agentkit.backend.auth.tokens import issue_project_api_token
 
 if TYPE_CHECKING:
-    from agentkit.auth.entities import ProjectApiToken
+    from agentkit.backend.auth.entities import ProjectApiToken
 
 
 class _InMemoryTokenRepository:

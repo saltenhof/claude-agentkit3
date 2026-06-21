@@ -23,13 +23,13 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.exceptions import InstallationError
-from agentkit.installer.integration_checkpoints.ci_preflight import (
+from agentkit.backend.exceptions import InstallationError
+from agentkit.backend.installer.integration_checkpoints.ci_preflight import (
     CheckpointStatus,
     CiPreflightResult,
 )
-from agentkit.installer.registration import CheckpointStatus as RegCheckpointStatus
-from agentkit.installer.runner import (
+from agentkit.backend.installer.registration import CheckpointStatus as RegCheckpointStatus
+from agentkit.backend.installer.runner import (
     _CI_CHECKPOINT_ID,
     InstallConfig,
     _build_project_yaml,
@@ -60,7 +60,7 @@ class _StubJenkins:
 
     def whoami(self) -> _Resp:
         if self.raise_on == "whoami":
-            from agentkit.integrations.jenkins import JenkinsApiError
+            from agentkit.integration_clients.jenkins import JenkinsApiError
 
             raise JenkinsApiError("unreachable")
         return _Resp(self.whoami_body)

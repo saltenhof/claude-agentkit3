@@ -14,23 +14,23 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.bootstrap.composition_root import build_artifact_manager
-from agentkit.core_types import PolicyVerdict
-from agentkit.exceptions import CorruptStateError
-from agentkit.governance.integrity_gate import (
+from agentkit.backend.bootstrap.composition_root import build_artifact_manager
+from agentkit.backend.core_types import PolicyVerdict
+from agentkit.backend.exceptions import CorruptStateError
+from agentkit.backend.governance.integrity_gate import (
     IntegrityDimension,
     IntegrityGate,
     IntegrityGateStatus,
 )
-from agentkit.governance.integrity_gate.dim9_sonar import SONAR_NOT_GREEN
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.governance.integrity_gate.dim9_sonar import SONAR_NOT_GREEN
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseSnapshot,
     PhaseStatus,
 )
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.sqlite_store import state_db_path_for
-from agentkit.state_backend.store import (
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.sqlite_store import state_db_path_for
+from agentkit.backend.state_backend.store import (
     record_layer_artifacts,
     record_verify_decision,
     reset_backend_cache_for_tests,
@@ -38,30 +38,30 @@ from agentkit.state_backend.store import (
     save_phase_snapshot,
     save_story_context,
 )
-from agentkit.state_backend.store.integrity_gate_repository import (
+from agentkit.backend.state_backend.store.integrity_gate_repository import (
     StateBackendIntegrityGateStateAdapter,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import WireStoryMode
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.verify_system.artifacts import (
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import WireStoryMode
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.verify_system.artifacts import (
     write_layer_artifacts,
     write_verify_decision_artifacts,
 )
-from agentkit.verify_system.policy_engine.engine import VerifyDecision
-from agentkit.verify_system.protocols import (
+from agentkit.backend.verify_system.policy_engine.engine import VerifyDecision
+from agentkit.backend.verify_system.protocols import (
     Finding,
     LayerResult,
     Severity,
     TrustClass,
 )
-from agentkit.verify_system.sonarqube_gate import SonarApplicability
+from agentkit.backend.verify_system.sonarqube_gate import SonarApplicability
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from agentkit.state_backend.scope import RuntimeStateScope
+    from agentkit.backend.state_backend.scope import RuntimeStateScope
 
 _RUN = "run-integrity-001"
 _CODE_PHASES = ("setup", "implementation", "closure")
@@ -85,8 +85,8 @@ def sqlite_backend_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None,
 
 def _green_resolution() -> object:
     """A green AG3-052 capability resolution (the canonical SonarGateOutcome)."""
-    from agentkit.governance.integrity_gate.dim9_sonar import Dim9Resolution
-    from agentkit.verify_system.sonarqube_gate import SonarGateOutcome
+    from agentkit.backend.governance.integrity_gate.dim9_sonar import Dim9Resolution
+    from agentkit.backend.verify_system.sonarqube_gate import SonarGateOutcome
 
     return Dim9Resolution(
         applicability=SonarApplicability.APPLICABLE,
@@ -99,7 +99,7 @@ def _green_resolution() -> object:
 
 
 def _not_applicable_resolution() -> object:
-    from agentkit.governance.integrity_gate.dim9_sonar import Dim9Resolution
+    from agentkit.backend.governance.integrity_gate.dim9_sonar import Dim9Resolution
 
     return Dim9Resolution(
         applicability=SonarApplicability.NOT_APPLICABLE_UNAVAILABLE, outcome=None
@@ -117,8 +117,8 @@ class _StubSonarPort:
 
 def _green_gate() -> IntegrityGate:
     """IntegrityGate wired with the canonical envelope validator + green Dim 9."""
-    from agentkit.artifacts import EnvelopeValidator
-    from agentkit.bootstrap.composition_root import build_producer_registry
+    from agentkit.backend.artifacts import EnvelopeValidator
+    from agentkit.backend.bootstrap.composition_root import build_producer_registry
 
     return IntegrityGate(
         state_port=StateBackendIntegrityGateStateAdapter(),
@@ -128,8 +128,8 @@ def _green_gate() -> IntegrityGate:
 
 
 def _noncode_gate() -> IntegrityGate:
-    from agentkit.artifacts import EnvelopeValidator
-    from agentkit.bootstrap.composition_root import build_producer_registry
+    from agentkit.backend.artifacts import EnvelopeValidator
+    from agentkit.backend.bootstrap.composition_root import build_producer_registry
 
     return IntegrityGate(
         state_port=StateBackendIntegrityGateStateAdapter(),
@@ -208,7 +208,7 @@ def _structural_result(*, passed: bool = True) -> LayerResult:
                 "text to push the canonical envelope payload past 500 bytes"
             ),
             trust_class=TrustClass.SYSTEM,
-            file_path=f"src/agentkit/module_{i}.py",
+            file_path=f"src/agentkit/backend/module_{i}.py",
             line_number=i,
         )
         for i in range(3)
@@ -378,13 +378,13 @@ class _PoisonedSonarPort:
 
 
 def _fresh_attestation_obj(commit_sha: str) -> object:
-    from agentkit.config.models import SonarQubeConfig
-    from agentkit.governance.integrity_gate.dim9_sonar import FreshAttestation
-    from agentkit.verify_system.sonarqube_gate import (
+    from agentkit.backend.config.models import SonarQubeConfig
+    from agentkit.backend.governance.integrity_gate.dim9_sonar import FreshAttestation
+    from agentkit.backend.verify_system.sonarqube_gate import (
         SonarApplicability,
         SonarGateOutcome,
     )
-    from agentkit.verify_system.sonarqube_gate.attestation import (
+    from agentkit.backend.verify_system.sonarqube_gate.attestation import (
         ATTESTATION_STATUS_READ,
         SonarAttestation,
     )
@@ -430,8 +430,8 @@ class TestIntegrityGateFreshAttestationWiring:
     def test_fresh_attestation_path_passes_dim9_without_consulting_port(
         self, tmp_path: Path
     ) -> None:
-        from agentkit.artifacts import EnvelopeValidator
-        from agentkit.bootstrap.composition_root import build_producer_registry
+        from agentkit.backend.artifacts import EnvelopeValidator
+        from agentkit.backend.bootstrap.composition_root import build_producer_registry
 
         story_dir = _story_dir(tmp_path)
         _populate_implementation_story(story_dir)
@@ -453,15 +453,15 @@ class TestIntegrityGateFreshAttestationWiring:
     def test_fresh_attestation_red_qg_fails_dim9_via_fresh_path(
         self, tmp_path: Path
     ) -> None:
-        from agentkit.artifacts import EnvelopeValidator
-        from agentkit.bootstrap.composition_root import build_producer_registry
-        from agentkit.config.models import SonarQubeConfig
-        from agentkit.governance.integrity_gate.dim9_sonar import FreshAttestation
-        from agentkit.verify_system.sonarqube_gate import (
+        from agentkit.backend.artifacts import EnvelopeValidator
+        from agentkit.backend.bootstrap.composition_root import build_producer_registry
+        from agentkit.backend.config.models import SonarQubeConfig
+        from agentkit.backend.governance.integrity_gate.dim9_sonar import FreshAttestation
+        from agentkit.backend.verify_system.sonarqube_gate import (
             SonarApplicability,
             SonarGateOutcome,
         )
-        from agentkit.verify_system.sonarqube_gate.attestation import (
+        from agentkit.backend.verify_system.sonarqube_gate.attestation import (
             ATTESTATION_STATUS_READ,
             SonarAttestation,
         )
@@ -565,7 +565,7 @@ class TestContextStatusValidationReal:
     ) -> None:
         # Full story but the Setup phase snapshot is RUNNING (not COMPLETED) =>
         # context status != PASS => fail-closed CONTEXT_INVALID (ENVELOPE_VIOLATION).
-        from agentkit.governance.integrity_gate.dimensions import ENVELOPE_VIOLATION
+        from agentkit.backend.governance.integrity_gate.dimensions import ENVELOPE_VIOLATION
 
         story_dir = _story_dir(tmp_path)
         _create_context(story_dir)
@@ -616,7 +616,7 @@ class TestIntegrityGateResearchFewerDimensions:
 
 class TestIntegrityGateDim9Wiring:
     def test_build_integrity_gate_wires_state_backend_adapter(self) -> None:
-        from agentkit.bootstrap.composition_root import build_integrity_gate
+        from agentkit.backend.bootstrap.composition_root import build_integrity_gate
 
         gate = build_integrity_gate()
         assert isinstance(
@@ -626,8 +626,8 @@ class TestIntegrityGateDim9Wiring:
     def test_code_story_without_port_fails_closed(self, tmp_path: Path) -> None:
         # E-C: an impl story with NO sonar_port is APPLICABLE-but-unresolvable
         # -> Dim 9 fail-closed (never a silent skip).
-        from agentkit.artifacts import EnvelopeValidator
-        from agentkit.bootstrap.composition_root import build_producer_registry
+        from agentkit.backend.artifacts import EnvelopeValidator
+        from agentkit.backend.bootstrap.composition_root import build_producer_registry
 
         story_dir = _story_dir(tmp_path)
         _populate_implementation_story(story_dir)

@@ -7,19 +7,19 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.projection_repositories import (
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.projection_repositories import (
     build_projection_repositories,
 )
-from agentkit.task_management import (
+from agentkit.backend.task_management import (
     Task,
     TaskKind,
     TaskOrigin,
     TaskPriority,
     TaskStatus,
 )
-from agentkit.telemetry.errors import ProjectionRecordTypeMismatchError
-from agentkit.telemetry.projection_accessor import ProjectionAccessor, ProjectionKind
+from agentkit.backend.telemetry.errors import ProjectionRecordTypeMismatchError
+from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor, ProjectionKind
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

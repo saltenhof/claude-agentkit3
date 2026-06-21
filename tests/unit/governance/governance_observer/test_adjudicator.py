@@ -9,12 +9,12 @@ import json
 
 import pytest
 
-from agentkit.governance.governance_observer.adjudicator import (
+from agentkit.backend.governance.governance_observer.adjudicator import (
     GovernanceAdjudicationError,
     build_adjudication_prompt,
     parse_adjudication_response,
 )
-from agentkit.governance.governance_observer.models import (
+from agentkit.backend.governance.governance_observer.models import (
     AdjudicationIncidentType,
     AdjudicationRecommendedAction,
     AdjudicationSeverity,
@@ -81,7 +81,7 @@ def test_build_adjudication_prompt_includes_key_fields() -> None:
     """Prompt contains the incident candidate key fields."""
     from datetime import UTC, datetime
 
-    from agentkit.governance.governance_observer.models import GovernanceIncidentCandidate
+    from agentkit.backend.governance.governance_observer.models import GovernanceIncidentCandidate
 
     candidate = GovernanceIncidentCandidate(
         project_key="PRJ",

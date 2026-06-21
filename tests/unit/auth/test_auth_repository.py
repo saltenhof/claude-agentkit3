@@ -3,13 +3,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from agentkit.auth.entities import ProjectApiToken
+from agentkit.backend.auth.entities import ProjectApiToken
 
 if TYPE_CHECKING:
     from pathlib import Path
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.state_backend.store.auth_repository import StateBackendProjectApiTokenRepository
-from agentkit.state_backend.store.project_management_repository import (
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.state_backend.store.auth_repository import StateBackendProjectApiTokenRepository
+from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
 

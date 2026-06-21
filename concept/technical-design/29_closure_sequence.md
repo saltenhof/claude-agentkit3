@@ -272,7 +272,7 @@ flowchart TD
     PMB_SCAN -->|"rot (main-Drift)"| ESC_RED(["Remediation-Loop (§29.1a.4)<br/>→ Retry mit neuem locked_sha<br/>dauerhaft rot/nicht-ff: ESCALATED"])
     PMB_SCAN -->|"gruen"| PMB_TREE["assert tree_hash(scan) == tree_hash(merge)"]
 
-    PMB_TREE --> INTEGRITY["Integrity-Gate (innerhalb des Locks)<br/>(agentkit.governance.integrity_gate;<br/>FK-35 §35.2: Pflicht-Artefakt-Vorstufe +<br/>9 Dimensionen inkl. Dim. 9 SonarQube-Green<br/>= verifiziert die frische Attestation +<br/>Telemetrie-Korrelation)"]
+    PMB_TREE --> INTEGRITY["Integrity-Gate (innerhalb des Locks)<br/>(agentkit.backend.governance.integrity_gate;<br/>FK-35 §35.2: Pflicht-Artefakt-Vorstufe +<br/>9 Dimensionen inkl. Dim. 9 SonarQube-Green<br/>= verifiziert die frische Attestation +<br/>Telemetrie-Korrelation)"]
     INTEGRITY -->|FAIL| ESC_I(["ESCALATED:<br/>Opake Meldung.<br/>Details in Audit-Log."])
     INTEGRITY -->|PASS| SUB1["Substate:<br/>integrity_passed = true"]
 
@@ -292,7 +292,7 @@ flowchart TD
     SUB3 --> STATUS["Projektstatus: Done<br/>+ QA Rounds, Completed At"]
     STATUS --> SUB4["Substate:<br/>metrics_written = true"]
 
-    SUB4 --> DOCTREUE4["Dokumententreue Ebene 4:<br/>Rückkopplungstreue<br/>(agentkit.verify_system.llm_evaluator;<br/>StructuredEvaluator, FK-34)"]
+    SUB4 --> DOCTREUE4["Dokumententreue Ebene 4:<br/>Rückkopplungstreue<br/>(agentkit.backend.verify_system.llm_evaluator;<br/>StructuredEvaluator, FK-34)"]
     DOCTREUE4 -->|"FAIL (non-blocking)"| WARN_DT(["Warnung an Mensch<br/>(FK-38 §38.3.1)"])
     DOCTREUE4 -->|"PASS"| POSTFLIGHT["Postflight-Gates"]
     WARN_DT --> POSTFLIGHT
@@ -301,7 +301,7 @@ flowchart TD
     WARN_PF --> SUB5
 
     SUB5 --> VDBSYNC["VektorDB-Sync<br/>(async, Fire-and-Forget)"]
-    VDBSYNC --> GUARDS_OFF["Guards deaktivieren:<br/>Governance.deactivate_locks(story_id)<br/>(agentkit.governance)"]
+    VDBSYNC --> GUARDS_OFF["Guards deaktivieren:<br/>Governance.deactivate_locks(story_id)<br/>(agentkit.backend.governance)"]
     GUARDS_OFF --> DONE(["Story abgeschlossen"])
 ```
 
@@ -805,11 +805,11 @@ Vollbehebung, weil keine andere Instanz den Finding-Status setzte.
 ### 29.2.2 Quelle des Resolution-Status (FK-27-222)
 
 Der Resolution-Status kommt ausschliesslich aus den Layer-2-QA-
-Review-Checks (`agentkit.verify_system.llm_evaluator`,
+Review-Checks (`agentkit.backend.verify_system.llm_evaluator`,
 `StructuredEvaluator` im Remediation-Modus, FK-34).
 Es gibt keine eigene Quelle und kein separates Artefakt:
 
-- **Kanonisch:** Layer-2-Evaluator (`agentkit.verify_system.llm_evaluator`)
+- **Kanonisch:** Layer-2-Evaluator (`agentkit.backend.verify_system.llm_evaluator`)
   bewertet pro Finding: `fully_resolved`, `partially_resolved`, `not_resolved`
 - **Nicht kanonisch:** Worker-Artefakte (`protocol.md`,
   `handover.json`) — diese haben Trust C und duerfen den Status
@@ -934,11 +934,11 @@ mit FAILED endet ohne Closure regulaer zu erreichen, ruft
 `pipeline-framework.PipelineEngine` die ClosureSequence-Top dennoch
 auf — im Skip-Modus: `ClosureProgress`-Felder bleiben auf `false`, der
 `ExecutionReport` wird trotzdem erzeugt (Graceful Degradation, §29.4.3).
-Modul: `agentkit.closure.execution_report` (`ExecutionReport`, intern in
+Modul: `agentkit.backend.closure.execution_report` (`ExecutionReport`, intern in
 BC 7). Begruendung: Single-Owner fuer alle Closure-Anteile;
 pipeline-framework bleibt orchestrierend statt fachlich.
 `ExecutionReport` ist deshalb NICHT `sub_exposed` und wird nicht von
-`agentkit.pipeline_engine` direkt aufgerufen.
+`agentkit.backend.pipeline_engine` direkt aufgerufen.
 
 ### 29.4.2 Report-Sektionen
 
@@ -969,7 +969,7 @@ Domänenkonzept 5.2 Closure-Phase "Execution Report".
 ## 29.5 Guard-Deaktivierung
 
 Nach erfolgreichem Postflight ruft Closure `Governance.deactivate_locks(story_id)`
-(`agentkit.governance`, Top-Surface). Die Lock-Record-Verwaltung gehoert
+(`agentkit.backend.governance`, Top-Surface). Die Lock-Record-Verwaltung gehoert
 ausschliesslich zum Governance-BC; Closure haelt keinen eigenen Lock-Sub.
 
 `Governance.deactivate_locks` fuehrt intern aus:
@@ -981,25 +981,25 @@ ausschliesslich zum Governance-BC; Closure haelt keinen eigenen Lock-Sub.
    Orchestrator-Guard inaktiv, QA-Schutz inaktiv)
 
 Closure selbst enthaelt keine Lock-Logik — der Aufruf ist ein einzelner
-Delegationsschritt an `agentkit.governance.integrity_gate` (IntegrityGate-Aufruf
-in §29.1.2) und `agentkit.governance` (Guard-Deaktivierung hier).
+Delegationsschritt an `agentkit.backend.governance.integrity_gate` (IntegrityGate-Aufruf
+in §29.1.2) und `agentkit.backend.governance` (Guard-Deaktivierung hier).
 
 ## 29.6 Schema-Owner-Cut: StoryMetric und WorkflowMetric
 
-**Owner: story-closure BC (agentkit.closure.post_merge_finalization)**
+**Owner: story-closure BC (agentkit.backend.closure.post_merge_finalization)**
 
 Analog zum Schema-Owner-Cut in FK-69 §69.6-69.8 fuer telemetry-and-events gilt:
 
 | Schema | Owner | Modul | Schreibzeitpunkt |
 |--------|-------|-------|-----------------|
-| `StoryMetric` | story-closure | `agentkit.closure.post_merge_finalization` | Ende der Closure-Phase (Substate `metrics_written = true`) |
-| `WorkflowMetric` | story-closure | `agentkit.closure.post_merge_finalization` | Ende der Closure-Phase (Substate `metrics_written = true`) |
+| `StoryMetric` | story-closure | `agentkit.backend.closure.post_merge_finalization` | Ende der Closure-Phase (Substate `metrics_written = true`) |
+| `WorkflowMetric` | story-closure | `agentkit.backend.closure.post_merge_finalization` | Ende der Closure-Phase (Substate `metrics_written = true`) |
 
 `PostMergeFinalization` definiert die Schema-Struktur und schreibt die Werte
-via `Telemetry.write_projection` (Top-Surface von `agentkit.telemetry`).
+via `Telemetry.write_projection` (Top-Surface von `agentkit.backend.telemetry`).
 Die Persistenz-Schicht (Projektionstabellen) liegt bei telemetry-and-events —
 Schema-Ownership und Schreibverantwortung liegen bei story-closure.
 
 Lesezugriff auf `StoryMetric`/`WorkflowMetric` erfolgt ausschliesslich
-ueber `Telemetry.read_projection` (sub_exposed, `agentkit.telemetry.projection_accessor`).
+ueber `Telemetry.read_projection` (sub_exposed, `agentkit.backend.telemetry.projection_accessor`).
 Direktes Lesen der Projektionstabellen durch andere BCs ist nicht zulaessig.

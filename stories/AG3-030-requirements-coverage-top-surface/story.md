@@ -89,9 +89,9 @@ class RequirementsCoverage:
 
 #### 2.1.2 `AreClient`-Skelett (FK-40 §40.4)
 
-<!-- AG3-030 deep-review: AreClient gehoert per FK-40 §40.4 in agentkit.requirements_coverage.are_client (BC-internes Sub), NICHT in agentkit.integrations.are.client. FK-40 §40.4: "AgentKit-Code kommuniziert ausschliesslich ueber AreClient-Sub agentkit.requirements_coverage.are_client". Pfadkorrektur. -->
+<!-- AG3-030 deep-review: AreClient gehoert per FK-40 §40.4 in agentkit.backend.requirements_coverage.are_client (BC-internes Sub), NICHT in agentkit.integration_clients.are.client. FK-40 §40.4: "AgentKit-Code kommuniziert ausschliesslich ueber AreClient-Sub agentkit.backend.requirements_coverage.are_client". Pfadkorrektur. -->
 
-`src/agentkit/requirements_coverage/are_client.py` (NICHT `agentkit.integrations.are.client`):
+`src/agentkit/requirements_coverage/are_client.py` (NICHT `agentkit.integration_clients.are.client`):
 
 ```python
 class AreClient:
@@ -198,13 +198,13 @@ Stale-Behandlung wird in der ARE-Gate-Folge-Story (THEME-009, AG3-042) implement
 
 ## 4. Akzeptanzkriterien
 
-1. **`RequirementsCoverage`-Klasse existiert** und ist via `from agentkit.requirements_coverage import RequirementsCoverage` importierbar.
+1. **`RequirementsCoverage`-Klasse existiert** und ist via `from agentkit.backend.requirements_coverage import RequirementsCoverage` importierbar.
 2. **`is_enabled`-Property** liefert `True` wenn Pipeline-Config `features.are == True` und `AreClient` gesetzt ist; sonst `False`.
 3. **Vier Top-Methoden**: `link_requirements`, `load_context`, `submit_evidence`, `check_gate`. Jede prueft `is_enabled` zuerst. Wenn `False`: gibt Result-Modell mit `status=SKIPPED` zurueck (kein Fehler, keine Exception). Wenn `True`: `NotImplementedError` mit Verweis auf Folge-Story.
 4. **`AreClient`-Klasse existiert** unter `src/agentkit/requirements_coverage/are_client.py` mit fuenf Methoden gemaess FK-40 §40.4.1: `list_requirements(story_id, scope)`, `get_recurring(scope, story_type)`, `load_context(story_id)`, `submit_evidence(story_id, requirement_id, evidence_type, evidence_ref)`, `check_gate(story_id)`. Alle werfen `NotImplementedError` mit "follow-up"-Verweis. <!-- AG3-030 deep-review: Pfad + Signaturen korrigiert. -->
 5. **Result-Modelle** sind frozen, extra forbid: `LinkResult`, `ContextLoadResult`, `EvidenceSubmitResult`, `CoverageVerdict`.
 6. **`features.are: true`-Pfad**: bei aktivierter ARE und fehlendem `AreClient` wirft jede Methode `AreConfigurationError`; bei aktivierter ARE und vorhandenem `AreClient` wirft jede Methode `AreCapabilityNotImplementedError` mit Verweis auf die Folge-Story (Vertrags-Slot, kein produktives Verhalten). <!-- AG3-030 deep-review: ehemals AK 6 (Stale-Erkennung) ersetzt — Stale wandert in Folge-Story. -->
-7. **Architecture-Conformance**: `agentkit.requirements_coverage` importiert nur `agentkit.core_types`, `agentkit.config`; nicht aus `agentkit.integrations.are` (AreClient ist BC-internes Sub) und nicht direkt aus state_backend.store-Fassaden ausserhalb Repository-Module.
+7. **Architecture-Conformance**: `agentkit.backend.requirements_coverage` importiert nur `agentkit.backend.core_types`, `agentkit.backend.config`; nicht aus `agentkit.integration_clients.are` (AreClient ist BC-internes Sub) und nicht direkt aus state_backend.store-Fassaden ausserhalb Repository-Module.
 8. **Pflichtbefehle gruen**: pytest unit + contract; mypy --strict; ruff clean; Coverage haelt 85%.
 
 ## 5. Definition of Done
@@ -230,5 +230,5 @@ Stale-Behandlung wird in der ARE-Gate-Folge-Story (THEME-009, AG3-042) implement
 
 ## 8. Hinweise fuer den Sub-Agent
 
-- Pipeline-Config `features.are`: existiert vermutlich bereits in `agentkit.config`. Falls noch nicht: schmaler Pydantic-Sub-Block `Features(are: bool = False)`. Prueft Source vor Aenderung.
+- Pipeline-Config `features.are`: existiert vermutlich bereits in `agentkit.backend.config`. Falls noch nicht: schmaler Pydantic-Sub-Block `Features(are: bool = False)`. Prueft Source vor Aenderung.
 - AK2 NICHT veraendern.

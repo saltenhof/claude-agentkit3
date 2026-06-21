@@ -6,7 +6,7 @@ DK-10-§10.4-Vokabular XS/S/M/L/XL.
 
 from __future__ import annotations
 
-from agentkit.story_context_manager.sizing import StorySize, estimate_size
+from agentkit.backend.story_context_manager.sizing import StorySize, estimate_size
 
 
 class TestStorySize:

@@ -12,13 +12,13 @@ from __future__ import annotations
 import json
 from http import HTTPStatus
 
-from agentkit.failure_corpus.http.routes import FailureCorpusRoutes
+from agentkit.backend.failure_corpus.http.routes import FailureCorpusRoutes
 
 _CORR = "test-corr-fc-001"
 
 
 def _json(response: object) -> object:
-    from agentkit.control_plane.models import BcRouteResponse
+    from agentkit.backend.control_plane.models import BcRouteResponse
 
     assert isinstance(response, BcRouteResponse)
     return json.loads(response.body)

@@ -35,32 +35,32 @@ from tests.unit.closure.closure_fakes import (
     build_progress_store,
 )
 
-from agentkit.bootstrap.composition_root import build_artifact_manager
-from agentkit.closure.phase import ClosureConfig, ClosurePhaseHandler
-from agentkit.core_types.qa_artifact_names import (
+from agentkit.backend.bootstrap.composition_root import build_artifact_manager
+from agentkit.backend.closure.phase import ClosureConfig, ClosurePhaseHandler
+from agentkit.backend.core_types.qa_artifact_names import (
     HANDOVER_FILE,
     PROTOCOL_FILE,
     WORKER_MANIFEST_FILE,
 )
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.phase_executor import (
     ClosurePayload,
     ClosureProgress,
     PhaseSnapshot,
     PhaseState,
     PhaseStatus,
 )
-from agentkit.state_backend.store import (
+from agentkit.backend.state_backend.store import (
     append_execution_event,
     save_flow_execution,
     save_phase_snapshot,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import WireStoryMode
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.telemetry.contract.records import ExecutionEventRecord
-from agentkit.telemetry.events import EventType
-from agentkit.verify_system.structural.system_evidence import ChangeEvidence
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import WireStoryMode
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.telemetry.events import EventType
+from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -69,7 +69,7 @@ if TYPE_CHECKING:
 
 @pytest.fixture(autouse=True)
 def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
-    from agentkit.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
@@ -95,7 +95,7 @@ class _RecordingModeLockReleasePort:
     calls: list[tuple[str, str]] = field(default_factory=list)
 
     def release(self, story_dir: Path, project_key: str) -> tuple[bool, str | None]:
-        from agentkit.governance.setup_preflight_gate.mode_lock_marker import (
+        from agentkit.backend.governance.setup_preflight_gate.mode_lock_marker import (
             acquired_mode,
             clear_mode_lock_marker,
         )
@@ -187,7 +187,7 @@ def _write_required_worker_artifacts(story_dir: Path, story_id: str) -> None:
                 "run_id": f"run-{story_id.lower()}",
                 "status": "completed",
                 "completed_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
-                "files_changed": ["src/agentkit/done.py"],
+                "files_changed": ["src/agentkit/backend/done.py"],
                 "tests_added": [],
                 "acceptance_criteria_status": {"AC1": "done"},
             }
@@ -201,7 +201,7 @@ class _StaticChangeEvidencePort:
         del story_dir
         return ChangeEvidence(
             available=True,
-            changed_files=("src/agentkit/done.py",),
+            changed_files=("src/agentkit/backend/done.py",),
         )
 
 
@@ -269,7 +269,7 @@ def test_fast_closure_rebase_conflict_escalates(tmp_path: Path) -> None:
 
 
 def test_fast_closure_releases_mode_lock_once(tmp_path: Path) -> None:
-    from agentkit.governance.setup_preflight_gate.mode_lock_marker import (
+    from agentkit.backend.governance.setup_preflight_gate.mode_lock_marker import (
         mode_lock_acquired,
         record_mode_lock_acquired,
     )
@@ -298,11 +298,11 @@ def test_resumed_closure_does_not_double_release(tmp_path: Path) -> None:
     # Pre-write the metrics projection so the metrics-resume read finds it (the
     # metrics_written checkpoint guarantees a persisted projection on resume).
     s_dir = _prepare(tmp_path)
-    from agentkit.bootstrap.composition_root import build_projection_accessor
-    from agentkit.closure.post_merge_finalization.metrics import (
+    from agentkit.backend.bootstrap.composition_root import build_projection_accessor
+    from agentkit.backend.closure.post_merge_finalization.metrics import (
         build_story_metrics_record,
     )
-    from agentkit.telemetry.projection_accessor import ProjectionKind
+    from agentkit.backend.telemetry.projection_accessor import ProjectionKind
 
     metrics = build_story_metrics_record(
         s_dir,

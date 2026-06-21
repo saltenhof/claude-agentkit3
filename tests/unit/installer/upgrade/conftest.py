@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import pytest
 import yaml
 
-from agentkit.installer.registration import ProjectRegistration, RuntimeProfile
+from agentkit.backend.installer.registration import ProjectRegistration, RuntimeProfile
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -53,7 +53,7 @@ class InMemoryRegistrationRepo:
 
 def write_project_yaml(project_root: Path, data: dict[str, object]) -> Path:
     """Write ``.agentkit/config/project.yaml`` under ``project_root`` and return it."""
-    from agentkit.installer.paths import project_config_path
+    from agentkit.backend.installer.paths import project_config_path
 
     path = project_config_path(project_root)
     path.parent.mkdir(parents=True, exist_ok=True)

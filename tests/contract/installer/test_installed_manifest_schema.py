@@ -12,19 +12,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.core_types.plane_artifact_names import (
+from agentkit.backend.core_types.plane_artifact_names import (
     AGENT_SPAWN_SKILL_PROOF_KEY,
     INSTALLED_MANIFEST_FILENAME,
 )
-from agentkit.governance.runner import (
+from agentkit.backend.governance.runner import (
     _MANIFEST_SKILL_PROOF_KEY,
     _installed_skill_proof,
 )
-from agentkit.installer.installed_manifest import (
+from agentkit.backend.installer.installed_manifest import (
     SKILL_PROOF_KEY,
     build_installed_manifest,
 )
-from agentkit.installer.paths import installed_manifest_path
+from agentkit.backend.installer.paths import installed_manifest_path
 
 if TYPE_CHECKING:
     from pathlib import Path

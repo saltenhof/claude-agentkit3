@@ -20,15 +20,15 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from agentkit.core_types import (
+from agentkit.backend.core_types import (
     CheckStatus,
     CheckType,
     FailureCategory,
     PatternStatus,
 )
-from agentkit.failure_corpus.check_proposal import CheckProposalRecord, FalsePositiveRisk
-from agentkit.failure_corpus.pattern import FailurePatternRecord, PatternRiskLevel, PromotionRule
-from agentkit.telemetry.projection_accessor import (
+from agentkit.backend.failure_corpus.check_proposal import CheckProposalRecord, FalsePositiveRisk
+from agentkit.backend.failure_corpus.pattern import FailurePatternRecord, PatternRiskLevel, PromotionRule
+from agentkit.backend.telemetry.projection_accessor import (
     ProjectionAccessor,
     ProjectionFilter,
     ProjectionKind,
@@ -41,8 +41,8 @@ def accessor(
 ) -> ProjectionAccessor:
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-    from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
-    from agentkit.state_backend.store.projection_repositories import (
+    from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.store.projection_repositories import (
         build_projection_repositories,
     )
 
@@ -111,7 +111,7 @@ class TestWriteProjectionFcPatterns:
         accessor.write_projection(ProjectionKind.FC_PATTERNS, pattern)
 
     def test_write_rejects_wrong_type(self, accessor: ProjectionAccessor) -> None:
-        from agentkit.telemetry.errors import ProjectionRecordTypeMismatchError
+        from agentkit.backend.telemetry.errors import ProjectionRecordTypeMismatchError
 
         with pytest.raises(ProjectionRecordTypeMismatchError):
             # QACheckOutcomeRecord is NOT a FailurePatternRecord
@@ -131,7 +131,7 @@ class TestWriteProjectionFcCheckProposals:
         accessor.write_projection(ProjectionKind.FC_CHECK_PROPOSALS, check)
 
     def test_write_rejects_wrong_type(self, accessor: ProjectionAccessor) -> None:
-        from agentkit.telemetry.errors import ProjectionRecordTypeMismatchError
+        from agentkit.backend.telemetry.errors import ProjectionRecordTypeMismatchError
 
         with pytest.raises(ProjectionRecordTypeMismatchError):
             accessor.write_projection(

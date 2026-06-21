@@ -6,23 +6,23 @@ import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
-from agentkit.bootstrap.composition_root import build_artifact_manager
-from agentkit.installer import InstallConfig, install_agentkit
-from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV
-from agentkit.phase_state_store import FlowExecution, save_flow_execution
-from agentkit.state_backend.store import save_story_context
-from agentkit.state_backend.store.verify_story_context_repository import (
+from agentkit.backend.bootstrap.composition_root import build_artifact_manager
+from agentkit.backend.installer import InstallConfig, install_agentkit
+from agentkit.backend.installer.paths import PROMPT_BUNDLE_STORE_ENV
+from agentkit.backend.phase_state_store import FlowExecution, save_flow_execution
+from agentkit.backend.state_backend.store import save_story_context
+from agentkit.backend.state_backend.store.verify_story_context_repository import (
     StateBackendVerifyStoryContextAdapter,
 )
-from agentkit.verify_system.adversarial_orchestrator.challenger import AdversarialChallenger
+from agentkit.backend.verify_system.adversarial_orchestrator.challenger import AdversarialChallenger
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     import pytest
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.verify_system.protocols import QALayer
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.verify_system.protocols import QALayer
 
 
 def _wired_audit_deps(store_dir: Path) -> dict[str, object]:
@@ -147,8 +147,8 @@ class TestAdversarialChallenger:
 
     def test_evaluate_runs_real_runtime_when_wired(self, tmp_path: Path) -> None:
         """AC1/2/5/6: a wired challenger runs the real runtime over sandbox evidence."""
-        from agentkit.telemetry.emitters import MemoryEmitter
-        from agentkit.telemetry.events import EventType
+        from agentkit.backend.telemetry.emitters import MemoryEmitter
+        from agentkit.backend.telemetry.events import EventType
 
         project_root = tmp_path / "project"
         story_dir = project_root / "stories" / "TEST-001"
@@ -213,8 +213,8 @@ class TestAdversarialChallenger:
         self, tmp_path: Path
     ) -> None:
         """AC2: the challenger resolves the sandbox epoch via the run-scope port."""
-        from agentkit.telemetry.emitters import MemoryEmitter
-        from agentkit.verify_system.protocols import RunScope
+        from agentkit.backend.telemetry.emitters import MemoryEmitter
+        from agentkit.backend.verify_system.protocols import RunScope
 
         project_root = tmp_path / "project"
         story_dir = project_root / "stories" / "TEST-001"

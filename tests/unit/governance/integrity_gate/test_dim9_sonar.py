@@ -21,13 +21,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.governance.integrity_gate.dim9_sonar import (
+from agentkit.backend.governance.integrity_gate.dim9_sonar import (
     SONAR_NOT_GREEN,
     Dim9Resolution,
     verify_sonarqube_green,
 )
-from agentkit.governance.integrity_gate.dimensions import IntegrityDimension
-from agentkit.verify_system.sonarqube_gate import SonarApplicability, SonarGateOutcome
+from agentkit.backend.governance.integrity_gate.dimensions import IntegrityDimension
+from agentkit.backend.verify_system.sonarqube_gate import SonarApplicability, SonarGateOutcome
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -90,8 +90,8 @@ def test_not_applicable_is_dropped_upstream(
 ) -> None:
     # dimensions_for omits Dim 9 when not applicable; verify_sonarqube_green is
     # never reached for these.  Asserted via the dimensions_for contract here.
-    from agentkit.governance.integrity_gate.dimensions import dimensions_for
-    from agentkit.story_context_manager.types import StoryType
+    from agentkit.backend.governance.integrity_gate.dimensions import dimensions_for
+    from agentkit.backend.story_context_manager.types import StoryType
 
     assert IntegrityDimension.SONARQUBE_GREEN not in dimensions_for(
         StoryType.IMPLEMENTATION, sonar_applicable=False
@@ -103,13 +103,13 @@ def test_not_applicable_is_dropped_upstream(
 # Layer 2 — ProductiveSonarDimensionPort genuinely CONSUMES the AG3-052 API.
 # ---------------------------------------------------------------------------
 
-from agentkit.governance.integrity_gate import IntegrityGateContext  # noqa: E402
-from agentkit.governance.integrity_gate.dim9_port import (  # noqa: E402
+from agentkit.backend.governance.integrity_gate import IntegrityGateContext  # noqa: E402
+from agentkit.backend.governance.integrity_gate.dim9_port import (  # noqa: E402
     ProductiveSonarDimensionPort,
 )
-from agentkit.story_context_manager.models import StoryContext  # noqa: E402
-from agentkit.story_context_manager.story_model import WireStoryMode  # noqa: E402
-from agentkit.story_context_manager.types import StoryMode, StoryType  # noqa: E402
+from agentkit.backend.story_context_manager.models import StoryContext  # noqa: E402
+from agentkit.backend.story_context_manager.story_model import WireStoryMode  # noqa: E402
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType  # noqa: E402
 
 
 def _gate_ctx(story_dir: Path) -> IntegrityGateContext:
@@ -149,7 +149,7 @@ def test_consumer_path_applicable_missing_scan_fails_closed(tmp_path: Path) -> N
     # scan OOS) -> build_sonar_gate_port_for_run returns a fail-closed APPLICABLE
     # port (attestation=None) and evaluate_sonarqube_gate yields a failed outcome
     # -> the consumer path surfaces a failed SonarGateOutcome (NOT a None-stub).
-    from agentkit.config.models import SonarQubeConfig
+    from agentkit.backend.config.models import SonarQubeConfig
 
     config = SonarQubeConfig(
         available=True,
@@ -199,7 +199,7 @@ def test_consumer_path_unreadable_context_fails_closed(tmp_path: Path) -> None:
 
 import subprocess  # noqa: E402
 
-from agentkit.config.models import SonarQubeConfig  # noqa: E402
+from agentkit.backend.config.models import SonarQubeConfig  # noqa: E402
 
 
 def _git(root: Path, *args: str) -> str:
@@ -255,7 +255,7 @@ class _GreenSonarClient:
         self._revision = revision
 
     def ce_task(self, ce_task_id: str) -> object:
-        from agentkit.integrations.sonar import SonarHttpResponse
+        from agentkit.integration_clients.sonar import SonarHttpResponse
 
         del ce_task_id
         # ERROR-A: the analysisId is resolved from the terminal CE task and
@@ -268,7 +268,7 @@ class _GreenSonarClient:
     def project_status(
         self, *, analysis_id: str | None = None, ce_task_id: str | None = None
     ) -> object:
-        from agentkit.integrations.sonar import SonarHttpResponse
+        from agentkit.integration_clients.sonar import SonarHttpResponse
 
         del analysis_id, ce_task_id
         return SonarHttpResponse(
@@ -285,7 +285,7 @@ class _GreenSonarClient:
     def project_analyses_search(
         self, project: str, *, branch: str | None = None
     ) -> object:
-        from agentkit.integrations.sonar import SonarHttpResponse
+        from agentkit.integration_clients.sonar import SonarHttpResponse
 
         del project, branch
         # FIX-2: the authoritative revision source — matched STRICTLY by the
@@ -296,14 +296,14 @@ class _GreenSonarClient:
         )
 
     def system_status(self) -> object:
-        from agentkit.integrations.sonar import SonarHttpResponse
+        from agentkit.integration_clients.sonar import SonarHttpResponse
 
         return SonarHttpResponse(
             status_code=200, json_body={"id": "srv", "version": "26.4", "status": "UP"}
         )
 
     def qualitygates_get_by_project(self, project: str) -> object:
-        from agentkit.integrations.sonar import SonarHttpResponse
+        from agentkit.integration_clients.sonar import SonarHttpResponse
 
         del project
         return SonarHttpResponse(
@@ -311,7 +311,7 @@ class _GreenSonarClient:
         )
 
     def qualitygates_show(self, name: str) -> object:
-        from agentkit.integrations.sonar import SonarHttpResponse
+        from agentkit.integration_clients.sonar import SonarHttpResponse
 
         del name
         return SonarHttpResponse(
@@ -326,7 +326,7 @@ class _GreenSonarClient:
         )
 
     def qualityprofiles_search(self, project: str) -> object:
-        from agentkit.integrations.sonar import SonarHttpResponse
+        from agentkit.integration_clients.sonar import SonarHttpResponse
 
         del project
         return SonarHttpResponse(
@@ -345,7 +345,7 @@ class _GreenSonarClient:
         )
 
     def settings_values(self, *, component: str, keys: tuple[str, ...] = ()) -> object:
-        from agentkit.integrations.sonar import SonarHttpResponse
+        from agentkit.integration_clients.sonar import SonarHttpResponse
 
         del component, keys
         return SonarHttpResponse(
@@ -354,7 +354,7 @@ class _GreenSonarClient:
         )
 
     def search_issues(self, params: object) -> object:
-        from agentkit.integrations.sonar import SonarHttpResponse
+        from agentkit.integration_clients.sonar import SonarHttpResponse
 
         del params
         return SonarHttpResponse(status_code=200, json_body={"issues": []})
@@ -387,7 +387,7 @@ def test_consumer_path_green_attestation_passes(
     _write_report_task(tmp_path)
 
     # Fake ONLY the external HTTP client (the integrations.sonar boundary).
-    from agentkit.verify_system.sonarqube_gate import runtime_wiring
+    from agentkit.backend.verify_system.sonarqube_gate import runtime_wiring
 
     monkeypatch.setattr(
         runtime_wiring,
@@ -443,7 +443,7 @@ class _RedSonarClient(_GreenSonarClient):
     def project_status(
         self, *, analysis_id: str | None = None, ce_task_id: str | None = None
     ) -> object:
-        from agentkit.integrations.sonar import SonarHttpResponse
+        from agentkit.integration_clients.sonar import SonarHttpResponse
 
         del analysis_id, ce_task_id
         return SonarHttpResponse(
@@ -471,7 +471,7 @@ class _StaleSonarClient(_GreenSonarClient):
     def project_analyses_search(
         self, project: str, *, branch: str | None = None
     ) -> object:
-        from agentkit.integrations.sonar import SonarHttpResponse
+        from agentkit.integration_clients.sonar import SonarHttpResponse
 
         del project, branch
         return SonarHttpResponse(
@@ -514,7 +514,7 @@ def test_consumer_path_red_quality_gate_fails_closed(
     head = _init_repo(tmp_path)
     _write_report_task(tmp_path)
 
-    from agentkit.verify_system.sonarqube_gate import runtime_wiring
+    from agentkit.backend.verify_system.sonarqube_gate import runtime_wiring
 
     monkeypatch.setattr(
         runtime_wiring,
@@ -554,7 +554,7 @@ def test_consumer_path_stale_attestation_fails_closed(
     head = _init_repo(tmp_path)
     _write_report_task(tmp_path)
 
-    from agentkit.verify_system.sonarqube_gate import runtime_wiring
+    from agentkit.backend.verify_system.sonarqube_gate import runtime_wiring
 
     monkeypatch.setattr(
         runtime_wiring,
@@ -590,7 +590,7 @@ def test_consumer_path_config_error_propagates_no_silent_skip(
     into a not-applicable skip. The error propagates fail-closed (FAIL-CLOSED,
     ZERO DEBT).
     """
-    from agentkit.exceptions import ConfigError
+    from agentkit.backend.exceptions import ConfigError
 
     def _raising_loader(gate_ctx: object) -> object:
         raise ConfigError("project sonar config is broken/unreadable")

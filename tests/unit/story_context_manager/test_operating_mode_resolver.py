@@ -16,17 +16,17 @@ from dataclasses import dataclass
 
 import pytest
 
-from agentkit.control_plane.models import EdgePointer, SessionRunBindingView
-from agentkit.control_plane.runtime import OperatingMode as ControlPlaneOperatingMode
-from agentkit.core_types.operating_mode import OperatingMode as CoreTypesOperatingMode
-from agentkit.projectedge.runtime import OperatingMode as RuntimeOperatingMode
-from agentkit.story_context_manager.operating_mode_resolver import (
+from agentkit.backend.control_plane.models import EdgePointer, SessionRunBindingView
+from agentkit.backend.control_plane.runtime import OperatingMode as ControlPlaneOperatingMode
+from agentkit.backend.core_types.operating_mode import OperatingMode as CoreTypesOperatingMode
+from agentkit.backend.story_context_manager.operating_mode_resolver import (
     OperatingMode,
     resolve_operating_mode,
 )
-from agentkit.story_context_manager.operating_mode_resolver.resolver import (
+from agentkit.backend.story_context_manager.operating_mode_resolver.resolver import (
     CarriesOperatingMode,
 )
+from agentkit.harness_client.projectedge.runtime import OperatingMode as RuntimeOperatingMode
 
 
 @dataclass(frozen=True)
@@ -87,7 +87,7 @@ def test_ccag_decision_mode_is_a_different_axis_not_the_operating_mode() -> None
     """
     from typing import get_args
 
-    from agentkit.governance.ccag.runtime import CcagDecisionMode
+    from agentkit.backend.governance.ccag.runtime import CcagDecisionMode
 
     assert CcagDecisionMode is not OperatingMode
     ccag_values = set(get_args(CcagDecisionMode))
@@ -105,7 +105,7 @@ def test_real_resolved_edge_state_satisfies_the_port() -> None:
     Proves the named accessor consumes the SAME object the edge resolver
     produces (no parallel truth) -- ai_augmented is the bundle-less default.
     """
-    from agentkit.projectedge.runtime import ResolvedEdgeState
+    from agentkit.harness_client.projectedge.runtime import ResolvedEdgeState
 
     resolved = ResolvedEdgeState(operating_mode="ai_augmented", bundle=None)
 
@@ -115,7 +115,7 @@ def test_real_resolved_edge_state_satisfies_the_port() -> None:
 
 def test_guard_evaluation_consumes_the_resolver() -> None:
     """guard_evaluation imports + uses the named resolver (AK2 consumer proof)."""
-    import agentkit.governance.guard_evaluation as guard_eval
+    import agentkit.backend.governance.guard_evaluation as guard_eval
 
     assert guard_eval.resolve_operating_mode is resolve_operating_mode
 
@@ -126,7 +126,7 @@ def test_integrity_gate_mode_guard_consumes_the_resolver_literal() -> None:
     The guard rejects exactly the ai_augmented value the resolver classifies;
     the two share one literal owner (no drift).
     """
-    from agentkit.governance.integrity_gate.mode_guard import (
+    from agentkit.backend.governance.integrity_gate.mode_guard import (
         IntegrityGateNotApplicableError,
         guard_integrity_gate_mode,
     )

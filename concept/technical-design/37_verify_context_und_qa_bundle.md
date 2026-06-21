@@ -109,7 +109,7 @@ formal_refs:
 
 > **[Owner-Hinweis — Code autoritativ, FK zieht nach]** Der autoritative
 > Vertrag ist `concept/_meta/bc-cut-decisions.md:84-101` ("QA-Subflow-Vertrag")
-> und die Code-Realitaet `src/agentkit/core_types/qa_context.py:15-30`
+> und die Code-Realitaet `src/agentkit/backend/core_types/qa_context.py:15-30`
 > (`class QaContext(StrEnum)` mit genau diesen vier Werten; der Modul-Docstring
 > vermerkt explizit "Replaces the v2 name `VerifyContext` (only two values)",
 > d. h. das v2-Enum `VerifyContext` mit nur zwei Werten ist ersetzt).
@@ -117,7 +117,7 @@ formal_refs:
 > nach. Es wird kein Legacy-/Deprecated-Parallelbegriff `VerifyContext` neben
 > `QaContext` gefuehrt (Zero-Debt). Abgrenzung: der **eigenstaendige**
 > Contract-Typ `VerifyContextBundle`
-> (`src/agentkit/verify_system/contract.py:136`, der `ctx`-Run-Kontext-Carrier
+> (`src/agentkit/backend/verify_system/contract.py:136`, der `ctx`-Run-Kontext-Carrier
 > von `run_qa_subflow`) ist davon **getrennt** und bleibt gueltig — er ist
 > KEIN Ersetzungsziel.
 
@@ -160,7 +160,7 @@ bekannten Kontext.
 | Entwurfslauf am Exploration-Exit-Gate abgeschlossen | `EXPLORATION_INITIAL` | Reduzierter Pfad (LLM-Bewertung + Policy; kein Structural/Adversarial) |
 | Subflow-interne Remediation-Iteration der Exploration-Phase abgeschlossen | `EXPLORATION_REMEDIATION` | Reduzierter Pfad (wie `EXPLORATION_INITIAL`) |
 
-[Praezisierung 2026-06-12, BC-Cut nachgezogen: Der **Implementation**-interne QA-Subflow wird nicht durch einen Top-Phasenwechsel direkt aus der Exploration getriggert (§37.1.1, FK-29 §29.1.1) — diese Aussage bleibt sachlich gueltig. Die frueher pauschale "Exploration wird nie via QA-Subflow geprueft"-Annahme aus der Zwei-Werte-Welt ist jedoch nach dem Vier-Werte-Cut nicht mehr wahr: Exploration besitzt ihren **eigenen** QA-Subflow-Aufrufkontext (`EXPLORATION_INITIAL`/`EXPLORATION_REMEDIATION`, reduzierter Pfad, `src/agentkit/verify_system/routing.py:12-14,74-75`, `bc-cut-decisions.md:76-79`).] [Entscheidung 2026-05-01: Implementation-interne Trigger sind Subflow-interne Schritte, keine Top-Phase-Wechsel mehr.]
+[Praezisierung 2026-06-12, BC-Cut nachgezogen: Der **Implementation**-interne QA-Subflow wird nicht durch einen Top-Phasenwechsel direkt aus der Exploration getriggert (§37.1.1, FK-29 §29.1.1) — diese Aussage bleibt sachlich gueltig. Die frueher pauschale "Exploration wird nie via QA-Subflow geprueft"-Annahme aus der Zwei-Werte-Welt ist jedoch nach dem Vier-Werte-Cut nicht mehr wahr: Exploration besitzt ihren **eigenen** QA-Subflow-Aufrufkontext (`EXPLORATION_INITIAL`/`EXPLORATION_REMEDIATION`, reduzierter Pfad, `src/agentkit/backend/verify_system/routing.py:12-14,74-75`, `bc-cut-decisions.md:76-79`).] [Entscheidung 2026-05-01: Implementation-interne Trigger sind Subflow-interne Schritte, keine Top-Phase-Wechsel mehr.]
 
 **Nicht in ImplementationPayload:** `qa_feedback_rounds` — dieser Zaehler lebt in `PhaseMemory.implementation.qa_feedback_rounds` (FK-39 §39.5, carry-forward ueber Phasenwechsel und Subflow-Iterationen). [Entscheidung 2026-05-01: vormals `PhaseMemory.verify.feedback_rounds`.]
 
@@ -419,7 +419,7 @@ FK-27 §27.4.3).
 
 Das produktive Eingabemodell der Layer-2-Bewertung ist der getypte,
 unveraenderliche `ReviewBundle`
-(`src/agentkit/verify_system/llm_evaluator/bundle.py:34-66`,
+(`src/agentkit/backend/verify_system/llm_evaluator/bundle.py:34-66`,
 `frozen=True`, `extra="forbid"`), den die drei Layer-2-Reviewer
 (qa_review, semantic_review, doc_fidelity) erhalten. Er ist die
 **Code-autoritative** Realisierung der sechsfeldrigen

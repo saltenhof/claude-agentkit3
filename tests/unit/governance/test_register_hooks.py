@@ -18,8 +18,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.governance.default_hook_definitions import build_default_hook_definitions
-from agentkit.governance.hook_registration import (
+from agentkit.backend.governance.default_hook_definitions import build_default_hook_definitions
+from agentkit.backend.governance.hook_registration import (
     HookDefinition,
     HookEventName,
     HookId,
@@ -29,7 +29,7 @@ from agentkit.governance.hook_registration import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.governance.locks import LockRecordId
+    from agentkit.backend.governance.locks import LockRecordId
 
 # ---------------------------------------------------------------------------
 # Recording test doubles (no MagicMock per project rules)
@@ -154,7 +154,7 @@ def _make_governance(
     """Return a Governance instance with recording doubles."""
     from pathlib import Path
 
-    from agentkit.governance.runner import Governance
+    from agentkit.backend.governance.runner import Governance
 
     repo = hook_repo or _RecordingHookRepo()
     return Governance(

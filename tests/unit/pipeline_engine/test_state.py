@@ -11,18 +11,18 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.boundary.filesystem import atomic_write_json, read_projection_json_object
-from agentkit.exceptions import CorruptStateError
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.boundary.filesystem import atomic_write_json, read_projection_json_object
+from agentkit.backend.exceptions import CorruptStateError
+from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseName,
     PhaseSnapshot,
     PhaseState,
     PhaseStatus,
 )
-from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.sqlite_store import state_db_path_for
-from agentkit.state_backend.store import (
+from agentkit.backend.pipeline_engine.phase_executor.records import AttemptRecord
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.sqlite_store import state_db_path_for
+from agentkit.backend.state_backend.store import (
     load_attempts,
     read_phase_snapshot_record,
     read_phase_state_record,
@@ -33,8 +33,8 @@ from agentkit.state_backend.store import (
     save_phase_state,
     save_story_context,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -102,7 +102,7 @@ def _make_attempt(
     failure_cause: str | None = None,
 ) -> AttemptRecord:
     """Create an AttemptRecord for testing (AG3-025 schema)."""
-    from agentkit.core_types.attempt import AttemptOutcome, FailureCause
+    from agentkit.backend.core_types.attempt import AttemptOutcome, FailureCause
     fc = FailureCause(failure_cause) if failure_cause is not None else None
     return AttemptRecord(
         run_id=run_id,
@@ -290,7 +290,7 @@ class TestAttemptPersistence:
         assert rec.run_id == "run-abc"
         assert rec.phase.value == "exploration"
         assert rec.attempt == 1
-        from agentkit.core_types.attempt import AttemptOutcome
+        from agentkit.backend.core_types.attempt import AttemptOutcome
         assert rec.outcome == AttemptOutcome.COMPLETED
         assert rec.failure_cause is None
 
@@ -305,7 +305,7 @@ class TestAttemptPersistence:
         loaded = load_attempts(story_dir, "exploration")
 
         assert len(loaded) == 1
-        from agentkit.core_types.attempt import AttemptOutcome, FailureCause
+        from agentkit.backend.core_types.attempt import AttemptOutcome, FailureCause
         assert loaded[0].outcome == AttemptOutcome.FAILED
         assert loaded[0].failure_cause == FailureCause.HANDLER_REPORTED_FAILED
 
@@ -325,7 +325,7 @@ class TestAttemptPersistence:
         assert len(loaded) == 2
         assert loaded[0].attempt == 1
         assert loaded[1].attempt == 2
-        from agentkit.core_types.attempt import AttemptOutcome
+        from agentkit.backend.core_types.attempt import AttemptOutcome
         assert loaded[1].outcome == AttemptOutcome.FAILED
 
     def test_load_empty_directory_returns_empty_list(

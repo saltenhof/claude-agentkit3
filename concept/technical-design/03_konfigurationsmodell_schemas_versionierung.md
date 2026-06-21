@@ -179,7 +179,7 @@ sonarqube:
     community_branch:
       min_version: "1.23.0"   # Community Branch Plugin (harte Abhängigkeit, FK-33 §33.6.3)
   quality_gate:
-    default_profile: "resources/target_project/sonar/ak3-default-gate.json"  # ausgeliefertes Default-Profil (SSOT)
+    default_profile: "bundles/target_project/sonar/ak3-default-gate.json"  # ausgeliefertes Default-Profil (SSOT)
     overrides_allowed: true   # Projektverantwortlicher darf eigenes Regelwerk setzen
   accept_frequency_fc_threshold: 0.25  # Anteil der Stories, ab dem eine haeufig akzeptierte Regel zum Failure-Corpus-Signal wird (FK-27 §27.6b, FK-41 §41.10)
 ```
@@ -216,7 +216,7 @@ Pflicht-Laufzeitabhaengigkeit (FK-10 §10.2.2).
 | `min_version` | str (SemVer) | Mindestversion SonarQube Community Build. Niedrigere Server-Version → Installer-FAIL (FK-50). |
 | `token_env` | str | Name der ENV-Variable bzw. des Secret-Store-Schluessels mit dem Sonar-Token. **Kein Inline-Token** (Secret-Hygiene, FK-33 §33.3.2 `security.secrets`). |
 | `plugins.community_branch.min_version` | str (SemVer) | Mindestversion des **Community Branch Plugin** (harte Abhaengigkeit, da Community Edition keine native Branch-Analyse hat; FK-33 §33.6.3). |
-| `quality_gate.default_profile` | str (Pfad) | Verweis auf das ausgelieferte Default-Quality-Gate-Profil unter `resources/target_project/` (SSOT). Traegt BEIDE Conditions: New-Code UND Overall-Code (FK-33 §33.6.3 Overall-Code-Invariante). |
+| `quality_gate.default_profile` | str (Pfad) | Verweis auf das ausgelieferte Default-Quality-Gate-Profil unter `bundles/target_project/` (SSOT). Traegt BEIDE Conditions: New-Code UND Overall-Code (FK-33 §33.6.3 Overall-Code-Invariante). |
 | `quality_gate.overrides_allowed` | bool | Ob der Projektverantwortliche das Default-Profil durch ein eigenes Regelwerk ersetzen darf (Default `true`). |
 | `accept_frequency_fc_threshold` | float (0..1) | Anteil der Stories (gemessen **ueber alle Stories**, nie pro Einzelstory), ab dem eine wiederholt akzeptierte Sonar-Regel zum **Failure-Corpus-Signal** wird (Default `0.25`). Verfahren/Owner: Accept-Self-Assessment (FK-27 §27.6b); Corpus-Verankerung: FK-41 §41.10. |
 
@@ -230,7 +230,7 @@ Pflicht-Laufzeitabhaengigkeit (FK-10 §10.2.2).
 - `min_version` / `plugins.community_branch.min_version` muessen
   parsebare SemVer-Strings sein.
 - `quality_gate.default_profile` muss auf eine existierende Profil-Datei
-  unter `resources/target_project/` zeigen (Pfad-Existenz im
+  unter `bundles/target_project/` zeigen (Pfad-Existenz im
   Installer-Verify, FK-50 CP 12).
 - **Cross-Field-Regel (auf `available` umgestellt):** Ein Projekt mit
   codeproduzierenden Stories (impl/bugfix im Story-Backend) und

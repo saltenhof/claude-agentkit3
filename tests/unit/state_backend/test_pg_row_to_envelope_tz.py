@@ -13,9 +13,9 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from agentkit.artifacts.producer import ProducerType
-from agentkit.core_types import ArtifactClass, EnvelopeStatus
-from agentkit.state_backend.store.artifact_repository import _pg_row_to_envelope
+from agentkit.backend.artifacts.producer import ProducerType
+from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus
+from agentkit.backend.state_backend.store.artifact_repository import _pg_row_to_envelope
 
 
 def _row(started_at: datetime, finished_at: datetime) -> dict[str, object]:

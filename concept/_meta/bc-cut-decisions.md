@@ -131,7 +131,7 @@ QaContext-Werte: `IMPLEMENTATION_INITIAL`, `IMPLEMENTATION_REMEDIATION`,
 ### BC 1: pipeline-framework
 
 **Top-Komponente:** `PipelineEngine`
-- Prefix: `agentkit.pipeline_engine`
+- Prefix: `agentkit.backend.pipeline_engine`
 - Bloodgroup: A
 - Exposure: top
 - Entities-ID: `architecture-conformance.group.pipeline_engine`
@@ -147,11 +147,11 @@ QaContext-Werte: `IMPLEMENTATION_INITIAL`, `IMPLEMENTATION_REMEDIATION`,
 
 | Name | Exposure | Prefix |
 |------|----------|--------|
-| FlowOrchestrator | internal | `agentkit.pipeline_engine.flow_orchestrator` |
-| PhaseExecutor | sub_exposed | `agentkit.pipeline_engine.phase_executor` |
-| PhaseEnvelopeStore | internal | `agentkit.pipeline_engine.phase_envelope_store` |
-| PipelineRegistry | internal | `agentkit.pipeline_engine.pipeline_registry` |
-| CompactionResilience | sub_exposed | `agentkit.pipeline_engine.compaction_resilience` |
+| FlowOrchestrator | internal | `agentkit.backend.pipeline_engine.flow_orchestrator` |
+| PhaseExecutor | sub_exposed | `agentkit.backend.pipeline_engine.phase_executor` |
+| PhaseEnvelopeStore | internal | `agentkit.backend.pipeline_engine.phase_envelope_store` |
+| PipelineRegistry | internal | `agentkit.backend.pipeline_engine.pipeline_registry` |
+| CompactionResilience | sub_exposed | `agentkit.backend.pipeline_engine.compaction_resilience` |
 
 **Klassen-Skizzen:**
 - `PipelineEngine`: Koordiniert Setup -> Exploration? -> Implementation -> Closure
@@ -172,7 +172,7 @@ QaContext-Werte: `IMPLEMENTATION_INITIAL`, `IMPLEMENTATION_REMEDIATION`,
 
 **Konzept-Refactor-Liste:**
 - FK-20 (Workflow-Engine): Modul-Pfade von `agentkit.pipeline` auf
-  `agentkit.pipeline_engine` migrieren
+  `agentkit.backend.pipeline_engine` migrieren
 - FK-36 (CompactionResilience): Prefix-Aktualisierung
 - FK-39 (Phase-State-Persistenz): Prefix-Aktualisierung
 - FK-45 (Phase-Runner-CLI): Prefix-Aktualisierung
@@ -182,7 +182,7 @@ QaContext-Werte: `IMPLEMENTATION_INITIAL`, `IMPLEMENTATION_REMEDIATION`,
 ### BC 2: verify-system
 
 **Top-Komponente:** `VerifySystem`
-- Prefix: `agentkit.verify_system`
+- Prefix: `agentkit.backend.verify_system`
 - Bloodgroup: A
 - Exposure: top
 - Entities-ID: `architecture-conformance.group.verify_system`
@@ -200,13 +200,13 @@ QaContext-Werte: `IMPLEMENTATION_INITIAL`, `IMPLEMENTATION_REMEDIATION`,
 
 | Name | Exposure | Prefix |
 |------|----------|--------|
-| StageRegistry | sub_exposed | `agentkit.verify_system.stage_registry` |
-| LlmEvaluator | sub_exposed | `agentkit.verify_system.llm_evaluator` |
-| ConformanceService | sub_exposed | `agentkit.verify_system.conformance_service` |
-| EvidenceAssembler | internal | `agentkit.verify_system.evidence_assembler` |
-| AdversarialOrchestrator | internal | `agentkit.verify_system.adversarial_orchestrator` |
-| PolicyEngine | internal | `agentkit.verify_system.policy_engine` |
-| QaCycleCoordinator | internal | `agentkit.verify_system.qa_cycle_coordinator` |
+| StageRegistry | sub_exposed | `agentkit.backend.verify_system.stage_registry` |
+| LlmEvaluator | sub_exposed | `agentkit.backend.verify_system.llm_evaluator` |
+| ConformanceService | sub_exposed | `agentkit.backend.verify_system.conformance_service` |
+| EvidenceAssembler | internal | `agentkit.backend.verify_system.evidence_assembler` |
+| AdversarialOrchestrator | internal | `agentkit.backend.verify_system.adversarial_orchestrator` |
+| PolicyEngine | internal | `agentkit.backend.verify_system.policy_engine` |
+| QaCycleCoordinator | internal | `agentkit.backend.verify_system.qa_cycle_coordinator` |
 
 **Klassen-Skizzen:**
 - `VerifySystem`: Einstiegspunkt; delegiert an QaCycleCoordinator
@@ -227,19 +227,19 @@ QaContext-Werte: `IMPLEMENTATION_INITIAL`, `IMPLEMENTATION_REMEDIATION`,
 | `telemetry-and-events` | VS -> T | `Telemetry.write_projection` fuer QaStageResult/QaFinding-Records aus StageRegistry |
 
 **Konzept-Refactor-Liste:**
-- Modul-Pfade von `agentkit.governance.doc_fidelity` auf
-  `agentkit.verify_system.conformance_service` migrieren
-- Modul-Pfade von `agentkit.governance.policies` auf
-  `agentkit.verify_system.stage_registry` migrieren
+- Modul-Pfade von `agentkit.backend.governance.doc_fidelity` auf
+  `agentkit.backend.verify_system.conformance_service` migrieren
+- Modul-Pfade von `agentkit.backend.governance.policies` auf
+  `agentkit.backend.verify_system.stage_registry` migrieren
 - Modul-Pfade von `agentkit.llm_evaluator` auf
-  `agentkit.verify_system.llm_evaluator` migrieren
+  `agentkit.backend.verify_system.llm_evaluator` migrieren
 
 ---
 
 ### BC 3: story-lifecycle
 
 **Top-Komponente:** `StoryContextManager`
-- Prefix: `agentkit.story_context_manager`
+- Prefix: `agentkit.backend.story_context_manager`
 - Bloodgroup: A
 - Exposure: top
 - Entities-ID: `architecture-conformance.group.story_context_manager`
@@ -256,12 +256,12 @@ QaContext-Werte: `IMPLEMENTATION_INITIAL`, `IMPLEMENTATION_REMEDIATION`,
 
 | Name | Exposure | Prefix |
 |------|----------|--------|
-| StoryIdentity | sub_exposed | `agentkit.story_context_manager.story_identity` |
-| StoryCreationFlow | sub_exposed | `agentkit.story_context_manager.story_creation_flow` |
-| StoryContractMatrix | sub_exposed | `agentkit.story_context_manager.story_contract_matrix` |
-| StoryAdministration | sub_exposed | `agentkit.story_context_manager.story_administration` |
-| OperatingModeResolver | internal | `agentkit.story_context_manager.operating_mode_resolver` |
-| StoryStorageBackend | internal | `agentkit.story_context_manager.story_storage_backend` |
+| StoryIdentity | sub_exposed | `agentkit.backend.story_context_manager.story_identity` |
+| StoryCreationFlow | sub_exposed | `agentkit.backend.story_context_manager.story_creation_flow` |
+| StoryContractMatrix | sub_exposed | `agentkit.backend.story_context_manager.story_contract_matrix` |
+| StoryAdministration | sub_exposed | `agentkit.backend.story_context_manager.story_administration` |
+| OperatingModeResolver | internal | `agentkit.backend.story_context_manager.operating_mode_resolver` |
+| StoryStorageBackend | internal | `agentkit.backend.story_context_manager.story_storage_backend` |
 
 **Klassen-Skizzen:**
 - `StoryContextManager`: Top-Surface; delegiert Lifecycle-Operationen
@@ -291,7 +291,7 @@ QaContext-Werte: `IMPLEMENTATION_INITIAL`, `IMPLEMENTATION_REMEDIATION`,
 ### BC 4: governance-and-guards
 
 **Top-Komponente:** `Governance`
-- Prefix: `agentkit.governance`
+- Prefix: `agentkit.backend.governance`
 - Bloodgroup: A
 - Exposure: top
 - Entities-ID: `architecture-conformance.group.governance`
@@ -309,13 +309,13 @@ QaContext-Werte: `IMPLEMENTATION_INITIAL`, `IMPLEMENTATION_REMEDIATION`,
 
 | Name | Exposure | Prefix |
 |------|----------|--------|
-| GuardSystem | sub_exposed | `agentkit.governance.guard_system` |
-| CcagPermissionRuntime | sub_exposed | `agentkit.governance.ccag_permission_runtime` |
-| GovernanceObserver | sub_exposed | `agentkit.governance.governance_observer` |
-| IntegrityGate | sub_exposed | `agentkit.governance.integrity_gate` |
-| PrincipalCapability | sub_exposed | `agentkit.governance.principal_capability` |
-| SetupPreflightGate | sub_exposed | `agentkit.governance.setup_preflight_gate` |
-| EscalationMechanism | internal | `agentkit.governance.escalation_mechanism` |
+| GuardSystem | sub_exposed | `agentkit.backend.governance.guard_system` |
+| CcagPermissionRuntime | sub_exposed | `agentkit.backend.governance.ccag_permission_runtime` |
+| GovernanceObserver | sub_exposed | `agentkit.backend.governance.governance_observer` |
+| IntegrityGate | sub_exposed | `agentkit.backend.governance.integrity_gate` |
+| PrincipalCapability | sub_exposed | `agentkit.backend.governance.principal_capability` |
+| SetupPreflightGate | sub_exposed | `agentkit.backend.governance.setup_preflight_gate` |
+| EscalationMechanism | internal | `agentkit.backend.governance.escalation_mechanism` |
 
 **Klassen-Skizzen:**
 - `Governance`: Top-Surface; koordiniert Guard/Permission/Gate-Entscheidungen
@@ -334,13 +334,13 @@ QaContext-Werte: `IMPLEMENTATION_INITIAL`, `IMPLEMENTATION_REMEDIATION`,
 - SetupPreflightGate wird in Setup-Phase von PipelineEngine genutzt
 
 **Konzept-Refactor-Liste:**
-- `agentkit.guard_system` und `agentkit.governance.guards` auf
-  `agentkit.governance.guard_system` konsolidieren
-- `agentkit.governance.monitoring` und `agentkit.governance.integrity_gate`
-  auf `agentkit.governance.governance_observer` und
-  `agentkit.governance.integrity_gate` aufteilen
+- `agentkit.guard_system` und `agentkit.backend.governance.guards` auf
+  `agentkit.backend.governance.guard_system` konsolidieren
+- `agentkit.backend.governance.monitoring` und `agentkit.backend.governance.integrity_gate`
+  auf `agentkit.backend.governance.governance_observer` und
+  `agentkit.backend.governance.integrity_gate` aufteilen
 - FK-22 (SetupPreflight): Modul-Pfad bestaetigen unter
-  `agentkit.governance.setup_preflight_gate`
+  `agentkit.backend.governance.setup_preflight_gate`
 
 ---
 
@@ -352,7 +352,7 @@ QaContext-Werte: `IMPLEMENTATION_INITIAL`, `IMPLEMENTATION_REMEDIATION`,
 inkl. eigenem Check/Remediation-Subgraph. Eskalations-Mechanik **excluded**
 (geht zu governance-and-guards).
 
-**Top:** `Exploration` (A, top, prefix=`agentkit.exploration`)
+**Top:** `Exploration` (A, top, prefix=`agentkit.backend.exploration`)
 
 Kapselt die Exploration-Phase als produktive Phase (Variante Y — siehe
 uebergreifende Entscheidungen). Erstellt Change-Frame-Artefakt, validiert
@@ -426,7 +426,7 @@ Layer 3: ExplorationReview (nutzt ChangeFrame + Mandate)
 Worker-Health. Owns: WorkerSession, Handover-Schnittstelle, Increment,
 WorkerHealth-Signal.
 
-**Top:** `Implementation` (A, top, prefix=`agentkit.implementation`)
+**Top:** `Implementation` (A, top, prefix=`agentkit.backend.implementation`)
 
 Kapselt die Implementation-Phase als produktive Phase (Variante Y).
 Wertet `worker-manifest.json` aus und gibt bei `status=BLOCKED` ein
@@ -483,7 +483,7 @@ Layer 3: WorkerLoop (orchestriert Inkremente, schreibt Handover)
 | `pipeline-framework` | I -> PF (Reg.) | `PipelineRegistry.register_phase_handler("implementation", ImplementationHandler)` |
 | `pipeline-framework` | PF -> I | Phase-Handler-Aufruf via FlowOrchestrator |
 | `verify-system` | I -> VS | `run_qa_subflow(qa_context=IMPLEMENTATION_INITIAL\|REMEDIATION)` mit handover.json als Target |
-| `governance-and-guards` | GG -> I (Hooks) | HookRuntime ruft `agentkit.implementation.worker_health.scoring_hook` + `intervention_hook` direkt (daher `sub_exposed` fuer WorkerHealthMonitor) |
+| `governance-and-guards` | GG -> I (Hooks) | HookRuntime ruft `agentkit.backend.implementation.worker_health.scoring_hook` + `intervention_hook` direkt (daher `sub_exposed` fuer WorkerHealthMonitor) |
 | `governance-and-guards` | I -> GG | CCAG-PermissionRuntime fuer Worker-Tool-Freigaben |
 | `story-context-manager` | I -> SCM | `StoryIdentity` fuer Worker-Kontext-Aufbau |
 | `artifacts` | I -> A | ArtifactManager fuer handover/manifest/protocol/agent-health |
@@ -494,12 +494,12 @@ Layer 3: WorkerLoop (orchestriert Inkremente, schreibt Handover)
 **Konzept-Refactor-Liste:**
 
 - FK-26 §26.5a/§26.5b: Modul-Pfad-Aktualisierung wenn von
-  `agentkit.verify_system.evidence_assembler` gesprochen wird (korrekt
+  `agentkit.backend.verify_system.evidence_assembler` gesprochen wird (korrekt
   per FK-28, Evidence Assembler im verify-system).
 - FK-26 §26.10 Telemetrie-Tabelle: Events bleiben referenziert, sind
   Owner-Sache von telemetry-and-events.
 - FK-49 §49.1.6 review_guard-Verweis: bleibt unter
-  `agentkit.governance.guard_system`.
+  `agentkit.backend.governance.guard_system`.
 - FK-49 §49.1.7 `worker_health.*`-Konfiguration: in implementation-phase
   definiert, FK-93 (Defaults-Foundation) referenziert nur.
 - BLOCKED-Eskalation §26.11.2: Wording in FK-26 §26.11.2 praeziser
@@ -553,7 +553,7 @@ Postflight, VektorDB-Sync, Guard-Deaktivierung. Owns: ClosurePayload,
 ClosureProgress, ClosureVerdict, ClosureSequence. Excluded: IntegrityGate
 (gehoert zu governance-and-guards, BC 4).
 
-**Top:** `Closure` (A, top, prefix=`agentkit.closure`)
+**Top:** `Closure` (A, top, prefix=`agentkit.backend.closure`)
 
 Kapselt die Closure-Phase als produktive Phase. Verantwortet:
 Concept/Research-Verzweigung (direkte Substates), Recovery-Dispatching
@@ -585,10 +585,10 @@ von BC 6 begruendet: dort hatte das Datenmodell eigene Validator-Logik
 | `ExecutionReport` | A | internal | Markdown-Bilanz fuer den Menschen (FK-29 §29.4). Wird fuer JEDE Story-Bearbeitung erzeugt — auch bei FAILED/ESCALATED. Graceful Degradation bei fehlenden Quellen. |
 
 Modul-Prefixes:
-- `ClosureGates`: `agentkit.closure.gates`
-- `MergeSequence`: `agentkit.closure.merge_sequence`
-- `PostMergeFinalization`: `agentkit.closure.post_merge_finalization`
-- `ExecutionReport`: `agentkit.closure.execution_report`
+- `ClosureGates`: `agentkit.backend.closure.gates`
+- `MergeSequence`: `agentkit.backend.closure.merge_sequence`
+- `PostMergeFinalization`: `agentkit.backend.closure.post_merge_finalization`
+- `ExecutionReport`: `agentkit.backend.closure.execution_report`
 
 **Klassen-Skizzen:**
 
@@ -640,13 +640,13 @@ Layer 4: ExecutionReport (am Ende — auch bei FAIL/ESCALATED)
 **Konzept-Refactor-Liste:**
 
 1. FK-29 §29.1.2 Mermaid-Flowchart und §29.5: IntegrityGate-Aufruf
-   praezisieren — Closure delegiert an `agentkit.governance.integrity_gate`
+   praezisieren — Closure delegiert an `agentkit.backend.governance.integrity_gate`
    (Sub von Governance, BC 4). Kein Closure-eigener IntegrityGate-Sub.
 2. FK-29 §29.5 Guard-Deaktivierung: Lock-Record-Verwaltung gehoert zu
    Governance. Closure ruft `Governance.deactivate_locks(story_id)`.
    Wording entsprechend praezisieren.
 3. FK-29 referenziert mehrfach Layer-2-Artefakte und Doctreue-Ebene-4 —
-   Modul-Pfade aktualisieren auf `agentkit.verify_system.*` (Konsequenz
+   Modul-Pfade aktualisieren auf `agentkit.backend.verify_system.*` (Konsequenz
    BC-2-Refactor).
 4. FK-27 (mischt Verify-Pipeline und Closure-Orchestration, bekannt aus
    Splits-Liste): Closure-Anteile (closure-sequence, ClosurePayload,
@@ -697,7 +697,7 @@ Envelope, ProducerId, ArtifactClass. Excluded: Prompt-Bundle-Komposition
 (prompt-runtime), Lock-Mechanik (governance-and-guards),
 Stage-Registry-Types (verify-system).
 
-**Top:** `Artifacts` (A, top, prefix=`agentkit.artifacts`)
+**Top:** `Artifacts` (A, top, prefix=`agentkit.backend.artifacts`)
 
 Kapselt die generische Artefakt-Infrastruktur. Verantwortet:
 Schreib-/Lese-Koordination gegen State-Backend-Driver (ArtifactManager),
@@ -722,7 +722,7 @@ kuenstlich. Analog BC 7 (Closure-Datenmodelle im Top).
 |---|---|---|---|
 | `ProducerRegistry` | A | internal | Mapping Export-Artefakt -> erlaubter Producer-Name (FK-71 §71.2). Producer-Validierung. Status-Mapping LLM-Check-Status -> Envelope-Status (`PASS_WITH_CONCERNS` -> `WARN`). |
 
-Modul-Prefix: `agentkit.artifacts.producer_registry`
+Modul-Prefix: `agentkit.backend.artifacts.producer_registry`
 
 **Klassen-Skizzen:**
 
@@ -751,7 +751,7 @@ Layer 1: ProducerRegistry
 | `exploration-and-design` | E -> A | ArtifactManager fuer Change-Frame-Envelope |
 | `implementation-phase` | I -> A | ArtifactManager fuer handover/manifest/protocol/agent-health |
 | `story-closure` | C -> A | Layer-2-Artefakte lesen, closure.json + execution-report.md schreiben |
-| State-Backend-Drivers | A -> SBD | T-Adapter (`agentkit.state_backend.*`) als Persistenz-Schicht |
+| State-Backend-Drivers | A -> SBD | T-Adapter (`agentkit.backend.state_backend.*`) als Persistenz-Schicht |
 
 **Konzept-Refactor-Liste:**
 
@@ -787,7 +787,7 @@ Layer 1: ProducerRegistry
    ausgegliedert. Lock = governance (Hook-Enforcement, Sub-Agent-Sperre),
    Stage-Registry = verify-system (StageRegistry-Sub).
 5. State-Backend-Driver bleibt als T-Adapter ausserhalb des BC.
-   `agentkit.state_backend.*` ist Querschnitt-Adapter; ArtifactManager
+   `agentkit.backend.state_backend.*` ist Querschnitt-Adapter; ArtifactManager
    ist die A-Fassade.
 
 ---
@@ -800,7 +800,7 @@ Layer 1: ProducerRegistry
 Phase-State-Projektionen, QA-Read-Models. Owns: ExecutionEvent,
 EventTypeId, PhaseStateProjection, QaReadModel.
 
-**Top:** `Telemetry` (A, top, prefix=`agentkit.telemetry`)
+**Top:** `Telemetry` (A, top, prefix=`agentkit.backend.telemetry`)
 
 Kapselt die Telemetrie-Infrastruktur. Verantwortet Event-Stream-Schreiben
 (TelemetryService gegen Postgres-State-Backend), Audit-Bundle-Export
@@ -832,9 +832,9 @@ Generisch fuer alle Projektions-Tabellen (qa_stage_results, qa_findings, story_m
 | `TelemetryContract` | A | sub_exposed | Validierungsregeln (FK-68 §68.4): agent_start/end-Paarung, review_compliant-Deckung, Preflight-Compliance, llm_call-Pflicht-Rollen, web_call <= Budget, integrity_violation == 0. Wird von `governance.IntegrityGate` direkt aufgerufen. |
 
 Modul-Prefixes:
-- `TelemetryHooks`: `agentkit.telemetry.hooks`
-- `ProjectionAccessor`: `agentkit.telemetry.projection_accessor`
-- `TelemetryContract`: `agentkit.telemetry.contract`
+- `TelemetryHooks`: `agentkit.backend.telemetry.hooks`
+- `ProjectionAccessor`: `agentkit.backend.telemetry.projection_accessor`
+- `TelemetryContract`: `agentkit.backend.telemetry.contract`
 
 **Klassen-Skizzen:**
 
@@ -870,7 +870,7 @@ Layer 3: TelemetryContract (Validierungs-Schicht)
 | `story-closure` | C -> T | `export_audit_bundle`, schreibt StoryMetric via `Telemetry.write_projection` |
 | `failure-corpus` | FC -> T | `execution_events` lesen fuer Pattern-Promotion (fc_*-Tabellen werden DORT geschrieben, NICHT hier) |
 | `kpi-and-dashboard` | K -> T | `execution_events` + `ProjectionAccessor` lesen fuer KPI-Rollups |
-| State-Backend-Drivers | T -> SBD | T-Adapter (`agentkit.state_backend.postgres_*`) fuer events + read_models |
+| State-Backend-Drivers | T -> SBD | T-Adapter (`agentkit.backend.state_backend.postgres_*`) fuer events + read_models |
 
 **Konzept-Refactor-Liste:**
 
@@ -886,10 +886,10 @@ Layer 3: TelemetryContract (Validierungs-Schicht)
    `governance.guard_system.WebCallBudgetGuard`.
 4. FK-68 §68.3.1 Hook-Pfad-Tabelle: Modul-Pfade von `telemetry/hook.py`,
    `telemetry/review_guard.py`, `telemetry/budget.py`,
-   `telemetry/divergence.py` auf `agentkit.telemetry.hooks.*` aktualisieren.
+   `telemetry/divergence.py` auf `agentkit.backend.telemetry.hooks.*` aktualisieren.
 5. FK-68 `authority_over`: telemetry, eventing, workflow-metriken bleiben.
 6. FK-69 §69.6-69.8 (qa_*, story_metrics): bleiben hier, Modul-Pfade auf
-   `agentkit.telemetry.read_models.*` aktualisieren.
+   `agentkit.backend.telemetry.read_models.*` aktualisieren.
 
 **Eigenstaendige Detail-Entscheidungen:**
 
@@ -923,7 +923,7 @@ Ausfuehrungs-Pattern. Owns: PromptBundle, BundleMaterialization, PromptAuditHash
 PromptTemplate, BundleVersion. Excluded: Skill-Inhalt (agent-skills), Was im
 Prompt steht (anfragende BC).
 
-**Top:** `PromptRuntime` (A, top, prefix=`agentkit.prompt_runtime`)
+**Top:** `PromptRuntime` (A, top, prefix=`agentkit.backend.prompt_runtime`)
 
 Koordiniert Bundle-Aufloesungs-, Bindungs- und Materialisierungslogik.
 Enthaelt direkt (~5 Klassen): `PromptRuntime`, `PromptInvocation`,
@@ -944,9 +944,9 @@ Enthaelt direkt (~5 Klassen): `PromptRuntime`, `PromptInvocation`,
 | `Materialization` | A, mix_allowed:[T] | internal | Run-scoped Prompt-Instanzen unter `.agentkit/prompts/{run_id}/{invocation_id}/prompt.md`. Static-Materializer (Hardlink/Symlink), Dynamic-Renderer (Template + Render-Input -> Instance). Audit-Hash-Berechnung (template_sha256, render_input_digest, output_sha256). |
 
 Modul-Prefixes:
-- `BundleStore`: `agentkit.prompt_runtime.bundle_store`
-- `BundlePinning`: `agentkit.prompt_runtime.bundle_pinning`
-- `Materialization`: `agentkit.prompt_runtime.materialization`
+- `BundleStore`: `agentkit.backend.prompt_runtime.bundle_store`
+- `BundlePinning`: `agentkit.backend.prompt_runtime.bundle_pinning`
+- `Materialization`: `agentkit.backend.prompt_runtime.materialization`
 
 **Klassen-Skizzen:**
 
@@ -1012,7 +1012,7 @@ SkillVariant, CapabilityProfile, SkillLifecycle, SkillQualityMetric.
 Excluded: Bundle-Mechanik (prompt-runtime), Story-Ausfuehrungssemantik
 (pipeline-framework).
 
-**Top:** `Skills` (A, top, prefix=`agentkit.skills`)
+**Top:** `Skills` (A, top, prefix=`agentkit.backend.skills`)
 
 Koordiniert Skill-Bindung, Profil-Aufloesung und Qualitaets-Beobachtung.
 Enthaelt direkt (~5 Klassen): `SkillManager`, `Skill`, `SkillId`,
@@ -1033,9 +1033,9 @@ Enthaelt direkt (~5 Klassen): `SkillManager`, `Skill`, `SkillId`,
 | `SkillQualityMetric` | A | internal | Beobachtungs-Signale fuer Skill-Wirksamkeit (FK-43 §43.6.2). Aggregation aus Workflow-Metric-Daten (telemetry-and-events) und Failure-Corpus-Befunden mit Skill-Experiment-Tags. |
 
 Modul-Prefixes:
-- `SkillBundleStore`: `agentkit.skills.bundle_store`
-- `SkillBinding`: `agentkit.skills.binding`
-- `SkillQualityMetric`: `agentkit.skills.quality_metric`
+- `SkillBundleStore`: `agentkit.backend.skills.bundle_store`
+- `SkillBinding`: `agentkit.backend.skills.binding`
+- `SkillQualityMetric`: `agentkit.backend.skills.quality_metric`
 
 **Klassen-Skizzen:**
 
@@ -1098,7 +1098,7 @@ Layer 3: SkillQualityMetric (Beobachtung post-binding)
 Hook/Wrapper-Bindung, Upgrade/Migration, Customization-Preservation.
 Owns: BootstrapStatus, InstallerCheckpoint, ManifestContract.
 
-**Top:** `Installer` (A, top, prefix=`agentkit.installer`)
+**Top:** `Installer` (A, top, prefix=`agentkit.backend.installer`)
 
 Koordiniert Projektregistrierung, Checkpoint-Durchlauf und Upgrade-Szenarien.
 Enthaelt direkt (~4 Klassen): `Installer`, `BootstrapStatus`,
@@ -1119,10 +1119,10 @@ Enthaelt direkt (~4 Klassen): `Installer`, `BootstrapStatus`,
 | `Upgrade` | A | internal | FK-51 — Upgrade-Szenarien (NoChange, BundleVersionChanged, UserCustomized, NewVariant), Config-Migration zwischen config_versions, .bak-Backup, Customization-Footprint-Erkennung. Nutzt CheckpointEngine fuer Re-Run. |
 
 Modul-Prefixes:
-- `CheckpointEngine`: `agentkit.installer.checkpoint_engine`
-- `BootstrapCheckpoints`: `agentkit.installer.bootstrap_checkpoints`
-- `IntegrationCheckpoints`: `agentkit.installer.integration_checkpoints`
-- `Upgrade`: `agentkit.installer.upgrade`
+- `CheckpointEngine`: `agentkit.backend.installer.checkpoint_engine`
+- `BootstrapCheckpoints`: `agentkit.backend.installer.bootstrap_checkpoints`
+- `IntegrationCheckpoints`: `agentkit.backend.installer.integration_checkpoints`
+- `Upgrade`: `agentkit.backend.installer.upgrade`
 
 **Klassen-Skizzen:**
 
@@ -1188,7 +1188,7 @@ Layer 4: Upgrade (orthogonal, nutzt Engine fuer Re-Run)
 Lernschleife in deterministische Guards. Owns: FailurePattern, IncidentStatus,
 PatternStatus, CheckStatus, GeneratedCheckProposal, IncidentCandidate.
 
-**Top:** `FailureCorpus` (A, top, prefix=`agentkit.failure_corpus`)
+**Top:** `FailureCorpus` (A, top, prefix=`agentkit.backend.failure_corpus`)
 
 Koordiniert Incident-Aufnahme, Pattern-Aggregation und Check-Ableitung.
 Enthaelt direkt: `FailureCorpus`, `IncidentCandidate`,
@@ -1212,9 +1212,9 @@ Enthaelt direkt: `FailureCorpus`, `IncidentCandidate`,
 | `CheckFactory` | A | internal | 6-Schritt-Check-Ableitung aus bestaetigten Patterns. Schritt 1+3 ueber verify-system.LlmEvaluator, Schritt 5 ruft GitHub-Adapter, Schritt 6 Wirksamkeitspruefung mit Auto-Deaktivierung. Persistierung via `Telemetry.write_projection` in `fc_check_proposals`. |
 
 Modul-Prefixes:
-- `IncidentTriage`: `agentkit.failure_corpus.incident_triage`
-- `PatternPromotion`: `agentkit.failure_corpus.pattern_promotion`
-- `CheckFactory`: `agentkit.failure_corpus.check_factory`
+- `IncidentTriage`: `agentkit.backend.failure_corpus.incident_triage`
+- `PatternPromotion`: `agentkit.backend.failure_corpus.pattern_promotion`
+- `CheckFactory`: `agentkit.backend.failure_corpus.check_factory`
 
 **Klassen-Skizzen:**
 
@@ -1316,7 +1316,7 @@ Plan-Proposal, Scheduling- und Parallelisierungspolicy. Owns:
 ReadinessAssessment, DependencyEdge, Wave, ExecutionPlan,
 SchedulingPolicy, ParallelizationPolicy.
 
-**Top:** `ExecutionPlanning` (A, top, prefix=`agentkit.execution_planning`)
+**Top:** `ExecutionPlanning` (A, top, prefix=`agentkit.backend.execution_planning`)
 
 Koordiniert Readiness-Auswertung, Scheduling-Entscheidungen und
 Plan-Ableitung. Enthaelt direkt (~5 Klassen): `ExecutionPlanning`,
@@ -1341,11 +1341,11 @@ Plan-Ableitung. Enthaelt direkt (~5 Klassen): `ExecutionPlanning`,
 | `PlanDerivation` | A | internal | ExecutionPlan-Ableitung + Wave-Lifecycle. critical_path, ready_set, blocked_set, execution_wave, recommended_batch, max_allowed_batch. Re-Plan-Trigger (debounced, revisionsbasiert). |
 
 Modul-Prefixes:
-- `PlanningModel`: `agentkit.execution_planning.planning_model`
-- `ProposalIngest`: `agentkit.execution_planning.proposal_ingest`
-- `ReadinessAssessment`: `agentkit.execution_planning.readiness_assessment`
-- `SchedulingPolicy`: `agentkit.execution_planning.scheduling_policy`
-- `PlanDerivation`: `agentkit.execution_planning.plan_derivation`
+- `PlanningModel`: `agentkit.backend.execution_planning.planning_model`
+- `ProposalIngest`: `agentkit.backend.execution_planning.proposal_ingest`
+- `ReadinessAssessment`: `agentkit.backend.execution_planning.readiness_assessment`
+- `SchedulingPolicy`: `agentkit.backend.execution_planning.scheduling_policy`
+- `PlanDerivation`: `agentkit.backend.execution_planning.plan_derivation`
 
 **Klassen-Skizzen:**
 
@@ -1457,7 +1457,7 @@ Qualitaet. Owns: MustCoverObligation, EvidenceReference, ScopeMapping,
 AreDockPoint, CoverageVerdict. Excluded: Stage-Registry (verify-system),
 Policy-Engine (verify-system), Blocking-Semantik (verify-system).
 
-**Top:** `RequirementsCoverage` (A, top, prefix=`agentkit.requirements_coverage`)
+**Top:** `RequirementsCoverage` (A, top, prefix=`agentkit.backend.requirements_coverage`)
 
 Koordiniert vier ARE-Andock-Punkte und Aktivierungs-Pruefung. Enthaelt
 direkt (~4 Klassen): `RequirementsCoverage`, `AreDockPoint` (StrEnum: LINK,
@@ -1481,9 +1481,9 @@ test_report, commit_ref, artifact_ref, manual_note).
 | `AreIntegration` | A | internal | Implementierungen der vier Andock-Punkte: RequirementLinker (Story-Erstellung), ContextLoader (Setup, schreibt are_bundle.json), EvidenceSubmitter (Implementation/Verify), AreGateChecker (Verify Layer 1). Ruft `AreClient` intern. Vollstaendigkeitspruefung selbst macht ARE — `AreGateChecker` interpretiert Response, erzeugt CoverageVerdict + UncoveredRequirement-Liste, fail-closed bei ARE-Unerreichbarkeit (FK-40 §40.9). |
 
 Modul-Prefixes:
-- `AreClient`: `agentkit.requirements_coverage.are_client`
-- `ScopeMapping`: `agentkit.requirements_coverage.scope_mapping`
-- `AreIntegration`: `agentkit.requirements_coverage.are_integration`
+- `AreClient`: `agentkit.backend.requirements_coverage.are_client`
+- `ScopeMapping`: `agentkit.backend.requirements_coverage.scope_mapping`
+- `AreIntegration`: `agentkit.backend.requirements_coverage.are_integration`
 
 **Klassen-Skizzen:**
 
@@ -1533,7 +1533,7 @@ Total: ~24 Klassen.
    die direkt mit ARE reden; AgentKit-Code selbst nutzt REST. FK-40 §40.4 muss
    umformuliert werden — getrennte Aufruf-Pfade fuer "AgentKit-Code (REST)" vs.
    "Harness-Agents (MCP)" dokumentieren. Modul-Pfad
-   `agentkit.requirements_coverage.are_client`. Konsistent mit GitHub-REST-Adapter
+   `agentkit.backend.requirements_coverage.are_client`. Konsistent mit GitHub-REST-Adapter
    (FK-12).
 2. FK-40 §40.5 Vier Andock-Punkte sind Top-Surface-Methoden in
    RequirementsCoverage, NICHT eigenstaendige Komponenten. Wording in
@@ -1582,7 +1582,7 @@ Total: ~24 Klassen.
 Fact-Tabellen, Dashboard-Sichten, ControlPlaneDesignSystem. Owns:
 KpiDefinition, FactSchema, Rollup, DashboardView, ControlPlaneDesignSystem.
 
-**Top:** `KpiAnalytics` (A, top, prefix=`agentkit.kpi_analytics`)
+**Top:** `KpiAnalytics` (A, top, prefix=`agentkit.backend.kpi_analytics`)
 
 Koordiniert KPI-Katalog, Fact-Persistierung, Refresh-Aggregation,
 Dashboard-Views und Design-Token-Bereitstellung. Enthaelt direkt (~4
@@ -1606,11 +1606,11 @@ Klassen): `KpiAnalytics`, `KpiId`, `KpiGranularity`, `KpiStatus`.
 | `DesignSystem` | A | internal | Visual-Sprache fuer Control-Plane (FK-64). Tokens, Typografie, Komponentenregeln. Orthogonal zu anderen Subs -- wird vom Frontend konsumiert. |
 
 Modul-Prefixes:
-- `KpiCatalog`: `agentkit.kpi_analytics.catalog`
-- `FactStore`: `agentkit.kpi_analytics.fact_store`
-- `Aggregation`: `agentkit.kpi_analytics.aggregation`
-- `Dashboard`: `agentkit.kpi_analytics.dashboard`
-- `DesignSystem`: `agentkit.kpi_analytics.design_system`
+- `KpiCatalog`: `agentkit.backend.kpi_analytics.catalog`
+- `FactStore`: `agentkit.backend.kpi_analytics.fact_store`
+- `Aggregation`: `agentkit.backend.kpi_analytics.aggregation`
+- `Dashboard`: `agentkit.backend.kpi_analytics.dashboard`
+- `DesignSystem`: `agentkit.backend.kpi_analytics.design_system`
 
 **Klassen-Skizzen:**
 
@@ -1714,7 +1714,7 @@ Total: ~35 Klassen.
 - FK-20 sagt: IntegrityGate ist Sub von ClosurePhase
 - bounded-contexts.yaml sagt: IntegrityGate gehoert zu governance-and-guards
 - **Entscheidung: bounded-contexts.yaml gewinnt.** IntegrityGate ist Sub von
-  Governance (`agentkit.governance.integrity_gate`). FK-20 muss entsprechend
+  Governance (`agentkit.backend.governance.integrity_gate`). FK-20 muss entsprechend
   refactored werden.
 
 ### SetupPreflightGate
@@ -1768,10 +1768,10 @@ Total: ~35 Klassen.
 
 ### ConformanceService und StageRegistry
 
-- Alte Prefixe (`agentkit.governance.doc_fidelity`,
-  `agentkit.governance.policies`) stammen aus dem v2-Modell
-- Neue Prefixe: `agentkit.verify_system.conformance_service` und
-  `agentkit.verify_system.stage_registry`
+- Alte Prefixe (`agentkit.backend.governance.doc_fidelity`,
+  `agentkit.backend.governance.policies`) stammen aus dem v2-Modell
+- Neue Prefixe: `agentkit.backend.verify_system.conformance_service` und
+  `agentkit.backend.verify_system.stage_registry`
 - Die alten module-Prefixe erzeugen Code-Lints — das ist erwuenscht
   (Zero-Debt-Policy)
 
@@ -1886,25 +1886,25 @@ koennen bei der Implementierungsphase auftauchen.
 
 | Prio | Ziel-BC | Aufgabe |
 |------|---------|---------|
-| 1 | pipeline-framework | Modul-Pfade von `agentkit.pipeline` auf `agentkit.pipeline_engine` migrieren (FK-20, FK-36, FK-39, FK-45) |
-| 2 | verify-system | `agentkit.governance.doc_fidelity` -> `agentkit.verify_system.conformance_service` |
-| 3 | verify-system | `agentkit.governance.policies` -> `agentkit.verify_system.stage_registry` |
-| 4 | verify-system | `agentkit.llm_evaluator` -> `agentkit.verify_system.llm_evaluator` |
-| 5 | governance-and-guards | `agentkit.guard_system` + `agentkit.governance.guards` -> `agentkit.governance.guard_system` |
-| 6 | governance-and-guards | `agentkit.governance.monitoring` -> `agentkit.governance.governance_observer` |
-| 7 | governance-and-guards | IntegrityGate-Prefix in FK-20 auf `agentkit.governance.integrity_gate` aendern |
-| 8 | governance-and-guards | `agentkit.governance.hookruntime` (HookRuntime, BC noch offen) bleibt unveraendert bis HookRuntime-BC geschnitten wird |
+| 1 | pipeline-framework | Modul-Pfade von `agentkit.pipeline` auf `agentkit.backend.pipeline_engine` migrieren (FK-20, FK-36, FK-39, FK-45) |
+| 2 | verify-system | `agentkit.backend.governance.doc_fidelity` -> `agentkit.backend.verify_system.conformance_service` |
+| 3 | verify-system | `agentkit.backend.governance.policies` -> `agentkit.backend.verify_system.stage_registry` |
+| 4 | verify-system | `agentkit.llm_evaluator` -> `agentkit.backend.verify_system.llm_evaluator` |
+| 5 | governance-and-guards | `agentkit.guard_system` + `agentkit.backend.governance.guards` -> `agentkit.backend.governance.guard_system` |
+| 6 | governance-and-guards | `agentkit.backend.governance.monitoring` -> `agentkit.backend.governance.governance_observer` |
+| 7 | governance-and-guards | IntegrityGate-Prefix in FK-20 auf `agentkit.backend.governance.integrity_gate` aendern |
+| 8 | governance-and-guards | `agentkit.backend.governance.hookruntime` (HookRuntime, BC noch offen) bleibt unveraendert bis HookRuntime-BC geschnitten wird |
 | 9 | exploration-and-design | FK-23 §23.3.1 Mermaid-Flowchart: Freeze-Position nach Gate-PASS korrigieren (FK-25 gewinnt) |
 | 10 | exploration-and-design | Eskalations-Mechanik aus FK-23/FK-25 auslagern — nur fachliche Erkennung (MandateClass, ScopeExplosion) bleibt |
 | 11 | exploration-and-design | CLI-Beispiele aus FK-23/FK-25 entfernen (Boundary-Controls) |
-| 12 | implementation-phase | FK-26 §26.5a/§26.5b: Modul-Pfad-Aktualisierung fuer `agentkit.verify_system.evidence_assembler` (FK-28-Referenz korrekt bestaetigen) |
+| 12 | implementation-phase | FK-26 §26.5a/§26.5b: Modul-Pfad-Aktualisierung fuer `agentkit.backend.verify_system.evidence_assembler` (FK-28-Referenz korrekt bestaetigen) |
 | 13 | implementation-phase | FK-26 §26.10 Telemetrie-Tabelle: Events bleiben referenziert, Owner-Sache von telemetry-and-events (kein Prefix-Konflikt, Wording klaeren) |
-| 14 | implementation-phase | FK-49 §49.1.6 review_guard-Verweis: bleibt unter `agentkit.governance.guard_system` (Pfad bestaetigen) |
+| 14 | implementation-phase | FK-49 §49.1.6 review_guard-Verweis: bleibt unter `agentkit.backend.governance.guard_system` (Pfad bestaetigen) |
 | 15 | implementation-phase | FK-49 §49.1.7 `worker_health.*`-Konfiguration: in implementation-phase definiert; FK-93 referenziert nur |
 | 16 | implementation-phase | FK-26 §26.11.2: Wording praezisieren ("ImplementationHandler signalisiert ESCALATED via HandlerResult; PhaseExecutor reagiert generisch") |
-| 17 | story-closure | FK-29 §29.1.2 Mermaid-Flowchart und §29.5: IntegrityGate-Aufruf praezisieren — Closure delegiert an `agentkit.governance.integrity_gate`. Kein Closure-eigener IntegrityGate-Sub. |
+| 17 | story-closure | FK-29 §29.1.2 Mermaid-Flowchart und §29.5: IntegrityGate-Aufruf praezisieren — Closure delegiert an `agentkit.backend.governance.integrity_gate`. Kein Closure-eigener IntegrityGate-Sub. |
 | 18 | story-closure | FK-29 §29.5 Guard-Deaktivierung: Lock-Record-Verwaltung gehoert zu Governance. Closure ruft `Governance.deactivate_locks(story_id)`. Wording praezisieren. |
-| 19 | story-closure | FK-29 Layer-2-Artefakte und Doctreue-Ebene-4: Modul-Pfade auf `agentkit.verify_system.*` aktualisieren (Konsequenz BC-2-Refactor). |
+| 19 | story-closure | FK-29 Layer-2-Artefakte und Doctreue-Ebene-4: Modul-Pfade auf `agentkit.backend.verify_system.*` aktualisieren (Konsequenz BC-2-Refactor). |
 | 20 | story-closure | FK-27: Closure-Anteile (closure-sequence, ClosurePayload, Finding-Resolution-Gate-Mechanik) ausschliesslich nach FK-29 verschieben. FK-27 darf nur referenzieren. |
 | 21 | story-closure | FK-29 §29.4: ExecutionReport-Aufrufpfad bei FAILED in fruehen Phasen praezisieren — Annahme Closure-Top im Skip-Modus; falls pipeline-framework direkt triggert, `ExecutionReport` auf `sub_exposed` aendern. |
 | 22 | artifacts | FK-71 §71.3 Lock-Mechanismus auslagern: Inhalt nach FK-31 (governance/Hook-Enforcement) verschieben; FK-71 darf nur referenzieren. |
@@ -1915,14 +1915,14 @@ koennen bei der Implementierungsphase auftauchen.
 | 27 | telemetry-and-events | FK-69-Split: `fc_incidents`, `fc_patterns`, `fc_check_proposals` (FK-69 §69.9) gehoeren zu failure-corpus. FK-69 muss inhaltlich aufgeteilt werden. |
 | 28 | telemetry-and-events | FK-68 §68.8 Governance-Risk-Window: `NormalizedEvent` bleibt in ReadModels (Sensor); Score-Akkumulation gehoert zu `governance.GovernanceObserver`. FK-68 §68.8 praezisieren. |
 | 29 | telemetry-and-events | FK-68 §68.6 Budget-Hook: Hybrid aus Event-Emission (telemetry) und Blocking (governance). Moegliche Aufspaltung in `telemetry.hooks.BudgetEventEmitter` + `governance.guard_system.WebCallBudgetGuard`. |
-| 30 | telemetry-and-events | FK-68 §68.3.1 Hook-Pfad-Tabelle: Modul-Pfade auf `agentkit.telemetry.hooks.*` aktualisieren (von `telemetry/hook.py`, `telemetry/review_guard.py`, `telemetry/budget.py`, `telemetry/divergence.py`). |
+| 30 | telemetry-and-events | FK-68 §68.3.1 Hook-Pfad-Tabelle: Modul-Pfade auf `agentkit.backend.telemetry.hooks.*` aktualisieren (von `telemetry/hook.py`, `telemetry/review_guard.py`, `telemetry/budget.py`, `telemetry/divergence.py`). |
 | 31 | telemetry-and-events | FK-68 `authority_over`: telemetry, eventing, workflow-metriken bleiben; fc_*-Tabellen-Anteile entfernen. |
-| 32 | telemetry-and-events | FK-69 §69.6-69.8 (qa_*, story_metrics): bleiben in telemetry-and-events, Modul-Pfade auf `agentkit.telemetry.read_models.*` aktualisieren. |
+| 32 | telemetry-and-events | FK-69 §69.6-69.8 (qa_*, story_metrics): bleiben in telemetry-and-events, Modul-Pfade auf `agentkit.backend.telemetry.read_models.*` aktualisieren. |
 | 33 | telemetry-and-events / verify-system / story-closure / pipeline-framework | Projektions-Schema-Ownership: ProjectionAccessor in telemetry-and-events ownt nur DB-Zugriffsschicht; QaStageResult/QaFinding-Schemas wandern zu verify-system, StoryMetric/WorkflowMetric zu story-closure, PhaseStateProjection zu pipeline-framework. FK-68/FK-69 entsprechend nachziehen. |
 | 34 | prompt-runtime | FK-44 §44.6 "Artefakt-ID" fuer Audit-Records: AuditRecord wird via `artifacts.ArtifactManager` persistiert. Beziehung PR -> A explizit in FK-44 dokumentieren. |
 | 35 | prompt-runtime | FK-44 §44.4.2 Evaluator-Prompts: `verify_system.LlmEvaluator` muss alle Templates via `PromptRuntime.materialize_prompt` aufloesen. FK-44 entsprechend praezisieren. |
 | 36 | prompt-runtime / installation-and-bootstrap | FK-44 verweist auf FK-50 (Installer): `update_binding(bundle_id, version)` ist Top-Surface von PromptRuntime; FK-50 muss diese Schnittstelle dokumentieren. |
-| 37 | prompt-runtime | FK-44 §44.5 Modul-Pfade in Code-Beispielen: Filesystem-Konvention; Schema lebt in `BundlePinning`-Sub (`agentkit.prompt_runtime.bundle_pinning`). Pfade in FK-44 aktualisieren. Vokabular: `project-prompt-binding`-Glossarbegriff in FK-44 entweder beibehalten als fachlicher Begriff oder auf `project-prompt-pin` vereinheitlichen (Klassen heissen `ProjectPromptPin`). |
+| 37 | prompt-runtime | FK-44 §44.5 Modul-Pfade in Code-Beispielen: Filesystem-Konvention; Schema lebt in `BundlePinning`-Sub (`agentkit.backend.prompt_runtime.bundle_pinning`). Pfade in FK-44 aktualisieren. Vokabular: `project-prompt-binding`-Glossarbegriff in FK-44 entweder beibehalten als fachlicher Begriff oder auf `project-prompt-pin` vereinheitlichen (Klassen heissen `ProjectPromptPin`). |
 | 38 | prompt-runtime | FK-44 §44.6 Audit-Hash-Felder (`template_sha256`, `render_input_digest`, `output_sha256`): PromptAuditHash-Pydantic-Schema Owner ist Materialization-Sub. FK-44 Schema-Owner-Cut explizit machen. |
 | 39 | prompt-runtime / telemetry-and-events | `prompt_used`-Event-Frage offen: falls eingefuehrt, in EventTypeId-Liste (BC 9 TelemetryContract) ergaenzen und in FK-44 dokumentieren. |
 | 40 | agent-skills | FK-43 §43.4.2 `PlaceholderSubstitutor`: Konfigurations-Schnittstelle (read-only auf PipelineConfig) dokumentieren; substituiert gh_owner/gh_repo/project_prefix/project_key aus FK-03 Foundation. |
@@ -1986,7 +1986,7 @@ Story-Zustands-Pipeline durchlaufen. Owns: Task, TaskLink, Task-Lifecycle,
 Verlinkungsmodell (n:m, bidirektional). Kern-Invariante: ein Task ist
 offene Arbeit fuer Mensch oder Agent, nie eine passive Benachrichtigung.
 
-**Top:** `TaskManagement` (A, top, prefix=`agentkit.task_management`)
+**Top:** `TaskManagement` (A, top, prefix=`agentkit.backend.task_management`)
 
 Top-Surface: `create_task`, `link_task`, `resolve_task`, `dismiss_task`
 sowie Lese-Sichten fuer Frontend und Producer. Es gibt **keinen**

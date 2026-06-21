@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from agentkit.core_types import BlockingCategory
-from agentkit.implementation.manifest import (
+from agentkit.backend.core_types import BlockingCategory
+from agentkit.backend.implementation.manifest import (
     AttemptedRemediation,
     WorkerManifest,
     WorkerManifestStatus,

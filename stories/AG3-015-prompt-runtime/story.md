@@ -14,7 +14,7 @@
   `src/agentkit/prompt_runtime/`, das gesamte BC fehlt") ist **veraltet
   und falsch**. Das Paket `src/agentkit/prompt_runtime/` existiert seit
   der THEME-001 W6-Migration (commit `42b112b`,
-  `agentkit.prompt_composer -> agentkit.prompt_runtime`) mit den Modulen
+  `agentkit.prompt_composer -> agentkit.backend.prompt_runtime`) mit den Modulen
   `__init__.py`, `composer.py`, `pins.py`, `resources.py`,
   `selectors.py`, `sentinels.py`, `templates.py` und vollstaendigen
   Unit-Tests unter `tests/unit/prompt_runtime/`.
@@ -86,7 +86,7 @@ oben drauf**:
 
 Alle Aenderungen erweitern **bestehende** Module bzw. fuegen genau die
 fachlich begruendeten neuen Module hinzu, die die Modul-Map aus
-bc-cut-decisions §BC 10 (`agentkit.prompt_runtime.bundle_store`,
+bc-cut-decisions §BC 10 (`agentkit.backend.prompt_runtime.bundle_store`,
 `.bundle_pinning`, `.materialization`) vorsieht. Wo ein bestehendes
 Modul fachlich bereits den Sub abdeckt, wird **dieses** Modul der Owner,
 ohne Parallel-Anlage.
@@ -185,7 +185,7 @@ ohne Parallel-Anlage.
 
 ## Akzeptanzkriterien
 
-1. **Top-Surface vorhanden:** `agentkit.prompt_runtime.PromptRuntime`
+1. **Top-Surface vorhanden:** `agentkit.backend.prompt_runtime.PromptRuntime`
    existiert als Klasse mit `materialize_prompt`, `create_run_pin`,
    `update_binding`, `compute_audit_hash`; Signaturen typisiert, mypy
    strict ohne `type: ignore`. (bc-cut-decisions §BC 10)
@@ -300,10 +300,10 @@ ohne Parallel-Anlage.
 - **bc-cut-decisions §BC 10** (= formal.architecture-conformance.entities,
   component_group `prompt_runtime`) — Top `PromptRuntime` (`exposure: top`),
   Subs `bundle_store` (resources), `bundle_pinning` (pins),
-  `materialization` (composer/audit); Modul-Prefix `agentkit.prompt_runtime`
+  `materialization` (composer/audit); Modul-Prefix `agentkit.backend.prompt_runtime`
 - **FK-50 §50.5** — Installer ruft `PromptRuntime.update_binding(bundle_id,
   version)` analog zu `Skills.bind_skill`; fail-closed
-- **FK-71 / ArtifactManager** (`agentkit.artifacts.ArtifactManager.write`)
+- **FK-71 / ArtifactManager** (`agentkit.backend.artifacts.ArtifactManager.write`)
   — einzige zulaessige Audit-Persistenzschicht (typisierter
   `ArtifactEnvelope`)
 

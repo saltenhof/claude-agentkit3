@@ -6,26 +6,26 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.project_management.entities import ProjectConfiguration
-from agentkit.project_management.lifecycle import create_project
-from agentkit.requirements_coverage.errors import (
+from agentkit.backend.project_management.entities import ProjectConfiguration
+from agentkit.backend.project_management.lifecycle import create_project
+from agentkit.backend.requirements_coverage.errors import (
     StoryAreLinkConflictError,
     StoryAreLinkNotFoundError,
 )
-from agentkit.requirements_coverage.models import StoryAreLink, StoryAreLinkKind
-from agentkit.state_backend.store import facade
-from agentkit.state_backend.store.project_management_repository import (
+from agentkit.backend.requirements_coverage.models import StoryAreLink, StoryAreLinkKind
+from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
-from agentkit.state_backend.store.story_are_link_repository import (
+from agentkit.backend.state_backend.store.story_are_link_repository import (
     StateBackendStoryAreLinkRepository,
 )
-from agentkit.state_backend.store.story_context_repository import (
+from agentkit.backend.state_backend.store.story_context_repository import (
     StateBackendStoryContextRepository,
 )
-from agentkit.story_context_manager.display_id import format_story_display_id
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.display_id import format_story_display_id
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from agentkit.integrations.jenkins import JenkinsApiError, JenkinsClient
+from agentkit.integration_clients.jenkins import JenkinsApiError, JenkinsClient
 
 
 class _FakeResponse:

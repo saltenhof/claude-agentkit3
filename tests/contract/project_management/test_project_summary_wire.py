@@ -9,9 +9,9 @@ either direction (missing or extra field) fails this test.
 
 from __future__ import annotations
 
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.project_management.http.routes import _project_payload
-from agentkit.project_management.views import ProjectSummary
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.project_management.http.routes import _project_payload
+from agentkit.backend.project_management.views import ProjectSummary
 
 _PROJECT_SUMMARY_FIELDS = frozenset({"project_key", "display_name", "status"})
 

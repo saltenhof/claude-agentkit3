@@ -12,18 +12,18 @@ from tests.unit.exploration.review.scripted import (
     build_scripted_evaluator,
 )
 
-from agentkit.exploration.review.design_review import (
+from agentkit.backend.exploration.review.design_review import (
     DesignReviewResult,
     DesignReviewRunner,
 )
-from agentkit.verify_system.llm_evaluator.structured_evaluator import ReviewerRole
+from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import ReviewerRole
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.exploration.change_frame import ChangeFrame
-    from agentkit.story_context_manager.models import StoryContext
-    from agentkit.verify_system.protocols import Finding
+    from agentkit.backend.exploration.change_frame import ChangeFrame
+    from agentkit.backend.story_context_manager.models import StoryContext
+    from agentkit.backend.verify_system.protocols import Finding
 
 
 class _RecordingReviser:

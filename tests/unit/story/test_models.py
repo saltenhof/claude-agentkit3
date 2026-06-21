@@ -1,4 +1,4 @@
-"""Unit tests for agentkit.story.models."""
+"""Unit tests for agentkit.backend.story.models."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ import pytest
 from pydantic import ValidationError
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.core_types import PauseReason
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.core_types import PauseReason
+from agentkit.backend.pipeline_engine.phase_executor import (
     ClosurePayload,
     ClosureProgress,
     MultiRepoClosureState,
@@ -19,10 +19,10 @@ from agentkit.pipeline_engine.phase_executor import (
     PhaseState,
     PhaseStatus,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.sizing import StorySize
-from agentkit.story_context_manager.story_model import WireStoryMode
-from agentkit.story_context_manager.types import (
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.sizing import StorySize
+from agentkit.backend.story_context_manager.story_model import WireStoryMode
+from agentkit.backend.story_context_manager.types import (
     ImplementationContract,
     StoryMode,
     StoryType,

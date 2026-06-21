@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import Event, EventType
-from agentkit.telemetry.hooks.base import HookContext, HookTrigger
-from agentkit.telemetry.hooks.divergence_hook import DivergenceHook
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import Event, EventType
+from agentkit.backend.telemetry.hooks.base import HookContext, HookTrigger
+from agentkit.backend.telemetry.hooks.divergence_hook import DivergenceHook
 
 
 def _response_context(reviewer_role: str, verdict: str) -> HookContext:

@@ -19,7 +19,7 @@ THEME-004 aus `stories/_priorisierungsempfehlung.md`, Teil 1. Befunde:
 
 - `pipeline-framework.C1`: `PhaseEnvelope` und `RuntimeMetadata` fehlen — Engine arbeitet direkt mit `PhaseState`; keine Persistenzgrenze zwischen durable `PhaseState` und ephemerer `RuntimeMetadata`.
 - `pipeline-framework.C2`: `PauseReason` als freier String. (`AG3-021` hat den Enum bereitgestellt — diese Story zieht ihn in die Engine.)
-- `pipeline-framework.A2`: `PhaseEnvelopeStore` als Sub fehlt — Phase-State-Persistenz laeuft ueber `agentkit.state_backend.store` ohne BC-eigenen Store.
+- `pipeline-framework.A2`: `PhaseEnvelopeStore` als Sub fehlt — Phase-State-Persistenz laeuft ueber `agentkit.backend.state_backend.store` ohne BC-eigenen Store.
 
 Die Trennung `PhaseState` (durable) vs. `RuntimeMetadata` (ephemer) ist Voraussetzung fuer Crash-Recovery-Korrektheit (THEME-009: QA-Zyklus-Persistenz baut auf PhaseEnvelope auf).
 
@@ -96,9 +96,9 @@ class PhaseEnvelopeStore:
 
 `src/agentkit/pipeline/engine.py:_handle_paused_result` und die zugrunde liegende Yield-Result-Datenstruktur:
 
-- `paused_reason: PauseReason` (aus `agentkit.core_types`) statt `str`.
+- `paused_reason: PauseReason` (aus `agentkit.backend.core_types`) statt `str`.
 - Wenn der Handler einen `yield_status`-String liefert, der nicht zu einem `PauseReason` mappt: fail-closed mit `InvalidPauseReasonError` (neue Exception in `pipeline_engine/errors.py`).
-- Hilfsfunktion `PauseReason.from_yield_status(s: str) -> PauseReason` (in `agentkit.core_types.pause_reason`) wurde in AG3-021 bereits angelegt; hier wird sie konsumiert.
+- Hilfsfunktion `PauseReason.from_yield_status(s: str) -> PauseReason` (in `agentkit.backend.core_types.pause_reason`) wurde in AG3-021 bereits angelegt; hier wird sie konsumiert.
 
 ##### 2.1.5.1 Yield-Klarstellung (Codex-Befund §"Konzept-Spannungen" Pkt. 3)
 
@@ -130,7 +130,7 @@ Wo liest welcher Konsument:
 - `PipelineRegistry` (`pipeline-framework.A3`) — separate kleine Folge-Story (nicht in dieser Welle adressiert)
 - `StoryResetService` (`pipeline-framework.A4`) — bewusst nicht in der Erst-Welle (siehe Priorisierungsempfehlung §5)
 - `CompactionResilience` (`pipeline-framework.A1`) — bewusst nicht in der Erst-Welle
-- Prefix-Migration `agentkit.pipeline` -> `agentkit.pipeline_engine` (`pipeline-framework.B1`) — gehoert zu THEME-001 (bereits erledigt) bzw. zu separater Cleanup-Story; nicht hier
+- Prefix-Migration `agentkit.pipeline` -> `agentkit.backend.pipeline_engine` (`pipeline-framework.B1`) — gehoert zu THEME-001 (bereits erledigt) bzw. zu separater Cleanup-Story; nicht hier
 - Phase-Transition-Enforcement nach FK-45-Semantik (`pipeline-framework.B3`) — gehoert zu THEME-006 (AG3-032)
 - Orchestrator-Trennung des Remediation-Loops (`pipeline-framework.C3`) — gehoert zu THEME-009 (AG3-044)
 - Recovery-CLI `agentkit run-phase`/`resume`/... (`pipeline-framework.B5`) — separate CLI-Story (nicht in der Erst-Welle)
@@ -168,7 +168,7 @@ Wo liest welcher Konsument:
 5. **`paused_reason` ist typisiert**: `_handle_paused_result` setzt `paused_reason: PauseReason`. Unbekannte Yield-Status-Strings fuehren zu `InvalidPauseReasonError`.
 6. **Crash-Safety wird nicht verschlechtert**: existing Tests fuer Resume/Recovery laufen weiter; ein neuer Test beweist, dass `runtime` nicht persistiert wird (Roundtrip: save -> load -> runtime.origin == LOADED).
 7. **`phase_state_store/store.py`** ist konsistent: entweder re-exportiert es `PhaseEnvelopeStore` (Re-Export-Compat) oder es ist entfernt; in beiden Faellen existiert keine zweite Persistenz-Facade fuer denselben Inhalt.
-8. **Architecture-Conformance**: `pipeline_engine.phase_envelope` darf nur aus `agentkit.core_types`, `agentkit.story_context_manager.models` (PhaseState/PhaseName), und `agentkit.pipeline_engine` importieren.
+8. **Architecture-Conformance**: `pipeline_engine.phase_envelope` darf nur aus `agentkit.backend.core_types`, `agentkit.backend.story_context_manager.models` (PhaseState/PhaseName), und `agentkit.backend.pipeline_engine` importieren.
 9. **Pflichtbefehle gruen**: pytest unit + integration; mypy --strict; ruff clean; Coverage haelt 85%.
 
 ## 5. Definition of Done

@@ -14,12 +14,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.kpi_analytics.fact_store.guard_counter import (
+from agentkit.backend.kpi_analytics.fact_store.guard_counter import (
     GuardCounterService,
     week_start_for,
 )
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.guard_counter_repository import (
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.guard_counter_repository import (
     StateBackendGuardCounterRepository,
 )
 

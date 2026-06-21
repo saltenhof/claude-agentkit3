@@ -16,14 +16,14 @@ from tests.unit.installer.upgrade.conftest import (
     write_valid_project_yaml,
 )
 
-from agentkit.exceptions import ConfigError
-from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
-from agentkit.installer.upgrade._digest import config_file_digest
-from agentkit.installer.upgrade.footprint import (
+from agentkit.backend.exceptions import ConfigError
+from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
+from agentkit.backend.installer.upgrade._digest import config_file_digest
+from agentkit.backend.installer.upgrade.footprint import (
     CustomizationFootprint,
     CustomizationKind,
 )
-from agentkit.installer.upgrade.upgrade_flow import run_upgrade
+from agentkit.backend.installer.upgrade.upgrade_flow import run_upgrade
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -79,7 +79,7 @@ def test_footprint_pipeline_config_unreadable_config_no_point(
     tmp_path: Path, registration_repo: InMemoryRegistrationRepo
 ) -> None:
     """An unreadable (non-mapping) on-disk config yields no pipeline-config point."""
-    from agentkit.installer.paths import project_config_path
+    from agentkit.backend.installer.paths import project_config_path
 
     project_root = tmp_path / "proj"
     project_root.mkdir()
@@ -108,7 +108,7 @@ def test_backup_config_file_oserror_fails_closed(
     """A backup write failure fails closed (no migration without a recoverable bak)."""
     import shutil
 
-    from agentkit.installer.upgrade.config_migration import (
+    from agentkit.backend.installer.upgrade.config_migration import (
         ConfigMigrationError,
         backup_config_file,
     )
@@ -128,8 +128,8 @@ def test_build_skills_surface_returns_none_on_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A skills surface that cannot be built degrades to ``None`` (read-only)."""
-    import agentkit.state_backend.store.skill_binding_repository as repo_mod
-    from agentkit.installer.upgrade._skills_surface import build_skills_surface
+    import agentkit.backend.state_backend.store.skill_binding_repository as repo_mod
+    from agentkit.backend.installer.upgrade._skills_surface import build_skills_surface
 
     def _boom(*_args: object, **_kwargs: object) -> object:
         raise RuntimeError("no state backend")

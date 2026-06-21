@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from agentkit.verify_system.pre_merge_runner.build_test_runner import CiBuildTestRunner
-from agentkit.verify_system.pre_merge_runner.ci_run import CiRunUnavailableError
-from agentkit.verify_system.pre_merge_runner.contract import CandidateRef
+from agentkit.backend.verify_system.pre_merge_runner.build_test_runner import CiBuildTestRunner
+from agentkit.backend.verify_system.pre_merge_runner.ci_run import CiRunUnavailableError
+from agentkit.backend.verify_system.pre_merge_runner.contract import CandidateRef
 
 from .fakes import FakeCiBackend, make_ci_result, run_cache
 

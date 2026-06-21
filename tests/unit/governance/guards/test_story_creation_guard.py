@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.governance.guard_evaluation import HookEvent
-from agentkit.governance.guards.story_creation_guard import (
+from agentkit.backend.governance.guard_evaluation import HookEvent
+from agentkit.backend.governance.guards.story_creation_guard import (
     BLOCK_REASON,
     RULE_ID,
     SKILL_MARKER_VALUE,
     StoryCreationGuard,
 )
-from agentkit.governance.principal_capabilities import (
+from agentkit.backend.governance.principal_capabilities import (
     OperationClassifier,
     PrincipalResolver,
 )
@@ -165,7 +165,7 @@ class TestStoryCreationAllow:
         verdict = _guard().evaluate(
             _event(
                 operation="file_write",
-                operation_args={"file_path": "src/agentkit/module.py"},
+                operation_args={"file_path": "src/agentkit/backend/module.py"},
                 attest="worker",
             )
         )

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.integrations.vectordb import VectorDbWriteError
-from agentkit.story_creation.weaviate_index import WeaviateStoryIndex
+from agentkit.backend.story_creation.weaviate_index import WeaviateStoryIndex
+from agentkit.integration_clients.vectordb import VectorDbWriteError
 
 
 class _FakeAdapter:

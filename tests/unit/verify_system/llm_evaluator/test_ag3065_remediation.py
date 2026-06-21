@@ -23,15 +23,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agentkit.artifacts.envelope import ArtifactEnvelope
-from agentkit.core_types import ArtifactClass
-from agentkit.multi_llm_hub.entities import HubMessage, HubSessionLease
-from agentkit.multi_llm_hub.errors import (
-    HubLoginRequiredError,
-    HubUnavailableError,
-)
-from agentkit.verify_system.llm_evaluator.dialogue_runner import DialogueRunner
-from agentkit.verify_system.llm_evaluator.llm_client import (
+from agentkit.backend.artifacts.envelope import ArtifactEnvelope
+from agentkit.backend.core_types import ArtifactClass
+from agentkit.backend.verify_system.llm_evaluator.dialogue_runner import DialogueRunner
+from agentkit.backend.verify_system.llm_evaluator.llm_client import (
     ACQUIRE_TIMEOUT_SECONDS,
     SEND_TIMEOUT_SECONDS,
     TOTAL_TIMEOUT_SECONDS,
@@ -39,12 +34,17 @@ from agentkit.verify_system.llm_evaluator.llm_client import (
     LlmClientError,
     LoginRequiredError,
 )
-from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import (
     QA_REVIEW_CHECK_IDS,
     LlmVerdict,
     ReviewerRole,
     StructuredEvaluator,
     StructuredEvaluatorError,
+)
+from agentkit.integration_clients.multi_llm_hub.entities import HubMessage, HubSessionLease
+from agentkit.integration_clients.multi_llm_hub.errors import (
+    HubLoginRequiredError,
+    HubUnavailableError,
 )
 
 # ---------------------------------------------------------------------------
@@ -132,8 +132,8 @@ class _StubMaterializer:
     """Prompt materializer stub."""
 
     def context_for(self, bundle: Any) -> tuple[Any, str]:
-        from agentkit.story_context_manager.models import StoryContext
-        from agentkit.story_context_manager.types import StoryMode, StoryType
+        from agentkit.backend.story_context_manager.models import StoryContext
+        from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
         ctx = StoryContext(
             project_key="test",
@@ -161,7 +161,7 @@ def _all_pass_qa() -> str:
 
 
 def _bundle(story_id: str = "AG3-065") -> Any:
-    from agentkit.verify_system.llm_evaluator.bundle import ReviewBundle
+    from agentkit.backend.verify_system.llm_evaluator.bundle import ReviewBundle
 
     return ReviewBundle(
         story_id=story_id,
@@ -237,7 +237,7 @@ class TestError1TotalTimeoutBudget:
 
         with (
             mock.patch(
-                "agentkit.verify_system.llm_evaluator.llm_client.time.monotonic",
+                "agentkit.backend.verify_system.llm_evaluator.llm_client.time.monotonic",
                 side_effect=_fake_monotonic,
             ),
             pytest.raises(LlmClientError) as exc_info,
@@ -265,7 +265,7 @@ class TestError1TotalTimeoutBudget:
         call_seq = iter([base_time, base_time + TOTAL_TIMEOUT_SECONDS + 100])
 
         with mock.patch(
-            "agentkit.verify_system.llm_evaluator.llm_client.time.monotonic",
+            "agentkit.backend.verify_system.llm_evaluator.llm_client.time.monotonic",
             side_effect=call_seq,
         ):
             client = HubLlmClient(hub, _StaticResolver())
@@ -291,7 +291,7 @@ class TestError2LoginRequiredRouteDispatch:
     """_handle_send must dispatch HubLoginRequiredError to hub_login_required, not hub_error."""
 
     def _make_routes(self, client: Any) -> Any:
-        from agentkit.multi_llm_hub.http.routes import MultiLlmHubRoutes
+        from agentkit.integration_clients.multi_llm_hub.http.routes import MultiLlmHubRoutes
 
         return MultiLlmHubRoutes(client=client)
 
@@ -362,7 +362,7 @@ class TestError2LoginRequiredRouteDispatch:
 
     def test_hub_llm_client_surfaces_login_required_error(self) -> None:
         """ERROR 2 end-to-end: route emits hub_login_required -> client raises LoginRequiredError."""
-        from agentkit.multi_llm_hub.client import _hub_error_from_http_error
+        from agentkit.integration_clients.multi_llm_hub.client import _hub_error_from_http_error
 
         # Simulate the route's hub_login_required response reaching the client.
         body = json.dumps({"error_code": "hub_login_required", "error": "login"}).encode("utf-8")
@@ -618,7 +618,7 @@ class TestError5DialogueTranscriptWrite:
 
     def test_write_raw_does_not_exist_on_real_api(self) -> None:
         """ERROR 5: ArtifactManager has no write_raw -- only write(ArtifactEnvelope)."""
-        from agentkit.artifacts import ArtifactManager
+        from agentkit.backend.artifacts import ArtifactManager
 
         assert not hasattr(ArtifactManager, "write_raw"), (
             "ArtifactManager.write_raw() must not exist -- real API is write(ArtifactEnvelope)."

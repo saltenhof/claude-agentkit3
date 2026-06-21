@@ -24,19 +24,19 @@ from tests.unit.installer.checkpoint_engine.conftest import (
     make_config,
 )
 
-from agentkit.installer.bootstrap_checkpoints.cp07_to_09 import cp08_skill_bindings
-from agentkit.installer.bootstrap_checkpoints.cp10 import cp10c_are_scope_validation
-from agentkit.installer.bootstrap_checkpoints.orchestrator import (
+from agentkit.backend.installer.bootstrap_checkpoints.cp07_to_09 import cp08_skill_bindings
+from agentkit.backend.installer.bootstrap_checkpoints.cp10 import cp10c_are_scope_validation
+from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
     build_checkpoint_context,
 )
-from agentkit.installer.checkpoint_engine.context import ScopeInteractionMode
-from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
-from agentkit.installer.checkpoint_engine.reasons import (
+from agentkit.backend.installer.checkpoint_engine.context import ScopeInteractionMode
+from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
+from agentkit.backend.installer.checkpoint_engine.reasons import (
     REASON_ALREADY_SATISFIED,
     REASON_PLANNED_NO_MUTATION,
 )
-from agentkit.installer.paths import default_prompt_bundle_store_root
-from agentkit.installer.registration import CheckpointStatus
+from agentkit.backend.installer.paths import default_prompt_bundle_store_root
+from agentkit.backend.installer.registration import CheckpointStatus
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -57,7 +57,7 @@ def test_install_agentkit_facade_only_delegates() -> None:
     build a project.yaml, NOT construct an ``InstallResult`` — all of which would
     be the façade doing checkpoint orchestration of its own (the prior bug).
     """
-    from agentkit.installer import runner
+    from agentkit.backend.installer import runner
 
     source = inspect.getsource(runner.install_agentkit)
     tree = ast.parse(source)
@@ -91,7 +91,7 @@ def test_engine_path_runs_ci_preflight_in_register(
     not_applicable, but it is still APPENDED by the engine path — proving the
     engine owns it (the façade no longer adds it).
     """
-    from agentkit.installer.bootstrap_checkpoints.orchestrator import (
+    from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
         run_checkpoint_install,
     )
 
@@ -116,7 +116,7 @@ def test_install_agentkit_appends_ci_via_engine(
     tmp_path: Path, registration_repo: InMemoryRegistrationRepo
 ) -> None:
     """AC1: the façade still yields the CI preflight (inherited from the engine)."""
-    from agentkit.installer.runner import install_agentkit
+    from agentkit.backend.installer.runner import install_agentkit
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -133,7 +133,7 @@ def test_engine_does_not_run_ci_preflight_in_read_only(
     tmp_path: Path, registration_repo: InMemoryRegistrationRepo
 ) -> None:
     """The engine never hits the live CI boundary in dry_run/verify (FK-50 §50.2)."""
-    from agentkit.installer.bootstrap_checkpoints.orchestrator import (
+    from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import (
         run_checkpoint_install,
     )
 
@@ -218,7 +218,7 @@ def test_cp08_register_materialises_prompt_store(
 
     ctx = _cp8_ctx(tmp_path, registration_repo, ExecutionMode.REGISTER)
     # CP 5 must publish project.yaml first; CP 8 deploys post-registration.
-    from agentkit.installer.bootstrap_checkpoints.cp01_to_06 import cp05_pipeline_config
+    from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import cp05_pipeline_config
 
     cp05_pipeline_config(ctx)  # type: ignore[arg-type]
     result = cp08_skill_bindings(ctx)  # type: ignore[arg-type]
@@ -250,8 +250,8 @@ def _are_ctx_complete(
     ctx = build_checkpoint_context(
         config, mode, scope_interaction_mode=ScopeInteractionMode.AGENTIC
     )
-    from agentkit.installer.bootstrap_checkpoints.cp01_to_06 import cp05_pipeline_config
-    from agentkit.installer.bootstrap_checkpoints.cp10 import cp10_mcp_registration
+    from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import cp05_pipeline_config
+    from agentkit.backend.installer.bootstrap_checkpoints.cp10 import cp10_mcp_registration
 
     cp05_pipeline_config(ctx)
     cp10_mcp_registration(ctx)
@@ -305,7 +305,7 @@ def test_cp10c_resolved_this_run_is_pass_in_verify(
 
 def test_facade_source_has_no_imperative_ci_orchestration() -> None:
     """AC1 belt-and-suspenders: the façade source has no ci/InstallResult tokens."""
-    from agentkit.installer import runner
+    from agentkit.backend.installer import runner
 
     source = inspect.getsource(runner.install_agentkit)
     # The façade returns the engine result verbatim; it must not re-assemble one.

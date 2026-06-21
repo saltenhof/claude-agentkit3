@@ -9,11 +9,11 @@ from __future__ import annotations
 import json
 from http import HTTPStatus
 
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.story_context_manager.http.routes import StoryContextRoutes, StoryRouteResponse
-from agentkit.story_context_manager.idempotency import InMemoryIdempotencyKeyRepository
-from agentkit.story_context_manager.service import StoryService
-from agentkit.story_context_manager.story_repository import InMemoryStoryRepository
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.story_context_manager.http.routes import StoryContextRoutes, StoryRouteResponse
+from agentkit.backend.story_context_manager.idempotency import InMemoryIdempotencyKeyRepository
+from agentkit.backend.story_context_manager.service import StoryService
+from agentkit.backend.story_context_manager.story_repository import InMemoryStoryRepository
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -21,13 +21,13 @@ from unittest.mock import patch
 
 import pytest
 
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.projection_repositories import (
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.projection_repositories import (
     build_projection_repositories,
 )
-from agentkit.task_management.http.routes import TaskManagementRoutes
-from agentkit.task_management.service import TaskManagement
-from agentkit.telemetry.projection_accessor import ProjectionAccessor
+from agentkit.backend.task_management.http.routes import TaskManagementRoutes
+from agentkit.backend.task_management.service import TaskManagement
+from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agentkit.telemetry.projection_accessor import (
+from agentkit.backend.telemetry.projection_accessor import (
     ProjectionAccessor,
     ProjectionKind,
     PurgeResult,

@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.story_context_manager.errors import ForbiddenFieldError, StoryValidationError
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.story_context_manager.errors import ForbiddenFieldError, StoryValidationError
+from agentkit.backend.story_context_manager.story_model import (
     ChangeImpact,
     ConceptQuality,
     RiskLevel,
@@ -19,7 +19,7 @@ from agentkit.story_context_manager.story_model import (
     WireStoryMode,
     WireStoryType,
 )
-from agentkit.story_context_manager.wire_adapter import (
+from agentkit.backend.story_context_manager.wire_adapter import (
     FORBIDDEN_PATCH_FIELDS,
     check_forbidden_fields,
     parse_wire_change_impact,

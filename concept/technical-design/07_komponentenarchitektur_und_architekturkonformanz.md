@@ -92,18 +92,18 @@ Volldefinition mit Heuristiken, Erkennungstests und Beispielen:
 >
 > - Der in §7.4.1 genannte `StoryContextPort` existiert **nicht** als
 >   Symbol. Das reale Pendant heisst `StoryContextQueryPort` (Protocol-
->   Definition `src/agentkit/verify_system/protocols.py:120`; verwendet in
->   `src/agentkit/verify_system/system.py:102` `_NullStoryContextPort`,
+>   Definition `src/agentkit/backend/verify_system/protocols.py:120`; verwendet in
+>   `src/agentkit/backend/verify_system/system.py:102` `_NullStoryContextPort`,
 >   `:129` Default-Alias, `:185` Feld; gespiegelt in
->   `src/agentkit/exploration/ports.py:10`).
+>   `src/agentkit/backend/exploration/ports.py:10`).
 > - Reale Protocol-Ports der Exploration-Phase tragen funktionsbezogene
 >   Namen statt der FK-07-Contract-Namen:
->   `src/agentkit/exploration/ports.py:36` `RunScopeResolver`,
+>   `src/agentkit/backend/exploration/ports.py:36` `RunScopeResolver`,
 >   `:57` `ChangeFrameReader`, `:82` `WorkerDraftPresenceReader`,
 >   `:111` `ChangeFrameWriter`, `:152` `DeclaredImpactReader`.
 > - Die Closure-Runtime-Ports tragen ebenfalls funktionsbezogene,
 >   nicht die §7.4-Contract-Namen
->   (`src/agentkit/closure/runtime_ports.py:104` `ProductiveSanityGatePort`,
+>   (`src/agentkit/backend/closure/runtime_ports.py:104` `ProductiveSanityGatePort`,
 >   `:202` `ProductiveDocFidelityFeedbackPort`,
 >   `:260` `ProductiveVectorDbSyncPort`,
 >   `:390` `ProductiveTelemetryEvidencePort`,
@@ -138,10 +138,10 @@ Volldefinition mit Heuristiken, Erkennungstests und Beispielen:
 > bereits (`PROJECT_STRUCTURE.md:219`, `:297`). Der Port-Name `WorktreePort`
 > ist — wie der Aspirations-Hinweis oben — Zielbild und existiert noch
 > nicht als literales Symbol. **Code-Realitaet (Drift):** Es gibt heute
-> **keinen** Top-Level-Namespace `src/agentkit/worktree_manager/`; die
+> **keinen** Backend-Namespace `src/agentkit/backend/worktree_manager/`; die
 > Worktree-Logik ist verstreut auf
-> `src/agentkit/governance/setup_preflight_gate/worktree.py` (Setup) und
-> `src/agentkit/closure/multi_repo_saga.py` (Merge/Teardown). **Owner pro
+> `src/agentkit/backend/governance/setup_preflight_gate/worktree.py` (Setup) und
+> `src/agentkit/backend/closure/multi_repo_saga.py` (Merge/Teardown). **Owner pro
 > Wert:** Die FK-/PROJECT_STRUCTURE-Prosa bleibt beim Soll-Schnitt; der
 > Drift ist ein **Code-Bedarf gegen den bestehenden, geowneten Soll-Owner
 > `story_context_manager`** (BC `story-lifecycle`) — **nicht** ein
@@ -220,7 +220,7 @@ seit `entities.md` Version 19 in zwei Subs von `GuardSystem` lebt:
 `HarnessAdapters.{Harness}` (pro Harness eine lokalisierte AT-Mediation
 — aktuell `claude_code` und `codex` (FK-76 §76.4), kuenftig z.B.
 `qwen_code` oder `gemini_code`).
-`agentkit.governance.hookruntime` ist Backward-Compat-Pfad fuer den
+`agentkit.backend.governance.hookruntime` ist Backward-Compat-Pfad fuer den
 Claude-Code-Adapter und gehoert zur AT-Insel.
 
 **Explizite Nicht-Komponente:** `IntegrationHub` ist kein normativ
@@ -238,7 +238,7 @@ Konventions-Anteilen trennbar sind.
 
 ## 7.6 Repository-Regel
 
-Fachkomponenten haengen nicht an `agentkit.state_backend.store` als
+Fachkomponenten haengen nicht an `agentkit.backend.state_backend.store` als
 generischer Mega-Fassade. Die Zielarchitektur verlangt
 komponentenspezifische Repository-Vertraege.
 
@@ -312,16 +312,16 @@ komponentenspezifische Read-Surfaces ein.
 Sie prueft importbasiert:
 
 - dass globale Story-Read-Loader nicht mehr frei aus
-  `agentkit.state_backend` in beliebige A-Komponenten gezogen werden
+  `agentkit.backend.state_backend` in beliebige A-Komponenten gezogen werden
 - dass dazu neben Story-Kontext, Phase-State, FlowExecution und
   Closure-Metriken auch globale `execution_events` gehoeren
 - dass globale Lifecycle-Read-Loader der Control Plane nicht mehr frei
-  aus `agentkit.state_backend` in `runtime.py` oder andere A-Komponenten
+  aus `agentkit.backend.state_backend` in `runtime.py` oder andere A-Komponenten
   gezogen werden
-- dass diese Loader nur noch innerhalb von `agentkit.state_backend`
+- dass diese Loader nur noch innerhalb von `agentkit.backend.state_backend`
   selbst und auf expliziten Surfaces wie
-  `agentkit.story.repository` oder
-  `agentkit.control_plane.repository`
+  `agentkit.backend.story.repository` oder
+  `agentkit.backend.control_plane.repository`
   importiert werden
 - dass `StoryService` und spaetere Dashboard-Read-Modelle dadurch an
   einer fachlich benannten Repository-Kante statt an der technischen
@@ -353,30 +353,30 @@ Die erste formale Checker-Schicht zieht mindestens diese Grenzen:
    Legacy-Reexporte duerfen nur aus explizit zugelassenen
    Komponentenoberflaechen importiert werden.
 6. Globale Story-Read-Loader duerfen nur aus
-   `agentkit.story.repository` oder innerhalb von `agentkit.state_backend`
+   `agentkit.backend.story.repository` oder innerhalb von `agentkit.backend.state_backend`
    selbst importiert werden.
    Dazu gehoeren mindestens Story-Kontext-, Phase-State-, FlowExecution-,
    Story-Metrics- und `execution_events`-Reads.
 7. Globale Control-Plane-Lifecycle-Reads duerfen nur aus
-   `agentkit.control_plane.repository` oder innerhalb von
-   `agentkit.state_backend` selbst importiert werden.
+   `agentkit.backend.control_plane.repository` oder innerhalb von
+   `agentkit.backend.state_backend` selbst importiert werden.
 
 ## 7.9 Messbare Architektur-Invarianten
 
 Die formale V1-Schicht codiert folgende deterministisch pruefbare
 Invarianten:
 
-1. `agentkit.story` und `agentkit.dashboard` importieren nicht
-   `agentkit.control_plane.http`.
-2. `agentkit.story` und `agentkit.dashboard` importieren nicht
-   `agentkit.projectedge.client`.
-3. `agentkit.story` und `agentkit.dashboard` importieren nicht
-   `agentkit.governance.hookruntime`.
-4. `agentkit.story`, `agentkit.dashboard` und `agentkit.control_plane`
-   importieren nicht direkt `agentkit.state_backend.postgres_store`
-   oder `agentkit.state_backend.sqlite_store`.
-5. `agentkit.projectedge` importiert nicht
-   `agentkit.control_plane.http`.
+1. `agentkit.backend.story` und `agentkit.dashboard` importieren nicht
+   `agentkit.backend.control_plane.http`.
+2. `agentkit.backend.story` und `agentkit.dashboard` importieren nicht
+   `agentkit.harness_client.projectedge.client`.
+3. `agentkit.backend.story` und `agentkit.dashboard` importieren nicht
+   `agentkit.backend.governance.hookruntime`.
+4. `agentkit.backend.story`, `agentkit.dashboard` und `agentkit.backend.control_plane`
+   importieren nicht direkt `agentkit.backend.state_backend.postgres_store`
+   oder `agentkit.backend.state_backend.sqlite_store`.
+5. `agentkit.harness_client.projectedge` importiert nicht
+   `agentkit.backend.control_plane.http`.
 6. Zwischen den stabilen Komponenten `story`, `dashboard`,
    `control_plane` und `projectedge` existiert kein Zyklus.
 7. Writer-Symbole fuer `story_contexts`, `flow_executions`,
@@ -385,10 +385,10 @@ Invarianten:
    Closure-Metriken duerfen nur aus den dafuer freigegebenen
    Moduloberflaechen importiert werden.
 8. Globale Story-Read-Loader duerfen nur auf der expliziten
-   Read-Surface `agentkit.story.repository` importiert werden; direkte
+   Read-Surface `agentkit.backend.story.repository` importiert werden; direkte
    Kopplung anderer A-Komponenten an diese Loader ist verboten.
 9. Globale Control-Plane-Lifecycle-Reads duerfen nur auf der
-   expliziten Read-Surface `agentkit.control_plane.repository`
+   expliziten Read-Surface `agentkit.backend.control_plane.repository`
    importiert werden; direkte Kopplung anderer A-Komponenten an diese
    Loader ist verboten.
 

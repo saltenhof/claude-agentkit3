@@ -1,16 +1,16 @@
-"""Unit tests for agentkit.story_context_manager.routing_rules."""
+"""Unit tests for agentkit.backend.story_context_manager.routing_rules."""
 
 from __future__ import annotations
 
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.routing_rules import (
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.routing_rules import (
     get_phases_for_story,
     requires_merge,
     requires_worktree,
     should_run_exploration,
     should_run_full_qa,
 )
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 
 def _make_context(
@@ -18,7 +18,7 @@ def _make_context(
     mode: StoryMode | None = None,
 ) -> StoryContext:
     """Helper to create a minimal StoryContext for testing."""
-    from agentkit.story_context_manager.types import get_profile
+    from agentkit.backend.story_context_manager.types import get_profile
 
     if mode is None:
         mode = get_profile(story_type).default_mode

@@ -16,13 +16,13 @@ from typing import TYPE_CHECKING
 
 from tests.exploration_change_frame_fixture import EXAMPLE_RUN_ID, example_change_frame
 
-from agentkit.core_types.qa_artifact_names import CHANGE_FRAME_FILE
-from agentkit.exploration.freeze import DesignFreezeMarker
-from agentkit.governance.guards.artifact_guard import ArtifactGuard
-from agentkit.governance.protocols import ViolationType
+from agentkit.backend.core_types.qa_artifact_names import CHANGE_FRAME_FILE
+from agentkit.backend.exploration.freeze import DesignFreezeMarker
+from agentkit.backend.governance.guards.artifact_guard import ArtifactGuard
+from agentkit.backend.governance.protocols import ViolationType
 
 if TYPE_CHECKING:
-    from agentkit.exploration.change_frame import ChangeFrame
+    from agentkit.backend.exploration.change_frame import ChangeFrame
 
 
 @dataclass

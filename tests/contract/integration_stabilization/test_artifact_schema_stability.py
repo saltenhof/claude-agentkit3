@@ -6,8 +6,8 @@ Pinned schemas and wire keys that must not change without a new major version
 
 from __future__ import annotations
 
-from agentkit.core_types.qa_artifact_names import STABILITY_GATE_PRODUCER
-from agentkit.integration_stabilization.events import (
+from agentkit.backend.core_types.qa_artifact_names import STABILITY_GATE_PRODUCER
+from agentkit.backend.integration_stabilization.events import (
     INTEGRATION_MANIFEST_APPROVED,
     INTEGRATION_VERIFY_FAILED,
     INTEGRATION_VERIFY_PASSED,
@@ -17,8 +17,8 @@ from agentkit.integration_stabilization.events import (
     STABILIZATION_CAMPAIGN_STARTED,
     UNDECLARED_SURFACE_DETECTED,
 )
-from agentkit.integration_stabilization.fk37_checks import FK37CheckName
-from agentkit.integration_stabilization.models import (
+from agentkit.backend.integration_stabilization.fk37_checks import FK37CheckName
+from agentkit.backend.integration_stabilization.models import (
     IntegrationScopeManifest,
     ManifestApprovalRecord,
     StabilizationBudget,

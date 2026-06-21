@@ -4,8 +4,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentkit.multi_llm_hub.entities import HubBackendMetric, HubHealth, HubSession
-from agentkit.multi_llm_hub.sse_stream import (
+from agentkit.integration_clients.multi_llm_hub.entities import HubBackendMetric, HubHealth, HubSession
+from agentkit.integration_clients.multi_llm_hub.sse_stream import (
     parse_hub_topics,
     render_hub_heartbeat,
     render_hub_snapshot,

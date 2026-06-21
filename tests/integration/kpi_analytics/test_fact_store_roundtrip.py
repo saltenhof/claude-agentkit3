@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.kpi_analytics.fact_store import (
+from agentkit.backend.kpi_analytics.fact_store import (
     FactCorpusPeriod,
     FactGuardPeriod,
     FactPipelinePeriod,
@@ -24,7 +24,7 @@ from agentkit.kpi_analytics.fact_store import (
     PeriodFilter,
     SyncState,
 )
-from agentkit.state_backend.store.fact_repository import StateBackendFactRepository
+from agentkit.backend.state_backend.store.fact_repository import StateBackendFactRepository
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -41,7 +41,7 @@ def _pin_sqlite(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
-    from agentkit.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     yield

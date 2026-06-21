@@ -21,18 +21,18 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.exceptions import InstallationError
-from agentkit.installer.integration_checkpoints import SelfTestScan
-from agentkit.installer.integration_checkpoints.sonar_preflight import (
+from agentkit.backend.exceptions import InstallationError
+from agentkit.backend.installer.integration_checkpoints import SelfTestScan
+from agentkit.backend.installer.integration_checkpoints.sonar_preflight import (
     ADMINISTER_ISSUES,
     CheckpointStatus,
 )
-from agentkit.installer.runner import (
+from agentkit.backend.installer.runner import (
     InstallConfig,
     _build_project_yaml,
     _run_cp10d_sonarqube,
 )
-from agentkit.integrations.sonar import SonarHttpResponse
+from agentkit.integration_clients.sonar import SonarHttpResponse
 
 
 def _config(root: Path) -> InstallConfig:

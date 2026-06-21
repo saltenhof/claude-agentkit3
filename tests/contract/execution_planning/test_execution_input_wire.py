@@ -18,7 +18,7 @@ from typing import Any
 
 import yaml
 
-from agentkit.execution_planning.scheduling import (
+from agentkit.backend.execution_planning.scheduling import (
     ExecutionInputNext,
     ExecutionInputNextReason,
     ExecutionInputSnapshot,

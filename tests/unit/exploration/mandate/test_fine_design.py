@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.exploration_change_frame_fixture import example_change_frame
 
-from agentkit.exploration.mandate.fine_design import (
+from agentkit.backend.exploration.mandate.fine_design import (
     FineDesignDecision,
     FineDesignEvaluatorUnavailableError,
     FineDesignRoundOutcome,
@@ -22,7 +22,7 @@ from agentkit.exploration.mandate.fine_design import (
 )
 
 if TYPE_CHECKING:
-    from agentkit.exploration.change_frame import ChangeFrame
+    from agentkit.backend.exploration.change_frame import ChangeFrame
 
 
 @dataclass

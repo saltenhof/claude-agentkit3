@@ -35,7 +35,7 @@ from tests.integration.governance.test_prompt_integrity_dispatch import (
     _publish_story_binding,
 )
 
-from agentkit.config.models import (
+from agentkit.backend.config.models import (
     SUPPORTED_CONFIG_VERSION,
     Features,
     JenkinsConfig,
@@ -44,31 +44,31 @@ from agentkit.config.models import (
     RepositoryConfig,
     SonarQubeConfig,
 )
-from agentkit.governance.guard_system import OPAQUE_MESSAGE
-from agentkit.governance.runner import (
+from agentkit.backend.governance.guard_system import OPAQUE_MESSAGE
+from agentkit.backend.governance.runner import (
     _installed_skill_proof,
     _run_prompt_integrity_guard,
 )
-from agentkit.installer.bootstrap_checkpoints.orchestrator import run_checkpoint_install
-from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
-from agentkit.installer.installed_manifest import SKILL_PROOF_KEY
-from agentkit.installer.paths import installed_manifest_path
-from agentkit.installer.registration import RuntimeProfile
-from agentkit.installer.runner import (
+from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import run_checkpoint_install
+from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
+from agentkit.backend.installer.installed_manifest import SKILL_PROOF_KEY
+from agentkit.backend.installer.paths import installed_manifest_path
+from agentkit.backend.installer.registration import RuntimeProfile
+from agentkit.backend.installer.runner import (
     MANDATORY_SKILLS,
     InstallConfig,
     install_agentkit,
 )
-from agentkit.skills import PlaceholderSubstitutor
-from agentkit.skills.bundle_store import SkillBundle, SkillBundleStore
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.project_registration_repository import (
+from agentkit.backend.skills import PlaceholderSubstitutor
+from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.project_registration_repository import (
     StateBackendProjectRegistrationRepository,
 )
-from agentkit.state_backend.store.skill_binding_repository import (
+from agentkit.backend.state_backend.store.skill_binding_repository import (
     StateBackendSkillBindingRepository,
 )
-from agentkit.utils.io import read_json_object
+from agentkit.backend.utils.io import read_json_object
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -113,7 +113,7 @@ def _bundle_store_with_all_skills(root: Path) -> SkillBundleStore:
 
 
 def _make_config(root: Path, *, store: SkillBundleStore) -> InstallConfig:
-    from agentkit.skills import Skills
+    from agentkit.backend.skills import Skills
 
     skills = Skills(
         bundle_store=store,

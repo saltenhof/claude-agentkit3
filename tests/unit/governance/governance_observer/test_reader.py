@@ -26,11 +26,11 @@ def test_sqlite_backend_story_dir_none_raises_at_construction(
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
 
     # Reset lru_cache so the monkeypatched env is picked up
-    from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
 
-    from agentkit.governance.governance_observer.reader import (
+    from agentkit.backend.governance.governance_observer.reader import (
         StateBackendGovernanceEventReader,
     )
 
@@ -53,11 +53,11 @@ def test_postgres_backend_story_dir_none_is_accepted(
     )
     monkeypatch.delenv("AGENTKIT_ALLOW_SQLITE", raising=False)
 
-    from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
 
-    from agentkit.governance.governance_observer.reader import (
+    from agentkit.backend.governance.governance_observer.reader import (
         StateBackendGovernanceEventReader,
     )
 
@@ -80,11 +80,11 @@ def test_sqlite_backend_with_story_dir_succeeds(
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
 
-    from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
 
-    from agentkit.governance.governance_observer.reader import (
+    from agentkit.backend.governance.governance_observer.reader import (
         StateBackendGovernanceEventReader,
     )
 

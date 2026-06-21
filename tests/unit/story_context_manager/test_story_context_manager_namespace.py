@@ -1,4 +1,4 @@
-from agentkit.story_context_manager import PhaseState, PhaseStatus, StoryContext
+from agentkit.backend.story_context_manager import PhaseState, PhaseStatus, StoryContext
 
 
 def test_story_context_manager_namespace_exposes_public_types() -> None:

@@ -14,23 +14,23 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.core_types import PauseReason
-from agentkit.core_types.attempt import AttemptOutcome
-from agentkit.pipeline_engine.engine import PipelineEngine
-from agentkit.pipeline_engine.lifecycle import HandlerResult, PhaseHandlerRegistry
-from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-from agentkit.pipeline_engine.phase_executor import PhaseState, PhaseStatus
-from agentkit.process.language.builder import Workflow
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.core_types import PauseReason
+from agentkit.backend.core_types.attempt import AttemptOutcome
+from agentkit.backend.pipeline_engine.engine import PipelineEngine
+from agentkit.backend.pipeline_engine.lifecycle import HandlerResult, PhaseHandlerRegistry
+from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+from agentkit.backend.pipeline_engine.phase_executor import PhaseState, PhaseStatus
+from agentkit.backend.process.language.builder import Workflow
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
+    from agentkit.backend.pipeline_engine.phase_executor.records import AttemptRecord
 
 
 class PausingHandler:
@@ -101,7 +101,7 @@ def _run_paused_phase(
     attempt_calls: list[tuple[str, Any]] = []
     phase_state_calls: list[tuple[str, Any]] = []
 
-    import agentkit.state_backend.store as _store
+    import agentkit.backend.state_backend.store as _store
 
     def _fake_save_attempt(story_dir: object, record: AttemptRecord) -> None:
         attempt_calls.append(("save_attempt", record))
@@ -111,7 +111,7 @@ def _run_paused_phase(
 
     monkeypatch.setattr(_store, "save_attempt", _fake_save_attempt)
     monkeypatch.setattr(_store, "save_phase_state", _fake_save_phase_state)
-    import agentkit.pipeline_engine.phase_executor.save_phase_completion as _spc
+    import agentkit.backend.pipeline_engine.phase_executor.save_phase_completion as _spc
     monkeypatch.setattr(_spc, "save_attempt", _fake_save_attempt)
     monkeypatch.setattr(_spc, "save_phase_state", _fake_save_phase_state)
 
@@ -206,7 +206,7 @@ class TestYieldedSplit:
         registry.register("setup", PausingHandler())
         engine = PipelineEngine(workflow, registry, story_dir)
 
-        import agentkit.state_backend.store as _store2
+        import agentkit.backend.state_backend.store as _store2
 
         def _fake_save_attempt(story_dir: object, record: AttemptRecord) -> None:
             all_calls.append(("save_attempt", record))
@@ -216,7 +216,7 @@ class TestYieldedSplit:
 
         monkeypatch.setattr(_store2, "save_attempt", _fake_save_attempt)
         monkeypatch.setattr(_store2, "save_phase_state", _fake_save_phase_state)
-        import agentkit.pipeline_engine.phase_executor.save_phase_completion as _spc2
+        import agentkit.backend.pipeline_engine.phase_executor.save_phase_completion as _spc2
         monkeypatch.setattr(_spc2, "save_attempt", _fake_save_attempt)
         monkeypatch.setattr(_spc2, "save_phase_state", _fake_save_phase_state)
 

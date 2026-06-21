@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.governance.principal_capabilities.principals import Principal
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.story_context_manager.errors import (
+from agentkit.backend.governance.principal_capabilities.principals import Principal
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.story_context_manager.errors import (
     ForbiddenError,
     ForbiddenFieldError,
     IdempotencyMismatchError,
@@ -23,16 +23,16 @@ from agentkit.story_context_manager.errors import (
     StoryProjectNotFoundError,
     StoryValidationError,
 )
-from agentkit.story_context_manager.idempotency import InMemoryIdempotencyKeyRepository
-from agentkit.story_context_manager.service import StoryService
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.story_context_manager.idempotency import InMemoryIdempotencyKeyRepository
+from agentkit.backend.story_context_manager.service import StoryService
+from agentkit.backend.story_context_manager.story_model import (
     CreateStoryInput,
     Story,
     StoryStatus,
     WireStoryType,
 )
-from agentkit.story_context_manager.story_repository import InMemoryStoryRepository
-from agentkit.story_exit import (
+from agentkit.backend.story_context_manager.story_repository import InMemoryStoryRepository
+from agentkit.backend.story_exit import (
     AdmissibilityAssessment,
     AlternativeReview,
     ExitClass,
@@ -153,14 +153,14 @@ def _story_exit_record(story_id: str) -> StoryExitRecord:
 def _story_split_record(story_id: str, *, split_id: str = "split-1") -> object:
     from datetime import UTC, datetime
 
-    from agentkit.story_context_manager.terminal_state import (
+    from agentkit.backend.story_context_manager.terminal_state import (
         ExitClass as TExitClass,
     )
-    from agentkit.story_context_manager.terminal_state import (
+    from agentkit.backend.story_context_manager.terminal_state import (
         TerminalState as TTerminalState,
     )
-    from agentkit.story_split import StorySplitRecord
-    from agentkit.story_split.models import SplitStatus
+    from agentkit.backend.story_split import StorySplitRecord
+    from agentkit.backend.story_split.models import SplitStatus
 
     return StorySplitRecord(
         split_id=split_id,
@@ -259,7 +259,7 @@ def test_create_story_unknown_project_raises() -> None:
 def test_create_story_archived_project_raises() -> None:
     from datetime import UTC, datetime
 
-    from agentkit.project_management.entities import Project, ProjectConfiguration
+    from agentkit.backend.project_management.entities import Project, ProjectConfiguration
 
     project_repo = _InMemoryProjectRepository()
     archived = Project(
@@ -757,7 +757,7 @@ def test_list_stories_returns_project_stories_ordered() -> None:
 
 
 def test_list_stories_excludes_other_projects() -> None:
-    from agentkit.project_management.entities import Project, ProjectConfiguration
+    from agentkit.backend.project_management.entities import Project, ProjectConfiguration
 
     project_repo = _InMemoryProjectRepository()
     project_repo._projects["beta"] = Project(

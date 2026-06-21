@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import EventType
-from agentkit.verify_system.conformance_service import (
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import EventType
+from agentkit.backend.verify_system.conformance_service import (
     ConformanceEvaluation,
     ConformanceService,
     ConformanceTier2NotSupportedError,
@@ -345,7 +345,7 @@ def test_adapter_uses_level_specific_template_for_each_fidelity_level(
     real LLM receives instructions matching the expected check_id (not impl_fidelity
     for all levels).
     """
-    from agentkit.verify_system.conformance_service.service import (
+    from agentkit.backend.verify_system.conformance_service.service import (
         _CONFORMANCE_TEMPLATE_FOR_LEVEL,
     )
 
@@ -368,7 +368,7 @@ def test_adapter_uses_level_specific_template_for_each_fidelity_level(
             run_attempt: int = 1,
         ) -> object:
             del run_id, run_attempt  # not captured by this test double
-            from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+            from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import (
                 LlmVerdict,
                 ReviewerRole,
                 StructuredEvaluatorResult,
@@ -437,25 +437,25 @@ def test_adapter_rendered_prompt_instructs_level_appropriate_check(
     import json
     from hashlib import sha256 as _sha256
 
-    from agentkit.artifacts import ArtifactManager, EnvelopeValidator, ProducerRegistry
-    from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
-    from agentkit.prompt_runtime.register import register_prompt_runtime_producers
-    from agentkit.prompt_runtime.resources import (
+    from agentkit.backend.artifacts import ArtifactManager, EnvelopeValidator, ProducerRegistry
+    from agentkit.backend.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
+    from agentkit.backend.prompt_runtime.register import register_prompt_runtime_producers
+    from agentkit.backend.prompt_runtime.resources import (
         PROJECT_LOCK_RELPATH,
         load_prompt_template,
     )
-    from agentkit.story_context_manager.models import StoryContext
-    from agentkit.story_context_manager.types import StoryMode, StoryType
-    from agentkit.verify_system.conformance_service.service import (
+    from agentkit.backend.story_context_manager.models import StoryContext
+    from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+    from agentkit.backend.verify_system.conformance_service.service import (
         _CONFORMANCE_TEMPLATE_FOR_LEVEL,
     )
-    from agentkit.verify_system.llm_evaluator.bundle import build_review_bundle
-    from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput
-    from agentkit.verify_system.llm_evaluator.prompt_materializer import (
+    from agentkit.backend.verify_system.llm_evaluator.bundle import build_review_bundle
+    from agentkit.backend.verify_system.llm_evaluator.inputs import Layer2ReviewInput
+    from agentkit.backend.verify_system.llm_evaluator.prompt_materializer import (
         PromptRuntimeMaterializer,
     )
-    from agentkit.verify_system.llm_evaluator.structured_evaluator import ReviewerRole
-    from agentkit.verify_system.protocols import RunScope
+    from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import ReviewerRole
+    from agentkit.backend.verify_system.protocols import RunScope
 
     # Collect the real template text for all four conformance levels.
     template_names = list(_CONFORMANCE_TEMPLATE_FOR_LEVEL.values())
@@ -501,10 +501,10 @@ def test_adapter_rendered_prompt_instructs_level_appropriate_check(
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
 
-    from agentkit.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
-    from agentkit.state_backend.store.artifact_repository import (
+    from agentkit.backend.state_backend.store.artifact_repository import (
         StateBackendArtifactRepository,
     )
 
@@ -646,10 +646,10 @@ def test_layer2_integration_no_doc_fidelity_bypass_when_result_is_none() -> None
     a BLOCKING LayerResult rather than calling runner.evaluate(DOC_FIDELITY)
     directly (which would bypass ConformanceService.check_fidelity).
     """
-    from agentkit.verify_system.llm_evaluator.layer2_integration import (
+    from agentkit.backend.verify_system.llm_evaluator.layer2_integration import (
         _run_impl_fidelity,
     )
-    from agentkit.verify_system.protocols import Severity
+    from agentkit.backend.verify_system.protocols import Severity
 
     result = _run_impl_fidelity(doc_fidelity_result=None)
 

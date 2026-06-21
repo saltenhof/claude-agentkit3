@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agentkit.control_plane.dispatch import PreStartGuard
+from agentkit.backend.control_plane.dispatch import PreStartGuard
 
 
 @dataclass

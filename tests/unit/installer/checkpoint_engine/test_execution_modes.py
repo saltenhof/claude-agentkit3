@@ -16,14 +16,14 @@ from tests.unit.installer.checkpoint_engine.conftest import (
     make_config,
 )
 
-from agentkit.installer.bootstrap_checkpoints.orchestrator import run_checkpoint_install
-from agentkit.installer.checkpoint_engine import node_ids as nid
-from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
-from agentkit.installer.checkpoint_engine.reasons import (
+from agentkit.backend.installer.bootstrap_checkpoints.orchestrator import run_checkpoint_install
+from agentkit.backend.installer.checkpoint_engine import node_ids as nid
+from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
+from agentkit.backend.installer.checkpoint_engine.reasons import (
     DRY_RUN_PLAN_MARKER,
     REASON_PLANNED_NO_MUTATION,
 )
-from agentkit.installer.registration import (
+from agentkit.backend.installer.registration import (
     CP7_STATE_BACKEND_REGISTRATION,
     CheckpointStatus,
 )
@@ -55,7 +55,7 @@ def _all_surfaces_snapshot(root: Path) -> dict[str, dict[str, str]]:
     * the target ``project_root`` (CP 5/8/9/10/11 project-local writes), and
     * the prompt-bundle store root (CP 8 central store materialisation).
     """
-    from agentkit.installer.paths import default_prompt_bundle_store_root
+    from agentkit.backend.installer.paths import default_prompt_bundle_store_root
 
     store_root = default_prompt_bundle_store_root()
     return {

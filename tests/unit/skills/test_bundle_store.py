@@ -8,13 +8,13 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from agentkit.skills.binding import SkillProfile
-from agentkit.skills.bundle_store import (
+from agentkit.backend.skills.binding import SkillProfile
+from agentkit.backend.skills.bundle_store import (
     SkillBundle,
     SkillBundleStore,
     SkillBundleVersion,
 )
-from agentkit.skills.errors import (
+from agentkit.backend.skills.errors import (
     SkillBundleCorruptError,
     SkillBundleNotFoundError,
 )
@@ -332,7 +332,7 @@ class TestSemVerVersionSelection:
         FINDING 2): release > prerelease > non-conformant, and double-digit
         majors order numerically. Non-semver names never crash.
         """
-        from agentkit.skills.bundle_store import _semver_sort_key as key
+        from agentkit.backend.skills.bundle_store import _semver_sort_key as key
 
         def highest(names: list[str]) -> str:
             return sorted(names, key=lambda n: (key(n), n))[-1]
@@ -357,11 +357,11 @@ class TestSemVerVersionSelection:
         release; a ``v`` prefix and build metadata are non-conformant
         (Codex-r7); nothing crashes.
         """
-        from agentkit.skills.bundle_store import (
+        from agentkit.backend.skills.bundle_store import (
             _SEMVER_TIER_NONCONFORMANT,
             _SEMVER_TIER_RELEASE,
         )
-        from agentkit.skills.bundle_store import _semver_sort_key as key
+        from agentkit.backend.skills.bundle_store import _semver_sort_key as key
 
         def highest(names: list[str]) -> str:
             return sorted(names, key=lambda n: (key(n), n))[-1]
@@ -398,8 +398,8 @@ class TestSemVerVersionSelection:
         lexically, numeric < alphanumeric, more fields > fewer) and validated per
         §9 (invalid prerelease -> non-conformant, never outranks a clean release).
         """
-        from agentkit.skills.bundle_store import _SEMVER_TIER_NONCONFORMANT
-        from agentkit.skills.bundle_store import _semver_sort_key as key
+        from agentkit.backend.skills.bundle_store import _SEMVER_TIER_NONCONFORMANT
+        from agentkit.backend.skills.bundle_store import _semver_sort_key as key
 
         def highest(names: list[str]) -> str:
             return sorted(names, key=lambda n: (key(n), n))[-1]

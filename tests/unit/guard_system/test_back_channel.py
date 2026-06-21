@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agentkit.governance.guard_system.back_channel import (
+from agentkit.backend.governance.guard_system.back_channel import (
     BackChannelStatus,
     filter_back_channel,
     rejected_content_keys,

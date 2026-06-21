@@ -13,10 +13,10 @@ contract test must remain green independently (see
 
 from __future__ import annotations
 
-from agentkit.execution_planning.persistence.records import (
+from agentkit.backend.execution_planning.persistence.records import (
     planning_kind_to_record_type,
 )
-from agentkit.execution_planning.persistence.schema_kind import PlanningSchemaKind
+from agentkit.backend.execution_planning.persistence.schema_kind import PlanningSchemaKind
 
 _BC14_EXPECTED_FAMILIES = {
     "planned_story",

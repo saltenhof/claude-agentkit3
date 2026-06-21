@@ -6,9 +6,9 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentkit.core_types import PolicyVerdict
-from agentkit.verify_system.qa_cycle.lifecycle import QaCycleState
-from agentkit.verify_system.remediation.loop_counter import (
+from agentkit.backend.core_types import PolicyVerdict
+from agentkit.backend.verify_system.qa_cycle.lifecycle import QaCycleState
+from agentkit.backend.verify_system.remediation.loop_counter import (
     DEFAULT_MAX_FEEDBACK_ROUNDS,
     RemediationDecision,
     RemediationLoopController,

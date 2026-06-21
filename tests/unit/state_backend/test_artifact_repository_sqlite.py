@@ -18,11 +18,11 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from agentkit.artifacts.envelope import ArtifactEnvelope
-from agentkit.artifacts.producer import Producer, ProducerId, ProducerType
-from agentkit.artifacts.reference import ArtifactReference
-from agentkit.core_types import ArtifactClass, EnvelopeStatus
-from agentkit.state_backend.store.artifact_repository import (
+from agentkit.backend.artifacts.envelope import ArtifactEnvelope
+from agentkit.backend.artifacts.producer import Producer, ProducerId, ProducerType
+from agentkit.backend.artifacts.reference import ArtifactReference
+from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus
+from agentkit.backend.state_backend.store.artifact_repository import (
     StateBackendArtifactRepository,
     _ensure_artifact_table_sqlite,
     _record_key,
@@ -236,8 +236,8 @@ class TestIdempotency:
         repo.write_envelope(env)
 
         # DB direkt pruefen
-        from agentkit.state_backend.config import versioned_sqlite_db_file
-        from agentkit.state_backend.paths import state_backend_dir
+        from agentkit.backend.state_backend.config import versioned_sqlite_db_file
+        from agentkit.backend.state_backend.paths import state_backend_dir
 
         db_path = state_backend_dir(tmp_path) / versioned_sqlite_db_file()
         with sqlite3.connect(str(db_path)) as conn:
@@ -286,7 +286,7 @@ class TestSchemaBootstrapIdempotent:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Alte DB unter alter SCHEMA_VERSION bleibt unangetastet (FK-18 §18.9a)."""
-        from agentkit.state_backend import config as state_config
+        from agentkit.backend.state_backend import config as state_config
 
         monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
@@ -311,7 +311,7 @@ class TestSchemaBootstrapIdempotent:
         assert repo_new.read_envelope(ghost) is None
 
         # Alte DB-Datei existiert noch
-        from agentkit.state_backend.paths import state_backend_dir
+        from agentkit.backend.state_backend.paths import state_backend_dir
         old_db = state_backend_dir(tmp_path) / state_config.versioned_sqlite_db_file("3.3.0")
         new_db = state_backend_dir(tmp_path) / state_config.versioned_sqlite_db_file("3.4.0")
         assert old_db.exists()
@@ -444,8 +444,8 @@ class TestFacadeFindPromptAuditOutputHashes:
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
 
     def test_explicit_scope_returns_pinned_hashes(self, tmp_path: Path) -> None:
-        from agentkit.state_backend.scope import RuntimeStateScope
-        from agentkit.state_backend.store.facade import (
+        from agentkit.backend.state_backend.scope import RuntimeStateScope
+        from agentkit.backend.state_backend.store.facade import (
             find_prompt_audit_output_hashes,
         )
 
@@ -470,8 +470,8 @@ class TestFacadeFindPromptAuditOutputHashes:
         assert result == frozenset({"d" * 64})
 
     def test_empty_run_id_returns_empty(self, tmp_path: Path) -> None:
-        from agentkit.state_backend.scope import RuntimeStateScope
-        from agentkit.state_backend.store.facade import (
+        from agentkit.backend.state_backend.scope import RuntimeStateScope
+        from agentkit.backend.state_backend.store.facade import (
             find_prompt_audit_output_hashes,
         )
 
@@ -486,7 +486,7 @@ class TestFacadeFindPromptAuditOutputHashes:
     def test_unresolvable_scope_returns_empty(self, tmp_path: Path) -> None:
         # scope=None with no runtime state -> CorruptStateError -> empty (fail-soft;
         # the guard then treats Stage 3 as fail-closed downstream).
-        from agentkit.state_backend.store.facade import (
+        from agentkit.backend.state_backend.store.facade import (
             find_prompt_audit_output_hashes,
         )
 

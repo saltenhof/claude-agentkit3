@@ -22,19 +22,19 @@ from typing import TYPE_CHECKING
 
 from tests.fixtures.git_repo import ensure_git_repo
 
-from agentkit.installer.runner import (
+from agentkit.backend.installer.runner import (
     MANDATORY_SKILLS,
     InstallConfig,
     install_agentkit,
     uninstall_agentkit,
 )
-from agentkit.skills.bundle_store import SkillBundle
+from agentkit.backend.skills.bundle_store import SkillBundle
 
 if TYPE_CHECKING:
     from datetime import datetime
     from pathlib import Path
 
-    from agentkit.installer.registration import ProjectRegistration
+    from agentkit.backend.installer.registration import ProjectRegistration
 
 _BUNDLE_IDS = {name: f"{name}-core" for name in MANDATORY_SKILLS}
 
@@ -162,7 +162,7 @@ def test_full_install_aborts_when_ci_available_without_client(tmp_path: Path) ->
     """
     import pytest
 
-    from agentkit.exceptions import InstallationError
+    from agentkit.backend.exceptions import InstallationError
 
     skills = _RecordingSkills()
     store = _FakeStore(tmp_path / "bundles")

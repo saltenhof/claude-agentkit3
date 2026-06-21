@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from agentkit.governance.governance_observer.mapper import to_corpus_incident_candidate
-from agentkit.governance.governance_observer.models import (
+from agentkit.backend.governance.governance_observer.mapper import to_corpus_incident_candidate
+from agentkit.backend.governance.governance_observer.models import (
     AdjudicationIncidentType,
     AdjudicationRecommendedAction,
     AdjudicationSeverity,
@@ -67,7 +67,7 @@ def test_mapper_fills_mandatory_fields() -> None:
 
 def test_mapper_severity_propagated_correctly() -> None:
     """Mapper maps adjudication severity to IncidentSeverity wire value."""
-    from agentkit.failure_corpus.types import IncidentSeverity
+    from agentkit.backend.failure_corpus.types import IncidentSeverity
 
     for adj_sev, expected_inc_sev in [
         (AdjudicationSeverity.MEDIUM, IncidentSeverity.MEDIUM),
@@ -82,7 +82,7 @@ def test_mapper_severity_propagated_correctly() -> None:
 
 def test_mapper_scope_drift_maps_to_scope_drift_category() -> None:
     """scope_drift incident type maps to SCOPE_DRIFT failure category."""
-    from agentkit.core_types.failure_corpus import FailureCategory
+    from agentkit.backend.core_types.failure_corpus import FailureCategory
 
     result = to_corpus_incident_candidate(
         _make_candidate(),

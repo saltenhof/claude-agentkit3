@@ -19,30 +19,30 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.control_plane.http import ControlPlaneApplication
-from agentkit.control_plane_http.app import ControlPlaneApplicationRoutes
-from agentkit.core_types import StoryDependencyKind
-from agentkit.execution_planning.entities import StoryDependency
-from agentkit.project_management.entities import ProjectConfiguration
-from agentkit.project_management.http.routes import (
+from agentkit.backend.control_plane.http import ControlPlaneApplication
+from agentkit.backend.control_plane_http.app import ControlPlaneApplicationRoutes
+from agentkit.backend.core_types import StoryDependencyKind
+from agentkit.backend.execution_planning.entities import StoryDependency
+from agentkit.backend.project_management.entities import ProjectConfiguration
+from agentkit.backend.project_management.http.routes import (
     ProjectManagementRoutes,
     _no_repos_in_use,
 )
-from agentkit.project_management.lifecycle import create_project
-from agentkit.project_management.service import ProjectDetailService
-from agentkit.state_backend.store import facade
-from agentkit.state_backend.store.project_management_repository import (
+from agentkit.backend.project_management.lifecycle import create_project
+from agentkit.backend.project_management.service import ProjectDetailService
+from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
-from agentkit.state_backend.store.story_dependency_repository import (
+from agentkit.backend.state_backend.store.story_dependency_repository import (
     StateBackendStoryDependencyRepository,
 )
-from agentkit.state_backend.store.story_repository import (
+from agentkit.backend.state_backend.store.story_repository import (
     StateBackendIdempotencyKeyRepository,
     StateBackendStoryRepository,
 )
-from agentkit.story_context_manager.service import StoryService
-from agentkit.story_context_manager.story_model import CreateStoryInput
+from agentkit.backend.story_context_manager.service import StoryService
+from agentkit.backend.story_context_manager.story_model import CreateStoryInput
 
 if TYPE_CHECKING:
     from pathlib import Path

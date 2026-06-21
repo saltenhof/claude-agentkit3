@@ -10,8 +10,8 @@ import contextlib
 
 import pytest
 
-from agentkit.exceptions import IntegrationError
-from agentkit.integrations.github.issues import (
+from agentkit.backend.exceptions import IntegrationError
+from agentkit.integration_clients.github.issues import (
     add_comment,
     add_labels,
     close_issue,

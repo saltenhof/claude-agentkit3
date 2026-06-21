@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.config.models import (
+from agentkit.backend.config.models import (
     SUPPORTED_CONFIG_VERSION,
     Features,
     PipelineConfig,
@@ -26,12 +26,12 @@ from agentkit.config.models import (
     RepositoryConfig,
     VectorDbConfig,
 )
-from agentkit.exceptions import ConflictAdjudicationUnavailableError
-from agentkit.integrations.vectordb import VectorDbError, VectorDbUnavailableError
-from agentkit.story_creation.runtime_factory import (
+from agentkit.backend.exceptions import ConflictAdjudicationUnavailableError
+from agentkit.backend.story_creation.runtime_factory import (
     FailClosedConflictEvaluator,
     build_story_creation_reconciler,
 )
+from agentkit.integration_clients.vectordb import VectorDbError, VectorDbUnavailableError
 
 
 def _config(*, vectordb: VectorDbConfig | None) -> ProjectConfig:

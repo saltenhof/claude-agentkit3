@@ -17,35 +17,35 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from agentkit.bootstrap.composition_root import build_planning_projection_accessor
-from agentkit.core_types import StoryDependencyKind
-from agentkit.execution_planning.audit import PlanningAuditEmitter
-from agentkit.execution_planning.persistence.filter import PlanningProjectionFilter
-from agentkit.execution_planning.persistence.schema_kind import PlanningSchemaKind
-from agentkit.execution_planning.planning_model.metadata import (
+from agentkit.backend.bootstrap.composition_root import build_planning_projection_accessor
+from agentkit.backend.core_types import StoryDependencyKind
+from agentkit.backend.execution_planning.audit import PlanningAuditEmitter
+from agentkit.backend.execution_planning.persistence.filter import PlanningProjectionFilter
+from agentkit.backend.execution_planning.persistence.schema_kind import PlanningSchemaKind
+from agentkit.backend.execution_planning.planning_model.metadata import (
     Provenance,
     ProvenanceReliability,
 )
-from agentkit.execution_planning.planning_model.proposal import (
+from agentkit.backend.execution_planning.planning_model.proposal import (
     PlanningProposal,
     ProposalBlockingCondition,
     ProposalDependencyEdge,
     ProposalGate,
     ProposalStatus,
 )
-from agentkit.execution_planning.proposal_ingest import (
+from agentkit.backend.execution_planning.proposal_ingest import (
     ProposalInconsistentError,
     ingest_proposal,
 )
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.telemetry.emitters import MemoryEmitter
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.telemetry.emitters import MemoryEmitter
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    from agentkit.execution_planning.persistence.accessor import (
+    from agentkit.backend.execution_planning.persistence.accessor import (
         PlanningProjectionAccessor,
     )
 

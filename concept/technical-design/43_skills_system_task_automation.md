@@ -520,19 +520,19 @@ eigene Methodik zu erfinden. Deshalb:
 
 **Lese-Schnittstellen fuer SkillQualityMetric:**
 
-`SkillQualityMetric` (BC agent-skills, Sub `agentkit.skills.quality_metric`)
+`SkillQualityMetric` (BC agent-skills, Sub `agentkit.backend.skills.quality_metric`)
 aggregiert Qualitaets-Signale aus zwei Quellen:
 
 1. **Telemetrie-Projektionen** — Lese-Zugriff via
    `Telemetry.ProjectionAccessor` (BC telemetry-and-events,
-   Sub `agentkit.telemetry.projection_accessor`, exposure: sub_exposed).
+   Sub `agentkit.backend.telemetry.projection_accessor`, exposure: sub_exposed).
    Gelesen werden WorkflowMetric-Daten, deren Owner
    `story-closure.PostMergeFinalization` (BC story-closure,
-   `agentkit.closure.post_merge_finalization`) ist.
+   `agentkit.backend.closure.post_merge_finalization`) ist.
    Typische Signale: QA-Rundenanzahl, Remediation-Counts pro Skill-ID.
 
 2. **Failure-Corpus-Befunde** — Lese-Zugriff auf `failure_corpus`
-   Top-Komponente (BC failure-corpus, `agentkit.failure_corpus`).
+   Top-Komponente (BC failure-corpus, `agentkit.backend.failure_corpus`).
    Skill-Experiment-Tags (`experiment_tag`) verknuepfen
    Failure-Corpus-Eintraege mit konkreten Skill-Versionen.
 
@@ -550,7 +550,7 @@ F-43-030 definiert die Norm. Der Enforcement-Mechanismus liegt bei
 erfolgen zur Laufzeit vor dem Tool-Call (fail-fast), nicht erst nach
 Abschluss einer Phase im Verify-Block.
 
-Der Hook `skill_usage_check` (Sub `agentkit.governance.guard_system`)
+Der Hook `skill_usage_check` (Sub `agentkit.backend.governance.guard_system`)
 erkennt an Tool-Aufruf-Patterns zur Laufzeit, ob ein Agent
 ad-hoc-Methodik einsetzt, obwohl ein passender Skill existiert und
 dessen Voraussetzung erfuellt ist. Bei Erkennung blockiert er den

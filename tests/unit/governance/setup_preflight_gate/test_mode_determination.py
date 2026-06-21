@@ -14,13 +14,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.governance.setup_preflight_gate.mode_determination import (
+from agentkit.backend.governance.setup_preflight_gate.mode_determination import (
     _has_valid_concept_paths,
     determine_mode,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import ChangeImpact, ConceptQuality
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import ChangeImpact, ConceptQuality
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -328,7 +328,7 @@ class TestFailClosedMissingFields:
             change_impact=None,
             project_root=tmp_path,
         )
-        with caplog.at_level(logging.WARNING, logger="agentkit.governance.setup_preflight_gate.mode_determination"):
+        with caplog.at_level(logging.WARNING, logger="agentkit.backend.governance.setup_preflight_gate.mode_determination"):
             result = determine_mode(ctx, project_root=tmp_path)
 
         assert result is StoryMode.EXPLORATION
@@ -355,7 +355,7 @@ class TestFailClosedMissingFields:
             concept_quality=None,
             project_root=tmp_path,
         )
-        with caplog.at_level(logging.WARNING, logger="agentkit.governance.setup_preflight_gate.mode_determination"):
+        with caplog.at_level(logging.WARNING, logger="agentkit.backend.governance.setup_preflight_gate.mode_determination"):
             result = determine_mode(ctx, project_root=tmp_path)
 
         assert result is StoryMode.EXPLORATION
@@ -376,7 +376,7 @@ class TestFailClosedMissingFields:
         import logging
 
         ctx = _ctx(concept_paths=(), project_root=tmp_path)
-        with caplog.at_level(logging.WARNING, logger="agentkit.governance.setup_preflight_gate.mode_determination"):
+        with caplog.at_level(logging.WARNING, logger="agentkit.backend.governance.setup_preflight_gate.mode_determination"):
             result = determine_mode(ctx, project_root=tmp_path)
 
         assert result is StoryMode.EXPLORATION
@@ -396,8 +396,8 @@ class TestFailClosedMissingFields:
         """
         import logging
 
-        with caplog.at_level(logging.WARNING, logger="agentkit.governance.setup_preflight_gate.mode_determination"):
-            from agentkit.governance.setup_preflight_gate.mode_determination import (
+        with caplog.at_level(logging.WARNING, logger="agentkit.backend.governance.setup_preflight_gate.mode_determination"):
+            from agentkit.backend.governance.setup_preflight_gate.mode_determination import (
                 _has_valid_concept_paths,
             )
             result = _has_valid_concept_paths(("nonexistent_ag3057_test.md",), project_root=None)
@@ -600,8 +600,8 @@ class TestBugfixExplorationRouting:
 
     def test_bugfix_execution_phases_exclude_exploration(self) -> None:
         """EXECUTION-route bugfix phase list excludes exploration (routing_rules)."""
-        from agentkit.story_context_manager.models import StoryContext
-        from agentkit.story_context_manager.routing_rules import get_phases_for_story
+        from agentkit.backend.story_context_manager.models import StoryContext
+        from agentkit.backend.story_context_manager.routing_rules import get_phases_for_story
 
         ctx = StoryContext(
             project_key="test-project",
@@ -615,8 +615,8 @@ class TestBugfixExplorationRouting:
 
     def test_bugfix_exploration_phases_include_exploration(self) -> None:
         """EXPLORATION-route bugfix phase list includes exploration (routing_rules)."""
-        from agentkit.story_context_manager.models import StoryContext
-        from agentkit.story_context_manager.routing_rules import get_phases_for_story
+        from agentkit.backend.story_context_manager.models import StoryContext
+        from agentkit.backend.story_context_manager.routing_rules import get_phases_for_story
 
         ctx = StoryContext(
             project_key="test-project",

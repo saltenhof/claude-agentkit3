@@ -14,29 +14,29 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from typing import TYPE_CHECKING, cast
 
-from agentkit.bootstrap.composition_root import build_artifact_manager
-from agentkit.installer import InstallConfig, install_agentkit
-from agentkit.installer.paths import (
+from agentkit.backend.bootstrap.composition_root import build_artifact_manager
+from agentkit.backend.installer import InstallConfig, install_agentkit
+from agentkit.backend.installer.paths import (
     PROMPT_BUNDLE_STORE_ENV,
     prompt_bundle_lock_path,
     prompt_bundle_store_dir,
 )
-from agentkit.phase_state_store import FlowExecution, save_flow_execution
-from agentkit.prompt_runtime.runtime import PromptRuntime
-from agentkit.state_backend.store import save_story_context
-from agentkit.state_backend.store.verify_story_context_repository import (
+from agentkit.backend.phase_state_store import FlowExecution, save_flow_execution
+from agentkit.backend.prompt_runtime.runtime import PromptRuntime
+from agentkit.backend.state_backend.store import save_story_context
+from agentkit.backend.state_backend.store.verify_story_context_repository import (
     StateBackendVerifyStoryContextAdapter,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput
-from agentkit.verify_system.llm_evaluator.reviewer import (
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.verify_system.llm_evaluator.inputs import Layer2ReviewInput
+from agentkit.backend.verify_system.llm_evaluator.reviewer import (
     DocFidelityReviewer,
     QaReviewReviewer,
     SemanticReviewer,
 )
-from agentkit.verify_system.prompt_audit import materialize_qa_prompt_audit
-from agentkit.verify_system.protocols import QALayer
+from agentkit.backend.verify_system.prompt_audit import materialize_qa_prompt_audit
+from agentkit.backend.verify_system.protocols import QALayer
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -2,8 +2,8 @@
 
 Pins:
 - All four dock-point method signatures and the is_enabled property.
-- Architecture conformance: agentkit.requirements_coverage must NOT
-  import from agentkit.integrations.are.
+- Architecture conformance: agentkit.backend.requirements_coverage must NOT
+  import from agentkit.integration_clients.are.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Signature pinning
 # ---------------------------------------------------------------------------
-from agentkit.requirements_coverage.top import RequirementsCoverage
+from agentkit.backend.requirements_coverage.top import RequirementsCoverage
 
 
 class TestRequirementsCoverageSignatures:
@@ -75,7 +75,7 @@ _RC_SRC = (
     / "requirements_coverage"
 )
 
-_FORBIDDEN_IMPORT = "agentkit.integrations.are"
+_FORBIDDEN_IMPORT = "agentkit.integration_clients.are"
 _FORBIDDEN_FROM = ("agentkit", "integrations", "are")
 
 
@@ -84,7 +84,7 @@ def _collect_python_files(directory: Path) -> list[Path]:
 
 
 def _file_imports_forbidden_module(path: Path) -> bool:
-    """Return True if the file contains an import from agentkit.integrations.are."""
+    """Return True if the file contains an import from agentkit.integration_clients.are."""
     source = path.read_text(encoding="utf-8")
     try:
         tree = ast.parse(source, filename=str(path))
@@ -116,22 +116,22 @@ class TestArchitectureConformance:
                 violations.append(str(py_file))
 
         assert not violations, (
-            "The following files in agentkit.requirements_coverage import from "
-            "agentkit.integrations.are, which is forbidden (FK-40 §40.4 — "
+            "The following files in agentkit.backend.requirements_coverage import from "
+            "agentkit.integration_clients.are, which is forbidden (FK-40 §40.4 — "
             "AreClient is BC-internal, not an integrations adapter):\n"
             + "\n".join(violations)
         )
 
     def test_are_client_module_is_in_requirements_coverage(self) -> None:
         """AreClient must live in requirements_coverage, not integrations."""
-        mod = importlib.import_module("agentkit.requirements_coverage.are_client")
+        mod = importlib.import_module("agentkit.backend.requirements_coverage.are_client")
         assert hasattr(mod, "AreClient")
 
     def test_integrations_are_is_empty(self) -> None:
-        """agentkit.integrations.are.__init__ must not re-export AreClient."""
-        mod = importlib.import_module("agentkit.integrations.are")
+        """agentkit.integration_clients.are.__init__ must not re-export AreClient."""
+        mod = importlib.import_module("agentkit.integration_clients.are")
         # The module must not expose AreClient
         assert not hasattr(mod, "AreClient"), (
-            "agentkit.integrations.are must not re-export AreClient — "
+            "agentkit.integration_clients.are must not re-export AreClient — "
             "AreClient is BC-internal to requirements_coverage (FK-40 §40.4)"
         )

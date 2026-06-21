@@ -7,15 +7,15 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from agentkit.core_types import FailureCategory, IncidentStatus
-from agentkit.failure_corpus import (
+from agentkit.backend.core_types import FailureCategory, IncidentStatus
+from agentkit.backend.failure_corpus import (
     Incident,
     IncidentCandidate,
     IncidentDraft,
     IncidentRole,
     IncidentSeverity,
 )
-from agentkit.failure_corpus.types import IncidentId
+from agentkit.backend.failure_corpus.types import IncidentId
 
 _NOW = datetime(2026, 6, 1, 12, 0, 0, tzinfo=UTC)
 

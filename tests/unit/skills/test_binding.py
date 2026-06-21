@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from agentkit.skills.binding import (
+from agentkit.backend.skills.binding import (
     HarnessKind,
     SkillBinding,
     SkillBindingMode,

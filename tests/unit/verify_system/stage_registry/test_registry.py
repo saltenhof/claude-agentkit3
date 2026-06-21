@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.core_types import Severity
-from agentkit.core_types.qa_artifact_names import (
+from agentkit.backend.core_types import Severity
+from agentkit.backend.core_types.qa_artifact_names import (
     ADVERSARIAL_PRODUCER,
     BUGFIX_GREEN_EVIDENCE_PRODUCER,
     BUGFIX_RED_EVIDENCE_PRODUCER,
@@ -21,9 +21,9 @@ from agentkit.core_types.qa_artifact_names import (
     SEMANTIC_REVIEW_PRODUCER,
     SONARQUBE_GATE_PRODUCER,
 )
-from agentkit.story_context_manager.types import StoryType
-from agentkit.verify_system.protocols import TrustClass
-from agentkit.verify_system.stage_registry import (
+from agentkit.backend.story_context_manager.types import StoryType
+from agentkit.backend.verify_system.protocols import TrustClass
+from agentkit.backend.verify_system.stage_registry import (
     ExecutionPolicy,
     StageDefinition,
     StageKind,

@@ -9,7 +9,7 @@ names are pinned against the model's ``SEVEN_PARTS`` SSOT.
 
 from __future__ import annotations
 
-from agentkit.exploration.change_frame import SEVEN_PARTS, ChangeFrame
+from agentkit.backend.exploration.change_frame import SEVEN_PARTS, ChangeFrame
 
 
 def test_seven_mandatory_parts_are_required_fields() -> None:

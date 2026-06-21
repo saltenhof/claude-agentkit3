@@ -25,26 +25,26 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.core_types import ExplorationGateStatus
-from agentkit.installer.paths import story_dir as _story_dir
-from agentkit.integration_stabilization.models import (
+from agentkit.backend.core_types import ExplorationGateStatus
+from agentkit.backend.installer.paths import story_dir as _story_dir
+from agentkit.backend.integration_stabilization.models import (
     IntegrationScopeManifest,
     ManifestApprovalRecord,
     StabilizationBudgetCaps,
 )
-from agentkit.integration_stabilization.state import (
+from agentkit.backend.integration_stabilization.state import (
     save_integration_manifest,
     save_manifest_approval,
 )
-from agentkit.pipeline_engine.engine import _evaluate_transitions
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.pipeline_engine.engine import _evaluate_transitions
+from agentkit.backend.pipeline_engine.phase_executor import (
     ExplorationPayload,
     PhaseStatus,
 )
-from agentkit.process.language.definitions import resolve_workflow
-from agentkit.state_backend.store import save_story_context
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import (
+from agentkit.backend.process.language.definitions import resolve_workflow
+from agentkit.backend.state_backend.store import save_story_context
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import (
     ImplementationContract,
     StoryMode,
     StoryType,

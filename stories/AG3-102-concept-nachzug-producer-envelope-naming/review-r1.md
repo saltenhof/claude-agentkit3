@@ -14,7 +14,7 @@ OVERALL CHANGES-REQUESTED
 **3. Klarheit: WARNING**
 
 - Die Story ist grob nachvollziehbar, aber die zentrale Scope-Aussage “keine `concept/`-Aenderung” macht den Arbeitsauftrag missverstaendlich.
-- FK-76/FK-56 werden in den Hinweisen gemeinsam als “optional/kosmetisch” behandelt. Das gilt fuer FK-76 laut §76.3-Hinweis, aber nicht fuer FK-56: `bc-cut-decisions.md` fuehrt `agentkit.story_context_manager.operating_mode_resolver` autoritativ.
+- FK-76/FK-56 werden in den Hinweisen gemeinsam als “optional/kosmetisch” behandelt. Das gilt fuer FK-76 laut §76.3-Hinweis, aber nicht fuer FK-56: `bc-cut-decisions.md` fuehrt `agentkit.backend.story_context_manager.operating_mode_resolver` autoritativ.
 
 **4. Kontext-Sinnhaftigkeit: ERROR**
 

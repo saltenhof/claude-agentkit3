@@ -6,7 +6,7 @@ from dataclasses import FrozenInstanceError, is_dataclass
 
 import pytest
 
-from agentkit.pipeline_engine.phase_envelope.runtime import PhaseOrigin, RuntimeMetadata
+from agentkit.backend.pipeline_engine.phase_envelope.runtime import PhaseOrigin, RuntimeMetadata
 
 
 def test_phase_origin_values() -> None:

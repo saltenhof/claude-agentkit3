@@ -181,7 +181,7 @@ FK-Referenz: Domain-Konzept 9.2 "Scope-Zuordnung"
 ## 40.4 ARE-Schnittstellenvertrag
 
 AgentKit-Code kommuniziert mit ARE ausschliesslich ueber den
-`AreClient`-Sub (`agentkit.requirements_coverage.are_client`),
+`AreClient`-Sub (`agentkit.backend.requirements_coverage.are_client`),
 der die ARE-REST-API direkt aufruft — analog zum GitHub-REST-Adapter
 (FK-12). Es gibt keinen MCP-Wrapper fuer AgentKit-Code.
 
@@ -213,7 +213,7 @@ AgentKit-Code und wird hier nicht weiter spezifiziert.
 ## 40.5 Vier Andock-Punkte
 
 Die vier Andock-Punkte sind Top-Surface-Methoden in
-`RequirementsCoverage` (`agentkit.requirements_coverage`), keine
+`RequirementsCoverage` (`agentkit.backend.requirements_coverage`), keine
 eigenstaendigen Komponenten. Aufrufer-BCs rufen diese Methoden ueber
 die Top-Surface auf; die interne Delegation an `AreClient`,
 `ScopeMapping` und `AreIntegration` ist ein Implementierungsdetail

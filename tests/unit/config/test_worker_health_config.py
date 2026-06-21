@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from agentkit.config.models import ProjectConfig
-from agentkit.config.worker_health import WorkerHealthConfig
+from agentkit.backend.config.models import ProjectConfig
+from agentkit.backend.config.worker_health import WorkerHealthConfig
 
 
 def test_worker_health_config_defaults_cover_all_fk49_fields() -> None:

@@ -13,22 +13,22 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from agentkit.closure.merge_sequence import (
+from agentkit.backend.closure.merge_sequence import (
     BuildTestOutcome,
     SanityOutcome,
     ScanOutcome,
 )
-from agentkit.closure.multi_repo_saga import GitCommandResult
+from agentkit.backend.closure.multi_repo_saga import GitCommandResult
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.closure.merge_sequence import CandidateRef
-    from agentkit.closure.multi_repo_saga import ClosureRepo
-    from agentkit.story_context_manager.models import StoryContext
-    from agentkit.story_context_manager.types import StoryType
-    from agentkit.verify_system.sonarqube_gate import SonarGateOutcome
-    from agentkit.verify_system.sonarqube_gate.attestation import SonarAttestation
+    from agentkit.backend.closure.merge_sequence import CandidateRef
+    from agentkit.backend.closure.multi_repo_saga import ClosureRepo
+    from agentkit.backend.story_context_manager.models import StoryContext
+    from agentkit.backend.story_context_manager.types import StoryType
+    from agentkit.backend.verify_system.sonarqube_gate import SonarGateOutcome
+    from agentkit.backend.verify_system.sonarqube_gate.attestation import SonarAttestation
 
 
 def make_fresh_attestation(
@@ -48,7 +48,7 @@ def make_fresh_attestation(
     defaults (>= the config minima) so the version-drift check is green; tests
     override them to exercise drift.
     """
-    from agentkit.verify_system.sonarqube_gate.attestation import (
+    from agentkit.backend.verify_system.sonarqube_gate.attestation import (
         ATTESTATION_STATUS_READ,
         SonarAttestation,
     )
@@ -74,7 +74,7 @@ def make_fresh_attestation(
 
 def make_green_gate_outcome() -> SonarGateOutcome:
     """A FULL AG3-052 green gate outcome (the fresh-scan green truth, FIX-1)."""
-    from agentkit.verify_system.sonarqube_gate import (
+    from agentkit.backend.verify_system.sonarqube_gate import (
         SonarApplicability,
         SonarGateOutcome,
     )
@@ -331,8 +331,8 @@ def build_progress_store(store_dir: Path) -> object:
     (NOT a stub) -- only the external boundaries are stubbed, not the persistence
     of the ``ClosureProgress`` truth.
     """
-    from agentkit.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-    from agentkit.state_backend.store.phase_envelope_repository import (
+    from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+    from agentkit.backend.state_backend.store.phase_envelope_repository import (
         StateBackendPhaseEnvelopeRepository,
     )
 

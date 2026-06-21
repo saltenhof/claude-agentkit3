@@ -1,7 +1,7 @@
 """E2E NO-STUB for the native ``create-story`` agent surface (AG3-114, AC3+AC4).
 
 This is the AG3-114 core criterion. It drives the REAL deployed target-project
-tool (``resources/target_project/tools/agentkit/projectedge.py``) ``create-story``
+tool (``bundles/target_project/tools/agentkit/projectedge.py``) ``create-story``
 subcommand end-to-end THROUGH the production HTTP router:
 
     tool create-story
@@ -61,7 +61,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.config.models import (
+from agentkit.backend.config.models import (
     SUPPORTED_CONFIG_VERSION,
     Features,
     PipelineConfig,
@@ -69,38 +69,38 @@ from agentkit.config.models import (
     RepositoryConfig,
     VectorDbConfig,
 )
-from agentkit.control_plane_http.app import (
+from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
     ControlPlaneApplicationRoutes,
     _build_handler,
 )
-from agentkit.control_plane_http.tenant_scope import TenantScopeMiddleware
-from agentkit.exceptions import ControlPlaneApiError
-from agentkit.integrations.vectordb import StorySearchHit, VectorDbUnavailableError
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.projectedge import (
-    HttpsJsonTransport,
-    LocalEdgePublisher,
-    ProjectEdgeClient,
-)
-from agentkit.story_context_manager.errors import (
+from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
+from agentkit.backend.exceptions import ControlPlaneApiError
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.story_context_manager.errors import (
     ForbiddenError,
     IdempotencyMismatchError,
     ReconciliationEvidenceMissingError,
     StoryProjectNotFoundError,
     StoryValidationError,
 )
-from agentkit.story_context_manager.http.routes import StoryContextRoutes
-from agentkit.story_context_manager.idempotency import (
+from agentkit.backend.story_context_manager.http.routes import StoryContextRoutes
+from agentkit.backend.story_context_manager.idempotency import (
     InMemoryIdempotencyKeyRepository,
 )
-from agentkit.story_context_manager.service import StoryService
-from agentkit.story_context_manager.story_repository import InMemoryStoryRepository
-from agentkit.story_creation.create_flow import StoryCreationReconciler
-from agentkit.verify_system.llm_evaluator.roles import LlmVerdict, ReviewerRole
-from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+from agentkit.backend.story_context_manager.service import StoryService
+from agentkit.backend.story_context_manager.story_repository import InMemoryStoryRepository
+from agentkit.backend.story_creation.create_flow import StoryCreationReconciler
+from agentkit.backend.verify_system.llm_evaluator.roles import LlmVerdict, ReviewerRole
+from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import (
     StructuredEvaluatorError,
 )
+from agentkit.harness_client.projectedge import (
+    HttpsJsonTransport,
+    LocalEdgePublisher,
+    ProjectEdgeClient,
+)
+from agentkit.integration_clients.vectordb import StorySearchHit, VectorDbUnavailableError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -110,7 +110,7 @@ _TOOL_PATH = (
     Path(__file__).resolve().parents[3]
     / "src"
     / "agentkit"
-    / "resources"
+    / "bundles"
     / "target_project"
     / "tools"
     / "agentkit"
@@ -550,7 +550,7 @@ def test_create_story_tool_no_pool_configured_fails_closed_truthfully(
     ``conflict_adjudication_unavailable`` (NOT a VectorDB outage), persisting
     NOTHING. This drives the REAL runtime-factory fallback.
     """
-    from agentkit.story_creation.runtime_factory import (
+    from agentkit.backend.story_creation.runtime_factory import (
         FailClosedConflictEvaluator,
     )
 
@@ -599,7 +599,7 @@ def test_create_story_tool_malformed_llm_output_fails_closed(
     (the genuine LLM edge) that raises the SAME ``StructuredEvaluatorError`` the
     real ``StructuredEvaluator`` raises for unparseable output.
     """
-    from agentkit.story_creation.conflict_adjudicator import (
+    from agentkit.backend.story_creation.conflict_adjudicator import (
         CreateTimeConflictAdjudicator,
     )
 
@@ -826,7 +826,7 @@ def test_create_story_tool_source_has_no_github_create_calls() -> None:
 
 def test_route_maps_service_exceptions_to_stable_error_codes() -> None:
     """AC4 contract: each fail-closed exception maps to its stable wire error_code."""
-    from agentkit.story_context_manager.http.routes import _ERROR_CODE_MAP
+    from agentkit.backend.story_context_manager.http.routes import _ERROR_CODE_MAP
 
     expected: dict[type[Exception], tuple[HTTPStatus, str]] = {
         ReconciliationEvidenceMissingError: (

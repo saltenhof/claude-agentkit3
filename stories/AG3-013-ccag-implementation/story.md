@@ -49,7 +49,7 @@ Harness ggf. Symlinks unter dem harness-eigenen Bindungspunkt.
 - Gate-Keeper-Hook:
   - Adapter-Verweis fuer Hook-Registrierung in
     `.claude/settings.json` und `.codex/config.toml`
-  - Aufruf-Pfad CLI: `python -m agentkit.governance.ccag` oder analog
+  - Aufruf-Pfad CLI: `python -m agentkit.backend.governance.ccag` oder analog
 - LLM-Generalisierung (FK-42 §42.3) — optional; Voraussetzung:
   Multi-LLM-Hub
 - Tests:

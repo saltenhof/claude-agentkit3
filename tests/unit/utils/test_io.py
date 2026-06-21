@@ -1,4 +1,4 @@
-"""Tests for agentkit.utils.io -- atomic write and directory helpers."""
+"""Tests for agentkit.backend.utils.io -- atomic write and directory helpers."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import yaml
 if TYPE_CHECKING:
     from pathlib import Path
 
-from agentkit.utils.io import atomic_write_text, atomic_write_yaml, ensure_dir
+from agentkit.backend.utils.io import atomic_write_text, atomic_write_yaml, ensure_dir
 
 
 class TestAtomicWriteText:
@@ -125,16 +125,16 @@ class TestInstallerFileOpsNamespace:
     """Verify that installer file-ops entrypoints expose the write helpers."""
 
     def test_file_ops_exposes_atomic_write_text(self) -> None:
-        from agentkit.installer.file_ops import atomic_write_text as exported
+        from agentkit.backend.installer.file_ops import atomic_write_text as exported
 
         assert exported is atomic_write_text
 
     def test_file_ops_exposes_atomic_write_yaml(self) -> None:
-        from agentkit.installer.file_ops import atomic_write_yaml as exported
+        from agentkit.backend.installer.file_ops import atomic_write_yaml as exported
 
         assert exported is atomic_write_yaml
 
     def test_file_ops_exposes_ensure_dir(self) -> None:
-        from agentkit.installer.file_ops import ensure_dir as exported
+        from agentkit.backend.installer.file_ops import ensure_dir as exported
 
         assert exported is ensure_dir

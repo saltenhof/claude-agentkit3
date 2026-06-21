@@ -11,23 +11,23 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from agentkit.core_types import Severity
-from agentkit.integration_stabilization.models import (
+from agentkit.backend.core_types import Severity
+from agentkit.backend.integration_stabilization.models import (
     IntegrationScopeManifest,
     ManifestApprovalRecord,
     StabilizationBudgetCaps,
 )
-from agentkit.integration_stabilization.stability_gate_producer import (
+from agentkit.backend.integration_stabilization.stability_gate_producer import (
     IS_STABILITY_GATE_FILE,
     IS_TARGETS_FILE,
     produce_stability_gate_layer_result,
 )
-from agentkit.integration_stabilization.state import (
+from agentkit.backend.integration_stabilization.state import (
     save_integration_manifest,
     save_manifest_approval,
 )
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import EventType
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import EventType
 
 if TYPE_CHECKING:
     from pathlib import Path

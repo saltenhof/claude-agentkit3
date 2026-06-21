@@ -21,7 +21,7 @@ from tests.unit.installer.upgrade.conftest import (
     write_valid_project_yaml,
 )
 
-from agentkit.installer.upgrade.footprint import (
+from agentkit.backend.installer.upgrade.footprint import (
     CustomizationFootprint,
     CustomizationKind,
     CustomizationPoint,
@@ -48,8 +48,8 @@ def _write_ccag_rule(project_root: Path) -> None:
 
 def _bind_prompt(project_root: Path, store_root: Path) -> None:
     """Create a real project prompt binding via PromptRuntime.update_binding."""
-    from agentkit.installer.paths import prompt_bundle_store_dir
-    from agentkit.prompt_runtime.runtime import PromptRuntime
+    from agentkit.backend.installer.paths import prompt_bundle_store_dir
+    from agentkit.backend.prompt_runtime.runtime import PromptRuntime
 
     bundle_root = prompt_bundle_store_dir(
         "custom-bundle", "9.9.9", store_root=store_root
@@ -77,7 +77,7 @@ class _BoundSkillsSurface:
         self._bound_skill = bound_skill
 
     def resolve_binding(self, project_root: Path, skill_name: str) -> object | None:
-        from agentkit.skills.binding import (
+        from agentkit.backend.skills.binding import (
             SkillBinding,
             SkillBindingMode,
             SkillLifecycleStatus,
@@ -164,7 +164,7 @@ def test_footprint_pipeline_config_no_point_when_digest_matches(
     registration_repo: InMemoryRegistrationRepo,
 ) -> None:
     """A digest that MATCHES the registration is not a customization."""
-    from agentkit.installer.upgrade._digest import config_file_digest
+    from agentkit.backend.installer.upgrade._digest import config_file_digest
 
     project_root = tmp_path / "proj"
     project_root.mkdir()

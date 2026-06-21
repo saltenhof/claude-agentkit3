@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from agentkit.multi_llm_hub.entities import (
+from agentkit.integration_clients.multi_llm_hub.entities import (
     HubBackendMetric,
     HubHealth,
     HubHolder,

@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
-from agentkit.integration_stabilization.models import (
+from agentkit.backend.integration_stabilization.models import (
     IntegrationScopeManifest,
     ManifestApprovalRecord,
     StabilizationBudgetCaps,
 )
-from agentkit.integration_stabilization.routing import (
+from agentkit.backend.integration_stabilization.routing import (
     decide_integration_stabilization_routing,
     is_integration_stabilization_contract,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.routing_rules import (
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.routing_rules import (
     get_phases_for_story,
     is_execution_routing_blocked,
     should_run_exploration,
 )
-from agentkit.story_context_manager.types import ImplementationContract, StoryType
+from agentkit.backend.story_context_manager.types import ImplementationContract, StoryType
 
 
 def _approval() -> ManifestApprovalRecord:
@@ -47,7 +47,7 @@ def _approval() -> ManifestApprovalRecord:
 def _context(
     contract: ImplementationContract | None = ImplementationContract.INTEGRATION_STABILIZATION,
 ) -> StoryContext:
-    from agentkit.story_context_manager.types import StoryMode
+    from agentkit.backend.story_context_manager.types import StoryMode
     return StoryContext(
         project_key="PROJ",
         story_id="PROJ-42",
@@ -96,7 +96,7 @@ class TestRoutingRulesExtension:
         assert "exploration" in phases
 
     def test_standard_story_with_execution_route_skips_exploration(self) -> None:
-        from agentkit.story_context_manager.types import StoryMode
+        from agentkit.backend.story_context_manager.types import StoryMode
         ctx = StoryContext(
             project_key="PROJ",
             story_id="PROJ-42",

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import pytest
 import yaml
 
-from agentkit.installer.upgrade.config_migration import (
+from agentkit.backend.installer.upgrade.config_migration import (
     BACKUP_SUFFIX,
     ConfigMigrationError,
     MigrationStep,

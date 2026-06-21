@@ -8,9 +8,9 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from agentkit.state_backend import config as state_config
-from agentkit.state_backend import postgres_store, sqlite_store
-from agentkit.state_backend.sqlite_store import load_project_rows
+from agentkit.backend.state_backend import config as state_config
+from agentkit.backend.state_backend import postgres_store, sqlite_store
+from agentkit.backend.state_backend.sqlite_store import load_project_rows
 
 
 def test_schema_version_helpers_derive_versioned_names() -> None:

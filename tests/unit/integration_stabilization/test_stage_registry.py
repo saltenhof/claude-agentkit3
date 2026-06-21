@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from agentkit.story_context_manager.types import StoryType
-from agentkit.verify_system.stage_registry.data import (
+from agentkit.backend.story_context_manager.types import StoryType
+from agentkit.backend.verify_system.stage_registry.data import (
     ALL_STAGES,
     STANDARD_STAGES,
 )
-from agentkit.verify_system.stage_registry.registry import StageRegistry
-from agentkit.verify_system.stage_registry.stages import StageKind, StageOverridePolicy
+from agentkit.backend.verify_system.stage_registry.registry import StageRegistry
+from agentkit.backend.verify_system.stage_registry.stages import StageKind, StageOverridePolicy
 
 
 class TestStabilityGateRegistration:
@@ -48,7 +48,7 @@ class TestStabilityGateRegistration:
         assert StoryType.IMPLEMENTATION in stage.applies_to
 
     def test_stability_gate_is_blocking(self) -> None:
-        from agentkit.core_types import Severity
+        from agentkit.backend.core_types import Severity
         stage = next(
             s for s in ALL_STAGES if s.stage_id == "stability_gate"
         )
@@ -98,7 +98,7 @@ class TestFourFK37NamedChecksRegistration:
 
     def test_registry_accepts_integration_stabilization_stages(self) -> None:
         """AG3-064 StageRegistry can be constructed with IS stages."""
-        from agentkit.story_context_manager.types import ImplementationContract
+        from agentkit.backend.story_context_manager.types import ImplementationContract
 
         registry = StageRegistry(stages=ALL_STAGES)
         # The IS stage is visible ONLY under the IS contract (MAJOR H leak fix).
@@ -110,7 +110,7 @@ class TestFourFK37NamedChecksRegistration:
         assert stage.stage_id == "stability_gate"
 
     def test_stages_for_returns_stability_gate_for_implementation(self) -> None:
-        from agentkit.story_context_manager.types import ImplementationContract
+        from agentkit.backend.story_context_manager.types import ImplementationContract
 
         registry = StageRegistry(stages=ALL_STAGES)
         stages = registry.stages_for(
@@ -142,7 +142,7 @@ class TestStageForIdNoRegressionLeak:
         assert registry.stage_for_id("stability_gate") is None
 
     def test_stage_for_id_hides_is_stage_for_standard_contract(self) -> None:
-        from agentkit.story_context_manager.types import ImplementationContract
+        from agentkit.backend.story_context_manager.types import ImplementationContract
 
         registry = StageRegistry(stages=ALL_STAGES)
         assert (
@@ -154,7 +154,7 @@ class TestStageForIdNoRegressionLeak:
         )
 
     def test_stage_for_id_reveals_is_stage_for_is_contract(self) -> None:
-        from agentkit.story_context_manager.types import ImplementationContract
+        from agentkit.backend.story_context_manager.types import ImplementationContract
 
         registry = StageRegistry(stages=ALL_STAGES)
         stage = registry.stage_for_id(

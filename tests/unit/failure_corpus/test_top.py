@@ -11,24 +11,24 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.bootstrap.composition_root import build_failure_corpus
-from agentkit.core_types import FailureCategory
-from agentkit.failure_corpus import (
+from agentkit.backend.bootstrap.composition_root import build_failure_corpus
+from agentkit.backend.core_types import FailureCategory
+from agentkit.backend.failure_corpus import (
     FailureCorpus,
     IncidentCandidate,
     IncidentRole,
     IncidentSeverity,
 )
-from agentkit.failure_corpus.errors import IncidentRejectedError, IncidentRejectReason
-from agentkit.failure_corpus.top import (
+from agentkit.backend.failure_corpus.errors import IncidentRejectedError, IncidentRejectReason
+from agentkit.backend.failure_corpus.top import (
     CheckApprovalDecision,
     PatternDecision,
 )
-from agentkit.failure_corpus.types import CheckId, PatternId
-from agentkit.state_backend.store.projection_repositories import (
+from agentkit.backend.failure_corpus.types import CheckId, PatternId
+from agentkit.backend.state_backend.store.projection_repositories import (
     build_projection_repositories,
 )
-from agentkit.telemetry.projection_accessor import (
+from agentkit.backend.telemetry.projection_accessor import (
     ProjectionAccessor,
     ProjectionFilter,
     ProjectionKind,
@@ -45,7 +45,7 @@ _PROJECT = "proj-a"
 def corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[FailureCorpus]:
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-    from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     accessor = ProjectionAccessor(build_projection_repositories(tmp_path))
@@ -79,7 +79,7 @@ class TestRecordIncident:
     ) -> None:
         monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         reset_backend_cache_for_tests()
         try:
@@ -189,14 +189,14 @@ class TestBuildFailureCorpusWiring:
         """
         monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-        from agentkit.core_types import FailureCategory, PatternStatus
-        from agentkit.failure_corpus.pattern import (
+        from agentkit.backend.core_types import FailureCategory, PatternStatus
+        from agentkit.backend.failure_corpus.pattern import (
             FailurePatternRecord,
             PatternRiskLevel,
             PromotionRule,
         )
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
-        from agentkit.state_backend.store.fc_pattern_repository import (
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
 
@@ -250,7 +250,7 @@ class TestBuildFailureCorpusWiring:
 
         monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         reset_backend_cache_for_tests()
         try:

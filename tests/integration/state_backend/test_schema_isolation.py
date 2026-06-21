@@ -14,13 +14,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.state_backend.store import (
+from agentkit.backend.state_backend.store import (
     load_story_context_global,
     load_story_contexts_global,
     save_story_context,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path

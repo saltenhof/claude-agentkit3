@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.governance.guards.branch_guard import BranchGuard
-from agentkit.governance.protocols import ViolationType
+from agentkit.backend.governance.guards.branch_guard import BranchGuard
+from agentkit.backend.governance.protocols import ViolationType
 
 
 @pytest.fixture()

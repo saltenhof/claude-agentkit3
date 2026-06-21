@@ -43,13 +43,13 @@ import psycopg
 import pytest
 from psycopg import sql
 
-from agentkit.state_backend.config import (
+from agentkit.backend.state_backend.config import (
     SCHEMA_OVERRIDE_ALLOWED_ENV,
     SCHEMA_OVERRIDE_ENV,
     STATE_BACKEND_ENV,
     STATE_DATABASE_URL_ENV,
 )
-from agentkit.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -494,7 +494,7 @@ def postgres_worker_schema(
     os.environ[SCHEMA_OVERRIDE_ALLOWED_ENV] = "1"
     reset_backend_cache_for_tests()
     try:
-        from agentkit.state_backend import postgres_store
+        from agentkit.backend.state_backend import postgres_store
 
         with postgres_store._connect_global():
             # _connect_global runs ensure_versioned_schema + _ensure_schema,

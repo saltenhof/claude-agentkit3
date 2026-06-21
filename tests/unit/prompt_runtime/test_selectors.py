@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.core_types import SpawnReason
-from agentkit.prompt_runtime.selectors import select_template_name
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.core_types import SpawnReason
+from agentkit.backend.prompt_runtime.selectors import select_template_name
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 
 class TestSelectTemplateName:

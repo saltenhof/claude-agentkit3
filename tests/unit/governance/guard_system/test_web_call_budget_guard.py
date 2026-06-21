@@ -8,13 +8,13 @@ block (``guard="web_call_budget_guard"``, NO ``stage``).
 
 from __future__ import annotations
 
-from agentkit.governance.guard_system import (
+from agentkit.backend.governance.guard_system import (
     BudgetSeverity,
     WebCallBudgetGuard,
     WebCallBudgetObservation,
 )
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import Event, EventType, validate_event_payload
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import Event, EventType, validate_event_payload
 
 
 def _obs(

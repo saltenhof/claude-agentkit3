@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.core_types import QaContext
+from agentkit.backend.core_types import QaContext
 
 
 def test_each_value_constructable() -> None:

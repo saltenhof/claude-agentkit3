@@ -18,12 +18,12 @@ import pathlib
 
 import pytest
 
-from agentkit.kpi_analytics.css_conformance import (
+from agentkit.backend.kpi_analytics.css_conformance import (
     ConformanceError,
     check_css_token_drift,
     check_token_conformance,
 )
-from agentkit.kpi_analytics.design_system import (
+from agentkit.backend.kpi_analytics.design_system import (
     CSS_NON_TOKEN_ALLOWLIST,
     build_css_variables,
     get_design_system,

@@ -7,24 +7,24 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.bootstrap.composition_root import build_artifact_manager
-from agentkit.core_types import SpawnReason
-from agentkit.implementation.handover import (
+from agentkit.backend.bootstrap.composition_root import build_artifact_manager
+from agentkit.backend.core_types import SpawnReason
+from agentkit.backend.implementation.handover import (
     HANDOVER_FILENAME,
     ACStatus,
     HandoverPackager,
 )
-from agentkit.implementation.worker_loop import (
+from agentkit.backend.implementation.worker_loop import (
     DriftEvent,
     IncrementResult,
     IncrementStep,
     IncrementSummary,
 )
-from agentkit.implementation.worker_session import WorkerSession
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.implementation.worker_session import WorkerSession
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from collections.abc import Generator

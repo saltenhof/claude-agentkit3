@@ -20,38 +20,38 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
 
-from agentkit.bootstrap.composition_root import build_exploration_phase_handler
-from agentkit.config.loader import load_project_config
-from agentkit.exceptions import PipelineError
-from agentkit.installer import InstallConfig, install_agentkit
-from agentkit.installer.paths import story_dir
-from agentkit.pipeline_engine.lifecycle import (
+from agentkit.backend.bootstrap.composition_root import build_exploration_phase_handler
+from agentkit.backend.config.loader import load_project_config
+from agentkit.backend.exceptions import PipelineError
+from agentkit.backend.installer import InstallConfig, install_agentkit
+from agentkit.backend.installer.paths import story_dir
+from agentkit.backend.pipeline_engine.lifecycle import (
     HandlerResult,
     NoOpHandler,
     PhaseHandlerRegistry,
 )
-from agentkit.pipeline_engine.phase_executor import PhaseStatus
-from agentkit.pipeline_engine.runner import PipelineRunResult, run_pipeline
-from agentkit.process.language.definitions import (
+from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
+from agentkit.backend.pipeline_engine.runner import PipelineRunResult, run_pipeline
+from agentkit.backend.process.language.definitions import (
     BUGFIX_WORKFLOW,
     IMPLEMENTATION_WORKFLOW,
     RESEARCH_WORKFLOW,
     resolve_workflow,
 )
-from agentkit.state_backend.store import (
+from agentkit.backend.state_backend.store import (
     load_attempts,
     read_phase_snapshot_record,
     read_phase_state_record,
     read_story_context_record,
     save_story_context,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
+    from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +120,7 @@ def _registry_for_workflow(
     workflow_def: object,
 ) -> PhaseHandlerRegistry:
     """Build a PhaseHandlerRegistry with NoOpHandler for all phases in a workflow."""
-    from agentkit.process.language.model import WorkflowDefinition
+    from agentkit.backend.process.language.model import WorkflowDefinition
 
     assert isinstance(workflow_def, WorkflowDefinition)
     registry = PhaseHandlerRegistry()
@@ -333,8 +333,8 @@ class TestSmokeExplorationMode:
         tmp_path: Path,
     ) -> None:
         """EXPLORATION mode yields at exploration to spawn the worker (AG3-055)."""
-        from agentkit.core_types import SpawnKind
-        from agentkit.state_backend.store.facade import load_phase_state
+        from agentkit.backend.core_types import SpawnKind
+        from agentkit.backend.state_backend.store.facade import load_phase_state
 
         project_dir = tmp_path / "proj"
         project_dir.mkdir()

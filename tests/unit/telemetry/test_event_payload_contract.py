@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.telemetry.events import (
+from agentkit.backend.telemetry.events import (
     EventPayloadContractError,
     EventType,
     validate_event_payload,
@@ -227,7 +227,7 @@ def test_are_gate_result_conflict_resolved_one_mandatory_set() -> None:
     # story_id + result. The FK-61 metric fields covered/required/coverage_ratio
     # stay OPTIONAL (enriched) — present-without-mandatory must still fail closed,
     # and mandatory-without-metrics must pass.
-    from agentkit.telemetry.events import (
+    from agentkit.backend.telemetry.events import (
         MANDATORY_PAYLOAD_FIELDS,
         MANDATORY_PAYLOAD_FIELDS_BY_NAME,
     )

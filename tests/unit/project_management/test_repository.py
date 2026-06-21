@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.project_management.entities import ProjectConfiguration
-from agentkit.project_management.errors import ProjectStoryIdPrefixConflictError
-from agentkit.project_management.lifecycle import archive_project, create_project
-from agentkit.state_backend.store import facade
-from agentkit.state_backend.store.project_management_repository import (
+from agentkit.backend.project_management.entities import ProjectConfiguration
+from agentkit.backend.project_management.errors import ProjectStoryIdPrefixConflictError
+from agentkit.backend.project_management.lifecycle import archive_project, create_project
+from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
 
@@ -71,7 +71,7 @@ def test_repository_rejects_duplicate_story_id_prefix(tmp_path: Path) -> None:
 
 def test_repository_roundtrip_includes_repositories(tmp_path: Path) -> None:
     """Saving a project with repositories and reading it back preserves the list."""
-    from agentkit.project_management.entities import ProjectConfiguration
+    from agentkit.backend.project_management.entities import ProjectConfiguration
 
     config = ProjectConfiguration(
         repo_url="",
@@ -100,8 +100,8 @@ def test_repository_reads_old_record_without_repositories_field(tmp_path: Path) 
     import json
     import sqlite3
 
-    from agentkit.state_backend import sqlite_store
-    from agentkit.state_backend.store import facade
+    from agentkit.backend.state_backend import sqlite_store
+    from agentkit.backend.state_backend.store import facade
 
     # Write an old-style record directly into the DB, bypassing the ORM.
     db_path = sqlite_store.state_db_path_for(tmp_path)

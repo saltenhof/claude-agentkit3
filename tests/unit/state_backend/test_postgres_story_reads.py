@@ -15,13 +15,13 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.phase_executor import PhaseState
-from agentkit.state_backend import postgres_store
-from agentkit.state_backend.store import facade
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.phase_executor import PhaseState
+from agentkit.backend.state_backend import postgres_store
+from agentkit.backend.state_backend.store import facade
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 if TYPE_CHECKING:
     from collections.abc import Generator

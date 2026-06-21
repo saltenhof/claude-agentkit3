@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.state_backend.store.freeze_repository import (
+from agentkit.backend.state_backend.store.freeze_repository import (
     FreezeRecord,
     FreezeRepository,
     LocalFreezeJsonExport,

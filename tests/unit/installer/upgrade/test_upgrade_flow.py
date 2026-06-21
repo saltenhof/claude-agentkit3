@@ -20,12 +20,12 @@ from tests.unit.installer.upgrade.conftest import (
     write_valid_project_yaml,
 )
 
-from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
-from agentkit.installer.upgrade._digest import config_file_digest
-from agentkit.installer.upgrade.config_migration import BACKUP_SUFFIX
-from agentkit.installer.upgrade.footprint import CustomizationPreservationError
-from agentkit.installer.upgrade.scenarios import UpgradeScenario
-from agentkit.installer.upgrade.upgrade_flow import run_upgrade
+from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
+from agentkit.backend.installer.upgrade._digest import config_file_digest
+from agentkit.backend.installer.upgrade.config_migration import BACKUP_SUFFIX
+from agentkit.backend.installer.upgrade.footprint import CustomizationPreservationError
+from agentkit.backend.installer.upgrade.scenarios import UpgradeScenario
+from agentkit.backend.installer.upgrade.upgrade_flow import run_upgrade
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -217,7 +217,7 @@ class _SkillsWithBinding:
     def resolve_binding(self, project_root: Path, skill_name: str) -> object | None:
         from datetime import UTC, datetime
 
-        from agentkit.skills.binding import (
+        from agentkit.backend.skills.binding import (
             SkillBinding,
             SkillBindingMode,
             SkillLifecycleStatus,

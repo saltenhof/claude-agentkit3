@@ -65,7 +65,7 @@ Der BC story-lifecycle zeigt eine ausgepraegt ungleiche Abdeckung: Die persisten
 
 | # | Thema | Konzept-Referenz | Anmerkung |
 |---|---|---|---|
-| A1 | Deterministischer `story.md`-Export (CLI: `agentkit export-story-md`) und Weaviate-Indizierung | `FK-21 §21.11` | Kein Python-Modul `agentkit.story_creation.story_md_export`, kein CLI-Befehl, keine Weaviate-Indizierungslogik vorhanden |
+| A1 | Deterministischer `story.md`-Export (CLI: `agentkit export-story-md`) und Weaviate-Indizierung | `FK-21 §21.11` | Kein Python-Modul `agentkit.backend.story_creation.story_md_export`, kein CLI-Befehl, keine Weaviate-Indizierungslogik vorhanden |
 | A2 | VektorDB-Abgleich als Pflichtschritt der Story-Erstellung (Similarity-Suche + LLM-Konfliktbewertung) | `FK-21 §21.4` | Kein `story_search`-Aufruf, kein Schwellenwert-Filter (0.7), keine StructuredEvaluator-Integration im Erstellungspfad |
 | A3 | Zieltreue-Pruefung (Dokumententreue Ebene 1) als Pflichtschritt vor Feldbelegung | `FK-21 §21.5` | Kein StructuredEvaluator-Aufruf fuer `doc-fidelity-goal`-Template im Erstellungspfad |
 | A4 | Story-Erstellungs-Guard (PreToolUse-Hook, blockiert direkte Story-Backend-Mutationen ohne Skill) | `FK-21 §21.13` | Kein Hook-Mechanismus fuer direktes Story-Backend-Bypass-Blocking implementiert |

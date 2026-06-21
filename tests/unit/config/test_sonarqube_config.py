@@ -11,8 +11,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from agentkit.config import ProjectConfig, SonarQubeConfig
-from agentkit.config.models import RepositoryConfig
+from agentkit.backend.config import ProjectConfig, SonarQubeConfig
+from agentkit.backend.config.models import RepositoryConfig
 
 
 def _project(**pipeline_sonar: object) -> ProjectConfig:

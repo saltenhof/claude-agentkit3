@@ -14,11 +14,11 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from agentkit.artifacts.envelope import ArtifactEnvelope
-from agentkit.artifacts.producer import Producer, ProducerId, ProducerType
-from agentkit.artifacts.reference import ArtifactReference
-from agentkit.core_types import ArtifactClass, EnvelopeStatus
-from agentkit.state_backend.store.artifact_repository import StateBackendArtifactRepository
+from agentkit.backend.artifacts.envelope import ArtifactEnvelope
+from agentkit.backend.artifacts.producer import Producer, ProducerId, ProducerType
+from agentkit.backend.artifacts.reference import ArtifactReference
+from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus
+from agentkit.backend.state_backend.store.artifact_repository import StateBackendArtifactRepository
 
 pytest_plugins = ("tests.fixtures.postgres_backend",)
 

@@ -94,7 +94,7 @@ als TypeScript-Konstante abgelegt (kein Backend-Schema noetig).
 ### Out of Scope (NICHT anfassen)
 
 - Backend-Erweiterung: `PhaseStateCore`, `Substep`-StrEnum,
-  Service-API-Response-Schema, `agentkit.control_plane.api.*`
+  Service-API-Response-Schema, `agentkit.backend.control_plane.api.*`
 - Konzept-Rueckfluss in FK-72 / FK-91 / FK-39 — wird erst **nach**
   User-Feedback in einer Folge-Story geschnitten
 - AK3-Story-Backend-Anpassung

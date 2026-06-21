@@ -22,17 +22,17 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from agentkit.control_plane.models import (
+from agentkit.backend.control_plane.models import (
     EdgeBundle,
     EdgePointer,
     SessionRunBindingView,
     StoryExecutionLockView,
 )
-from agentkit.core_types.qa_artifact_names import CHANGE_FRAME_FILE
-from agentkit.governance.guard_evaluation import HookEvent, evaluate_pre_tool_use
-from agentkit.governance.protocols import ViolationType
-from agentkit.installer.paths import qa_story_dir
-from agentkit.projectedge.client import LocalEdgePublisher
+from agentkit.backend.core_types.qa_artifact_names import CHANGE_FRAME_FILE
+from agentkit.backend.governance.guard_evaluation import HookEvent, evaluate_pre_tool_use
+from agentkit.backend.governance.protocols import ViolationType
+from agentkit.backend.installer.paths import qa_story_dir
+from agentkit.harness_client.projectedge.client import LocalEdgePublisher
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.verify_system.qa_cycle.invalidation import (
+from agentkit.backend.verify_system.qa_cycle.invalidation import (
     CYCLE_BOUND_QA_ARTIFACTS,
     RecordingArtifactInvalidationSink,
     invalidate_cycle_artifacts,

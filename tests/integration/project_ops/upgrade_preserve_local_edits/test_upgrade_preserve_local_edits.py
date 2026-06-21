@@ -21,12 +21,12 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from agentkit.installer.checkpoint_engine.execution_mode import ExecutionMode
-from agentkit.installer.paths import project_config_path
-from agentkit.installer.registration import ProjectRegistration, RuntimeProfile
-from agentkit.installer.upgrade._digest import config_file_digest
-from agentkit.installer.upgrade.config_migration import BACKUP_SUFFIX
-from agentkit.installer.upgrade.upgrade_flow import run_upgrade
+from agentkit.backend.installer.checkpoint_engine.execution_mode import ExecutionMode
+from agentkit.backend.installer.paths import project_config_path
+from agentkit.backend.installer.registration import ProjectRegistration, RuntimeProfile
+from agentkit.backend.installer.upgrade._digest import config_file_digest
+from agentkit.backend.installer.upgrade.config_migration import BACKUP_SUFFIX
+from agentkit.backend.installer.upgrade.upgrade_flow import run_upgrade
 
 if TYPE_CHECKING:
     from pathlib import Path

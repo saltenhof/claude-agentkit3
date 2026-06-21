@@ -25,9 +25,9 @@ import pytest
 from psycopg import errors as pg_errors
 from psycopg import sql
 
-from agentkit.installer.registration import ProjectRegistration, RuntimeProfile
-from agentkit.state_backend.config import resolve_schema_name
-from agentkit.state_backend.store.project_registration_repository import (
+from agentkit.backend.installer.registration import ProjectRegistration, RuntimeProfile
+from agentkit.backend.state_backend.config import resolve_schema_name
+from agentkit.backend.state_backend.store.project_registration_repository import (
     StateBackendProjectRegistrationRepository,
 )
 

@@ -39,53 +39,53 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.artifacts import ArtifactEnvelope
-from agentkit.artifacts.producer import Producer, ProducerId, ProducerType
-from agentkit.bootstrap.composition_root import (
+from agentkit.backend.artifacts import ArtifactEnvelope
+from agentkit.backend.artifacts.producer import Producer, ProducerId, ProducerType
+from agentkit.backend.bootstrap.composition_root import (
     build_runtime_execution_purge_port,
     build_runtime_execution_residue_probe,
 )
-from agentkit.core_types import ArtifactClass, EnvelopeStatus, PolicyVerdict
-from agentkit.core_types.attempt import AttemptOutcome
-from agentkit.core_types.override import OverrideType
-from agentkit.governance.guard_system.records import (
+from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus, PolicyVerdict
+from agentkit.backend.core_types.attempt import AttemptOutcome
+from agentkit.backend.core_types.override import OverrideType
+from agentkit.backend.governance.guard_system.records import (
     GuardDecision,
     GuardDecisionOutcome,
 )
-from agentkit.phase_state_store.models import (
+from agentkit.backend.phase_state_store.models import (
     FlowExecution,
     NodeExecutionLedger,
     OverrideRecord,
 )
-from agentkit.pipeline_engine.phase_executor.models import (
+from agentkit.backend.pipeline_engine.phase_executor.models import (
     PhaseName,
     PhaseSnapshot,
     PhaseStatus,
 )
-from agentkit.pipeline_engine.phase_executor.records import AttemptRecord
-from agentkit.state_backend.config import (
+from agentkit.backend.pipeline_engine.phase_executor.records import AttemptRecord
+from agentkit.backend.state_backend.config import (
     ALLOW_SQLITE_ENV,
     STATE_BACKEND_ENV,
     STATE_DATABASE_URL_ENV,
 )
-from agentkit.state_backend.store import (
+from agentkit.backend.state_backend.store import (
     facade,
     reset_backend_cache_for_tests,
 )
-from agentkit.state_backend.store.artifact_repository import (
+from agentkit.backend.state_backend.store.artifact_repository import (
     StateBackendArtifactRepository,
 )
-from agentkit.state_backend.store.guard_decision_repository import (
+from agentkit.backend.state_backend.store.guard_decision_repository import (
     GuardDecisionRepository,
 )
-from agentkit.state_backend.store.runtime_execution_purge import (
+from agentkit.backend.state_backend.store.runtime_execution_purge import (
     RUNTIME_EXECUTION_PURGE_DOMAINS,
     RuntimeExecutionPurgePort,
     RuntimeExecutionPurgeResult,
     RuntimeExecutionResidueProbe,
 )
-from agentkit.telemetry.contract.records import ExecutionEventRecord
-from agentkit.verify_system.policy_engine.engine import VerifyDecision
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.verify_system.policy_engine.engine import VerifyDecision
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -443,7 +443,7 @@ class TestPortFanOut:
     def test_result_type_is_runtime_specific_not_projection_purge_result(
         self, backend: Path
     ) -> None:
-        from agentkit.telemetry.projection_accessor import PurgeResult
+        from agentkit.backend.telemetry.projection_accessor import PurgeResult
 
         port = build_runtime_execution_purge_port(backend)
         result = port.purge_run(_PROJECT, _STORY, _RUN)

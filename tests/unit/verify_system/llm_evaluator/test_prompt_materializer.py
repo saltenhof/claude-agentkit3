@@ -15,25 +15,25 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.artifacts import ArtifactManager, EnvelopeValidator, ProducerRegistry
-from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
-from agentkit.prompt_runtime.register import register_prompt_runtime_producers
-from agentkit.prompt_runtime.resources import PROJECT_LOCK_RELPATH
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.verify_system.llm_evaluator.bundle import build_review_bundle
-from agentkit.verify_system.llm_evaluator.inputs import Layer2ReviewInput
-from agentkit.verify_system.llm_evaluator.prompt_materializer import (
+from agentkit.backend.artifacts import ArtifactManager, EnvelopeValidator, ProducerRegistry
+from agentkit.backend.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
+from agentkit.backend.prompt_runtime.register import register_prompt_runtime_producers
+from agentkit.backend.prompt_runtime.resources import PROJECT_LOCK_RELPATH
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.verify_system.llm_evaluator.bundle import build_review_bundle
+from agentkit.backend.verify_system.llm_evaluator.inputs import Layer2ReviewInput
+from agentkit.backend.verify_system.llm_evaluator.prompt_materializer import (
     PromptRuntimeMaterializer,
 )
-from agentkit.verify_system.llm_evaluator.structured_evaluator import (
+from agentkit.backend.verify_system.llm_evaluator.structured_evaluator import (
     DOC_FIDELITY_CHECK_IDS,
     QA_REVIEW_CHECK_IDS,
     SEMANTIC_REVIEW_CHECK_IDS,
     ReviewerRole,
     template_name_for_role,
 )
-from agentkit.verify_system.protocols import RunScope
+from agentkit.backend.verify_system.protocols import RunScope
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -51,7 +51,7 @@ _REAL_TEMPLATE_NAMES = (
 
 
 def _real_templates() -> dict[str, str]:
-    from agentkit.prompt_runtime.resources import load_prompt_template
+    from agentkit.backend.prompt_runtime.resources import load_prompt_template
 
     return {name: load_prompt_template(name) for name in _REAL_TEMPLATE_NAMES}
 
@@ -115,7 +115,7 @@ def _manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ArtifactManager
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
     registry = ProducerRegistry()
     register_prompt_runtime_producers(registry)
-    from agentkit.state_backend.store.artifact_repository import (
+    from agentkit.backend.state_backend.store.artifact_repository import (
         StateBackendArtifactRepository,
     )
 
@@ -196,7 +196,7 @@ def test_context_for_rejects_story_id_mismatch(tmp_path: Path) -> None:
     bundle = build_review_bundle(
         Layer2ReviewInput(), story_id="OTHER-9", qa_cycle_round=1
     )
-    from agentkit.verify_system.llm_evaluator.llm_client import LlmClientError
+    from agentkit.backend.verify_system.llm_evaluator.llm_client import LlmClientError
 
     with pytest.raises(LlmClientError, match="identity check"):
         materializer.context_for(bundle)

@@ -22,14 +22,14 @@ from __future__ import annotations
 import json
 from http import HTTPStatus
 
-from agentkit.control_plane_http.app import (
+from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
     ControlPlaneApplicationRoutes,
 )
-from agentkit.control_plane_http.tenant_scope import TenantScopeMiddleware
-from agentkit.kpi_analytics.http.routes import KpiAnalyticsRoutes
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.project_management.lifecycle import create_project
+from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
+from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.project_management.lifecycle import create_project
 
 _PROJECT = "tenant-e2e"
 _DESIGN_TOKENS_PATH = f"/v1/projects/{_PROJECT}/kpi/design-tokens"

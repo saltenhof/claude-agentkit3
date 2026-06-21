@@ -4,33 +4,33 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.execution_planning.entities import (
+from agentkit.backend.execution_planning.entities import (
     ParallelizationConfig,
     StoryDependencyKind,
 )
-from agentkit.execution_planning.errors import StoryDependencyConflictError
-from agentkit.execution_planning.lifecycle import add_dependency
-from agentkit.project_management.entities import ProjectConfiguration
-from agentkit.project_management.lifecycle import create_project
-from agentkit.state_backend.store import facade
-from agentkit.state_backend.store.parallelization_config_repository import (
+from agentkit.backend.execution_planning.errors import StoryDependencyConflictError
+from agentkit.backend.execution_planning.lifecycle import add_dependency
+from agentkit.backend.project_management.entities import ProjectConfiguration
+from agentkit.backend.project_management.lifecycle import create_project
+from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.store.parallelization_config_repository import (
     StateBackendParallelizationConfigRepository,
 )
-from agentkit.state_backend.store.planning_story_repository import (
+from agentkit.backend.state_backend.store.planning_story_repository import (
     StateBackendPlanningStoryRepository,
 )
-from agentkit.state_backend.store.project_management_repository import (
+from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
-from agentkit.state_backend.store.story_dependency_repository import (
+from agentkit.backend.state_backend.store.story_dependency_repository import (
     StateBackendStoryDependencyRepository,
 )
-from agentkit.state_backend.store.story_repository import (
+from agentkit.backend.state_backend.store.story_repository import (
     StateBackendIdempotencyKeyRepository,
     StateBackendStoryRepository,
 )
-from agentkit.story_context_manager.service import StoryService
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.story_context_manager.service import StoryService
+from agentkit.backend.story_context_manager.story_model import (
     CreateStoryInput,
     WireStoryType,
 )
@@ -158,7 +158,7 @@ def test_derive_lifecycle_status_prefers_runtime_when_present(
     when a run already exists; otherwise it defaults to ``"defined"``."""
     from types import SimpleNamespace
 
-    from agentkit.state_backend.store import planning_story_repository as psr
+    from agentkit.backend.state_backend.store import planning_story_repository as psr
 
     # No runtime -> default.
     monkeypatch.setattr(psr.facade, "load_phase_state_global", lambda *_a, **_k: None)

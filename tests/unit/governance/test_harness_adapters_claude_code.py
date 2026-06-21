@@ -5,22 +5,22 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agentkit.governance.harness_adapters.claude_code import (
+from agentkit.backend.governance.protocols import GuardVerdict, ViolationType
+from agentkit.backend.implementation.worker_health import PostToolOutcome, apply_post_tool_use
+from agentkit.backend.state_backend.store.worker_health_repository import (
+    StateBackendWorkerHealthRepository,
+)
+from agentkit.harness_client.harness_adapters.claude_code import (
     ClaudeCodeHookEvent,
     _parse_hook_event,
     main,
     to_neutral_event,
 )
-from agentkit.governance.protocols import GuardVerdict, ViolationType
-from agentkit.implementation.worker_health import PostToolOutcome, apply_post_tool_use
-from agentkit.state_backend.store.worker_health_repository import (
-    StateBackendWorkerHealthRepository,
-)
 
 if TYPE_CHECKING:
     import pytest
 
-    from agentkit.governance.guard_evaluation import HookEvent
+    from agentkit.backend.governance.guard_evaluation import HookEvent
 
 _FIXTURE_DIR = Path(__file__).parents[2] / "fixtures" / "harness_post_tool"
 
@@ -151,7 +151,7 @@ def test_claude_phase_aware_cli_sends_post_outcome_to_runner(
 
     monkeypatch.setattr("sys.stdin", io.StringIO(raw))
     monkeypatch.setattr(
-        "agentkit.governance.runner.Governance.run_hook",
+        "agentkit.backend.governance.runner.Governance.run_hook",
         staticmethod(_spy),
     )
 
@@ -192,7 +192,7 @@ def test_claude_post_tool_input_malformed_fails_closed_without_runner_or_health_
     monkeypatch.setenv("AGENTKIT_WORKER_ID", "worker-1")
     monkeypatch.setattr("sys.stdin", io.StringIO(malformed))
     monkeypatch.setattr(
-        "agentkit.governance.runner.Governance.run_hook",
+        "agentkit.backend.governance.runner.Governance.run_hook",
         staticmethod(_spy),
     )
 
@@ -304,7 +304,7 @@ def test_main_returns_allow_and_block_exit_codes(
     allow_event = json.dumps({"tool_name": "Task", "tool_input": {}, "cwd": "."})
     monkeypatch.setattr("sys.stdin", io.StringIO(allow_event))
     monkeypatch.setattr(
-        "agentkit.governance.runner.Governance.run_hook",
+        "agentkit.backend.governance.runner.Governance.run_hook",
         staticmethod(lambda hook_id, event, phase="pre", project_root=None: GuardVerdict.allow("guard_evaluation")),
     )
     assert main(["pre", "branch_guard"]) == 0
@@ -312,7 +312,7 @@ def test_main_returns_allow_and_block_exit_codes(
     block_event = json.dumps({"tool_name": "Task", "tool_input": {}, "cwd": "."})
     monkeypatch.setattr("sys.stdin", io.StringIO(block_event))
     monkeypatch.setattr(
-        "agentkit.governance.runner.Governance.run_hook",
+        "agentkit.backend.governance.runner.Governance.run_hook",
         staticmethod(
             lambda hook_id, event, phase="pre", project_root=None: GuardVerdict.block(
                 "branch_guard",
@@ -338,7 +338,7 @@ def test_main_surfaces_allow_warning_on_stderr_exit_zero(
     event = json.dumps({"tool_name": "WebFetch", "tool_input": {}, "cwd": "."})
     monkeypatch.setattr("sys.stdin", io.StringIO(event))
     monkeypatch.setattr(
-        "agentkit.governance.runner.Governance.run_hook",
+        "agentkit.backend.governance.runner.Governance.run_hook",
         staticmethod(
             lambda hook_id, event, phase="pre", project_root=None: (
                 GuardVerdict.allow_with_warning(
@@ -367,7 +367,7 @@ def test_main_clean_allow_emits_no_stderr(
     event = json.dumps({"tool_name": "WebFetch", "tool_input": {}, "cwd": "."})
     monkeypatch.setattr("sys.stdin", io.StringIO(event))
     monkeypatch.setattr(
-        "agentkit.governance.runner.Governance.run_hook",
+        "agentkit.backend.governance.runner.Governance.run_hook",
         staticmethod(
             lambda hook_id, event, phase="pre", project_root=None: GuardVerdict.allow(
                 "web_call_budget_guard"

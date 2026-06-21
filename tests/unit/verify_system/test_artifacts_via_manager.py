@@ -19,7 +19,7 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from agentkit.artifacts import (
+from agentkit.backend.artifacts import (
     ArtifactEnvelope,
     ArtifactManager,
     EnvelopeValidator,
@@ -28,9 +28,9 @@ from agentkit.artifacts import (
     ProducerRegistry,
     ProducerType,
 )
-from agentkit.core_types import ArtifactClass, EnvelopeStatus
-from agentkit.state_backend.store.artifact_repository import StateBackendArtifactRepository
-from agentkit.verify_system.register import register_verify_producers
+from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus
+from agentkit.backend.state_backend.store.artifact_repository import StateBackendArtifactRepository
+from agentkit.backend.verify_system.register import register_verify_producers
 
 # ---------------------------------------------------------------------------
 # Fixtures

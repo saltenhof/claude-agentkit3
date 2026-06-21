@@ -12,10 +12,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agentkit.config.models import SonarQubeConfig
-from agentkit.verify_system.pre_merge_runner.ci_run import CiRunUnavailableError
-from agentkit.verify_system.pre_merge_runner.contract import CandidateRef
-from agentkit.verify_system.pre_merge_runner.scan_runner import (
+from agentkit.backend.config.models import SonarQubeConfig
+from agentkit.backend.verify_system.pre_merge_runner.ci_run import CiRunUnavailableError
+from agentkit.backend.verify_system.pre_merge_runner.contract import CandidateRef
+from agentkit.backend.verify_system.pre_merge_runner.scan_runner import (
     CiSonarScanRunner,
     GitTreeHashResolver,
 )
@@ -331,7 +331,7 @@ class TestGitTreeHashResolver:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The productive resolver delegates to ``utils.git.tree_hash_of_commit``."""
-        import agentkit.utils.git as git_utils
+        import agentkit.backend.utils.git as git_utils
 
         seen: dict[str, object] = {}
 

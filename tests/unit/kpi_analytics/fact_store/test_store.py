@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.kpi_analytics.fact_store import (
+from agentkit.backend.kpi_analytics.fact_store import (
     FactCorpusPeriod,
     FactGuardPeriod,
     FactPipelinePeriod,
@@ -32,13 +32,13 @@ from agentkit.kpi_analytics.fact_store import (
     PeriodFilter,
     SyncState,
 )
-from agentkit.state_backend.store.fact_repository import StateBackendFactRepository
+from agentkit.backend.state_backend.store.fact_repository import StateBackendFactRepository
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
     from pathlib import Path
 
-    from agentkit.kpi_analytics.fact_store.models import GuardInvocationCounter
+    from agentkit.backend.kpi_analytics.fact_store.models import GuardInvocationCounter
 
 _NOW = datetime(2026, 6, 5, 12, 0, tzinfo=UTC)
 _LATER = datetime(2026, 6, 12, 12, 0, tzinfo=UTC)
@@ -176,7 +176,7 @@ def test_fake_repository_satisfies_protocol() -> None:
 
 
 def test_fake_write_session_satisfies_protocol() -> None:
-    from agentkit.kpi_analytics.fact_store.repository import FactWriteSession
+    from agentkit.backend.kpi_analytics.fact_store.repository import FactWriteSession
 
     assert isinstance(_FakeWriteSession(), FactWriteSession)
 

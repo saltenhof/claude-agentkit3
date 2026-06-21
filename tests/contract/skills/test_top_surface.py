@@ -2,8 +2,8 @@
 
 Pins:
 1. Exact method signatures for all four top-level methods.
-2. Architecture conformance: agentkit.skills must NOT import from
-   agentkit.state_backend.store or agentkit.installer.
+2. Architecture conformance: agentkit.backend.skills must NOT import from
+   agentkit.backend.state_backend.store or agentkit.backend.installer.
 3. Installer-consumability probe: Skills.bind_skill is callable with the
    signature the installer will use (skill_name, bundle_root, project_root).
 4. SkillBindingRepository satisfies the Protocol (InMemory implementation).
@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.skills.links import create_directory_link, is_directory_link
-from agentkit.skills.top import Skills
+from agentkit.backend.skills.links import create_directory_link, is_directory_link
+from agentkit.backend.skills.top import Skills
 
 
 def _directory_links_supported() -> bool:
@@ -105,8 +105,8 @@ _SKILLS_SRC = (
 )
 
 _FORBIDDEN_IMPORTS = [
-    "agentkit.state_backend.store",
-    "agentkit.installer",
+    "agentkit.backend.state_backend.store",
+    "agentkit.backend.installer",
 ]
 
 
@@ -135,7 +135,7 @@ def _file_imports_forbidden(path: Path, forbidden_prefix: str) -> bool:
 
 
 class TestArchitectureConformance:
-    """agentkit.skills must not import from state_backend.store or installer
+    """agentkit.backend.skills must not import from state_backend.store or installer
     (FK-43, bc-cut-decisions.md §BC 11, Story AK9).
     """
 
@@ -147,7 +147,7 @@ class TestArchitectureConformance:
                 violations.append(str(py_file))
 
         assert not violations, (
-            f"The following files in agentkit.skills import from "
+            f"The following files in agentkit.backend.skills import from "
             f"'{forbidden_prefix}', which is forbidden (AK9, BC 11 architecture):\n"
             + "\n".join(violations)
         )
@@ -171,8 +171,8 @@ class TestInstallerConsumability:
         reason="Filesystem supports neither symlinks nor directory junctions",
     )
     def test_bind_skill_callable_with_positional_args(self, tmp_path: Path) -> None:
-        from agentkit.skills.bundle_store import SkillBundleStore
-        from agentkit.skills.repository import InMemorySkillBindingRepository
+        from agentkit.backend.skills.bundle_store import SkillBundleStore
+        from agentkit.backend.skills.repository import InMemorySkillBindingRepository
 
         bundle_root = tmp_path / "bundle"
         bundle_root.mkdir()
@@ -204,7 +204,7 @@ class TestRepositoryProtocol:
     """InMemorySkillBindingRepository satisfies SkillBindingRepository protocol."""
 
     def test_is_instance_of_protocol(self) -> None:
-        from agentkit.skills.repository import (
+        from agentkit.backend.skills.repository import (
             InMemorySkillBindingRepository,
             SkillBindingRepository,
         )
@@ -215,12 +215,12 @@ class TestRepositoryProtocol:
     def test_save_load_roundtrip(self) -> None:
         from datetime import UTC, datetime
 
-        from agentkit.skills.binding import (
+        from agentkit.backend.skills.binding import (
             SkillBinding,
             SkillBindingMode,
             SkillLifecycleStatus,
         )
-        from agentkit.skills.repository import InMemorySkillBindingRepository
+        from agentkit.backend.skills.repository import InMemorySkillBindingRepository
 
         repo = InMemorySkillBindingRepository()
         binding = SkillBinding(
@@ -242,12 +242,12 @@ class TestRepositoryProtocol:
     def test_list_for_project_sorted(self) -> None:
         from datetime import UTC, datetime
 
-        from agentkit.skills.binding import (
+        from agentkit.backend.skills.binding import (
             SkillBinding,
             SkillBindingMode,
             SkillLifecycleStatus,
         )
-        from agentkit.skills.repository import InMemorySkillBindingRepository
+        from agentkit.backend.skills.repository import InMemorySkillBindingRepository
 
         repo = InMemorySkillBindingRepository()
         for name in ["zzz", "aaa", "mmm"]:
@@ -287,10 +287,10 @@ class TestProductivePersistencePath:
         reason="Filesystem supports neither symlinks nor directory junctions",
     )
     def test_bind_resolve_list_via_state_backend_repo(self, tmp_path: Path) -> None:
-        from agentkit.skills.binding import SkillLifecycleStatus
-        from agentkit.skills.bundle_store import SkillBundleStore
-        from agentkit.state_backend.store import reset_backend_cache_for_tests
-        from agentkit.state_backend.store.skill_binding_repository import (
+        from agentkit.backend.skills.binding import SkillLifecycleStatus
+        from agentkit.backend.skills.bundle_store import SkillBundleStore
+        from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.skill_binding_repository import (
             StateBackendSkillBindingRepository,
         )
 

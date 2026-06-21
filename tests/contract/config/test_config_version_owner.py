@@ -3,7 +3,7 @@
 FK-03 §3.3.4 defines two independent versioning areas:
 
 1. **Pipeline-Config** (``project.yaml`` → ``config_version``) — owned by
-   ``PipelineConfig`` in ``agentkit.config.models``. This is the ONLY
+   ``PipelineConfig`` in ``agentkit.backend.config.models``. This is the ONLY
    ``config_version`` owner in the config BC. ``ProjectConfig`` reaches it via
    ``ProjectConfig.pipeline.config_version`` and carries no second version field.
 
@@ -32,8 +32,8 @@ from typing import TYPE_CHECKING, Any
 import yaml
 from pydantic import BaseModel
 
-import agentkit.config.models as config_models
-from agentkit.config import (
+import agentkit.backend.config.models as config_models
+from agentkit.backend.config import (
     SUPPORTED_CONFIG_VERSION,
     PipelineConfig,
     ProjectConfig,
@@ -102,14 +102,14 @@ def test_project_config_does_not_carry_config_version() -> None:
 def test_config_version_owner_inventory_is_complete() -> None:
     """Exactly the models in ``_CONFIG_VERSION_OWNER_INVENTORY`` carry ``config_version``.
 
-    If you add a NEW Pydantic model to ``agentkit.config.models`` that also
+    If you add a NEW Pydantic model to ``agentkit.backend.config.models`` that also
     carries a ``config_version`` field, this test will fail — add it to the
     inventory dict (if intentional) or remove the field (if accidental).
 
     This prevents silent drift in the config-versioning ownership area
     (FK-03 §3.3.4 / AG3-070 §5 contract obligation).
     """
-    # Discover all Pydantic BaseModel subclasses in agentkit.config.models
+    # Discover all Pydantic BaseModel subclasses in agentkit.backend.config.models
     # that carry a field named 'config_version'.
     found_owners: dict[str, str] = {}
     for name, obj in inspect.getmembers(config_models, inspect.isclass):
@@ -133,7 +133,7 @@ def test_pipeline_config_explicit_version_is_supported() -> None:
     config_version is now a mandatory field (no silent default); passing the
     supported version explicitly must succeed (FK-03 §3.2.1).
     """
-    from agentkit.config.models import Features
+    from agentkit.backend.config.models import Features
 
     cfg = PipelineConfig(
         config_version=SUPPORTED_CONFIG_VERSION, features=Features(multi_llm=False)

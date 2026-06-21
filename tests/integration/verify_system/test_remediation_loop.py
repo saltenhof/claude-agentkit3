@@ -27,21 +27,21 @@ import subprocess
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from agentkit.artifacts import ArtifactEnvelope, ArtifactManager, ArtifactReference
-from agentkit.core_types import ArtifactClass, PolicyVerdict, QaContext
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.verify_system import VerifyContextBundle, VerifySystem
-from agentkit.verify_system.contract import PhaseEnvelopeView
-from agentkit.verify_system.policy_engine.engine import PolicyEngine
-from agentkit.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
-from agentkit.verify_system.qa_cycle.invalidation import (
+from agentkit.backend.artifacts import ArtifactEnvelope, ArtifactManager, ArtifactReference
+from agentkit.backend.core_types import ArtifactClass, PolicyVerdict, QaContext
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.verify_system import VerifyContextBundle, VerifySystem
+from agentkit.backend.verify_system.contract import PhaseEnvelopeView
+from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
+from agentkit.backend.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
+from agentkit.backend.verify_system.qa_cycle.invalidation import (
     RecordingArtifactInvalidationSink,
     qa_artifact_dir,
 )
-from agentkit.verify_system.qa_cycle.lifecycle import QaCycleLifecycle
-from agentkit.verify_system.remediation.loop_counter import RemediationLoopController
-from agentkit.verify_system.stage_registry import StageRegistry
+from agentkit.backend.verify_system.qa_cycle.lifecycle import QaCycleLifecycle
+from agentkit.backend.verify_system.remediation.loop_counter import RemediationLoopController
+from agentkit.backend.verify_system.stage_registry import StageRegistry
 from integration.implementation_evidence_support import (
     GitDiffChangeEvidencePort,
     StaticStoryContextPort,
@@ -195,7 +195,7 @@ class _RecordingArtifactManager(ArtifactManager):
         # genuinely absent (ArtifactNotFoundError). The mandatory-target feedback
         # read is fail-closed (AG3-067 def-5): only a genuinely-absent artifact
         # means "no targets", so the double signals absence honestly.
-        from agentkit.artifacts import ArtifactNotFoundError
+        from agentkit.backend.artifacts import ArtifactNotFoundError
 
         raise ArtifactNotFoundError("no artifact recorded by the test double")
 

@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.prompt_runtime import (
+from agentkit.backend.prompt_runtime import (
     ComposeConfig,
     build_worker_worktree_context,
     compose_prompt,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 
 def _context(

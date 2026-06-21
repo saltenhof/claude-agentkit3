@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.exceptions import IntegrationError
-from agentkit.integrations.github.issues import (
+from agentkit.backend.exceptions import IntegrationError
+from agentkit.integration_clients.github.issues import (
     IssueData,
     _parse_issue,
     add_comment,
@@ -46,7 +46,7 @@ def test_parse_issue_handles_optional_fields() -> None:
 
 def test_get_issue_returns_parsed_issue(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "agentkit.integrations.github.issues.run_gh_json",
+        "agentkit.integration_clients.github.issues.run_gh_json",
         lambda *args, **kwargs: {
             "number": 7,
             "title": "Fix pipeline",
@@ -67,7 +67,7 @@ def test_get_issue_rejects_unexpected_response_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "agentkit.integrations.github.issues.run_gh_json",
+        "agentkit.integration_clients.github.issues.run_gh_json",
         lambda *args, **kwargs: ["not", "a", "dict"],
     )
 
@@ -92,9 +92,9 @@ def test_create_issue_without_labels_fetches_created_issue(
         seen.append((args, kwargs))
         return "https://example.test/issues/18\n"
 
-    monkeypatch.setattr("agentkit.integrations.github.issues.run_gh", fake_run_gh)
+    monkeypatch.setattr("agentkit.integration_clients.github.issues.run_gh", fake_run_gh)
     monkeypatch.setattr(
-        "agentkit.integrations.github.issues.get_issue",
+        "agentkit.integration_clients.github.issues.get_issue",
         lambda owner, repo, issue_nr: expected,
     )
 
@@ -121,9 +121,9 @@ def test_create_issue_with_labels_passes_label_flag(
         seen.append(args)
         return "https://example.test/issues/19\n"
 
-    monkeypatch.setattr("agentkit.integrations.github.issues.run_gh", fake_run_gh)
+    monkeypatch.setattr("agentkit.integration_clients.github.issues.run_gh", fake_run_gh)
     monkeypatch.setattr(
-        "agentkit.integrations.github.issues.get_issue",
+        "agentkit.integration_clients.github.issues.get_issue",
         lambda owner, repo, issue_nr: expected,
     )
 
@@ -176,7 +176,7 @@ def test_issue_operations_delegate_to_gh(
         seen.append((args, kwargs))
         return ""
 
-    monkeypatch.setattr("agentkit.integrations.github.issues.run_gh", fake_run_gh)
+    monkeypatch.setattr("agentkit.integration_clients.github.issues.run_gh", fake_run_gh)
 
     operation()
 

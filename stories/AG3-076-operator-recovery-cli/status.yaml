@@ -25,7 +25,7 @@ size: M
 # et al.). FIX-THE-MODEL: all state-backend reads route through
 # bootstrap.composition_root helpers (cli_load_story_context /
 # cli_read_phase_state_record / cli_load_execution_events_for_project_global /
-# build_phase_envelope_store) so the CLI imports NO agentkit.state_backend.store
+# build_phase_envelope_store) so the CLI imports NO agentkit.backend.state_backend.store
 # internals — the speculative architecture-conformance boundary grant was REMOVED,
 # not widened. Routed follow-on service gaps (PO-assignment): ESCALATED-release
 # service, authorized integrity-override service, PID/TTL liveness, lock-listing

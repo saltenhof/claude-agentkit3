@@ -20,17 +20,17 @@ from http import HTTPStatus
 import pytest
 
 # AC1: compat re-export must resolve to the SAME class
-from agentkit.control_plane.http import ControlPlaneApplication as CompatCPA
-from agentkit.control_plane.http import HttpResponse as CompatHttpResponse
+from agentkit.backend.control_plane.http import ControlPlaneApplication as CompatCPA
+from agentkit.backend.control_plane.http import HttpResponse as CompatHttpResponse
 
 # AC1: canonical namespace is owner
-from agentkit.control_plane_http.app import (
+from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
     ControlPlaneApplicationRoutes,
     HttpResponse,
 )
-from agentkit.pipeline_engine.http.routes import PipelineEngineRoutes
-from agentkit.telemetry.http.routes import TelemetryRouteResponse
+from agentkit.backend.pipeline_engine.http.routes import PipelineEngineRoutes
+from agentkit.backend.telemetry.http.routes import TelemetryRouteResponse
 
 # ---------------------------------------------------------------------------
 # AC1 — compat re-export identity
@@ -261,7 +261,7 @@ class _FakeReadModelRoutes:
         _query: dict[str, list[str]],
         correlation_id: str,
     ) -> object:
-        from agentkit.control_plane.models import bc_json_response
+        from agentkit.backend.control_plane.models import bc_json_response
 
         m = self._ARE_EVIDENCE_PATH.match(route_path)
         if m:
@@ -360,13 +360,13 @@ def _make_app(
     read_model_routes: object | None = None,
 ) -> ControlPlaneApplication:
     """Build a minimal ControlPlaneApplication wired with all fakes."""
-    from agentkit.artifacts.http.routes import ArtifactsRoutes
-    from agentkit.closure.http.routes import ClosureRoutes
-    from agentkit.failure_corpus.http.routes import FailureCorpusRoutes
-    from agentkit.governance.http.routes import GovernanceRoutes
-    from agentkit.kpi_analytics.http.routes import KpiAnalyticsRoutes
-    from agentkit.requirements_coverage.http.routes import RequirementsCoverageRoutes
-    from agentkit.verify_system.http.routes import VerifySystemRoutes
+    from agentkit.backend.artifacts.http.routes import ArtifactsRoutes
+    from agentkit.backend.closure.http.routes import ClosureRoutes
+    from agentkit.backend.failure_corpus.http.routes import FailureCorpusRoutes
+    from agentkit.backend.governance.http.routes import GovernanceRoutes
+    from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
+    from agentkit.backend.requirements_coverage.http.routes import RequirementsCoverageRoutes
+    from agentkit.backend.verify_system.http.routes import VerifySystemRoutes
 
     return ControlPlaneApplication(
         routes=ControlPlaneApplicationRoutes(
@@ -610,7 +610,7 @@ class _Real405ReadModelRoutes:
     """
 
     def __init__(self) -> None:
-        from agentkit.project_management.read_model_routes import ReadModelRoutes
+        from agentkit.backend.project_management.read_model_routes import ReadModelRoutes
 
         # Build a bare instance only to access the real 405 matcher; the
         # repo fields are never touched on the 405 path (it runs before any
@@ -618,7 +618,7 @@ class _Real405ReadModelRoutes:
         self._matcher = ReadModelRoutes.__new__(ReadModelRoutes)
 
     def _match(self, route_path: str, correlation_id: str) -> object:
-        from agentkit.project_management.read_model_routes import ReadModelRoutes
+        from agentkit.backend.project_management.read_model_routes import ReadModelRoutes
 
         return ReadModelRoutes._method_not_allowed_if_matches(
             self._matcher, route_path, correlation_id
@@ -847,11 +847,11 @@ def test_bc_route_absent_backend_returns_503() -> None:
 
 def _make_story_routes() -> object:
     """Build a real StoryContextRoutes backed by in-memory repos."""
-    from agentkit.project_management.entities import Project, ProjectConfiguration
-    from agentkit.story_context_manager.http.routes import StoryContextRoutes
-    from agentkit.story_context_manager.idempotency import InMemoryIdempotencyKeyRepository
-    from agentkit.story_context_manager.service import StoryService
-    from agentkit.story_context_manager.story_repository import InMemoryStoryRepository
+    from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+    from agentkit.backend.story_context_manager.http.routes import StoryContextRoutes
+    from agentkit.backend.story_context_manager.idempotency import InMemoryIdempotencyKeyRepository
+    from agentkit.backend.story_context_manager.service import StoryService
+    from agentkit.backend.story_context_manager.story_repository import InMemoryStoryRepository
 
     class _InMemProjectRepo:
         def __init__(self) -> None:
@@ -891,13 +891,13 @@ def _make_app_with_real_story_routes(
     tenant_scope: object | None = None,
 ) -> ControlPlaneApplication:
     """ControlPlaneApplication with real StoryContextRoutes for integration checks."""
-    from agentkit.artifacts.http.routes import ArtifactsRoutes
-    from agentkit.closure.http.routes import ClosureRoutes
-    from agentkit.failure_corpus.http.routes import FailureCorpusRoutes
-    from agentkit.governance.http.routes import GovernanceRoutes
-    from agentkit.kpi_analytics.http.routes import KpiAnalyticsRoutes
-    from agentkit.requirements_coverage.http.routes import RequirementsCoverageRoutes
-    from agentkit.verify_system.http.routes import VerifySystemRoutes
+    from agentkit.backend.artifacts.http.routes import ArtifactsRoutes
+    from agentkit.backend.closure.http.routes import ClosureRoutes
+    from agentkit.backend.failure_corpus.http.routes import FailureCorpusRoutes
+    from agentkit.backend.governance.http.routes import GovernanceRoutes
+    from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
+    from agentkit.backend.requirements_coverage.http.routes import RequirementsCoverageRoutes
+    from agentkit.backend.verify_system.http.routes import VerifySystemRoutes
 
     return ControlPlaneApplication(
         routes=ControlPlaneApplicationRoutes(

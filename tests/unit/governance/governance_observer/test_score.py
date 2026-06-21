@@ -10,11 +10,11 @@ from __future__ import annotations
 import pytest
 from tests.unit.governance.governance_observer.conftest import ScriptedEventReader
 
-from agentkit.governance.governance_observer.score import (
+from agentkit.backend.governance.governance_observer.score import (
     GovernanceSignalPayloadError,
     compute_risk_score,
 )
-from agentkit.telemetry.events import EventPayloadContractError
+from agentkit.backend.telemetry.events import EventPayloadContractError
 
 # ---------------------------------------------------------------------------
 # AC1 — rolling-window score accumulation

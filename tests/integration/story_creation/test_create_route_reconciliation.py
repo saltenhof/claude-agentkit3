@@ -30,7 +30,7 @@ from http import HTTPStatus
 
 import pytest
 
-from agentkit.config.models import (
+from agentkit.backend.config.models import (
     SUPPORTED_CONFIG_VERSION,
     Features,
     PipelineConfig,
@@ -38,19 +38,19 @@ from agentkit.config.models import (
     RepositoryConfig,
     VectorDbConfig,
 )
-from agentkit.integrations.vectordb import StorySearchHit, VectorDbUnavailableError
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.story_context_manager.http.routes import (
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.story_context_manager.http.routes import (
     StoryContextRoutes,
     StoryRouteResponse,
 )
-from agentkit.story_context_manager.idempotency import (
+from agentkit.backend.story_context_manager.idempotency import (
     InMemoryIdempotencyKeyRepository,
 )
-from agentkit.story_context_manager.service import StoryService
-from agentkit.story_context_manager.story_repository import InMemoryStoryRepository
-from agentkit.story_creation.create_flow import StoryCreationReconciler
-from agentkit.verify_system.llm_evaluator.roles import LlmVerdict, ReviewerRole
+from agentkit.backend.story_context_manager.service import StoryService
+from agentkit.backend.story_context_manager.story_repository import InMemoryStoryRepository
+from agentkit.backend.story_creation.create_flow import StoryCreationReconciler
+from agentkit.backend.verify_system.llm_evaluator.roles import LlmVerdict, ReviewerRole
+from agentkit.integration_clients.vectordb import StorySearchHit, VectorDbUnavailableError
 
 CORR = "corr-fix1"
 _PROJECT_REPOS = ["ak3-backend", "ak3-frontend"]
@@ -424,7 +424,7 @@ def test_production_route_zone2_admin_uses_service_directly_not_this_route() -> 
     svc = _service()
     # No HTTP route, no reconciliation evidence, no grant string: the admin/Zone-2
     # caller holds the StoryService directly and persists the story.
-    from agentkit.story_context_manager.story_model import (
+    from agentkit.backend.story_context_manager.story_model import (
         CreateStoryInput,
         WireStoryType,
     )
@@ -449,7 +449,7 @@ def test_production_route_zone2_admin_uses_service_directly_not_this_route() -> 
 
 
 def _input_for_reconciler() -> object:
-    from agentkit.story_context_manager.story_model import (
+    from agentkit.backend.story_context_manager.story_model import (
         CreateStoryInput,
         WireStoryType,
     )

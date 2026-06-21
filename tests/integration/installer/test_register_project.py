@@ -20,34 +20,34 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
 
-from agentkit.installer.bootstrap_checkpoints.cp01_to_06 import (
+from agentkit.backend.installer.bootstrap_checkpoints.cp01_to_06 import (
     REASON_MISSING_COORDINATES,
     REASON_REPO_UNREACHABLE,
 )
-from agentkit.installer.checkpoint_engine import node_ids as nid
-from agentkit.installer.checkpoint_engine.node_ids import CP_02_REPO_CHECK
-from agentkit.installer.paths import (
+from agentkit.backend.installer.checkpoint_engine import node_ids as nid
+from agentkit.backend.installer.checkpoint_engine.node_ids import CP_02_REPO_CHECK
+from agentkit.backend.installer.paths import (
     prompt_bundle_lock_path,
     static_prompts_dir,
 )
-from agentkit.installer.registration import (
+from agentkit.backend.installer.registration import (
     CP7_STATE_BACKEND_REGISTRATION,
     CheckpointStatus,
     RuntimeProfile,
 )
-from agentkit.installer.runner import (
+from agentkit.backend.installer.runner import (
     _CI_CHECKPOINT_ID,
     MANDATORY_SKILLS,
     PROMPT_MANIFEST_FILENAME,
     InstallConfig,
     install_agentkit,
 )
-from agentkit.skills import Skills
-from agentkit.skills.bundle_store import SkillBundle, SkillBundleStore
-from agentkit.state_backend.store.project_registration_repository import (
+from agentkit.backend.skills import Skills
+from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore
+from agentkit.backend.state_backend.store.project_registration_repository import (
     StateBackendProjectRegistrationRepository,
 )
-from agentkit.state_backend.store.skill_binding_repository import (
+from agentkit.backend.state_backend.store.skill_binding_repository import (
     StateBackendSkillBindingRepository,
 )
 

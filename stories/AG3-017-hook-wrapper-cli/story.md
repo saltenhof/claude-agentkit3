@@ -37,8 +37,8 @@ Was fehlt:
 ### In Scope
 
 - Setuptools-Entry-Points in `pyproject.toml`:
-  - `agentkit-hook-claude = agentkit.governance.harness_adapters.claude_code.cli:main`
-  - `agentkit-hook-codex = agentkit.governance.harness_adapters.codex.cli:main`
+  - `agentkit-hook-claude = agentkit.harness_client.harness_adapters.claude_code.cli:main`
+  - `agentkit-hook-codex = agentkit.harness_client.harness_adapters.codex.cli:main`
 - Wrapper-Konvention: Aufruf `agentkit-hook-{harness} {phase} {hook_id}`
   mit `phase ∈ {pre, post}` und `hook_id ∈ {branch_guard,
   orchestrator_guard, story_creation_guard, integrity_guard,

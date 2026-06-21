@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.core_types import SpawnReason
-from agentkit.exceptions import ProjectError
-from agentkit.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
-from agentkit.prompt_runtime.composer import (
+from agentkit.backend.core_types import SpawnReason
+from agentkit.backend.exceptions import ProjectError
+from agentkit.backend.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
+from agentkit.backend.prompt_runtime.composer import (
     ComposeConfig,
     ComposedPrompt,
     MaterializedPromptInstance,
@@ -22,10 +22,10 @@ from agentkit.prompt_runtime.composer import (
     write_prompt,
     write_prompt_instance,
 )
-from agentkit.prompt_runtime.pins import initialize_prompt_run_pin
-from agentkit.prompt_runtime.resources import PROJECT_LOCK_RELPATH
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.prompt_runtime.pins import initialize_prompt_run_pin
+from agentkit.backend.prompt_runtime.resources import PROJECT_LOCK_RELPATH
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path

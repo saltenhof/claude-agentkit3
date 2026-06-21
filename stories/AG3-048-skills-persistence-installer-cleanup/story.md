@@ -189,8 +189,8 @@ zu invasiv -- in dieser Story nur einmaliges Loeschen + Doku).
    bevor irgendein Link angelegt wird).
 8. **`__pycache__`-Cleanup**: `src/agentkit/project_ops/install/__pycache__/`
    existiert nach diesem Commit nicht mehr.
-9. **Architecture-Conformance**: `agentkit.installer` darf `agentkit.skills`
-   importieren; `agentkit.skills` importiert NICHT aus `installer/`; AC-checks
+9. **Architecture-Conformance**: `agentkit.backend.installer` darf `agentkit.backend.skills`
+   importieren; `agentkit.backend.skills` importiert NICHT aus `installer/`; AC-checks
    gruen.
 10. **Pflichtbefehle gruen**: pytest unit + integration + contract; mypy --strict;
     ruff clean; Coverage haelt 85%.

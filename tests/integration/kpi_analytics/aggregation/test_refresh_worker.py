@@ -28,16 +28,16 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.kpi_analytics.aggregation import (
+from agentkit.backend.kpi_analytics.aggregation import (
     EXPECTED_SCHEMA_VERSION,
     AffectedPeriods,
     RefreshTrigger,
     RefreshWorker,
 )
-from agentkit.kpi_analytics.aggregation.models import SyncStatus
-from agentkit.kpi_analytics.aggregation.source_port import DeltaEvent
-from agentkit.kpi_analytics.errors import SchemaVersionError
-from agentkit.kpi_analytics.fact_store import (
+from agentkit.backend.kpi_analytics.aggregation.models import SyncStatus
+from agentkit.backend.kpi_analytics.aggregation.source_port import DeltaEvent
+from agentkit.backend.kpi_analytics.errors import SchemaVersionError
+from agentkit.backend.kpi_analytics.fact_store import (
     FactCorpusPeriod,
     FactGuardPeriod,
     FactPipelinePeriod,
@@ -47,11 +47,11 @@ from agentkit.kpi_analytics.fact_store import (
     PeriodFilter,
     SyncState,
 )
-from agentkit.state_backend.store.fact_repository import StateBackendFactRepository
-from agentkit.state_backend.store.guard_counter_repository import (
+from agentkit.backend.state_backend.store.fact_repository import StateBackendFactRepository
+from agentkit.backend.state_backend.store.guard_counter_repository import (
     StateBackendGuardCounterRepository,
 )
-from agentkit.telemetry.events import EventType
+from agentkit.backend.telemetry.events import EventType
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -71,7 +71,7 @@ def _pin_sqlite(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
-    from agentkit.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     yield

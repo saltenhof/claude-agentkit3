@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from agentkit.artifacts.producer import Producer, ProducerId, ProducerType
+from agentkit.backend.artifacts.producer import Producer, ProducerId, ProducerType
 
 
 class TestProducerType:

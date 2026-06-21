@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agentkit.cli.main import main
+from agentkit.backend.cli.main import main
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -180,7 +180,7 @@ class TestRunPhaseNegativePaths:
         mock_svc_inst.start_phase.return_value = mock_result
 
         with patch(
-            "agentkit.control_plane.runtime.ControlPlaneRuntimeService",
+            "agentkit.backend.control_plane.runtime.ControlPlaneRuntimeService",
             return_value=mock_svc_inst,
         ):
             code, out, err = _invoke(
@@ -274,7 +274,7 @@ class TestResetEscalationNegativePath:
     ) -> None:
         """Confirm no service calls happen for Class-C command."""
         with patch(
-            "agentkit.state_backend.store.lock_record_repository.LockRecordRepository"
+            "agentkit.backend.state_backend.store.lock_record_repository.LockRecordRepository"
         ) as mock_repo:
             code, _, err = _invoke(
                 ["reset-escalation", "--story", "AG3-001"],
@@ -303,7 +303,7 @@ class TestCleanupNegativePath:
     ) -> None:
         """No locks must be deactivated without PID liveness anchor."""
         with patch(
-            "agentkit.state_backend.store.lock_record_repository."
+            "agentkit.backend.state_backend.store.lock_record_repository."
             "LockRecordRepository.deactivate_locks_for_story"
         ) as mock_deactivate:
             code, _, err = _invoke(
@@ -574,7 +574,7 @@ class TestExportTelemetryNegativePaths:
 
 
 class TestAgentBoundary:
-    """AK 10 / §3 — no agent/control-plane module imports agentkit.cli.main."""
+    """AK 10 / §3 — no agent/control-plane module imports agentkit.backend.cli.main."""
 
     def test_no_agent_module_imports_cli_main(self) -> None:
         """Verify that no productive agent/control-plane module imports cli.main.
@@ -584,8 +584,8 @@ class TestAgentBoundary:
         """
         src_root = Path("src/agentkit")
         forbidden_modules = [
-            "agentkit.cli.main",
-            "agentkit.cli",
+            "agentkit.backend.cli.main",
+            "agentkit.backend.cli",
         ]
         violating_files: list[str] = []
 
@@ -620,7 +620,7 @@ class TestAgentBoundary:
                                 violating_files.append(str(py_file))
 
         assert not violating_files, (
-            f"Agent/control-plane modules must NOT import agentkit.cli.main "
+            f"Agent/control-plane modules must NOT import agentkit.backend.cli.main "
             f"(FK-45 §45.4). Violating files: {violating_files}"
         )
 
@@ -723,7 +723,7 @@ class TestRunPhaseValidPhases:
         mock_svc_inst.start_phase.return_value = mock_result
 
         with patch(
-            "agentkit.control_plane.runtime.ControlPlaneRuntimeService",
+            "agentkit.backend.control_plane.runtime.ControlPlaneRuntimeService",
             return_value=mock_svc_inst,
         ):
             code, out, err = _invoke(
@@ -770,7 +770,7 @@ class TestQueryStatePhaseState:
         mock_record.model_dump.return_value = {"phase": "setup", "status": "completed"}
 
         with patch(
-            "agentkit.state_backend.store.facade.read_phase_state_record",
+            "agentkit.backend.state_backend.store.facade.read_phase_state_record",
             return_value=mock_record,
         ):
             code, out, _ = _invoke(
@@ -797,7 +797,7 @@ class TestQueryStatePhaseState:
         story_dir.mkdir(parents=True)
 
         with patch(
-            "agentkit.state_backend.store.facade.read_phase_state_record",
+            "agentkit.backend.state_backend.store.facade.read_phase_state_record",
             return_value=None,
         ):
             code, _out, err = _invoke(
@@ -881,7 +881,7 @@ class TestStatusIncludesWeeklyReview:
         mock_record.model_dump.return_value = {"phase": "setup", "status": "completed"}
 
         with patch(
-            "agentkit.state_backend.store.facade.read_phase_state_record",
+            "agentkit.backend.state_backend.store.facade.read_phase_state_record",
             return_value=mock_record,
         ):
             code, out, _ = _invoke(
@@ -903,7 +903,7 @@ class TestStatusIncludesWeeklyReview:
         story_dir.mkdir(parents=True)
 
         with patch(
-            "agentkit.state_backend.store.facade.read_phase_state_record",
+            "agentkit.backend.state_backend.store.facade.read_phase_state_record",
             return_value=None,
         ):
             code, _out, err = _invoke(
@@ -938,7 +938,7 @@ class TestQueryTelemetryStoryUsesEmitterQuery:
         mock_event.occurred_at = "2025-01-01T00:00:00"
 
         with patch(
-            "agentkit.telemetry.storage.StateBackendEmitter.query",
+            "agentkit.backend.telemetry.storage.StateBackendEmitter.query",
             return_value=[mock_event],
         ) as mock_query:
             code, out, _err = _invoke(
@@ -970,7 +970,7 @@ class TestQueryTelemetryStoryUsesEmitterQuery:
         story_dir.mkdir(parents=True)
 
         with patch(
-            "agentkit.telemetry.storage.StateBackendEmitter.query",
+            "agentkit.backend.telemetry.storage.StateBackendEmitter.query",
             return_value=[],
         ) as mock_query:
             _code, _out, _err = _invoke(
@@ -1017,7 +1017,7 @@ class TestQueryTelemetryProjectGlobalForms:
         event_b = self._make_event("run-xyz", "phase_end", "2025-01-02T00:00:00")
 
         with patch(
-            "agentkit.state_backend.store.facade.load_execution_events_for_project_global",
+            "agentkit.backend.state_backend.store.facade.load_execution_events_for_project_global",
             return_value=[event_a, event_b],
         ) as mock_reader:
             code, out, _err = _invoke(
@@ -1047,7 +1047,7 @@ class TestQueryTelemetryProjectGlobalForms:
         wrong_type = self._make_event("run-3", "agent_end", "2025-03-01T00:00:00")
 
         with patch(
-            "agentkit.state_backend.store.facade.load_execution_events_for_project_global",
+            "agentkit.backend.state_backend.store.facade.load_execution_events_for_project_global",
             return_value=[old_event, new_event, wrong_type],
         ) as mock_reader:
             code, out, _err = _invoke(
@@ -1096,9 +1096,9 @@ class TestQueryTelemetryConfigFlag:
         mock_cfg.project_key = "proj-from-config"
 
         with (
-            patch("agentkit.config.loader.load_project_config", return_value=mock_cfg),
+            patch("agentkit.backend.config.loader.load_project_config", return_value=mock_cfg),
             patch(
-                "agentkit.state_backend.store.facade.load_execution_events_for_project_global",
+                "agentkit.backend.state_backend.store.facade.load_execution_events_for_project_global",
                 return_value=[event_a],
             ) as mock_reader,
         ):
@@ -1128,7 +1128,7 @@ class TestQueryTelemetryConfigFlag:
         bad_cfg_path = tmp_path / "nonexistent.yaml"
 
         with patch(
-            "agentkit.config.loader.load_project_config",
+            "agentkit.backend.config.loader.load_project_config",
             side_effect=FileNotFoundError("file not found"),
         ):
             code, _out, err = _invoke(
@@ -1218,7 +1218,7 @@ class TestQueryTelemetryEventValidation:
         event.story_id = "AG3-001"
 
         with patch(
-            "agentkit.state_backend.store.facade.load_execution_events_for_project_global",
+            "agentkit.backend.state_backend.store.facade.load_execution_events_for_project_global",
             return_value=[event],
         ):
             code, out, _err = _invoke(
@@ -1266,7 +1266,7 @@ class TestQueryTelemetrySinceParsing:
         event_old = self._make_event(old)
 
         with patch(
-            "agentkit.state_backend.store.facade.load_execution_events_for_project_global",
+            "agentkit.backend.state_backend.store.facade.load_execution_events_for_project_global",
             return_value=[event_recent, event_old],
         ):
             code, out, _err = _invoke(
@@ -1311,7 +1311,7 @@ class TestQueryTelemetrySinceParsing:
         event = self._make_event(recent)
 
         with patch(
-            "agentkit.state_backend.store.facade.load_execution_events_for_project_global",
+            "agentkit.backend.state_backend.store.facade.load_execution_events_for_project_global",
             return_value=[event],
         ):
             code, _out, _err = _invoke(
@@ -1350,7 +1350,7 @@ class TestQueryTelemetryStoryFormConfigValidation:
         bad_cfg_path = tmp_path / "nonexistent.yaml"
 
         with patch(
-            "agentkit.config.loader.load_project_config",
+            "agentkit.backend.config.loader.load_project_config",
             side_effect=FileNotFoundError("file not found"),
         ):
             code, _out, err = _invoke(
@@ -1460,7 +1460,7 @@ class TestQueryTelemetrySinceWithEventTimestamp:
         """Build a mock that mimics a story-scoped ``Event`` dataclass.
 
         Uses ``.timestamp`` (no ``occurred_at``) to match the real
-        ``agentkit.telemetry.events.Event`` schema (field added by AG3-076).
+        ``agentkit.backend.telemetry.events.Event`` schema (field added by AG3-076).
         Accepts ``event_id``, ``run_id``, and ``payload`` so callers can
         create distinctly identifiable events (required by the since-filter test).
         """
@@ -1518,7 +1518,7 @@ class TestQueryTelemetrySinceWithEventTimestamp:
         )
 
         with patch(
-            "agentkit.telemetry.storage.StateBackendEmitter.query",
+            "agentkit.backend.telemetry.storage.StateBackendEmitter.query",
             return_value=[event_recent, event_old],
         ):
             code, out, err = _invoke(
@@ -1571,7 +1571,7 @@ class TestQueryTelemetrySinceWithEventTimestamp:
         e.story_id = "AG3-001"
 
         with patch(
-            "agentkit.telemetry.storage.StateBackendEmitter.query",
+            "agentkit.backend.telemetry.storage.StateBackendEmitter.query",
             return_value=[e],
         ):
             code, out, _err = _invoke(

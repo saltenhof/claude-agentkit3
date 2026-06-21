@@ -489,7 +489,7 @@ Die Templates liegen in `prompts/sparring/`:
 ## 26.5a Review-Versand ueber Evidence Assembly
 
 > Ab Version 3.0 wird der Review-Versand des Workers ueber die
-> Komponente `EvidenceAssembler` (`agentkit.verify_system.evidence_assembler`)
+> Komponente `EvidenceAssembler` (`agentkit.backend.verify_system.evidence_assembler`)
 > abgewickelt (CLI: `agentkit evidence assemble`).
 > Der Worker kuratiert keine `merge_paths` mehr selbst; das
 > deterministisch assemblierte BundleManifest liefert die
@@ -504,7 +504,7 @@ Die Templates liegen in `prompts/sparring/`:
 > ist bewusst vom Review-Sentinel `[TEMPLATE:...]` getrennt.
 > Telemetrie-Events: `preflight_request`, `preflight_response`,
 > `preflight_compliant`. Die `EvidenceAssembler`-Schnittstelle
-> (`agentkit.verify_system.evidence_assembler`) ist normativ in
+> (`agentkit.backend.verify_system.evidence_assembler`) ist normativ in
 > **FK-28** beschrieben. Details: **FK-47**.
 
 ## 26.6 Finaler Build und Gesamttest
@@ -813,10 +813,10 @@ sauber eskalieren:
    Constraints nicht erfuellbar ist
 2. Worker schreibt `worker-manifest.json` mit
    `status: "BLOCKED"` und allen Pflichtfeldern (§26.8.2)
-3. `ImplementationHandler` (`agentkit.implementation`) liest
+3. `ImplementationHandler` (`agentkit.backend.implementation`) liest
    `worker-manifest.json`, erkennt `status: BLOCKED` und gibt
    `HandlerResult.ESCALATED` zurueck
-4. `PhaseExecutor` (`agentkit.pipeline_engine.phase_executor`)
+4. `PhaseExecutor` (`agentkit.backend.pipeline_engine.phase_executor`)
    empfaengt `HandlerResult.ESCALATED` und setzt den
    Phase-State auf `PhaseStatus.ESCALATED` mit
    `escalation_reason: "worker_blocked"` — generisch,

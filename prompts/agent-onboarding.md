@@ -374,9 +374,9 @@ Liest `formal.truth-boundary-checker.invariants` und scannt
   Dateinamen (`context.json`, `decision.json`, `phase-state.json` ...)
   in geschuetzten Modulen.
 
-Geschuetzte Module: `agentkit.governance`, `agentkit.pipeline`,
-`agentkit.qa.structural`. Ausnahmen: `agentkit.cli`,
-`agentkit.migrations`, `agentkit.utils.io`, `tests`.
+Geschuetzte Module: `agentkit.backend.governance`, `agentkit.pipeline`,
+`agentkit.qa.structural`. Ausnahmen: `agentkit.backend.cli`,
+`agentkit.migrations`, `agentkit.backend.utils.io`, `tests`.
 
 #### 3.3.4 `check_architecture_conformance.py` — AC-Lint
 
@@ -463,7 +463,7 @@ Die normative Grenze zwischen zentraler AK3-Instanz und Projekt ist
 die **HTTPS-Control-Plane unter `/v1/...`**. Alle mutierenden
 Runtime-Operationen laufen ueber sie.
 
-Aktuelle Endpunkte (in `src/agentkit/control_plane/http.py`):
+Aktuelle Endpunkte (in `src/agentkit/backend/control_plane/http.py`):
 
 - `POST /v1/story-runs/{run_id}/phases/{phase}/{start|complete|fail}`
 - `POST /v1/story-runs/{run_id}/closure/complete`
@@ -542,7 +542,7 @@ Synchronisationsziel, **nicht** die fachlich bevorzugte UI.
 
 Status heute: API-Schicht ist halb gebaut (Story- und
 Dashboard-Endpoints da), die React-App selbst noch nicht im Repo.
-Code unter `src/agentkit/dashboard/` ist die Vorstufe (Python +
+Code unter `src/agentkit/frontend/app/` ist die Vorstufe (Python +
 Chart.js Single-Page).
 
 ### 4.7 Worker-Prompts mit Compaction-Resilience
@@ -574,7 +574,7 @@ QA-Export-Dateien (`structural.json`, `decision.json`,
 `phase-state.json`, `closure.json`, ...) sind **niemals**
 operative Wahrheit. Sie sind Materialisierung einer kanonischen
 Projektion aus dem State-Backend. Geschuetzte Runtime-Module
-(`agentkit.governance`, `.pipeline`, `.qa.structural`) duerfen sie
+(`agentkit.backend.governance`, `.pipeline`, `.qa.structural`) duerfen sie
 **nicht lesen** (TB001-TB005, fail-closed im AC-Lint).
 
 ### 4.10 Stage-Registry und Trust-Klassen
@@ -603,7 +603,7 @@ mit (Lints fail-closed bei Ist-Soll-Drift).
 ## 5. Externe Systeme
 
 AK3 integriert vier externe Systeme als **duenne Adapter**. Jeder
-liegt unter `src/agentkit/integrations/<name>/`. Geschaeftslogik
+liegt unter `src/agentkit/integration_clients/<name>/`. Geschaeftslogik
 gehoert nicht in den Adapter, sondern in die fachliche Komponente,
 die ihn nutzt.
 
@@ -613,7 +613,7 @@ Rolle: **Tracker- und Repo-Integration**. Issues sind
 Story-Eingaenge, Project-Boards spiegeln (heute noch) den Story-
 Lifecycle, Branches und PRs sind das Merge-Target.
 
-Adapter: `src/agentkit/integrations/github/`. Verantwortlich fuer:
+Adapter: `src/agentkit/integration_clients/github/`. Verantwortlich fuer:
 - Issue-Lesen und -Schliessen,
 - Project-Field-Lese-/Schreibzugriffe,
 - Branch-/Worktree-Operationen,
@@ -636,7 +636,7 @@ Rolle: **externer Anforderungs-Engine** fuer regulatorisch
 anspruchsvolle Projekte. Verwaltet typisierte must_cover-Anforderungen
 und liefert Coverage-Verdicts.
 
-Adapter: `src/agentkit/integrations/are/`. Konzept: DK-06, FK-40.
+Adapter: `src/agentkit/integration_clients/are/`. Konzept: DK-06, FK-40.
 
 Funktionsweise:
 - Bei Installation: Repos und GitHub-Project-Module werden auf
@@ -678,7 +678,7 @@ Eingesetzt in:
 - Adversarial-Sparring (Multi-LLM-Debatte).
 - Exploration (Drift-/Konzept-Prufung).
 
-Adapter: `src/agentkit/integrations/llm_pools/`. Auth: keine — die
+Adapter: `src/agentkit/integration_clients/llm_pools/`. Auth: keine — die
 Browser-Sessions tragen ihre Auth selbst.
 
 ### 5.4 Weaviate (VektorDB)
@@ -686,7 +686,7 @@ Browser-Sessions tragen ihre Auth selbst.
 Rolle: **semantischer Retrieval-Layer** fuer Konzept-Korpus,
 Story-Knowledge-Base und Glossar.
 
-Adapter: `src/agentkit/integrations/vectordb/`. Konzept: FK-13.
+Adapter: `src/agentkit/integration_clients/vectordb/`. Konzept: FK-13.
 
 Drei Verwendungen:
 
@@ -716,7 +716,7 @@ Vollstaendigkeit:
 - Primaerziel fuer State-Backend, Telemetrie, Analytics-Schema.
 - SQLite ist Fallback fuer Tests und einfache lokale Setups
   (`AGENTKIT_STATE_BACKEND=sqlite`, `AGENTKIT_ALLOW_SQLITE=1`).
-- Kein A-Code importiert `agentkit.state_backend.store` als
+- Kein A-Code importiert `agentkit.backend.state_backend.store` als
   generische Fassade — Komponenten haben eigene Repository-Vertraege
   (FK-07 §7.x; siehe Workbook A4).
 
@@ -906,9 +906,9 @@ zulaessig (CLAUDE.md). Pre-Commit-Hook prueft fail-closed.
 |---|---|
 | **Neuen Produktionscode schreiben** | `src/agentkit/<passendes-modul>/`. Neuer Namespace nur mit fachlicher Begruendung. |
 | **Neuen Test schreiben** | `tests/<unit|integration|contract|e2e>/...` — richtige Ebene waehlen. |
-| **Deploy-Asset aendern** | `src/agentkit/resources/target_project/` aendern, dann `tests/golden/` aktualisieren. |
+| **Deploy-Asset aendern** | `src/agentkit/bundles/target_project/` aendern, dann `tests/golden/` aktualisieren. |
 | **Temporaere Dateien erzeugen** | `var/` oder `tmp_path` (in Tests). NIE in `src/` oder `tests/fixtures/`. |
-| **Adapter hinzufuegen** | `src/agentkit/integrations/<name>/` als duenner Adapter, Geschaeftslogik im fachlichen Modul. |
+| **Adapter hinzufuegen** | `src/agentkit/integration_clients/<name>/` als duenner Adapter, Geschaeftslogik im fachlichen Modul. |
 | **Konzept aendern** | `concept/<layer>/...` — nur mit User-Consent. Pre-Commit prueft. |
 | **Glossar pflegen** | `glossary:`-Block im Frontmatter des Contract-Docs deines BC. Brief: `prompts/bc-glossary-briefing.md`. |
 | **Architektur-/Test-Guardrails konsultieren** | `guardrails/architecture-guardrails.md`, `guardrails/testing-guardrails.md`. |
@@ -1165,7 +1165,7 @@ Ratespiel ist kein akzeptabler Modus.
 
 ### 8.3 Architektur-Drift
 
-- A-Code importiert direkt `agentkit.state_backend.store` als
+- A-Code importiert direkt `agentkit.backend.state_backend.store` als
   generische Fassade. Korrekte Loesung: komponentenspezifischer
   Repository-Vertrag (siehe Workbook A4).
 - Story-/Dashboard-Code importiert Hook-Runtime oder

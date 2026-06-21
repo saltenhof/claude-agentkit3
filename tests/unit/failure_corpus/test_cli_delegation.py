@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.failure_corpus.cli import dispatch, register_subparsers
+from agentkit.backend.failure_corpus.cli import dispatch, register_subparsers
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -74,26 +74,26 @@ class TestMainCLIRegistration:
         """Verify failure-corpus is registered in cli/main.py dispatch table."""
         import inspect
 
-        import agentkit.cli.main as cli_main
+        import agentkit.backend.cli.main as cli_main
 
         src = inspect.getsource(cli_main._dispatch_command)  # type: ignore[attr-defined]
         assert "failure-corpus" in src
 
     def test_failure_corpus_subparser_registered_in_main(self) -> None:
         """Verify _setup_failure_corpus_subparsers is defined in cli/main.py."""
-        import agentkit.cli.main as cli_main
+        import agentkit.backend.cli.main as cli_main
 
         assert hasattr(cli_main, "_setup_failure_corpus_subparsers")
 
     def test_cmd_failure_corpus_defined_in_main(self) -> None:
         """Verify _cmd_failure_corpus is defined in cli/main.py."""
-        import agentkit.cli.main as cli_main
+        import agentkit.backend.cli.main as cli_main
 
         assert hasattr(cli_main, "_cmd_failure_corpus")
 
     def test_main_parses_failure_corpus_help(self) -> None:
         """Smoke test: main() can parse failure-corpus --help without crashing."""
-        from agentkit.cli.main import main
+        from agentkit.backend.cli.main import main
 
         with pytest.raises(SystemExit) as exc:
             main(["failure-corpus", "--help"])
@@ -152,7 +152,7 @@ class TestReviewPatternsArgCoverage:
             parser.parse_args(["review-patterns", "--help"])
         # Verify by inspecting the parser choices directly — 'low' is not a valid risk level
         # (canonical: medium/high/critical per PatternRiskLevel StrEnum)
-        from agentkit.failure_corpus.pattern import PatternRiskLevel
+        from agentkit.backend.failure_corpus.pattern import PatternRiskLevel
         valid_values = {r.value for r in PatternRiskLevel}
         assert "low" not in valid_values, (
             "PatternRiskLevel unexpectedly contains 'low' — help text issue is in the code"
@@ -191,15 +191,15 @@ class TestReviewPatternsArgCoverage:
         # inside each handler body (not at cli module level).  Patch at the source
         # module so the lazy `from ... import` picks up the stub.
         monkeypatch.setattr(
-            "agentkit.bootstrap.composition_root.build_failure_corpus",
+            "agentkit.backend.bootstrap.composition_root.build_failure_corpus",
             lambda *a, **kw: mock_corpus,
         )
         monkeypatch.setattr(
-            "agentkit.bootstrap.composition_root.build_projection_accessor",
+            "agentkit.backend.bootstrap.composition_root.build_projection_accessor",
             lambda *a, **kw: MagicMock(),
         )
 
-        from agentkit.failure_corpus.cli import handle_review_patterns
+        from agentkit.backend.failure_corpus.cli import handle_review_patterns
         rc = handle_review_patterns(args)
         assert rc == 0
         mock_corpus.confirm_pattern.assert_called_once()
@@ -235,15 +235,15 @@ class TestCliBuildsWithoutLlmClient:
         monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
         monkeypatch.chdir(tmp_path)
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         reset_backend_cache_for_tests()
 
     def test_suggest_patterns_builds_and_delegates(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        from agentkit.failure_corpus.cli import handle_suggest_patterns
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.failure_corpus.cli import handle_suggest_patterns
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         self._sqlite_env(tmp_path, monkeypatch)
         try:
@@ -257,8 +257,8 @@ class TestCliBuildsWithoutLlmClient:
     def test_effectiveness_report_builds_and_delegates(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        from agentkit.failure_corpus.cli import handle_effectiveness_report
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.failure_corpus.cli import handle_effectiveness_report
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         self._sqlite_env(tmp_path, monkeypatch)
         try:
@@ -285,9 +285,9 @@ class TestCliBuildsWithoutLlmClient:
         an ``llm_client`` — proving the thin top-surface delegation and that the
         lazy-sharpener build does not crash.
         """
-        import agentkit.bootstrap.composition_root as comp_root
-        from agentkit.failure_corpus.cli import handle_list_checks
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        import agentkit.backend.bootstrap.composition_root as comp_root
+        from agentkit.backend.failure_corpus.cli import handle_list_checks
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         calls: list[dict[str, object]] = []
         real_build = comp_root.build_failure_corpus
@@ -315,8 +315,8 @@ class TestCliBuildsWithoutLlmClient:
     def test_review_patterns_rejected_builds_and_delegates(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        from agentkit.failure_corpus.cli import handle_review_patterns
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.failure_corpus.cli import handle_review_patterns
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         self._sqlite_env(tmp_path, monkeypatch)
         try:
@@ -339,8 +339,8 @@ class TestCliBuildsWithoutLlmClient:
     def test_add_incident_builds_and_delegates(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        from agentkit.failure_corpus.cli import handle_add_incident
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.failure_corpus.cli import handle_add_incident
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         self._sqlite_env(tmp_path, monkeypatch)
         try:
@@ -372,8 +372,8 @@ class TestCliBuildsWithoutLlmClient:
         The build itself must succeed (no LlmInvariantSharpener RuntimeError); the
         handler then reaches approve_check and reports the proposal is missing.
         """
-        from agentkit.failure_corpus.cli import handle_review_checks
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.failure_corpus.cli import handle_review_checks
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
         self._sqlite_env(tmp_path, monkeypatch)
         try:
@@ -403,19 +403,19 @@ class TestCliBuildsWithoutLlmClient:
         actually derive a check (step 1) must raise — proving the lazy build did not
         weaken the fail-closed guarantee.
         """
-        from agentkit.bootstrap.composition_root import (
+        from agentkit.backend.bootstrap.composition_root import (
             build_failure_corpus,
             build_projection_accessor,
         )
-        from agentkit.core_types import FailureCategory, PatternStatus
-        from agentkit.failure_corpus.pattern import (
+        from agentkit.backend.core_types import FailureCategory, PatternStatus
+        from agentkit.backend.failure_corpus.pattern import (
             FailurePatternRecord,
             PatternRiskLevel,
             PromotionRule,
         )
-        from agentkit.failure_corpus.types import PatternId
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
-        from agentkit.state_backend.store.fc_pattern_repository import (
+        from agentkit.backend.failure_corpus.types import PatternId
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
 

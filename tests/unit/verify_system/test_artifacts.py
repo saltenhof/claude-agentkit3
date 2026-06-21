@@ -14,11 +14,11 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from agentkit.artifacts import ArtifactNotFoundError
-from agentkit.bootstrap.composition_root import build_artifact_manager
-from agentkit.core_types import PolicyVerdict
-from agentkit.governance.guard_system.protected_paths import PROTECTED_QA_ARTIFACTS
-from agentkit.verify_system.artifacts import (
+from agentkit.backend.artifacts import ArtifactNotFoundError
+from agentkit.backend.bootstrap.composition_root import build_artifact_manager
+from agentkit.backend.core_types import PolicyVerdict
+from agentkit.backend.governance.guard_system.protected_paths import PROTECTED_QA_ARTIFACTS
+from agentkit.backend.verify_system.artifacts import (
     GUARDRAIL_FILE,
     LAYER_ARTIFACT_FILES,
     VERIFY_DECISION_FILE,
@@ -31,8 +31,8 @@ from agentkit.verify_system.artifacts import (
     write_layer_artifacts,
     write_verify_decision_artifacts,
 )
-from agentkit.verify_system.policy_engine.engine import VerifyDecision
-from agentkit.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
+from agentkit.backend.verify_system.policy_engine.engine import VerifyDecision
+from agentkit.backend.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -170,7 +170,7 @@ class TestPersistenceViaManager:
         assert produced == ("structural.json", "semantic_review.json")
         # Read-back via Manager.read_latest beweist, dass ArtifactManager
         # die einzige Lese-/Schreib-API ist.
-        from agentkit.core_types import ArtifactClass
+        from agentkit.backend.core_types import ArtifactClass
 
         envelope = manager.read_latest(
             story_id="TEST-201",
@@ -214,7 +214,7 @@ class TestPersistenceViaManager:
         Envelope und Projektion.
         """
         manager = build_artifact_manager(tmp_path)
-        from agentkit.core_types import ArtifactClass
+        from agentkit.backend.core_types import ArtifactClass
 
         # 1. Schreibe passed=true.
         write_layer_artifacts(
@@ -264,7 +264,7 @@ class TestPersistenceViaManager:
 
     def test_manager_read_latest_raises_when_missing(self, tmp_path: Path) -> None:
         manager = build_artifact_manager(tmp_path)
-        from agentkit.core_types import ArtifactClass
+        from agentkit.backend.core_types import ArtifactClass
 
         with pytest.raises(ArtifactNotFoundError):
             manager.read_latest(

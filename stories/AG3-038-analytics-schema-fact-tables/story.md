@@ -17,7 +17,7 @@
 THEME-008 aus `stories/_priorisierungsempfehlung.md`. Befunde:
 
 - `kpi-and-dashboard.A4`: PostgreSQL analytics-Schema mit fuenf Fact-Tabellen + sync_state fehlt komplett.
-- `kpi-and-dashboard.A3`: FactStore-Sub fehlt (Modul `agentkit.kpi_analytics.fact_store`).
+- `kpi-and-dashboard.A3`: FactStore-Sub fehlt (Modul `agentkit.backend.kpi_analytics.fact_store`).
 - `kpi-and-dashboard.A6`: guard_invocation_counters-Scratchpad-Tabelle fehlt.
 - `kpi-and-dashboard.A12`: Schema-Migrations-Strategie (`_ensure_column`, `schema_version`-Cursor) fehlt.
 

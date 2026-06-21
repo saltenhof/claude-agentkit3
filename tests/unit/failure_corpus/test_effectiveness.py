@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.failure_corpus.sonar_signal import SonarAcceptFrequencySignal, check_accept_frequency
+from agentkit.backend.failure_corpus.sonar_signal import SonarAcceptFrequencySignal, check_accept_frequency
 
 # ---------------------------------------------------------------------------
 # check_accept_frequency (pure function)
@@ -106,18 +106,18 @@ class TestCheckEffectivenessTracker:
     ) -> None:
         monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-        from agentkit.failure_corpus.effectiveness import CheckEffectivenessTracker
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
-        from agentkit.state_backend.store.fc_check_proposal_repository import (
+        from agentkit.backend.failure_corpus.effectiveness import CheckEffectivenessTracker
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.fc_check_proposal_repository import (
             StateBackendFcCheckProposalRepository,
         )
-        from agentkit.state_backend.store.fc_pattern_repository import (
+        from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
-        from agentkit.state_backend.store.projection_repositories import (
+        from agentkit.backend.state_backend.store.projection_repositories import (
             build_projection_repositories,
         )
-        from agentkit.telemetry.projection_accessor import ProjectionAccessor
+        from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
 
         reset_backend_cache_for_tests()
         try:
@@ -146,24 +146,24 @@ class TestCheckEffectivenessTracker:
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
         from datetime import UTC, datetime
 
-        from agentkit.core_types import CheckStatus, CheckType
-        from agentkit.failure_corpus.check_proposal import CheckProposalRecord, FalsePositiveRisk
-        from agentkit.failure_corpus.effectiveness import CheckEffectivenessTracker
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
-        from agentkit.state_backend.store.fc_check_proposal_repository import (
+        from agentkit.backend.core_types import CheckStatus, CheckType
+        from agentkit.backend.failure_corpus.check_proposal import CheckProposalRecord, FalsePositiveRisk
+        from agentkit.backend.failure_corpus.effectiveness import CheckEffectivenessTracker
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.fc_check_proposal_repository import (
             StateBackendFcCheckProposalRepository,
         )
-        from agentkit.state_backend.store.fc_pattern_repository import (
+        from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
-        from agentkit.state_backend.store.projection_repositories import (
+        from agentkit.backend.state_backend.store.projection_repositories import (
             build_projection_repositories,
         )
-        from agentkit.telemetry.projection_accessor import (
+        from agentkit.backend.telemetry.projection_accessor import (
             ProjectionAccessor,
             ProjectionKind,
         )
-        from agentkit.verify_system.stage_registry.records import (
+        from agentkit.backend.verify_system.stage_registry.records import (
             CheckOutcome,
             QACheckOutcomeRecord,
         )
@@ -174,8 +174,8 @@ class TestCheckEffectivenessTracker:
             check_repo = StateBackendFcCheckProposalRepository(tmp_path)  # type: ignore[arg-type]
             pattern_repo = StateBackendFcPatternRepository(tmp_path)  # type: ignore[arg-type]
 
-            from agentkit.core_types import FailureCategory, PatternStatus
-            from agentkit.failure_corpus.pattern import FailurePatternRecord, PatternRiskLevel, PromotionRule
+            from agentkit.backend.core_types import FailureCategory, PatternStatus
+            from agentkit.backend.failure_corpus.pattern import FailurePatternRecord, PatternRiskLevel, PromotionRule
 
             # Seed the parent pattern first (FK constraint: pattern_ref must exist)
             parent_pattern = FailurePatternRecord(
@@ -258,21 +258,21 @@ class TestCheckEffectivenessTracker:
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
         from datetime import UTC, datetime
 
-        from agentkit.core_types import CheckStatus, CheckType
-        from agentkit.failure_corpus.check_proposal import CheckProposalRecord, FalsePositiveRisk
-        from agentkit.failure_corpus.effectiveness import CheckEffectivenessTracker
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
-        from agentkit.state_backend.store.fc_check_proposal_repository import (
+        from agentkit.backend.core_types import CheckStatus, CheckType
+        from agentkit.backend.failure_corpus.check_proposal import CheckProposalRecord, FalsePositiveRisk
+        from agentkit.backend.failure_corpus.effectiveness import CheckEffectivenessTracker
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.fc_check_proposal_repository import (
             StateBackendFcCheckProposalRepository,
         )
-        from agentkit.state_backend.store.fc_pattern_repository import (
+        from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
-        from agentkit.state_backend.store.projection_repositories import (
+        from agentkit.backend.state_backend.store.projection_repositories import (
             build_projection_repositories,
         )
-        from agentkit.telemetry.projection_accessor import ProjectionAccessor, ProjectionKind
-        from agentkit.verify_system.stage_registry.records import (
+        from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor, ProjectionKind
+        from agentkit.backend.verify_system.stage_registry.records import (
             CheckOutcome,
             QACheckOutcomeRecord,
         )
@@ -283,8 +283,8 @@ class TestCheckEffectivenessTracker:
             check_repo = StateBackendFcCheckProposalRepository(tmp_path)  # type: ignore[arg-type]
             pattern_repo = StateBackendFcPatternRepository(tmp_path)  # type: ignore[arg-type]
 
-            from agentkit.core_types import FailureCategory, PatternStatus
-            from agentkit.failure_corpus.pattern import FailurePatternRecord, PatternRiskLevel, PromotionRule
+            from agentkit.backend.core_types import FailureCategory, PatternStatus
+            from agentkit.backend.failure_corpus.pattern import FailurePatternRecord, PatternRiskLevel, PromotionRule
 
             parent_pattern = FailurePatternRecord(
                 pattern_id="FP-0002",
@@ -358,21 +358,21 @@ class TestCheckEffectivenessTracker:
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
         from datetime import UTC, datetime
 
-        from agentkit.core_types import CheckStatus, CheckType
-        from agentkit.failure_corpus.check_proposal import CheckProposalRecord, FalsePositiveRisk
-        from agentkit.failure_corpus.effectiveness import CheckEffectivenessTracker
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
-        from agentkit.state_backend.store.fc_check_proposal_repository import (
+        from agentkit.backend.core_types import CheckStatus, CheckType
+        from agentkit.backend.failure_corpus.check_proposal import CheckProposalRecord, FalsePositiveRisk
+        from agentkit.backend.failure_corpus.effectiveness import CheckEffectivenessTracker
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.fc_check_proposal_repository import (
             StateBackendFcCheckProposalRepository,
         )
-        from agentkit.state_backend.store.fc_pattern_repository import (
+        from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
-        from agentkit.state_backend.store.projection_repositories import (
+        from agentkit.backend.state_backend.store.projection_repositories import (
             build_projection_repositories,
         )
-        from agentkit.telemetry.projection_accessor import ProjectionAccessor, ProjectionKind
-        from agentkit.verify_system.stage_registry.records import (
+        from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor, ProjectionKind
+        from agentkit.backend.verify_system.stage_registry.records import (
             CheckOutcome,
             QACheckOutcomeRecord,
         )
@@ -383,8 +383,8 @@ class TestCheckEffectivenessTracker:
             check_repo = StateBackendFcCheckProposalRepository(tmp_path)  # type: ignore[arg-type]
             pattern_repo = StateBackendFcPatternRepository(tmp_path)  # type: ignore[arg-type]
 
-            from agentkit.core_types import FailureCategory, PatternStatus
-            from agentkit.failure_corpus.pattern import FailurePatternRecord, PatternRiskLevel, PromotionRule
+            from agentkit.backend.core_types import FailureCategory, PatternStatus
+            from agentkit.backend.failure_corpus.pattern import FailurePatternRecord, PatternRiskLevel, PromotionRule
 
             parent_pattern = FailurePatternRecord(
                 pattern_id="FP-0003",
@@ -474,21 +474,21 @@ class TestCheckEffectivenessTracker:
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
         from datetime import UTC, datetime
 
-        from agentkit.core_types import CheckStatus, CheckType
-        from agentkit.failure_corpus.check_proposal import CheckProposalRecord, FalsePositiveRisk
-        from agentkit.failure_corpus.effectiveness import CheckEffectivenessTracker
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
-        from agentkit.state_backend.store.fc_check_proposal_repository import (
+        from agentkit.backend.core_types import CheckStatus, CheckType
+        from agentkit.backend.failure_corpus.check_proposal import CheckProposalRecord, FalsePositiveRisk
+        from agentkit.backend.failure_corpus.effectiveness import CheckEffectivenessTracker
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.fc_check_proposal_repository import (
             StateBackendFcCheckProposalRepository,
         )
-        from agentkit.state_backend.store.fc_pattern_repository import (
+        from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
-        from agentkit.state_backend.store.projection_repositories import (
+        from agentkit.backend.state_backend.store.projection_repositories import (
             build_projection_repositories,
         )
-        from agentkit.telemetry.projection_accessor import ProjectionAccessor, ProjectionKind
-        from agentkit.verify_system.stage_registry.records import (
+        from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor, ProjectionKind
+        from agentkit.backend.verify_system.stage_registry.records import (
             CheckOutcome,
             QACheckOutcomeRecord,
         )
@@ -499,8 +499,8 @@ class TestCheckEffectivenessTracker:
             check_repo = StateBackendFcCheckProposalRepository(tmp_path)  # type: ignore[arg-type]
             pattern_repo = StateBackendFcPatternRepository(tmp_path)  # type: ignore[arg-type]
 
-            from agentkit.core_types import FailureCategory, PatternStatus
-            from agentkit.failure_corpus.pattern import FailurePatternRecord, PatternRiskLevel, PromotionRule
+            from agentkit.backend.core_types import FailureCategory, PatternStatus
+            from agentkit.backend.failure_corpus.pattern import FailurePatternRecord, PatternRiskLevel, PromotionRule
 
             # CRITICAL risk level pattern
             parent_pattern = FailurePatternRecord(
@@ -583,20 +583,20 @@ class TestCheckEffectivenessTracker:
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
         from datetime import UTC, datetime
 
-        from agentkit.core_types import CheckStatus, CheckType
-        from agentkit.failure_corpus.check_proposal import CheckProposalRecord, FalsePositiveRisk
-        from agentkit.failure_corpus.effectiveness import CheckEffectivenessTracker
-        from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
-        from agentkit.state_backend.store.fc_check_proposal_repository import (
+        from agentkit.backend.core_types import CheckStatus, CheckType
+        from agentkit.backend.failure_corpus.check_proposal import CheckProposalRecord, FalsePositiveRisk
+        from agentkit.backend.failure_corpus.effectiveness import CheckEffectivenessTracker
+        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.store.fc_check_proposal_repository import (
             StateBackendFcCheckProposalRepository,
         )
-        from agentkit.state_backend.store.fc_pattern_repository import (
+        from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
-        from agentkit.state_backend.store.projection_repositories import (
+        from agentkit.backend.state_backend.store.projection_repositories import (
             build_projection_repositories,
         )
-        from agentkit.telemetry.projection_accessor import ProjectionAccessor
+        from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
 
         reset_backend_cache_for_tests()
         try:
@@ -604,8 +604,8 @@ class TestCheckEffectivenessTracker:
             check_repo = StateBackendFcCheckProposalRepository(tmp_path)  # type: ignore[arg-type]
             pattern_repo = StateBackendFcPatternRepository(tmp_path)  # type: ignore[arg-type]
 
-            from agentkit.core_types import FailureCategory, PatternStatus
-            from agentkit.failure_corpus.pattern import (
+            from agentkit.backend.core_types import FailureCategory, PatternStatus
+            from agentkit.backend.failure_corpus.pattern import (
                 FailurePatternRecord,
                 PatternRiskLevel,
                 PromotionRule,

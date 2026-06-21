@@ -14,16 +14,16 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.story_context_manager.idempotency import InMemoryIdempotencyKeyRepository
-from agentkit.story_context_manager.service import StoryService
-from agentkit.story_context_manager.story_model import (
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.story_context_manager.idempotency import InMemoryIdempotencyKeyRepository
+from agentkit.backend.story_context_manager.service import StoryService
+from agentkit.backend.story_context_manager.story_model import (
     CreateStoryInput,
     StoryStatus,
     WireStoryType,
 )
-from agentkit.story_context_manager.story_repository import InMemoryStoryRepository
-from agentkit.story_reset import (
+from agentkit.backend.story_context_manager.story_repository import InMemoryStoryRepository
+from agentkit.backend.story_reset import (
     PlannedPurge,
     ResetStatus,
     StoryResetError,
@@ -533,7 +533,7 @@ def test_resume_unknown_reset_id_fails_closed() -> None:
 
 def test_reset_failed_story_is_not_runnable_but_resumable() -> None:
     """AC8: a RESET_FAILED story blocks normal start/resume; only resume_reset works."""
-    from agentkit.story_context_manager.service import is_story_runnable_status
+    from agentkit.backend.story_context_manager.service import is_story_runnable_status
 
     svc_story = _make_story_service()
     story_id = _seed_in_progress(svc_story)
@@ -557,7 +557,7 @@ def test_reset_failed_story_is_not_runnable_but_resumable() -> None:
     assert blocked.status is StoryStatus.RESET_FAILED
     assert is_story_runnable_status(blocked.status) is False
     # begin_progress / complete are not legal from RESET_FAILED.
-    from agentkit.story_context_manager.errors import InvalidStatusTransitionError
+    from agentkit.backend.story_context_manager.errors import InvalidStatusTransitionError
 
     with pytest.raises(InvalidStatusTransitionError):
         svc_story.begin_progress(story_id)

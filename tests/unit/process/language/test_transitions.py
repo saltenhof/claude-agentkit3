@@ -12,20 +12,20 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.pipeline_engine.phase_executor import PhaseName
-from agentkit.process.language.definitions import (
+from agentkit.backend.pipeline_engine.phase_executor import PhaseName
+from agentkit.backend.process.language.definitions import (
     BUGFIX_WORKFLOW,
     CONCEPT_WORKFLOW,
     IMPLEMENTATION_WORKFLOW,
     RESEARCH_WORKFLOW,
 )
-from agentkit.process.language.phase_transitions import (
+from agentkit.backend.process.language.phase_transitions import (
     PHASE_TRANSITION_GRAPH,
     is_valid_phase_transition,
 )
 
 if TYPE_CHECKING:
-    from agentkit.process.language.model import WorkflowDefinition
+    from agentkit.backend.process.language.model import WorkflowDefinition
 
 
 def _get_transition_targets(wf: WorkflowDefinition, source: str) -> set[str]:

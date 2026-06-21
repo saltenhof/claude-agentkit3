@@ -13,19 +13,19 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.integration_stabilization.models import (
+from agentkit.backend.integration_stabilization.models import (
     IntegrationScopeManifest,
     ManifestApprovalRecord,
     StabilizationBudgetCaps,
 )
-from agentkit.integration_stabilization.state import (
+from agentkit.backend.integration_stabilization.state import (
     IS_MANIFEST_FILE,
     RepoSetViolationError,
     approve_manifest,
     save_integration_manifest,
 )
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import EventType
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import EventType
 
 if TYPE_CHECKING:
     from pathlib import Path

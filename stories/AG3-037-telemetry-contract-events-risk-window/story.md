@@ -105,7 +105,7 @@ Die Pflicht-Payload-Felder pro EventType werden via `EventType`-Sub-Klassen (Dis
 - `review_response`: `verdict: LlmEnvelopeStatus` (Pflicht)
 - `are_gate_result`: Coverage-Felder (`covered: int`, `required: int`, `coverage_ratio: float`)
 
-Implementation: `ExecutionEventRecord.payload` bleibt `dict[str, Any]`, aber pro EventType eine `validate_event_payload`-Funktion in `agentkit.telemetry.events`. Aufrufer-Validierung sichert, dass die richtigen Felder gesetzt sind.
+Implementation: `ExecutionEventRecord.payload` bleibt `dict[str, Any]`, aber pro EventType eine `validate_event_payload`-Funktion in `agentkit.backend.telemetry.events`. Aufrufer-Validierung sichert, dass die richtigen Felder gesetzt sind.
 
 #### 2.1.5 NormalizedEvent + Risk-Window (FK-68 §68.8)
 
@@ -197,7 +197,7 @@ GovernanceObserver-Scoring (`governance-and-guards.A1`) bleibt **out of scope** 
 5. **`NormalizedEvent` und `EventNormalizer.normalize` existieren** und liefern `NormalizedEvent | None`. Mapping: `agent_start`/`agent_end` -> OPERATIONAL; `integrity_violation` -> INTEGRITY; `review_divergence` -> INTEGRITY; `web_call_attempted` -> BUDGET (in research-Stories).
 6. **`RiskCategory`-StrEnum** mit Werten `SECURITY`, `INTEGRITY`, `OPERATIONAL`, `BUDGET`.
 7. **Dedizierte `ProjectionAccessor.record_risk_window_event(...)`-Schreibstelle + eigene `risk_window`-Tabelle**; der `EventNormalizer` schreibt NormalizedEvents ueber diese Methode dorthin. **Kein** neues `ProjectionKind RISK_WINDOW`: FK-69 §69.3 bleibt bei exakt 7 Read-Model-Tabellen (das Risk-Window ist ein FK-68-Telemetrie-Sensor-Read-Model, kein 8tes FK-69-Read-Model). Rationale: getrennter Owner haelt die FK-68- und FK-69-Read-Model-Familien sauber entkoppelt und schuetzt die FK-69-7er-Invariante.
-8. **Architecture-Conformance**: `telemetry.contract` und `telemetry.risk_window` importieren nur aus `agentkit.core_types`, `agentkit.telemetry`, `agentkit.artifacts`; keine Cross-BC-Aufrufe.
+8. **Architecture-Conformance**: `telemetry.contract` und `telemetry.risk_window` importieren nur aus `agentkit.backend.core_types`, `agentkit.backend.telemetry`, `agentkit.backend.artifacts`; keine Cross-BC-Aufrufe.
 9. **Pflichtbefehle gruen**: pytest unit + integration + contract; mypy --strict; ruff clean; Coverage haelt 85%.
 
 ## 5. Definition of Done

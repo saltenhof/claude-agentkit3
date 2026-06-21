@@ -24,33 +24,33 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.control_plane.models import (
+from agentkit.backend.control_plane.models import (
     EdgeBundle,
     EdgePointer,
     SessionRunBindingView,
     StoryExecutionLockView,
 )
-from agentkit.governance.guard_evaluation import HookEvent, evaluate_pre_tool_use
-from agentkit.governance.protocols import ViolationType
-from agentkit.installer.paths import story_dir as _story_dir
-from agentkit.integration_stabilization.models import (
+from agentkit.backend.governance.guard_evaluation import HookEvent, evaluate_pre_tool_use
+from agentkit.backend.governance.protocols import ViolationType
+from agentkit.backend.installer.paths import story_dir as _story_dir
+from agentkit.backend.integration_stabilization.models import (
     IntegrationScopeManifest,
     ManifestApprovalRecord,
     StabilizationBudgetCaps,
 )
-from agentkit.integration_stabilization.seam_allowlist_guard import SEAM_ALLOWLIST_FILE
-from agentkit.integration_stabilization.state import (
+from agentkit.backend.integration_stabilization.seam_allowlist_guard import SEAM_ALLOWLIST_FILE
+from agentkit.backend.integration_stabilization.state import (
     save_integration_manifest,
     save_manifest_approval,
 )
-from agentkit.projectedge.client import LocalEdgePublisher
-from agentkit.state_backend.store import save_story_context
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import (
+from agentkit.backend.state_backend.store import save_story_context
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import (
     ImplementationContract,
     StoryMode,
     StoryType,
 )
+from agentkit.harness_client.projectedge.client import LocalEdgePublisher
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -312,7 +312,7 @@ class TestSeamGuardFailClosedOnMissingAllowlistFile:
         the write) if the old in-memory fallback were reinstated -- proving
         the test regresses when the ERROR D fix is reverted.
         """
-        from agentkit.projectedge.client import LocalEdgePublisher
+        from agentkit.harness_client.projectedge.client import LocalEdgePublisher
 
         LocalEdgePublisher(project_root=tmp_path).publish(self._bundle_no_worktree())
         s_dir = _story_dir(tmp_path, _STORY)

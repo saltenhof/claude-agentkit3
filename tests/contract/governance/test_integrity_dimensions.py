@@ -9,8 +9,8 @@ contracts must be a conscious, reviewed edit (FK-71 / Tests-Konzepttreue).
 
 from __future__ import annotations
 
-from agentkit.governance.integrity_gate.dim9_sonar import SONAR_NOT_GREEN
-from agentkit.governance.integrity_gate.dimensions import (
+from agentkit.backend.governance.integrity_gate.dim9_sonar import SONAR_NOT_GREEN
+from agentkit.backend.governance.integrity_gate.dimensions import (
     CODE_ONLY_DIMENSIONS,
     MANDATORY_DIMENSIONS,
     MISSING_PRESTAGE_CODE,
@@ -18,11 +18,11 @@ from agentkit.governance.integrity_gate.dimensions import (
     dimensions_for,
     mandatory_dimensions_for,
 )
-from agentkit.governance.setup_preflight_gate.preflight import (
+from agentkit.backend.governance.setup_preflight_gate.preflight import (
     PreflightCheckId,
     PreflightStatus,
 )
-from agentkit.story_context_manager.types import StoryType
+from agentkit.backend.story_context_manager.types import StoryType
 
 
 def test_integrity_dimension_ids_are_canonical_fk35_plus_fk55() -> None:

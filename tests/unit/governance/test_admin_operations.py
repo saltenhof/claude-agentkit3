@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agentkit.governance.principal_capabilities.operations import (
+from agentkit.backend.governance.principal_capabilities.operations import (
     OperationClass,
     OperationClassifier,
     _GitVerbs,

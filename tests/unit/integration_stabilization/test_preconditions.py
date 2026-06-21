@@ -10,13 +10,13 @@ Covers all five enforcement-point fail-closed checks:
 
 from __future__ import annotations
 
-from agentkit.integration_stabilization.models import (
+from agentkit.backend.integration_stabilization.models import (
     IntegrationScopeManifest,
     ManifestApprovalRecord,
     StabilizationBudget,
     StabilizationBudgetCaps,
 )
-from agentkit.integration_stabilization.preconditions import (
+from agentkit.backend.integration_stabilization.preconditions import (
     check_approval_present,
     check_binding_integrity,
     check_budget_not_exhausted,

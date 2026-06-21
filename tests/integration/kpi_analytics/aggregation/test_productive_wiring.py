@@ -29,25 +29,25 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.bootstrap.composition_root import build_kpi_analytics
-from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
-from agentkit.kpi_analytics.aggregation import (
+from agentkit.backend.bootstrap.composition_root import build_kpi_analytics
+from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
+from agentkit.backend.kpi_analytics.aggregation import (
     EXPECTED_SCHEMA_VERSION,
     AffectedPeriods,
     RefreshWorker,
 )
-from agentkit.kpi_analytics.fact_store import FactStore, FactStory, PeriodFilter, SyncState
-from agentkit.kpi_analytics.views import RefreshStatus
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.analytics_source import StateBackendAnalyticsSource
-from agentkit.state_backend.store.fact_repository import StateBackendFactRepository
-from agentkit.state_backend.store.guard_counter_repository import (
+from agentkit.backend.kpi_analytics.fact_store import FactStore, FactStory, PeriodFilter, SyncState
+from agentkit.backend.kpi_analytics.views import RefreshStatus
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.analytics_source import StateBackendAnalyticsSource
+from agentkit.backend.state_backend.store.fact_repository import StateBackendFactRepository
+from agentkit.backend.state_backend.store.guard_counter_repository import (
     StateBackendGuardCounterRepository,
 )
-from agentkit.state_backend.store.projection_repositories import (
+from agentkit.backend.state_backend.store.projection_repositories import (
     build_projection_repositories,
 )
-from agentkit.telemetry.projection_accessor import (
+from agentkit.backend.telemetry.projection_accessor import (
     ProjectionAccessor,
     ProjectionFilter,
     ProjectionKind,
@@ -256,7 +256,7 @@ def test_real_source_resolves_closed_at_for_hint_pipeline_week(
     resolved = source.get_story_closed_at(_PROJECT, "AG3-702")
     assert resolved == closed_at
 
-    from agentkit.kpi_analytics.aggregation.dirty_sets import derive_dirty_sets
+    from agentkit.backend.kpi_analytics.aggregation.dirty_sets import derive_dirty_sets
 
     dirty = derive_dirty_sets(
         _PROJECT,

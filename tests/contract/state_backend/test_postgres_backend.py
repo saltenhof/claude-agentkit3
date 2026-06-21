@@ -6,15 +6,15 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.bootstrap.composition_root import build_artifact_manager
-from agentkit.closure.post_merge_finalization.records import StoryMetricsRecord
-from agentkit.core_types import PolicyVerdict
-from agentkit.phase_state_store.models import FlowExecution
-from agentkit.pipeline_engine.phase_executor import (
+from agentkit.backend.bootstrap.composition_root import build_artifact_manager
+from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
+from agentkit.backend.core_types import PolicyVerdict
+from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseSnapshot,
     PhaseStatus,
 )
-from agentkit.state_backend.store import (
+from agentkit.backend.state_backend.store import (
     append_execution_event,
     append_execution_event_global,
     load_artifact_record,
@@ -44,15 +44,15 @@ from agentkit.state_backend.store import (
     save_story_context,
     upsert_story_metrics,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.telemetry.contract.records import ExecutionEventRecord
-from agentkit.verify_system.artifacts import (
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.verify_system.artifacts import (
     write_layer_artifacts,
     write_verify_decision_artifacts,
 )
-from agentkit.verify_system.policy_engine.engine import VerifyDecision
-from agentkit.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
+from agentkit.backend.verify_system.policy_engine.engine import VerifyDecision
+from agentkit.backend.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
 
 if TYPE_CHECKING:
     from pathlib import Path

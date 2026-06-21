@@ -34,7 +34,7 @@ budget/skill events while the shared contract still demands stage. Not buildable
   - **FK-68 §68.2** (event model): only `project_key/story_id/run_id/event_id/event_type/
     occurred_at/source_component/severity` are universally mandatory; everything else is
     event-specific detail payload. **FK-68 §68.3.1** lists "Guard-Hooks (inkl. SkillUsageCheck)
-    | `agentkit.governance.guard_system` | PreToolUse | Blockade (exit 2) | `integrity_violation`"
+    | `agentkit.backend.governance.guard_system` | PreToolUse | Blockade (exit 2) | `integrity_violation`"
     — every guard block emits `integrity_violation`, and only prompt_integrity carries `stage`.
   - So the **concept** already wants `stage` conditional; the **code** over-pins it. The story's
     field semantics were right; the missing piece was an explicit contract-migration scope/AC so

@@ -19,20 +19,20 @@ import json
 from dataclasses import dataclass, field
 from http import HTTPStatus
 
-from agentkit.control_plane_http.app import (
+from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
     ControlPlaneApplicationRoutes,
     HttpResponse,
 )
-from agentkit.control_plane_http.tenant_scope import TenantScopeMiddleware
-from agentkit.execution_planning.entities import (
+from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
+from agentkit.backend.execution_planning.entities import (
     ParallelizationConfig,
     StoryDependency,
     StoryRefForPlanning,
 )
-from agentkit.execution_planning.http.routes import ExecutionPlanningRoutes
-from agentkit.project_management.entities import Project, ProjectConfiguration
-from agentkit.project_management.lifecycle import create_project
+from agentkit.backend.execution_planning.http.routes import ExecutionPlanningRoutes
+from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.project_management.lifecycle import create_project
 
 _PROJECT = "tenant-a"
 _SNAPSHOT = f"/v1/projects/{_PROJECT}/execution-input/snapshot"

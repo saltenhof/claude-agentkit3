@@ -12,11 +12,11 @@ from __future__ import annotations
 import subprocess
 from typing import TYPE_CHECKING
 
-from agentkit.config.models import SonarQubeConfig
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import WireStoryMode
-from agentkit.story_context_manager.types import StoryMode, StoryType
-from agentkit.verify_system.sonarqube_gate import (
+from agentkit.backend.config.models import SonarQubeConfig
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import WireStoryMode
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.verify_system.sonarqube_gate import (
     ConfiguredSonarGateInputPort,
     SonarApplicability,
     build_sonar_gate_port_for_run,
@@ -146,7 +146,7 @@ class TestFastResolvesGenuineNotApplicableFast:
         Distinct from ``available == false`` (which resolves
         NOT_APPLICABLE_UNAVAILABLE via the absent port / None).
         """
-        from agentkit.implementation.phase import _resolve_sonar_gate_port
+        from agentkit.backend.implementation.phase import _resolve_sonar_gate_port
 
         monkeypatch.setenv("SONARQUBE_TOKEN_TEST", "tok")
         _init_repo(tmp_path)
@@ -250,7 +250,7 @@ class TestPhaseAnchorResolvesPort:
     def test_anchor_builds_productive_port_when_available_true(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from agentkit.implementation.phase import _resolve_sonar_gate_port
+        from agentkit.backend.implementation.phase import _resolve_sonar_gate_port
 
         monkeypatch.setenv("SONARQUBE_TOKEN_TEST", "tok")
         _init_repo(tmp_path)
@@ -260,14 +260,14 @@ class TestPhaseAnchorResolvesPort:
         assert isinstance(port, ConfiguredSonarGateInputPort)
 
     def test_anchor_returns_none_when_available_false(self, tmp_path: Path) -> None:
-        from agentkit.implementation.phase import _resolve_sonar_gate_port
+        from agentkit.backend.implementation.phase import _resolve_sonar_gate_port
 
         _write_project_config(tmp_path, available=False)
         port = _resolve_sonar_gate_port(_ctx(tmp_path), tmp_path)
         assert port is None  # absent default applies (declared skip)
 
     def test_anchor_returns_none_without_project_root(self, tmp_path: Path) -> None:
-        from agentkit.implementation.phase import _resolve_sonar_gate_port
+        from agentkit.backend.implementation.phase import _resolve_sonar_gate_port
 
         ctx = StoryContext(
             project_key="proj",
@@ -281,7 +281,7 @@ class TestPhaseAnchorResolvesPort:
     def test_anchor_fails_closed_when_available_true_but_no_scan(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from agentkit.implementation.phase import _resolve_sonar_gate_port
+        from agentkit.backend.implementation.phase import _resolve_sonar_gate_port
 
         monkeypatch.setenv("SONARQUBE_TOKEN_TEST", "tok")
         _init_repo(tmp_path)  # repo but no report-task.txt
@@ -305,8 +305,8 @@ class TestPhaseAnchorResolvesPort:
         """
         import pytest as _pytest
 
-        from agentkit.exceptions import ConfigError
-        from agentkit.implementation.phase import _resolve_sonar_gate_port
+        from agentkit.backend.exceptions import ConfigError
+        from agentkit.backend.implementation.phase import _resolve_sonar_gate_port
 
         # Code-producing project (default story_types include implementation)
         # with NO sonarqube stanza => E6 config-load ConfigError.

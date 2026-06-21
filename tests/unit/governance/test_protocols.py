@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.governance.protocols import GuardVerdict, ViolationType
+from agentkit.backend.governance.protocols import GuardVerdict, ViolationType
 
 
 class TestViolationType:

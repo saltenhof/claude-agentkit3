@@ -14,9 +14,9 @@ from __future__ import annotations
 
 from typing import Final
 
-from agentkit.artifacts import ENVELOPE_SCHEMA_VERSION, ProducerRegistry
-from agentkit.artifacts.producer_registry import _LLM_STATUS_MAPPING
-from agentkit.core_types import ArtifactClass, EnvelopeStatus
+from agentkit.backend.artifacts import ENVELOPE_SCHEMA_VERSION, ProducerRegistry
+from agentkit.backend.artifacts.producer_registry import _LLM_STATUS_MAPPING
+from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus
 
 # ---------------------------------------------------------------------------
 # Erwartete Wire-Werte (autoritativ aus FK-71 §71.2 + AG3-022 §2.1.5)
@@ -94,8 +94,8 @@ def test_envelope_schema_version_in_instance() -> None:
     """AK3: Jede ArtifactEnvelope-Instanz hat schema_version='3.0'."""
     from datetime import UTC, datetime
 
-    from agentkit.artifacts import ArtifactEnvelope
-    from agentkit.artifacts.producer import Producer, ProducerId, ProducerType
+    from agentkit.backend.artifacts import ArtifactEnvelope
+    from agentkit.backend.artifacts.producer import Producer, ProducerId, ProducerType
 
     start = datetime.now(tz=UTC)
     env = ArtifactEnvelope(

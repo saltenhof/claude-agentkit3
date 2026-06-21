@@ -23,24 +23,24 @@ from typing import TYPE_CHECKING
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.control_plane.models import (
+from agentkit.backend.control_plane.models import (
     EdgeBundle,
     EdgePointer,
     SessionRunBindingView,
     StoryExecutionLockView,
 )
-from agentkit.governance.ccag.requests import PermissionRequestStore
-from agentkit.governance.guard_evaluation import HookEvent
-from agentkit.governance.runner import run_hook
-from agentkit.pipeline_engine.phase_executor.models import (
+from agentkit.backend.governance.ccag.requests import PermissionRequestStore
+from agentkit.backend.governance.guard_evaluation import HookEvent
+from agentkit.backend.governance.runner import run_hook
+from agentkit.backend.pipeline_engine.phase_executor.models import (
     EscalationReason,
     PhaseStatus,
 )
-from agentkit.projectedge.client import LocalEdgePublisher
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.phase_envelope_repository import (
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.phase_envelope_repository import (
     StateBackendPhaseEnvelopeRepository,
 )
+from agentkit.harness_client.projectedge.client import LocalEdgePublisher
 
 if TYPE_CHECKING:
     from collections.abc import Generator

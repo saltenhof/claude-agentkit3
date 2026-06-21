@@ -85,7 +85,7 @@ deterministisches Python-Skript ruft ein LLM über den Browser-Pool
 auf und validiert die Antwort.
 
 **Architekturzuordnung:** Der `ConformanceService` ist eine
-Subkomponente von `VerifySystem` (`agentkit.verify_system.conformance_service`).
+Subkomponente von `VerifySystem` (`agentkit.backend.verify_system.conformance_service`).
 Er ist bewusst keiner einzelnen Phase untergeordnet, weil seine vier
 Conformance-Ebenen von Story-Erstellung, Exploration, Verify und
 Closure genutzt werden.

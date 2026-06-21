@@ -15,47 +15,47 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.bootstrap.composition_root import build_artifact_manager
-from agentkit.core_types import ArtifactClass
-from agentkit.core_types.qa_artifact_names import (
+from agentkit.backend.bootstrap.composition_root import build_artifact_manager
+from agentkit.backend.core_types import ArtifactClass
+from agentkit.backend.core_types.qa_artifact_names import (
     ADVERSARIAL_PRODUCER,
     ADVERSARIAL_STAGE,
 )
-from agentkit.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import EventType
-from agentkit.verify_system.adversarial_orchestrator.runtime import runner as _runner
-from agentkit.verify_system.adversarial_orchestrator.runtime.artifact import (
+from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import EventType
+from agentkit.backend.verify_system.adversarial_orchestrator.runtime import runner as _runner
+from agentkit.backend.verify_system.adversarial_orchestrator.runtime.artifact import (
     AdversarialResultReadError,
     build_result_artifact,
     read_sandbox_result,
 )
-from agentkit.verify_system.adversarial_orchestrator.runtime.feedback import (
+from agentkit.backend.verify_system.adversarial_orchestrator.runtime.feedback import (
     mandatory_target_resolution_feedback,
 )
-from agentkit.verify_system.adversarial_orchestrator.runtime.models import (
+from agentkit.backend.verify_system.adversarial_orchestrator.runtime.models import (
     AdversarialTelemetryCounts,
     PromotionSummary,
     SandboxResult,
     SandboxTest,
     SparringProof,
 )
-from agentkit.verify_system.adversarial_orchestrator.runtime.promotion import (
+from agentkit.backend.verify_system.adversarial_orchestrator.runtime.promotion import (
     QUARANTINE_DIRNAME,
     PromotionPath,
     promote_sandbox_tests,
 )
-from agentkit.verify_system.adversarial_orchestrator.runtime.runner import (
+from agentkit.backend.verify_system.adversarial_orchestrator.runtime.runner import (
     run_adversarial_runtime,
 )
-from agentkit.verify_system.adversarial_orchestrator.runtime.sparring import (
+from agentkit.backend.verify_system.adversarial_orchestrator.runtime.sparring import (
     ADVERSARIAL_SPARRING_ROLE,
     AdversarialSparringError,
     run_mandatory_sparring,
 )
-from agentkit.verify_system.llm_evaluator.llm_client import LlmClientError
-from agentkit.verify_system.remediation.finding_resolution import (
+from agentkit.backend.verify_system.llm_evaluator.llm_client import LlmClientError
+from agentkit.backend.verify_system.remediation.finding_resolution import (
     FindingResolutionStatus,
 )
 

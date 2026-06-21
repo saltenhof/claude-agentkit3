@@ -29,7 +29,7 @@ import psycopg
 import pytest
 from psycopg import sql
 
-from agentkit.kpi_analytics.fact_store import (
+from agentkit.backend.kpi_analytics.fact_store import (
     FactCorpusPeriod,
     FactGuardPeriod,
     FactPipelinePeriod,
@@ -39,8 +39,8 @@ from agentkit.kpi_analytics.fact_store import (
     PeriodFilter,
     SyncState,
 )
-from agentkit.state_backend.config import resolve_schema_name
-from agentkit.state_backend.store.fact_repository import StateBackendFactRepository
+from agentkit.backend.state_backend.config import resolve_schema_name
+from agentkit.backend.state_backend.store.fact_repository import StateBackendFactRepository
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -511,7 +511,7 @@ def test_reconciliation_is_column_conditional_drop_not_create_if_not_exists() ->
     (drops ONLY when the existing column set differs from FK-62 — so an old table is
     rebuilt FK-62-shaped while an already-FK-62 table is NOT wiped each startup).
     """
-    from agentkit.state_backend import postgres_store
+    from agentkit.backend.state_backend import postgres_store
 
     source = Path(postgres_store.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -686,7 +686,7 @@ def _row_subscript_keys(func: ast.FunctionDef) -> set[str]:
 
 def _fact_repository_keys(table: str) -> tuple[set[str], set[str]]:
     """Parse ``fact_repository`` for the params-mapper + row-reader column keys."""
-    from agentkit.state_backend.store import fact_repository
+    from agentkit.backend.state_backend.store import fact_repository
 
     source = Path(fact_repository.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -739,7 +739,7 @@ def _ddl_table_columns(sql_text: str, table: str) -> set[str]:
 
 
 def _postgres_schema_columns(table: str) -> set[str]:
-    from agentkit.state_backend import postgres_store
+    from agentkit.backend.state_backend import postgres_store
 
     sql_text = Path(postgres_store.__file__).with_name("postgres_schema.sql").read_text(
         encoding="utf-8",
@@ -748,7 +748,7 @@ def _postgres_schema_columns(table: str) -> set[str]:
 
 
 def _v36_migration_columns(table: str) -> set[str]:
-    from agentkit.state_backend.migration import migration_runner
+    from agentkit.backend.state_backend.migration import migration_runner
 
     sql_text = (
         Path(migration_runner.__file__).with_name("versions")
@@ -774,8 +774,8 @@ def test_fact_schema_column_sets_are_identical_across_truth_locations(
     4. the ``postgres_schema.sql`` ``CREATE TABLE`` column list,
     5. the ``v_3_6_fact_reconciliation.sql`` ``CREATE TABLE`` column list.
     """
-    from agentkit.kpi_analytics.fact_store import models as _models
-    from agentkit.state_backend.store import _fact_sql
+    from agentkit.backend.kpi_analytics.fact_store import models as _models
+    from agentkit.backend.state_backend.store import _fact_sql
 
     model_cls = {
         "fact_story": _models.FactStory,

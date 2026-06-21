@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from agentkit.governance.protocols import ViolationType
-from agentkit.telemetry.emitters import MemoryEmitter
-from agentkit.telemetry.events import Event, EventType
-from agentkit.telemetry.hooks.base import HookContext, HookTrigger
-from agentkit.telemetry.hooks.review_guard import ReviewGuard
+from agentkit.backend.governance.protocols import ViolationType
+from agentkit.backend.telemetry.emitters import MemoryEmitter
+from agentkit.backend.telemetry.events import Event, EventType
+from agentkit.backend.telemetry.hooks.base import HookContext, HookTrigger
+from agentkit.backend.telemetry.hooks.review_guard import ReviewGuard
 
 
 def _commit_context() -> HookContext:

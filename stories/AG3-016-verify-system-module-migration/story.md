@@ -10,14 +10,14 @@
 ## Kontext
 
 Die Konzepte verweisen durchgaengig auf den Modul-Pfad
-`agentkit.verify_system.*` fuer alle Komponenten des BC verify-system:
+`agentkit.backend.verify_system.*` fuer alle Komponenten des BC verify-system:
 
-- `agentkit.verify_system.policy_engine` (FK-33 §33.1, _meta Z. 202)
-- `agentkit.verify_system.llm_evaluator` (FK-34 §34.x, FK-29 §29.1.2,
+- `agentkit.backend.verify_system.policy_engine` (FK-33 §33.1, _meta Z. 202)
+- `agentkit.backend.verify_system.llm_evaluator` (FK-34 §34.x, FK-29 §29.1.2,
   FK-41 §41.x, formal-spec/architecture-conformance Z. 230)
-- `agentkit.verify_system.adversarial_orchestrator` (_meta Z. 201,
+- `agentkit.backend.verify_system.adversarial_orchestrator` (_meta Z. 201,
   formal-spec Z. 257)
-- `agentkit.verify_system.stage_registry` (FK-33 §33.1)
+- `agentkit.backend.verify_system.stage_registry` (FK-33 §33.1)
 
 Im Code lebt das aber unter `agentkit.qa.*`:
 - `src/agentkit/qa/policy_engine/`
@@ -34,7 +34,7 @@ Im Code lebt das aber unter `agentkit.qa.*`:
 `stage_registry/` und `qa_read_models.py`.
 
 Das ist ein klassisches Code-vs-Konzept-Drift: `_meta/bc-cut-decisions.md`
-Z. 1880 listet "agentkit.llm_evaluator -> agentkit.verify_system.llm_evaluator"
+Z. 1880 listet "agentkit.llm_evaluator -> agentkit.backend.verify_system.llm_evaluator"
 explizit als ausstehende Refactor-Aufgabe; Z. 229 erwaehnt die Migration
 ebenso.
 
@@ -53,7 +53,7 @@ ebenso.
   - `qa/reports/` -> `verify_system/reports/`
   - `qa/artifacts.py` -> `verify_system/artifacts.py`
   - `qa/prompt_audit.py` -> `verify_system/prompt_audit.py`
-- Alle Imports im Code anpassen (`from agentkit.qa.*` -> `from agentkit.verify_system.*`)
+- Alle Imports im Code anpassen (`from agentkit.qa.*` -> `from agentkit.backend.verify_system.*`)
 - Tests gleich strukturieren: `tests/unit/qa/*` -> `tests/unit/verify_system/*`
 - Architektur-Conformance-Check (`scripts/ci/check_architecture_conformance.py`)
   laeuft gruen — formal-spec/architecture-conformance erwartet bereits
@@ -74,13 +74,13 @@ ebenso.
 | `src/agentkit/qa/**` | Verschoben | komplett nach `src/agentkit/verify_system/**` |
 | `src/agentkit/qa/__init__.py` | Geloescht | Top-Package entfaellt |
 | `tests/unit/qa/**` | Verschoben | komplett nach `tests/unit/verify_system/**` |
-| `src/agentkit/**/*.py` | Modifiziert | Import-Anpassung (`from agentkit.qa` -> `from agentkit.verify_system`) |
+| `src/agentkit/**/*.py` | Modifiziert | Import-Anpassung (`from agentkit.qa` -> `from agentkit.backend.verify_system`) |
 | `tests/**/*.py` | Modifiziert | Import-Anpassung |
 
 ## Akzeptanzkriterien
 
 1. `from agentkit.qa` existiert nicht mehr im Code (`grep` liefert 0 Treffer).
-2. Alle Module liegen unter `agentkit.verify_system.*` mit Naming
+2. Alle Module liegen unter `agentkit.backend.verify_system.*` mit Naming
    gemaess Konzept (`policy_engine`, `llm_evaluator`,
    `adversarial_orchestrator`, `structural`, `remediation`, `evidence`,
    `reports`, `artifacts`, `prompt_audit`, `stage_registry`).
@@ -101,7 +101,7 @@ ebenso.
 
 - _meta/bc-cut-decisions.md Z. 1880 (Refactor-Liste Punkt 4)
 - _meta/bc-cut-decisions.md Z. 198-202 (BC-7-Top-Surface-Tabelle)
-- FK-29 §29.1.2 (Mermaid-Verweise auf agentkit.verify_system.llm_evaluator)
+- FK-29 §29.1.2 (Mermaid-Verweise auf agentkit.backend.verify_system.llm_evaluator)
 - FK-33 §33.1 (Architekturzuordnung StageRegistry/PolicyEngine)
 - FK-34 §34.1 (Sub-Pfade)
 - FK-41 §41.x (LlmEvaluator-Referenzen)

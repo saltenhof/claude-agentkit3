@@ -22,19 +22,19 @@ from uuid import uuid4
 
 import pytest
 
-from agentkit.control_plane.models import (
+from agentkit.backend.control_plane.models import (
     ClosureCompleteRequest,
     PhaseDispatchResult,
     PhaseMutationRequest,
 )
-from agentkit.control_plane.records import (
+from agentkit.backend.control_plane.records import (
     ControlPlaneOperationRecord,
     SessionRunBindingRecord,
 )
-from agentkit.control_plane.runtime import ControlPlaneRuntimeService
-from agentkit.core_types import StoryMode
-from agentkit.governance.guard_system.records import StoryExecutionLockRecord
-from agentkit.state_backend.store import (
+from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
+from agentkit.backend.core_types import StoryMode
+from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
+from agentkit.backend.state_backend.store import (
     claim_control_plane_operation_global,
     delete_control_plane_operation_global,
     finalize_control_plane_operation_global,
@@ -50,9 +50,9 @@ from agentkit.state_backend.store import (
     save_story_context_global,
     takeover_control_plane_operation_global,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryType
-from agentkit.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryType
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -640,7 +640,7 @@ def _insert_raw_claimed_at_row(op_id: str, *, claimed_by: str, claimed_at_raw: s
     naive / malformed text we want to exercise (ERROR-2). Uses the real backend's
     global connection -- the same store the productive runtime writes through.
     """
-    from agentkit.state_backend.postgres_store import _connect_global
+    from agentkit.backend.state_backend.postgres_store import _connect_global
 
     now_raw = datetime(2026, 6, 7, 10, 0, tzinfo=UTC).isoformat()
     with _connect_global() as conn:
@@ -726,7 +726,7 @@ def test_legacy_save_refuses_to_clobber_live_claim_real_store(
     ownership. The conditional upsert fails closed via
     ``ControlPlaneClaimCollisionError``; the claimed row is left intact.
     """
-    from agentkit.exceptions import ControlPlaneClaimCollisionError
+    from agentkit.backend.exceptions import ControlPlaneClaimCollisionError
 
     del postgres_backend_env
     now = datetime(2026, 6, 7, 10, 0, tzinfo=UTC)
@@ -1006,12 +1006,12 @@ def test_binding_save_run_scoped_collision_real_store(
     SQL -- the live run-NEW binding is left untouched. A re-save for the OWNING run
     still succeeds (run-matched update).
     """
-    from agentkit.exceptions import ControlPlaneBindingCollisionError
-    from agentkit.state_backend.postgres_store import (
+    from agentkit.backend.exceptions import ControlPlaneBindingCollisionError
+    from agentkit.backend.state_backend.postgres_store import (
         _connect_global,
         _insert_session_binding_row,
     )
-    from agentkit.state_backend.store.mappers import session_binding_to_row
+    from agentkit.backend.state_backend.store.mappers import session_binding_to_row
 
     del postgres_backend_env
     save_session_run_binding_global(_binding("run-NEW", version="bind-NEW"))

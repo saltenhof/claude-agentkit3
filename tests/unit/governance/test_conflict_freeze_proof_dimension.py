@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.governance.integrity_gate import IntegrityGateContext
-from agentkit.governance.integrity_gate._dimension_specs import IntegrityDimension
-from agentkit.governance.integrity_gate.dimensions import evaluate_dimension
-from agentkit.story_context_manager.types import StoryType
+from agentkit.backend.governance.integrity_gate import IntegrityGateContext
+from agentkit.backend.governance.integrity_gate._dimension_specs import IntegrityDimension
+from agentkit.backend.governance.integrity_gate.dimensions import evaluate_dimension
+from agentkit.backend.story_context_manager.types import StoryType
 
 if TYPE_CHECKING:
     from pathlib import Path

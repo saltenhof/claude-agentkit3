@@ -4,10 +4,10 @@ import json
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 
-from agentkit.concept_catalog.http.routes import ConceptCatalogRoutes
-from agentkit.concept_catalog.index import ConceptIndex
-from agentkit.control_plane.http import ControlPlaneApplication
-from agentkit.control_plane_http.app import ControlPlaneApplicationRoutes
+from agentkit.backend.concept_catalog.http.routes import ConceptCatalogRoutes
+from agentkit.backend.concept_catalog.index import ConceptIndex
+from agentkit.backend.control_plane.http import ControlPlaneApplication
+from agentkit.backend.control_plane_http.app import ControlPlaneApplicationRoutes
 
 if TYPE_CHECKING:
     from pathlib import Path

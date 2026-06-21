@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from tests.phase_state_factory import make_phase_state
 
-from agentkit.pipeline_engine.phase_executor import PhaseState, PhaseStatus
-from agentkit.process.language.guards import (
+from agentkit.backend.pipeline_engine.phase_executor import PhaseState, PhaseStatus
+from agentkit.backend.process.language.guards import (
     GuardResult,
     exploration_gate_approved,
     guard,
@@ -14,8 +14,8 @@ from agentkit.process.language.guards import (
     mode_is_exploration,
     preflight_passed,
 )
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.types import StoryType
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryType
 
 
 class TestGuardResult:

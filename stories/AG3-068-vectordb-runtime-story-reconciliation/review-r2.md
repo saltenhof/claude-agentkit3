@@ -3,7 +3,7 @@ OVERALL: **APPROVE**
 **Per-Dimension**
 - **Konzept-Vollstaendigkeit: PASS** — FK-21 §21.11.4 Freshness ist explizit out-of-scope mit Owner benannt; Repo-Affinity, Export, Conflict-Flag und Weaviate-Readiness sind jetzt vollständig im Scope/AC.
 - **AC-Schaerfe: PASS** — `StoryMdExportResult`, `story_search`, `repair-story-md`, Conflict-Flag-Regel und `VECTORDB_SEARCH` sind testbar konkretisiert.
-- **Klarheit/Eindeutigkeit: PASS** — AG3-070 ist harter alleiniger Config-Owner (`status.yaml depends_on`), dataclass-vs-Pydantic ist geklärt, `agentkit.vectordb.wait_for_weaviate` ist als kanonischer Pfad gepinnt.
+- **Klarheit/Eindeutigkeit: PASS** — AG3-070 ist harter alleiniger Config-Owner (`status.yaml depends_on`), dataclass-vs-Pydantic ist geklärt, `agentkit.backend.vectordb.wait_for_weaviate` ist als kanonischer Pfad gepinnt.
 - **Kontext-Sinnhaftigkeit: WEAK** — kein Blocker, aber FK-21 §21.4.2-Prosa-Logging bleibt als doc-only Nachzug offen, während die Story dem bestehenden Event-Contract folgt. Das ist bewusst adressiert, aber noch Konzeptpflege.
 
 **Must-Fix ERRORs**

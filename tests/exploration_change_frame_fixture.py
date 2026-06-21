@@ -18,15 +18,15 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from agentkit.artifacts import (
+from agentkit.backend.artifacts import (
     ArtifactEnvelope,
     EnvelopeStatus,
     Producer,
     ProducerId,
     ProducerType,
 )
-from agentkit.core_types import ArtifactClass
-from agentkit.exploration.change_frame import (
+from agentkit.backend.core_types import ArtifactClass
+from agentkit.backend.exploration.change_frame import (
     AffectedBuildingBlocks,
     ChangeFrame,
     ConformanceStatement,
@@ -36,18 +36,18 @@ from agentkit.exploration.change_frame import (
     SolutionDirection,
     VerificationSketch,
 )
-from agentkit.exploration.register import (
+from agentkit.backend.exploration.register import (
     EXPLORATION_ENTWURF_PRODUCER,
     EXPLORATION_ENTWURF_STAGE,
 )
-from agentkit.state_backend.store.exploration_change_frame_repository import (
+from agentkit.backend.state_backend.store.exploration_change_frame_repository import (
     StateBackendExplorationChangeFrameAdapter,
 )
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.artifacts import ArtifactManager, ArtifactReference
+    from agentkit.backend.artifacts import ArtifactManager, ArtifactReference
 
 #: Fixed creation timestamp for the example (tz-aware UTC).
 EXAMPLE_CREATED_AT = datetime(2026, 6, 5, 10, 30, tzinfo=UTC)

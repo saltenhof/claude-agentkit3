@@ -1,4 +1,4 @@
-"""Unit tests for agentkit.config.loader."""
+"""Unit tests for agentkit.backend.config.loader."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ from typing import Any
 import pytest
 import yaml
 
-from agentkit.config.loader import find_project_root, load_project_config
-from agentkit.config.models import ProjectConfig
-from agentkit.exceptions import ConfigError
+from agentkit.backend.config.loader import find_project_root, load_project_config
+from agentkit.backend.config.models import ProjectConfig
+from agentkit.backend.exceptions import ConfigError
 
 
 class TestFindProjectRoot:

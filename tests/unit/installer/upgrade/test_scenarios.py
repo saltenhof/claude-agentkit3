@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from agentkit.installer.upgrade.scenarios import (
+from agentkit.backend.installer.upgrade.scenarios import (
     UpgradeScenario,
     decide_upgrade_scenario,
 )

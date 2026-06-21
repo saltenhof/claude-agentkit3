@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.prompt_runtime.resources import MANIFEST_PATH, load_prompt_template
+from agentkit.backend.prompt_runtime.resources import MANIFEST_PATH, load_prompt_template
 
 
 @pytest.mark.contract

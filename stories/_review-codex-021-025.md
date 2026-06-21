@@ -74,7 +74,7 @@ ausgeschlossen.
 
 **Beschreibungs-Adaequanz:** Kontext und Schnitt sind klar: erst Modelle und
 Registry, keine Persistenz-Migration. Die betroffenen Dateien sind fuer ein
-neues `agentkit.artifacts`-Paket realistisch. Out-of-Scope ist konkret und
+neues `agentkit.backend.artifacts`-Paket realistisch. Out-of-Scope ist konkret und
 verhindert Scope-Creep in Richtung AG3-023 und THEME-006.
 
 **Umsetzungsreife:** Fast ausreichend. Die Story enthaelt Modelle,

@@ -18,15 +18,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.state_backend.store.projection_repositories import (
+from agentkit.backend.state_backend.store.projection_repositories import (
     build_projection_repositories,
 )
-from agentkit.telemetry.projection_accessor import (
+from agentkit.backend.telemetry.projection_accessor import (
     ProjectionAccessor,
     ProjectionFilter,
     ProjectionKind,
 )
-from agentkit.verify_system.stage_registry.records import (
+from agentkit.backend.verify_system.stage_registry.records import (
     CheckOutcome,
     QACheckOutcomeRecord,
 )
@@ -45,7 +45,7 @@ def accessor(
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
     os.environ["AGENTKIT_STATE_BACKEND"] = "sqlite"
     os.environ["AGENTKIT_ALLOW_SQLITE"] = "1"
-    from agentkit.state_backend.store.facade import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     repos = build_projection_repositories(tmp_path)
@@ -208,7 +208,7 @@ def test_since_days_window_includes_recent(accessor: ProjectionAccessor) -> None
 
     # Directly call FacadeQACheckOutcomesRepository since ProjectionFilter
     # does not yet have a _now injection path; use the repo directly.
-    from agentkit.state_backend.store.projection_repositories import (
+    from agentkit.backend.state_backend.store.projection_repositories import (
         FacadeQACheckOutcomesRepository,
     )
 
@@ -225,7 +225,7 @@ def test_since_days_window_excludes_old(accessor: ProjectionAccessor) -> None:
         ProjectionKind.QA_CHECK_OUTCOMES, _record(occurred_at=old_ts)
     )
 
-    from agentkit.state_backend.store.projection_repositories import (
+    from agentkit.backend.state_backend.store.projection_repositories import (
         FacadeQACheckOutcomesRepository,
     )
 

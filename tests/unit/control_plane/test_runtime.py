@@ -7,28 +7,28 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from agentkit.control_plane.models import (
+from agentkit.backend.control_plane.models import (
     ClosureCompleteRequest,
     ControlPlaneMutationResult,
     PhaseDispatchResult,
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,
 )
-from agentkit.control_plane.records import (
+from agentkit.backend.control_plane.records import (
     BindingDeleteScope,
     ControlPlaneOperationRecord,
     SessionRunBindingRecord,
 )
-from agentkit.control_plane.repository import ControlPlaneRuntimeRepository
-from agentkit.control_plane.runtime import ControlPlaneRuntimeService
-from agentkit.core_types import StoryMode
-from agentkit.story_context_manager.models import StoryContext
-from agentkit.story_context_manager.story_model import WireStoryMode
-from agentkit.story_context_manager.types import StoryType
+from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
+from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
+from agentkit.backend.core_types import StoryMode
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import WireStoryMode
+from agentkit.backend.story_context_manager.types import StoryType
 
 if TYPE_CHECKING:
-    from agentkit.governance.guard_system.records import StoryExecutionLockRecord
-    from agentkit.telemetry.contract.records import ExecutionEventRecord
+    from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
+    from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 
 class _RepoState:
@@ -163,7 +163,7 @@ class _FakeOps:
         # ``claimed`` row makes the op-row upsert raise
         # ``ControlPlaneClaimCollisionError`` BEFORE any side effect is applied, so a
         # collision leaves NO orphan binding/lock/event and the live claim intact.
-        from agentkit.exceptions import ControlPlaneClaimCollisionError
+        from agentkit.backend.exceptions import ControlPlaneClaimCollisionError
 
         existing = self._state.operations.get(record.op_id)
         if existing is not None and existing.status == "claimed":
@@ -251,7 +251,7 @@ class _FakeOps:
         # conditional upsert: a complete/fail reusing a live start's op_id is
         # rejected fail-closed via ``ControlPlaneClaimCollisionError``; a fresh
         # insert and an update of a terminal row are unaffected.
-        from agentkit.exceptions import ControlPlaneClaimCollisionError
+        from agentkit.backend.exceptions import ControlPlaneClaimCollisionError
 
         existing = self._state.operations.get(record.op_id)
         if existing is not None and existing.status == "claimed":
@@ -277,7 +277,7 @@ def _fake_run_scoped_save_binding(
     fake validates the same invariant BEFORE mutating, so a foreign-run overwrite is
     caught and rolls back the whole "transaction".
     """
-    from agentkit.exceptions import ControlPlaneBindingCollisionError
+    from agentkit.backend.exceptions import ControlPlaneBindingCollisionError
 
     existing = state.bindings.get(binding.session_id)
     if existing is None:
@@ -304,7 +304,7 @@ def _fake_run_scoped_delete_binding(
     benign no-op; a foreign-run binding raises ``ControlPlaneBindingCollisionError``
     (never tearing down a foreign run's regime).
     """
-    from agentkit.exceptions import ControlPlaneBindingCollisionError
+    from agentkit.backend.exceptions import ControlPlaneBindingCollisionError
 
     existing = state.bindings.get(scope.session_id)
     if existing is None:
@@ -2877,7 +2877,7 @@ def test_naive_claimed_at_is_treated_as_expired_takeover_proceeds() -> None:
 
 def test_malformed_claimed_at_via_mapper_is_treated_as_expired() -> None:
     """WARNING-4 (#4): an unparseable claimed_at maps to None (EXPIRED), no crash."""
-    from agentkit.state_backend.store.mappers import control_plane_op_row_to_record
+    from agentkit.backend.state_backend.store.mappers import control_plane_op_row_to_record
 
     row = {
         "op_id": "op-bad-claimed-at",
@@ -2903,7 +2903,7 @@ def test_malformed_claimed_at_via_mapper_is_treated_as_expired() -> None:
 
 def test_aware_non_utc_claimed_at_is_normalized_to_utc() -> None:
     """WARNING-4 (#4): an aware non-UTC claimed_at is converted to aware UTC."""
-    from agentkit.state_backend.store.mappers import control_plane_op_row_to_record
+    from agentkit.backend.state_backend.store.mappers import control_plane_op_row_to_record
 
     row = {
         "op_id": "op-offset-claimed-at",
@@ -2936,7 +2936,7 @@ def test_aware_non_utc_claimed_at_is_normalized_to_utc() -> None:
 
 def test_invalid_owner_token_is_rejected_at_the_seam() -> None:
     """WARNING-5 (#5): an empty / non-UUID-shaped owner token is rejected fail-closed."""
-    from agentkit.exceptions import ConfigError
+    from agentkit.backend.exceptions import ConfigError
 
     state = _RepoState()
     _resolvable_standard_ctx(state)

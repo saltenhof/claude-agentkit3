@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 
 from tests.unit.governance.governance_observer.conftest import ScriptedEventReader
 
-from agentkit.governance.governance_observer.cooldown import should_adjudicate
+from agentkit.backend.governance.governance_observer.cooldown import should_adjudicate
 
 _PROJECT_KEY = "PRJ"
 _STORY_ID = "AG3-085"

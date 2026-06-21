@@ -7,15 +7,15 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
-from agentkit.artifacts.envelope import ArtifactEnvelope
-from agentkit.artifacts.errors import (
+from agentkit.backend.artifacts.envelope import ArtifactEnvelope
+from agentkit.backend.artifacts.errors import (
     EnvelopeFieldError,
     ProducerNotRegisteredError,
 )
-from agentkit.artifacts.producer import Producer, ProducerId, ProducerType
-from agentkit.artifacts.producer_registry import ProducerRegistry
-from agentkit.artifacts.validator import EnvelopeValidator
-from agentkit.core_types import ArtifactClass, EnvelopeStatus
+from agentkit.backend.artifacts.producer import Producer, ProducerId, ProducerType
+from agentkit.backend.artifacts.producer_registry import ProducerRegistry
+from agentkit.backend.artifacts.validator import EnvelopeValidator
+from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus
 
 
 def _now() -> datetime:

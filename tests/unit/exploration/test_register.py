@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentkit.artifacts import (
+from agentkit.backend.artifacts import (
     ArtifactEnvelope,
     EnvelopeStatus,
     EnvelopeValidator,
@@ -21,10 +21,10 @@ from agentkit.artifacts import (
     ProducerRegistry,
     ProducerType,
 )
-from agentkit.artifacts.errors import ProducerNotRegisteredError
-from agentkit.bootstrap.composition_root import build_producer_registry
-from agentkit.core_types import ArtifactClass
-from agentkit.exploration.register import (
+from agentkit.backend.artifacts.errors import ProducerNotRegisteredError
+from agentkit.backend.bootstrap.composition_root import build_producer_registry
+from agentkit.backend.core_types import ArtifactClass
+from agentkit.backend.exploration.register import (
     EXPLORATION_ENTWURF_PRODUCER,
     register_exploration_producers,
 )

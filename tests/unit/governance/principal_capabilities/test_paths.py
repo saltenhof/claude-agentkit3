@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentkit.governance.principal_capabilities import PathClass, PathClassifier
+from agentkit.backend.governance.principal_capabilities import PathClass, PathClassifier
 
 _ROOT = Path("/repo")
 _STORY = "AG3-001"

@@ -1,8 +1,8 @@
-"""Unit tests for agentkit.config.defaults."""
+"""Unit tests for agentkit.backend.config.defaults."""
 
 from __future__ import annotations
 
-from agentkit.config.defaults import (
+from agentkit.backend.config.defaults import (
     DEFAULT_CONFIG_DIR,
     DEFAULT_CONFIG_FILE,
     DEFAULT_MAX_FEEDBACK_ROUNDS,

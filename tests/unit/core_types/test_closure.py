@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.core_types import ClosureVerdict, MergePolicy
+from agentkit.backend.core_types import ClosureVerdict, MergePolicy
 
 
 class TestClosureVerdict:

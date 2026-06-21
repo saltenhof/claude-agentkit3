@@ -7,14 +7,14 @@ a traversed layer.
 
 from __future__ import annotations
 
-from agentkit.core_types import PolicyVerdict, Severity
-from agentkit.story_context_manager.types import StoryType
-from agentkit.verify_system.policy_engine.engine import (
+from agentkit.backend.core_types import PolicyVerdict, Severity
+from agentkit.backend.story_context_manager.types import StoryType
+from agentkit.backend.verify_system.policy_engine.engine import (
     DEFAULT_MAJOR_THRESHOLD,
     PolicyEngine,
 )
-from agentkit.verify_system.protocols import Finding, LayerResult, TrustClass
-from agentkit.verify_system.stage_registry import StageRegistry
+from agentkit.backend.verify_system.protocols import Finding, LayerResult, TrustClass
+from agentkit.backend.verify_system.stage_registry import StageRegistry
 
 
 def _finding(severity: Severity, layer: str = "structural") -> Finding:

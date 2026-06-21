@@ -11,7 +11,7 @@ from __future__ import annotations
 import sqlite3
 from typing import TYPE_CHECKING
 
-from agentkit.state_backend.migration import MigrationRunner
+from agentkit.backend.state_backend.migration import MigrationRunner
 
 if TYPE_CHECKING:
     from pathlib import Path

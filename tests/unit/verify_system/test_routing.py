@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from agentkit.core_types import QaContext
-from agentkit.verify_system.routing import QALayerKind, select_layers
+from agentkit.backend.core_types import QaContext
+from agentkit.backend.verify_system.routing import QALayerKind, select_layers
 
 
 class TestSelectLayers:

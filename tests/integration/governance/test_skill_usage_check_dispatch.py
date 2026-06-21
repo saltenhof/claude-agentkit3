@@ -16,26 +16,26 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.control_plane.models import (
+from agentkit.backend.control_plane.models import (
     EdgeBundle,
     EdgePointer,
     SessionRunBindingView,
     StoryExecutionLockView,
 )
-from agentkit.governance.guard_evaluation import HookEvent
-from agentkit.governance.runner import run_hook
-from agentkit.projectedge.client import LocalEdgePublisher
-from agentkit.skills.binding import (
+from agentkit.backend.governance.guard_evaluation import HookEvent
+from agentkit.backend.governance.runner import run_hook
+from agentkit.backend.skills.binding import (
     SkillBinding,
     SkillBindingMode,
     SkillLifecycleStatus,
 )
-from agentkit.state_backend.store import reset_backend_cache_for_tests
-from agentkit.state_backend.store.skill_binding_repository import (
+from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.skill_binding_repository import (
     StateBackendSkillBindingRepository,
 )
-from agentkit.telemetry.events import EventType, validate_event_payload
-from agentkit.telemetry.storage import StateBackendEmitter
+from agentkit.backend.telemetry.events import EventType, validate_event_payload
+from agentkit.backend.telemetry.storage import StateBackendEmitter
+from agentkit.harness_client.projectedge.client import LocalEdgePublisher
 
 if TYPE_CHECKING:
     from collections.abc import Generator

@@ -13,12 +13,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.installer.upgrade.cleanup import (
+from agentkit.backend.installer.upgrade.cleanup import (
     CleanupAction,
     CleanupPlan,
     run_cleanup,
 )
-from agentkit.installer.upgrade.footprint import (
+from agentkit.backend.installer.upgrade.footprint import (
     CustomizationFootprint,
     CustomizationKind,
     CustomizationPoint,
