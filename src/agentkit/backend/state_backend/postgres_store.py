@@ -9,6 +9,7 @@ All BC-Record <-> dict conversions live in
 from __future__ import annotations
 
 import json
+import threading
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -46,6 +47,8 @@ if TYPE_CHECKING:
 _PROJECT_KEY_FILTER = "project_key = ?"
 _STORY_ID_FILTER = "story_id = ?"
 _RUN_ID_FILTER = "run_id = ?"
+_SCHEMA_ENSURE_LOCK = threading.Lock()
+_SCHEMA_ENSURED = False
 _JsonRecord = dict[str, object]
 _OptionalString = str | None
 
@@ -236,7 +239,7 @@ def _connect_global() -> Iterator[_CompatConnection]:
     )
     compat = _CompatConnection(conn)
     _ensure_versioned_schema(compat)
-    _ensure_schema(compat)
+    _ensure_schema_once(compat)
     try:
         yield compat
         conn.commit()
@@ -261,6 +264,59 @@ def _ensure_versioned_schema(conn: _CompatConnection) -> None:
     # quoted via sql.Identifier; operate on the raw connection because the
     # sqlite-style _CompatConnection.execute only accepts ``str`` queries.
     ensure_versioned_schema(conn._conn)
+
+
+def _ensure_schema_once(conn: _CompatConnection) -> None:
+    """Run the heavy canonical DDL bootstrap once per process.
+
+    Every connection still runs ``ensure_versioned_schema`` above so its
+    ``search_path`` is correct. The table/index/ALTER bootstrap is idempotent
+    but expensive on Postgres and must not run on every HTTP request.
+    """
+    global _SCHEMA_ENSURED
+    if _SCHEMA_ENSURED:
+        return
+    with _SCHEMA_ENSURE_LOCK:
+        if _SCHEMA_ENSURED:
+            return
+        if _schema_is_bootstrapped(conn):
+            _SCHEMA_ENSURED = True
+            return
+        _ensure_schema(conn)
+        _SCHEMA_ENSURED = True
+
+
+def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
+    """Return whether the selected schema already carries the current core DDL."""
+    required_tables = (
+        "projects",
+        "story_contexts",
+        "decision_records",
+        "phase_snapshots",
+        "project_mode_lock",
+        "qa_stage_results",
+    )
+    table_rows = conn.execute(
+        """
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = current_schema()
+          AND table_name = ANY(%s)
+        """,
+        (list(required_tables),),
+    ).fetchall()
+    if {str(row["table_name"]) for row in table_rows} != set(required_tables):
+        return False
+    flow_id = conn.execute(
+        """
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'decision_records'
+          AND column_name = 'flow_id'
+        """,
+    ).fetchone()
+    return flow_id is not None
 
 
 def _schema_alter_statements() -> tuple[str, ...]:
