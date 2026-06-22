@@ -108,13 +108,11 @@ export function App(): ReactElement {
       if (limits.status === 'fulfilled' && limits.value !== undefined) {
         setExecutionLimits(limits.value);
       }
-      const failures = [storyList, storyCounters, lock, graph, input, limits].filter(
-        (result) => result.status === 'rejected',
-      );
-      if (failures.length > 0) {
-        setError(`${failures.length} Backend-Teilflaeche(n) nicht geladen.`);
+      if (storyList.status === 'rejected') {
+        setError('Stories konnten nicht geladen werden.');
         setOffline(true);
       } else {
+        setError(null);
         setOffline(false);
       }
       setLoading(false);
