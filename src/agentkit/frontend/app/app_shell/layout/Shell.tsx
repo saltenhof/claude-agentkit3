@@ -252,8 +252,8 @@ function GraphView({
         {edges.map((edge) => {
           const fromId = edge.from_story_id ?? edge.depends_on_story_id;
           const toId = edge.to_story_id ?? edge.story_id;
-          const from = fromId !== undefined ? byId.get(fromId) : undefined;
-          const to = toId !== undefined ? byId.get(toId) : undefined;
+          const from = fromId === undefined ? undefined : byId.get(fromId);
+          const to = toId === undefined ? undefined : byId.get(toId);
           if (from !== undefined && to !== undefined) {
             return (
               <line
