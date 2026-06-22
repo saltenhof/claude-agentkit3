@@ -203,6 +203,15 @@ button:disabled {
   appearance: none;
 }
 
+.project-heading select option {
+  color: var(--ak-text);
+  background: var(--ak-bg-raised);
+  font-family: "Open Sans", "Aptos", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
 .project-heading svg {
   position: absolute;
   right: 0;
