@@ -454,7 +454,8 @@ def _postgres_connect() -> Iterator[Any]:
         # EXISTS). Prevents "relation does not exist" when the write path
         # runs via the ProjectionAccessor without a prior other
         # postgres_store call having booted the schema.
-        postgres_store._ensure_schema(postgres_store._CompatConnection(conn))
+        postgres_store._ensure_schema_once(postgres_store._CompatConnection(conn))
+        conn.commit()
         yield conn
         conn.commit()
     except Exception:

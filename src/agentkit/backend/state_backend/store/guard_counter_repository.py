@@ -107,7 +107,8 @@ def _postgres_connect() -> Iterator[Any]:
     conn = psycopg.connect(_postgres_database_url(), row_factory=dict_row)
     try:
         ensure_versioned_schema(conn)
-        postgres_store._ensure_schema(postgres_store._CompatConnection(conn))
+        postgres_store._ensure_schema_once(postgres_store._CompatConnection(conn))
+        conn.commit()
         yield conn
         conn.commit()
     except Exception:

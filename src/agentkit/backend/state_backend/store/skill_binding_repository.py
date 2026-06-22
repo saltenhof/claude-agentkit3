@@ -130,7 +130,8 @@ def _postgres_connect() -> Iterator[Any]:
         # Bootstrap via the canonical Postgres schema owner (SINGLE SOURCE OF
         # TRUTH, symmetric to _sqlite_connect): guarantees skill_bindings exists
         # before the adapter writes/reads. Idempotent (CREATE IF NOT EXISTS).
-        postgres_store._ensure_schema(postgres_store._CompatConnection(conn))
+        postgres_store._ensure_schema_once(postgres_store._CompatConnection(conn))
+        conn.commit()
         yield conn
         conn.commit()
     except Exception:
