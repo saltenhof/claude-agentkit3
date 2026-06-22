@@ -51,6 +51,10 @@ def ensure_versioned_schema(conn: psycopg.Connection[Any]) -> None:
     conn.execute(
         sql.SQL("SET search_path TO {}, public").format(sql.Identifier(schema)),
     )
+    # The advisory lock is transaction-scoped. All call sites invoke this helper
+    # immediately after opening a fresh connection; commit here so later
+    # repository-specific schema bootstrap cannot hold the global DDL lock.
+    conn.commit()
 
 
 __all__ = ["ensure_versioned_schema"]
