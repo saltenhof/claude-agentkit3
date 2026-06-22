@@ -365,6 +365,43 @@ button:disabled {
   min-height: 520px;
 }
 
+.graph-main {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.graph-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  min-height: 38px;
+  overflow: hidden;
+  border: 1px solid var(--ak-border);
+  border-radius: 8px;
+  background: #14171d;
+}
+
+.graph-tabs button {
+  border: 0;
+  border-right: 1px solid var(--ak-border);
+  background: transparent;
+  color: var(--ak-text-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.graph-tabs button:last-child {
+  border-right: 0;
+}
+
+.graph-tabs button:hover,
+.graph-tabs button.active {
+  color: var(--ak-accent-text);
+  background: color-mix(in srgb, var(--ak-accent), transparent 84%);
+}
+
 .graph-edge {
   stroke: #65717d;
   stroke-width: 2;
@@ -383,6 +420,174 @@ button:disabled {
 .graph-node text {
   fill: var(--ak-text-soft);
   font-size: 13px;
+}
+
+.ready-stack-view,
+.execution-limits-view {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--ak-border);
+  border-radius: 8px;
+  background: #14171d;
+}
+
+.ready-stack-view {
+  display: grid;
+  grid-template-rows: auto auto auto;
+  gap: 18px;
+  padding: 18px;
+}
+
+.ready-stack-view__header h2,
+.execution-limits-view__header h2,
+.ready-stack-section h3 {
+  margin: 0;
+}
+
+.ready-stack-view__header p,
+.execution-limits-view__header p {
+  margin: 8px 0 0;
+  color: var(--ak-text-muted);
+  font-size: 13px;
+}
+
+.ready-stack-section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ready-stack-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ready-stack-section h3 {
+  color: var(--ak-text-soft);
+  font-size: 14px;
+}
+
+.copy-ids-button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--ak-border);
+  border-radius: 6px;
+  background: #151b23;
+  color: var(--ak-text-muted);
+}
+
+.copy-ids-button:hover:not(:disabled) {
+  border-color: var(--ak-accent);
+  color: var(--ak-accent-text);
+}
+
+.ready-stack-grid {
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.ready-stack-column {
+  display: grid;
+  grid-template-rows: repeat(3, minmax(82px, auto));
+  gap: 10px;
+  min-width: 240px;
+}
+
+.ready-stack-card {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-height: 82px;
+  padding: 12px;
+  border: 1px solid var(--ak-border);
+  border-radius: 8px;
+  background: #191b1f;
+  color: inherit;
+  text-align: left;
+}
+
+.ready-stack-card[data-variant="current"] {
+  border-color: color-mix(in srgb, var(--ak-accent), transparent 18%);
+  box-shadow: inset 3px 0 0 var(--ak-accent-text);
+}
+
+.ready-stack-card strong {
+  color: var(--ak-accent-text);
+  font-size: 12px;
+}
+
+.ready-stack-card span {
+  overflow: hidden;
+  color: var(--ak-text);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+}
+
+.ready-stack-card small {
+  color: var(--ak-text-muted);
+  font-size: 12px;
+}
+
+.ready-stack-card.is-placeholder {
+  place-content: center;
+  border-style: dashed;
+  color: var(--ak-text-muted);
+  text-align: center;
+}
+
+.execution-limits-view {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 16px;
+  padding: 18px;
+}
+
+.execution-limits-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.execution-limits-field,
+.empty-panel {
+  padding: 14px;
+  border: 1px solid var(--ak-border);
+  border-radius: 8px;
+  background: #191b1f;
+}
+
+.execution-limits-field {
+  display: grid;
+  gap: 8px;
+}
+
+.execution-limits-field span {
+  color: var(--ak-text-soft);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.execution-limits-field strong {
+  color: var(--ak-text);
+  font-size: 28px;
+  line-height: 1;
+}
+
+.execution-limits-field p,
+.empty-panel {
+  margin: 0;
+  color: var(--ak-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .kanban-view {

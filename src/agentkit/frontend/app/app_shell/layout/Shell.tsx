@@ -16,7 +16,7 @@ import { useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
 import type { AppActions, AppData } from '../../App';
-import { DependencyGraph } from '../../contexts/execution_planning/components/DependencyGraph';
+import { ExecutionPlanningView } from '../../contexts/execution_planning/components/ExecutionPlanningView';
 import { AnalyticsView } from '../../contexts/kpi_analytics/components/AnalyticsView';
 import { KpiStrip } from '../../contexts/project_management/components/KpiStrip';
 import { KanbanBoard } from '../../contexts/story_context_manager/components/KanbanBoard';
@@ -186,7 +186,13 @@ function Dashboard({
     <div className="dashboard">
       <KpiStrip counters={data.counters} executionInput={data.executionInput} stories={data.stories} />
       {data.viewMode === 'graph' && (
-        <DependencyGraph dependencies={data.dependencies} stories={stories} onSelectStory={actions.selectStory} />
+        <ExecutionPlanningView
+          dependencies={data.dependencies}
+          executionInput={data.executionInput}
+          executionLimits={data.executionLimits}
+          stories={stories}
+          onSelectStory={actions.selectStory}
+        />
       )}
       {data.viewMode === 'kanban' && (
         <KanbanBoard
