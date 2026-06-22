@@ -508,7 +508,7 @@ class TestClosureResume:
         # The persisted row is unchanged and is what the resume reused.
         after = load_story_metrics(s_dir, story_id="TEST-001")
         assert [r.completed_at for r in after] == [original_completed_at]
-        assert "2099" not in original_completed_at
+        assert datetime.fromisoformat(original_completed_at).year != 2099
 
     def test_resume_with_postflight_done_skips_finalization(
         self, tmp_path: Path
