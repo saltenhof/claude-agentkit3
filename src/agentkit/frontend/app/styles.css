@@ -1066,16 +1066,163 @@ button:disabled {
 
 .analytics-view {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 18px;
   padding: 18px;
 }
 
-.analytics-view h2,
+.analytics-view__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.analytics-view__head h2,
 .foundation-view h2,
 .empty-state h2 {
-  margin: 0 0 16px;
+  margin: 0;
   font-size: 18px;
+}
+
+.eyebrow {
+  margin: 0 0 5px;
+  color: var(--ak-text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.analytics-tabs {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--ak-border);
+  border-radius: 8px;
+  background: #14171d;
+}
+
+.analytics-tabs button {
+  min-height: 34px;
+  padding: 0 18px;
+  border: 0;
+  border-right: 1px solid var(--ak-border);
+  background: transparent;
+  color: var(--ak-text-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.analytics-tabs button:last-child {
+  border-right: 0;
+}
+
+.analytics-tabs button:hover,
+.analytics-tabs button.active {
+  color: var(--ak-accent-text);
+  background: color-mix(in srgb, var(--ak-accent), transparent 84%);
+}
+
+.analytics-overview,
+.analytics-timeseries {
+  display: grid;
+  gap: 16px;
+  min-height: 0;
+}
+
+.analytics-overview__lead,
+.analytics-timeseries__controls p {
+  margin: 0;
+  color: var(--ak-text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.analytics-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.kpi-stat-card,
+.analytics-card,
+.analytics-timeseries__controls,
+.analytics-chart,
+.analytics-wave-card {
+  border: 1px solid var(--ak-border);
+  border-radius: 8px;
+  background: #191b1f;
+}
+
+.kpi-stat-card {
+  display: grid;
+  gap: 14px;
+  min-height: 170px;
+  padding: 14px;
+}
+
+.kpi-stat-card h3,
+.analytics-card h3 {
+  margin: 0;
+  color: var(--ak-text-soft);
+  font-size: 13px;
+}
+
+.kpi-stat-card__primary {
+  display: grid;
+  gap: 4px;
+}
+
+.kpi-stat-card__primary span {
+  color: var(--ak-text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.kpi-stat-card__primary strong {
+  color: var(--ak-text);
+  font-size: 28px;
+  line-height: 1;
+}
+
+.kpi-stat-card dl {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0;
+}
+
+.kpi-stat-card dl div {
+  padding: 8px;
+  border-radius: 6px;
+  background: #14171d;
+}
+
+.kpi-stat-card dt,
+.limit-grid dt {
+  color: var(--ak-text-muted);
+  font-size: 11px;
+}
+
+.kpi-stat-card dd,
+.limit-grid dd {
+  margin: 3px 0 0;
+  color: var(--ak-text);
+  font-weight: 800;
+}
+
+.analytics-breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.analytics-card {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-height: 190px;
+  padding: 14px;
 }
 
 .bar-row {
@@ -1117,9 +1264,80 @@ button:disabled {
 }
 
 .limit-grid dd {
-  margin: 0;
+  text-align: right;
+}
+
+.analytics-timeseries__controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+}
+
+.analytics-timeseries__controls strong {
   color: var(--ak-text);
-  font-weight: 700;
+}
+
+.analytics-timeseries__controls > div {
+  display: grid;
+  gap: 4px;
+}
+
+.analytics-chart {
+  min-height: 340px;
+  padding: 14px;
+}
+
+.analytics-chart svg {
+  display: block;
+  width: 100%;
+  height: 320px;
+}
+
+.analytics-line {
+  fill: none;
+  stroke: var(--ak-accent-text);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.8;
+}
+
+.analytics-chart circle {
+  fill: var(--ak-text);
+  stroke: var(--ak-accent-text);
+  stroke-width: 1.4;
+}
+
+.analytics-chart text {
+  fill: var(--ak-text-muted);
+  font-size: 3px;
+  text-anchor: middle;
+}
+
+.analytics-wave-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.analytics-wave-card {
+  display: grid;
+  gap: 6px;
+  min-height: 100px;
+  padding: 12px;
+}
+
+.analytics-wave-card span,
+.analytics-wave-card small {
+  color: var(--ak-text-muted);
+  font-size: 12px;
+}
+
+.analytics-wave-card strong {
+  color: var(--ak-text);
+  font-size: 26px;
+  line-height: 1;
 }
 
 .foundation-view,
