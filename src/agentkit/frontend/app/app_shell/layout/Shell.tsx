@@ -40,12 +40,13 @@ export function Shell({ authenticated, data, actions }: Readonly<ShellProps>): R
   const [kanbanStoryIdFilter, setKanbanStoryIdFilter] = useState('');
   const [kanbanStatusFilter, setKanbanStatusFilter] = useState<StoryStatusFilter>('all');
   const [kanbanSortMode, setKanbanSortMode] = useState<KanbanSortMode>('id');
+  const [sheetStatusFilter, setSheetStatusFilter] = useState<StoryStatusFilter>('all');
 
   if (!authenticated) {
     return <LoginScreen login={actions.login} error={data.error} loading={data.loading} />;
   }
 
-  const filteredStories = filterStories(data.stories, query, kanbanStatusFilter, kanbanStoryIdFilter);
+  const searchedStories = filterStories(data.stories, query);
 
   return (
     <main className="shell" data-inspector-open={data.selectedStoryId !== null}>
@@ -124,14 +125,16 @@ export function Shell({ authenticated, data, actions }: Readonly<ShellProps>): R
 
         <Dashboard
           data={data}
-          stories={filteredStories}
+          stories={searchedStories}
           kanbanStoryIdFilter={kanbanStoryIdFilter}
           kanbanStatusFilter={kanbanStatusFilter}
           kanbanSortMode={kanbanSortMode}
+          sheetStatusFilter={sheetStatusFilter}
           actions={actions}
           onKanbanStoryIdFilterChange={setKanbanStoryIdFilter}
           onKanbanStatusFilterChange={setKanbanStatusFilter}
           onKanbanSortModeChange={setKanbanSortMode}
+          onSheetStatusFilterChange={setSheetStatusFilter}
         />
       </section>
 
@@ -153,20 +156,24 @@ function Dashboard({
   kanbanStoryIdFilter,
   kanbanStatusFilter,
   kanbanSortMode,
+  sheetStatusFilter,
   actions,
   onKanbanStoryIdFilterChange,
   onKanbanStatusFilterChange,
   onKanbanSortModeChange,
+  onSheetStatusFilterChange,
 }: Readonly<{
   data: AppData;
   stories: ReturnType<typeof filterStories>;
   kanbanStoryIdFilter: string;
   kanbanStatusFilter: StoryStatusFilter;
   kanbanSortMode: KanbanSortMode;
+  sheetStatusFilter: StoryStatusFilter;
   actions: AppActions;
   onKanbanStoryIdFilterChange: (value: string) => void;
   onKanbanStatusFilterChange: (value: StoryStatusFilter) => void;
   onKanbanSortModeChange: (value: KanbanSortMode) => void;
+  onSheetStatusFilterChange: (value: StoryStatusFilter) => void;
 }>): ReactElement {
   if (data.selectedProject === null) {
     return <EmptyState title="Keine Projekte" detail="Backend liefert aktuell keine Projektliste." />;
@@ -183,7 +190,7 @@ function Dashboard({
       )}
       {data.viewMode === 'kanban' && (
         <KanbanBoard
-          stories={stories}
+          stories={filterStories(stories, '', kanbanStatusFilter, kanbanStoryIdFilter)}
           totalStoryCount={data.stories.length}
           selectedStoryId={data.selectedStoryId}
           storyIdFilter={kanbanStoryIdFilter}
@@ -195,7 +202,15 @@ function Dashboard({
           onSortModeChange={onKanbanSortModeChange}
         />
       )}
-      {data.viewMode === 'sheet' && <StorySheet stories={stories} onSelectStory={actions.selectStory} />}
+      {data.viewMode === 'sheet' && (
+        <StorySheet
+          stories={stories}
+          selectedStoryId={data.selectedStoryId}
+          statusFilter={sheetStatusFilter}
+          onSelectStory={actions.selectStory}
+          onStatusFilterChange={onSheetStatusFilterChange}
+        />
+      )}
       {data.viewMode === 'analytics' && (
         <AnalyticsView executionLimits={data.executionLimits} stories={stories} />
       )}
