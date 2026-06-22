@@ -840,8 +840,8 @@ button:disabled {
 }
 
 .sheet-pill[data-kind="risk"] {
-  color: #f4c884;
-  background: rgba(130, 91, 30, 0.35);
+  color: #ffe1a3;
+  background: #3c2508;
 }
 
 .sheet-pill[data-kind="status"] {
