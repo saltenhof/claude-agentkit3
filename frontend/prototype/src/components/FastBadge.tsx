@@ -1,11 +1,11 @@
 /*
- * FastBadge — small Fast-mode signal next to the story ID.
+ * FastBadge — kleines Fast-Mode-Signal hinter der Story-ID.
  *
- * Rendered in the Story Inspector head, graph nodes, Kanban cards,
- * sheet cells and Ready Stack cards next to the story ID whenever
- * `mode = 'fast'` is set. Deliberately no text pill — just a
- * cyan-accented lightning icon so it does not consume space in the
- * card header.
+ * Wird im Story-Inspector-Head, in Graph-Knoten, Kanban-Karten,
+ * Sheet-Zellen und Ready-Stack-Kaerten neben der Story-ID gerendert,
+ * sobald `mode = 'fast'` gesetzt ist. Bewusst kein Text-Pill -- nur
+ * ein cyan-akzentuiertes Blitz-Icon, damit es im Card-Header keinen
+ * Platz frisst.
  */
 
 import { Zap } from 'lucide-react';

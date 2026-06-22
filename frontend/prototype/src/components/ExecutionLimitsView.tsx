@@ -4,12 +4,9 @@ import { NumberStepper } from './NumberStepper';
 export function ExecutionLimitsView({
   limits,
   onChange,
-  disabled = false,
 }: {
   limits: ExecutionLimits;
   onChange: (next: ExecutionLimits) => void;
-  /** Disable all controls — used when offline or project is archived (AC6). */
-  disabled?: boolean;
 }) {
   return (
     <div className="execution-limits-view">
@@ -39,7 +36,6 @@ export function ExecutionLimitsView({
                 min={0}
                 step={1}
                 ariaLabel={descriptor.label}
-                disabled={disabled}
                 onChange={(next) =>
                   onChange({
                     ...limits,

@@ -107,7 +107,7 @@ p {
   gap: var(--space-5);
   padding: var(--space-5) var(--space-6) var(--space-4);
   background:
-    linear-gradient(180deg, var(--ak-bg-topbar-top), var(--ak-bg-topbar-bottom)),
+    linear-gradient(180deg, #2b2d31, #23252a),
     var(--ak-bg-raised);
   border-bottom: 0.0625rem solid var(--ak-border);
 }
@@ -256,9 +256,9 @@ h1 {
   min-width: 0;
   padding: var(--space-4);
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--ak-metric-warm-top), white 6%), var(--ak-metric-warm-bottom)),
-    var(--ak-metric-warm-bottom);
-  border-color: color-mix(in srgb, var(--ak-metric-warm-border), transparent 18%);
+    linear-gradient(180deg, color-mix(in srgb, #421a36, white 6%), #1b0e1a),
+    #1b0e1a;
+  border-color: color-mix(in srgb, #623052, transparent 18%);
 }
 
 .metric.tone-danger {
@@ -2030,7 +2030,7 @@ td:hover .sheet-title-cell svg {
   gap: var(--space-3);
 }
 
-/* ---- Analytics page (KPI cockpit, /analytics) ---- */
+/* ---- Analytics-Seite (KPI-Cockpit, /analytics) ---- */
 
 .analytics-view {
   display: flex;
@@ -2070,7 +2070,7 @@ td:hover .sheet-title-cell svg {
   background: transparent;
   color: var(--ak-text-muted);
   font-family: var(--font-display);
-  font-size: var(--font-sm);
+  font-size: 0.8125rem;
   font-weight: var(--weight-semibold);
   letter-spacing: 0.02em;
   cursor: pointer;
@@ -2112,7 +2112,7 @@ td:hover .sheet-title-cell svg {
   margin: 0;
   color: var(--ak-text-muted);
   font-family: var(--font-body);
-  font-size: var(--type-label-size);
+  font-size: 0.75rem;
   font-weight: var(--weight-semibold);
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2126,7 +2126,7 @@ td:hover .sheet-title-cell svg {
 
 .kpi-stat-card__primary-label {
   color: var(--ak-text-faint);
-  font-size: var(--type-sub-label-size);
+  font-size: 0.6875rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -2134,7 +2134,7 @@ td:hover .sheet-title-cell svg {
 .kpi-stat-card__primary-value {
   color: var(--ak-accent-text);
   font-family: var(--font-display);
-  font-size: var(--type-kpi-display-size);
+  font-size: 1.75rem;
   font-weight: var(--weight-semibold);
   line-height: 1.05;
   display: inline-flex;
@@ -2144,7 +2144,7 @@ td:hover .sheet-title-cell svg {
 
 .kpi-stat-card__unit {
   color: var(--ak-text-muted);
-  font-size: var(--type-body-size);
+  font-size: 0.875rem;
   font-weight: var(--weight-medium, 500);
   font-family: var(--font-body);
 }
@@ -2166,7 +2166,7 @@ td:hover .sheet-title-cell svg {
 
 .kpi-stat-card__breakdown dt {
   color: var(--ak-text-faint);
-  font-size: var(--type-micro-size);
+  font-size: 0.625rem;
   font-weight: var(--weight-semibold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -2176,7 +2176,7 @@ td:hover .sheet-title-cell svg {
   margin: 0;
   color: var(--ak-text);
   font-family: var(--font-display);
-  font-size: var(--type-title-size);
+  font-size: 0.9375rem;
   font-weight: var(--weight-semibold);
   display: inline-flex;
   align-items: baseline;
@@ -2184,62 +2184,6 @@ td:hover .sheet-title-cell svg {
 }
 
 /* ---- Timeseries-Tab ---- */
-
-/* E1: filter-selected entity/pipeline dimension panels. */
-.analytics-dimensions {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  margin-top: var(--space-4);
-}
-
-.analytics-dimension {
-  padding: var(--space-4);
-  border: var(--border-hairline) solid var(--ak-border-tab);
-  border-radius: var(--radius-md);
-  background: var(--ak-surface);
-}
-
-.analytics-dimension__title {
-  margin: 0 0 var(--space-3);
-  font-size: var(--text-md);
-  color: var(--ak-text-soft);
-}
-
-.analytics-dimension__rows {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.analytics-dimension__row {
-  display: flex;
-  gap: var(--space-4);
-  align-items: baseline;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
-  background: var(--ak-surface-2);
-}
-
-.analytics-dimension__row-label {
-  flex: 1;
-  font-weight: var(--weight-semibold);
-  color: var(--ak-text);
-}
-
-.analytics-dimension__row-metric {
-  color: var(--ak-text-muted);
-  font-size: var(--text-sm);
-}
-
-.analytics-dimension__empty {
-  margin: 0;
-  color: var(--ak-text-muted);
-  font-size: var(--text-sm);
-}
 
 .analytics-timeseries {
   display: flex;
@@ -2282,7 +2226,7 @@ td:hover .sheet-title-cell svg {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ak-text-muted);
-  font-size: var(--type-label-size);
+  font-size: 0.75rem;
   font-weight: var(--weight-semibold);
   letter-spacing: 0.02em;
   cursor: pointer;
@@ -2313,7 +2257,7 @@ td:hover .sheet-title-cell svg {
   border: var(--border-hairline) solid var(--ak-border);
   background: transparent;
   color: var(--ak-text-muted);
-  font-size: var(--type-label-size);
+  font-size: 0.75rem;
   font-weight: var(--weight-semibold);
   cursor: pointer;
   transition: border-color 0.15s ease, color 0.15s ease;
@@ -2345,7 +2289,7 @@ td:hover .sheet-title-cell svg {
   align-items: center;
   gap: 0.5rem;
   color: var(--ak-text-muted);
-  font-size: var(--type-title-size);
+  font-size: 0.8125rem;
   cursor: pointer;
   user-select: none;
 }
@@ -2449,7 +2393,7 @@ td:hover .sheet-title-cell svg {
   }
 }
 
-/* KPI Bar — story KPIs as a horizontal bar in the Sheet and Kanban views */
+/* KPI Bar — Story KPIs als Querbalken in Sheet- und Kanban-View */
 .kpi-bar {
   display: flex;
   align-items: stretch;
@@ -2521,21 +2465,21 @@ td:hover .sheet-title-cell svg {
 }
 
 .kpi-tile__number {
-  font-size: var(--text-2xl);
+  font-size: 28px;
   font-weight: 600;
   line-height: 1.1;
   color: var(--ak-text);
 }
 
 .kpi-tile__suffix {
-  font-size: var(--font-sm);
+  font-size: 15px;
   font-weight: 500;
   color: var(--ak-text);
   opacity: 0.78;
 }
 
 .kpi-tile__label {
-  font-size: var(--text-xs);
+  font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2543,7 +2487,7 @@ td:hover .sheet-title-cell svg {
   opacity: 0.74;
 }
 
-/* Graph tabs (above the main graph view) and sub-views */
+/* Graph-Tabs (oberhalb der Graph-Hauptansicht) und Sub-Views */
 
 .graph-main {
   display: flex;
@@ -2572,7 +2516,7 @@ td:hover .sheet-title-cell svg {
   min-height: 0;
 }
 
-/* Story card (reusable) */
+/* Story-Card (wiederverwendbar) */
 
 .story-card {
   display: flex;
@@ -2606,7 +2550,7 @@ td:hover .sheet-title-cell svg {
 }
 
 .story-card__id {
-  font-size: var(--text-xs);
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--ak-text);
@@ -2614,7 +2558,7 @@ td:hover .sheet-title-cell svg {
 }
 
 .story-card__size {
-  font-size: var(--text-xs);
+  font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2625,7 +2569,7 @@ td:hover .sheet-title-cell svg {
 }
 
 .story-card__title {
-  font-size: var(--font-sm);
+  font-size: 14px;
   font-weight: 500;
   line-height: 1.35;
   color: var(--ak-text);
@@ -2634,7 +2578,7 @@ td:hover .sheet-title-cell svg {
 .story-card__meta {
   display: flex;
   gap: 6px;
-  font-size: var(--text-xs);
+  font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.04em;
   color: var(--ak-text);
@@ -2682,7 +2626,7 @@ td:hover .sheet-title-cell svg {
   flex-shrink: 0;
 }
 
-/* Copy button — reusable copy icon for the dark theme. */
+/* Copy-Button — wiederverwendbares Copy-Icon im Dark-Theme. */
 
 .copy-button {
   display: inline-flex;
@@ -2729,7 +2673,7 @@ td:hover .sheet-title-cell svg {
 }
 
 .story-card__status-badge {
-  font-size: var(--text-xs);
+  font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2764,7 +2708,7 @@ td:hover .sheet-title-cell svg {
   background: rgba(255, 255, 255, 0.02);
   color: var(--ak-text);
   opacity: 0.45;
-  font-size: var(--text-xs);
+  font-size: 12px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -2794,14 +2738,14 @@ td:hover .sheet-title-cell svg {
 
 .ready-stack-view__header h2 {
   margin: 0;
-  font-size: var(--text-lg);
+  font-size: 18px;
   font-weight: 600;
   color: var(--ak-text);
 }
 
 .ready-stack-view__header p {
   margin: 0;
-  font-size: var(--text-xs);
+  font-size: 13px;
   color: var(--ak-text);
   opacity: 0.7;
 }
@@ -2828,7 +2772,7 @@ td:hover .sheet-title-cell svg {
 
 .ready-stack-section__title {
   margin: 0;
-  font-size: var(--text-xs);
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2842,11 +2786,11 @@ td:hover .sheet-title-cell svg {
   gap: var(--space-2);
 }
 
-/* Empty state of the Execution-Input view no longer needed:
- * instead of a global "empty" container, the view renders a
- * placeholder column with three placeholder cards per section
- * whenever the list is empty (see ReadyStackView.tsx layout
- * invariants). This keeps the layout fixed in place. */
+/* Empty-State der Execution-Input-View nicht mehr noetig:
+ * Statt eines globalen "leer"-Containers rendert die View pro
+ * Sektion eine Platzhalter-Saeule mit drei Placeholder-Karten,
+ * sobald die Liste leer ist (siehe ReadyStackView.tsx Layout-
+ * Invarianten). Das Layout bleibt damit ortsfest. */
 
 /* Execution-Limits-View */
 
@@ -2870,14 +2814,14 @@ td:hover .sheet-title-cell svg {
 
 .execution-limits-view__header h2 {
   margin: 0;
-  font-size: var(--text-lg);
+  font-size: 18px;
   font-weight: 600;
   color: var(--ak-text);
 }
 
 .execution-limits-view__header p {
   margin: 0;
-  font-size: var(--text-xs);
+  font-size: 13px;
   color: var(--ak-text);
   opacity: 0.72;
   line-height: 1.5;
@@ -2891,7 +2835,7 @@ td:hover .sheet-title-cell svg {
 
 .execution-limits-view__hint {
   margin: 0;
-  font-size: var(--text-xs);
+  font-size: 12px;
   color: var(--ak-text);
   opacity: 0.66;
   line-height: 1.5;
@@ -2916,13 +2860,13 @@ td:hover .sheet-title-cell svg {
 }
 
 .execution-limits-field__label {
-  font-size: var(--text-xs);
+  font-size: 13px;
   font-weight: 600;
   color: var(--ak-text);
 }
 
 .execution-limits-field__description {
-  font-size: var(--text-xs);
+  font-size: 12px;
   color: var(--ak-text);
   opacity: 0.7;
   line-height: 1.45;
@@ -2934,8 +2878,8 @@ td:hover .sheet-title-cell svg {
   align-self: flex-start;
 }
 
-/* NumberStepper — custom stepper for the dark theme,
- * replaces the native browser spinners. */
+/* NumberStepper — eigener Stepper im Dark-Theme,
+ * ersetzt die nativen Browser-Spinner. */
 
 .number-stepper {
   display: inline-flex;
@@ -2999,7 +2943,7 @@ td:hover .sheet-title-cell svg {
   border: 0;
   background: transparent;
   color: var(--ak-text);
-  font-size: var(--font-sm);
+  font-size: 14px;
   font-weight: 600;
   text-align: center;
   -moz-appearance: textfield;
@@ -3021,7 +2965,7 @@ td:hover .sheet-title-cell svg {
   border-color: color-mix(in srgb, var(--ak-accent-text), transparent 35%);
 }
 
-/* ---- Fast-mode badge (story-id suffix in all views) ---- */
+/* ---- Fast-Mode-Badge (Story-Id-Suffix in allen Views) ---- */
 
 .fast-badge {
   display: inline-flex;
@@ -3046,19 +2990,19 @@ td:hover .sheet-title-cell svg {
   line-height: 1;
 }
 
-/* The "League Spartan" display font has a raised x-height -- the
- * geometric center of the glyphs sits above the box center.
- * We visually correct the bolt and status badge onto the
- * glyph center. */
+/* Display-Font "League Spartan" hat eine erhoehte x-Linie -- der
+ * geometrische Mittelpunkt der Glyphen liegt oberhalb der Box-Mitte.
+ * Wir korrigieren Blitz und Status-Badge visuell auf den
+ * Glyphen-Mittelpunkt. */
 .inspector-head h2 .fast-badge {
   transform: translateY(-0.125rem);
 }
 
-/* Otherwise the status badge inherits the em-relative label size from
- * the h2 (0.75em of ~32px = 24px) and becomes far too large. Fix: a
- * rem-fixed size + a more restrained height + vertical correction onto the cap line. */
+/* Das Status-Badge erbt sonst die em-relative Label-Size aus dem h2
+ * (0.75em von ~32px = 24px) und wird viel zu gross. Fix: rem-fixe
+ * Groesse + dezentere Hoehe + vertikale Korrektur auf die Cap-Line. */
 .inspector-head h2 .ak-badge {
-  font-size: var(--text-xs);
+  font-size: 0.75rem;
   min-height: 1.25rem;
   padding: 0.125rem 0.5rem;
   transform: translateY(-0.1875rem);
@@ -3076,7 +3020,7 @@ td:hover .sheet-title-cell svg {
   background: var(--ak-bg-raised-alt);
   color: var(--ak-text-muted);
   font-family: var(--font-display);
-  font-size: var(--font-sm);
+  font-size: 0.8125rem;
   font-weight: var(--weight-semibold);
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -3093,7 +3037,7 @@ td:hover .sheet-title-cell svg {
 .mode-indicator__label {
   color: var(--ak-text-faint);
   text-transform: uppercase;
-  font-size: var(--type-sub-label-size);
+  font-size: 0.6875rem;
   letter-spacing: 0.08em;
 }
 
@@ -3278,7 +3222,7 @@ td:hover .sheet-title-cell svg {
   margin: 0;
   color: var(--ak-text);
   font-family: var(--font-display);
-  font-size: var(--type-panel-title-size);
+  font-size: 1.0625rem;
   font-weight: var(--weight-semibold);
   letter-spacing: 0.01em;
 }
@@ -3292,7 +3236,7 @@ td:hover .sheet-title-cell svg {
   border: var(--border-hairline) solid color-mix(in srgb, var(--ak-accent-warm), transparent 55%);
   background: color-mix(in srgb, var(--ak-accent-warm), transparent 86%);
   color: var(--ak-accent-warm-strong);
-  font-size: var(--type-sub-label-size);
+  font-size: 0.6875rem;
   font-weight: var(--weight-semibold);
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -3314,7 +3258,7 @@ td:hover .sheet-title-cell svg {
   border: var(--border-hairline) solid var(--ak-border);
   background: var(--ak-bg-raised-alt);
   color: var(--ak-text-muted);
-  font-size: var(--type-label-size);
+  font-size: 0.75rem;
   font-weight: var(--weight-semibold);
   letter-spacing: 0.02em;
   text-transform: lowercase;
@@ -3335,53 +3279,6 @@ td:hover .sheet-title-cell svg {
 .flow-phase__state-pill--skipped {
   color: var(--ak-text-faint);
   border-style: dashed;
-}
-
-/* Hold-states (AC10f): paused/escalated use the warm accent, failed uses danger. */
-.flow-phase__state-pill--paused,
-.flow-phase__state-pill--escalated {
-  color: var(--ak-accent-warm-strong);
-  border-color: color-mix(in srgb, var(--ak-accent-warm), transparent 45%);
-  background: color-mix(in srgb, var(--ak-accent-warm), transparent 84%);
-}
-
-.flow-phase__state-pill--failed {
-  color: var(--ak-danger);
-  border-color: color-mix(in srgb, var(--ak-danger), transparent 50%);
-  background: color-mix(in srgb, var(--ak-danger), transparent 87%);
-}
-
-.flow-phase__bullet--paused,
-.flow-phase__bullet--escalated {
-  background: var(--ak-accent-warm);
-  border-color: var(--ak-accent-warm-strong);
-  box-shadow: 0 0 0 0.1875rem color-mix(in srgb, var(--ak-accent-warm), transparent 70%);
-}
-
-.flow-phase__bullet--failed {
-  background: var(--ak-danger);
-  border-color: color-mix(in srgb, var(--ak-danger), white 18%);
-  box-shadow: 0 0 0 0.1875rem color-mix(in srgb, var(--ak-danger), transparent 72%);
-}
-
-.flow-phase__state-reason {
-  margin: 0 0 var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  font-size: var(--font-sm);
-  color: var(--ak-text-muted);
-  background: var(--ak-bg-raised-alt);
-}
-
-.flow-phase__state-reason--paused,
-.flow-phase__state-reason--escalated {
-  color: var(--ak-accent-warm-strong);
-  background: color-mix(in srgb, var(--ak-accent-warm), transparent 88%);
-}
-
-.flow-phase__state-reason--failed {
-  color: var(--ak-danger);
-  background: color-mix(in srgb, var(--ak-danger), transparent 90%);
 }
 
 .flow-phase__empty {
@@ -3431,9 +3328,9 @@ td:hover .sheet-title-cell svg {
   text-align: right;
 }
 
-/* Loop region: contiguous substeps with the same loopGroup get a
- * subtle accent stripe on the left + a slightly lowered background
- * so the region reads as a block. */
+/* Loop-Region: zusammenhaengende Substeps mit gleicher loopGroup
+ * bekommen einen subtilen Akzent-Streifen links + leicht abgesenkten
+ * Hintergrund, damit die Region als Block lesbar wird. */
 .flow-substep--in-loop {
   background: color-mix(in srgb, var(--ak-accent-warm), transparent 95%);
 }
@@ -3514,20 +3411,8 @@ td:hover .sheet-title-cell svg {
   border: var(--border-hairline) dashed var(--ak-text-faint);
 }
 
-/* Hold-state substep markers (AC10f). */
-.flow-substep__marker--paused,
-.flow-substep__marker--escalated {
-  background: var(--ak-accent-warm);
-  box-shadow: 0 0 0 0.1875rem color-mix(in srgb, var(--ak-accent-warm), transparent 70%);
-}
-
-.flow-substep__marker--failed {
-  background: var(--ak-danger);
-  box-shadow: 0 0 0 0.1875rem color-mix(in srgb, var(--ak-danger), transparent 72%);
-}
-
-/* Optional substeps: dashed marker, slightly warm accent. The
- * "optional-skipped" variant (not executed) is clearly desaturated. */
+/* Optionale Substeps: dashed Marker, leicht warmer Akzent. Variante
+ * "optional-skipped" (nicht ausgefuehrt) wird klar entfaerbt. */
 .flow-substep__marker--optional-pending {
   background: transparent;
   border: 0.0625rem dashed color-mix(in srgb, var(--ak-accent-warm), transparent 35%);
@@ -3586,7 +3471,7 @@ td:hover .sheet-title-cell svg {
 
 .flow-substep__optional-pill {
   font-family: var(--font-body);
-  font-size: var(--type-micro-size);
+  font-size: 0.625rem;
   font-weight: var(--weight-semibold);
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -3605,7 +3490,7 @@ td:hover .sheet-title-cell svg {
 
 .flow-substep__state {
   font-family: var(--font-body);
-  font-size: var(--type-sub-label-size);
+  font-size: 0.6875rem;
   font-weight: var(--weight-semibold);
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -3620,15 +3505,6 @@ td:hover .sheet-title-cell svg {
   color: var(--ak-accent-text);
 }
 
-.flow-substep__state--paused,
-.flow-substep__state--escalated {
-  color: var(--ak-accent-warm-strong);
-}
-
-.flow-substep__state--failed {
-  color: var(--ak-danger);
-}
-
 .flow-substep__state--skipped {
   color: var(--ak-text-faint);
 }
@@ -3641,10 +3517,10 @@ td:hover .sheet-title-cell svg {
   color: var(--ak-text-faint);
 }
 
-/* Loop marker: header or footer row bounding a loop region at the
- * top and bottom. The header additionally shows the current iteration +
- * configured maximum. Both markers are pure labelling -
- * they do not suggest an automatic loop jump. */
+/* Loop-Marker: Header- bzw. Footer-Zeile, die eine Loop-Region oben
+ * und unten begrenzt. Header zeigt zusaetzlich aktuelle Iteration +
+ * konfiguriertes Maximum. Beide Marker sind reine Beschriftung -
+ * sie suggerieren keinen automatischen Loop-Sprung. */
 .flow-loop-marker {
   display: flex;
   align-items: center;
@@ -3652,7 +3528,7 @@ td:hover .sheet-title-cell svg {
   padding: 0.3125rem 0.875rem;
   background: color-mix(in srgb, var(--ak-accent-warm), transparent 95%);
   color: var(--ak-accent-warm-strong);
-  font-size: var(--type-sub-label-size);
+  font-size: 0.6875rem;
   font-weight: var(--weight-semibold);
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -3692,7 +3568,7 @@ td:hover .sheet-title-cell svg {
   font-weight: var(--weight-medium, 500);
 }
 
-/* Legend below the flowchart. */
+/* Legende unter dem Flowchart. */
 .flow-chart__legend {
   display: flex;
   flex-wrap: wrap;
@@ -3702,7 +3578,7 @@ td:hover .sheet-title-cell svg {
   padding-top: var(--space-3);
   border-top: var(--border-hairline) solid var(--ak-border);
   color: var(--ak-text-muted);
-  font-size: var(--type-label-size);
+  font-size: 0.75rem;
 }
 
 .flow-chart__legend-item {

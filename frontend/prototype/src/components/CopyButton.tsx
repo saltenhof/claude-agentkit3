@@ -1,9 +1,9 @@
 /*
- * CopyButton — reusable copy-to-clipboard button.
+ * CopyButton — wiederverwendbarer Copy-to-Clipboard-Button.
  *
- * Accepts text as a string or a lazy function (for dynamic sources
- * such as the current story list). After a successful copy the icon
- * briefly switches to Check as feedback.
+ * Akzeptiert Text als String oder Lazy-Funktion (fuer dynamische
+ * Quellen wie aktuelle Story-Liste). Nach erfolgreichem Copy
+ * wechselt das Icon kurz auf Check als Feedback.
  */
 
 import { useState } from 'react';

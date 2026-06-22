@@ -1,24 +1,25 @@
 /*
- * FlowTab — Story Inspector "Ablauf" view.
+ * FlowTab — Story-Inspector "Ablauf"-Sicht.
  *
- * Renders the 4-phase pipeline (FK-20) as a vertical phase sequence
- * with substeps. The view is built from the story mode
- * (FK-24 §24.3.3): in Fast mode Exploration is dropped entirely —
- * the phase remains visible but marked as "skipped".
+ * Rendert die 4-Phasen-Pipeline (FK-20) als vertikale Phasen-Sequenz
+ * mit Substeps. Der Sichtbau leitet sich aus dem Story-Mode ab
+ * (FK-24 §24.3.3): im Fast-Mode entfaellt die Exploration komplett —
+ * die Phase bleibt sichtbar, aber als "skipped" markiert.
  *
- * Two effects are modelled explicitly in the flowchart:
+ * Zwei Effekte modelliert das Flowchart explizit:
  *
- * 1. Optional substeps (e.g. `feindesign`, `finding_resolution`,
- *    `vectordb_sync`, `inline_reviews`, `qa_feedback`): rendered with
- *    a dashed marker, italic label and an "optional" pill. After the
- *    phase has passed they may appear as `optional-skipped` (not
- *    executed) rather than simply `done`.
+ * 1. Optionale Substeps (z. B. `feindesign`, `finding_resolution`,
+ *    `vectordb_sync`, `inline_reviews`, `qa_feedback`): werden mit
+ *    gestricheltem Marker, kursivem Label und einer "optional"-Pille
+ *    gekennzeichnet. Nach Phase-Vorbeilauf koennen sie als
+ *    `optional-skipped` (nicht ausgefuehrt) erscheinen, statt einfach
+ *    `done`.
  *
- * 2. Loop groups (Exploration: `design_iteration`; Implementation:
- *    `remediation`): contiguous substep sequences are rendered as a
- *    loop region with an accent bar on the left and a return arrow
- *    at the loop end. On the active phase a "Round N" badge appears
- *    once iteration > 1 has run.
+ * 2. Loop-Gruppen (Exploration: `design_iteration`; Implementation:
+ *    `remediation`): zusammenhaengende Substep-Sequenzen werden als
+ *    Loop-Region mit Akzent-Bar links und Return-Pfeil am Loop-Ende
+ *    dargestellt. Auf der aktiven Phase erscheint zusaetzlich ein
+ *    "Runde N"-Badge, sobald Iteration > 1 gelaufen ist.
  */
 
 import { Fragment } from 'react';
@@ -27,72 +28,23 @@ import {
   LOOP_GROUP_LABELS,
   LOOP_GROUP_MAX_ITERATIONS,
   PHASE_LABELS,
+  selectStoryFlow,
   substepLabel,
   type FlowPhase,
   type FlowState,
   type FlowSubstep,
-  type Phase,
+  type Story,
 } from '../store';
-import type { StoryFlowResponse } from '../foundation/bff/client';
-
-const KNOWN_FLOW_STATES: FlowState[] = [
-  'done',
-  'active',
-  'pending',
-  'skipped',
-  'optional-pending',
-  'optional-skipped',
-  'paused',
-  'escalated',
-  'failed',
-];
-
-/** Map a wire flow state into a UI FlowState. Hold-states (paused/escalated/
- *  failed) are PRESERVED with their own marker class (AC10f), never collapsed to
- *  'active'. An unknown wire value fails closed to 'pending'. */
-function toFlowState(raw: string): FlowState {
-  return (KNOWN_FLOW_STATES as string[]).includes(raw) ? (raw as FlowState) : 'pending';
-}
-
-/**
- * Adapt the fetched story_flow_snapshot (AG3-091 read-model) into the FlowPhase[]
- * the renderer consumes. This is the ONLY flow source: there is no local Story
- * heuristic fallback (E3). `state_reason` is carried through verbatim (AC10f).
- */
-export function flowSnapshotToPhases(
-  snapshot: StoryFlowResponse['story_flow_snapshot'],
-): FlowPhase[] {
-  return snapshot.phases.map((phase) => ({
-    phase: phase.phase as Phase,
-    state: toFlowState(phase.state),
-    stateReason: phase.state_reason ?? undefined,
-    iteration: phase.iteration ?? undefined,
-    iterationLoopGroup: phase.iteration_loop_group ?? undefined,
-    substeps: phase.substeps.map(
-      (substep): FlowSubstep => ({
-        substep: substep.substep,
-        state: toFlowState(substep.state),
-        optional: substep.optional,
-        loopGroup: substep.loop_group ?? undefined,
-        loopPosition: substep.loop_position ?? undefined,
-        loopSize: substep.loop_size ?? undefined,
-      }),
-    ),
-  }));
-}
 
 const STATE_LABEL: Record<FlowState, string> = {
   done: 'erledigt',
   active: 'läuft',
   pending: 'ausstehend',
   skipped: 'übersprungen',
-  /* The pill to the right of the label already says "optional" —
-   * the state field therefore only shows progress. */
+  /* Pill rechts neben dem Label sagt bereits "optional" — das
+   * State-Feld zeigt deshalb nur noch den Fortschritt. */
   'optional-pending': 'ausstehend',
   'optional-skipped': 'nicht nötig',
-  paused: 'pausiert',
-  escalated: 'eskaliert',
-  failed: 'fehlgeschlagen',
 };
 
 const PHASE_STATE_LABEL: Record<FlowState, string> = {
@@ -102,55 +54,11 @@ const PHASE_STATE_LABEL: Record<FlowState, string> = {
   skipped: 'im Fast-Mode ausgelassen',
   'optional-pending': 'optional',
   'optional-skipped': 'optional übersprungen',
-  paused: 'Phase pausiert',
-  escalated: 'Phase eskaliert',
-  failed: 'Phase fehlgeschlagen',
 };
 
-export function FlowTab({
-  flowSnapshot = null,
-  flowError = null,
-}: {
-  /** Server-derived flow snapshot (AG3-091). The ONLY flow source — no local
-   *  heuristic fallback (E3/AC9). */
-  flowSnapshot?: StoryFlowResponse['story_flow_snapshot'] | null;
-  /** Error code of a failed required flow read; renders a fail-closed pill. */
-  flowError?: string | null;
-}) {
-  // FAIL-CLOSED: a failed required flow read shows a visible error, never a
-  // silently substituted heuristic (E3).
-  if (flowError) {
-    return (
-      <section className="flow-chart" aria-label="Phasen- und Substep-Ablauf">
-        <header className="flow-chart__head">
-          <div>
-            <p className="eyebrow">Pipeline-Ablauf</p>
-            <h3>Ablauf nicht verfügbar</h3>
-          </div>
-        </header>
-        <div className="error-pill" role="alert">
-          Flow konnte nicht geladen werden ({flowError}).
-        </div>
-      </section>
-    );
-  }
-
-  if (!flowSnapshot) {
-    return (
-      <section className="flow-chart" aria-label="Phasen- und Substep-Ablauf">
-        <header className="flow-chart__head">
-          <div>
-            <p className="eyebrow">Pipeline-Ablauf</p>
-            <h3>Ablauf wird geladen…</h3>
-          </div>
-        </header>
-        <p className="empty">Noch kein Flow-Snapshot verfügbar.</p>
-      </section>
-    );
-  }
-
-  const mode = flowSnapshot.mode;
-  const flow = flowSnapshotToPhases(flowSnapshot);
+export function FlowTab({ story }: { story: Story }) {
+  const mode = story.mode ?? 'standard';
+  const flow = selectStoryFlow(story);
 
   return (
     <section className="flow-chart" aria-label="Phasen- und Substep-Ablauf">
@@ -220,11 +128,6 @@ function FlowPhaseCard({ phase, isLast }: { phase: FlowPhase; isLast: boolean })
             {PHASE_STATE_LABEL[phase.state]}
           </span>
         </header>
-        {phase.stateReason && (
-          <p className={`flow-phase__state-reason flow-phase__state-reason--${phase.state}`}>
-            {phase.stateReason}
-          </p>
-        )}
         {phase.substeps.length === 0 ? (
           <p className="flow-phase__empty">Keine Substeps in diesem Modus.</p>
         ) : (
@@ -288,7 +191,7 @@ function FlowSubstepRow({ substep }: { substep: FlowSubstep }) {
   );
 }
 
-/* Loop boundary detection. */
+/* Loop-Boundary-Detektion. */
 function isLoopStart(prev: FlowSubstep | undefined, current: FlowSubstep): boolean {
   if (!current.loopGroup) return false;
   return !prev || prev.loopGroup !== current.loopGroup;
@@ -299,9 +202,9 @@ function isLoopEnd(current: FlowSubstep, next: FlowSubstep | undefined): boolean
   return !next || next.loopGroup !== current.loopGroup;
 }
 
-/* Current iteration of the loop group in this phase. Only the group
- * containing the runtime substep is active; all others default to 1
- * (first pass or standard value before start). */
+/* Aktuelle Iteration der Loop-Gruppe in dieser Phase. Aktiv ist nur
+ * die Gruppe, in der der Runtime-Substep liegt; alle anderen
+ * defaulten auf 1 (Erstdurchlauf bzw. Standardwert vor Start). */
 function iterationForGroup(phase: FlowPhase, loopGroup: string | undefined): number {
   if (!loopGroup) return 1;
   if (phase.state === 'active' && phase.iterationLoopGroup === loopGroup) {

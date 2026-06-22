@@ -1,12 +1,11 @@
 /*
- * Barrel export for the store. Components import exclusively
- * from here (`from '../store'`), not from individual files.
+ * Barrel-Export fuer den Store. Komponenten importieren ausschliesslich
+ * von hier (`from '../store'`) und nicht von einzelnen Files.
  */
 
 export type {
   ChangeImpact,
   ConceptQuality,
-  ExecutionLifecycle,
   ExecutionLimitDescriptor,
   ExecutionLimits,
   Mode,

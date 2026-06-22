@@ -59,12 +59,6 @@
   --ak-info: #7ea7ff;
   --ak-violet: #b38cff;
   --ak-done: #82c4ff;
-  --ak-bg-topbar-top: #2b2d31;
-  --ak-bg-topbar-bottom: #23252a;
-  --ak-metric-warm-top: #421a36;
-  --ak-metric-warm-bottom: #1b0e1a;
-  --ak-metric-warm-border: #623052;
-
   --ak-status-backlog: #a371f7;
   --ak-status-approved: #2f81f7;
   --ak-status-progress: #d29922;
@@ -101,8 +95,6 @@
   --font-body: "Open Sans", "Aptos", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
   --font-display: "League Spartan", "Open Sans", sans-serif;
 
-  --text-xxs: 0.625em;
-  --text-2xs: 0.6875em;
   --text-xs: 0.75em;
   --text-sm: 0.875em;
   --text-md: 0.9375em;
@@ -111,14 +103,11 @@
   --text-xl: 1.375em;
   --text-2xl: 1.625em;
   --text-3xl: 2em;
-  --text-kpi-display: 1.75em;
 
   --font-xs: var(--text-xs);
   --font-sm: var(--text-sm);
   --font-md: var(--text-md);
   --font-lg: var(--text-lg);
-  --font-xl: var(--text-xl);
-  --font-2xl: var(--text-2xl);
 
   --weight-regular: 400;
   --weight-medium: 500;
@@ -130,8 +119,6 @@
   --leading-title: 1.35;
   --leading-body: 1.5;
 
-  --type-micro-size: var(--text-xxs);
-  --type-sub-label-size: var(--text-2xs);
   --type-label-size: var(--text-xs);
   --type-label-weight: var(--weight-semibold);
   --type-body-size: var(--text-sm);
@@ -144,7 +131,6 @@
   --type-page-title-size: var(--text-2xl);
   --type-kpi-size: var(--text-2xl);
   --type-kpi-weight: var(--weight-black);
-  --type-kpi-display-size: var(--text-kpi-display);
 
   --control-height-sm: 1.875rem;
   --control-height-md: 2.375rem;
@@ -152,19 +138,6 @@
   --control-padding-md: 0.5rem 0.8125rem;
   --control-font-size: var(--type-ui-size);
   --control-font-weight: var(--type-ui-weight);
-
-  --chart-series-0: #48e7ff;
-  --chart-series-1: #ffb32c;
-  --chart-series-2: #74d17f;
-  --chart-series-3: #b38cff;
-  --chart-series-4: #ff5b57;
-  --chart-series-5: #7ea7ff;
-  --chart-series-6: #ffd35e;
-  --chart-series-7: #82c4ff;
-  --chart-series-8: #a371f7;
-  --chart-series-9: #3fb950;
-  --chart-series-10: #d29922;
-  --chart-series-11: #9ff5ff;
 
   --rail-width: 4rem;
   --shadow-md: 0 0.625rem 1.625rem var(--overlay-black-32);
