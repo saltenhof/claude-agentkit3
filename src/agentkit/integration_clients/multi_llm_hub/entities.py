@@ -13,6 +13,7 @@ HubBackendStatus = Literal["healthy", "degraded", "unavailable"]
 HubMessageRole = Literal["user", "assistant"]
 HubMessageStatus = Literal["ok", "pending", "error"]
 HubHealthStatus = Literal["ok", "degraded", "down"]
+HubBackendHealth = Literal["ok", "error", "login_required"]
 
 
 class HubHolder(BaseModel):
@@ -78,7 +79,7 @@ class HubHealth(BaseModel):
 
     status: HubHealthStatus
     version: str | None = None
-    backends: dict[HubBackendName, Literal["ok", "error"]]
+    backends: dict[HubBackendName, HubBackendHealth]
     persistence: Literal["ok", "error"]
     uptime_ms: int = Field(ge=0)
 

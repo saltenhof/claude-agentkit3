@@ -4,7 +4,9 @@ import type { ReactElement } from 'react';
 import { ApiClient, ApiError } from './api';
 import { Shell } from './app_shell/layout/Shell';
 import { viewModeFromHash, type ViewMode } from './app_shell/routing/viewMode';
+import type { ConceptRef, ConceptSearchHit } from './contexts/concept_catalog/types';
 import type { DependencyEdge, ExecutionInputSnapshot, ExecutionLimits } from './contexts/execution_planning/types';
+import type { HubSession, HubStatusSnapshot } from './contexts/multi_llm_hub/types';
 import type { ProjectModeLock, ProjectSummary, StoryCounters } from './contexts/project_management/types';
 import type { StoryDetail, StorySummary } from './contexts/story_context_manager/types';
 
@@ -19,6 +21,11 @@ export interface AppData {
   dependencies: DependencyEdge[];
   executionInput: ExecutionInputSnapshot | null;
   executionLimits: ExecutionLimits | null;
+  hubStatus: HubStatusSnapshot | null;
+  hubSessions: HubSession[];
+  hubError: string | null;
+  concepts: ConceptRef[];
+  conceptError: string | null;
   selectedStory: StoryDetail | null;
   selectedStoryId: string | null;
   viewMode: ViewMode;
@@ -37,6 +44,7 @@ export interface AppActions {
   rejectStory: (storyId: string) => Promise<void>;
   cancelStory: (storyId: string, reason: string) => Promise<void>;
   updateStoryFields: (storyId: string, updates: Record<string, unknown>) => Promise<void>;
+  searchConcepts: (query: string) => Promise<ConceptSearchHit[]>;
 }
 
 export function App(): ReactElement {
@@ -50,6 +58,11 @@ export function App(): ReactElement {
   const [dependencies, setDependencies] = useState<DependencyEdge[]>([]);
   const [executionInput, setExecutionInput] = useState<ExecutionInputSnapshot | null>(null);
   const [executionLimits, setExecutionLimits] = useState<ExecutionLimits | null>(null);
+  const [hubStatus, setHubStatus] = useState<HubStatusSnapshot | null>(null);
+  const [hubSessions, setHubSessions] = useState<HubSession[]>([]);
+  const [hubError, setHubError] = useState<string | null>(null);
+  const [concepts, setConcepts] = useState<ConceptRef[]>([]);
+  const [conceptError, setConceptError] = useState<string | null>(null);
   const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
   const [selectedStory, setSelectedStory] = useState<StoryDetail | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>(() => viewModeFromHash(globalThis.location.hash));
@@ -77,6 +90,40 @@ export function App(): ReactElement {
       }),
     [unauthorize],
   );
+
+  const loadProjectNeutralData = useCallback(async (): Promise<void> => {
+    const [hubSnapshot, sessions, conceptList] = await Promise.allSettled([
+      api.hubStatus(),
+      api.hubSessions(),
+      api.concepts(),
+    ]);
+
+    if (hubSnapshot.status === 'fulfilled') {
+      setHubStatus(hubSnapshot.value);
+      setHubError(null);
+    } else {
+      setHubStatus(null);
+      setHubError(errorMessage(hubSnapshot.reason, 'Hub-Status konnte nicht geladen werden.'));
+    }
+
+    if (sessions.status === 'fulfilled') {
+      setHubSessions(sessions.value);
+      if (hubSnapshot.status === 'fulfilled') {
+        setHubError(null);
+      }
+    } else {
+      setHubSessions([]);
+      setHubError(errorMessage(sessions.reason, 'Hub-Sessions konnten nicht geladen werden.'));
+    }
+
+    if (conceptList.status === 'fulfilled') {
+      setConcepts(conceptList.value);
+      setConceptError(null);
+    } else {
+      setConcepts([]);
+      setConceptError(errorMessage(conceptList.reason, 'Concept Catalog konnte nicht geladen werden.'));
+    }
+  }, [api]);
 
   const loadProjectData = useCallback(
     async (projectKey: string): Promise<void> => {
@@ -135,6 +182,7 @@ export function App(): ReactElement {
       setSelectedProjectKey(nextProject?.project_key ?? null);
       setAuthenticated(true);
       setOffline(false);
+      await loadProjectNeutralData();
       if (nextProject !== null) {
         await loadProjectData(nextProject.project_key);
       }
@@ -143,7 +191,7 @@ export function App(): ReactElement {
     } finally {
       setLoading(false);
     }
-  }, [api, loadProjectData]);
+  }, [api, loadProjectData, loadProjectNeutralData]);
 
   useEffect(() => {
     const onHashChange = (): void => {
@@ -242,6 +290,9 @@ export function App(): ReactElement {
           setStories([]);
           setCounters(null);
           setModeLock(null);
+          setHubStatus(null);
+          setHubSessions([]);
+          setConcepts([]);
         }
       },
       selectProject: (projectKey: string) => {
@@ -282,6 +333,7 @@ export function App(): ReactElement {
         await api.updateStoryFields(selectedProjectKey, storyId, updates);
         await loadProjectData(selectedProjectKey);
       },
+      searchConcepts: async (query: string) => api.searchConcepts(query),
     }),
     [api, loadProjectData, loadProjects, selectedProjectKey, unauthorize],
   );
@@ -295,6 +347,11 @@ export function App(): ReactElement {
     dependencies,
     executionInput,
     executionLimits,
+    hubStatus,
+    hubSessions,
+    hubError,
+    concepts,
+    conceptError,
     selectedStory,
     selectedStoryId,
     viewMode,
@@ -310,6 +367,16 @@ export function App(): ReactElement {
       data={data}
     />
   );
+}
+
+function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    return `${err.errorCode}: ${err.message}`;
+  }
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return fallback;
 }
 
 function handleError(

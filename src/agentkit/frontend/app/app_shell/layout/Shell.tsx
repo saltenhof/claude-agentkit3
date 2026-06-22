@@ -17,7 +17,9 @@ import type { ReactElement, ReactNode } from 'react';
 
 import type { AppActions, AppData } from '../../App';
 import { ExecutionPlanningView } from '../../contexts/execution_planning/components/ExecutionPlanningView';
+import { ConceptCatalogView } from '../../contexts/concept_catalog/components/ConceptCatalogView';
 import { AnalyticsView } from '../../contexts/kpi_analytics/components/AnalyticsView';
+import { HubCockpit } from '../../contexts/multi_llm_hub/components/HubCockpit';
 import { KpiStrip } from '../../contexts/project_management/components/KpiStrip';
 import { KanbanBoard } from '../../contexts/story_context_manager/components/KanbanBoard';
 import { StorySheet } from '../../contexts/story_context_manager/components/StorySheet';
@@ -221,21 +223,13 @@ function Dashboard({
         <AnalyticsView executionLimits={data.executionLimits} stories={stories} />
       )}
       {data.viewMode === 'hub' && (
-        <FoundationView
-          title="Hub"
-          lines={[
-            'Multi-LLM-Hub ist projektneutral.',
-            'Die produktive Sicht wird an den Hub-Bounded-Context angeschlossen.',
-          ]}
-        />
+        <HubCockpit error={data.hubError} sessions={data.hubSessions} status={data.hubStatus} />
       )}
       {data.viewMode === 'concepts' && (
-        <FoundationView
-          title="Concepts"
-          lines={[
-            'Concept-Browser ist projektneutral.',
-            'Die produktive App ist fuer /v1/concepts vorbereitet.',
-          ]}
+        <ConceptCatalogView
+          concepts={data.concepts}
+          error={data.conceptError}
+          searchConcepts={actions.searchConcepts}
         />
       )}
     </div>
@@ -324,15 +318,6 @@ function IconButton({
     <button className="icon-button" type="button" onClick={onClick} title={label}>
       {icon}
     </button>
-  );
-}
-
-function FoundationView({ title, lines }: Readonly<{ title: string; lines: readonly string[] }>): ReactElement {
-  return (
-    <div className="foundation-view">
-      <h2>{title}</h2>
-      {lines.map((line) => <p key={line}>{line}</p>)}
-    </div>
   );
 }
 

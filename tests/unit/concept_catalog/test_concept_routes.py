@@ -102,6 +102,23 @@ def test_get_concepts_lists_refs(tmp_path: Path) -> None:
     assert ("X-Correlation-Id", "req-concepts") in response.headers
 
 
+def test_default_concept_routes_load_real_repo_concept_root() -> None:
+    response = ControlPlaneApplication(
+        routes=ControlPlaneApplicationRoutes(concept_routes=ConceptCatalogRoutes())
+    ).handle_request(
+        method="GET",
+        path="/v1/concepts",
+        body=b"",
+        request_headers={"X-Correlation-Id": "req-real-concepts"},
+    )
+
+    body = _json_body(response.body)
+    assert response.status_code == HTTPStatus.OK
+    concepts = body["concepts"]
+    assert isinstance(concepts, list)
+    assert len(concepts) > 0
+
+
 def test_get_concept_detail_returns_backlinks(tmp_path: Path) -> None:
     response = _app(_fixture_root(tmp_path)).handle_request(
         method="GET",

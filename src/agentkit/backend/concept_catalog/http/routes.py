@@ -36,7 +36,7 @@ class ConceptCatalogRoutes:
 
     def __init__(self, index: ConceptIndex | None = None) -> None:
         if index is None:
-            root = Path(__file__).resolve().parents[4] / "concept"
+            root = Path(__file__).resolve().parents[5] / "concept"
             index = ConceptIndex(root)
             index.load()
         self._index = index

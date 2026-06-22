@@ -173,6 +173,31 @@ def test_get_hub_status_returns_health_and_metrics() -> None:
     }
 
 
+def test_get_hub_status_accepts_backend_login_required() -> None:
+    client = _FakeHubClient()
+
+    def _health_with_login_required() -> HubHealth:
+        return HubHealth(
+            status="degraded",
+            version="0.3.0",
+            backends={"chatgpt": "ok", "gemini": "login_required"},
+            persistence="ok",
+            uptime_ms=100,
+        )
+
+    client.health = _health_with_login_required  # type: ignore[method-assign]
+    response = _app(client).handle_request(
+        method="GET",
+        path="/v1/hub/status",
+        body=b"",
+        request_headers={"X-Correlation-Id": "req-hub-login-required"},
+    )
+
+    body = _json_body(response.body)
+    assert response.status_code == HTTPStatus.OK
+    assert body["health"]["backends"]["gemini"] == "login_required"
+
+
 def test_get_hub_session_stats_returns_stats() -> None:  # AG3-097 AK5
     """The read-only ``/v1/hub/sessions/{id}/stats`` GET route returns stats."""
     response = _app(_FakeHubClient()).handle_request(
