@@ -195,7 +195,8 @@ function WaveAnalytics({ series }: Readonly<{ series: Array<{ wave: number; tota
         {series.length === 0 ? (
           <div className="empty-panel">Keine Wave-Daten geladen.</div>
         ) : (
-          <svg viewBox="0 0 100 100" role="img" aria-label="Stories pro Wave">
+          <svg viewBox="0 0 100 100" aria-labelledby="wave-chart-title">
+            <title id="wave-chart-title">Stories pro Wave</title>
             <polyline className="analytics-line" points={points.join(' ')} />
             {series.map((point, index) => {
               const [x, y] = points[index].split(',').map(Number);
@@ -238,7 +239,7 @@ function toMetricStat(key: string, label: string, values: readonly number[]): Me
     key,
     label,
     min: sorted[0] ?? 0,
-    max: sorted[sorted.length - 1] ?? 0,
+    max: sorted.at(-1) ?? 0,
     avg: sorted.length === 0 ? 0 : sum / sorted.length,
     p90: sorted[Math.max(0, Math.ceil(sorted.length * 0.9) - 1)] ?? 0,
   };
