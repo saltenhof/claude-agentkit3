@@ -294,10 +294,16 @@ button:disabled {
 }
 
 .story-card {
+  display: block;
+  width: 100%;
   padding: 12px;
   border: 1px solid #2d3540;
   border-radius: 8px;
   background: #191d25;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .story-card[data-selected="true"] {
@@ -360,6 +366,14 @@ button:disabled {
 
 .sheet-view tr:hover td {
   background: #18212a;
+}
+
+.table-story-button {
+  border: 0;
+  background: transparent;
+  color: #38d6ff;
+  font: inherit;
+  cursor: pointer;
 }
 
 .analytics-view {

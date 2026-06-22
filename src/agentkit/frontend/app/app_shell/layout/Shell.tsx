@@ -26,7 +26,7 @@ interface ShellProps {
 
 const STATUS_COLUMNS: readonly StoryStatus[] = ['Backlog', 'Approved', 'In Progress', 'Done', 'Cancelled'];
 
-export function Shell({ authenticated, data, actions }: ShellProps): ReactElement {
+export function Shell({ authenticated, data, actions }: Readonly<ShellProps>): ReactElement {
   const [query, setQuery] = useState('');
 
   if (!authenticated) {
@@ -76,10 +76,24 @@ export function Shell({ authenticated, data, actions }: ShellProps): ReactElemen
               placeholder="Suchen"
             />
           </label>
-          <button className="icon-button" type="button" onClick={() => void actions.reload()} title="Neu laden">
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => {
+              actions.reload().catch(() => undefined);
+            }}
+            title="Neu laden"
+          >
             <RefreshCw size={18} />
           </button>
-          <button className="icon-button" type="button" onClick={() => void actions.logout()} title="Abmelden">
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => {
+              actions.logout().catch(() => undefined);
+            }}
+            title="Abmelden"
+          >
             <LogOut size={18} />
           </button>
         </header>
@@ -104,11 +118,11 @@ function LoginScreen({
   login,
   error,
   loading,
-}: {
+}: Readonly<{
   login: (username: string, password: string) => Promise<void>;
   error: string | null;
   loading: boolean;
-}): ReactElement {
+}>): ReactElement {
   const [username, setUsername] = useState('strategist');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -128,11 +142,11 @@ function LoginScreen({
           <span>AgentKit 3</span>
         </div>
         <label>
-          Nutzer
+          <span>Nutzer</span>
           <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
         </label>
         <label>
-          Passwort
+          <span>Passwort</span>
           <input
             value={password}
             onChange={(event) => setPassword(event.target.value)}
@@ -154,12 +168,12 @@ function NavButton({
   label,
   mode,
   active,
-}: {
+}: Readonly<{
   icon: ReactNode;
   label: string;
   mode: ViewMode;
   active: boolean;
-}): ReactElement {
+}>): ReactElement {
   return (
     <button
       className="nav-button"
@@ -173,7 +187,11 @@ function NavButton({
   );
 }
 
-function Dashboard({ data, stories, actions }: { data: AppData; stories: StorySummary[]; actions: AppActions }): ReactElement {
+function Dashboard({
+  data,
+  stories,
+  actions,
+}: Readonly<{ data: AppData; stories: StorySummary[]; actions: AppActions }>): ReactElement {
   if (data.selectedProject === null) {
     return <EmptyState title="Keine Projekte" detail="Backend liefert aktuell keine Projektliste." />;
   }
@@ -194,7 +212,7 @@ function Dashboard({ data, stories, actions }: { data: AppData; stories: StorySu
   );
 }
 
-function KpiStrip({ data }: { data: AppData }): ReactElement {
+function KpiStrip({ data }: Readonly<{ data: AppData }>): ReactElement {
   const counters = data.counters;
   const values = [
     ['Stories', counters?.total ?? data.stories.length],
@@ -215,7 +233,11 @@ function KpiStrip({ data }: { data: AppData }): ReactElement {
   );
 }
 
-function GraphView({ data, stories, actions }: { data: AppData; stories: StorySummary[]; actions: AppActions }): ReactElement {
+function GraphView({
+  data,
+  stories,
+  actions,
+}: Readonly<{ data: AppData; stories: StorySummary[]; actions: AppActions }>): ReactElement {
   const edges = data.dependencies;
   const positioned = useMemo(() => stories.map((story, index) => ({ story, x: 80 + (index % 4) * 260, y: 70 + Math.floor(index / 4) * 150 })), [stories]);
   const byId = new Map(positioned.map((entry) => [entry.story.story_id, entry]));
@@ -226,38 +248,41 @@ function GraphView({ data, stories, actions }: { data: AppData; stories: StorySu
 
   return (
     <div className="graph-view">
-      <svg viewBox="0 0 1120 680" role="img" aria-label="Dependency Graph">
+      <svg viewBox="0 0 1120 680" aria-label="Dependency Graph">
         {edges.map((edge) => {
           const fromId = edge.from_story_id ?? edge.depends_on_story_id;
           const toId = edge.to_story_id ?? edge.story_id;
           const from = fromId !== undefined ? byId.get(fromId) : undefined;
           const to = toId !== undefined ? byId.get(toId) : undefined;
-          if (from === undefined || to === undefined) {
-            return null;
+          if (from !== undefined && to !== undefined) {
+            return (
+              <line
+                className="graph-edge"
+                key={`${from.story.story_id}-${to.story.story_id}-${edge.kind}`}
+                x1={from.x + 170}
+                y1={from.y + 45}
+                x2={to.x}
+                y2={to.y + 45}
+              />
+            );
           }
-          return (
-            <line
-              className="graph-edge"
-              key={`${from.story.story_id}-${to.story.story_id}-${edge.kind}`}
-              x1={from.x + 170}
-              y1={from.y + 45}
-              x2={to.x}
-              y2={to.y + 45}
-            />
-          );
+          return null;
         })}
         {positioned.map(({ story, x, y }) => (
-          <g
+          <a
             className="graph-node"
+            href={`#story-${encodeURIComponent(story.story_id)}`}
             key={story.story_id}
-            onClick={() => actions.selectStory(story.story_id)}
-            tabIndex={0}
+            onClick={(event) => {
+              event.preventDefault();
+              actions.selectStory(story.story_id);
+            }}
           >
             <rect x={x} y={y} width="205" height="92" rx="8" />
             <text x={x + 14} y={y + 27}>{story.story_id}</text>
             <text x={x + 14} y={y + 52}>{truncate(story.title, 28)}</text>
             <text x={x + 14} y={y + 76}>{story.status}</text>
-          </g>
+          </a>
         ))}
       </svg>
     </div>
@@ -268,11 +293,11 @@ function KanbanView({
   stories,
   actions,
   selectedStoryId,
-}: {
+}: Readonly<{
   stories: StorySummary[];
   actions: AppActions;
   selectedStoryId: string | null;
-}): ReactElement {
+}>): ReactElement {
   return (
     <div className="kanban-board">
       {STATUS_COLUMNS.map((status) => (
@@ -289,9 +314,18 @@ function KanbanView({
   );
 }
 
-function StoryCard({ story, actions, selected }: { story: StorySummary; actions: AppActions; selected: boolean }): ReactElement {
+function StoryCard({
+  story,
+  actions,
+  selected,
+}: Readonly<{ story: StorySummary; actions: AppActions; selected: boolean }>): ReactElement {
   return (
-    <article className="story-card" data-selected={selected} onClick={() => actions.selectStory(story.story_id)}>
+    <button
+      className="story-card"
+      data-selected={selected}
+      type="button"
+      onClick={() => actions.selectStory(story.story_id)}
+    >
       <div className="story-card-head">
         <strong>{story.story_id}</strong>
         <span data-risk={story.risk}>{story.risk}</span>
@@ -303,11 +337,11 @@ function StoryCard({ story, actions, selected }: { story: StorySummary; actions:
         <span>{story.mode ?? 'standard'}</span>
         <span>{story.repos[0] ?? 'repo?'}</span>
       </div>
-    </article>
+    </button>
   );
 }
 
-function SheetView({ stories, actions }: { stories: StorySummary[]; actions: AppActions }): ReactElement {
+function SheetView({ stories, actions }: Readonly<{ stories: StorySummary[]; actions: AppActions }>): ReactElement {
   return (
     <div className="sheet-view">
       <table>
@@ -323,8 +357,16 @@ function SheetView({ stories, actions }: { stories: StorySummary[]; actions: App
         </thead>
         <tbody>
           {stories.map((story) => (
-            <tr key={story.story_id} onClick={() => actions.selectStory(story.story_id)}>
-              <td>{story.story_id}</td>
+            <tr key={story.story_id}>
+              <td>
+                <button
+                  className="table-story-button"
+                  type="button"
+                  onClick={() => actions.selectStory(story.story_id)}
+                >
+                  {story.story_id}
+                </button>
+              </td>
               <td>{story.title}</td>
               <td>{story.status}</td>
               <td>{story.module}</td>
@@ -338,7 +380,7 @@ function SheetView({ stories, actions }: { stories: StorySummary[]; actions: App
   );
 }
 
-function AnalyticsView({ data, stories }: { data: AppData; stories: StorySummary[] }): ReactElement {
+function AnalyticsView({ data, stories }: Readonly<{ data: AppData; stories: StorySummary[] }>): ReactElement {
   const byStatus = STATUS_COLUMNS.map((status) => ({ status, count: countStatus(stories, status) }));
   const max = Math.max(1, ...byStatus.map((entry) => entry.count));
   return (
@@ -374,7 +416,7 @@ function AnalyticsView({ data, stories }: { data: AppData; stories: StorySummary
   );
 }
 
-function FoundationView({ title, lines }: { title: string; lines: string[] }): ReactElement {
+function FoundationView({ title, lines }: Readonly<{ title: string; lines: readonly string[] }>): ReactElement {
   return (
     <div className="foundation-view">
       <h2>{title}</h2>
@@ -383,7 +425,7 @@ function FoundationView({ title, lines }: { title: string; lines: string[] }): R
   );
 }
 
-function EmptyState({ title, detail }: { title: string; detail: string }): ReactElement {
+function EmptyState({ title, detail }: Readonly<{ title: string; detail: string }>): ReactElement {
   return (
     <div className="empty-state">
       <h2>{title}</h2>

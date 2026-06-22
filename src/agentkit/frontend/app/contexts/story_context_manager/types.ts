@@ -45,8 +45,8 @@ export interface StorySpecification {
 export interface StoryDetail {
   summary: StorySummary;
   spec: StorySpecification | null;
-  evidence: unknown | null;
-  telemetry: unknown | null;
+  evidence: Record<string, unknown> | null;
+  telemetry: Record<string, unknown> | null;
   gates: Array<{ label: string; state: 'PASS' | 'WARNING' | 'ERROR' }>;
   phases: Array<{ label: string; state: string; detail?: string | null }>;
   events: Array<{ time: string; type: string; detail?: string | null; severity: string }>;

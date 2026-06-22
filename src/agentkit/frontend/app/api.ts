@@ -144,7 +144,7 @@ export class ApiClient {
     init: RequestInit & { skipCsrf?: boolean } = {},
   ): Promise<T> {
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 12000);
+    const timeout = globalThis.setTimeout(() => controller.abort(), 12000);
     const headers = new Headers(init.headers);
     headers.set('Accept', 'application/json');
     headers.set('X-Correlation-Id', makeCorrelationId());
@@ -172,7 +172,7 @@ export class ApiClient {
       }
       throw err;
     } finally {
-      window.clearTimeout(timeout);
+      globalThis.clearTimeout(timeout);
     }
 
     if (response.status === 204) {
@@ -217,8 +217,20 @@ function makeOpId(): string {
 }
 
 function makeId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID().replaceAll('-', '');
+  const cryptoApi = globalThis.crypto;
+  if (typeof cryptoApi?.randomUUID === 'function') {
+    return cryptoApi.randomUUID().replaceAll('-', '');
   }
-  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+  if (typeof cryptoApi?.getRandomValues === 'function') {
+    const bytes = cryptoApi.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  }
+  return `${Date.now().toString(36)}${makeIdFallbackCounter()}`;
+}
+
+let fallbackCounter = 0;
+
+function makeIdFallbackCounter(): string {
+  fallbackCounter = (fallbackCounter + 1) % Number.MAX_SAFE_INTEGER;
+  return fallbackCounter.toString(36);
 }

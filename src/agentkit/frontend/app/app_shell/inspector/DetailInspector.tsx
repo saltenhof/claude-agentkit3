@@ -12,7 +12,12 @@ interface DetailInspectorProps {
   actions: AppActions;
 }
 
-export function DetailInspector({ detail, loading, onClose, actions }: DetailInspectorProps): ReactElement {
+export function DetailInspector({
+  detail,
+  loading,
+  onClose,
+  actions,
+}: Readonly<DetailInspectorProps>): ReactElement {
   const [tab, setTab] = useState<'spec' | 'evidence' | 'kpi' | 'flow'>('spec');
   const [draftTitle, setDraftTitle] = useState('');
 
@@ -25,6 +30,7 @@ export function DetailInspector({ detail, loading, onClose, actions }: DetailIns
 
   const story = detail.summary;
   const spec = detail.spec;
+  const canCancel = story.status === 'Backlog' || story.status === 'Approved';
 
   return (
     <aside className="inspector">
@@ -42,7 +48,9 @@ export function DetailInspector({ detail, loading, onClose, actions }: DetailIns
         <button
           type="button"
           disabled={story.status !== 'Backlog'}
-          onClick={() => void actions.approveStory(story.story_id)}
+          onClick={() => {
+            actions.approveStory(story.story_id).catch(() => undefined);
+          }}
           title="Approve"
         >
           <Check size={16} /> Approve
@@ -50,15 +58,19 @@ export function DetailInspector({ detail, loading, onClose, actions }: DetailIns
         <button
           type="button"
           disabled={story.status !== 'Approved'}
-          onClick={() => void actions.rejectStory(story.story_id)}
+          onClick={() => {
+            actions.rejectStory(story.story_id).catch(() => undefined);
+          }}
           title="Reject"
         >
           <RotateCcw size={16} /> Reject
         </button>
         <button
           type="button"
-          disabled={!['Backlog', 'Approved'].includes(story.status)}
-          onClick={() => void actions.cancelStory(story.story_id, 'Cancelled from AgentKit UI')}
+          disabled={!canCancel}
+          onClick={() => {
+            actions.cancelStory(story.story_id, 'Cancelled from AgentKit UI').catch(() => undefined);
+          }}
           title="Cancel"
         >
           <CircleX size={16} /> Cancel
@@ -75,7 +87,7 @@ export function DetailInspector({ detail, loading, onClose, actions }: DetailIns
           type="button"
           disabled={draftTitle.trim().length === 0}
           onClick={() => {
-            void actions.updateStoryFields(story.story_id, { title: draftTitle.trim() });
+            actions.updateStoryFields(story.story_id, { title: draftTitle.trim() }).catch(() => undefined);
             setDraftTitle('');
           }}
         >
@@ -130,7 +142,7 @@ export function DetailInspector({ detail, loading, onClose, actions }: DetailIns
   );
 }
 
-function List({ values, empty }: { values: string[]; empty: string }): ReactElement {
+function List({ values, empty }: Readonly<{ values: readonly string[]; empty: string }>): ReactElement {
   if (values.length === 0) {
     return <p>{empty}</p>;
   }

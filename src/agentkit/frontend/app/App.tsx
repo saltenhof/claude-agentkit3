@@ -52,7 +52,7 @@ export function App(): ReactElement {
   const [executionLimits, setExecutionLimits] = useState<ExecutionLimits | null>(null);
   const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
   const [selectedStory, setSelectedStory] = useState<StoryDetail | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>(() => viewModeFromHash(window.location.hash));
+  const [viewMode, setViewMode] = useState<ViewMode>(() => viewModeFromHash(globalThis.location.hash));
   const [loading, setLoading] = useState<boolean>(true);
   const [offline, setOffline] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -149,14 +149,14 @@ export function App(): ReactElement {
 
   useEffect(() => {
     const onHashChange = (): void => {
-      setViewMode(viewModeFromHash(window.location.hash));
+      setViewMode(viewModeFromHash(globalThis.location.hash));
     };
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
+    globalThis.addEventListener('hashchange', onHashChange);
+    return () => globalThis.removeEventListener('hashchange', onHashChange);
   }, []);
 
   useEffect(() => {
-    void loadProjects();
+    loadProjects().catch((err: unknown) => handleError(err, setError, setOffline));
   }, [loadProjects]);
 
   useEffect(() => {
@@ -170,7 +170,11 @@ export function App(): ReactElement {
     );
     source.onmessage = () => {
       if (!closed) {
-        void loadProjectData(selectedProjectKey);
+        loadProjectData(selectedProjectKey).catch((err: unknown) => {
+          if (!closed) {
+            handleError(err, setError, setOffline);
+          }
+        });
       }
     };
     source.onerror = () => {
@@ -179,7 +183,11 @@ export function App(): ReactElement {
     source.onopen = () => {
       if (!closed) {
         setOffline(false);
-        void loadProjectData(selectedProjectKey);
+        loadProjectData(selectedProjectKey).catch((err: unknown) => {
+          if (!closed) {
+            handleError(err, setError, setOffline);
+          }
+        });
       }
     };
     return () => {
@@ -242,7 +250,7 @@ export function App(): ReactElement {
         setSelectedProjectKey(projectKey);
         setSelectedStoryId(null);
         setSelectedStory(null);
-        void loadProjectData(projectKey);
+        loadProjectData(projectKey).catch((err: unknown) => handleError(err, setError, setOffline));
       },
       selectStory: (storyId: string | null) => {
         setSelectedStoryId(storyId);
