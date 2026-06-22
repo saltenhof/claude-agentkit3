@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from agentkit.backend.auth.entities import StrategistCredentials
 
 _AUTH_CONFIG_ENV = "AGENTKIT_AUTH_CONFIG"
-_DEFAULT_USERNAME = "strategist"
+_DEFAULT_USERNAME = "admin"
 _AUTH_FAILED_MESSAGE = "Authentication failed"
 
 

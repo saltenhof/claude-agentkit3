@@ -123,7 +123,7 @@ function LoginScreen({
   error: string | null;
   loading: boolean;
 }>): ReactElement {
-  const [username, setUsername] = useState('strategist');
+  const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
