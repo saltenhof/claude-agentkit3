@@ -299,7 +299,7 @@ def _reset_schema_bootstrap_cache_for_tests() -> None:
 
 
 def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
-    """Return whether the selected schema already carries the current core DDL."""
+    """Return whether the selected schema already carries the complete DDL."""
     required_tables = (
         "projects",
         "story_contexts",
@@ -328,7 +328,50 @@ def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
           AND column_name = 'flow_id'
         """,
     ).fetchone()
-    return flow_id is not None
+    if flow_id is None:
+        return False
+    if not _analytics_versions_are_recorded(conn):
+        return False
+    return _fact_tables_are_fk62_shaped(conn)
+
+
+def _analytics_versions_are_recorded(conn: _CompatConnection) -> bool:
+    required_versions = {"3.4", "3.5", "3.6"}
+    table_row = conn.execute(
+        """
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = current_schema()
+          AND table_name = 'schema_versions'
+        """,
+    ).fetchone()
+    if table_row is None:
+        return False
+    version_rows = conn.execute(
+        """
+        SELECT version
+        FROM schema_versions
+        WHERE version = ANY(%s)
+        """,
+        (list(required_versions),),
+    ).fetchall()
+    return {str(row["version"]) for row in version_rows} == required_versions
+
+
+def _fact_tables_are_fk62_shaped(conn: _CompatConnection) -> bool:
+    for table, expected_columns in _fact_fk62_column_sets().items():
+        column_rows = conn.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = %s
+            """,
+            (table,),
+        ).fetchall()
+        if {str(row["column_name"]) for row in column_rows} != set(expected_columns):
+            return False
+    return True
 
 
 def _schema_alter_statements() -> tuple[str, ...]:

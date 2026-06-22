@@ -98,6 +98,17 @@ def reset_backend_cache_for_tests() -> None:
         )
         if callable(reset_schema_cache):
             reset_schema_cache()
+    schema_bootstrap = sys.modules.get(
+        "agentkit.backend.state_backend.schema_bootstrap",
+    )
+    if schema_bootstrap is not None:
+        reset_versioned_schema_cache = getattr(
+            schema_bootstrap,
+            "_reset_versioned_schema_cache_for_tests",
+            None,
+        )
+        if callable(reset_versioned_schema_cache):
+            reset_versioned_schema_cache()
 
 
 def active_backend_is_sqlite() -> bool:
