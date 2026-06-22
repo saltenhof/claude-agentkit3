@@ -81,7 +81,7 @@ export function HubCockpit({ status, sessions, error }: Readonly<HubCockpitProps
 
         <section className="hub-session-detail">
           {selectedSession === null ? (
-            <EmptyPanel text="Keine Session ausgewaehlt." />
+            <EmptyPanel text="Keine Session ausgewählt." />
           ) : (
             <>
               <header>

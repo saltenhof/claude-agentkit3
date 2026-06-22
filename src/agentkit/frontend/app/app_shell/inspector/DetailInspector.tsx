@@ -39,7 +39,7 @@ export function DetailInspector({
           <span>{story.story_id}</span>
           <h2>{story.title}</h2>
         </div>
-        <button className="icon-button" type="button" onClick={onClose} title="Schliessen">
+        <button className="icon-button" type="button" onClick={onClose} title="Schließen">
           <X size={18} />
         </button>
       </header>
@@ -107,7 +107,7 @@ export function DetailInspector({
           <section>
             <h3>Bedarf</h3>
             <p>{spec?.need || 'keine Angabe'}</p>
-            <h3>Loesung</h3>
+            <h3>Lösung</h3>
             <p>{spec?.solution || 'keine Angabe'}</p>
             <h3>Akzeptanz</h3>
             <List values={spec?.acceptance ?? []} empty="keine Akzeptanzkriterien" />

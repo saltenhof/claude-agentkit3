@@ -102,7 +102,7 @@ export function ConceptCatalogView({ concepts, error, searchConcepts }: Readonly
 
       <section className="concept-grid">
         {filteredConcepts.map((concept) => <ConceptCard concept={concept} key={concept.concept_id} />)}
-        {filteredConcepts.length === 0 && <div className="context-empty">Keine Concepts fuer diesen Filter.</div>}
+        {filteredConcepts.length === 0 && <div className="context-empty">Keine Concepts für diesen Filter.</div>}
       </section>
     </div>
   );

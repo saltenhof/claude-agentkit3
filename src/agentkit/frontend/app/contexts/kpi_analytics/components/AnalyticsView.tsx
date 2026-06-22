@@ -44,7 +44,7 @@ export function AnalyticsView({ executionLimits, stories }: Readonly<AnalyticsVi
             aria-selected={activeTab === 'overview'}
             onClick={() => setActiveTab('overview')}
           >
-            Uebersicht
+            Übersicht
           </button>
           <button
             className={activeTab === 'waves' ? 'active' : ''}
@@ -91,7 +91,7 @@ function AnalyticsOverview({
   return (
     <section className="analytics-overview">
       <p className="analytics-overview__lead">
-        Aggregiert ueber {storyCount} Stories aus dem Backend. Jede Zahl stammt aus Story-Feldern,
+        Aggregiert über {storyCount} Stories aus dem Backend. Jede Zahl stammt aus Story-Feldern,
         Execution Limits oder deterministischer Aggregation dieser Werte.
       </p>
       <div className="analytics-stat-grid">

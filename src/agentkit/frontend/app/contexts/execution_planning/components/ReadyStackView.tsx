@@ -33,7 +33,7 @@ export function ReadyStackView({ input, onSelectStory }: Readonly<ReadyStackView
       />
       <ReadyStackSection
         title={`Effektiv delegierbar (${eligibleReady.length})`}
-        emptyLabel="Keine ausfuehrbare Story"
+        emptyLabel="Keine ausführbare Story"
         stacks={eligibleReady}
         copyable
         onSelectStory={onSelectStory}
@@ -94,7 +94,7 @@ function StackColumn({
 }: Readonly<{ stack: ExecutionInputStack; onSelectStory: (storyId: string) => void }>): ReactElement {
   return (
     <div className="ready-stack-column">
-      <StackCard story={stack.predecessor ?? null} variant="completed" placeholderLabel="Kein Vorgaenger" />
+      <StackCard story={stack.predecessor ?? null} variant="completed" placeholderLabel="Kein Vorgänger" />
       <StackCard story={stack.story} variant="current" onSelectStory={onSelectStory} />
       <StackCard story={stack.successor ?? null} variant="upcoming" placeholderLabel="Kein Nachfolger" />
     </div>
@@ -104,7 +104,7 @@ function StackColumn({
 function PlaceholderColumn({ centerLabel }: Readonly<{ centerLabel: string }>): ReactElement {
   return (
     <div className="ready-stack-column">
-      <StackCard story={null} variant="placeholder" placeholderLabel="Kein Vorgaenger" />
+      <StackCard story={null} variant="placeholder" placeholderLabel="Kein Vorgänger" />
       <StackCard story={null} variant="placeholder" placeholderLabel={centerLabel} />
       <StackCard story={null} variant="placeholder" placeholderLabel="Kein Nachfolger" />
     </div>

@@ -9,7 +9,7 @@ const LIMIT_LABELS: Record<Exclude<keyof ExecutionLimits, 'project_key'>, { labe
   },
   merge_risk_cap: {
     label: 'Merge Risk Cap',
-    description: 'Begrenzt gleichzeitige Aenderungen mit Merge-Risiko.',
+    description: 'Begrenzt gleichzeitige Änderungen mit Merge-Risiko.',
   },
   max_parallel_agent_cap: {
     label: 'Max Parallel Agent Cap',
@@ -17,11 +17,11 @@ const LIMIT_LABELS: Record<Exclude<keyof ExecutionLimits, 'project_key'>, { labe
   },
   llm_pool_cap: {
     label: 'LLM Pool Cap',
-    description: 'Kapazitaetsgrenze fuer LLM-gestuetzte Ausfuehrung.',
+    description: 'Kapazitätsgrenze für LLM-gestützte Ausführung.',
   },
   ci_capacity_cap: {
     label: 'CI Capacity Cap',
-    description: 'Parallelitaet, die CI noch stabil verarbeiten kann.',
+    description: 'Parallelität, die CI noch stabil verarbeiten kann.',
   },
 };
 
@@ -36,7 +36,7 @@ export function ExecutionLimitsView({ limits }: Readonly<ExecutionLimitsViewProp
         <h2>Execution Limits</h2>
         <p>
           Diese Caps schneiden zwischen theoretischer Parallelisierbarkeit und maximal erlaubter
-          paralleler Ausfuehrung. Harte Abhaengigkeiten bleiben fuehrend.
+          paralleler Ausführung. Harte Abhängigkeiten bleiben führend.
         </p>
       </header>
       {limits === null ? (
