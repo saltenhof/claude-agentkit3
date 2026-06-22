@@ -265,7 +265,7 @@ button:disabled {
   border: 1px solid color-mix(in srgb, var(--ak-accent), white 14%);
   border-radius: var(--radius-md);
   color: #ffffff;
-  background: linear-gradient(180deg, #0995b8, #067f9d);
+  background: linear-gradient(180deg, #067391, #04566e);
   font-weight: 700;
 }
 
