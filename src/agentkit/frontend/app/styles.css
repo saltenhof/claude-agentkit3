@@ -1367,8 +1367,7 @@ button:disabled {
   color: #aeb8c4;
 }
 
-.hub-cockpit,
-.concept-catalog {
+.hub-cockpit {
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 16px;
@@ -1441,9 +1440,7 @@ button:disabled {
 .context-stat,
 .hub-backend-card,
 .hub-session-panel,
-.hub-session-detail,
-.concept-card,
-.concept-search-results {
+.hub-session-detail {
   border: 1px solid var(--ak-border);
   border-radius: 8px;
   background: #191b1f;
@@ -1484,8 +1481,7 @@ button:disabled {
 
 .hub-backend-card header,
 .hub-session-panel header,
-.hub-session-detail header,
-.concept-card header {
+.hub-session-detail header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -1494,8 +1490,7 @@ button:disabled {
 
 .hub-backend-card header div,
 .hub-session-panel header div,
-.hub-session-detail header div,
-.concept-card header {
+.hub-session-detail header div {
   display: grid;
   gap: 3px;
   min-width: 0;
@@ -1503,9 +1498,7 @@ button:disabled {
 
 .hub-backend-card strong,
 .hub-session-panel h3,
-.hub-session-detail h3,
-.concept-card strong,
-.concept-search-results h3 {
+.hub-session-detail h3 {
   margin: 0;
   color: var(--ak-text);
   font-size: 14px;
@@ -1513,8 +1506,7 @@ button:disabled {
 
 .hub-backend-card header span,
 .hub-session-panel header span,
-.hub-session-detail header span,
-.concept-card header span {
+.hub-session-detail header span {
   color: var(--ak-text-muted);
   font-size: 12px;
 }
@@ -1603,15 +1595,13 @@ button:disabled {
   text-overflow: ellipsis;
 }
 
-.hub-holder-list,
-.concept-tags {
+.hub-holder-list {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
-.hub-holder-list span,
-.concept-tags span {
+.hub-holder-list span {
   min-height: 22px;
   padding: 3px 8px;
   border-radius: 999px;
@@ -1693,93 +1683,6 @@ button:disabled {
   border-radius: 8px;
   color: var(--ak-text-muted);
   text-align: center;
-}
-
-.concept-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-}
-
-.concept-search {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: min(560px, 54vw);
-  min-height: 40px;
-  padding: 0 10px;
-  border: 1px solid var(--ak-border);
-  border-radius: 8px;
-  background: #15191f;
-  color: var(--ak-text-muted);
-}
-
-.concept-search input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--ak-text);
-}
-
-.concept-search button {
-  min-height: 30px;
-  padding: 0 12px;
-  border: 1px solid var(--ak-accent);
-  border-radius: 6px;
-  background: #0a3b47;
-  color: #c8f7ff;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.concept-search-results {
-  display: grid;
-  gap: 10px;
-  padding: 14px;
-}
-
-.concept-search-results article {
-  padding: 10px;
-  border-radius: 6px;
-  background: #14171d;
-}
-
-.concept-search-results p {
-  margin: 5px 0 0;
-  color: var(--ak-text-muted);
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.concept-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 12px;
-  min-height: 0;
-  overflow: auto;
-}
-
-.concept-card {
-  display: grid;
-  align-content: start;
-  gap: 12px;
-  min-height: 230px;
-  padding: 14px;
-}
-
-.concept-card header {
-  display: grid;
-  justify-content: start;
-}
-
-.concept-card small {
-  overflow: hidden;
-  color: var(--ak-text-muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .inspector {

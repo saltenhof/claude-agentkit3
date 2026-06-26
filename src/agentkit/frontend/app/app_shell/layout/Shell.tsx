@@ -5,7 +5,6 @@ import {
   Columns3,
   GitBranch,
   Grid3X3,
-  Library,
   LogOut,
   Plus,
   RefreshCw,
@@ -17,7 +16,6 @@ import type { ReactElement, ReactNode } from 'react';
 
 import type { AppActions, AppData } from '../../App';
 import { ExecutionPlanningView } from '../../contexts/execution_planning/components/ExecutionPlanningView';
-import { ConceptCatalogView } from '../../contexts/concept_catalog/components/ConceptCatalogView';
 import { AnalyticsView } from '../../contexts/kpi_analytics/components/AnalyticsView';
 import { HubCockpit } from '../../contexts/multi_llm_hub/components/HubCockpit';
 import { KpiStrip } from '../../contexts/project_management/components/KpiStrip';
@@ -62,7 +60,6 @@ export function Shell({ authenticated, data, actions }: Readonly<ShellProps>): R
           <NavButton icon={<Grid3X3 size={21} />} label="Sheet" mode="sheet" active={data.viewMode === 'sheet'} />
           <NavButton icon={<BarChart3 size={21} />} label="Analytics" mode="analytics" active={data.viewMode === 'analytics'} />
           <NavButton icon={<Bot size={21} />} label="Hub" mode="hub" active={data.viewMode === 'hub'} />
-          <NavButton icon={<Library size={21} />} label="Concepts" mode="concepts" active={data.viewMode === 'concepts'} />
         </nav>
       </aside>
 
@@ -224,13 +221,6 @@ function Dashboard({
       )}
       {data.viewMode === 'hub' && (
         <HubCockpit error={data.hubError} sessions={data.hubSessions} status={data.hubStatus} />
-      )}
-      {data.viewMode === 'concepts' && (
-        <ConceptCatalogView
-          concepts={data.concepts}
-          error={data.conceptError}
-          searchConcepts={actions.searchConcepts}
-        />
       )}
     </div>
   );

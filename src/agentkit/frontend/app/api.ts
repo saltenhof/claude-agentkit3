@@ -1,5 +1,4 @@
 import type { ExecutionInputSnapshot, ExecutionLimits, DependencyEdge } from './contexts/execution_planning/types';
-import type { ConceptRef, ConceptSearchHit } from './contexts/concept_catalog/types';
 import type { HubSession, HubStatusSnapshot } from './contexts/multi_llm_hub/types';
 import type { ProjectModeLock, ProjectSummary, StoryCounters } from './contexts/project_management/types';
 import type { StoryDetail, StorySummary } from './contexts/story_context_manager/types';
@@ -111,18 +110,6 @@ export class ApiClient {
   async hubSessions(): Promise<HubSession[]> {
     const payload = await this.request<{ sessions: HubSession[] }>('/v1/hub/sessions');
     return payload.sessions;
-  }
-
-  async concepts(): Promise<ConceptRef[]> {
-    const payload = await this.request<{ concepts: ConceptRef[] }>('/v1/concepts');
-    return payload.concepts;
-  }
-
-  async searchConcepts(query: string): Promise<ConceptSearchHit[]> {
-    const payload = await this.request<{ hits: ConceptSearchHit[] }>(
-      `/v1/concepts/search?q=${encodeURIComponent(query)}&limit=12`,
-    );
-    return payload.hits;
   }
 
   async approveStory(projectKey: string, storyId: string): Promise<StorySummary> {

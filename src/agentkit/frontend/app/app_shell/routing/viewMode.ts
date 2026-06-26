@@ -1,4 +1,4 @@
-export type ViewMode = 'graph' | 'kanban' | 'sheet' | 'analytics' | 'hub' | 'concepts';
+export type ViewMode = 'graph' | 'kanban' | 'sheet' | 'analytics' | 'hub';
 
 const VALID_VIEW_MODES = new Set<ViewMode>([
   'graph',
@@ -6,7 +6,6 @@ const VALID_VIEW_MODES = new Set<ViewMode>([
   'sheet',
   'analytics',
   'hub',
-  'concepts',
 ]);
 
 export function viewModeFromHash(hash: string): ViewMode {

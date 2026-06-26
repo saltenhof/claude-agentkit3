@@ -4,7 +4,6 @@ import type { ReactElement } from 'react';
 import { ApiClient, ApiError } from './api';
 import { Shell } from './app_shell/layout/Shell';
 import { viewModeFromHash, type ViewMode } from './app_shell/routing/viewMode';
-import type { ConceptRef, ConceptSearchHit } from './contexts/concept_catalog/types';
 import type { DependencyEdge, ExecutionInputSnapshot, ExecutionLimits } from './contexts/execution_planning/types';
 import type { HubSession, HubStatusSnapshot } from './contexts/multi_llm_hub/types';
 import type { ProjectModeLock, ProjectSummary, StoryCounters } from './contexts/project_management/types';
@@ -24,8 +23,6 @@ export interface AppData {
   hubStatus: HubStatusSnapshot | null;
   hubSessions: HubSession[];
   hubError: string | null;
-  concepts: ConceptRef[];
-  conceptError: string | null;
   selectedStory: StoryDetail | null;
   selectedStoryId: string | null;
   viewMode: ViewMode;
@@ -44,7 +41,6 @@ export interface AppActions {
   rejectStory: (storyId: string) => Promise<void>;
   cancelStory: (storyId: string, reason: string) => Promise<void>;
   updateStoryFields: (storyId: string, updates: Record<string, unknown>) => Promise<void>;
-  searchConcepts: (query: string) => Promise<ConceptSearchHit[]>;
 }
 
 export function App(): ReactElement {
@@ -61,8 +57,6 @@ export function App(): ReactElement {
   const [hubStatus, setHubStatus] = useState<HubStatusSnapshot | null>(null);
   const [hubSessions, setHubSessions] = useState<HubSession[]>([]);
   const [hubError, setHubError] = useState<string | null>(null);
-  const [concepts, setConcepts] = useState<ConceptRef[]>([]);
-  const [conceptError, setConceptError] = useState<string | null>(null);
   const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
   const [selectedStory, setSelectedStory] = useState<StoryDetail | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>(() => viewModeFromHash(globalThis.location.hash));
@@ -92,10 +86,9 @@ export function App(): ReactElement {
   );
 
   const loadProjectNeutralData = useCallback(async (): Promise<void> => {
-    const [hubSnapshot, sessions, conceptList] = await Promise.allSettled([
+    const [hubSnapshot, sessions] = await Promise.allSettled([
       api.hubStatus(),
       api.hubSessions(),
-      api.concepts(),
     ]);
 
     if (hubSnapshot.status === 'fulfilled') {
@@ -116,13 +109,6 @@ export function App(): ReactElement {
       setHubError(errorMessage(sessions.reason, 'Hub-Sessions konnten nicht geladen werden.'));
     }
 
-    if (conceptList.status === 'fulfilled') {
-      setConcepts(conceptList.value);
-      setConceptError(null);
-    } else {
-      setConcepts([]);
-      setConceptError(errorMessage(conceptList.reason, 'Concept Catalog konnte nicht geladen werden.'));
-    }
   }, [api]);
 
   const loadProjectData = useCallback(
@@ -292,7 +278,6 @@ export function App(): ReactElement {
           setModeLock(null);
           setHubStatus(null);
           setHubSessions([]);
-          setConcepts([]);
         }
       },
       selectProject: (projectKey: string) => {
@@ -333,7 +318,6 @@ export function App(): ReactElement {
         await api.updateStoryFields(selectedProjectKey, storyId, updates);
         await loadProjectData(selectedProjectKey);
       },
-      searchConcepts: async (query: string) => api.searchConcepts(query),
     }),
     [api, loadProjectData, loadProjects, selectedProjectKey, unauthorize],
   );
@@ -350,8 +334,6 @@ export function App(): ReactElement {
     hubStatus,
     hubSessions,
     hubError,
-    concepts,
-    conceptError,
     selectedStory,
     selectedStoryId,
     viewMode,
