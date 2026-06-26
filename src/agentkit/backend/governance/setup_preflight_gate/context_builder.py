@@ -125,13 +125,12 @@ def _resolve_trigger_inputs(
     StoryService is wired (standalone / legacy path) the trigger inputs are
     unknown; returning ``None`` for ``change_impact`` and ``concept_quality``
     causes ``determine_mode`` to fail-closed (→ Exploration via Trigger 2 / 4
-    WARNING branch).  An empty ``concept_paths`` tuple causes Trigger 1 to fire
+    WARNING branch).  An empty ``concept_refs`` tuple causes Trigger 1 to fire
     (fail-closed).
 
-    ``concept_paths`` is the runtime projection of
-    ``StorySpecification.concept_refs`` (AC8).  ``concept_refs`` remains the
-    persistence owner; ``concept_paths`` is the typed run-time value consumed by
-    the sandbox guard in :func:`~.mode_determination._has_valid_concept_paths`.
+    ``concept_refs`` is the same StorySpecification reference list projected into
+    the typed run context; it is consumed by the sandbox guard in
+    :func:`~.mode_determination._has_valid_concept_refs`.
 
     Args:
         story_service: The authoritative ``StoryService`` (``None`` =>
@@ -140,11 +139,11 @@ def _resolve_trigger_inputs(
 
     Returns:
         A 5-tuple of ``(change_impact, concept_quality, new_structures,
-        vectordb_conflict_resolved, concept_paths)`` where ``change_impact`` and
+        vectordb_conflict_resolved, concept_refs)`` where ``change_impact`` and
         ``concept_quality`` are ``None`` when the record is unavailable
         (fail-closed → Exploration), ``vectordb_conflict_resolved`` projects the
         authoritative AG3-068 producer flag (default ``False`` when the record
-        is absent), and ``concept_paths`` is an empty tuple when the spec is
+        is absent), and ``concept_refs`` is an empty tuple when the spec is
         absent or ``concept_refs`` is None/empty (fail-closed → Trigger 1 fires).
     """
     if story_service is None:
@@ -157,9 +156,9 @@ def _resolve_trigger_inputs(
         return None, None, False, False, ()
 
     story, spec = detail
-    # AC8: project StorySpecification.concept_refs → concept_paths.
+    # AC8: project StorySpecification.concept_refs into the run context.
     # Empty tuple when spec absent or refs genuinely absent (fail-closed → Trigger 1).
-    concept_paths: tuple[str, ...] = (
+    concept_refs: tuple[str, ...] = (
         tuple(ref for ref in spec.concept_refs if ref)
         if spec is not None and spec.concept_refs
         else ()
@@ -170,7 +169,7 @@ def _resolve_trigger_inputs(
         story.concept_quality,
         story.new_structures,
         story.vectordb_conflict_resolved,
-        concept_paths,
+        concept_refs,
     )
 
 
@@ -228,13 +227,13 @@ def build_story_context(
     # For the standalone/GitHub path, trigger inputs are not available from the
     # issue itself — they come from the StoryService record.  When no service is
     # wired, we fall back to fail-closed defaults (execution_route=EXPLORATION
-    # for implementing types via determine_mode's Trigger 1: no concept_paths).
+    # for implementing types via determine_mode's Trigger 1: no concept_refs).
     (
         change_impact_val,
         concept_quality_val,
         new_structures_val,
         vectordb_conflict_resolved_val,
-        concept_paths_val,
+        concept_refs_val,
     ) = _resolve_trigger_inputs(story_service, resolved_story_id)
 
     # Build a minimal context shell to pass to determine_mode.
@@ -251,7 +250,7 @@ def build_story_context(
         concept_quality=concept_quality_val,
         new_structures=new_structures_val,
         vectordb_conflict_resolved=vectordb_conflict_resolved_val,
-        concept_paths=concept_paths_val,
+        concept_refs=concept_refs_val,
         issue_nr=issue.number,
         title=issue.title,
         story_size=estimate_size(list(issue.labels), issue.title),
@@ -273,7 +272,7 @@ def build_story_context(
         concept_quality=concept_quality_val,
         new_structures=new_structures_val,
         vectordb_conflict_resolved=vectordb_conflict_resolved_val,
-        concept_paths=concept_paths_val,
+        concept_refs=concept_refs_val,
         issue_nr=issue.number,
         title=issue.title,
         story_size=estimate_size(list(issue.labels), issue.title),
@@ -360,10 +359,10 @@ def build_internal_story_context(
     # AG3-068 (FK-21 §21.12): project the authoritative VectorDB-conflict producer
     # flag so determine_mode reads the SSOT instead of the fail-closed default.
     vectordb_conflict_resolved_val = story.vectordb_conflict_resolved
-    # AC8: project StorySpecification.concept_refs → concept_paths.
+    # AC8: project StorySpecification.concept_refs into the run context.
     # Fail-closed: empty tuple when spec absent or refs genuinely absent
     # (Trigger 1 fires for implementing stories without concept references).
-    concept_paths_val: tuple[str, ...] = (
+    concept_refs_val: tuple[str, ...] = (
         tuple(ref for ref in spec.concept_refs if ref)
         if spec is not None and spec.concept_refs
         else ()
@@ -381,7 +380,7 @@ def build_internal_story_context(
         concept_quality=concept_quality_val,
         new_structures=new_structures_val,
         vectordb_conflict_resolved=vectordb_conflict_resolved_val,
-        concept_paths=concept_paths_val,
+        concept_refs=concept_refs_val,
         title=story.title,
         story_size=story.size,
         project_root=project_root,
@@ -402,7 +401,7 @@ def build_internal_story_context(
         concept_quality=concept_quality_val,
         new_structures=new_structures_val,
         vectordb_conflict_resolved=vectordb_conflict_resolved_val,
-        concept_paths=concept_paths_val,
+        concept_refs=concept_refs_val,
         title=story.title,
         story_size=story.size,
         project_root=project_root,

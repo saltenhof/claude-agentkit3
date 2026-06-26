@@ -26,7 +26,8 @@ CONTEXT_SUFFICIENCY_SCHEMA_VERSION: str = "1.0"
 _MISSING_STATUSES: frozenset[str] = frozenset({"missing"})
 _GAP_STATUSES: frozenset[str] = frozenset({"truncated", "summary_only"})
 _SUMMARY_KEYS: tuple[str, ...] = ("concept_excerpt", "concept_summary", "summary")
-_CONCEPT_PATHS_KEY: str = "concept_paths"
+_CONCEPT_REFS_KEY: str = "concept_refs"
+_LEGACY_CONCEPT_PATHS_KEY: str = "concept_paths"
 _EXTERNAL_SOURCES_KEY: str = "external_sources"
 
 
@@ -214,7 +215,7 @@ class ContextSufficiencyBuilder:
         return json.dumps(payload, sort_keys=True, ensure_ascii=False)
 
     def _load_concept_excerpt(self) -> str:
-        loaded = self._load_concept_paths()
+        loaded = self._load_concept_refs()
         if loaded:
             return loaded
         for key in _SUMMARY_KEYS:
@@ -225,7 +226,7 @@ class ContextSufficiencyBuilder:
 
     def _load_arch_references(self) -> str:
         parts: list[str] = []
-        loaded = self._load_concept_paths()
+        loaded = self._load_concept_refs()
         if loaded:
             parts.append(loaded)
         external_sources = self._context_json.get(_EXTERNAL_SOURCES_KEY)
@@ -240,15 +241,17 @@ class ContextSufficiencyBuilder:
                 parts.append("## External Sources\n" + "\n".join(rendered))
         return "\n\n".join(parts)
 
-    def _load_concept_paths(self) -> str:
-        paths = self._context_json.get(_CONCEPT_PATHS_KEY)
-        if not isinstance(paths, list):
+    def _load_concept_refs(self) -> str:
+        refs = self._context_json.get(_CONCEPT_REFS_KEY)
+        if not isinstance(refs, list):
+            refs = self._context_json.get(_LEGACY_CONCEPT_PATHS_KEY)
+        if not isinstance(refs, list):
             return ""
         sections: list[str] = []
-        for raw_path in paths:
-            if not isinstance(raw_path, str) or not raw_path.strip():
+        for raw_ref in refs:
+            if not isinstance(raw_ref, str) or not raw_ref.strip():
                 continue
-            path = self._resolve_concept_path(raw_path)
+            path = self._resolve_concept_ref(raw_ref)
             if path is None:
                 continue
             content = _read_text(path)
@@ -256,13 +259,17 @@ class ContextSufficiencyBuilder:
                 sections.append(f"## {path.as_posix()}\n{content}")
         return "\n\n".join(sections)
 
-    def _resolve_concept_path(self, raw_path: str) -> Path | None:
-        candidate = (self._worktree_root / raw_path).resolve()
+    def _resolve_concept_ref(self, raw_ref: str) -> Path | None:
+        candidate = (self._worktree_root / raw_ref).resolve()
         if candidate.is_file():
             return candidate
         concept_root = self._worktree_root / "concept"
-        for base in (concept_root, concept_root / "domain-design", concept_root / "technical-design"):
-            fallback = (base / raw_path).resolve()
+        for base in (
+            concept_root,
+            concept_root / "domain-design",
+            concept_root / "technical-design",
+        ):
+            fallback = (base / raw_ref).resolve()
             if fallback.is_file():
                 return fallback
         return None

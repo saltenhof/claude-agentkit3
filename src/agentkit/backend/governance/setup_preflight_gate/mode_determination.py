@@ -52,7 +52,7 @@ def determine_mode(
        ``None`` immediately; no trigger evaluation (FK-24 §24.3.2).
     2. VektorDB-conflict precedence: ``vectordb_conflict_resolved`` forces
        Exploration before any trigger check (FK-22 §22.8.1).
-    3. Trigger 1 — no valid concept paths: ``_has_valid_concept_paths`` fails
+    3. Trigger 1 — no valid concept refs: ``_has_valid_concept_refs`` fails
        → Exploration + WARNING.
     4. Trigger 2 — Architecture Impact: ``change_impact is None`` (unknown) →
        Exploration + WARNING (fail-closed); ``change_impact ==
@@ -67,10 +67,10 @@ def determine_mode(
     Args:
         context: The populated ``StoryContext`` for this run.  The trigger
             inputs are read from its fields (``vectordb_conflict_resolved``,
-            ``concept_paths``, ``change_impact``, ``new_structures``,
+            ``concept_refs``, ``change_impact``, ``new_structures``,
             ``concept_quality``).
         project_root: Filesystem root of the target project.  Forwarded to
-            ``_has_valid_concept_paths`` as the sandbox boundary.  When
+            ``_has_valid_concept_refs`` as the sandbox boundary.  When
             ``None`` the guard falls back to ``Path.cwd()`` and emits a
             WARNING (FK-22 §22.8.1 bug-fix note).
 
@@ -95,8 +95,8 @@ def determine_mode(
         )
         return StoryMode.EXPLORATION
 
-    # --- Trigger 1: no valid concept paths -----------------------------------
-    if not _has_valid_concept_paths(context.concept_paths, project_root=project_root):
+    # --- Trigger 1: no valid concept refs ------------------------------------
+    if not _has_valid_concept_refs(context.concept_refs, project_root=project_root):
         _log.warning(
             "determine_mode: no valid concept reference — Exploration (Trigger 1, "
             "FK-22 §22.8.1)",
@@ -150,19 +150,19 @@ def determine_mode(
     return StoryMode.EXECUTION
 
 
-def _has_valid_concept_paths(
-    concept_paths: tuple[str, ...],
+def _has_valid_concept_refs(
+    concept_refs: tuple[str, ...],
     *,
     project_root: Path | None,
 ) -> bool:
-    """Validate that at least one concept path is non-empty, exists, and is in-sandbox.
+    """Validate that at least one concept ref is non-empty, exists, and is in-sandbox.
 
     FK-22 §22.8.1 Sandbox-Guard: a path outside ``project_root``, an empty
     string, or a non-existent file counts as "no valid concept" and causes
     Trigger 1 to fire.
 
     Args:
-        concept_paths: Candidate concept-reference paths from ``StoryContext``.
+        concept_refs: Candidate concept-reference paths from ``StoryContext``.
         project_root: Filesystem boundary for the sandbox guard.  ``None``
             causes a CWD fallback with a WARNING (FK-22 §22.8.1 bug-fix note).
 
@@ -172,14 +172,14 @@ def _has_valid_concept_paths(
     """
     if project_root is None:
         _log.warning(
-            "_has_valid_concept_paths: project_root is None — "
+            "_has_valid_concept_refs: project_root is None — "
             "falling back to CWD as sandbox boundary (FK-22 §22.8.1 bug-fix)",
         )
         resolved_root = Path.cwd().resolve()
     else:
         resolved_root = Path(project_root).resolve()
 
-    for raw_path in concept_paths:
+    for raw_path in concept_refs:
         if not raw_path or not raw_path.strip():
             # Empty or whitespace-only path — skip.
             continue
@@ -200,7 +200,7 @@ def _has_valid_concept_paths(
             resolved_candidate.relative_to(resolved_root)
         except ValueError:
             _log.warning(
-                "_has_valid_concept_paths: path %r is outside project_root %r "
+                "_has_valid_concept_refs: path %r is outside project_root %r "
                 "— skipping (sandbox violation, FK-22 §22.8.1)",
                 str(resolved_candidate),
                 str(resolved_root),

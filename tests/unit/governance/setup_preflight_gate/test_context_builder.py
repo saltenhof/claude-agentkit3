@@ -64,13 +64,11 @@ class _FakeStoryServiceWithRecord:
         del story_display_id
         return self._story
 
-    def get_story_detail(
-        self, story_display_id: str
-    ) -> tuple[Story, object] | None:
+    def get_story_detail(self, story_display_id: str) -> tuple[Story, object] | None:
         del story_display_id
         if self._story is None:
             return None
-        # No spec in the minimal stub — concept_paths will be empty (fail-closed).
+        # No spec in the minimal stub — concept_refs will be empty (fail-closed).
         return self._story, None
 
 
@@ -148,7 +146,9 @@ class TestBuildStoryContext:
     """Tests for ``build_story_context``."""
 
     def test_fast_label_passes_through_to_mode(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """A ``fast`` label on an impl story derives ``StoryContext.mode=fast``.
 
@@ -164,7 +164,9 @@ class TestBuildStoryContext:
         assert ctx.mode is WireStoryMode.FAST
 
     def test_default_mode_is_standard(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         monkeypatch.setattr(
             "agentkit.backend.governance.setup_preflight_gate.context_builder.get_issue",
@@ -174,7 +176,9 @@ class TestBuildStoryContext:
         assert ctx.mode is WireStoryMode.STANDARD
 
     def test_bug_label_produces_bugfix_type(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """Label ``"bug"`` results in StoryType.BUGFIX."""
         monkeypatch.setattr(
@@ -186,7 +190,9 @@ class TestBuildStoryContext:
         assert ctx.implementation_contract is None
 
     def test_concept_label_produces_concept_type(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """Label ``"concept"`` results in StoryType.CONCEPT."""
         monkeypatch.setattr(
@@ -198,7 +204,9 @@ class TestBuildStoryContext:
         assert ctx.implementation_contract is None
 
     def test_research_label_produces_research_type(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """Label ``"research"`` results in StoryType.RESEARCH."""
         monkeypatch.setattr(
@@ -210,7 +218,9 @@ class TestBuildStoryContext:
         assert ctx.implementation_contract is None
 
     def test_no_label_defaults_to_implementation(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """No recognised label defaults to IMPLEMENTATION."""
         monkeypatch.setattr(
@@ -222,7 +232,9 @@ class TestBuildStoryContext:
         assert ctx.implementation_contract == ImplementationContract.STANDARD
 
     def test_story_id_generated_from_issue_nr(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """story_id is derived as ``"STORY-{issue_nr}"`` when not provided."""
         monkeypatch.setattr(
@@ -233,7 +245,9 @@ class TestBuildStoryContext:
         assert ctx.story_id == "STORY-42"
 
     def test_explicit_story_id_is_used(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """Explicit story_id overrides the auto-generated one."""
         monkeypatch.setattr(
@@ -241,12 +255,19 @@ class TestBuildStoryContext:
             lambda owner, repo, nr: _make_issue(),
         )
         ctx = build_story_context(
-            "owner", "repo", 42, tmp_path, "test-project", story_id="CUSTOM-99",
+            "owner",
+            "repo",
+            42,
+            tmp_path,
+            "test-project",
+            story_id="CUSTOM-99",
         )
         assert ctx.story_id == "CUSTOM-99"
 
     def test_context_fields_are_populated(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """All key StoryContext fields are correctly populated."""
         issue = _make_issue(
@@ -269,7 +290,9 @@ class TestBuildStoryContext:
         assert ctx.created_at is not None
 
     def test_mode_from_profile_default(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """Mode is set from the story type profile's default_mode."""
         monkeypatch.setattr(
@@ -285,7 +308,9 @@ class TestBuildInternalStoryContext:
     """AG3-054 PART B (#2): an internal story builds its context WITHOUT GitHub."""
 
     def test_internal_context_does_not_call_get_issue(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         """An internal story context is built from StoryService -- never GitHub.
 
@@ -318,7 +343,8 @@ class TestBuildInternalStoryContext:
         assert ctx.mode is WireStoryMode.STANDARD
 
     def test_internal_context_unknown_story_fails_closed(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """A wired service that does not know the story fails closed (no fabrication)."""
         service = _FakeStoryServiceWithRecord(None)
@@ -331,19 +357,18 @@ class TestBuildInternalStoryContext:
             )
 
     def test_internal_context_standalone_builds_minimal_concept(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """No wired service (standalone) builds a minimal CONCEPT context, no GitHub."""
-        ctx = build_internal_story_context(
-            tmp_path, "test-project", "AG3-201", story_service=None
-        )
+        ctx = build_internal_story_context(tmp_path, "test-project", "AG3-201", story_service=None)
         assert ctx.story_type is StoryType.CONCEPT
         assert ctx.project_root == tmp_path
         assert ctx.issue_nr is None
 
 
 # ---------------------------------------------------------------------------
-# ERROR-4: Tests for real build-path contract — concept_refs → concept_paths
+# ERROR-4: Tests for real build-path contract — StorySpec refs in run context
 # ---------------------------------------------------------------------------
 
 
@@ -374,7 +399,7 @@ def _impl_story(
 class _FakeStoryServiceWithSpec:
     """Minimal StoryService stub that returns a Story with an optional spec.
 
-    Used to test the real build-path contract: spec.concept_refs → concept_paths.
+    Used to test the real build-path contract: spec.concept_refs in StoryContext.
     """
 
     def __init__(
@@ -389,26 +414,21 @@ class _FakeStoryServiceWithSpec:
         del story_display_id
         return self._story
 
-    def get_story_detail(
-        self, story_display_id: str
-    ) -> tuple[Story, StorySpecification | None] | None:
+    def get_story_detail(self, story_display_id: str) -> tuple[Story, StorySpecification | None] | None:
         del story_display_id
         if self._story is None:
             return None
         return self._story, self._spec
 
 
-class TestConceptRefsToConceptPathsProjection:
-    """ERROR-4: Real build-path contract — StorySpecification.concept_refs → concept_paths.
+class TestConceptRefsProjection:
+    """ERROR-4: Real build-path contract for StorySpecification.concept_refs.
 
-    AC8: concept_refs is the persistence owner; concept_paths is the runtime
-    projection.  Valid refs must NOT fire Trigger 1; absent refs must fail closed.
+    Valid refs must NOT fire Trigger 1; absent refs must fail closed.
     """
 
-    def test_internal_path_valid_concept_refs_do_not_fire_trigger_1(
-        self, tmp_path: Path
-    ) -> None:
-        """build_internal_story_context: valid spec.concept_refs → concept_paths populated
+    def test_internal_path_valid_concept_refs_do_not_fire_trigger_1(self, tmp_path: Path) -> None:
+        """build_internal_story_context: valid spec.concept_refs are populated
         → Trigger 1 does NOT fire → execution_route is EXECUTION (AC8).
 
         This proves the projection is actually wired: a story that would route to
@@ -439,15 +459,13 @@ class TestConceptRefsToConceptPathsProjection:
             story_service=service,  # type: ignore[arg-type]
         )
 
-        # All triggers neutral + valid concept_paths → Execution.
+        # All triggers neutral + valid concept_refs → Execution.
         assert ctx.execution_route is StoryMode.EXECUTION
-        # concept_paths is populated with the spec ref.
-        assert str(concept_file) in ctx.concept_paths
+        # concept_refs is populated with the spec ref.
+        assert str(concept_file) in ctx.concept_refs
 
-    def test_internal_path_absent_concept_refs_fires_trigger_1(
-        self, tmp_path: Path
-    ) -> None:
-        """build_internal_story_context: absent spec.concept_refs → concept_paths=()
+    def test_internal_path_absent_concept_refs_fires_trigger_1(self, tmp_path: Path) -> None:
+        """build_internal_story_context: absent spec.concept_refs yields empty refs
         → Trigger 1 fires → execution_route is EXPLORATION (fail-closed, AC8).
 
         This proves fail-closed behavior: a story with no concept refs in its
@@ -470,14 +488,12 @@ class TestConceptRefsToConceptPathsProjection:
             story_service=service,  # type: ignore[arg-type]
         )
 
-        # No concept_refs → concept_paths=() → Trigger 1 fires → Exploration.
+        # No concept_refs → concept_refs=() → Trigger 1 fires → Exploration.
         assert ctx.execution_route is StoryMode.EXPLORATION
-        assert ctx.concept_paths == ()
+        assert ctx.concept_refs == ()
 
-    def test_internal_path_no_spec_fires_trigger_1(
-        self, tmp_path: Path
-    ) -> None:
-        """build_internal_story_context: spec=None → concept_paths=()
+    def test_internal_path_no_spec_fires_trigger_1(self, tmp_path: Path) -> None:
+        """build_internal_story_context: spec=None yields empty refs
         → Trigger 1 fires → execution_route is EXPLORATION (fail-closed).
         """
         service = _FakeStoryServiceWithSpec(
@@ -495,13 +511,11 @@ class TestConceptRefsToConceptPathsProjection:
             story_service=service,  # type: ignore[arg-type]
         )
 
-        # No spec → concept_paths=() → Trigger 1 fires → Exploration.
+        # No spec → concept_refs=() → Trigger 1 fires → Exploration.
         assert ctx.execution_route is StoryMode.EXPLORATION
-        assert ctx.concept_paths == ()
+        assert ctx.concept_refs == ()
 
-    def test_internal_path_vectordb_conflict_projects_and_forces_exploration(
-        self, tmp_path: Path
-    ) -> None:
+    def test_internal_path_vectordb_conflict_projects_and_forces_exploration(self, tmp_path: Path) -> None:
         """AG3-068 (FK-21 §21.12): build_internal_story_context projects the
         authoritative ``vectordb_conflict_resolved`` flag into the StoryContext,
         and a resolved conflict forces Exploration even when all OTHER triggers
@@ -539,9 +553,7 @@ class TestConceptRefsToConceptPathsProjection:
         # ...and forces Exploration despite all other triggers being neutral.
         assert ctx.execution_route is StoryMode.EXPLORATION
 
-    def test_internal_path_no_vectordb_conflict_allows_execution(
-        self, tmp_path: Path
-    ) -> None:
+    def test_internal_path_no_vectordb_conflict_allows_execution(self, tmp_path: Path) -> None:
         """AG3-068 baseline: with the conflict flag False and all triggers
         neutral, the route stays Execution — isolating the flag's effect."""
         concept_file = tmp_path / "concept.md"
@@ -571,32 +583,28 @@ class TestConceptRefsToConceptPathsProjection:
         assert ctx.vectordb_conflict_resolved is False
         assert ctx.execution_route is StoryMode.EXECUTION
 
-    def test_github_path_no_service_fires_trigger_1(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        """build_story_context without story_service: concept_paths=() (fail-closed).
+    def test_github_path_no_service_fires_trigger_1(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """build_story_context without story_service: concept_refs=() (fail-closed).
 
-        No StoryService → no spec available → concept_paths stays empty →
+        No StoryService → no spec available → concept_refs stays empty →
         Trigger 1 fires for implementing story types.
         """
         monkeypatch.setattr(
             "agentkit.backend.governance.setup_preflight_gate.context_builder.get_issue",
             lambda owner, repo, nr: _make_issue(labels=("implementation",)),
         )
-        ctx = build_story_context(
-            "owner", "repo", 42, tmp_path, "test-project", story_service=None
-        )
-        # No service → no concept_paths → Trigger 1 → Exploration.
+        ctx = build_story_context("owner", "repo", 42, tmp_path, "test-project", story_service=None)
+        # No service → no concept_refs → Trigger 1 → Exploration.
         assert ctx.execution_route is StoryMode.EXPLORATION
-        assert ctx.concept_paths == ()
+        assert ctx.concept_refs == ()
 
     def test_github_path_with_service_and_valid_concept_refs_do_not_fire_trigger_1(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """build_story_context with service + valid spec.concept_refs → EXECUTION.
 
-        This proves the GitHub build path also correctly projects concept_refs
-        into concept_paths via _resolve_trigger_inputs.
+        This proves the GitHub build path also reads concept_refs via
+        _resolve_trigger_inputs.
         """
         concept_file = tmp_path / "doc.md"
         concept_file.write_text("# Concept doc", encoding="utf-8")
@@ -621,13 +629,17 @@ class TestConceptRefsToConceptPathsProjection:
             lambda owner, repo, nr: _make_issue(number=42, labels=()),
         )
         ctx = build_story_context(
-            "owner", "repo", 42, tmp_path, "test-project",
+            "owner",
+            "repo",
+            42,
+            tmp_path,
+            "test-project",
             story_id="STORY-42",
             story_service=service,  # type: ignore[arg-type]
         )
         # Valid concept_refs wired through service → Trigger 1 does NOT fire → Execution.
         assert ctx.execution_route is StoryMode.EXECUTION
-        assert str(concept_file) in ctx.concept_paths
+        assert str(concept_file) in ctx.concept_refs
 
 
 class TestNewStructuresPersistenceRoundTrip:

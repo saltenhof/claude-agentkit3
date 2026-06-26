@@ -66,7 +66,7 @@ def _ctx(project_root: Path, *, title: str = "Build compaction support") -> Stor
         worktree_map={"repo": project_root / "worktrees" / "AG3-075"},
         participating_repos=["repo"],
         labels=["pipeline-framework"],
-        concept_paths=("concept/technical-design/36_compaction_resilience_prompt_persistence.md",),
+        concept_refs=("concept/technical-design/36_compaction_resilience_prompt_persistence.md",),
     )
 
 

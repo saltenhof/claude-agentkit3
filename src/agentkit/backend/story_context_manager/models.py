@@ -99,11 +99,10 @@ class StoryContext(BaseModel):
     #: here. Fail-closed default ``False``/absent (AG3-068 not yet merged).
     vectordb_conflict_resolved: bool = False
 
-    #: Runtime projection of ``StorySpecification.concept_refs`` as a tuple of
-    #: path strings. Used by ``_has_valid_concept_paths`` (FK-22 §22.8.1 Trigger 1).
-    #: ``concept_refs`` in the StorySpec remains the persistence owner; this field
-    #: is the typed run-time view for the sandbox guard (no second persistence truth).
-    concept_paths: tuple[str, ...] = ()
+    #: Runtime view of ``StorySpecification.concept_refs`` as a tuple of path strings.
+    #: This is not a second persistence truth; it is the same concept-reference
+    #: list in the typed run context.
+    concept_refs: tuple[str, ...] = ()
 
     #: Follow-up state after approved exploration for implementation/bugfix
     #: stories (FK-24 §24.5.2). ``None`` means not applicable for this story
@@ -121,6 +120,9 @@ class StoryContext(BaseModel):
             return data
 
         data = dict(data)
+        concept_paths = data.pop("concept_paths", None)
+        if "concept_refs" not in data and concept_paths is not None:
+            data["concept_refs"] = concept_paths
         if data.get("story_number") is None and isinstance(data.get("story_id"), str):
             data["story_number"] = _story_number_from_id(data["story_id"])
 
@@ -191,6 +193,7 @@ class StoryContext(BaseModel):
             )
 
         return self
+
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,

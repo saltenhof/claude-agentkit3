@@ -1,8 +1,8 @@
 """Unit tests for deterministic 4-trigger mode determination (AG3-057).
 
 Tests the full trigger matrix, VektorDB-conflict precedence, fail-closed
-behavior for missing/unknown fields, concept-path sandbox guard, and the
-non-implementing story-type gate.
+behavior for missing/unknown fields, concept-reference sandbox guard, and
+the non-implementing story-type gate.
 
 All tests are isolated pure-logic tests: no I/O beyond filesystem path
 existence checks (which use tmp_path fixtures).
@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.backend.governance.setup_preflight_gate.mode_determination import (
-    _has_valid_concept_paths,
+    _has_valid_concept_refs,
     determine_mode,
 )
 from agentkit.backend.story_context_manager.models import StoryContext
@@ -30,11 +30,12 @@ if TYPE_CHECKING:
 # Helper: build a StoryContext with controllable trigger inputs
 # ---------------------------------------------------------------------------
 
+
 def _ctx(
     *,
     story_type: StoryType = StoryType.IMPLEMENTATION,
     vectordb_conflict_resolved: bool = False,
-    concept_paths: tuple[str, ...] = ("concept/valid.md",),
+    concept_refs: tuple[str, ...] = ("concept/valid.md",),
     change_impact: ChangeImpact | None = ChangeImpact.LOCAL,
     new_structures: bool = False,
     concept_quality: ConceptQuality | None = ConceptQuality.HIGH,
@@ -49,13 +50,9 @@ def _ctx(
         project_key="test-project",
         story_id="AG3-999",
         story_type=story_type,
-        execution_route=(
-            StoryMode.EXPLORATION
-            if story_type in (StoryType.IMPLEMENTATION, StoryType.BUGFIX)
-            else None
-        ),
+        execution_route=(StoryMode.EXPLORATION if story_type in (StoryType.IMPLEMENTATION, StoryType.BUGFIX) else None),
         vectordb_conflict_resolved=vectordb_conflict_resolved,
-        concept_paths=concept_paths,
+        concept_refs=concept_refs,
         change_impact=change_impact,
         new_structures=new_structures,
         concept_quality=concept_quality,
@@ -71,9 +68,7 @@ def _ctx(
 class TestDetermineModeSmokeAndType:
     """Smoke: function exists, returns StoryMode | None."""
 
-    def test_returns_exploration_for_implementation_default(
-        self, tmp_path: Path
-    ) -> None:
+    def test_returns_exploration_for_implementation_default(self, tmp_path: Path) -> None:
         """With no triggers active (all neutral), returns EXECUTION."""
         concept_file = tmp_path / "concept" / "valid.md"
         concept_file.parent.mkdir(parents=True)
@@ -81,7 +76,7 @@ class TestDetermineModeSmokeAndType:
 
         ctx = _ctx(
             project_root=tmp_path,
-            concept_paths=(str(concept_file),),
+            concept_refs=(str(concept_file),),
         )
         result = determine_mode(ctx, project_root=tmp_path)
         assert result is StoryMode.EXECUTION
@@ -118,7 +113,7 @@ class TestDetermineModeSmokeAndType:
             story_id="AG3-999",
             story_type=StoryType.BUGFIX,
             execution_route=StoryMode.EXECUTION,
-            concept_paths=(str(concept_file),),
+            concept_refs=(str(concept_file),),
             change_impact=ChangeImpact.LOCAL,
             concept_quality=ConceptQuality.HIGH,
         )
@@ -133,22 +128,22 @@ class TestDetermineModeSmokeAndType:
 
 
 class TestTrigger1ConceptPaths:
-    """Trigger 1: empty / absent concept_paths → Exploration + WARNING."""
+    """Trigger 1: empty / absent concept_refs → Exploration + WARNING."""
 
-    def test_empty_concept_paths_fires_trigger_1(self, tmp_path: Path) -> None:
-        """concept_paths=() → Trigger 1 → Exploration."""
-        ctx = _ctx(concept_paths=(), project_root=tmp_path)
+    def test_empty_concept_refs_fires_trigger_1(self, tmp_path: Path) -> None:
+        """concept_refs=() → Trigger 1 → Exploration."""
+        ctx = _ctx(concept_refs=(), project_root=tmp_path)
         assert determine_mode(ctx, project_root=tmp_path) is StoryMode.EXPLORATION
 
     def test_whitespace_only_path_fires_trigger_1(self, tmp_path: Path) -> None:
-        """concept_paths with only whitespace-strings → Trigger 1 → Exploration."""
-        ctx = _ctx(concept_paths=("   ", ""), project_root=tmp_path)
+        """concept_refs with only whitespace-strings → Trigger 1 → Exploration."""
+        ctx = _ctx(concept_refs=("   ", ""), project_root=tmp_path)
         assert determine_mode(ctx, project_root=tmp_path) is StoryMode.EXPLORATION
 
     def test_nonexistent_path_fires_trigger_1(self, tmp_path: Path) -> None:
         """Non-existent concept path → Trigger 1 → Exploration."""
         ctx = _ctx(
-            concept_paths=(str(tmp_path / "does_not_exist.md"),),
+            concept_refs=(str(tmp_path / "does_not_exist.md"),),
             project_root=tmp_path,
         )
         assert determine_mode(ctx, project_root=tmp_path) is StoryMode.EXPLORATION
@@ -158,7 +153,7 @@ class TestTrigger1ConceptPaths:
         concept_file = tmp_path / "concept.md"
         concept_file.write_text("# valid", encoding="utf-8")
         ctx = _ctx(
-            concept_paths=(str(concept_file),),
+            concept_refs=(str(concept_file),),
             project_root=tmp_path,
         )
         assert determine_mode(ctx, project_root=tmp_path) is StoryMode.EXECUTION
@@ -170,7 +165,7 @@ class TestTrigger1ConceptPaths:
         sandbox = tmp_path / "sandbox"
         sandbox.mkdir()
         ctx = _ctx(
-            concept_paths=(str(outside),),
+            concept_refs=(str(outside),),
             project_root=sandbox,
         )
         assert determine_mode(ctx, project_root=sandbox) is StoryMode.EXPLORATION
@@ -184,7 +179,7 @@ class TestTrigger2ChangeImpact:
         concept_file = tmp_path / "c.md"
         concept_file.write_text("# c", encoding="utf-8")
         ctx = _ctx(
-            concept_paths=(str(concept_file),),
+            concept_refs=(str(concept_file),),
             change_impact=ChangeImpact.ARCHITECTURE_IMPACT,
             project_root=tmp_path,
         )
@@ -194,14 +189,12 @@ class TestTrigger2ChangeImpact:
         "impact",
         [ChangeImpact.LOCAL, ChangeImpact.COMPONENT, ChangeImpact.CROSS_COMPONENT],
     )
-    def test_non_architecture_impact_does_not_fire(
-        self, tmp_path: Path, impact: ChangeImpact
-    ) -> None:
+    def test_non_architecture_impact_does_not_fire(self, tmp_path: Path, impact: ChangeImpact) -> None:
         """Non-ARCHITECTURE_IMPACT change_impact values do not fire Trigger 2."""
         concept_file = tmp_path / "c.md"
         concept_file.write_text("# c", encoding="utf-8")
         ctx = _ctx(
-            concept_paths=(str(concept_file),),
+            concept_refs=(str(concept_file),),
             change_impact=impact,
             project_root=tmp_path,
         )
@@ -216,7 +209,7 @@ class TestTrigger3NewStructures:
         concept_file = tmp_path / "c.md"
         concept_file.write_text("# c", encoding="utf-8")
         ctx = _ctx(
-            concept_paths=(str(concept_file),),
+            concept_refs=(str(concept_file),),
             new_structures=True,
             project_root=tmp_path,
         )
@@ -227,7 +220,7 @@ class TestTrigger3NewStructures:
         concept_file = tmp_path / "c.md"
         concept_file.write_text("# c", encoding="utf-8")
         ctx = _ctx(
-            concept_paths=(str(concept_file),),
+            concept_refs=(str(concept_file),),
             new_structures=False,
             project_root=tmp_path,
         )
@@ -242,7 +235,7 @@ class TestTrigger4ConceptQuality:
         concept_file = tmp_path / "c.md"
         concept_file.write_text("# c", encoding="utf-8")
         ctx = _ctx(
-            concept_paths=(str(concept_file),),
+            concept_refs=(str(concept_file),),
             concept_quality=ConceptQuality.LOW,
             project_root=tmp_path,
         )
@@ -252,14 +245,12 @@ class TestTrigger4ConceptQuality:
         "quality",
         [ConceptQuality.HIGH, ConceptQuality.MEDIUM],
     )
-    def test_non_low_concept_quality_does_not_fire(
-        self, tmp_path: Path, quality: ConceptQuality
-    ) -> None:
+    def test_non_low_concept_quality_does_not_fire(self, tmp_path: Path, quality: ConceptQuality) -> None:
         """HIGH / MEDIUM concept_quality values do not fire Trigger 4."""
         concept_file = tmp_path / "c.md"
         concept_file.write_text("# c", encoding="utf-8")
         ctx = _ctx(
-            concept_paths=(str(concept_file),),
+            concept_refs=(str(concept_file),),
             concept_quality=quality,
             project_root=tmp_path,
         )
@@ -280,7 +271,7 @@ class TestVektorDBConflictPrecedence:
         concept_file.write_text("# c", encoding="utf-8")
         ctx = _ctx(
             vectordb_conflict_resolved=True,
-            concept_paths=(str(concept_file),),
+            concept_refs=(str(concept_file),),
             change_impact=ChangeImpact.LOCAL,
             new_structures=False,
             concept_quality=ConceptQuality.HIGH,
@@ -294,7 +285,7 @@ class TestVektorDBConflictPrecedence:
         concept_file.write_text("# valid", encoding="utf-8")
         ctx = _ctx(
             vectordb_conflict_resolved=True,
-            concept_paths=(str(concept_file),),
+            concept_refs=(str(concept_file),),
             change_impact=ChangeImpact.LOCAL,
             new_structures=False,
             concept_quality=ConceptQuality.MEDIUM,
@@ -311,9 +302,7 @@ class TestVektorDBConflictPrecedence:
 class TestFailClosedMissingFields:
     """Fail-closed behavior: None field values → Exploration + WARNING (AK4)."""
 
-    def test_none_change_impact_fail_closed(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_none_change_impact_fail_closed(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """change_impact=None (unresolvable) → Exploration + WARNING (fail-closed).
 
         ERROR-5 fix: assert the WARNING log record is actually emitted so that
@@ -324,7 +313,7 @@ class TestFailClosedMissingFields:
         concept_file = tmp_path / "c.md"
         concept_file.write_text("# c", encoding="utf-8")
         ctx = _ctx(
-            concept_paths=(str(concept_file),),
+            concept_refs=(str(concept_file),),
             change_impact=None,
             project_root=tmp_path,
         )
@@ -333,13 +322,11 @@ class TestFailClosedMissingFields:
 
         assert result is StoryMode.EXPLORATION
         warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any(
-            "change_impact is None" in msg for msg in warning_messages
-        ), f"Expected WARNING about 'change_impact is None', got: {warning_messages}"
+        assert any("change_impact is None" in msg for msg in warning_messages), (
+            f"Expected WARNING about 'change_impact is None', got: {warning_messages}"
+        )
 
-    def test_none_concept_quality_fail_closed(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_none_concept_quality_fail_closed(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """concept_quality=None (unresolvable) → Exploration + WARNING (fail-closed).
 
         ERROR-5 fix: assert the WARNING log record is actually emitted so that
@@ -350,7 +337,7 @@ class TestFailClosedMissingFields:
         concept_file = tmp_path / "c.md"
         concept_file.write_text("# c", encoding="utf-8")
         ctx = _ctx(
-            concept_paths=(str(concept_file),),
+            concept_refs=(str(concept_file),),
             change_impact=ChangeImpact.LOCAL,
             concept_quality=None,
             project_root=tmp_path,
@@ -360,13 +347,11 @@ class TestFailClosedMissingFields:
 
         assert result is StoryMode.EXPLORATION
         warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any(
-            "concept_quality is None" in msg for msg in warning_messages
-        ), f"Expected WARNING about 'concept_quality is None', got: {warning_messages}"
+        assert any("concept_quality is None" in msg for msg in warning_messages), (
+            f"Expected WARNING about 'concept_quality is None', got: {warning_messages}"
+        )
 
-    def test_trigger_1_emits_warning_on_empty_concept_paths(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_trigger_1_emits_warning_on_empty_concept_refs(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """Trigger 1 (no valid concept paths) emits a WARNING log record.
 
         ERROR-5 fix: assert the WARNING is emitted, not just that the return
@@ -375,43 +360,38 @@ class TestFailClosedMissingFields:
         """
         import logging
 
-        ctx = _ctx(concept_paths=(), project_root=tmp_path)
+        ctx = _ctx(concept_refs=(), project_root=tmp_path)
         with caplog.at_level(logging.WARNING, logger="agentkit.backend.governance.setup_preflight_gate.mode_determination"):
             result = determine_mode(ctx, project_root=tmp_path)
 
         assert result is StoryMode.EXPLORATION
         warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any(
-            "no valid concept reference" in msg or "concept" in msg.lower()
-            for msg in warning_messages
-        ), f"Expected WARNING about concept paths (Trigger 1), got: {warning_messages}"
+        assert any("no valid concept reference" in msg or "concept" in msg.lower() for msg in warning_messages), (
+            f"Expected WARNING about concept paths (Trigger 1), got: {warning_messages}"
+        )
 
-    def test_project_root_none_emits_cwd_fallback_warning(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_project_root_none_emits_cwd_fallback_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """project_root=None causes CWD fallback and emits a WARNING (AK5).
 
-        ERROR-5 fix: assert the fallback WARNING from _has_valid_concept_paths
+        ERROR-5 fix: assert the fallback WARNING from _has_valid_concept_refs
         is observable, not just the bool return.
         """
         import logging
 
         with caplog.at_level(logging.WARNING, logger="agentkit.backend.governance.setup_preflight_gate.mode_determination"):
             from agentkit.backend.governance.setup_preflight_gate.mode_determination import (
-                _has_valid_concept_paths,
+                _has_valid_concept_refs,
             )
-            result = _has_valid_concept_paths(("nonexistent_ag3057_test.md",), project_root=None)
+
+            result = _has_valid_concept_refs(("nonexistent_ag3057_test.md",), project_root=None)
 
         assert isinstance(result, bool)
         warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any(
-            "project_root is None" in msg or "CWD" in msg or "cwd" in msg.lower()
-            for msg in warning_messages
-        ), f"Expected WARNING about project_root=None CWD fallback, got: {warning_messages}"
+        assert any("project_root is None" in msg or "CWD" in msg or "cwd" in msg.lower() for msg in warning_messages), (
+            f"Expected WARNING about project_root=None CWD fallback, got: {warning_messages}"
+        )
 
-    def test_new_structures_absent_default_false_no_trigger(
-        self, tmp_path: Path
-    ) -> None:
+    def test_new_structures_absent_default_false_no_trigger(self, tmp_path: Path) -> None:
         """new_structures=False (default) does NOT trigger Exploration.
 
         The fail-closed default is False: absence of the field means "no new
@@ -421,20 +401,18 @@ class TestFailClosedMissingFields:
         concept_file = tmp_path / "c.md"
         concept_file.write_text("# c", encoding="utf-8")
         ctx = _ctx(
-            concept_paths=(str(concept_file),),
+            concept_refs=(str(concept_file),),
             new_structures=False,  # explicit default
             project_root=tmp_path,
         )
         assert determine_mode(ctx, project_root=tmp_path) is StoryMode.EXECUTION
 
-    def test_all_triggers_neutral_no_conflict_gives_execution(
-        self, tmp_path: Path
-    ) -> None:
+    def test_all_triggers_neutral_no_conflict_gives_execution(self, tmp_path: Path) -> None:
         """Default path (all triggers neutral, no conflict) → Execution."""
         concept_file = tmp_path / "c.md"
         concept_file.write_text("# c", encoding="utf-8")
         ctx = _ctx(
-            concept_paths=(str(concept_file),),
+            concept_refs=(str(concept_file),),
             change_impact=ChangeImpact.LOCAL,
             new_structures=False,
             concept_quality=ConceptQuality.MEDIUM,
@@ -445,34 +423,29 @@ class TestFailClosedMissingFields:
 
 
 # ---------------------------------------------------------------------------
-# AK5: _has_valid_concept_paths sandbox guard
+# AK5: _has_valid_concept_refs sandbox guard
 # ---------------------------------------------------------------------------
 
 
 class TestHasValidConceptPaths:
-    """Unit tests for ``_has_valid_concept_paths`` (AK5)."""
+    """Unit tests for ``_has_valid_concept_refs`` (AK5)."""
 
     def test_empty_tuple_is_invalid(self, tmp_path: Path) -> None:
-        assert _has_valid_concept_paths((), project_root=tmp_path) is False
+        assert _has_valid_concept_refs((), project_root=tmp_path) is False
 
     def test_existing_file_inside_root_is_valid(self, tmp_path: Path) -> None:
         f = tmp_path / "doc.md"
         f.write_text("# doc", encoding="utf-8")
-        assert _has_valid_concept_paths((str(f),), project_root=tmp_path) is True
+        assert _has_valid_concept_refs((str(f),), project_root=tmp_path) is True
 
     def test_nonexistent_file_is_invalid(self, tmp_path: Path) -> None:
-        assert (
-            _has_valid_concept_paths(
-                (str(tmp_path / "missing.md"),), project_root=tmp_path
-            )
-            is False
-        )
+        assert _has_valid_concept_refs((str(tmp_path / "missing.md"),), project_root=tmp_path) is False
 
     def test_empty_string_is_invalid(self, tmp_path: Path) -> None:
-        assert _has_valid_concept_paths(("",), project_root=tmp_path) is False
+        assert _has_valid_concept_refs(("",), project_root=tmp_path) is False
 
     def test_whitespace_string_is_invalid(self, tmp_path: Path) -> None:
-        assert _has_valid_concept_paths(("   ",), project_root=tmp_path) is False
+        assert _has_valid_concept_refs(("   ",), project_root=tmp_path) is False
 
     def test_path_outside_root_is_invalid(self, tmp_path: Path) -> None:
         """Path outside project_root is a sandbox violation — invalid."""
@@ -480,40 +453,28 @@ class TestHasValidConceptPaths:
         sandbox.mkdir()
         outside = tmp_path / "outside.md"
         outside.write_text("# outside", encoding="utf-8")
-        assert (
-            _has_valid_concept_paths((str(outside),), project_root=sandbox) is False
-        )
+        assert _has_valid_concept_refs((str(outside),), project_root=sandbox) is False
 
     def test_relative_path_anchored_to_root(self, tmp_path: Path) -> None:
         """Relative paths are anchored to project_root."""
         concept_dir = tmp_path / "concept"
         concept_dir.mkdir()
         (concept_dir / "doc.md").write_text("# c", encoding="utf-8")
-        assert (
-            _has_valid_concept_paths(
-                ("concept/doc.md",), project_root=tmp_path
-            )
-            is True
-        )
+        assert _has_valid_concept_refs(("concept/doc.md",), project_root=tmp_path) is True
 
     def test_none_project_root_falls_back_to_cwd(self, tmp_path: Path) -> None:
         """project_root=None causes CWD-fallback and WARNING.
 
         We only check that the function does not crash and returns a bool.
         """
-        result = _has_valid_concept_paths(("nonexistent_test_path.md",), project_root=None)
+        result = _has_valid_concept_refs(("nonexistent_test_path.md",), project_root=None)
         assert isinstance(result, bool)
 
     def test_at_least_one_valid_path_in_mixed_tuple(self, tmp_path: Path) -> None:
         """Mixed tuple: one invalid + one valid → valid overall."""
         valid = tmp_path / "ok.md"
         valid.write_text("# ok", encoding="utf-8")
-        assert (
-            _has_valid_concept_paths(
-                ("missing.md", str(valid)), project_root=tmp_path
-            )
-            is True
-        )
+        assert _has_valid_concept_refs(("missing.md", str(valid)), project_root=tmp_path) is True
 
 
 # ---------------------------------------------------------------------------
@@ -533,7 +494,7 @@ class TestNonImplementingTypes:
             execution_route=None,
             # All triggers would fire if evaluated — but they must not be.
             vectordb_conflict_resolved=True,
-            concept_paths=(),
+            concept_refs=(),
             change_impact=None,
             new_structures=True,
             concept_quality=None,
@@ -548,7 +509,7 @@ class TestNonImplementingTypes:
             story_type=StoryType.RESEARCH,
             execution_route=None,
             vectordb_conflict_resolved=True,
-            concept_paths=(),
+            concept_refs=(),
             change_impact=None,
             new_structures=True,
             concept_quality=None,
@@ -573,7 +534,7 @@ class TestBugfixExplorationRouting:
             story_id="BUG-001",
             story_type=StoryType.BUGFIX,
             execution_route=StoryMode.EXPLORATION,  # as set by determine_mode
-            concept_paths=(str(concept_file),),
+            concept_refs=(str(concept_file),),
             change_impact=ChangeImpact.LOCAL,
             new_structures=False,
             concept_quality=ConceptQuality.LOW,
@@ -590,7 +551,7 @@ class TestBugfixExplorationRouting:
             story_id="BUG-002",
             story_type=StoryType.BUGFIX,
             execution_route=StoryMode.EXECUTION,
-            concept_paths=(str(concept_file),),
+            concept_refs=(str(concept_file),),
             change_impact=ChangeImpact.LOCAL,
             new_structures=False,
             concept_quality=ConceptQuality.HIGH,

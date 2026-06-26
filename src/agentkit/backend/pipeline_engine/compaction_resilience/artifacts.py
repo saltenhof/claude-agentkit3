@@ -116,7 +116,7 @@ def build_resume_capsule(
         f"- worktree_path: {_path_or_na(ctx.worktree_path)}",
         f"- participating_repos: {_json_list(ctx.participating_repos)}",
         f"- worktree_map: {_json_map({key: path.as_posix() for key, path in ctx.worktree_map.items()})}",
-        f"- concept_paths: {_json_list(list(ctx.concept_paths))}",
+        f"- concept_refs: {_json_list(list(ctx.concept_refs))}",
         "",
         "## Story Contract",
         f"- story_size: {ctx.story_size.value}",

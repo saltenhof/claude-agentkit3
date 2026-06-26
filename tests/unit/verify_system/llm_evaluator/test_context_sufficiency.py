@@ -31,7 +31,7 @@ def test_builder_loads_four_loader_fields_and_caller_fields(tmp_path) -> None:
             {
                 "diff_summary": "diff",
                 "evidence_manifest": "manifest",
-                "concept_paths": ["37_verify_context_und_qa_bundle.md"],
+                "concept_refs": ["37_verify_context_und_qa_bundle.md"],
                 "external_sources": [{"url": "https://example.invalid"}],
             }
         ),
@@ -87,7 +87,7 @@ def test_truncated_diff_is_reviewable_with_gaps(tmp_path) -> None:
     builder = ContextSufficiencyBuilder(
         story_id="AG3-067",
         story_dir=story_dir,
-        context_json={"concept_paths": ["37.md"]},
+        context_json={"concept_refs": ["37.md"]},
         worktree_root=tmp_path,
     )
 
@@ -101,9 +101,27 @@ def test_truncated_diff_is_reviewable_with_gaps(tmp_path) -> None:
     assert result.artifact.bundles["diff_summary"].status == "truncated"
 
 
-def test_broken_handover_degrades_fail_open_but_logs_evidence(
-    tmp_path, caplog
-) -> None:
+def test_legacy_concept_paths_are_still_read(tmp_path) -> None:
+    story_dir = tmp_path / "stories" / "AG3-067"
+    concept_dir = tmp_path / "concept" / "technical-design"
+    story_dir.mkdir(parents=True)
+    concept_dir.mkdir(parents=True)
+    (story_dir / "story.md").write_text("# Story\nbody", encoding="utf-8")
+    (concept_dir / "37.md").write_text("# Legacy concept\nbody", encoding="utf-8")
+
+    builder = ContextSufficiencyBuilder(
+        story_id="AG3-067",
+        story_dir=story_dir,
+        context_json={"concept_paths": ["37.md"]},
+        worktree_root=tmp_path,
+    )
+
+    result = builder.build(Layer2ReviewInput())
+
+    assert "Legacy concept" in result.enriched_input.concept_excerpt
+
+
+def test_broken_handover_degrades_fail_open_but_logs_evidence(tmp_path, caplog) -> None:
     """AG3-067 def-6: a broken handover.json degrades to 'missing' AND logs the cause.
 
     Fail-OPEN (FK-33 §33.7.4) -- the field becomes 'missing' (a Warning, not a
@@ -129,15 +147,10 @@ def test_broken_handover_degrades_fail_open_but_logs_evidence(
     # Fail-open: the broken handover is classified 'missing', never a crash.
     assert result.artifact.bundles["handover"].status == "missing"
     # Evidence preserved: the root cause is logged (not silently erased).
-    assert any(
-        "handover.json" in rec.message and "JSONDecodeError" in rec.message
-        for rec in caplog.records
-    )
+    assert any("handover.json" in rec.message and "JSONDecodeError" in rec.message for rec in caplog.records)
 
 
-def test_broken_context_json_degrades_fail_open_but_logs_evidence(
-    tmp_path, caplog
-) -> None:
+def test_broken_context_json_degrades_fail_open_but_logs_evidence(tmp_path, caplog) -> None:
     """AG3-067 def-6: a broken context.json degrades caller fields AND logs the cause."""
     import logging
 
@@ -161,7 +174,4 @@ def test_broken_context_json_degrades_fail_open_but_logs_evidence(
     # Fail-open: caller-side fields degrade to 'missing' (no crash).
     assert result.artifact.bundles["diff_summary"].status == "missing"
     # Evidence preserved: the root cause is logged.
-    assert any(
-        "context.json" in rec.message and "JSONDecodeError" in rec.message
-        for rec in caplog.records
-    )
+    assert any("context.json" in rec.message and "JSONDecodeError" in rec.message for rec in caplog.records)
