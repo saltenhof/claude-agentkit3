@@ -30,10 +30,22 @@ entities:
       - project_root
       - gh_owner
       - gh_repo
+      - default_project_structure
+      - repo_mode
+      - repositories
       - runtime_profile
       - registration_status
       - registered_bundle_version
       - config_digest
+  - id: installer.entity.default-project-scaffold
+    identity_key: project_key
+    attributes:
+      - project_key
+      - enabled
+      - repo_mode
+      - created_directories
+      - root_gitignore_entries
+      - incompatible_existing_directory_detected
   - id: installer.entity.bundle-binding
     identity_key: binding_id
     attributes:

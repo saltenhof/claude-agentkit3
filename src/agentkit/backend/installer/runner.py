@@ -41,15 +41,10 @@ from agentkit.backend.installer.paths import (
     STATIC_PROMPTS_DIR,
     STORIES_DIR,
     claude_settings_path,
-    codebase_dir,
     codex_config_path,
     config_dir,
     control_plane_config_path,
-    guardrails_dir,
-    input_dir,
     manifests_dir,
-    meetings_dir,
-    project_temp_dir,
     prompt_bundle_store_dir,
     runtime_prompts_dir,
     static_prompts_dir,
@@ -1274,6 +1269,32 @@ def _ensure_default_scaffold_gitignore(config: InstallConfig, root: Path) -> str
     return str(gitignore_path.relative_to(root))
 
 
+def _default_scaffold_dirs(config: InstallConfig, root: Path) -> list[Path]:
+    default_dirs = [
+        root / CONCEPTS_DIR,
+        root / CODEBASE_DIR,
+        root / PROJECT_TEMP_DIR,
+        root / INPUT_DIR,
+        root / MEETINGS_DIR,
+        root / GUARDRAILS_DIR,
+        stories_dir(root),
+    ]
+    for repo in _build_repo_entries(config):
+        repo_path = Path(repo["path"])
+        if repo_path != Path(".") and not repo_path.is_absolute():
+            default_dirs.append(root / repo_path)
+    return default_dirs
+
+
+def _create_missing_dirs(root: Path, directories: list[Path]) -> list[str]:
+    created: list[str] = []
+    for directory in directories:
+        if not directory.exists():
+            directory.mkdir(parents=True, exist_ok=True)
+            created.append(str(directory.relative_to(root)))
+    return created
+
+
 def scaffold_project_structure(config: InstallConfig, root: Path) -> list[str]:
     """Materialise the NEUTRAL project directory scaffold (CP 5 region).
 
@@ -1300,23 +1321,7 @@ def scaffold_project_structure(config: InstallConfig, root: Path) -> list[str]:
     ):
         runtime_dir.mkdir(parents=True, exist_ok=True)
     if config.default_project_structure:
-        default_dirs = [
-            root / CONCEPTS_DIR,
-            codebase_dir(root),
-            project_temp_dir(root),
-            input_dir(root),
-            meetings_dir(root),
-            guardrails_dir(root),
-            stories_dir(root),
-        ]
-        for repo in _build_repo_entries(config):
-            repo_path = Path(repo["path"])
-            if repo_path != Path(".") and not repo_path.is_absolute():
-                default_dirs.append(root / repo_path)
-        for directory in default_dirs:
-            if not directory.exists():
-                directory.mkdir(parents=True, exist_ok=True)
-                created.append(str(directory.relative_to(root)))
+        created.extend(_create_missing_dirs(root, _default_scaffold_dirs(config, root)))
         gitignore_rel = _ensure_default_scaffold_gitignore(config, root)
         if gitignore_rel is not None and gitignore_rel not in created:
             created.append(gitignore_rel)

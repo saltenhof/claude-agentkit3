@@ -238,30 +238,6 @@ def stories_dir(project_root: Path) -> Path:
     return project_root / STORIES_DIR
 
 
-def concepts_dir(project_root: Path) -> Path:
-    return project_root / CONCEPTS_DIR
-
-
-def codebase_dir(project_root: Path) -> Path:
-    return project_root / CODEBASE_DIR
-
-
-def project_temp_dir(project_root: Path) -> Path:
-    return project_root / PROJECT_TEMP_DIR
-
-
-def input_dir(project_root: Path) -> Path:
-    return project_root / INPUT_DIR
-
-
-def meetings_dir(project_root: Path) -> Path:
-    return project_root / MEETINGS_DIR
-
-
-def guardrails_dir(project_root: Path) -> Path:
-    return project_root / GUARDRAILS_DIR
-
-
 def story_dir(project_root: Path, story_id: str) -> Path:
     return project_root / STORIES_DIR / story_id
 
@@ -329,28 +305,22 @@ __all__ = [
     "AGENTKIT_TOOLS_DIR",
     "agentkit_dir",
     "claude_settings_path",
-    "codebase_dir",
     "codex_config_path",
     "config_dir",
-    "concepts_dir",
     "control_plane_config_path",
     "default_materialized_skill_variant_store_root",
     "default_prompt_bundle_store_root",
-    "guardrails_dir",
     "installed_manifest_path",
-    "input_dir",
     "materialized_skill_variant_dir",
     "materialized_skill_variant_input_digest",
     "materialized_skill_variant_store_root",
     "manifests_dir",
-    "meetings_dir",
     "prompt_instance_dir",
     "prompt_pin_dir",
     "prompt_bundle_lock_path",
     "prompt_bundle_store_dir",
     "prompt_bundle_store_root",
     "prompt_run_pin_path",
-    "project_temp_dir",
     "project_root_for_story_dir",
     "project_config_path",
     "qa_dir",

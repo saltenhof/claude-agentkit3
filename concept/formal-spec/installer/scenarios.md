@@ -35,6 +35,55 @@ scenarios:
       - installer.invariant.system_installation_precedes_project_registration
       - installer.invariant.state_backend_registration_precedes_bundle_binding
       - installer.invariant.bundle_bindings_are_version_pinned
+  - id: installer.scenario.default-scaffold-single-repo
+    start:
+      status: installer.status.requested
+    trace:
+      - command: installer.command.register-project
+        parameters:
+          default_project_structure: true
+          multi_repo: false
+    expected_end:
+      status: installer.status.verified
+      scaffold:
+        temp_ignored: true
+        codebase_ignored: false
+        repository_path: codebase
+    requires:
+      - installer.invariant.default_scaffold_is_opt_in
+      - installer.invariant.default_scaffold_gitignore_policy
+  - id: installer.scenario.default-scaffold-multi-repo
+    start:
+      status: installer.status.requested
+    trace:
+      - command: installer.command.register-project
+        parameters:
+          default_project_structure: true
+          multi_repo: true
+    expected_end:
+      status: installer.status.verified
+      scaffold:
+        temp_ignored: true
+        codebase_ignored: true
+        repository_path: codebase/app
+    requires:
+      - installer.invariant.default_scaffold_is_opt_in
+      - installer.invariant.default_scaffold_gitignore_policy
+  - id: installer.scenario.default-scaffold-incompatible-repo-dir-fails
+    start:
+      status: installer.status.requested
+      filesystem:
+        existing_directory: codebase/app
+        git_state: incompatible_non_empty
+    trace:
+      - command: installer.command.register-project
+        parameters:
+          default_project_structure: true
+          multi_repo: true
+    expected_end:
+      status: installer.status.failed
+    requires:
+      - installer.invariant.default_scaffold_existing_repo_dirs_fail_closed
   - id: installer.scenario.idempotent-rerun-converges
     start:
       status: installer.status.bindings_applied

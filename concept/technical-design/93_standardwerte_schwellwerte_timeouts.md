@@ -27,6 +27,7 @@ formal_scope: prose-only
 | ARE | `false` | `features.are` | FK-09-001 | 03 |
 | Telemetry | `true` | `features.telemetry` | — | 03 |
 | Multi-Repo | `false` | `features.multi_repo` | — | 03 |
+| Default-Zielprojekt-Scaffold | `false` (Opt-in) | Installer-Option `default_project_structure` / CLI `--default-project-structure` | — | 10, 50 |
 
 ## 93.2 Policy-Engine
 

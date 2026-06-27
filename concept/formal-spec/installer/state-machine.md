@@ -28,6 +28,7 @@ states:
     initial: true
   - id: installer.status.preconditions_checked
   - id: installer.status.github_bound
+  - id: installer.status.project_structure_prepared
   - id: installer.status.config_prepared
   - id: installer.status.project_registered
   - id: installer.status.bindings_applied
@@ -45,9 +46,14 @@ transitions:
   - id: installer.transition.preconditions_checked_to_github_bound
     from: installer.status.preconditions_checked
     to: installer.status.github_bound
-  - id: installer.transition.github_bound_to_config_prepared
+  - id: installer.transition.github_bound_to_project_structure_prepared
     from: installer.status.github_bound
+    to: installer.status.project_structure_prepared
+    guard: installer.invariant.default_scaffold_is_opt_in
+  - id: installer.transition.project_structure_prepared_to_config_prepared
+    from: installer.status.project_structure_prepared
     to: installer.status.config_prepared
+    guard: installer.invariant.default_scaffold_gitignore_policy
   - id: installer.transition.config_prepared_to_project_registered
     from: installer.status.config_prepared
     to: installer.status.project_registered
@@ -72,6 +78,9 @@ transitions:
   - id: installer.transition.github_bound_to_failed
     from: installer.status.github_bound
     to: installer.status.failed
+  - id: installer.transition.project_structure_prepared_to_failed
+    from: installer.status.project_structure_prepared
+    to: installer.status.failed
   - id: installer.transition.config_prepared_to_failed
     from: installer.status.config_prepared
     to: installer.status.failed
@@ -84,5 +93,7 @@ transitions:
 compound_rules:
   - id: installer.rule.verify-does-not-mutate-registration
     description: Verification may confirm or reject registration state, but may not create or mutate bundle bindings or project registration rows.
+  - id: installer.rule.project-structure-prepared-may-be-empty
+    description: The project-structure step always records the scaffold decision; when default_project_structure is false it creates no target-project domain directories.
 ```
 <!-- FORMAL-SPEC:END -->

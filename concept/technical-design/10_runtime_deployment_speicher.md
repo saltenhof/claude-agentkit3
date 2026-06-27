@@ -251,8 +251,9 @@ Adapter beschrieben.
 
 Für leere Neuprojekte kann der Installer zusätzlich ein binäres
 Default-Scaffold anlegen. Die Entscheidung ist **an/aus**, keine
-interaktive freie Ordnerauswahl. Wird das Default-Scaffold nicht
-aktiviert, entstehen die folgenden fachlichen Ordner nicht automatisch.
+interaktive freie Ordnerauswahl. Das Scaffold ist **opt-in**: Wird es
+nicht explizit aktiviert, entstehen die folgenden fachlichen Ordner
+nicht automatisch.
 
 ```
 {projekt-root}/
@@ -295,8 +296,11 @@ aber kein Remote-Repo ohne expliziten Auftrag.
 bleiben systemweit versioniert. Das Zielprojekt erhält nur
 projektspezifische Guardrails oder explizit gebundene Projektionen
 unter `guardrails/`. Ob diese Projektionen Kopien, Symlinks oder
-Junctions sind, ist Installer-/Plattformdetail; autoritativ ist die in
-`project.yaml` konfigurierte Guardrail-Auflösung.
+Junctions sind, ist Installer-/Plattformdetail und wird nicht durch
+ein eigenes `project.yaml`-Auflösungsfeld gesteuert. Autoritativ für
+die projektlokale Suche sind `guardrails_dir` und `guardrails_pattern`;
+autoritativ für projektübergreifende Guardrail-Bundles bleibt die
+systemweite AgentKit-Installation.
 
 ### 10.3.2 Verzeichnis-Ownership
 
@@ -309,6 +313,14 @@ Junctions sind, ist Installer-/Plattformdetail; autoritativ ist die in
 | Systemweite Skill-/Prompt-Bundles | AgentKit-Installer | Agents (read-only via Projekt-Link) | Versioniert, immutable pro Bundle-Version |
 | harness-spezifische Skill-Links (z. B. `.claude/skills/` fuer Claude Code; FK-76) | Installer | Harness / Agents | Nur Link-Bindung (Symlink/Junction), kein kanonischer Inhalt |
 | `.agentkit/config/project.yaml` | Mensch, Installer | Alle Pipeline-Komponenten | Menschlich editierbar |
+| `concepts/` | Mensch, Konzept-Autor, freigegebene Agenten | Story-Creation, Retrieval, Review, Verify | Versionierter normativer Konzeptkorpus des Zielprojekts |
+| `codebase/` im Single-Repo-Modus | Mensch, Implementierungs-Agenten, Build-Tools | Pipeline, CI, Verify, Agents | Versionierter Source-Bereich des Root-Repositories |
+| `codebase/` im Multi-Repo-Modus | Mensch, Repo-Checkout/Bindung, Implementierungs-Agenten in Unter-Repos | Pipeline, CI, Verify, Agents | Root-Repo ignoriert `codebase/`; Unterordner sind eigene Repositories |
+| `temp/` | Mensch, Agents | Mensch, Agents | Projektlokaler Arbeitsbereich ohne Persistenzanspruch; im Root-Repo ignoriert |
+| `input/` | Mensch, Fachexperten, Projektassistenz | Mensch, Story-Creation, Retrieval nach expliziter Einbindung | Versionierte externe Beistellungen, soweit das Projekt sie persistieren darf |
+| `input/_meetings/` | Mensch, Projektassistenz | Mensch, Story-Creation, Retrieval nach expliziter Einbindung | Versionierte Meeting-Unterlagen je Meeting; Datenschutz/Vertraulichkeit projektseitig prüfen |
+| `guardrails/` | Mensch, Architekt, Installer bei expliziter Projektion | Agents, Review, Verify | Versionierte projektspezifische Guardrails oder gebundene Projektionen |
+| `stories/` | Story-Creation, Mensch, Export-Prozesse | Mensch, Agents, Review | Versionierter Story-Export und projektnaher Story-Arbeitsraum |
 
 ## 10.4 Persistenz und Datenflüsse
 
@@ -326,6 +338,12 @@ Junctions sind, ist Installer-/Plattformdetail; autoritativ ist die in
 | Locks | State-Backend | Lock-Records | Während Story-Lauf |
 | Failure Corpus | State-Backend / Artefaktspeicher | JSONL + strukturierte Datensätze | Permanent, projektübergreifend |
 | Konzept-Dokumente | `concepts/` | Markdown/Assets | Permanent |
+| Source-Code im Single-Repo-Scaffold | `codebase/` | Projektsprachen und Build-Artefaktquellen | Permanent, durch Root-Repo versioniert |
+| Multi-Repo-Ablage | `codebase/{repo-name}/` | Eigenständiges Git-Repository | Permanent im jeweiligen Unter-Repository; Root-Repo ignoriert `codebase/` |
+| Projektlokaler Arbeitsbereich | `temp/` | Freie Arbeitsartefakte | Ephemer/ohne Persistenzanspruch; Root-Repo ignoriert |
+| Externe Beistellungen | `input/` | Dateien nach Projektbedarf | Permanent, sofern rechtlich/fachlich versionierbar |
+| Meeting-Unterlagen | `input/_meetings/{datum}_{titel}/` | Transkripte, Präsentationen, Notizen | Permanent, sofern rechtlich/fachlich versionierbar |
+| Projektspezifische Guardrails | `guardrails/` | Markdown/Assets | Permanent |
 | Story-Dokumentation | `stories/{story_id}_{slug}/` | Markdown + JSON | Permanent |
 | Projektregistrierung | State-Backend + lokale Config-Version | Record | Permanent |
 | VektorDB-Inhalte | Weaviate (Docker Volume) | Weaviate-intern | Permanent (reindexierbar) |

@@ -23,7 +23,26 @@ formal_refs:
 
 ## 92.1 Projekt-Verzeichnisstruktur
 
-Vollständige Struktur in Kap. 10.3.1. Hier nur die Konventionen.
+Vollständige Struktur in Kap. 10.3.1 (minimale Registrierung) und
+Kap. 10.3.1a (optionales Default-Zielprojekt-Scaffold). Hier nur die
+Konventionen.
+
+### 92.1.0 Zielprojekt-Scaffold vs. AgentKit-Runtime-Temp
+
+`temp/` und `_temp/` sind verschiedene Namensräume:
+
+- `temp/` ist der optionale, projektlokale Arbeitsbereich des
+  Default-Zielprojekt-Scaffolds. Er ist kein normativer Speicher und
+  wird im Root-Repository ignoriert.
+- `_temp/` ist ein AgentKit-Runtime-/Exportverzeichnis dieses
+  AgentKit-Repositories, z. B. für QA-, Governance- oder
+  Telemetrie-Exporte. Es ist kein Bestandteil des Zielprojekt-
+  Scaffolds und darf nicht als fachliche Quelle verstanden werden.
+
+Die Scaffold-Ordnernamen `concepts/`, `codebase/`, `temp/`,
+`input/_meetings/`, `guardrails/` und `stories/` sind die
+Standardnamen für leere Zielprojekte; alternative Projektstrukturen
+werden über die typisierten Layout-Felder in `project.yaml` beschrieben.
 
 ### 92.1.1 Namespace-Konvention fuer Produktionscode
 

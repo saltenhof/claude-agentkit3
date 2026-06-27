@@ -243,6 +243,8 @@ bestehender Datei: prueft `config_version`, migriert bei Bedarf
 
 **Optionales Zielprojekt-Scaffold:** CP 5 besitzt genau eine binaere
 Installationsentscheidung: Default-Scaffold anlegen oder nicht. Der
+Default ist **aus**; das Default-Scaffold entsteht nur durch explizites
+Opt-in des Operators. Der
 Installer bietet keine freie Ordnerauswahl an. Ohne Default-Scaffold
 werden nur die fuer AgentKit notwendigen Bindungen und die
 Projektkonfiguration materialisiert. Mit Default-Scaffold werden
@@ -263,6 +265,11 @@ Installer den Repository-Modus als `multi_repo` ermittelt hat. Im
 Source-Bereich des Root-Repositories und darf nicht ignoriert werden.
 `concepts/`, `guardrails/`, `input/` und `stories/` bleiben
 versionierbare Projektinhalte.
+
+Dieser opt-in Scaffold ist der einzige formale Carve-out zur
+Installer-Scope-Invariante `project_local_scope_is_config_and_link_only`:
+Auch mit Scaffold darf der Installer keine AgentKit-Runtime-Artefakte
+in das Zielprojekt kopieren.
 
 Der Installer muss den Repository-Modus beim Default-Scaffold abfragen
 oder aus explizit angegebenen Repositories ableiten:

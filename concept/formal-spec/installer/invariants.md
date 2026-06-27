@@ -35,7 +35,16 @@ invariants:
     rule: project registration in the central state backend must complete before project-local bundle bindings become active
   - id: installer.invariant.project_local_scope_is_config_and_link_only
     scope: filesystem
-    rule: project-local installer output is limited to configuration, hook registration, and harness-specific link bindings (symlink on POSIX, directory junction on Windows; Claude Code, Codex; FK-76) and must not copy AgentKit runtime artifacts into the project
+    rule: project-local installer output is limited to configuration, hook registration, and harness-specific link bindings (symlink on POSIX, directory junction on Windows; Claude Code, Codex; FK-76); when default_project_structure is explicitly enabled, the installer may additionally create the FK-10 default-scaffold directories and the corresponding root .gitignore entries, but must still not copy AgentKit runtime artifacts into the project
+  - id: installer.invariant.default_scaffold_is_opt_in
+    scope: filesystem
+    rule: the FK-10 default project scaffold is disabled by default and may be created only when the operator explicitly enables default_project_structure
+  - id: installer.invariant.default_scaffold_gitignore_policy
+    scope: filesystem
+    rule: in the default scaffold, temp/ must be ignored by the root repository and codebase/ must be ignored exactly in multi_repo mode; codebase/ must remain trackable in single_repo mode
+  - id: installer.invariant.default_scaffold_existing_repo_dirs_fail_closed
+    scope: filesystem
+    rule: creating default-scaffold repository directories must fail closed when an existing non-empty directory has an incompatible Git state; the installer may not overwrite or silently repurpose such a directory
   - id: installer.invariant.bundle_bindings_are_version_pinned
     scope: bundle-binding
     rule: skill and prompt bindings must point to one concrete immutable bundle version and never to a live source checkout or latest alias

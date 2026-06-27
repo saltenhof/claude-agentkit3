@@ -25,11 +25,12 @@ kind: command-set
 context: installer
 commands:
   - id: installer.command.register-project
-    signature: agentkit register-project --gh-owner <owner> --gh-repo <repo>
+    signature: agentkit register-project --gh-owner <owner> --gh-repo <repo> [--default-project-structure] [--multi-repo]
     allowed_statuses:
       - installer.status.requested
       - installer.status.preconditions_checked
       - installer.status.github_bound
+      - installer.status.project_structure_prepared
       - installer.status.config_prepared
       - installer.status.project_registered
       - installer.status.bindings_applied
@@ -42,7 +43,7 @@ commands:
       - installer.event.registration.completed
       - installer.event.registration.failed
   - id: installer.command.register-project-dry-run
-    signature: agentkit register-project --gh-owner <owner> --gh-repo <repo> --dry-run
+    signature: agentkit register-project --gh-owner <owner> --gh-repo <repo> [--default-project-structure] [--multi-repo] --dry-run
     allowed_statuses:
       - installer.status.requested
       - installer.status.preconditions_checked
