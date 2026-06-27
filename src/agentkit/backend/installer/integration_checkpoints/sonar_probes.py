@@ -22,7 +22,13 @@ if TYPE_CHECKING:
     )
     from agentkit.integration_clients.sonar import SonarClient
 
-_COMMUNITY_BRANCH_PLUGIN_KEY = "communityBranchSupport"
+_COMMUNITY_BRANCH_PLUGIN_KEYS = frozenset(
+    {
+        "communityBranchPlugin",
+        # Backward-compatible alias used by older tests/docs around the probe.
+        "communityBranchSupport",
+    }
+)
 
 
 def _parse_version(value: str) -> tuple[int, ...]:
@@ -97,7 +103,7 @@ def _find_branch_plugin(plugins: object) -> dict[str, object] | None:
     if not isinstance(plugins, list):
         return None
     for entry in plugins:
-        if isinstance(entry, dict) and entry.get("key") == _COMMUNITY_BRANCH_PLUGIN_KEY:
+        if isinstance(entry, dict) and entry.get("key") in _COMMUNITY_BRANCH_PLUGIN_KEYS:
             return entry
     return None
 

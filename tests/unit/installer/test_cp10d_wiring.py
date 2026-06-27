@@ -175,7 +175,7 @@ class _StubClient:
     def installed_plugins(self) -> SonarHttpResponse:
         return SonarHttpResponse(
             status_code=200,
-            json_body={"plugins": [{"key": "communityBranchSupport", "version": "1.23.0"}]},
+            json_body={"plugins": [{"key": "communityBranchPlugin", "version": "26.5.0"}]},
         )
 
     def create_project(self, project_key: str, name: str) -> SonarHttpResponse:
