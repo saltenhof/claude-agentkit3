@@ -47,6 +47,13 @@ if TYPE_CHECKING:
 
 #: AG3-056: code-producing projects must declare the ci stanza explicitly.
 _OPT_OUT_CI = JenkinsConfig(available=False, enabled=False)
+_ACTIVE_CI = JenkinsConfig(
+    available=True,
+    enabled=True,
+    base_url="http://jenkins:9900",
+    token_env="JENKINS_TOKEN",
+    pipeline="ak3-premerge",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -713,7 +720,7 @@ class TestSetupPhaseGreenMain:
                     token_env="SONAR_TOKEN" if available else None,
                     scanner_version="5.0.1" if available else None,
                 ),
-                ci=_OPT_OUT_CI,
+                ci=_ACTIVE_CI if available else _OPT_OUT_CI,
             ),
         )
         with (

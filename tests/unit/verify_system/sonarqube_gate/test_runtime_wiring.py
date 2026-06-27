@@ -229,16 +229,25 @@ def _write_project_config(root: Path, *, available: bool) -> None:
         if available
         else "    available: false\n    enabled: false\n"
     )
+    ci = (
+        "    available: true\n"
+        "    enabled: true\n"
+        "    base_url: http://jenkins:9900\n"
+        "    token_env: JENKINS_TOKEN_TEST\n"
+        "    pipeline: ak3-premerge\n"
+        if available
+        else "    available: false\n    enabled: false\n"
+    )
     (cfg_dir / "project.yaml").write_text(
         "project_key: proj\n"
         "project_name: Proj\n"
         "repositories:\n  - name: app\n    path: .\n"
-        # FK-03 §3.2.1: config_version is mandatory (fail-closed); AG3-056:
-        # code-producing project must declare the ci stanza too (opt-out here).
+        # FK-03 §3.2.1: config_version is mandatory (fail-closed); code-producing
+        # Sonar APPLICABLE fixtures must declare the Jenkins runner as present.
         "pipeline:\n"
         "  config_version: '3.0'\n"
         "  features:\n    multi_llm: false\n"
-        "  ci:\n    available: false\n    enabled: false\n"
+        "  ci:\n" + ci +
         "  sonarqube:\n" + sonar,
         encoding="utf-8",
     )
