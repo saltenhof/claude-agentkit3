@@ -35,6 +35,20 @@ scenarios:
       - installer.invariant.system_installation_precedes_project_registration
       - installer.invariant.state_backend_registration_precedes_bundle_binding
       - installer.invariant.bundle_bindings_are_version_pinned
+      - installer.invariant.project_edge_launcher_is_adapter_only
+  - id: installer.scenario.project-edge-launcher-installed
+    start:
+      status: installer.status.project_registered
+    trace:
+      - command: installer.command.register-project
+    expected_end:
+      status: installer.status.verified
+      launcher:
+        target_path: tools/agentkit/projectedge.py
+        invocation_prefix: python
+        adapter_only: true
+    requires:
+      - installer.invariant.project_edge_launcher_is_adapter_only
   - id: installer.scenario.default-scaffold-single-repo
     start:
       status: installer.status.requested

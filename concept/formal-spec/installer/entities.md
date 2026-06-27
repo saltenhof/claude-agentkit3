@@ -56,6 +56,15 @@ entities:
       - variant
       - target_path
       - binding_mode
+  - id: installer.entity.project-edge-launcher
+    identity_key: target_path
+    attributes:
+      - project_key
+      - target_path
+      - invocation_prefix
+      - command_surface
+      - delegates_to_installed_package
+      - adapter_only
   - id: installer.entity.checkpoint-run
     identity_key: checkpoint_run_id
     attributes:

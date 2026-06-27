@@ -157,7 +157,7 @@ sequenceDiagram
     INS->>PROJ: .agentkit/config/project.yaml + harness-spezifische Settings aktualisieren (z. B. .claude/settings.json fuer Claude Code; harness-eigenes Aequivalent fuer Codex; FK-76 §76.5)
     INS->>PROJ: harness-spezifische Skill-Links (Symlink/Junction) auf Bundle-Version erzeugen (z. B. .claude/skills/ fuer Claude Code)
     INS->>PROJ: tools/agentkit/ Wrapper fuer Project-Edge-Aufrufe binden
-    Note over PROJ: Nur lokale Konfiguration und Skill-Bindungen<br/>keine kopierten Skills/Prompts/DB-Dateien
+    Note over PROJ: Lokale Konfiguration, Skill-Bindungen und Project-Edge-Launcher<br/>keine kopierten Skills/Prompts/DB-Dateien/Backend-Runtime
 ```
 
 **Keine Docker-Abhängigkeit für AgentKit selbst.** Docker wird für
@@ -202,6 +202,16 @@ AgentKit hat keine projektlokale Runtime. Alles Projektseitige läuft als:
 - Kurzlebige offizielle Project-Edge-Client-Aufrufe
 - Kurzlebige Hook-Prozesse (PreToolUse/PostToolUse)
 - Zugriff auf Projektcode und Projektkonfiguration
+
+Der projektlokale Project-Edge-Launcher unter `tools/agentkit/` ist
+ein Convenience-Einstieg fuer Agents. Er darf als Script oder natives
+Executable materialisiert werden; auch ein Aufruf mit vorgeschaltetem
+Interpreter, z. B. `python tools/agentkit/projectedge.py ...`, ist
+zulaessig, solange die fachlichen Subcommands und Parameter stabil und
+einfach bleiben. Der Launcher ist nur Adapter auf das systemweit
+installierte AgentKit-Paket und die Control-Plane-API; er ist keine
+projektlokale Runtime und keine zweite Quelle fuer Zustand, Skills,
+Prompts oder Befehlssemantik.
 
 Der kanonische AgentKit-Zustand liegt in einem zentralen
 State-Backend. Dieses trennt Laufzeitdaten vom Projekt-Repository,

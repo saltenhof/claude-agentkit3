@@ -55,8 +55,9 @@ AgentKit wird systemweit installiert und registriert anschließend ein
 Zielprojekt über eine Folge idempotenter Checkpoints: GitHub-Repo-Bindung
 für Code-Operationen, optionale Default-Projektstruktur für leere
 Neuprojekte, projektlokale Pipeline-Konfiguration, Hook-Registration
-und projektlokale Symlink-Bindung auf systemweite, versionierte
-Skill-Bundles. Die Default-Projektstruktur ist ein explizites Opt-in;
+projektlokale Symlink-Bindung auf systemweite, versionierte
+Skill-Bundles und den offiziellen Project-Edge-Launcher fuer
+Agent-Kommandos. Die Default-Projektstruktur ist ein explizites Opt-in;
 Bestandsprojekte und Projekte mit eigener Soll-Struktur erhalten sie
 nicht automatisch. Laufzeitdaten und kanonische Zustände liegen nicht
 im Projekt, sondern zentral. Eine nachgelagerte Verifikation prüft den

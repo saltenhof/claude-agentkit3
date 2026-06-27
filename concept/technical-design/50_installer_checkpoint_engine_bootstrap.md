@@ -266,10 +266,13 @@ Source-Bereich des Root-Repositories und darf nicht ignoriert werden.
 `concepts/`, `guardrails/`, `input/` und `stories/` bleiben
 versionierbare Projektinhalte.
 
-Dieser opt-in Scaffold ist der einzige formale Carve-out zur
-Installer-Scope-Invariante `project_local_scope_is_config_and_link_only`:
-Auch mit Scaffold darf der Installer keine AgentKit-Runtime-Artefakte
-in das Zielprojekt kopieren.
+Dieser opt-in Scaffold ist ein eigener formaler Carve-out zur
+Installer-Scope-Invariante `project_local_scope_is_config_and_link_only`.
+Der zweite explizite Carve-out sind die in CP 9 gebundenen
+Project-Edge-Launcher unter `tools/agentkit/`. Auch mit diesen
+Carve-outs darf der Installer keine AgentKit-Runtime-Artefakte,
+kanonischen Skills, kanonischen Prompts, DB-Dateien oder Backend-
+Service-Artefakte in das Zielprojekt kopieren.
 
 Der Installer muss den Repository-Modus beim Default-Scaffold abfragen
 oder aus explizit angegebenen Repositories ableiten:
@@ -417,6 +420,15 @@ registriert ist.
 Zusaetzlich bindet der Installer die offiziellen lokalen
 `Project Edge Client`-Wrapper unter `tools/agentkit/`, damit Agents
 keine freien REST-Aufrufe formulieren muessen.
+
+Diese Wrapper sind Convenience-Launcher fuer Agent-Kommandos, keine
+eigene Runtime. Sie duerfen als Python-Script oder natives Executable
+materialisiert werden. Ein Aufruf mit vorgeschaltetem Interpreter
+(`python tools/agentkit/projectedge.py ...`) ist zulaessig, wenn die
+fachlichen Subcommands und Parameter unveraendert bequem bleiben. Der
+Wrapper delegiert auf das systemweit installierte AgentKit-Paket und
+die Control-Plane-API; er darf keine zweite Befehlssemantik, keinen
+kanonischen Zustand und keine kopierten Skill-/Prompt-Quellen tragen.
 
 ### CP 10: MCP-Server
 

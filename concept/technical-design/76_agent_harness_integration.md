@@ -279,6 +279,11 @@ materialisiert ueber den jeweiligen Adapter:
   Command-Namen (`agentkit-hook-claude`, `agentkit-hook-codex`); **FK-50**
   definiert Installationsort (z. B. `tools/agentkit/`), Dateierzeugung und
   Merge-/Preservation-Strategie. Die Wrapper selbst sind harness-neutral.
+- Project-Edge-Launcher unter `tools/agentkit/` gehoeren zur
+  Installations-/Bootstrap-Bindung (FK-50) und sind Convenience-
+  Adapter fuer Agent-Kommandos gegen die Control-Plane-API; sie sind
+  keine harness-spezifischen Skill-Bindungen und keine projektlokale
+  AgentKit-Runtime.
 
 Es gibt **keine** „aktiver Harness"-Konfiguration im Projekt; der Stratege
 waehlt beim Session-Start `claude` oder `codex`.

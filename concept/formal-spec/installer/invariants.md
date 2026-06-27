@@ -35,7 +35,10 @@ invariants:
     rule: project registration in the central state backend must complete before project-local bundle bindings become active
   - id: installer.invariant.project_local_scope_is_config_and_link_only
     scope: filesystem
-    rule: project-local installer output is limited to configuration, hook registration, and harness-specific link bindings (symlink on POSIX, directory junction on Windows; Claude Code, Codex; FK-76); when default_project_structure is explicitly enabled, the installer may additionally create the FK-10 default-scaffold directories and the corresponding root .gitignore entries, but must still not copy AgentKit runtime artifacts into the project
+    rule: project-local installer output is limited to configuration, hook registration, harness-specific link bindings (symlink on POSIX, directory junction on Windows; Claude Code, Codex; FK-76), and official Project Edge Client launcher wrappers under tools/agentkit; when default_project_structure is explicitly enabled, the installer may additionally create the FK-10 default-scaffold directories and the corresponding root .gitignore entries, but must still not copy AgentKit runtime state, canonical skills, canonical prompts, database files, or backend service artifacts into the project
+  - id: installer.invariant.project_edge_launcher_is_adapter_only
+    scope: filesystem
+    rule: project-local Project Edge Client launcher wrappers may be materialized or copied into tools/agentkit only as convenient agent entry points to the installed AgentKit package and Control-Plane API; they must not become a second command semantics, state store, skill source, prompt source, or backend runtime
   - id: installer.invariant.default_scaffold_is_opt_in
     scope: filesystem
     rule: the FK-10 default project scaffold is disabled by default and may be created only when the operator explicitly enables default_project_structure
