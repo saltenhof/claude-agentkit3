@@ -5,20 +5,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit, urlunsplit
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime
 
-    from agentkit.backend.installer.integration_checkpoints.sonar_preflight import (
-        BranchPluginSelfTest,
-    )
     from agentkit.backend.installer.runner import InstallConfig
     from agentkit.backend.verify_system.evidence import RepoContext
     from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
@@ -527,6 +523,7 @@ def _wire_live_install_integrations(config: InstallConfig) -> None:
     """
     _wire_sonar_install_integration(config)
     _wire_ci_install_integration(config)
+    _wire_branch_plugin_self_test_integration(config)
 
 
 def _wire_sonar_install_integration(config: InstallConfig) -> None:
@@ -560,34 +557,6 @@ def _wire_sonar_install_integration(config: InstallConfig) -> None:
 
             config.sonar_token_permissions = frozenset({ADMINISTER_ISSUES})
 
-    if shutil.which("sonar-scanner") is not None:
-        # A productive scanner runner is the remaining operational boundary for
-        # the branch-plugin self-test. It is only wired when the scanner binary
-        # actually exists; otherwise CP 10d fails closed instead of pretending.
-        from agentkit.backend.installer.integration_checkpoints.cli_scan_runner import (
-            SonarScannerCliRunner,
-        )
-
-        config.sonar_scan_runner = SonarScannerCliRunner(
-            base_url=base_url,
-            token=token,
-            user=os.environ.get("SONAR_USER", ""),
-        )
-    elif base_url and token:
-        config.sonar_branch_plugin_self_test = cast(
-            "BranchPluginSelfTest", _missing_sonar_scanner_self_test
-        )
-
-
-def _missing_sonar_scanner_self_test(_client: SonarClient) -> bool:
-    from agentkit.backend.exceptions import InstallationError
-
-    raise InstallationError(
-        "sonar-scanner executable not found in PATH; CP 10d cannot run the "
-        "branch-plugin conformance self-test.",
-        detail={"cause": "SonarScannerMissing"},
-    )
-
 
 def _wire_ci_install_integration(config: InstallConfig) -> None:
     if not bool(getattr(config, "ci_available", False)):
@@ -617,6 +586,35 @@ def _wire_ci_install_integration(config: InstallConfig) -> None:
             token,
             user=os.environ.get("JENKINS_USER", ""),
         )
+
+
+def _wire_branch_plugin_self_test_integration(config: InstallConfig) -> None:
+    if config.sonar_branch_plugin_self_test is not None:
+        return
+    if not bool(getattr(config, "sonarqube_available", False)):
+        return
+    if not bool(getattr(config, "ci_available", False)):
+        return
+    if config.sonar_client is None or config.ci_client is None or not config.ci_pipeline:
+        return
+
+    from agentkit.backend.installer.integration_checkpoints.branch_plugin_self_test import (
+        run_branch_plugin_conformance_self_test,
+    )
+    from agentkit.backend.installer.integration_checkpoints.jenkins_selftest_harness import (
+        JenkinsBranchPluginSelfTestHarness,
+    )
+
+    harness = JenkinsBranchPluginSelfTestHarness(
+        sonar_client=config.sonar_client,
+        jenkins_client=config.ci_client,
+        pipeline=config.ci_pipeline,
+    )
+
+    def _self_test(client: SonarClient) -> bool:
+        return run_branch_plugin_conformance_self_test(client, harness)
+
+    config.sonar_branch_plugin_self_test = _self_test
 
 
 def _first_present_env_name(*names: str) -> str | None:

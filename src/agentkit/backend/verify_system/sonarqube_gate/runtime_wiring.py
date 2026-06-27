@@ -228,9 +228,9 @@ def _resolve_bound_analysis(
     is resolved later from the Compute-Engine task (ERROR-A). The analysed
     branch is therefore taken from the worktree git itself (the branch the
     Community Branch Plugin scanned), never from a non-real report-task field.
-    The scanner version is the AK3-pinned ``sonarqube.scanner_version`` (the
-    scanner AK3 runs for the local branch scan — Sonar exposes none,
-    FK-33 §33.6.3).
+    The scanner version is the configured ``sonarqube.scanner_version`` for
+    this explicit local report-task adapter. The productive pre-merge path uses
+    the scanner version reported by the Jenkins run that produced the analysis.
     """
     root = _scan_root(story_context, story_dir)
     report = _read_report_task(root)

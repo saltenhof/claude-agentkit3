@@ -86,10 +86,12 @@ Pflicht-Voraussetzungen fuer einen produktiven `agentkit install`:
   `SONAR_URL`, `SONAR_USER`, `SONAR_PASSWORD` oder alternativ
   `SONARQUBE_TOKEN`/`SONAR_TOKEN`, sowie `JENKINS_URL`, `JENKINS_USER` und
   `JENKINS_API_TOKEN` oder `JENKINS_PASSWORD`.
-- Fuer den Sonar-Branch-Plugin-Self-Test muss `sonar-scanner` auf dem `PATH`
-  liegen. Fehlt er, scheitert CP 10d fail-closed; ein Opt-out mit
-  `--no-sonarqube-available` ist nur fuer Projekte korrekt, bei denen Sonar
-  bewusst nicht anwendbar ist.
+- Fuer den Sonar-Branch-Plugin-Self-Test muss der konfigurierte Jenkins-Job den
+  CP10d-Self-Test-Modus unterstuetzen und auf seinem Agent den SonarScanner
+  ausfuehren koennen. Der Installer-Rechner braucht keinen lokalen
+  `sonar-scanner`. Fehlt der Jenkins-Pfad, scheitert CP 10d fail-closed; ein
+  Opt-out mit `--no-sonarqube-available` ist nur fuer Projekte korrekt, bei
+  denen Sonar bewusst nicht anwendbar ist.
 
 Single-Repo mit optionaler Default-Struktur:
 

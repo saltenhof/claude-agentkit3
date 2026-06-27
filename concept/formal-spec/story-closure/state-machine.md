@@ -43,7 +43,7 @@ states:
   # This is the step that PRODUCES the commit-bound attestation.
   - id: story-closure.status.integrated_candidate_green
   # Integrity-Gate (FK-35 §35.2) Dimensions 1-9 run here, AFTER the scan and
-  # BEFORE the push/merge, still inside the lock. Dimension 9 (FK-35
+  # BEFORE the main update, still inside the lock. Dimension 9 (FK-35
   # §35.2.4a) verifies the FRESH commit-bound attestation produced in the
   # integrated_candidate_green step and never runs its own Sonar scan.
   - id: story-closure.status.integrity_passed
@@ -97,7 +97,7 @@ transitions:
   - id: story-closure.transition.merge_lock_acquired_to_integrated_candidate_green
     from: story-closure.status.merge_lock_acquired
     to: story-closure.status.integrated_candidate_green
-    guard: story-closure.invariant.integrated_candidate_scanned_green_before_push
+    guard: story-closure.invariant.integrated_candidate_scanned_green_before_main_update
   # Integrity-Gate runs on the FRESH attestation produced by the scan above.
   - id: story-closure.transition.integrated_candidate_green_to_integrity_passed
     from: story-closure.status.integrated_candidate_green
@@ -106,7 +106,7 @@ transitions:
   - id: story-closure.transition.integrity_passed_to_story_branch_pushed
     from: story-closure.status.integrity_passed
     to: story-closure.status.story_branch_pushed
-    guard: story-closure.invariant.push_inside_lock_after_green_scan
+    guard: story-closure.invariant.push_inside_lock_before_ci_scan
   # APPLICABILITY-RESOLVED NOT_APPLICABLE PATHS (FK-33 §33.6.5). These are
   # reached ONLY when the sonarqube_gate is NOT_APPLICABLE; they neither read
   # an attestation nor run a Sonar scan and never substitute for the
@@ -173,8 +173,8 @@ compound_rules:
   - id: story-closure.rule.story-branch-pushed-is-resumable
     description: A closure resumed from story_branch_pushed continues with the ff-merge under the merge-serialization lock and must not require a new semantic re-entry into the implementation QA-subflow against the verify-system capability.
   - id: story-closure.rule.pre-merge-scan-and-merge-block-is-locked
-    description: From merge_lock_acquired through post_merge_reconciled the closure runs inside a single per-main merge-serialization lock (FK-29 §29.1a). In the APPLICABLE case (sonarqube.available true AND mode not fast, FK-33 §33.6.5) the order under that lock is integrated-candidate Sonar scan (produces the commit-bound attestation) -> Integrity-Gate Dimensions 1-9 (Dimension 9, FK-35 §35.2.4a, verifies that fresh attestation and does not re-measure) -> story-branch push -> ff-only compare-and-swap update of main -> post-merge ledger reconcile, so that the green-measured tree and the merged main share one tree_hash. In the NOT_APPLICABLE cases the lock and all non-Sonar obligations stay in force. For a deliberately absent Sonar (available false) the Sonar scan, ledger reconcile, tree_hash(scan)==tree_hash(merge) assert and Dimension 9 are skipped (no fail-closed) while Dimensions 1-8 and the push/ff-merge/reconcile sequence remain. For mode fast the scan and the nine-dimension gate are replaced by the sanity gate (tests green, worktree clean, pre-merge-rebase ok) before the push. A configured-but-unreachable or red Sonar (available true) is NOT a NOT_APPLICABLE case — it stays APPLICABLE and escalates the block. The whole locked block is a single recoverable unit keyed on merge_done (FK-29 §29.1); its intra-lock sub-steps are not separately resumable.
+    description: From merge_lock_acquired through post_merge_reconciled the closure runs inside a single per-main merge-serialization lock (FK-29 §29.1a). In the APPLICABLE case (sonarqube.available true AND mode not fast, FK-33 §33.6.5) the order under that lock is integrated-candidate ref push for Jenkins -> Jenkins build/test/Sonar scan (produces the commit-bound attestation) -> Integrity-Gate Dimensions 1-9 (Dimension 9, FK-35 §35.2.4a, verifies that fresh attestation and does not re-measure) -> ff-only compare-and-swap update of main -> post-merge ledger reconcile, so that the green-measured tree and the merged main share one tree_hash. In the NOT_APPLICABLE cases the lock and all non-Sonar obligations stay in force. For a deliberately absent Sonar (available false) the Sonar scan, ledger reconcile, tree_hash(scan)==tree_hash(merge) assert and Dimension 9 are skipped (no fail-closed) while Dimensions 1-8 and the pushed-ref/ff-merge/reconcile sequence remain. For mode fast the scan and the nine-dimension gate are replaced by the sanity gate (tests green, worktree clean, pre-merge-rebase ok). A configured-but-unreachable or red Sonar (available true) is NOT a NOT_APPLICABLE case — it stays APPLICABLE and escalates the block. The whole locked block is a single recoverable unit keyed on merge_done (FK-29 §29.1); its intra-lock sub-steps are not separately resumable.
   - id: story-closure.rule.multi-repo-merge-block-per-repo
-    description: For multi-repo stories (FK-29 §29.1.6) the merge-serialization lock and the Pre-Merge-Scan-und-Merge-Block apply per participating repo. The closure guarantees an atomic green-and-ff-mergeability barrier across ALL repos before any push begins; cross-remote push itself is NOT transactionally atomic, so a partial push escalates (ESCALATED) with compensating recovery (FK-29 §29.1.6.3). merge_done becomes true only after all repos pass the push-to-main stage.
+    description: For multi-repo stories (FK-29 §29.1.6) the merge-serialization lock and the Pre-Merge-Scan-und-Merge-Block apply per participating repo. Candidate refs may be pushed for Jenkins, but the closure guarantees an atomic green-and-ff-mergeability barrier across ALL repos before any main update begins; cross-remote main update itself is NOT transactionally atomic, so a partial push to main escalates (ESCALATED) with compensating recovery (FK-29 §29.1.6.3). merge_done becomes true only after all repos pass the push-to-main stage.
 ```
 <!-- FORMAL-SPEC:END -->

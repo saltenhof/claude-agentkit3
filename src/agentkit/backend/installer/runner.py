@@ -168,22 +168,23 @@ class InstallConfig:
     # applicability-conditional. With ``available: false`` it is SKIPPED and
     # needs no collaborators. With ``available: true`` it is fail-closed and
     # needs a connected ``SonarClient``, the token's effective permissions and
-    # the branch-plugin conformance self-test. Only the LIVE SonarQube server +
-    # scanner binary is OOS (§2.2): the operator/CI injects ``sonar_client`` and
-    # ``sonar_scan_runner`` (the operational ``sonar-scanner`` invocation), and
-    # the installer builds the PRODUCTIVE ``SonarClientScannerHarness`` from
-    # them (AG3-052 E5). When ``available: true`` and the verification cannot be
-    # carried out, CP 10d FAILs closed and ABORTS the install — there is no
+    # the branch-plugin conformance self-test. In production that self-test is
+    # run through the configured Jenkins pre-merge pipeline, so the scanner
+    # lives on the Jenkins agent rather than on the operator machine. When
+    # ``available: true`` and the verification cannot be carried out, CP 10d
+    # FAILs closed and ABORTS the install — there is no
     # ``verification_deferred`` escape hatch (a green gate must never be armed
     # against an unverified Sonar, FK-50 §50.6).
     #
     # ``sonar_branch_plugin_self_test`` lets a caller inject a fully-prebuilt
     # self-test (e.g. tests stubbing the HTTP boundary); when it is ``None`` the
-    # installer assembles the productive one from ``sonar_client`` +
-    # ``sonar_scan_runner``.
+    # installer assembles the productive one from ``sonar_client`` + ``ci_client``.
     sonar_client: SonarClient | None = None
     sonar_token_permissions: frozenset[str] | None = None
     sonar_branch_plugin_self_test: BranchPluginSelfTest | None = None
+    # Legacy/dev-only fallback: production CLI wiring does not require or create
+    # a local scanner runner. Kept so focused tests can inject the scanner
+    # boundary without a live Jenkins.
     sonar_scan_runner: ScanRunner | None = None
     # AG3-052 Design-Decision (FK-03 §3): the scaffold default for a
     # code-producing project is ``sonarqube.available: true`` — the green gate
@@ -199,8 +200,8 @@ class InstallConfig:
     # Endpoint used when ``sonarqube_available`` is True (FK-03 §3 example).
     sonarqube_base_url: str = "http://localhost:9901"
     sonarqube_token_env: str = "SONARQUBE_TOKEN"
-    # The SonarScanner version AK3 pins and RUNS for the local QA-subflow scan
-    # (FK-33 §33.6.3 attestation binding, ERROR-B). Required when
+    # The expected SonarScanner version for CI-produced attestations (FK-33
+    # §33.6.3 attestation binding, ERROR-B). Required when
     # ``sonarqube_available`` is True so a produced attestation never carries an
     # empty scanner version (the cross-field rule fails closed otherwise).
     sonarqube_scanner_version: str = "5.0.1"
@@ -1765,16 +1766,16 @@ def _run_cp10d_sonarqube(
       green gate must not be armed against an unverifiable Sonar). There is
       NO ``verification_deferred`` escape hatch (AG3-052 E5): if the
       verification cannot be carried out — no ``sonar_client``, no
-      branch-plugin self-test (neither injected nor assemblable from a
-      ``sonar_scan_runner``), or any failing probe — CP 10d is FAILED and the
-      install aborts.
+      branch-plugin self-test (neither injected nor assemblable from Jenkins),
+      or any failing probe — CP 10d is FAILED and the install aborts.
 
     Productive branch-plugin self-test (AG3-052 E5): when the caller does not
-    inject a pre-built ``sonar_branch_plugin_self_test`` but supplies a
-    ``sonar_client`` + ``sonar_scan_runner``, the installer assembles the
-    PRODUCTIVE :class:`SonarClientScannerHarness` and drives the FK-50 §50.3
-    conformance steps through it (``run_branch_plugin_conformance_self_test``).
-    Only the LIVE server + scanner (``sonar_scan_runner``) is OOS (§2.2).
+    inject a pre-built ``sonar_branch_plugin_self_test`` but supplies
+    ``sonar_client`` + ``ci_client`` + ``ci_pipeline``, the installer assembles
+    the PRODUCTIVE :class:`JenkinsBranchPluginSelfTestHarness` and drives the
+    FK-50 §50.3 conformance steps through it
+    (``run_branch_plugin_conformance_self_test``). The scanner is an
+    operational dependency of the Jenkins agent, not of the installer host.
 
     Args:
         config: The install configuration (carries the Sonar collaborators).
@@ -1966,10 +1967,12 @@ def _resolve_branch_plugin_self_test(
 
     1. an explicitly injected ``sonar_branch_plugin_self_test`` (tests stub
        the HTTP boundary inside it);
-    2. otherwise, when a ``sonar_client`` AND a ``sonar_scan_runner`` are
-       present, the PRODUCTIVE :class:`SonarClientScannerHarness` wired into
-       ``run_branch_plugin_conformance_self_test``;
-    3. otherwise ``None`` — which makes ``check_sonarqube_preconditions`` FAIL
+    2. otherwise, when ``sonar_client`` + ``ci_client`` + ``ci_pipeline`` are
+       present, the PRODUCTIVE :class:`JenkinsBranchPluginSelfTestHarness`
+       drives the self-test through the configured Jenkins pipeline;
+    3. otherwise, an explicitly injected ``sonar_scan_runner`` may be used as a
+       dev/test fallback;
+    4. otherwise ``None`` — which makes ``check_sonarqube_preconditions`` FAIL
        closed (``missing_dependency``) for an ``available: true`` config (no
        silent skip, FK-50 §50.6).
 
@@ -1982,11 +1985,32 @@ def _resolve_branch_plugin_self_test(
     """
     if config.sonar_branch_plugin_self_test is not None:
         return config.sonar_branch_plugin_self_test
-    if config.sonar_client is None or config.sonar_scan_runner is None:
-        return None
     from agentkit.backend.installer.integration_checkpoints.branch_plugin_self_test import (
         run_branch_plugin_conformance_self_test,
     )
+
+    if (
+        config.sonar_client is not None
+        and config.ci_client is not None
+        and config.ci_pipeline
+    ):
+        from agentkit.backend.installer.integration_checkpoints.jenkins_selftest_harness import (
+            JenkinsBranchPluginSelfTestHarness,
+        )
+
+        jenkins_harness = JenkinsBranchPluginSelfTestHarness(
+            sonar_client=config.sonar_client,
+            jenkins_client=config.ci_client,
+            pipeline=config.ci_pipeline,
+        )
+
+        def _jenkins_self_test(client: SonarClient) -> bool:
+            return run_branch_plugin_conformance_self_test(client, jenkins_harness)
+
+        return _jenkins_self_test
+
+    if config.sonar_client is None or config.sonar_scan_runner is None:
+        return None
     from agentkit.backend.installer.integration_checkpoints.scanner_harness import (
         SonarClientScannerHarness,
     )

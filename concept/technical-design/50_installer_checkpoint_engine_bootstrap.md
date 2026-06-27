@@ -531,10 +531,15 @@ sein, dass Tests `sonar_client`, `ci_client` oder einen
 Branch-Plugin-Self-Test injizieren. Er konsumiert lokale Secret-/Env-Werte
 (`SONAR_URL`, `SONAR_USER`, `SONAR_PASSWORD` oder `SONARQUBE_TOKEN` /
 `SONAR_TOKEN`, `JENKINS_URL`, `JENKINS_USER`, `JENKINS_API_TOKEN` /
-`JENKINS_PASSWORD`) und baut daraus die produktiven Adapter. Fehlt fuer
-`sonarqube.available: true` der operative `sonar-scanner` auf dem `PATH`, ist
-das kein stiller Opt-out, sondern ein fail-closed CP-10d-Fehler: Der
-Branch-Plugin-Conformance-Self-Test kann dann nicht ausgefuehrt werden.
+`JENKINS_PASSWORD`) und baut daraus die produktiven Adapter. Der Scanner wird
+im Normalfall **nicht** auf dem Installer-Rechner vorausgesetzt. CP 10d nutzt
+den konfigurierten operativen Scan-Ausfuehrungspfad: Bei `ci.available: true`
+triggert der Installer den Jenkins-Pipeline-Job im CP10d-Self-Test-Modus; der
+Jenkins-Agent fuehrt den SonarScanner aus und archiviert
+`.scannerwork/report-task.txt`. Fehlt der Jenkins-Client/Pipeline-Zugriff oder
+liefert der Job keine auswertbare Analyse, ist das ein fail-closed
+CP-10d-Fehler. Ein lokaler Scanner ist nur ein explizit injizierbarer
+Dev-/Test-Fallback, keine normative Installationsvoraussetzung.
 
 **2. Branch-Plugin-Conformance-Self-Test (Pflicht):**
 
@@ -553,6 +558,18 @@ Checkpoints). Ablauf auf einem **wegwerfbaren Mini-Projekt**:
    gegen `main` konsistent)
 5. Quality Gate per `analysisId` (nicht per `projectKey`) verifizieren
 6. Test-Projekt wieder **loeschen**
+
+**Jenkins-Kontrakt fuer den CP10d-Self-Test:** Der konfigurierte Pipeline-Job
+muss einen Modus `agentkit_mode=cp10d_branch_plugin_self_test` unterstuetzen.
+Der Installer triggert pro Scan den Job mit `sonar_project_key` und
+`sonar_branch`; der Job scannt eine kleine, im Job/Checkout verfuegbare Fixture
+gegen genau dieses Projekt und diesen Branch, setzt `sonar.qualitygate.wait=true`
+und archiviert `.scannerwork/report-task.txt`. AgentKit liest den `ceTaskId`
+aus diesem Artefakt, loest die konkrete Analyse ueber SonarQube auf und prueft
+Branch-Sichtbarkeit, Accepted-Verhalten und Quality Gate ueber diese Analyse.
+Damit testet CP 10d denselben operativen Boundary-Typ wie spaetere
+Pre-Merge-Scans: Jenkins erzeugt die Analyse, AgentKit verifiziert die
+Attestation.
 
 Scheitert ein Schritt → **FAILED**: das Plugin verhaelt sich nicht
 gatebar, das Green-Gate darf nicht als Trust-A-Stage scharf geschaltet

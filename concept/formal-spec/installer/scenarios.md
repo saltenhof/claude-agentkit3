@@ -132,6 +132,22 @@ scenarios:
       status: installer.status.failed
     requires:
       - installer.invariant.default_scaffold_existing_repo_dirs_fail_closed
+  - id: installer.scenario.sonar-ci-selftest-uses-jenkins
+    start:
+      status: installer.status.requested
+    trace:
+      - command: installer.command.register-project
+        parameters:
+          sonarqube_available: true
+          ci_available: true
+          cp10d_selftest_runner: jenkins
+    expected_end:
+      status: installer.status.verified
+      cp10d:
+        scanner_host: jenkins_agent
+        installer_host_local_sonar_scanner_required: false
+    requires:
+      - installer.invariant.cp10d_branch_plugin_selftest_uses_operational_ci_scan_path
   - id: installer.scenario.idempotent-rerun-converges
     start:
       status: installer.status.bindings_applied

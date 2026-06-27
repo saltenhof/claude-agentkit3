@@ -16,6 +16,9 @@ from agentkit.backend.installer.integration_checkpoints.ci_preflight import (
     CiPreflightResult,
     check_ci_preconditions,
 )
+from agentkit.backend.installer.integration_checkpoints.jenkins_selftest_harness import (
+    JenkinsBranchPluginSelfTestHarness,
+)
 from agentkit.backend.installer.integration_checkpoints.scanner_harness import (
     ScanRunner,
     SonarClientScannerHarness,
@@ -27,6 +30,7 @@ from agentkit.backend.installer.integration_checkpoints.sonar_preflight import (
 
 __all__ = [
     "CiPreflightResult",
+    "JenkinsBranchPluginSelfTestHarness",
     "ScanRunner",
     "ScannerHarness",
     "SelfTestScan",

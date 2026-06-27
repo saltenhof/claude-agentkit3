@@ -37,6 +37,7 @@ commands:
     requires:
       - installer.invariant.system_installation_precedes_project_registration
       - installer.invariant.register_project_is_idempotent
+      - installer.invariant.cp10d_branch_plugin_selftest_uses_operational_ci_scan_path
     emits:
       - installer.event.registration.requested
       - installer.event.registration.started

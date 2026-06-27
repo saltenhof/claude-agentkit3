@@ -228,15 +228,12 @@ class SonarQubeConfig(BaseModel):
         min_version: Minimum SonarQube Community Build version (SemVer).
         plugins: Plugin requirements (Community Branch Plugin).
         quality_gate: Quality-gate / default-profile reference.
-        scanner_version: The SonarScanner version AK3 pins and RUNS for the
-            local QA-subflow branch scan (FK-33 §33.6.3 names the scanner
-            version as an attestation binding). Sonar exposes no authoritative
-            scanner version for an analysis, so for the local-scan gate path
-            this AK3-pinned version is the authoritative source (AK3 controls
-            the scanner invocation — SSOT). Required when ``available and
-            enabled`` so a produced attestation never carries an empty scanner
-            version (fail-closed). The CI/pre-merge path carries the scanner
-            version from the producing CI run instead (AG3-056).
+        scanner_version: Expected SonarScanner version for produced
+            attestations. FK-33 §33.6.3 names the scanner version as an
+            attestation binding; productive scans run through CI/Jenkins and
+            carry the scanner version from the Jenkins run that produced the
+            analysis. Required when ``available and enabled`` so a produced
+            attestation never carries an empty scanner version (fail-closed).
         accept_frequency_fc_threshold: Fraction of stories (measured across
             ALL stories, never per individual story) at or above which a
             repeatedly accepted Sonar rule becomes a Failure-Corpus signal

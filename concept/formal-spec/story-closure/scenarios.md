@@ -38,8 +38,8 @@ scenarios:
       - story-closure.invariant.ff_only_is_default_policy
       - story-closure.invariant.integrity_gate_precedes_merge_block
       - story-closure.invariant.merge_block_runs_under_serialization_lock
-      - story-closure.invariant.integrated_candidate_scanned_green_before_push
-      - story-closure.invariant.push_inside_lock_after_green_scan
+      - story-closure.invariant.integrated_candidate_scanned_green_before_main_update
+      - story-closure.invariant.push_inside_lock_before_ci_scan
       - story-closure.invariant.push_precedes_merge
       - story-closure.invariant.post_merge_reconcile_before_lock_release
       - story-closure.invariant.completed_requires_merge_and_story_close
@@ -51,7 +51,7 @@ scenarios:
     expected_end:
       status: story-closure.status.escalated
     requires:
-      - story-closure.invariant.integrated_candidate_scanned_green_before_push
+      - story-closure.invariant.integrated_candidate_scanned_green_before_main_update
       - story-closure.invariant.red_integrated_candidate_blocks_merge
   - id: story-closure.scenario.ff-only-rejected-then-no-ff-fallback
     start:

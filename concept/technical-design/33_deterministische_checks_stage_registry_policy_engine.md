@@ -575,7 +575,8 @@ Gate-Status, interpretiert aber keine Einzelregeln nach.
 verarbeitet Scanner-Ergebnisse asynchron (Compute Engine) — ein „Scanner
 SUCCESS" ist noch kein gatebarer Zustand. Das Gate liest deshalb **nie** bloss
 „ist Projekt X gerade grün?" über den `projectKey`, sondern bindet sich an die
-konkrete Analyse (Scanner mit `sonar.qualitygate.wait=true`, QG-Status per
+konkrete Analyse (produktiver Scanner-Lauf via CI/Jenkins mit
+`sonar.qualitygate.wait=true`, QG-Status per
 `analysisId`/`ceTaskId`). Das Ergebnis ist eine **Attestation**, gebunden an
 `commit_sha`, `tree_hash`, `analysisId`, den Quality-Gate-/Quality-Profile-Hash
 und die Versionen (SonarQube, Branch-Plugin, Scanner), und gilt nur für genau
@@ -605,7 +606,9 @@ Remediation durch ist):
    Aufräumen zu starten. So setzt jede Story auf grünem `main` auf, und kein
    Worker wird gezwungen, scope-fremde Alt-Issues zu schultern. Schuldfrage
    irrelevant — nur die Frage „wer kann was sinnvoll beackern".
-2. **QA-Subflow (hier):** Nach Schicht 3 misst das Gate den **Branch**. Rot →
+2. **QA-Subflow (hier):** Nach Schicht 3 misst das Gate den **Branch**. Der
+   Scanner-Lauf wird ueber den konfigurierten CI/Jenkins-Pfad erzeugt; AgentKit
+   liest und verifiziert die daraus entstehende Attestation. Rot →
    Remediation-Loop (FK-27), bis der Branch grün ist.
 3. **Closure-Pre-Merge (FK-29 / Integrity-Gate FK-35):** Unmittelbar vor dem
    Merge wird der letzte `main`-Stand in den Branch integriert und der

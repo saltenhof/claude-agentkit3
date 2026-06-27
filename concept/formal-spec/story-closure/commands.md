@@ -36,7 +36,7 @@ commands:
     # two NOT_APPLICABLE intra-lock checkpoints so a closure can resume from
     # them: sonar_not_applicable_integrity_passed (Sonar deliberately absent,
     # sonarqube.available false) and sanity_gate_passed (mode fast). The
-    # integrated_candidate_scanned_green_before_push requirement is itself
+    # integrated_candidate_scanned_green_before_main_update requirement is itself
     # qualified APPLICABLE-only and is satisfied vacuously on the NOT_APPLICABLE
     # entries, where the corresponding NOT_APPLICABLE invariant governs instead.
     allowed_statuses:
@@ -56,7 +56,7 @@ commands:
       # when the sonarqube_gate is APPLICABLE; the two NOT_APPLICABLE paths are
       # governed by closure_proceeds_without_sonar_when_not_applicable (Sonar
       # absent) and fast_mode_closure_uses_sanity_gate (mode fast).
-      - story-closure.invariant.integrated_candidate_scanned_green_before_push
+      - story-closure.invariant.integrated_candidate_scanned_green_before_main_update
       - story-closure.invariant.closure_proceeds_without_sonar_when_not_applicable
       - story-closure.invariant.fast_mode_closure_uses_sanity_gate
     emits:
@@ -94,7 +94,7 @@ commands:
       - story-closure.invariant.merge_block_runs_under_serialization_lock
       # APPLICABLE-only (see execute-default); NOT_APPLICABLE paths governed by
       # the two NOT_APPLICABLE invariants below.
-      - story-closure.invariant.integrated_candidate_scanned_green_before_push
+      - story-closure.invariant.integrated_candidate_scanned_green_before_main_update
       - story-closure.invariant.closure_proceeds_without_sonar_when_not_applicable
       - story-closure.invariant.fast_mode_closure_uses_sanity_gate
     emits:

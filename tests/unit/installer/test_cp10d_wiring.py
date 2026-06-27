@@ -32,6 +32,7 @@ from agentkit.backend.installer.runner import (
     _build_project_yaml,
     _run_cp10d_sonarqube,
 )
+from agentkit.integration_clients.jenkins import JenkinsHttpResponse
 from agentkit.integration_clients.sonar import SonarHttpResponse
 
 
@@ -207,6 +208,13 @@ class _StubClient:
             status_code=200, json_body={"projectStatus": {"status": self.gate_status}}
         )
 
+    def ce_task(self, ce_task_id: str) -> SonarHttpResponse:
+        del ce_task_id
+        return SonarHttpResponse(
+            status_code=200,
+            json_body={"task": {"status": "SUCCESS", "analysisId": "AX-CI"}},
+        )
+
     def transition_issue(self, issue_key: str, transition: str) -> SonarHttpResponse:
         self.transitioned.append((issue_key, transition))
         return SonarHttpResponse(status_code=200, json_body={})
@@ -216,6 +224,39 @@ def _green_scan_runner(project_key: str, branch: str) -> SelfTestScan:
     """Stubbed operational scanner: a green scan with no issues (OOS boundary)."""
     del project_key
     return SelfTestScan(analysis_id=f"AX-{branch}", branch=branch, issue_keys=())
+
+
+@dataclass
+class _StubJenkins:
+    def trigger_build(
+        self, pipeline: str, *, parameters: dict[str, str]
+    ) -> JenkinsHttpResponse:
+        del pipeline, parameters
+        return JenkinsHttpResponse(
+            status_code=201,
+            headers={"location": "http://jenkins/queue/item/7/"},
+        )
+
+    def queue_item(self, queue_id: int) -> JenkinsHttpResponse:
+        del queue_id
+        return JenkinsHttpResponse(
+            status_code=200, json_body={"executable": {"number": 11}}
+        )
+
+    def build_status(self, pipeline: str, build_number: int) -> JenkinsHttpResponse:
+        del pipeline, build_number
+        return JenkinsHttpResponse(
+            status_code=200, json_body={"building": False, "result": "SUCCESS"}
+        )
+
+    def build_artifact(
+        self, pipeline: str, build_number: int, artifact_path: str
+    ) -> JenkinsHttpResponse:
+        del pipeline, build_number, artifact_path
+        return JenkinsHttpResponse(
+            status_code=200,
+            text_body="projectKey=ak3-selftest\nceTaskId=ce-1\n",
+        )
 
 
 def _profile(root: Path) -> None:
@@ -260,10 +301,26 @@ def test_cp10d_skipped_when_no_stanza(tmp_path: Path) -> None:
 
 
 class TestProductiveHarnessWiring:
-    """E5: the PRODUCTIVE SonarClientScannerHarness is assembled + driven."""
+    """E5: the productive CP10d self-test harness is assembled + driven."""
+
+    def test_cp10d_passes_via_jenkins_harness(self, tmp_path: Path) -> None:
+        """client + ci_client => CP10d uses Jenkins, not a local scanner."""
+        _profile(tmp_path)
+        client = _StubClient()
+        config = InstallConfig(
+            project_key="acme",
+            project_name="Acme",
+            project_root=tmp_path,
+            sonar_client=client,  # type: ignore[arg-type]
+            sonar_token_permissions=frozenset({ADMINISTER_ISSUES}),
+            ci_client=_StubJenkins(),  # type: ignore[arg-type]
+            ci_pipeline="ak3-pre-merge",
+        )
+        result = _run_cp10d_sonarqube(config, tmp_path, _available_true_yaml())
+        assert result.status == CheckpointStatus.PASS
 
     def test_cp10d_passes_via_productive_harness(self, tmp_path: Path) -> None:
-        """client + scan_runner (no pre-built self-test) => harness drives PASS."""
+        """Explicit scan_runner remains a dev/test fallback."""
         _profile(tmp_path)
         client = _StubClient()
         config = InstallConfig(

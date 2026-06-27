@@ -34,6 +34,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
+from agentkit.integration_clients.jenkins import JenkinsApiError
 from agentkit.integration_clients.sonar import SonarApiError
 
 if TYPE_CHECKING:
@@ -115,7 +116,7 @@ def run_branch_plugin_conformance_self_test(
     """
     try:
         return _run_steps(client, harness)
-    except (SonarApiError, OSError) as exc:
+    except (JenkinsApiError, SonarApiError, OSError) as exc:
         logger.error("branch-plugin conformance self-test errored: %s", exc)
         return False
     finally:

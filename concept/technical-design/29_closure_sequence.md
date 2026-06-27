@@ -40,11 +40,12 @@ glossary:
         mit irreversiblen Seiteneffekten (impl/bugfix): Finding-Resolution-Gate,
         dann der Pre-Merge-Scan-und-Merge-Block unter dem
         Merge-Serialisierungs-Lock (§29.1a, FK-33 §33.6.3 Punkt 3) in der
-        internen Reihenfolge latest-main-integrieren -> Build/Test ->
-        Integrated-Candidate-Sonar-Scan (erzeugt die commit-gebundene
+        internen Reihenfolge latest-main-integrieren -> Jenkins-erreichbaren
+        Story-/Pre-Merge-Ref pushen -> Build/Test ->
+        Integrated-Candidate-Sonar-Scan durch Jenkins (erzeugt die commit-gebundene
         Attestation) -> Integrity-Gate inkl. Dimension 9 SonarQube-Green
         (verifiziert genau diese frische Attestation, FK-35 §35.2.4a) ->
-        Story-Branch-Push -> ff-Merge -> post-merge Reconcile, danach
+        ff-Merge -> post-merge Reconcile, danach
         Worktree-Teardown, Story-Closed (AK3-Story-Status Done), Metriken,
         Rueckkopplungstreue, Postflight-Gates, VektorDB-Sync,
         Guard-Deaktivierung. Das Integrity-Gate liegt damit innerhalb des
@@ -268,7 +269,10 @@ flowchart TD
     FR -->|PASS| PMB_LOCK
 
     PMB_LOCK["Pre-Merge-Scan-und-Merge-Block (§29.1a)<br/>acquire merge-lock (locked_sha := origin/main)<br/>fetch + assert origin/main == locked_sha<br/>integrate main → story/{story_id}<br/>clean workspace (git clean -xfd)"]
-    PMB_LOCK --> PMB_SCAN["Build/Test/Coverage +<br/>full integrated-candidate Sonar scan<br/>wait by ceTaskId · apply ledger (FK-33 §33.6.4)<br/>verify QG by analysisId (Overall-Code)<br/>→ erzeugt commit-gebundene Attestation"]
+    PMB_LOCK --> PUSH_SB["Story-/Pre-Merge-Ref pushen<br/>(Jenkins-erreichbar, nicht main)<br/>innerhalb des Locks"]
+    PUSH_SB -->|Push-Fehler| ESC_P(["ESCALATED:<br/>Story-/Pre-Merge-Ref-Push fehlgeschlagen.<br/>kein ff-Update auf main."])
+    PUSH_SB -->|Erfolg| SUB_PUSH["Substate:<br/>story_branch_pushed = true"]
+    SUB_PUSH --> PMB_SCAN["Build/Test/Coverage via Jenkins +<br/>full integrated-candidate Sonar scan via Jenkins<br/>wait by ceTaskId · apply ledger (FK-33 §33.6.4)<br/>verify QG by analysisId (Overall-Code)<br/>→ erzeugt commit-gebundene Attestation"]
     PMB_SCAN -->|"rot (main-Drift)"| ESC_RED(["Remediation-Loop (§29.1a.4)<br/>→ Retry mit neuem locked_sha<br/>dauerhaft rot/nicht-ff: ESCALATED"])
     PMB_SCAN -->|"gruen"| PMB_TREE["assert tree_hash(scan) == tree_hash(merge)"]
 
@@ -276,11 +280,7 @@ flowchart TD
     INTEGRITY -->|FAIL| ESC_I(["ESCALATED:<br/>Opake Meldung.<br/>Details in Audit-Log."])
     INTEGRITY -->|PASS| SUB1["Substate:<br/>integrity_passed = true"]
 
-    SUB1 --> PUSH_SB["Story-Branch pushen<br/>(git push origin story/{story_id})<br/>innerhalb des Locks"]
-    PUSH_SB -->|Push-Fehler| ESC_P(["ESCALATED:<br/>Story-Branch-Push fehlgeschlagen.<br/>kein ff-Update auf main."])
-    PUSH_SB -->|Erfolg| SUB_PUSH["Substate:<br/>story_branch_pushed = true"]
-
-    SUB_PUSH --> MERGE["ff-only update main<br/>(compare-and-swap/lease gegen locked_sha)<br/>Fallback-Policy: no_ff (dok. Retry, §29.1.5)"]
+    SUB1 --> MERGE["ff-only update main<br/>(compare-and-swap/lease gegen locked_sha)<br/>Fallback-Policy: no_ff (dok. Retry, §29.1.5)"]
     MERGE -->|"CAS-Fehler / Merge-Fehler"| ESC_M(["ESCALATED:<br/>Block neu aufsetzen oder<br/>Closure-Retry mit offizieller Merge-Policy."])
     MERGE -->|Erfolg| PMB_POST["post-merge reconcile/verify<br/>(Ledger erneut gegen main, FK-33 §33.6.4)<br/>release merge-lock"]
     PMB_POST --> SUB2["Substate:<br/>merge_done = true"]
@@ -392,10 +392,10 @@ folgende kanonische Closure-Reihenfolge:
 2. Erst Pre-Merge-Scan-und-Merge-Block (§29.1a) **unter dem Merge-Serialisierungs-Lock** — in dieser strikten internen Reihenfolge:
    a. Lock erwerben (`locked_sha := origin/main`), `fetch`, `assert origin/main == locked_sha`
    b. latest `main` in den Story-Branch integrieren, Workspace säubern (`git clean -xfd`)
-   c. Build / Test / Coverage auf dem integrierten Stand
-   d. **Integrated-Candidate-Sonar-Scan** (Single-Match-Ledger, QG per `analysisId`, Overall-Code) → **erzeugt die commit-gebundene Attestation**; `tree_hash(scan) == tree_hash(merge)`
-   e. **Integrity-Gate** (FK-35 §35.2, Dimensionen 1–9) → Dimension 9 `SonarQube-Green` **verifiziert genau die in Schritt d erzeugte frische Attestation** (FK-35 §35.2.4a) und vermisst nicht neu
-   f. Story-Branch pushen (innerhalb des Locks), `progress.story_branch_pushed = true`
+   c. integrierten Candidate auf einen Jenkins-erreichbaren Story-/Pre-Merge-Ref pushen (nicht `main`), `progress.story_branch_pushed = true`
+   d. Build / Test / Coverage auf exakt diesem Ref und `commit_sha`
+   e. **Integrated-Candidate-Sonar-Scan** durch Jenkins (Single-Match-Ledger, QG per `analysisId`, Overall-Code) → **erzeugt die commit-gebundene Attestation**; `tree_hash(scan) == tree_hash(merge)`
+   f. **Integrity-Gate** (FK-35 §35.2, Dimensionen 1–9) → Dimension 9 `SonarQube-Green` **verifiziert genau die in Schritt e erzeugte frische Attestation** (FK-35 §35.2.4a) und vermisst nicht neu
    g. ff-only Update von `main` (compare-and-swap/lease gegen `locked_sha`)
    h. post-merge Reconcile (Ledger erneut gegen `main`, FK-33 §33.6.4), Lock freigeben
 3. Erst Worktree aufräumen → kein staler Worktree
@@ -406,14 +406,16 @@ folgende kanonische Closure-Reihenfolge:
 8. Dann VektorDB-Sync → für nachfolgende Stories suchbar
 9. Zuletzt Guards deaktivieren → AI-Augmented-Modus wieder frei
 
-**Kausalitaet (Korrektur 2026-06-01):** Das Integrity-Gate sitzt jetzt
+**Kausalitaet (Korrektur 2026-06-01, praezisiert 2026-06-27):** Das Integrity-Gate sitzt jetzt
 bewusst **innerhalb** des gesperrten Blocks **nach** dem Scan (Schritt
-2.d) und **vor** Push/ff-Merge (Schritt 2.f/2.g) — nicht mehr als
+2.e) und **vor** dem ff-Merge nach `main` (Schritt 2.g) — nicht mehr als
 separater Schritt vor dem Block. Grund: Dimension 9 verifiziert die
 commit-gebundene Attestation des integrierten Kandidaten; diese
-existiert erst, nachdem der Scan in Schritt 2.d gelaufen ist. Das Gate
-bleibt damit „das letzte Gate vor dem Merge", liegt aber unmittelbar
-nach dem Scan. Push und ff-Merge liegen ebenfalls **innerhalb** des
+existiert erst, nachdem der Jenkins-Scan in Schritt 2.e gelaufen ist. Der
+Story-/Pre-Merge-Ref-Push liegt dagegen **vor** Build/Test/Sonar, weil Jenkins
+den zu bauenden und zu scannenden Candidate sonst nicht auschecken kann. Dieser
+Push macht `main` nicht sichtbar; das Gate bleibt damit das letzte Gate vor dem
+Merge nach `main`. Ref-Push und ff-Merge liegen **innerhalb** des
 Merge-Serialisierungs-Locks, weil der gruene Sonar-Zustand und der
 gemergte `main` denselben `tree_hash` tragen muessen (FK-33 §33.6.3).
 
@@ -535,11 +537,10 @@ bleibt APPLICABLE und faellt fail-closed (absent ist nicht broken).
    ff-faehig sind, bevor in Stufe 2 ueberhaupt ein Push beginnt — so wird
    kein einziger `main` sichtbar, bevor alle Repos die Barriere bestehen
    (Cross-Repo-Atomicity der Gruen-Vorbedingung).
-2. **Stufe 2 — Push der Story-Branches (innerhalb der jeweiligen
-   Repo-Locks):** alle Story-Branches werden mit ihrem in Stufe 1
-   applicability-aufgeloest freigegebenen Integrationsstand gepusht (im
-   APPLICABLE-Fall der gruen vermessene Stand, sonst der durch Dimensionen
-   1-8 bzw. das Sanity-Gate freigegebene Stand). Erst nach Erfolg in **allen**
+2. **Stufe 2 — Push der Jenkins-erreichbaren Story-/Pre-Merge-Refs
+   (innerhalb der jeweiligen Repo-Locks):** alle Candidate-Refs werden mit dem
+   integrierten Stand gepusht, bevor Jenkins Build/Test/Sonar ausfuehrt. `main`
+   wird dadurch nicht veraendert. Erst nach Erfolg in **allen**
    teilnehmenden Repos wird `payload.progress.story_branch_pushed =
    true` gesetzt. Bei Push-Fehler in Repo k werden bereits gepushte
    Branches nicht ausgerollt (Push ist remote-irreversibel ohne
@@ -683,15 +684,14 @@ acquire merge-lock (locked_sha := origin/main HEAD)
   -> assert origin/main == locked_sha            (sonst: Lock-Drift → erneut)
   -> integrate main into story branch            (merge/rebase main → story/{story_id})
   -> clean workspace: git clean -xfd; assert git status --porcelain leer
-  -> build / test / coverage (Layer-1-Determinismus auf dem integrierten Stand)
-  -> full integrated-candidate Sonar scan
+  -> push story/pre-merge ref for the integrated candidate (not main)
+  -> build / test / coverage via Jenkins on that ref + commit_sha
+  -> full integrated-candidate Sonar scan via Jenkins
   -> wait by ceTaskId (Compute Engine fertig)
   -> apply exception ledger (Single-Match-Reconciler, FK-33 §33.6.4)
   -> verify QG by analysisId (Overall-Code-Invariante)
   -> assert tree_hash(scan) == tree_hash(merge)   (gemessener == zu mergender Zustand)
   -> Integrity-Gate (FK-35 §35.2, Dim 1-9)        (Dim 9 verifiziert die frische Attestation; kein Re-Scan)
-  -> git push origin story/{story_id}             (finaler Integrationsstand auf Remote)
-  -> set progress.story_branch_pushed = true      (Checkpoint innerhalb des Locks)
   -> ff-only update main (compare-and-swap / lease gegen locked_sha)
   -> post-merge reconcile/verify (Ledger erneut gegen main, FK-33 §33.6.4)
   -> release merge-lock
@@ -724,20 +724,20 @@ acquire merge-lock (locked_sha := origin/main HEAD)
    Stand untergeschoben werden.
 5a. **Integrity-Gate innerhalb des Locks, nach dem Scan:** unmittelbar
    nach der gruenen `tree_hash`-Verifikation und **vor** dem
-   Story-Branch-Push laeuft das Integrity-Gate (FK-35 §35.2,
+   `main`-Update laeuft das Integrity-Gate (FK-35 §35.2,
    Dimensionen 1–9). Dimension 9 (`SonarQube-Green`, FK-35 §35.2.4a)
    verifiziert genau die in diesem Lock-Durchlauf erzeugte
    commit-gebundene Attestation und fuehrt **keinen** eigenen Scan aus.
    Das Gate liegt bewusst **nach** dem Scan (die Attestation muss
    existieren, bevor sie verifiziert werden kann) und bleibt zugleich
-   das letzte Gate **vor** dem Merge; bei FAIL escaliert Closure
-   (`ESCALATED`), kein Push, kein ff-Update. Erst bei Gate-PASS wird
+   das letzte Gate **vor** dem Merge nach `main`; bei FAIL escaliert Closure
+   (`ESCALATED`), kein ff-Update auf `main`. Erst bei Gate-PASS wird
    `payload.progress.integrity_passed = true` gesetzt.
-6. **Story-Branch-Push innerhalb des Locks:** `git push origin
-   story/{story_id}` liegt **innerhalb** des Merge-Locks, nach der
-   gruenen `tree_hash`-Verifikation und vor dem ff-Update auf `main`.
-   Der gepushte Story-Branch traegt damit exakt den vermessenen,
-   gruenen Integrationsstand. Nach erfolgreichem Push wird
+6. **Story-/Pre-Merge-Ref-Push innerhalb des Locks:** `git push origin
+   <candidate>:<story/premerge-ref>` liegt **innerhalb** des Merge-Locks, vor
+   Build/Test/Sonar und vor dem ff-Update auf `main`. Der gepushte Ref traegt
+   exakt den spaeter vermessenen Integrationsstand und ist die Quelle, die
+   Jenkins auscheckt. Nach erfolgreichem Push wird
    `payload.progress.story_branch_pushed = true` gesetzt
    (Checkpoint, §29.1.0). Bei Push-Fehler escaliert Closure
    (`ESCALATED`, kein ff-Update auf `main`).

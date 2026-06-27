@@ -48,6 +48,9 @@ invariants:
   - id: installer.invariant.default_scaffold_existing_repo_dirs_fail_closed
     scope: filesystem
     rule: creating default-scaffold repository directories must fail closed when an existing non-empty directory has an incompatible Git state; existing valid Git repository directories are skipped unchanged on rerun
+  - id: installer.invariant.cp10d_branch_plugin_selftest_uses_operational_ci_scan_path
+    scope: integration-precondition
+    rule: when sonarqube.available is true and CI is declared available, the CP 10d Community-Branch-Plugin conformance self-test must execute scans through the configured Jenkins pipeline and read the Jenkins-archived scanner report-task; the installer host must not require a local sonar-scanner binary for the normative production path
   - id: installer.invariant.bundle_bindings_are_version_pinned
     scope: bundle-binding
     rule: skill and prompt bindings must point to one concrete immutable bundle version and never to a live source checkout or latest alias
