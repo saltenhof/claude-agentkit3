@@ -56,7 +56,7 @@ class TestInstallFresh:
         assert project_config.project_key == "test-project"
 
     def test_install_creates_directory_structure(self, tmp_path: object) -> None:
-        """Install creates prompt/runtime/story directories."""
+        """Minimal install creates AgentKit runtime/binding directories."""
         root = _as_path(tmp_path)
         config = _make_install_config(root, project_name="test-project")
         install_agentkit(config)
@@ -70,8 +70,57 @@ class TestInstallFresh:
         assert (root / ".agentkit" / "hooks").is_dir()
         assert (root / ".claude" / "settings.json").is_file()
         assert (root / ".codex" / "config.toml").is_file()
-        assert (root / "stories").is_dir()
+        assert not (root / "stories").exists()
         assert (root / "tools" / "agentkit" / "projectedge.py").is_file()
+
+    def test_default_project_structure_single_repo_tracks_codebase(
+        self, tmp_path: object
+    ) -> None:
+        """Default scaffold in single-repo mode does not ignore ``codebase/``."""
+        root = _as_path(tmp_path)
+        config = _make_install_config(
+            root,
+            project_name="test-project",
+            default_project_structure=True,
+        )
+        install_agentkit(config)
+
+        for rel in (
+            "concepts",
+            "codebase",
+            "temp",
+            "input/_meetings",
+            "guardrails",
+            "stories",
+        ):
+            assert (root / rel).is_dir()
+        gitignore = (root / ".gitignore").read_text(encoding="utf-8")
+        assert "/temp/" in gitignore
+        assert "/codebase/" not in gitignore
+        project_config = load_project_config(root)
+        assert project_config.repositories[0].path == Path("codebase")
+        assert project_config.pipeline.features.multi_repo is False
+
+    def test_default_project_structure_multi_repo_ignores_codebase(
+        self, tmp_path: object
+    ) -> None:
+        """Default scaffold in multi-repo mode ignores root ``codebase/``."""
+        root = _as_path(tmp_path)
+        config = _make_install_config(
+            root,
+            project_name="test-project",
+            default_project_structure=True,
+            multi_repo=True,
+        )
+        install_agentkit(config)
+
+        assert (root / "codebase" / "app").is_dir()
+        gitignore = (root / ".gitignore").read_text(encoding="utf-8")
+        assert "/temp/" in gitignore
+        assert "/codebase/" in gitignore
+        project_config = load_project_config(root)
+        assert project_config.repositories[0].path == Path("codebase/app")
+        assert project_config.pipeline.features.multi_repo is True
 
     def test_install_creates_prompt_hardlink_binding(self, tmp_path: object) -> None:
         """Install binds project prompt files to bundled prompt resources."""

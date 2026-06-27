@@ -309,9 +309,9 @@ persistiert. Optional kann ein JSON-Export in
   "change_impact": "Component",
   "new_structures": false,
   "concept_quality": "Medium",
-  "concept_paths": ["concept/broker-api-concept.md"],
+  "concept_paths": ["concepts/broker-api-concept.md"],
   "external_sources": ["https://api.partner.com/openapi.yaml"],
-  "guardrail_paths": ["_guardrails/api-design-rules.md"],
+  "guardrail_paths": ["guardrails/api-design-rules.md"],
   "vectordb_conflict": false
 }
 ```

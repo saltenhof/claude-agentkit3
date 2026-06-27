@@ -241,6 +241,49 @@ Erzeugt `.agentkit/config/project.yaml` wenn nicht vorhanden. Bei
 bestehender Datei: prueft `config_version`, migriert bei Bedarf
 (Kap. 51).
 
+**Optionales Zielprojekt-Scaffold:** CP 5 besitzt genau eine binaere
+Installationsentscheidung: Default-Scaffold anlegen oder nicht. Der
+Installer bietet keine freie Ordnerauswahl an. Ohne Default-Scaffold
+werden nur die fuer AgentKit notwendigen Bindungen und die
+Projektkonfiguration materialisiert. Mit Default-Scaffold werden
+zusaetzlich die in FK-10 §10.3.1a normierten Zielprojekt-Ordner
+angelegt:
+
+- `concepts/`
+- `codebase/`
+- `temp/`
+- `input/_meetings/`
+- `guardrails/`
+- `stories/`
+
+`temp/` wird immer im Root-Repository in `.gitignore` eingetragen.
+`codebase/` wird nur dann im Root-Repository ignoriert, wenn der
+Installer den Repository-Modus als `multi_repo` ermittelt hat. Im
+`single_repo`-Modus ist `codebase/` normaler versionierter
+Source-Bereich des Root-Repositories und darf nicht ignoriert werden.
+`concepts/`, `guardrails/`, `input/` und `stories/` bleiben
+versionierbare Projektinhalte.
+
+Der Installer muss den Repository-Modus beim Default-Scaffold abfragen
+oder aus explizit angegebenen Repositories ableiten:
+
+- `single_repo`: genau ein versionierendes Root-Repository. Der
+  Default-Codebereich ist `codebase`; `repositories[]` zeigt auf
+  diesen Pfad.
+- `multi_repo`: Root-Repository fuer Konzepte/Koordination plus ein
+  oder mehrere separate Code-Repositories unter `codebase/{repo-name}`.
+  `codebase/` wird im Root-Repository ignoriert, und jedes
+  eingebundene Code-Repository wird in `repositories[]` mit seinem
+  konkreten Pfad registriert.
+
+Werden beim Install Code-Repositories angegeben, legt CP 5 im
+Multi-Repo-Default-Scaffold fehlende Unterordner unter
+`codebase/{repo-name}` an und schreibt die entsprechenden
+`repositories[].path`-Eintraege in `project.yaml`. Bereits vorhandene
+Repositories werden nicht ueberschrieben; ein nicht leerer Ordner mit
+inkompatiblem Git-Zustand ist ein fail-closed Fehler. Remote-
+Repositories werden nur gebunden, nicht implizit erzeugt oder geklont.
+
 **ARE-Scope-Mapping:** `installation-and-bootstrap` ist Schreib-Owner
 des ARE-Scope-Mappings (`are.module_scope_map` in der Pipeline-Config).
 CP 5 initialisiert die Mapping-Struktur; CP 10c ergaenzt fehlende
@@ -407,8 +450,9 @@ bereits indizierte Konzepte (Hash-basiert).
 ### CP 10b: Concept-Validation-Hook
 
 Registriert den konzeptspezifischen Pre-Commit-Hook (Kap. 13.9.9)
-in `tools/hooks/pre-commit`. Der Hook führt bei Änderungen unter
-`concept/` die Validierungs-Suite `concept_validate --staged` aus.
+in `tools/hooks/pre-commit`. Der Hook führt bei Änderungen unter dem
+konfigurierten `concepts_dir` (Default `concepts/`) die
+Validierungs-Suite `concept_validate --staged` aus.
 
 Die bestehende Secret-Detection (Kap. 15.5.2) bleibt global aktiv
 und wird durch die pfadbasierte Dispatching-Logik nicht berührt.

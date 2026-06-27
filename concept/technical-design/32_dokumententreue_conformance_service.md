@@ -260,7 +260,7 @@ einen Index:
 ### 32.4.4 Pflege des Index
 
 Der Manifest-Index wird **nicht automatisch generiert**. Er wird
-als Datei im Projekt gepflegt (z.B. `_guardrails/manifest-index.json`
+als Datei im Projekt gepflegt (z.B. `guardrails/manifest-index.json`
 oder über Tags in den Dokumenten selbst). Der Installer kann
 einen initialen Index erzeugen, aber die Pflege obliegt dem
 Menschen.
@@ -544,7 +544,7 @@ vorliegt:
 | Parameter | Config-Pfad | Default |
 |-----------|-------------|---------|
 | LLM-Rolle für Dokumententreue | `llm_roles.doc_fidelity` | `gemini` |
-| Manifest-Index-Pfad | `guardrails_dir` + `manifest-index.json` | `_guardrails/manifest-index.json` |
+| Manifest-Index-Pfad | `guardrails_dir` + `manifest-index.json` | `guardrails/manifest-index.json` |
 | Guardrail-Dokumente-Pattern | `guardrails_pattern` | `*.md` |
 
 ---

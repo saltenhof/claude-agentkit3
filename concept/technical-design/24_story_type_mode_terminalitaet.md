@@ -389,7 +389,7 @@ Optional zusaetzlich:
 Wenn eine Implementation-Story eine vorgelagerte Exploration
 durchlaeuft, koennen zwei Konzeptebenen koexistieren:
 
-1. **Primaerkonzepte** (aus dem `concept/`-Verzeichnis, referenziert
+1. **Primaerkonzepte** (aus dem konfigurierten `concepts_dir`, referenziert
    in `concept_paths`): Single Source of Truth. Unverletzlich.
    Diese Dokumente sind qualitaetsgesichert und vom Menschen
    freigegeben.

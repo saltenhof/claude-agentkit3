@@ -83,6 +83,22 @@ def main(argv: list[str] | None = None) -> int:
         required=False,
         help="Optional prompt bundle root to bind into the project",
     )
+    install_parser.add_argument(
+        "--default-project-structure",
+        action="store_true",
+        help=(
+            "Create the optional AgentKit default target-project structure "
+            "(concepts/, codebase/, temp/, input/_meetings/, guardrails/, stories/)."
+        ),
+    )
+    install_parser.add_argument(
+        "--multi-repo",
+        action="store_true",
+        help=(
+            "Use multi-repository mode. Only in this mode is codebase/ ignored "
+            "by the root repository."
+        ),
+    )
     # AG3-052 (FK-03 §3): the SonarQube-Green-Gate is a mandatory runtime
     # dependency, so a code-producing scaffold DECLARES Sonar present by
     # default (``--sonarqube-available``). ``--no-sonarqube-available`` is the
@@ -434,6 +450,8 @@ def _cmd_install(args: argparse.Namespace) -> int:
         project_key=args.project_key,
         project_name=args.project_name,
         project_root=project_root,
+        default_project_structure=bool(args.default_project_structure),
+        multi_repo=bool(args.multi_repo),
         github_owner=github_owner,
         github_repo=github_repo,
         prompt_bundle_root=(
@@ -505,6 +523,16 @@ def _add_register_verify_parsers(
     register_parser.add_argument("--github-owner", required=False)
     register_parser.add_argument("--github-repo", required=False)
     register_parser.add_argument(
+        "--default-project-structure",
+        action="store_true",
+        help="Create the optional AgentKit default target-project structure.",
+    )
+    register_parser.add_argument(
+        "--multi-repo",
+        action="store_true",
+        help="Use multi-repository mode for the optional default structure.",
+    )
+    register_parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Plan-only: report planned checkpoint outcomes without mutating.",
@@ -540,6 +568,8 @@ def _build_engine_config(args: argparse.Namespace) -> object | None:
         project_key=args.project_key,
         project_name=args.project_name,
         project_root=project_root,
+        default_project_structure=bool(getattr(args, "default_project_structure", False)),
+        multi_repo=bool(getattr(args, "multi_repo", False)),
         github_owner=github_owner,
         github_repo=github_repo,
         # CP 2 probes the live GitHub repo via the productive gh probe (FK-50

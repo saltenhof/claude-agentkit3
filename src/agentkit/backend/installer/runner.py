@@ -31,14 +31,25 @@ from agentkit.backend.installer.paths import (
     AGENTKIT_DIR,
     AGENTKIT_TOOLS_DIR,
     CLAUDE_DIR,
+    CODEBASE_DIR,
     CODEX_DIR,
+    CONCEPTS_DIR,
+    GUARDRAILS_DIR,
+    INPUT_DIR,
+    MEETINGS_DIR,
+    PROJECT_TEMP_DIR,
     STATIC_PROMPTS_DIR,
     STORIES_DIR,
     claude_settings_path,
+    codebase_dir,
     codex_config_path,
     config_dir,
     control_plane_config_path,
+    guardrails_dir,
+    input_dir,
     manifests_dir,
+    meetings_dir,
+    project_temp_dir,
     prompt_bundle_store_dir,
     runtime_prompts_dir,
     static_prompts_dir,
@@ -130,6 +141,14 @@ class InstallConfig:
     project_name: str
     project_root: Path
     repositories: list[dict[str, str]] | None = None
+    # FK-10 §10.3.1a / FK-50 CP5: optional target-project default structure.
+    # False keeps the install minimal for existing projects. True materialises
+    # concepts/, codebase/, temp/, input/_meetings/, guardrails/ and stories/.
+    default_project_structure: bool = False
+    # Persisted as pipeline.features.multi_repo. It also controls whether the
+    # default scaffold ignores codebase/ in the root repository. Multiple
+    # explicit repositories imply multi-repo even when this flag is False.
+    multi_repo: bool = False
     github_owner: str | None = None
     github_repo: str | None = None
     prompt_bundle_root: Path | None = None
@@ -350,6 +369,11 @@ def _default_ci_stanza(config: InstallConfig) -> dict[str, object]:
     return stanza
 
 
+def _effective_multi_repo(config: InstallConfig) -> bool:
+    """Return the persisted repository mode for the target project."""
+    return config.multi_repo or len(config.repositories or []) > 1
+
+
 def _build_repo_entries(config: InstallConfig) -> list[dict[str, str]]:
     """Build the ``repositories`` list for ``project.yaml``.
 
@@ -366,7 +390,10 @@ def _build_repo_entries(config: InstallConfig) -> list[dict[str, str]]:
         The list of repository entry mappings for ``project.yaml``.
     """
     if not config.repositories:
-        return [{"name": "app", "path": "."}]
+        if not config.default_project_structure:
+            return [{"name": "app", "path": "."}]
+        path = f"{CODEBASE_DIR}/app" if _effective_multi_repo(config) else CODEBASE_DIR
+        return [{"name": "app", "path": path}]
     repos: list[dict[str, str]] = []
     for repo in config.repositories:
         entry: dict[str, str] = {
@@ -389,6 +416,7 @@ def _build_repo_entries(config: InstallConfig) -> list[dict[str, str]]:
 
 def _build_project_yaml(config: InstallConfig) -> dict[str, object]:
     repos = _build_repo_entries(config)
+    multi_repo = _effective_multi_repo(config)
 
     story_types = list(DEFAULT_STORY_TYPES)
     pipeline: dict[str, object] = {
@@ -407,6 +435,7 @@ def _build_project_yaml(config: InstallConfig) -> dict[str, object]:
         # checkpoint flow's vectordb/ARE branch nodes route consistently with the
         # persisted config. Defaults to False (core profile, no vectordb).
         "features": {
+            "multi_repo": multi_repo,
             "multi_llm": True,
             "vectordb": config.features_vectordb,
             "are": config.features_are,
@@ -449,6 +478,14 @@ def _build_project_yaml(config: InstallConfig) -> dict[str, object]:
         "project_name": config.project_name,
         "repositories": repos,
         "story_types": story_types,
+        "wiki_stories_dir": STORIES_DIR,
+        "concepts_dir": CONCEPTS_DIR,
+        "codebase_dir": CODEBASE_DIR,
+        "temp_dir": PROJECT_TEMP_DIR,
+        "input_dir": INPUT_DIR,
+        "meetings_dir": MEETINGS_DIR,
+        "guardrails_dir": GUARDRAILS_DIR,
+        "guardrails_pattern": "*.md",
         "pipeline": pipeline,
     }
 
@@ -1201,6 +1238,42 @@ def _ensure_link_bindpoint_gitignore(root: Path) -> str | None:
     return str(gitignore_path.relative_to(root))
 
 
+def _ensure_default_scaffold_gitignore(config: InstallConfig, root: Path) -> str | None:
+    """Ensure root-repo ignores for the optional default project scaffold.
+
+    FK-10 §10.3.1a: ``temp/`` is always ignored in the default scaffold.
+    ``codebase/`` is ignored only in multi-repo mode; in single-repo mode it is
+    productive source under the root repository and must remain tracked.
+    """
+    required = [f"/{PROJECT_TEMP_DIR}/"]
+    if _effective_multi_repo(config):
+        required.append(f"/{CODEBASE_DIR}/")
+    forbidden = [] if _effective_multi_repo(config) else [f"/{CODEBASE_DIR}/"]
+
+    gitignore_path = root / ".gitignore"
+    existing = (
+        gitignore_path.read_text(encoding="utf-8").splitlines()
+        if gitignore_path.is_file()
+        else []
+    )
+    filtered = [line for line in existing if line.strip() not in forbidden]
+    present = {line.strip() for line in existing}
+    missing = [entry for entry in required if entry not in present]
+    changed = filtered != existing
+    if not missing and not changed:
+        return None
+
+    block: list[str] = []
+    if filtered and filtered[-1].strip() != "" and missing:
+        block.append("")
+    if missing:
+        block.append("# AgentKit default project scaffold")
+        block.extend(missing)
+    new_text = "\n".join([*filtered, *block]).rstrip("\n") + "\n"
+    gitignore_path.write_text(new_text, encoding="utf-8")
+    return str(gitignore_path.relative_to(root))
+
+
 def scaffold_project_structure(config: InstallConfig, root: Path) -> list[str]:
     """Materialise the NEUTRAL project directory scaffold (CP 5 region).
 
@@ -1217,17 +1290,36 @@ def scaffold_project_structure(config: InstallConfig, root: Path) -> list[str]:
     Returns:
         The project-relative paths of the directories created (for reporting).
     """
-    del config  # part of the (config, root) deploy-helper signature family; unused here (S1172)
     resources_dir = _resources_target_project_dir()
     created = _deploy_directory_structure(resources_dir, root)
     for runtime_dir in (
         config_dir(root),
         runtime_prompts_dir(root),
         manifests_dir(root),
-        stories_dir(root),
         root / CLAUDE_DIR / "context",
     ):
         runtime_dir.mkdir(parents=True, exist_ok=True)
+    if config.default_project_structure:
+        default_dirs = [
+            root / CONCEPTS_DIR,
+            codebase_dir(root),
+            project_temp_dir(root),
+            input_dir(root),
+            meetings_dir(root),
+            guardrails_dir(root),
+            stories_dir(root),
+        ]
+        for repo in _build_repo_entries(config):
+            repo_path = Path(repo["path"])
+            if repo_path != Path(".") and not repo_path.is_absolute():
+                default_dirs.append(root / repo_path)
+        for directory in default_dirs:
+            if not directory.exists():
+                directory.mkdir(parents=True, exist_ok=True)
+                created.append(str(directory.relative_to(root)))
+        gitignore_rel = _ensure_default_scaffold_gitignore(config, root)
+        if gitignore_rel is not None and gitignore_rel not in created:
+            created.append(gitignore_rel)
     return created
 
 

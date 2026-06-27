@@ -46,6 +46,29 @@ REQUIRED_LLM_ROLES: frozenset[str] = frozenset(
 )
 
 
+def _validate_project_relative_dir(value: str, field_name: str) -> str:
+    """Validate a project-relative directory setting from ``project.yaml``."""
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError(
+            f"{field_name} must be a non-empty project-relative path "
+            "(FK-03 §3.1, fail-closed)"
+        )
+    candidate = PurePosixPath(stripped.replace("\\", "/"))
+    windows = PureWindowsPath(stripped)
+    if candidate.is_absolute() or windows.is_absolute() or windows.drive:
+        raise ValueError(
+            f"{field_name} must be project-relative, not absolute or "
+            f"drive-anchored: {value!r} (FK-03 §3.1, fail-closed)"
+        )
+    if ".." in candidate.parts:
+        raise ValueError(
+            f"{field_name} must not contain a '..' traversal segment: "
+            f"{value!r} (FK-03 §3.1, fail-closed)"
+        )
+    return stripped
+
+
 class Features(BaseModel):
     """Feature flags for a target project (FK-03 §3.1).
 
@@ -810,6 +833,17 @@ class ProjectConfig(BaseModel):
             Defaults to ``"stories"``. Used for filesystem operations (story
             directory creation, export), so it is validated fail-closed:
             non-empty, project-relative, no absolute path, no ``..`` segment.
+        concepts_dir: Project-relative concept corpus directory. Defaults to
+            ``"concepts"`` for target projects.
+        codebase_dir: Project-relative container for optional separately
+            versioned code repositories in the default scaffold.
+        temp_dir: Project-relative scratch directory without persistence
+            contract in the default scaffold.
+        input_dir: Project-relative directory for external provided input.
+        meetings_dir: Project-relative meeting input directory. Must live
+            below ``input_dir``.
+        guardrails_dir: Project-relative guardrail directory.
+        guardrails_pattern: File glob for guardrail documents.
         policy: Top-level verify-stage overrides (FK-33 §33.2.4).
         worker_health: Mandatory worker-health monitor configuration (FK-49).
             There is no disable field; the monitor is part of the runtime.
@@ -827,39 +861,42 @@ class ProjectConfig(BaseModel):
     github_owner: str | None = None
     github_repo: str | None = None
     wiki_stories_dir: str = "stories"
+    concepts_dir: str = "concepts"
+    codebase_dir: str = "codebase"
+    temp_dir: str = "temp"
+    input_dir: str = "input"
+    meetings_dir: str = "input/_meetings"
+    guardrails_dir: str = "guardrails"
+    guardrails_pattern: str = "*.md"
     are: AreConfig | None = None
     worker_health: WorkerHealthConfig = WorkerHealthConfig()
 
-    @field_validator("wiki_stories_dir")
+    @field_validator(
+        "wiki_stories_dir",
+        "concepts_dir",
+        "codebase_dir",
+        "temp_dir",
+        "input_dir",
+        "meetings_dir",
+        "guardrails_dir",
+    )
     @classmethod
-    def _check_wiki_stories_dir(cls, value: str) -> str:
-        """FK-03 §3.1 / FK-43 §43.4.2: validate the wiki-stories directory.
+    def _check_layout_dirs(cls, value: str, info: ValidationInfo) -> str:
+        """FK-03 §3.1: validate project-relative layout directories."""
+        return _validate_project_relative_dir(value, info.field_name or "layout_dir")
 
-        Fail-closed (the value drives filesystem operations): the directory
-        must be a non-empty, project-relative path with no ``..`` traversal
-        segment and no absolute / drive-anchored prefix.
-        """
-        stripped = value.strip()
-        if not stripped:
+    @model_validator(mode="after")
+    def _validate_meetings_under_input(self) -> ProjectConfig:
+        """FK-03 §3.1: ``meetings_dir`` must be below ``input_dir``."""
+        input_path = PurePosixPath(self.input_dir.replace("\\", "/"))
+        meetings_path = PurePosixPath(self.meetings_dir.replace("\\", "/"))
+        if meetings_path == input_path or input_path not in meetings_path.parents:
             raise ValueError(
-                "wiki_stories_dir must be a non-empty project-relative path "
-                "(FK-03 §3.1, fail-closed)"
+                "meetings_dir must be below input_dir "
+                f"(input_dir={self.input_dir!r}, meetings_dir={self.meetings_dir!r}; "
+                "FK-03 §3.1, fail-closed)"
             )
-        candidate = PurePosixPath(stripped.replace("\\", "/"))
-        windows = PureWindowsPath(stripped)
-        # Reject absolute (POSIX/Windows) AND drive-qualified-but-relative forms
-        # like ``C:stories`` (a drive anchor is not a clean project-relative path).
-        if candidate.is_absolute() or windows.is_absolute() or windows.drive:
-            raise ValueError(
-                f"wiki_stories_dir must be project-relative, not absolute or "
-                f"drive-anchored: {value!r} (FK-03 §3.1, fail-closed)"
-            )
-        if ".." in candidate.parts:
-            raise ValueError(
-                f"wiki_stories_dir must not contain a '..' traversal segment: "
-                f"{value!r} (FK-03 §3.1, fail-closed)"
-            )
-        return stripped
+        return self
 
     @model_validator(mode="after")
     def _validate_stage_overrides_known(self) -> ProjectConfig:

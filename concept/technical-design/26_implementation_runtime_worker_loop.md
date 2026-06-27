@@ -189,7 +189,7 @@ Der Worker erhält bei Start folgende Informationen:
 | Story-Beschreibung | `context.json` | Im Prompt eingebettet |
 | Akzeptanzkriterien | Story-Attribut `acceptance_criteria` (aus `context.json`) | Im Prompt eingebettet |
 | Konzept/Entwurf (wenn vorhanden) | `entwurfsartefakt.json` oder Konzeptquellen (aus `concept_paths`) | Als Datei-Referenz im Prompt |
-| Guardrails | `_guardrails/` Dateien (aus `context.json`) | Als Datei-Referenzen im Prompt |
+| Guardrails | Dateien aus dem konfigurierten `guardrails_dir` (aus `context.json`) | Als Datei-Referenzen im Prompt |
 | Mängelliste (bei Remediation) | `_temp/qa/{story_id}/feedback.json` | Als Datei-Referenz im Prompt |
 | Story-Typ und Größe | `context.json` | Im Prompt (bestimmt Review-Häufigkeit) |
 | ARE must_cover (wenn aktiviert) | Über MCP von ARE | Im Prompt eingebettet |

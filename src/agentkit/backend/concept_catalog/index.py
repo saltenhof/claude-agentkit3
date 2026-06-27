@@ -1,4 +1,4 @@
-"""Read-only Markdown index for the repository concept corpus."""
+"""Read-only Markdown index for a configured concept corpus directory."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 
 class ConceptIndex:
-    """In-memory read index over ``concept/**/*.md`` documents."""
+    """In-memory read index over ``*.md`` documents below the configured root."""
 
     def __init__(self, root: Path) -> None:
         self._root = root

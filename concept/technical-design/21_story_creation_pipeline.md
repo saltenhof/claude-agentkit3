@@ -188,7 +188,7 @@ Der Skill leitet den Agent an, folgende Bestandteile zu erarbeiten:
 | Betroffene Module | Ja | Welche Teile des Systems sind betroffen? |
 | Abhängigkeiten | Nein | Welche anderen Stories müssen vorher abgeschlossen sein? (Story-IDs, ueber AK3-Story-Service-Dependencies abgebildet) |
 | Planungsmetadaten | Ja, soweit bereits bekannt | Repos, externe Voraussetzungen, menschliche Gates, Sammel- oder Endgate-Rolle, Parallelisierungs- und Konflikthinweise fuer FK-70 |
-| Konzeptquellen | Story-Typ-abhängig (s. 21.3.3) | Pfade zu Konzeptdokumenten im `concept/`-Verzeichnis des Zielprojekts |
+| Konzeptquellen | Story-Typ-abhängig (s. 21.3.3) | Pfade zu Konzeptdokumenten im konfigurierten `concepts_dir` des Zielprojekts (Default `concepts/`) |
 | Externe autoritäre Quellen | Nein | Referenzen auf externe Systeme (URLs, Jira-Artikel, OpenAPI-Specs etc.) |
 | Guardrail-Referenzen | Nein | Pfade zu relevanten Guardrail-Dokumenten |
 
@@ -218,12 +218,12 @@ Der Story-Ersteller kann drei Typen autoritärer Quellen referenzieren:
 
 | Quellen-Typ | Ort | Beispiele | AgentKit-Verantwortung |
 |-------------|-----|-----------|------------------------|
-| **Konzeptquellen** | `concept/`-Verzeichnis des Zielprojekts | Fachkonzept.md, Feinkonzept.md, Muster-Layout.html, Design-System-Assets | Deterministisch auflösen und dem Reviewer als Teil des Bundles liefern |
+| **Konzeptquellen** | Konfiguriertes `concepts_dir` des Zielprojekts (Default `concepts/`) | Fachkonzept.md, Feinkonzept.md, Muster-Layout.html, Design-System-Assets | Deterministisch auflösen und dem Reviewer als Teil des Bundles liefern |
 | **Externe autoritäre Quellen** | URL, externes System | Jira-Anforderungen, OpenAPI-Spec-URL, Schnittstellen-Dokumentation externer Komponenten | Referenz an Reviewer weiterreichen; Zugriff muss zur Laufzeit durch den Reviewer erfolgen |
 | **Explorations-Konzept** | Story-Artefakt (aus vorgelagerter Exploration) | Technisches Feinkonzept für den konkreten Implementierungsscope | Entsteht erst zur Laufzeit; qualitätsgesichert, aber subordiniert zu Primärkonzepten (s. FK 24.5.3) |
 
-**Konzeptquellen** sind Dateien im `concept/`-Verzeichnis des
-Zielprojekts. Der `concept/`-Ordner ist nicht auf Markdown
+**Konzeptquellen** sind Dateien im konfigurierten `concepts_dir` des
+Zielprojekts. Der Default-Ordner `concepts/` ist nicht auf Markdown
 beschränkt — HTML-Dateien (z.B. Muster-Layouts,
 Design-System-Referenzen), JSON-Schemas, YAML-Configs und andere
 Assets sind legitime Konzeptartefakte.
@@ -242,7 +242,7 @@ deterministisch liefern kann oder nicht.
 #### Referenzformat
 
 - **Konzeptquellen**: Relative Pfade zum Projektroot (z.B.
-  `concept/broker-api-concept.md`). Es werden immer ganze Dokumente
+  `concepts/broker-api-concept.md`). Es werden immer ganze Dokumente
   referenziert, keine einzelnen Kapitel — bei der Weitergabe an
   LLM-Reviewer wird stets das vollständige Dokument gesendet.
 - **Externe Quellen**: Vollständige URLs oder system-spezifische

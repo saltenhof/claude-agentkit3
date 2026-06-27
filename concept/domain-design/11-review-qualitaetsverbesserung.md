@@ -406,7 +406,7 @@ Läuft vor jedem `LlmEvaluator.evaluate()`-Aufruf:
 
 **Ergänzungen:**
 - Automatisch fehlende Nachbar-Artefakte nachladen (analog zum Evidence Assembler, aber für die 6 Bundle-Felder)
-- Concept-Excerpt durch Primärquelle ersetzen: Konzeptdokumente über `concept_paths` aus `StoryContext` bzw. dessen `context.json`-Export auflösen und aus dem `concept/`-Verzeichnis des Zielprojekts laden, wenn vorhanden und innerhalb des Token-Limits
+- Concept-Excerpt durch Primärquelle ersetzen: Konzeptdokumente über `concept_paths` aus `StoryContext` bzw. dessen `context.json`-Export auflösen und aus dem konfigurierten `concepts_dir` des Zielprojekts laden, wenn vorhanden und innerhalb des Token-Limits
 - Externe autoritäre Quellen (`external_sources` aus `StoryContext` bzw. dessen `context.json`-Export) als Referenzen an den Reviewer weiterreichen. Bei Nichterreichbarkeit: unresolved evidence gap — kein PASS auf Claims, die diese Quelle benötigen (FK 21.3.3)
 
 **Artefakt:**

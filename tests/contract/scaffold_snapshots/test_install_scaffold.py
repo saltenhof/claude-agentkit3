@@ -102,6 +102,12 @@ class TestInstallScaffoldContract:
             ".codex",
             ".codex/skills",
             "prompts",
+            "concepts",
+            "codebase",
+            "temp",
+            "input",
+            "input/_meetings",
+            "guardrails",
             "stories",
             "tools",
             "tools/agentkit",
@@ -272,6 +278,7 @@ def _make_install_config(project_root: Path, **kwargs: Any) -> InstallConfig:
     )
     return InstallConfig(
         project_root=project_root,
+        default_project_structure=True,
         skills=skills,
         skill_bundle_store=store,
         skill_bundle_ids=_BUNDLE_IDS,

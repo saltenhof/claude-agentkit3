@@ -186,7 +186,7 @@ Alle Config-Tokens sind **lowercase** (`snake_case`); UPPERCASE-Varianten
 existieren nicht und werden fail-closed-on-unknown abgelehnt. Der
 Token-Satz ist abschliessend: was sich projektneutral inlinen oder aus
 einem bestehenden Token deterministisch ableiten laesst (z. B. der
-Projekt-Codebase-Root, der `concept/`-Pfad, der bundle-relative
+Projekt-Codebase-Root, der `concepts_dir`-Pfad, der bundle-relative
 Prompt-/Skript-Pfad, der Wiki-Index `{{wiki_stories_dir}}/INDEX.md`),
 wird **kein** eigener Token. GitHub-Project-/Board-/Issue-Tokens
 existieren nicht (FK-12 §12.1.1: GitHub ist Code-Backend, kein

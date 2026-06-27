@@ -210,7 +210,13 @@ Orchestrator und Worker.
 
 ## 10.3 Verzeichnisstruktur
 
-### 10.3.1 Zielprojekt nach Installation
+### 10.3.1 Minimale Zielprojekt-Registrierung
+
+Die minimale Registrierung installiert nur die AgentKit-Bindungen, die
+für ein bestehendes Zielprojekt erforderlich sind. Sie erzwingt keine
+fachliche Projektstruktur für Source-Code, Konzepte, Eingaben oder
+Guardrails. Dieser Modus ist der Default für Bestandsprojekte und für
+Projekte mit eigener Soll-Struktur.
 
 ```
 {projekt-root}/
@@ -225,9 +231,6 @@ Orchestrator und Worker.
 ├── .codex/                         # Beispiel: Codex-Adapter (FK-76)
 │   └── config.toml                 # Hook-Registrierung (Codex)
 │
-├── stories/                        # Projektdokumentation / Story-Arbeitsraum
-├── concepts/                       # Projektspezifische Konzepte
-├── _guardrails/                    # Projektspezifische Guardrails
 └── <Projektdateien>                # Quellcode, Tests, Build-Dateien
 ```
 
@@ -243,6 +246,57 @@ Adapter beschrieben.
 - keine AgentKit-`_temp/`-Zustandsverzeichnisse als Source of Truth
 - keine kopierten Prompt-/Skill-/Schema-Bundles
 - kein Installations-Manifest als Laufzeitanker
+
+### 10.3.1a Optionales Default-Zielprojekt-Scaffold
+
+Für leere Neuprojekte kann der Installer zusätzlich ein binäres
+Default-Scaffold anlegen. Die Entscheidung ist **an/aus**, keine
+interaktive freie Ordnerauswahl. Wird das Default-Scaffold nicht
+aktiviert, entstehen die folgenden fachlichen Ordner nicht automatisch.
+
+```
+{projekt-root}/
+├── concepts/                       # Projektspezifische Konzepte und normative Soll-Dokumente
+├── codebase/                       # Ablage externer oder separater Code-Repositories
+│   ├── frontend/                   # optionales Repo, wenn beim Install angegeben
+│   └── backend/                    # optionales Repo, wenn beim Install angegeben
+├── temp/                           # Projektlokaler Arbeitsbereich ohne Persistenzanspruch
+├── input/                          # Externe Beistellungen und Kundendokumente
+│   └── _meetings/                  # Meeting-Unterlagen nach Datum und Titel
+├── guardrails/                     # Projekt- und organisationsspezifische Guardrails
+└── stories/                        # Lokaler Story-Export und projektnaher Story-Arbeitsraum
+```
+
+**Repository-Modus und Git-Regeln des Default-Scaffolds:**
+
+- `concepts/`, `guardrails/`, `input/` und `stories/` sind
+  persistente Projektinhalte und werden nicht automatisch ignoriert.
+- `codebase/` wird **nur im Multi-Repo-Modus** im Root-Repository
+  ignoriert. Darunter liegende Unterordner koennen dann eigenstaendige
+  Git-Repositories sein und besitzen ihre eigene Versionierung.
+- Im Single-Repo-Modus ist `codebase/` normaler, versionierter
+  Source-Bereich des Root-Repositories und darf nicht in `.gitignore`
+  eingetragen werden.
+- `temp/` wird im Root-Repository ignoriert. Es ist für
+  agenten- oder menschengetriebene Zwischenstände gedacht, die über
+  mehrere Sessions nützlich sein können, aber keinen normativen
+  Persistenzanspruch haben.
+
+**Repository-Anbindung:** Der Installer muss beim Default-Scaffold den
+Repository-Modus ermitteln: `single_repo` oder `multi_repo`. Im
+Single-Repo-Modus zeigt `repositories[]` auf den im Root-Repository
+versionierten Codebereich (normalerweise `codebase`). Im Multi-Repo-
+Modus schreibt der Installer die eingebundenen Code-Repositories als
+`repositories[]` mit Pfaden unter `codebase/{repo-name}`. Er darf
+passende Unterordner anlegen, wenn sie fehlen; er klont oder erzeugt
+aber kein Remote-Repo ohne expliziten Auftrag.
+
+**Guardrail-Auslieferung:** Projektübergreifende AgentKit-Guardrails
+bleiben systemweit versioniert. Das Zielprojekt erhält nur
+projektspezifische Guardrails oder explizit gebundene Projektionen
+unter `guardrails/`. Ob diese Projektionen Kopien, Symlinks oder
+Junctions sind, ist Installer-/Plattformdetail; autoritativ ist die in
+`project.yaml` konfigurierte Guardrail-Auflösung.
 
 ### 10.3.2 Verzeichnis-Ownership
 
@@ -271,7 +325,7 @@ Adapter beschrieben.
 | Telemetrie (Archiv) | Export-Service / Objektspeicher | JSONL/Bundle | Export bei Closure oder Audit |
 | Locks | State-Backend | Lock-Records | Während Story-Lauf |
 | Failure Corpus | State-Backend / Artefaktspeicher | JSONL + strukturierte Datensätze | Permanent, projektübergreifend |
-| Konzept-Dokumente | `concepts/` | Markdown | Permanent |
+| Konzept-Dokumente | `concepts/` | Markdown/Assets | Permanent |
 | Story-Dokumentation | `stories/{story_id}_{slug}/` | Markdown + JSON | Permanent |
 | Projektregistrierung | State-Backend + lokale Config-Version | Record | Permanent |
 | VektorDB-Inhalte | Weaviate (Docker Volume) | Weaviate-intern | Permanent (reindexierbar) |

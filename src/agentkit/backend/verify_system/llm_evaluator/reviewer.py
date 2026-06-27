@@ -1024,14 +1024,16 @@ def _check_coverage_report(story_dir: Path) -> tuple[bool, str]:
     )
 
 
-_DANGLING_REF_PATTERN = re.compile(r"\b(FK|DK)-(\d+)\b|concept/[a-zA-Z0-9/_-]+\.md")
+_DANGLING_REF_PATTERN = re.compile(
+    r"\b(FK|DK)-(\d+)\b|concepts?/[a-zA-Z0-9/_-]+\.md"
+)
 
 
 def _locate_repo_root_for_concepts(story_dir: Path) -> Path | None:
-    """Walk up from story_dir looking for a ``concept/`` directory (max 6 levels)."""
+    """Walk up from story_dir looking for a concept corpus directory."""
     candidate = story_dir
     for _ in range(6):
-        if (candidate / "concept").is_dir():
+        if (candidate / "concepts").is_dir() or (candidate / "concept").is_dir():
             return candidate
         if not candidate.parent or candidate == candidate.parent:
             return None
@@ -1047,7 +1049,7 @@ def _dangling_refs_in_source(
     findings: list[Finding] = []
     for match in _DANGLING_REF_PATTERN.finditer(source):
         ref = match.group(0)
-        if not ref.startswith("concept/"):
+        if not (ref.startswith("concepts/") or ref.startswith("concept/")):
             continue
         if (repo_root / ref).exists():
             continue
@@ -1075,8 +1077,8 @@ def _check_dangling_concept_refs(
 ) -> list[Finding]:
     """Check for concept references that point to non-existent files.
 
-    Scans all .py files for ``FK-XX``, ``DK-XX``, and ``concept/...``
-    string patterns.  Validates ``concept/...`` paths against the
+    Scans all .py files for ``FK-XX``, ``DK-XX``, ``concepts/...`` and
+    legacy ``concept/...`` string patterns.  Validates path-form refs against the
     filesystem (only path-form refs, not bare FK-XX numbers, since
     FK numbers may exist as section headers without a file per number).
 

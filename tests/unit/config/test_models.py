@@ -185,6 +185,13 @@ class TestProjectConfig:
         assert cfg.github_repo is None
         # AG3-113: wiki_stories_dir default (FK-03 §3.1 / FK-43 §43.4.2).
         assert cfg.wiki_stories_dir == "stories"
+        assert cfg.concepts_dir == "concepts"
+        assert cfg.codebase_dir == "codebase"
+        assert cfg.temp_dir == "temp"
+        assert cfg.input_dir == "input"
+        assert cfg.meetings_dir == "input/_meetings"
+        assert cfg.guardrails_dir == "guardrails"
+        assert cfg.guardrails_pattern == "*.md"
 
     def test_wiki_stories_dir_custom_relative(self) -> None:
         cfg = ProjectConfig(
@@ -206,6 +213,38 @@ class TestProjectConfig:
         )
         assert cfg.wiki_stories_dir == "stories"
 
+    def test_layout_dirs_custom_relative(self) -> None:
+        cfg = ProjectConfig(
+            project_key="p",
+            project_name="p",
+            repositories=[RepositoryConfig(name="r", path=Path("/tmp"))],
+            pipeline=_opt_out_pipeline(),
+            concepts_dir="docs/concepts",
+            codebase_dir="src",
+            temp_dir="scratch",
+            input_dir="beistellungen",
+            meetings_dir="beistellungen/_meetings",
+            guardrails_dir="rules",
+        )
+        assert cfg.concepts_dir == "docs/concepts"
+        assert cfg.codebase_dir == "src"
+        assert cfg.temp_dir == "scratch"
+        assert cfg.input_dir == "beistellungen"
+        assert cfg.meetings_dir == "beistellungen/_meetings"
+        assert cfg.guardrails_dir == "rules"
+
+    @pytest.mark.parametrize(
+        "field_name",
+        [
+            "wiki_stories_dir",
+            "concepts_dir",
+            "codebase_dir",
+            "temp_dir",
+            "input_dir",
+            "meetings_dir",
+            "guardrails_dir",
+        ],
+    )
     @pytest.mark.parametrize(
         "bad",
         [
@@ -218,7 +257,7 @@ class TestProjectConfig:
             "C:stories",
         ],
     )
-    def test_wiki_stories_dir_invalid_fails_closed(self, bad: str) -> None:
+    def test_layout_dir_invalid_fails_closed(self, field_name: str, bad: str) -> None:
         # FK-03 §3.1 fail-closed: non-empty, project-relative, no '..', no absolute.
         with pytest.raises(ValidationError):
             ProjectConfig(
@@ -226,7 +265,18 @@ class TestProjectConfig:
                 project_name="p",
                 repositories=[RepositoryConfig(name="r", path=Path("/tmp"))],
                 pipeline=_opt_out_pipeline(),
-                wiki_stories_dir=bad,
+                **{field_name: bad},
+            )
+
+    def test_meetings_dir_must_be_below_input_dir(self) -> None:
+        with pytest.raises(ValidationError, match="meetings_dir must be below input_dir"):
+            ProjectConfig(
+                project_key="p",
+                project_name="p",
+                repositories=[RepositoryConfig(name="r", path=Path("/tmp"))],
+                pipeline=_opt_out_pipeline(),
+                input_dir="input",
+                meetings_dir="meetings",
             )
 
     def test_all_fields(self) -> None:

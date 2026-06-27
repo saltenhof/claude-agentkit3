@@ -19,6 +19,12 @@ TOOLS_DIR: str = "tools"
 AGENTKIT_TOOLS_DIR: str = f"{TOOLS_DIR}/agentkit"
 HOOKS_DIR: str = f"{AGENTKIT_DIR}/hooks"
 STORIES_DIR: str = "stories"
+CONCEPTS_DIR: str = "concepts"
+CODEBASE_DIR: str = "codebase"
+PROJECT_TEMP_DIR: str = "temp"
+INPUT_DIR: str = "input"
+MEETINGS_DIR: str = f"{INPUT_DIR}/_meetings"
+GUARDRAILS_DIR: str = "guardrails"
 TEMP_DIR: str = "_temp"
 QA_DIR: str = f"{TEMP_DIR}/qa"
 PROJECT_CONFIG_FILE: str = "project.yaml"
@@ -232,6 +238,30 @@ def stories_dir(project_root: Path) -> Path:
     return project_root / STORIES_DIR
 
 
+def concepts_dir(project_root: Path) -> Path:
+    return project_root / CONCEPTS_DIR
+
+
+def codebase_dir(project_root: Path) -> Path:
+    return project_root / CODEBASE_DIR
+
+
+def project_temp_dir(project_root: Path) -> Path:
+    return project_root / PROJECT_TEMP_DIR
+
+
+def input_dir(project_root: Path) -> Path:
+    return project_root / INPUT_DIR
+
+
+def meetings_dir(project_root: Path) -> Path:
+    return project_root / MEETINGS_DIR
+
+
+def guardrails_dir(project_root: Path) -> Path:
+    return project_root / GUARDRAILS_DIR
+
+
 def story_dir(project_root: Path, story_id: str) -> Path:
     return project_root / STORIES_DIR / story_id
 
@@ -273,13 +303,19 @@ __all__ = [
     "CLAUDE_SETTINGS_FILE",
     "CODEX_CONFIG_FILE",
     "CODEX_DIR",
+    "CODEBASE_DIR",
+    "CONCEPTS_DIR",
     "CONTROL_PLANE_CONFIG_FILE",
+    "GUARDRAILS_DIR",
     "HOOKS_DIR",
+    "INPUT_DIR",
     "INSTALLED_MANIFEST_FILE",
     "MANIFESTS_DIR",
+    "MEETINGS_DIR",
     "PHASE_RUNS_DIR",
     "PHASE_STATE_FILE",
     "PIPELINE_CONFIG_FILE",
+    "PROJECT_TEMP_DIR",
     "MATERIALIZED_SKILL_VARIANT_STORE_ENV",
     "PROMPT_BUNDLE_LOCK_FILE",
     "PROMPT_BUNDLE_STORE_ENV",
@@ -293,22 +329,28 @@ __all__ = [
     "AGENTKIT_TOOLS_DIR",
     "agentkit_dir",
     "claude_settings_path",
+    "codebase_dir",
     "codex_config_path",
     "config_dir",
+    "concepts_dir",
     "control_plane_config_path",
     "default_materialized_skill_variant_store_root",
     "default_prompt_bundle_store_root",
+    "guardrails_dir",
     "installed_manifest_path",
+    "input_dir",
     "materialized_skill_variant_dir",
     "materialized_skill_variant_input_digest",
     "materialized_skill_variant_store_root",
     "manifests_dir",
+    "meetings_dir",
     "prompt_instance_dir",
     "prompt_pin_dir",
     "prompt_bundle_lock_path",
     "prompt_bundle_store_dir",
     "prompt_bundle_store_root",
     "prompt_run_pin_path",
+    "project_temp_dir",
     "project_root_for_story_dir",
     "project_config_path",
     "qa_dir",

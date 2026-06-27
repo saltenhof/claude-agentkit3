@@ -507,7 +507,7 @@ Kanonische Loader-Methoden und Quellen:
 | `story_spec` | `_load_story_spec()` | `{story_dir}/story.md` |
 | `handover` | `_load_handover()` | `{story_dir}/handover.json` |
 | `diff_summary` | Caller-seitig aus `context.json` übergeben; kein eigener Loader im Builder | `context.json` (Setup-Phase) |
-| `concept_excerpt` | `_load_concept_excerpt()` | `concept_paths` aus `context.json` → Dateien unter `concept/` |
+| `concept_excerpt` | `_load_concept_excerpt()` | `concept_paths` aus `context.json` → Dateien unter dem konfigurierten `concepts_dir` |
 | `arch_references` | `_load_arch_references()` | `concept_paths` aus `context.json` (inkl. `external_sources`) |
 | `evidence_manifest` | Caller-seitig aus `context.json` übergeben; kein eigener Loader im Builder | `context.json` (Evidence-Assembly) |
 
@@ -542,8 +542,8 @@ Wo möglich ergänzt der Builder fehlende Felder:
 - `story_spec`: `story.md` aus `story_dir` laden (REF-035).
 - `handover`: `handover.json` aus `story_dir` laden (REF-035).
 - `concept_excerpt`: Konzeptdokumente über `concept_paths` aus
-  `context.json` auflösen und aus dem `concept/`-Verzeichnis des
-  Zielprojekts laden (Primärquellen statt nur Summary).
+  `context.json` auflösen und aus dem konfigurierten `concepts_dir`
+  des Zielprojekts laden (Primärquellen statt nur Summary).
 - `arch_references`: Architektur-Dokumente aus `context.json`
   nachladen.
 - `external_sources`: Referenzen aus `context.json` an den Reviewer
@@ -557,12 +557,12 @@ Wo möglich ergänzt der Builder fehlende Felder:
 **Path-Resolution-Fallback für Concept-Excerpts (REF-035):**
 Concept-Pfade in `context.json` können nackte Dateinamen enthalten
 (z.B. `02-komponentenstruktur.md` statt
-`concept/technical-design/02-komponentenstruktur.md`). Der Builder
+`concepts/technical-design/02-komponentenstruktur.md`). Der Builder
 MUSS einen Fallback implementieren: Wenn der direkte Pfad
 (`{worktree_root}/{dateiname}`) nicht existiert, wird in den
-`concept/`-Unterverzeichnissen (`domain-design/`, `technical-design/`)
-gesucht. Nur wenn auch der Fallback fehlschlägt, wird das Feld
-als `missing` klassifiziert. Bei Multi-Repo-Stories iteriert der
+Unterverzeichnissen des konfigurierten `concepts_dir`
+(`domain-design/`, `technical-design/`) gesucht. Nur wenn auch der
+Fallback fehlschlägt, wird das Feld als `missing` klassifiziert. Bei Multi-Repo-Stories iteriert der
 Builder ueber die teilnehmenden Worktrees in der Reihenfolge von
 `participating_repos`; der erste Treffer gewinnt (Spawn-Worktree
 als deterministischer Ankerpunkt, FK-22 §22.6.4).

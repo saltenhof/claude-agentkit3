@@ -28,8 +28,9 @@ formal_scope: prose-only
 ## 74.1 Zweck
 
 Concept-Catalog ist ein **Foundation-Adapter** (Bluttyp R), der den
-Markdown-Konzept-Korpus (`concept/`) als typisierte Lese-Repraesentation
-zugaenglich macht. Er ist **kein** A-BC: er besitzt keine fachlichen
+Markdown-Konzept-Korpus aus dem konfigurierten `concepts_dir`
+(Default im Zielprojekt: `concepts/`) als typisierte
+Lese-Repraesentation zugaenglich macht. Er ist **kein** A-BC: er besitzt keine fachlichen
 Invarianten, kein Aggregat mit Lebenszyklus. Er indexiert, resolvt
 und rendert.
 
@@ -64,7 +65,7 @@ Konsumenten:
 ## 74.4 Datenfluss
 
 ```
-concept/**/*.md  ──(Filesystem)─►  concept_catalog
+{concepts_dir}/**/*.md  ──(Filesystem)─►  concept_catalog
                                          │
                                          ▼
                                    in-memory Index
@@ -106,3 +107,9 @@ Der Concept-Browser im Frontend lebt unter
 `frontend/src/foundation/concept_catalog/`. Er nutzt die REST-API von
 74.5 und stellt Navigation, Backlink-Anzeige, ConceptRef-Aufloesung
 und Markdown-Rendering bereit.
+
+Hinweis zur AgentKit-Produktentwicklung: Dieses AgentKit-Repository
+selbst verwendet historisch `concept/` als internen Konzeptroot. Das ist
+kein Zielprojekt-Default. Zielprojekte verwenden den in `project.yaml`
+konfigurierten `concepts_dir`; das optionale Default-Scaffold setzt ihn
+auf `concepts/`.

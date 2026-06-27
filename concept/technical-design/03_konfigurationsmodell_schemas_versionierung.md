@@ -91,17 +91,22 @@ github_owner: "acme-corp"   # GitHub-Owner als Code-Backend (Repos, Branches, PR
 
 repositories:
   - name: backend
-    path: "."
+    path: "codebase/backend"
     language: python
     test_command: "pytest"
     build_command: "ruff check"
 
 wiki_stories_dir: stories
-guardrails_dir: _guardrails
+concepts_dir: concepts
+codebase_dir: codebase
+temp_dir: temp
+input_dir: input
+meetings_dir: input/_meetings
+guardrails_dir: guardrails
 guardrails_pattern: "*.md"
 
 features:
-  multi_repo: false
+  multi_repo: true
   vectordb: true
   multi_llm: true
   telemetry: true
@@ -193,12 +198,36 @@ vom FK-43-`PlaceholderSubstitutor` als Token `{{wiki_stories_dir}}` in
 Skill-Bundles aufgeloest (FK-43 §43.4.2). Validierung (fail-closed):
 nicht-leer, projektrelativ, **kein** absoluter Pfad, **kein** `..`-
 Segment — das Feld wird fuer Dateisystem-Operationen (Story-Verzeichnis
-anlegen, Export) verwendet. `guardrails_dir`/`guardrails_pattern` bleiben
-projektrelative Layout-Felder. Bundle-/install-spezifische Pfade (z. B.
-der Skill-Bundle-Root mit den Prompt-Templates) sind **kein**
-`project.yaml`-Feld: sie sind Bindungs-/Installationszustand (FK-43
-§43.4.1, `.installed-manifest.json`) und werden nicht ueber die
-nutzer-editierbare Projektkonfiguration gefuehrt (SSOT).
+anlegen, Export) verwendet.
+
+Die Zielprojekt-Layout-Felder sind ebenfalls typisierte Top-Level-Felder
+und immer projektrelativ:
+
+| Feld | Default | Bedeutung |
+|------|---------|-----------|
+| `concepts_dir` | `concepts` | Ort der projektspezifischen Konzeptquellen. Story-Referenzen auf Konzepte werden relativ zum Projektroot gegen dieses Verzeichnis validiert. |
+| `codebase_dir` | `codebase` | Container fuer optionale, separat versionierte Code-Repositories im Default-Scaffold. |
+| `temp_dir` | `temp` | Projektlokaler Arbeitsbereich ohne Persistenzanspruch; wird im Default-Scaffold im Root-Repository ignoriert. |
+| `input_dir` | `input` | Ablage externer Beistellungen. |
+| `meetings_dir` | `input/_meetings` | Normierter Meeting-Unterordner fuer Transkripte, Praesentationen und sonstige Meeting-Artefakte. |
+| `guardrails_dir` | `guardrails` | Projektspezifische Guardrails und gebundene projektuebergreifende Guardrail-Projektionen. |
+| `guardrails_pattern` | `*.md` | Dateimuster fuer Guardrail-Dokumente. |
+
+Alle Layout-Felder werden fail-closed validiert: nicht-leer,
+projektrelativ, kein absoluter Pfad, kein Drive-Anker und kein
+`..`-Segment. `meetings_dir` muss unterhalb von `input_dir` liegen.
+
+`features.multi_repo` ist die persistierte Repository-Modus-Entscheidung
+des Zielprojekts. Bei `false` ist `codebase_dir` ein normal versionierter
+Source-Bereich des Root-Repositories. Bei `true` darf `codebase_dir` im
+Root-Repository ignoriert werden, weil die darunterliegenden Code-
+Repository-Unterordner eigenstaendig versioniert werden.
+
+Bundle-/install-spezifische Pfade (z. B. der Skill-Bundle-Root mit den
+Prompt-Templates) sind **kein** `project.yaml`-Feld: sie sind Bindungs-/
+Installationszustand (FK-43 §43.4.1, `.installed-manifest.json`) und
+werden nicht ueber die nutzer-editierbare Projektkonfiguration gefuehrt
+(SSOT).
 
 #### SonarQube-Stanza (`sonarqube`) — Felder und Validierung
 

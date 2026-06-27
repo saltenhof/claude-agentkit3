@@ -316,7 +316,7 @@ immer erlaubt:
 | `_temp/governance/current.json` | Control-Plane | Atomar publizierter Einstieg in den aktuellen Bundle-Stand |
 | `_temp/governance/bundles/` | Control-Plane | Vollstaendige lokale Edge-Bundles lesen |
 | `_temp/governance/` | Control-Plane | Materialisierte Lock- und Sync-Projektionen lesen |
-| `_guardrails/` | Control-Plane | Guardrail-Dokumente |
+| `guardrails_dir` | Control-Plane | Guardrail-Dokumente |
 | `concepts/`, `stories/` | Control-Plane | Konzepte und Story-Dokumentation |
 | `CLAUDE.md`, `README.md` | Control-Plane | Projektdokumentation |
 | `.agentkit/config/project.yaml` | Control-Plane | Konfiguration lesen (nicht schreiben) |
