@@ -508,24 +508,18 @@ def _run_standard_block(
         )
     git = git_backend or SubprocessGitBackend()
 
-    # Per-repo candidate preparation (FIX-6): each repo is independently locked,
-    # integrated, cleaned and captured. ANY repo failing here escalates the WHOLE
-    # block with NO push on any repo.
-    candidates: list[tuple[ClosureRepo, IntegratedCandidate]] = []
-    for repo in repos:
-        repo_scan, repo_build = _runners_for(
-            repo, repo_runners, scan_port, build_test_port
-        )
-        wiring_error = _verify_runner_wiring(applicability, repo_scan, repo_build)
-        if wiring_error is not None:
-            return wiring_error
-        if progress.story_branch_pushed:
-            candidate = _capture_pushed_story_candidate(git, repo, ctx.story_id)
-        else:
-            candidate = _prepare_integrated_candidate(git, repo)
-        if isinstance(candidate, MergeBlockResult):
-            return candidate
-        candidates.append((repo, candidate))
+    candidates = _prepare_block_candidates(
+        ctx,
+        repos=repos,
+        git=git,
+        scan_port=scan_port,
+        build_test_port=build_test_port,
+        applicability=applicability,
+        repo_runners=repo_runners,
+        progress=progress,
+    )
+    if isinstance(candidates, MergeBlockResult):
+        return candidates
 
     pushed_progress = progress
     if not progress.story_branch_pushed:
@@ -539,6 +533,86 @@ def _run_standard_block(
         pushed_progress = ClosureProgress(story_branch_pushed=True)
         checkpoint(pushed_progress)
 
+    verified = _verify_block_candidates(
+        ctx,
+        story_dir=story_dir,
+        candidates=candidates,
+        git=git,
+        integrity_gate=integrity_gate,
+        scan_port=scan_port,
+        build_test_port=build_test_port,
+        applicability=applicability,
+        sonar_config=sonar_config,
+        repo_runners=repo_runners,
+        progress=pushed_progress,
+    )
+    if isinstance(verified, MergeBlockResult):
+        return verified
+
+    # All repos' Dim 1-9 PASSed after the Jenkins-reachable ref push. Persist the
+    # gate checkpoint, then ff-only merge + per-repo ATOMIC CAS main-update via
+    # the AG3-009 saga building blocks, with partial-failure rollback (E4).
+    verified_progress = ClosureProgress(
+        story_branch_pushed=True,
+        integrity_passed=True,
+    )
+    checkpoint(verified_progress)
+    return _run_merge_with_cas(
+        ctx,
+        candidates,
+        git,
+        checkpoint,
+        base_progress=verified_progress,
+        skip_push=True,
+    )
+
+
+def _prepare_block_candidates(
+    ctx: StoryContext,
+    *,
+    repos: tuple[ClosureRepo, ...],
+    git: GitBackend,
+    scan_port: PreMergeScanPort | None,
+    build_test_port: BuildTestPort | None,
+    applicability: MergeApplicability,
+    repo_runners: Mapping[Path, RepoRunners] | None,
+    progress: ClosureProgress,
+) -> list[tuple[ClosureRepo, IntegratedCandidate]] | MergeBlockResult:
+    """Prepare or reconstruct per-repo candidates before the Jenkins boundary."""
+    candidates: list[tuple[ClosureRepo, IntegratedCandidate]] = []
+    for repo in repos:
+        repo_scan, repo_build = _runners_for(
+            repo, repo_runners, scan_port, build_test_port
+        )
+        wiring_error = _verify_runner_wiring(applicability, repo_scan, repo_build)
+        if wiring_error is not None:
+            return wiring_error
+        candidate = (
+            _capture_pushed_story_candidate(git, repo, ctx.story_id)
+            if progress.story_branch_pushed
+            else _prepare_integrated_candidate(git, repo)
+        )
+        if isinstance(candidate, MergeBlockResult):
+            return candidate
+        candidates.append((repo, candidate))
+    return candidates
+
+
+def _verify_block_candidates(
+    ctx: StoryContext,
+    *,
+    story_dir: Path,
+    candidates: list[tuple[ClosureRepo, IntegratedCandidate]],
+    git: GitBackend,
+    integrity_gate: IntegrityGate,
+    scan_port: PreMergeScanPort | None,
+    build_test_port: BuildTestPort | None,
+    applicability: MergeApplicability,
+    sonar_config: object | None,
+    repo_runners: Mapping[Path, RepoRunners] | None,
+    progress: ClosureProgress,
+) -> MergeBlockResult | None:
+    """Run Build/Test, scan, IntegrityGate and CAS pre-check per candidate."""
     for repo, candidate in candidates:
         repo_scan, repo_build = _runners_for(
             repo, repo_runners, scan_port, build_test_port
@@ -558,26 +632,10 @@ def _run_standard_block(
         if isinstance(verified, MergeBlockResult):
             return MergeBlockResult(
                 status=verified.status,
-                progress=pushed_progress,
+                progress=progress,
                 errors=verified.errors,
             )
-
-    # All repos' Dim 1-9 PASSed after the Jenkins-reachable ref push. Persist the
-    # gate checkpoint, then ff-only merge + per-repo ATOMIC CAS main-update via
-    # the AG3-009 saga building blocks, with partial-failure rollback (E4).
-    verified_progress = ClosureProgress(
-        story_branch_pushed=True,
-        integrity_passed=True,
-    )
-    checkpoint(verified_progress)
-    return _run_merge_with_cas(
-        ctx,
-        candidates,
-        git,
-        checkpoint,
-        base_progress=verified_progress,
-        skip_push=True,
-    )
+    return None
 
 
 def _runners_for(
