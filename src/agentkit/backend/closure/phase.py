@@ -610,10 +610,12 @@ class ClosurePhaseHandler:
                 ),
             )
 
-        # Step 3: Pre-Merge-Scan-and-Merge-Block (scan -> gate -> push -> merge).
+        # Step 3: Pre-Merge-Scan-and-Merge-Block (candidate-ref push -> scan ->
+        # gate -> main-CAS merge).
         # FIX-4/E5: the block calls ``checkpoint`` IMMEDIATELY after each durable
-        # side-effect (integrity_passed after Dim 1-9 PASS, story_branch_pushed
-        # after the push, merge_done after the CAS), so a crash mid-side-effect
+        # side-effect (story_branch_pushed after the candidate-ref push,
+        # integrity_passed after Dim 1-9 PASS, merge_done after the CAS), so a
+        # crash mid-side-effect
         # never marks the next one done and ``on_resume`` continues from the right
         # substate (no double-merge). Each closure-side checkpoint is the merge of
         # the block's reached booleans onto the current progress.

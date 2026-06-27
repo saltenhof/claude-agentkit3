@@ -195,9 +195,10 @@ class MergeBlockResult:
             ESCALATED only the checkpoints that durably completed are ``true``
             (e.g. ``story_branch_pushed`` but not ``merge_done`` when the
             main-update CAS failed). The caller persists each checkpoint as it is
-            reached (E5). Note: ``integrity_passed`` is the gate PASS of THIS
-            block run (bound to the fresh attestation), NOT a separately
-            resumable intra-lock checkpoint (FK-29 §29.1.3).
+            reached (E5). ``integrity_passed`` is the gate PASS of THIS block
+            run (bound to the fresh attestation); recovery may continue from it
+            to the main update, but must not re-enter the implementation QA-subflow
+            or produce a second attestation (FK-29 §29.1.3).
         errors: Hard-blocker reasons (empty on MERGED).
     """
 
@@ -285,13 +286,14 @@ def run_pre_merge_and_merge_block(  # noqa: PLR0913 -- a fail-closed barrier wir
         ``progress`` carries the durable :class:`ClosureProgress` recovery
         checkpoints (FK-29 §29.1.0/§29.1.3). The granular booleans are skipped
         on resume (FIX-A): ``merge_done`` returns MERGED immediately;
-        ``story_branch_pushed`` (and not ``merge_done``) SKIPS scan/gate/push and
-        goes straight to the ff/CAS merge of the already-pushed, already-verified
-        story branch (ff-only + ``--force-with-lease`` is the safety -- a diverged
-        main / lease failure fails closed, NEVER a re-scan or a forced
-        non-ff merge); ``integrity_passed`` (and not ``story_branch_pushed``)
-        SKIPS scan/gate, (re-)pushes then ff/CAS-merges. Dim 1-9 is NEVER re-run
-        once ``integrity_passed`` is durable.
+        ``integrity_passed`` SKIPS scan/gate and goes straight to the ff/CAS
+        merge of the already-pushed, already-verified story branch (ff-only +
+        ``--force-with-lease`` is the safety -- a diverged main / lease failure
+        fails closed, NEVER a re-scan or a forced non-ff merge);
+        ``story_branch_pushed`` without ``integrity_passed`` resumes after the
+        candidate-ref push and re-runs Build/Test, scan and gate against that
+        Jenkins-reachable ref. Dim 1-9 is NEVER re-run once ``integrity_passed``
+        is durable.
     """
     sink: CheckpointSink = checkpoint if checkpoint is not None else _no_checkpoint
     current = progress if progress is not None else ClosureProgress()
@@ -336,6 +338,7 @@ def run_pre_merge_and_merge_block(  # noqa: PLR0913 -- a fail-closed barrier wir
         git_backend=git_backend,
         checkpoint=sink,
         repo_runners=repo_runners,
+        progress=current,
     )
 
 
@@ -394,14 +397,14 @@ def _resume_merge_only(
     """Dispatch a recovery resume that SKIPS the green barrier (FIX-A).
 
     Returns ``None`` when the full block must run (no durable
-    ``integrity_passed``); otherwise the result of the skip-to-merge /
-    skip-to-push resume:
+    ``integrity_passed``); otherwise the result of the skip-to-merge resume:
 
     * ``merge_done`` -> already merged: return MERGED (no side-effect).
-    * ``story_branch_pushed`` (not ``merge_done``) -> SKIP scan/gate/push; ff/CAS
-      merge the already-pushed verified branch (``skip_push=True``).
-    * ``integrity_passed`` (not ``story_branch_pushed``) -> SKIP scan/gate;
-      (re-)push then ff/CAS merge (``skip_push=False``).
+    * ``integrity_passed`` -> SKIP scan/gate/push; ff/CAS merge the
+      already-pushed verified branch (``skip_push=True``).
+    * ``story_branch_pushed`` without ``integrity_passed`` is not handled here;
+      the standard block rebuilds the candidate metadata, skips the push and
+      re-runs Build/Test, scan and gate.
 
     The integrated-candidate scan attestation proved integrity on the original
     run; it is NOT re-produced. Safety without a persisted candidate is the
@@ -426,7 +429,7 @@ def _resume_merge_only(
         git,
         checkpoint,
         base_progress=progress,
-        skip_push=progress.story_branch_pushed,
+        skip_push=True,
     )
 
 
@@ -446,7 +449,7 @@ def _capture_resume_candidates(
         locked = git.run(repo, "rev-parse", _origin_ref())
         if not locked.ok or not locked.stdout.strip():
             return _escalated(
-                ClosureProgress(integrity_passed=True),
+                ClosureProgress(story_branch_pushed=True, integrity_passed=True),
                 _git_error(repo, "capture locked_sha for recovery merge", locked),
             )
         candidates.append(
@@ -478,14 +481,17 @@ def _run_standard_block(
     git_backend: GitBackend | None,
     checkpoint: CheckpointSink,
     repo_runners: Mapping[Path, RepoRunners] | None,
+    progress: ClosureProgress,
 ) -> MergeBlockResult:
-    """Run the locked pre-push green barrier then the saga, order enforced.
+    """Run the locked candidate-ref push, green barrier, then main-CAS saga.
 
     Each step is a fail-closed gate before the next; the order is structural
-    (FK-29 §29.1a.3). The barrier owns lock/integrate/clean/capture/tree-bind/CAS
-    PER PARTICIPATING REPO (FIX-6, FK-29 §29.1.6: each repo on its own integrated
-    candidate); the saga building blocks own push/ff-merge (one merge truth); the
-    final ``origin/main`` update is an atomic CAS against the per-repo
+    (FK-29 §29.1a.3). The barrier owns lock/integrate/clean/capture, then pushes
+    the integrated candidate to a Jenkins-reachable story ref before Build/Test
+    and Sonar run. Build/Test, scan, tree-bind, IntegrityGate and CAS pre-check
+    run PER PARTICIPATING REPO (FIX-6, FK-29 §29.1.6: each repo on its own
+    integrated candidate). The saga building blocks own ff-merge (one merge
+    truth); the final ``origin/main`` update is an atomic CAS against the per-repo
     ``locked_sha`` (E4). A single-repo run is the one-element case of the same
     path (no second merge truth).
 
@@ -502,10 +508,9 @@ def _run_standard_block(
         )
     git = git_backend or SubprocessGitBackend()
 
-    # Per-repo green barrier (FIX-6): each repo is independently locked,
-    # integrated, cleaned, captured, built/scanned and Dim-9 verified, with its
-    # CAS pre-check. ANY repo failing escalates the WHOLE block with NO push on
-    # any repo (no merge of a partially-verified multi-repo set).
+    # Per-repo candidate preparation (FIX-6): each repo is independently locked,
+    # integrated, cleaned and captured. ANY repo failing here escalates the WHOLE
+    # block with NO push on any repo.
     candidates: list[tuple[ClosureRepo, IntegratedCandidate]] = []
     for repo in repos:
         repo_scan, repo_build = _runners_for(
@@ -514,10 +519,35 @@ def _run_standard_block(
         wiring_error = _verify_runner_wiring(applicability, repo_scan, repo_build)
         if wiring_error is not None:
             return wiring_error
-        verified = _verify_repo_candidate(
+        if progress.story_branch_pushed:
+            candidate = _capture_pushed_story_candidate(git, repo, ctx.story_id)
+        else:
+            candidate = _prepare_integrated_candidate(git, repo)
+        if isinstance(candidate, MergeBlockResult):
+            return candidate
+        candidates.append((repo, candidate))
+
+    pushed_progress = progress
+    if not progress.story_branch_pushed:
+        push = push_story_branches(repos, ctx.story_id, backend=git)
+        if not push.success:
+            return MergeBlockResult(
+                status=MergeBlockStatus.ESCALATED,
+                progress=progress,
+                errors=tuple(push.errors),
+            )
+        pushed_progress = ClosureProgress(story_branch_pushed=True)
+        checkpoint(pushed_progress)
+
+    for repo, candidate in candidates:
+        repo_scan, repo_build = _runners_for(
+            repo, repo_runners, scan_port, build_test_port
+        )
+        verified = _verify_pushed_candidate(
             ctx,
             story_dir=story_dir,
             repo=repo,
+            candidate=candidate,
             git=git,
             integrity_gate=integrity_gate,
             scan_port=repo_scan,
@@ -526,17 +556,28 @@ def _run_standard_block(
             sonar_config=sonar_config,
         )
         if isinstance(verified, MergeBlockResult):
-            return verified
-        candidates.append((repo, verified))
+            return MergeBlockResult(
+                status=verified.status,
+                progress=pushed_progress,
+                errors=verified.errors,
+            )
 
-    # FIX-4/E5: all repos' Dim 1-9 PASSed -> persist ``integrity_passed`` BEFORE
-    # the first irreversible side-effect (the push). A crash here resumes the
-    # whole atomar block (no intra-lock sub-checkpoint, FK-29 §29.1.3).
-    checkpoint(ClosureProgress(integrity_passed=True))
-
-    # All repos green: push + ff-only merge + per-repo ATOMIC CAS main-update via
+    # All repos' Dim 1-9 PASSed after the Jenkins-reachable ref push. Persist the
+    # gate checkpoint, then ff-only merge + per-repo ATOMIC CAS main-update via
     # the AG3-009 saga building blocks, with partial-failure rollback (E4).
-    return _run_merge_with_cas(ctx, candidates, git, checkpoint)
+    verified_progress = ClosureProgress(
+        story_branch_pushed=True,
+        integrity_passed=True,
+    )
+    checkpoint(verified_progress)
+    return _run_merge_with_cas(
+        ctx,
+        candidates,
+        git,
+        checkpoint,
+        base_progress=verified_progress,
+        skip_push=True,
+    )
 
 
 def _runners_for(
@@ -590,32 +631,27 @@ def _verify_runner_wiring(
     return None
 
 
-def _verify_repo_candidate(  # noqa: PLR0911 -- one fail-closed return per barrier step
+def _verify_pushed_candidate(  # noqa: PLR0911 -- one fail-closed return per barrier step
     ctx: StoryContext,
     *,
     story_dir: Path,
     repo: ClosureRepo,
+    candidate: IntegratedCandidate,
     git: GitBackend,
     integrity_gate: IntegrityGate,
     scan_port: PreMergeScanPort | None,
     build_test_port: BuildTestPort | None,
     applicability: MergeApplicability,
     sonar_config: object | None,
-) -> IntegratedCandidate | MergeBlockResult:
-    """Run the locked green barrier for ONE repo (FK-29 §29.1a.3 a-g, FIX-6).
+) -> MergeBlockResult | None:
+    """Run the post-push green barrier for ONE repo (FK-29 §29.1a.3, FIX-6).
 
-    Lock (``locked_sha``) -> integrate-latest-main -> clean -> capture the
-    integrated-candidate commit/tree -> Build/Test -> integrated-candidate Sonar
-    scan (FULL only) -> E3 tree+commit binding -> IntegrityGate Dim 1-9 (verifies
-    the fresh attestation) -> CAS/lease pre-check (``origin/main == locked_sha``).
-    Returns the verified :class:`IntegratedCandidate` (carrying the per-repo
-    ``locked_sha`` for the later CAS), or a fail-closed :class:`MergeBlockResult`
-    on ANY barrier step.
+    The integrated candidate was already prepared and pushed to the story ref,
+    making it Jenkins-reachable. Build/Test -> integrated-candidate Sonar scan
+    (FULL only) -> E3 tree+commit binding -> IntegrityGate Dim 1-9 (verifies the
+    fresh attestation) -> CAS/lease pre-check (``origin/main == locked_sha``).
+    Returns ``None`` on success or a fail-closed :class:`MergeBlockResult`.
     """
-    # Steps a-c: lock -> integrate-latest-main -> clean -> capture commit/tree.
-    candidate = _prepare_integrated_candidate(git, repo)
-    if isinstance(candidate, MergeBlockResult):
-        return candidate
     candidate_ref = candidate.to_candidate_ref(branch=_story_branch(ctx.story_id))
 
     # Build/Test ALWAYS runs (CI facet); a non-None build_test_port is a
@@ -644,7 +680,7 @@ def _verify_repo_candidate(  # noqa: PLR0911 -- one fail-closed return per barri
     # gated (FK-33 §33.6.5 "absent != broken").
 
     # Step f: the gate VERIFIES the FRESH attestation (Dim 9, FK-35 §35.2.4a),
-    # AFTER the scan and BEFORE the push (never re-reads the worktree).
+    # AFTER the scan and BEFORE the main update (never re-reads the worktree).
     gate_result = integrity_gate.evaluate(
         story_dir,
         ctx.story_type,
@@ -660,7 +696,7 @@ def _verify_repo_candidate(  # noqa: PLR0911 -- one fail-closed return per barri
     cas_error = _verify_main_unchanged(git, repo, candidate.locked_sha)
     if cas_error is not None:
         return _escalated(ClosureProgress(), cas_error)
-    return candidate
+    return None
 
 
 def _run_fast_block(
@@ -723,9 +759,9 @@ def _run_fast_block(
                 ),
             )
         )
-    # FIX-4/E5: the fast-mode Sanity-Gate PASS is the merge precondition; persist
-    # ``integrity_passed`` before the first irreversible push.
-    checkpoint(ClosureProgress(integrity_passed=True))
+    # The fast-mode Sanity-Gate PASS is the merge precondition. The durable
+    # ClosureProgress still records the irreversible story-branch push before
+    # ``integrity_passed`` so the checkpoint model stays uniform.
     return _run_merge_with_cas(ctx, candidates, git, checkpoint)
 
 
@@ -765,8 +801,9 @@ def _prepare_integrated_candidate(
     origin/main``), fetch + assert ``origin/main == locked_sha`` (lock drift =>
     re-setup), integrate ``origin/main`` into the story branch, ``git clean -xfd``
     + assert an empty ``git status --porcelain``, then capture the integrated
-    HEAD commit + tree. Any git failure / merge conflict / dirty tree escalates
-    the whole block (atomar, no intra-lock checkpoint).
+    HEAD commit + tree. Any git failure / merge conflict / dirty tree before
+    the Candidate-Ref push escalates the whole block without a durable
+    intra-lock checkpoint.
     """
     locked = git.run(repo, "rev-parse", _origin_ref())
     if not locked.ok or not locked.stdout.strip():
@@ -836,6 +873,95 @@ def _prepare_integrated_candidate(
     )
 
 
+def _capture_pushed_story_candidate(
+    git: GitBackend, repo: ClosureRepo, story_id: str
+) -> IntegratedCandidate | MergeBlockResult:
+    """Reconstruct a pushed-but-unverified candidate for resume.
+
+    ``story_branch_pushed`` means the story/pre-merge ref already exists and is
+    Jenkins-reachable, but no IntegrityGate proof is durable yet. Resume must not
+    create a new local candidate and then skip the push; it must scan the already
+    pushed ref. The ref is safe to continue only if it still contains the current
+    ``origin/main``. If main moved after the push, the candidate is stale and the
+    block escalates for a fresh setup.
+    """
+    story_branch = _story_branch(story_id)
+    remote_story_branch = f"origin/{story_branch}"
+
+    fetch_main = git.run(repo, "fetch", "origin", _BASE_BRANCH)
+    if not fetch_main.ok:
+        return _escalated(
+            ClosureProgress(story_branch_pushed=True),
+            _git_error(repo, "fetch origin main for pushed-candidate resume", fetch_main),
+        )
+    fetch_story = git.run(repo, "fetch", "origin", story_branch)
+    if not fetch_story.ok:
+        return _escalated(
+            ClosureProgress(story_branch_pushed=True),
+            _git_error(
+                repo,
+                "fetch pushed story branch for pushed-candidate resume",
+                fetch_story,
+            ),
+        )
+
+    locked = git.run(repo, "rev-parse", _origin_ref())
+    local_commit = git.run(repo, "rev-parse", story_branch)
+    remote_commit = git.run(repo, "rev-parse", remote_story_branch)
+    if not locked.ok or not locked.stdout.strip():
+        return _escalated(
+            ClosureProgress(story_branch_pushed=True),
+            _git_error(repo, "capture current origin/main for resume", locked),
+        )
+    if not local_commit.ok or not local_commit.stdout.strip():
+        return _escalated(
+            ClosureProgress(story_branch_pushed=True),
+            _git_error(repo, "capture local pushed story branch for resume", local_commit),
+        )
+    if not remote_commit.ok or not remote_commit.stdout.strip():
+        return _escalated(
+            ClosureProgress(story_branch_pushed=True),
+            _git_error(
+                repo,
+                "capture remote pushed story branch for resume",
+                remote_commit,
+            ),
+        )
+    commit_sha = local_commit.stdout.strip()
+    if remote_commit.stdout.strip() != commit_sha:
+        return _escalated(
+            ClosureProgress(story_branch_pushed=True),
+            "pushed-candidate resume found local story branch != origin/story "
+            "-- cannot prove Jenkins scans the same commit that would merge",
+        )
+
+    contains_main = git.run(
+        repo,
+        "merge-base",
+        "--is-ancestor",
+        _origin_ref(),
+        story_branch,
+    )
+    if not contains_main.ok:
+        return _escalated(
+            ClosureProgress(story_branch_pushed=True),
+            "pushed-candidate resume found origin/main is not contained in the "
+            "pushed story branch -- re-setup required before scan/merge",
+        )
+
+    tree = git.run(repo, "rev-parse", f"{story_branch}^{{tree}}")
+    if not tree.ok or not tree.stdout.strip():
+        return _escalated(
+            ClosureProgress(story_branch_pushed=True),
+            _git_error(repo, "capture pushed story branch tree for resume", tree),
+        )
+    return IntegratedCandidate(
+        commit_sha=commit_sha,
+        tree_hash=tree.stdout.strip(),
+        locked_sha=locked.stdout.strip(),
+    )
+
+
 def _verify_scan_binding(
     scan: ScanOutcome, candidate: IntegratedCandidate
 ) -> str | None:
@@ -876,7 +1002,7 @@ def _verify_scan_binding(
 def _verify_main_unchanged(
     git: GitBackend, repo: ClosureRepo, locked_sha: str
 ) -> str | None:
-    """Re-assert ``origin/main == locked_sha`` before the push (CAS/lease guard).
+    """Re-assert ``origin/main == locked_sha`` before the main update.
 
     FK-29 §29.1a.3 step 7: ``main`` is ff-updated only if the remote ``main``
     still stands on ``locked_sha``. If it drifted since the lock, re-setup the
@@ -944,7 +1070,7 @@ def _run_merge_with_cas(
     succeeded on ALL repos.
     """
     repos = tuple(repo for repo, _candidate in candidates)
-    base = base_progress or ClosureProgress(integrity_passed=True)
+    base = base_progress or ClosureProgress()
 
     if skip_push:
         pushed_progress = base.model_copy(

@@ -82,6 +82,13 @@ events:
         - closure_id
         - story_id
         - locked_sha
+  - id: story-closure.event.story_branch.pushed
+    producer: story-closure
+    role: lifecycle
+    payload:
+      required:
+        - closure_id
+        - story_id
   - id: story-closure.event.integrated_candidate.green
     producer: qa-sonarqube-gate
     role: verdict
@@ -100,13 +107,6 @@ events:
         - story_id
         - analysis_id
         - failure_reason
-  - id: story-closure.event.story_branch.pushed
-    producer: story-closure
-    role: lifecycle
-    payload:
-      required:
-        - closure_id
-        - story_id
   - id: story-closure.event.merge.attempted
     producer: story-closure
     role: lifecycle

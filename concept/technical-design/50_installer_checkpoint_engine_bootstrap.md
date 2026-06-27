@@ -515,12 +515,18 @@ keine Sonar-Qualitaetsdurchsetzung gibt.
 
 Andernfalls — `sonarqube.available: true` UND `sonarqube.enabled: true`
 (Pflicht fuer codeproduzierende Projekte mit Sonar, FK-03 `sonarqube`-Stanza)
-— ist dieser Checkpoint die **fail-closed Umgebungs-Vorbedingung** des
-SonarQube-Green-Gates (FK-33 §33.6.3). Stil analog zum Weaviate-/MCP-
-Checkpoint: fehlt dann eine harte Voraussetzung (Server unerreichbar,
-Branch-Plugin fehlt, Conformance-Self-Test scheitert), **bricht der Installer
-ab (FAILED)** — er verweigert die Registrierung, statt ein Projekt mit
-deklariertem, aber nicht durchsetzbarem Gate zuzulassen. „Abwesend ≠ kaputt"
+— ist fuer codeproduzierende Projekte auch `ci.available: true` UND
+`ci.enabled: true` Pflicht, weil der produktive Integrated-Candidate-Scan
+ueber den Jenkins-Pfad laeuft (FK-03/FK-33). Ist Sonar APPLICABLE, aber der
+CI/Jenkins-Pfad bewusst abwesend oder deaktiviert, meldet der Installer
+fail-closed diese Cross-Field-Verletzung statt eines generischen
+Missing-Dependency-Fehlers. Danach ist dieser Checkpoint die **fail-closed
+Umgebungs-Vorbedingung** des SonarQube-Green-Gates (FK-33 §33.6.3). Stil
+analog zum Weaviate-/MCP-Checkpoint: fehlt dann eine harte Voraussetzung
+(Server unerreichbar, Branch-Plugin fehlt, Conformance-Self-Test scheitert),
+**bricht der Installer ab (FAILED)** — er verweigert die Registrierung, statt
+ein Projekt mit deklariertem, aber nicht durchsetzbarem Gate zuzulassen.
+„Abwesend ≠ kaputt"
 (FK-33 §33.6.5): NOT_APPLICABLE bei `available: false`, FAILED nur bei
 `available: true` mit gebrochener Voraussetzung.
 
@@ -548,10 +554,12 @@ im Normalfall **nicht** auf dem Installer-Rechner vorausgesetzt. CP 10d nutzt
 den konfigurierten operativen Scan-Ausfuehrungspfad: Bei `ci.available: true`
 triggert der Installer den Jenkins-Pipeline-Job im CP10d-Self-Test-Modus; der
 Jenkins-Agent fuehrt den SonarScanner aus und archiviert
-`.scannerwork/report-task.txt`. Fehlt der Jenkins-Client/Pipeline-Zugriff oder
-liefert der Job keine auswertbare Analyse, ist das ein fail-closed
-CP-10d-Fehler. Ein lokaler Scanner ist nur ein explizit injizierbarer
-Dev-/Test-Fallback, keine normative Installationsvoraussetzung.
+`.scannerwork/report-task.txt` und traegt die tatsaechliche Scanner-Version als
+`SONAR_SCANNER_VERSION` in den Jenkins-Run ein. Fehlt der
+Jenkins-Client/Pipeline-Zugriff, liefert der Job keine auswertbare Analyse oder
+keinen Scanner-Version-Nachweis, ist das ein fail-closed CP-10d-Fehler. Ein
+lokaler Scanner ist nur ein explizit injizierbarer Dev-/Test-Fallback, keine
+normative Installationsvoraussetzung.
 
 **2. Branch-Plugin-Conformance-Self-Test (Pflicht):**
 
@@ -561,8 +569,10 @@ besteht. Er laeuft **bei der Installation UND nach jedem
 SonarQube-/Plugin-Upgrade** (Upgrade ist ein erneuter Trigger dieses
 Checkpoints). Ablauf auf einem **wegwerfbaren Mini-Projekt**:
 
-1. Mini-Projekt anlegen, `main` scannen → muss **gruen** sein
-2. einen Branch scannen → Branch-Analyse muss erscheinen
+1. Mini-Projekt anlegen, `main` scannen → muss **gruen** sein und mindestens
+   ein deterministisches Fixture-Issue erzeugen
+2. einen Branch scannen → Branch-Analyse muss erscheinen und mindestens ein
+   deterministisches Fixture-Issue erzeugen
 3. auf `main` ein Issue auf **Accepted** setzen → Branch-Handling
    pruefen (Accepted-Vererbung auf den Branch greift, FK-33 §33.6.3)
 4. auf dem **Branch** ein Issue auf Accepted setzen → Merge-/
@@ -575,10 +585,14 @@ Checkpoints). Ablauf auf einem **wegwerfbaren Mini-Projekt**:
 muss einen Modus `agentkit_mode=cp10d_branch_plugin_self_test` unterstuetzen.
 Der Installer triggert pro Scan den Job mit `sonar_project_key` und
 `sonar_branch`; der Job scannt eine kleine, im Job/Checkout verfuegbare Fixture
-gegen genau dieses Projekt und diesen Branch, setzt `sonar.qualitygate.wait=true`
-und archiviert `.scannerwork/report-task.txt`. AgentKit liest den `ceTaskId`
-aus diesem Artefakt, loest die konkrete Analyse ueber SonarQube auf und prueft
-Branch-Sichtbarkeit, Accepted-Verhalten und Quality Gate ueber diese Analyse.
+gegen genau dieses Projekt und diesen Branch, setzt `sonar.qualitygate.wait=true`,
+archiviert `.scannerwork/report-task.txt` und traegt nach dem Scan die reale
+Scanner-Version des ausgefuehrten Binaries als `SONAR_SCANNER_VERSION` in den
+Jenkins-Run ein. AgentKit liest den `ceTaskId` aus diesem Artefakt, loest die
+konkrete Analyse ueber SonarQube auf und prueft Branch-Sichtbarkeit,
+Accepted-Verhalten, Scanner-Version-Nachweis und Quality Gate ueber diese
+Analyse. Eine Fixture ohne Issues ist kein bestandener Self-Test, weil dann die
+Accepted-Inheritance-Schritte nicht wirklich ausgefuehrt wurden.
 Damit testet CP 10d denselben operativen Boundary-Typ wie spaetere
 Pre-Merge-Scans: Jenkins erzeugt die Analyse, AgentKit verifiziert die
 Attestation.

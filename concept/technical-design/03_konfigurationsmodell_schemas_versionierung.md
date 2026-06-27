@@ -244,11 +244,22 @@ Pflicht-Laufzeitabhaengigkeit (FK-10 §10.2.2).
 | `enabled` | bool | **Hart Pflicht (`true`) fuer codeproduzierende Projekte mit `available: true`** (Projekte mit impl/bugfix-Stories, die ein Sonar besitzen). Reine Concept-/Research-Projekte **oder** Projekte mit `available: false` duerfen `false` setzen. Bei `available: false` ist `enabled` bedeutungslos (das Gate ist NOT_APPLICABLE). |
 | `base_url` | str (URL) | SonarQube-Server-Endpunkt (Default-Port 9901, FK-10 §10.7.2). |
 | `min_version` | str (SemVer) | Mindestversion SonarQube Community Build. Niedrigere Server-Version → Installer-FAIL (FK-50). |
+
 | `token_env` | str | Name der ENV-Variable bzw. des Secret-Store-Schluessels mit dem Sonar-Token. **Kein Inline-Token** (Secret-Hygiene, FK-33 §33.3.2 `security.secrets`). |
 | `plugins.community_branch.min_version` | str (SemVer) | Mindestversion des **Community Branch Plugin** (harte Abhaengigkeit, da Community Edition keine native Branch-Analyse hat; FK-33 §33.6.3). |
 | `quality_gate.default_profile` | str (Pfad) | Verweis auf das ausgelieferte Default-Quality-Gate-Profil unter `bundles/target_project/` (SSOT). Traegt BEIDE Conditions: New-Code UND Overall-Code (FK-33 §33.6.3 Overall-Code-Invariante). |
 | `quality_gate.overrides_allowed` | bool | Ob der Projektverantwortliche das Default-Profil durch ein eigenes Regelwerk ersetzen darf (Default `true`). |
 | `accept_frequency_fc_threshold` | float (0..1) | Anteil der Stories (gemessen **ueber alle Stories**, nie pro Einzelstory), ab dem eine wiederholt akzeptierte Sonar-Regel zum **Failure-Corpus-Signal** wird (Default `0.25`). Verfahren/Owner: Accept-Self-Assessment (FK-27 §27.6b); Corpus-Verankerung: FK-41 §41.10. |
+
+**Cross-Field-Regel Sonar/CI:** Fuer codeproduzierende Projekte gilt:
+`sonarqube.available: true` und `sonarqube.enabled: true` setzt
+`ci.available: true` und `ci.enabled: true` voraus. Der produktive
+Integrated-Candidate-Scan wird ueber den Jenkins-Pre-Merge-Runner
+ausgefuehrt (FK-29 §29.1a, FK-33 §33.6.3); ein Projekt darf daher nicht
+Sonar als APPLICABLE deklarieren und den operativen CI/Jenkins-Pfad
+gleichzeitig als abwesend deklarieren. Wer keinen Jenkins-Pfad betreibt,
+muss fuer codeproduzierende Projekte entweder CI bereitstellen oder
+`sonarqube.available: false` als bewussten Sonar-Opt-out setzen.
 
 **Pydantic v2-Validierung** (`SonarQubeConfig` als frozen-Modell,
 `extra="forbid"`, eingebunden in `PipelineConfig`):

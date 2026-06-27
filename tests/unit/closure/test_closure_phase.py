@@ -603,8 +603,8 @@ class TestImplClosureHappyPath:
 
         assert result.status is PhaseStatus.COMPLETED
 
-    def test_scan_runs_before_gate_runs_before_push(self, tmp_path: Path) -> None:
-        """AC#3: scan -> gate -> push order is structural (single shared log)."""
+    def test_push_runs_before_scan_gate(self, tmp_path: Path) -> None:
+        """AC#3: candidate ref push -> scan -> gate order is structural."""
         s_dir = _prepare_impl_story(tmp_path)
         manager = build_artifact_manager(s_dir)
         _write_all_layer2(manager, story_id="TEST-001", run_id=_run_id_for("TEST-001"))
@@ -642,8 +642,8 @@ class TestImplClosureHappyPath:
         )
 
         assert result.status == PhaseStatus.COMPLETED
+        assert order.index("push") < order.index("scan")
         assert order.index("scan") < order.index("gate")
-        assert order.index("gate") < order.index("push")
 
     def test_doc_fidelity_runs_before_postflight_before_vectordb_before_guard(
         self, tmp_path: Path
@@ -716,8 +716,10 @@ class TestImplClosureEscalation:
         )
         assert result.status == PhaseStatus.ESCALATED
 
-    def test_integrity_gate_fail_escalates_before_push(self, tmp_path: Path) -> None:
-        """AC#1/AC#3: a gate FAIL escalates -- scan ran, but NO push, NO merge."""
+    def test_integrity_gate_fail_escalates_after_candidate_push_before_main(
+        self, tmp_path: Path
+    ) -> None:
+        """AC#1/AC#3: gate FAIL escalates after candidate push, before main."""
         s_dir = _prepare_impl_story(tmp_path)
         manager = build_artifact_manager(s_dir)
         _write_all_layer2(manager, story_id="TEST-001", run_id=_run_id_for("TEST-001"))
@@ -736,7 +738,18 @@ class TestImplClosureEscalation:
         assert result.status == PhaseStatus.ESCALATED
         assert scan.calls == ["scan"]
         assert integrity.calls == ["gate"]
-        assert not any(cmd[:1] == ("push",) for cmd in git.commands)
+        story_pushes = [
+            cmd
+            for cmd in git.commands
+            if cmd[:1] == ("push",)
+            and not any(a.startswith("--force-with-lease") for a in cmd)
+        ]
+        assert len(story_pushes) == 1
+        assert not any(
+            cmd[:1] == ("push",)
+            and any(a.startswith("--force-with-lease") for a in cmd)
+            for cmd in git.commands
+        )
 
     def test_telemetry_evidence_fail_escalates_before_scan_gate_push(
         self, tmp_path: Path
@@ -938,15 +951,19 @@ class TestImplClosureEscalation:
 
         assert result.status == PhaseStatus.ESCALATED
         assert build_test.calls == ["build_test"]
-        # Scan / gate / push never reached after a red build.
+        # Candidate ref was pushed for Jenkins; scan/gate/main update never ran.
         assert scan.calls == []
         assert integrity.calls == []
-        assert not any(cmd[:1] == ("push",) for cmd in git.commands)
+        assert not any(
+            cmd[:1] == ("push",)
+            and any(a.startswith("--force-with-lease") for a in cmd)
+            for cmd in git.commands
+        )
 
-    def test_build_test_runs_before_scan_before_gate_before_push(
+    def test_push_runs_before_build_test_scan_gate(
         self, tmp_path: Path
     ) -> None:
-        """#1: build/test -> scan -> gate -> push order is structural."""
+        """#1: push -> build/test -> scan -> gate order is structural."""
         s_dir = _prepare_impl_story(tmp_path)
         manager = build_artifact_manager(s_dir)
         _write_all_layer2(manager, story_id="TEST-001", run_id=_run_id_for("TEST-001"))
@@ -989,12 +1006,12 @@ class TestImplClosureEscalation:
         )
 
         assert result.status == PhaseStatus.COMPLETED
+        assert order.index("push") < order.index("build_test")
         assert order.index("build_test") < order.index("scan")
         assert order.index("scan") < order.index("gate")
-        assert order.index("gate") < order.index("push")
 
     def test_tree_hash_mismatch_escalates_before_gate(self, tmp_path: Path) -> None:
-        """E3: tree_hash(scan) != tree_hash(merge) escalates before the gate, no push."""
+        """E3: tree_hash(scan) != tree_hash(merge) escalates before the gate."""
         s_dir = _prepare_impl_story(tmp_path)
         manager = build_artifact_manager(s_dir)
         _write_all_layer2(manager, story_id="TEST-001", run_id=_run_id_for("TEST-001"))
@@ -1014,7 +1031,11 @@ class TestImplClosureEscalation:
         # E3 binding (scan==merge) blocks BEFORE the gate, so the gate never runs.
         assert scan.calls == ["scan"]
         assert integrity.calls == []
-        assert not any(cmd[:1] == ("push",) for cmd in git.commands)
+        assert not any(
+            cmd[:1] == ("push",)
+            and any(a.startswith("--force-with-lease") for a in cmd)
+            for cmd in git.commands
+        )
 
     def test_commit_hash_mismatch_escalates_before_gate(self, tmp_path: Path) -> None:
         """E3: commit_sha(scan) != commit_sha(merge) escalates before the gate."""
@@ -1037,7 +1058,11 @@ class TestImplClosureEscalation:
         # E3 binding blocks BEFORE the gate (a scan bound to a foreign commit).
         assert scan.calls == ["scan"]
         assert integrity.calls == []
-        assert not any(cmd[:1] == ("push",) for cmd in git.commands)
+        assert not any(
+            cmd[:1] == ("push",)
+            and any(a.startswith("--force-with-lease") for a in cmd)
+            for cmd in git.commands
+        )
 
     def test_fresh_attestation_flows_into_gate(self, tmp_path: Path) -> None:
         """FK-35 §35.2.4a: the barrier passes the FRESH attestation into Dim 9."""
@@ -1057,7 +1082,7 @@ class TestImplClosureEscalation:
         # The gate received the fresh attestation from the scan (not a re-read).
         assert integrity.received_fresh_attestation is not None
 
-    def test_scan_attestation_unbindable_escalates_before_push(
+    def test_scan_attestation_unbindable_escalates_before_main(
         self, tmp_path: Path
     ) -> None:
         """#1: a produced attestation with NO commit/tree binding fails closed."""
@@ -1074,10 +1099,16 @@ class TestImplClosureEscalation:
         )
 
         assert result.status == PhaseStatus.ESCALATED
-        assert not any(cmd[:1] == ("push",) for cmd in git.commands)
+        assert not any(
+            cmd[:1] == ("push",)
+            and any(a.startswith("--force-with-lease") for a in cmd)
+            for cmd in git.commands
+        )
 
-    def test_main_drift_cas_failure_escalates_before_push(self, tmp_path: Path) -> None:
-        """#1: origin/main drift since the lock (CAS failure) escalates, no push."""
+    def test_main_drift_cas_failure_escalates_before_main_update(
+        self, tmp_path: Path
+    ) -> None:
+        """#1: origin/main drift since the lock escalates before main update."""
         s_dir = _prepare_impl_story(tmp_path)
         manager = build_artifact_manager(s_dir)
         _write_all_layer2(manager, story_id="TEST-001", run_id=_run_id_for("TEST-001"))
@@ -1095,10 +1126,14 @@ class TestImplClosureEscalation:
         )
 
         assert result.status == PhaseStatus.ESCALATED
-        # The barrier ran scan + gate but the CAS guard blocks before the push.
+        # The barrier ran scan + gate but the CAS guard blocks before main update.
         assert scan.calls == ["scan"]
         assert integrity.calls == ["gate"]
-        assert not any(cmd[:1] == ("push",) for cmd in git.commands)
+        assert not any(
+            cmd[:1] == ("push",)
+            and any(a.startswith("--force-with-lease") for a in cmd)
+            for cmd in git.commands
+        )
 
     def test_full_applicability_missing_build_runner_fails_closed(
         self, tmp_path: Path
@@ -1384,8 +1419,12 @@ class TestMultiRepo:
 
         assert result.status is MergeBlockStatus.ESCALATED
         assert not result.progress.merge_done
-        # Fail-closed on the first repo's gate -> NO repo merged (no push).
-        assert not any(cmd[:1] == ("push",) for cmd in git.commands)
+        # Fail-closed on the first repo's gate -> NO repo merged / main-updated.
+        assert not any(
+            cmd[:1] == ("push",)
+            and any(a.startswith("--force-with-lease") for a in cmd)
+            for cmd in git.commands
+        )
 
     def test_multi_repo_cas_failure_rolls_back_and_escalates(
         self, tmp_path: Path

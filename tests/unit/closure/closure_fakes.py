@@ -308,7 +308,7 @@ class StubGitBackend:
             if self.main_drift_sha is not None and self._origin_reads >= 3:
                 return GitCommandResult(returncode=0, stdout=self.main_drift_sha)
             return GitCommandResult(returncode=0, stdout=self.main_sha)
-        if ref == "HEAD^{tree}":
+        if ref.endswith("^{tree}"):
             return GitCommandResult(returncode=0, stdout=self.candidate_tree)
         return GitCommandResult(returncode=0, stdout=self.candidate_commit)
 

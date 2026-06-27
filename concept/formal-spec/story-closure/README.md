@@ -18,8 +18,8 @@ Im Scope sind:
 
 - der offizielle Service-API-Pfad `POST /phases/closure/start` (FK-91 §91.1a; normativ) sowie der Operator-Recovery-CLI-Pfad `agentkit run-phase closure` (FK-91 §91.1; Spezialfall)
 - die Merge-Policies `ff_only` und `no_ff`
-- der Pre-Merge-Scan-und-Merge-Block: Merge-Serialisierungs-Lock, integrierter-Kandidat-Scan/Attestation, ff-Merge unter dem Lock (Push innerhalb), Post-Merge-Reconcile (FK-29 §29.1a, FK-33 §33.6.3/§33.6.4)
-- die Reihenfolge (im APPLICABLE-Fall, s. u.) Integrity-Gate (inkl. Dimension 9) nach dem Scan, gruener Scan vor Push, Push vor Merge; in den NOT_APPLICABLE-Faellen entfaellt der Sonar-Anteil und es gilt Push-im-Lock vor Merge (s. Applicability-Aufloesung)
+- der Pre-Merge-Scan-und-Merge-Block: Merge-Serialisierungs-Lock, Push des integrierten Kandidaten auf einen Jenkins-erreichbaren Ref, integrierter-Kandidat-Scan/Attestation, ff-Merge unter dem Lock, Post-Merge-Reconcile (FK-29 §29.1a, FK-33 §33.6.3/§33.6.4)
+- die Reihenfolge (im APPLICABLE-Fall, s. u.) Candidate-Ref-Push vor Jenkins Build/Scan, Integrity-Gate (inkl. Dimension 9) nach dem Scan, main-Update erst nach bestandenem Gate; in den NOT_APPLICABLE-Faellen entfaellt der Sonar-Anteil und es gilt Push-im-Lock vor Merge (s. Applicability-Aufloesung)
 
 **Applicability-Aufloesung (FK-33 §33.6.5).** Der integrierter-Kandidat-Scan,
 die zugehoerige Attestation, der `tree_hash(scan)==tree_hash(merge)`-Assert,

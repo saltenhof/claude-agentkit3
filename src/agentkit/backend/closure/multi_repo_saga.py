@@ -158,7 +158,7 @@ def push_story_branches(
     pushed: list[str] = []
     story_branch = _story_branch(story_id)
     state = multi_repo or MultiRepoClosureState()
-    current_progress = _ensure_integrity(progress)
+    current_progress = progress or ClosureProgress()
 
     for repo in repos:
         result = git.run(repo, "push", "origin", story_branch)
@@ -345,7 +345,7 @@ def run_multi_repo_closure(
     """Run the full five-stage multi-repo closure saga."""
 
     git = backend or SubprocessGitBackend()
-    progress = ClosureProgress(integrity_passed=True)
+    progress = ClosureProgress()
     state = MultiRepoClosureState()
     stages: list[SagaStageResult] = []
 
@@ -388,6 +388,10 @@ def run_multi_repo_closure(
     state = push_result.multi_repo
     if not push_result.success:
         return _failed_saga(progress, state, stages)
+    # The standalone saga is entered only after the caller has completed the
+    # green barrier. Model that proof after the candidate/story ref push, matching
+    # the closure checkpoint order used by the productive merge sequence.
+    progress = progress.model_copy(update={"integrity_passed": True})
 
     merge_result = local_ff_merge_with_rollback(
         repos,
@@ -458,15 +462,20 @@ def _story_branch(story_id: str) -> str:
     return f"story/{story_id}"
 
 
-def _ensure_integrity(progress: ClosureProgress | None) -> ClosureProgress:
-    current = progress or ClosureProgress(integrity_passed=True)
-    if current.integrity_passed:
+def _ensure_merge_prerequisites(progress: ClosureProgress | None) -> ClosureProgress:
+    current = progress or ClosureProgress(
+        story_branch_pushed=True,
+        integrity_passed=True,
+    )
+    if current.story_branch_pushed and current.integrity_passed:
         return current
-    return current.model_copy(update={"integrity_passed": True})
+    return current.model_copy(
+        update={"story_branch_pushed": True, "integrity_passed": True}
+    )
 
 
 def _ensure_story_branch_pushed(progress: ClosureProgress | None) -> ClosureProgress:
-    current = _ensure_integrity(progress)
+    current = _ensure_merge_prerequisites(progress)
     if current.story_branch_pushed:
         return current
     return current.model_copy(update={"story_branch_pushed": True})

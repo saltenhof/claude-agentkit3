@@ -362,25 +362,21 @@ Bei erneutem Aufruf (Service: `POST /phases/closure/start` oder Operator-CLI `ag
 
 Teardown (Worktree aufräumen, Branch löschen) ist idempotent — er wird bei jedem Recovery-Lauf mit `merge_done == true && story_closed == false` erneut ausgeführt. Ein eigenes `teardown_done`-Feld ist nicht erforderlich, da ein fehlgeschlagener oder bereits erledigter Teardown keinen Datenverlust verursacht.
 
-**Der gesperrte Pre-Merge-Scan-und-Merge-Block ist eine einzige
-recoverable Einheit (keine intra-lock-Sub-Checkpoints).** Die internen
-Schritte des Blocks (Lock erwerben, integrieren, Build/Test,
-Integrated-Candidate-Scan → Attestation, Integrity-Gate/Dimension 9,
-post-merge Reconcile) werden **nicht** je einzeln im `ClosureProgress`
-verfolgt. Nur zwei Checkpoints des Blocks sind durabel: der
-Story-Branch-Push (`story_branch_pushed`) und der abgeschlossene Merge
-(`merge_done`). Crasht der Lauf **innerhalb** des Locks **vor** dem
-Push, ist `story_branch_pushed == false`: der gesamte Block wird beim
-Recovery mit einem **frischen `locked_sha`** neu aufgesetzt — inklusive
-einer **frischen** Attestation und einer **erneuten**
-Integrity-Gate-Pruefung, weil `main` zwischenzeitlich gewandert sein
-kann. Die alte Attestation wird nie wiederverwendet. `integrity_passed`
-markiert daher den Gate-PASS **dieses** Block-Durchlaufs und ist an die
-frische Attestation gebunden, nicht an einen separat resumebaren
-Zwischenstand. Resume **ab** `story_branch_pushed == true` setzt den
-ff-Merge unter dem Lock fort (FK-29-Rule
-`story-branch-pushed-is-resumable`), ohne erneuten semantischen Eintritt
-in den Implementation-QA-Subflow.
+**Der gesperrte Pre-Merge-Scan-und-Merge-Block hat nur explizite,
+durable Recovery-Punkte.** Nicht jeder interne Schritt wird im
+`ClosureProgress` verfolgt. Durabel sind genau der Candidate-/Story-Ref-
+Push (`story_branch_pushed`), der bestandene Integrity-Gate-Punkt
+(`integrity_passed`) und der abgeschlossene Merge (`merge_done`).
+Crasht der Lauf **innerhalb** des Locks **vor** dem Push, ist
+`story_branch_pushed == false`: der gesamte Block wird beim Recovery mit
+einem **frischen `locked_sha`** neu aufgesetzt. Crasht der Lauf nach dem
+Push, aber vor `integrity_passed`, scannt und gatet Recovery den bereits
+Jenkins-erreichbaren Ref erneut; vorher wird fail-closed geprueft, dass
+dieser Ref noch den aktuellen `origin/main` enthaelt. Crasht der Lauf
+nach `integrity_passed`, aber vor `merge_done`, wird die frische,
+commit-gebundene Attestation nicht erneut erzeugt; Recovery setzt mit
+dem ff-/CAS-Merge fort. Kein Recovery-Pfad tritt semantisch erneut in
+den Implementation-QA-Subflow ein.
 
 ### 29.1.4 Reihenfolge ist Pflicht (FK-05-226)
 

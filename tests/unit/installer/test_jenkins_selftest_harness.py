@@ -37,7 +37,12 @@ class _FakeJenkins:
     def build_status(self, pipeline: str, build_number: int) -> JenkinsHttpResponse:
         del pipeline, build_number
         return JenkinsHttpResponse(
-            status_code=200, json_body={"building": False, "result": self.result}
+            status_code=200,
+            json_body={
+                "building": False,
+                "result": self.result,
+                "actions": [{"SONAR_SCANNER_VERSION": "5.0.1"}],
+            },
         )
 
     def build_artifact(
@@ -85,8 +90,12 @@ class _FakeSonar:
         )
 
     def search_issues(self, params: dict[str, str]) -> SonarHttpResponse:
-        del params
-        return SonarHttpResponse(status_code=200, json_body={"issues": []})
+        branch = params.get("branch", "main")
+        issue_key = params.get("issues") or f"issue-{branch}"
+        return SonarHttpResponse(
+            status_code=200,
+            json_body={"issues": [{"key": issue_key}]},
+        )
 
     def transition_issue(self, issue_key: str, transition: str) -> SonarHttpResponse:
         del issue_key, transition

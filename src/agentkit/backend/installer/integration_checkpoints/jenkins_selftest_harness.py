@@ -71,6 +71,12 @@ class JenkinsBranchPluginSelfTestHarness:
                 f"Jenkins CP10d self-test build {self.pipeline}#{build_number} "
                 f"finished with result {status.get('result')!r}",
             )
+        scanner_version = _scanner_version_from_status(status)
+        if not scanner_version:
+            raise JenkinsApiError(
+                f"Jenkins CP10d self-test build {self.pipeline}#{build_number} "
+                "exposed no SONAR_SCANNER_VERSION run evidence",
+            )
         report_task = self._read_report_task(build_number)
         ce_task_id = report_task.get("ceTaskId", "")
         if not ce_task_id:
@@ -83,6 +89,7 @@ class JenkinsBranchPluginSelfTestHarness:
             analysis_id=analysis_id,
             branch=branch,
             issue_keys=self._issue_keys(project_key, branch),
+            scanner_version=scanner_version,
         )
 
     def branch_exists(self, project_key: str, branch: str) -> bool:
@@ -228,6 +235,19 @@ def _parse_report_task(raw: str) -> dict[str, str]:
         key, value = stripped.split("=", 1)
         result[key.strip()] = value.strip()
     return result
+
+
+def _scanner_version_from_status(status: dict[str, object]) -> str | None:
+    actions = status.get("actions")
+    if not isinstance(actions, list):
+        return None
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        value = action.get("SONAR_SCANNER_VERSION")
+        if isinstance(value, str) and value:
+            return value
+    return None
 
 
 def _queue_id_from_location(location: str) -> int | None:

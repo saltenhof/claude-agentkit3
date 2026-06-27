@@ -59,11 +59,15 @@ class SelfTestScan:
         branch: The branch this scan measured.
         issue_keys: Issue keys present on this scan (for the
             Accepted-transition steps).
+        scanner_version: SonarScanner version contributed by the Jenkins run that
+            produced this analysis. Required so CP10d validates the same pipeline
+            evidence contract the productive pre-merge runner consumes.
     """
 
     analysis_id: str
     branch: str
     issue_keys: tuple[str, ...]
+    scanner_version: str = ""
 
 
 class ScannerHarness(Protocol):
@@ -128,35 +132,45 @@ def _run_steps(client: SonarClient, harness: ScannerHarness) -> bool:
 
     # Step 1: main scan must be GREEN (verified by analysisId, not projectKey).
     main_scan = harness.scan(_MINI_PROJECT_KEY, _MAIN_BRANCH)
+    if not main_scan.scanner_version:
+        logger.error("self-test step 1 failed: main scan exposed no scanner version")
+        return False
     if not _gate_green_by_analysis_id(client, main_scan.analysis_id):
         logger.error("self-test step 1 failed: main scan not green")
         return False
 
     # Step 2: a branch scan must produce a visible branch analysis.
     branch_scan = harness.scan(_MINI_PROJECT_KEY, _PROBE_BRANCH)
+    if not branch_scan.scanner_version:
+        logger.error("self-test step 2 failed: branch scan exposed no scanner version")
+        return False
     if not harness.branch_exists(_MINI_PROJECT_KEY, _PROBE_BRANCH):
         logger.error("self-test step 2 failed: branch analysis not visible")
         return False
 
     # Step 3: accept a main issue -> inheritance onto the branch (FK-33 §33.6.3).
-    if main_scan.issue_keys:
-        main_issue = main_scan.issue_keys[0]
-        client.transition_issue(main_issue, "accept")
-        if not harness.issue_accepted_on_branch(
-            _MINI_PROJECT_KEY, _PROBE_BRANCH, main_issue
-        ):
-            logger.error("self-test step 3 failed: Accepted not inherited to branch")
-            return False
+    if not main_scan.issue_keys:
+        logger.error("self-test step 3 failed: main fixture produced no issue")
+        return False
+    main_issue = main_scan.issue_keys[0]
+    client.transition_issue(main_issue, "accept")
+    if not harness.issue_accepted_on_branch(
+        _MINI_PROJECT_KEY, _PROBE_BRANCH, main_issue
+    ):
+        logger.error("self-test step 3 failed: Accepted not inherited to branch")
+        return False
 
     # Step 4: accept a branch issue -> stays consistent after merge/sync.
-    if branch_scan.issue_keys:
-        branch_issue = branch_scan.issue_keys[0]
-        client.transition_issue(branch_issue, "accept")
-        if not harness.issue_accepted_on_branch(
-            _MINI_PROJECT_KEY, _MAIN_BRANCH, branch_issue
-        ):
-            logger.error("self-test step 4 failed: branch Accepted lost after sync")
-            return False
+    if not branch_scan.issue_keys:
+        logger.error("self-test step 4 failed: branch fixture produced no issue")
+        return False
+    branch_issue = branch_scan.issue_keys[0]
+    client.transition_issue(branch_issue, "accept")
+    if not harness.issue_accepted_on_branch(
+        _MINI_PROJECT_KEY, _MAIN_BRANCH, branch_issue
+    ):
+        logger.error("self-test step 4 failed: branch Accepted lost after sync")
+        return False
 
     # Step 5: re-verify the quality gate by analysisId (never projectKey).
     return _gate_green_by_analysis_id(client, branch_scan.analysis_id)

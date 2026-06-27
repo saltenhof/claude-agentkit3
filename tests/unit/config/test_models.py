@@ -401,8 +401,29 @@ class TestSonarqubeDeclaredExplicitly:
         assert cfg.pipeline.sonarqube is not None
         assert cfg.pipeline.sonarqube.available is False
 
-    def test_codeproducing_with_available_true_ok(self) -> None:
-        """An explicit available:true (+endpoint) declaration is legal."""
+    def test_codeproducing_with_sonarqube_available_true_requires_ci(self) -> None:
+        """APPLICABLE Sonar on code stories requires the Jenkins scan path."""
+        with pytest.raises(ValidationError, match="requires ci.available=true"):
+            ProjectConfig(
+                project_key="p",
+                project_name="P",
+                repositories=[RepositoryConfig(name="r", path=Path("/tmp"))],
+                pipeline=PipelineConfig(  # type: ignore[call-arg]
+                    config_version=SUPPORTED_CONFIG_VERSION,
+                    features=Features(multi_llm=False),
+                    sonarqube=SonarQubeConfig(
+                        available=True,
+                        enabled=True,
+                        base_url="http://sonar:9901",
+                        token_env="SONARQUBE_TOKEN",
+                        scanner_version="5.0.1",
+                    ),
+                    ci=_OPT_OUT_CI,
+                ),
+            )
+
+    def test_codeproducing_with_available_true_and_ci_ok(self) -> None:
+        """An explicit available:true Sonar declaration is legal with CI."""
         cfg = ProjectConfig(
             project_key="p",
             project_name="P",
@@ -417,11 +438,19 @@ class TestSonarqubeDeclaredExplicitly:
                     token_env="SONARQUBE_TOKEN",
                     scanner_version="5.0.1",
                 ),
-                ci=_OPT_OUT_CI,
+                ci=JenkinsConfig(
+                    available=True,
+                    enabled=True,
+                    base_url="http://jenkins:9900",
+                    token_env="JENKINS_API_TOKEN",
+                    pipeline="ak3-pre-merge",
+                ),
             ),
         )
         assert cfg.pipeline.sonarqube is not None
         assert cfg.pipeline.sonarqube.available is True
+        assert cfg.pipeline.ci is not None
+        assert cfg.pipeline.ci.available is True
 
     def test_non_codeproducing_may_omit_sonarqube(self) -> None:
         """Concept/research-only projects may omit the sonarqube stanza.

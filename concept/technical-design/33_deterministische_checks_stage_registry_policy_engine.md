@@ -577,7 +577,9 @@ SUCCESS" ist noch kein gatebarer Zustand. Das Gate liest deshalb **nie** bloss
 „ist Projekt X gerade grün?" über den `projectKey`, sondern bindet sich an die
 konkrete Analyse (produktiver Scanner-Lauf via CI/Jenkins mit
 `sonar.qualitygate.wait=true`, QG-Status per
-`analysisId`/`ceTaskId`). Das Ergebnis ist eine **Attestation**, gebunden an
+`analysisId`/`ceTaskId`; der Jenkins-Run muss die tatsaechliche Scanner-Version
+als `SONAR_SCANNER_VERSION` beitragen, weil SonarQube diese Version nicht an der
+Analyse speichert). Das Ergebnis ist eine **Attestation**, gebunden an
 `commit_sha`, `tree_hash`, `analysisId`, den Quality-Gate-/Quality-Profile-Hash
 und die Versionen (SonarQube, Branch-Plugin, Scanner), und gilt nur für genau
 diesen Zustand. So sind Stale-Reads ausgeschlossen (Sonar grün für Commit `M1`,
@@ -707,7 +709,7 @@ ihr Owner, die anderen Dokumente verweisen hierher:
 
 | Zustand | Vorbedingung | Verhalten am Gate-Punkt |
 |---------|--------------|--------------------------|
-| **APPLICABLE** | Sonar deklariert verfuegbar (`sonarqube.available == true`, FK-03) **UND** `mode != fast` (Story-Attribut `mode` aus FK-24 §24.3.4; projektweit: `mode_lock != fast` aus §24.3.3) **UND** `story_type ∈ {implementation, bugfix}` | Normale Auswertung: gruen → PASS; rot **oder** stale-Attestation → **fail-closed BLOCK**; konfiguriert-aber-unerreichbar → **fail-closed BLOCK**. |
+| **APPLICABLE** | Sonar deklariert verfuegbar (`sonarqube.available == true`, FK-03), der operative Jenkins-Pfad ist deklariert verfuegbar (`ci.available == true`, FK-03), `mode != fast` (Story-Attribut `mode` aus FK-24 §24.3.4; projektweit: `mode_lock != fast` aus §24.3.3) **UND** `story_type ∈ {implementation, bugfix}` | Normale Auswertung: gruen → PASS; rot **oder** stale-Attestation → **fail-closed BLOCK**; konfiguriert-aber-unerreichbar → **fail-closed BLOCK**. |
 | **NOT_APPLICABLE (Sonar nicht verfuegbar)** | `sonarqube.available == false` (FK-03 — Projekt/Host deklariert *kein* Sonar) | Das Gate wird als **nicht anwendbar uebersprungen** (SKIP, **nicht** fail-closed). Auch fuer codeproduzierende Projekte zulaessig; Konsequenz: keine Sonar-Qualitaetsdurchsetzung an diesem Punkt (der Betreiber akzeptiert das, FK-03). |
 | **NOT_APPLICABLE (fast)** | `mode == fast` (Story-Attribut `mode` aus FK-24 §24.3.4; projektweit: `mode_lock == fast` aus §24.3.3) | Der Gate-Punkt entfaellt: Die green-main-Vorbedingung (FK-22 §22.4c) und die 9-Dimensionen-Auswertung inkl. Dimension 9 (FK-35 §35.2.4a) werden **nicht** ausgewertet; die Closure ersetzt das 9-Dimensionen-IntegrityGate durch das **Sanity-Gate** (Tests gruen, Worktree clean, Pre-Merge-Rebase OK) gemaess FK-24 (Mode-Profil Fast) / FK-29. |
 

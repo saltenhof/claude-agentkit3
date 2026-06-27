@@ -71,7 +71,12 @@ class _StubHarness:
 
 
 def _scan(analysis_id: str, branch: str, *, issues: tuple[str, ...] = ("I1",)) -> SelfTestScan:
-    return SelfTestScan(analysis_id=analysis_id, branch=branch, issue_keys=issues)
+    return SelfTestScan(
+        analysis_id=analysis_id,
+        branch=branch,
+        issue_keys=issues,
+        scanner_version="5.0.1",
+    )
 
 
 def _harness(**kw: object) -> _StubHarness:
@@ -114,9 +119,19 @@ class TestConformanceSelfTest:
         assert run_branch_plugin_conformance_self_test(_green_client(), harness) is False
         assert harness.deleted is True  # cleanup still runs in finally
 
-    def test_no_issues_skips_accept_steps_but_still_green(self) -> None:
+    def test_no_issues_fails_closed(self) -> None:
         harness = _harness(
             main_scan=_scan("AX-main", "main", issues=()),
             branch_scan=_scan("AX-branch", "ak3-selftest-branch", issues=()),
         )
-        assert run_branch_plugin_conformance_self_test(_green_client(), harness) is True
+        assert run_branch_plugin_conformance_self_test(_green_client(), harness) is False
+
+    def test_missing_scanner_version_fails_closed(self) -> None:
+        harness = _harness(
+            main_scan=SelfTestScan(
+                analysis_id="AX-main",
+                branch="main",
+                issue_keys=("I1",),
+            ),
+        )
+        assert run_branch_plugin_conformance_self_test(_green_client(), harness) is False

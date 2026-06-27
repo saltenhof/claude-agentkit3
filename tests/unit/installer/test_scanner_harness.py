@@ -23,6 +23,7 @@ class _StubClient:
     branches: tuple[str, ...] = ("main", "ak3-selftest-branch")
     accepted_issue_keys: tuple[str, ...] = ()
     gate_status: str = "OK"
+    transition_visible: bool = True
     created: list[str] = field(default_factory=list)
     deleted: list[str] = field(default_factory=list)
     transitioned: list[tuple[str, str]] = field(default_factory=list)
@@ -45,9 +46,14 @@ class _StubClient:
 
     def search_issues(self, params: object) -> SonarHttpResponse:
         del params
+        accepted = set(self.accepted_issue_keys)
+        if self.transition_visible:
+            accepted.update(
+                key for key, transition in self.transitioned if transition == "accept"
+            )
         return SonarHttpResponse(
             status_code=200,
-            json_body={"issues": [{"key": k} for k in self.accepted_issue_keys]},
+            json_body={"issues": [{"key": k} for k in sorted(accepted)]},
         )
 
     def project_status(
@@ -69,7 +75,10 @@ def _runner(issue_keys: dict[str, tuple[str, ...]] | None = None):  # type: igno
     def _run(project_key: str, branch: str) -> SelfTestScan:
         del project_key
         return SelfTestScan(
-            analysis_id=f"AX-{branch}", branch=branch, issue_keys=keys.get(branch, ())
+            analysis_id=f"AX-{branch}",
+            branch=branch,
+            issue_keys=keys.get(branch, (f"I-{branch}",)),
+            scanner_version="5.0.1",
         )
 
     return _run
@@ -94,17 +103,24 @@ def test_harness_branch_not_visible_fails() -> None:
 def test_harness_accepted_inheritance_drives_transition_and_read() -> None:
     """Step 3/4: an accepted main issue must read as Accepted on the branch."""
     client = _StubClient(accepted_issue_keys=("ISSUE-1",))
-    runner = _runner({"main": ("ISSUE-1",), "ak3-selftest-branch": ()})
+    runner = _runner({"main": ("ISSUE-1",), "ak3-selftest-branch": ("ISSUE-2",)})
     harness = SonarClientScannerHarness(client=client, scan_runner=runner)  # type: ignore[arg-type]
     assert run_branch_plugin_conformance_self_test(client, harness) is True  # type: ignore[arg-type]
     # The accept transition was actually issued for the main issue.
     assert ("ISSUE-1", "accept") in client.transitioned
 
 
+def test_harness_no_fixture_issue_fails_closed() -> None:
+    client = _StubClient()
+    runner = _runner({"main": (), "ak3-selftest-branch": ("ISSUE-2",)})
+    harness = SonarClientScannerHarness(client=client, scan_runner=runner)  # type: ignore[arg-type]
+    assert run_branch_plugin_conformance_self_test(client, harness) is False  # type: ignore[arg-type]
+
+
 def test_harness_accepted_not_inherited_fails() -> None:
     """If the Accepted issue does NOT read on the branch, the self-test fails."""
-    client = _StubClient(accepted_issue_keys=())  # search returns no Accepted
-    runner = _runner({"main": ("ISSUE-1",)})
+    client = _StubClient(transition_visible=False)
+    runner = _runner({"main": ("ISSUE-1",), "ak3-selftest-branch": ("ISSUE-2",)})
     harness = SonarClientScannerHarness(client=client, scan_runner=runner)  # type: ignore[arg-type]
     assert run_branch_plugin_conformance_self_test(client, harness) is False  # type: ignore[arg-type]
 

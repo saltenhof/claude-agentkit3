@@ -67,10 +67,17 @@ def test_closure_progress_enforces_push_precedes_merge() -> None:
         ClosureProgress(integrity_passed=True, merge_done=True)
 
 
-def test_closure_progress_enforces_integrity_precedes_push() -> None:
-    """``integrity_gate_precedes_merge_block``: push requires integrity_passed."""
-    with pytest.raises(ValueError, match="story_branch_pushed"):
-        ClosureProgress(story_branch_pushed=True)
+def test_closure_progress_allows_push_before_integrity() -> None:
+    """``push_inside_lock_before_ci_scan``: candidate push may precede the gate."""
+    progress = ClosureProgress(story_branch_pushed=True)
+    assert progress.story_branch_pushed
+    assert not progress.integrity_passed
+
+
+def test_closure_progress_enforces_push_precedes_integrity() -> None:
+    """``integrity_gate_precedes_merge_block``: integrity requires pushed ref."""
+    with pytest.raises(ValueError, match="integrity_passed"):
+        ClosureProgress(integrity_passed=True)
 
 
 def test_closure_progress_enforces_monotonic_order() -> None:

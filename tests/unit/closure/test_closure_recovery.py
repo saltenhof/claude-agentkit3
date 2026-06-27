@@ -285,16 +285,15 @@ class TestClosureResume:
         assert integrity.calls == ["gate"]
         assert any(cmd[:1] == ("push",) for cmd in git.commands)
 
-    def test_resume_after_push_before_merge_skips_to_merge_no_rescan(
+    def test_resume_after_integrity_before_merge_skips_to_merge_no_rescan(
         self, tmp_path: Path
     ) -> None:
-        """FIX-A: a ``story_branch_pushed`` resume SKIPS scan/gate/push.
+        """FIX-A: an ``integrity_passed`` resume skips scan/gate/push.
 
-        FK-29 §29.1.0/§29.1.3: the granular booleans are recovery checkpoints; a
-        ``story_branch_pushed=true`` resume goes STRAIGHT to the ff/CAS merge of
-        the already-pushed, already-verified branch -- NO re-scan, NO re-gate, NO
-        re-push of the story branch. Dim 1-9 (proven on the original run) is not
-        re-run. The single main update is the CAS lease (no double-merge).
+        FK-29 §29.1.0/§29.1.3: the granular booleans are recovery checkpoints;
+        ``integrity_passed=true`` means the already-pushed branch is verified, so
+        recovery goes straight to the ff/CAS merge -- no re-scan, no re-gate, no
+        re-push of the story branch. The single main update is the CAS lease.
         """
         s_dir = _prepare(tmp_path)
         scan = RecordingScanPort()
@@ -333,13 +332,16 @@ class TestClosureResume:
         assert isinstance(state.payload, ClosurePayload)
         assert state.payload.progress.merge_done
 
-    def test_resume_after_integrity_before_push_skips_to_push(
+    def test_resume_after_push_before_integrity_reruns_scan_gate_without_repush(
         self, tmp_path: Path
     ) -> None:
-        """FIX-A: an ``integrity_passed`` (not pushed) resume SKIPS scan/gate.
+        """A pushed-but-unverified candidate resumes at Build/Test + scan/gate.
 
-        Dim 1-9 already PASSed on the original run, so the resume re-pushes the
-        story branch (idempotent) then ff/CAS-merges -- NO re-scan, NO re-gate.
+        FK-29 now pushes the candidate ref before the Jenkins boundary. If a run
+        crashes after that push but before ``integrity_passed``, the ref is
+        already Jenkins-reachable, but Dim 1-9 is not proven yet. Resume must
+        skip the story-branch push and re-run Build/Test, scan and gate before
+        the ff/CAS main update.
         """
         s_dir = _prepare(tmp_path)
         scan = RecordingScanPort()
@@ -348,24 +350,24 @@ class TestClosureResume:
         handler = ClosurePhaseHandler(
             _config(s_dir, scan=scan, integrity=integrity, git=git)
         )
-        progress = ClosureProgress(integrity_passed=True)
+        progress = ClosureProgress(story_branch_pushed=True)
 
         result = handler.on_resume(
             _ctx(tmp_path), _envelope("TEST-001", progress), "operator_retry"
         )
 
         assert result.status == PhaseStatus.COMPLETED
-        # FIX-A: integrity already proven -> NO re-scan, NO re-gate.
-        assert scan.calls == []
-        assert integrity.calls == []
-        # The story branch is (idempotently) re-pushed, then ff/CAS-merged.
+        assert scan.calls == ["scan"]
+        assert integrity.calls == ["gate"]
+        # The candidate ref was already pushed before the crash; only main gets
+        # the final CAS update.
         story_pushes = [
             cmd
             for cmd in git.commands
             if cmd[:1] == ("push",)
             and not any(a.startswith("--force-with-lease") for a in cmd)
         ]
-        assert len(story_pushes) == 1
+        assert story_pushes == []
         lease_pushes = [
             cmd
             for cmd in git.commands
@@ -377,15 +379,14 @@ class TestClosureResume:
         assert isinstance(state.payload, ClosurePayload)
         assert state.payload.progress.merge_done
 
-    def test_resume_after_push_main_diverged_lease_fail_escalates(
+    def test_resume_after_integrity_main_diverged_lease_fail_escalates(
         self, tmp_path: Path
     ) -> None:
-        """FIX-A: a ``story_branch_pushed`` resume where main diverged -> escalate.
+        """FIX-A: an ``integrity_passed`` resume where main diverged escalates.
 
-        The skip-to-merge ff/CAS is the ONLY safety without a persisted candidate:
-        if ``origin/main`` advanced so the CAS lease is rejected (main diverged),
-        the resume FAILS CLOSED (escalates) -- it never re-scans silently and never
-        forces a non-ff merge over the concurrent advance.
+        The skip-to-merge ff/CAS is the safety after the gate proof is durable:
+        if ``origin/main`` advanced so the CAS lease is rejected, the resume fails
+        closed and never forces a non-ff merge over the concurrent advance.
         """
         from agentkit.backend.closure.multi_repo_saga import GitCommandResult
 

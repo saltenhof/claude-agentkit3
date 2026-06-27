@@ -166,6 +166,7 @@ class _StubClient:
     branches: tuple[str, ...] = ("main", "ak3-selftest-branch")
     accepted_issue_keys: tuple[str, ...] = ()
     gate_status: str = "OK"
+    transition_visible: bool = True
     created: list[str] = field(default_factory=list)
     deleted: list[str] = field(default_factory=list)
     transitioned: list[tuple[str, str]] = field(default_factory=list)
@@ -196,8 +197,18 @@ class _StubClient:
         )
 
     def search_issues(self, params: object) -> SonarHttpResponse:
-        # The harness only queries Accepted issues; return the canned set.
-        issues = [{"key": k} for k in self.accepted_issue_keys]
+        if isinstance(params, dict) and "resolutions" not in params:
+            branch = str(params.get("branch") or "")
+            return SonarHttpResponse(
+                status_code=200,
+                json_body={"issues": [{"key": f"I-{branch}"}]},
+            )
+        accepted = set(self.accepted_issue_keys)
+        if self.transition_visible:
+            accepted.update(
+                key for key, transition in self.transitioned if transition == "accept"
+            )
+        issues = [{"key": k} for k in sorted(accepted)]
         return SonarHttpResponse(status_code=200, json_body={"issues": issues})
 
     def project_status(
@@ -221,9 +232,14 @@ class _StubClient:
 
 
 def _green_scan_runner(project_key: str, branch: str) -> SelfTestScan:
-    """Stubbed operational scanner: a green scan with no issues (OOS boundary)."""
+    """Stubbed operational scanner: a green scan with fixture issues."""
     del project_key
-    return SelfTestScan(analysis_id=f"AX-{branch}", branch=branch, issue_keys=())
+    return SelfTestScan(
+        analysis_id=f"AX-{branch}",
+        branch=branch,
+        issue_keys=(f"I-{branch}",),
+        scanner_version="5.0.1",
+    )
 
 
 @dataclass
@@ -246,7 +262,12 @@ class _StubJenkins:
     def build_status(self, pipeline: str, build_number: int) -> JenkinsHttpResponse:
         del pipeline, build_number
         return JenkinsHttpResponse(
-            status_code=200, json_body={"building": False, "result": "SUCCESS"}
+            status_code=200,
+            json_body={
+                "building": False,
+                "result": "SUCCESS",
+                "actions": [{"SONAR_SCANNER_VERSION": "5.0.1"}],
+            },
         )
 
     def build_artifact(

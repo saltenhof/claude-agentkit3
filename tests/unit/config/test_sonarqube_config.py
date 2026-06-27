@@ -12,10 +12,18 @@ import pytest
 from pydantic import ValidationError
 
 from agentkit.backend.config import ProjectConfig, SonarQubeConfig
-from agentkit.backend.config.models import RepositoryConfig
+from agentkit.backend.config.models import JenkinsConfig, RepositoryConfig
 
 
-def _project(**pipeline_sonar: object) -> ProjectConfig:
+def _project(
+    *,
+    ci: JenkinsConfig | dict[str, object] | None = None,
+    **pipeline_sonar: object,
+) -> ProjectConfig:
+    ci_stanza: JenkinsConfig | dict[str, object] = ci or {
+        "available": False,
+        "enabled": False,
+    }
     return ProjectConfig(
         project_key="acme",
         project_name="Acme",
@@ -28,7 +36,7 @@ def _project(**pipeline_sonar: object) -> ProjectConfig:
             "config_version": "3.0",
             "features": {"multi_llm": False},
             "sonarqube": pipeline_sonar,
-            "ci": {"available": False, "enabled": False},
+            "ci": ci_stanza,
         },
     )
 
@@ -112,6 +120,13 @@ class TestCrossFieldRule:
             base_url="http://sonar:9901",
             token_env="SONARQUBE_TOKEN",
             scanner_version="5.0.1",
+            ci={
+                "available": True,
+                "enabled": True,
+                "base_url": "http://jenkins:9900",
+                "token_env": "JENKINS_TOKEN",
+                "pipeline": "ak3-premerge",
+            },
         )
         assert project.pipeline.sonarqube.enabled is True
 

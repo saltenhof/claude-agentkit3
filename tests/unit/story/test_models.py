@@ -87,9 +87,14 @@ class TestClosureProgress:
             "postflight_done",
         )
 
-    def test_story_branch_push_requires_integrity_passed(self) -> None:
-        with pytest.raises(ValidationError, match="story_branch_pushed"):
-            ClosureProgress(story_branch_pushed=True)
+    def test_story_branch_push_can_precede_integrity_passed(self) -> None:
+        progress = ClosureProgress(story_branch_pushed=True)
+        assert progress.story_branch_pushed is True
+        assert progress.integrity_passed is False
+
+    def test_integrity_passed_requires_story_branch_push(self) -> None:
+        with pytest.raises(ValidationError, match="integrity_passed"):
+            ClosureProgress(integrity_passed=True)
 
     def test_complete_progress_is_valid(self) -> None:
         progress = ClosureProgress(

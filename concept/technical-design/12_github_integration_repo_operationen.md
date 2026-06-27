@@ -19,7 +19,7 @@ defers_to:
     reason: Branch-Guard nutzt Lock-Mechanismus aus FK-02
   - target: FK-29
     scope: closure-sequence
-    reason: Die Closure-Reihenfolge (Pre-Merge-Scan-und-Merge-Block, Integrated-Candidate-Scan vor Push/Merge, Merge-Serialisierungs-Lock) liegt normativ in FK-29 §29.1a; FK-12 ownt nur die einzelnen Git-Mechaniken
+    reason: Die Closure-Reihenfolge (Pre-Merge-Scan-und-Merge-Block, Candidate-Ref-Push vor Jenkins-Scan, Merge-Serialisierungs-Lock) liegt normativ in FK-29 §29.1a; FK-12 ownt nur die einzelnen Git-Mechaniken
 supersedes: []
 superseded_by:
 tags: [github, branching, worktree, merge]

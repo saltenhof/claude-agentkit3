@@ -6,7 +6,7 @@ scan / IntegrityGate (the external boundaries) but with the REAL Finding-
 Resolution-Gate (over the real ``ArtifactManager``), the REAL post-merge
 finalization (with the productive guard-deactivation over the real ``Governance``
 top surface), and the real ``ClosureProgress`` checkpoints. Proves the
-capabilities are WIRED (not just built) and the negative path aborts before push.
+capabilities are WIRED (not just built) and the negative path aborts before main.
 """
 
 from __future__ import annotations
@@ -332,8 +332,8 @@ def test_fix2_deliberate_absence_returns_no_runners(tmp_path: Path) -> None:
     assert config.build_test_port is None
 
 
-def test_e2e_integrity_fail_aborts_before_push(tmp_path: Path) -> None:
-    """AC#1/#3: IntegrityGate FAIL escalates BEFORE any push (no main update)."""
+def test_e2e_integrity_fail_aborts_before_main_update(tmp_path: Path) -> None:
+    """AC#1/#3: IntegrityGate FAIL escalates before any main update."""
     s_dir = _prepare(tmp_path)
     config = ClosureConfig(
         story_dir=s_dir, close_issue=False, story_service=NoOpStoryService()  # type: ignore[arg-type]
@@ -360,7 +360,11 @@ def test_e2e_integrity_fail_aborts_before_push(tmp_path: Path) -> None:
 
     assert result.status == PhaseStatus.ESCALATED
     assert "SONAR_NOT_GREEN" in " ".join(result.errors)
-    assert not any(cmd[:1] == ("push",) for cmd in git.commands)
+    assert not any(
+        cmd[:1] == ("push",)
+        and any(a.startswith("--force-with-lease") for a in cmd)
+        for cmd in git.commands
+    )
     state = load_phase_state(s_dir)
     assert isinstance(state.payload, ClosurePayload)
     assert not state.payload.progress.merge_done

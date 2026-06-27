@@ -230,9 +230,12 @@ class SonarQubeConfig(BaseModel):
         quality_gate: Quality-gate / default-profile reference.
         scanner_version: Expected SonarScanner version for produced
             attestations. FK-33 §33.6.3 names the scanner version as an
-            attestation binding; productive scans run through CI/Jenkins and
-            carry the scanner version from the Jenkins run that produced the
-            analysis. Required when ``available and enabled`` so a produced
+            attestation binding. In the implementation QA-subflow's local
+            report-task adapter this config value is the authoritative scanner
+            version placed on the produced attestation; in Closure pre-merge
+            scans the Jenkins run contributes the measured
+            ``SONAR_SCANNER_VERSION`` and Dim 9 compares it to this configured
+            pin. Required when ``available and enabled`` so a produced
             attestation never carries an empty scanner version (fail-closed).
         accept_frequency_fc_threshold: Fraction of stories (measured across
             ALL stories, never per individual story) at or above which a
@@ -1029,6 +1032,32 @@ class ProjectConfig(BaseModel):
                 "ci.enabled=false (AG3-056 §2.1.6): the pre-merge runner "
                 "precondition cannot be satisfied. Set enabled=true, or declare "
                 "ci.available=false to opt out (runner not applicable)."
+            )
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _validate_sonarqube_requires_ci(self) -> ProjectConfig:
+        """FK-33/FK-29: APPLICABLE Sonar on code stories requires Jenkins CI."""
+        codeproducing = bool(
+            {"implementation", "bugfix"}.intersection(self.story_types)
+        )
+        sonar = self.pipeline.sonarqube
+        ci = self.pipeline.ci
+        if (
+            codeproducing
+            and sonar is not None
+            and sonar.available
+            and sonar.enabled
+            and (ci is None or not ci.available or not ci.enabled)
+        ):
+            msg = (
+                "A code-producing project with sonarqube.available=true and "
+                "sonarqube.enabled=true requires ci.available=true and "
+                "ci.enabled=true: the productive integrated-candidate Sonar "
+                "scan is executed through the Jenkins pre-merge runner "
+                "(FK-29 §29.1a / FK-33 §33.6.3). Declare CI/Jenkins available "
+                "or set sonarqube.available=false for a conscious Sonar opt-out."
             )
             raise ValueError(msg)
         return self

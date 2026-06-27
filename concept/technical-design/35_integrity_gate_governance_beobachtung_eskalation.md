@@ -162,22 +162,25 @@ Dieses Kapitel beschreibt die drei Governance-Mechanismen, die
 Innerhalb des Pre-Merge-Scan-und-Merge-Blocks der Closure-Sequenz
 (FK-29 §29.1a), **unter der Merge-Serialisierungs-Sperre** und
 **unmittelbar nach** dem Integrated-Candidate-Sonar-Scan, der die
-commit-gebundene Attestation erzeugt — und **vor** Push und ff-Merge.
-Das Gate bleibt damit das letzte Gate vor dem Merge, sitzt aber bewusst
-*nach* dem Scan, weil Dimension 9 die frische Attestation des
+commit-gebundene Attestation erzeugt — und **vor** dem ff-/CAS-Update
+von `main`. Der Candidate-Ref-Push auf den Story-/Pre-Merge-Ref liegt
+bereits davor, damit Jenkins genau diesen Commit bauen und scannen kann.
+Das Gate bleibt damit das letzte Gate vor dem Main-Update, sitzt aber
+bewusst *nach* dem Scan, weil Dimension 9 die frische Attestation des
 integrierten Kandidaten verifiziert (§35.2.4a) und nicht eine, die es
 zeitlich noch gar nicht geben kann. Der Phase Runner ruft das
 Integrity-Gate **als Python-Funktion** auf — nicht als Hook. Das Gate
-muss vor dem Merge greifen, damit kein invalidierter Run Code auf Main
-bringt; durch die Position innerhalb der Sperre kann zwischen Gate-PASS
-und ff-Merge keine konkurrierende Main-Bewegung dazwischengrätschen.
+muss vor dem Merge nach `main` greifen, damit kein invalidierter Run
+Code auf Main bringt; durch die Position innerhalb der Sperre kann
+zwischen Gate-PASS und ff-Merge keine konkurrierende Main-Bewegung
+dazwischengrätschen.
 
 **Nicht als Hook auf den Story-Status-Wechsel auf Done:** Das waere zu
 spaet — der Merge waere zu dem Zeitpunkt bereits passiert. Das Gate
 ist ein deterministisches Skript, aufgerufen vom Phase Runner innerhalb
 des gesperrten Blocks (`_phase_closure()` → Lock erwerben → Integrieren →
-Build/Test → Integrated-Candidate-Scan → `check_integrity()` → bei PASS:
-Push → ff-Merge).
+Candidate-Ref pushen → Build/Test → Integrated-Candidate-Scan →
+`check_integrity()` → bei PASS: ff-/CAS-Merge nach `main`).
 
 **Explizite Abgrenzung:** Das Integrity-Gate ist kein allgemeiner
 Live-Guard fuer freien Agenteneinsatz im Projekt. Es existiert nur fuer
