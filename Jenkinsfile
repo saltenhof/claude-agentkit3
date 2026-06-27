@@ -12,13 +12,69 @@ pipeline {
         cron('H * * * *')
     }
 
+    parameters {
+        string(name: 'agentkit_mode', defaultValue: 'ci', description: 'AgentKit pipeline mode')
+        string(name: 'sonar_project_key', defaultValue: 'claude-agentkit3', description: 'CP10d self-test Sonar project key')
+        string(name: 'sonar_branch', defaultValue: 'main', description: 'CP10d self-test Sonar branch')
+    }
+
     environment {
         PYTHONDONTWRITEBYTECODE = '1'
         PYTHONUNBUFFERED = '1'
     }
 
     stages {
+        stage('CP10d Branch Plugin Self-Test') {
+            when {
+                expression { params.agentkit_mode == 'cp10d_branch_plugin_self_test' }
+            }
+            steps {
+                deleteDir()
+                withSonarQubeEnv('agentkit3-sonar') {
+                    sh '''
+                        set -eu
+                        mkdir -p cp10d-fixture
+                        cat > cp10d-fixture/sample.py <<'PY'
+def cp10d_fixture(value):
+    total = 0
+    if value > 0:
+        total += 1
+    if value > 1:
+        total += 1
+    if value > 2:
+        total += 1
+    if value > 3:
+        total += 1
+    if value > 4:
+        total += 1
+    if value > 5:
+        total += 1
+    if value > 6:
+        total += 1
+    if value > 7:
+        total += 1
+    if value > 8:
+        total += 1
+    return total
+PY
+                        SCANNER_VERSION="$(sonar-scanner --version 2>&1 | awk '/SonarScanner/ {print $NF; exit}')"
+                        sonar-scanner \
+                            -Dsonar.projectKey="${sonar_project_key}" \
+                            -Dsonar.projectName="${sonar_project_key}" \
+                            -Dsonar.sources=cp10d-fixture \
+                            -Dsonar.branch.name="${sonar_branch}" \
+                            -Dsonar.qualitygate.wait=true
+                        printf '%s\n' "$SCANNER_VERSION" > .scannerwork/sonar-scanner-version.txt
+                    '''
+                }
+                archiveArtifacts artifacts: '.scannerwork/report-task.txt,.scannerwork/sonar-scanner-version.txt', allowEmptyArchive: false
+            }
+        }
+
         stage('Prepare') {
+            when {
+                expression { params.agentkit_mode != 'cp10d_branch_plugin_self_test' }
+            }
             steps {
                 deleteDir()
                 sh '''
@@ -32,6 +88,9 @@ pipeline {
         }
 
         stage('Setup') {
+            when {
+                expression { params.agentkit_mode != 'cp10d_branch_plugin_self_test' }
+            }
             steps {
                 dir('agentkit-src') {
                     sh '''
@@ -46,6 +105,9 @@ pipeline {
         }
 
         stage('Ruff') {
+            when {
+                expression { params.agentkit_mode != 'cp10d_branch_plugin_self_test' }
+            }
             steps {
                 dir('agentkit-src') {
                     sh '''
@@ -57,6 +119,9 @@ pipeline {
         }
 
         stage('Mypy') {
+            when {
+                expression { params.agentkit_mode != 'cp10d_branch_plugin_self_test' }
+            }
             steps {
                 dir('agentkit-src') {
                     sh '''
@@ -68,6 +133,9 @@ pipeline {
         }
 
         stage('Unit Tests + Coverage') {
+            when {
+                expression { params.agentkit_mode != 'cp10d_branch_plugin_self_test' }
+            }
             steps {
                 dir('agentkit-src') {
                     sh '''
@@ -85,6 +153,9 @@ pipeline {
         }
 
         stage('Postgres Contract + Integration') {
+            when {
+                expression { params.agentkit_mode != 'cp10d_branch_plugin_self_test' }
+            }
             steps {
                 dir('agentkit-src') {
                     sh '''
@@ -177,6 +248,9 @@ PY
         }
 
         stage('Concept Frontmatter Lint') {
+            when {
+                expression { params.agentkit_mode != 'cp10d_branch_plugin_self_test' }
+            }
             steps {
                 dir('agentkit-src') {
                     sh '''
@@ -188,6 +262,9 @@ PY
         }
 
         stage('Formal Spec Compile') {
+            when {
+                expression { params.agentkit_mode != 'cp10d_branch_plugin_self_test' }
+            }
             steps {
                 dir('agentkit-src') {
                     sh '''
@@ -199,6 +276,9 @@ PY
         }
 
         stage('Concept Contract Checks') {
+            when {
+                expression { params.agentkit_mode != 'cp10d_branch_plugin_self_test' }
+            }
             steps {
                 dir('agentkit-src') {
                     sh '''
@@ -211,6 +291,9 @@ PY
         }
 
         stage('LOC Analysis') {
+            when {
+                expression { params.agentkit_mode != 'cp10d_branch_plugin_self_test' }
+            }
             steps {
                 dir('agentkit-src') {
                     sh '''
@@ -225,6 +308,9 @@ PY
         }
 
         stage('SonarQube') {
+            when {
+                expression { params.agentkit_mode != 'cp10d_branch_plugin_self_test' }
+            }
             steps {
                 dir('agentkit-src') {
                     withSonarQubeEnv('agentkit3-sonar') {
@@ -235,6 +321,9 @@ PY
         }
 
         stage('Quality Gate') {
+            when {
+                expression { params.agentkit_mode != 'cp10d_branch_plugin_self_test' }
+            }
             steps {
                 dir('agentkit-src') {
                     withSonarQubeEnv('agentkit3-sonar') {

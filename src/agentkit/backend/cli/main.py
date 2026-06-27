@@ -694,6 +694,7 @@ def _add_register_verify_parsers(
             "registers it at codebase/NAME and clones URL when the directory is absent."
         ),
     )
+    _add_sonar_ci_availability_flags(register_parser)
     register_parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -709,6 +710,31 @@ def _add_register_verify_parsers(
     verify_parser.add_argument("--project-root", required=True)
     verify_parser.add_argument("--github-owner", required=False)
     verify_parser.add_argument("--github-repo", required=False)
+    _add_sonar_ci_availability_flags(verify_parser)
+
+
+def _add_sonar_ci_availability_flags(parser: argparse.ArgumentParser) -> None:
+    """Add the shared Sonar/Jenkins applicability flags to installer commands."""
+    parser.add_argument(
+        "--sonarqube-available",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Declare SonarQube present for this code-producing project "
+            "(FK-03 §3 default). Use --no-sonarqube-available only for the "
+            "conscious opt-out."
+        ),
+    )
+    parser.add_argument(
+        "--ci-available",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Declare a CI (Jenkins) pre-merge runner present for this "
+            "code-producing project. Use --no-ci-available only for the "
+            "conscious opt-out."
+        ),
+    )
 
 
 def _build_engine_config(args: argparse.Namespace) -> object | None:
@@ -744,9 +770,8 @@ def _build_engine_config(args: argparse.Namespace) -> object | None:
         # CP 2 probes the live GitHub repo via the productive gh probe (FK-50
         # §50.3 CP 2 / §50.6); a missing/unreachable repo FAILs closed.
         repo_existence_probe=GhCliRepoExistenceProbe(),
-        # The engine boundary controls do not provision live Sonar/CI here.
-        sonarqube_available=False,
-        ci_available=False,
+        sonarqube_available=bool(getattr(args, "sonarqube_available", True)),
+        ci_available=bool(getattr(args, "ci_available", True)),
     )
 
 
@@ -799,6 +824,7 @@ def _cmd_register_project(args: argparse.Namespace) -> int:
     config = _build_engine_config(args)
     if config is None:
         return 1
+    _wire_live_install_integrations(config)  # type: ignore[arg-type]
     mode = ExecutionMode.DRY_RUN if args.dry_run else ExecutionMode.REGISTER
     try:
         result = run_checkpoint_install(config, mode=mode)  # type: ignore[arg-type]
@@ -825,6 +851,7 @@ def _cmd_verify_project(args: argparse.Namespace) -> int:
     config = _build_engine_config(args)
     if config is None:
         return 1
+    _wire_live_install_integrations(config)  # type: ignore[arg-type]
     try:
         result = run_checkpoint_install(config, mode=ExecutionMode.VERIFY)  # type: ignore[arg-type]
     except ProjectError as exc:

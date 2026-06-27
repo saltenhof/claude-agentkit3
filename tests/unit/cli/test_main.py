@@ -711,6 +711,54 @@ class TestCLIMain:
         assert "version:" in captured.out
         assert "git:" in captured.out
 
+    def test_register_project_engine_config_keeps_sonar_ci_available_by_default(
+        self, tmp_path: Path
+    ) -> None:
+        from agentkit.backend.cli.main import _build_engine_config
+
+        cfg = _build_engine_config(
+            SimpleNamespace(
+                project_key="ak3",
+                project_name="AgentKit 3",
+                project_root=str(tmp_path),
+                github_owner="saltenhof",
+                github_repo="claude-agentkit3",
+                default_project_structure=True,
+                multi_repo=False,
+                code_repo=[],
+                sonarqube_available=True,
+                ci_available=True,
+            )
+        )
+
+        assert cfg is not None
+        assert cfg.sonarqube_available is True
+        assert cfg.ci_available is True
+
+    def test_register_project_engine_config_requires_explicit_sonar_ci_opt_out(
+        self, tmp_path: Path
+    ) -> None:
+        from agentkit.backend.cli.main import _build_engine_config
+
+        cfg = _build_engine_config(
+            SimpleNamespace(
+                project_key="ak3",
+                project_name="AgentKit 3",
+                project_root=str(tmp_path),
+                github_owner="saltenhof",
+                github_repo="claude-agentkit3",
+                default_project_structure=True,
+                multi_repo=False,
+                code_repo=[],
+                sonarqube_available=False,
+                ci_available=False,
+            )
+        )
+
+        assert cfg is not None
+        assert cfg.sonarqube_available is False
+        assert cfg.ci_available is False
+
     @pytest.mark.skipif(
         not _LINKS_AVAILABLE,
         reason="Filesystem supports neither symlinks nor directory junctions",

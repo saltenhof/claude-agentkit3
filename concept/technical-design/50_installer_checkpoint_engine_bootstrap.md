@@ -554,8 +554,9 @@ im Normalfall **nicht** auf dem Installer-Rechner vorausgesetzt. CP 10d nutzt
 den konfigurierten operativen Scan-Ausfuehrungspfad: Bei `ci.available: true`
 triggert der Installer den Jenkins-Pipeline-Job im CP10d-Self-Test-Modus; der
 Jenkins-Agent fuehrt den SonarScanner aus und archiviert
-`.scannerwork/report-task.txt` und traegt die tatsaechliche Scanner-Version als
-`SONAR_SCANNER_VERSION` in den Jenkins-Run ein. Fehlt der
+`.scannerwork/report-task.txt` sowie einen Scanner-Version-Nachweis
+(`.scannerwork/sonar-scanner-version.txt`, alternativ ein vom Jenkins-Run
+exponierter `SONAR_SCANNER_VERSION`-Wert). Fehlt der
 Jenkins-Client/Pipeline-Zugriff, liefert der Job keine auswertbare Analyse oder
 keinen Scanner-Version-Nachweis, ist das ein fail-closed CP-10d-Fehler. Ein
 lokaler Scanner ist nur ein explizit injizierbarer Dev-/Test-Fallback, keine
@@ -586,13 +587,15 @@ muss einen Modus `agentkit_mode=cp10d_branch_plugin_self_test` unterstuetzen.
 Der Installer triggert pro Scan den Job mit `sonar_project_key` und
 `sonar_branch`; der Job scannt eine kleine, im Job/Checkout verfuegbare Fixture
 gegen genau dieses Projekt und diesen Branch, setzt `sonar.qualitygate.wait=true`,
-archiviert `.scannerwork/report-task.txt` und traegt nach dem Scan die reale
-Scanner-Version des ausgefuehrten Binaries als `SONAR_SCANNER_VERSION` in den
-Jenkins-Run ein. AgentKit liest den `ceTaskId` aus diesem Artefakt, loest die
-konkrete Analyse ueber SonarQube auf und prueft Branch-Sichtbarkeit,
-Accepted-Verhalten, Scanner-Version-Nachweis und Quality Gate ueber diese
-Analyse. Eine Fixture ohne Issues ist kein bestandener Self-Test, weil dann die
-Accepted-Inheritance-Schritte nicht wirklich ausgefuehrt wurden.
+archiviert `.scannerwork/report-task.txt` und archiviert die reale
+Scanner-Version des ausgefuehrten Binaries als
+`.scannerwork/sonar-scanner-version.txt` (oder exponiert sie aequivalent als
+`SONAR_SCANNER_VERSION` im Jenkins-Run). AgentKit liest den `ceTaskId` aus dem
+Report-Task-Artefakt, loest die konkrete Analyse ueber SonarQube auf und prueft
+Branch-Sichtbarkeit, Accepted-Verhalten, Scanner-Version-Nachweis und Quality
+Gate ueber diese Analyse. Eine Fixture ohne Issues ist kein bestandener
+Self-Test, weil dann die Accepted-Inheritance-Schritte nicht wirklich ausgefuehrt
+wurden.
 Damit testet CP 10d denselben operativen Boundary-Typ wie spaetere
 Pre-Merge-Scans: Jenkins erzeugt die Analyse, AgentKit verifiziert die
 Attestation.

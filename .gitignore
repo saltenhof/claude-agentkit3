@@ -65,3 +65,10 @@ Thumbs.db
 
 # Local launcher helpers
 start-claude-*.cmd
+
+# AgentKit default project scaffold
+/temp/
+
+# AgentKit skill bind points — links to central bundles (FK-43 §43.4.1.1)
+.claude/skills/
+.codex/skills/

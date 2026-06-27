@@ -45,6 +45,11 @@ def test_trigger_build_returns_location_header(
 
     def _fake_urlopen(request: Any, timeout: int = 0) -> _FakeResponse:  # noqa: ARG001
         captured.append(request.full_url)
+        if "crumbIssuer" in request.full_url:
+            return _FakeResponse(
+                json.dumps({"crumbRequestField": "Jenkins-Crumb", "crumb": "abc"}),
+                headers={"Set-Cookie": "JSESSIONID=node; Path=/"},
+            )
         return _FakeResponse(
             "", status=201, headers={"Location": "http://jenkins/queue/item/5/"}
         )
@@ -56,7 +61,33 @@ def test_trigger_build_returns_location_header(
     )
     assert response.status_code == 201
     assert response.headers["location"] == "http://jenkins/queue/item/5/"
-    assert "buildWithParameters" in captured[0]
+    assert "crumbIssuer" in captured[0]
+    assert "buildWithParameters" in captured[1]
+
+
+def test_trigger_build_sends_crumb_and_cookie_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    post_headers: dict[str, str] = {}
+
+    def _fake_urlopen(request: Any, timeout: int = 0) -> _FakeResponse:  # noqa: ARG001
+        if "crumbIssuer" in request.full_url:
+            return _FakeResponse(
+                json.dumps({"crumbRequestField": "Jenkins-Crumb", "crumb": "abc"}),
+                headers={"Set-Cookie": "JSESSIONID=node; Path=/"},
+            )
+        post_headers.update(dict(request.header_items()))
+        return _FakeResponse(
+            "", status=201, headers={"Location": "http://jenkins/queue/item/5/"}
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+    client = JenkinsClient("http://jenkins:8080", "tok", user="ak3")
+
+    client.trigger_build("ak3-pre-merge", parameters={"branch": "b"})
+
+    assert post_headers["Jenkins-crumb"] == "abc"
+    assert post_headers["Cookie"] == "JSESSIONID=node"
 
 
 def test_trigger_build_non_201_fails_closed(

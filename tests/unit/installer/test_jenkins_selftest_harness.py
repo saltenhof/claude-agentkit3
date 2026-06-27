@@ -16,6 +16,8 @@ from agentkit.integration_clients.sonar import SonarHttpResponse
 class _FakeJenkins:
     result: str = "SUCCESS"
     report_task: str = "projectKey=ak3-selftest\nceTaskId=ce-1\n"
+    scanner_version: str = "5.0.1"
+    expose_scanner_version_action: bool = True
     triggered: list[dict[str, str]] = field(default_factory=list)
 
     def trigger_build(
@@ -36,19 +38,26 @@ class _FakeJenkins:
 
     def build_status(self, pipeline: str, build_number: int) -> JenkinsHttpResponse:
         del pipeline, build_number
+        actions = (
+            [{"SONAR_SCANNER_VERSION": self.scanner_version}]
+            if self.expose_scanner_version_action
+            else []
+        )
         return JenkinsHttpResponse(
             status_code=200,
             json_body={
                 "building": False,
                 "result": self.result,
-                "actions": [{"SONAR_SCANNER_VERSION": "5.0.1"}],
+                "actions": actions,
             },
         )
 
     def build_artifact(
         self, pipeline: str, build_number: int, artifact_path: str
     ) -> JenkinsHttpResponse:
-        del pipeline, build_number, artifact_path
+        del pipeline, build_number
+        if artifact_path == ".scannerwork/sonar-scanner-version.txt":
+            return JenkinsHttpResponse(status_code=200, text_body=self.scanner_version)
         return JenkinsHttpResponse(status_code=200, text_body=self.report_task)
 
 
@@ -140,3 +149,16 @@ def test_jenkins_harness_fails_conformance_on_failed_build() -> None:
 
     assert run_branch_plugin_conformance_self_test(sonar, harness) is False  # type: ignore[arg-type]
     assert sonar.deleted == ["ak3-branch-plugin-conformance-selftest"]
+
+
+def test_jenkins_harness_accepts_scanner_version_artifact() -> None:
+    sonar = _FakeSonar()
+    jenkins = _FakeJenkins(expose_scanner_version_action=False)
+    harness = JenkinsBranchPluginSelfTestHarness(
+        sonar_client=sonar,  # type: ignore[arg-type]
+        jenkins_client=jenkins,  # type: ignore[arg-type]
+        pipeline="ak3-pre-merge",
+        sleep=lambda _seconds: None,
+    )
+
+    assert run_branch_plugin_conformance_self_test(sonar, harness) is True  # type: ignore[arg-type]

@@ -578,8 +578,10 @@ SUCCESS" ist noch kein gatebarer Zustand. Das Gate liest deshalb **nie** bloss
 konkrete Analyse (produktiver Scanner-Lauf via CI/Jenkins mit
 `sonar.qualitygate.wait=true`, QG-Status per
 `analysisId`/`ceTaskId`; der Jenkins-Run muss die tatsaechliche Scanner-Version
-als `SONAR_SCANNER_VERSION` beitragen, weil SonarQube diese Version nicht an der
-Analyse speichert). Das Ergebnis ist eine **Attestation**, gebunden an
+als Run-Evidence beitragen, z. B. ueber ein archiviertes
+`.scannerwork/sonar-scanner-version.txt` oder einen exponierten
+`SONAR_SCANNER_VERSION`-Wert, weil SonarQube diese Version nicht an der Analyse
+speichert). Das Ergebnis ist eine **Attestation**, gebunden an
 `commit_sha`, `tree_hash`, `analysisId`, den Quality-Gate-/Quality-Profile-Hash
 und die Versionen (SonarQube, Branch-Plugin, Scanner), und gilt nur für genau
 diesen Zustand. So sind Stale-Reads ausgeschlossen (Sonar grün für Commit `M1`,

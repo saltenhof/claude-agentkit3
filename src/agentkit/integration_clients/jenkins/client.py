@@ -102,6 +102,9 @@ class JenkinsClient:
         self._token = token
         self._user = user
         self._timeout = timeout_seconds
+        self._crumb_header: tuple[str, str] | None = None
+        self._crumb_cookie: str | None = None
+        self._crumb_checked = False
 
     def trigger_build(
         self, pipeline: str, *, parameters: Mapping[str, str]
@@ -181,7 +184,33 @@ class JenkinsClient:
         url = f"{self._base_url}/{path}"
         request = urllib.request.Request(url, data=data, method="POST")
         request.add_header("Content-Type", "application/x-www-form-urlencoded")
+        self._add_crumb_headers(request)
         return self._send(request, parse_json=False)
+
+    def _add_crumb_headers(self, request: urllib.request.Request) -> None:
+        """Attach Jenkins CSRF crumb evidence to POST requests when available."""
+        self._ensure_crumb()
+        if self._crumb_header is not None:
+            name, value = self._crumb_header
+            request.add_header(name, value)
+        if self._crumb_cookie:
+            request.add_header("Cookie", self._crumb_cookie)
+
+    def _ensure_crumb(self) -> None:
+        if self._crumb_checked:
+            return
+        self._crumb_checked = True
+        try:
+            response = self._get("crumbIssuer/api/json", {})
+        except JenkinsApiError:
+            return
+        field = response.json_body.get("crumbRequestField")
+        crumb = response.json_body.get("crumb")
+        if isinstance(field, str) and field and isinstance(crumb, str) and crumb:
+            self._crumb_header = (field, crumb)
+        cookie = _first_cookie(response.headers.get("set-cookie", ""))
+        if cookie:
+            self._crumb_cookie = cookie
 
     def _send(
         self, request: urllib.request.Request, *, parse_json: bool
@@ -235,6 +264,12 @@ def _parse_json(raw: str, url: str) -> dict[str, Any]:
             detail={"url": url},
         )
     return parsed
+
+
+def _first_cookie(raw: str) -> str:
+    if not raw:
+        return ""
+    return raw.split(";", 1)[0].strip()
 
 
 __all__ = ["JenkinsApiError", "JenkinsClient", "JenkinsHttpResponse"]

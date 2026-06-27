@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
 _ACCEPTED_RESOLUTIONS = "ACCEPTED,WONTFIX,FALSE-POSITIVE"
 _REPORT_TASK_ARTIFACT = ".scannerwork/report-task.txt"
+_SCANNER_VERSION_ARTIFACT = ".scannerwork/sonar-scanner-version.txt"
 _SELFTEST_MODE = "cp10d_branch_plugin_self_test"
 _CE_TERMINAL = frozenset({"SUCCESS", "FAILED", "CANCELED"})
 
@@ -72,6 +73,8 @@ class JenkinsBranchPluginSelfTestHarness:
                 f"finished with result {status.get('result')!r}",
             )
         scanner_version = _scanner_version_from_status(status)
+        if not scanner_version:
+            scanner_version = self._read_scanner_version(build_number)
         if not scanner_version:
             raise JenkinsApiError(
                 f"Jenkins CP10d self-test build {self.pipeline}#{build_number} "
@@ -183,6 +186,12 @@ class JenkinsBranchPluginSelfTestHarness:
             self.pipeline, build_number, _REPORT_TASK_ARTIFACT
         )
         return _parse_report_task(response.text_body)
+
+    def _read_scanner_version(self, build_number: int) -> str:
+        response = self.jenkins_client.build_artifact(
+            self.pipeline, build_number, _SCANNER_VERSION_ARTIFACT
+        )
+        return response.text_body.strip()
 
     def _resolve_analysis_id(self, ce_task_id: str) -> str:
         deadline = self.monotonic() + self.poll_timeout_seconds

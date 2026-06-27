@@ -1,0 +1,22 @@
+{
+  "agent_spawn_skill_proof": "3cfa4772e9b8cb844112431730dd9ba657e8fb04de664bfad36bf8403471135f",
+  "authorized_prompt_paths": [
+    "internal/prompts/doc-fidelity-feedback.md",
+    "internal/prompts/qa-adversarial-review.md",
+    "internal/prompts/qa-conformance-design.md",
+    "internal/prompts/qa-conformance-feedback.md",
+    "internal/prompts/qa-conformance-goal.md",
+    "internal/prompts/qa-doc-fidelity.md",
+    "internal/prompts/qa-review.md",
+    "internal/prompts/qa-semantic-review.md",
+    "internal/prompts/review-preflight.md",
+    "internal/prompts/vectordb-conflict.md",
+    "internal/prompts/worker-bugfix.md",
+    "internal/prompts/worker-concept.md",
+    "internal/prompts/worker-exploration.md",
+    "internal/prompts/worker-implementation.md",
+    "internal/prompts/worker-remediation.md",
+    "internal/prompts/worker-research.md"
+  ],
+  "template_manifest_hash": "9807806626ad0b2aeadfa55dae337fe3765eddde02c4ea3973911084b4898a21"
+}
