@@ -10,6 +10,7 @@ from agentkit.backend.exceptions import ProjectError
 from agentkit.backend.installer.runner import (
     InstallConfig,
     _build_repo_entries,
+    _ensure_default_scaffold_gitkeep,
     _materialize_scaffold_repo_dir,
 )
 
@@ -38,6 +39,40 @@ def test_single_repo_default_uses_codebase_without_subdir() -> None:
     config = _config(default_project_structure=True)
 
     assert _build_repo_entries(config) == [{"name": "app", "path": "codebase"}]
+
+
+def test_single_repo_default_scaffold_tracks_empty_persistent_dirs(
+    tmp_path: Path,
+) -> None:
+    config = _config(default_project_structure=True)
+
+    changed = _ensure_default_scaffold_gitkeep(config, tmp_path)
+
+    normalized = sorted(path.replace("\\", "/") for path in changed)
+    assert normalized == [
+        "codebase/.gitkeep",
+        "concepts/.gitkeep",
+        "guardrails/.gitkeep",
+        "input/.gitkeep",
+        "input/_meetings/.gitkeep",
+        "stories/.gitkeep",
+    ]
+    assert not (tmp_path / "temp" / ".gitkeep").exists()
+
+
+def test_multi_repo_default_scaffold_does_not_track_codebase_root(
+    tmp_path: Path,
+) -> None:
+    config = _config(
+        default_project_structure=True,
+        multi_repo=True,
+        repositories=[{"name": "frontend", "path": "codebase/frontend"}],
+    )
+
+    changed = _ensure_default_scaffold_gitkeep(config, tmp_path)
+
+    assert "codebase/.gitkeep" not in {path.replace("\\", "/") for path in changed}
+    assert (tmp_path / "concepts" / ".gitkeep").is_file()
 
 
 def test_existing_git_repo_dir_is_skipped(tmp_path: Path) -> None:

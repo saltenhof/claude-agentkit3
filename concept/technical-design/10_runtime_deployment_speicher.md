@@ -292,6 +292,11 @@ nicht automatisch.
   agenten- oder menschengetriebene Zwischenstände gedacht, die über
   mehrere Sessions nützlich sein können, aber keinen normativen
   Persistenzanspruch haben.
+- Leere, versionierbare Scaffold-Ordner muessen durch einen neutralen
+  Platzhalter (`.gitkeep`) materialisiert werden, damit die Default-
+  Struktur auch in Git sichtbar bleibt. Das gilt fuer `concepts/`,
+  `guardrails/`, `input/`, `input/_meetings/`, `stories/` und im
+  Single-Repo-Modus fuer `codebase/`. `temp/` erhaelt keinen Platzhalter.
 
 **Repository-Anbindung:** Der Installer muss beim Default-Scaffold den
 Repository-Modus ermitteln: `single_repo` oder `multi_repo`. Im

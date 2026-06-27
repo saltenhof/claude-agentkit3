@@ -44,7 +44,7 @@ invariants:
     rule: the FK-10 default project scaffold is disabled by default and may be created only when the operator explicitly enables default_project_structure
   - id: installer.invariant.default_scaffold_gitignore_policy
     scope: filesystem
-    rule: in the default scaffold, temp/ must be ignored by the root repository and codebase/ must be ignored exactly in multi_repo mode; codebase/ must remain trackable in single_repo mode
+    rule: in the default scaffold, temp/ must be ignored by the root repository and codebase/ must be ignored exactly in multi_repo mode; codebase/ must remain trackable in single_repo mode; empty persistent scaffold directories must carry neutral .gitkeep placeholders so the intended layout is visible in Git, while temp/ must not carry such a placeholder
   - id: installer.invariant.multi_repo_requires_explicit_repositories
     scope: filesystem
     rule: multi_repo mode requires explicit code repository declarations and must not invent synthetic repository names or paths such as codebase/app

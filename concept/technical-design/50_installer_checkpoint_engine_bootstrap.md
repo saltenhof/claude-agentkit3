@@ -265,6 +265,12 @@ Installer den Repository-Modus als `multi_repo` ermittelt hat. Im
 Source-Bereich des Root-Repositories und darf nicht ignoriert werden.
 `concepts/`, `guardrails/`, `input/` und `stories/` bleiben
 versionierbare Projektinhalte.
+Damit diese leeren Ordner in einem frisch angelegten Projekt auch in Git
+sichtbar bleiben, legt CP 5 in versionierbaren Default-Scaffold-Ordnern
+einen neutralen `.gitkeep`-Platzhalter an: `concepts/`, `guardrails/`,
+`input/`, `input/_meetings/`, `stories/` und im `single_repo`-Modus
+`codebase/`. `temp/` bleibt ohne Platzhalter, weil es explizit keinen
+Persistenzanspruch hat und ignoriert wird.
 
 Dieser opt-in Scaffold ist ein eigener formaler Carve-out zur
 Installer-Scope-Invariante `project_local_scope_is_config_and_link_only`.

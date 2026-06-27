@@ -1208,6 +1208,7 @@ def _bind_mandatory_skills(config: InstallConfig, root: Path) -> None:
 #: project_local_repo_never_contains_canonical_skill_source).
 _LINK_BINDPOINT_GITIGNORE_ENTRIES: tuple[str, ...] = (".claude/skills/", ".codex/skills/")
 _PYTHON_CACHE_GITIGNORE_ENTRIES: tuple[str, ...] = ("__pycache__/", "*.py[cod]")
+_GITKEEP_FILENAME = ".gitkeep"
 
 
 def _ensure_link_bindpoint_gitignore(root: Path) -> str | None:
@@ -1304,6 +1305,38 @@ def _create_missing_dirs(root: Path, directories: list[Path]) -> list[str]:
     return created
 
 
+def _default_scaffold_tracked_dirs(config: InstallConfig, root: Path) -> list[Path]:
+    tracked = [
+        root / CONCEPTS_DIR,
+        root / INPUT_DIR,
+        root / MEETINGS_DIR,
+        root / GUARDRAILS_DIR,
+        stories_dir(root),
+    ]
+    if not _effective_multi_repo(config):
+        tracked.append(root / CODEBASE_DIR)
+    return tracked
+
+
+def _ensure_default_scaffold_gitkeep(config: InstallConfig, root: Path) -> list[str]:
+    """Track empty, persistent default-scaffold directories in Git.
+
+    Git does not version directories by themselves. FK-10 marks concepts/,
+    guardrails/, input/, stories/ and single-repo codebase/ as persistent
+    project content, so an empty new project needs placeholders there. temp/ is
+    intentionally excluded because it has no persistence claim and is gitignored.
+    """
+    changed: list[str] = []
+    for directory in _default_scaffold_tracked_dirs(config, root):
+        directory.mkdir(parents=True, exist_ok=True)
+        marker = directory / _GITKEEP_FILENAME
+        if marker.exists():
+            continue
+        marker.write_text("", encoding="utf-8")
+        changed.append(str(marker.relative_to(root)))
+    return changed
+
+
 def _is_empty_dir(path: Path) -> bool:
     return path.is_dir() and next(path.iterdir(), None) is None
 
@@ -1392,6 +1425,7 @@ def scaffold_project_structure(config: InstallConfig, root: Path) -> list[str]:
     if config.default_project_structure:
         created.extend(_create_missing_dirs(root, _default_scaffold_base_dirs(root)))
         created.extend(_materialize_scaffold_repo_dirs(config, root))
+        created.extend(_ensure_default_scaffold_gitkeep(config, root))
         gitignore_rel = _ensure_default_scaffold_gitignore(config, root)
         if gitignore_rel is not None and gitignore_rel not in created:
             created.append(gitignore_rel)
