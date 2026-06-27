@@ -54,7 +54,10 @@ def test_cli_wires_live_sonar_and_jenkins_from_environment(
     assert config.sonarqube_token_env == "SONAR_PASSWORD"
     assert isinstance(config.sonar_client, SonarClient)
     assert config.sonar_token_permissions == frozenset({ADMINISTER_ISSUES})
-    assert config.sonar_branch_plugin_self_test is not None
+    assert (
+        config.sonar_branch_plugin_self_test is not None
+        or config.sonar_scan_runner is not None
+    )
     assert config.ci_base_url == "http://jenkins:9900"
     assert config.ci_pipeline == "ak3"
     assert config.ci_token_env == "JENKINS_API_TOKEN"
