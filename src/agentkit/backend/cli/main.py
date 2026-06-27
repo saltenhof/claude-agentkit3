@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime
 
     from agentkit.backend.verify_system.evidence import RepoContext
@@ -615,7 +616,7 @@ def _build_engine_config(args: argparse.Namespace) -> object | None:
     )
 
 
-def _parse_code_repo_args(raw_values: object) -> list[dict[str, str]] | None:
+def _parse_code_repo_args(raw_values: Sequence[str] | None) -> list[dict[str, str]] | None:
     values = list(raw_values or [])
     repositories: list[dict[str, str]] = []
     for raw in values:
