@@ -1206,16 +1206,18 @@ def _bind_mandatory_skills(config: InstallConfig, root: Path) -> None:
 #: content (FK-43 §43.4.1.1, invariant
 #: project_local_repo_never_contains_canonical_skill_source).
 _LINK_BINDPOINT_GITIGNORE_ENTRIES: tuple[str, ...] = (".claude/skills/", ".codex/skills/")
+_PYTHON_CACHE_GITIGNORE_ENTRIES: tuple[str, ...] = ("__pycache__/", "*.py[cod]")
 
 
 def _ensure_link_bindpoint_gitignore(root: Path) -> str | None:
     """Idempotently git-ignore the harness link bind points in *root*.
 
-    Appends ``.claude/skills/`` and ``.codex/skills/`` to ``{root}/.gitignore``
-    (creating the file if absent). Git and backups follow a junction, so a bound
-    bind point would otherwise commit the central bundle content into the project
-    repo (FK-43 §43.4.1.1). Only the ``skills`` subdir is ignored — sibling
-    harness config such as ``.claude/settings.json`` stays tracked.
+    Appends ``.claude/skills/`` and ``.codex/skills/`` plus Python cache
+    artefacts to ``{root}/.gitignore`` (creating the file if absent). Git and
+    backups follow a junction, so a bound bind point would otherwise commit the
+    central bundle content into the project repo (FK-43 §43.4.1.1). Only the
+    ``skills`` subdir is ignored — sibling harness config such as
+    ``.claude/settings.json`` stays tracked.
 
     Returns:
         The project-relative ``.gitignore`` path when it was created or modified,
@@ -1229,7 +1231,8 @@ def _ensure_link_bindpoint_gitignore(root: Path) -> str | None:
     if gitignore_path.is_file():
         existing_lines = gitignore_path.read_text(encoding="utf-8").splitlines()
     present = {_norm(line) for line in existing_lines}
-    missing = [e for e in _LINK_BINDPOINT_GITIGNORE_ENTRIES if _norm(e) not in present]
+    required = (*_LINK_BINDPOINT_GITIGNORE_ENTRIES, *_PYTHON_CACHE_GITIGNORE_ENTRIES)
+    missing = [entry for entry in required if _norm(entry) not in present]
     if not missing:
         return None
 

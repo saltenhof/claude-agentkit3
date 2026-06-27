@@ -7,6 +7,7 @@ runs for real.
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 import urllib.error
@@ -50,6 +51,20 @@ def test_project_status_uses_analysis_id(captured_urls: list[str]) -> None:
     assert response.status_code == 200
     assert "analysisId=AX-1" in captured_urls[0]
     assert "qualitygates/project_status" in captured_urls[0]
+
+
+def test_user_password_auth_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, str] = {}
+
+    def _fake_urlopen(request: Any, timeout: int = 0) -> _FakeResponse:  # noqa: ARG001
+        seen["authorization"] = request.get_header("Authorization")
+        return _FakeResponse(json.dumps({"version": "26.4"}))
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+    client = SonarClient("http://sonar:9901", "secret", user="admin")
+    client.system_status()
+    expected = base64.b64encode(b"admin:secret").decode()
+    assert seen["authorization"] == f"Basic {expected}"
 
 
 def test_project_analyses_search_builds_url(captured_urls: list[str]) -> None:

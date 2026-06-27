@@ -77,6 +77,7 @@ class SonarClient:
         base_url: str,
         token: str,
         *,
+        user: str = "",
         timeout_seconds: int = _DEFAULT_TIMEOUT_SECONDS,
     ) -> None:
         """Initialise the client.
@@ -84,10 +85,13 @@ class SonarClient:
         Args:
             base_url: SonarQube server base URL (e.g. ``http://host:9901``).
             token: Sonar auth token (resolved from the secret store/env).
+            user: Optional Sonar user for local username/password setups. Empty
+                keeps the token-style ``<token>:`` authentication.
             timeout_seconds: Per-request timeout.
         """
         self._base_url = base_url.rstrip("/")
         self._token = token
+        self._user = user
         self._timeout = timeout_seconds
 
     def project_status(
@@ -258,7 +262,8 @@ class SonarClient:
         return self._send(request)
 
     def _send(self, request: urllib.request.Request) -> SonarHttpResponse:
-        basic = base64.b64encode(f"{self._token}:".encode()).decode()
+        credential = f"{self._user}:{self._token}" if self._user else f"{self._token}:"
+        basic = base64.b64encode(credential.encode()).decode()
         request.add_header("Authorization", f"Basic {basic}")
         try:
             with urllib.request.urlopen(request, timeout=self._timeout) as response:

@@ -696,14 +696,18 @@ class TestCLIMain:
         }
 
     def test_doctor_command(
-        self, capsys: pytest.CaptureFixture[str],
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """``doctor`` subcommand returns 0 and prints diagnostics."""
-        exit_code = main(["doctor"])
+        exit_code = main(["doctor", "--project-root", str(tmp_path)])
 
         assert exit_code == 0
         captured = capsys.readouterr()
         assert "AgentKit Doctor" in captured.out
+        assert "project root:" in captured.out
+        assert "project config:" in captured.out
         assert "version:" in captured.out
         assert "git:" in captured.out
 

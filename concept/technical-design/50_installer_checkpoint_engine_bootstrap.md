@@ -525,6 +525,17 @@ deklariertem, aber nicht durchsetzbarem Gate zuzulassen. „Abwesend ≠ kaputt"
 
 Fehlt eines davon → **FAILED, Installation abbrechen**.
 
+Der CLI-Installer ist die produktive Kompositionsgrenze fuer diese
+Vorbedingungen. Ein normaler `agentkit install` darf nicht darauf angewiesen
+sein, dass Tests `sonar_client`, `ci_client` oder einen
+Branch-Plugin-Self-Test injizieren. Er konsumiert lokale Secret-/Env-Werte
+(`SONAR_URL`, `SONAR_USER`, `SONAR_PASSWORD` oder `SONARQUBE_TOKEN` /
+`SONAR_TOKEN`, `JENKINS_URL`, `JENKINS_USER`, `JENKINS_API_TOKEN` /
+`JENKINS_PASSWORD`) und baut daraus die produktiven Adapter. Fehlt fuer
+`sonarqube.available: true` der operative `sonar-scanner` auf dem `PATH`, ist
+das kein stiller Opt-out, sondern ein fail-closed CP-10d-Fehler: Der
+Branch-Plugin-Conformance-Self-Test kann dann nicht ausgefuehrt werden.
+
 **2. Branch-Plugin-Conformance-Self-Test (Pflicht):**
 
 Das Community Branch Plugin ist **inoffiziell**. Es ist nur dann

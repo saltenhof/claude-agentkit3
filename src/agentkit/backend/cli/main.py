@@ -5,17 +5,24 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
+from urllib.parse import urlsplit, urlunsplit
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime
 
+    from agentkit.backend.installer.integration_checkpoints.sonar_preflight import (
+        BranchPluginSelfTest,
+    )
+    from agentkit.backend.installer.runner import InstallConfig
     from agentkit.backend.verify_system.evidence import RepoContext
     from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
+    from agentkit.integration_clients.sonar import SonarClient
 
 #: Shared ``--story`` help label, reused across the story-scoped subcommands.
 _STORY_ID_FIELD_LABEL = "Story ID"
@@ -239,8 +246,13 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     # doctor (health check)
-    subparsers.add_parser(
+    doctor_parser = subparsers.add_parser(
         "doctor", help="Check AgentKit installation health",
+    )
+    doctor_parser.add_argument(
+        "--project-root",
+        default=".",
+        help=_PROJECT_ROOT_HELP,
     )
     control_plane_parser = subparsers.add_parser(
         "serve-control-plane",
@@ -328,7 +340,7 @@ def _dispatch_command(
         "split-story": lambda: _cmd_split_story(args, cli_args),
         "reset-story": lambda: _cmd_reset_story(args),
         "exit-story": lambda: _cmd_exit_story(args, cli_args),
-        "doctor": lambda: _cmd_doctor(),
+        "doctor": lambda: _cmd_doctor(args),
         "serve-control-plane": lambda: _cmd_serve_control_plane(args),
         "export-story-md": lambda: _cmd_export_story_md(args),
         "repair-story-md": lambda: _cmd_repair_story_md(args),
@@ -485,6 +497,7 @@ def _cmd_install(args: argparse.Namespace) -> int:
         # conscious opt-out. The CI preflight then verifies fail-closed or SKIPs.
         ci_available=args.ci_available,
     )
+    _wire_live_install_integrations(config)
     try:
         result = install_agentkit(config)
     except InstallationError as exc:
@@ -502,6 +515,129 @@ def _cmd_install(args: argparse.Namespace) -> int:
 
     print(f"Install failed: {'; '.join(result.errors)}", file=sys.stderr)
     return 1
+
+
+def _wire_live_install_integrations(config: InstallConfig) -> None:
+    """Attach productive Sonar/Jenkins clients for CLI installs when configured.
+
+    The installer preflight checks are intentionally fail-closed. The CLI is the
+    production composition boundary for a normal ``agentkit install`` invocation,
+    so it must build the live adapters from environment/secret-store variables
+    instead of relying on tests to inject them.
+    """
+    _wire_sonar_install_integration(config)
+    _wire_ci_install_integration(config)
+
+
+def _wire_sonar_install_integration(config: InstallConfig) -> None:
+    if not bool(getattr(config, "sonarqube_available", False)):
+        return
+
+    sonar_url = os.environ.get("SONAR_URL")
+    if sonar_url:
+        config.sonarqube_base_url = sonar_url.rstrip("/")
+
+    token_env = _first_present_env_name(
+        "SONARQUBE_TOKEN",
+        "SONAR_TOKEN",
+        "SONAR_PASSWORD",
+    )
+    if token_env is not None:
+        config.sonarqube_token_env = token_env
+
+    base_url = str(config.sonarqube_base_url or "")
+    resolved_token_env = str(config.sonarqube_token_env or "")
+    token = os.environ.get(resolved_token_env, "")
+    if base_url and token:
+        from agentkit.integration_clients.sonar import SonarClient
+
+        sonar_user = os.environ.get("SONAR_USER", "")
+        config.sonar_client = SonarClient(base_url, token, user=sonar_user)
+        if sonar_user.lower() == "admin":
+            from agentkit.backend.installer.integration_checkpoints.sonar_preflight import (
+                ADMINISTER_ISSUES,
+            )
+
+            config.sonar_token_permissions = frozenset({ADMINISTER_ISSUES})
+
+    if shutil.which("sonar-scanner") is not None:
+        # A productive scanner runner is the remaining operational boundary for
+        # the branch-plugin self-test. It is only wired when the scanner binary
+        # actually exists; otherwise CP 10d fails closed instead of pretending.
+        from agentkit.backend.installer.integration_checkpoints.cli_scan_runner import (
+            SonarScannerCliRunner,
+        )
+
+        config.sonar_scan_runner = SonarScannerCliRunner(
+            base_url=base_url,
+            token=token,
+            user=os.environ.get("SONAR_USER", ""),
+        )
+    elif base_url and token:
+        config.sonar_branch_plugin_self_test = cast(
+            "BranchPluginSelfTest", _missing_sonar_scanner_self_test
+        )
+
+
+def _missing_sonar_scanner_self_test(_client: SonarClient) -> bool:
+    from agentkit.backend.exceptions import InstallationError
+
+    raise InstallationError(
+        "sonar-scanner executable not found in PATH; CP 10d cannot run the "
+        "branch-plugin conformance self-test.",
+        detail={"cause": "SonarScannerMissing"},
+    )
+
+
+def _wire_ci_install_integration(config: InstallConfig) -> None:
+    if not bool(getattr(config, "ci_available", False)):
+        return
+
+    jenkins_url = os.environ.get("JENKINS_URL")
+    if jenkins_url:
+        base_url, pipeline = _split_jenkins_url(jenkins_url)
+        config.ci_base_url = base_url
+        if pipeline:
+            config.ci_pipeline = pipeline
+
+    token_env = _first_present_env_name(
+        "JENKINS_API_TOKEN", "JENKINS_TOKEN", "JENKINS_PASSWORD"
+    )
+    if token_env is not None:
+        config.ci_token_env = token_env
+
+    base_url = str(config.ci_base_url or "")
+    resolved_token_env = str(config.ci_token_env or "")
+    token = os.environ.get(resolved_token_env, "")
+    if base_url and token:
+        from agentkit.integration_clients.jenkins import JenkinsClient
+
+        config.ci_client = JenkinsClient(
+            base_url,
+            token,
+            user=os.environ.get("JENKINS_USER", ""),
+        )
+
+
+def _first_present_env_name(*names: str) -> str | None:
+    for name in names:
+        if os.environ.get(name):
+            return name
+    return None
+
+
+def _split_jenkins_url(raw_url: str) -> tuple[str, str | None]:
+    """Return ``(jenkins_base_url, job_name)`` from root or job URLs."""
+    parsed = urlsplit(raw_url.rstrip("/"))
+    parts = [part for part in parsed.path.split("/") if part]
+    job_name: str | None = None
+    if "job" in parts:
+        job_index = parts.index("job")
+        if job_index + 1 < len(parts):
+            job_name = parts[job_index + 1]
+            parts = parts[:job_index]
+    base_path = "/" + "/".join(parts) if parts else ""
+    return urlunsplit((parsed.scheme, parsed.netloc, base_path, "", "")), job_name
 
 
 def _cmd_uninstall(args: argparse.Namespace) -> int:
@@ -1093,7 +1229,7 @@ def _cmd_exit_story(args: argparse.Namespace, cli_args: list[str]) -> int:
     return 0
 
 
-def _cmd_doctor() -> int:
+def _cmd_doctor(args: argparse.Namespace) -> int:
     """Handle ``agentkit doctor`` command.
 
     Performs basic health checks: verifies that required external
@@ -1107,7 +1243,11 @@ def _cmd_doctor() -> int:
 
     from agentkit import __version__
 
+    project_root = Path(args.project_root).resolve()
     print("AgentKit Doctor")
+    print(f"  project root: {project_root}")
+    project_config = project_root / ".agentkit" / "config" / "project.yaml"
+    print(f"  project config: {'found' if project_config.is_file() else 'NOT FOUND'}")
     print(f"  gh CLI: {'found' if shutil.which('gh') else 'NOT FOUND'}")
     print(f"  git:    {'found' if shutil.which('git') else 'NOT FOUND'}")
     print(f"  version: {__version__}")

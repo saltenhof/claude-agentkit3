@@ -23,6 +23,8 @@ class TestGitignoreLinkBindpointHygiene:
         content = (tmp_path / ".gitignore").read_text(encoding="utf-8")
         assert ".claude/skills/" in content
         assert ".codex/skills/" in content
+        assert "__pycache__/" in content
+        assert "*.py[cod]" in content
 
     def test_idempotent_second_call_is_noop(self, tmp_path: Path) -> None:
         first = _ensure_link_bindpoint_gitignore(tmp_path)
@@ -32,6 +34,8 @@ class TestGitignoreLinkBindpointHygiene:
         content = (tmp_path / ".gitignore").read_text(encoding="utf-8")
         assert content.count(".claude/skills/") == 1
         assert content.count(".codex/skills/") == 1
+        assert content.count("__pycache__/") == 1
+        assert content.count("*.py[cod]") == 1
 
     def test_merges_into_existing_gitignore_preserving_content(
         self, tmp_path: Path

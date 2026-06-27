@@ -69,7 +69,62 @@ python -m venv .venv
 
 ---
 
-## 5. Standardbefehle nach Codeaenderungen
+## 5. Zielprojekt mit AgentKit initialisieren
+
+Dieser Abschnitt beschreibt das Onboarding eines Zielprojekts, nicht das Setup
+dieses AK3-Entwicklungsrepos.
+
+Pflicht-Voraussetzungen fuer einen produktiven `agentkit install`:
+
+- Das AK3-venv muss aktuell installiert sein:
+  `.venv/Scripts/python -m pip install -e ".[dev]"`.
+- `AGENTKIT_STATE_BACKEND=postgres` und `AGENTKIT_STATE_DATABASE_URL=...`
+  muessen in der Shell gesetzt sein. Die lokale `.env` wird nicht implizit
+  geladen.
+- Wenn Sonar/Jenkins fuer das Zielprojekt als verfuegbar deklariert sind, muss
+  die Shell auch die passenden Endpunkte und Secrets enthalten:
+  `SONAR_URL`, `SONAR_USER`, `SONAR_PASSWORD` oder alternativ
+  `SONARQUBE_TOKEN`/`SONAR_TOKEN`, sowie `JENKINS_URL`, `JENKINS_USER` und
+  `JENKINS_API_TOKEN` oder `JENKINS_PASSWORD`.
+- Fuer den Sonar-Branch-Plugin-Self-Test muss `sonar-scanner` auf dem `PATH`
+  liegen. Fehlt er, scheitert CP 10d fail-closed; ein Opt-out mit
+  `--no-sonarqube-available` ist nur fuer Projekte korrekt, bei denen Sonar
+  bewusst nicht anwendbar ist.
+
+Single-Repo mit optionaler Default-Struktur:
+
+```bash
+.venv/Scripts/agentkit install \
+  --project-key my-project \
+  --project-name "My Project" \
+  --project-root /path/to/project \
+  --github-owner my-org \
+  --github-repo my-project \
+  --default-project-structure
+```
+
+Multi-Repo verlangt explizite Code-Repositories; der Installer erfindet keine
+Unterordner unter `codebase/`:
+
+```bash
+.venv/Scripts/agentkit install \
+  --project-key my-project \
+  --project-name "My Project" \
+  --project-root /path/to/project \
+  --github-owner my-org \
+  --github-repo my-project \
+  --default-project-structure \
+  --multi-repo \
+  --code-repo frontend=https://github.example/my-org/frontend.git \
+  --code-repo backend=https://github.example/my-org/backend.git
+```
+
+`agentkit doctor --project-root /path/to/project` prueft die lokale CLI-Sicht auf
+das Zielprojekt.
+
+---
+
+## 6. Standardbefehle nach Codeaenderungen
 
 ```bash
 .venv/Scripts/python -m pytest                 # Tests (unit/integration/contract; e2e nur opt-in)
@@ -84,7 +139,7 @@ python -m venv .venv
 
 ---
 
-## 6. MCP-Server
+## 7. MCP-Server
 
 | MCP | Konfiguriert in | Zweck |
 |---|---|---|
@@ -92,7 +147,7 @@ python -m venv .venv
 | **multi-llm-hub** | Session/global | Sparring/Reviews via ChatGPT, Gemini, Grok, Qwen, Kimi (Browser-Pools) |
 | **codex-bridge** | Session/global | Giftige Codex-Reviews + Story-Vorlagen |
 
-### 6.1 agentkit3-concepts MCP auf einem neuen Rechner verfuegbar machen
+### 7.1 agentkit3-concepts MCP auf einem neuen Rechner verfuegbar machen
 
 Der Server (`tools/concept_mcp/server.py`) ist ein hybrider (BM25 + Vektor)
 Index ueber `concept/`, gespeichert in **Weaviate**. Vektorisiert wird
@@ -152,7 +207,7 @@ Kontrolle mit `concept_status()`. Nach Konzept-Aenderungen reicht `delta`.
 
 ---
 
-## 6a. LSP / Code-Intelligence (basedpyright) auf neuem Rechner
+## 8. LSP / Code-Intelligence (basedpyright) auf neuem Rechner
 
 Claude Code zeigt beim Editieren von `.py` live `<new-diagnostics>` getaggt
 `(basedpyright)`. **Verifizierter Mechanismus auf diesem Rechner** (Claude Code
@@ -189,7 +244,7 @@ Marketplace fuehrt `*-lsp`-Plugins fuer viele Sprachen (pyright, typescript, rus
 
 ---
 
-## 7. Infrastruktur außenrum (Services)
+## 9. Infrastruktur außenrum (Services)
 
 AK3 nutzt im Vollbetrieb mehrere lokale Dienste. **Credentials sind lokal/
 umgebungsspezifisch und stehen NICHT im Repo** — aus deinem lokalen Secret-Setup
@@ -244,7 +299,7 @@ Subkomponenten) ist auch als pytest abgedeckt:
 
 ---
 
-## 8. Wo liegen die User-Stories?
+## 10. Wo liegen die User-Stories?
 
 - **Verzeichnis:** `stories/` — eine Story je Ordner `AG3-NNN-<slug>/` mit
   `story.md` (Scope, AKs, DoD) + `status.yaml` (status, depends_on, unblocks).
@@ -259,7 +314,7 @@ Stories AG3-001 … AG3-049 sind angelegt. Konzepte dazu: `concept/technical-des
 
 ---
 
-## 9. Arbeitsweise (eingespielter Loop)
+## 11. Arbeitsweise (eingespielter Loop)
 
 Pro Story, **streng der Reihe nach** gemaess `_bearbeitungsreihenfolge.md`:
 
@@ -279,7 +334,7 @@ SINGLE SOURCE OF TRUTH · FAIL-CLOSED · NO ERROR BYPASSING · Severity PASS/WAR
 
 ---
 
-## 10. Aktueller Arbeitsstand (Stand: 2026-05-31)
+## 12. Aktueller Arbeitsstand (Stand: 2026-05-31)
 
 ### Letzte Commits auf `main`
 ```
@@ -315,7 +370,7 @@ Freigabe mit eingearbeiteten Auflagen.
 
 ---
 
-## 11. Offene Punkte / noch nicht erledigte QS
+## 13. Offene Punkte / noch nicht erledigte QS
 
 | Punkt | Status | Detail |
 |---|---|---|
@@ -333,7 +388,7 @@ Freigabe mit eingearbeiteten Auflagen.
 
 ---
 
-## 12. Schnell-Referenz Konzepte
+## 14. Schnell-Referenz Konzepte
 
 - `CLAUDE.md` — Projektregeln, Kernauftrag, Guardrails (OVERRIDE-Prioritaet).
 - `PROJECT_STRUCTURE.md` — verbindliche Verzeichnisstruktur + Modulgrenzen.
