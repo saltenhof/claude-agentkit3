@@ -10,12 +10,12 @@ the helpers therefore write a substantive, FK-35-conformant QA artifact set.
 
 Dim 9 (R2-C/A2): the productive ``build_integrity_gate`` wires a Dim-9 port that
 CONSUMES the AG3-052 capability (``build_sonar_gate_port_for_run`` +
-``evaluate_sonarqube_gate``).  A project WITHOUT a ``sonarqube`` stanza (or
-``available: false``) is a deliberate absence -> Dim 9 NOT_APPLICABLE skip (FK-33
-§33.6.5 "absent != broken").  A project with ``sonarqube.available: true`` but no
-commit-bound scan artefact in the worktree (the Closure pre-merge scan is OOS)
-resolves APPLICABLE and the capability fails closed (``attestation_unreadable``)
--> ESCALATED, never a silent skip.
+``evaluate_sonarqube_gate``).  A project with ``sonarqube.available: false`` is a
+deliberate absence -> Dim 9 NOT_APPLICABLE skip (FK-33 §33.6.5 "absent !=
+broken").  A project with ``sonarqube.available: true`` plus CI/Jenkins declared
+present, but no commit-bound scan artefact in the worktree (the Closure
+pre-merge scan is OOS) resolves APPLICABLE and the capability fails closed
+(``attestation_unreadable``) -> ESCALATED, never a silent skip.
 """
 
 from __future__ import annotations
@@ -116,11 +116,15 @@ def _write_sonar_project_config(project_root: Path) -> None:
                 "    base_url: http://sonar.invalid:9901",
                 "    token_env: SONAR_TOKEN_TEST",
                 "    scanner_version: 5.0.1",
-                # AG3-056: code-producing project must declare the ci stanza;
-                # an explicit opt-out keeps this Dim-9/Sonar test isolated.
+                # Sonar APPLICABLE requires the Jenkins pre-merge runner to be
+                # declared present; this test isolates only the missing
+                # attestation, not CI absence.
                 "  ci:",
-                "    available: false",
-                "    enabled: false",
+                "    available: true",
+                "    enabled: true",
+                "    base_url: http://jenkins.invalid:9900",
+                "    token_env: JENKINS_TOKEN_TEST",
+                "    pipeline: ak3-premerge",
             )
         ),
         encoding="utf-8",
