@@ -66,10 +66,26 @@ class _FakeSonar:
     branches: tuple[str, ...] = ("main", "ak3-selftest-branch")
     created: list[str] = field(default_factory=list)
     deleted: list[str] = field(default_factory=list)
+    selected_gates: list[tuple[str, str]] = field(default_factory=list)
+    issue_queries: list[dict[str, str]] = field(default_factory=list)
 
     def create_project(self, project_key: str, name: str) -> SonarHttpResponse:
         del name
         self.created.append(project_key)
+        return SonarHttpResponse(status_code=200)
+
+    def qualitygates_show(self, name: str) -> SonarHttpResponse:
+        del name
+        return SonarHttpResponse(status_code=200)
+
+    def qualitygates_create(self, name: str) -> SonarHttpResponse:
+        del name
+        return SonarHttpResponse(status_code=200)
+
+    def qualitygates_select(
+        self, *, project_key: str, gate_name: str
+    ) -> SonarHttpResponse:
+        self.selected_gates.append((project_key, gate_name))
         return SonarHttpResponse(status_code=200)
 
     def delete_project(self, project_key: str) -> SonarHttpResponse:
@@ -99,6 +115,7 @@ class _FakeSonar:
         )
 
     def search_issues(self, params: dict[str, str]) -> SonarHttpResponse:
+        self.issue_queries.append(params)
         branch = params.get("branch", "main")
         issue_key = params.get("issues") or f"issue-{branch}"
         return SonarHttpResponse(
@@ -123,7 +140,18 @@ def test_jenkins_harness_runs_conformance_through_ci() -> None:
 
     assert run_branch_plugin_conformance_self_test(sonar, harness) is True  # type: ignore[arg-type]
     assert sonar.created == ["ak3-branch-plugin-conformance-selftest"]
+    assert sonar.selected_gates == [
+        (
+            "ak3-branch-plugin-conformance-selftest",
+            "AgentKit3 CP10d Self-Test Gate",
+        ),
+    ]
     assert sonar.deleted == ["ak3-branch-plugin-conformance-selftest"]
+    accepted_queries = [
+        query for query in sonar.issue_queries if "resolutions" in query
+    ]
+    assert accepted_queries
+    assert all("issues" not in query for query in accepted_queries)
     assert jenkins.triggered == [
         {
             "agentkit_mode": "cp10d_branch_plugin_self_test",

@@ -35,27 +35,15 @@ pipeline {
                         set -eu
                         mkdir -p cp10d-fixture
                         cat > cp10d-fixture/sample.py <<'PY'
-def cp10d_fixture(value):
-    total = 0
-    if value > 0:
-        total += 1
-    if value > 1:
-        total += 1
-    if value > 2:
-        total += 1
-    if value > 3:
-        total += 1
-    if value > 4:
-        total += 1
-    if value > 5:
-        total += 1
-    if value > 6:
-        total += 1
-    if value > 7:
-        total += 1
-    if value > 8:
-        total += 1
-    return total
+class Cp10dOversizedFixture:
+PY
+                        for i in $(seq 1 2200); do
+                            printf '    value_%04d = "%s"\\n' "$i" "cp10d oversized fixture literal" >> cp10d-fixture/sample.py
+                        done
+                        cat >> cp10d-fixture/sample.py <<'PY'
+
+    def read(self):
+        return self.value_0001
 PY
                         SCANNER_VERSION="$(sonar-scanner --version 2>&1 | awk '/SonarScanner/ {print $NF; exit}')"
                         sonar-scanner \

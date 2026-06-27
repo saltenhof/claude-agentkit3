@@ -568,34 +568,47 @@ Das Community Branch Plugin ist **inoffiziell**. Es ist nur dann
 **Trust-A-faehig** (blocking, FK-33 §33.5.1), wenn dieser Self-Test
 besteht. Er laeuft **bei der Installation UND nach jedem
 SonarQube-/Plugin-Upgrade** (Upgrade ist ein erneuter Trigger dieses
-Checkpoints). Ablauf auf einem **wegwerfbaren Mini-Projekt**:
+Checkpoints). Ablauf auf einem **wegwerfbaren Mini-Projekt**. Dieses
+Mini-Projekt wird unmittelbar nach dem Anlegen an ein dediziertes, vom
+Installer provisioniertes Quality Gate `AgentKit3 CP10d Self-Test Gate`
+gebunden. Dieses Gate gehoert nur zum CP10d-Self-Test und ersetzt oder
+entschaerft **nicht** das produktive Projekt-Gate: Die Fixture muss bewusst
+Issues erzeugen, damit die Accepted-Vererbungsregeln wirklich geprueft werden
+koennen; gleichzeitig darf der Jenkins-Build nicht am Zero-Violation-Gate
+echter Projekte abbrechen.
 
 1. Mini-Projekt anlegen, `main` scannen → muss **gruen** sein und mindestens
    ein deterministisches Fixture-Issue erzeugen
-2. einen Branch scannen → Branch-Analyse muss erscheinen und mindestens ein
-   deterministisches Fixture-Issue erzeugen
-3. auf `main` ein Issue auf **Accepted** setzen → Branch-Handling
-   pruefen (Accepted-Vererbung auf den Branch greift, FK-33 §33.6.3)
-4. auf dem **Branch** ein Issue auf Accepted setzen → Merge-/
-   Reference-Branch-Sync pruefen (Accepted bleibt nach Merge/Sync
-   gegen `main` konsistent)
-5. Quality Gate per `analysisId` (nicht per `projectKey`) verifizieren
-6. Test-Projekt wieder **loeschen**
+2. auf `main` ein Issue auf **Accepted** setzen (API-seitig
+   `WONTFIX`/`FALSE-POSITIVE`, je nach SonarQube-Version/Plugin; `ACCEPTED`
+   ist keine portable `api/issues/search`-Resolution)
+3. einen Branch scannen → Branch-Analyse muss erscheinen und das auf `main`
+   akzeptierte Fixture-Finding muss als branchsichtbarer Accepted-Zustand
+   erkennbar sein; technische `issueKey`-Gleichheit ueber Branches ist kein
+   Vertrag (FK-33 §33.6.3)
+4. Quality Gate per `analysisId` (nicht per `projectKey`) verifizieren
+5. Test-Projekt wieder **loeschen**
 
 **Jenkins-Kontrakt fuer den CP10d-Self-Test:** Der konfigurierte Pipeline-Job
 muss einen Modus `agentkit_mode=cp10d_branch_plugin_self_test` unterstuetzen.
 Der Installer triggert pro Scan den Job mit `sonar_project_key` und
 `sonar_branch`; der Job scannt eine kleine, im Job/Checkout verfuegbare Fixture
-gegen genau dieses Projekt und diesen Branch, setzt `sonar.qualitygate.wait=true`,
-archiviert `.scannerwork/report-task.txt` und archiviert die reale
+gegen genau dieses Projekt und diesen Branch. Der Job darf
+`sonar.qualitygate.wait=true` setzen; dieses Warten bezieht sich beim CP10d-
+Mini-Projekt auf das dedizierte Self-Test-Gate, nicht auf das produktive
+Zero-Violation-Gate des Zielprojekts. Der Job archiviert
+`.scannerwork/report-task.txt` und archiviert die reale
 Scanner-Version des ausgefuehrten Binaries als
 `.scannerwork/sonar-scanner-version.txt` (oder exponiert sie aequivalent als
 `SONAR_SCANNER_VERSION` im Jenkins-Run). AgentKit liest den `ceTaskId` aus dem
 Report-Task-Artefakt, loest die konkrete Analyse ueber SonarQube auf und prueft
 Branch-Sichtbarkeit, Accepted-Verhalten, Scanner-Version-Nachweis und Quality
-Gate ueber diese Analyse. Eine Fixture ohne Issues ist kein bestandener
-Self-Test, weil dann die Accepted-Inheritance-Schritte nicht wirklich ausgefuehrt
-wurden.
+Gate ueber diese Analyse. Die Accepted-Pruefung verwendet die branchsichtbare
+Resolution auf einer nach der Acceptance frisch erzeugten Branch-Analyse, nicht
+denselben technischen `issueKey` als branchuebergreifende Identitaet und keine
+Rueckwaerts-Synchronisation von Branch-Acceptance nach `main` ohne echten Merge.
+Eine Fixture ohne Issues ist kein bestandener Self-Test, weil dann die
+Accepted-Inheritance-Schritte nicht wirklich ausgefuehrt wurden.
 Damit testet CP 10d denselben operativen Boundary-Typ wie spaetere
 Pre-Merge-Scans: Jenkins erzeugt die Analyse, AgentKit verifiziert die
 Attestation.

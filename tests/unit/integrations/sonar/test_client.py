@@ -104,6 +104,36 @@ def test_qualitygates_show_builds_url(captured_urls: list[str]) -> None:
     assert "name=AK3" in captured_urls[0]
 
 
+def test_qualitygates_create_posts(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, Any] = {}
+
+    def _fake(request: Any, timeout: int = 0) -> _FakeResponse:  # noqa: ARG001
+        seen["method"] = request.method
+        seen["url"] = request.full_url
+        return _FakeResponse("{}")
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake)
+    client = SonarClient("http://sonar:9901", "tok")
+    client.qualitygates_create("AK3 CP10d")
+    assert seen["method"] == "POST"
+    assert "api/qualitygates/create" in seen["url"]
+
+
+def test_qualitygates_select_posts(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, Any] = {}
+
+    def _fake(request: Any, timeout: int = 0) -> _FakeResponse:  # noqa: ARG001
+        seen["method"] = request.method
+        seen["url"] = request.full_url
+        return _FakeResponse("{}")
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake)
+    client = SonarClient("http://sonar:9901", "tok")
+    client.qualitygates_select(project_key="proj", gate_name="AK3 CP10d")
+    assert seen["method"] == "POST"
+    assert "api/qualitygates/select" in seen["url"]
+
+
 def test_qualityprofiles_search_builds_url(captured_urls: list[str]) -> None:
     client = SonarClient("http://sonar:9901", "tok")
     client.qualityprofiles_search("proj")

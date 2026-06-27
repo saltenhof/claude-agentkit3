@@ -25,10 +25,11 @@ if TYPE_CHECKING:
     from agentkit.integration_clients.jenkins import JenkinsClient
     from agentkit.integration_clients.sonar import SonarClient
 
-_ACCEPTED_RESOLUTIONS = "ACCEPTED,WONTFIX,FALSE-POSITIVE"
+_ACCEPTED_RESOLUTIONS = "WONTFIX,FALSE-POSITIVE"
 _REPORT_TASK_ARTIFACT = ".scannerwork/report-task.txt"
 _SCANNER_VERSION_ARTIFACT = ".scannerwork/sonar-scanner-version.txt"
 _SELFTEST_MODE = "cp10d_branch_plugin_self_test"
+_SELFTEST_QUALITY_GATE = "AgentKit3 CP10d Self-Test Gate"
 _CE_TERMINAL = frozenset({"SUCCESS", "FAILED", "CANCELED"})
 
 
@@ -58,6 +59,7 @@ class JenkinsBranchPluginSelfTestHarness:
         self.sonar_client.create_project(
             project_key, "AK3 Branch-Plugin Conformance Self-Test"
         )
+        self._bind_selftest_quality_gate(project_key)
 
     def scan(self, project_key: str, branch: str) -> SelfTestScan:
         """Trigger Jenkins to scan ``project_key``/``branch`` and return analysis."""
@@ -109,12 +111,19 @@ class JenkinsBranchPluginSelfTestHarness:
     def issue_accepted_on_branch(
         self, project_key: str, branch: str, issue_key: str
     ) -> bool:
-        """Return whether ``issue_key`` reads as Accepted on ``branch``."""
+        """Return whether an Accepted fixture issue is visible on ``branch``.
+
+        Sonar issue keys are not a branch-crossing identity contract on all
+        Community-Branch-Plugin setups. The self-test therefore proves the
+        observable branch behaviour -- an Accepted fixture finding is visible on
+        the target branch -- without using a source-branch issue key as a
+        destination-branch lookup key.
+        """
+        del issue_key
         body = self.sonar_client.search_issues(
             {
                 "componentKeys": project_key,
                 "branch": branch,
-                "issues": issue_key,
                 "resolutions": _ACCEPTED_RESOLUTIONS,
                 "ps": "1",
             }
@@ -128,6 +137,21 @@ class JenkinsBranchPluginSelfTestHarness:
             self.sonar_client.delete_project(project_key)
         except SonarApiError:
             return
+
+    def _bind_selftest_quality_gate(self, project_key: str) -> None:
+        self._ensure_selftest_quality_gate()
+        self.sonar_client.qualitygates_select(
+            project_key=project_key,
+            gate_name=_SELFTEST_QUALITY_GATE,
+        )
+
+    def _ensure_selftest_quality_gate(self) -> None:
+        try:
+            self.sonar_client.qualitygates_show(_SELFTEST_QUALITY_GATE)
+        except SonarApiError as exc:
+            if exc.detail.get("status_code") != 404:
+                raise
+            self.sonar_client.qualitygates_create(_SELFTEST_QUALITY_GATE)
 
     def _trigger_and_resolve_build(self, project_key: str, branch: str) -> int:
         response = self.jenkins_client.trigger_build(

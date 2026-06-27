@@ -185,6 +185,20 @@ class _StubClient:
         self.created.append(project_key)
         return SonarHttpResponse(status_code=200, json_body={})
 
+    def qualitygates_show(self, name: str) -> SonarHttpResponse:
+        del name
+        return SonarHttpResponse(status_code=200, json_body={})
+
+    def qualitygates_create(self, name: str) -> SonarHttpResponse:
+        del name
+        return SonarHttpResponse(status_code=200, json_body={})
+
+    def qualitygates_select(
+        self, *, project_key: str, gate_name: str
+    ) -> SonarHttpResponse:
+        del project_key, gate_name
+        return SonarHttpResponse(status_code=200, json_body={})
+
     def delete_project(self, project_key: str) -> SonarHttpResponse:
         self.deleted.append(project_key)
         return SonarHttpResponse(status_code=200, json_body={})

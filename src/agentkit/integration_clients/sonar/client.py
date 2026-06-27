@@ -14,6 +14,8 @@ Operations (FK-33 §33.6, AG3-052 §2.1.1):
 * ``project_analyses_search`` -- ``GET api/project_analyses/search`` to map a
   concrete ``analysisId`` to the git ``revision`` it measured (FK-33 §33.6.3
   commit binding, authoritative source — never a project-version string).
+* ``qualitygates_create`` / ``qualitygates_select`` -- CP10d provisioning of
+  the throwaway self-test project's dedicated gate.
 * ``search_issues`` -- ``GET api/issues/search`` (open, non-accepted
   issues for the Overall-Code invariant).
 * ``transition_issue`` / ``set_issue_tags`` -- ``Administer Issues``
@@ -154,6 +156,19 @@ class SonarClient:
         authoritative material for the quality-gate integrity hash.
         """
         return self._get("api/qualitygates/show", {"name": name})
+
+    def qualitygates_create(self, name: str) -> SonarHttpResponse:
+        """Create a quality gate (``POST api/qualitygates/create``)."""
+        return self._post("api/qualitygates/create", {"name": name})
+
+    def qualitygates_select(
+        self, *, project_key: str, gate_name: str
+    ) -> SonarHttpResponse:
+        """Assign a quality gate to a project (``POST api/qualitygates/select``)."""
+        return self._post(
+            "api/qualitygates/select",
+            {"projectKey": project_key, "gateName": gate_name},
+        )
 
     def qualityprofiles_search(self, project: str) -> SonarHttpResponse:
         """List the quality profiles a project actively uses.

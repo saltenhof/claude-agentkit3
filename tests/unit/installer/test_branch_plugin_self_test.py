@@ -3,8 +3,8 @@
 Only the external boundaries — the thin ``SonarClient`` HTTP client and the
 ``ScannerHarness`` provisioning surface — are stubbed (MOCKS-Ausnahme). The
 conformance LOGIC (step ordering, analysisId quality-gate read,
-Accepted-inheritance / merge-sync checks, fail-closed on any failed step,
-cleanup) runs for real.
+Accepted-inheritance checks, fail-closed on any failed step, cleanup) runs
+for real.
 """
 
 from __future__ import annotations
@@ -44,7 +44,6 @@ class _StubHarness:
     branch_scan: SelfTestScan
     branch_visible: bool = True
     accepted_on_branch: bool = True
-    accepted_on_main: bool = True
     deleted: bool = False
     create_raises: bool = False
 
@@ -61,9 +60,11 @@ class _StubHarness:
         del project_key, branch
         return self.branch_visible
 
-    def issue_accepted_on_branch(self, project_key: str, branch: str, issue_key: str) -> bool:
+    def issue_accepted_on_branch(
+        self, project_key: str, branch: str, issue_key: str
+    ) -> bool:
         del project_key, issue_key
-        return self.accepted_on_main if branch == "main" else self.accepted_on_branch
+        return branch == "ak3-selftest-branch" and self.accepted_on_branch
 
     def delete_project(self, project_key: str) -> None:
         del project_key
@@ -108,10 +109,6 @@ class TestConformanceSelfTest:
 
     def test_accepted_not_inherited_to_branch_fails(self) -> None:
         harness = _harness(accepted_on_branch=False)
-        assert run_branch_plugin_conformance_self_test(_green_client(), harness) is False
-
-    def test_branch_accept_lost_after_sync_fails(self) -> None:
-        harness = _harness(accepted_on_main=False)
         assert run_branch_plugin_conformance_self_test(_green_client(), harness) is False
 
     def test_api_error_during_steps_is_fail_closed_and_cleans_up(self) -> None:

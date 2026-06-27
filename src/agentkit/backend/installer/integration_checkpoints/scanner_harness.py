@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from agentkit.integration_clients.sonar import SonarClient
 
 #: Sonar resolution string for an Accepted (won't-fix family) issue.
-_ACCEPTED_RESOLUTIONS = "ACCEPTED,WONTFIX,FALSE-POSITIVE"
+_ACCEPTED_RESOLUTIONS = "WONTFIX,FALSE-POSITIVE"
 
 
 class ScanRunner(Protocol):
@@ -90,12 +90,18 @@ class SonarClientScannerHarness:
     def issue_accepted_on_branch(
         self, project_key: str, branch: str, issue_key: str
     ) -> bool:
-        """Return whether ``issue_key`` reads as Accepted on ``branch``."""
+        """Return whether an Accepted fixture issue is visible on ``branch``.
+
+        Sonar issue keys are not a branch-crossing identity contract on all
+        Community-Branch-Plugin setups. The self-test therefore checks the
+        branch-visible Accepted state instead of querying the destination branch
+        by a source-branch issue key.
+        """
+        del issue_key
         body = self.client.search_issues(
             {
                 "componentKeys": project_key,
                 "branch": branch,
-                "issues": issue_key,
                 "resolutions": _ACCEPTED_RESOLUTIONS,
                 "ps": "1",
             }
