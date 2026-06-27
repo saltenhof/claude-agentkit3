@@ -330,8 +330,15 @@ sofern die Projektkonfiguration unverändert ist.
 
 ### CP 7: Projekt im State-Backend registrieren
 
-Legt einen Projekt-Record im zentralen State-Backend an und
-hinterlegt:
+Legt im zentralen State-Backend die Installationsregistrierung an und
+synchronisiert denselben Projekt-Schluessel in die sichtbare
+Project-Management-Projektliste (`projects`), die vom Control-Plane HTTP
+Endpoint `GET /v1/projects` gelesen wird. CP 7 ist erst erfolgreich, wenn
+beide Wirkungen konsistent sind; ein erfolgreich installiertes Projekt darf
+nicht nur in `project_registry` stehen und damit in der Web-App unsichtbar
+bleiben.
+
+Die Installationsregistrierung hinterlegt:
 
 - Projektkennung
 - GitHub-Owner/Repo
@@ -344,9 +351,16 @@ hinterlegt:
 (Persistenz-Infrastruktur); die fachliche Datenstruktur
 (`ProjectRegistration`) bleibt in diesem BC definiert. Konsistent mit
 dem BC-9-Pattern (telemetry-and-events ownt nur DB-Zugriff, nicht die
-fachlichen Schemas der anderen BCs).
+fachlichen Schemas der anderen BCs). Die sichtbare Projektentitaet
+(`projects`) bleibt fachlich im BC `project-management` owned; der
+Installer ruft diesen BC nur als Onboarding-Schreiber auf, damit die
+neu angebundene Zielanwendung unmittelbar im Backend/API-Surface sichtbar
+ist.
 
 **Idempotenz:** Upsert auf Projektkennung; nur Deltas werden geschrieben.
+Wenn `project_registry` bereits aktuell ist, die sichtbare Projektentitaet
+aber fehlt oder abweicht, repariert CP 7 genau diese Entitaet und meldet den
+Checkpoint nicht als reinen Skip.
 
 ### CP 8: Skill-Links binden
 

@@ -31,8 +31,11 @@ scenarios:
       - command: installer.command.register-project
     expected_end:
       status: installer.status.verified
+      project_registry_row: present
+      visible_project_row: present
     requires:
       - installer.invariant.system_installation_precedes_project_registration
+      - installer.invariant.cp7_project_registration_makes_project_visible
       - installer.invariant.state_backend_registration_precedes_bundle_binding
       - installer.invariant.bundle_bindings_are_version_pinned
       - installer.invariant.project_edge_launcher_is_adapter_only

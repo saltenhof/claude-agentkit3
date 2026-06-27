@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -70,6 +71,7 @@ if TYPE_CHECKING:
     from agentkit.backend.installer.registration import CheckpointResult, RuntimeProfile
     from agentkit.backend.installer.repo_probe import RepoExistenceProbe
     from agentkit.backend.installer.repository import ProjectRegistrationRepository
+    from agentkit.backend.project_management.repository import ProjectRepository
     from agentkit.backend.skills import SkillBundleStore, SkillProfile, Skills
     from agentkit.integration_clients.jenkins import JenkinsClient
     from agentkit.integration_clients.sonar import SonarClient
@@ -237,6 +239,10 @@ class InstallConfig:
     # (``core``/``are``, FK-50 §50.3 CP 6/CP 7) is recorded in the registration
     # row; it defaults to ``core``.
     registration_repo: ProjectRegistrationRepository | None = None
+    # CP 7 also synchronises the visible project-management entity used by
+    # ``GET /v1/projects``. Tests may inject an in-memory repository; the
+    # productive CLI leaves this unset and uses the canonical State-Backend.
+    project_repo: ProjectRepository | None = None
     runtime_profile: RuntimeProfile | None = None
     # AG3-088 (FK-50 §50.3 CP 10 / FK-03 §3.1): the installer CONSUMES the
     # feature decision (it does not define the config model, story §2.2). These
@@ -1575,6 +1581,103 @@ def _resolve_registration_repo(
     return StateBackendProjectRegistrationRepository(root)
 
 
+def _resolve_project_repo(config: InstallConfig, root: Path) -> ProjectRepository:
+    """Resolve the project-management repository for CP 7 synchronisation."""
+
+    if config.project_repo is not None:
+        return config.project_repo
+    from agentkit.backend.state_backend.store.project_management_repository import (
+        StateBackendProjectRepository,
+    )
+
+    return StateBackendProjectRepository(root)
+
+
+def _derive_story_id_prefix(project_key: str) -> str:
+    """Derive a deterministic story id prefix from a project key.
+
+    The installer has no explicit story-prefix input yet, while the visible
+    project-management entity requires one. Keep this deterministic and
+    conservative; collisions remain fail-closed in the repository.
+    """
+
+    parts = re.findall(r"[A-Za-z0-9]+", project_key)
+    candidate = (
+        "".join(part[0] for part in parts)
+        if len(parts) > 1
+        else "".join(ch for ch in project_key if ch.isalnum())
+    )
+    candidate = candidate.upper()
+    if not candidate or not candidate[0].isalpha():
+        candidate = f"P{candidate}"
+    if len(candidate) < 2:
+        candidate = f"{candidate}P"
+    return candidate[:10]
+
+
+def _project_management_repositories(yaml_data: dict[str, object]) -> list[str]:
+    """Return the repository identifiers consumed by project_management."""
+
+    raw_repositories = yaml_data.get("repositories")
+    repositories: list[str] = []
+    if isinstance(raw_repositories, list):
+        for raw_entry in raw_repositories:
+            if not isinstance(raw_entry, dict):
+                continue
+            value = raw_entry.get("remote_url") or raw_entry.get("path") or raw_entry.get("name")
+            if isinstance(value, str) and value.strip():
+                repositories.append(value.strip())
+    if not repositories:
+        repositories.append(".")
+    return repositories
+
+
+def _sync_project_management_project(
+    config: InstallConfig,
+    root: Path,
+    yaml_data: dict[str, object],
+) -> str:
+    """Create/update the visible project entity behind ``GET /v1/projects``."""
+
+    from agentkit.backend.project_management.entities import ProjectConfiguration
+    from agentkit.backend.project_management.lifecycle import (
+        create_project,
+        update_configuration,
+    )
+
+    project_repo = _resolve_project_repo(config, root)
+    repositories = _project_management_repositories(yaml_data)
+    project_configuration = ProjectConfiguration(
+        repo_url=repositories[0],
+        default_branch="main",
+        are_url=None,
+        default_worker_count=1,
+        repositories=repositories,
+    )
+    existing = project_repo.get(config.project_key)
+    if existing is None:
+        project_repo.save(
+            create_project(
+                config.project_key,
+                config.project_name,
+                _derive_story_id_prefix(config.project_key),
+                project_configuration,
+                repositories=repositories,
+            )
+        )
+        return "created"
+
+    updated = update_configuration(
+        existing,
+        name=config.project_name,
+        configuration_updates=project_configuration.model_dump(mode="python"),
+    )
+    if updated == existing:
+        return "unchanged"
+    project_repo.save(updated)
+    return "updated"
+
+
 def _register_default_governance_hooks(
     config: InstallConfig,
     root: Path,
@@ -1743,6 +1846,7 @@ def _run_cp7_state_backend_registration(
 
     existing = repo.get(config.project_key)
     reason: str | None = None
+    registry_action: str
     if existing is None:
         repo.save(
             ProjectRegistration(
@@ -1756,22 +1860,54 @@ def _run_cp7_state_backend_registration(
                 registered_at=datetime.now(tz=UTC),
             )
         )
-        status = CheckpointStatus.CREATED
-        detail = f"Registered project {config.project_key!r} (digest {digest[:12]})."
+        registry_action = "created"
     elif existing.config_digest == digest:
+        registry_action = "unchanged"
+    else:
+        repo.update_upgraded(config.project_key, datetime.now(tz=UTC), digest)
+        registry_action = "updated"
+
+    try:
+        project_action = _sync_project_management_project(config, root, yaml_data)
+    except Exception as exc:  # noqa: BLE001 - CP7 must return a typed failure.
+        return CheckpointResult(
+            checkpoint=CP7_STATE_BACKEND_REGISTRATION,
+            status=CheckpointStatus.FAILED,
+            detail=(
+                f"Project {config.project_key!r} was written to project_registry "
+                "but could not be synchronised to the visible project list "
+                f"(projects): {type(exc).__name__}: {exc}"
+            ),
+            reason="project_management_sync_failed",
+            duration_ms=int((time.monotonic() - start) * 1000),
+        )
+
+    if registry_action == "created":
+        status = CheckpointStatus.CREATED
+        detail = (
+            f"Registered project {config.project_key!r} (digest {digest[:12]}); "
+            f"project-management row {project_action}."
+        )
+    elif registry_action == "unchanged" and project_action == "unchanged":
         status = CheckpointStatus.SKIPPED
         reason = REASON_CONFIG_DIGEST_UNCHANGED
         detail = (
             f"Project {config.project_key!r} already registered with matching "
-            "config_digest; idempotent skip."
+            "config_digest and visible project row; idempotent skip."
         )
     else:
-        repo.update_upgraded(config.project_key, datetime.now(tz=UTC), digest)
         status = CheckpointStatus.UPDATED
-        detail = (
-            f"Project {config.project_key!r} config_digest changed "
-            f"({existing.config_digest[:12]} -> {digest[:12]}); upgraded."
-        )
+        if existing is not None and registry_action == "updated":
+            detail = (
+                f"Project {config.project_key!r} config_digest changed "
+                f"({existing.config_digest[:12]} -> {digest[:12]}); "
+                f"project-management row {project_action}."
+            )
+        else:
+            detail = (
+                f"Project {config.project_key!r} registration already matched "
+                f"but project-management row was {project_action}."
+            )
 
     duration_ms = int((time.monotonic() - start) * 1000)
     return CheckpointResult(

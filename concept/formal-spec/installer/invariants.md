@@ -29,10 +29,13 @@ invariants:
     rule: project registration is legal only after the system-level AgentKit installation and runtime bundle base are present
   - id: installer.invariant.register_project_is_idempotent
     scope: execution
-    rule: rerunning register-project for the same project key must converge on one consistent registration state instead of duplicating bindings or project records
+    rule: rerunning register-project for the same project key must converge on one consistent registration state instead of duplicating bindings, project_registry rows, or visible project-management project rows
+  - id: installer.invariant.cp7_project_registration_makes_project_visible
+    scope: registration
+    rule: a successful CP 7 must persist both the installation registration in project_registry and the project-management project row consumed by GET /v1/projects; if either write cannot be made consistent, CP 7 fails closed
   - id: installer.invariant.state_backend_registration_precedes_bundle_binding
     scope: ordering
-    rule: project registration in the central state backend must complete before project-local bundle bindings become active
+    rule: project registration in the central state backend, including the visible project-management project row, must complete before project-local bundle bindings become active
   - id: installer.invariant.project_local_scope_is_config_and_link_only
     scope: filesystem
     rule: project-local installer output is limited to configuration, hook registration, harness-specific link bindings (symlink on POSIX, directory junction on Windows; Claude Code, Codex; FK-76), and official Project Edge Client launcher wrappers under tools/agentkit; when default_project_structure is explicitly enabled, the installer may additionally create the FK-10 default-scaffold directories and the corresponding root .gitignore entries, but must still not copy AgentKit runtime state, canonical skills, canonical prompts, database files, or backend service artifacts into the project

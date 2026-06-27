@@ -44,6 +44,9 @@ from agentkit.backend.installer.runner import (
 )
 from agentkit.backend.skills import Skills
 from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore
+from agentkit.backend.state_backend.store.project_management_repository import (
+    StateBackendProjectRepository,
+)
 from agentkit.backend.state_backend.store.project_registration_repository import (
     StateBackendProjectRegistrationRepository,
 )
@@ -317,6 +320,13 @@ def test_install_persists_project_registration(tmp_path: Path) -> None:
     assert len(stored.config_digest) == 64
     assert stored.last_verified_at is None
     assert stored.last_upgraded_at is None
+
+    visible_project = StateBackendProjectRepository(root).get(root.stem)
+    assert visible_project is not None
+    assert visible_project.key == root.stem
+    assert visible_project.name == root.stem
+    assert visible_project.story_id_prefix == "PR"
+    assert visible_project.configuration.repositories == ["."]
 
 
 @pytest.mark.integration

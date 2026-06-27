@@ -35,6 +35,8 @@ entities:
       - repositories
       - runtime_profile
       - registration_status
+      - visible_project_status
+      - story_id_prefix
       - registered_bundle_version
       - config_digest
   - id: installer.entity.default-project-scaffold
