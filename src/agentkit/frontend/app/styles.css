@@ -167,7 +167,7 @@ button:disabled {
 
 .topbar-title h1,
 .title-separator,
-.project-heading select {
+.project-combo {
   font-family: "League Spartan", "Open Sans", sans-serif;
   font-size: 28px;
   line-height: 1.1;
@@ -183,39 +183,93 @@ button:disabled {
   color: var(--ak-text-faint);
 }
 
-.project-heading {
+.project-picker {
   position: relative;
   display: inline-flex;
   align-items: center;
-  max-width: min(34vw, 420px);
-  color: var(--ak-accent-text);
+  min-width: 0;
 }
 
-.project-heading select {
-  width: 100%;
+.project-combo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(38vw, 420px);
   min-width: 0;
-  padding: 0 24px 0 0;
+  padding: 0;
   border: 0;
   outline: 0;
   color: var(--ak-accent-text);
   background: transparent;
+  cursor: pointer;
   font-weight: 700;
-  appearance: none;
 }
 
-.project-heading select option {
-  color: var(--ak-text);
+.project-combo:focus-visible {
+  outline: 2px solid var(--ak-accent);
+  outline-offset: 4px;
+}
+
+.project-combo:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+
+.project-combo__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-combo svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.project-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 10px);
+  left: 0;
+  display: grid;
+  min-width: max(100%, 260px);
+  max-width: min(420px, 70vw);
+  padding: 6px;
+  border: 1px solid var(--ak-border-strong);
+  border-radius: 8px;
   background: var(--ak-bg-raised);
+  box-shadow: 0 18px 44px rgb(0 0 0 / 0.36);
+}
+
+.project-menu__item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ak-text);
+  background: transparent;
+  cursor: pointer;
   font-family: "Open Sans", "Aptos", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
   font-size: 15px;
   font-weight: 600;
   line-height: 1.35;
+  text-align: left;
 }
 
-.project-heading svg {
-  position: absolute;
-  right: 0;
-  pointer-events: none;
+.project-menu__item:hover,
+.project-menu__item:focus-visible {
+  outline: 0;
+  background: var(--ak-bg-elevated);
+  color: var(--ak-accent-text);
+}
+
+.project-menu__item[data-selected="true"] {
+  background: rgb(41 217 246 / 0.14);
+  color: var(--ak-accent-text);
 }
 
 .top-actions {
@@ -1896,8 +1950,12 @@ button:disabled {
 
   .topbar-title h1,
   .title-separator,
-  .project-heading select {
+  .project-combo {
     font-size: 24px;
+  }
+
+  .project-combo {
+    max-width: min(56vw, 360px);
   }
 
   .kpi-strip,

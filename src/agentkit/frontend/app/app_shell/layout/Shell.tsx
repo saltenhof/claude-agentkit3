@@ -15,6 +15,7 @@ import { useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
 import type { AppActions, AppData } from '../../App';
+import type { ProjectSummary } from '../../contexts/project_management/types';
 import { ExecutionPlanningView } from '../../contexts/execution_planning/components/ExecutionPlanningView';
 import { AnalyticsView } from '../../contexts/kpi_analytics/components/AnalyticsView';
 import { HubCockpit } from '../../contexts/multi_llm_hub/components/HubCockpit';
@@ -68,21 +69,11 @@ export function Shell({ authenticated, data, actions }: Readonly<ShellProps>): R
           <div className="topbar-title">
             <h1>Story Cockpit</h1>
             <span className="title-separator">|</span>
-            <label className="project-heading">
-              <span className="sr-only">Projekt</span>
-              <select
-                id="project-key"
-                value={data.selectedProject?.project_key ?? ''}
-                onChange={(event) => actions.selectProject(event.target.value)}
-              >
-                {data.projects.map((project) => (
-                  <option key={project.project_key} value={project.project_key}>
-                    {project.display_name}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown size={18} aria-hidden="true" />
-            </label>
+            <ProjectSelector
+              projects={data.projects}
+              selectedProjectKey={data.selectedProject?.project_key ?? ''}
+              onSelect={actions.selectProject}
+            />
           </div>
 
           <div className="top-actions">
@@ -146,6 +137,74 @@ export function Shell({ authenticated, data, actions }: Readonly<ShellProps>): R
         />
       )}
     </main>
+  );
+}
+
+function ProjectSelector({
+  projects,
+  selectedProjectKey,
+  onSelect,
+}: Readonly<{
+  projects: ProjectSummary[];
+  selectedProjectKey: string;
+  onSelect: (projectKey: string) => void;
+}>): ReactElement {
+  const [open, setOpen] = useState(false);
+  const selectedProject =
+    projects.find((project) => project.project_key === selectedProjectKey) ?? null;
+  const label = selectedProject?.display_name ?? 'Projekt auswählen';
+  const disabled = projects.length === 0;
+
+  return (
+    <div
+      className="project-picker"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          setOpen(false);
+        }
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          setOpen(false);
+        }
+      }}
+    >
+      <button
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className="project-combo"
+        disabled={disabled}
+        title={label}
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="project-combo__label">{label}</span>
+        <ChevronDown size={18} aria-hidden="true" />
+      </button>
+      {open && !disabled && (
+        <div className="project-menu" aria-label="Projekt">
+          {projects.map((project) => {
+            const selected = project.project_key === selectedProjectKey;
+            return (
+              <button
+                key={project.project_key}
+                aria-current={selected ? 'true' : undefined}
+                className="project-menu__item"
+                data-selected={selected}
+                title={project.display_name}
+                type="button"
+                onClick={() => {
+                  onSelect(project.project_key);
+                  setOpen(false);
+                }}
+              >
+                <span>{project.display_name}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
