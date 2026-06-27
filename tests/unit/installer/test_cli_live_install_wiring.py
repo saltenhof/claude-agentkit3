@@ -32,6 +32,10 @@ def test_split_jenkins_job_url_to_root_and_pipeline() -> None:
 def test_cli_wires_live_sonar_and_jenkins_from_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.delenv("SONARQUBE_TOKEN", raising=False)
+    monkeypatch.delenv("SONAR_TOKEN", raising=False)
+    monkeypatch.delenv("JENKINS_TOKEN", raising=False)
+    monkeypatch.delenv("JENKINS_PASSWORD", raising=False)
     monkeypatch.setenv("SONAR_URL", "http://sonar:9901")
     monkeypatch.setenv("SONAR_USER", "admin")
     monkeypatch.setenv("SONAR_PASSWORD", "sonar-secret")
