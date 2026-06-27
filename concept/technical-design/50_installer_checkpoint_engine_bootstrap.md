@@ -276,20 +276,26 @@ oder aus explizit angegebenen Repositories ableiten:
 
 - `single_repo`: genau ein versionierendes Root-Repository. Der
   Default-Codebereich ist `codebase`; `repositories[]` zeigt auf
-  diesen Pfad.
+  diesen Pfad. Der Installer legt unter `codebase/` keine weiteren
+  Unterordner an.
 - `multi_repo`: Root-Repository fuer Konzepte/Koordination plus ein
   oder mehrere separate Code-Repositories unter `codebase/{repo-name}`.
   `codebase/` wird im Root-Repository ignoriert, und jedes
   eingebundene Code-Repository wird in `repositories[]` mit seinem
-  konkreten Pfad registriert.
+  konkreten Pfad registriert. `multi_repo` ohne explizit angegebene
+  Code-Repositories ist fail-closed; der Installer darf keine
+  synthetischen Repo-Namen wie `app` erfinden.
 
-Werden beim Install Code-Repositories angegeben, legt CP 5 im
-Multi-Repo-Default-Scaffold fehlende Unterordner unter
-`codebase/{repo-name}` an und schreibt die entsprechenden
-`repositories[].path`-Eintraege in `project.yaml`. Bereits vorhandene
-Repositories werden nicht ueberschrieben; ein nicht leerer Ordner mit
-inkompatiblem Git-Zustand ist ein fail-closed Fehler. Remote-
-Repositories werden nur gebunden, nicht implizit erzeugt oder geklont.
+Werden beim Install oder bei einer Update-Installation Code-
+Repositories angegeben, legt CP 5 im Multi-Repo-Default-Scaffold nur
+die fehlenden Unterordner unter `codebase/{repo-name}` an und schreibt
+die entsprechenden `repositories[].path`-Eintraege in `project.yaml`.
+Ist fuer ein Repository ein Remote angegeben, darf CP 5 dieses Remote
+in den fehlenden oder leeren Zielordner klonen. Bereits vorhandene
+gueltige Repositories werden nicht ueberschrieben und nicht erneut
+geklont; CP 5 meldet sie als bereits vorhanden und faehrt fort. Ein
+nicht leerer Zielordner ohne erkennbaren Git-Repo-Zustand ist ein
+fail-closed Fehler. Remote-Repositories werden nicht implizit erzeugt.
 
 **ARE-Scope-Mapping:** `installation-and-bootstrap` ist Schreib-Owner
 des ARE-Scope-Mappings (`are.module_scope_map` in der Pipeline-Config).

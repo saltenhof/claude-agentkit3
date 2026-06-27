@@ -789,6 +789,8 @@ class RepositoryConfig(BaseModel):
     Attributes:
         name: Human-readable repository name.
         path: Filesystem path to the repository root.
+        remote_url: Optional clone URL used by the installer for explicitly
+            declared multi-repo code repositories.
         language: Primary programming language (e.g. ``"python"``).
         test_command: Shell command to run the test suite.
         build_command: Shell command to build the project.
@@ -798,6 +800,7 @@ class RepositoryConfig(BaseModel):
 
     name: str
     path: Annotated[Path, BeforeValidator(_coerce_path)]
+    remote_url: str | None = None
     language: str | None = None
     test_command: str | None = None
     build_command: str | None = None

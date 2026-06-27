@@ -111,16 +111,38 @@ class TestInstallFresh:
             project_name="test-project",
             default_project_structure=True,
             multi_repo=True,
+            repositories=[
+                {"name": "frontend", "path": "codebase/frontend"},
+                {"name": "backend", "path": "codebase/backend"},
+            ],
         )
         install_agentkit(config)
 
-        assert (root / "codebase" / "app").is_dir()
+        assert (root / "codebase" / "frontend").is_dir()
+        assert (root / "codebase" / "backend").is_dir()
+        assert not (root / "codebase" / "app").exists()
         gitignore = (root / ".gitignore").read_text(encoding="utf-8")
         assert "/temp/" in gitignore
         assert "/codebase/" in gitignore
         project_config = load_project_config(root)
-        assert project_config.repositories[0].path == Path("codebase/app")
+        assert project_config.repositories[0].path == Path("codebase/frontend")
+        assert project_config.repositories[1].path == Path("codebase/backend")
         assert project_config.pipeline.features.multi_repo is True
+
+    def test_default_project_structure_multi_repo_requires_explicit_repos(
+        self, tmp_path: object
+    ) -> None:
+        """Multi-repo mode does not invent a synthetic ``codebase/app`` repo."""
+        root = _as_path(tmp_path)
+        config = _make_install_config(
+            root,
+            project_name="test-project",
+            default_project_structure=True,
+            multi_repo=True,
+        )
+
+        with pytest.raises(ProjectError, match="requires explicit code repositories"):
+            install_agentkit(config)
 
     def test_install_creates_prompt_hardlink_binding(self, tmp_path: object) -> None:
         """Install binds project prompt files to bundled prompt resources."""
@@ -181,6 +203,30 @@ class TestInstallFresh:
         project_config = load_project_config(root)
         assert len(project_config.repositories) == 1
         assert project_config.repositories[0].name == "backend"
+
+    def test_default_project_structure_existing_multi_repo_dirs_are_skipped(
+        self, tmp_path: object
+    ) -> None:
+        """Re-runs keep already materialized repo directories untouched."""
+        root = _as_path(tmp_path)
+        root_repo = root / "codebase" / "frontend"
+        root_repo.mkdir(parents=True)
+        (root_repo / ".git").mkdir()
+        marker = root_repo / "README.md"
+        marker.write_text("existing repo\n", encoding="utf-8")
+        config = _make_install_config(
+            root,
+            project_name="test-project",
+            default_project_structure=True,
+            multi_repo=True,
+            repositories=[{"name": "frontend", "path": "codebase/frontend"}],
+        )
+
+        install_agentkit(config)
+        second = install_agentkit(config)
+
+        assert marker.read_text(encoding="utf-8") == "existing repo\n"
+        assert "codebase/frontend" not in second.created_files
 
     def test_install_result_lists_created_files(self, tmp_path: object) -> None:
         """:class:`InstallResult` ``created_files`` lists all created entries."""

@@ -99,6 +99,16 @@ def main(argv: list[str] | None = None) -> int:
             "by the root repository."
         ),
     )
+    install_parser.add_argument(
+        "--code-repo",
+        action="append",
+        default=[],
+        metavar="NAME=URL",
+        help=(
+            "Explicit code repository for --multi-repo. Repeatable. The installer "
+            "registers it at codebase/NAME and clones URL when the directory is absent."
+        ),
+    )
     # AG3-052 (FK-03 §3): the SonarQube-Green-Gate is a mandatory runtime
     # dependency, so a code-producing scaffold DECLARES Sonar present by
     # default (``--sonarqube-available``). ``--no-sonarqube-available`` is the
@@ -439,6 +449,12 @@ def _cmd_install(args: argparse.Namespace) -> int:
     if coordinates is None:
         return 1
     github_owner, github_repo = coordinates
+    repositories = _parse_code_repo_args(getattr(args, "code_repo", ()))
+    if repositories is None:
+        return 1
+    if repositories and not args.multi_repo:
+        print("--code-repo requires --multi-repo.", file=sys.stderr)
+        return 1
 
     # AG3-048 (FK-43 §43.3.1, AC#5): the skill fields are intentionally left at
     # their defaults. ``skill_bundle_ids=None`` resolves to the four mandatory
@@ -452,6 +468,7 @@ def _cmd_install(args: argparse.Namespace) -> int:
         project_root=project_root,
         default_project_structure=bool(args.default_project_structure),
         multi_repo=bool(args.multi_repo),
+        repositories=repositories,
         github_owner=github_owner,
         github_repo=github_repo,
         prompt_bundle_root=(
@@ -533,6 +550,16 @@ def _add_register_verify_parsers(
         help="Use multi-repository mode for the optional default structure.",
     )
     register_parser.add_argument(
+        "--code-repo",
+        action="append",
+        default=[],
+        metavar="NAME=URL",
+        help=(
+            "Explicit code repository for --multi-repo. Repeatable. The installer "
+            "registers it at codebase/NAME and clones URL when the directory is absent."
+        ),
+    )
+    register_parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Plan-only: report planned checkpoint outcomes without mutating.",
@@ -564,12 +591,19 @@ def _build_engine_config(args: argparse.Namespace) -> object | None:
     if coordinates is None:
         return None
     github_owner, github_repo = coordinates
+    repositories = _parse_code_repo_args(getattr(args, "code_repo", ()))
+    if repositories is None:
+        return None
+    if repositories and not bool(getattr(args, "multi_repo", False)):
+        print("--code-repo requires --multi-repo.", file=sys.stderr)
+        return None
     return InstallConfig(
         project_key=args.project_key,
         project_name=args.project_name,
         project_root=project_root,
         default_project_structure=bool(getattr(args, "default_project_structure", False)),
         multi_repo=bool(getattr(args, "multi_repo", False)),
+        repositories=repositories,
         github_owner=github_owner,
         github_repo=github_repo,
         # CP 2 probes the live GitHub repo via the productive gh probe (FK-50
@@ -579,6 +613,31 @@ def _build_engine_config(args: argparse.Namespace) -> object | None:
         sonarqube_available=False,
         ci_available=False,
     )
+
+
+def _parse_code_repo_args(raw_values: object) -> list[dict[str, str]] | None:
+    values = list(raw_values or [])
+    repositories: list[dict[str, str]] = []
+    for raw in values:
+        if not isinstance(raw, str) or "=" not in raw:
+            print(
+                "--code-repo must use NAME=URL syntax, for example --code-repo frontend=https://github.example/frontend.git",
+                file=sys.stderr,
+            )
+            return None
+        name, remote_url = raw.split("=", 1)
+        name = name.strip()
+        remote_url = remote_url.strip()
+        if not name or "/" in name or "\\" in name or not remote_url:
+            print(
+                "--code-repo requires a simple repository name and a non-empty URL.",
+                file=sys.stderr,
+            )
+            return None
+        repositories.append(
+            {"name": name, "path": f"codebase/{name}", "remote_url": remote_url}
+        )
+    return repositories
 
 
 def _print_checkpoint_results(result: object) -> None:

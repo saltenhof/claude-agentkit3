@@ -92,6 +92,7 @@ github_owner: "acme-corp"   # GitHub-Owner als Code-Backend (Repos, Branches, PR
 repositories:
   - name: backend
     path: "codebase/backend"
+    remote_url: "https://git.example/backend.git"
     language: python
     test_command: "pytest"
     build_command: "ruff check"

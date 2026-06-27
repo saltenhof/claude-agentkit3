@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import subprocess
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -385,10 +386,18 @@ def _build_repo_entries(config: InstallConfig) -> list[dict[str, str]]:
         The list of repository entry mappings for ``project.yaml``.
     """
     if not config.repositories:
+        if config.multi_repo:
+            raise ProjectError(
+                "Multi-repo default scaffold requires explicit code repositories.",
+                detail={
+                    "multi_repo": True,
+                    "default_project_structure": config.default_project_structure,
+                    "expected": "Provide explicit repositories under codebase/<repo-name>.",
+                },
+            )
         if not config.default_project_structure:
             return [{"name": "app", "path": "."}]
-        path = f"{CODEBASE_DIR}/app" if _effective_multi_repo(config) else CODEBASE_DIR
-        return [{"name": "app", "path": path}]
+        return [{"name": "app", "path": CODEBASE_DIR}]
     repos: list[dict[str, str]] = []
     for repo in config.repositories:
         entry: dict[str, str] = {
@@ -402,6 +411,7 @@ def _build_repo_entries(config: InstallConfig) -> list[dict[str, str]]:
             "test_command",
             "build_command",
             "are_scope",
+            "remote_url",
         ):
             if optional_field in repo:
                 entry[optional_field] = repo[optional_field]
@@ -1269,8 +1279,8 @@ def _ensure_default_scaffold_gitignore(config: InstallConfig, root: Path) -> str
     return str(gitignore_path.relative_to(root))
 
 
-def _default_scaffold_dirs(config: InstallConfig, root: Path) -> list[Path]:
-    default_dirs = [
+def _default_scaffold_base_dirs(root: Path) -> list[Path]:
+    return [
         root / CONCEPTS_DIR,
         root / CODEBASE_DIR,
         root / PROJECT_TEMP_DIR,
@@ -1279,11 +1289,6 @@ def _default_scaffold_dirs(config: InstallConfig, root: Path) -> list[Path]:
         root / GUARDRAILS_DIR,
         stories_dir(root),
     ]
-    for repo in _build_repo_entries(config):
-        repo_path = Path(repo["path"])
-        if repo_path != Path(".") and not repo_path.is_absolute():
-            default_dirs.append(root / repo_path)
-    return default_dirs
 
 
 def _create_missing_dirs(root: Path, directories: list[Path]) -> list[str]:
@@ -1292,6 +1297,66 @@ def _create_missing_dirs(root: Path, directories: list[Path]) -> list[str]:
         if not directory.exists():
             directory.mkdir(parents=True, exist_ok=True)
             created.append(str(directory.relative_to(root)))
+    return created
+
+
+def _is_empty_dir(path: Path) -> bool:
+    return path.is_dir() and next(path.iterdir(), None) is None
+
+
+def _clone_repo(remote_url: str, target: Path) -> None:
+    result = subprocess.run(
+        ["git", "clone", remote_url, str(target)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise ProjectError(
+            f"Failed to clone code repository into {target}.",
+            detail={
+                "remote_url": remote_url,
+                "target": str(target),
+                "stderr": result.stderr.strip(),
+            },
+        )
+
+
+def _materialize_scaffold_repo_dir(root: Path, repo: dict[str, str]) -> str | None:
+    repo_path = Path(repo["path"])
+    if repo_path in (Path("."), Path(CODEBASE_DIR)) or repo_path.is_absolute():
+        return None
+
+    target = root / repo_path
+    remote_url = repo.get("remote_url")
+    if target.is_file():
+        raise ProjectError(
+            f"Default scaffold code repository path is a file: {repo_path}",
+            detail={"path": str(repo_path), "repo": repo.get("name")},
+        )
+    if (target / ".git").is_dir():
+        return None
+    if remote_url is not None:
+        if target.exists() and not _is_empty_dir(target):
+            raise ProjectError(
+                f"Default scaffold code repository path is non-empty and not a Git repo: {repo_path}",
+                detail={"path": str(repo_path), "repo": repo.get("name")},
+            )
+        existed = target.exists()
+        _clone_repo(remote_url, target)
+        return None if existed else str(target.relative_to(root))
+    if not target.exists():
+        target.mkdir(parents=True, exist_ok=True)
+        return str(target.relative_to(root))
+    return None
+
+
+def _materialize_scaffold_repo_dirs(config: InstallConfig, root: Path) -> list[str]:
+    created: list[str] = []
+    for repo in _build_repo_entries(config):
+        rel = _materialize_scaffold_repo_dir(root, repo)
+        if rel is not None:
+            created.append(rel)
     return created
 
 
@@ -1321,7 +1386,8 @@ def scaffold_project_structure(config: InstallConfig, root: Path) -> list[str]:
     ):
         runtime_dir.mkdir(parents=True, exist_ok=True)
     if config.default_project_structure:
-        created.extend(_create_missing_dirs(root, _default_scaffold_dirs(config, root)))
+        created.extend(_create_missing_dirs(root, _default_scaffold_base_dirs(root)))
+        created.extend(_materialize_scaffold_repo_dirs(config, root))
         gitignore_rel = _ensure_default_scaffold_gitignore(config, root)
         if gitignore_rel is not None and gitignore_rel not in created:
             created.append(gitignore_rel)

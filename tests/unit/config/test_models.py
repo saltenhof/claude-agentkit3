@@ -125,6 +125,7 @@ class TestRepositoryConfig:
         repo = RepositoryConfig(name="my-repo", path=Path("/tmp/repo"))
         assert repo.name == "my-repo"
         assert repo.path == Path("/tmp/repo")
+        assert repo.remote_url is None
         assert repo.language is None
         assert repo.test_command is None
         assert repo.build_command is None
@@ -133,10 +134,12 @@ class TestRepositoryConfig:
         repo = RepositoryConfig(
             name="backend",
             path=Path("/opt/backend"),
+            remote_url="https://github.example/backend.git",
             language="python",
             test_command="pytest",
             build_command="pip install -e .",
         )
+        assert repo.remote_url == "https://github.example/backend.git"
         assert repo.language == "python"
         assert repo.test_command == "pytest"
         assert repo.build_command == "pip install -e ."

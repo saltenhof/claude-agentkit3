@@ -42,9 +42,12 @@ invariants:
   - id: installer.invariant.default_scaffold_gitignore_policy
     scope: filesystem
     rule: in the default scaffold, temp/ must be ignored by the root repository and codebase/ must be ignored exactly in multi_repo mode; codebase/ must remain trackable in single_repo mode
+  - id: installer.invariant.multi_repo_requires_explicit_repositories
+    scope: filesystem
+    rule: multi_repo mode requires explicit code repository declarations and must not invent synthetic repository names or paths such as codebase/app
   - id: installer.invariant.default_scaffold_existing_repo_dirs_fail_closed
     scope: filesystem
-    rule: creating default-scaffold repository directories must fail closed when an existing non-empty directory has an incompatible Git state; the installer may not overwrite or silently repurpose such a directory
+    rule: creating default-scaffold repository directories must fail closed when an existing non-empty directory has an incompatible Git state; existing valid Git repository directories are skipped unchanged on rerun
   - id: installer.invariant.bundle_bindings_are_version_pinned
     scope: bundle-binding
     rule: skill and prompt bindings must point to one concrete immutable bundle version and never to a live source checkout or latest alias

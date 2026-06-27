@@ -286,11 +286,18 @@ nicht automatisch.
 **Repository-Anbindung:** Der Installer muss beim Default-Scaffold den
 Repository-Modus ermitteln: `single_repo` oder `multi_repo`. Im
 Single-Repo-Modus zeigt `repositories[]` auf den im Root-Repository
-versionierten Codebereich (normalerweise `codebase`). Im Multi-Repo-
-Modus schreibt der Installer die eingebundenen Code-Repositories als
-`repositories[]` mit Pfaden unter `codebase/{repo-name}`. Er darf
-passende Unterordner anlegen, wenn sie fehlen; er klont oder erzeugt
-aber kein Remote-Repo ohne expliziten Auftrag.
+versionierten Codebereich (normalerweise `codebase`). Der Installer
+legt darunter keine sprach- oder framework-spezifischen Unterordner an.
+Im Multi-Repo-Modus muss der Operator die einzubindenden Code-
+Repositories explizit angeben, z. B. `frontend` und `backend`. Der
+Installer schreibt diese Repositories als `repositories[]` mit Pfaden
+unter `codebase/{repo-name}`. Er darf nur fuer diese explizit
+angegebenen Repositories passende Unterordner anlegen und, wenn ein
+Remote angegeben ist, in diese Zielordner klonen. Er erfindet keine
+synthetischen Repo-Namen wie `app` und erzeugt kein Remote-Repository
+ohne expliziten Auftrag. Bei Re-Runs werden bereits vorhandene gueltige
+Repo-Ordner nicht veraendert, sondern uebersprungen. Nicht leerer
+Zielpfad ohne erkennbaren Git-Repo-Zustand ist fail-closed.
 
 **Guardrail-Auslieferung:** Projektübergreifende AgentKit-Guardrails
 bleiben systemweit versioniert. Das Zielprojekt erhält nur
