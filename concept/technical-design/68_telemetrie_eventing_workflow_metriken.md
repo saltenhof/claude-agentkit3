@@ -174,8 +174,8 @@ glossary:
     - id: telemetry-hook
       reason: >
         Konkrete harness-spezifische Hook-Implementierung (telemetry/hook.py;
-        Claude Code aktuell, Codex via Harness-Adapter — FK-76 §76.4) als
-        aktueller Referenz-Adapterpfad. Implementierungsdetail; der normative
+        z. B. ueber den Claude-Code- bzw. Codex-Harness-Adapter — FK-76 §76.4)
+        als Adapterpfad. Implementierungsdetail; der normative
         Begriff ist execution-event und dessen Control-Plane-Schreibgrenze.
     - id: review-sentinel
       reason: >
@@ -428,11 +428,11 @@ die zentrale AgentKit-Control-Plane ingestierbar bleiben.
 > emittiert, unter welchem Modul-Pfad er registriert ist und welche EventTypeId er
 > produziert. Normative Hook-Definitionen: FK-30 §30.5.**
 
-Harness-Hooks (Claude Code aktuell; Codex via Adapter — FK-76 §76.4)
-sind die **aktuelle Referenz-Implementierung** fuer
-mehrere beobachtende Telemetriequellen. Sie sind jedoch kein
-normativer Sonderstatus, sondern ein Adapterpfad fuer die
-Control-Plane-Telemetrie.
+Harness-Hooks (z. B. ueber den Claude-Code- bzw. Codex-Harness-Adapter
+— FK-76 §76.4) sind der vorgesehene Adapterpfad, ueber den
+mehrere beobachtende Telemetriequellen erfasst werden. Sie haben
+keinen normativen Sonderstatus, sondern speisen ueber den Adapterpfad
+denselben kanonischen Event-Vertrag der Control-Plane-Telemetrie.
 
 Hooks sind dort eine gute Quelle, wo sie Agent-Aktionen ohne
 Mitwirkung des Agents beobachten koennen.

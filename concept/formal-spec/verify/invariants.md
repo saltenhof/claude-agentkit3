@@ -30,7 +30,7 @@ invariants:
     rule: a QA-subflow run of the verify-system capability may not start without a typed verify_context supplied by the calling phase
   - id: verify.invariant.full_qa_required_for_both_contexts
     scope: process
-    rule: both POST_IMPLEMENTATION and POST_REMEDIATION run the full four-layer QA path
+    rule: both IMPLEMENTATION_INITIAL and IMPLEMENTATION_REMEDIATION run the full four-layer QA path
   - id: verify.invariant.impact_violation_escalates_immediately
     scope: governance
     rule: impact violation escalates verify immediately and bypasses the normal feedback path

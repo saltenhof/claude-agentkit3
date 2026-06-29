@@ -96,7 +96,7 @@ von:
 
 - Lieferpflicht
 - Guard-/Capability-Verhalten
-- Verify-/Closure-Zulaessigkeit
+- QA-Subflow-/Closure-Zulaessigkeit
 - administrativen Endpfaden
 
 Wenn ein Feld nur Routing-Hinweis, Laufzeitdiagnose, Audit-Anreicherung
@@ -241,9 +241,9 @@ Beispiele:
 
 | `story_type` | `implementation_contract` | Typischer Pfad | Terminal zulaessig |
 |-------------|----------------------------|----------------|--------------------|
-| `implementation` | `standard` | Setup -> Execution oder Exploration -> Implementation -> Verify -> Closure | `Done`, `Cancelled` |
-| `implementation` | `integration_stabilization` | Setup -> Exploration -> Integration-Stabilisierung -> Verify -> Stability-Gate -> Closure | `Done`, `Cancelled` |
-| `bugfix` | `standard` | Setup -> direkte oder explorative Bugfix-Umsetzung -> Verify -> Closure | `Done`, `Cancelled` |
+| `implementation` | `standard` | Setup -> Execution oder Exploration -> Implementation (inkl. QA-Subflow) -> Closure | `Done`, `Cancelled` |
+| `implementation` | `integration_stabilization` | Setup -> Exploration -> Integration-Stabilisierung (inkl. QA-Subflow) -> Stability-Gate -> Closure | `Done`, `Cancelled` |
+| `bugfix` | `standard` | Setup -> direkte oder explorative Bugfix-Umsetzung (inkl. QA-Subflow) -> Closure | `Done`, `Cancelled` |
 | `concept` | nicht anwendbar | Story-Definition / Konzeptbearbeitung / Review | `Done`, `Cancelled` |
 | `research` | nicht anwendbar | Recherchepfad / Ergebnisdokumentation | `Done`, `Cancelled` |
 

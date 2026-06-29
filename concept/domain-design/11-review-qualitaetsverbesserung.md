@@ -529,18 +529,18 @@ Statt blindem Mittelschnitt:
 
 ### 4.5.8 Abhängigkeiten und Voraussetzungen
 
-| Voraussetzung | Status | Für |
-|---------------|--------|------|
-| StoryContext / `context.json`-Export mit `concept_paths`, `guardrail_paths` | Vorhanden | Evidence Assembler Stufe 1 |
-| Git-Diff-Zugriff aus dem Worker-Kontext | Vorhanden | Evidence Assembler Stufe 1 |
-| Import-Extraktion Python/TS/Java | Neu zu bauen | Evidence Assembler Stufe 2 |
-| ContextBundle-Erweiterung (Autoritätsklassen) | Neu zu bauen | Autoritätsmarkierung |
-| Review-Prompt-Templates Anpassung | Bestehende Templates erweitern | Autoritätsmarkierung |
-| Preflight-Prompt-Template (neu) | Neu zu erstellen | Request-DSL |
-| ContextBundle Sufficiency-Prüfung | Neu zu bauen | Context Sufficiency Builder |
-| Section-aware Truncation | Ersetzt truncate_bundle() | Smarteres Packing |
-| Divergenz-Prüfung + Quorum-Anweisung im QA-Prompt | check_divergence() + Worker-Template-Erweiterung | Divergenz-Telemetrie |
-| mediation-round.md Template | Bereits vorhanden | Auto-Mediation |
+| Voraussetzung | Für |
+|---------------|------|
+| StoryContext / `context.json`-Export mit `concept_paths`, `guardrail_paths` | Evidence Assembler Stufe 1 |
+| Git-Diff-Zugriff aus dem Worker-Kontext | Evidence Assembler Stufe 1 |
+| Import-Extraktion Python/TS/Java | Evidence Assembler Stufe 2 |
+| ContextBundle-Erweiterung (Autoritätsklassen) | Autoritätsmarkierung |
+| Review-Prompt-Templates Anpassung | Autoritätsmarkierung |
+| Preflight-Prompt-Template | Request-DSL |
+| ContextBundle Sufficiency-Prüfung | Context Sufficiency Builder |
+| Section-aware Truncation | Smarteres Packing |
+| Divergenz-Prüfung + Quorum-Anweisung im QA-Prompt | Divergenz-Telemetrie |
+| mediation-round.md Template | Auto-Mediation |
 
 ### 4.5.9 Geklärte Fragen
 

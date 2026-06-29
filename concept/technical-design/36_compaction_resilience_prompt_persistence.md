@@ -523,8 +523,10 @@ SubagentStop:
   + Bindestriche) um Path-Traversal zu verhindern.
 - **Artifact-Drift**: Hash-Verifikation in Manifest und Spawn-Spec schuetzt gegen
   unbeabsichtigtes Lesen ueberschriebener Dateien.
-- **Agent-Spawn-Deny**: Im Recovery-Zustand werden Agent-Spawns blockiert (DD-09),
-  um Kaskadenschaeden unter potenziellem Auftragsdrift zu verhindern.
+- **Agent-Spawn-Warnung**: Im Recovery-Zustand werden Agent-Spawns nicht hart
+  blockiert, sondern mit Inject + Warn-Header durchgelassen (DD-09), um
+  potenziellen Auftragsdrift sichtbar zu machen, ohne legitime Sub-Agenten zu
+  verhindern.
 
 ## 36.11 Grenzen
 
@@ -536,7 +538,8 @@ SubagentStop:
   bei Compaction verloren — das ist nicht adressiert.
 - **1-Tool-Call-Degradation**: Der erste Tool-Call nach Compaction kann unter
   degradiertem Kontext stattfinden, bevor die Recovery greift. Agent-Spawns
-  werden in diesem Fall blockiert (DD-09).
+  erhalten in diesem Fall Inject + Warn-Header, werden aber nicht hart
+  blockiert (DD-09).
 - **Token-Re-Compaction**: Wenn das re-injizierte Prompt selbst gross ist, kann
   ein neues Compaction-Event ausgeloest werden. Die Kapsel ist deshalb bewusst
   kompakt (8K).

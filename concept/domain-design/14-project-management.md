@@ -61,10 +61,10 @@ Filter selbst lebt als Routing-Disziplin im control_plane_http, das
 - **Cross-Cutting-Filter** (jeder Endpoint filtert nach `project_key`)
   ist Routing-Disziplin im control_plane_http, keine fachliche Aussage
   von Project-Management.
-- **Berechtigung pro Projekt** (Multi-User-Szenarien) ist heute kein
-  Thema — AK3 wird aktuell von einem Stratege betrieben. Falls
-  Mehrnutzer-Szenarien hinzukommen, gehoert die fachliche Logik
-  hierher.
+- **Berechtigung pro Projekt** (Multi-User-Szenarien) wird in diesem
+  Konzept bewusst nicht entschieden; sie ist als eigenstaendige
+  Erweiterung offen. Falls Mehrnutzer-Szenarien hinzukommen, gehoert
+  die fachliche Logik hierher.
 
 ## 4. Lebenszyklus
 
@@ -96,8 +96,8 @@ spezifiziert.
 
 Project-Management ist nicht:
 
-- **Tenant-Management** — heute gibt es keine Tenant-Ebene oberhalb
-  des Projekts. Wenn das in Zukunft kommt, wird sie als eigener BC
+- **Tenant-Management** — eine Tenant-Ebene oberhalb des Projekts ist
+  nicht Teil dieses Konzepts. Kommt sie hinzu, wird sie als eigener BC
   modelliert, nicht hier hineingedrueckt.
 - **Repo-Verwaltung** — die Repo-URL ist Konfigurationsfeld, das
   Repository selbst ist externes System (Git/GitHub), nicht

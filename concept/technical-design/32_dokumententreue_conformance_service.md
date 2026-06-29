@@ -498,7 +498,12 @@ abweichen will oder muss, muss er:
 
 1. Die Abweichung explizit markieren (im Handover `drift_log`)
 2. Eine Begründung liefern
-3. Eine erneute Dokumententreue-Prüfung auslösen
+
+Eine erneute Dokumententreue-Prüfung aus der Implementation heraus
+löst der Worker nicht aus (FK-23 §23.7.3). Die markierte Abweichung
+wird durch die Umsetzungstreue (Ebene 3) im QA-Subflow bewertet
+(§32.9.2); ist sie nicht auflösbar, gilt die Drift-Reaktion nach
+FK-23 (Selbstkorrektur oder BLOCKED/ESCALATED).
 
 ### 32.9.2 Erkennung (FK-06-070)
 

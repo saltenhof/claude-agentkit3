@@ -591,7 +591,7 @@ Reviews und keinen PAUSED/Resume-Zyklus.
 ```python
 import concurrent.futures
 
-def run_verify_layer2(evaluator: LlmEvaluator, ctx: VerifyContext) -> Layer2Result:
+def run_verify_layer2(evaluator: LlmEvaluator, ctx: VerifyContextBundle) -> Layer2Result:
     """Layer-2-Reviews: synchron im Phase Runner, kein Agent-Spawn."""
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         future_qa = pool.submit(

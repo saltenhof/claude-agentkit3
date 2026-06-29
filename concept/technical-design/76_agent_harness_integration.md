@@ -38,7 +38,7 @@ glossary:
     - id: agent-harness
       definition: >
         Externe Agent-Laufzeitumgebung, in der ein AK3-Agent (Orchestrator,
-        Worker, Adversarial) laeuft und Werkzeuge ausfuehrt — aktuell Claude
+        Worker, Adversarial) laeuft und Werkzeuge ausfuehrt — etwa Claude
         Code oder Codex. Der Harness liefert allgemeine Agent-Faehigkeiten
         (Datei-Edit, Shell, Git, Tool-Aufrufe). AK3 ist ein Meta-Harness, der
         diesen Harness um prozessuale und Governance-Capabilities erweitert,
@@ -52,11 +52,9 @@ glossary:
       definition: >
         Harness-spezifische Mediationsschicht (Bluttyp AT) pro Agent-Harness
         im Soll-Namespace agentkit.harness_integration.{claude_code,codex}.
-        Die aktuelle Code-Verortung liegt unter
-        agentkit.harness_client.harness_adapters. Mappt
-        harness-native Mechanik (Tool-Namen, stdin/stdout, Exit-Codes, Settings-
-        Format) auf das harness-neutrale Modell und zurueck. Enthaelt keine
-        Guard-Regeln und trifft keine Policy.
+        Mappt harness-native Mechanik (Tool-Namen, stdin/stdout, Exit-Codes,
+        Settings-Format) auf das harness-neutrale Modell und zurueck. Enthaelt
+        keine Guard-Regeln und trifft keine Policy.
       see_also:
         - term: harness-port
           domain: harness-integration
@@ -139,23 +137,20 @@ Hook-Auswertung ist in zwei Subkomponenten gespalten:
   `HookEvent`-Struktur und liefert die harness-spezifische Decision-
   Repraesentation zurueck.
 
-Aktuelle Adapter:
+Erforderliche Adapter:
 
-| Adapter | Status | Modul-Pfad |
+| Adapter | Modul-Pfad (Soll) | CLI-Wrapper |
 |---|---|---|
-| `claude_code` | implementiert | Soll: `agentkit.harness_integration.claude_code`; aktuell: `agentkit.harness_client.harness_adapters.claude_code` |
-| `codex` | implementiert (CLI `agentkit-hook-codex`) | Soll: `agentkit.harness_integration.codex`; aktuell: `agentkit.harness_client.harness_adapters.codex` |
+| `claude_code` | `agentkit.harness_integration.claude_code` | `agentkit-hook-claude` |
+| `codex` | `agentkit.harness_integration.codex` | `agentkit-hook-codex` |
 
 Weitere Harnesses (Qwen Code, Gemini-CLI, …) folgen demselben Pattern. Es gibt
 **keine Plugin-Registry** und **keine Capability-Selection-Policy** — jeder
 Adapter ist ein fest verdrahtetes Sub-Modul.
 
-> **Code-Verortung (Hinweis, nicht normativ fuer die Konzept-Sicht):** Die
-> reale Code-Verortung ist heute `agentkit.harness_client.harness_adapters`. Die
-> physische Verschiebung nach `agentkit.harness_integration` ist kosmetisch
-> (Paketname = BC-Name) und kann als eigene Folge-Story erfolgen. Verbindlich
-> ist die BC-**Zugehoerigkeit** (dieses Doc) und die Importrichtung (§76.9),
-> nicht der Verzeichnisname.
+> **Binding (normativ):** Verbindlich ist die BC-**Zugehoerigkeit** (dieses Doc,
+> Paketname = BC-Name) und die Importrichtung (§76.9), nicht der
+> Verzeichnisname.
 
 ## 76.4 Adapter-Vertrag
 
@@ -317,8 +312,7 @@ FK-76 bleibt eine **duenne** BC (keine „God-Foundation"):
 
 ## 76.9 Importrichtung (normativ)
 
-- `harness_integration` (aktuell physisch `governance.harness_adapters`)
-  **importiert** harness-neutrale Contracts aus
+- `harness_integration` **importiert** harness-neutrale Contracts aus
   `governance` (z. B. `HookDefinition`, `HookEvent`, `GuardVerdict`).
 - `governance` **importiert** `harness_integration` **nicht** im Kern; wo
   `register_hooks` die Settings materialisiert, geschieht das ueber einen

@@ -218,9 +218,9 @@ Payload-Zugriff noetig.
 
 **QA-Tiefe (FK-37 §37.1):** Die QA-Tiefe wird ueber `verify_context`
 gesteuert, nicht ueber `mode`. Nach Worker-Run innerhalb der
-Implementation-Phase gilt `verify_context = VerifyContext.POST_IMPLEMENTATION`,
+Implementation-Phase gilt `verify_context = QaContext.IMPLEMENTATION_INITIAL`,
 nach einer Subflow-internen Remediation-Iteration
-`verify_context = VerifyContext.POST_REMEDIATION` — beide loesen den
+`verify_context = QaContext.IMPLEMENTATION_REMEDIATION` — beide loesen den
 vollen 4-Schichten-QA-Subflow aus, unabhaengig davon, ob die Story im
 Exploration- oder Execution-Modus gestartet wurde. `verify_context`
 ist Subflow-internes Diskriminator-Feld auf `ImplementationPayload`

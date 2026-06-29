@@ -223,25 +223,15 @@ gelten für Agent-Eigenbedarf (LLM-Sparring) und read-mostly-Zugriffe
 | Dienst | Schnittstelle zu AgentKit | Anforderung |
 |--------|--------------------------|-------------|
 | LLM-Session-Pools | MCP-Tools: `{pool}_acquire`, `{pool}_send`, `{pool}_release`, `{pool}_health`, `{pool}_pool_status` | Mindestens 2 verschiedene LLM-Familien neben Claude. Die konkrete Implementierung (Browser-Automation, API, etc.) ist AgentKit egal — es zählt nur die MCP-Schnittstelle. |
-| Story-Knowledge-Base | MCP-Tools: `story_search`, `story_list_sources`, `story_sync` | Aktuell: Weaviate (Docker) + FastMCP-Server. Austauschbar durch jede Implementierung mit gleicher MCP-Schnittstelle. |
+| Story-Knowledge-Base | MCP-Tools: `story_search`, `story_list_sources`, `story_sync` | Beliebige Implementierung mit dieser MCP-Schnittstelle (z.B. Weaviate via FastMCP-Server). |
 | ARE (optional) | MCP-Tools (analog zu Weaviate-Wrapper). **Kein direkter DB-Zugriff.** | Python-Anwendung mit SQL-DB im Backend. Falls ARE nativ nur REST/FastAPI spricht, wird ein MCP-Wrapper als Adapter implementiert (wie bei Weaviate). |
 | Zielprojekt | Dateisystem + Git | Beliebiger Tech-Stack |
 
-**Referenz-Implementierung der LLM-Pools** (aktuell im Einsatz, nicht
-Teil von AgentKit):
-
-Die folgenden Implementierungen sind die aktuelle Referenz. Sie sind
-austauschbar, solange die MCP-Schnittstelle (`acquire`/`send`/`release`)
-eingehalten wird.
-
-| Pool | Implementierung | Laufzeit |
-|------|----------------|----------|
-| `chatgpt-pool` | Python, FastAPI, Playwright | Native Windows, REST `:9100` |
-| `gemini-pool` | Python, FastAPI, xdotool + Extension-Bridge | WSL2 Ubuntu, User `gemini`, REST `:9200`, VNC `:5900` |
-| `grok-pool` | Python, FastAPI, xdotool + Extension-Bridge | WSL2 Ubuntu, User `grok`, REST `:9400`, VNC `:5901` |
-
-Gemini und Grok laufen auf derselben WSL2-Instanz mit getrennten
-Linux-Usern, X11-Displays und Ports.
+**Implementierung der LLM-Pools:** Die konkrete Pool-Implementierung ist
+nicht Teil von AgentKit und frei waehlbar — etwa Browser-Automation per
+FastAPI/Playwright oder eine direkte API-Anbindung, jeweils nativ oder in
+einer isolierten Laufzeit (z.B. WSL2). Massgeblich ist allein die
+Einhaltung der MCP-Schnittstelle (`acquire`/`send`/`release`).
 
 ### 1.2.2a Fachliches Komponentenmodell
 
@@ -635,7 +625,7 @@ flowchart TD
 
 | Schicht | Technologie | Version | Protokoll |
 |---------|-------------|---------|-----------|
-| Agent-Plattform | Agent-Harness (Claude Code, Codex; FK-76) | aktuell | CLI + Hook-API, harness-spezifisch via Adapter |
+| Agent-Plattform | Agent-Harness (Claude Code, Codex; FK-76) | — | CLI + Hook-API, harness-spezifisch via Adapter |
 | Hook-Sprache | Python | 3.14 | stdin/stdout, exit codes |
 | Konfiguration | YAML | — | Dateisystem |
 | Datenmodelle | Pydantic | 2.7+ | Python-Klassen |

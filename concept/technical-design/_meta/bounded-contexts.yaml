@@ -311,7 +311,8 @@ foundation_principles:
 
 
 # ----------------------------------------------------------------------
-# Drift-Risiken — verbindliche Aufgaben fuer das Frontmatter-Refactoring
+# Anti-Drift-Register: Single-Source-of-Truth-Ownership fuer
+# dokumentuebergreifend gestreute Begriffe und Vertragsachsen
 
 drift_risks:
 
@@ -352,60 +353,3 @@ drift_risks:
       Sonst wird artifacts zur generischen Muellhalde.
 
 
-# ----------------------------------------------------------------------
-# Bekannte erforderliche Doc-Splits
-# WICHTIG: Diese Liste ist NICHT autoritativ. Sie zeigt nur die in der
-# bisherigen Diskussion EXPLIZIT identifizierten Splits — kein Anspruch
-# auf Vollstaendigkeit. Eine vollstaendige Migration erfordert
-# systematische Frontmatter-Auswertung aller 65 Dokumente.
-
-known_required_doc_splits:
-
-  caveat: |
-    Stand der bisherigen Analyse — kein Anspruch auf Vollstaendigkeit.
-    Weitere Splits werden bei der praktischen Migration sehr
-    wahrscheinlich auftauchen, insbesondere wenn die Drift-Risiken
-    konkret aufgeloest werden. Quelle der Liste: Frontmatter-Analyse,
-    nicht systematischer Audit.
-
-  splits:
-
-    - doc: FK-02
-      reason: mischt Story-Status, Artefakte, Stage-Registry-Spuren
-      target_bcs:
-        - story-lifecycle (Status-Teil)
-        - artifacts (Artefakt-Klassen + Envelope)
-        - verify-system (Stage-Registry-Spuren)
-
-    - doc: FK-17
-      reason: definiert BC-Vokabular, kann nicht in Foundation bleiben
-      target:
-        - shared-kernel (Value Objects)
-        - per-BC (kanonische Entities zu deren Owner-BC)
-        - separates Ownership-Register (reines Mapping ohne Fachsemantik)
-
-    - doc: FK-27
-      reason: mischt Verify-Pipeline und Closure-Orchestration
-      target_bcs:
-        - verify-system (qa-cycle, policy-evaluation, adversarial-orchestration)
-        - story-closure (closure-sequence, ClosurePayload)
-        - governance-and-guards (integrity-gate)
-        - kpi-and-dashboard (metrics_written als Konsument)
-
-    - doc: DK-02
-      reason: mischt Story-Lifecycle und Pipeline-Engine
-      target_bcs:
-        - story-lifecycle (Lifecycle-Teil)
-        - pipeline-framework (Engine-Teil)
-
-    - doc: DK-05
-      reason: mischt Telemetrie-Events und KPIs
-      target_bcs:
-        - telemetry-and-events (Event-Teil)
-        - kpi-and-dashboard (KPI-Teil)
-
-    - doc: DK-09
-      reason: mischt Tools/CCAG/Permissions und Skills
-      target_bcs:
-        - governance-and-guards (CCAG/Tools/Permissions)
-        - agent-skills (Skills/Variants)

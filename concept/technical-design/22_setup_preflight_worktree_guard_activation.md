@@ -550,6 +550,11 @@ dass der Research-Agent noch einmal ausgeführt werden muss.
 
 Der Phase-State wird gesetzt:
 
+> Das folgende JSON-Beispiel zeigt die fachliche Idee in vereinfachter,
+> flacher Form. Die normative Struktur ist die nach Ownership getrennte
+> (StoryContext, PhaseStateCore, PhasePayload, RuntimeMetadata);
+> autoritativ sind FK-17 und FK-18.
+
 ```json
 {
   "phase": "setup",
@@ -845,6 +850,11 @@ Das 4-Trigger-Modell verzichtet bewusst auf die folgenden Kriterien:
 | Maturity-Kriterium in der Modus-Ermittlung | Redundant zu `Concept Quality`; das Story-Attribut `Maturity` bleibt im AK3-Story-Backend für andere Zwecke bestehen |
 
 ### 22.8.3 Ergebnis im Phase-State
+
+> Die folgenden JSON-Beispiele zeigen die fachliche Idee in vereinfachter,
+> flacher Form. Die normative Struktur ist die nach Ownership getrennte
+> (StoryContext, PhaseStateCore, PhasePayload, RuntimeMetadata);
+> autoritativ sind FK-17 und FK-18.
 
 ```json
 {

@@ -34,7 +34,7 @@ verwendet werden. Jeder Begriff hat eine exakte technische Bedeutung.
 | **Story-Typ** | Klassifikation der Story. Bestimmt den Pipeline-Pfad. | Enum: `implementation`, `bugfix`, `concept`, `research` |
 | **Story-Größe** | Geschätzter Umfang. Beeinflusst Review-Häufigkeit. | Enum: `XS`, `S`, `M`, `L`, `XL` |
 | **Run** | Eine Ausführung der Pipeline für eine Story. Eine Story kann mehrere Runs haben (bei Retry/Rework). | `run_id` (UUID), erzeugt beim Setup. Technischer Ausführungsschlüssel neben `story_id`. |
-| **Phase** | Ein Abschnitt des Pipeline-Ablaufs. | Enum: `setup`, `exploration`, `implementation`, `verify`, `closure` |
+| **Phase** | Ein Abschnitt des Pipeline-Ablaufs. | Enum: `setup`, `exploration`, `implementation`, `closure` |
 | **Stage** | Ein Prüfschritt innerhalb einer Phase. Typisiert mit Schicht, Story-Typ-Geltung und Blocking-Modus. | Typisiertes Objekt in Stage-Registry (siehe 2.9) |
 | **Flow** | Hierarchisch interpretierbarer Ablaufvertrag. Kann Pipeline, Phase oder Komponente beschreiben. | `FlowDefinition` der Prozess-DSL |
 | **Node / Schritt** | Atomarer oder zusammengesetzter Kontrollfluss-Knoten innerhalb eines Flows. | `NodeDefinition(kind="step" \| "gate" \| "yield" \| "branch" \| "subflow")` |
@@ -93,9 +93,8 @@ stateDiagram-v2
         setup --> implementation : Execution Mode
         exploration --> implementation : Dokumententreue PASS
         exploration --> ESKALATION : Dokumententreue FAIL
-        implementation --> verify
-        verify --> implementation : FAIL (Feedback-Loop, max N Runden)
-        verify --> closure : PASS
+        implementation --> closure : QA-Subflow PASS
+        implementation --> ESKALATION : QA-Subflow FAIL (terminal nach Remediation)
         closure --> [*] : Integrity-Gate PASS + Postflight
         closure --> ESKALATION : Integrity-Gate FAIL
     }
@@ -120,9 +119,11 @@ die relationale Abbildung in FK-18.
 **Pipeline-State-Record:** zentrale Runtime-Projektion
 (`phase_state_projection`) im State-Backend.
 
-> Das folgende JSON-Beispiel illustriert die fachliche Idee.
-> Autoritativ sind FK-17 (Attributvertraege) und FK-18 (relationale
-> Abbildung).
+> Das folgende JSON-Beispiel illustriert die fachliche Idee in
+> vereinfachter, flacher Form. Die normative Struktur ist die nach
+> Ownership getrennte (StoryContext, PhaseStateCore, PhasePayload,
+> RuntimeMetadata); autoritativ sind FK-17 (Attributvertraege) und
+> FK-18 (relationale Abbildung).
 
 ```json
 {
@@ -130,7 +131,7 @@ die relationale Abbildung in FK-18.
   "project_key": "odin-trading",
   "story_id": "PROJ-042",
   "run_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "phase": "verify",
+  "phase": "implementation",
   "status": "IN_PROGRESS",
   "started_at": "2026-03-16T14:00:00+01:00",
   "finished_at": "2026-03-16T14:23:01+01:00",
@@ -160,11 +161,12 @@ die relationale Abbildung in FK-18.
 
 | Feld | Typ | Gültig in Phase | Bedeutung |
 |------|-----|-----------------|-----------|
-| `exploration_gate_status` | String | `exploration` | Fortschritt durch das Drei-Stufen-Gate am Ende der Exploration. Muss `"approved_for_implementation"` sein bevor Verify läuft. Gültige Werte: `""`, `"doc_compliance_passed"`, `"design_review_passed"`, `"design_review_failed"`, `"approved_for_implementation"` |
+| `exploration_gate_status` | String | `exploration` | Fortschritt durch das Drei-Stufen-Gate am Ende der Exploration. Muss `"approved_for_implementation"` sein, bevor die Implementation-Phase beginnt. Gültige Werte: `""`, `"doc_compliance_passed"`, `"design_review_passed"`, `"design_review_failed"`, `"approved_for_implementation"` |
 | `exploration_review_round` | Integer | `exploration` | Zähler für Design-Review-Remediation-Runden. Max 2 Runden, dann Eskalation. |
 
 `verify_result = "STRUCTURAL_ONLY_PASS"` ist kein gültiger Wert.
-Exploration-mode Stories durchlaufen nach der Implementation die volle 4-Schichten-Verify.
+Exploration-mode Stories durchlaufen innerhalb der Implementation-Phase
+den vollen 4-Schichten-QA-Subflow (QaContext.IMPLEMENTATION_INITIAL).
 
 **Mandantenregel:** `story_id` ist kein systemweit ausreichender
 Schlüssel. Kanonische Records im State-Backend werden immer mindestens

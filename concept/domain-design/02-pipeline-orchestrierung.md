@@ -561,12 +561,14 @@ unterschiedlich stark zum Score bei:
 | Hook/Commit-Konflikte | Sehr stark | Wiederholtes Scheitern am selben Hook-Reason |
 | Fortschritts-Stagnation | Stark | Kein Commit, kein Manifest trotz grüner Tests |
 | Tool-Call-Anzahl | Schwach | Nur als Verstärker, da problemabhängig |
-| LLM-Assessment | Korrekturfaktor | Optionaler asynchroner Sidecar, verschiebt Score um ±10 Punkte |
+| LLM-Assessment | Korrekturfaktor | Asynchroner Sidecar (Pflichtbestandteil), verschiebt Score um ±10 Punkte |
 
-Das Scoring läuft deterministisch im Hook. Ein optionaler
-asynchroner LLM-Assessment-Sidecar kann die Bewertung verfeinern,
-ist aber nie Voraussetzung für eine Intervention oder einen
-Hard Stop.
+Das Scoring läuft deterministisch im Hook und ist nie auf eine
+LLM-Antwort angewiesen. Der LLM-Assessment-Sidecar ist
+Pflichtbestandteil der Architektur (immer gestartet, kein
+Feature-Flag); sein asynchrones Ergebnis verfeinert die Bewertung
+als Korrekturfaktor, ist aber nie Voraussetzung für eine
+Intervention oder einen Hard Stop.
 
 **Eskalationsleiter:** Der Score bestimmt die Reaktionsstufe:
 

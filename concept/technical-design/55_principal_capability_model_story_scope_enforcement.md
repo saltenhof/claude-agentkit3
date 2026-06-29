@@ -222,9 +222,8 @@ Sandbox beim Prozessstart des mutierenden Tool-Calls (Linux: Landlock /
 bubblewrap / Mount-Namespace; Containment per ORT, nicht per
 Shell-Semantik). Entkoppelt UX-Isolation (ein Hauptagent) von
 Kernel-Containment — ohne separate UIDs, ohne N Harnesse. **Verfuegbar
-nur in einem Contained-Execution-Runner** (Linux-CI, WSL2/Container).
-Status: benannte Zukunftsoption, **derzeit nicht in Umsetzung** (siehe
-Runner-Boundary-Class).
+nur im Contained-Execution-Profil** (Linux-CI, WSL2/Container); welches
+Profil diese Schicht garantiert, deklariert die Runner-Boundary-Class.
 
 **Schicht C — Broker-Wahrheit + Akzeptanz-Gate.**
 QA-Verdikte, Governance- und Run-State leben in AK3s Datenhaltung; der
@@ -241,9 +240,11 @@ lokalen Blast-Radius (z. B. Exfiltration von Host-Credentials) und
 
 ### Runner-Boundary-Class
 
-Die durchsetzbare Schutzklasse haengt vom Ausfuehrungs-Runner ab. AK3
-behauptet nicht absolut "kann nicht ausbrechen", sondern deklariert die
-Grenze pro Runner-Typ:
+Die durchsetzbare Schutzklasse haengt vom gewaehlten Ausfuehrungs-Profil
+ab. AK3 behauptet nicht absolut "kann nicht ausbrechen", sondern
+deklariert die Grenze pro unterstuetztem Runner-Profil. Der Betreiber
+waehlt das Profil entsprechend seiner Runner-/OS-Umgebung; jedes Profil
+garantiert genau die folgenden Schutzklassen:
 
 | Runner | Stufe 1+2 (Schicht A) | Stufe 3 (Schicht B) | System-Wahrheit (Schicht C) |
 |---|---|---|---|
@@ -251,22 +252,22 @@ Grenze pro Runner-Typ:
 | `wsl2-contained` | hart | kernel-hart | geschuetzt |
 | `linux-ci` | hart | kernel-hart | geschuetzt |
 
-### Operative Festlegung (Stand: native Windows)
+### Native-Host-Profil (`native-windows`)
 
-AK3 laeuft bis auf Weiteres auf einem **nativen Windows-Dev-Host**.
-Windows besitzt kein unprivilegiertes, leichtgewichtiges, pfadbasiertes
+Im `native-windows`-Profil existiert kein Stufe-3-Containment. Windows
+besitzt kein unprivilegiertes, leichtgewichtiges, pfadbasiertes
 Per-Tool-Call-FS-Containment (Job Objects, Restricted Token + ACL und
 AppContainer scheitern an Tragfaehigkeit bzw. Wartbarkeit). Daraus folgt
-ehrlich: **Auf native-windows existiert Stufe-3-Containment nicht.**
-Jeder In-Process-Versuch, Stufe 3 auf Windows praeventiv zu halten,
-waere ein Papiertiger und wird daher nicht gebaut. Der Schutz gegen
-Stufe 3 ruht dort allein auf Schicht C (Wahrheit + Gate + Violation-
-Logging) — mit der bewusst akzeptierten Restexposition: lokaler
-Blast-Radius und Cross-Story-Kontamination sind auf native-windows
-nicht praeventiv verhindert. Echtes Stufe-3-Containment erfordert die
-Verlagerung der Tool-Ausfuehrung in einen Contained-Execution-Runner
-(WSL2/Container/Linux); das ist eine bewusste, separate Architektur-
-entscheidung und derzeit nicht beauftragt.
+ehrlich: **Im `native-windows`-Profil existiert Stufe-3-Containment
+nicht.** Ein In-Process-Versuch, Stufe 3 auf Windows praeventiv zu
+halten, waere ein Papiertiger und wird daher nicht gebaut. Der Schutz
+gegen Stufe 3 ruht in diesem Profil allein auf Schicht C (Wahrheit +
+Gate + Violation-Logging) — mit der bewusst akzeptierten Restexposition:
+lokaler Blast-Radius und Cross-Story-Kontamination sind im
+`native-windows`-Profil nicht praeventiv verhindert. Echtes
+Stufe-3-Containment erfordert das Contained-Execution-Profil
+(WSL2/Container/Linux); dessen Wahl ist eine bewusste, separate
+Architekturentscheidung.
 
 ## 55.2 Grundprinzip
 

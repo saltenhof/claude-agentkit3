@@ -1634,13 +1634,6 @@ Total: ~35 Klassen.
 
 ---
 
-## Noch nicht geschnittene BCs
-
-Folgende Bounded Contexts sind in diesem Decision-Log noch nicht detailliert
-geschnitten: story, control_plane, projectedge, hook_runtime,
-state_backend_drivers, phase_state_store.
-
----
 
 ## Nachtrag-BC: task-management
 

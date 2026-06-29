@@ -132,8 +132,8 @@ def run_phase(phase: str, story_id: str, config: PipelineConfig) -> PhaseState:
 Phase-Transition-Enforcement (§45.2). `_phase_implementation()`
 wertet zusaetzlich `payload.verify_context` (auf
 `ImplementationPayload`) aus, um die QA-Tiefe des Subflows zu
-bestimmen: Bei `POST_REMEDIATION` laufen die Checks auf Basis der
-Remediation-Ergebnisse, bei `POST_IMPLEMENTATION` der volle
+bestimmen: Bei `IMPLEMENTATION_REMEDIATION` laufen die Checks auf Basis der
+Remediation-Ergebnisse, bei `IMPLEMENTATION_INITIAL` der volle
 4-Schichten-QA-Subflow.
 `verify_context`
 ist kein Top-Level-Feld mehr, sondern Teil des
@@ -317,7 +317,7 @@ Referenz: DK-02 §Phase-Transition-Enforcement, FK-23 §23.4
 | `exploration` PAUSED | `pause_reason: "awaiting_design_review"` oder `"awaiting_design_challenge"` | Orchestrator wartet auf externe Klärung (Design-Review bzw. Design-Challenge). Resume nach Abschluss via `POST /phases/exploration/start` (Service-Resume) oder Operator-CLI `agentkit resume` (§45.4). |
 | `exploration` ESCALATED | `escalation_reason: "doc_fidelity_fail"` oder `"design_review_rejected"` | Eskalation an Mensch. Auslöser: (1) Dokumententreue FAIL (doc_fidelity_fail), (2) Design-Review FAIL non-remediable oder Rundenlimit überschritten (gate_status = REJECTED → design_review_rejected). |
 | `implementation` COMPLETED (QA-Subflow PASS) | `agents_to_spawn: []`, `payload.qa_cycle_status: pass` | Startet `POST /phases/closure/start`. Implementation kann COMPLETED nur erreichen, wenn der interne QA-Subflow `qa_cycle_status = pass` erreicht. |
-| `implementation` mit QA-Subflow im Remediation-Loop | `payload.qa_cycle_status: awaiting_remediation`, `agents_to_spawn: [remediation_worker]` | Subflow-intern: QA-Subflow lieferte FAIL mit verbleibenden Runden. Phase Runner inkrementiert `memory.implementation.qa_feedback_rounds` nach Guard-Check (Pre-Check VOR Inkrement) und persistiert via `save_phase_state()`. Orchestrator spawnt Remediation-Worker. Nach Worker-Abschluss erneut `POST /phases/implementation/start` — der Subflow setzt mit `verify_context = POST_REMEDIATION` fort, kein Phasenwechsel. |
+| `implementation` mit QA-Subflow im Remediation-Loop | `payload.qa_cycle_status: awaiting_remediation`, `agents_to_spawn: [remediation_worker]` | Subflow-intern: QA-Subflow lieferte FAIL mit verbleibenden Runden. Phase Runner inkrementiert `memory.implementation.qa_feedback_rounds` nach Guard-Check (Pre-Check VOR Inkrement) und persistiert via `save_phase_state()`. Orchestrator spawnt Remediation-Worker. Nach Worker-Abschluss erneut `POST /phases/implementation/start` — der Subflow setzt mit `verify_context = IMPLEMENTATION_REMEDIATION` fort, kein Phasenwechsel. |
 | `implementation` ESCALATED (Worker BLOCKED) | `escalation_reason: "worker_blocked"`, Blocker-Details aus `worker-manifest.json` | Eskalation an Mensch. Worker hat unloesbaren Constraint gemeldet (z.B. Hook-Barriere, fehlende Dependency). |
 | `implementation` ESCALATED (QA-Subflow) | `escalation_reason: "max_rounds_exceeded"` / `"doc_fidelity_fail"` / `"impact_violation"`, `payload.qa_cycle_status: escalated` | Eskalation an Mensch. Ausloeser im QA-Subflow: (1) Max Feedback-Runden erschoepft, (2) Dokumententreue Ebene 3 FAIL (Umsetzungstreue), (3) Impact-Violation (Issue-Metadaten falsch deklariert). |
 | `closure` COMPLETED | `payload.progress: {alle true}` | Story ist Done |

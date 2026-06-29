@@ -396,12 +396,14 @@ Issue-Metadaten falsch deklariert waren.
 #### Ein Worker darf ein Konzept nicht stillschweigend überschreiben
 
 Wenn ein Worker im Execution Mode von einem mitgelieferten Konzept
-abweichen will oder muss, muss er die Abweichung explizit markieren,
-eine Begruendung liefern und eine erneute Dokumententreue-Pruefung
-ausloesen. Stillschweigendes Ueberschreiben eines freigegebenen
-Konzepts durch die Implementierung wird durch den
-Umsetzungstreue-Check im QA-Subflow innerhalb der
-Implementation-Phase erkannt.
+abweichen will oder muss, muss er die Abweichung explizit markieren
+(im Handover `drift_log`) und begruenden. Eine erneute
+Dokumententreue-Pruefung aus der Implementation heraus loest er nicht
+aus — die markierte Abweichung wird durch den Umsetzungstreue-Check im
+QA-Subflow innerhalb der Implementation-Phase bewertet, der auch
+stillschweigendes Ueberschreiben eines freigegebenen Konzepts erkennt.
+Ist die Abweichung nicht auflösbar, gilt die Drift-Reaktion nach
+FK-23 §23.7.3 (Selbstkorrektur oder BLOCKED/ESCALATED).
 
 ### 3.6 Integrity-Gate
 

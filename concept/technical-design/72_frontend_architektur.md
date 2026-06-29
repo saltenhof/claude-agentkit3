@@ -89,9 +89,11 @@ frontend/src/
     multi_llm_hub/
 ```
 
-BCs ohne Frontend-Slice in der ersten Iteration: `exploration`,
-`implementation`, `prompt_runtime`, `skills`, `installer`. Diese haben
-heute keine eigenstaendigen Sichten oder Inspector-Tab-Beitraege.
+BCs ohne eigenen Frontend-Slice: `exploration`,
+`implementation`, `prompt_runtime`, `skills`, `installer`. Sie tragen
+bewusst keine eigenstaendigen Sichten oder Inspector-Tab-Beitraege; der
+Schnitt erlaubt, fuer einen dieser BCs bei Bedarf einen zusaetzlichen
+Slice nachzuziehen, ohne die Klammer zu aendern (vgl. §72.11).
 
 ## 72.4 App-Shell als R-Klammer
 
@@ -244,7 +246,7 @@ Beide sind Bluttyp **R**, keine A-BCs.
 - **KPI-Definitionen** — bleiben in `kpi_analytics` (FK-60). Frontend zeigt sie nur.
 - **Story-Lifecycle-Regeln** — bleiben in `pipeline_engine`. Frontend triggert nur Aktionen.
 - **Konzepte** — die Markdown-Dokumente selbst sind nicht UI; das Frontend ist nur ihr Browser-Konsument.
-- **Lint-/Conformance-Regeln** — `entities.md` traegt heute keine Frontend-Slices als formale Eintraege. Frontend-Code ist nicht Python und nicht im Scope der Architektur-Konformanz.
+- **Lint-/Conformance-Regeln** — `entities.md` fuehrt keine Frontend-Slices als formale Eintraege; Frontend-Code ist nicht Python und liegt damit ausserhalb des Scopes der Python-Architektur-Konformanz.
 
 ## 72.11 Kontext-Sichten ohne eigene Hauptansicht
 
@@ -354,9 +356,11 @@ Prototyp ist gleichzeitig:
   Prototyp). Die Stack-Wahl ist Implementierungsdetail; ein
   spaeterer Engineering-Refactor kann den Stack revidieren, ohne
   die normative Funktion des Prototyps zu beruehren.
-- Daten: aktuell Mocks. Mit fortschreitendem Backend-Bau wandert
-  der Prototyp Schritt fuer Schritt auf echte BFF-Endpunkte
-  (siehe 72.13.4).
+- Daten: die in §72.14 und FK-91 §91.1a definierten BFF-Endpunkte
+  sind die normative Datenquelle. Der Prototyp bezieht seine
+  Read-Models, Mutationen und Live-Events ueber diese
+  projekt-skopierten BFF-Routen (§72.8), nicht aus einer eigenen
+  Datenhaltung.
 
 Der Prototyp ist seit dem Umzug aus `var/ui-prototype/` unter
 `frontend/prototype/` versioniert. `node_modules/` und der
@@ -369,20 +373,21 @@ weiterentwickelt: ein Agent fuehrt UI-Aenderungen durch, der
 Stratege gibt Feedback im Browser, der Prototyp wird angepasst.
 Die jeweils committete Form ist normativ.
 
-### 72.13.4 Engineering-Refactor (spaetere Welle)
+### 72.13.4 Engineering-Anforderungen an das Produktiv-Frontend
 
-Sobald der Prototyp funktional und in der UX stabil ist, folgt eine
-**eigene Welle Engineering-Refactor**:
+Das produktive Frontend muss folgende Engineering-Eigenschaften erfuellen:
 
-- Komponentenarchitektur sauber ziehen (BC-aligned Slices, Shell,
+- Komponentenarchitektur sauber gezogen (BC-aligned Slices, Shell,
   Foundation-Bereiche gemaess 72.3)
-- Mocks durch echte BFF-Aufrufe ersetzen
-- State-Management strukturieren
-- Tests, Performance, Accessibility nachziehen
+- Datenbezug ausschliesslich ueber die BFF-Endpunkte (§72.14, FK-91),
+  keine eigene Datenhaltung und keine Mock-Quellen
+- strukturiertes State-Management
+- Tests, Performance und Accessibility erfuellt
 
-Bis dahin gilt: was im Prototyp lebt, ist Soll. Konzept-Aussagen in
-diesem Dokument oder anderen FKs duerfen ihm **nicht** widersprechen
-— bei Konflikt wird hier nachgezogen, nicht der Prototyp angepasst.
+Fuer das UI-Verhalten ist der Prototyp die normative Quelle (§72.13):
+Konzept-Aussagen in diesem Dokument oder anderen FKs duerfen ihm
+**nicht** widersprechen — bei Konflikt wird hier nachgezogen, nicht der
+Prototyp angepasst.
 
 ## 72.14 Frontend-Datenvertraege
 
@@ -430,12 +435,12 @@ Die formale Schicht deckt ab:
 Bewusst **nicht** im formalen Vertrag:
 
 - **LLM-Hub-Integration** (Sicht 5 in §72.5). Hub-Cockpit und der
-  separate SSE-Stream `/v1/events/hub` bleiben zurueckgestellt,
-  bis die Hub-View produktiv ist. Heute Prototyp-Stand.
+  separate SSE-Stream `/v1/events/hub` sind bewusst nicht Teil des
+  formalen Frontend-Vertrags.
 - **Analytics-Hauptsicht** (Sicht 4 in §72.5). KPI-Definitionen
   und Aggregat-Endpoints sind Eigentum von `kpi-and-dashboard`
-  (FK-60..63) und werden dort formalisiert, sobald die View
-  produktiv ist.
+  (FK-60..63) und werden dort formalisiert, nicht in diesem
+  Frontend-Vertrag.
 - **Inspector-KPI-Tab-Lieferform**: Read-Modell entsteht aus
   `kpi-and-dashboard`-Projektionen; im Frontend-Contract sind nur
   `story_telemetry_summary`-Aggregate enthalten, die fuer das
@@ -496,9 +501,9 @@ Stratege die Phasen-Leistung eines Agents bewerten koennen muss
   Story. `tokens_cached` ist Pflicht und stammt aus der echten
   Cache-Messung der LLM-Pools, nicht aus einer Frontend-Heuristik.
 
-Schema: `frontend-contracts.entity.story_telemetry_summary`. Eine
-Frontend-Synthese aus rohen Totals (wie aktuell im Prototyp) ist
-mit dieser Lieferung nicht mehr notwendig und nicht mehr zulaessig.
+Schema: `frontend-contracts.entity.story_telemetry_summary`. Das
+Frontend konsumiert dieses Aggregat unveraendert; eine
+Frontend-Synthese der KPI-Werte aus rohen Totals ist unzulaessig.
 
 ### 72.14.6 Edge-Cases und UI-Verhalten
 

@@ -172,7 +172,7 @@ auf `phase-state.json` meinen den Export der kanonischen
   "payload": {
     "type": "implementation",
     "qa_cycle_status": "awaiting_qa",
-    "verify_context": "POST_IMPLEMENTATION"
+    "verify_context": "IMPLEMENTATION_INITIAL"
   },
 
   "memory": {
@@ -257,7 +257,7 @@ Durable Contract Fields:
 | Phase | Payload-Typ | Felder | Beschreibung |
 |-------|-------------|--------|-------------|
 | exploration | `ExplorationPayload` | `gate_status: ExplorationGateStatus` | Fortschritt durch das Exit-Gate. Werte: `PENDING`, `APPROVED`, `REJECTED` |
-| implementation | `ImplementationPayload` | `qa_cycle_status: QaCycleStatus`, `verify_context: VerifyContext \| None` | QA-Subflow-Status (FK-27 §27.2.2: `idle`, `awaiting_qa`, `awaiting_policy`, `pass`, `awaiting_remediation`, `escalated`) und QA-Tiefe (`POST_IMPLEMENTATION` initial / `POST_REMEDIATION` nach Worker-Remediation). Wird vom Phase Runner beim Eintritt in den QA-Subflow gesetzt. Siehe FK-37 §37.1. |
+| implementation | `ImplementationPayload` | `qa_cycle_status: QaCycleStatus`, `verify_context: QaContext \| None` | QA-Subflow-Status (FK-27 §27.2.2: `idle`, `awaiting_qa`, `awaiting_policy`, `pass`, `awaiting_remediation`, `escalated`) und QA-Tiefe (`IMPLEMENTATION_INITIAL` initial / `IMPLEMENTATION_REMEDIATION` nach Worker-Remediation). Wird vom Phase Runner beim Eintritt in den QA-Subflow gesetzt. Siehe FK-37 §37.1. |
 | closure | `ClosurePayload` | `progress: ClosureProgress`, `multi_repo: MultiRepoClosureState \| None` | Fortschritt der Closure-Substates: `integrity_passed`, `story_branch_pushed`, `merge_done`, `story_closed`, `metrics_written`, `postflight_done` (je `bool`, sechs Booleans, vollständige Liste in FK-29 §29.1.0). [Hinweis: Der Pre-Merge-Scan-und-Merge-Block, das SonarQube-Green-Gate und die Integrity-Gate-Dimension 9 sind impl/bugfix-only. Concept/Research-Stories haben keinen Worktree und keinen `story/{story_id}`-Branch und arbeiten **direkt auf `main`** (kein Story-Branch, kein Merge eines Branches; FK-29 §29.1.1, FK-22 §22.5.1); fuer sie sind `story_branch_pushed` und `merge_done` **nicht anwendbare (N/A) Erfolgs-Booleans**, die — wie `integrity_passed` — vom Phase Handler **ohne jeden Push- oder Merge-Seiteneffekt** direkt auf `true` gesetzt werden, damit die `ClosureProgress`-Struktur typ-uniform bleibt. Code-Stories setzen `story_branch_pushed` erst nach dem realen Push innerhalb des Merge-Locks (FK-29 §29.1.1, §29.1a). Detaillierte Closure-Logik in FK-29 §29.1.] Bei Multi-Repo-Stories (`participating_repos` mit \|N\| >= 2) traegt `multi_repo` den per-Repo-Status (`pre_merge_check_passed`, `pushed_repos`, `merged_repos`, `rolled_back_repos`, `failed_repo`); fuer Single-Repo-Stories ist das Feld `None` und wird ignoriert (FK-29 §29.1.6.2). |
 | setup | — | — | Kein Payload erforderlich (`payload: null`) |
 

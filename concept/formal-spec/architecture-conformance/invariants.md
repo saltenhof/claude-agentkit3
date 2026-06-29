@@ -13,8 +13,9 @@ prose_refs:
 
 # Architecture Conformance Invariants
 
-Diese Invarianten definieren die erste fail-closed
-Architektur-Konformanzschicht fuer AK3.
+Diese Invarianten definieren die importbasierten, fail-closed
+Architektur-Konformanz-Invarianten fuer AK3 — den maschinenlesbaren
+Kern der Konformanz-Suite (FK-07 §7.7).
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml

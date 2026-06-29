@@ -36,7 +36,7 @@ defers_to:
     reason: Integrity-Gate-Definition, 9 Dimensionen und Eskalation in FK-35 §35.2 normiert
   - target: FK-37
     scope: verify-context
-    reason: VerifyContext (Subflow-internes Diskriminator-Feld), Context-Bundle-Vorbereitung und Section-aware Packing in FK-37
+    reason: QaContext (Subflow-internes Diskriminator-Feld), Context-Bundle-Vorbereitung und Section-aware Packing in FK-37
   - target: FK-29
     scope: closure-sequence
     reason: Closure-Phase, Finding-Resolution-Gate, Postflight, Execution Report und Guard-Deaktivierung in FK-29
@@ -473,8 +473,8 @@ Detailausgliederungen aus dieser Schicht 2:
   Ablauf in `_run_layer2_parallel()`: **FK-37 §37.2**
 - Konvertierung `ContextBundle → dict[str, str]` und Section-aware
   Packing: **FK-37 §37.3**
-- Verify-Context-Steuerung (`POST_IMPLEMENTATION` /
-  `POST_REMEDIATION`) und HARD-BLOCKER-Garantie für fehlende
+- Verify-Context-Steuerung (`IMPLEMENTATION_INITIAL` /
+  `IMPLEMENTATION_REMEDIATION`) und HARD-BLOCKER-Garantie für fehlende
   LLM-Reviews: **FK-37 §37.1**
 - Umsetzungstreue (Dokumententreue Ebene 3) und ihre Eingliederung
   in Schicht 2: **FK-38 §38.2**
@@ -648,7 +648,7 @@ aendert sich nichts; es kommt nur ein Abfolge-Schritt hinzu.
   greift; Erschoepfung fuehrt zu `escalated`
   (`max_rounds_exceeded`, §27.2.2). Der `sonarqube_gate`-Lauf gehoert in
   denselben `verify_context`-gesteuerten Subflow-Durchlauf
-  (`POST_IMPLEMENTATION` / `POST_REMEDIATION`, FK-37 §37.1) wie die
+  (`IMPLEMENTATION_INITIAL` / `IMPLEMENTATION_REMEDIATION`, FK-37 §37.1) wie die
   uebrigen Schichten.
 - **Gruen → Schicht 4:** Erst wenn der Branch gruen ist, materialisiert
   der `StageExecutionPlan` die Policy-Evaluation. Die Policy-Engine
@@ -830,7 +830,7 @@ FK-27-051 (Konsolidierungsverbot Test-Suite)*
 
 **Querverweise:**
 - FK-29 — Closure-Sequence: Finding-Resolution-Gate, Integrity-Gate-Aufruf, Merge, Postflight, Execution Report, Guard-Deaktivierung
-- FK-37 — Verify-Context und QA-Bundle-Vorbereitung: VerifyContext, ContextSufficiencyBuilder, Section-aware Packing, HARD-BLOCKER-Garantie
+- FK-37 — Verify-Context und QA-Bundle-Vorbereitung: QaContext, ContextSufficiencyBuilder, Section-aware Packing, HARD-BLOCKER-Garantie
 - FK-38 — Verify-Feedback und Dokumententreue-Schleife: Feedback-Mechanismus, Mandatory-Target-Rückkopplung, Umsetzungstreue (Ebene 3), Rückkopplungstreue (Ebene 4)
 - FK-35 — Integrity-Gate (Definitions-Owner), 9 Dimensionen und Eskalation
 - FK-28 — Evidence Assembly: EvidenceAssembler, Import-Resolver, Autoritätsklassen, Request-DSL, BundleManifest, Section-aware Packing-Modul (`agentkit/core/packing.py`)

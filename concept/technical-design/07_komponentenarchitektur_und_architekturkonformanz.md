@@ -111,7 +111,7 @@ Volldefinition mit Heuristiken, Erkennungstests und Beispielen:
 
 | Komponente | Blutgruppe | Fachliche Verantwortung | Provided Contracts |
 | --- | --- | --- | --- |
-| `GuardSystem` | A | harte Guard- und Capability-Enforcement-Regeln fuer Hook-Entscheidungen; intern aufgeteilt in `GuardEvaluation` (harness-neutraler A-Kern) und `HarnessAdapters.{Harness}` (pro Harness eine bewusst lokalisierte AT-Mediation-Insel, aktuell `claude_code` und `codex`; FK-76 §76.4) | `GuardDecisionPort` |
+| `GuardSystem` | A | harte Guard- und Capability-Enforcement-Regeln fuer Hook-Entscheidungen; intern aufgeteilt in `GuardEvaluation` (harness-neutraler A-Kern) und `HarnessAdapters.{Harness}` (pro Harness eine bewusst lokalisierte AT-Mediation-Insel, z.B. `claude_code` und `codex`; FK-76 §76.4) | `GuardDecisionPort` |
 | `CcagPermissionRuntime` | A | lernfaehige, sessionpersistente Permission-Pfade ausserhalb der harten Guards | `PermissionDecisionPort` |
 | `ConformanceService` | A | gestufte Dokument- und Konzepttreuepruefung an definierten Prozesszeitpunkten | `ConformancePort` |
 | `StageRegistry` | A | autoritativer Stage-Katalog mit Producer-, Trust- und Blocking-Vertraegen | `StageRegistryPort` |
@@ -175,8 +175,8 @@ Diese Bausteine sind notwendig, aber keine Fachkomponenten:
 Hook-Auswertung in zwei Subs von `GuardSystem` lebt:
 `GuardEvaluation` (A-Kern, harness-neutral) und
 `HarnessAdapters.{Harness}` (pro Harness eine lokalisierte AT-Mediation
-— aktuell `claude_code` und `codex` (FK-76 §76.4), kuenftig z.B.
-`qwen_code` oder `gemini_code`).
+— z.B. `claude_code` und `codex` (FK-76 §76.4); weitere Harnesses wie
+`qwen_code` oder `gemini_code` sind anschliessbar).
 `agentkit.backend.governance.hookruntime` ist Backward-Compat-Pfad fuer den
 Claude-Code-Adapter und gehoert zur AT-Insel.
 
@@ -188,9 +188,9 @@ einer scheinfachlichen Komponente zusammengefasst werden.
 **Bluttypen der `boundary_modules`:** `shared` ist als Bluttyp `0`
 (Null-Software) modelliert (`entities.md` `boundary.shared`). Die
 uebrigen `boundary_modules` (`config`, `filesystem`,
-`state_persistence_scope`) werden klassifiziert, sobald ihre
+`state_persistence_scope`) sind so zu schneiden, dass ihre
 fachneutralen Anteile sauber von ihren Konventions-Anteilen trennbar
-sind.
+sind, und werden entlang dieser Trennung klassifiziert.
 
 ## 7.6 Repository-Regel
 
@@ -198,32 +198,44 @@ Fachkomponenten haengen nicht an `agentkit.backend.state_backend.store` als
 generischer Mega-Fassade. Die Zielarchitektur verlangt
 komponentenspezifische Repository-Vertraege.
 
-Diese Regel ist normativ, wird aber zunaechst nicht vollumfaenglich
-maschinell erzwungen. Die maschinell erzwungenen Invarianten in diesem
-Kapitel konzentrieren sich deshalb zuerst auf robuste Import- und
-Adaptergrenzen.
+Diese Regel ist normativ. Maschinell erzwungen werden in diesem Kapitel
+robuste Import- und Adaptergrenzen (§7.7–§7.9); die vollumfaengliche
+maschinelle Durchsetzung der komponentenspezifischen
+Repository-Vertraege ist als Soll definiert, aber nicht Teil der
+maschinell erzwungenen Invarianten dieses Kapitels.
 
 ## 7.7 Deterministische Architektur-Pruefung
 
 ### 7.7.1 Warum deterministisch
 
-Architekturtreue darf nicht nur als Review-Meinung existieren. Ein Teil
-des Sollbilds ist maschinell pruefbar und muss deshalb CI-fail-closed
-werden.
+Architekturtreue darf nicht nur als Review-Meinung existieren. Die
+Soll-Architektur (Blutgruppen-Klassifikation und Komponentenschnitt) ist
+maschinell pruefbar und wird deshalb CI-fail-closed erzwungen.
 
-### 7.7.2 Was V1 deterministisch prueft
+AK3 enthaelt dazu als festen Bestandteil eine deterministische
+Architektur-Konformanz-Suite. Sie ist nicht optional und kein einmaliger
+Migrationsschritt: AK3 wird kontinuierlich weiterentwickelt, und die
+Suite stellt dauerhaft sicher, dass die Soll-Architektur dabei gewahrt
+bleibt. Als Werkzeug ist sie auch in Projekten einsetzbar, die mit AK3
+gemanagt werden. Festgeschrieben ist der Zielzustand: eine Suite, die die
+Architektur sicher, vollstaendig und effizient prueft und fail-closed
+durchsetzt — keine Ausbaustufe, die nur einen Teil abdeckt.
 
-Die erste Architektur-Konformanzschicht prueft:
+### 7.7.2 Pflichtabdeckung: Klassifikation und Kopplung
+
+Die Konformanz-Suite prueft:
 
 - Komponentenklassifikation ueber Namespace-Prefixe
 - verbotene Import-Richtungen zwischen A-, R- und T-Code
 - verbotene direkte Kopplung von A-Code an Hook-/Transport-Adapter
-- ausgewaehlte Azyklizitaetsregeln zwischen stabilen Komponenten
+- Azyklizitaet zwischen stabilen Komponenten
 
-### 7.7.3 Was V2 zusaetzlich deterministisch prueft
+### 7.7.3 Pflichtabdeckung: Write-Surface-Ownership
 
-Die zweite Architektur-Konformanzschicht friert den aktuell
-zugelassenen Mutationsradius gegen kanonische Record-Familien ein.
+Die Konformanz-Suite erzwingt Single-Writer-Ownership der kanonischen
+Record-Familien: jede Familie hat eine definierte erlaubte Write-Surface,
+und Mutationen sind nur aus den dafuer freigegebenen Moduloberflaechen
+zulaessig. Jede Abweichung laeuft fail-closed auf.
 
 Sie prueft importbasiert:
 
@@ -236,64 +248,49 @@ Sie prueft importbasiert:
 - welche Module Closure-Metriken und Closure-Reports materialisieren
   duerfen
 
-Diese Schicht ist bewusst ein pragmatischer Zwischenschritt:
+### 7.7.4 Erweiterte Pflichtabdeckung der Suite
 
-- sie verhindert neue Architekturdrift sofort fail-closed
-- sie fixiert die jeweils etablierte erlaubte Write-Surface
-  deterministisch
-- sie ersetzt nicht die vollstaendige Repository-Konformanz je
-  A-Komponente
-
-### 7.7.4 Was bewusst noch nicht voll maschinell erzwungen ist
-
-Noch nicht voll deterministisch geprueft werden:
+Die Konformanz-Suite deckt darueber hinaus verbindlich ab:
 
 - Single-Writer-Ownership einzelner Tabellen-/Record-Familien auf AST-
-  oder SQL-Ebene jenseits des zugelassenen Import- und
-  Mutationsradius
+  oder SQL-Ebene, auch jenseits des import- und mutationsradius-basierten
+  Checks
 - vollstaendige Repository-Konformanz fuer alle A-Komponenten
 - `op_id`-/`correlation_id`-Pflicht fuer jede einzelne externe
   Kontaktflaeche
 - deletability-Deadlines als harter Compile-Fehler
 
-Diese Regeln bleiben normativ, werden aber erst nach weiterem
-Komponentenschnitt voll maschinell erzwungen.
+Diese Pruefungen sind verbindlicher Bestandteil der Suite, nicht nur
+deklaratorisches Soll.
 
-### 7.7.5 Was V3 zusaetzlich deterministisch prueft
+### 7.7.5 Pflichtabdeckung: Read-Surface-Grenzen
 
-Die dritte Architektur-Konformanzschicht friert ausgewaehlte
-komponentenspezifische Read-Surfaces ein.
+Die Konformanz-Suite erzwingt komponentenspezifische
+Read-Surface-Grenzen. Sie prueft importbasiert:
 
-Sie prueft importbasiert:
-
-- dass globale Story-Read-Loader nicht mehr frei aus
+- dass globale Story-Read-Loader nicht frei aus
   `agentkit.backend.state_backend` in beliebige A-Komponenten gezogen werden
 - dass dazu neben Story-Kontext, Phase-State, FlowExecution und
   Closure-Metriken auch globale `execution_events` gehoeren
-- dass globale Lifecycle-Read-Loader der Control Plane nicht mehr frei
+- dass globale Lifecycle-Read-Loader der Control Plane nicht frei
   aus `agentkit.backend.state_backend` in `runtime.py` oder andere A-Komponenten
   gezogen werden
-- dass diese Loader nur noch innerhalb von `agentkit.backend.state_backend`
+- dass diese Loader nur innerhalb von `agentkit.backend.state_backend`
   selbst und auf expliziten Surfaces wie
   `agentkit.backend.story.repository` oder
   `agentkit.backend.control_plane.repository`
   importiert werden
-- dass `StoryService` und spaetere Dashboard-Read-Modelle dadurch an
-  einer fachlich benannten Repository-Kante statt an der technischen
+- dass `StoryService` und Dashboard-Read-Modelle dadurch an einer
+  fachlich benannten Repository-Kante statt an der technischen
   Mega-Fassade haengen
 
-Diese Schicht ist ebenfalls ein pragmatischer Zwischenschritt:
+Direkte Read-Kopplung an die globale `state_backend`-Fassade laeuft
+fail-closed auf; der Zugriff erfolgt ausschliesslich ueber die fachlich
+benannten Repository-Kanten.
 
-- sie erzwingt noch nicht die vollstaendige Read-Konformanz aller
-  A-Komponenten
-- sie verhindert aber neue Direktimporte der globalen Story-Loader
-  sofort fail-closed
-- sie macht den Rueckbau der `state_backend`-Mega-Fassade auf der
-  Leseseite inkrementell und deterministisch pruefbar
+## 7.8 Verbindliche Importgrenzen
 
-## 7.8 V1-Importgrenzen
-
-Die erste formale Checker-Schicht zieht mindestens diese Grenzen:
+Die Konformanz-Suite zieht mindestens diese Grenzen:
 
 1. `StoryContextManager`-/`Story`- und `DashboardApplication`-nahe
    Module duerfen nicht direkt an `ControlPlaneHttp`,
@@ -318,7 +315,7 @@ Die erste formale Checker-Schicht zieht mindestens diese Grenzen:
 
 ## 7.9 Messbare Architektur-Invarianten
 
-Die formale V1-Schicht codiert folgende deterministisch pruefbare
+Die Konformanz-Suite codiert folgende deterministisch pruefbare
 Invarianten:
 
 1. `agentkit.backend.story` und `agentkit.dashboard` importieren nicht

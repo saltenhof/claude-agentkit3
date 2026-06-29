@@ -252,7 +252,7 @@ flowchart TD
     IMPL["1. Implementieren:<br/>Code für genau<br/>diesen Slice"] --> CHECK["2. Lokal verifizieren:<br/>Compile/Lint +<br/>betroffene Tests"]
     CHECK --> DRIFT["3. Drift prüfen:<br/>Impact überschritten?<br/>Neue Strukturen?<br/>Konzeptabweichung?"]
     DRIFT -->|"Kein Drift"| COMMIT["4. Committen:<br/>Erst wenn Slice<br/>konsistent und grün"]
-    DRIFT -->|"Signifikanter Drift"| DOCTREUE["Erneute Dokumententreue-<br/>Prüfung auslösen<br/>(Kap. 23.7)"]
+    DRIFT -->|"Signifikanter Drift"| SELFCORR["Selbstkorrektur oder<br/>BLOCKED melden<br/>(FK-23 §23.7.3)"]
     DRIFT -->|"Kleiner Drift"| DOKU["Im Handover-Paket<br/>dokumentieren"]
     DOKU --> COMMIT
     DOCTREUE -->|"PASS"| COMMIT
@@ -326,16 +326,21 @@ gewählt, Detailentscheidung anders als im Entwurf).
 **Reaktion bei signifikantem Drift (FK-05-102):**
 
 Wenn Stufe 1 oder 2 signifikanten Drift erkennt (neue Strukturen
-oder Impact-Überschreitung):
+oder Impact-Überschreitung), hat der Worker zwei Handlungsoptionen
+(FK-23 §23.7.3). Ein automatischer Rücksprung in die Exploration-Phase
+oder eine erneute Dokumententreue-Prüfung aus der Implementation heraus
+findet nicht statt:
 
-1. Orchestrator erkennt `drift_detected: true` im Phase-State
-2. Orchestrator stoppt den Worker
-3. Orchestrator ruft `POST /phases/exploration/start` erneut
-   auf (Aufruf-Parameter gemaess FK-91 §91.1a) — nur Dokumententreue-Prüfung,
-   kein neues Entwurfsartefakt
-4. Bei PASS: Orchestrator spawnt neuen Worker, der ab dem
-   Drift-Punkt weiterarbeitet
-5. Bei FAIL: Eskalation an Mensch
+1. **Selbstkorrektur:** Der Worker korrigiert die Implementierung so,
+   dass sie wieder mit Story-Spec und Entwurfsartefakt übereinstimmt,
+   und dokumentiert Drift und Korrektur im Handover-Paket.
+2. **BLOCKED melden:** Ist der Drift nicht durch Selbstkorrektur
+   auflösbar, meldet der Worker `status: BLOCKED` mit Begründung; der
+   ImplementationHandler signalisiert ESCALATED (FK-35).
+
+Das `drift_detected: true`-Flag und das `drift_check`-Event bleiben
+Telemetrie- und Beobachtungssignal für den Orchestrator; sie lösen
+keinen automatischen Phasenrücksprung aus.
 
 Bei kleineren Abweichungen (anderes Pattern, Detailentscheidung)
 reicht die Dokumentation im Handover-Paket — kein Stopp nötig.
