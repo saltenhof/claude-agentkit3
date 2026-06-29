@@ -1,9 +1,10 @@
 story_id: AG3-121
 title: "/v1 Versions-Handshake (dev central): GET /v1/compat + 426 fail-closed"
 type: implementation
-status: ready
+status: completed
 phase: setup
 created: "2026-06-29"
+completed_at: "2026-06-29T22:40:00+02:00"
 size: M
 # WP-G aus var/abweichungskarte-zentralisierung.md. SOLL FK-91 §91.2 Regel 11 +
 # FK-10 §10.2.7/§10.2.8: jeder Dev->Kern-Request traegt Agent-Runtime-Version +
@@ -12,4 +13,4 @@ size: M
 # GET /v1/compat liefert das Fenster. Ist: ABSENT (keine compat-Route, kein
 # Client-Versions-Header, keine 426-Validierung).
 depends_on: []
-unblocks: []
+unblocks: [AG3-122]

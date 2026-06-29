@@ -105,6 +105,35 @@ class ResolvedEdgeState:
     synced: bool = False
 
 
+#: Project-pinned prompt-bundle lock (FK-43/FK-44), the authoritative local
+#: source of the bound skill-bundle version surfaced in the version handshake.
+_PROMPT_BUNDLE_LOCK_RELPATH = Path(".agentkit") / "config" / "prompt-bundle.lock.json"
+
+
+def _read_bound_skill_bundle_version(project_root: Path) -> str | None:
+    """Read the bound skill-bundle version from the project prompt-bundle lock.
+
+    The version is the ``X-AK3-Skill-Bundle`` handshake value (FK-91 §91.1a Regel
+    11). The lock owned by ``prompt_runtime`` is the SINGLE source of truth; this
+    only mirrors it onto the wire. Returns ``None`` when no readable lock is
+    present so the core can fail the request closed at mutating endpoints rather
+    than the client inventing a bundle version.
+    """
+    lock_path = project_root / _PROMPT_BUNDLE_LOCK_RELPATH
+    if not lock_path.is_file():
+        return None
+    try:
+        payload = json.loads(lock_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    bundle_version = payload.get("bundle_version")
+    if isinstance(bundle_version, str) and bundle_version:
+        return bundle_version
+    return None
+
+
 def build_project_edge_client(project_root: Path) -> ProjectEdgeClient:
     """Construct a configured project-edge client from local project config."""
     config = json.loads(
@@ -118,6 +147,7 @@ def build_project_edge_client(project_root: Path) -> ProjectEdgeClient:
         transport=HttpsJsonTransport(
             base_url=str(config["base_url"]),
             ssl_context=ssl_context,
+            skill_bundle_version=_read_bound_skill_bundle_version(project_root),
         ),
         publisher=LocalEdgePublisher(project_root=project_root),
     )

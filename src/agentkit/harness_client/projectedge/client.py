@@ -46,6 +46,37 @@ _QA_LOCK_EXPORT_FILE = "qa-lock.json"
 #: minting its own ``req-<uuid>``) and echoes it on every response.
 _CORRELATION_HEADER = "X-Correlation-Id"
 
+#: Version-handshake request headers (FK-91 §91.1a Regel 11 / FK-10 §10.2.7):
+#: every Dev->Control-Plane request carries the agent-runtime package version and
+#: the bound skill-bundle version so the core can validate them against its
+#: ``[min, max]`` window and fail closed (HTTP 426) on incompatible clients.
+_CLIENT_VERSION_HEADER = "X-AK3-Client"
+_SKILL_BUNDLE_HEADER = "X-AK3-Skill-Bundle"
+#: Headers a caller may override on ``send``. The computed handshake headers
+#: (``X-AK3-Client``/``X-AK3-Skill-Bundle``) and ``Content-Type`` are authoritative
+#: and protected from caller override (FK-91 §91.1a Regel 11): a caller must not be
+#: able to forge a different runtime/bundle version on the wire. Only explicitly
+#: safe headers — the correlation pass-through (Regel #7) — may be supplied.
+_CALLER_OVERRIDABLE_HEADERS = frozenset({_CORRELATION_HEADER.lower()})
+#: Distribution name shared with the installed package metadata (no hardcoded
+#: version string -- the version is read from ``importlib.metadata``).
+_PACKAGE_NAME = "agentkit"
+
+
+def _resolve_client_version() -> str:
+    """Resolve the installed agent-runtime package version (no hardcoded string).
+
+    The value is the ``X-AK3-Client`` handshake header. When the package metadata
+    is unreadable, a sentinel ``"0.0.0"`` is returned so the core fails the
+    request closed (below ``min``) instead of silently skipping the handshake.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version(_PACKAGE_NAME)
+    except PackageNotFoundError:
+        return "0.0.0"
+
 
 @dataclass(frozen=True)
 class CreateStoryResult:
@@ -93,9 +124,22 @@ class HttpsJsonTransport:
         *,
         base_url: str,
         ssl_context: ssl.SSLContext | None = None,
+        skill_bundle_version: str | None = None,
     ) -> None:
+        """Initialise the transport.
+
+        Args:
+            base_url: The control-plane base URL.
+            ssl_context: Optional TLS context for HTTPS.
+            skill_bundle_version: The locally bound skill-bundle version, sent as
+                the ``X-AK3-Skill-Bundle`` handshake header (FK-91 §91.1a Regel
+                11). ``None`` when no bundle is bound; the core then fails the
+                request closed at mutating endpoints (the value is sourced from
+                the authoritative prompt-bundle lock, never invented here).
+        """
         self._base_url = base_url.rstrip("/")
         self._ssl_context = ssl_context
+        self._skill_bundle_version = skill_bundle_version
 
     def send(
         self,
@@ -110,13 +154,23 @@ class HttpsJsonTransport:
             if payload is not None
             else None
         )
-        request_headers = {"Content-Type": "application/json"}
+        # FK-91 §91.1a Regel 11: carry the version handshake on every request.
+        # ``X-AK3-Client`` is the installed package metadata version (no hardcoded
+        # string); ``X-AK3-Skill-Bundle`` is the bound bundle version when present.
+        request_headers = {
+            "Content-Type": "application/json",
+            _CLIENT_VERSION_HEADER: _resolve_client_version(),
+        }
+        if self._skill_bundle_version is not None:
+            request_headers[_SKILL_BUNDLE_HEADER] = self._skill_bundle_version
         if headers is not None:
             # FK-91 §91.1a Regel #7: pass through the caller's correlation header
             # so the control plane adopts the SAME id it audits (no divergent
-            # ``req-<uuid>``). Content-Type stays authoritative.
+            # ``req-<uuid>``). Only explicitly-safe headers may be overridden; the
+            # computed handshake headers and Content-Type stay authoritative so a
+            # caller cannot forge a different runtime/bundle version (Regel 11).
             for key, value in headers.items():
-                if key.lower() != "content-type":
+                if key.lower() in _CALLER_OVERRIDABLE_HEADERS:
                     request_headers[key] = value
         request = urllib.request.Request(
             url=f"{self._base_url}{path}",

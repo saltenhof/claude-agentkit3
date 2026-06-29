@@ -10,7 +10,7 @@ import json
 import logging
 import re
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPSServer
 from typing import TYPE_CHECKING, cast
@@ -29,6 +29,11 @@ from agentkit.backend.control_plane.models import (
 from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.backend.control_plane.telemetry import ControlPlaneTelemetryService
 from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
+from agentkit.backend.control_plane_http.version_handshake import (
+    CompatWindow,
+    VersionHandshakeMiddleware,
+    default_compat_window,
+)
 from agentkit.backend.exceptions import ConfigError
 from agentkit.backend.story.service import StoryService
 
@@ -408,6 +413,7 @@ class ControlPlaneApplication:
         dashboard_service: DashboardService | None = None,
         auth_middleware: AuthMiddleware | None = None,
         tenant_scope_middleware: TenantScopeMiddleware | None = None,
+        version_handshake_middleware: VersionHandshakeMiddleware | None = None,
     ) -> None:
         r = routes or ControlPlaneApplicationRoutes()
         self._telemetry_service = telemetry_service or ControlPlaneTelemetryService()
@@ -428,6 +434,18 @@ class ControlPlaneApplication:
         self._auth_routes = r.auth_routes or _build_default_auth_routes(auth_middleware)
         self._auth_middleware = auth_middleware
         self._tenant_scope = tenant_scope_middleware or TenantScopeMiddleware()
+        # The version-handshake middleware is opt-in (mirrors ``auth_middleware``):
+        # production wires it ON in ``serve_control_plane`` so incompatible /
+        # handshake-less mutations fail closed (FK-91 §91.1a Regel 11), while the
+        # read-only ``GET /v1/compat`` window stays available regardless. The
+        # announced window is the middleware's window when present, else the
+        # central default (SINGLE SOURCE OF TRUTH, FK-10 §10.2.7).
+        self._version_handshake = version_handshake_middleware
+        self._compat_window: CompatWindow = (
+            version_handshake_middleware.window
+            if version_handshake_middleware is not None
+            else default_compat_window()
+        )
         self._init_bc_routes(r)
 
     def _init_bc_routes(self, r: ControlPlaneApplicationRoutes) -> None:
@@ -460,6 +478,20 @@ class ControlPlaneApplication:
             r.task_management_routes or _build_default_task_management_routes()
         )
 
+    def ensure_version_handshake(self) -> None:
+        """Guarantee a fail-closed handshake middleware is active (production listener).
+
+        The constructor keeps the handshake opt-in so the many direct-construction
+        tests stay ungated, but the real listener must NEVER serve an ungated app
+        (FK-91 §91.1a Regel 11 / FK-10 §10.2.8: no fail-open default). When the
+        application was constructed without a handshake middleware, this injects
+        the central default so ``serve_control_plane`` cannot expose an ungated
+        mutation surface — whether it built the app itself or received one.
+        """
+        if self._version_handshake is None:
+            self._version_handshake = VersionHandshakeMiddleware()
+            self._compat_window = self._version_handshake.window
+
     def handle_request(
         self,
         *,
@@ -483,9 +515,30 @@ class ControlPlaneApplication:
         if middleware_block is not None:
             return middleware_block
 
-        return self._dispatch_method(
+        # Version handshake (FK-91 §91.1a Regel 11): after auth/tenant, before
+        # routing. Fail-closed 426 for incompatible / handshake-less mutations;
+        # otherwise carry the recommended/blocked announce (and WARNING) headers
+        # through onto the dispatched response.
+        handshake = None
+        if self._version_handshake is not None:
+            handshake = self._version_handshake.evaluate(
+                method=method,
+                route_path=route_path,
+                request_headers=request_headers,
+                correlation_id=correlation_id,
+            )
+            if handshake.block is not None:
+                return handshake.block
+
+        response = self._dispatch_method(
             method, route_path, query, body, correlation_id, request_headers
         )
+        if handshake is not None and handshake.advisory_headers:
+            response = replace(
+                response,
+                headers=response.headers + handshake.advisory_headers,
+            )
+        return response
 
     def _run_middleware(
         self,
@@ -568,6 +621,15 @@ class ControlPlaneApplication:
         query: dict[str, list[str]],
         correlation_id: str,
     ) -> HttpResponse:
+        # Version compat window (non-project-scoped, read-only, handshake-exempt
+        # to avoid the hen-and-egg trap; FK-91 §91.1a / FK-10 §10.2.7):
+        if route_path == "/v1/compat":
+            return _json_response(
+                HTTPStatus.OK,
+                self._compat_window.model_dump(mode="json"),
+                correlation_id=correlation_id,
+            )
+
         # Auth routes (non-project-scoped):
         auth_response = self._auth_routes.handle_get(route_path, correlation_id)
         if auth_response is not None:
@@ -1293,9 +1355,18 @@ def serve_control_plane(
     if app is None:
         from agentkit.backend.auth.middleware import AuthMiddleware
 
-        application = ControlPlaneApplication(auth_middleware=AuthMiddleware())
+        # Production wires the handshake middleware ON (fail-closed by default,
+        # FK-91 §91.1a Regel 11 / FK-10 §10.2.8): no fail-open default on the
+        # real listener, mirroring the always-on auth middleware here.
+        application = ControlPlaneApplication(
+            auth_middleware=AuthMiddleware(),
+            version_handshake_middleware=VersionHandshakeMiddleware(),
+        )
     else:
         application = app
+    # GUARANTEE the real listener is handshake-gated even when an app was injected
+    # without a handshake middleware (close the fail-OPEN path; FK-91 Regel 11).
+    application.ensure_version_handshake()
     server = ThreadingHTTPSServer(
         (host, port),
         _build_handler(application),
