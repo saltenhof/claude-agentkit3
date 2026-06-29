@@ -37,7 +37,6 @@ def _make_context(
     story_id: str = "AG3-001",
     story_type: StoryType = StoryType.IMPLEMENTATION,
     execution_route: StoryMode | None = StoryMode.EXECUTION,
-    issue_nr: int = 42,
     title: str = "Add widget feature",
     project_root: Path | None = None,
     worktree_path: Path | None = None,
@@ -50,7 +49,6 @@ def _make_context(
         story_id=story_id,
         story_type=story_type,
         execution_route=execution_route,
-        issue_nr=issue_nr,
         title=title,
         project_root=project_root,
         worktree_path=worktree_path,
@@ -144,13 +142,6 @@ class TestComposePrompt:
         config = ComposeConfig(story_type=StoryType.IMPLEMENTATION)
         result = compose_prompt(ctx, config)
         assert "Add widget feature" in result.content
-
-    def test_implementation_contains_issue_nr(self) -> None:
-        """Composed implementation prompt must contain the issue number."""
-        ctx = _make_context()
-        config = ComposeConfig(story_type=StoryType.IMPLEMENTATION)
-        result = compose_prompt(ctx, config)
-        assert "#42" in result.content
 
     def test_bugfix_contains_bugfix_marker(self) -> None:
         """Composed bugfix prompt must contain 'Bugfix' in its text."""

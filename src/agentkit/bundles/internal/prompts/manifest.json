@@ -4,23 +4,23 @@
   "templates": {
     "worker-implementation": {
       "relpath": "internal/prompts/worker-implementation.md",
-      "sha256": "81be962bf5577989d40f63c738e94a219b6ec0d21846a28398a11cbf48df994d"
+      "sha256": "d57622f461c0ded3613545656603c568f7d44d9ee45bd75aa0dc7082abc2cd4a"
     },
     "worker-bugfix": {
       "relpath": "internal/prompts/worker-bugfix.md",
-      "sha256": "a4f15613a96ec2f4e79b8711ec09d3624f5e8babb92fb9031cf165530345dc22"
+      "sha256": "82d8bf42af51e35fc574f8805061403294e20eeeab3ea0fc29d2b6c4f5c0e70c"
     },
     "worker-concept": {
       "relpath": "internal/prompts/worker-concept.md",
-      "sha256": "c386f03de5073436adf10d96eec639edbf946f1d691764d5290db52a61882479"
+      "sha256": "a966c79e97bc992e8f0296b1a5f3ef4bef5cf3803ee67c4a0e2c602aac9629e0"
     },
     "worker-research": {
       "relpath": "internal/prompts/worker-research.md",
-      "sha256": "b26aba8ed83ca7cb1b7358a934de7810eac3fdae4fb4bc7c055a4945ea463ea1"
+      "sha256": "c39aac9cb740efd97c5e7679a5ef9efbd83d2819d4ca5923fa289d2ab55987bd"
     },
     "worker-exploration": {
       "relpath": "internal/prompts/worker-exploration.md",
-      "sha256": "677a5371862dfe5dd01172d18fe0b2df2bcdb62d359697c86fe20728242e892e"
+      "sha256": "76d7955f74a75701cf32e799ffafd5e5fa103a31682a0ef8b15da10f09177640"
     },
     "worker-remediation": {
       "relpath": "internal/prompts/worker-remediation.md",
@@ -40,7 +40,7 @@
     },
     "qa-adversarial-review": {
       "relpath": "internal/prompts/qa-adversarial-review.md",
-      "sha256": "99b5c524d4ce8bfed1cd48bd2aec810b1211e67a4537295c679b7c26073b2e58"
+      "sha256": "0732d013b1b43cead5972089def4d9129ca7f4d761773b5834b849ff12c3b34b"
     },
     "review-preflight": {
       "relpath": "internal/prompts/review-preflight.md",

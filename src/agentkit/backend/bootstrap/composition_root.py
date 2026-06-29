@@ -2370,8 +2370,8 @@ def build_pipeline_handler_registry(
         # productive path. A resolved real ``SetupConfig`` => the real handler; a
         # ``None`` config (the run's coordinates were not resolvable, or a
         # follow-up dispatch never resolved them) => a FAIL-CLOSED setup handler
-        # that escalates if entered, so setup can never run against empty/dummy
-        # owner/repo/issue. A non-setup follow-up dispatch never enters it.
+        # that escalates if entered, so setup can never run against an empty/dummy
+        # project_root. A non-setup follow-up dispatch never enters it.
         if setup_config is not None:
             setup_handler: object = build_setup_phase_handler(
                 setup_config,
@@ -2415,7 +2415,7 @@ class _UnresolvedSetupCoordinatesHandler:
     ``build_pipeline_handler_registry`` received ``setup_config=None`` (the run's
     authoritative coordinates could not be resolved, or a non-setup follow-up
     dispatch never resolved them). Registering this instead of a runnable dummy
-    ``SetupConfig(owner="", repo="", issue_nr=0)`` guarantees the productive setup
+    ``SetupConfig`` with an empty ``project_root`` guarantees the productive setup
     path can NEVER run against empty/dummy coordinates: a non-setup follow-up
     dispatch (which never enters setup) is unaffected, but any attempt to actually
     ENTER setup ESCALATES fail-closed (FK-20 §20.8.2 / ZERO DEBT -- no second
@@ -2427,7 +2427,7 @@ class _UnresolvedSetupCoordinatesHandler:
         "Setup cannot run: the run's authoritative setup coordinates were not "
         "resolved when the registry was built (no real SetupConfig). The "
         "fresh-setup-start dispatch must resolve them first (FK-20 §20.8.2); a "
-        "dummy owner/repo/issue is never permitted on the productive path "
+        "dummy project_root is never permitted on the productive path "
         "(fail-closed; E4/#4)."
     )
 
@@ -2478,10 +2478,10 @@ def build_pipeline_engine(
         story_type: The story type whose typed workflow the engine interprets.
         project_key: Owning project key (threaded to the closure governance seam).
         setup_config: The run-specific ``SetupConfig`` carrying the authoritative
-            GitHub coordinates (E1 fix). The PRODUCTIVE caller resolves it from the
+            ``project_root`` (E1 fix). The PRODUCTIVE caller resolves it from the
             run ``StoryContext`` via :func:`build_setup_config_for_run` and passes
             it here; it is threaded into the Setup handler so setup never runs
-            against empty owner/repo/issue. ``None`` falls back to the
+            against an empty ``project_root``. ``None`` falls back to the
             test-boundary config (dispatch-contract tests only).
         layer2_llm_client: The Layer-2 LLM transport (AG3-067 AC7). Threaded
             through :func:`build_pipeline_handler_registry` into BOTH the
@@ -2507,14 +2507,14 @@ def build_pipeline_engine(
 
 
 class SetupCoordinatesUnavailableError(PipelineError):
-    """The run's authoritative GitHub setup coordinates cannot be resolved (E1).
+    """The run's authoritative setup coordinates cannot be resolved (E1).
 
     Raised by :func:`build_setup_config_for_run` when a run that requires setup
-    cannot have its authoritative ``owner`` / ``repo`` / ``issue_nr`` resolved
-    from the run ``StoryContext`` + the project config. FAIL-CLOSED: setup must
-    never run against empty/dummy coordinates (it would read the wrong / no GitHub
-    issue), so the dispatch rejects the setup start rather than fabricating
-    coordinates (ZERO DEBT / FIX-THE-MODEL -- no second source of truth).
+    cannot have its authoritative ``project_root`` resolved from the run
+    ``StoryContext``. FAIL-CLOSED: setup must never run against an empty/dummy
+    ``project_root``, so the dispatch rejects the setup start rather than
+    fabricating coordinates (ZERO DEBT / FIX-THE-MODEL -- no second source of
+    truth).
 
     Subclasses :class:`~agentkit.backend.exceptions.PipelineError` so the dispatch's
     fail-closed engine-build guard (which already maps ``PipelineError`` to a
@@ -2532,8 +2532,7 @@ def _story_is_github_backed(ctx: StoryContext) -> bool:
     a real GitHub repo (FK-12 §12.7.1 "GitHub-Operationen in der Pipeline":
     Setup/Worker/Closure contact GitHub only for these). CONCEPT/RESEARCH are
     INTERNAL stories (``uses_worktree=False``, ``uses_merge=False``): they
-    legitimately carry no GitHub issue and must NOT be blocked on missing GitHub
-    coordinates. The axis is read from the authoritative
+    create no worktree/merge. The axis is read from the authoritative
     ``is_code_producing_story`` SSOT, never a re-derived flag.
 
     Args:
@@ -2550,44 +2549,32 @@ def _story_is_github_backed(ctx: StoryContext) -> bool:
 def build_setup_config_for_run(ctx: StoryContext) -> object:
     """Build the run's authoritative ``SetupConfig`` from the StoryContext (E1/E5).
 
-    The authoritative per-run coordinates are sourced from the SINGLE truths that
-    already own them -- NOT fabricated here. For a GitHub-backed (code-producing)
-    story they are:
+    AK3 owns the user story via ``story_id`` (branch-safe ``story/{story_id}``);
+    GitHub is exclusively the code backend (FK-12 §12.1.1, FK-91 §91.2 rule 9).
+    The setup config therefore carries only the run's ``project_root`` and the
+    worktree decision — the authoritative story identity is ``story_id`` (always
+    present and branch-safe on the ``StoryContext``), resolved against the AK3
+    Story-Service record by the setup handler.
 
-    * ``issue_nr`` -- the run ``StoryContext.issue_nr`` (the GitHub issue input
-      captured at story creation; for a GitHub-backed story it MUST be a real
-      positive issue number, ``> 0`` -- ``0``/``None`` is rejected, E5).
-    * ``project_root`` -- the run ``StoryContext.project_root``.
-    * ``owner`` / ``repo`` -- the project config (``project.yaml`` ->
-      ``github_owner`` / ``github_repo``), loaded from the run's project root.
-      GitHub coordinates are deployment config, owned by the project, not the
-      per-story context (FK-12 §12.1.1: GitHub is the code backend, the project
-      owns the repo coordinates).
+    For an INTERNAL story (CONCEPT/RESEARCH; not code-producing) the setup
+    handler never creates a worktree or merges, so ``create_worktree`` is off.
 
-    For an INTERNAL story (CONCEPT/RESEARCH; not code-producing, E5) the setup
-    handler never creates a GitHub worktree or merges, so it requires NO GitHub
-    coordinates: this returns a config with no owner/repo/issue and
-    ``create_worktree=False``. A legitimate internal story is therefore NEVER
-    fail-closed-blocked for a missing issue/owner/repo.
-
-    FAIL-CLOSED (GitHub-backed only): if ``project_root`` / a positive
-    ``issue_nr`` / ``github_owner`` / ``github_repo`` cannot be resolved for a
-    GitHub-backed story, this raises :class:`SetupCoordinatesUnavailableError`. A
-    code-producing run that requires setup must never run against empty/bogus
-    coordinates (it would read the wrong / no GitHub issue). The caller (dispatch)
-    maps this to a fail-closed setup rejection.
+    FAIL-CLOSED: ``project_root`` must be resolvable; otherwise this raises
+    :class:`SetupCoordinatesUnavailableError`. The story-identity gate itself is
+    enforced downstream: a code-producing story whose ``story_id`` does not
+    resolve in the AK3 Story-Service fails Setup closed when the context is built
+    (``build_story_context`` raises ``StoryModeResolutionError``).
 
     Args:
         ctx: The run's story context.
 
     Returns:
-        A ``SetupConfig`` for the run (real GitHub coords for a GitHub-backed
-        story; a GitHub-free internal config for a non-code-producing story).
+        A ``SetupConfig`` for the run (with ``create_worktree`` off for a
+        non-code-producing story).
 
     Raises:
-        SetupCoordinatesUnavailableError: When the authoritative GitHub
-            coordinates of a GitHub-backed story cannot be resolved (fail-closed;
-            never a dummy). Never raised for an internal story.
+        SetupCoordinatesUnavailableError: When the run ``project_root`` cannot be
+            resolved (fail-closed; setup must never run against an empty root).
     """
     from agentkit.backend.governance.setup_preflight_gate.phase import SetupConfig
 
@@ -2597,59 +2584,10 @@ def build_setup_config_for_run(ctx: StoryContext) -> object:
             "project_root (fail-closed; E1)."
         )
 
-    if not _story_is_github_backed(ctx):
-        # Internal (non-code-producing) story: setup needs NO GitHub coordinates.
-        # No worktree/merge is created (FK-12 §12.7.1), so owner/repo/issue stay
-        # empty and ``create_worktree`` is off -- never a fail-closed block (E5).
-        return SetupConfig(
-            owner="",
-            repo="",
-            issue_nr=0,
-            project_root=ctx.project_root,
-            create_worktree=False,
-        )
-
-    # GitHub-backed (code-producing) story: real positive issue + owner/repo.
-    if ctx.issue_nr is None or ctx.issue_nr <= 0:
-        raise SetupCoordinatesUnavailableError(
-            "cannot resolve setup coordinates: a GitHub-backed story requires a "
-            f"positive issue_nr (> 0), got {ctx.issue_nr!r} (fail-closed; E5).",
-        )
-    owner, repo = _resolve_github_owner_repo(ctx.project_root)
     return SetupConfig(
-        owner=owner,
-        repo=repo,
-        issue_nr=ctx.issue_nr,
         project_root=ctx.project_root,
+        create_worktree=_story_is_github_backed(ctx),
     )
-
-
-def _resolve_github_owner_repo(project_root: Path) -> tuple[str, str]:
-    """Resolve the project's authoritative GitHub owner/repo (fail-closed; E1/E5).
-
-    Loads the project config (``project.yaml``) and returns its ``github_owner``
-    / ``github_repo``. A broken/absent config, or a config that declares no
-    owner/repo, raises :class:`SetupCoordinatesUnavailableError` so a
-    GitHub-backed setup never runs against empty coordinates.
-    """
-    from agentkit.backend.config.loader import load_project_config
-
-    try:
-        project_config = load_project_config(project_root)
-    except Exception as exc:  # noqa: BLE001 -- broken/absent config is fail-closed
-        raise SetupCoordinatesUnavailableError(
-            "cannot resolve setup coordinates: the project config at "
-            f"{project_root} is unreadable/absent (fail-closed; E1): {exc}",
-        ) from exc
-    owner = project_config.github_owner
-    repo = project_config.github_repo
-    if not owner or not repo:
-        raise SetupCoordinatesUnavailableError(
-            "cannot resolve setup coordinates: the project config declares no "
-            "github_owner/github_repo (fail-closed; E1 -- setup must not run "
-            "against empty GitHub coordinates).",
-        )
-    return owner, repo
 
 
 class ClosureConfigUnavailableError(Exception):

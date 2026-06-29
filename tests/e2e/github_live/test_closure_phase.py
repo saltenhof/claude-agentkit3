@@ -1,25 +1,30 @@
-"""Integration tests for the ClosurePhaseHandler against live GitHub.
+"""Integration tests for the ClosurePhaseHandler (setup -> closure).
 
 Testbed: saltenhof/agentkit3-testbed
 
-These tests exercise the ClosurePhaseHandler in isolation with real
-GitHub operations. They are NOT full pipeline E2E tests -- prior-phase
+These tests exercise the ClosurePhaseHandler in isolation with the real
+state-backend. They are NOT full pipeline E2E tests -- prior-phase
 snapshots are created directly via ``save_phase_snapshot()``, not by
 running the actual pipeline. This is acceptable for handler-level
 integration testing but does not prove the full production path.
+
+AG3-120: AK3 owns the user story via ``story_id``; GitHub is only the code
+backend (FK-12 §12.1.1, FK-91 §91.2 rule 9). Closure closes the story via the
+AK3 Story-Service (In Progress -> Done), NOT by closing a GitHub issue. The
+former ``test_closure_closes_real_issue`` test was removed with that coupling.
 
 For real E2E pipeline tests, see ``tests/e2e/smoke/test_real_pipeline.py``.
 """
 
 from __future__ import annotations
 
-import contextlib
 import subprocess
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
 from tests.e2e._helpers import seed_approved_story
+from tests.phase_state_factory import make_phase_state
 
 from agentkit.backend.bootstrap.composition_root import (
     build_closure_phase_handler,
@@ -33,31 +38,21 @@ from agentkit.backend.phase_state_store.models import FlowExecution
 from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
 from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseSnapshot,
-    PhaseState,
     PhaseStatus,
 )
 from agentkit.backend.state_backend.store import (
     append_execution_event,
     save_flow_execution,
     save_phase_snapshot,
-    save_story_context,
 )
 from agentkit.backend.story_context_manager.models import StoryContext
-from agentkit.backend.story_context_manager.story_model import StoryStatus, WireStoryType
+from agentkit.backend.story_context_manager.story_model import WireStoryType
 from agentkit.backend.story_context_manager.types import StoryType
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 from agentkit.backend.telemetry.events import EventType
-from agentkit.integration_clients.github.issues import (
-    create_issue,
-    get_issue,
-    reopen_issue,
-)
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-OWNER = "saltenhof"
-REPO = "agentkit3-testbed"
 
 
 def _save_snapshot(
@@ -121,109 +116,21 @@ def _append_agent_start(
 
 
 @pytest.mark.integration
-@pytest.mark.requires_gh
 class TestClosurePhaseE2E:
-    """Integration tests for the closure phase handler against real GitHub.
+    """Integration tests for the closure phase handler against the real backend.
 
-    These test the ClosurePhaseHandler's logic with real GitHub I/O,
-    but prior-phase state is constructed directly -- not produced by
-    running prior pipeline phases. This makes them handler-level
-    integration tests, not full pipeline E2E tests.
+    These test the ClosurePhaseHandler's logic with the real state-backend,
+    but prior-phase state is constructed directly -- not produced by running
+    prior pipeline phases. This makes them handler-level integration tests, not
+    full pipeline E2E tests. AG3-120: closure no longer touches GitHub; the
+    story is closed via the AK3 Story-Service (In Progress -> Done).
     """
-
-    def test_closure_closes_real_issue(self, tmp_path: Path) -> None:
-        """Closure phase closes a real GitHub issue."""
-        # 1. Create a fresh issue in the testbed
-        issue = create_issue(
-            OWNER,
-            REPO,
-            title="[E2E] Closure test issue",
-            body="Automated test -- will be closed and reopened.",
-        )
-        issue_nr = issue.number
-
-        try:
-            # 2. Create snapshots for all prior phases (bugfix profile:
-            #    setup -> implementation -> closure; verify is an internal
-            #    Implementation subflow, not a top-level phase, FK-27).
-            s_dir = tmp_path / "stories" / "E2E-7001"
-            s_dir.mkdir(parents=True)
-            for phase in ("setup", "implementation"):
-                _save_snapshot(s_dir, phase)
-            _save_flow(
-                s_dir,
-                project_key="e2e-closure-test",
-                story_id="E2E-7001",
-            )
-            _append_agent_start(
-                s_dir,
-                project_key="e2e-closure-test",
-                story_id="E2E-7001",
-            )
-
-            # Seed an IN_PROGRESS Story so closure's complete_story
-            # (In Progress -> Done) succeeds. Closure runs standalone here,
-            # so Setup's begin_progress never executed -- the story must
-            # already be In Progress (real StoryService persistence, no mock).
-            # CONCEPT shares the bugfix phase profile (setup -> implementation
-            # -> closure) but skips the merge block (uses_merge=False, FK-29
-            # §29.1.1), so closure here closes the issue + runs finalization
-            # without needing a live merge/Sonar environment.
-            seed_approved_story(
-                project_key="e2e-closure-test",
-                story_display_id="E2E-7001",
-                story_number=1,
-                story_type=WireStoryType.CONCEPT,
-                title="E2E closure: closes real issue",
-                status=StoryStatus.IN_PROGRESS,
-            )
-
-            # 3. Run closure handler (wired via the composition root). The
-            # comp-root fail-closes (FIX-2) on a missing story context, so persist
-            # a context carrying ``project_root`` before wiring the handler.
-            ctx = StoryContext(
-                project_key="e2e-closure-test",
-                story_id="E2E-7001",
-                story_type=StoryType.CONCEPT,
-                execution_route=None,  # CONCEPT allows only execution_route=None
-                project_root=tmp_path,
-            )
-            save_story_context(s_dir, ctx)
-            config = ClosureConfig(
-                owner=OWNER,
-                repo=REPO,
-                issue_nr=issue_nr,
-                close_issue=True,
-                story_dir=s_dir,
-            )
-            handler = build_closure_phase_handler(
-                config, store_dir=s_dir, project_key="e2e-closure-test"
-            )
-            state = PhaseState(
-                story_id="E2E-7001",
-                phase="closure",
-                status=PhaseStatus.IN_PROGRESS,
-            )
-
-            result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
-
-            # 4. Verify COMPLETED and issue is CLOSED
-            assert result.status == PhaseStatus.COMPLETED
-            closed_issue = get_issue(OWNER, REPO, issue_nr)
-            assert closed_issue.state == "CLOSED"
-
-            # Verify closure.json exists
-            assert (qa_story_dir(tmp_path, "E2E-7001") / "closure.json").exists()
-
-        finally:
-            # 5. Cleanup: reopen the issue
-            with contextlib.suppress(Exception):
-                reopen_issue(OWNER, REPO, issue_nr)
 
     def test_full_pipeline_setup_to_closure(self, tmp_path: Path) -> None:
         """Complete pipeline: install -> setup -> NoOp middle -> closure.
 
-        This is the central E2E test: setup to closure with real GitHub.
+        This is the central E2E test: setup to closure via the AK3 Story-Service,
+        with NO GitHub-issue coupling (AG3-120).
         """
         # 1. Install AgentKit
         install_agentkit(
@@ -238,123 +145,97 @@ class TestClosurePhaseE2E:
             )
         )
 
-        # 2. Create a fresh issue
-        issue = create_issue(
-            OWNER,
-            REPO,
-            title="[E2E] Full pipeline closure test",
-            body="Automated test -- setup to closure.",
+        # 2. Setup phase. AK3 owns the story via story_id (no GitHub issue input).
+        setup_config = SetupConfig(
+            project_root=tmp_path,
+            story_id="E2E-7002",
+            create_worktree=False,
         )
-        issue_nr = issue.number
+        # AG3-034 Finding B: Preflight Check 7 reads the real repo; init one.
+        subprocess.run(["git", "-C", str(tmp_path), "init", "-q"], check=True)
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "config", "user.email", "t@e.com"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "config", "user.name", "T"], check=True
+        )
+        setup_handler = build_setup_phase_handler(setup_config)
 
-        try:
-            # 3. Setup phase with real issue
-            setup_config = SetupConfig(
-                owner=OWNER,
-                repo=REPO,
-                issue_nr=issue_nr,
-                project_root=tmp_path,
-                story_id="E2E-7002",
-                create_worktree=False,
-            )
-            # AG3-034 Finding B: Preflight Check 7 reads the real repo; init one.
-            subprocess.run(["git", "-C", str(tmp_path), "init", "-q"], check=True)
-            subprocess.run(
-                ["git", "-C", str(tmp_path), "config", "user.email", "t@e.com"],
-                check=True,
-            )
-            subprocess.run(
-                ["git", "-C", str(tmp_path), "config", "user.name", "T"], check=True
-            )
-            setup_handler = build_setup_phase_handler(setup_config)
+        # Seed the APPROVED Story the Setup preflight gate requires.
+        # Setup transitions Approved -> In Progress, closure In Progress
+        # -> Done (real StoryService persistence, no mock).
+        # CONCEPT skips the merge block (uses_merge=False, FK-29 §29.1.1):
+        # closure runs finalization without a live merge/Sonar environment.
+        seed_approved_story(
+            project_key="e2e-closure-test",
+            story_display_id="E2E-7002",
+            story_number=2,
+            story_type=WireStoryType.CONCEPT,
+            title="E2E full pipeline: setup to closure",
+        )
 
-            # Seed the APPROVED Story the Setup preflight gate requires.
-            # Setup transitions Approved -> In Progress, closure In Progress
-            # -> Done (real StoryService persistence, no mock).
-            # CONCEPT skips the merge block (uses_merge=False, FK-29 §29.1.1):
-            # closure closes the issue + runs finalization without a live
-            # merge/Sonar environment. (The setup phase still runs for real.)
-            seed_approved_story(
-                project_key="e2e-closure-test",
-                story_display_id="E2E-7002",
-                story_number=2,
-                story_type=WireStoryType.CONCEPT,
-                title="E2E full pipeline: setup to closure",
-            )
+        ctx = StoryContext(
+            project_key="e2e-closure-test",
+            story_id="E2E-7002",
+            story_type=StoryType.CONCEPT,
+            execution_route=None,  # CONCEPT allows only execution_route=None
+        )
+        state = make_phase_state(
+            story_id="E2E-7002",
+            phase="setup",
+            status=PhaseStatus.IN_PROGRESS,
+            story_type=StoryType.CONCEPT,
+        )
 
-            ctx = StoryContext(
-                project_key="e2e-closure-test",
-                story_id="E2E-7002",
-                story_type=StoryType.CONCEPT,
-                execution_route=None,  # CONCEPT allows only execution_route=None
-            )
-            state = PhaseState(
-                story_id="E2E-7002",
-                phase="setup",
-                status=PhaseStatus.IN_PROGRESS,
-            )
+        setup_result = setup_handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
+        assert setup_result.status == PhaseStatus.COMPLETED
 
-            setup_result = setup_handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
-            assert setup_result.status == PhaseStatus.COMPLETED
+        # 3. NoOp snapshots for the implementation profile's prior phases
+        #    (setup, exploration, implementation). verify is an internal
+        #    Implementation subflow, not a top-level phase (FK-27).
+        s_dir = story_dir(tmp_path, "E2E-7002")
+        for phase in ("exploration", "implementation"):
+            _save_snapshot(s_dir, phase, story_id="E2E-7002")
 
-            # 4. NoOp snapshots for the implementation profile's prior phases
-            #    (setup, exploration, implementation). verify is an internal
-            #    Implementation subflow, not a top-level phase (FK-27).
-            s_dir = story_dir(tmp_path, "E2E-7002")
-            for phase in ("exploration", "implementation"):
-                _save_snapshot(s_dir, phase, story_id="E2E-7002")
+        # Also save setup snapshot (setup handler produces context,
+        # but the engine would normally save the snapshot)
+        _save_snapshot(s_dir, "setup", story_id="E2E-7002")
+        _save_flow(
+            s_dir,
+            project_key="e2e-closure-test",
+            story_id="E2E-7002",
+        )
+        _append_agent_start(
+            s_dir,
+            project_key="e2e-closure-test",
+            story_id="E2E-7002",
+        )
 
-            # Also save setup snapshot (setup handler produces context,
-            # but the engine would normally save the snapshot)
-            _save_snapshot(s_dir, "setup", story_id="E2E-7002")
-            _save_flow(
-                s_dir,
-                project_key="e2e-closure-test",
-                story_id="E2E-7002",
-            )
-            _append_agent_start(
-                s_dir,
-                project_key="e2e-closure-test",
-                story_id="E2E-7002",
-            )
+        # 4. Closure: closes the story via the AK3 Story-Service (no GitHub).
+        closure_config = ClosureConfig(story_dir=s_dir)
+        closure_handler = build_closure_phase_handler(
+            closure_config, store_dir=s_dir, project_key="e2e-closure-test"
+        )
 
-            # 5. Closure with close_issue=True
-            closure_config = ClosureConfig(
-                owner=OWNER,
-                repo=REPO,
-                issue_nr=issue_nr,
-                close_issue=True,
-                story_dir=s_dir,
-            )
-            closure_handler = build_closure_phase_handler(
-                closure_config, store_dir=s_dir, project_key="e2e-closure-test"
-            )
+        closure_ctx = StoryContext(
+            project_key="e2e-closure-test",
+            story_id="E2E-7002",
+            story_type=StoryType.CONCEPT,
+            execution_route=None,  # CONCEPT allows only execution_route=None
+        )
+        closure_state = make_phase_state(
+            story_id="E2E-7002",
+            phase="closure",
+            status=PhaseStatus.IN_PROGRESS,
+            story_type=StoryType.CONCEPT,
+        )
 
-            closure_ctx = StoryContext(
-                project_key="e2e-closure-test",
-                story_id="E2E-7002",
-                story_type=StoryType.CONCEPT,
-                execution_route=None,  # CONCEPT allows only execution_route=None
-            )
-            closure_state = PhaseState(
-                story_id="E2E-7002",
-                phase="closure",
-                status=PhaseStatus.IN_PROGRESS,
-            )
+        closure_result = closure_handler.on_enter(
+            closure_ctx,
+            PhaseEnvelopeStore.make_fresh_envelope(closure_state),
+        )
 
-            closure_result = closure_handler.on_enter(
-                closure_ctx,
-                PhaseEnvelopeStore.make_fresh_envelope(closure_state),
-            )
-
-            # 6. Verify
-            assert closure_result.status == PhaseStatus.COMPLETED
-            assert (qa_story_dir(tmp_path, "E2E-7002") / "closure.json").exists()
-
-            closed_issue = get_issue(OWNER, REPO, issue_nr)
-            assert closed_issue.state == "CLOSED"
-
-        finally:
-            # 7. Cleanup: reopen the issue
-            with contextlib.suppress(Exception):
-                reopen_issue(OWNER, REPO, issue_nr)
+        # 5. Verify the story was closed and the closure report was written.
+        assert closure_result.status == PhaseStatus.COMPLETED
+        assert (qa_story_dir(tmp_path, "E2E-7002") / "closure.json").exists()

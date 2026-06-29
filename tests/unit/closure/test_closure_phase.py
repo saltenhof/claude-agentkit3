@@ -367,7 +367,6 @@ def _impl_config(
     manager = build_artifact_manager(s_dir)
     return ClosureConfig(
         story_dir=s_dir,
-        close_issue=False,
         story_service=NoOpStoryService(),  # type: ignore[arg-type]
         integrity_gate=integrity or RecordingIntegrityGate(),  # type: ignore[arg-type]
         scan_port=scan or RecordingScanPort(),
@@ -413,7 +412,6 @@ class TestImplClosureHappyPath:
         git = StubGitBackend()
         config = ClosureConfig(
             story_dir=s_dir,
-            close_issue=False,
             story_service=NoOpStoryService(),  # type: ignore[arg-type]
             integrity_gate=integrity,  # type: ignore[arg-type]
             scan_port=scan,
@@ -552,17 +550,13 @@ class TestImplClosureHappyPath:
         assert integrity.calls == []
         assert service.completed == []
 
-    def test_issue_cannot_be_closed_for_implementation_without_execution(
+    def test_story_cannot_reach_done_for_implementation_without_execution(
         self, tmp_path: Path
     ) -> None:
-        """FK-24 §24.12: terminality block prevents issue close and Done."""
+        """FK-24 §24.12: terminality block prevents the AK3 story Done transition."""
         s_dir = _prepare_impl_story(tmp_path, phases=("setup", "exploration"))
         service = _RecordingStoryService()
         config = _impl_config(s_dir)
-        config.close_issue = True
-        config.owner = "owner"
-        config.repo = "repo"
-        config.issue_nr = 123
         config.story_service = service  # type: ignore[assignment]
         ctx = _make_ctx(project_root=tmp_path).model_copy(
             update={"closure_allowed": False, "execution_pending": True}
@@ -1147,7 +1141,6 @@ class TestImplClosureEscalation:
         _write_all_layer2(manager, story_id="TEST-001", run_id=_run_id_for("TEST-001"))
         config = ClosureConfig(
             story_dir=s_dir,
-            close_issue=False,
             story_service=NoOpStoryService(),  # type: ignore[arg-type]
             integrity_gate=RecordingIntegrityGate(),  # type: ignore[arg-type]
             scan_port=RecordingScanPort(),
@@ -1190,7 +1183,6 @@ class TestImplClosureEscalation:
         git = StubGitBackend()
         config = ClosureConfig(
             story_dir=s_dir,
-            close_issue=False,
             story_service=NoOpStoryService(),  # type: ignore[arg-type]
             integrity_gate=RecordingIntegrityGate(),  # type: ignore[arg-type]
             scan_port=None,
@@ -1236,7 +1228,6 @@ class TestImplClosureEscalation:
         git = StubGitBackend()
         config = ClosureConfig(
             story_dir=s_dir,
-            close_issue=False,
             story_service=NoOpStoryService(),  # type: ignore[arg-type]
             integrity_gate=integrity,  # type: ignore[arg-type]
             scan_port=None,  # Sonar declared absent: no scan runner
@@ -1835,7 +1826,6 @@ class TestCheckpointAndConfig:
         s_dir = _prepare_impl_story(tmp_path)
         config = ClosureConfig(
             story_dir=s_dir,
-            close_issue=False,
             story_service=NoOpStoryService(),  # type: ignore[arg-type]
             doc_fidelity_port=RecordingDocFidelityPort(),
             vectordb_sync_port=RecordingVectorDbSyncPort(),
@@ -1866,7 +1856,6 @@ class TestCheckpointAndConfig:
             _save_snapshot(s_dir, phase, story_id="TEST-101")
         config = ClosureConfig(
             story_dir=s_dir,
-            close_issue=False,
             story_service=NoOpStoryService(),  # type: ignore[arg-type]
         )
         handler = ClosurePhaseHandler(config)
@@ -1880,7 +1869,7 @@ class TestCheckpointAndConfig:
         assert "finalization collaborators not wired" in " ".join(result.errors)
 
     def test_fails_without_story_dir(self) -> None:
-        config = ClosureConfig(story_dir=None, close_issue=False)
+        config = ClosureConfig(story_dir=None)
         handler = ClosurePhaseHandler(config)
         result = handler.on_enter(
             _make_ctx(), PhaseEnvelopeStore.make_fresh_envelope(_make_state())

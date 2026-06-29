@@ -159,16 +159,12 @@ def main(argv: list[str] | None = None) -> int:
     # flow, not a second installer).
     _add_upgrade_parser(subparsers)
 
-    # run-story (minimal -- reads issue, runs pipeline)
+    # run-story (minimal -- identifies the story via story_id, runs pipeline)
     run_parser = subparsers.add_parser(
         "run-story", help="Run a story through the pipeline",
     )
     run_parser.add_argument(
         "--story", required=True, help=_STORY_ID_FIELD_LABEL,
-    )
-    run_parser.add_argument(
-        "--issue-nr", type=int, required=True,
-        help="GitHub issue number",
     )
     run_parser.add_argument(
         "--owner", required=True, help="GitHub repo owner",
@@ -993,13 +989,13 @@ def _cmd_run_story(args: argparse.Namespace) -> int:
     the remaining phase handlers.
 
     Args:
-        args: Parsed CLI arguments with ``story``, ``issue_nr``,
-            ``owner``, ``repo``, and ``project_root``.
+        args: Parsed CLI arguments with ``story``, ``owner``, ``repo``, and
+            ``project_root``.
 
     Returns:
         Exit code: 0 (always, as this is currently a stub).
     """
-    print(f"Running story {args.story} (issue #{args.issue_nr})")
+    print(f"Running story {args.story}")
     print(
         f"  repo: {args.owner}/{args.repo}  "
         f"root: {args.project_root}"

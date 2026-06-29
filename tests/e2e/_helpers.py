@@ -49,7 +49,9 @@ def seed_approved_story(
         story_display_id: Exact display ID the pipeline runs with, e.g.
             ``"E2E-165"`` or ``"TEST-001"``.
         story_number: Project-local story number (>= 1). Must be unique per
-            project; use the GitHub issue number for issue-derived stories.
+            project; AK3 owns the story identity, so this is a project-local
+            number derived from the ``story_id``/Story-Service record, and is
+            never an external issue identifier (AG3-120, FK-91 §91.2 rule 9).
         story_type: Wire-level story type matching the test's StoryType.
         title: Human-readable story title.
         status: Lifecycle status to seed. Defaults to ``APPROVED`` (the

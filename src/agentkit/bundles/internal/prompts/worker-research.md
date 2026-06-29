@@ -4,7 +4,7 @@
 Recherchiere das Thema beschrieben in **{story_id}: {title}**.
 
 ## Forschungsfrage
-- **Issue:** #{issue_nr}
+- **Story:** {story_id}
 - **Typ:** Research
 
 ## Beschreibung

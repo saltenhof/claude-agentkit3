@@ -879,18 +879,16 @@ def save_story_context_row(story_dir: Path, row: dict[str, Any]) -> None:
                 story_type,
                 execution_route,
                 implementation_contract,
-                issue_nr,
                 title,
                 payload_json,
                 updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(project_key, story_id) DO UPDATE SET
                 story_uuid=excluded.story_uuid,
                 story_number=excluded.story_number,
                 story_type=excluded.story_type,
                 execution_route=excluded.execution_route,
                 implementation_contract=excluded.implementation_contract,
-                issue_nr=excluded.issue_nr,
                 title=excluded.title,
                 payload_json=excluded.payload_json,
                 updated_at=excluded.updated_at
@@ -903,7 +901,6 @@ def save_story_context_row(story_dir: Path, row: dict[str, Any]) -> None:
                 row["story_type"],
                 row["execution_route"],
                 row["implementation_contract"],
-                row["issue_nr"],
                 row["title"],
                 row["payload_json"],
                 now_iso(),
@@ -961,18 +958,16 @@ def save_story_context_global_row(
                 story_type,
                 execution_route,
                 implementation_contract,
-                issue_nr,
                 title,
                 payload_json,
                 updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(project_key, story_id) DO UPDATE SET
                 story_uuid=excluded.story_uuid,
                 story_number=excluded.story_number,
                 story_type=excluded.story_type,
                 execution_route=excluded.execution_route,
                 implementation_contract=excluded.implementation_contract,
-                issue_nr=excluded.issue_nr,
                 title=excluded.title,
                 payload_json=excluded.payload_json,
                 updated_at=excluded.updated_at
@@ -985,7 +980,6 @@ def save_story_context_global_row(
                 row["story_type"],
                 row["execution_route"],
                 row["implementation_contract"],
-                row["issue_nr"],
                 row["title"],
                 row["payload_json"],
                 now_iso(),

@@ -168,8 +168,8 @@ class TestRegistryWiring:
     ) -> None:
         """#4: with no real setup_config, setup is FAIL-CLOSED, never a runnable dummy.
 
-        The old behavior fell back to a dummy ``SetupConfig(owner="", repo="",
-        issue_nr=0)`` embedded in the productive registry -- an enterable dummy.
+        The old behavior fell back to a dummy ``SetupConfig`` with an empty
+        ``project_root`` embedded in the productive registry -- an enterable dummy.
         The fix registers a fail-closed setup handler instead: a non-setup
         follow-up dispatch (which never enters setup) is unaffected, but if setup
         is ever ENTERED it ESCALATES rather than running against empty coordinates.
@@ -215,14 +215,16 @@ def _write_project_config(
     github_repo: str | None,
     code_producing: bool = True,
 ) -> None:
-    """Write a valid ``project.yaml`` for the setup-coordinate tests (W10/E5).
+    """Write a valid ``project.yaml`` for the setup-config tests (W10/E5).
 
-    The GitHub-coordinate-required tests target a CODE-PRODUCING story type
+    The engine-wiring tests target a CODE-PRODUCING story type
     (implementation/bugfix), so the project config must declare a code-producing
     ``story_types`` set plus the required ``sonarqube`` stanza (FK-03 §3 / FK-33
     §33.6); a non-code-producing config (``code_producing=False``) is used only for
-    the internal-story path. The authoritative ``github_owner`` / ``github_repo``
-    coordinates the Setup handler needs are carried either way.
+    the internal-story path. AG3-120: AK3 owns the story via ``story_id`` and
+    GitHub is only the code backend, so ``build_setup_config_for_run`` no longer
+    reads ``github_owner`` / ``github_repo`` -- they remain optional config the
+    later git mechanics may use, not a setup-coordinate gate.
     """
     import yaml
 
@@ -255,17 +257,17 @@ def _write_project_config(
     )
 
 
-def _persist_ctx_with_issue(
+def _persist_ctx_for_run(
     project_root: Path,
     *,
-    issue_nr: int | None,
     story_id: str = "AG3-920",
     story_type: StoryType = StoryType.IMPLEMENTATION,
 ) -> StoryContext:
-    """Persist a GitHub-backed StoryContext carrying ``issue_nr`` + ``project_root``.
+    """Persist a StoryContext carrying its ``project_root`` (the run's store root).
 
-    Defaults to a CODE-PRODUCING (GitHub-backed) story type so the
-    ``build_setup_config_for_run`` GitHub-coordinate requirement applies (E5).
+    Defaults to a CODE-PRODUCING story type so the ``build_setup_config_for_run``
+    ``create_worktree`` decision is True (AG3-120: AK3 owns the story via
+    ``story_id``; GitHub is only the code backend, so no issue is carried).
     """
     story_dir = project_root / "stories" / story_id
     story_dir.mkdir(parents=True, exist_ok=True)
@@ -279,7 +281,6 @@ def _persist_ctx_with_issue(
             else None
         ),
         project_root=project_root,
-        issue_nr=issue_nr,
     )
     save_story_context(story_dir, ctx)
     return ctx
@@ -290,10 +291,11 @@ class TestProductiveSetupConfigComposition:
 
     These tests exercise ``build_phase_dispatcher`` / ``build_pipeline_engine`` /
     ``build_setup_config_for_run`` -- the productive wiring, NOT injected stubs --
-    and assert the Setup handler is wired with the run's authoritative GitHub
-    coordinates (owner/repo from the project config, issue_nr from the
-    StoryContext) and the run's project root, never an empty dummy. They FAIL
-    against the old dummy/cwd wiring (owner="" repo="" issue_nr=0).
+    and assert the Setup handler is wired with the run's authoritative
+    ``project_root`` and the correct ``create_worktree`` decision, never an empty
+    dummy. AG3-120: AK3 owns the story via ``story_id`` and GitHub is only the
+    code backend, so the setup config no longer carries owner/repo/issue_nr; the
+    story-identity fail-closed gate moved downstream into ``build_story_context``.
     """
 
     def test_build_setup_config_for_run_uses_real_coordinates(
@@ -305,19 +307,16 @@ class TestProductiveSetupConfigComposition:
         _write_project_config(
             tmp_path, github_owner="acme-org", github_repo="trading"
         )
-        ctx = _persist_ctx_with_issue(tmp_path, issue_nr=4242)
+        ctx = _persist_ctx_for_run(tmp_path)
 
         config = build_setup_config_for_run(ctx)
 
         assert isinstance(config, SetupConfig)
-        assert config.owner == "acme-org"
-        assert config.repo == "trading"
-        assert config.issue_nr == 4242
+        # AG3-120: the setup config carries the run's authoritative project_root
+        # (the run store), never an empty dummy; a code-producing story creates a
+        # worktree. AK3 owns the story via story_id -- no issue/owner/repo key.
         assert config.project_root == tmp_path
-        # The old dummy never produced these -- prove they are NOT empty.
-        assert config.owner != ""
-        assert config.repo != ""
-        assert config.issue_nr != 0
+        assert config.create_worktree is True
 
     def test_productive_engine_wires_real_setup_config(self, tmp_path: Path) -> None:
         """The productive engine factory threads the real SetupConfig into setup."""
@@ -326,7 +325,7 @@ class TestProductiveSetupConfigComposition:
         _write_project_config(
             tmp_path, github_owner="acme-org", github_repo="trading"
         )
-        ctx = _persist_ctx_with_issue(tmp_path, issue_nr=4242)
+        ctx = _persist_ctx_for_run(tmp_path)
         story_dir = tmp_path / "stories" / ctx.story_id
 
         engine = build_pipeline_engine(
@@ -338,9 +337,7 @@ class TestProductiveSetupConfigComposition:
         setup_handler = engine._registry.get_handler("setup")  # type: ignore[attr-defined]
         config = setup_handler._config  # type: ignore[attr-defined]
 
-        assert config.owner == "acme-org"
-        assert config.repo == "trading"
-        assert config.issue_nr == 4242
+        assert config.create_worktree is True
         # The Setup handler's mode-lock + residue probe are rooted at the RUN's
         # project root (the run store), not cwd.
         assert config.project_root == tmp_path
@@ -359,15 +356,13 @@ class TestProductiveSetupConfigComposition:
         _write_project_config(
             tmp_path, github_owner="acme-org", github_repo="trading"
         )
-        ctx = _persist_ctx_with_issue(tmp_path, issue_nr=7)
+        ctx = _persist_ctx_for_run(tmp_path)
 
         dispatcher = build_phase_dispatcher()
         engine = dispatcher.engine_factory(ctx)
         config = engine._registry.get_handler("setup")._config  # type: ignore[attr-defined]
 
-        assert config.owner == "acme-org"
-        assert config.repo == "trading"
-        assert config.issue_nr == 7
+        assert config.create_worktree is True
         assert config.project_root == tmp_path
 
     def test_productive_fresh_setup_rejects_when_coordinates_missing(
@@ -375,15 +370,22 @@ class TestProductiveSetupConfigComposition:
     ) -> None:
         """E1: the productive dispatcher REJECTS a fresh setup start with no coords.
 
-        A fresh setup start whose project config declares no github_owner/repo must
-        be rejected fail-closed (setup must never run against empty coordinates) --
-        not silently dispatched against a dummy.
+        AG3-120: the only setup coordinate ``build_setup_config_for_run`` still
+        requires is the run's ``project_root``. A fresh setup start whose context
+        carries no ``project_root`` must be rejected fail-closed (setup must never
+        run against an empty store root) -- not silently dispatched against a dummy.
         """
         from agentkit.backend.control_plane.dispatch import build_phase_dispatcher
 
-        _write_project_config(tmp_path, github_owner=None, github_repo=None)
-        ctx = _persist_ctx_with_issue(tmp_path, issue_nr=7)
-        story_dir = tmp_path / "stories" / ctx.story_id
+        story_id = "AG3-920"
+        ctx = StoryContext(
+            project_key="test-project",
+            story_id=story_id,
+            story_type=StoryType.IMPLEMENTATION,
+            execution_route=StoryMode.EXECUTION,
+            project_root=None,  # no resolvable run store -> fail-closed
+        )
+        story_dir = tmp_path / "stories" / story_id
 
         from agentkit.backend.control_plane.dispatch import PreStartGuard
 
@@ -419,54 +421,53 @@ class TestProductiveSetupConfigComposition:
         assert result.dispatched is False
         assert "setup coordinates" in (result.rejection_reason or "")
 
-    def test_missing_github_coordinates_fail_closed(self, tmp_path: Path) -> None:
-        """Fail-closed (E1): no github_owner/repo -> SetupCoordinatesUnavailableError."""
+    def test_missing_project_root_fail_closed(self, tmp_path: Path) -> None:
+        """Fail-closed (E1): no project_root -> SetupCoordinatesUnavailableError.
+
+        AG3-120: the run's ``project_root`` is the only setup coordinate the config
+        builder still requires (AK3 owns the story via ``story_id``; GitHub is only
+        the code backend). A context with no resolvable run store fails closed.
+        """
+        del tmp_path
         from agentkit.backend.bootstrap.composition_root import (
             SetupCoordinatesUnavailableError,
             build_setup_config_for_run,
         )
 
-        _write_project_config(tmp_path, github_owner=None, github_repo=None)
-        ctx = _persist_ctx_with_issue(tmp_path, issue_nr=7)
+        ctx = StoryContext(
+            project_key="test-project",
+            story_id="AG3-920",
+            story_type=StoryType.IMPLEMENTATION,
+            execution_route=StoryMode.EXECUTION,
+            project_root=None,
+        )
 
         with pytest.raises(SetupCoordinatesUnavailableError):
             build_setup_config_for_run(ctx)
 
-    def test_missing_issue_nr_fail_closed(self, tmp_path: Path) -> None:
-        """Fail-closed (E1): no issue_nr -> SetupCoordinatesUnavailableError."""
-        from agentkit.backend.bootstrap.composition_root import (
-            SetupCoordinatesUnavailableError,
-            build_setup_config_for_run,
-        )
-
-        _write_project_config(
-            tmp_path, github_owner="acme-org", github_repo="trading"
-        )
-        ctx = _persist_ctx_with_issue(tmp_path, issue_nr=None)
-
-        with pytest.raises(SetupCoordinatesUnavailableError):
-            build_setup_config_for_run(ctx)
-
-    def test_zero_issue_nr_fail_closed_for_github_backed_story(
+    def test_code_producing_story_succeeds_without_github_or_issue(
         self, tmp_path: Path
     ) -> None:
-        """E5: issue_nr=0 (a bogus issue) is REJECTED for a GitHub-backed story.
+        """AG3-120: a code-producing story needs NO issue and NO github_owner/repo.
 
-        ``0`` is not a real GitHub issue; a code-producing setup must never run
-        against it. ``build_setup_config_for_run`` requires ``issue_nr > 0``.
+        AK3 owns the user story via ``story_id``; GitHub is only the code backend.
+        ``build_setup_config_for_run`` therefore succeeds for a code-producing
+        story that carries only its ``project_root`` -- a worktree is created, and
+        the old ``issue_nr > 0`` / github-coordinate gate is gone. The story-identity
+        fail-closed check moved downstream into ``build_story_context``.
         """
-        from agentkit.backend.bootstrap.composition_root import (
-            SetupCoordinatesUnavailableError,
-            build_setup_config_for_run,
-        )
+        from agentkit.backend.bootstrap.composition_root import build_setup_config_for_run
+        from agentkit.backend.governance.setup_preflight_gate.phase import SetupConfig
 
-        _write_project_config(
-            tmp_path, github_owner="acme-org", github_repo="trading"
-        )
-        ctx = _persist_ctx_with_issue(tmp_path, issue_nr=0)
+        # No github_owner/repo declared -- it is no longer a setup-coordinate gate.
+        _write_project_config(tmp_path, github_owner=None, github_repo=None)
+        ctx = _persist_ctx_for_run(tmp_path)
 
-        with pytest.raises(SetupCoordinatesUnavailableError):
-            build_setup_config_for_run(ctx)
+        config = build_setup_config_for_run(ctx)
+
+        assert isinstance(config, SetupConfig)
+        assert config.project_root == tmp_path
+        assert config.create_worktree is True
 
     @pytest.mark.parametrize(
         "story_type",
@@ -475,29 +476,25 @@ class TestProductiveSetupConfigComposition:
     def test_internal_story_is_not_blocked_without_github_coordinates(
         self, tmp_path: Path, story_type: StoryType
     ) -> None:
-        """E5: an INTERNAL (non-code-producing) story needs NO GitHub coordinates.
+        """E5: an INTERNAL (non-code-producing) story creates no worktree.
 
         A CONCEPT / RESEARCH story is internal (``uses_worktree``/``uses_merge``
-        false): setup creates no worktree and never merges, so it requires no
-        github_owner/repo and no positive issue_nr. ``build_setup_config_for_run``
-        must NOT fail-closed-block it; it returns a GitHub-free config with
-        ``create_worktree=False`` even with NO issue_nr and NO owner/repo. This is
-        the E5 regression: the prior E1 fix wrongly blocked these legitimately
-        non-GitHub stories.
+        false): setup creates no worktree and never merges.
+        ``build_setup_config_for_run`` returns a config with
+        ``create_worktree=False`` for it (AG3-120: AK3 owns the story via
+        ``story_id``; GitHub is only the code backend, so no issue/owner/repo is
+        carried either way).
         """
         from agentkit.backend.bootstrap.composition_root import build_setup_config_for_run
         from agentkit.backend.governance.setup_preflight_gate.phase import SetupConfig
 
-        # No github_owner/repo and no issue_nr -- an internal story carries none.
         _write_project_config(
             tmp_path,
             github_owner=None,
             github_repo=None,
             code_producing=False,
         )
-        ctx = _persist_ctx_with_issue(
-            tmp_path, issue_nr=None, story_type=story_type
-        )
+        ctx = _persist_ctx_for_run(tmp_path, story_type=story_type)
 
         config = build_setup_config_for_run(ctx)
 

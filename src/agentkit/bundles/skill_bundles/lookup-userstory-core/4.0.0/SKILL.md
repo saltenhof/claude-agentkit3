@@ -79,7 +79,7 @@ curl -sS "$CONTROL_PLANE_URL/v1/projects/{{project_key}}/stories/{{project_prefi
 
 The detail response returns, per story:
 `story_id`, `title`, `story_type`, `lifecycle_status`, `active_phase`,
-`phase_status`, `story_size`, `issue_nr`, `current_run`, `latest_metrics`
+`phase_status`, `story_size`, `current_run`, `latest_metrics`
 (QA rounds, processing time, completion), `labels`, `participating_repos`,
 `created_at` and recent events.
 

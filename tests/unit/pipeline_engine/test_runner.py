@@ -237,7 +237,7 @@ def test_run_pipeline_reloads_persisted_context_between_phases(
     tmp_path: Path,
 ) -> None:
     ctx = _story_context()
-    enriched = ctx.model_copy(update={"title": "Enriched", "issue_nr": 42})
+    enriched = ctx.model_copy(update={"title": "Enriched", "story_number": 42})
     engine_factory = _EngineFactory(
         [
             EngineResult(

@@ -175,7 +175,14 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # no_findings_90d INTEGER column to fc_check_proposals. Side-by-side migration
 # (FK-18 §18.9a): a fresh ak3_v3_28_0 schema / agentkit_3_28_0.sqlite is
 # created; the old 3.27.0 DB is never touched.
-SCHEMA_VERSION = "3.28.0"
+# 3.29.0 (AG3-120): story_contexts.issue_nr column DROPPED. AK3 owns the user
+# story via story_id (FK-12 §12.1.1, FK-91 §91.2 rule 9); GitHub is only the code
+# backend, so the GitHub-issue-derived story key is removed from the runtime
+# projection. Side-by-side migration (FK-18 §18.9a): a fresh ak3_v3_29_0 schema /
+# agentkit_3_29_0.sqlite is created WITHOUT the column; the old 3.28.0 DB is never
+# touched (no in-place drop on existing data; the versioned-schema pattern is the
+# migration mechanism).
+SCHEMA_VERSION = "3.29.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 # AG3-051: reserved test-schema namespace. Disjoint from the production schema
 # name (``ak3_v<slug>``), so a test override can never resolve onto production

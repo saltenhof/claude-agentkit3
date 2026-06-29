@@ -9,7 +9,7 @@ Untersuche die Story **{story_id}: {title}** auf schwache Stellen und Gegenbeisp
 - nur belastbare Kritikpunkte mit klarer Stoerwirkung melden
 
 ## Kontext
-- Issue: #{issue_nr}
+- Story: {story_id}
 - Route: {mode}
 - Projektroot: {project_root}
 - Story: {title}

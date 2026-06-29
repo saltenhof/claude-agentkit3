@@ -57,7 +57,6 @@ class TestTemplateRegistry:
         dummy_data = {
             "story_id": "TEST-001",
             "title": "Dummy Title",
-            "issue_nr": "42",
             "mode": "execution",
             "size": "M",
             "body": "Dummy body text",

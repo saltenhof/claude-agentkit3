@@ -77,7 +77,6 @@ class StoryService:
             execution_route=context.execution_route,
             implementation_contract=context.implementation_contract,
             story_size=context.story_size,
-            issue_nr=context.issue_nr,
             lifecycle_status=_derive_lifecycle_status(
                 phase_state=phase_state,
                 flow=flow,

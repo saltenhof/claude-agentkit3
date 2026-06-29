@@ -2,7 +2,7 @@
 
 Mocks only the three external system boundaries:
   - run_preflight  (StoryService-based, mocked)
-  - build_story_context  (GitHub CLI call)
+  - build_story_context  (AK3 Story-Service record read)
   - create_worktree  (git subprocess call)
 
 AG3-031 Pass-4 Fix E9: save_story_context is no longer a module-level name.
@@ -134,7 +134,6 @@ def _make_story_context(
         story_id=story_id,
         story_type=story_type,
         execution_route=mode,
-        issue_nr=1,
         title="Test Story",
         project_root=project_root,
         participating_repos=["repo"],
@@ -199,9 +198,6 @@ class TestSetupPhaseHandlerWorktree:
     ) -> None:
         """on_enter creates a worktree for an implementation story."""
         cfg = SetupConfig(
-            owner="owner",
-            repo="repo",
-            issue_nr=1,
             project_root=tmp_path,
             story_id="AG3-001",
             create_worktree=True,
@@ -245,9 +241,6 @@ class TestSetupPhaseHandlerWorktree:
     ) -> None:
         """on_enter does not create a worktree for a concept story."""
         cfg = SetupConfig(
-            owner="owner",
-            repo="repo",
-            issue_nr=2,
             project_root=tmp_path,
             story_id="AG3-002",
             create_worktree=True,
@@ -271,15 +264,13 @@ class TestSetupPhaseHandlerWorktree:
                 "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
                 return_value=_make_preflight_pass(),
             ),
-            # AG3-054 (#2): a CONCEPT (non-code-producing) story builds its context
-            # via build_internal_story_context (NO GitHub), not build_story_context.
-            patch(
-                "agentkit.backend.governance.setup_preflight_gate.phase.build_internal_story_context",
-                return_value=enriched,
-            ),
+            # AG3-120: EVERY story type builds its context from the AK3
+            # Story-Service record via the single ``build_story_context`` (NO
+            # GitHub). A CONCEPT story simply creates no worktree.
             patch(
                 "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
-            ) as mock_github_ctx,
+                return_value=enriched,
+            ) as mock_build_ctx,
             patch(
                 "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees"
             ) as mock_setup,
@@ -288,22 +279,29 @@ class TestSetupPhaseHandlerWorktree:
 
         assert result.status == PhaseStatus.COMPLETED
         mock_setup.assert_not_called()
-        # The GitHub-reading context builder was NEVER called for a concept story.
-        mock_github_ctx.assert_not_called()
+        # The record-based builder was used; no worktree for a concept story.
+        mock_build_ctx.assert_called_once()
 
-    def test_internal_story_setup_does_not_call_get_issue(
+    def test_internal_story_setup_does_not_contact_github(
         self, tmp_path: Path
     ) -> None:
-        """AG3-054 (#2): an internal RESEARCH story setup never contacts GitHub.
+        """AG3-120: an internal RESEARCH story setup never contacts GitHub.
 
-        ``get_issue`` (the GitHub boundary that ``build_story_context`` calls) is
-        patched to RAISE: the internal path uses ``build_internal_story_context``,
-        so ``get_issue`` is never invoked and setup still succeeds.
+        The setup phase builds the context purely from the AK3 Story-Service
+        record via ``build_story_context``; the GitHub issue adapter has been
+        removed entirely (no module to import). The story-context builder module
+        must carry no reference to a GitHub issue read.
         """
+        import agentkit.backend.governance.setup_preflight_gate.context_builder as cb
+        import agentkit.integration_clients.github as gh
+
+        # The GitHub issue adapter is gone: no issue CRUD is exported, and the
+        # context builder never imported a GitHub issue read.
+        assert not hasattr(cb, "get_issue")
+        assert not hasattr(gh, "get_issue")
+        assert "get_issue" not in gh.__all__
+
         cfg = SetupConfig(
-            owner="",
-            repo="",
-            issue_nr=0,
             project_root=tmp_path,
             story_id="AG3-700",
             create_worktree=False,
@@ -322,24 +320,15 @@ class TestSetupPhaseHandlerWorktree:
             project_root=tmp_path,
         )
 
-        def _explode_get_issue(owner: str, repo: str, nr: int) -> object:
-            del owner, repo, nr
-            raise AssertionError("get_issue must NOT be called for an internal story")
-
         with (
             patch(
                 "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
                 return_value=_make_preflight_pass(),
             ),
             patch(
-                "agentkit.backend.governance.setup_preflight_gate.context_builder.get_issue",
-                _explode_get_issue,
-            ),
-            patch(
-                "agentkit.backend.governance.setup_preflight_gate.phase."
-                "build_internal_story_context",
+                "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
-            ) as mock_internal,
+            ) as mock_build_ctx,
             patch(
                 "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees"
             ) as mock_setup,
@@ -349,17 +338,18 @@ class TestSetupPhaseHandlerWorktree:
             )
 
         assert result.status == PhaseStatus.COMPLETED
-        mock_internal.assert_called_once()
+        mock_build_ctx.assert_called_once()
         mock_setup.assert_not_called()
 
-    def test_code_producing_story_setup_reads_the_issue(
+    def test_code_producing_story_setup_builds_context_from_record(
         self, tmp_path: Path
     ) -> None:
-        """AG3-054 (#2): a code-producing story still reads the GitHub issue."""
+        """AG3-120: a code-producing story builds its context from the record.
+
+        AK3 owns the story; the single ``build_story_context`` reads the AK3
+        Story-Service record for every story type (no GitHub issue read).
+        """
         cfg = SetupConfig(
-            owner="owner",
-            repo="repo",
-            issue_nr=5,
             project_root=tmp_path,
             story_id="AG3-005",
             create_worktree=False,
@@ -387,13 +377,9 @@ class TestSetupPhaseHandlerWorktree:
             patch(
                 "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
-            ) as mock_github_ctx,
-            patch(
-                "agentkit.backend.governance.setup_preflight_gate.phase."
-                "build_internal_story_context",
-            ) as mock_internal,
+            ) as mock_build_ctx,
             # A code-producing story evaluates the green-main precondition; stub it
-            # GREEN so this test isolates the GitHub-vs-internal routing assertion.
+            # GREEN so this test isolates the context-builder assertion.
             patch(
                 "agentkit.backend.governance.setup_preflight_gate.green_main."
                 "check_main_green_precondition",
@@ -408,18 +394,14 @@ class TestSetupPhaseHandlerWorktree:
             )
 
         assert result.status == PhaseStatus.COMPLETED
-        # The code-producing path uses the GitHub-reading builder, not the internal one.
-        mock_github_ctx.assert_called_once()
-        mock_internal.assert_not_called()
+        # Every story type uses the single record-based builder.
+        mock_build_ctx.assert_called_once()
 
     def test_create_worktree_failure_returns_failed(
         self, tmp_path: Path
     ) -> None:
         """on_enter returns FAILED when create_worktree raises WorktreeError."""
         cfg = SetupConfig(
-            owner="owner",
-            repo="repo",
-            issue_nr=3,
             project_root=tmp_path,
             story_id="AG3-003",
             create_worktree=True,
@@ -468,9 +450,6 @@ class TestSetupPhaseHandlerWorktree:
         ctx_repo = _RecordingContextRepo(raises_on_call=2, exc=OSError("disk full"))
 
         cfg = SetupConfig(
-            owner="owner",
-            repo="repo",
-            issue_nr=5,
             project_root=tmp_path,
             story_id="AG3-005",
             create_worktree=True,
@@ -511,9 +490,6 @@ class TestSetupPhaseHandlerWorktree:
     def test_preflight_failure_returns_failed(self, tmp_path: Path) -> None:
         """on_enter returns FAILED immediately when preflight fails."""
         cfg = SetupConfig(
-            owner="owner",
-            repo="repo",
-            issue_nr=4,
             project_root=tmp_path,
             story_id="AG3-004",
         )
@@ -555,9 +531,6 @@ class TestSetupPhaseBeginProgress:
 
         svc = _StubService()
         cfg = SetupConfig(
-            owner="owner",
-            repo="repo",
-            issue_nr=1,
             project_root=tmp_path,
             story_id="AG3-001",
             create_worktree=False,
@@ -603,9 +576,6 @@ class TestSetupPhaseBeginProgress:
                 return object()
 
         cfg = SetupConfig(
-            owner="owner",
-            repo="repo",
-            issue_nr=1,
             project_root=tmp_path,
             story_id="AG3-001",
             create_worktree=False,
@@ -651,9 +621,6 @@ class TestSetupPhaseBeginProgress:
                 raise RuntimeError("transition error: not Approved")
 
         cfg = SetupConfig(
-            owner="owner",
-            repo="repo",
-            issue_nr=1,
             project_root=tmp_path,
             story_id="AG3-001",
             create_worktree=False,
@@ -690,9 +657,6 @@ class TestSetupPhaseGreenMain:
 
     def _run(self, tmp_path: Path, *, available: bool, port: object):  # type: ignore[no-untyped-def]
         cfg = SetupConfig(
-            owner="owner",
-            repo="repo",
-            issue_nr=9,
             project_root=tmp_path,
             story_id="AG3-009",
             create_worktree=False,
@@ -789,9 +753,6 @@ class TestSetupPhaseGreenMain:
                 )
 
         cfg = SetupConfig(
-            owner="owner",
-            repo="repo",
-            issue_nr=10,
             project_root=tmp_path,
             story_id="AG3-010",
             create_worktree=False,
@@ -873,9 +834,6 @@ class TestSetupPhaseAreBundle:
                 )
 
         cfg = SetupConfig(
-            owner="owner",
-            repo="repo",
-            issue_nr=1,
             project_root=tmp_path,
             story_id="AG3-001",
             create_worktree=True,
@@ -939,9 +897,6 @@ class TestSetupPhaseAreBundle:
                 )
 
         cfg = SetupConfig(
-            owner="owner",
-            repo="repo",
-            issue_nr=2,
             project_root=tmp_path,
             story_id="AG3-002",
             create_worktree=False,
@@ -1001,9 +956,6 @@ class TestSetupPhaseAreBundle:
                 )
 
         cfg = SetupConfig(
-            owner="owner",
-            repo="repo",
-            issue_nr=3,
             project_root=tmp_path,
             story_id="AG3-003",
             create_worktree=True,

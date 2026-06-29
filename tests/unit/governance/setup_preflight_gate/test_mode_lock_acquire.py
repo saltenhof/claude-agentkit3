@@ -54,9 +54,6 @@ class _RecordingModeLockRepo:
 
 def _handler(repo: _RecordingModeLockRepo, project_root: Path) -> SetupPhaseHandler:
     cfg = SetupConfig(
-        owner="o",
-        repo="r",
-        issue_nr=1,
         project_root=project_root,
         story_id="AG3-018",
     )
@@ -141,7 +138,7 @@ def test_compensate_releases_freshly_acquired_holder(tmp_path: Path) -> None:
 
 
 def test_acquire_skipped_without_repository(tmp_path: Path) -> None:
-    cfg = SetupConfig(owner="o", repo="r", issue_nr=1, project_root=tmp_path)
+    cfg = SetupConfig(project_root=tmp_path)
 
     class _Ctx:
         def save(self, story_dir: Path, ctx: object) -> None:

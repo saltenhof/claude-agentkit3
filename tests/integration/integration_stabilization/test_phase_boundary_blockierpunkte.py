@@ -574,7 +574,6 @@ class TestClosurePhaseHandlerISPrecondition:
 
         config = ClosureConfig(
             story_dir=story_dir,
-            close_issue=False,
             progress_store=_NullStore(),
             change_evidence_port=_FakeChangeEvidencePortImpl(),
         )
@@ -667,7 +666,6 @@ class TestClosurePhaseHandlerISPrecondition:
 
         config = ClosureConfig(
             story_dir=story_dir,
-            close_issue=False,
             progress_store=_NullStore(),
             change_evidence_port=_FakeChangeEvidencePortImpl(),
         )

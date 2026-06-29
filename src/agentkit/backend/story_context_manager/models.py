@@ -46,7 +46,6 @@ class StoryContext(BaseModel):
     #: ``standard``. This is NOT conflated into ``execution_route``.
     mode: WireStoryMode = WireStoryMode.STANDARD
     implementation_contract: ImplementationContract | None = None
-    issue_nr: int | None = None
 
     @field_validator("project_key")
     @classmethod

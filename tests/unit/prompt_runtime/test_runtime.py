@@ -47,7 +47,6 @@ def _make_context(project_root: Path) -> StoryContext:
         story_id="AG3-001",
         story_type=StoryType.IMPLEMENTATION,
         execution_route=StoryMode.EXECUTION,
-        issue_nr=42,
         title="Add widget feature",
         project_root=project_root,
         worktree_path=None,

@@ -38,7 +38,6 @@ from agentkit.backend.closure.post_merge_finalization.metrics import (
     build_story_metrics_record,
 )
 from agentkit.backend.core_types.closure import ClosureVerdict
-from agentkit.backend.exceptions import IntegrationError
 from agentkit.backend.installer.paths import resolve_qa_story_dir
 from agentkit.backend.pipeline_engine.lifecycle import HandlerResult
 from agentkit.backend.pipeline_engine.phase_executor import (
@@ -144,10 +143,6 @@ class ClosureConfig:
     """Configuration + injected collaborators for the closure phase handler.
 
     Attributes:
-        owner: GitHub repository owner (for issue close).
-        repo: GitHub repository name.
-        issue_nr: GitHub issue number.
-        close_issue: Whether to close the GitHub issue.
         story_dir: Story artifacts directory.
         story_service: Optional ``StoryService`` (``complete_story`` on success).
         integrity_gate: AG3-034 gate (verifier of the fresh attestation). Required
@@ -189,10 +184,6 @@ class ClosureConfig:
             legacy).
     """
 
-    owner: str | None = None
-    repo: str | None = None
-    issue_nr: int | None = None
-    close_issue: bool = True
     story_dir: Path | None = None
     story_service: StoryService | None = None
     integrity_gate: IntegrityGate | None = None
@@ -413,11 +404,11 @@ class ClosurePhaseHandler:
                 return merge_outcome
             progress = merge_outcome
 
-        # Step 4: story status Done. On resume (already closed) we do NOT re-close
-        # the GitHub issue / re-transition; FIX-5: the authoritative closed flag is
-        # ``progress.story_closed`` (never reset to False locally on resume).
+        # Step 4: story status Done. AK3 owns the story (FK-91 §91.2 rule 9): the
+        # story is closed via the AK3 Story-Service, not a GitHub issue. On resume
+        # (already closed) we do NOT re-transition; FIX-5: the authoritative closed
+        # flag is ``progress.story_closed`` (never reset to False locally on resume).
         if not progress.story_closed:
-            _story_closed_now, gh_warnings = _close_github_issue(cfg)
             transition_error = _transition_story_done(cfg, ctx.story_id)
             if transition_error is not None:
                 return transition_error
@@ -425,11 +416,10 @@ class ClosurePhaseHandler:
             progress = _persist(store, source_state, progress, story_closed=True)
         else:
             ctx = _persist_story_done(s_dir, ctx)
-            gh_warnings = []
 
         # Step 5: metrics (FIX-5: idempotent). If already written, LOAD the
         # existing metrics record instead of rebuilding + rewriting it.
-        status = "completed_with_warnings" if gh_warnings else "completed"
+        status = "completed"
         metrics_or_error = _resolve_metrics(s_dir, ctx, status, progress.metrics_written)
         if isinstance(metrics_or_error, HandlerResult):
             return metrics_or_error
@@ -465,7 +455,6 @@ class ClosurePhaseHandler:
         counter_flush_warnings = self._flush_guard_counters(ctx, s_dir)
 
         all_warnings = (
-            *gh_warnings,
             *finalization_warnings,
             *release_warnings,
             *counter_flush_warnings,
@@ -1136,33 +1125,6 @@ def _validate_prior_phases(s_dir: Path, prior_phases: tuple[str, ...]) -> list[s
                     f"'{qa_status}', expected 'pass'",
                 )
     return missing
-
-
-def _close_github_issue(cfg: ClosureConfig) -> tuple[bool, list[str]]:
-    """Best-effort GitHub issue close — returns ``(closed, warnings)``."""
-    if not (
-        cfg.close_issue
-        and cfg.owner is not None
-        and cfg.repo is not None
-        and cfg.issue_nr is not None
-    ):
-        return False, []
-    try:
-        from agentkit.integration_clients.github.issues import (
-            close_issue as gh_close_issue,
-        )
-
-        gh_close_issue(cfg.owner, cfg.repo, cfg.issue_nr)
-    except IntegrationError as exc:
-        issue_ref = f"{cfg.owner}/{cfg.repo}#{cfg.issue_nr}"
-        warning_msg = f"Failed to close GitHub issue {issue_ref}: {exc}"
-        logger.warning(warning_msg)
-        return False, [warning_msg]
-    logger.info(
-        "Closed GitHub issue %s/%s#%d",
-        cfg.owner, cfg.repo, cfg.issue_nr,
-    )
-    return True, []
 
 
 def _resolve_metrics(

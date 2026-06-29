@@ -192,7 +192,6 @@ class TestStoryContext:
         assert ctx.story_type == StoryType.IMPLEMENTATION
         assert ctx.execution_route == StoryMode.EXPLORATION
         assert ctx.implementation_contract == ImplementationContract.STANDARD
-        assert ctx.issue_nr is None
         assert ctx.title == ""
         assert ctx.story_size == StorySize.S
         assert ctx.project_root is None
@@ -209,7 +208,6 @@ class TestStoryContext:
             story_type=StoryType.BUGFIX,
             execution_route=StoryMode.EXECUTION,
             implementation_contract=None,
-            issue_nr=42,
             title="Fix null pointer in setup phase",
             project_root=Path("/tmp/project"),
             worktree_path=Path("/tmp/worktrees/AG3-042"),
@@ -217,7 +215,6 @@ class TestStoryContext:
             labels=["bugfix", "size:small"],
             created_at=now,
         )
-        assert ctx.issue_nr == 42
         assert ctx.title == "Fix null pointer in setup phase"
         assert ctx.project_root == Path("/tmp/project")
         assert ctx.worktree_path == Path("/tmp/worktrees/AG3-042")
@@ -333,7 +330,6 @@ class TestStoryContext:
             story_id="AG3-001",
             story_type=StoryType.IMPLEMENTATION,
             execution_route=StoryMode.EXPLORATION,
-            issue_nr=1,
             title="Test story",
             created_at=now,
         )
@@ -346,7 +342,6 @@ class TestStoryContext:
         assert restored.story_size == ctx.story_size
         assert restored.execution_route == ctx.execution_route
         assert restored.implementation_contract == ctx.implementation_contract
-        assert restored.issue_nr == ctx.issue_nr
 
     def test_mode_defaults_to_standard(self) -> None:
         """The fast/standard ``mode`` axis defaults to ``standard`` (FK-24 §24.3.3)."""

@@ -1,7 +1,8 @@
 """SetupPreflightGate component (BC 4 governance).
 
-Owns the Setup phase handler — issue ingestion, StoryContext bootstrap,
-preflight checks against StoryService and worktree provisioning. The
+Owns the Setup phase handler — StoryContext bootstrap from the AK3
+Story-Service record, preflight checks against StoryService and worktree
+provisioning. The
 phase handler is registered on PipelineEngine's PhaseHandlerRegistry by
 the orchestrator that wires the run.
 """

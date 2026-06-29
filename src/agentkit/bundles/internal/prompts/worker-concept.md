@@ -4,7 +4,7 @@
 Erstelle das Konzeptdokument fuer **{story_id}: {title}**.
 
 ## Anforderungen
-- **Issue:** #{issue_nr}
+- **Story:** {story_id}
 - **Typ:** Concept
 
 ## Beschreibung

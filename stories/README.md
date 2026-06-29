@@ -245,7 +245,7 @@ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben (Foundation zuerst)
 
 | ID | Titel | WP | Größe | Status | depends_on |
 |----|-------|----|-------|--------|------------|
-| AG3-120 | GitHub-Issue-Story-Kopplung entfernen (`issue_nr`-Spine + `issues.py`) | H | L | ready | — |
+| AG3-120 | GitHub-Issue-Story-Kopplung entfernen (`issue_nr`-Spine + `issues.py`) | H | L | in_progress | — |
 | AG3-121 | `/v1`-Versions-Handshake: `GET /v1/compat` + Client-Header + 426 | G | M | ready | — |
 | AG3-122 | Install-Dreifaltigkeit: `serve`/`update`/`detach`/`decommission` + `install`-Rückbau | F | L | blocked | 121 |
 | AG3-123 | Phase-Dispatch von lokalem `project_root` entkoppeln (Kern-Worktree-Bindung) | D | L | ready | — |

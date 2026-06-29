@@ -130,7 +130,7 @@ agentkit run-phase setup \
 Read `_temp/qa/<STORY-ID>/phase-state.json`:
 
 - `status`: `SUCCESS` → continue. `FAIL` → **HARD STOP**, report errors to user.
-- `context.issue_nr` → `<ISSUE-NR>`
+- `context.story_id` → `<STORY-ID>`
 - `context.item_id` → `<ITEM-ID>`
 - `context.story_dir` → `<STORY-DIR>`
 - `context.story_type` → `<STORY-TYPE>`
@@ -446,7 +446,6 @@ IF phase-state status == COMPLETED:
 ```bash
 agentkit run-phase closure \
   --story <STORY-ID> \
-  --issue-nr <ISSUE-NR> \
   --item-id <ITEM-ID> \
   --attempt <ROUND> \
   --story-dir <STORY-DIR> \
@@ -573,7 +572,7 @@ agentkit.worktree.multi_repo                 (was: tools/worktree/story-multi-re
 | QA-Guardrail crashes / timeout | Run policy engine without guardrail input |
 | GitHub API error | Retry once, then inform user |
 | Telemetry file missing | Log warning, checks skip telemetry dimensions |
-| Issue not found | STOP immediately, inform user |
+| Story ID not found | STOP immediately, inform user |
 | Dependencies not met | STOP immediately, inform user which dep blocks |
 | Post-flight check fails | Report warnings, do NOT revert closure |
 | Multi-repo merge partial failure | STOP, report which repos succeeded/failed, require manual intervention |

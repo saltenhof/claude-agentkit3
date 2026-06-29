@@ -4,7 +4,7 @@
 Implementiere die User Story **{story_id}: {title}**.
 
 ## Story-Details
-- **Issue:** #{issue_nr}
+- **Story:** {story_id}
 - **Typ:** Implementation
 - **Modus:** {mode}
 - **Groesse:** {size}

@@ -86,7 +86,7 @@ Die v2-Erfahrung ist hier lehrreich: Fehler entstehen oft durch unklare Ownershi
 - `src/agentkit/` ist Deployment-Unit-first: `backend/`, `frontend/`, `harness_client/`, `integration_clients/`, `bundles/`.
 - `bundles/` enthaelt paketierte Skills, Prompts und Zielprojekt-Assets, aber keine Laufzeitdaten.
 - `var/` ist ephemer und niemals fachliche Wahrheit.
-- GitHub-Felder sind Eingabe fuer Setup, aber nicht die operative Wahrheit waehrend eines Runs; danach gilt der autoritative Snapshot/State des Runs.
+- GitHub ist ausschliesslich Code-Backend (Branch/Worktree/Merge), keine Story-Verwaltung und keine Issue-Eingabe in das Setup. AK3 fuehrt die User-Story selbst (`StoryContext.story_id`); die operative Wahrheit ist der autoritative Snapshot/State des Runs.
 
 ### FAIL-CLOSED
 Unklare oder unvollstaendige Zustaende werden nicht grosszuegig toleriert.

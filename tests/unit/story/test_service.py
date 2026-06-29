@@ -25,7 +25,6 @@ def _context(story_id: str) -> StoryContext:
         story_type=StoryType.IMPLEMENTATION,
         execution_route=StoryMode.EXECUTION,
         implementation_contract=ImplementationContract.STANDARD,
-        issue_nr=12,
         title=f"Story {story_id}",
         labels=["size:medium"],
         participating_repos=["app"],

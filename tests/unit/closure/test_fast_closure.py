@@ -214,7 +214,6 @@ def _fast_config(
 ) -> ClosureConfig:
     return ClosureConfig(
         story_dir=s_dir,
-        close_issue=False,
         story_service=NoOpStoryService(),  # type: ignore[arg-type]
         integrity_gate=RecordingIntegrityGate(),  # type: ignore[arg-type]
         scan_port=RecordingScanPort(),

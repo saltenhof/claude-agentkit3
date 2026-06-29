@@ -69,7 +69,6 @@ class StorySummary(BaseModel):
     execution_route: StoryMode
     implementation_contract: ImplementationContract | None = None
     story_size: StorySize
-    issue_nr: int | None = None
     lifecycle_status: str
     active_phase: str | None = None
     phase_status: str | None = None

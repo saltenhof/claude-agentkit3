@@ -797,11 +797,14 @@ class TestCLIMain:
     def test_run_story_command(
         self, capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """``run-story`` subcommand parses all required arguments."""
+        """``run-story`` identifies the story via ``story_id`` (AG3-120, AC8).
+
+        AK3 owns the story via ``story_id``; GitHub is only the code backend, so
+        ``--issue-nr`` is no longer a parameter and the story is addressed by id.
+        """
         exit_code = main([
             "run-story",
             "--story", "TEST-001",
-            "--issue-nr", "42",
             "--owner", "testorg",
             "--repo", "testrepo",
             "--project-root", "/tmp/test",
@@ -810,7 +813,20 @@ class TestCLIMain:
         assert exit_code == 0
         captured = capsys.readouterr()
         assert "TEST-001" in captured.out
-        assert "#42" in captured.out
+        # The GitHub issue number is no longer rendered.
+        assert "#42" not in captured.out
+
+    def test_run_story_rejects_issue_nr_option(self) -> None:
+        """AG3-120 AC8: ``--issue-nr`` is removed from the ``run-story`` adapter."""
+        with pytest.raises(SystemExit):
+            main([
+                "run-story",
+                "--story", "TEST-001",
+                "--issue-nr", "42",
+                "--owner", "testorg",
+                "--repo", "testrepo",
+                "--project-root", "/tmp/test",
+            ])
 
     def test_serve_control_plane_command(
         self,

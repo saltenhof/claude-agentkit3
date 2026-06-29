@@ -12,7 +12,6 @@
             -- sentinel value (see AG3-021 §2.1.1.1 StoryMode values).
             execution_route TEXT,
             implementation_contract TEXT,
-            issue_nr INTEGER,
             title TEXT NOT NULL,
             payload_json TEXT NOT NULL,
             updated_at TEXT NOT NULL,

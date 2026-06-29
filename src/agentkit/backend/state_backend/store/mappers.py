@@ -276,7 +276,6 @@ def story_context_to_row(ctx: StoryContext) -> dict[str, Any]:
             if ctx.implementation_contract is not None
             else None
         ),
-        "issue_nr": ctx.issue_nr,
         "title": ctx.title,
         "payload_json": dump_json(ctx.model_dump(mode="json")),
     }

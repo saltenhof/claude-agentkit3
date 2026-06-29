@@ -681,9 +681,6 @@ def test_build_setup_phase_handler_wires_are_bundle_loader(
 
     handler = cr.build_setup_phase_handler(
         SetupConfig(
-            owner="owner",
-            repo="repo",
-            issue_nr=77,
             project_root=tmp_path,
             story_id="AG3-077",
         )

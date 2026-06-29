@@ -4,7 +4,7 @@
 Behebe den Bug beschrieben in **{story_id}: {title}**.
 
 ## Bug-Details
-- **Issue:** #{issue_nr}
+- **Story:** {story_id}
 - **Typ:** Bugfix
 
 ## Fehlerbeschreibung

@@ -5,7 +5,7 @@ Erstelle ein Design-Artefakt (FK-23 ChangeFrame) fuer \
 **{story_id}: {title}** BEVOR die Implementierung beginnt.
 
 ## Story-Details
-- **Issue:** #{issue_nr}
+- **Story:** {story_id}
 - **Modus:** Exploration
 
 ## Anforderungen

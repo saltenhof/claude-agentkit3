@@ -26,7 +26,6 @@ _TEMPLATE_SENTINEL_RE = re.compile(
 _STANDARD_PLACEHOLDERS: dict[str, str] = {
     "story_id": "TEST-001",
     "title": "Test Story Title",
-    "issue_nr": "42",
     "mode": "execution",
     "size": "M",
     "body": "Test body content.",

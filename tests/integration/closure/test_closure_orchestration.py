@@ -55,6 +55,12 @@ from agentkit.backend.state_backend.store import (
     save_story_context,
 )
 from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.service import StoryService
+from agentkit.backend.story_context_manager.story_model import (
+    Story,
+    StoryStatus,
+    WireStoryType,
+)
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 from agentkit.backend.telemetry.events import EventType
@@ -201,7 +207,7 @@ def test_composition_root_wires_all_collaborators(tmp_path: Path) -> None:
     s_dir = tmp_path / "stories" / "TEST-001"
     s_dir.mkdir(parents=True)
     save_story_context(s_dir, _ctx(tmp_path))
-    config = ClosureConfig(story_dir=s_dir, close_issue=False)
+    config = ClosureConfig(story_dir=s_dir)
     handler = build_closure_phase_handler(config, store_dir=s_dir, project_key="p")
 
     assert isinstance(handler, ClosurePhaseHandler)
@@ -228,7 +234,7 @@ def test_built_handler_registers_on_phase_registry(tmp_path: Path) -> None:
     s_dir = tmp_path / "stories" / "TEST-001"
     s_dir.mkdir(parents=True)
     save_story_context(s_dir, _ctx(tmp_path))
-    config = ClosureConfig(story_dir=s_dir, close_issue=False)
+    config = ClosureConfig(story_dir=s_dir)
     handler = build_closure_phase_handler(config, store_dir=s_dir, project_key="p")
 
     registry = PhaseHandlerRegistry()
@@ -247,7 +253,7 @@ def test_e2e_impl_closure_completes(tmp_path: Path) -> None:
     """
     s_dir = _prepare(tmp_path)
     config = ClosureConfig(
-        story_dir=s_dir, close_issue=False, story_service=NoOpStoryService()  # type: ignore[arg-type]
+        story_dir=s_dir, story_service=NoOpStoryService()  # type: ignore[arg-type]
     )
     handler = build_closure_phase_handler(
         config, store_dir=s_dir, project_key="test-project"
@@ -294,7 +300,7 @@ def test_fix2_missing_story_context_fails_closed(tmp_path: Path) -> None:
     s_dir = tmp_path / "stories" / "TEST-404"
     s_dir.mkdir(parents=True)
     # Deliberately persist NO story context -> broken/missing context.
-    config = ClosureConfig(story_dir=s_dir, close_issue=False)
+    config = ClosureConfig(story_dir=s_dir)
     with pytest.raises(ClosureConfigUnavailableError):
         build_closure_phase_handler(config, store_dir=s_dir, project_key="p")
 
@@ -313,7 +319,7 @@ def test_fix2_malformed_project_config_fails_closed(tmp_path: Path) -> None:
     (config_dir / DEFAULT_CONFIG_FILE).write_text(
         "{ unclosed: [flow, mapping\n", encoding="utf-8"
     )
-    config = ClosureConfig(story_dir=s_dir, close_issue=False)
+    config = ClosureConfig(story_dir=s_dir)
     with pytest.raises(ClosureConfigUnavailableError):
         build_closure_phase_handler(config, store_dir=s_dir, project_key="p")
 
@@ -323,7 +329,7 @@ def test_fix2_deliberate_absence_returns_no_runners(tmp_path: Path) -> None:
     s_dir = tmp_path / "stories" / "TEST-600"
     s_dir.mkdir(parents=True)
     save_story_context(s_dir, _ctx(tmp_path, story_id="TEST-600"))
-    config = ClosureConfig(story_dir=s_dir, close_issue=False)
+    config = ClosureConfig(story_dir=s_dir)
     handler = build_closure_phase_handler(config, store_dir=s_dir, project_key="p")
     assert isinstance(handler, ClosurePhaseHandler)
     # No .agentkit config under tmp_path -> declared-absent CI runners (None),
@@ -332,11 +338,105 @@ def test_fix2_deliberate_absence_returns_no_runners(tmp_path: Path) -> None:
     assert config.build_test_port is None
 
 
+def _real_story_service(project_root: Path) -> StoryService:
+    """Build a REAL StoryService bound to ``project_root`` (no fake repo)."""
+    from agentkit.backend.state_backend.store.project_management_repository import (
+        StateBackendProjectRepository,
+    )
+    from agentkit.backend.state_backend.store.story_dependency_repository import (
+        StateBackendStoryDependencyRepository,
+    )
+    from agentkit.backend.state_backend.store.story_repository import (
+        StateBackendIdempotencyKeyRepository,
+        StateBackendStoryRepository,
+    )
+
+    return StoryService(
+        story_repository=StateBackendStoryRepository(project_root),
+        project_repository=StateBackendProjectRepository(project_root),
+        idempotency_repository=StateBackendIdempotencyKeyRepository(project_root),
+        dependency_repository=StateBackendStoryDependencyRepository(project_root),
+        event_emitter=lambda *_: None,
+    )
+
+
+def _seed_in_progress_story(svc: StoryService, *, story_id: str) -> None:
+    """Persist an IN_PROGRESS Story through the real Story-Service repository."""
+    from uuid import NAMESPACE_URL, uuid5
+
+    from agentkit.backend.state_backend.store.story_repository import (
+        StateBackendStoryRepository,
+    )
+
+    story = Story(
+        story_uuid=uuid5(NAMESPACE_URL, f"ag3120-closure-{story_id}"),
+        project_key="test-project",
+        story_number=1,
+        story_display_id=story_id,
+        title="Closure via real Story-Service (no GitHub issue)",
+        story_type=WireStoryType.IMPLEMENTATION,
+        status=StoryStatus.IN_PROGRESS,
+        participating_repos=["agentkit3-testbed"],
+        created_at=datetime.now(tz=UTC),
+    )
+    # The svc is bound to the same store_dir; persist via that same repository.
+    repo = svc._story_repo  # noqa: SLF001 -- test seeds via the bound real repo
+    assert isinstance(repo, StateBackendStoryRepository)
+    repo.save(story)
+
+
+def test_impl_closure_completes_via_real_story_service(tmp_path: Path) -> None:
+    """AC5: closure drives the REAL AK3 Story-Service (not NoOp) to Done.
+
+    A real ``StoryService`` backed by the real SQLite state-backend is injected
+    (no recording stub). After closure, the story reaches the Done terminal
+    state via ``complete_story`` and NO GitHub-issue call happens -- the dead
+    ``_close_github_issue`` path is gone (AG3-120 H4).
+    """
+    import dataclasses
+
+    from agentkit.backend.closure import phase as closure_phase_module
+
+    # Structural proof the dead GitHub-issue close path is gone (H4).
+    assert not hasattr(closure_phase_module, "_close_github_issue")
+    assert "issue_nr" not in {f.name for f in dataclasses.fields(ClosureConfig)}
+
+    s_dir = _prepare(tmp_path)
+    svc = _real_story_service(tmp_path)
+    _seed_in_progress_story(svc, story_id="TEST-001")
+
+    config = ClosureConfig(story_dir=s_dir, story_service=svc)
+    handler = build_closure_phase_handler(
+        config, store_dir=s_dir, project_key="test-project"
+    )
+    from agentkit.backend.closure.merge_sequence import MergeApplicability
+
+    git = StubGitBackend()
+    config.scan_port = RecordingScanPort()
+    config.build_test_port = RecordingBuildTestPort()
+    config.repo_runners = None
+    config.integrity_gate = RecordingIntegrityGate()  # type: ignore[assignment]
+    config.git_backend = git
+    config.telemetry_evidence_port = ABSENT_TELEMETRY_EVIDENCE_PORT
+    config.merge_applicability = MergeApplicability.FULL
+
+    result = handler.on_enter(_ctx(tmp_path), _fresh_envelope("TEST-001"))
+
+    assert result.status == PhaseStatus.COMPLETED, result.errors
+    state = load_phase_state(s_dir)
+    assert isinstance(state.payload, ClosurePayload)
+    assert state.payload.progress.story_closed
+    # The REAL Story-Service transitioned the story to the Done terminal state.
+    closed = svc.get_story("TEST-001")
+    assert closed is not None
+    assert closed.status is StoryStatus.DONE
+
+
 def test_e2e_integrity_fail_aborts_before_main_update(tmp_path: Path) -> None:
     """AC#1/#3: IntegrityGate FAIL escalates before any main update."""
     s_dir = _prepare(tmp_path)
     config = ClosureConfig(
-        story_dir=s_dir, close_issue=False, story_service=NoOpStoryService()  # type: ignore[arg-type]
+        story_dir=s_dir, story_service=NoOpStoryService()  # type: ignore[arg-type]
     )
     handler = build_closure_phase_handler(
         config, store_dir=s_dir, project_key="test-project"

@@ -200,7 +200,6 @@ def _config(
 ) -> ClosureConfig:
     return ClosureConfig(
         story_dir=s_dir,
-        close_issue=False,
         story_service=NoOpStoryService(),  # type: ignore[arg-type]
         integrity_gate=integrity,  # type: ignore[arg-type]
         scan_port=scan,
@@ -520,7 +519,6 @@ class TestClosureResume:
         guard = RecordingGuardDeactivationPort()
         config = ClosureConfig(
             story_dir=s_dir,
-            close_issue=False,
             story_service=NoOpStoryService(),  # type: ignore[arg-type]
             integrity_gate=RecordingIntegrityGate(),  # type: ignore[arg-type]
             scan_port=RecordingScanPort(),

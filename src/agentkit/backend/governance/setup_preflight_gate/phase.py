@@ -1,8 +1,9 @@
 """Setup phase handler -- first phase in every pipeline run.
 
-Reads the GitHub issue, builds StoryContext, runs preflight checks,
-and optionally creates a git worktree.  On successful completion,
-calls ``StoryService.begin_progress`` (FK-22 §22.4.3).
+Builds the StoryContext from the authoritative AK3 Story-Service record
+(AK3 owns the story; GitHub is only the code backend, FK-12 §12.1.1),
+runs preflight checks, and optionally creates a git worktree.  On
+successful completion, calls ``StoryService.begin_progress`` (FK-22 §22.4.3).
 
 AG3-031 Pass-4 Fix E9 (2026-05-24): direct import of ``save_story_context``
 from ``agentkit.backend.state_backend.store`` replaced by ``SetupContextRepository``
@@ -30,7 +31,6 @@ from typing import TYPE_CHECKING, Protocol
 from agentkit.backend.config.loader import load_project_config
 from agentkit.backend.exceptions import ConfigError, WorktreeError
 from agentkit.backend.governance.setup_preflight_gate.context_builder import (
-    build_internal_story_context,
     build_story_context,
 )
 from agentkit.backend.governance.setup_preflight_gate.preflight import run_preflight
@@ -85,12 +85,9 @@ class SetupConfig:
     """Configuration for the setup phase handler.
 
     Attributes:
-        owner: GitHub repository owner.
-        repo: GitHub repository name.
-        issue_nr: Issue number to process.
         project_root: Root directory of the target project.
-        story_id: Optional explicit story ID.  If ``None``, derived
-            from the issue number.
+        story_id: Optional explicit story ID.  When ``None``, the story ID is
+            taken from the initial ``StoryContext`` passed to ``on_enter``.
         create_worktree: Whether to create a git worktree.
             Automatically determined from story type when ``True``.
         story_service: Optional StoryService instance.  When provided,
@@ -99,9 +96,6 @@ class SetupConfig:
             (legacy / standalone mode).
     """
 
-    owner: str
-    repo: str
-    issue_nr: int
     project_root: Path
     story_id: str | None = None
     create_worktree: bool = True
@@ -112,8 +106,8 @@ class SetupPhaseHandler:
     """Phase handler for the Setup phase.
 
     Implements the :class:`~agentkit.backend.pipeline_engine.lifecycle.PhaseHandler`
-    protocol.  Reads a GitHub issue, builds the story context, runs
-    preflight checks, persists the context, and optionally prepares a
+    protocol.  Builds the story context from the AK3 Story-Service record,
+    runs preflight checks, persists the context, and optionally prepares a
     git worktree path.  On successful completion, transitions the story
     to ``In Progress`` via ``StoryService.begin_progress`` when a
     ``story_service`` is provided in ``SetupConfig`` (FK-22 §22.4.3).
@@ -156,7 +150,7 @@ class SetupPhaseHandler:
         Steps:
             1. Run preflight checks against StoryService -- if any fail,
                return ``FAILED``.
-            2. Build ``StoryContext`` from the GitHub issue.
+            2. Build ``StoryContext`` from the AK3 Story-Service record.
             3. Save ``context.json`` to the story directory.
             4. Create a git worktree via ``git worktree add`` if the story
                type requires one; on failure return ``FAILED``.
@@ -167,8 +161,8 @@ class SetupPhaseHandler:
 
         Note:
             The *ctx* parameter is the **initial** context (may be
-            sparse).  This handler enriches it from the GitHub issue
-            and persists the enriched version.
+            sparse).  This handler enriches it from the AK3 Story-Service
+            record and persists the enriched version.
 
         Args:
             ctx: The initial (possibly sparse) story context.
@@ -271,36 +265,16 @@ class SetupPhaseHandler:
         ctx: StoryContext,
         story_service: StoryService,
     ) -> StoryContext:
-        """Build the enriched StoryContext WITHOUT GitHub for internal stories (#2).
+        """Build the enriched StoryContext from the AK3 Story-Service record.
 
-        ERROR-2 fix (FK-12 §12.7.1): a code-producing story (implementation/bugfix)
-        is GitHub-backed -- its context is read from the GitHub issue
-        (``build_story_context`` -> ``get_issue``). An INTERNAL story
-        (CONCEPT/RESEARCH) has no worktree/merge and NO GitHub coordinates, so it
-        must NOT contact GitHub: it is built from the authoritative ``StoryService``
-        record (``build_internal_story_context``), never via a dummy
-        owner/repo/issue passed into a GitHub-reading path. The same authoritative
-        criterion as the dispatch / setup-config path is used
-        (``is_code_producing_story``).
-
-        FIX-1 (FK-24 §24.3.3): for the code-producing path the operative ``mode``
-        still comes from the authoritative ``StoryService`` record, not labels.
+        AK3 owns the user story (``story_id``); GitHub is only the code backend
+        (FK-12 §12.1.1, FK-91 §91.2 rule 9). For EVERY story type the context is
+        built from the authoritative ``StoryService`` record via
+        :func:`build_story_context` — never from a GitHub issue. The story type,
+        operative ``mode`` (FK-24 §24.3.3), title, size, labels and trigger
+        inputs all come from that record (Single Source of Truth).
         """
-        from agentkit.backend.verify_system.sonarqube_gate.applicability import (
-            is_code_producing_story,
-        )
-
-        if not is_code_producing_story(ctx.story_type):
-            return build_internal_story_context(
-                project_root=cfg.project_root,
-                project_key=ctx.project_key,
-                story_id=cfg.story_id or ctx.story_id,
-                story_service=story_service,
-            )
         return build_story_context(
-            owner=cfg.owner,
-            repo=cfg.repo,
-            issue_nr=cfg.issue_nr,
             project_root=cfg.project_root,
             project_key=ctx.project_key,
             story_id=cfg.story_id or ctx.story_id,

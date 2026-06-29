@@ -134,7 +134,6 @@ def _build_placeholder_map(
     return {
         "story_id": ctx.story_id,
         "title": ctx.title,
-        "issue_nr": str(ctx.issue_nr) if ctx.issue_nr is not None else "N/A",
         "mode": str(ctx.execution_route.value) if ctx.execution_route else "N/A",
         "size": "N/A",
         "body": body,
