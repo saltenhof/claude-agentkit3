@@ -220,7 +220,7 @@ Verschmutzung, LLM verliert den Fokus.
 
 | Quelle | Mechanismus | Stärke |
 |--------|-----------|--------|
-| **Explizit deklariert** | Worker oder Story-Ersteller benennt Referenzdokumente (im Entwurfsartefakt `konformitaetsaussage.referenzdokumente` oder in Issue-Feldern `Konzept-Referenzen`, `Guardrail-Referenzen`) | Gezielt, keine False Positives |
+| **Explizit deklariert** | Worker oder Story-Ersteller benennt Referenzdokumente (im Entwurfsartefakt `konformitaetsaussage.referenzdokumente` oder in Story-Feldern `Konzept-Referenzen`, `Guardrail-Referenzen`) | Gezielt, keine False Positives |
 | **Automatisch ergänzt** | Manifest-Indexer (Kap. 01 P6) identifiziert Dokumente anhand von Story-Metadaten (Modul, Typ) und Dokumenten-Tags | Findet Dokumente, die der Ersteller übersehen hat |
 
 ### 32.4.3 Manifest-Indexer

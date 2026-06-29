@@ -799,7 +799,7 @@ Alle Pipeline-Schritte müssen idempotent sein:
 | Hook-Prozess crashed | Tool-Call wird blockiert (fail-closed: kein exit(0) = blockiert) | Der Harness behandelt Hook-Fehler als Blockade. Agent erhält Fehlermeldung. |
 | LLM-Hub nicht erreichbar | Hub-Call schlägt fehl | Retry-Logik im LLM-Evaluator (1 Retry). Bei Scheitern: Check = FAIL (fail-closed). |
 | Weaviate nicht erreichbar | VektorDB-Suche schlägt fehl | Story-Erstellung schlägt fehl (fail-closed). VektorDB ist Pflichtbestandteil der Infrastruktur (I4-Direktkante). |
-| GitHub nicht erreichbar (über Backend) | Backend-vermittelte API-Calls schlagen fehl | Preflight scheitert → Story startet nicht. Closure scheitert → Eskalation an Mensch. |
+| Git-Remote/GitHub nicht erreichbar | Push/Merge-Mechanik schlägt fehl | Closure scheitert → Eskalation an Mensch. Story-Start und Story-Status kommen aus AK3, nicht aus GitHub. |
 
 ### 10.6.2 Recovery-Protokoll
 

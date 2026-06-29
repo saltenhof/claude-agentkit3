@@ -145,13 +145,13 @@ Integrity-Gate, Closure-Orchestrierung, Governance-Adjudication sind Core-Logik.
 
 **D2 — GitHub/git (Variante b):** git-Worktree-Mechanik bleibt lokal (gh/git-
 CLI, ff-only-Push mit CAS/Lease gegen `locked_sha`, FK-29) unter
-Core-*Autoritaet* (Lock, Integrity-Gate, Story-Status); GitHub-API-Metadaten
-Core-vermittelt. Kein zentraler GitHub-REST-Adapter, der den Worktree ersetzt.
+Core-*Autoritaet* (Lock, Integrity-Gate, Story-Status). Kein zentraler
+GitHub-REST-Adapter ersetzt die Worktree-Mechanik.
 
 **Drittsystem-Carve-out (zwei Kriterien):** Direkt-Kante nur bei (1)
 Agent-Eigenbedarf *oder* (2) fs/worktree-Bindung bzw. Bulk ohne Kontrollgewinn.
 Sonst Core-vermittelt. Core-vermittelt: Postgres, AK3-Bewertungs-LLM-Calls,
-Sonar/Jenkins-Urteil, GitHub-API-Metadaten, ARE-Coverage-Read. Lokal-direkt:
+Sonar/Jenkins-Urteil, ARE-Coverage-Read. Lokal-direkt:
 git-Mechanik, ARE-Evidence-Upload, Weaviate-Suche, Agent-LLM-Sparring.
 
 ---
@@ -285,7 +285,9 @@ git-Mechanik, ARE-Evidence-Upload, Weaviate-Suche, Agent-LLM-Sparring.
 - `StoryContractMatrix`: Vertragsachsen (FK-59-Owner), mode/type/execution_route
 - `StoryAdministration`: Reset, Split, Exit-Klassen-Logik
 - `OperatingModeResolver`: ExecutionRoute-Entscheidung (OperatingMode)
-- `StoryStorageBackend`: Abstraktion ueber GitHub vs. interne DB (T-Affinitaet)
+- `StoryStorageBackend`: interne AK3-Postgres-Persistenz der Story-Verwaltung
+  (GitHub-Issues/Projects als Story-Speicher waren ein verworfenes
+  AK2-Experiment und sind in AK3 keine Option)
 
 **Shared Component: WorktreeManager**
 - Prefix: `agentkit.worktree_manager`
@@ -583,7 +585,7 @@ Modul-Prefixes:
   not_resolved, not_applicable), `IntegrityGateInvoker`
 - `MergeSequence` (ca. 6): `MergeSequenceCoordinator`,
   `StoryBranchPush`, `MergeExecutor`, `MergePolicySelector`,
-  `WorktreeTeardown`, `IssueCloseExecutor`
+  `WorktreeTeardown`, `StoryStatusFinalizer`
 - `PostMergeFinalization` (ca. 7): `PostMergeFinalization`
   (Coordinator), `MetricsRecorder`, `FeedbackFidelityCheck`,
   `PostflightGate`, `PostflightCheck` (StrEnum: story_dir_exists,
@@ -617,7 +619,7 @@ Layer 4: ExecutionReport (am Ende — auch bei FAIL/ESCALATED)
 | `kpi-and-dashboard` | C -> K | Metriken (QA Rounds, Completed At, Phase-Durations) |
 | `failure-corpus` | C -> FC | Postflight-FAIL und Doctreue-FAIL erzeugen Incident-Kandidaten (FK-41) |
 | `implementation-phase` | C <- I | Worker-Manifest-Stand wird konsumiert (FK-26 §26.7-26.8) |
-| `Integrations.github` | C -> R | Branch-Push, Merge, Story-Close (FK-12) |
+| `Integrations.github` | C -> R | Branch-Push und Merge (FK-12); Story-Abschluss erfolgt im AK3-Story-Service |
 | `Integrations.vector_db` | C -> R | VektorDB-Sync (async fire-and-forget, FK-13) |
 
 **Eigenstaendige Detail-Entscheidungen:**
@@ -1151,9 +1153,9 @@ Total: ~27 Klassen.
 | `story-closure` | C -> FC | `record_incident` (Postflight-FAIL und Doctreue-FAIL erzeugen Incident-Kandidaten) |
 | `telemetry-and-events` | FC -> T | `Telemetry.write_projection` fuer fc_incidents/fc_patterns/fc_check_proposals; `Telemetry.read_projection` fuer die Wirksamkeitspruefung-Daten aus `qa_check_outcomes` (verify-system-owned Read-Model, FK-69 §69.15; gefiltert ueber `check_proposal_ref`/`since_days`, FK-41 §41.6.7) — NICHT aus `story_metrics`, und ohne direkten verify-system-Repo-Import |
 | `agent-skills` | AS -> FC | `QualityMetricCollector` liest fc_incidents fuer Skill-Wirksamkeits-Beobachtung |
-| `pipeline-framework` | FC -> PF | CheckFactory Schritt 5 erzeugt GitHub-Story -> Story durchlaeuft Pipeline regulaer |
+| `pipeline-framework` | FC -> PF | CheckFactory Schritt 5 erzeugt eine AK3-Story im `story_context_manager`; die Story durchlaeuft die Pipeline regulaer |
 | `prompt-runtime` | FC -> PR | LlmEvaluator-Aufrufe in Schritt 1+3 ueber `materialize_prompt` |
-| `Integrations.github` | FC -> R | CheckImplementationStoryGenerator ruft GitHub-Adapter fuer Story-Erzeugung |
+| `story-lifecycle` | FC -> SL | CheckImplementationStoryGenerator ruft den AK3-Story-Service fuer Story-Erzeugung |
 
 **Eigenstaendige Detail-Entscheidungen:**
 
@@ -1170,8 +1172,9 @@ Total: ~27 Klassen.
    mit BC-9-Korrektur-Pattern.
 6. JSONL-Speicherung ist Legacy/Export, nicht kanonisch; kanonische Wahrheit
    liegt in den Postgres-fc_*-Tabellen.
-7. CheckFactory Schritt 5 erzeugt GitHub-Story (Integrations.github direkt); Story
-   durchlaeuft pipeline-framework regulaer.
+7. CheckFactory Schritt 5 erzeugt eine AK3-Story im `story_context_manager`;
+   GitHub-Issues/Projects waren als Story-Verwaltung ein verworfenes
+   AK2-Experiment und werden nicht mehr verwendet.
 8. F-43-030 Skill-Quality-Beobachtung: agent-skills.QualityMetricCollector liest
    fc_incidents — Lese-Beziehung dokumentiert, kein Drift.
 
@@ -1263,7 +1266,7 @@ Total: ~32 Klassen.
 | `governance-and-guards` | GG -> EP | Mandate-Eskalation als BlockingCondition (Klasse blocked_human/blocked_contract) |
 | `telemetry-and-events` | EP -> T | `Telemetry.write_event` fuer Plan-Events; `Telemetry.write_projection` fuer ExecutionPlan/PlannedStory-Tabellen |
 | `artifacts` | EP -> A | ExecutionPlan optional als Artefakt-Snapshot |
-| `Integrations.github` | EP <- R | Story- und Board-Metadaten als Importquelle (FK-12) |
+| `story-lifecycle` | EP <- SL | Story- und Planungsmetadaten aus dem AK3-Story-Service; GitHub-Boards sind keine Importquelle |
 
 **Eigenstaendige Detail-Entscheidungen:**
 

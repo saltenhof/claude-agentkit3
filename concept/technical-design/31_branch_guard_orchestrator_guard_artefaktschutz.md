@@ -136,7 +136,7 @@ die die Historie beschädigen oder den zugewiesenen Scope verlassen.
 | Offizieller Closure-Push auf Story-Branch | `POST /phases/closure/start` (Service-API) oder Operator-CLI `agentkit run-phase closure` → interner `git push origin story/{story_id}` | Vorgeschriebener Closure-Substep vor dem Merge |
 | Offizieller Closure-Merge mit `--no-ff` | `POST /phases/closure/start` mit `no_ff: true` (Service-API) oder Operator-CLI `agentkit run-phase closure --story ODIN-042 --no-ff` | Offizieller Pipeline-Fallback, kein Guard-Bypass |
 | Offizieller Story-Reset | `agentkit reset-story --story ODIN-042 --reason "..."` | Administrativer Recovery-Pfad, kein freier Git-Eingriff |
-| Offizieller Story-Split | `agentkit split-story --story ODIN-042 --plan split-plan.json --reason "scope explosion"` | Administrativer Split-Pfad, darf trotz aktivem Story-Lock die noetigen GitHub- und Cleanup-Operationen ausfuehren |
+| Offizieller Story-Split | `agentkit split-story --story ODIN-042 --plan split-plan.json --reason "scope explosion"` | Administrativer Split-Pfad, darf trotz aktivem Story-Lock die noetigen Git-/Repo- und Cleanup-Operationen ausfuehren |
 | `git checkout -- datei` (File-Restore) | `git checkout -- src/main.py` | Datei wiederherstellen, kein Branch-Wechsel |
 
 **Normative Klarstellung:** Der Branch-Guard unterscheidet zwischen

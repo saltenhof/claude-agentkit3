@@ -379,7 +379,7 @@ alle zukuenftigen Pruefungen unzuverlaessig.
 
 #### Impact-Violation-Check
 
-Die Kriterien am Issue deklarieren den erwarteten Impact (lokal,
+Die Kriterien an der Story deklarieren den erwarteten Impact (lokal,
 komponentenuebergreifend, architekturwirksam). Im QA-Subflow
 innerhalb der Implementation-Phase prueft ein zusaetzlicher
 Structural Check, ob die tatsaechliche
@@ -391,7 +391,7 @@ Entwurf), wird an den Menschen eskaliert. Es gibt keinen automatischen
 Rücksprung in die Exploration-Phase; die Entscheidung über ein neues
 Explorationsmandat trifft der Mensch bewusst. War die Story im
 Execution Mode, wird ebenfalls an den Menschen eskaliert, weil die
-Issue-Metadaten falsch deklariert waren.
+Story-Metadaten falsch deklariert waren.
 
 #### Ein Worker darf ein Konzept nicht stillschweigend überschreiben
 
@@ -468,7 +468,7 @@ gestartet.
 | `StoryContext` in `story_contexts` | Story-Context wurde nicht aufgebaut |
 
 **Empirischer Beleg (BB2-012):** Der kanonische Decision-Nachweis
-fehlte, trotzdem lief Closure durch und das Issue wurde geschlossen. Das war ein
+fehlte, trotzdem lief Closure durch und die AK3-Story wurde abgeschlossen. Das war ein
 konkreter Defekt in der Gate-Logik.
 
 **Ergebnis bei Scheitern:** Die Story kann nicht geschlossen werden. Die
@@ -698,7 +698,7 @@ Basis konkreter Findings. Das Routing ist dann eindeutig:
 **Tragweite als Bezugsrahmen für Klasse 4:** Ob ein Breaking Change
 eskaliert werden muss, ist relativ zum deklarierten Wirksamkeitsgrad
 der Story (kanonische Enum: `Local`, `Component`, `Cross-Component`,
-`Architecture Impact` — DK-02 §Issue-Schema). Eine als
+`Architecture Impact` — DK-02 §Story-Feldschema). Eine als
 `Architecture Impact` deklarierte Refactoring-Story hat das Mandat
 für anwendungsweite Schnittstellenänderungen. Eine als `Component`
 deklarierte Story hat dieses Mandat nicht. Der Vergleich zwischen

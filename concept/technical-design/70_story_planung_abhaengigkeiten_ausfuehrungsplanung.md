@@ -300,7 +300,7 @@ diesem BC ist eine abgeleitete, planungsspezifische Zustandsebene,
 die `ExecutionPlanning` eigenstaendig fuehrt. `PlanningStatus`
 und `StoryStatus` sind orthogonale Achsen; `PlanningStatus=READY`
 ist eine Ableitung aus Abhaengigkeitsgraph und Policies, kein Spiegel
-des GitHub-Board-Status. FK-21 und FK-24 beschreiben die Erstellungs-
+eines externen Board-Status. FK-21 und FK-24 beschreiben die Erstellungs-
 und Vertragsebene; `PlanningStatus` wird davon erst nach Freigabe
 (StoryStatus=Approved) abgeleitet.
 

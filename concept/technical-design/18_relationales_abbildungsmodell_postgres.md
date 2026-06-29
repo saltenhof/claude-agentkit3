@@ -329,8 +329,8 @@ kanonische Tabellen, nie umgekehrt.
 | Tabelle | Pflichtspalten |
 |---------|----------------|
 | `project_spaces` | `project_key`, `display_name`, `project_root`, `runtime_profile`, `registration_status`, `skill_bundle_version`, `prompt_bundle_version` |
-| `stories` | `project_key`, `story_id`, `external_item_ref`, `title`, `story_type`, `mode`, `status` |
-| `story_contexts` | `project_key`, `story_id`, `story_type`, `mode`, `scope`, `repo_bindings`, `tracker_binding`, `created_at`, `last_refreshed_at` |
+| `stories` | `project_key`, `story_id`, `title`, `story_type`, `mode`, `status` |
+| `story_contexts` | `project_key`, `story_id`, `story_type`, `mode`, `scope`, `repo_bindings`, `created_at`, `last_refreshed_at` |
 | `story_custom_field_definitions` | `project_key`, `field_key`, `display_name`, `field_type`, `provider`, `provider_field_ref`, `is_required`, `is_writable_by_agentkit` |
 | `story_custom_field_values` | `project_key`, `story_id`, `field_key`, `source`, `provider_sync_status`, `conflict_detected` |
 
@@ -376,7 +376,7 @@ gesetzt und deshalb logisch optional:
 
 | Tabelle | Optionale Spalten | Bedingung |
 |---------|-------------------|-----------|
-| `stories` | `labels`, `size` | nur wenn im Tracker oder Projektprofil genutzt |
+| `stories` | `labels`, `size` | nur wenn im AK3-Story-Profil genutzt |
 | `story_contexts` | `scope_keys`, `concept_refs`, `guardrail_refs`, `external_sources`, `related_story_ids`, `story_semantics` | nur wenn Setup/Exploration diese Daten liefert |
 | `story_custom_field_values` | `value`, `value_status`, `last_synced_at`, `last_written_by`, `last_sync_attempt_at` | nur wenn Feld belegt oder Sync stattgefunden hat |
 | `flow_executions` | `current_node_id`, `finished_at` | nur im Lauf oder nach terminalem Abschluss |

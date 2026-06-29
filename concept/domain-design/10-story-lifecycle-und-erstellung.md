@@ -16,7 +16,7 @@ defers_to:
   - FK-59
 supersedes: []
 superseded_by:
-tags: [pipeline, story-lifecycle, story-creation, story-routing, story-types, github]
+tags: [pipeline, story-lifecycle, story-creation, story-routing, story-types]
 formal_scope: prose-only
 glossary:
   exported_terms:
@@ -226,7 +226,7 @@ das Routing und die Zuordnung.
 |------|-----|----------------|----------------------------|-------------------|
 | Story-Groesse | Enum | XS, S, M, L, XL | Kein Default. Pflichtfeld, fehlendes Feld blockiert die Story-Erstellung. | Muss ein gültiger Enum-Wert sein. Bestimmt Review-Häufigkeit, erwartete Telemetrie-Schwellen und Timeout-Budgets (siehe §10.4). |
 | Modul | Enum | Projektspezifisch konfiguriert (z.B. core, api, auth, reporting) | Kein Default. Pflichtfeld. | Muss ein in der Projektkonfiguration definierter Modulname sein. Steuert die Kontext-Selektion (welche Regeln und Dokumentation geladen werden). |
-| Epic | Link | Issue-Referenz auf ein Epic-Issue | Leer (kein Epic zugeordnet). Kein Pflichtfeld. | Wenn gesetzt: Das referenzierte Issue muss existieren. Dient der Gruppierung und dem Reporting, hat keinen Einfluss auf den Pipeline-Ablauf. |
+| Epic | Link | AK3-Story-Referenz auf eine Epic-Story | Leer (kein Epic zugeordnet). Kein Pflichtfeld. | Wenn gesetzt: Die referenzierte AK3-Story muss existieren. Dient der Gruppierung und dem Reporting, hat keinen Einfluss auf den Pipeline-Ablauf. |
 
 ## 10.4 Story-Groessen-Definition
 

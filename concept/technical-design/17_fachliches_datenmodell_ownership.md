@@ -142,7 +142,6 @@ wird.
 
 - `project_key`
 - `story_id`
-- `external_item_ref`
 - `title`
 - `story_type`
 - `mode`
@@ -151,9 +150,12 @@ wird.
 - `status`
 
 **Normative Auslegung:** `Story` beschreibt die fachliche
-Arbeitseinheit als Stammdatensatz und externe Tracker-Identität. Diese
-Entität soll klein und stabil bleiben. Laufzeitnahe, phaseninvariante
-Semantik gehört nicht in `Story`, sondern in `StoryContext`.
+Arbeitseinheit als AK3-Stammdatensatz. GitHub-Issues/Projects waren in
+AK2 ein verworfenes Experiment zur Story-Verwaltung und sind in AK3
+keine Story-Identität, kein Lifecycle-Speicher und keine
+Wahrheitsquelle. Diese Entität soll klein und stabil bleiben.
+Laufzeitnahe, phaseninvariante Semantik gehört nicht in `Story`,
+sondern in `StoryContext`.
 
 ### 17.3.3 StoryContext
 
@@ -177,7 +179,6 @@ Runtime-Snapshot für die Pipeline.
 - `external_sources`
 - `related_story_ids`
 - `story_semantics`
-- `tracker_binding`
 - `created_at`
 - `last_refreshed_at`
 
@@ -452,7 +453,6 @@ Regel pro Attribut.
 |----------|-----|---------|-------|
 | `project_key` | `ProjectKey` | ja | Teil der Identität |
 | `story_id` | `StoryId` | ja | Teil der Identität |
-| `external_item_ref` | `UriRef` | ja | Referenz auf externes Tracker-Objekt |
 | `title` | `Text` | ja | fachlicher Titel |
 | `story_type` | `Enum<StoryType>` | ja | geschlossener Wertebereich |
 | `mode` | `Enum<StoryMode>` | ja | aktueller Bearbeitungsmodus |
@@ -476,7 +476,6 @@ Regel pro Attribut.
 | `external_sources` | `StringList` | nein | externe Quellen/Referenzen |
 | `related_story_ids` | `StringSet` | nein | referenzierte andere Stories |
 | `story_semantics` | `JsonObject` | nein | acceptance-/scope-/non-negotiable-Semantik |
-| `tracker_binding` | `JsonObject` | ja | Binding auf externen Tracker |
 | `created_at` | `Instant` | ja | Erstpersistierung |
 | `last_refreshed_at` | `Instant` | ja | letzte Snapshot-Aktualisierung |
 
@@ -676,8 +675,9 @@ Umsetzung physisch mit.
 
 - `ProjectSpace` ist eigenes Aggregat.
 - `Story` ist eigenes Aggregat.
-- `Story` ist das Aggregat für Stammdaten, externe Tracker-Referenz und
-  sichtbaren Story-Lebenszyklus.
+- `Story` ist das Aggregat für Stammdaten und sichtbaren
+  Story-Lebenszyklus. Externe Tracker-Objekte sind keine
+  Identitäts- oder Lifecycle-Bestandteile.
 - `StoryContext` ist ein eigenes Runtime-Aggregat und nicht bloß ein
   Unterobjekt von `Story`.
 - `StoryCustomFieldDefinition` und `StoryCustomFieldValue` gehören

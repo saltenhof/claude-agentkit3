@@ -58,8 +58,10 @@ Authentifizierung, Token-Handling und Retry selbst übernimmt.
 Story-Identitaet, Story-Status, Board-Sichten und Story-Detaildaten
 liegen ausschliesslich im **AK3-Story-Backend** (siehe FK-17 / FK-18
 fuer Datenmodell und Persistenz, FK-91 fuer die Control-Plane-API).
-GitHub ist nicht die Wahrheitsquelle fuer Story-Lifecycle und enthaelt
-kein Story-Tracking. GitHub bleibt ausschliesslich:
+GitHub Issues/Projects als Story-Verwaltung waren ein verworfenes
+AK2-Experiment und werden in AK3 nicht mehr verwendet. GitHub ist nicht
+die Wahrheitsquelle fuer Story-Lifecycle und enthaelt kein
+Story-Tracking. GitHub bleibt ausschliesslich:
 
 - Repository-Backend fuer Code-Operationen
 - Branch-/PR-Mechanik fuer Story-Branches `story/{story_id}`

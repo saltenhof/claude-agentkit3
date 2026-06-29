@@ -108,7 +108,7 @@ src/agentkit/{component_name}/{subcomponent_name}/
 
 ## 92.4 Slugifizierung
 
-Story-Verzeichnisnamen verwenden einen Slug aus dem Issue-Titel:
+Story-Verzeichnisnamen verwenden einen Slug aus dem Story-Titel:
 
 ```python
 def slugify(title: str) -> str:

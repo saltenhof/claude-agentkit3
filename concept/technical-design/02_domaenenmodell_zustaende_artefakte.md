@@ -61,7 +61,7 @@ Fuenf Zustände im AK3-Story-Backend. Nur diese sind extern sichtbar.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Backlog : Issue erstellt
+    [*] --> Backlog : Story erstellt
     Backlog --> Approved : Mensch gibt frei
     Backlog --> Cancelled : administrativ verworfen
     Approved --> InProgress : Pipeline startet
@@ -422,7 +422,6 @@ stateDiagram-v2
 |---------|--------|----------|-----------|
 | Story-ID | `{PREFIX}-{NNN}` | `ODIN-042` | Praefix aus `project_management.Project.story_id_prefix`; Nummer pro Projekt aus `story_context_manager`-Counter (siehe §2.11) |
 | Run-ID | UUID v4 | `a1b2c3d4-e5f6-...` | Phase Runner beim Setup |
-| Issue-Nummer | Integer | `42` | GitHub (auto-increment) |
 | Branch-Name | `story/{story_id}` | `story/ODIN-042` | Worktree-Setup |
 | Story-Verzeichnis | `{story_id}_{slug}` | `ODIN-042_implement-broker-api` | Context-Berechnung |
 | Story-Paket | `{story_id}_{slug}` | `ODIN-042_implement-broker-api` | Story-Export |
@@ -432,7 +431,7 @@ stateDiagram-v2
 | Incident-ID | `FC-{YYYY}-{NNNN}` | `FC-2026-0017` | Failure Corpus |
 | Pattern-ID | `FP-{NNNN}` | `FP-0003` | Failure Corpus |
 | Check-ID | `CHK-{NNNN}` | `CHK-0012` | Failure Corpus |
-| Checkpoint-Name | `cp_{nn}_{name}` | `cp_04_github_fields` | Installer |
+| Checkpoint-Name | `cp_{nn}_{name}` | `cp_05_pipeline_config` | Installer |
 
 ### 2.3.2 Korrelation
 
@@ -483,7 +482,7 @@ einer Story.
 | Kein Story-Close ohne Integrity-Gate | Integrity-Gate ist Voraussetzung fuer den Story-Status-Wechsel auf Done (Closure-Sequence FK-29) | `integrity.py` Gate |
 | Multi-LLM ist Pflicht | Integrity-Gate prüft Telemetrie-Nachweise für alle Pflicht-Reviewer | `integrity.py` |
 | Fehlende Felder → Exploration Mode | Mode-Router behandelt fehlendes Feld als Exploration-Kriterium | `mode_router.py` |
-| GitHub-Felder sind Eingabe, nicht operative Wahrheit | Nach Setup wird `StoryContext` als autoritativer Snapshot im State-Backend persistiert. Optional kann daraus ein `context.json` exportiert werden. Ab da liest die Pipeline den Snapshot, nicht mehr GitHub. Enums validiert, Referenzen aufgelöst, abgeleitete Flags berechnet. | `context.py` → `story_contexts` / optional `context.json` |
+| Story-Felder kommen aus AK3 | `StoryContext` wird aus AK3-Story-Daten als autoritativer Snapshot im State-Backend persistiert. Optional kann daraus ein `context.json` exportiert werden. Enums validiert, Referenzen aufgelöst, abgeleitete Flags berechnet. GitHub-Issues/Projects sind kein Eingabe- oder Fallback-Pfad. | `story_context_manager` → `story_contexts` / optional `context.json` |
 | Maximal 2 LLM-Aufrufe pro Check | LLM-Evaluator begrenzt Retry auf 1 | `llm_evaluator.py` |
 | Konzept-Feedback ist Pflicht | Telemetrie + QA-Agent prüfen Feedback-Einarbeitung | Konzept-Feedback-Loop (2.2.4) |
 | Adversarial Agent schreibt nicht direkt ins Repo | Tests nur in Sandbox, Promotion durch Pipeline-Skript | Adversarial-Sandbox + Promotion-Skript |

@@ -71,7 +71,7 @@ commands:
       - story-closure.event.merge.completed
       - story-closure.event.post_merge.reconciled
       - story-closure.event.merge_lock.released
-      - story-closure.event.issue.closed
+      - story-closure.event.story.completed
       - story-closure.event.closure.completed
       - story-closure.event.closure.escalated
   - id: story-closure.command.execute-no-ff
@@ -110,7 +110,7 @@ commands:
       - story-closure.event.merge.completed
       - story-closure.event.post_merge.reconciled
       - story-closure.event.merge_lock.released
-      - story-closure.event.issue.closed
+      - story-closure.event.story.completed
       - story-closure.event.closure.completed
       - story-closure.event.closure.escalated
   - id: story-closure.command.illegal-history-rewrite

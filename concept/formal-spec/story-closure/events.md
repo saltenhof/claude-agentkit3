@@ -155,7 +155,7 @@ events:
         - closure_id
         - story_id
         - rejection_reason
-  - id: story-closure.event.issue.closed
+  - id: story-closure.event.story.completed
     producer: story-closure
     role: lifecycle
     payload:

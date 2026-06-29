@@ -136,7 +136,7 @@ AK3-Vertrag. Sonst Core-vermittelt:
 | Postgres | kanonischer State + Telemetrie | — |
 | LLM-Hub | AK3-Bewertungs-/Adjudication-Calls via FK-75 | Harness-Eigenbedarf (MCP, außerhalb AK3) |
 | SonarQube / Jenkins | Konformitätsurteil / CI-Gate | Ad-hoc-Einsicht |
-| GitHub | API-Metadaten + Autorität über Closure | git-Worktree-Mechanik (gh/git-CLI lokal) |
+| GitHub | — | git-Worktree-/Remote-Mechanik (gh/git-CLI lokal) |
 | ARE | Coverage-Read | Evidence-Upload |
 | Weaviate | — | semantische Suche |
 
@@ -603,7 +603,7 @@ flowchart TD
         CLOSURE["Integrity-Gate<br/>(7 Dim. + Telemetrie)"]
         CLOSURE -->|FAIL| ESC_C(["Eskalation<br/>an Mensch"]):::fail
         CLOSURE -->|PASS| MERGE["Branch mergen"]
-        MERGE --> CLOSE["GitHub-Issue schließen<br/>(Projektion)"]
+        MERGE --> CLOSE["AK3-Story-Status<br/>auf Done setzen"]
         CLOSE --> METRICS["Metriken erfassen"]
         METRICS --> POSTFLIGHT["Postflight-Gates"]
     end
@@ -622,8 +622,8 @@ flowchart TD
     KONZEPT["Konzeption<br/>Problem, Lösung,<br/>Akzeptanzkriterien"] --> VEKTORDB
     VEKTORDB["VektorDB-Abgleich<br/>Similarity + LLM-Bewertung"] --> ZIELTREUE
     ZIELTREUE["Dokumententreue Ebene 1:<br/>Zieltreue (LLM via Pool)"] --> ARE
-    ARE["ARE: Anforderungen<br/>verlinken"]:::optional --> GITHUB
-    GITHUB["Story im AK3-Story-Backend anlegen<br/>+ Story-Attribute setzen"] --> BACKLOG
+    ARE["ARE: Anforderungen<br/>verlinken"]:::optional --> STORY_BACKEND
+    STORY_BACKEND["Story im AK3-Story-Backend anlegen<br/>+ Story-Attribute setzen"] --> BACKLOG
     BACKLOG["Status: Backlog"] --> FREIGABE
     FREIGABE{"Mensch gibt frei?"}
     FREIGABE -->|ja| FREI["Status: Approved"]
@@ -641,7 +641,7 @@ flowchart TD
 | Telemetrie-Events (Laufzeit) | PostgreSQL | — | Kanonischer State-Backend-Store (P8); JSONL ist Archiv-/Export-Format, kein kanonischer Laufzeitspeicher |
 | QA-Artefakte | Strukturierte Records in PostgreSQL | — | Kanonisch im State-Backend (P8); optionale JSON-Exporte sind abgeleitetes Format, nicht dateibasiert kanonisch |
 | VCS | Git | 2.30+ | CLI (`git`) |
-| GitHub | GitHub API | REST v3 | git-Mechanik lokal via `gh`/`git`; API-Metadaten Core-vermittelt (§1.1a, D2) |
+| GitHub | Remote-Git-Hosting | git/gh | Code-Repository-Remote; keine Story-Verwaltung |
 | VektorDB | Weaviate | 1.25+ | gRPC + HTTP REST |
 | Embedding | text2vec-transformers | — | Docker Sidecar |
 | VektorDB-MCP | FastMCP | 1.2+ | stdio-Transport |

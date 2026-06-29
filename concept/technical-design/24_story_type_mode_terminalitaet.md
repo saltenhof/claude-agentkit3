@@ -492,8 +492,7 @@ Wenn `story_type in {implementation, bugfix}` und keine Umsetzungsevidence vorli
 - `ESCALATED` oder `FAILED` liefern
 - keinen Merge ausfuehren
 - keinen Branch zurueckmergen
-- kein Issue schliessen
-- keinen Project-Status auf `Done` setzen
+- keinen Story-Status auf `Done` setzen
 
 ### 24.8.3 Administrativer Alternativ-Endzustand
 

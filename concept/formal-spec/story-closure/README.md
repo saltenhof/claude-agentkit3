@@ -10,7 +10,8 @@ Dieser Kontext formalisiert den offiziellen Closure-Pfad einer Story:
 Integrity-Gate (inkl. Dimension 9 SonarQube-Green, FK-35 §35.2.4a), den
 Pre-Merge-Scan-und-Merge-Block unter dem Merge-Serialisierungs-Lock
 (FK-29 §29.1a, FK-33 §33.6.3), Push des Story-Branches und ff-Merge nach
-`main` innerhalb des Locks, Schliessen des Issues und Abschluss der Story.
+`main` innerhalb des Locks, Setzen des AK3-Story-Status auf Done und
+Abschluss der Story.
 
 ## Scope
 

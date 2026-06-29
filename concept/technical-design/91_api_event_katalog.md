@@ -169,10 +169,11 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
    `error_code`, `error` und `correlation_id`; optionale strukturierte
    `detail`-Daten duerfen diesen Vertrag nur erweitern, nicht ersetzen.
 9. Stories werden ausschliesslich ueber die Control-Plane-API
-   angelegt und mutiert. Externe Issue-Tracker (z. B. GitHub, Jira)
-   sind niemals Wahrheitsquelle fuer Story-Identitaet, -Status oder
-   -Story-Attribute. Sie duerfen optional als read-only Anzeige
-   gespiegelt werden, treiben aber keinen Story-Lifecycle.
+   angelegt und mutiert. GitHub-Issues/Projects als Story-Verwaltung
+   waren ein verworfenes AK2-Experiment und werden in AK3 nicht mehr
+   verwendet. Externe Referenzen sind niemals Wahrheitsquelle fuer
+   Story-Identitaet, -Status oder -Story-Attribute; sie duerfen
+   hoechstens als read-only Anzeige gespiegelt werden.
 10. Jeder CLI-Befehl in §91.1 ist Adapter auf einen
     Control-Plane-Endpoint. Eigenstaendige CLI-Implementierungen ohne
     API-Vertrag sind unzulaessig.

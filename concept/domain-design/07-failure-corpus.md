@@ -513,7 +513,7 @@ Invariant-Kandidaten.
 
 **Was passiert:** Das LLM formuliert aus dem Invariant-Kandidaten
 eine präzise, deterministische Regel. Beispiel: Aus "Agent ändert
-Security-Dateien ohne Security-Story" wird "Wenn das Issue-Feld
+Security-Dateien ohne Security-Story" wird "Wenn das Story-Feld
 'Module' nicht 'security' enthält, dürfen keine Dateien in den Pfaden
 security/, auth/ oder Dateien mit 'Permission' oder 'Policy' im
 Namen verändert werden."

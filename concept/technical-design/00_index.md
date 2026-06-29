@@ -49,7 +49,7 @@ Referenzanhaenge folgen am Ende.
 | `07_komponentenarchitektur_und_architekturkonformanz.md` | cross_cutting | Normativer Komponentenschnitt, Blutgruppen, Importgrenzen und deterministische Architektur-Konformanz |
 | `10_runtime_deployment_speicher.md` | cross_cutting | Laufzeitkomponenten, Verzeichnisstruktur, Persistenz, Locking |
 | `11_llm_provider_browser_pools_prompt_execution.md` | cross_cutting | Pool-Abstraktion, Modellzuordnung, Request/Response, Retry, JSON-Enforcement |
-| `12_github_integration_repo_operationen.md` | cross_cutting | GitHub API, Project Board, Branching, Worktree, Merge, Fehlerbehandlung |
+| `12_github_integration_repo_operationen.md` | cross_cutting | GitHub als Code-Backend: Branching, Worktree, Push/Merge, Fehlerbehandlung; keine Story-Verwaltung |
 | `13_retrieval_vektordb_wissenszugriff.md` | cross_cutting | Weaviate, Chunking, Embedding, Similarity, zweistufiger Abgleich |
 | `15_security_secrets_identity_zugriffsmodell.md` | cross_cutting | Secrets, Rollenidentitaeten, Berechtigungsmodell, Audit |
 | `17_fachliches_datenmodell_ownership.md` | cross_cutting | Fachliche Entitaeten, Aggregat-Grenzen, Owner-Komponenten, Persistenzmodell-Tags |

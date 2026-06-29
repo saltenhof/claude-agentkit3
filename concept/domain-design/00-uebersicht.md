@@ -256,8 +256,8 @@ Setup  -->  Exploration  -->  Implementation (inkl. QA-Subflow)  -->  Closure
   |          VerifySystem)       |  Exit-Gate (ruft VerifySystem)        |
   v                              v                                       v
 Kontext          Design-       Worker schreibt Code/Docs;            Merge,
-erheben,         Artefakt      QA-Subflow prueft Ergebnis,           Issue
-Prompt           erstellen     Subflow-interner Remediation-Loop     schliessen
+erheben,         Artefakt      QA-Subflow prueft Ergebnis,           Story-Status
+Prompt           erstellen     Subflow-interner Remediation-Loop     auf Done
 bauen
 ```
 
@@ -440,7 +440,7 @@ abbildend; sie sind nie die operative Wahrheitsquelle.
 
 Zentrale Konfiguration über `project.yaml` (Pfad: `.agentkit/config/project.yaml`):
 
-- GitHub-Anbindung (Owner, Repo, Project-Nummer)
+- GitHub-Anbindung (Owner, Repo)
 - Feature-Flags (VectorDB, ARE, Multi-LLM-Hub, Telemetrie)
 - QA-Policy (Schwellwerte, Stage-Definitionen)
 - Build/Test-Kommandos pro Repository

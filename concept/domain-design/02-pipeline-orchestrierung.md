@@ -275,8 +275,8 @@ flowchart TD
         CLOSURE["Integrity-Gate<br/>9 Dimensionen"]
         CLOSURE -->|FAIL| ESCALATE["ESCALATED:<br/>Mensch entscheidet<br/>→ neuer Run oder Override"]
         CLOSURE -->|PASS| MERGE["Branch mergen<br/>Worktree aufräumen"]
-        MERGE --> CLOSE_ISSUE["Issue schließen<br/>Status: Done"]
-        CLOSE_ISSUE --> METRICS["Metriken setzen<br/>QA-Runden, Durchlaufzeit"]
+        MERGE --> CLOSE_STORY["AK3-Story-Status<br/>auf Done setzen"]
+        CLOSE_STORY --> METRICS["Metriken setzen<br/>QA-Runden, Durchlaufzeit"]
         METRICS --> REPORT["Execution Report<br/>erzeugen"]
         REPORT --> POSTFLIGHT["Postflight-Gates"]
     end
@@ -302,7 +302,7 @@ in den administrativen Endzustand `Cancelled` ueberfuehrt werden.
 
 Die Pipeline beginnt mit den Preflight-Gates. Acht Prüfungen stellen
 sicher, dass die Voraussetzungen für die Story-Bearbeitung erfüllt sind:
-Das Issue existiert, der Projektstatus ist korrekt ("Approved"),
+Die AK3-Story existiert, der Story-Status ist korrekt ("Approved"),
 alle Abhängigkeiten sind geschlossen, es gibt keine Reste aus vorherigen
 Läufen (keine stale Telemetrie, kein existierender Story-Branch, kein
 übrig gebliebener Worktree, keine Ausführungsartefakte). Scheitert eine
@@ -314,8 +314,8 @@ Multi-Repo-Projekten erhält jedes beteiligte Repository seinen eigenen
 Worktree. Repos, die nicht als Participating Repo deklariert sind,
 erhalten keinen Feature-Branch — der Worker arbeitet dort auf Main,
 was durch den Branch-Guard überwacht wird. Der Story-Context wird aus
-GitHub (Issue-Daten, Projekt-Metadaten, Story-Typ, Abhängigkeiten,
-Participating Repos) erfasst und die Guards aktiviert:
+dem AK3-Story-Service geladen (Story-Typ, Abhängigkeiten,
+Participating Repos, Scope und weitere Story-Attribute) und die Guards aktiviert:
 Orchestrator-Guard, Branch-Guard, Prompt-Integrity-Guard und
 Integrity-Guard sind ab diesem Zeitpunkt scharf geschaltet.
 
@@ -655,10 +655,10 @@ integrierte Kandidat frisch per SonarQube vermessen (erzeugt die
 Attestation), danach läuft das Integrity-Gate (das Dimension 9 gegen
 genau diese frische Attestation prüft), und erst bei Gate-PASS folgen
 Push und ff-Merge — alles innerhalb desselben Locks. Erst nach
-erfolgreichem Merge und Worktree-Teardown wird das Issue geschlossen und
-der Projektstatus auf "Done" gesetzt; danach werden Metriken erfasst
+erfolgreichem Merge und Worktree-Teardown wird der AK3-Story-Status
+auf "Done" gesetzt; danach werden Metriken erfasst
 (QA-Runden, Durchlaufzeit, Abschlussdatum). Diese Reihenfolge stellt
-sicher, dass ein Issue nie geschlossen wird, wenn der Merge scheitert,
+sicher, dass eine Story nie auf "Done" gesetzt wird, wenn der Merge scheitert,
 und dass das Gate die Attestation verifiziert, die der Scan zuvor erzeugt
 hat. Concept/Research-Stories haben keinen Branch und keinen Merge; für
 sie entfällt der gesamte Block (FK-29 §29.1.1, §29.2).
@@ -693,7 +693,7 @@ Mensch liest den Bericht zur Übersicht und zum Audit, muss aber
 nicht aktiv werden, solange die Story erfolgreich war.
 
 Abschließend prüfen Postflight-Gates die Konsistenz des Endergebnisses:
-Issue tatsächlich geschlossen, Metriken gesetzt, Telemetrie mit
+Story-Status tatsächlich "Done", Metriken gesetzt, Telemetrie mit
 Start- und Ende-Events vorhanden, Artefakte vollständig.
 
 ---

@@ -210,7 +210,7 @@ gestartet.
 | `StoryContext` in `story_contexts` | Story-Context wurde nicht aufgebaut | `MISSING_CONTEXT` |
 
 **Empirischer Beleg (BB2-012):** Der kanonische Decision-Nachweis
-fehlte, trotzdem lief Closure durch und das Issue wurde geschlossen. Das war ein
+fehlte, trotzdem lief Closure durch und die AK3-Story wurde abgeschlossen. Das war ein
 konkreter Defekt in der Gate-Logik. Die Pflicht-Artefakt-Pruefung
 als Vorstufe stellt sicher, dass dieser Fehler nicht mehr auftreten
 kann — die Dimensionspruefung (neun Dimensionen, §35.2.4) wird bei

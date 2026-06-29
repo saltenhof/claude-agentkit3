@@ -69,7 +69,8 @@ agentkit status
 # Output:
 # AgentKit v1.0.0
 # Config: .agentkit/config/project.yaml (v3.0)
-# GitHub: acme-corp/trading-platform (Project #7)
+# Project: TP
+# GitHub Repo: acme-corp/trading-platform
 #
 # LLM Pools:
 #   chatgpt: OK (3/4 slots free)
@@ -237,7 +238,7 @@ Loesung:
    agentkit split-story --story {story_id} --plan split-plan.json --reason "scope explosion"
 4. Ergebnis pruefen:
    - Ausgangs-Story Status = Cancelled
-   - Issue geschlossen mit not planned
+   - keine externe Tracker-Mutation
    - Nachfolger-Stories im Backlog
    - keine aktiven Locks / Worktrees der Ausgangs-Story
 ```
@@ -246,7 +247,8 @@ Loesung:
 
 ```text
 Symptom: Worker oder Verify stoppt mit Widerspruch zwischen
-story.md / GitHub / ARE-Bundle / anderem autoritativen Snapshot
+AK3-Story-Backend, story.md-Export, ARE-Bundle oder anderem
+autoritativen Snapshot
 
 Ursache: Der laufende Run basiert auf einer Autoritaetslage, die nicht
 mehr konsistent ist. Der Orchestrator darf diesen Konflikt nicht selbst
@@ -323,7 +325,7 @@ Loesung:
 | Claude API (Worker, Orchestrator) | API-Kosten pro Token | Story-Größe begrenzen, Feedback-Loops begrenzen (max 3) |
 | LLM-Hub (Browser-Backends) | Kostenlos | Kein API-Budget; Slot-Kapazität des Hubs begrenzt Parallelität |
 | Weaviate (Docker) | Lokale Rechenleistung | CPU/RAM des Docker-Containers |
-| GitHub API | Kostenlos (im Rahmen der Rate Limits) | Wenige Aufrufe pro Story |
+| Git-Remote/GitHub | Kostenlos (im Rahmen der Rate Limits) | Push/Merge-Operationen pro Story |
 | Disk | Lokaler Speicher | Archivierung alter QA-Artefakte |
 
 ### 4.6.2 Parallelitäts-Limits

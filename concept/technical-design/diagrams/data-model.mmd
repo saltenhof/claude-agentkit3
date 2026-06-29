@@ -41,7 +41,6 @@ erDiagram
     Story {
         ProjectKey                       project_key PK
         StoryId                          story_id PK
-        UriRef                           external_item_ref
         Text                             title
         Enum<StoryType>                  story_type
         Enum<StoryMode>                  mode
@@ -63,7 +62,6 @@ erDiagram
         StringList                       external_sources
         StringSet                        related_story_ids
         JsonObject                       story_semantics
-        JsonObject                       tracker_binding
         Instant                          created_at
         Instant                          last_refreshed_at
     }

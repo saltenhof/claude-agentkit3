@@ -37,6 +37,6 @@ invariants:
     rule: a failed QA-subflow run against the verify-system capability triggers a subflow-internal remediation iteration in the same implementation phase and never a phase transition; only escalation may leave the phase before a passing verdict
   - id: implementation.invariant.implementation-does-not-close-story
     scope: boundary
-    rule: implementation records produced outputs, drives the QA-subflow against the verify-system capability, and either reaches a passing verdict or escalates; it does not merge, close the issue, or finalize the story
+    rule: implementation records produced outputs, drives the QA-subflow against the verify-system capability, and either reaches a passing verdict or escalates; it does not merge or finalize the story
 ```
 <!-- FORMAL-SPEC:END -->

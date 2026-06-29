@@ -77,7 +77,7 @@ glossary:
         Einer der zehn deterministischen Checks in der Setup-Phase, die
         fail-closed geprueft werden, bevor eine Story gestartet wird. Alle
         zehn Checks werden ausgefuehrt; ein einzelner FAIL stoppt den Start.
-        Prueft u.a. Issue-Existenz, Story-Status, offene Abhaengigkeiten,
+        Prueft u.a. Story-Existenz, Story-Status, offene Abhaengigkeiten,
         fehlende Laufzeit-Reste und Scope-Overlap mit parallelen Stories.
       see_also:
         - term: guard-activation
@@ -135,7 +135,7 @@ flowchart TD
     START(["Service: POST /phases/setup/start<br/>{story_id: ODIN-042}"]) --> PREFLIGHT
 
     subgraph PREFLIGHT_PHASE ["Preflight-Gates (10 Checks)"]
-        PREFLIGHT["1. Issue existiert?"]
+        PREFLIGHT["1. AK3-Story existiert?"]
         PREFLIGHT --> P2["2. Story-ID im Project?"]
         P2 --> P3["3. Status == Approved?"]
         P3 --> P4["4. Abhängigkeiten geschlossen?"]

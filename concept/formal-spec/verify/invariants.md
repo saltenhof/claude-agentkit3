@@ -39,6 +39,6 @@ invariants:
     rule: verify may pass only after policy evaluation with no blocking findings from any mandatory layer
   - id: verify.invariant.verify-does-not-close-story
     scope: boundary
-    rule: the verify-system capability produces a QA decision but does not merge, close the issue, finalize the story, or alter the story-workflow phase axis
+    rule: the verify-system capability produces a QA decision but does not merge, finalize the story, or alter the story-workflow phase axis
 ```
 <!-- FORMAL-SPEC:END -->

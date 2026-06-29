@@ -485,7 +485,7 @@ Invariant-Kandidaten
 **Output:** Praezise, deterministische Regel als strukturierter Text
 
 **Beispiel:** Aus "Agent aendert Security-Dateien ohne Security-Story"
-wird: "Wenn das Issue-Feld 'Module' nicht 'security' enthaelt,
+wird: "Wenn das Story-Feld 'Module' nicht 'security' enthaelt,
 duerfen keine Dateien in den Pfaden security/, auth/ oder Dateien
 mit 'Permission' oder 'Policy' im Namen veraendert werden."
 
