@@ -156,11 +156,7 @@ function ProjectSelector({
   const disabled = projects.length === 0;
 
   return (
-    <div
-      aria-label="Projektwahl"
-      className="project-picker"
-      role="group"
-    >
+    <div className="project-picker">
       <button
         aria-expanded={open}
         aria-haspopup="menu"

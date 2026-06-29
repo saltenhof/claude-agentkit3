@@ -42,10 +42,7 @@ if TYPE_CHECKING:
     )
     from agentkit.backend.exploration.change_frame import ChangeFrame
     from agentkit.backend.exploration.drafting import ExplorationDrafting
-    from agentkit.backend.exploration.mandate.fine_design import (
-        FineDesignEvaluator,
-        FineDesignRoundOutcome,
-    )
+    from agentkit.backend.exploration.mandate.fine_design import FineDesignEvaluator, FineDesignRoundOutcome
     from agentkit.backend.exploration.phase import ExplorationPhaseHandler
     from agentkit.backend.exploration.review import ExplorationReview
     from agentkit.backend.failure_corpus import FailureCorpus
