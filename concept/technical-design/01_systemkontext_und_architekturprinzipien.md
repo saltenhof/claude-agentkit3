@@ -108,7 +108,11 @@ erfolgt pro Rechner (Sync, `manifest-contract`-gepinnt, DK-08) — dasselbe
 Muster „kanonisch zentral, lokal materialisiert" wie Edge-Bundle (FK-30) und
 Permission-Export (FK-55). Der Project-Space-Symlink kollabiert nur die
 Duplikation *innerhalb* eines Rechners (alle Project Spaces → eine rechnerweite
-Bundle-Materialisierung); er verweist nie auf den entfernten Core.
+Bundle-Materialisierung); er verweist nie auf den entfernten Core. Die
+drei Installationsebenen (zentral / Entwicklermaschine / Projektraum)
+samt Bootstrap, Update und Uninstall sind in **FK-10 §10.2.0**
+ausdetailliert; die Versionsverträge (Agent-Runtime, Skill-Bundle, Wire
+`/v1`) in **FK-10 §10.2.7**.
 
 **Kommandokanal — technisch unidirektional, fachlich bidirektional.** Die
 Kommunikation geht *immer* vom Arm aus: der Orchestrator-Agent zieht über den

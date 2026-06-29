@@ -305,3 +305,4 @@ todo
 reminder
 action-item
 linking
+uninstall

@@ -35,10 +35,13 @@ glossary:
         erneutem Lauf uebersprungen.
     - id: manifest-contract
       definition: >
-        Maschinenlesbarer Vertrag zwischen dem Installer und dem Zielprojekt,
-        der die gebundenen Bundle-Versionen, das Projektprofil und die
-        registrierten Hooks deklariert. Kanonische Quelle fuer
-        Upgrade-Entscheide und Verifikationslaeufe.
+        Maschinenlesbarer Vertrag ueber die gebundenen Bundle-Versionen,
+        das Projektprofil und die registrierten Hooks. Die kanonische
+        Quelle liegt zentral (Projektregistrierung: registered_bundle_version
+        + config_digest); eine projektlokale Materialisierung ist nur eine
+        Config-/Pinning-Projektion (Lockfile), kein Laufzeit-Anker
+        (FK-10 §10.2.7). Grundlage fuer Upgrade-Entscheide und
+        Verifikationslaeufe.
 ---
 
 # 08 — Projektregistrierung und Bootstrap
@@ -66,3 +69,25 @@ Bestandsprojekte und Projekte mit eigener Soll-Struktur erhalten sie
 nicht automatisch. Laufzeitdaten und kanonische Zustände liegen nicht
 im Projekt, sondern zentral. Eine nachgelagerte Verifikation prüft den
 Registrierungszustand auf Konsistenz.
+
+**Drei Installationsebenen (Dreifaltigkeit).** Fachlich sind es **drei**
+getrennte Ebenen mit je eigenem Installationsweg, Update und Uninstall
+(technische Ausführung in FK-10 §10.2):
+
+1. **Zentral (Core)** — Backend, Frontend und der kanonische
+   State-Speicher. Eigene Bootstrap-Routine mit manuellen Anteilen, **kein**
+   Checkpoint-Installer.
+2. **Entwicklermaschine** — einmal pro Rechner: der AK3-Client (Hooks +
+   Project-Edge) und der versionierte, rechnerweite Skill-/Prompt-Bundle-
+   Store.
+3. **Projektraum** — pro Projekt nur dünne Bindungen (Konfiguration,
+   Hook-Registrierung, Skill-Links auf die rechnerweite Installation,
+   Project-Edge-Launcher), installiert durch die idempotente
+   Checkpoint-Folge.
+
+Höhere Ebenen sind Voraussetzung der niedrigeren; **kanonischer Zustand
+lebt nur zentral**. Daraus folgt fachlich: Deployment ist **nicht
+einmalig** — Updates werden vom Core annonciert und von der Maschine
+gezogen (kein Server-Push), und beim Entfernen darf eine niedrigere Ebene
+niemals zentralen Zustand einer höheren löschen (**Detach ≠
+Decommission**).

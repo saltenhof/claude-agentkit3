@@ -111,6 +111,24 @@ eigene Top-Level-Komponente. Er ist kein Teil der `PipelineEngine`,
 sondern vorgelagerter Bootstrap- und Registrierungsmechanismus für
 Projekte, Hooks, Skill-Bindungen und Backend-Registrierung.
 
+**Einordnung in die drei Installationsebenen (FK-10 §10.2.0):** Dieser
+Checkpoint-Installer ist der Mechanismus der **Ebene 3 (Projektraum)**.
+Die anderen zwei Ebenen sind **Voraussetzung**, nicht Gegenstand seiner
+Checkpoints:
+
+- **Ebene 1 (zentraler Core: Backend+Frontend+Postgres)** hat eine
+  **eigene Bootstrap-Routine mit manuellen Anteilen** (FK-10 §10.2.5) —
+  der Installer prüft den Core nur als Vorbedingung (CP7 „erreichbar"),
+  er installiert ihn nicht.
+- **Ebene 2 (Entwicklermaschine: systemweites `agentkit`-Paket +
+  immutabler Bundle-Store)** ist Vorbedingung
+  (`installer.invariant.system_installation_precedes_project_registration`);
+  der Installer prüft sie (CP1 Paket vorhanden) und **bindet** gegen den
+  Store (CP8), provisioniert ihn aber nicht (FK-10 §10.2.6).
+
+Alle zwölf Checkpoints operieren damit auf Ebene 3 plus diesen
+Vorbedingungs-Prüfungen auf Ebene 1/2.
+
 ## 50.2 Aufruf
 
 <!-- PROSE-FORMAL: formal.installer.commands -->

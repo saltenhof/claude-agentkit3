@@ -104,6 +104,7 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
 | `/v1/story-runs/{run_id}/closure/complete` | `POST` | Offiziellen Closure-Abschluss anfordern |
 | `/v1/project-edge/sync` | `POST` | Lokalen Edge-Bundle-Stand fuer einen Projekt-Client bounded neu abgleichen |
 | `/v1/project-edge/operations/{op_id}` | `GET` | Unklare Remote-Lage eines mutierenden Requests ueber `op_id` reconciliieren |
+| `/v1/compat` | `GET` | Unterstuetztes Versionsfenster lesen: `min`/`recommended`/`blocked` fuer Agent-Runtime und Wire (dev↔central-Handshake, FK-10 §10.2.7) |
 | `/v1/telemetry/events` | `POST` | Kanonisches Telemetrie-Event ingestieren |
 | `/v1/projects/{project_key}/planning/dependency-graph` | `GET` | Projektgebundenen Abhaengigkeits- und Konfliktgraph lesen (FK-72 §72.8.2) |
 | `/v1/projects/{project_key}/planning/ready-set` | `GET` | Aktuell `READY`, blockierte und konfliktierte Stories mit Gruenden lesen |
@@ -175,6 +176,18 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
 10. Jeder CLI-Befehl in §91.1 ist Adapter auf einen
     Control-Plane-Endpoint. Eigenstaendige CLI-Implementierungen ohne
     API-Vertrag sind unzulaessig.
+11. **Versions-Handshake (dev↔central):** Jeder Dev→Control-Plane-Request
+    fuehrt die Agent-Runtime-Version (Paketversion) und das gebundene
+    Skill-Bundle als Header (z. B. `X-AK3-Client`, `X-AK3-Skill-Bundle`).
+    Die Control Plane prueft gegen ein unterstuetztes Fenster
+    `[min, max]` und annonciert `recommended`/`blocked` (Antwort-Header
+    bzw. `GET /v1/compat`). **Inkompatibel ist fail-closed** (`426
+    Upgrade Required`): Runtime unter `min` oder in `blocked`, nicht
+    unterstuetzte Wire-Version, fehlender Handshake an mutierenden oder
+    Governance-Endpunkten. Runtime unter `recommended` aber im Fenster
+    ist WARNING (Request laeuft). `/v1` bleibt eine statische Grenze; ein
+    Bruch erzeugt `/v2`, keine In-Place-Aenderung. Treibermodell und
+    vollstaendige Reaktionsmatrix: FK-10 §10.2.7/§10.2.8.
 
 ## 91.1 Operator-Recovery-CLI (agentkit)
 

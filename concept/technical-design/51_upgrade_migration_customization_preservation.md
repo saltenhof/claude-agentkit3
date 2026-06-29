@@ -1,6 +1,6 @@
 ---
 concept_id: FK-51
-title: Upgrade, Migration und Customization-Preservation
+title: Upgrade, Migration, Uninstall und Customization-Preservation
 module: upgrade
 domain: installation-and-bootstrap
 status: active
@@ -8,13 +8,17 @@ doc_kind: core
 parent_concept_id:
 authority_over:
   - scope: upgrade
+  - scope: uninstall
 defers_to:
   - target: FK-50
     scope: checkpoint-engine
     reason: Upgrade reuses the installer checkpoint engine defined in FK-50
+  - target: FK-10
+    scope: deployment-levels
+    reason: Das Drei-Ebenen-Modell (Dreifaltigkeit) sowie Update-Treiber- und Uninstall-Topologie sind in FK-10 §10.2 verankert; FK-51 fuehrt die operative Mechanik
 supersedes: []
 superseded_by:
-tags: [upgrade, migration, customization, idempotency]
+tags: [upgrade, migration, customization, idempotency, uninstall]
 prose_anchor_policy: strict
 formal_refs:
   - formal.installer.entities
@@ -64,7 +68,7 @@ Projekt werden nur Konfiguration und Symlink-Bindungen aktualisiert.
 
 **F-51-023 — Erkennung und Erhalt nutzerseitiger Customizations (FK-11-023):** Upgrades müssen aktiv erkennen, welche projektseitigen Anpassungen vorgenommen wurden — dazu zählen geänderte Schwellenwerte in der Konfiguration, projektspezifische CCAG-Regeln und bewusst gesetzte Projektprofil-/Bundle-Bindungen. Erkannte Anpassungen werden niemals stillschweigend überschrieben.
 
-## 51.2 Upgrade-Trigger
+## 51.2 Upgrade-Trigger und Treibermodell
 
 Der Installer ist transport-agnostisch. CLI-Aufrufe sind Boundary-Controls
 des aufrufenden BC. Aufruf erfolgt ueber das aufrufende BC (Boundary-Control).
@@ -72,6 +76,33 @@ des aufrufenden BC. Aufruf erfolgt ueber das aufrufende BC (Boundary-Control).
 Der Installer erkennt anhand der installierten Paketversion, der
 registrierten Bundle-Version und des Konfigurations-Digests, ob ein
 Upgrade oder eine Re-Bindung noetig ist.
+
+**Treibermodell (hybrid; Topologie in FK-10 §10.2.8):** Der zentrale
+Core **annonciert** über `/v1` die unterstützten Versionsfenster
+(`min`/`recommended`/`blocked`; Wire-Detailvertrag in FK-91); die
+**Entwicklermaschine zieht und aktiviert** das Update selbst
+(`agentkit update` für Paket-/Bundle-Version, danach deliberater
+Re-Bind/Re-Run auf Ebene 3). **Es gibt keinen Server-Push von
+Executables** — das wäre Remote-Code-Ausführung über die Trust-Boundary,
+gerade für Hook-Code.
+
+**Kompatibilitätsreaktion (fail-closed by default):**
+
+- **ERROR / fail-closed:** Agent-Runtime unter `min` oder in `blocked`,
+  nicht unterstützte Wire-Version, fehlender Handshake an
+  Governance-/mutierenden Endpunkten, nicht lesbare
+  `config_version`/`schema_version`, ungültiger Skill-Hash/-Signatur. Ein
+  Hook, der seine Kompatibilität nicht belegen kann, liefert **kein
+  PASS**.
+- **WARNING:** Runtime unter `recommended` aber im Fenster, veraltetes
+  aber erlaubtes Skill-Bundle, migrierbare `config_version`.
+- **Skills brechen nie hart** (außer Integritätsbruch): ein zentral als
+  veraltet markiertes Skill-Bundle blockiert ein Altprojekt nicht.
+
+**Treiber je Ebene:** Ebene 1 ops-getrieben (DB-Migration explizit,
+`min`-Client-Politik **vor** Rollout setzen); Ebene 2 Entwickler per
+`agentkit update` auf Server-Hinweis; Ebene 3 deliberater
+Re-Bind/Re-Run.
 
 ## 51.3 Drei Upgrade-Szenarien
 
@@ -211,6 +242,28 @@ ueber Filesystem-Zugriff auf fremde BC-interne Strukturen.
 
 **Invariante:** Erkannte Anpassungen werden niemals stillschweigend
 ueberschrieben (F-51-023).
+
+## 51.9 Uninstall und Decommission
+
+Das **Drei-Ebenen-Modell** und die Verb-Topologie sind in FK-10 §10.2.9
+verankert; dieser Abschnitt führt die **operative Mechanik**. §51.7
+(Cleanup) bleibt der nicht-destruktive Teilausschnitt davon.
+
+**Grundregel:** Eine niedrigere Ebene löscht **niemals** kanonischen
+Zustand einer höheren Ebene.
+
+| Verb | Ebene | Mechanik | Schutz |
+|------|-------|----------|--------|
+| **Projekt-Detach** | 3 | Skill-Junctions lösen (über die Owner-Top-Surfaces, z. B. `Skills.unbind`), AK3-Hook-Registrierung über `Governance.register_hooks` (nur AK3-Blöcke, Command-Pattern `python -m agentkit.`) entfernen, `tools/agentkit/`-Launcher und `.agentkit/`-Bindungen löschen | Junction nur via `unlink`/`rmdir` nach `isjunction`-Check, **nie** `rmtree` durch den Link (FK-43); Projektcode und fremde Hooks bleiben; **zentraler State des Projekts bleibt** |
+| **Maschinen-Uninstall** | 2 | `agentkit`-Paket deinstallieren, Bundle-Store und Shims entfernen | Vor dem Entfernen einer Bundle-Version: gebundene Projekte über das Registrierungs-Aggregat ermitteln und als **orphaned** warnen; laufende Harness-/Hook-Prozesse vorher beenden |
+| **Core-Decommission** | 1 | Backend-/Frontend-Dienste stoppen, ggf. DB abbauen | **Destruktiv**: nur nach expliziter Bestätigung **und Pflicht-Export** des State-Backends (Audit-Trail, Closure-Records, QA-Ergebnisse); DB-Volume-Löschung **nie** an Dienst-Uninstall koppeln |
+| **Projekt-Löschung** | 1 | kanonischen State eines Projekts zentral löschen | **Destruktiv**; explizite Bestätigung; nicht-destruktive Alternative bleibt **Archivierung** (DK-14) |
+
+**Abgrenzung:** Ephemeres Runtime-Cleanup (Worktrees, Locks,
+Read-Projektionen; FK-10 §10.4.2) ist **kein** Uninstall. Der
+Cleanup-Modus aus §51.7 deckt genau **Projekt-Detach** (Ebene 3) ab;
+Maschinen-Uninstall und Core-Decommission sind getrennte Abläufe, die
+destruktiven beiden hinter expliziter Bestätigung.
 
 ---
 
