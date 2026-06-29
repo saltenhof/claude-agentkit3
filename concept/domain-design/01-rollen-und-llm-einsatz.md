@@ -17,7 +17,7 @@ glossary:
   exported_terms:
     - id: capability-profile
       definition: >
-        Die projektspezifische Zusammenstellung erlaubter Rollen, LLM-Pools
+        Die projektspezifische Zusammenstellung erlaubter Rollen, LLM-Modelle
         und Zugriffsrechte, die vor jedem Story-Run aktiviert wird. Sie legt
         fest, welche Agents gespawnt werden duerfen und welche LLMs welche
         Rollen uebernehmen.
@@ -29,7 +29,7 @@ glossary:
         Benannte Funktion eines LLM-Einsatzes innerhalb der Pipeline, z.B.
         qa_review oder semantic_review. Jede Rolle wird entweder als Agent
         (mit Dateisystem-Zugriff) oder als Bewertungsfunktion (API-Only,
-        deterministisch gesteuert) realisiert. Die Zuordnung Rolle -> Pool
+        deterministisch gesteuert) realisiert. Die Zuordnung Rolle -> Modell
         ist in der Pipeline-Konfiguration festgelegt.
       values: [worker, adversarial-agent, qa-review, semantic-review,
                governance-adjudication, design-review, design-challenge]
@@ -37,7 +37,7 @@ glossary:
       definition: >
         Architektonische Regel, die bestimmt, ob eine LLM-Rolle als
         autonomer Claude-Agent gespawnt oder direkt als Bewertungsfunktion
-        ueber den MCP-Pool aufgerufen wird. Rollen ohne Dateisystem-Zugriff
+        ueber das Unified-REST-Interface des LLM-Hubs aufgerufen wird. Rollen ohne Dateisystem-Zugriff
         werden niemals als Agent realisiert.
 ---
 
@@ -74,28 +74,29 @@ Erzeugung nötig ist (Worker implementiert, Adversarial Agent schreibt
 Tests).
 
 **LLM als Bewertungsfunktion:** Deterministisches Python-Skript ruft
-ein LLM über API oder Browser-Pool auf, liefert strukturierten Input
+ein LLM über den LLM-Hub auf, liefert strukturierten Input
 und fordert ein definiertes JSON-Response-Schema ein. Kein
 Dateisystem-Zugriff, kein autonomes Handeln. Minimale Felder: Status
 (PASS, PASS_WITH_CONCERNS, FAIL), Kurzgrund, Description. Das LLM
 bewertet, die Pipeline entscheidet.
 
-Diese Unterscheidung hält die Kosten niedrig (Browser-Pool-Aufrufe
-sind kostenlos), die Ergebnisse maschinenlesbar und den Prozess
-deterministisch steuerbar.
+Diese Unterscheidung hält die Kosten niedrig (Hub-Aufrufe per
+Browser-Automation sind kostenlos), die Ergebnisse maschinenlesbar und
+den Prozess deterministisch steuerbar.
 
 #### LLM-Role-Routing und Spawn-Contract
 
-Die Zuordnung, welches LLM welche Rolle übernimmt, ist in der
+Die Zuordnung, welches Modell welche Rolle übernimmt, ist in der
 Pipeline-Konfiguration als `llm_roles`-Mapping definiert (Rolle →
-Pool). Die Laufzeit-Auflösung erfolgt über eine feste Kette:
+Modell). Die Laufzeit-Auflösung erfolgt über eine feste Kette:
 
 1. Rolle bestimmen (z.B. `qa_review`, `semantic_review`)
-2. Pool-Name aus `llm_roles` in `project.yaml` lesen
-   (z.B. `chatgpt`, `gemini`)
-3. MCP-Tool-Prefix ableiten (`chatgpt_acquire`, `chatgpt_send`, ...)
-4. Acquire/Send/Release über den MCP-Pool ausführen
-5. Telemetrie-Event schreiben (`llm_call` mit `pool` und `role`)
+2. Modell/Backend aus `llm_roles` in `project.yaml` lesen
+   (zwei verschiedene Hub-Modelle, modellagnostisch)
+3. acquire/send/release über das **Unified-REST-Interface des
+   LLM-Hubs** ausführen (Modell als Ziel) — dies ist AK3-Code-getriebene
+   Bewertung, daher core-getriebener REST-Pfad, nicht MCP (FK-10 §10.1.4)
+4. Telemetrie-Event schreiben (`llm_call` mit `pool` und `role`)
 
 **Architektonische Grenzregel (Spawn-Contract):** Die Unterscheidung
 zwischen Agent und Bewertungsfunktion bestimmt, wie eine Rolle
@@ -103,8 +104,8 @@ technisch realisiert wird:
 
 - **Rollen ohne Dateisystem-Zugriff** (QA-Bewertung, Semantic Review,
   Dokumententreue, Governance-Adjudication, Design-Review,
-  Design-Challenge): Das konfigurierte LLM wird direkt über den
-  MCP-Pool aufgerufen (`LlmEvaluator.evaluate()`). Die Steuerung
+  Design-Challenge): Das konfigurierte Modell wird direkt über das
+  Unified-REST-Interface des LLM-Hubs aufgerufen (`LlmEvaluator.evaluate()`). Die Steuerung
   ist deterministisch — ein Python-Skript liefert strukturierten
   Input und fordert ein definiertes JSON-Response-Schema ein. Kein
   Agent-Spawn nötig.

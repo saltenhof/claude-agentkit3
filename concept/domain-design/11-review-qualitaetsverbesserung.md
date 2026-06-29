@@ -56,7 +56,7 @@ glossary:
     - id: track-a-sparring
       reason: >
         Implementierungsdetail der Review-Architektur (dialogischer Worker-Flow
-        mit externen LLMs via MCP-Pool); kein exportierter Vertragstyp.
+        mit externen Modellen über den LLM-Hub); kein exportierter Vertragstyp.
     - id: track-b-structured-evaluator
       reason: >
         Implementierungsdetail der Review-Architektur (deterministisch gesteuerter
@@ -85,7 +85,7 @@ StructuredEvaluator). Die technischen Spezifikationen liegen in
 
 AgentKit führt Reviews in zwei architektonisch verschiedenen Tracks durch:
 
-- **Track A — Sparring-Reviews während der Implementierung:** Der Worker-Agent sendet Code an externe LLMs (ChatGPT, Gemini) über MCP-Pools mit vordefinierten Prompt-Templates. Dialogischer Flow, Konversationskontinuität auf demselben Slot, freiformige Antworten.
+- **Track A — Sparring-Reviews während der Implementierung:** Der Worker-Agent sendet Code über den **LLM-Hub** (dessen MCP-Interface) an weitere Modelle, mit vordefinierten Prompt-Templates. Dialogischer Flow, Konversationskontinuität auf demselben Hub-Slot, freiformige Antworten. **AK3-mandatiert, aber agent-ausgeführt** (FK-01 §1.1 Carve-out; Kontrolle über Telemetrie, vgl. DK-02 „Review durch konfigurierte LLMs"). Die konkreten Modelle sind austauschbar; die unten genannten dienen als empirische Belege.
 
 - **Track B — StructuredEvaluator in Verify Schicht 2:** Drei parallele Evaluator-Aufrufe (QA-Review 12 Checks, Semantic Review 1 Check, Doc-Fidelity 1 Check) mit festen ContextBundle-Feldern, JSON-Schema-Validierung, fail-closed-Semantik.
 
@@ -311,11 +311,11 @@ Statt "The source files for this story are attached — review them all" wird da
 
 ```
 Worker assembliert Bundle (via Evidence Assembler)
-  → chatgpt_send(PREFLIGHT-Prompt + merge_paths)
-  → ChatGPT antwortet mit 0-8 strukturierten Requests
+  → llm_send(PREFLIGHT-Prompt + merge_paths)   # Hub-MCP, an ein Reviewer-Modell
+  → Reviewer antwortet mit 0-8 strukturierten Requests
   → System löst Requests deterministisch auf
-  → chatgpt_send(REVIEW-Prompt + erweiterte merge_paths)
-  → ChatGPT führt den eigentlichen Review durch
+  → llm_send(REVIEW-Prompt + erweiterte merge_paths)
+  → Reviewer führt den eigentlichen Review durch
 ```
 
 **Wichtige semantische Abgrenzung:**

@@ -107,7 +107,7 @@ sein müssen.
 
 | Ereignis | Wann | Erwartungswert |
 |----------|------|----------------|
-| `llm_call` mit Pool-Kennung | LLM wird über Pool aufgerufen (ChatGPT, Gemini, Grok) | Abhängig von Konfiguration: pro konfiguriertem Pflicht-Reviewer >= 1 |
+| `llm_call` mit Backend-Kennung | LLM wird über den LLM-Hub aufgerufen (Backend z.B. ChatGPT, Gemini, Grok) | Abhängig von Konfiguration: pro konfiguriertem Pflicht-Reviewer >= 1 |
 
 **Governance:**
 
@@ -184,7 +184,7 @@ Zuordnung zu Actor-Typ und Phase.
 | adversarial_sparring | adversarial | verify | Adversarial hat zweites LLM für Edge-Case-Ideen geholt |
 | adversarial_test_created | adversarial | verify | Adversarial hat einen neuen Test erzeugt |
 | adversarial_end | adversarial | verify | Adversarial Agent hat beendet |
-| llm_call | script | implementation, verify | LLM wurde über Pool aufgerufen |
+| llm_call | script | implementation, verify | LLM wurde über den LLM-Hub aufgerufen |
 | integrity_violation | script | beliebig | Ein Guard wurde verletzt |
 | web_call | worker, adversarial | implementation, verify | Agent hat Web-Suche oder -Abruf durchgeführt |
 
@@ -248,13 +248,13 @@ pro Event-Typ.
 
 | Feld | Typ | Beschreibung |
 |------|-----|-------------|
-| pool_name | String | Name des Pools (chatgpt, gemini, grok) |
+| pool_name | String | Name des Hub-Backends (chatgpt, gemini, grok); Feldname `pool_name` bleibt aus Contract-Gründen |
 | purpose | String | Zweck des Aufrufs (review, sparring, qa_evaluation, semantic_review) |
-| model | String | Konkretes Modell im Pool |
+| model | String | Konkretes Modell des Hub-Backends |
 
 `chatgpt_call` und `gemini_call` sind keine eigenständigen Event-Typen,
 sondern `llm_call`-Events mit dem jeweiligen `pool_name`-Wert. Diese
-Vereinheitlichung stellt sicher, dass neue LLM-Pools keine
+Vereinheitlichung stellt sicher, dass neue Hub-Backends keine
 Schema-Änderung erfordern.
 
 **integrity_violation:**

@@ -516,11 +516,20 @@ zusammengeführt sein. Kein Inkrement bleibt ungetestet.
 
 #### Review durch konfigurierte LLMs
 
-Der Worker holt sich während der Implementierung Review von anderen
-LLMs. Die Reviewer sind nicht frei wählbar, sondern in der
-Pipeline-Konfiguration als Pflicht-Reviewer hinterlegt. Der Zweck
-dieser Reviews ist präventiv: Architektur-Drift früh erkennen, blinde
-Flecken aufdecken, Seiteneffekte identifizieren.
+Der Worker holt sich während der Implementierung Review von weiteren
+Modellen aus dem **LLM-Hub**. Die Reviewer sind nicht frei wählbar,
+sondern in der Pipeline-Konfiguration als Pflicht-Reviewer hinterlegt.
+Der Zweck dieser Reviews ist präventiv: Architektur-Drift früh erkennen,
+blinde Flecken aufdecken, Seiteneffekte identifizieren.
+
+Dieser Sparring-Review ist **AK3-mandatiert, aber agent-ausgeführt**:
+*dass* er stattfindet, schreibt AK3 vor; die dialogische Durchführung
+übernimmt der Agent direkt über das MCP-Interface des Hubs (FK-01 §1.1
+Carve-out). Die Kontrolle erfolgt über die **Telemetrie** — das
+Integrity-Gate prüft die konfigurierten `llm_roles` —, nicht über
+Token-Durchleitung durch den Kern. Davon zu trennen sind die
+**core-getriebenen** Schicht-2-Evaluationen (StructuredEvaluator), die
+als AK3-Fachlogik über das Unified-REST-Interface des Hubs laufen.
 
 Die Häufigkeit orientiert sich an der Story-Größe:
 

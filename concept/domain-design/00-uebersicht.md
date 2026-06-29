@@ -283,8 +283,9 @@ diese Phase.
 ### Phase 3: Implementation (agentengesteuert)
 
 Ein Claude-Sub-Agent (Worker) wird gestartet und bekommt: den komponierten
-Prompt, Zugriff auf das Dateisystem, MCP-Server (VectorDB, ARE) und
-optional LLM-Pools (ChatGPT, Gemini) für Multi-Perspektiven-Reviews.
+Prompt, Zugriff auf das Dateisystem, MCP-Server (VectorDB, ARE) sowie
+den LLM-Hub (Drehscheibe für mehrere LLM-Modelle) für
+Multi-Perspektiven-Reviews.
 
 Je nach Story-Typ arbeitet ein anderer Worker-Typ:
 
@@ -313,8 +314,8 @@ State-Backend. Ein `structural.json` ist nur ein optionaler Export.
 
 **Layer 2 — Semantisches Review (LLM-Bewertungen via Skript, parallel)**
 Zwei LLM-Bewertungen laufen parallel, gesteuert durch deterministische
-Python-Skripte über konfigurierte LLM-Pools (nicht als eigenständige
-Agents): eine QA-Bewertung (Code-Qualität, Testabdeckung,
+Python-Skripte über den LLM-Hub (Unified REST, core-getrieben; nicht als
+eigenständige Agents): eine QA-Bewertung (Code-Qualität, Testabdeckung,
 Akzeptanzkriterien) und ein Semantic Review (Architektur-Compliance).
 Kanonisches Ergebnis: typisierte `ArtifactRecord`-Einträge für
 `qa_review`, `semantic_review` und Guardrail-/Conformance-Artefakte.
@@ -406,7 +407,7 @@ Semantische Suche über abgeschlossene Stories. Findet Duplikate vor
 der Story-Erstellung und verwandte Vorarbeiten für den Worker-Kontext.
 Nach Abschluss wird die Story indexiert.
 
-### LLM-Pools (ChatGPT, Gemini, Grok) — optional
+### LLM-Hub (Drehscheibe für mehrere Modelle) — optional
 
 Für Multi-Perspektiven-Reviews und Sparring. Concept-Worker können
 parallele Reviews durch andere LLMs anfordern. Der Adversarial-Agent
@@ -440,7 +441,7 @@ abbildend; sie sind nie die operative Wahrheitsquelle.
 Zentrale Konfiguration über `project.yaml` (Pfad: `.agentkit/config/project.yaml`):
 
 - GitHub-Anbindung (Owner, Repo, Project-Nummer)
-- Feature-Flags (VectorDB, ARE, Multi-LLM-Pools, Telemetrie)
+- Feature-Flags (VectorDB, ARE, Multi-LLM-Hub, Telemetrie)
 - QA-Policy (Schwellwerte, Stage-Definitionen)
 - Build/Test-Kommandos pro Repository
 - ARE-Verbindung (Base-URL, Projekt-Slug)

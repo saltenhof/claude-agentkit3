@@ -85,7 +85,7 @@ Welche LLMs setzen wir fuer welche Aufgaben ein? Typische
 Kennzahlen: Antwortzeiten (Median, P95), Verfuegbarkeit,
 Verdict-Uebernahme-Rate, Finding-Praezision, Dissens-Rate.
 
-Handlungen: Langsame oder unzuverlaessige Pools ersetzen,
+Handlungen: Langsame oder unzuverlaessige Hub-Backends ersetzen,
 LLM-Rollen-Zuordnung aendern, Prompts optimieren.
 
 **Domaene 3 — Governance-Gesundheit**
@@ -169,7 +169,7 @@ KPIs werden auf drei Ebenen ausgewertet:
 - **Pro Story**: Einzelne Story als Betrachtungseinheit
   (z.B. Durchlaufzeit, QA-Runden, LLM-Aufrufe)
 - **Pro Entitaet und Periode**: Eine benannte Entitaet
-  (Guard, LLM-Pool, Review-Template, Check) ueber einen
+  (Guard, LLM-Hub-Modell, Review-Template, Check) ueber einen
   Zeitraum (Woche, Monat)
 - **Pro Periode**: Globale System-Kennzahlen ueber einen
   Zeitraum (First-Pass-Rate, Incident-Volumen)
