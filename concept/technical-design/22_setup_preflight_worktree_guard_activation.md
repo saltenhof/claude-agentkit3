@@ -291,12 +291,10 @@ persistiert. Optional kann ein JSON-Export in
   "started_at": "...",
   "finished_at": "...",
   "status": "PASS",
-  "issue": {
-    "number": 42,
+  "story": {
+    "id": "ODIN-042",
     "title": "Implement broker API integration",
-    "state": "OPEN",
-    "labels": ["story"],
-    "body": "..."
+    "status": "Approved"
   },
   "story_type": "implementation",
   "size": "M",
@@ -837,7 +835,7 @@ eine WARNING.
 | New Structures = True (Trigger 3) | Exploration + INFO |
 | Concept Quality = Low (Trigger 4) | Exploration + INFO |
 | Unbekannter Feldwert (Change Impact / Concept Quality) | Exploration + WARNING |
-| VektorDB-Konflikt (Flag am Issue) | Exploration (erzwungen, vor Trigger-Auswertung) |
+| VektorDB-Konflikt (`vectordb_conflict_resolved` an der AK3-Story) | Exploration (erzwungen, vor Trigger-Auswertung) |
 
 ### 22.8.2b Bewusst nicht im Modell enthaltene Kriterien
 
