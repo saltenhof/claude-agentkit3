@@ -456,7 +456,7 @@ Harness aus aufrufbar.
 | `"Bash"` | Nur Bash-Tool |
 | `"Write\|Edit"` | Write oder Edit |
 | `"Agent"` | Agent-Tool (Sub-Agent-Spawn) |
-| `"*_send"` | Alle MCP-Pool-Send-Tools (`chatgpt_send`, `gemini_send`, etc.) |
+| `"*_send"` | MCP-Send-Tools, u. a. das LLM-Hub-Tool `llm_send` (`mcp__llm-hub__llm_send`) |
 | `"WebSearch\|WebFetch"` | Web-Tools |
 
 ### 30.3.3 Guard-Verhalten beim Story-Reset
