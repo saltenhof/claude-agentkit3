@@ -114,25 +114,19 @@ Pools nutzen. Dies wird durch die Config-Validierung erzwungen.
 
 ## 11.2 LLM-Hub-Abstraktion
 
-### 11.2.1 Wie AK3 den LLM-Hub nutzt
+### 11.2.1 Wie AK3 den LLM-Hub fachlich nutzt
 
 > **Keine API-Klone.** Die Schnittstellenspezifikation des LLM-Hubs
 > (Endpunkte, Tool-Namen, Parameter, Fehlercodes) liefert **der Hub
 > selbst** (externe Quelle der Wahrheit). Dieses Konzept wiederholt sie
-> **nicht** — es legt nur fest, *wie* AK3 den Hub nutzt. Einzelne
-> Operationen werden benannt, wo es für die AK3-Logik nötig ist.
+> **nicht**. Der AK3-Zugriff auf den Hub ist ausschließlich in **FK-75**
+> normiert. Dieses Konzept legt nur fest, *wann und wofür* AK3 LLMs
+> nutzt.
 
-AK3 nutzt die **Session-Operationen** des Hubs — **acquire**, **send**,
-**release** (sowie **resume**/**health** nach Bedarf). Das Befehlsset ist
-einheitlich und **modellunabhängig**: das Zielmodell ist ein Parameter,
-kein Befehlspräfix. Die konkrete Signatur steht in der Hub-Spezifikation.
-
-**Transportwahl (FK-10 §10.1.4):**
-- **AK3-Code-getriebene Bewertungen** (LlmEvaluator, StructuredEvaluator,
-  DialogueRunner — §11.4/§11.5) nutzen das **Unified-REST-Interface**
-  des Hubs.
-- **Agent-Sparring** (z. B. Adversarial §11.8) nutzt das **MCP-Interface**
-  des Hubs (FK-01 §1.1 Carve-out).
+AK3 nutzt LLMs als Bewertungs-, Review- und Adjudication-Funktion. Der
+technische Zugriff auf den externen Hub läuft immer über den FK-75-
+REST-Adapter. MCP-Nutzung durch Codex/Claude Code ist
+Harness-Eigenbedarf außerhalb AK3 und wird hier nicht spezifiziert.
 
 Das **Zielmodell** wird über `llm_roles` (§11.3) aufgelöst und als
 Parameter übergeben. Die Backend-Implementierung (Browser-Automation,
@@ -140,43 +134,38 @@ direkte API) ist AK3 egal.
 
 ### 11.2.2 Datei-Handling (AK3-Nutzungsregel)
 
-Der Hub-Send unterstützt Datei-Uploads (Text-Merge und Binär-Anhänge);
-die genauen Parameter, Typen und Limits liefert die
-LLM-Hub-Schnittstellenspezifikation, nicht dieses Konzept.
+Der FK-75-Adapter unterstützt das Senden von Prompt und Kontextmaterial
+an den Hub. Parameter, Typen, Limits und Mapping auf die externe
+Hub-Schnittstelle sind kein Vertrag dieses Konzepts.
 
 **AK3-Regel:** Alle Textdateien immer in **einem** Send mergen, nie auf
 mehrere Sends aufteilen.
 
-### 11.2.3 Acquire/Send/Release-Protokoll
+### 11.2.3 Fachlicher LLM-Aufruf
 
 ```mermaid
 sequenceDiagram
     participant S as AgentKit-Skript (LlmEvaluator)
-    participant H as LLM-Hub (Unified REST)
+    participant A as FK-75 Hub-Adapter
+    participant H as LLM-Hub
     participant L as Modell-Backend
 
-    S->>H: acquire(owner="qa-review-PROJ-042")
-    H-->>S: session_id, token
-
-    S->>H: send(session_id, token, message, merge_paths=[...], target=Modell)
+    S->>A: evaluate(role, prompt, context)
+    A->>H: REST-Adapteraufruf gemaess FK-75
     H->>L: Nachricht + Dateien an Modell
     L-->>H: Antwort (kann Minuten dauern)
-    H-->>S: Antworttext (Markdown)
-
-    S->>H: release(session_id, token)
-    H-->>S: Session freigegeben
+    H-->>A: Antworttext (Markdown)
+    A-->>S: Antworttext oder technischer Fehler
 ```
 
-**Fehlerbehandlung im Protokoll:**
+**Fehlerbehandlung:**
 
 | Situation | Reaktion des Skripts |
 |-----------|---------------------|
-| `acquire` → `queued` | Warten (geschätzte Zeit), erneut `acquire` mit gleichem Owner |
-| `acquire` → `rejected` | Pool voll. Retry nach Cooldown oder Abbruch. |
-| `send` → Timeout | Release versuchen. Neuer Slot. Retry (max 1). |
-| `send` → `lease_expired` (410) | Slot wurde wegen Inaktivität freigegeben. Neuer Acquire nötig. |
-| `send` → Login-Fehler (500) | Mensch muss einloggen. Pipeline pausiert mit Hinweis. |
-| Jeder Fehler | Release im `finally`-Block. Slot nie offen lassen. |
+| Hub ausgelastet | Warten nach Adapter-Retry-Policy oder Abbruch. |
+| Timeout | Ein Retry über den FK-75-Adapter, danach FAIL/PAUSE gemaess Konsument. |
+| Auth-/Login-Fehler | Mensch muss Hub-Zugang herstellen; Pipeline pausiert mit Hinweis. |
+| Technischer Adapterfehler | Fail-closed; Fehler wird mit Korrelation und Rolle protokolliert. |
 
 ## 11.3 Modellzuordnung pro Rolle
 
@@ -218,8 +207,7 @@ Wenn ein Pipeline-Skript ein LLM aufrufen will:
 
 1. Rolle bestimmen (z.B. `qa_review`)
 2. Modell aus `llm_roles` lesen (Hub-Backend)
-3. acquire/send/release über das Unified-REST-Interface des Hubs
-   ausführen (Modell als `target`; Befehlsvertrag §11.2.1)
+3. LLM-Aufruf über den FK-75-REST-Adapter ausführen (Modell als `target`)
 4. Telemetrie-Event schreiben: `llm_call` mit `pool` und `role`
 
 ## 11.4 LLM-Evaluator: Das zentrale Pattern
@@ -227,9 +215,9 @@ Wenn ein Pipeline-Skript ein LLM aufrufen will:
 ### 11.4.1 Verantwortung
 
 Der LLM-Evaluator ist das zentrale Python-Modul für alle
-"LLM als Bewertungsfunktion"-Aufrufe. Er kapselt das gesamte
-Acquire/Send/Release-Protokoll, die Antwort-Validierung und die
-Retry-Logik.
+"LLM als Bewertungsfunktion"-Aufrufe. Er nutzt den FK-75-Adapter und
+kapselt Antwort-Validierung, Retry-Entscheidung aus Konsumentensicht
+und Ergebnisnormalisierung.
 
 ### 11.4.2 Schnittstelle
 
@@ -640,11 +628,12 @@ holen (FK-05-189).
    Fehlerpfade, Race Conditions, Missbrauchsszenarien
 4. Agent schreibt erste Tests in Sandbox
    (`_temp/adversarial/{story_id}/`) und führt sie aus
-5. **Danach Sparring:** Agent ruft das konfigurierte Sparring-Modell
-   über das **MCP-Interface des Hubs** auf (acquire → send → release,
-   §11.2.1; FK-01 §1.1 Carve-out — agent-ausgeführtes Sparring),
-   beschreibt was er bereits getestet hat und fragt gezielt:
-   "Welche Edge Cases habe ich übersehen?"
+5. **Optionaler Eigenbedarf:** Der Agent darf sich außerhalb AK3 über
+   Harness-eigene Mittel eine Zweitmeinung holen. AK3 schreibt diesen
+   Schritt nicht vor, spezifiziert ihn nicht und wertet ihn nicht als
+   Gate-Nachweis. Wenn der Agent ihn nutzt, beschreibt er was er bereits
+   getestet hat und fragt gezielt: "Welche Edge Cases habe ich
+   übersehen?"
 6. Sparring-LLM liefert zusätzliche Ideen, die der Agent selbst
    nicht gefunden hat
 7. Agent setzt die Sparring-Ideen in weitere Tests um, führt sie aus

@@ -225,7 +225,7 @@ agentkit/kpi_analytics/http/        # /v1/projects/{key}/kpi
 agentkit/failure_corpus/http/       # /v1/projects/{key}/failure-corpus
 agentkit/requirements_coverage/http/  # /v1/projects/{key}/coverage (inkl. /coverage/stories/{story_id}/are-evidence)
 agentkit/concept_catalog/http/      # /v1/concepts (projektneutral, Konzept-Korpus ist Repository-weit)
-agentkit/multi_llm_hub/http/        # /v1/hub (projektneutral, Hub-Mechanik nicht projekt-skopiert)
+agentkit/multi_llm_hub/http/        # Hub-Adapter-HTTP (projektneutral, Vertrag in FK-75)
 ```
 
 `control_plane_http` hostet App, Auth, Tenant-Scope, Router-Registry.

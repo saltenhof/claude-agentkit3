@@ -578,7 +578,7 @@ Lead und dokumentiert die abweichenden Positionen mit Begründung.
 ### 25.5.3 Kontext-Bundle
 
 Der Agent stellt den externen LLMs proaktiv folgenden Kontext bereit.
-Die Story-Vorlage (DK-02 §Issue-Schema) liefert bereits ein reiches
+Die Story-Vorlage (DK-02 §Story-Feldschema) liefert bereits ein reiches
 Informationsangebot:
 
 | Bestandteil | Quelle aus Story-Vorlage |
@@ -612,16 +612,17 @@ AgentKit überwacht den Feindesign-Subprozess auf zwei Ebenen:
 
 **Echtzeit-Enforcement via Hook:**
 
-Der bestehende Hook-Mechanismus zählt Hub-Send-Aufrufe (FK-11 §11.2.1)
-pro Session-ID. Nach 10 Sends an dasselbe LLM wird der nächste Send
-blockiert. Der Hook benötigt nur die `session_id` aus dem Request,
-kein Response-Parsing.
+Der bestehende Hook-Mechanismus zählt LLM-Nachrichten über den
+Multi-LLM-Hub-Adapter (FK-75) pro Session-ID. Nach 10 Nachrichten an
+dasselbe LLM wird die nächste Nachricht blockiert. Der Hook benötigt
+nur die `session_id` aus dem Request, kein Response-Parsing.
 
 **Post-hoc-Verifikation via Hub-Session-Summary:**
 
-Nach Abschluss des Subprozesses fragt AgentKit den Hub ab:
-`llm_session_stats(session_id)` → liefert pro LLM: Anzahl
-gesendeter Messages, ob das LLM geantwortet hat, Session-Status.
+Nach Abschluss des Subprozesses liest AgentKit über die in FK-75
+normierte read-only Session-Stats-Surface die Hub-Session-Statistik:
+pro LLM Anzahl gesendeter Messages, ob das LLM geantwortet hat und den
+Session-Status.
 
 Dies ist eine read-only-Auskunft. Der Hub reportet Fakten, die er
 nativ kennt. Keine Enforcement-Logik im Hub.
@@ -630,14 +631,14 @@ nativ kennt. Keine Enforcement-Logik im Hub.
 
 | Prüfung | Datenquelle | Reaktion bei Verletzung |
 |---------|-------------|------------------------|
-| Jedes akquirierte LLM hat mindestens 1x geantwortet | Hub Session-Summary | Abbruch des Subprozesses, Klasse-2-Entscheidung wird nicht getroffen |
+| Jedes akquirierte LLM hat mindestens 1x geantwortet | Hub Session-Summary (FK-75) | Abbruch des Subprozesses, Klasse-2-Entscheidung wird nicht getroffen |
 | Rundenlimit (10) eingehalten | Hook (Echtzeit) | Blockiert weitere Sends |
-| Session korrekt released | Hub Session-Summary | Warning in Telemetrie |
+| Session korrekt released | Hub Session-Summary (FK-75) | Warning in Telemetrie |
 
-**Anforderung an den Multi-LLM Hub:** Neuer Endpoint
-`llm_session_stats(session_id)` — liefert strukturierte Statistik
-pro LLM (Message-Counts, Response-Status). Read-only, keine
-Enforcement-Logik.
+**Ownership-Grenze:** FK-25 definiert nur die fachlichen Prüfregeln
+und Reaktionen des Feindesign-Subprozesses. Tool-Namen,
+Control-Plane-Endpunkte und Mapping auf die externe Hub-API gehören
+zum Multi-LLM-Hub-Adapter-Vertrag (FK-75).
 
 **Nicht-Erreichbarkeit:** Wenn ein LLM nicht antwortet (Hub meldet
 keine Response), wird der Feindesign-Subprozess abgebrochen. Die
@@ -708,7 +709,7 @@ LLM-gestützte Klassifikation (§25.4.1).
 ### 25.6.2 Prüflogik (deterministisch)
 
 Die Prüfung arbeitet auf den vorhandenen Feldern der Story-Vorlage
-(DK-02 §Issue-Schema). Kein zusätzliches Pflichtfeld nötig.
+(DK-02 §Story-Feldschema). Kein zusätzliches Pflichtfeld nötig.
 
 Mapping Story-Vorlage → Scope-Explosion-Input:
 
@@ -786,7 +787,7 @@ Dem Menschen wird eine Gegenüberstellung vorgelegt:
 ### 25.7.1 Prüflogik (deterministisch)
 
 Der Vergleich nutzt das bestehende Feld `change_impact` aus den
-Story-Metadaten (DK-02 §Issue-Schema, FK-21). Die kanonische
+Story-Metadaten (DK-02 §Story-Feldschema, FK-21). Die kanonische
 Impact-Enum ist in DK-02 definiert:
 
 | Stufe | Enum-Wert (DK-02) | Semantik |
@@ -800,7 +801,7 @@ Die festgestellte Tragweite wird aus dem Entwurfsartefakt abgeleitet
 und auf dieselbe Enum abgebildet.
 
 ```python
-# Kanonische Enum-Werte aus DK-02 §Issue-Schema
+# Kanonische Enum-Werte aus DK-02 §Story-Feldschema
 IMPACT_LEVELS = ["Local", "Component", "Cross-Component", "Architecture Impact"]
 
 def check_impact_exceedance(
@@ -871,7 +872,7 @@ FK-11 (StructuredEvaluator, LLM-Beratung),
 FK-02 (Domänenmodell, Story-Typen),
 FK-39 (Phase-State-Persistenz), FK-45 (Phase-Transitions),
 FK-21 (Story-Creation, Wirksamkeitsgrad),
-DK-02 (Mandatsprinzip, Issue-Schema mit kanonischer Change-Impact-Enum),
+DK-02 (Mandatsprinzip, Story-Feldschema mit kanonischer Change-Impact-Enum),
 DK-03 §3.9 (Eskalationsklassen).
-Externe Abhängigkeit: Multi-LLM Hub — neuer Endpoint
-`llm_session_stats(session_id)` für Post-hoc-Verifikation (§25.5.4).*
+Externe Abhängigkeit: Multi-LLM-Hub-Adapter (FK-75) für
+read-only Session-Stats zur Post-hoc-Verifikation (§25.5.4).*

@@ -50,7 +50,7 @@ stimmt und Probleme erkannt werden?
 
 | Komponente | Prüfung | Wie |
 |------------|--------|-----|
-| LLM-Hub | Erreichbar? Login aktiv? | Hub-Health-Aufruf (FK-11 §11.2.1) |
+| LLM-Hub | Erreichbar? Login aktiv? | Hub-Health-Aufruf über FK-75 |
 | Weaviate | Erreichbar? Daten aktuell? | `docker ps` + `story_search` Test-Query |
 | ARE (wenn aktiv) | MCP-Server erreichbar? | `are_check_gate` mit Test-Story |
 | PostgreSQL | Erreichbar? Rollen/Rechte korrekt? | `agentkit backend health` |
@@ -166,7 +166,7 @@ Lösung:
 1. Hub-Verfügbarkeit/Backends gemäß Hub-Betrieb wiederherstellen
    (Backend-Start/Login ist Hub-Deploymentdetail, nicht AK3)
 2. Bei Login-Problem: am betroffenen Hub-Backend einloggen (Hub-intern)
-3. Verifizieren: Hub-Health → "ok" (FK-11 §11.2.1)
+3. Verifizieren: Hub-Health → "ok" (FK-75)
 ```
 
 ### 4.5.2 Stale Lock

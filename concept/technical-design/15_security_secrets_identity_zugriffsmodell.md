@@ -82,7 +82,7 @@ Ausführungskontext ergeben:
 | **Adversarial** (Sub-Agent) | Von Orchestrator gespawnt, `subagent_type: adversarial` | Zone 3 — darf nur in Sandbox schreiben |
 | **Pipeline-Skript** | Python-Prozess, aufgerufen via Bash-Tool | Zone 2 — deterministisch, vertrauenswürdig |
 | **Hook-Prozess** | Python-Prozess, aufgerufen vom Harness (Claude Code / Codex; FK-76) | Zone 1 — Plattform-Enforcement |
-| **LLM-Hub** (extern) | Antwort auf Hub-Send (FK-11 §11.2.1) | Zone 4 — Antworten werden validiert, nie blind vertraut |
+| **LLM-Hub** (extern) | Antwort auf Hub-Aufruf über FK-75 | Zone 4 — Antworten werden validiert, nie blind vertraut |
 
 ### 15.3.2 Principal-Erkennung
 

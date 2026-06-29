@@ -90,7 +90,7 @@ und qualitätssichernd im Kern.
 | **I1** | Postgres-Eigentum | Der Kern besitzt und beschreibt den kanonischen Zustand; PostgreSQL ist ausschließlich sein Speicher. Kein Dev-Prozess öffnet eine direkte DB-Verbindung. |
 | **I2** | Drittsystem-Hoheit (AK3-verantwortete Vorgänge) | In von AK3 verantworteten Prozessen treibt **der Kern** ARE, GitHub, SonarQube, Jenkins und den LLM-Hub. Es geht **nicht** darum, dass die Dev-Seite Drittsysteme nie berührt — sondern dass sie es **innerhalb AK3-verantworteter Abläufe** nicht am Kern vorbei tut. |
 | **I3** | Kanonische Ops nur via Kern | AK3-verantwortete kanonische Operationen (State, Gates, Phasenfortschritt) laufen ausschließlich per REST über den Kern — innerhalb dieser Vorgänge kein Bypass auf DB, Dienste oder kanonischen State. |
-| **I4** | Direkt-Carve-out (FK-01 §1.1) | Direkter Dev→Infra-Zugriff ist auf den begrenzten **Carve-out** beschränkt: **Eigenbedarf des Agents** (nicht AK3-mandatiert, z. B. Weaviate-Semantik, Hub-Sparring per MCP, Ad-hoc-Einsicht) **oder** von AK3 **explizit mandatierte** fs/worktree-gebundene Mechanik (z. B. `gh`/`git`). Katalog und Zwei-Kriterien-Regel: FK-01 §1.1. |
+| **I4** | Direkt-Carve-out (FK-01 §1.1) | Direkter Dev→Infra-Zugriff ist auf den begrenzten **Carve-out** beschränkt: **Eigenbedarf des Agents** (z. B. Weaviate-Semantik, Ad-hoc-Einsicht, freiwilliges Harness-Sparring außerhalb AK3) oder von AK3 **explizit mandatierte** fs/worktree-gebundene Mechanik (z. B. `gh`/`git`). Katalog und Kriterien: FK-01 §1.1. |
 | **I5** | Kein lokaler kanonischer State | Der Project Space hält nur das Bundle und projektlokale Konfiguration, keinen kanonischen Laufzeit-State. Lokale Laufzeitdateien sind ausschließlich Read-Projektionen. |
 | **I6** | Frontend → Kern | Das AK3 Frontend spricht ausschließlich per REST mit dem Kern. |
 
@@ -101,12 +101,12 @@ FK-01 §1.1), ist ein Fehlbetrieb, kein Sollzustand.
 
 **Abgrenzung — es geht um AK3-verantwortete Vorgänge.** I1–I6 binden,
 was **AK3 verantwortet**: dort greift nur der Kern zu — bzw. der Agent
-direkt, **wo AK3 ihm das Mandat erteilt**. Sie verbieten **nicht**, dass
-ein Harness-Agent außerhalb von AK3 ein Drittsystem nutzt
-(Hub-Sparring per MCP §10.1.4, Sonar/Jenkins-Einsicht, `gh`/`git`,
-ARE-Evidence). Das ist der **Carve-out nach FK-01 §1.1** (Zwei-Kriterien:
-Eigenbedarf des Agents **oder** von AK3 mandatierte fs/worktree-Mechanik).
-FK-01 ist der normative Katalog dieser Kanten.
+direkt, **wo AK3 ihm das Mandat für fs/worktree-gebundene Mechanik
+erteilt**. Sie verbieten **nicht**, dass ein Harness-Agent im Carve-out
+ein Drittsystem nutzt (freiwilliges Harness-Sparring §10.1.4,
+Sonar/Jenkins-Einsicht, `gh`/`git`, ARE-Evidence). Hub-Sparring per MCP
+ist Eigeninitiative des Harness-Agents, nicht AK3-mandatiert und nicht
+Gate-relevant. FK-01 ist der normative Katalog dieser Kanten.
 
 ### 10.1.1 Prozesslandschaft
 
@@ -245,25 +245,25 @@ der Hub vorhält, ist für AK3 ohne Belang; entscheidend ist nur, dass der
 Hub mehrere unterschiedliche Modelle hinter **einem einheitlichen
 Interface** anbietet.
 
-- **AK3 nutzt ausschließlich das Unified-REST-Interface des Hubs**, weil
-  dieses für alle Modelle identisch ist. Das vom Hub ebenfalls
-  angebotene MCP-Interface wird von AK3 **nicht** verwendet.
-- Der LLM-Hub ist ein Drittsystem-Werkzeug und wird vom **AK3-Kern**
-  über REST getrieben (I2). Es gibt keine direkte Dev→Hub-Kante und
-  keine modellindividuellen Endpunkte; der Kern adressiert immer dasselbe
-  Hub-REST-Interface.
+- AK3 nutzt den LLM-Hub ausschließlich über den FK-75-REST-Adapter.
+  Das gilt für code-getriebene Bewertungsfunktionen ebenso wie für
+  Adjudication- und Feindesign-Vorgänge.
+- Der LLM-Hub ist ein Drittsystem-Werkzeug und wird für kanonische
+  AK3-Bewertungs- und Adjudication-Vorgänge vom **AK3-Kern** über REST
+  getrieben (I2). Es gibt keine direkte Dev→Hub-Kante und keine
+  modellindividuellen Endpunkte für diese Vorgänge; der Kern adressiert
+  immer dasselbe Hub-REST-Interface.
 - LLM-getriebene AK3-Fachlogik (z. B. QA-Schicht-2-Bewertungen,
   Conflict-Adjudication, Governance-Adjudikator, Exploration-Fine-Design)
   läuft über genau diesen REST-Pfad und ist dadurch zentral
   auditierbar.
 
-> **Abgrenzung Harness-eigene MCP-Nutzung (außerhalb AK3).** Ein
-> Harness-Agent (Claude Code / Codex) *darf* den LLM-Hub jederzeit über
-> dessen MCP-Interface ansprechen — etwa wenn sich ein Agent ad hoc ein
-> „Sparring" / eine Zweitmeinung holen will. Das ist eine
-> Eigeninitiative der Harness-Plattform, **kein AK3-Architekturpfad**:
-> AK3 orchestriert es nicht, verlässt sich nicht darauf und gibt dafür
-> keine Garantie. Für AK3 zählt ausschließlich der REST-Pfad oben.
+> **Abgrenzung Harness-Eigenbedarf.** Ein Harness-Agent (Claude Code /
+> Codex) darf sich aus eigener Intention eine Zweitmeinung über
+> harness-eigene Mechanismen holen. Dieser Pfad ist kein
+> AK3-Architekturpfad, nicht AK3-mandatiert, nicht Gate-relevant und
+> wird von AK3 nicht spezifiziert. Für AK3 zählt der REST-Pfad über
+> FK-75.
 
 ## 10.2 Deployment-Modell
 
@@ -689,7 +689,7 @@ Persistenz-Akteur.
 | State-Backend: Governance/Locks | Governance-Fachlogik im Backend (Backend) | Hooks (REST-Read, ggf. Read-Projektion) | Nur Backend mutiert; Dev-Seite nur lesend |
 | State-Backend: CCAG Permission-Requests/Leases | Governance-Fachlogik im Backend (Backend) | Frontend-Inbox, Hooks (REST) | Kanonisch zentral (kein projektlokaler SQLite-Owner; FK-42) |
 | State-Backend: Failure Corpus | Governance-Beobachtung, Pipeline (Backend) | Failure-Corpus-Engine (REST) | Append-only, permanent |
-| Drittsystem-Zugriffe (ARE, GitHub, Sonar, Jenkins, LLM-Hub) | — | — | Nur über Backend-Adapter (I2); kein Dev-Direktzugriff |
+| Drittsystem-Zugriffe (ARE, GitHub, Sonar, Jenkins, LLM-Hub) | — | — | Kanonische AK3-Vorgänge über Backend-Adapter (I2); direkte Zugriffe nur im FK-01-Carve-out |
 | Systemweite Skill-/Prompt-Bundles | AgentKit-Installer | Agents (read-only via Projekt-Link) | Versioniert, immutable pro Bundle-Version |
 | harness-spezifische Skill-Links (z. B. `.claude/skills/` fuer Claude Code; FK-76) | Installer | Harness / Agents | Nur Link-Bindung (Symlink/Junction), kein kanonischer Inhalt |
 | `.agentkit/config/project.yaml` | Mensch, Installer | Alle Pipeline-Komponenten | Menschlich editierbar |
@@ -877,10 +877,11 @@ die 5432 belegen darf.
 
 ### 10.7.3 Designregeln
 
-- **LLM-Hub**: externe LLM-Drehscheibe, von AK3 ausschließlich über das
-  Unified-REST-Interface (Default :9600) angesprochen — identisch für
-  alle Modelle. Modellindividuelle bzw. Hub-interne Ports sind
-  Hub-Deploymentdetail und kein Teil des AK3-Port-Katalogs.
+- **LLM-Hub**: externe LLM-Drehscheibe, von AK3-Code ausschließlich
+  über den FK-75-REST-Adapter (Default :9600) angesprochen — identisch
+  für alle Modelle. Harness-eigene Zweitmeinungen liegen außerhalb AK3.
+  Modellindividuelle bzw. Hub-interne Ports sind Hub-Deploymentdetail
+  und kein Teil des AK3-Port-Katalogs.
 - **AgentKit-Services / Backend-Control-Plane**: 9700-9799. UI (9700)
   ist die SPA; **UI-BFF (9701) und Project-API (9702) sind die zwei
   REST-Endpunkte des AK3 Backends** — UI-BFF für das Frontend (I6),

@@ -85,7 +85,12 @@ StructuredEvaluator). Die technischen Spezifikationen liegen in
 
 AgentKit führt Reviews in zwei architektonisch verschiedenen Tracks durch:
 
-- **Track A — Sparring-Reviews während der Implementierung:** Der Worker-Agent sendet Code über den **LLM-Hub** (dessen MCP-Interface) an weitere Modelle, mit vordefinierten Prompt-Templates. Dialogischer Flow, Konversationskontinuität auf demselben Hub-Slot, freiformige Antworten. **AK3-mandatiert, aber agent-ausgeführt** (FK-01 §1.1 Carve-out; Kontrolle über Telemetrie, vgl. DK-02 „Review durch konfigurierte LLMs"). Die konkreten Modelle sind austauschbar; die unten genannten dienen als empirische Belege.
+- **Track A — Reviews während der Implementierung:** Der Worker holt
+  zusätzliche LLM-Perspektiven über den AK3-Hub-Zugriff gemäß FK-75 ein,
+  mit vordefinierten Prompt-Templates. Die konkreten Modelle sind
+  austauschbar; die unten genannten dienen als empirische Belege.
+  Freiwilliges Harness-Sparring ist davon getrennt, außerhalb AK3 und
+  kein Gate-Nachweis.
 
 - **Track B — StructuredEvaluator in Verify Schicht 2:** Drei parallele Evaluator-Aufrufe (QA-Review 12 Checks, Semantic Review 1 Check, Doc-Fidelity 1 Check) mit festen ContextBundle-Feldern, JSON-Schema-Validierung, fail-closed-Semantik.
 
@@ -311,10 +316,10 @@ Statt "The source files for this story are attached — review them all" wird da
 
 ```
 Worker assembliert Bundle (via Evidence Assembler)
-  → Hub-Send: PREFLIGHT-Prompt + merge_paths   # Hub-MCP, an ein Reviewer-Modell (Befehl: FK-11 §11.2.1)
+  → Review-Request via FK-75: PREFLIGHT-Prompt + merge_paths
   → Reviewer antwortet mit 0-8 strukturierten Requests
   → System löst Requests deterministisch auf
-  → Hub-Send: REVIEW-Prompt + erweiterte merge_paths
+  → Review-Request via FK-75: REVIEW-Prompt + erweiterte merge_paths
   → Reviewer führt den eigentlichen Review durch
 ```
 

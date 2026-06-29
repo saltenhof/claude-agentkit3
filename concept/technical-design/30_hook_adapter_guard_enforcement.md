@@ -88,12 +88,12 @@ glossary:
     - id: preflight-sentinel
       reason: >
         Internes Telemetrie-Erkennungsmuster ([PREFLIGHT:...-v1:{story_id}])
-        fuer Hub-Send-Hooks. Implementierungsdetail der Hook-Telemetrie,
+        fuer Review-/LLM-Anfragen. Implementierungsdetail der Hook-Telemetrie,
         kein exportierter Vertragstyp.
     - id: review-sentinel
       reason: >
         Internes Telemetrie-Erkennungsmuster ([TEMPLATE:...-v1:{story_id}])
-        fuer Hub-Send-Hooks. Implementierungsdetail der Hook-Telemetrie,
+        fuer Review-/LLM-Anfragen. Implementierungsdetail der Hook-Telemetrie,
         kein exportierter Vertragstyp.
 ---
 
@@ -456,7 +456,7 @@ Harness aus aufrufbar.
 | `"Bash"` | Nur Bash-Tool |
 | `"Write\|Edit"` | Write oder Edit |
 | `"Agent"` | Agent-Tool (Sub-Agent-Spawn) |
-| `"*_send"` | MCP-Send-Tools, u. a. das LLM-Hub-Send-Tool (Befehlsvertrag FK-11 §11.2.1) |
+| `"*_send"` | MCP-Send-Tools von Harnesses; nicht fuer AK3-Hub-Zugriffe, die ueber FK-75 laufen |
 | `"WebSearch\|WebFetch"` | Web-Tools |
 
 ### 30.3.3 Guard-Verhalten beim Story-Reset
@@ -594,11 +594,11 @@ oder PostToolUse sein.
 |------|--------|---------|
 | `telemetry.hook` (PreToolUse Bash) | `increment_commit`, `drift_check` | Erkennt `git commit` und `DRIFT_CHECK:` |
 | `telemetry.hook` (PostToolUse Agent) | `agent_start`, `agent_end`, `adversarial_start`, `adversarial_end` | Erkennt Agent-Spawn und -Ende |
-| `telemetry.hook` (PostToolUse Hub-Send) | `llm_call`, `review_request`, `review_response` | Erkennt Pool-Calls (Review-Sentinel) |
-| `telemetry.hook` (PreToolUse Hub-Send) | `preflight_request` | Erkennt Preflight-Sentinel `[PREFLIGHT:...-v1:{story_id}]` |
-| `telemetry.hook` (PostToolUse Hub-Send) | `preflight_response` | Erkennt Preflight-Sentinel in Antwort |
-| `review_guard` (PostToolUse Hub-Send) | `review_compliant` | Erkennt Review-Sentinel `[TEMPLATE:...]` |
-| `review_guard` (PostToolUse Hub-Send) | `preflight_compliant` | Erkennt Preflight-Sentinel `[PREFLIGHT:...]` |
+| `telemetry.hook` (Review-/LLM-Request) | `llm_call`, `review_request`, `review_response` | Erkennt Pool-Calls (Review-Sentinel) |
+| `telemetry.hook` (Preflight-Request) | `preflight_request` | Erkennt Preflight-Sentinel `[PREFLIGHT:...-v1:{story_id}]` |
+| `telemetry.hook` (Preflight-Response) | `preflight_response` | Erkennt Preflight-Sentinel in Antwort |
+| `review_guard` (Review-/LLM-Request) | `review_compliant` | Erkennt Review-Sentinel `[TEMPLATE:...]` |
+| `review_guard` (Preflight-Request) | `preflight_compliant` | Erkennt Preflight-Sentinel `[PREFLIGHT:...]` |
 | `budget` (PostToolUse Web) | `web_call` | Zählt Web-Aufrufe |
 | `health_monitor post` (PostToolUse alle) | `health_score_update` | Score-Berechnung, Tool-Call-Logging, Hook-Failure-Klassifikation (§30.10.1) |
 
@@ -854,8 +854,8 @@ erkannt wird und umgekehrt.
 
 | Hook-Zeitpunkt | Handler | Emittiertes Event | Bedingung |
 |----------------|---------|------------------|-----------|
-| PreToolUse (Hub-Send) | `handle_preflight_send()` | `PREFLIGHT_REQUEST` | `_PREFLIGHT_SENTINEL` matcht in der Hub-Send-Nachricht |
-| PostToolUse (Hub-Send) | `handle_preflight_response()` | `PREFLIGHT_RESPONSE` | `_PREFLIGHT_SENTINEL` matcht in der ursprünglichen Nachricht |
+| PreToolUse (Review-Request) | `handle_preflight_send()` | `PREFLIGHT_REQUEST` | `_PREFLIGHT_SENTINEL` matcht in der Review-Anfrage |
+| PostToolUse (Review-Response) | `handle_preflight_response()` | `PREFLIGHT_RESPONSE` | `_PREFLIGHT_SENTINEL` matcht in der ursprünglichen Anfrage |
 
 Die Handler sind in `telemetry/hook.py` implementiert, analog zu
 den Review-Handlern. Sie nutzen `insert_event()`
@@ -872,7 +872,7 @@ emittiert jeweils das korrekte Compliance-Event:
 | `_REVIEW_SENTINEL` (`[TEMPLATE:...]`) | `EventType.REVIEW_COMPLIANT` |
 | `_PREFLIGHT_SENTINEL` (`[PREFLIGHT:...]`) | `EventType.PREFLIGHT_COMPLIANT` |
 
-Die Erkennung ist getrennt: ein Hub-Send kann entweder einen
+Die Erkennung ist getrennt: eine Review-/LLM-Anfrage kann entweder einen
 Review-Sentinel ODER einen Preflight-Sentinel enthalten, nie
 beide. Der Guard prüft beide Patterns sequentiell und emittiert
 das passende Event.

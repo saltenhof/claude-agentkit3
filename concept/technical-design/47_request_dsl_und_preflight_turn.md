@@ -278,7 +278,7 @@ Der Preflight-Turn ist ein eigenständiger Kommunikationsschritt
 zwischen dem Orchestrator und einem LLM-Reviewer **vor** dem
 eigentlichen Review. Er läuft NICHT über den bestehenden
 `LlmEvaluator`/`StructuredEvaluator` (FK-11), sondern als
-direkter Hub-Aufruf über das MCP-Interface (FK-11 §11.2.1).
+Review-spezifischer Hub-Aufruf über den FK-75-REST-Adapter.
 
 ```mermaid
 sequenceDiagram
@@ -290,7 +290,7 @@ sequenceDiagram
     O->>A: assemble()
     A-->>O: AssemblyResult (manifest + entries)
 
-    O->>R: Hub-Send (preflight_prompt, merge_paths)
+    O->>R: Review-Request via FK-75 (preflight_prompt, merge_paths)
     Note over R: Reviewer prüft Bundle,<br/>formuliert Requests
     R-->>O: JSON { "requests": [...] }
 
@@ -301,7 +301,7 @@ sequenceDiagram
         O->>O: merge_paths erweitern
     end
 
-    O->>R: Hub-Send (review_prompt + BUNDLE_HEADER, extended_paths)
+    O->>R: Review-Request via FK-75 (review_prompt + BUNDLE_HEADER, extended_paths)
     Note over R: Eigentlicher Review<br/>mit erweitertem Kontext
     R-->>O: Review-Ergebnis
 ```
@@ -312,7 +312,7 @@ sequenceDiagram
 1. evidence = EvidenceAssembler(repos, spawn_worktree_repo, ...).assemble()
 2. manifest = evidence.manifest
 3. preflight_prompt = render_preflight_prompt(manifest)
-4. raw_response = hub.send(preflight_prompt, merge_paths=manifest.file_paths)  # Befehl: FK-11 §11.2.1
+4. raw_response = hub_adapter.send_review(preflight_prompt, merge_paths=manifest.file_paths)  # FK-75
 5. requests = parse_preflight_response(raw_response)
    # Bei Parse-Fehler: requests=[] + WARNING, Review läuft trotzdem weiter
 6. IF requests:

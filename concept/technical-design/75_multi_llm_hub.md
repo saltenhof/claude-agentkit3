@@ -13,9 +13,6 @@ defers_to:
   - target: FK-07
     scope: component-architecture
     reason: Bluttyp-Klassifizierung als R-Foundation laeuft ueber FK-07
-  - target: FK-91
-    scope: api-catalog
-    reason: API-Vertrag laeuft ueber FK-91
   - target: FK-44
     scope: prompt-runtime
     reason: fachliche Routing-Regeln (welches Modell fuer welche Phase) leben in prompt_runtime, nicht hier
@@ -71,13 +68,17 @@ Multi-LLM-Hub (extern)  ◄──REST──►  agentkit.integration_clients.mul
                                                   - Frontend Hub-Cockpit
 ```
 
-## 75.5 AK3-Control-Plane-Endpunkte (Auswahl)
+## 75.5 AK3-Control-Plane-Endpunkte
 
-Offiziell katalogisiert in **FK-91**. Diese Tabelle beschreibt die
-AK3-Adapter-Surface unter `/v1/hub/*`; sie ist **kein Klon** der
-externen Hub-Schnittstellenspezifikation. Die externe Hub-API bleibt
-Quelle der Wahrheit fuer Hub-interne Pfade, Parameter, Tool-Namen und
-Fehlercodes.
+Dieser Abschnitt ist die einzige normative AK3-Quelle fuer den Zugriff
+auf den externen LLM-Hub. Andere Konzepte verweisen auf FK-75 und
+definieren keine Hub-Endpunkte, Tool-Namen, Parameter oder
+Transportdetails.
+
+Die Tabelle beschreibt die AK3-Adapter-Surface unter `/v1/hub/*`; sie
+ist **kein Klon** der externen Hub-Schnittstellenspezifikation. Die
+externe Hub-API bleibt Quelle der Wahrheit fuer Hub-interne Pfade,
+Parameter, Tool-Namen und Fehlercodes.
 
 | Methode | Pfad | Zweck |
 |---|---|---|

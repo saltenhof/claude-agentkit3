@@ -93,9 +93,9 @@ Modell). Die Laufzeit-Auflösung erfolgt über eine feste Kette:
 1. Rolle bestimmen (z.B. `qa_review`, `semantic_review`)
 2. Modell/Backend aus `llm_roles` in `project.yaml` lesen
    (zwei verschiedene Hub-Modelle, modellagnostisch)
-3. acquire/send/release über das **Unified-REST-Interface des
-   LLM-Hubs** ausführen (Modell als Ziel) — dies ist AK3-Code-getriebene
-   Bewertung, daher core-getriebener REST-Pfad, nicht MCP (FK-10 §10.1.4)
+3. LLM-Aufruf über den **FK-75-REST-Adapter** ausführen (Modell als
+   Ziel) — dies ist AK3-Code-getriebene Bewertung, daher
+   core-getriebener REST-Pfad, nicht MCP (FK-10 §10.1.4)
 4. Telemetrie-Event schreiben (`llm_call` mit `pool` und `role`)
 
 **Architektonische Grenzregel (Spawn-Contract):** Die Unterscheidung
@@ -105,7 +105,7 @@ technisch realisiert wird:
 - **Rollen ohne Dateisystem-Zugriff** (QA-Bewertung, Semantic Review,
   Dokumententreue, Governance-Adjudication, Design-Review,
   Design-Challenge): Das konfigurierte Modell wird direkt über das
-  Unified-REST-Interface des LLM-Hubs aufgerufen (`LlmEvaluator.evaluate()`). Die Steuerung
+  den FK-75-REST-Adapter aufgerufen (`LlmEvaluator.evaluate()`). Die Steuerung
   ist deterministisch — ein Python-Skript liefert strukturierten
   Input und fordert ein definiertes JSON-Response-Schema ein. Kein
   Agent-Spawn nötig.

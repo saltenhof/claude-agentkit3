@@ -522,14 +522,11 @@ sondern in der Pipeline-Konfiguration als Pflicht-Reviewer hinterlegt.
 Der Zweck dieser Reviews ist präventiv: Architektur-Drift früh erkennen,
 blinde Flecken aufdecken, Seiteneffekte identifizieren.
 
-Dieser Sparring-Review ist **AK3-mandatiert, aber agent-ausgeführt**:
-*dass* er stattfindet, schreibt AK3 vor; die dialogische Durchführung
-übernimmt der Agent direkt über das MCP-Interface des Hubs (FK-01 §1.1
-Carve-out). Die Kontrolle erfolgt über die **Telemetrie** — das
-Integrity-Gate prüft die konfigurierten `llm_roles` —, nicht über
-Token-Durchleitung durch den Kern. Davon zu trennen sind die
-**core-getriebenen** Schicht-2-Evaluationen (StructuredEvaluator), die
-als AK3-Fachlogik über das Unified-REST-Interface des Hubs laufen.
+Dieser Review ist AK3-Fachlogik und läuft über den Core-vermittelten
+LLM-Hub-Zugriff gemäß FK-75. Davon zu trennen ist freiwilliges
+Harness-Sparring: Codex oder Claude Code dürfen sich aus eigener
+Intention eine Zweitmeinung holen, aber AK3 schreibt diesen Pfad nicht
+vor und wertet ihn nicht als Gate-Nachweis.
 
 Die Häufigkeit orientiert sich an der Story-Größe:
 

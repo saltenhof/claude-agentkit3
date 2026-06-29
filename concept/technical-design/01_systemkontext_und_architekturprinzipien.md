@@ -124,16 +124,17 @@ Im Team-Deployment wird die Zone-2/Zone-3-Grenze (§1.4) damit zur Prozess- und
 Netzgrenze und ist entsprechend härter.
 
 **Drittsystem-Vermittlung (Carve-out).** Eine direkte Lokal→Infra-Kante
-ist nur erlaubt, wenn der Aufruf (1) Eigenbedarf des Agents ist, (2)
-agent-ausgeführtes LLM-Sparring ohne kanonische State-Mutation ist
-(ggf. AK3-mandatiert und per Telemetrie/Guards nachgewiesen) oder (3)
-fs/worktree-gebunden bzw. Bulk ist und Core-Vermittlung keinen
-Kontrollgewinn bringt. Sonst Core-vermittelt:
+ist nur erlaubt, wenn der Aufruf (1) Eigenbedarf des Agents ist oder
+(2) fs/worktree-gebunden bzw. Bulk ist und Core-Vermittlung keinen
+Kontrollgewinn bringt. AK3-mandatierte Zugriffe auf den LLM-Hub laufen
+immer Core-vermittelt über den FK-75-REST-Adapter. Harness-eigenes
+Hub-Sparring per MCP ist Eigeninitiative von Codex/Claude Code und kein
+AK3-Vertrag. Sonst Core-vermittelt:
 
 | 3rd-Party | Core-vermittelt (AK3-mandatiert, Kontrollinteresse) | Lokal-direkt (Ausnahme) |
 |-----------|------------------------------------------------------|-------------------------|
 | Postgres | kanonischer State + Telemetrie | — |
-| LLM-Hub | AK3-Bewertungs-/Adjudication-Calls | Agent-Sparring (MCP) |
+| LLM-Hub | AK3-Bewertungs-/Adjudication-Calls via FK-75 | Harness-Eigenbedarf (MCP, außerhalb AK3) |
 | SonarQube / Jenkins | Konformitätsurteil / CI-Gate | Ad-hoc-Einsicht |
 | GitHub | API-Metadaten + Autorität über Closure | git-Worktree-Mechanik (gh/git-CLI lokal) |
 | ARE | Coverage-Read | Evidence-Upload |
@@ -228,7 +229,7 @@ read-mostly-Zugriffe (Weaviate, ARE-Evidence):
 
 | Dienst | Schnittstelle zu AgentKit | Anforderung |
 |--------|--------------------------|-------------|
-| LLM-Hub | Befehlsvertrag in FK-11 §11.2.1 (REST + MCP) | Mindestens 2 verschiedene LLM-Familien neben Claude. Backend-Implementierung (Browser-Automation, API, etc.) ist AgentKit egal. |
+| LLM-Hub | AK3-Zugriff ausschließlich über FK-75 (REST-Adapter) | Mindestens 2 verschiedene LLM-Familien neben Claude. Backend-Implementierung (Browser-Automation, API, etc.) ist AgentKit egal. |
 | Story-Knowledge-Base | MCP-Tools: `story_search`, `story_list_sources`, `story_sync` | Beliebige Implementierung mit dieser MCP-Schnittstelle (z.B. Weaviate via FastMCP-Server). |
 | ARE (optional) | MCP-Tools (analog zu Weaviate-Wrapper). **Kein direkter DB-Zugriff.** | Python-Anwendung mit SQL-DB im Backend. Falls ARE nativ nur REST/FastAPI spricht, wird ein MCP-Wrapper als Adapter implementiert (wie bei Weaviate). |
 | Zielprojekt | Dateisystem + Git | Beliebiger Tech-Stack |
@@ -237,8 +238,9 @@ read-mostly-Zugriffe (Weaviate, ARE-Evidence):
 nicht Teil von AgentKit und frei waehlbar — etwa Browser-Automation per
 FastAPI/Playwright oder eine direkte API-Anbindung, jeweils nativ oder in
 einer isolierten Laufzeit (z.B. WSL2). Massgeblich ist allein die
-Einhaltung des Hub-Befehlsvertrags (FK-11 §11.2.1; AK3-Code via REST,
-Agent-Sparring via MCP).
+Einhaltung des Hub-Adaptervertrags (FK-75; AK3-Code ausschließlich via
+REST). MCP-Nutzung durch Codex/Claude Code ist Harness-Eigenbedarf und
+nicht Teil des AK3-Vertrags.
 
 ### 1.2.2a Fachliches Komponentenmodell
 
@@ -556,7 +558,7 @@ flowchart TD
     classDef lightweight fill:#d4edda,stroke:#28a745,color:#333
     classDef fail fill:#f8d7da,stroke:#dc3545,color:#333
 
-    START(["Mensch setzt Issue<br/>auf 'Approved'"]) --> ORCH
+    START(["Mensch gibt Story<br/>frei ('Approved')"]) --> ORCH
     ORCH["Orchestrator-Agent<br/>startet Pipeline"] --> SETUP
 
     subgraph SETUP_PHASE ["Service: POST /phases/setup/start"]
@@ -601,7 +603,7 @@ flowchart TD
         CLOSURE["Integrity-Gate<br/>(7 Dim. + Telemetrie)"]
         CLOSURE -->|FAIL| ESC_C(["Eskalation<br/>an Mensch"]):::fail
         CLOSURE -->|PASS| MERGE["Branch mergen"]
-        MERGE --> CLOSE["Issue schließen<br/>Status: Done"]
+        MERGE --> CLOSE["GitHub-Issue schließen<br/>(Projektion)"]
         CLOSE --> METRICS["Metriken erfassen"]
         METRICS --> POSTFLIGHT["Postflight-Gates"]
     end
@@ -643,7 +645,7 @@ flowchart TD
 | VektorDB | Weaviate | 1.25+ | gRPC + HTTP REST |
 | Embedding | text2vec-transformers | — | Docker Sidecar |
 | VektorDB-MCP | FastMCP | 1.2+ | stdio-Transport |
-| LLM-Hub | Beliebig (externe Infrastruktur) | — | Befehlsvertrag FK-11 §11.2.1. Implementierung ist AgentKit-agnostisch. |
+| LLM-Hub | Beliebig (externe Infrastruktur) | — | AK3-Adaptervertrag FK-75. Implementierung ist AgentKit-agnostisch. |
 | ARE (optional) | Python-Anwendung + SQL-DB | — | MCP-Tools oder FastAPI-Endpunkte. Kein direkter DB-Zugriff durch AgentKit. |
 | Build/Test | projektspezifisch | — | via `mvn`, `pytest`, `jest` etc. |
 | Linting/Typing | ruff, mypy | — | CLI |
