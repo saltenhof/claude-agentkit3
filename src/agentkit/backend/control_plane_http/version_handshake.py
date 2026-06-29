@@ -46,7 +46,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum, auto
 from http import HTTPStatus
 from typing import TYPE_CHECKING
@@ -56,7 +56,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from agentkit.backend.control_plane.models import ApiErrorResponse
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from agentkit.backend.control_plane_http.app import HttpResponse
 
@@ -388,6 +388,35 @@ class VersionHandshakeMiddleware:
         if warnings:
             advisory.append((COMPAT_WARNING_HEADER, "; ".join(warnings)))
         return HandshakeOutcome(advisory_headers=tuple(advisory))
+
+    def guard(
+        self,
+        *,
+        method: str,
+        route_path: str,
+        request_headers: Mapping[str, str] | None,
+        correlation_id: str,
+        dispatch: Callable[[], HttpResponse],
+    ) -> HttpResponse:
+        """Gate one request: fail-closed 426, else dispatch + attach advisories.
+
+        Evaluates the handshake (FK-91 §91.1a Regel 11) after auth/tenant and
+        before routing. On a fail-closed outcome the ready 426 block is returned
+        without dispatching; otherwise ``dispatch`` runs and any announce/WARNING
+        advisory headers are attached onto its response.
+        """
+        outcome = self.evaluate(
+            method=method,
+            route_path=route_path,
+            request_headers=request_headers,
+            correlation_id=correlation_id,
+        )
+        if outcome.block is not None:
+            return outcome.block
+        response = dispatch()
+        if outcome.advisory_headers:
+            response = replace(response, headers=response.headers + outcome.advisory_headers)
+        return response
 
     def _classify_runtime(self, client_version: str) -> tuple[_RuntimeDecision, str]:
         """Classify the agent-runtime version against the window (FK-10 §10.2.8)."""
