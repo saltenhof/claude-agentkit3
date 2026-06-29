@@ -1,6 +1,6 @@
 ---
 concept_id: FK-11
-title: LLM-Provider, Browser-Pools und Prompt-Execution
+title: LLM-Provider, LLM-Hub und Prompt-Execution
 module: llm-provider
 cross_cutting: true
 status: active
@@ -19,7 +19,7 @@ defers_to:
     reason: Fachliches LLM-Role-Routing und Spawn-Contract liegt in DK-01
 supersedes: []
 superseded_by:
-tags: [llm, browser-pool, prompt, evaluator, mcp]
+tags: [llm, multi-llm-hub, prompt, evaluator, mcp]
 formal_scope: prose-only
 ---
 
@@ -43,9 +43,9 @@ Guards via Harness-Adapter, Telemetrie).
 
 **LLM als Bewertungsfunktion** wird vollständig von AgentKit-
 Python-Skripten gesteuert. Das Skript baut den Prompt, ruft das
-LLM über einen Browser-Pool auf, empfängt die Antwort, validiert
-sie und entscheidet. Das LLM hat keinen Dateisystem-Zugriff und
-kein autonomes Handeln.
+Modell über den **LLM-Hub** (Unified REST) auf, empfängt die Antwort,
+validiert sie und entscheidet. Das LLM hat keinen Dateisystem-Zugriff
+und kein autonomes Handeln.
 
 ### 11.1.1 Spawn-Contract: Agent vs. LlmEvaluator
 
@@ -59,8 +59,9 @@ welche direkt über den LlmEvaluator geroutet werden.
 
 Rollen, die ausschließlich Text bewerten — ohne Dateien zu lesen,
 zu schreiben oder auszuführen — werden über `LlmEvaluator.evaluate()`
-direkt an den konfigurierten MCP-Pool geroutet. Das konfigurierte
-LLM wird deterministisch gesteuert: strukturierter Input, definiertes
+direkt über das **Unified-REST-Interface des LLM-Hubs** geroutet
+(AK3-Code-getrieben, FK-10 §10.1.4). Das konfigurierte Modell wird
+deterministisch gesteuert: strukturierter Input, definiertes
 JSON-Response-Schema, kein autonomes Handeln.
 
 Betroffene Rollen:
@@ -111,73 +112,59 @@ Pools nutzen. Dies wird durch die Config-Validierung erzwungen.
 
 *Referenz: DK-01 §1.1 "LLM-Role-Routing und Spawn-Contract"*
 
-## 11.2 LLM-Pool-Abstraktion
+## 11.2 LLM-Hub-Abstraktion
 
-### 11.2.1 MCP-Schnittstellenvertrag
+### 11.2.1 Wie AK3 den LLM-Hub nutzt
 
-AgentKit definiert einen abstrakten Schnittstellenvertrag für
-LLM-Session-Pools. Jede Implementierung, die diesen Vertrag über
-MCP erfüllt, ist als Pool einsetzbar.
+> **Keine API-Klone.** Die Schnittstellenspezifikation des LLM-Hubs
+> (Endpunkte, Tool-Namen, Parameter, Fehlercodes) liefert **der Hub
+> selbst** (externe Quelle der Wahrheit). Dieses Konzept wiederholt sie
+> **nicht** — es legt nur fest, *wie* AK3 den Hub nutzt. Einzelne
+> Operationen werden benannt, wo es für die AK3-Logik nötig ist.
 
-**Pflicht-Tools:**
+AK3 nutzt die **Session-Operationen** des Hubs — **acquire**, **send**,
+**release** (sowie **resume**/**health** nach Bedarf). Das Befehlsset ist
+einheitlich und **modellunabhängig**: das Zielmodell ist ein Parameter,
+kein Befehlspräfix. Die konkrete Signatur steht in der Hub-Spezifikation.
 
-| MCP-Tool | Semantik | Parameter | Rückgabe |
-|----------|---------|-----------|---------|
-| `{pool}_acquire` | Slot anfordern (nicht-blockierend) | `owner: str` | `slot_id`, `lease_token`, oder `queued`/`rejected` |
-| `{pool}_send` | Nachricht senden, auf Antwort warten (blockierend) | `slot_id`, `token`, `message`, `merge_paths?`, `file_paths?` | Antworttext (Markdown) |
-| `{pool}_release` | Slot freigeben | `slot_id`, `token` | Bestätigung |
-| `{pool}_health` | Lebendigkeit prüfen | — | `"ok"` oder Fehler |
-| `{pool}_pool_status` | Pool-Übersicht | — | Slot-Status, Queue, System |
+**Transportwahl (FK-10 §10.1.4):**
+- **AK3-Code-getriebene Bewertungen** (LlmEvaluator, StructuredEvaluator,
+  DialogueRunner — §11.4/§11.5) nutzen das **Unified-REST-Interface**
+  des Hubs.
+- **Agent-Sparring** (z. B. Adversarial §11.8) nutzt das **MCP-Interface**
+  des Hubs (FK-01 §1.1 Carve-out).
 
-**Optionale Tools:**
+Das **Zielmodell** wird über `llm_roles` (§11.3) aufgelöst und als
+Parameter übergeben. Die Backend-Implementierung (Browser-Automation,
+direkte API) ist AK3 egal.
 
-| MCP-Tool | Semantik |
-|----------|---------|
-| `{pool}_pool_reset` | Kompletter Pool-Reset (Notfall) |
-| `{pool}_shutdown` | Graceful Shutdown |
+### 11.2.2 Datei-Handling (AK3-Nutzungsregel)
 
-`{pool}` ist der konfigurierte Pool-Name (z.B. `chatgpt`, `gemini`,
-`grok`). Der Name wird in `project.yaml` unter `llm_roles`
-referenziert.
+Der Hub-Send unterstützt Datei-Uploads (Text-Merge und Binär-Anhänge);
+die genauen Parameter, Typen und Limits liefert die
+LLM-Hub-Schnittstellenspezifikation, nicht dieses Konzept.
 
-**Browser-Pool vs. API:** Das FK erlaubt LLM-Aufrufe "über API oder
-Browser-Pool" (FK 4.1). Die MCP-Schnittstellenanforderung ist
-implementierungsagnostisch — ein Pool kann intern einen Browser
-steuern oder eine API aufrufen. AgentKit ist das egal, solange die
-MCP-Tools die obige Signatur einhalten. Die aktuelle Referenz-
-Implementierung nutzt Browser-Pools (kostenlos, kein API-Key).
-Ein API-basierter Pool wäre eine gleichwertige Alternative.
-
-### 11.2.2 Datei-Handling
-
-Alle Pools müssen zwei Datei-Strategien unterstützen:
-
-| Strategie | Dateitypen | Verhalten | Limit |
-|-----------|-----------|-----------|-------|
-| `merge_paths` | Textdateien (.py, .md, .java, .json, .yaml, ...) | Serverseitig zu einer Datei zusammengefasst, als ein Upload gesendet | Kein Limit (werden gemergt) |
-| `file_paths` | Binärdateien (.png, .pdf, .xlsx, ...) | Einzeln hochgeladen | Max 9 pro Send (bzw. 10 ohne merge_paths) |
-
-**Regel:** Alle Textdateien immer in einem einzigen `send`-Call
-über `merge_paths`. Nie auf mehrere Sends aufteilen.
+**AK3-Regel:** Alle Textdateien immer in **einem** Send mergen, nie auf
+mehrere Sends aufteilen.
 
 ### 11.2.3 Acquire/Send/Release-Protokoll
 
 ```mermaid
 sequenceDiagram
-    participant S as AgentKit-Skript
-    participant P as Pool (MCP)
-    participant L as LLM-Web-Interface
+    participant S as AgentKit-Skript (LlmEvaluator)
+    participant H as LLM-Hub (Unified REST)
+    participant L as Modell-Backend
 
-    S->>P: {pool}_acquire(owner="qa-review-PROJ-042")
-    P-->>S: slot_id=0, lease_token="abc..."
+    S->>H: acquire(owner="qa-review-PROJ-042")
+    H-->>S: session_id, token
 
-    S->>P: {pool}_send(slot_id=0, token="abc...", message="...", merge_paths=[...])
-    P->>L: Nachricht + Dateien an LLM
-    L-->>P: Antwort (kann Minuten dauern)
-    P-->>S: Antworttext (Markdown)
+    S->>H: send(session_id, token, message, merge_paths=[...], target=Modell)
+    H->>L: Nachricht + Dateien an Modell
+    L-->>H: Antwort (kann Minuten dauern)
+    H-->>S: Antworttext (Markdown)
 
-    S->>P: {pool}_release(slot_id=0, token="abc...")
-    P-->>S: Slot freigegeben
+    S->>H: release(session_id, token)
+    H-->>S: Session freigegeben
 ```
 
 **Fehlerbehandlung im Protokoll:**
@@ -230,10 +217,10 @@ bedienen (FK-04-019). Die Validierung in `config.py` stellt sicher:
 Wenn ein Pipeline-Skript ein LLM aufrufen will:
 
 1. Rolle bestimmen (z.B. `qa_review`)
-2. Pool-Name aus `llm_roles` lesen (z.B. `chatgpt`)
-3. MCP-Tool-Prefix ableiten: `chatgpt_acquire`, `chatgpt_send`, ...
-4. Acquire/Send/Release ausführen
-5. Telemetrie-Event schreiben: `llm_call` mit `pool` und `role`
+2. Modell aus `llm_roles` lesen (Hub-Backend)
+3. acquire/send/release über das Unified-REST-Interface des Hubs
+   ausführen (Modell als `target`; Befehlsvertrag §11.2.1)
+4. Telemetrie-Event schreiben: `llm_call` mit `pool` und `role`
 
 ## 11.4 LLM-Evaluator: Das zentrale Pattern
 
@@ -280,10 +267,10 @@ class LlmEvaluator:
 
 ```mermaid
 flowchart TD
-    START["evaluate() aufgerufen"] --> RESOLVE["Rolle → Pool-Name<br/>aus llm_roles"]
+    START["evaluate() aufgerufen"] --> RESOLVE["Rolle → Modell<br/>aus llm_roles"]
     RESOLVE --> RENDER["Prompt rendern<br/>(Template + Kontext-Bundle)"]
-    RENDER --> ACQ["Pool-Slot acquiren<br/>{pool}_acquire"]
-    ACQ --> SEND["Prompt senden<br/>{pool}_send + merge_paths"]
+    RENDER --> ACQ["Session acquiren<br/>acquire (§11.2.1)"]
+    ACQ --> SEND["Prompt senden<br/>send + merge_paths"]
     SEND --> EXTRACT{"JSON-Block aus<br/>Antwort extrahieren"}
 
     EXTRACT -->|"JSON-Block gefunden"| DESER["Deserialisierung:<br/>JSON → list[CheckResult]"]
@@ -303,13 +290,13 @@ flowchart TD
     RETRY -->|"Ja (2. Versuch)"| FAIL_CLOSED["Alle Checks = FAIL<br/>(fail-closed)"]
 
     FAIL_CLOSED --> TELEM
-    TELEM --> RELEASE["{pool}_release<br/>(immer, auch bei Fehler)"]
+    TELEM --> RELEASE["release<br/>(immer, auch bei Fehler)"]
     RELEASE --> RESULT["EvalResult zurückgeben"]
 ```
 
 ### 11.4.4 Dreistufige Antwort-Verarbeitung
 
-Die Antwort eines LLMs über Browser-Pool ist unstrukturiert
+Die Antwort eines LLMs über den Hub ist unstrukturiert
 (Markdown-Text). AgentKit erzwingt strukturierte Antworten über
 drei Stufen:
 
@@ -550,16 +537,16 @@ geloggt, weil das Feedback inhaltlich verarbeitet werden muss
 
 | Operation | Timeout | Begründung |
 |-----------|---------|------------|
-| `{pool}_acquire` | 30 Sekunden | Nicht-blockierend; bei `queued` Retry nach geschätzter Wartezeit |
-| `{pool}_send` | 2400 Sekunden (40 Min) | LLMs können bei großen Inputs lange brauchen |
-| `{pool}_release` | 10 Sekunden | Sollte sofort gehen |
+| `acquire` | 30 Sekunden | Nicht-blockierend; bei `queued` Retry nach geschätzter Wartezeit |
+| `send` | 2400 Sekunden (40 Min) | LLMs können bei großen Inputs lange brauchen |
+| `release` | 10 Sekunden | Sollte sofort gehen |
 | Acquire-Retry (bei `queued`) | Max 5 Versuche | Danach Abbruch mit Fehler |
 | Gesamter Evaluator-Aufruf | 2500 Sekunden | Send-Timeout + Overhead |
 
 ### 11.6.2 Kosten-Budget
 
-Browser-Pool-Aufrufe sind kostenlos (kein API-Key, Browser-Session).
-Es gibt daher kein monetäres Budget. Aber:
+Hub-Aufrufe über Browser-Backends sind kostenlos (kein API-Key,
+Browser-Session). Es gibt daher kein monetäres Budget. Aber:
 
 | Budget | Limit | Config-Pfad | Durchsetzung |
 |--------|-------|-------------|-------------|
@@ -653,8 +640,9 @@ holen (FK-05-189).
    Fehlerpfade, Race Conditions, Missbrauchsszenarien
 4. Agent schreibt erste Tests in Sandbox
    (`_temp/adversarial/{story_id}/`) und führt sie aus
-5. **Danach Sparring:** Agent ruft konfigurierten Sparring-Pool auf
-   (`{adversarial_sparring}_acquire` → `send` → `release`),
+5. **Danach Sparring:** Agent ruft das konfigurierte Sparring-Modell
+   über das **MCP-Interface des Hubs** auf (acquire → send → release,
+   §11.2.1; FK-01 §1.1 Carve-out — agent-ausgeführtes Sparring),
    beschreibt was er bereits getestet hat und fragt gezielt:
    "Welche Edge Cases habe ich übersehen?"
 6. Sparring-LLM liefert zusätzliche Ideen, die der Agent selbst

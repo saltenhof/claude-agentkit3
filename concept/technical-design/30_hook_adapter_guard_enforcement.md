@@ -456,7 +456,7 @@ Harness aus aufrufbar.
 | `"Bash"` | Nur Bash-Tool |
 | `"Write\|Edit"` | Write oder Edit |
 | `"Agent"` | Agent-Tool (Sub-Agent-Spawn) |
-| `"*_send"` | MCP-Send-Tools, u. a. das LLM-Hub-Tool `llm_send` (`mcp__llm-hub__llm_send`) |
+| `"*_send"` | MCP-Send-Tools, u. a. das LLM-Hub-Send-Tool (Befehlsvertrag FK-11 §11.2.1) |
 | `"WebSearch\|WebFetch"` | Web-Tools |
 
 ### 30.3.3 Guard-Verhalten beim Story-Reset
@@ -854,7 +854,7 @@ erkannt wird und umgekehrt.
 
 | Hook-Zeitpunkt | Handler | Emittiertes Event | Bedingung |
 |----------------|---------|------------------|-----------|
-| PreToolUse (Pool-Send) | `handle_preflight_send()` | `PREFLIGHT_REQUEST` | `_PREFLIGHT_SENTINEL` matcht in der Pool-Send-Nachricht |
+| PreToolUse (Hub-Send) | `handle_preflight_send()` | `PREFLIGHT_REQUEST` | `_PREFLIGHT_SENTINEL` matcht in der Hub-Send-Nachricht |
 | PostToolUse (Pool-Send) | `handle_preflight_response()` | `PREFLIGHT_RESPONSE` | `_PREFLIGHT_SENTINEL` matcht in der ursprünglichen Nachricht |
 
 Die Handler sind in `telemetry/hook.py` implementiert, analog zu

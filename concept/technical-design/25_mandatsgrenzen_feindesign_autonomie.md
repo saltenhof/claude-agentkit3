@@ -612,8 +612,8 @@ AgentKit überwacht den Feindesign-Subprozess auf zwei Ebenen:
 
 **Echtzeit-Enforcement via Hook:**
 
-Der bestehende Hook-Mechanismus zählt `llm_send`-Aufrufe pro
-Session-ID. Nach 10 Sends an dasselbe LLM wird der nächste Send
+Der bestehende Hook-Mechanismus zählt Hub-Send-Aufrufe (FK-11 §11.2.1)
+pro Session-ID. Nach 10 Sends an dasselbe LLM wird der nächste Send
 blockiert. Der Hook benötigt nur die `session_id` aus dem Request,
 kein Response-Parsing.
 

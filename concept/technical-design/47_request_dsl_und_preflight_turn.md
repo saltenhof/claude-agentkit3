@@ -284,13 +284,13 @@ direkter MCP-Pool-Call.
 sequenceDiagram
     participant O as Orchestrator
     participant A as EvidenceAssembler
-    participant R as MCP Pool (Reviewer)
+    participant R as LLM-Hub (Reviewer)
     participant RR as RequestResolver
 
     O->>A: assemble()
     A-->>O: AssemblyResult (manifest + entries)
 
-    O->>R: chatgpt_send(preflight_prompt, merge_paths)
+    O->>R: Hub-Send (preflight_prompt, merge_paths)
     Note over R: Reviewer prüft Bundle,<br/>formuliert Requests
     R-->>O: JSON { "requests": [...] }
 
@@ -301,7 +301,7 @@ sequenceDiagram
         O->>O: merge_paths erweitern
     end
 
-    O->>R: chatgpt_send(review_prompt + BUNDLE_HEADER, extended_paths)
+    O->>R: Hub-Send (review_prompt + BUNDLE_HEADER, extended_paths)
     Note over R: Eigentlicher Review<br/>mit erweitertem Kontext
     R-->>O: Review-Ergebnis
 ```
@@ -312,7 +312,7 @@ sequenceDiagram
 1. evidence = EvidenceAssembler(repos, spawn_worktree_repo, ...).assemble()
 2. manifest = evidence.manifest
 3. preflight_prompt = render_preflight_prompt(manifest)
-4. raw_response = chatgpt_send(preflight_prompt, merge_paths=manifest.file_paths)
+4. raw_response = hub.send(preflight_prompt, merge_paths=manifest.file_paths)  # Befehl: FK-11 §11.2.1
 5. requests = parse_preflight_response(raw_response)
    # Bei Parse-Fehler: requests=[] + WARNING, Review läuft trotzdem weiter
 6. IF requests:
@@ -321,7 +321,7 @@ sequenceDiagram
          Path(r.file_path) for r in results if r.status == "RESOLVED"
      ]
 7. review_prompt = render_review_prompt(manifest, resolved_requests=results)
-8. chatgpt_send(review_prompt, merge_paths=extended_paths)
+8. hub.send(review_prompt, merge_paths=extended_paths)
 9. → Reviewer führt Review durch
 ```
 

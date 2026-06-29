@@ -50,7 +50,7 @@ stimmt und Probleme erkannt werden?
 
 | Komponente | Prüfung | Wie |
 |------------|--------|-----|
-| LLM-Pools | Erreichbar? Login aktiv? | `{pool}_health` MCP-Call |
+| LLM-Hub | Erreichbar? Login aktiv? | Hub-Health-Aufruf (FK-11 §11.2.1) |
 | Weaviate | Erreichbar? Daten aktuell? | `docker ps` + `story_search` Test-Query |
 | ARE (wenn aktiv) | MCP-Server erreichbar? | `are_check_gate` mit Test-Story |
 | PostgreSQL | Erreichbar? Rollen/Rechte korrekt? | `agentkit backend health` |
@@ -165,7 +165,7 @@ Ursache: Pool-Server nicht gestartet oder Login abgelaufen
 Lösung:
 1. Pool-Server starten (start.cmd für ChatGPT, boot.sh für Gemini/Grok)
 2. Bei Login-Problem: VNC verbinden und manuell einloggen
-3. Verifizieren: {pool}_health → "ok"
+3. Verifizieren: Hub-Health → "ok" (FK-11 §11.2.1)
 ```
 
 ### 4.5.2 Stale Lock

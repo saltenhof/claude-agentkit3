@@ -311,10 +311,10 @@ Statt "The source files for this story are attached — review them all" wird da
 
 ```
 Worker assembliert Bundle (via Evidence Assembler)
-  → llm_send(PREFLIGHT-Prompt + merge_paths)   # Hub-MCP, an ein Reviewer-Modell
+  → Hub-Send: PREFLIGHT-Prompt + merge_paths   # Hub-MCP, an ein Reviewer-Modell (Befehl: FK-11 §11.2.1)
   → Reviewer antwortet mit 0-8 strukturierten Requests
   → System löst Requests deterministisch auf
-  → llm_send(REVIEW-Prompt + erweiterte merge_paths)
+  → Hub-Send: REVIEW-Prompt + erweiterte merge_paths
   → Reviewer führt den eigentlichen Review durch
 ```
 

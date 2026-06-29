@@ -394,15 +394,12 @@ Payload-Formate einfuehren.
 
 ## 91.3 MCP-Tool-Katalog
 
-### LLM-Session-Pools (pro Pool)
+### LLM-Hub
 
-| Tool | Kapitel | Beschreibung |
-|------|---------|-------------|
-| `{pool}_acquire` | 11 | Slot anfordern |
-| `{pool}_send` | 11 | Nachricht senden |
-| `{pool}_release` | 11 | Slot freigeben |
-| `{pool}_health` | 11 | Lebendigkeit prüfen |
-| `{pool}_pool_status` | 11 | Pool-Übersicht |
+Die LLM-Hub-Schnittstelle (Endpunkte, Tool-Namen, Parameter) liefert
+**der Hub selbst**. *Wie AK3 sie nutzt* (Session-Operationen,
+Transportwahl REST vs. MCP) steht in **FK-11 §11.2.1**. Dieser Katalog
+klont sie nicht.
 
 ### Story-Knowledge-Base (Weaviate)
 

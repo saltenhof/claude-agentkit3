@@ -226,7 +226,7 @@ gelten für Agent-Eigenbedarf (LLM-Sparring) und read-mostly-Zugriffe
 
 | Dienst | Schnittstelle zu AgentKit | Anforderung |
 |--------|--------------------------|-------------|
-| LLM-Session-Pools | MCP-Tools: `{pool}_acquire`, `{pool}_send`, `{pool}_release`, `{pool}_health`, `{pool}_pool_status` | Mindestens 2 verschiedene LLM-Familien neben Claude. Die konkrete Implementierung (Browser-Automation, API, etc.) ist AgentKit egal — es zählt nur die MCP-Schnittstelle. |
+| LLM-Hub | Befehlsvertrag in FK-11 §11.2.1 (REST + MCP) | Mindestens 2 verschiedene LLM-Familien neben Claude. Backend-Implementierung (Browser-Automation, API, etc.) ist AgentKit egal. |
 | Story-Knowledge-Base | MCP-Tools: `story_search`, `story_list_sources`, `story_sync` | Beliebige Implementierung mit dieser MCP-Schnittstelle (z.B. Weaviate via FastMCP-Server). |
 | ARE (optional) | MCP-Tools (analog zu Weaviate-Wrapper). **Kein direkter DB-Zugriff.** | Python-Anwendung mit SQL-DB im Backend. Falls ARE nativ nur REST/FastAPI spricht, wird ein MCP-Wrapper als Adapter implementiert (wie bei Weaviate). |
 | Zielprojekt | Dateisystem + Git | Beliebiger Tech-Stack |
@@ -640,7 +640,7 @@ flowchart TD
 | VektorDB | Weaviate | 1.25+ | gRPC + HTTP REST |
 | Embedding | text2vec-transformers | — | Docker Sidecar |
 | VektorDB-MCP | FastMCP | 1.2+ | stdio-Transport |
-| LLM-Session-Pools | Beliebig (externe Infrastruktur) | — | MCP-Tools: `{pool}_acquire`, `{pool}_send`, `{pool}_release`. Implementierung ist AgentKit-agnostisch. |
+| LLM-Hub | Beliebig (externe Infrastruktur) | — | Befehlsvertrag FK-11 §11.2.1. Implementierung ist AgentKit-agnostisch. |
 | ARE (optional) | Python-Anwendung + SQL-DB | — | MCP-Tools oder FastAPI-Endpunkte. Kein direkter DB-Zugriff durch AgentKit. |
 | Build/Test | projektspezifisch | — | via `mvn`, `pytest`, `jest` etc. |
 | Linting/Typing | ruff, mypy | — | CLI |
