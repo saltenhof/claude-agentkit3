@@ -11,7 +11,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 TOOLS_ROOT = REPO_ROOT / "tools"
-PYTEST_TEMP_ROOT = REPO_ROOT / "tmp" / "pytest-temproot"
+PYTEST_TEMP_ROOT = REPO_ROOT / "var" / "pytest-temproot"
 PROMPT_BUNDLE_STORE_ENV = "AGENTKIT_PROMPT_BUNDLE_STORE_ROOT"
 #: AG3-111 introduced a SECOND central store (materialized skill variants) that, like
 #: the prompt-bundle store, defaults to a privileged system path (``/var/lib/agentkit``
@@ -62,7 +62,7 @@ def _needs_windows_mkdir_compat() -> bool:
     if os.name != "nt":
         return False
 
-    probe_root = REPO_ROOT / "tmp"
+    probe_root = REPO_ROOT / "var"
     probe_root.mkdir(exist_ok=True)
     probe = probe_root / f".pytest-mode-probe-{uuid.uuid4().hex}"
 

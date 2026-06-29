@@ -86,7 +86,7 @@ PY
                         . .venv/bin/activate
                         python -m pip install --quiet --upgrade pip
                         pip install --quiet -e ".[dev]"
-                        mkdir -p test-results reports/sonar
+                        mkdir -p test-results var/reports/sonar
                     '''
                 }
             }
@@ -287,7 +287,7 @@ PY
                     sh '''
                         . .venv/bin/activate
                         python scripts/python/py_loc_to_sonar.py \
-                            --output reports/sonar/python-loc-issues.json \
+                            --output var/reports/sonar/python-loc-issues.json \
                             --base-dir . \
                             src
                     '''
@@ -339,7 +339,7 @@ PY
     post {
         always {
             junit allowEmptyResults: true, testResults: 'agentkit-src/test-results/*.xml'
-            archiveArtifacts artifacts: 'agentkit-src/coverage.xml,agentkit-src/reports/sonar/*.json,agentkit-src/test-results/*.xml', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'agentkit-src/coverage.xml,agentkit-src/var/reports/sonar/*.json,agentkit-src/test-results/*.xml', allowEmptyArchive: true
             deleteDir()
         }
         success {

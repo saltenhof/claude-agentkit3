@@ -10,7 +10,6 @@ __pycache__/
 .coverage
 coverage.xml
 htmlcov/
-reports/
 test-results/
 
 # Packaging
@@ -18,11 +17,10 @@ build/
 dist/
 *.egg-info/
 
-# Frontend (UI-Prototyp und spaetere Frontend-Module)
+# Frontend (UI-Prototyp unter src/agentkit/frontend/prototype/, spaetere Module)
 node_modules/
 *.tsbuildinfo
 .vite/
-frontend/**/dist/
 
 # Virtual env
 .venv/
@@ -43,7 +41,6 @@ var/
 .tmp/
 .tmp_pytest*/
 .pytest-temp*/
-/tmp*/
 
 # Verbotene Repo-Root-Spiegelung der Zielprojekt-Struktur (PROJECT_STRUCTURE.md).
 # Bei Dev/Smoke-Runs entsteht .agentkit/ versehentlich (z.B. SQLite-Default-Pfad

@@ -34,10 +34,22 @@ Die Codebase ist in drei Ebenen entkoppelt:
 | `tests/` | Alle Tests | Vier Ebenen: `unit/`, `integration/`, `contract/`, `e2e/`. Details unten. |
 | `stories/` | Story-Artefakte | Hier landen Story-bezogene Arbeitsergebnisse waehrend der Ausfuehrung. |
 | `concept/` | Autoritative Fachkonzepte | Nur Markdown. Aenderungen nur mit explizitem User-Consent. |
+| `guardrails/` | Architektur- und Test-Guardrails | Nur Markdown. Von `CLAUDE.md` als verbindlich referenziert. |
+| `prompts/` | Repo-eigene Agent-Briefing-Prompts | Onboarding-/Briefing-Prompts (z.B. `agent-onboarding.md`, `bc-glossary-briefing.md`). NICHT die deploybaren Bundle-Prompts unter `src/agentkit/bundles/`. |
 | `docs/` | Publizierte Entwicklerdoku | Architecture, API, Guides, ADRs. |
 | `examples/` | Demo-Zielprojekte | Lauffaehige Beispiele wie ein installiertes Zielprojekt aussieht. |
 | `scripts/` | Dev/CI/Release-Hilfsskripte | Unterteilt in `dev/`, `ci/`, `release/`. |
-| `var/` | Lokale ephemere Daten | **Gitignored.** Temp-Files, Logs, Sandboxes. Nie Source of Truth. |
+| `var/` | Lokale ephemere Daten | **Gitignored.** Temp-Files, Logs, Sandboxes, Report-Outputs. Nie Source of Truth. |
+
+### Tool-Konfigurationsverzeichnisse
+
+Werkzeuggebundene Konfigurationsordner sind bewusst NICHT einzeln in der
+Soll-Tabelle aufgefuehrt. Sie gehoeren nicht zur fachlichen Sollstruktur,
+sondern entstehen durch eingesetzte Werkzeuge (VCS, CI, IDE, Agenten-Harness) —
+z.B. `.git/`, `.github/`, `.githooks/`, `.claude/`, `.vscode/`, `.idea/`. Solche
+Ordner sind zulaessig, ohne dass dieses Dokument jeden einzeln nennt; je nach
+Werkzeug koennen weitere hinzukommen. Sie duerfen aber keine fachliche Wahrheit
+und keinen Produktionscode enthalten.
 
 ### VERBOTEN auf Root-Ebene
 
@@ -106,6 +118,7 @@ src/agentkit/
 
   frontend/                    # Produktives Web-Frontend
     app/                       # TypeScript/React-Quellen; kein zweites src/
+    prototype/                 # Read-only Quarantaene: historische UI-Arbeit (Concept-as-Code)
 
   harness_client/              # Code, den Harnesses oder Zielprojekt-Tools nutzen
     projectedge/               # Client/Resolver fuer Zielprojekt <-> Backend
@@ -140,9 +153,10 @@ src/agentkit/
 5. Auslieferbare Skill-, Prompt- und Zielprojekt-Artefakte liegen unter
    `src/agentkit/bundles/`; Backend-Code, der sie verwaltet, liegt unter
    `src/agentkit/backend/`.
-6. `frontend/prototype/` ist kein produktives Frontend. Es ist
-   read-only Concept-as-Code/Quarantaene fuer historische UI-Arbeit.
-   Produktive Frontend-Quellen liegen ausschliesslich unter
+6. `src/agentkit/frontend/prototype/` ist kein produktives Frontend. Es ist
+   read-only Concept-as-Code/Quarantaene fuer historische UI-Arbeit und liegt
+   als Geschwister von `app/` unter der Frontend-Deployment-Unit — nicht im
+   Repo-Root. Produktive Frontend-Quellen liegen ausschliesslich unter
    `src/agentkit/frontend/app/`.
 
 ### Backend-Fachkomponenten
@@ -349,6 +363,8 @@ Diese Verzeichnisse werden von Python-Tools automatisch erzeugt und bleiben dort
 - `var/tmp/` — Temporaere Dateien (Merge-Files, Zwischenergebnisse)
 - `var/logs/` — Lokale Laufzeit-Logs
 - `var/sandboxes/` — Test-Sandboxes, simulierte Zielprojekte
+- `var/reports/` — Generierte Report-Outputs (z.B. Sonar External-Issues)
+- `var/pytest-temproot/` — pytest-Temp-Wurzel (in-Repo, fuer Windows-Worktree-Tests)
 
 **Regel:** Alles in `var/` ist wegwerfbar. Kein Agent darf `var/` als Source of Truth verwenden.
 
