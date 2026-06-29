@@ -248,20 +248,40 @@ Sie prueft importbasiert:
 - welche Module Closure-Metriken und Closure-Reports materialisieren
   duerfen
 
-### 7.7.4 Erweiterte Pflichtabdeckung der Suite
+### 7.7.4 Erweiterte Pflichtabdeckung ueber Enabling Constraints
 
-Die Konformanz-Suite deckt darueber hinaus verbindlich ab:
+Die folgenden Eigenschaften sind ebenfalls verbindlich. Sie werden nicht
+dadurch erreicht, dass der Checker beliebigen Code semantisch versteht,
+sondern dadurch, dass die Architektur den Code in deterministisch
+pruefbare Formen zwingt (Enabling Constraints). Der jeweilige Constraint
+ist selbst die hart erzwungene Invariante:
 
-- Single-Writer-Ownership einzelner Tabellen-/Record-Familien auf AST-
-  oder SQL-Ebene, auch jenseits des import- und mutationsradius-basierten
-  Checks
-- vollstaendige Repository-Konformanz fuer alle A-Komponenten
-- `op_id`-/`correlation_id`-Pflicht fuer jede einzelne externe
-  Kontaktflaeche
-- deletability-Deadlines als harter Compile-Fehler
+- **Single-Writer-Ownership** der Record-/Tabellen-Familien: Roh-SQL und
+  direkte Cursor-Nutzung sind ausserhalb der freigegebenen
+  Repository-Module verboten; jede Mutation laeuft ueber typisierte
+  Repository-Funktionen. Damit ist der Single-Writer statisch (Import- und
+  SQL-Literal-Analyse) hart pruefbar.
+- **`op_id`/`correlation_id` auf jeder externen Kontaktflaeche:** direkte
+  Transport-/Client-Importe (HTTP, Subprocess, MCP) sind ausserhalb der
+  Adapter verboten; externe Aufrufe laufen nur ueber genehmigte Clients,
+  die einen `OperationContext` mit `op_id`/`correlation_id` verlangen.
+  Erzwungen wird das Verbot der Direktkontakte, nicht jede einzelne
+  Aufrufstelle heuristisch.
+- **deletability-Deadlines:** als strukturierte, maschinenlesbare
+  Metadaten gefuehrt (Owner, Deadline, Ziel); die Suite laeuft im CI
+  fail-closed auf, wenn eine Deadline ueberschritten ist (harter
+  CI-Checker-Fehler, kein Python-Compile-Fehler).
+- **Repository-Konformanz der A-Komponenten:** die *importseitige*
+  Konformanz (eine A-Komponente koppelt nur an ihren Repository-Port, nie
+  an rohe State-Backend-Treiber) wird hart erzwungen. Die *semantische*
+  Konformanz (das Repository implementiert genau seinen
+  Komponentenvertrag) ist statisch nicht entscheidbar und bleibt test- und
+  review-gestuetzt; sie wird nicht als deterministisch erzwungen
+  ausgegeben.
 
-Diese Pruefungen sind verbindlicher Bestandteil der Suite, nicht nur
-deklaratorisches Soll.
+Der Anspruch bleibt damit maximal — die Regeln sind hart erzwungen —, ohne
+ein semantisches Programmverstehen zu behaupten, das deterministisch nicht
+leistbar ist.
 
 ### 7.7.5 Pflichtabdeckung: Read-Surface-Grenzen
 
