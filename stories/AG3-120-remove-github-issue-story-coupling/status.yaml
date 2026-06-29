@@ -1,9 +1,10 @@
 story_id: AG3-120
 title: "GitHub-Issue-Story-Kopplung restlos entfernen (issue_nr-Spine, Variante B)"
 type: implementation
-status: in_progress
+status: completed
 phase: setup
 created: "2026-06-29"
+completed_at: "2026-06-29T20:55:10+02:00"
 size: L
 # WP-H aus var/abweichungskarte-zentralisierung.md (KRITISCH). Scope = Variante B
 # (Vollentfernung, Mark&Ask Runde 2): AK3 fuehrt die User-Story selbst
