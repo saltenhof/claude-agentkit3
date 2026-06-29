@@ -33,7 +33,9 @@ from agentkit.backend.kpi_analytics.design_system import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-_CSS_DIR = pathlib.Path(__file__).parents[3] / "frontend" / "prototype" / "src"
+_CSS_DIR = (
+    pathlib.Path(__file__).parents[3] / "src" / "agentkit" / "frontend" / "prototype" / "src"
+)
 _DESIGN_SYSTEM_CSS = _CSS_DIR / "design-system.css"
 
 

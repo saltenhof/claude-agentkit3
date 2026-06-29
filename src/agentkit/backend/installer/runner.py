@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1740,6 +1741,34 @@ def _file_digests(paths: tuple[Path, ...]) -> dict[Path, str]:
     }
 
 
+def _elapsed_ms(start: float) -> int:
+    """Return milliseconds elapsed since a ``time.monotonic`` timestamp."""
+
+    elapsed = time.monotonic() - start
+    return int(elapsed * 1000)
+
+
+def _cp7_updated_detail(
+    project_key: str,
+    existing_config_digest: str | None,
+    registry_action: str,
+    digest: str,
+    project_action: str,
+) -> str:
+    """Return the CP7 UPDATED detail for registry/project convergence."""
+
+    if existing_config_digest is not None and registry_action == "updated":
+        return (
+            f"Project {project_key!r} config_digest changed "
+            f"({existing_config_digest[:12]} -> {digest[:12]}); "
+            f"project-management row {project_action}."
+        )
+    return (
+        f"Project {project_key!r} registration already matched "
+        f"but project-management row was {project_action}."
+    )
+
+
 def _run_cp7_state_backend_registration(
     config: InstallConfig,
     root: Path,
@@ -1778,8 +1807,6 @@ def _run_cp7_state_backend_registration(
     Returns:
         The :class:`CheckpointResult` for CP 7.
     """
-    import time
-
     from agentkit.backend.installer.github_coordinates import validate_github_coordinate
     from agentkit.backend.installer.registration import (
         CP7_STATE_BACKEND_REGISTRATION,
@@ -1814,7 +1841,7 @@ def _run_cp7_state_backend_registration(
                 "unregistered or persisting an empty coordinate."
             ),
             reason=REASON_MISSING_GITHUB_COORDINATES,
-            duration_ms=int((time.monotonic() - start) * 1000),
+            duration_ms=_elapsed_ms(start),
         )
 
     # FAIL-CLOSED / SSOT (AG3-039 R7 ERROR-2): the coordinates are PRESENT but
@@ -1837,7 +1864,7 @@ def _run_cp7_state_backend_registration(
                 "persisting an invalid project_registry coordinate."
             ),
             reason=REASON_INVALID_GITHUB_COORDINATES,
-            duration_ms=int((time.monotonic() - start) * 1000),
+            duration_ms=_elapsed_ms(start),
         )
 
     repo = _resolve_registration_repo(config, root)
@@ -1870,16 +1897,17 @@ def _run_cp7_state_backend_registration(
     try:
         project_action = _sync_project_management_project(config, root, yaml_data)
     except Exception as exc:  # noqa: BLE001 - CP7 must return a typed failure.
+        detail = (
+            f"Project {config.project_key!r} was written to project_registry "
+            "but could not be synchronised to the visible project list "
+            f"(projects): {type(exc).__name__}: {exc}"
+        )
         return CheckpointResult(
             checkpoint=CP7_STATE_BACKEND_REGISTRATION,
             status=CheckpointStatus.FAILED,
-            detail=(
-                f"Project {config.project_key!r} was written to project_registry "
-                "but could not be synchronised to the visible project list "
-                f"(projects): {type(exc).__name__}: {exc}"
-            ),
+            detail=detail,
             reason="project_management_sync_failed",
-            duration_ms=int((time.monotonic() - start) * 1000),
+            duration_ms=_elapsed_ms(start),
         )
 
     if registry_action == "created":
@@ -1897,19 +1925,16 @@ def _run_cp7_state_backend_registration(
         )
     else:
         status = CheckpointStatus.UPDATED
-        if existing is not None and registry_action == "updated":
-            detail = (
-                f"Project {config.project_key!r} config_digest changed "
-                f"({existing.config_digest[:12]} -> {digest[:12]}); "
-                f"project-management row {project_action}."
-            )
-        else:
-            detail = (
-                f"Project {config.project_key!r} registration already matched "
-                f"but project-management row was {project_action}."
-            )
+        existing_config_digest = existing.config_digest if existing is not None else None
+        detail = _cp7_updated_detail(
+            config.project_key,
+            existing_config_digest,
+            registry_action,
+            digest,
+            project_action,
+        )
 
-    duration_ms = int((time.monotonic() - start) * 1000)
+    duration_ms = _elapsed_ms(start)
     return CheckpointResult(
         checkpoint=CP7_STATE_BACKEND_REGISTRATION,
         status=status,

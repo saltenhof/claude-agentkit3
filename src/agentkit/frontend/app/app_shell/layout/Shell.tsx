@@ -157,17 +157,9 @@ function ProjectSelector({
 
   return (
     <div
+      aria-label="Projektwahl"
       className="project-picker"
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) {
-          setOpen(false);
-        }
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          setOpen(false);
-        }
-      }}
+      role="group"
     >
       <button
         aria-expanded={open}
@@ -177,6 +169,11 @@ function ProjectSelector({
         title={label}
         type="button"
         onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            setOpen(false);
+          }
+        }}
       >
         <span className="project-combo__label">{label}</span>
         <ChevronDown size={18} aria-hidden="true" />
@@ -196,6 +193,11 @@ function ProjectSelector({
                 onClick={() => {
                   onSelect(project.project_key);
                   setOpen(false);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    setOpen(false);
+                  }
                 }}
               >
                 <span>{project.display_name}</span>
