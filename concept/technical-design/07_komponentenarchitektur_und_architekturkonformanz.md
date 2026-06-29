@@ -164,7 +164,6 @@ Diese Bausteine sind notwendig, aber keine Fachkomponenten:
 | `ControlPlaneHttp` | R | HTTPS-Adapter fuer externe API-Aufrufe |
 | `ProjectEdgeClient` | R | lokaler Projekt-Adapter fuer Sync und Bundle-Publish |
 | `GitHubAdapter` | R | Tracker- und Repo-Integration |
-| `LlmPoolAdapter` | R | LLM-Pool-Transport |
 | `MultiLlmHubClient` | R | Foundation-Adapter zum externen Multi-LLM-Hub (FK-75) |
 | `AreAdapter` | R | ARE-Integration |
 | `VectorDbAdapter` | R | semantische Retrieval-Integration |

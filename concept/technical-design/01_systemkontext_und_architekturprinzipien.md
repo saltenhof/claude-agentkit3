@@ -123,10 +123,12 @@ zur Dev-Seite und hat keinen Dateisystem-Zugriff auf den Entwicklerrechner.**
 Im Team-Deployment wird die Zone-2/Zone-3-Grenze (§1.4) damit zur Prozess- und
 Netzgrenze und ist entsprechend härter.
 
-**Drittsystem-Vermittlung (Zwei-Kriterien-Carve-out).** Eine direkte
-Lokal→Infra-Kante ist nur erlaubt, wenn der Aufruf (1) Eigenbedarf des Agents
-ist (nicht AK3-mandatiert) *oder* (2) fs/worktree-gebunden bzw. Bulk ist und
-Core-Vermittlung keinen Kontrollgewinn bringt. Sonst Core-vermittelt:
+**Drittsystem-Vermittlung (Carve-out).** Eine direkte Lokal→Infra-Kante
+ist nur erlaubt, wenn der Aufruf (1) Eigenbedarf des Agents ist, (2)
+agent-ausgeführtes LLM-Sparring ohne kanonische State-Mutation ist
+(ggf. AK3-mandatiert und per Telemetrie/Guards nachgewiesen) oder (3)
+fs/worktree-gebunden bzw. Bulk ist und Core-Vermittlung keinen
+Kontrollgewinn bringt. Sonst Core-vermittelt:
 
 | 3rd-Party | Core-vermittelt (AK3-mandatiert, Kontrollinteresse) | Lokal-direkt (Ausnahme) |
 |-----------|------------------------------------------------------|-------------------------|
@@ -221,8 +223,8 @@ graph TB
 **Externe Dienste** (austauschbar). Vermittlung nach dem §1.1a-Carve-out:
 AK3-mandatierte Bewertungs-/Adjudication-Aufrufe (LLM-Hub) und
 ARE-Coverage-Reads laufen über den Core; die unten gezeigten MCP-Direktpfade
-gelten für Agent-Eigenbedarf (LLM-Sparring) und read-mostly-Zugriffe
-(Weaviate, ARE-Evidence):
+gelten für Agent-Eigenbedarf, agent-ausgeführtes LLM-Sparring und
+read-mostly-Zugriffe (Weaviate, ARE-Evidence):
 
 | Dienst | Schnittstelle zu AgentKit | Anforderung |
 |--------|--------------------------|-------------|
@@ -231,11 +233,12 @@ gelten für Agent-Eigenbedarf (LLM-Sparring) und read-mostly-Zugriffe
 | ARE (optional) | MCP-Tools (analog zu Weaviate-Wrapper). **Kein direkter DB-Zugriff.** | Python-Anwendung mit SQL-DB im Backend. Falls ARE nativ nur REST/FastAPI spricht, wird ein MCP-Wrapper als Adapter implementiert (wie bei Weaviate). |
 | Zielprojekt | Dateisystem + Git | Beliebiger Tech-Stack |
 
-**Implementierung der LLM-Pools:** Die konkrete Pool-Implementierung ist
+**Implementierung des LLM-Hubs:** Die konkrete Hub-Implementierung ist
 nicht Teil von AgentKit und frei waehlbar — etwa Browser-Automation per
 FastAPI/Playwright oder eine direkte API-Anbindung, jeweils nativ oder in
 einer isolierten Laufzeit (z.B. WSL2). Massgeblich ist allein die
-Einhaltung der MCP-Schnittstelle (`acquire`/`send`/`release`).
+Einhaltung des Hub-Befehlsvertrags (FK-11 §11.2.1; AK3-Code via REST,
+Agent-Sparring via MCP).
 
 ### 1.2.2a Fachliches Komponentenmodell
 

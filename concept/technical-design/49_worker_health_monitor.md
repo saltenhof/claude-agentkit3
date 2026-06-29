@@ -16,8 +16,8 @@ defers_to:
     scope: implementation-runtime
     reason: Worker-Loop und BLOCKED-Exit liegen in FK-26
   - target: FK-11
-    scope: llm-pool
-    reason: MCP-Pool-Aufrufe für das LLM-Assessment liegen in FK-11
+    scope: llm-evaluator
+    reason: LLM-Assessment-Aufrufe (code-getrieben, Hub Unified REST) liegen in FK-11
   - target: FK-10
     scope: state-backend
     reason: agent-health.json ist ein Export einer State-Backend-Persistenz; siehe FK-10 §10.5
@@ -216,7 +216,7 @@ Bitte deklariere deinen Status mit einer der folgenden Optionen:
    → Das ist eine valide, korrekte Worker-Leistung.
 
 3. SPARRING_NEEDED — Ich brauche eine zweite Meinung.
-   → Hole dir Sparring über den MCP-Pool (ChatGPT/Gemini/Grok).
+   → Hole dir Sparring über den LLM-Hub (MCP-Interface).
 
 Reagiere auf diese Nachricht, bevor du mit deiner Arbeit fortfährst.
 ```
@@ -273,7 +273,7 @@ sequenceDiagram
     participant POST as PostToolUse-Hook
     participant FS as agent-health.json
     participant SC as Sidecar-Prozess
-    participant MCP as MCP-Pool (Gemini/Grok/Qwen)
+    participant HUB as LLM-Hub (Unified REST)
     participant PRE as PreToolUse-Hook
 
     W->>POST: Tool-Call abgeschlossen
@@ -284,8 +284,8 @@ sequenceDiagram
     loop Alle 60 Sekunden
         SC->>FS: Poll status
         alt status == "pending"
-            SC->>MCP: Acquire + Send (Tool-Call-Log + Story-Kontext)
-            MCP-->>SC: Loop-Wahrscheinlichkeit (0-100)
+            SC->>HUB: acquire + send (Tool-Call-Log + Story-Kontext, REST)
+            HUB-->>SC: Loop-Wahrscheinlichkeit (0-100)
             SC->>FS: Ergebnis schreiben, status = "completed"
         end
     end
