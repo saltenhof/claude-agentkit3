@@ -1,0 +1,10 @@
+{
+  "bundle_id": "component-architecture-core",
+  "bundle_version": "4.0.0",
+  "manifest_digest": "a941d5b2200e5d1f1ac42f672d0d8495514cb7de693e2126c77268e7ed42288f",
+  "profile": "CORE",
+  "skill_name": "component-architecture",
+  "variants": {
+    "CORE": "component-architecture"
+  }
+}
