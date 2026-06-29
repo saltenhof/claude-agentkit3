@@ -17,24 +17,22 @@ AK3-Komponentenarchitektur.
 - deterministische Importgrenzen zwischen Fachkomponenten, Adaptern und
   Treibern
 - ausgewaehlte Azyklizitaetsregeln fuer stabile Komponenten
-- Enabling-Constraint-Pruefungen, die weiterreichende Invarianten hart
-  pruefbar machen (FK-07 §7.7.4): Verbot von Roh-SQL/Direkt-Cursor
-  ausserhalb der Repository-Module (Single-Writer-Gating), Verbot
-  direkter Transport-/Client-Importe ausserhalb der Adapter
-  (op_id/correlation_id-Gating), Ablauf-Pruefung strukturierter
-  deletability-Metadaten
+- Ownership der kanonischen Datenfamilien ueber gebundene Write-/
+  Read-Surfaces (welche Komponente eine Familie schreiben bzw. lesen
+  darf; Import-Ebene)
 - Auffaelligkeits-Pruefungen (severity warning) fuer Konstellationen,
   die eine Abwaegung erfordern, aber kein hartes Verbot sind (z. B.
   AC012: A-Modul importiert direkt T-Modul → AT-Mediation pruefen)
 
 ## Out of Scope
 
-- vollstaendige *semantische* Single-Writer-Pruefung von beliebigem
-  dynamischem SQL-/ORM-/Reflection-Code (das import- und literalbasierte
-  Single-Writer-Gating ueber das Roh-SQL-Verbot ist dagegen in Scope;
-  FK-07 §7.7.4)
-- semantische Repository-Konformanz und Bewertung fachlicher
-  Verantwortung aus Freitext (bleibt test-/review-gestuetzt)
+- Code-Qualitaet (Roh-SQL vs. Repository-Funktion, Typ-Hygiene,
+  Komplexitaet, Naming) — Sache von Linting/Code-Review
+- Observability-Konventionen (`op_id`/`correlation_id` auf Aufrufen) —
+  Sache der Telemetrie-/Operations-Vertraege
+- Lifecycle-/Tech-Debt-Steuerung (deletability-Deadlines)
+- semantische Komponenten-/Repository-Konformanz und Bewertung
+  fachlicher Verantwortung (bleibt test-/review-gestuetzt)
 - nicht-Python-Code
 
 ## Prosa-Quellen
