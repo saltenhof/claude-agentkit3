@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: frontend-contracts
 spec_kind: invariant-set
-version: 1
+version: 2
 prose_refs:
   - concept/technical-design/72_frontend_architektur.md
   - concept/technical-design/91_api_event_katalog.md
@@ -59,6 +59,21 @@ invariants:
     rule: >
       forall http_get G in web_frontend:
         not periodic_call(G)
+
+  - id: frontend-contracts.invariant.read_models_source_owner_bc_ports
+    scope: bff_read_models
+    description: >
+      Jedes Frontend-Read-Model wird vom BFF aus den veroeffentlichten
+      Read-/Query-Ports der fachlich owning Components zusammengesetzt.
+      Das BFF darf aggregieren, aber nicht ueber SQL, StateBackend-
+      Loader, Tabellen oder generische Repository-DTOs an den Owner-BCs
+      vorbei lesen (FK-07 §7.6, FK-72 §72.8).
+    rule: >
+      forall read_model R in frontend_contracts.entities:
+        R.sources subset_of owner_bc.published_read_or_query_ports
+        AND not uses(R, sql)
+        AND not uses(R, state_backend_loader)
+        AND not uses(R, foreign_repository_dto)
 
   # ---- Triage- / Snapshot-Determinismus ----------------------------
 

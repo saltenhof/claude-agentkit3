@@ -188,6 +188,26 @@ nicht ueber einen Composer:
 
 **Ein** Server-Prozess, BC-aligned Module. Pro BC ein Routes-Modul.
 
+Das BFF ist Bluttyp **R** und kein fachlicher Owner. Es darf
+frontend-orientierte Read-Models zusammensetzen, aber es kennt keine
+Tabellen, Persistenz-Records oder Repository-DTOs fremder BCs. Jede
+fachliche Information kommt ueber den veroeffentlichten Read-/Query-Port
+der owning Component:
+
+- Story-Stammdaten und Story-nahe Counters aus `story_context_manager`
+- aktueller Flow-/Phasenstand aus `pipeline_engine` bzw.
+  `phase_state_store`
+- Execution-Input, Readiness und Limits aus `execution_planning`
+- KPI-Werte aus `kpi_analytics`
+- Live- und Historienereignisse aus `telemetry`
+
+Cross-BC-Sichten wie Kanban, Sheet, Story-Inspector oder Analytics sind
+Composer-Sichten. Sie duerfen mehrere BC-Ports orchestrieren, aber nicht
+an deren Persistenz vorbei direkt auf StateBackend, SQL, Tabellen,
+globale Loader oder generische Repository-Fassaden zugreifen. Ein solcher
+Durchgriff wuerde die Control Plane zur fachlichen Gottkomponente machen
+und ist durch FK-07 verboten.
+
 ### 72.8.1 URL-Konvention
 
 Die kanonische URL-Form ist **projekt-skopiert** im Pfad:
@@ -229,8 +249,9 @@ agentkit/multi_llm_hub/http/        # Hub-Adapter-HTTP (projektneutral, Vertrag 
 ```
 
 `control_plane_http` hostet App, Auth, Tenant-Scope, Router-Registry.
-Keine Microservices. Der offizielle API-Vertrag im Detail liegt in
-**FK-91**.
+Es implementiert keine fachlichen Read-Modelle gegen Persistenz, sondern
+delegiert an die fachlichen HTTP-/Service-Surfaces der BCs. Keine
+Microservices. Der offizielle API-Vertrag im Detail liegt in **FK-91**.
 
 ## 72.9 Foundation-Bereiche
 

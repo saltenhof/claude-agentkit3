@@ -30,7 +30,6 @@ from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.backend.control_plane.telemetry import ControlPlaneTelemetryService
 from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
 from agentkit.backend.exceptions import ConfigError
-from agentkit.backend.kpi_analytics.dashboard import DashboardService
 from agentkit.backend.story.service import StoryService
 
 if TYPE_CHECKING:
@@ -45,6 +44,7 @@ if TYPE_CHECKING:
     from agentkit.backend.execution_planning.http.routes import ExecutionPlanningRouteResponse, ExecutionPlanningRoutes
     from agentkit.backend.failure_corpus.http.routes import FailureCorpusRoutes
     from agentkit.backend.governance.http.routes import GovernanceRoutes
+    from agentkit.backend.kpi_analytics.dashboard import DashboardService
     from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
     from agentkit.backend.pipeline_engine.http.routes import PipelineEngineRoutes
     from agentkit.backend.project_management.http.routes import ProjectManagementRoutes, ProjectRouteResponse
@@ -228,35 +228,17 @@ def _build_default_kpi_analytics_routes() -> KpiAnalyticsRoutes:
     for ``KpiAnalytics``; the optional ``RefreshWorker`` is omitted here
     (refresh is triggered by the closure pipeline, not by the HTTP read path).
     """
-    from agentkit.backend.kpi_analytics.catalog import KpiCatalog
-    from agentkit.backend.kpi_analytics.fact_store.store import FactStore
+    from agentkit.backend.bootstrap.composition_root import build_kpi_analytics_read_facade
     from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
-    from agentkit.backend.kpi_analytics.top import KpiAnalytics
-    from agentkit.backend.state_backend.store.fact_repository import StateBackendFactRepository
 
-    fact_repo = StateBackendFactRepository()
-    fact_store = FactStore(fact_repo)
-    kpi_analytics = KpiAnalytics(catalog=KpiCatalog(), fact_store=fact_store)
-    return KpiAnalyticsRoutes(kpi_analytics=kpi_analytics)
+    return KpiAnalyticsRoutes(kpi_analytics=build_kpi_analytics_read_facade())
 
 
 def _build_default_task_management_routes() -> TaskManagementRoutes:
     """Build the default task-management BC route handler backed by real storage."""
-    import os
-    import pathlib
+    from agentkit.backend.bootstrap.composition_root import build_task_management_routes
 
-    from agentkit.backend.state_backend.store.projection_repositories import (
-        build_projection_repositories,
-    )
-    from agentkit.backend.task_management.http.routes import TaskManagementRoutes
-    from agentkit.backend.task_management.service import TaskManagement
-    from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
-
-    store_dir = pathlib.Path(os.environ.get("AGENTKIT_STORE_DIR", "."))
-    repos = build_projection_repositories(store_dir)
-    accessor = ProjectionAccessor(repos)
-    service = TaskManagement(accessor)
-    return TaskManagementRoutes(task_management=service)
+    return build_task_management_routes()
 
 
 def _build_default_failure_corpus_routes() -> FailureCorpusRoutes:
@@ -272,24 +254,9 @@ def _build_default_requirements_coverage_routes() -> RequirementsCoverageRoutes:
 
 
 def _build_default_read_model_routes() -> ReadModelRoutes:
-    from agentkit.backend.project_management.read_model_routes import ReadModelRoutes
-    from agentkit.backend.state_backend.store.parallelization_config_repository import (
-        StateBackendParallelizationConfigRepository,
-    )
-    from agentkit.backend.state_backend.store.project_management_repository import (
-        StateBackendProjectRepository,
-    )
-    from agentkit.backend.state_backend.store.story_are_link_repository import (
-        StateBackendStoryAreLinkRepository,
-    )
-    from agentkit.backend.story_context_manager.service import StoryService as _StoryContextService
+    from agentkit.backend.bootstrap.composition_root import build_project_read_model_routes
 
-    return ReadModelRoutes(
-        project_repository=StateBackendProjectRepository(),
-        story_service=_StoryContextService(),
-        config_repository=StateBackendParallelizationConfigRepository(),
-        are_link_repository=StateBackendStoryAreLinkRepository(),
-    )
+    return build_project_read_model_routes()
 
 
 # ---------------------------------------------------------------------------
@@ -449,14 +416,9 @@ class ControlPlaneApplication:
         if dashboard_service is not None:
             self._dashboard_service = dashboard_service
         else:
-            from agentkit.backend.kpi_analytics.fact_store.store import FactStore
-            from agentkit.backend.state_backend.store.fact_repository import StateBackendFactRepository
+            from agentkit.backend.bootstrap.composition_root import build_dashboard_service
 
-            _fact_store = FactStore(StateBackendFactRepository())
-            self._dashboard_service = DashboardService(
-                story_service=self._story_service,
-                fact_store=_fact_store,
-            )
+            self._dashboard_service = build_dashboard_service(self._story_service)
         self._project_routes = r.project_routes or _build_default_project_routes()
         self._story_routes = r.story_routes or _build_default_story_routes()
         self._concept_routes = r.concept_routes or _build_default_concept_routes()

@@ -25,7 +25,8 @@ Im Scope sind:
 - **Live-Events**: die ueber SSE projizierten Event-Schemas pro
   Topic auf `/v1/projects/{key}/events` (FK-72 §72.12, FK-91 §91.8).
 - **Konsistenz-Invarianten**: Initial-GET-plus-SSE-Subscribe-Vertrag,
-  Lossy-Re-Sync, Determinismus der Execution-Input-Triage.
+  Lossy-Re-Sync, Determinismus der Execution-Input-Triage und
+  Owner-BC-Portquellen fuer jedes Read-Model.
 
 ## Out of Scope
 
@@ -82,4 +83,7 @@ Bewusst **nicht** Teil dieses Kontexts:
 
 Die Reihenfolge ist: Owner-BC definiert die Semantik, FK-91 listet die
 HTTP-Bindung, `frontend-contracts` formalisiert das Wire-Format fuer
-den Web-Konsumenten. Keine zweite Wahrheitsquelle.
+den Web-Konsumenten. Jede Read-Model-Quelle bleibt ein fachlicher Port
+des Owner-BCs; Control-Plane/BFF darf diese Ports orchestrieren, aber
+keine Tabellen, StateBackend-Loader oder Repository-DTOs fremder BCs als
+Ersatzschnittstelle verwenden. Keine zweite Wahrheitsquelle.

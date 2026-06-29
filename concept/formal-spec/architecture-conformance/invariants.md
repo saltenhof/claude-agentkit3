@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: architecture-conformance
 spec_kind: invariant-set
-version: 1
+version: 2
 prose_refs:
   - concept/technical-design/01_systemkontext_und_architekturprinzipien.md
   - concept/technical-design/07_komponentenarchitektur_und_architekturkonformanz.md
@@ -48,6 +48,13 @@ dependency_rules:
     forbidden_module_prefixes:
       - agentkit.backend.control_plane.http
     message: project-edge client must not depend on the control-plane HTTP adapter implementation
+  - id: architecture-conformance.rule.control_plane_http_must_not_depend_on_state_backend_repository
+    source_module_prefixes:
+      - agentkit.backend.control_plane_http
+      - agentkit.backend.control_plane.http
+    forbidden_module_prefixes:
+      - agentkit.backend.state_backend.store
+    message: control-plane HTTP/BFF modules may not bypass owner BC ports via direct state-backend repository access
 acyclic_group_sets:
   - id: architecture-conformance.acyclic.application_surface
     group_ids:
@@ -167,6 +174,9 @@ invariants:
   - id: architecture-conformance.invariant.raw_driver_boundary
     scope: static-analysis
     rule: stable application-surface modules may not import raw state backend drivers directly
+  - id: architecture-conformance.invariant.control_plane_http_has_no_persistence_bypass
+    scope: static-analysis
+    rule: control-plane HTTP/BFF modules compose frontend read models through owner BC read/query ports and never import state-backend repository internals directly
   - id: architecture-conformance.invariant.application_surface_is_acyclic
     scope: static-analysis
     rule: story-types, kpi-analytics dashboard, story-context-manager and kpi-analytics must not form dependency cycles. control_plane and projectedge cyclicity is enforced separately via boundary_module dependency rules.

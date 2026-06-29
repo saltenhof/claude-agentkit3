@@ -129,3 +129,11 @@ ARCH-53 Correlation-IDs an der Systemgrenze erzeugen und ueber alle Komponenteng
 Sprache und Benennung
 ARCH-55 Quellcode, Bezeichner, Datenmodelle, Wire-/JSON-Keys, Schema-Felder, DB-Spalten, Event-/API-Contracts und Code-Kommentare sind ausnahmslos in Englisch — so verbindlich wie die Sonar-Regeln. Verlangt ein Fachkonzept deutsche Keys/Feldnamen, ist das Fachkonzept auf Englisch anzupassen, nicht der Code. EINZIGE Ausnahme: die deutschsprachige Lokalisierung von UI-Label-Texten an der Oberflaeche und die zugehoerigen Resource-Bundles/Uebersetzungseintraege duerfen Deutsch enthalten. Fach-/Konzept-Prosa darf weiterhin Deutsch sein; betroffen sind ausschliesslich maschinell-strukturelle Bezeichner.
 
+Fachlicher Schnitt / Quasar-Architektur
+ARCH-56 Systeme mit relevanter Fachlogik werden primaer vertikal entlang fachlicher Domaenen geschnitten, nicht primaer horizontal nach Frontend, Businesslogik und Persistenz. Eine fachliche Komponente besitzt ihre Aufgabe, ihre Regeln, ihre fachlichen Schnittstellen und ihren internen Persistenzraum. Wie sie intern speichert, ist Implementierungsgeheimnis.
+
+ARCH-57 Ein Backend-for-Frontend / eine Control Plane ist eine R-Fassade fuer Aggregation und Transport, keine fachliche Gottkomponente. Sie darf mehrere fachliche Ports orchestrieren und daraus eine UI-Sicht bauen. Sie darf nicht an Owner-Komponenten vorbei direkt auf deren Tabellen, SQL, StateBackend-Loader, Persistenz-Records oder Repository-DTOs zugreifen. Performance begruendet keinen Durchgriff, solange ein in-process Port oder eine andere explizite fachliche Schnittstelle moeglich ist.
+
+ARCH-58 Komponenten definieren sich ueber fachliche Ownership und explizite Schnittstellen. Wer fremde Fachlichkeit braucht, ruft die Schnittstelle der owning Component auf. Direkter Zugriff auf deren interne Datenstruktur ist ein Architekturfehler, auch wenn er technisch funktioniert.
+
+ARCH-59 Architekturdiagramm-Kanten bedeuten ausschliesslich Aufrufabhaengigkeit/Laufzeitabhaengigkeit oder Datenfluss. Andere Beziehungen wie "kennt", "gehoert zu", "ist thematisch verwandt" oder "wird gemeinsam deployed" werden nicht als Pfeil modelliert.

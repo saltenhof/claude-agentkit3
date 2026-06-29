@@ -54,10 +54,13 @@ if TYPE_CHECKING:
     from agentkit.backend.governance.repository import SetupContextRepository
     from agentkit.backend.governance.setup_preflight_gate.phase import SetupPhaseHandler
     from agentkit.backend.kpi_analytics import KpiAnalytics
+    from agentkit.backend.kpi_analytics.dashboard import DashboardService
     from agentkit.backend.pipeline_engine.engine import PipelineEngine
     from agentkit.backend.pipeline_engine.lifecycle import HandlerResult, PhaseHandlerRegistry
     from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
     from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
+    from agentkit.backend.project_management.read_model_routes import ReadModelRoutes
+    from agentkit.backend.project_management.repository import ProjectRepository
     from agentkit.backend.requirements_coverage.contract import CoverageVerdict
     from agentkit.backend.requirements_coverage.top import (
         RequirementsCoverage as RequirementsCoverageProto,
@@ -70,10 +73,12 @@ if TYPE_CHECKING:
         RuntimeExecutionPurgePort,
         RuntimeExecutionResidueProbe,
     )
+    from agentkit.backend.story import StoryService
     from agentkit.backend.story_context_manager.models import StoryContext
     from agentkit.backend.story_context_manager.story_model import ChangeImpact
     from agentkit.backend.story_context_manager.types import StoryType
     from agentkit.backend.story_split.service import SplitSourceState, StorySplitRequest
+    from agentkit.backend.task_management.http.routes import TaskManagementRoutes
     from agentkit.backend.telemetry.emitters import EventEmitter
     from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
     from agentkit.backend.verify_system.llm_evaluator.llm_client import LlmClient
@@ -492,6 +497,83 @@ def build_kpi_analytics(store_dir: Path, *, project_key: str) -> KpiAnalytics:
         catalog=KpiCatalog(),
         fact_store=fact_store,
         refresh_worker=refresh_worker,
+    )
+
+
+def build_kpi_analytics_read_facade(store_dir: Path | None = None) -> KpiAnalytics:
+    """Wire the read-only KPI facade used by the HTTP KPI routes."""
+    from agentkit.backend.kpi_analytics import KpiAnalytics, KpiCatalog
+    from agentkit.backend.kpi_analytics.fact_store import FactStore
+    from agentkit.backend.state_backend.store.fact_repository import (
+        StateBackendFactRepository,
+    )
+
+    fact_repository = (
+        StateBackendFactRepository()
+        if store_dir is None
+        else StateBackendFactRepository(store_dir)
+    )
+    return KpiAnalytics(catalog=KpiCatalog(), fact_store=FactStore(fact_repository))
+
+
+def build_dashboard_service(
+    story_service: StoryService, store_dir: Path | None = None
+) -> DashboardService:
+    """Wire the legacy dashboard service without leaking fact persistence to HTTP."""
+    from agentkit.backend.kpi_analytics.dashboard import DashboardService
+    from agentkit.backend.kpi_analytics.fact_store import FactStore
+    from agentkit.backend.state_backend.store.fact_repository import (
+        StateBackendFactRepository,
+    )
+
+    fact_repository = (
+        StateBackendFactRepository()
+        if store_dir is None
+        else StateBackendFactRepository(store_dir)
+    )
+    return DashboardService(
+        story_service=story_service,
+        fact_store=FactStore(fact_repository),
+    )
+
+
+def build_task_management_routes(store_dir: Path | None = None) -> TaskManagementRoutes:
+    """Wire task-management HTTP routes through the telemetry projection port."""
+    import os
+
+    from agentkit.backend.task_management.http.routes import TaskManagementRoutes
+    from agentkit.backend.task_management.service import TaskManagement
+
+    resolved_store_dir = store_dir or Path(os.environ.get("AGENTKIT_STORE_DIR", "."))
+    service = TaskManagement(build_projection_accessor(resolved_store_dir))
+    return TaskManagementRoutes(task_management=service)
+
+
+def build_project_repository(store_dir: Path | None = None) -> ProjectRepository:
+    """Wire the project-management repository adapter."""
+    from agentkit.backend.state_backend.store.project_management_repository import (
+        StateBackendProjectRepository,
+    )
+
+    return StateBackendProjectRepository(store_dir)
+
+
+def build_project_read_model_routes(store_dir: Path | None = None) -> ReadModelRoutes:
+    """Wire project-scoped frontend read-model routes outside the HTTP boundary."""
+    from agentkit.backend.project_management.read_model_routes import ReadModelRoutes
+    from agentkit.backend.state_backend.store.parallelization_config_repository import (
+        StateBackendParallelizationConfigRepository,
+    )
+    from agentkit.backend.state_backend.store.story_are_link_repository import (
+        StateBackendStoryAreLinkRepository,
+    )
+    from agentkit.backend.story_context_manager.service import StoryService as _StoryContextService
+
+    return ReadModelRoutes(
+        project_repository=build_project_repository(store_dir),
+        story_service=_StoryContextService(),
+        config_repository=StateBackendParallelizationConfigRepository(store_dir),
+        are_link_repository=StateBackendStoryAreLinkRepository(store_dir),
     )
 
 

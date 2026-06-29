@@ -54,6 +54,10 @@ sie aber fuer den Komponentenschnitt maschinell pruefbar:
 5. Querschnittsvertraege wie `op_id`, `correlation_id`,
    API-Versionierung und Fehlervertraege werden komponentenuebergreifend
    behandelt und nicht in einzelne HTTP-Dateien ausgelagert.
+6. Entry-Boundaries, BFFs und Composer-Sichten duerfen fachliche
+   Sichten nur ueber die veroeffentlichten Ports der owning Components
+   beziehen. Direkter Persistenz-, StateBackend- oder generischer
+   Repository-Durchgriff auf fremde BC-Daten ist ein Architekturfehler.
 
 ## 7.3 Blutgruppen
 
@@ -197,6 +201,22 @@ Fachkomponenten haengen nicht an `agentkit.backend.state_backend.store` als
 generischer Mega-Fassade. Die Zielarchitektur verlangt
 komponentenspezifische Repository-Vertraege.
 
+Diese Regel gilt symmetrisch fuer BFF-/Control-Plane-Code: Eine
+HTTP- oder Composer-Schicht ist keine fachliche Gottkomponente und kein
+universeller Domaenenleser. Sie darf View-Modelle orchestrieren, aber sie
+liest Story-, Pipeline-, Telemetrie-, KPI-, Planungs- oder Governance-
+Zustand ausschliesslich ueber die fachlichen Read-/Query-Ports der
+jeweils owning Component. Tabellen, Persistenz-Records, Repository-DTOs
+und globale StateBackend-Loader fremder BCs sind interne
+Implementierungsdetails dieser Owner-BCs.
+
+Die StateBackend-Repository-Schicht bleibt eine Anti-Korruptions- und
+Mapping-Schicht zwischen fachlichen Repository-Ports und physischen
+Treibern. Sie ist kein oeffentlicher Read-Bus fuer die Control Plane.
+Wenn eine BFF-Sicht Daten aus mehreren BCs braucht, ruft sie mehrere
+BC-Ports auf und komponiert daraus das Wire-Read-Model; sie umgeht die
+Ports nicht durch direkten Datenbank- oder Repository-Zugriff.
+
 Diese Regel ist normativ. Maschinell erzwungen werden in diesem Kapitel
 robuste Import- und Adaptergrenzen (§7.7–§7.9); die vollumfaengliche
 maschinelle Durchsetzung der komponentenspezifischen
@@ -227,6 +247,8 @@ Die Konformanz-Suite prueft:
 - Komponentenklassifikation ueber Namespace-Prefixe
 - verbotene Import-Richtungen zwischen A-, R- und T-Code
 - verbotene direkte Kopplung von A-Code an Hook-/Transport-Adapter
+- verbotene direkte Kopplung von BFF-/Entry-Boundaries an fachfremde
+  StateBackend- und Repository-Interna
 - Azyklizitaet zwischen stabilen Komponenten
 
 ### 7.7.3 Pflichtabdeckung: Write-Surface-Ownership
@@ -281,6 +303,9 @@ Read-Surface-Grenzen. Sie prueft importbasiert:
 - dass globale Lifecycle-Read-Loader der Control Plane nicht frei
   aus `agentkit.backend.state_backend` in `runtime.py` oder andere A-Komponenten
   gezogen werden
+- dass `ControlPlaneHttp` und BFF-Routen keine fachlichen Read-Loader
+  aus `state_backend` oder generischen Repository-Modulen importieren,
+  sondern ueber die fachlichen Top-Surfaces der Owner-BCs gehen
 - dass diese Loader nur innerhalb von `agentkit.backend.state_backend`
   selbst und auf expliziten Surfaces wie
   `agentkit.backend.story.repository` oder
@@ -318,6 +343,9 @@ Die Konformanz-Suite zieht mindestens diese Grenzen:
 7. Globale Control-Plane-Lifecycle-Reads duerfen nur aus
    `agentkit.backend.control_plane.repository` oder innerhalb von
    `agentkit.backend.state_backend` selbst importiert werden.
+8. `ControlPlaneHttp`-/BFF-Module duerfen `state_backend.store` und
+   fachliche Repository-Interna fremder BCs nicht direkt importieren.
+   Sie rufen fachliche Read-/Query-Ports der Owner-BCs auf.
 
 ## 7.9 Messbare Architektur-Invarianten
 
@@ -349,6 +377,9 @@ Invarianten:
    expliziten Read-Surface `agentkit.backend.control_plane.repository`
    importiert werden; direkte Kopplung anderer A-Komponenten an diese
    Loader ist verboten.
+10. BFF-/HTTP-Entry-Boundaries importieren keine StateBackend-Repository-
+    Interna fuer fachliche Read-Modelle. Cross-BC-Read-Models entstehen
+    durch Orchestrierung veroeffentlichter BC-Ports.
 
 ## 7.10 Beziehung zu anderen Konzepten
 

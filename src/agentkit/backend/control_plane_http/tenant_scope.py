@@ -51,11 +51,9 @@ class TenantScopeMiddleware:
     def _get_repository(self) -> ProjectRepository:
         if self.repository is not None:
             return self.repository
-        from agentkit.backend.state_backend.store.project_management_repository import (
-            StateBackendProjectRepository,
-        )
+        from agentkit.backend.bootstrap.composition_root import build_project_repository
 
-        return StateBackendProjectRepository()
+        return build_project_repository()
 
     def validate(
         self,

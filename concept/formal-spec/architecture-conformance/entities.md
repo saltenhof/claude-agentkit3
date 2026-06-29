@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: architecture-conformance
 spec_kind: entity-set
-version: 29
+version: 30
 prose_refs:
   - concept/technical-design/01_systemkontext_und_architekturprinzipien.md
   - concept/technical-design/07_komponentenarchitektur_und_architekturkonformanz.md
@@ -1214,13 +1214,15 @@ boundary_modules:
       - architecture-conformance.boundary.shared
       - architecture-conformance.boundary.control_plane_records
       - architecture-conformance.boundary.control_plane_runtime
-      - architecture-conformance.boundary.state_backend_repository
       - architecture-conformance.boundary.filesystem
       - architecture-conformance.boundary.concept_catalog
       - architecture-conformance.boundary.multi_llm_hub
       - architecture-conformance.boundary.auth
-    # HTTP-Transport-Schicht. Nimmt Requests entgegen, ruft fachliche
-    # Komponenten und Runtime-Service. Boot-Punkt durch CLI.
+    # HTTP-Transport-Schicht. Nimmt Requests entgegen und ruft fachliche
+    # Komponenten bzw. eng begrenzte Control-Plane-Runtime-Services.
+    # Kein direkter StateBackend-/Repository-Zugriff: fachliche Read-
+    # Models entstehen ueber Owner-BC-Ports, nicht ueber Persistenz-
+    # Durchgriff. Boot-Punkt durch CLI.
 
   - id: architecture-conformance.boundary.control_plane_records
     name: ControlPlaneRecords
@@ -1259,7 +1261,11 @@ boundary_modules:
       - architecture-conformance.boundary.state_backend_repository
       - architecture-conformance.boundary.filesystem
     # Runtime-Service, Repository und Telemetrie der Control-Plane.
-    # Adapter-Schicht zwischen HTTP und fachlichen Komponenten.
+    # Adapter-Schicht fuer eigene Control-Plane-Zustaende
+    # (Session-/Lock-/Operationstabellen) und Telemetrie-Anbindung.
+    # Kein universeller Domaenenleser fuer Story-, Pipeline-, KPI-,
+    # Planning- oder Governance-Read-Models; solche Sichten muessen
+    # ueber die fachlichen Ports der owning Components entstehen.
 
   # -----------------------------------------------------------------------
   # Adapter-Boundaries (adapter_boundary): duenne Wrapper ueber externe
