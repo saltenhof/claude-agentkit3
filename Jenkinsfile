@@ -150,8 +150,14 @@ PY
                         set -eu
                         . .venv/bin/activate
                         DB_NAME="agentkit_test_${BUILD_NUMBER:-manual}"
+                        # Force IPv4: this is a local Windows network with no routable IPv6.
+                        # The dual-stack host.docker.internal name otherwise intermittently
+                        # resolves to an unreachable IPv6 ULA (psycopg "Network is unreachable").
+                        PG_HOST="$(getent ahostsv4 host.docker.internal | awk 'NR==1 {print $1}')"
+                        : "${PG_HOST:?could not resolve host.docker.internal to an IPv4 address}"
                         export AGENTKIT_STATE_BACKEND=postgres
-                        export AGENTKIT_STATE_DATABASE_URL="postgresql://agentkit:agentkit@host.docker.internal:55432/${DB_NAME}"
+                        export AGENTKIT_STATE_DATABASE_URL="postgresql://agentkit:agentkit@${PG_HOST}:55432/${DB_NAME}"
+                        export AGENTKIT_PG_ADMIN_DSN="postgresql://agentkit:agentkit@${PG_HOST}:55432/postgres"
                         python - <<'PY'
 from __future__ import annotations
 
@@ -160,7 +166,7 @@ import time
 import psycopg
 from psycopg import sql
 
-host_dsn = "postgresql://agentkit:agentkit@host.docker.internal:55432/postgres"
+host_dsn = __import__("os").environ["AGENTKIT_PG_ADMIN_DSN"]
 db_name = "agentkit_test_" + __import__("os").environ.get("BUILD_NUMBER", "manual")
 deadline = time.time() + 60
 last_error: Exception | None = None
@@ -212,7 +218,7 @@ import os
 import psycopg
 from psycopg import sql
 
-host_dsn = "postgresql://agentkit:agentkit@host.docker.internal:55432/postgres"
+host_dsn = __import__("os").environ["AGENTKIT_PG_ADMIN_DSN"]
 db_name = "agentkit_test_" + os.environ.get("BUILD_NUMBER", "manual")
 
 with psycopg.connect(host_dsn, autocommit=True) as conn:
