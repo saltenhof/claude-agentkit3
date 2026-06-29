@@ -1897,11 +1897,9 @@ def _run_cp7_state_backend_registration(
     try:
         project_action = _sync_project_management_project(config, root, yaml_data)
     except Exception as exc:  # noqa: BLE001 - CP7 must return a typed failure.
-        detail = (
-            f"Project {config.project_key!r} was written to project_registry "
-            + "but could not be synchronised to the visible project list "
-            + f"(projects): {type(exc).__name__}: {exc}"
-        )
+        detail = f"Project {config.project_key!r} was written to project_registry "
+        detail += "but could not be synchronised to the visible project list "
+        detail += f"(projects): {type(exc).__name__}: {exc}"
         return CheckpointResult(
             checkpoint=CP7_STATE_BACKEND_REGISTRATION,
             status=CheckpointStatus.FAILED,
