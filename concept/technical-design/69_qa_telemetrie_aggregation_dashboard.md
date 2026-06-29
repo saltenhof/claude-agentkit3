@@ -401,9 +401,7 @@ muessen neu berechnet oder korrigiert werden (Patterns werden korrigiert,
 nicht geloescht). `fc_check_proposals` bleiben unberuehrt (FK-41 §41.3).
 Klarstellung: Dies ist KEINE "Failure-Corpus ueberlebt Reset"-Regel — die
 Incidents des zurueckgesetzten Runs werden aktiv entfernt; nur der
-aggregierte Pattern-/Proposal-Bestand bleibt (korrigiert) erhalten. Der
-fc_*-Purge-/Recompute-Pfad wird mit den fc-Repos in **AG3-028** umgesetzt
-(in AG3-035 existieren die fc_*-Tabellen noch nicht).
+aggregierte Pattern-/Proposal-Bestand bleibt (korrigiert) erhalten.
 
 ## 69.10 Quellen und Materialisierung
 
@@ -481,7 +479,7 @@ records a row for EVERY executed check regardless of outcome — including
 clean (PASS) checks and overridden checks.
 
 This provides a complete, queryable audit trail of check execution suitable
-for effectiveness analysis (AG3-078) and override attribution without
+for effectiveness analysis and override attribution without
 requiring reconstruction from aggregates.
 
 `qa_check_outcomes` is the canonical per-check outcome source. FK-69 owns only

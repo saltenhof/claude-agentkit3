@@ -36,7 +36,7 @@ formal_refs:
 
 <!-- PROSE-FORMAL: formal.guard-system.scenarios -->
 
-## 49.1 Worker-Health-Monitor-Hooks (REF-042)
+## 49.1 Worker-Health-Monitor-Hooks
 
 Der Worker-Health-Monitor (DK-03 §3.8) nutzt beide Hook-Typen auf
 eine Weise, die sich von den bisherigen Guard- und Telemetrie-Hooks
@@ -52,7 +52,7 @@ Workers durchlaufen wird.
 Nach jedem Tool-Call berechnet der PostToolUse-Hook einen
 deterministischen Score (0-100) aus gewichteten Heuristiken.
 
-[Entscheidung 2026-05-04 — Multi-Harness] Die Scoring-Engine
+Die Scoring-Engine
 operiert **harness-neutral** auf `HookEvent`-Feldern (`operation`,
 `operation_args`, `principal_kind`, `cwd`, `session_id`), nicht auf
 harness-spezifischen Tool-Namen-Strings. Der harness-spezifische
@@ -258,9 +258,6 @@ Blockierungsgrund geben (um Umgehung zu verhindern), muss der
 Health-Monitor dem Agent erklären, was passiert und welche
 Exit-Optionen er hat. Das Ziel ist nicht Blockade, sondern
 kooperative Deeskalation.
-
-> **[Entscheidung 2026-04-08]** Element 23 — LLM-Assessment-Sidecar ist Pflicht. Kein Feature-Flag. Der Sidecar-Prozess ist keine optionale Erweiterung, sondern integraler Bestandteil der Produktionsarchitektur.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 23.
 
 ### 49.1.3 Sidecar-Prozess: LLM-Assessment
 

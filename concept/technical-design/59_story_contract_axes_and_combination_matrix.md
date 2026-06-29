@@ -194,7 +194,7 @@ Wichtig:
   Standard-Familie fachlich **`execution_route`** (`execution` /
   `exploration`); seit der Entkopplung in FK-24 §24.3.2 ist `mode`
   **nicht mehr blosser `execution_route`-Alias**, sondern traegt
-  zusaetzlich den gleichrangigen Story-Modus `fast` (AG3-018), der **kein**
+  zusaetzlich den gleichrangigen Story-Modus `fast`, der **kein**
   `execution_route`-Wert ist und mit `exploration` wechselseitig
   ausschliessend ist (FK-24 §24.3.3/§24.3.4). Projektweit faltet die
   Standard-Familie auf `mode_lock=standard`, `fast` ist der dazu exklusive

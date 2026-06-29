@@ -37,11 +37,7 @@ formal_refs:
 Die v3-Linie ersetzt den dateibasierten JSON-Schema-Katalog durch
 typisierte Pydantic-v2-Modelle in `src/agentkit/` als einzige
 normative Schema-Quelle. Es gibt **keinen** FK-90-Stage-Artefakt-Schema-Katalog
-(`{stage_id}.schema.json`-Dateien) im Repository. Die einzige
-`*.schema.json`-Datei im Repo ist ein unverwandtes Harness-Test-Fixture
-(`tests/fixtures/harness_post_tool/codex_post_tool_use.command.input.schema.json`);
-sie gehoert nicht zum FK-90-Schema-Katalog und ist kein Stage-Artefakt-Schema.
-Dieser Zustand ist gewollt und entspricht dem
+(`{stage_id}.schema.json`-Dateien). Das entspricht dem
 Architekturziel "typisierte Modelle statt JSON-Wildwuchs" (CLAUDE.md
 SINGLE SOURCE OF TRUTH, FK-02 §2.1 Artefakt-Definition).
 
@@ -86,13 +82,13 @@ als fachliche Referenz.
 | Conflict-Resolution-Record | `governance.ccag.rules` | 55 | Auditierbare menschliche oder offizielle Konfliktaufloesung; CcagRule |
 | Permission-Request-Record | `governance.ccag.requests` | 55 | Auditierbarer Einzelfall fuer unbekannte Freigaben mit TTL und Resolution; PermissionRequest |
 | Permission-Lease-Record | `governance.ccag.leases` | 55 | Befristete, story-/run-scoped Freigabe ausserhalb einer Dauerregel; PermissionLease |
-| Integration-Scope-Manifest | governance.ccag (Story-Typ-Enum; kein eigenstaendiges Artefaktmodell in HEAD) | 57 | Freigegebener Integrationsraum fuer systemische E2E-/Stabilisierungsstories |
-| Manifest-Approval-Record | governance.ccag (kein eigenstaendiges Artefaktmodell in HEAD) | 57 | Attestierte menschliche oder administrative Freigabe eines Integrations-Manifests |
-| Stabilization-Budget | governance.ccag (kein eigenstaendiges Artefaktmodell in HEAD) | 57 | Harte Schleifen-, Surface- und Regressionsgrenzen fuer Integrationsstabilisierung |
+| Integration-Scope-Manifest | governance.ccag (Story-Typ-Enum; kein eigenstaendiges Artefaktmodell) | 57 | Freigegebener Integrationsraum fuer systemische E2E-/Stabilisierungsstories |
+| Manifest-Approval-Record | governance.ccag (kein eigenstaendiges Artefaktmodell) | 57 | Attestierte menschliche oder administrative Freigabe eines Integrations-Manifests |
+| Stabilization-Budget | governance.ccag (kein eigenstaendiges Artefaktmodell) | 57 | Harte Schleifen-, Surface- und Regressionsgrenzen fuer Integrationsstabilisierung |
 | Story-Exit-Record | `story_exit.models` | 58 | Audit-Record fuer administrativen Story-Exit in Human-Takeover |
 | Exit-Manifest-Snapshot | `story_exit.models` | 58 | Letzter gebundener Story-/Manifest-/Budget-Stand beim Exit |
 | ARE-Gate-Result | `requirements_coverage.models` | 40 | ARE-Gate-Pruefergebnis |
-| Concept-Feedback | verify_system.stage_registry (Stage-ID; kein eigenstaendiges Artefaktmodell in HEAD) | 24 | Konzept-Feedback-Loop-Ergebnis |
+| Concept-Feedback | verify_system.stage_registry (Stage-ID; kein eigenstaendiges Artefaktmodell) | 24 | Konzept-Feedback-Loop-Ergebnis |
 | Incident | `failure_corpus.incident` | 41 | Failure-Corpus-Incident; Incident (BaseModel) |
 | Pattern | `failure_corpus.pattern` | 41 | Failure-Corpus-Pattern; FailurePatternRecord |
 | Check-Proposal | `failure_corpus.top` | 41 | Failure-Corpus-Check-Proposal; CheckProposal |
@@ -122,7 +118,5 @@ korrespondierenden `.schema.json`-Dateien. Das Muster
 `{stage_id}.schema.json` ist **nicht** Teil der v3-Namenskonvention und
 darf nicht eingefuehrt werden.
 
-**Autoritaetsquelle:** Code/v3-Linie ist autoritativ (AG3-103
-Nachzug-Entscheidung). FK-90 spiegelt die implementierte Realitaet.
-Contract-Tests in `tests/contract/` sind der maschinell pruefbare
-Stabilitaetsanker dieser Konvention.
+**Stabilitaetsanker:** Contract-Tests in `tests/contract/` sind der
+maschinell pruefbare Stabilitaetsanker dieser Konvention.

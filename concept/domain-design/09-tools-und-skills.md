@@ -41,8 +41,6 @@ glossary:
 
 # 09 — Tool-Governance (CCAG)
 
-**Quelle:** Konsolidiert aus agentkit-domain-concept.md, Kapitel 12
-**Datum:** 2026-04-02 (Skill-Teil ausgegliedert nach DK-12, 2026-04-29)
 **Übersicht:** [00-uebersicht.md](00-uebersicht.md)
 
 ---

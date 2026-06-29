@@ -321,9 +321,8 @@ Schicht 2 fokussiert bei Implementierungen mit starkem Umbauanteil stärker auf:
 Durchlaufen Schicht 2 und 3 **nicht**. Eigene leichtgewichtige
 Checks in Kap. 33.8.
 
-> **[Entscheidung 2026-04-08]** Element 23 — LLM-Assessment-Sidecar ist Pflicht. Kein Feature-Flag.
-> Element 28 — Section-aware Bundle-Packing ist Pflicht. FK-34-121 normativ. In v2 bereits implementiert.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Elemente 23, 28.
+> LLM-Assessment-Sidecar ist Pflicht. Kein Feature-Flag.
+> Section-aware Bundle-Packing ist Pflicht. FK-34-121 normativ.
 
 ## 34.7 Kontext-Aufbereitung vor Layer 2 (FK-34-120)
 
@@ -334,8 +333,7 @@ Kontext-Aufbereitung statt. Der Context Sufficiency Builder
 (FK-37 §37.2, Stage `context_sufficiency`) prüft und reichert
 das ContextBundle an. Die Konvertierung in das Transport-Format
 findet innerhalb von `_run_layer2_parallel()` des Phase Runners
-statt — keine separate Caller-Komponente (siehe FK-37 §37.3.1
-Korrektur 2026-04-09).
+statt — keine separate Caller-Komponente (siehe FK-37 §37.3.1).
 
 ```mermaid
 flowchart TD
@@ -471,8 +469,7 @@ Der Caller wählt die Prioritäten pro Evaluator-Rolle und übergibt
 sie beim Packing-Schritt. Der Runner selbst kennt keine Rollen
 und keine Prioritäten.
 
-> **[Entscheidung 2026-04-08]** Element 26 — Quorum / Tiebreaker ist Pflicht. Dritter Reviewer bei Divergenz.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 26.
+> Quorum / Tiebreaker ist Pflicht. Dritter Reviewer bei Divergenz.
 
 ## 34.8 Review-Paar-Divergenz (FK-34-130)
 

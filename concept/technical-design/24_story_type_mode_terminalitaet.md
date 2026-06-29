@@ -156,7 +156,7 @@ Die Pflichten sind:
 
 ### 24.3.2 `mode` ist kein fachlicher Ersatz fuer `story_type`
 
-**Entkopplung `mode` <-> `execution_route` (normativ, AG3-018-Modell):**
+**Entkopplung `mode` <-> `execution_route` (normativ):**
 Das Story-Attribut `mode` ist **nicht mehr blosser Alias** der
 Intra-Run-Achse `execution_route`. `mode` traegt den `fast`-Wert als
 gleichrangigen Story-Modus (§24.3.4); `execution_route` bleibt die davon
@@ -197,7 +197,7 @@ Insbesondere gilt:
 
 ### 24.3.3 Mutual Exclusion zwischen Fast- und Standard-Mode
 
-Fast (`mode=fast`, eingefuehrt mit AG3-018) und Standard
+Fast (`mode=fast`) und Standard
 (`mode=execution` oder `mode=exploration`) sind **fachlich
 ausschliesslich**. Solange in einem Projekt mindestens eine Story
 im Standard-Mode aktiv ist (Status `In Progress`), darf keine
@@ -212,7 +212,7 @@ Begruendung:
    wuerde reproduzierbar in den Geltungsbereich dieser Guards
    laufen und damit nicht das liefern, was Fast verspricht.
 2. Fast-Mode setzt voraus, dass ein Mensch die Story aktiv
-   begleitet (vgl. AG3-018). Eine zweite, parallel laufende
+   begleitet. Eine zweite, parallel laufende
    Standard-Pipeline verwaessert dieses Begleit-Versprechen.
 3. Pre-Merge-Rebase-Konflikte zwischen Fast und Standard sind
    wahrscheinlicher als zwischen zwei Fast- oder zwei Standard-
@@ -513,9 +513,6 @@ Story-Split bei `Scope-Explosion` (FK-54).
 ---
 
 ## 24.9 Sichtbares Exploration-Ergebnis
-
-> **[Entscheidung 2026-04-08]** Element 14 — Exploration-Summary Markdown ist Pflichtartefakt. Menschenlesbares Aggregat aus strukturierten Artefakten. Primaerdokument bei Eskalation an Operator.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 14.
 
 ### 24.9.1 Menschenlesbares Pflichtartefakt
 

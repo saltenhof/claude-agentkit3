@@ -108,16 +108,21 @@ Policies, Overrides) gelten auch innerhalb von Phasen und Komponenten.
 Die Pipeline ist also kein Sonderfall, sondern die oberste
 `FlowDefinition` des Systems.
 
-> **[Entscheidung 2026-04-08]** Element 3 — NON_DETERMINISTIC_PHASE Konstanten entfallen in v3. Stattdessen `requires_llm: bool` pro Phase in der Phase-Config.
-> Element 16 — PhaseState wird in v3 nach Ownership getrennt: StoryContext (langlebige Story-Semantik), PhaseStateCore (aktueller Laufzeitstatus), PhasePayload (diskriminierte Union pro Phase), RuntimeMetadata (nicht-fachliche Loader-/Guard-Infos). `mode`, `story_type` raus aus PhaseState, rein in StoryContext.
-> Die fachliche Ausmodellierung steht jetzt in FK-17, die relationale Abbildung in FK-18.
+**State-Ownership:** NON_DETERMINISTIC_PHASE-Konstanten gibt es nicht;
+stattdessen traegt jede Phase ein `requires_llm: bool` in der Phase-Config.
+PhaseState ist nach Ownership getrennt: StoryContext (langlebige
+Story-Semantik), PhaseStateCore (aktueller Laufzeitstatus), PhasePayload
+(diskriminierte Union pro Phase), RuntimeMetadata (nicht-fachliche
+Loader-/Guard-Infos). `mode` und `story_type` liegen nicht in PhaseState,
+sondern in StoryContext. Die fachliche Ausmodellierung steht in FK-17,
+die relationale Abbildung in FK-18.
 
 **Pipeline-State-Record:** zentrale Runtime-Projektion
 (`phase_state_projection`) im State-Backend.
 
-> **[Hinweis 2026-04-08]** Das folgende JSON-Beispiel ist nur noch ein
-> Legacy-Uebergangsbild fuer die fachliche Idee. Autoritativ sind jetzt
-> FK-17 (Attributvertraege) und FK-18 (relationale Abbildung).
+> Das folgende JSON-Beispiel illustriert die fachliche Idee.
+> Autoritativ sind FK-17 (Attributvertraege) und FK-18 (relationale
+> Abbildung).
 
 ```json
 {
@@ -151,14 +156,14 @@ Die Pipeline ist also kein Sonderfall, sondern die oberste
 }
 ```
 
-**Neue Felder (REF-034):**
+**Exploration-Gate-Felder:**
 
 | Feld | Typ | Gültig in Phase | Bedeutung |
 |------|-----|-----------------|-----------|
 | `exploration_gate_status` | String | `exploration` | Fortschritt durch das Drei-Stufen-Gate am Ende der Exploration. Muss `"approved_for_implementation"` sein bevor Verify läuft. Gültige Werte: `""`, `"doc_compliance_passed"`, `"design_review_passed"`, `"design_review_failed"`, `"approved_for_implementation"` |
 | `exploration_review_round` | Integer | `exploration` | Zähler für Design-Review-Remediation-Runden. Max 2 Runden, dann Eskalation. |
 
-**Entfernt (REF-034):** `verify_result = "STRUCTURAL_ONLY_PASS"` ist kein gültiger Wert mehr.
+`verify_result = "STRUCTURAL_ONLY_PASS"` ist kein gültiger Wert.
 Exploration-mode Stories durchlaufen nach der Implementation die volle 4-Schichten-Verify.
 
 **Mandantenregel:** `story_id` ist kein systemweit ausreichender
@@ -493,29 +498,24 @@ einer Story.
 > id/layer/kind/applies_to/blocking/trust_class/producer und
 > Standard-Stages) ist in **FK-71 §67.4** normiert.
 
-## 2.10 Aufgelöste Konflikte: Bestandscode vs. Fachkonzept
+## 2.10 Abgegrenzte Nicht-Bestandteile (Designentscheidungen)
 
-An mehreren Stellen implementiert der bestehende Code Funktionalität,
-die im Fachkonzept nicht beschrieben ist oder ihm widerspricht. Diese
-Konflikte wurden analysiert und entschieden.
+Drei naheliegende Mechanismen sind bewusst **nicht** Teil des Zielbilds.
+Die Begründung ist normativ, damit eine spätere Wiedereinführung nicht
+versehentlich gegen das Konzept läuft.
 
-### K-01: Meta-QA als eigenständige Phase → ENTFÄLLT
+### K-01: Keine eigenständige Meta-QA-Phase
 
-**Bestandscode:** Phase Runner hat `meta_qa` als 6. Phase nach Closure
-mit eigenem Prompt und Agent-Spawn.
+Prozessüberwachung ist **keine** eigenständige Agent-Rolle und **keine**
+zusätzliche Pipeline-Phase (etwa nach Closure mit eigenem Prompt und
+Agent-Spawn), sondern eine in die bestehende Infrastruktur eingebettete
+Governance-Schicht (FK 6.6).
 
-**FK-Aussage (6.6):** "Diese Beobachtung ist kein eigenständiger Agent,
-sondern eine in die bestehende Infrastruktur eingebettete
-Governance-Schicht." Prozessüberwachung erfolgt über Hooks und
-Phasen-Skripte, nicht als separater Agent.
+**Kernproblem:** Ein Agent, der den Orchestrator überwachen soll, aber
+vom Orchestrator selbst gespawnt wird, funktioniert in der Praxis nicht —
+der Orchestrator kontrolliert dann seine eigene Überwachung.
 
-**Kernproblem:** Ein Agent, der den Orchestrator überwachen soll, wird
-vom Orchestrator selbst gespawnt. Das funktioniert in der Praxis nicht,
-weil der Orchestrator seine eigene Überwachung kontrolliert.
-
-**Entscheidung:** Meta-QA als eigenständige Phase wird entfernt.
-Die Prozessüberwachung wird stattdessen über zwei FK-konforme
-Mechanismen umgesetzt:
+**Soll:** Prozessüberwachung erfolgt über zwei FK-konforme Mechanismen:
 
 1. **Hook-basierte Echtzeit-Sensorik** (FK 6.6): Hooks überwachen
    auch den Orchestrator — jede Aktion wird normalisiert, akkumuliert,
@@ -525,64 +525,58 @@ Mechanismen umgesetzt:
    prüfen Phasenfortschritt, Retry-Loops, Stagnation. Diese laufen
    unabhängig vom Orchestrator.
 
-Was aus dem bestehenden Meta-QA-Code sinnvoll ist (Artefakt-
-Vollständigkeitsprüfung, Prozess-Konsistenz), wird in die
-Postflight-Gates (bereits im FK vorgesehen) und in die Governance-
-Beobachtung (FK 6.6) überführt.
+Artefakt-Vollständigkeitsprüfung und Prozess-Konsistenz gehören in die
+Postflight-Gates (im FK vorgesehen) und in die Governance-Beobachtung
+(FK 6.6).
 
-**Konsequenz für Pipeline-Phasen:** 5 statt 6 Phasen.
-`setup → exploration? → implementation → verify → closure`
+**Konsequenz für Pipeline-Phasen:** 5 Phasen,
+`setup → exploration? → implementation → verify → closure`.
 
-### K-02: Shadow Mode → ENTFERNT
+### K-02: Kein Shadow Mode
 
-**Bestandscode:** `shadow` Config-Sektion mit `enabled`,
-`required_stories`, `cutover_timeout_weeks`.
+Ein Shadow Mode (paralleler Schatten-Betrieb mit `enabled`,
+`required_stories`, `cutover_timeout_weeks`) ist **nicht** Teil des
+Zielbilds. Es gibt keine `shadow`-Config-Sektion und keine zugehörigen
+Modelle.
 
-**Entscheidung:** Komplett entfernen. Shadow Mode ist kein Teil
-des Zielbilds. Die Config-Sektion, der zugehörige Code und die
-Pydantic-Modelle werden gelöscht.
+### K-03: E2E-Assertions auf System-Ebene begrenzt
 
-### K-03: E2E-Assertion-Engine → ZURÜCKBAUEN auf FK-Umfang
+Die E2E-Assertion-Fähigkeit ist bewusst auf allgemeine System-Assertions
+begrenzt und ist **kein** eigenständiges Subsystem mit Trust-Klassen-
+Registry, Checker-Plugins, Scaffold und Assertion-Governance
+(`manual_budget_percent`).
 
-**Bestandscode:** Eigenständiges Subsystem mit Trust-Klassen-Registry,
-Checker-Plugins, Scaffold, Assertion-Governance (manual_budget_percent).
-
-**Kernproblem:** Die Engine hat die Frage "Wer erstellt wann die
-Assertions?" nicht beantwortet:
+**Kernfrage — Wer erstellt wann die Assertions?**
 
 - **Zum Zeitpunkt der Story-Erstellung** steht die konkrete
   Architektur und Umsetzung oft noch nicht fest. Deterministische
   Checks, die von der Lösungsarchitektur abhängen (Tabellennamen,
   API-Endpunkte, Spaltenstrukturen), können zu diesem Zeitpunkt
   nicht erstellt werden.
-- **Was möglich ist:** Allgemeine Systemprüfungen (System fährt
-  hoch, Smoketest möglich) und begrenzt domänenspezifische Checks
-  aus Akzeptanzkriterien (fachliche Zustände abfragen).
-- **Was nicht möglich ist:** Tiefe technische Assertions, die
+- **Möglich** sind allgemeine Systemprüfungen (System fährt hoch,
+  Smoketest möglich) und begrenzt domänenspezifische Checks aus
+  Akzeptanzkriterien (fachliche Zustände abfragen).
+- **Nicht möglich** sind tiefe technische Assertions, die
   Implementierungsdetails voraussetzen.
 
-**Entscheidung:** Die E2E-Assertion-Engine wird auf den FK-Umfang
-zurückgebaut:
+Daraus folgt der Schnitt:
 
-1. **Trust-Klassen (FK 7.2) bleiben.** Das Konzept A/B/C ist
+1. **Trust-Klassen (FK 7.2) gelten.** Das Konzept A/B/C ist
    fachlich fundiert und wird im QA-Subflow (Schicht 1) bei der
    Bewertung von Evidence angewendet.
-2. **Allgemeine System-Assertions bleiben.** Systemstart, Health-
+2. **Allgemeine System-Assertions gelten.** Systemstart, Health-
    Check, Smoketest — diese können vorab definiert werden.
-3. **Die Checker-Registry und das Plugin-System werden vereinfacht.**
-   Kein aufwändiges Scaffold, keine Assertion-Governance mit
-   Budget-Prozent. Stattdessen: Structural Checks (Schicht 1)
-   prüfen die allgemeinen Assertions als Teil des regulären
-   Check-Katalogs.
+3. **Checker-Registry und Plugin-System bleiben einfach.** Kein
+   aufwändiges Scaffold, keine Assertion-Governance mit Budget-Prozent.
+   Structural Checks (Schicht 1) prüfen die allgemeinen Assertions als
+   Teil des regulären Check-Katalogs.
 4. **Story-spezifische fachliche Assertions** werden nicht vorab
    definiert, sondern entstehen als Teil des QA-Subflows
-   (Schicht 2: LLM-Bewertung prueft Akzeptanzkriterien,
+   (Schicht 2: LLM-Bewertung prüft Akzeptanzkriterien,
    Schicht 3: Adversarial Agent schreibt gezielte Tests).
 
-**Konsequenz:** `assertion_governance` Config-Sektion wird
-vereinfacht. `e2e_assertions` Feature-Flag bleibt, steuert aber
-nur noch die allgemeinen System-Assertions, nicht ein eigenständiges
-Subsystem.
+Das `e2e_assertions`-Feature-Flag steuert nur die allgemeinen
+System-Assertions, kein eigenständiges Subsystem.
 
 ## 2.11 Datenmodell-Anker — typisierte Entitaeten und Beziehungen
 
@@ -643,8 +637,8 @@ Bei Story-Anlage ruft `story_context_manager` `project_management` auf,
 um das Praefix zu lesen, allokiert die naechste Nummer atomar und
 schreibt die zusammengesetzte Anzeige-ID in den Record.
 
-**Anzeige-ID-Format ist reine Praesentation; Sortierung ist numerisch
-(AG3-050).** Die Anzeige-ID wird mit einer **mindestens dreistelligen**,
+**Anzeige-ID-Format ist reine Praesentation; Sortierung ist numerisch.**
+Die Anzeige-ID wird mit einer **mindestens dreistelligen**,
 fuehrend mit Nullen aufgefuellten Nummer gerendert
 (`story_number=42 → "AK3-042"`). Das ist ein **Minimum**, kein Maximum:
 Nummern `>= 1000` werden automatisch breiter (`story_number=1000 →
@@ -657,8 +651,8 @@ ganzzahlige `story_number`: **jede** Sortierung von Story-Listen erfolgt
 numerisch ueber `story_number`, **niemals** lexikografisch ueber die
 Anzeige-ID (sonst stuende `AK3-1000` vor `AK3-999`).
 
-**Genau eine kanonische Erzeugungs-/Allokationsquelle (AG3-050,
-FK-91 §91.1a).** Story- und `story_number`-Erzeugung liegt in **genau
+**Genau eine kanonische Erzeugungs-/Allokationsquelle (FK-91 §91.1a).**
+Story- und `story_number`-Erzeugung liegt in **genau
 einem** BC (`story_context_manager`) und darin in **genau einer**
 kanonischen Klasse/Instanz: dem `create_story_atomic`-Allokationspfad
 hinter `StoryService.create_story`. Ein zweiter Allokator oder ein
@@ -683,7 +677,7 @@ Sortierung, Wave-Berechnung, „naechste Stories") laufen ueber Recursive
 CTE in Postgres. Eindeutigkeit auf `(story_id, depends_on_story_id, kind)`.
 
 **Die Dependency-Kante bindet an die STATISCHE Story-Stammdaten-Identitaet,
-nicht an die Laufzeit (AG3-050).** Sowohl fachlich (UML-Assoziation) als auch
+nicht an die Laufzeit.** Sowohl fachlich (UML-Assoziation) als auch
 relational (Foreign Key) zeigen `story_id` und `depends_on_story_id` auf die
 statische Story-Entitaet `Story`/`stories` — **explizit nicht** auf
 `StoryContext`/`story_contexts`, auch wenn der Schluessel zufaellig derselbe

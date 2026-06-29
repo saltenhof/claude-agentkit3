@@ -13,8 +13,6 @@
 #   `member_docs` derselben Domaene auftauchen.
 # - Glossar-Inhalte leben im Contract-Doc selbst (siehe 00_index.md §19.11).
 #
-# Initiale Befuellung 2026-04-29 nach BC-Vorgabe (concept/technical-design/_meta/bounded-contexts.yaml).
-#
 # Foundation/Adapter/Querschnittskataloge sind hier KEINE Domaene
 # (siehe bounded-contexts.yaml §foundation_principles). Solche Docs
 # tragen stattdessen `cross_cutting: true` im Frontmatter und sind

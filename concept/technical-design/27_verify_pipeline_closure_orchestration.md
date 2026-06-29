@@ -117,8 +117,7 @@ formal_refs:
 
 <!-- PROSE-FORMAL: formal.deterministic-checks.entities, formal.deterministic-checks.state-machine, formal.deterministic-checks.commands, formal.deterministic-checks.events, formal.deterministic-checks.invariants, formal.deterministic-checks.scenarios, formal.implementation.entities, formal.implementation.invariants, formal.verify.entities, formal.verify.state-machine, formal.verify.commands, formal.verify.events, formal.verify.invariants, formal.verify.scenarios -->
 
-> **[Entscheidung 2026-05-01]** Die ehemalige Top-Phase `verify` ist
-> entfallen. Output-QA ist jetzt ein interner Subflow innerhalb der
+> Output-QA ist ein interner Subflow innerhalb der
 > Implementation-Phase (analog zum Exit-Gate der Exploration-Phase,
 > FK-23 §23.5). Die in diesem Dokument beschriebenen 4 Schichten
 > (Layer 1 Structural, Layer 2 LLM, Layer 3 Adversarial, Layer 4
@@ -173,10 +172,7 @@ mit vier Identitätsfeldern:
 | `qa_cycle_id` | 12-Zeichen UUID-Fragment | Eindeutig pro Zyklus, wird bei jedem `advance_qa_cycle()` neu generiert |
 | `qa_cycle_round` | Monotoner Zähler (ab 1) | Inkrementiert bei jedem neuen Zyklus |
 | `evidence_epoch` | ISO-8601 Timestamp | Zeitpunkt der letzten Code-/Artefakt-Mutation |
-| `evidence_fingerprint` | SHA256-Hash (Hex-String) | SHA256 der relevanten Artefakte — inhaltliche Integritätsprüfung (Entscheidung 2026-04-08, Element 19); separates Feld, `evidence_epoch` bleibt Timestamp |
-
-> **[Entscheidung 2026-04-08]** Element 19 — Evidence-Fingerprint wird verbessert: SHA256-Hash statt Dateigroessen. Eingeführt wird ein separates Feld `evidence_fingerprint` (SHA256-Hash der relevanten Artefakte) für die Inhaltsprüfung; `evidence_epoch` bleibt ein ISO-8601-Timestamp (Zeitpunkt der letzten Mutation) und ändert seinen Typ nicht.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 19.
+| `evidence_fingerprint` | SHA256-Hash (Hex-String) | SHA256 der relevanten Artefakte — inhaltliche Integritätsprüfung; separates Feld, `evidence_epoch` bleibt Timestamp |
 
 Die QA-Zyklus-Felder werden im Story-State persistiert und in
 alle QA-Artefakte geschrieben (Traceability).
@@ -211,16 +207,16 @@ verschoben (11 Dateien).
 | Artefakt | Datei |
 |----------|-------|
 | Semantic Review | `semantic_review.json` |
-| Guardrail Check | `guardrail.json` | <!-- [Hinweis 2026-04-09] Kein aktiver Producer in §27.5 definiert — in früherer Layer-2-Architektur war ein separater Guardrail-Evaluator vorgesehen. Artefakt verbleibt in der Invalidierungs-Liste für den Fall, dass es aus einem früheren Zyklus noch existiert. -->
+| Guardrail Check | `guardrail.json` | <!-- Kein aktiver Producer in §27.5 definiert. Artefakt verbleibt in der Invalidierungs-Liste für den Fall, dass es aus einem früheren Zyklus noch existiert. -->
 | Policy Decision | `decision.json` |
 | LLM Review (QA-Bewertung) | `qa_review.json` |
 | Umsetzungstreue | `doc_fidelity.json` |
 | Feedback | `feedback.json` |
 | Adversarial | `adversarial.json` |
 | SonarQube-Gate | `sonarqube_gate.json` | <!-- [Ergänzung] sonarqube_gate (FK-33 §33.2.2, Abfolge nach Schicht 3, §27.6a) ist zyklusgebunden: jede Remediation aendert Fachcode → die commit-gebundene Attestation der Vorrunde wird ungueltig und nach stale/ verschoben. -->
-| E2E Verify | `e2e_verify.json` | <!-- [Hinweis 2026-04-09] Kein aktiver Producer in §27.5 definiert — reserviert für eine zukünftige End-to-End-Integritätsprüfung. Artefakt verbleibt in der Invalidierungs-Liste für den Fall, dass es aus einem früheren Zyklus noch existiert. -->
+| E2E Verify | `e2e_verify.json` | <!-- Kein aktiver Producer in §27.5 definiert; reserviert für eine zukünftige End-to-End-Integritätsprüfung. Artefakt verbleibt in der Invalidierungs-Liste für den Fall, dass es aus einem früheren Zyklus noch existiert. -->
 | Structural | `structural.json` |
-| Context | `context.json` | <!-- [Hinweis 2026-04-09] context.json ist keine Löschung — es wird vor Schicht 2 vom Phase Runner neu aufgebaut (rebuild pre-step), um dem Context Sufficiency Builder (FK-37 §37.2.6) ein aktuelles Artefakt zu liefern. Ohne diesen Rebuild wäre der Remediation-Re-Entry-Pfad nicht implementierbar. Der Eintrag in der Invalidierungs-Liste bedeutet: altes context.json wird nach stale/ verschoben, dann neu erzeugt. -->
+| Context | `context.json` | <!-- context.json ist keine Löschung — es wird vor Schicht 2 vom Phase Runner neu aufgebaut (rebuild pre-step), um dem Context Sufficiency Builder (FK-37 §37.2.6) ein aktuelles Artefakt zu liefern. Ohne diesen Rebuild wäre der Remediation-Re-Entry-Pfad nicht implementierbar. Der Eintrag in der Invalidierungs-Liste bedeutet: altes context.json wird nach stale/ verschoben, dann neu erzeugt. -->
 | Context Sufficiency | `context_sufficiency.json` |
 
 ### 27.2.4 Runtime-Staleness-Check
@@ -352,7 +348,7 @@ und Impact-Check — alle vier parallel nach Artefakt-Prüfungs-PASS):
 | `hygiene.todo_fixme` | Hygiene | Keine TODO/FIXME in geänderten Dateien | MINOR |
 | `hygiene.disabled_tests` | Hygiene | Keine `@Disabled`/`@Ignore`/`@pytest.mark.skip` | MINOR |
 | `hygiene.commented_code` | Hygiene | Keine großen auskommentierten Code-Blöcke | MINOR |
-| `impact.violation` | Impact | Tatsächlicher Impact ≤ deklarierter Impact (FK-23 §23.8). **Reaktion:** Impact-Violation → ESCALATED (Eskalation an Mensch, kein Rücksprung zur Exploration-Phase). [Korrektur 2026-04-09: Modus-abhängige Reaktion entfällt — Impact-Violation führt immer zu ESCALATED, analog FK-20 und FK-23.] | BLOCKING |
+| `impact.violation` | Impact | Tatsächlicher Impact ≤ deklarierter Impact (FK-23 §23.8). **Reaktion:** Impact-Violation → ESCALATED (Eskalation an Mensch, kein Rücksprung zur Exploration-Phase). | BLOCKING |
 
 ### 27.4.3 Recurring Guards (Telemetrie-basiert)
 
@@ -366,7 +362,7 @@ zu den Structural Checks:
 | `guard.no_violations` | Keine Guard-Verletzungen während der Bearbeitung | Telemetrie: keine `integrity_violation` Events | BLOCKING |
 | `guard.multi_llm` | Alle konfigurierten Pflicht-Reviewer mit Ergebnis abgeschlossen | Telemetrie: `llm_call_complete` Events mit passenden `pool`/`role` Werten. **`llm_call_complete` darf erst nach erfolgreichem Schreiben des Review-Artefakts (§27.5.5) emittiert werden** — nicht bei bloßer API-Antwort. Fängt "Review gestartet, nie abgeschlossen" (FK-37 §37.1.6). | **BLOCKING** |
 
-**Zwei-Stufen-Prüfung für LLM-Reviews (REF-036):**
+**Zwei-Stufen-Prüfung für LLM-Reviews:**
 
 `guard.llm_reviews` und `guard.multi_llm` bilden eine
 Zwei-Stufen-Prüfung, die als separate BLOCKING Guards implementiert
@@ -412,7 +408,6 @@ Nur bei `features.are: true`. Deterministisches Skript fragt ARE
 
 Drei LLM-Bewertungen laufen parallel über `ThreadPoolExecutor`
 (Kap. 11.7). Alle nutzen den StructuredEvaluator (Kap. 11.4).
-[Korrektur 2026-04-09: "Zwei" → "Drei" — Schicht 2 umfasst drei parallele LLM-Bewertungen: QA-Bewertung, Semantic Review, Umsetzungstreue (FK-38 §38.2.1).]
 
 ### 27.5.2 QA-Bewertung (12 Checks)
 
@@ -470,10 +465,7 @@ Gibt es systemische Risiken, die die Einzelchecks nicht sehen?
 - `_temp/qa/{story_id}/semantic_review.json` (Producer: `qa-semantic-review`)
 - `_temp/qa/{story_id}/doc_fidelity.json` (Producer: `qa-doc-fidelity`)
 
-[Ergänzung 2026-04-09: `doc_fidelity.json` als drittes Layer-2-Artefakt ergänzt — Umsetzungstreue (FK-38 §38.2.1) schreibt Ergebnis in `doc_fidelity.json` (Rolle: `doc_fidelity`).]
-
-> **[Entscheidung 2026-04-08]** Element 27 — Context Sufficiency Builder ist Pflicht-Gate VOR dem Review: stellt sicher dass genuegend Informationen vorhanden sind. Wenn nicht → Informationen zusammentragen, NICHT Review ueberspringen. Reviews finden IMMER statt.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 27.
+> Context Sufficiency Builder ist Pflicht-Gate VOR dem Review: stellt sicher dass genuegend Informationen vorhanden sind. Wenn nicht → Informationen zusammentragen, NICHT Review ueberspringen. Reviews finden IMMER statt.
 
 Detailausgliederungen aus dieser Schicht 2:
 
@@ -843,5 +835,4 @@ FK-27-051 (Konsolidierungsverbot Test-Suite)*
 - FK-35 — Integrity-Gate (Definitions-Owner), 9 Dimensionen und Eskalation
 - FK-28 — Evidence Assembly: EvidenceAssembler, Import-Resolver, Autoritätsklassen, Request-DSL, BundleManifest, Section-aware Packing-Modul (`agentkit/core/packing.py`)
 - FK-34 — LLM-Evaluierungen: StructuredEvaluator, ParallelEvalRunner, ContextBundle, `truncate_bundle()` Dispatcher, Evaluator-Erweiterung fuer Finding-Resolution im Remediation-Modus
-- DK-04 §4.4a — Verify-Kontext-Differenzierung, Guard-Severity (Fachkonzept-Provenienz fuer FK-37 §37.1 und §27.4.3) [Korrektur 2026-04-09: STRUCTURAL_ONLY_PASS-Invariante entfällt]
-- REF-036 — Verify Layer 2 Skip Blocker (empirischer Anlass BB2-057)
+- DK-04 §4.4a — Verify-Kontext-Differenzierung, Guard-Severity (Fachkonzept-Provenienz fuer FK-37 §37.1 und §27.4.3)

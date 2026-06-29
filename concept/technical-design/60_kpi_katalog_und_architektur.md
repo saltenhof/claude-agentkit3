@@ -561,30 +561,13 @@ Entscheidungsfrage: Wo verbringen wir Zeit? Wird es besser?
 
 ---
 
-## 60.5 Sparring-Referenz
+## 60.5 Verworfene Alternativen
 
-Die Architektur-Entscheidungen in 60.3 wurden in einem
-strukturierten Sparring erarbeitet:
-
-- **Claude (Opus)**: KPI-Katalog, Sync-Mechanismus, Slicing
-- **ChatGPT**: Gegenpositionen zu Schema-Schnitt und Serving-Modell
-
-### 60.5.1 Sparring-Verlauf (4 Runden)
-
-| Runde | Thema | Ergebnis |
-|-------|-------|----------|
-| 1 | Zentrales Runtime-Backend | Alternative lokale DB-/Dateimodelle verworfen; zentrale PostgreSQL-Instanz als kanonische Runtime-Wahrheit |
-| 2 | Concurrent Access, Perzentile, Schema-Evolution | SQLite-Varianten verworfen zugunsten klarer Writer-/Reader-Trennung auf PostgreSQL |
-| 3 | EAV vs. breite Fact-Tabellen | Claude challenged metric_value EAV. ChatGPT stimmt zu: Breite Fact-Tabellen sind besseres Serving-Modell |
-| 4 | Sync-Mechanismus | Konvergenz auf idempotenten Repair-Worker mit Dirty Sets und atomarer Transaktion |
-
-### 60.5.2 Verworfene Alternativen
-
-| Alternative | Verworfen in Runde | Begruendung |
-|-------------|-------------------|-------------|
-| Projektlokale DB-/Datei-Wahrheiten | 1 | Bricht zentrale Ownership, Mandantenfaehigkeit und Zugriffssteuerung |
-| Eine SQLite-DB fuer Raw + Analytics | 2 | Writer-Contention, schwache Rechtegrenzen, kein sauberes System-Backend |
-| EAV `metric_value`-Tabelle | 3 | Self-Join-Queries, keine Typsicherheit, schlechtes Dashboard-Serving |
-| Perzentile ausschliesslich im SQL-Layer | 2 | Python-/Batch-Berechnung bleibt fuer komplexe Kennzahlen sauberer |
-| Materialized Views als Primaermodell | 1 | Rebuildbare Fact-Tabellen und Projektionen sind expliziter und steuerbarer |
-| Inkrementelles Hochzaehlen bei Sync | 4 | Fragil bei Crashes. Komplett-Neuberechnung der Dirty Slices ist robuster |
+| Alternative | Begruendung |
+|-------------|-------------|
+| Projektlokale DB-/Datei-Wahrheiten | Bricht zentrale Ownership, Mandantenfaehigkeit und Zugriffssteuerung |
+| Eine SQLite-DB fuer Raw + Analytics | Writer-Contention, schwache Rechtegrenzen, kein sauberes System-Backend |
+| EAV `metric_value`-Tabelle | Self-Join-Queries, keine Typsicherheit, schlechtes Dashboard-Serving |
+| Perzentile ausschliesslich im SQL-Layer | Python-/Batch-Berechnung bleibt fuer komplexe Kennzahlen sauberer |
+| Materialized Views als Primaermodell | Rebuildbare Fact-Tabellen und Projektionen sind expliziter und steuerbarer |
+| Inkrementelles Hochzaehlen bei Sync | Fragil bei Crashes. Komplett-Neuberechnung der Dirty Slices ist robuster |

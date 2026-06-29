@@ -469,7 +469,7 @@ Portbereich-Schema:
   9900-9999   DevOps- und Infrastruktur-Services
 ```
 
-#### Standardport 5432 — verbindliche Belegung (PO-Entscheidung 2026-06-09)
+#### Standardport 5432 — verbindliche Belegung
 
 Der PostgreSQL-Standardport 5432 ist **ausschliesslich** der **nativen,
 auf dem Host installierten** PostgreSQL-Instanz vorbehalten — das ist die

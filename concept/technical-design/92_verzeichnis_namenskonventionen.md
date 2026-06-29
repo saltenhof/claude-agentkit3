@@ -120,14 +120,6 @@ def slugify(title: str) -> str:
 
 Beispiel: "Implement Broker API Integration" → `implement-broker-api-integration`
 
-> **Owner / Code-Realitaet (FEHLT heute):** Die `slugify`-Funktion fuer
-> Story-**Verzeichnis**-Namen (`{story_id}_{slug}`, §92.2) existiert heute
-> **nicht** als Code-Symbol (`grep "def slugify" src/agentkit/` → 0 Treffer).
-> Die Story-Verzeichnis-Erzeugung gehoert fachlich zur **Story-Creation/
-> Verzeichnis-Konventions-Verantwortung**; Code-Home ist der **Story-Creation-BC**
-> (AG3-068 ownt das `story.md`-Export- und `story_creation`-Modul, FK-21 §21.11).
-> AG3-068 enumeriert `slugify`/Story-Dir-Naming jedoch **nicht** explizit in
-> seinem Scope. Der Bedarf wird daher als **Cross-Story-Voraussetzung (CP4)
-> gegen AG3-068** gefuehrt (Remediation-Report AG3-104) — entweder AG3-068-Scope
-> um `slugify` erweitern oder eine dedizierte Verzeichnis-Konventions-Story
-> anlegen. **Kein** Implementierungs-Anspruch in dieser doc-only-Story.
+Die Erzeugung der Story-Verzeichnisnamen (`{story_id}_{slug}`, §92.2)
+inklusive Slugifizierung gehoert fachlich zum Story-Creation-BC
+(FK-21 §21.11).

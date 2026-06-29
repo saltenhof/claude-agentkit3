@@ -90,9 +90,6 @@ Compaction keinen Verweis mehr darauf.
 
 Spawn-Spec-basierte Recovery mit Ein-Phasen-Bindung und autoritativer Rehydrierung:
 
-> **[Entscheidung 2026-04-08]** Element 1 — Der dynamische Import `compose-prompt.py` entfaellt in v3. Die Funktionalitaet wird als regulaeres Python-Modul implementiert. Alle Referenzen auf `compose-prompt.py` in diesem Dokument sind entsprechend als regulaere Module-Aufrufe umzusetzen.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 1.
-
 1. **Compose-Time**: Das Prompt-Compose-Modul (`agentkit.prompting.compose`) erzeugt neben dem `prompt_file` eine
    kompakte `resume-capsule.md` sowie einen `spawn-spec--{spawn_key}.json`.
 2. **Binding**: `SubagentStart`-Hook materialisiert das Per-Agent-Manifest in
@@ -125,7 +122,7 @@ Code (`claude-code-source-code-main`, Stand 2026-04) geprueft.
 | `agent_id`-Verfuegbarkeit nach Hook-Typ | PreToolUse/PostToolUse: JA. SessionStart(compact)/PostCompact: NEIN. SubagentStart/SubagentStop: JA (Required) | `coreSchemas.ts`, `hooks.ts` |
 | Compaction-Ausschluss | `querySource` in `{session_memory, compact, marble_origami, reactive_compact, context_collapse}` unterdrueckt Autocompact | `autoCompact.ts:160-182` |
 | Standard-Sub-Agent querySource | `'agent'`, `'agent:custom'`, `'agent:explore'` — Compaction moeglich | `querySource.ts` |
-| Worktree-Isolation | **Kein** Ein-Agent-pro-Worktree. Alle Agents einer Story teilen denselben Worktree. QA-Agents (semantic + guardrail) laufen parallel im selben cwd | `phase_runner.py:3999-4035` |
+| Worktree-Isolation | **Kein** Ein-Agent-pro-Worktree. Alle Agents einer Story teilen denselben Worktree. QA-Agents (semantic + guardrail) laufen parallel im selben cwd | AK3-Worktree-Modell (FK-22) |
 | `subagent_type`-Durchreichung | Claude Code leitet `subagent_type` 1:1 als `agent_type` in alle Hooks durch | `AgentTool.tsx:318-356` |
 | `additionalContext`-Limit | Claude Code SDK begrenzt auf 10.000 Zeichen — darueber Auslagerung in Datei mit Preview | `coreSchemas.ts` |
 
@@ -384,7 +381,7 @@ relevanten Teile mechanisch extrahieren.
         - Read/Glob/Grep/WebSearch/WebFetch: **Allow** + Inject (exit 0)
         - Write/Edit/Bash: **Allow** + Inject + Warn-Header (exit 0)
         - Agent (Sub-Agent-Spawn): **Allow** + Inject + Warn-Header (exit 0)
-          (DD-09 revidiert: kein hartes Deny bei story-scoped Detection)
+          (DD-09: kein hartes Deny bei story-scoped Detection)
      e. Gib Kapsel-Inhalt via `additionalContext` zurueck:
         ```
         [COMPACTION RECOVERY — Originaler Auftrag wiederhergestellt]
@@ -513,11 +510,6 @@ SubagentStop:
 - zentraler Compaction-State-Store — Story-scoped Epoch-Store
   (`(project_key, story_id) -> epoch, updated_at`)
 
-**Entfallene Dateien (ab Revision 2):**
-- ~~`{agent_id}.active`~~ → ersetzt durch `baseline_epoch` im Manifest
-- ~~`{agent_id}.recovered`~~ → ersetzt durch `recovered_epoch` im Manifest
-- ~~`.compact-epoch`~~ → ersetzt durch zentralen Compaction-State-Store
-
 ## 36.10 Sicherheitsaspekte
 
 - **Sensitive Inhalte**: Resume-Kapseln und Spawn-Specs koennen Story-Kontext
@@ -599,57 +591,51 @@ Die Kapsel wird bei Compose-Time erzeugt, nicht spaeter. Das Prompt-Compose-Modu
 kennt die Prompt-Struktur und kann relevante Teile mechanisch extrahieren.
 Keine LLM-Zusammenfassung, keine Laufzeit-Abhaengigkeit.
 
-### DD-03: PreToolUse als autoritativer Recovery-Punkt (revidiert)
+### DD-03: PreToolUse als autoritativer Recovery-Punkt
 
-**Vorher**: SessionStart(source="compact") als Primaerpfad.
-**Jetzt**: PreToolUse im Sub-Agent ist der einzige autoritative Recovery-Punkt.
+PreToolUse im Sub-Agent ist der einzige autoritative Recovery-Punkt.
 
 **Begruendung**: SessionStart(compact) feuert zwar im Sub-Agent, aber ohne
 `agent_id` (VB-01). Ohne belastbare Identitaet ist kein deterministischer
 Manifest-Lookup moeglich. PreToolUse ist der einzige Sub-Agent-Hook mit
 `agent_id` aus `toolUseContext` (VB-02).
 
-### DD-04: PostCompact als Story-Scoped Epoch-Signal (revidiert, 2x)
+### DD-04: PostCompact als Story-Scoped Epoch-Signal
 
-**Erste Revision**: Globaler Epoch-Counter statt agent-spezifischer Marker.
-**Zweite Revision**: Story-scoped Epoch via zentralem Compaction-State-Store + cwd-Marker statt global.
+Story-scoped Epoch via zentralem Compaction-State-Store + cwd-Marker statt global.
 
 **Begruendung**: Globaler Counter verursacht Cross-Story False Positives bei
 paralleler Story-Bearbeitung. `session_id` ist nicht nutzbar (alle Stories
 teilen eine CLI-Session). `cwd` + Walk-up-Suche nach `.agentkit-story.json`
 liefert die Story-Zuordnung. Der zentrale Store garantiert Atomizitaet.
 
-### DD-05: Ein-Phasen-Manifest in SubagentStart (revidiert)
+### DD-05: Ein-Phasen-Manifest in SubagentStart
 
-**Vorher**: PreToolUse/Agent schreibt Manifest im Parent-Kontext.
-**Jetzt**: SubagentStart materialisiert das Manifest in einem einzigen Schritt.
+SubagentStart materialisiert das Manifest in einem einzigen Schritt.
 
 **Begruendung**: SubagentStart ist der erste Hook mit gesicherter Kind-`agent_id`
 (VB-03). Ein Zwei-Phasen-Ansatz (PreToolUse→SubagentStart) hat ein ungeloestes
 Binding-Problem bei parallelen Spawns — es gibt keinen eindeutigen Join-Key
 zwischen den beiden Hooks. Der Ein-Phasen-Ansatz eliminiert dieses Problem.
 
-### DD-06: subagent_type als Compound-Spawn-Key mit Story-ID (revidiert, 2x)
+### DD-06: subagent_type als Compound-Spawn-Key mit Story-ID
 
-**Erste Revision**: Compound-Key `{base}--r{round}`.
-**Zweite Revision**: Story-ID im Key: `{base}--story={id}--r{round}`.
+Story-ID im Key: `{base}--story={id}--r{round}`.
 
 **Begruendung**: `manifest_writer` braucht `story_id` fuer den Spawn-Spec-Pfad.
 SubagentStart's `cwd` ist der Parent-Kontext (ggf. Projekt-Root, nicht
 Worktree). Mit Story-ID im Spawn-Key ist der Lookup deterministisch.
 Trennung: Spawn-Key fuer Binding, cwd-Marker fuer Compaction-Scope.
 
-### DD-07: Prompt-Hash fuer Artifact-Drift-Schutz (beibehalten)
+### DD-07: Prompt-Hash fuer Artifact-Drift-Schutz
 
 Manifest und Spawn-Spec speichern SHA256-Hashes von `prompt_file` und
 `resume_capsule_file`. Wenn ein spaeterer Compose-Lauf die Datei ueberschreibt,
 erkennt die Recovery den Drift und warnt.
 
-### DD-08: Kritische Guardrails IN Kapsel (revidiert)
+### DD-08: Kritische Guardrails IN Kapsel
 
-**Vorher**: CLAUDE.md nicht in Kapsel duplizieren — Claude Code laedt
-Instruktionsdateien nach Compaction erneut.
-**Jetzt**: Kuratierter Invarianten-Block mit kritischen Guardrails in der Kapsel.
+Kuratierter Invarianten-Block mit kritischen Guardrails in der Kapsel.
 
 **Begruendung**: `resetGetMemoryFilesCache('compact')` greift nur fuer den
 Main-Thread (VB-04, `postCompactCleanup.ts:22-60`). Built-in Agents haben
@@ -657,10 +643,9 @@ Main-Thread (VB-04, `postCompactCleanup.ts:22-60`). Built-in Agents haben
 Compaction nicht garantiert. Der Invarianten-Block ist bewusst kompakt und
 versioniert, um Widerspruchsrisiko zu minimieren.
 
-### DD-09: Agent-Spawn-Policy im Recovery-Zustand (revidiert)
+### DD-09: Agent-Spawn-Policy im Recovery-Zustand
 
-**Vorher**: Hartes Deny (exit 2) fuer Agent-Spawns bei Recovery.
-**Jetzt**: Inject + Warn (exit 0), kein hartes Deny.
+Inject + Warn (exit 0), kein hartes Deny.
 
 **Begruendung**: Mit story-scoped Epoch sind within-story False Positives
 moeglich (paralleler Agent compacted, nicht dieser). Hartes Deny wuerde
@@ -668,11 +653,9 @@ bei False Positives legitime Arbeit blockieren. Zusaetzlich: Der alte Code
 blockierte Agent-Spawns bevor geprueft wurde, ob eine Kapsel ueberhaupt
 vorhanden ist — Deny ohne Wiederherstellungspfad ist destruktiv.
 
-### DD-10: First-Tool-Guard gegen False-Positive-Recovery (revidiert)
+### DD-10: First-Tool-Guard gegen False-Positive-Recovery
 
-**Vorher**: Ack-Mechanismus zwischen SessionStart und PreToolUse gegen
-Doppel-Recovery.
-**Jetzt**: `.first-tool` Marker verhindert, dass der allererste Tool-Call
+`.first-tool` Marker verhindert, dass der allererste Tool-Call
 nach Agent-Start als Recovery fehlinterpretiert wird.
 
 **Begruendung**: Ohne SessionStart als Primaerpfad gibt es kein Doppel-Recovery-
@@ -681,7 +664,7 @@ Risiko mehr. Das verbleibende Problem ist die Unterscheidung zwischen
 Der First-Tool-Guard loest dies: Beim ersten Tool-Call wird nur der Marker
 gesetzt, kein Recovery versucht.
 
-### DD-11: SessionStart und PostCompact nicht im Recovery-Kern (neu)
+### DD-11: SessionStart und PostCompact nicht im Recovery-Kern
 
 SessionStart(compact) und PostCompact werden bewusst nicht als tragende
 Recovery-Saeulen gefuehrt:
@@ -694,12 +677,3 @@ Recovery-Saeulen gefuehrt:
 
 Beide bleiben im System (SessionStart fuer kuenftige Optimierung, PostCompact
 fuer das Epoch-Signal), aber die Architektur funktioniert auch ohne sie.
-
-## 36.14 Sparring-Referenz
-
-Architektur erarbeitet in strukturiertem Sparring:
-- **Claude (Opus)**: Source-Code-Validierung, empirische Befunde, Architektur-Entwurf
-- **ChatGPT**: Konzept-Challenge, Korrelations-Analyse, Haertungsvorschlaege
-
-Sparring-Protokoll:
-`_temp/refactoring-stories/REF-019a_compaction-resilience-concept/sparring-protocol.md`

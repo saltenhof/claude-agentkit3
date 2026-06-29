@@ -146,7 +146,7 @@ Autoritativ ist dabei nicht die Dateiansicht selbst, sondern der
 explizite Lock-Datensatz
 `.agentkit/config/prompt-bundle.lock.json`.
 
-[Entscheidung 2026-05-04 — Multi-Harness] Der projektlokale `prompts/`-Pfad
+Der projektlokale `prompts/`-Pfad
 ist eine reine Konvention zur menschenlesbaren Orientierung, kein
 Mechanikbezug zu einem bestimmten Harness. Weder Claude Code noch Codex
 benoetigen einen projektlokal vorgeschriebenen Prompt-Pfad: Worker

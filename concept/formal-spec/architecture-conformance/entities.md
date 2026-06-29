@@ -16,105 +16,11 @@ prose_refs:
 Diese Entitaeten beschreiben die maschinell pruefbare Sicht auf
 Komponenten, Blutgruppen und stabile Namespace-Grenzen.
 
-Version 2 fuehrt die BC-Hierarchie (Top + Sub) fuer die ersten 4
-geschnittenen Bounded Contexts ein. Version 3 ergaenzt BC 5
-(exploration-and-design); Version 4 ergaenzt BC 6
-(implementation-phase); Version 5 ergaenzt BC 7 (story-closure);
-Version 6 ergaenzt BC 8 (artifacts); Version 7 ergaenzt BC 9
-(telemetry-and-events).
-Version 8 korrigiert BC 9 (telemetry-and-events) — ReadModels umbenannt in ProjectionAccessor.
-Version 9 ergaenzt BC 10 (prompt-runtime).
-Version 10 ergaenzt BC 11 (agent-skills).
-Version 11 ergaenzt BC 12 (installation-and-bootstrap).
-Version 12 ergaenzt BC 13 (failure-corpus).
-Version 13 ergaenzt BC 14 (execution-planning).
-Version 14 ergaenzt BC 15 (requirements-and-scope-coverage).
-Version 15 ergaenzt BC 16 (kpi-and-dashboard) -- alle 16 BCs geschnitten.
-Version 16 schliesst die Konzeptluecke fuer nicht-fachliche Module:
-fuehrt `boundary_modules` und `boundary_module_kinds` als parallele
-Top-Level-Konzepte neben `component_groups` ein. Loest die bisherigen
-Stub-Eintraege auf — `story`, `hook_runtime`, `phase_state_store`
-werden Subs ihrer Owner-BCs (BC 3 / BC 4 / BC 1); `control_plane`,
-`projectedge`, `state_backend_drivers` werden boundary_modules. Plus
-neuer Sub `verify_system.qa_read_models` (BC 2) und neue
-boundary_modules `cli`, `config`, `integrations`, `shared`,
-`filesystem`, `state_backend_repository`. Schema_version: 1 -> 2.
-Version 17 schliesst Phase E (Mapper-Layer): state_backend_drivers
-`may_import_component_groups` von `any` (transitorisch) auf `[]`
-gesetzt — Driver importieren keine BC-Records mehr direkt.
-Version 18 fuegt BC 17 (project-management) als A-Komponente hinzu —
-Owner der Project-Entitaet, des Story-ID-Praefix-Schemas und der
-Projekt-Konfiguration. Plus zwei neue Foundation-Boundaries als
-adapter_boundary: `concept_catalog` (FK-Doc-Verlinkung,
-conceptRefs-Resolver) und `multi_llm_hub` (Adapter zum externen
-Multi-LLM-Hub).
-Version 19 schneidet die Governance-Hook-Auswertung in einen
-harness-neutralen A-Kern (`guard_evaluation`) und eine lokalisierte
-Claude-Code-Adapter-Insel (`harness_adapters.claude_code`).
-Version 20 erlaubt der Control-Plane-HTTP-Registry, den projektneutralen
-Concept-Catalog-Adapter (`/v1/concepts`) zu registrieren.
-Version 21 erlaubt der Control-Plane-HTTP-Registry, den projektneutralen
-Multi-LLM-Hub-Adapter (`/v1/hub`) zu registrieren.
-Version 22 fuegt `boundary.auth` als R-Adapter-Boundary fuer Strategen-
-Sessions und projektgebundene Project-API-Tokens hinzu.
-Version 23 fuegt die Codex-Harness-Adapter-Insel
-`harness_adapters.codex` als internes Governance-Submodul hinzu.
-Version 24 aendert BC-Ownership der Harness-Adapter-Inseln
-(`harness_adapters_claude_code`, `harness_adapters_codex`) auf
-`harness-integration` gemaess FK-76. Physische Modul-Pfade bleiben
-unveraendert (Migration folgt als Folge-Story).
-Version 25 ergaenzt `agentkit.backend.state_backend.schema_bootstrap` als
-module_prefix des boundary_modules `state_backend_drivers` (AG3-051):
-Der gemeinsame Driver-Helper `ensure_versioned_schema` ist ein
-T-Bluttyp-Driver wie `config`/`postgres_store`/`sqlite_store`, importiert
-`config.resolve_schema_name` Same-Boundary und ist von
-`state_backend_repository` (den Repos) sowie `postgres_store` nutzbar.
-Keine Lockerung einer globalen Regel.
-Version 26 zielt den bestehenden Governance-Sub `principal_capability`
-auf den real geschnittenen Paketpfad
-`agentkit.backend.governance.principal_capabilities` (Plural, AG3-032 §3) um.
-Der Stub zeigte zuvor auf einen nicht existierenden Singular-Pfad; das
-Capability-Paket (FK-55) lebt unter dem Plural. Reine Modul-Prefix-
-Praezisierung, kein neuer Sub, keine gelockerte Regel. Zusaetzlich wird
-`principal_capability` in `intra_bc_layer_order` hinter `hook_runtime`
-(GuardEvaluation) einsortiert: das Capability-Paket konsumiert den
-harness-neutralen `HookEvent` aus `guard_evaluation` (FK-55 §55.10.3,
-AG3-032 AK10) und liegt damit fachlich eine Schicht ueber dem
-HookEvent-Kern.
-Version 27 ergaenzt den verify-system-Sub `sonarqube_gate`
-(`agentkit.backend.verify_system.sonarqube_gate`, sub_exposed, AG3-052): die
-SonarQube-Green-Gate-Capability (FK-33 §33.6). In `intra_bc_layer_order`
-hinter `adversarial_orchestrator` und vor `policy_engine` einsortiert
-(klassifikatorisch Layer 1, Abfolge nach Schicht 3, FK-33 §33.8.3).
-sub_exposed, damit die drei Lifecycle-Gate-Punkte (QA-Subflow hier;
-Setup-green-main FK-22 / Closure-Dim-9 FK-29/FK-35 als Konsumenten,
-AG3-034) die Capability-API aufrufen koennen. Keine gelockerte Regel.
-Version 28 ergaenzt `agentkit.backend.state_backend.migration` als module_prefix
-des boundary_modules `state_backend_drivers` (AG3-038): der idempotente
-Schema-MigrationRunner (FK-62 §62.4, FK-18 §18.9a) ist ein T-Bluttyp-
-Driver wie `postgres_store`/`sqlite_store`/`schema_bootstrap`. Er fuehrt
-versionierte DDL gegen rohe Connections aus, nutzt den Same-Boundary-
-Helper `postgres_store.iter_sql_statements` (reines SQL-Statement-
-Splitting) und den `shared`-Helper `now_iso`. Reine Modul-Prefix-
-Erweiterung, keine gelockerte Regel.
-Version 29 modelliert `agentkit.backend.core_types` explizit als boundary_module
-`core_types` (boundary_kind `domain_core_foundation`, Bluttyp A,
-importable_by any). Schliesst die Modell-Luecke aus AG3-097: die
-Domaenen-Kern-Foundation (ArtifactClass/Severity/Story/QaContext/...
-und der lokale OperatingMode, FK-56 §56.5/§56.7a) war bislang in keiner
-Komponenten-Gruppe und keinem Boundary-Modul modelliert. Importe der
-R-Adapter-Boundaries auf `agentkit.backend.core_types` (control_plane.models /
-control_plane.runtime / projectedge.runtime sowie die state_backend-
-Driver/Repository) wurden dadurch nur als unbekannte stdlib/third-party-
-Importe durchgewunken (Fallthrough), nicht per Regel erlaubt. Mit der
-expliziten Modellierung plus den ergaenzten
-`may_import_boundary_modules`-Eintraegen (core_types) bei genau diesen
-fuenf Boundaries ist die boundary->core_types-Kante jetzt regel-erlaubt
-(AC010-boundary-match) statt fallthrough-stillgelegt. Neuer
-boundary_kind `domain_core_foundation` (A-typisierte importierbare
-Blatt-Foundation mit Domaenenwissen, im Unterschied zur fachneutralen
-shared_foundation Bluttyp 0). Keine gelockerte Regel; nur das Modell
-wird vollstaendig gemacht.
+Komponenten sind zweistufig modelliert: fachliche Top-Bounded-Contexts
+mit ihren Sub-Komponenten (`component_groups`). Nicht-fachliche Module —
+Entry-Boundaries, Adapter, Foundations und Infrastruktur-Treiber — werden
+als `boundary_modules` parallel zu den `component_groups` gefuehrt und
+ueber `boundary_module_kinds` klassifiziert.
 
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
@@ -188,7 +94,7 @@ component_groups:
     parent_group_id: architecture-conformance.group.pipeline_engine
     exposure: sub_exposed
     component_kind: domain
-    # Schema-Owner laut Phase A Row 33 fuer FlowExecution, PhaseState,
+    # Schema-Owner fuer FlowExecution, PhaseState,
     # OverrideRecord, NodeExecutionLedger und phase_state_projection.
     # Persistenz erfolgt via boundary.state_backend_repository; das
     # Schema selbst lebt hier.
@@ -292,9 +198,9 @@ component_groups:
     parent_group_id: architecture-conformance.group.verify_system
     exposure: sub_exposed
     component_kind: domain
-    # SonarQube-Green-Gate capability (FK-33 §33.6, AG3-052). sub_exposed
+    # SonarQube-Green-Gate capability (FK-33 §33.6). sub_exposed
     # so the three lifecycle gate points (QA-subflow here; Setup-green-main
-    # FK-22 / Closure Dim 9 FK-29/FK-35 as consumers, AG3-034) can call the
+    # FK-22 / Closure Dim 9 FK-29/FK-35 as consumers) can call the
     # capability API. Sequenced after adversarial_orchestrator and before
     # policy_engine in intra_bc_layer_order (FK-33 §33.8.3). The external
     # SonarQube HTTP boundary lives in the integrations adapter, not here.
@@ -307,12 +213,12 @@ component_groups:
     parent_group_id: architecture-conformance.group.verify_system
     exposure: sub_exposed
     component_kind: domain
-    # Pre-Merge-Verification-Runner capability (AG3-056, FK-29 §29.1a.3 /
+    # Pre-Merge-Verification-Runner capability (FK-29 §29.1a.3 /
     # FK-33 §33.6.3). Owns the PreMergeScanPort/BuildTestPort contract the
-    # Closure pre-merge barrier (AG3-053) consumes; sub_exposed so the
+    # Closure pre-merge barrier consumes; sub_exposed so the
     # cross-BC closure consumer can call it (dependency direction
     # closure -> verify_system.pre_merge_runner, never the reverse).
-    # Sequenced AFTER sonarqube_gate (it consumes AG3-052's attestation /
+    # Sequenced AFTER sonarqube_gate (it consumes the sonarqube_gate attestation /
     # green definition) and before policy_engine. The external Jenkins/Sonar
     # HTTP boundary lives in the integrations adapters, not here.
 
@@ -400,9 +306,7 @@ component_groups:
     parent_group_id: architecture-conformance.group.story_context_manager
     exposure: sub_exposed
     component_kind: domain
-    # Story-Domaenentypen (frueher unter agentkit.backend.story als Stub-Top
-    # gefuehrt). Code-Pfad-Migration nach agentkit.backend.story_context_manager.
-    # story_types erfolgt im Code-Refactor-Schritt.
+    # Story-Domaenentypen (Kerntypen des Bounded Context story-lifecycle).
 
   - id: architecture-conformance.group.story_identity
     name: StoryIdentity
@@ -446,7 +350,7 @@ component_groups:
     module_prefixes:
       - agentkit.backend.story_context_manager.operating_mode_resolver
     parent_group_id: architecture-conformance.group.story_context_manager
-    # sub_exposed (AG3-097): the named operating-mode resolution owner is
+    # sub_exposed: the named operating-mode resolution owner is
     # consumed cross-BC by governance-and-guards (guard_evaluation + the
     # integrity-gate mode guard, FK-56 §56.7a/§56.10). It carries the SSOT mode
     # seam, so it is exposed as a sub-surface like the other consumed
@@ -505,8 +409,8 @@ component_groups:
     parent_group_id: architecture-conformance.group.governance
     exposure: sub_exposed
     component_kind: domain
-    # Harness-neutraler A-Kern fuer GuardSystem. Die historische
-    # HookRuntime-ID bleibt stabil, der Python-Kompatibilitaetspfad
+    # Harness-neutraler A-Kern fuer GuardSystem. Die Gruppen-ID
+    # `hook_runtime` adressiert diesen A-Kern; der Python-Kompatibilitaetspfad
     # `agentkit.backend.governance.hookruntime` gehoert zur Adapter-Insel.
 
   - id: architecture-conformance.group.harness_adapters_claude_code
@@ -521,11 +425,10 @@ component_groups:
     # Lokalisierte Claude-Code-Mediation: Tool-Namen, Hook-Payload und
     # Exit-Code-Vertrag bleiben hier und werden auf HookEvent gemappt.
     # BC ownership: harness-integration (FK-76) — nicht governance-and-guards.
-    # Physical module path: agentkit.harness_client.harness_adapters.claude_code (Legacy, temporaer).
-    # Migration target: agentkit.harness_integration.claude_code (Folge-Story).
-    # NOTE: Physical module path is temporarily still agentkit.harness_client.harness_adapters.claude_code.
-    # BC ownership is already harness-integration per FK-76; physical package migration
-    # is a follow-up and must not be used to infer governance ownership.
+    # Die hier gelisteten physischen Modulpfade gehoeren fachlich zu
+    # harness-integration; der physische Paketpfad bestimmt NICHT die
+    # BC-Ownership und darf nicht zur Ableitung von Governance-Ownership
+    # herangezogen werden.
 
   - id: architecture-conformance.group.harness_adapters_codex
     name: HarnessAdaptersCodex
@@ -538,11 +441,10 @@ component_groups:
     # Lokalisierte Codex-Mediation: Tool-Namen, Hook-Payload und
     # Exit-Code-Vertrag bleiben hier und werden auf HookEvent gemappt.
     # BC ownership: harness-integration (FK-76) — nicht governance-and-guards.
-    # Physical module path: agentkit.harness_client.harness_adapters.codex (Legacy, temporaer).
-    # Migration target: agentkit.harness_integration.codex (Folge-Story).
-    # NOTE: Physical module path is temporarily still agentkit.harness_client.harness_adapters.codex.
-    # BC ownership is already harness-integration per FK-76; physical package migration
-    # is a follow-up and must not be used to infer governance ownership.
+    # Die hier gelisteten physischen Modulpfade gehoeren fachlich zu
+    # harness-integration; der physische Paketpfad bestimmt NICHT die
+    # BC-Ownership und darf nicht zur Ableitung von Governance-Ownership
+    # herangezogen werden.
 
   - id: architecture-conformance.group.ccag_permission_runtime
     name: CcagPermissionRuntime
@@ -609,7 +511,7 @@ component_groups:
       - agentkit.backend.exploration
     parent_group_id: null
     exposure: top
-    top_surface_modules: []   # leer initial; wird mit konkreten Module-FQN gefuellt sobald Code-Refactor laeuft
+    top_surface_modules: []
     component_kind: domain
     intra_bc_layer_order:
       - architecture-conformance.group.exploration_mode_router
@@ -1231,15 +1133,14 @@ component_groups:
     exposure: top
     top_surface_modules: []
     component_kind: domain
-    # Owner von Task/TaskLink-Zustand und -Verlinkung (FK-77, AG3-096).
+    # Owner von Task/TaskLink-Zustand und -Verlinkung (FK-77).
     # Reine Zustands-/Verlinkungs-Verwaltung: KEINE Pipeline-/Phasen-/
     # Gate-/Worktree-Kopplung (FK-77 §77.6) — importiert weder
     # pipeline_engine noch Phase-/Gate-Orchestrierung; ein Task wird nie
     # an die PipelineEngine uebergeben. Persistenz (tm_tasks/tm_task_links)
     # via boundary.state_backend_repository; dedizierter Task-Persistenz-
     # Port analog record_fc_incident, ohne Aufweitung des FK-69-
-    # ProjectionKind (AG3-096 AK8 = Ausweg a). Bereits in
-    # _meta/bounded-contexts.yaml + domain-registry.yaml registriert.
+    # ProjectionKind.
 
   # -----------------------------------------------------------------------
   # Shared: WorktreeManager (owner: story-lifecycle, cross-BC)
@@ -1288,8 +1189,8 @@ boundary_modules:
       - architecture-conformance.boundary.control_plane_http
       - architecture-conformance.boundary.control_plane_records
       - architecture-conformance.boundary.control_plane_runtime
-      # AG3-076 (REMEDIATION-2): The state_backend_repository grant has been
-      # removed. The operator/recovery CLI (AG3-076) routes ALL state-backend
+      # The CLI holds no state_backend_repository grant. The operator/recovery
+      # CLI routes ALL state-backend
       # reads through agentkit.backend.bootstrap.composition_root wrapper functions
       # (cli_load_story_context, cli_read_phase_state_record,
       # cli_load_execution_events_for_project_global) so the CLI never imports
@@ -1533,7 +1434,7 @@ boundary_modules:
     importable_by: any
     may_import_component_groups: []
     may_import_boundary_modules: []
-    # Domaenen-Kern-Foundation (FK-56 §56.5/§56.7a; AG3-021 §2.1.1.1):
+    # Domaenen-Kern-Foundation (FK-56 §56.5/§56.7a):
     # Single Source of Truth fuer fachliche Kerntypen, die mehrere BCs
     # gleichzeitig brauchen — ArtifactClass, Severity, Story(Mode/Size),
     # QaContext, AttemptOutcome, PolicyVerdict, ClosureVerdict,
@@ -1577,8 +1478,8 @@ boundary_modules:
     #
     # `agentkit.backend.state_backend.paths` haelt Filesystem-Pfad-Konstanten
     # (STATE_DB_DIR/STATE_DB_FILE/LAYER_ARTIFACT_FILES/...) und
-    # gehoert konzeptionell hierher; physisch unter state_backend/
-    # bis Phase E den Pfad konsolidiert.
+    # gehoert konzeptionell zu dieser Boundary, auch wenn der physische
+    # Pfad unter state_backend/ liegt.
 
   # -----------------------------------------------------------------------
   # Infrastructure-Driver (infrastructure_driver): T-Bluttyp.
@@ -1614,7 +1515,7 @@ boundary_modules:
     # config.resolve_schema_name (Same-Boundary-Import) und ist von
     # state_backend_repository (den Repos) sowie postgres_store nutzbar.
     #
-    # Driver importieren keine BC-Records mehr direkt; Mapping erfolgt
+    # Driver importieren keine BC-Records direkt; Mapping erfolgt
     # in store.mappers (boundary.state_backend_repository). Die Driver
     # erhalten und liefern ausschliesslich dict[str, Any]-Zeilen.
 ```

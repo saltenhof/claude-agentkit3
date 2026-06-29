@@ -204,7 +204,7 @@ def get_story_branch() -> str | None:
     return None
 ```
 
-[Multi-Repo-Klarstellung 2026-05-04] Bei Multi-Repo-Stories existiert
+Bei Multi-Repo-Stories existiert
 `.agent-guard/lock.json` pro teilnehmendem Worktree, identischer
 Inhalt (gleicher Story-Branch, gleiche Run-Bindung). Der Branch-Guard
 laeuft pro Tool-Call mit dem CWD des aufrufenden Worktrees und

@@ -176,9 +176,6 @@ flowchart TD
 | 2 — Import-Extraktion | Regex-basierte Import-Auflösung für Python, TypeScript, Java (FK-46) | `SECONDARY_CONTEXT` | Gering — Regex kann False Positives erzeugen, Confidence Labels quantifizieren das |
 | 3 — Worker-Hints | `handover.json` und `worker-manifest.json` | `WORKER_ASSERTION` | Hoch — Worker-Claims sind ungeprüft, niedrigste Beweiskraft |
 
-> **[Entscheidung 2026-04-08]** Element 15 — Multi-Repo Worktree Logic ist Produktionsanforderung. `worktree_paths` (Dict: repo-name → Pfad) im Spawn-Vertrag. Runtime-Anforderung fuer Multi-Repo-Zielprojekte. Die urspruenglich vorgesehene Repo-Sonderrolle entfaellt mit Entscheidung 2026-05-04 (FK-22 §22.6.1, gleichberechtigte Teilnehmer); der Spawn-Worktree-Anker fuer deterministische Disambiguierung ist `participating_repos[0]` (FK-22 §22.6.4) ohne fachliche Sonderrolle.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 15.
-
 ### 28.3.2 Multi-Repo-Contract (`RepoContext`) (FK-28-001)
 
 AgentKit unterstützt Multi-Repo-Stories (mehrere Repositories in
@@ -379,9 +376,6 @@ def _check_self_reference(self, hint_path: Path) -> bool:
 3. Dateien, die der Worker selbst geändert hat, erzeugen ein
    WARNING (Self-Reference-Check).
 
-> **[Entscheidung 2026-04-08]** Element 28 — Section-aware Bundle-Packing ist Pflicht. FK-34-121 normativ. Die Priorisierung und das Bundle-Packing muessen section-aware erfolgen.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 28.
-
 ### 28.3.6 Bundle-Größenlimit und Priorisierung (FK-28-003)
 
 Das Bundle hat ein hartes Limit von **350 KB** (unkomprimiert).
@@ -557,11 +551,10 @@ class EvidenceAssembler:
         ...
 ```
 
-**Benötigte Git-Erweiterungen** (`agentkit/core/git.py`):
+**Git-Diff-Methoden** (`agentkit/core/git.py`):
 
-`GitOperations` hat aktuell keine `diff()`-Methode. Für den
-Assembler werden drei neue Methoden benötigt, die den bestehenden
-`_git()`-Mechanismus nutzen:
+Der Assembler benötigt drei `GitOperations`-Methoden auf Basis des
+`_git()`-Mechanismus:
 
 ```python
 # Erweiterung in agentkit/core/git.py
@@ -585,10 +578,10 @@ def diff_full(self, base: str = "main", paths: list[str] | None = None) -> str:
     return result.stdout
 ```
 
-**Hinweis:** `checks_impact.py` (FK-33) nutzt bereits
-`git diff --name-only` via subprocess-Direktaufruf. Nach
-Implementierung der neuen Methoden wird `checks_impact.py` auf
-`GitOperations.diff_name_only()` umgestellt.
+**Hinweis:** `GitOperations` ist der kanonische Zugriffspfad für
+Diffs. Checks, die einen Name-only-Diff brauchen (z.B.
+`checks_impact.py`, FK-33), nutzen `GitOperations.diff_name_only()`
+statt eines subprocess-Direktaufrufs von `git diff --name-only`.
 
 ## 28.4 Import-Resolver
 

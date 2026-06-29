@@ -838,7 +838,7 @@ entities:
     notes:
       - Alle Werte sind non-negative Integer; 0 bedeutet "Cap blockiert".
 
-  # ---- Coverage (AG3-091 / FK-40 §40.5b.6) -------------------------
+  # ---- Coverage (FK-40 §40.5b.6) -------------------------
 
   - id: frontend-contracts.entity.story_coverage_acceptance
     identity: story_id
@@ -866,8 +866,8 @@ entities:
           - ARE-Item-IDs der verlinkten Anforderungen.
     notes:
       - >
-        Kein Mutationspfad; Schreibweg gehoert AG3-077
-        (StoryAreLink INSERT/UPDATE). AG3-091 liest read-only.
+        Kein Mutationspfad; der Schreibweg gehoert dem StoryAreLink-Owner
+        (StoryAreLink INSERT/UPDATE). Diese Sicht liest read-only.
 
   - id: frontend-contracts.entity.story_are_evidence
     identity: story_id
@@ -878,7 +878,7 @@ entities:
       ausschliesslich StoryAreLink + ARE-Live-Status (check_gate) +
       ARE-Evidenz-Liste (list_evidence); read-only.
       Jedes Element von ``linked_requirements`` repraesentiert eine
-      StoryAreLink-Kante (AG3-077 ``StoryAreLink``: ``are_item_id``,
+      StoryAreLink-Kante (``StoryAreLink``: ``are_item_id``,
       ``kind``) angereichert um ``coverage_status`` (check_gate-Ergebnis)
       und ``evidence_paths`` (konkrete Evidenz-Referenzen aus
       AreEvidence.evidence_ref: Test-Locator, Commit-SHA, Artefakt-Pfad).
@@ -899,13 +899,12 @@ entities:
             ``coverage_status`` (string: covered|uncovered|linked),
             ``evidence_paths`` (list<string>: konkrete Evidenz-Referenzen
             aus AreClient.list_evidence; leer wenn keine Evidenz vorhanden).
-            Basiert auf AG3-077 ``StoryAreLink``; kein eigenes Entitaets-
-            Duplikat (story_are_link_view wurde entfernt, siehe AG3-091
-            ERROR-F-Bereinigung).
+            Basiert auf ``StoryAreLink``; kein eigenes Entitaets-
+            Duplikat.
     notes:
       - >
-        Kein Mutationspfad; Schreibweg gehoert AG3-077. AG3-091
-        liest read-only.
+        Kein Mutationspfad; der Schreibweg gehoert dem StoryAreLink-Owner.
+        Diese Sicht liest read-only.
 
   # ---- Dependency-Graph ---------------------------------------------
 

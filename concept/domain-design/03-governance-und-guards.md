@@ -100,8 +100,6 @@ glossary:
 
 <!-- PROSE-FORMAL: formal.exploration.invariants, formal.exploration.scenarios -->
 
-**Quelle:** Konsolidiert aus agentkit-domain-concept.md, Kapitel 6
-**Datum:** 2026-04-02
 **Übersicht:** [00-uebersicht.md](00-uebersicht.md)
 
 ---
@@ -520,9 +518,7 @@ Implementation-Phase starten darf. Die Closure-Phase erfordert eine
 abgeschlossene Implementation-Phase (`flow_executions` mit
 `status=COMPLETED`); Implementation kann nur dann COMPLETED
 erreichen, wenn der QA-Subflow innerhalb der Implementation-Phase
-mit `qa_cycle_status = pass` abgeschlossen wurde. [Entscheidung
-2026-05-01: Top-Phase `verify` entfaellt — Output-QA ist
-Subflow-intern in `implementation`.]
+mit `qa_cycle_status = pass` abgeschlossen wurde.
 
 Dieses Enforcement ist eine zusaetzliche Verteidigungslinie
 (Defense-in-Depth), die Orchestrator-Fehler sofort abfaengt, statt
@@ -655,10 +651,6 @@ präventiv während der Worker-Laufzeit. Alle drei sind orthogonal.
 > Debounce-Regeln, Hook-Commit-Failure-Klassifikation und
 > Persistenz-Artefakte sind in **FK-49 (Worker-Health-Monitor)**
 > normiert. Die Hook-Architektur darunter liegt in **FK-30**.
-
-> **[Entscheidung 2026-04-08]** Element 23 — LLM-Assessment-Sidecar ist Pflicht. Kein Feature-Flag.
-> Element 19 — Evidence-Fingerprint wird verbessert: SHA256-Hash statt Dateigroessen.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Elemente 19, 23.
 
 ### 3.9 Eskalationsklassen und Mandatsgrenzen
 

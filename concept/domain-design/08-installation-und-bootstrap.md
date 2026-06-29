@@ -45,19 +45,23 @@ glossary:
 
 <!-- PROSE-FORMAL: formal.installer.entities, formal.installer.state-machine, formal.installer.commands, formal.installer.invariants, formal.installer.scenarios -->
 
-**Quelle:** Konsolidiert aus agentkit-domain-concept.md, Kapitel 11
-**Datum:** 2026-04-02
 **Übersicht:** [00-uebersicht.md](00-uebersicht.md)
 
 ---
 
-AgentKit wird systemweit installiert und registriert anschließend ein
+AgentKit besteht aus zwei Installationsanteilen unterschiedlicher Lokalität:
+dem **State- und Orchestrierungs-Core**, der wahlweise auf dem
+Entwicklerrechner oder — für Team-Betrieb — zentral auf einem dedizierten
+Server läuft, und der **agentenseitigen Installation** (versionierte Prompt-/
+Skill-Bundles sowie der AK3-Client mit Hooks und Project-Edge-Launcher), die
+auf jedem Entwicklerrechner lokal vorliegen muss, weil der Agent-Harness sie
+transparent als Dateien liest. Anschließend registriert AgentKit ein
 Zielprojekt über eine Folge idempotenter Checkpoints: GitHub-Repo-Bindung
 für Code-Operationen, optionale Default-Projektstruktur für leere
-Neuprojekte, projektlokale Pipeline-Konfiguration, Hook-Registration
-projektlokale Symlink-Bindung auf systemweite, versionierte
-Skill-Bundles und den offiziellen Project-Edge-Launcher fuer
-Agent-Kommandos. Die Default-Projektstruktur ist ein explizites Opt-in;
+Neuprojekte, projektlokale Pipeline-Konfiguration, Hook-Registration,
+projektlokale Symlink-Bindung auf die rechnerweite (nicht server-zentrale),
+versionierte Skill-Bundle-Installation und den offiziellen
+Project-Edge-Launcher fuer Agent-Kommandos. Die Default-Projektstruktur ist ein explizites Opt-in;
 Bestandsprojekte und Projekte mit eigener Soll-Struktur erhalten sie
 nicht automatisch. Laufzeitdaten und kanonische Zustände liegen nicht
 im Projekt, sondern zentral. Eine nachgelagerte Verifikation prüft den

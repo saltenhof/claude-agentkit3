@@ -53,8 +53,6 @@ glossary:
 
 # 07 — Failure Corpus als Lernschleife
 
-**Quelle:** Konsolidiert aus agentkit-domain-concept.md Kapitel 10 + failure-corpus-konzept.md
-**Datum:** 2026-04-02
 **Übersicht:** [00-uebersicht.md](00-uebersicht.md)
 
 ---
@@ -822,47 +820,3 @@ Der Failure Corpus wird stufenweise eingeführt, nicht als Big Bang.
 - Automatische Priorisierung nach Rework-Kosten
 - Sunset-Mechanismus für nutzlose Checks
 - Trend-Reports über Fehlerkategorien
-
----
-
-## 7.10 Synthese-Notizen
-
-Das Umsetzungskonzept wurde im Multi-LLM-Sparring erarbeitet
-(ChatGPT GPT-4o, Grok xAI, Claude Opus 4.6; Synthese am 2026-03-16).
-
-### 7.10.1 Übereinstimmung aller drei Quellen
-
-Alle drei Sparring-Partner stimmen überein:
-
-- **Drei-Ebenen-Trennung** (Incident, Pattern, Check) ist zwingend
-- **Menschliche Bestätigung** vor Pattern-Promotion ist nötig
-- **Deterministische Checks**, kein LLM-Judging
-- **Nicht alles sammeln** — strenge Aufnahmekriterien
-- **Frühe Einbindung** in die Pipeline statt spätes Review-Gate
-- **Owner und Sunset** für jeden Check
-
-### 7.10.2 Wo die Quellen divergierten
-
-- **Schwellen für Pattern-Promotion:** ChatGPT schlägt 3 Incidents
-  in 30 Tagen als Standard vor, Grok ebenfalls 3 Incidents, aber mit
-  stärkerem Fokus auf Impact-Schwelle. Die Synthese übernimmt das
-  Drei-Regeln-Modell (Wiederholung, Schwere, Checkbarkeit), das alle
-  drei Szenarien abdeckt.
-
-- **Automatisierungsgrad bei Erfassung:** Grok schlägt 70/30
-  (automatisch/manuell) vor. ChatGPT differenziert stärker nach
-  Akteuren (Pipeline, QA-Agent, Adversarial Agent, Mensch). Die
-  Synthese folgt ChatGPTs Akteur-Modell, weil es präziser zur
-  AgentKit-Rollenstruktur passt.
-
-- **Corpus-Größe:** Grok setzt ein hartes Limit (unter 1000 aktive
-  Einträge). ChatGPT setzt auf Relevanz-Filter statt Größen-Limit.
-  Die Synthese setzt auf Aufnahmekriterien und Archivierung statt auf
-  harte Limits, ergänzt aber ein Monats-Ziel (unter 20 neue Incidents).
-
-- **Kategorien:** ChatGPT liefert 12 Kategorien mit starkem Fokus auf
-  agentenspezifisches Fehlverhalten (review_evasion, assertion_weakness).
-  Grok liefert 9 Kategorien mit stärkerem Fokus auf technische Fehler
-  (performance, non-determinism). Die Synthese übernimmt ChatGPTs
-  12er-Set, weil es die agentspezifischen Muster besser abdeckt.
-  Performance- und Non-Determinism-Fälle werden über Tags abgebildet.

@@ -39,8 +39,6 @@ glossary:
 
 # 13 — KPIs und nachgelagerte Optimierung
 
-**Quelle:** Konsolidiert aus DK-05 §5.3 (Stand 2026-04-02)
-**Datum:** 2026-04-29 (ausgegliedert aus DK-05 entlang BC kpi-and-dashboard)
 **Übersicht:** [00-uebersicht.md](00-uebersicht.md)
 
 ---

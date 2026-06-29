@@ -269,7 +269,7 @@ T:\repo\.claude\skills\execute-userstory   ->  C:\ProgramData\AgentKit\bundles\4
 T:\repo\.codex\skills\execute-userstory    ->  C:\ProgramData\AgentKit\bundles\4.0.0\core\skills\execute-userstory
 ```
 
-[Entscheidung 2026-05-04 — Multi-Harness] AK3 unterstuetzt ab Tag 1
+AK3 unterstuetzt ab Tag 1
 zwei Harnesses parallel (Claude Code, Codex; siehe FK-76 §76.7).
 Beide haben kompatible `SKILL.md`-Skill-Formate. Der Installer
 pflanzt deshalb pro Skill **zwei Links** — einen pro Harness.
@@ -278,7 +278,7 @@ Links zeigen beide auf dasselbe Bundle-Verzeichnis.
 
 #### 43.4.1.1 Plattformabhaengige Binde-Mechanik (Symlink/Junction)
 
-[Entscheidung 2026-06-01 — Junction-on-Windows] AK3 laeuft zentral auf
+AK3 laeuft zentral auf
 Windows-Maschinen: **eine** zentrale AK3-Installation bedient **N**
 Projekte ohne Pro-Projekt-Installation und ohne Datei-Kopien. Die
 Projektbindung ist deshalb ein **duenner Dateisystem-Link** auf das
@@ -295,7 +295,7 @@ Die Link-Art ist plattformabhaengig:
 | Windows | **Directory Junction** (`mklink /J`-Aequivalent) | benoetigt **keinen** Developer Mode und kein `SeCreateSymbolicLinkPrivilege`; ein Windows-*Symlink* wuerde beides voraussetzen und ist auf Zielmaschinen nicht annehmbar |
 
 Daraus folgen verbindliche Sicherheitsregeln fuer die Junction-Variante
-(Windows), die die Implementierung (AG3-027) einhalten muss:
+(Windows):
 
 - **Detektion**: Eine Junction wird **nicht** von `os.path.islink`
   erkannt; die Bindungspruefung verwendet `os.path.isjunction`
@@ -364,7 +364,7 @@ bricht). Die substituierten Felder stammen ausschliesslich aus FK-03:
 | `{{wiki_stories_dir}}` | `config.wiki_stories_dir` (projektrelativ, Default `stories`; FK-03 §3.1) |
 
 Der Token `{{AGENT_SPAWN_SKILL_PROOF}}` ist **nicht** Config-, sondern
-**Manifest-gespeist** (AG3-110, FK-31 §31.7.4): seine autoritative
+**Manifest-gespeist** (FK-31 §31.7.4): seine autoritative
 Quelle ist der install-stabile Token im `.installed-manifest.json`, nicht
 `project.yaml`. Er wird ausschliesslich ueber `substitute_spawn_header`
 aufgeloest und auf dem reinen Config-Pfad fail-closed als unbekannt

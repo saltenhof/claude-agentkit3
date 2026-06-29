@@ -46,8 +46,6 @@ glossary:
 
 # 12 — Spezialisierte Skills und Skill-System
 
-**Quelle:** Konsolidiert aus DK-09 §9.2 (Stand 2026-04-02)
-**Datum:** 2026-04-29
 **Übersicht:** [00-uebersicht.md](00-uebersicht.md)
 
 ---

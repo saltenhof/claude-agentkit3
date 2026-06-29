@@ -17,9 +17,6 @@ formal_scope: prose-only
 
 # AgentKit — Fachkonzept-Übersicht
 
-**Status:** Konsolidiert aus agentkit-domain-concept.md + agentkit-overview.md
-**Datum:** 2026-04-02
-
 ## Kernauftrag
 
 AK3 gewährleistet ein hochqualitatives E2E-Ergebnis in der autonomen,
@@ -86,6 +83,33 @@ LLM-Agenten. Alles andere — Ablaufsteuerung, Qualitäts-Gates, Merge,
 Status-Updates — läuft deterministisch, ohne LLM, ohne Halluzinationsrisiko.**
 
 AgentKit ist kein Agent selbst, sondern die Maschine, die Agenten orchestriert.
+
+## 1a. Betriebsmodell (fachliche Leitplanke)
+
+AK3 ist als **gemeinsam nutzbare, zentral betreibbare Capability** konzipiert,
+nicht als pro Entwickler oder pro Projekt isoliert installiertes Werkzeug — ein
+lebendes System mit *einem* Lifecycle, nicht N parallel zu pflegenden Instanzen.
+Daraus folgen drei fachliche Grundanforderungen:
+
+- **Team-fähig:** Mehrere Menschen arbeiten parallel mit AK3 — an
+  unterschiedlichen Stories desselben Projekts wie an verschiedenen Projekten.
+  AK3 stellt eine *einheitliche, kohärente* Sicht auf Steuerung, Governance,
+  Qualität und Telemetrie bereit. Geteilte Aufsicht über eine Agenten-Flotte
+  ist nur tragfähig, wenn sie nicht über isolierte Einzelinstanzen zersplittert.
+- **Projektübergreifend:** Eine AK3-Bereitstellung bedient mehrere Projekte
+  gleichzeitig — und dasselbe Projekt, das auf mehreren Entwicklerrechnern
+  parallel bearbeitet wird.
+- **Zwei Lokalitäten, ein Betriebsmodell:** Der **Core** (Zustand +
+  Orchestrierung) kann rechnerlokal (Einzel-Stratege) *oder* zentral auf einem
+  dedizierten Server (Team) laufen. Die **agentenseitigen Inhalte** (Prompt-/
+  Skill-Bundles) liegen dagegen stets lokal auf jedem Entwicklerrechner —
+  kanonische Quelle zentral, Materialisierung pro Rechner —, weil der
+  Agent-Harness sie transparent als Dateien liest. Der projektlokale Fußabdruck
+  bleibt dünn; kanonische Zustände liegen zentral. (Technik: FK-01/FK-10.)
+
+Diese Leitplanke ist Grundanforderung: Komponentenschnitt sowie Zustands- und
+Governance-Modell müssen so gewählt sein, dass die zentrale, team- und
+projektübergreifende Betriebsform jederzeit möglich bleibt.
 
 ## 2. Für wen?
 
@@ -201,11 +225,12 @@ Muster werden in deterministische Checks überführt. Brücke zwischen
 nicht-deterministischer LLM-Welt und deterministischer QA-Pipeline.
 
 **4.8 Projektregistrierung und Bootstrap** (→ [08-installation-und-bootstrap.md](08-installation-und-bootstrap.md)).
-AgentKit wird systemweit betrieben und registriert Projekte über
-idempotente Checkpoints. Im Projekt liegen nur Konfiguration und
-harness-spezifische Skill-Bindungen (Claude Code, Codex — siehe
-FK-76); der kanonische Inhalt liegt
-systemweit bzw. im zentralen State-Backend.
+Der AK3-Core wird zentral betrieben (rechnerlokal oder auf einem Server;
+§1a) und registriert Projekte über idempotente Checkpoints. Im Projekt
+liegen nur Konfiguration und harness-spezifische Skill-Bindungen (Claude
+Code, Codex — siehe FK-76); der kanonische Zustand liegt im zentralen Core
+(State-Backend), agentenseitige Bundles werden pro Entwicklerrechner aus
+zentraler Quelle materialisiert.
 
 **4.9 Umsetzungsautomatisierung und Werkzeuge** (→ [09-tools-und-skills.md](09-tools-und-skills.md)).
 Parameterbasierte Tool-Governance (CCAG) mit sessionübergreifender
@@ -236,10 +261,9 @@ Prompt           erstellen     Subflow-interner Remediation-Loop     schliessen
 bauen
 ```
 
-> **[Entscheidung 2026-05-01]** Eine eigenstaendige Top-Phase `verify`
-> existiert nicht mehr. Output-QA ist interner Subflow innerhalb der
-> Implementation-Phase. Siehe `concept/_meta/bc-cut-decisions.md`
-> "Verify als Capability (Variante Y)".
+> Eine eigenstaendige Top-Phase `verify` existiert nicht. Output-QA ist
+> interner Subflow innerhalb der Implementation-Phase. Siehe
+> `concept/_meta/bc-cut-decisions.md` "Verify als Capability (Variante Y)".
 
 ### Phase 1: Setup (deterministisch)
 

@@ -1,5 +1,4 @@
 # AgentKit 3 — Bounded-Context-Landschaft
-# Stand: 2026-04-29, nach mehrrundiger Konvergenzdiskussion (Claude + ChatGPT)
 #
 # Methodische Praemissen:
 #   - BC = Sprachgrenze + Ownership + Public Surface (nicht Code-Komponente)
@@ -366,8 +365,8 @@ known_required_doc_splits:
     Stand der bisherigen Analyse — kein Anspruch auf Vollstaendigkeit.
     Weitere Splits werden bei der praktischen Migration sehr
     wahrscheinlich auftauchen, insbesondere wenn die Drift-Risiken
-    konkret aufgeloest werden. Quelle der Liste: Frontmatter-Analyse
-    plus Diskussion mit ChatGPT, nicht systematischer Audit.
+    konkret aufgeloest werden. Quelle der Liste: Frontmatter-Analyse,
+    nicht systematischer Audit.
 
   splits:
 

@@ -149,9 +149,6 @@ der Worker selbst basierend auf Story, Konzept und Prompt. AgentKit
 steuert den **Rahmen**: Worktree-Isolation, Guards, Review-Pflicht,
 Inkrement-Disziplin, Handover-Paket.
 
-> **[Entscheidung 2026-04-08]** Element 2 — SpawnReason wird als StrEnum in `core/types.py` konsolidiert. Werte: `INITIAL`, `PAUSED_RETRY`, `REMEDIATION`. Betrifft den Worker-Start (§26.2) und die Worker-Varianten (§26.2.3).
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 2.
-
 ## 26.2 Worker-Start
 
 ### 26.2.1 Startprotokoll
@@ -177,8 +174,7 @@ in `participating_repos` ist der deterministische Spawn-CWD ohne
 fachliche Sonderrolle. Schreiben in nicht-teilnehmende Repos ist
 verboten (FK-22 §22.6.1).
 
-> **[Entscheidung 2026-04-08]** Element 9 — WorkerContextItem / WORKER_CONTEXT_SPEC wird als Runtime-Gate in `prompting/workers` uebernommen. `WorkerContextItemKey` als StrEnum. Registry mit `key`, `source`, `required_when`, `applies_to`. Aufrufkette: `resolve_worker_context()` → `validate_worker_context()` → `compose_worker_prompt()`. Getrennt von Workflow-DSL (Phasenlogik ≠ Spawn-Vertrag).
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 9.
+> WorkerContextItem / WORKER_CONTEXT_SPEC ist ein Runtime-Gate in `prompting/workers`. `WorkerContextItemKey` ist ein StrEnum. Registry mit `key`, `source`, `required_when`, `applies_to`. Aufrufkette: `resolve_worker_context()` → `validate_worker_context()` → `compose_worker_prompt()`. Getrennt von Workflow-DSL (Phasenlogik ≠ Spawn-Vertrag).
 
 ### 26.2.2 Worker-Kontext
 
@@ -224,7 +220,7 @@ Der Worker schneidet die Story in **vertikale Inkremente**, nicht
 nach technischen Schichten. Jedes Inkrement ist ein fachlich
 lauffähiger Teilstand.
 
-[Klarstellung 2026-05-04 — Inkremente bei Multi-Repo] Inkremente
+Inkremente
 sind Worker-internes Strukturierungs-Pattern, kein fachlicher
 Vertrag. Bei Multi-Repo-Stories darf ein vertikales Inkrement
 mehrere teilnehmende Repos beruehren (z. B. API-Aenderung in einem
@@ -248,9 +244,6 @@ Inkrement 1: MarketQuote Entity + BrokerAdapter + REST-Endpoint + Tests
 Inkrement 2: WebSocket-Streaming + Event-Handling + Tests
 Inkrement 3: Error-Handling + Retry-Logik + Tests
 ```
-
-> **[Entscheidung 2026-04-08]** Element 4 — IncrementStep / INCREMENT_CYCLE wird als StrEnum + geordnetes Tupel uebernommen. Exakt wie FK-26 spezifiziert. Beschreibungen als Enum-Property, nicht als separate Dicts.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 4.
 
 ### 26.3.2 Vier-Schritt-Zyklus pro Inkrement
 
@@ -283,7 +276,7 @@ Kleinster verlässlicher Check — **nicht** Full-Build:
 | Betroffene Tests | Nur Tests für den geänderten Bereich, mit `test_command` der berührten Repos (z. B. `pytest test_broker.py`) |
 | Nicht: Full-Build | Der vollständige Build bleibt dem finalen Check vor Handover vorbehalten |
 
-[Klarstellung 2026-05-04 — Multi-Repo lokal verifizieren] Bei
+Bei
 Multi-Repo-Inkrementen werden `build_command` und `test_command` nur
 fuer die im Inkrement **berührten** Repos durchlaufen, nicht fuer
 alle teilnehmenden Repos. Cross-Repo-Brueche, die ein Inkrement nicht
@@ -424,8 +417,7 @@ nach Regelwerk:
 
 ## 26.5 Reviews durch konfigurierte LLMs
 
-> **[Entscheidung 2026-04-08]** Element 25 — LLM-Pool-basierte Reviews sind Pflicht. Immer ueber LLM-Pools. Kein Claude-Sub-Agent-Fallback.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 25.
+> LLM-Pool-basierte Reviews sind Pflicht. Immer ueber LLM-Pools. Kein Claude-Sub-Agent-Fallback.
 
 ### 26.5.1 Pflicht-Reviews (FK-05-116 bis FK-05-122)
 
@@ -444,8 +436,7 @@ nicht den QA-Subflow.
 | `review_request` | Mindestens 1 pro Story |
 | `drift_check` | Mindestens 1 pro Story |
 
-> **[Entscheidung 2026-04-08]** Element 10 — ReviewFlowModel / ReviewFlowStep entfaellt als Runtime-Datenstruktur in v3. Der Review-Ablauf beschreibt Worker-Verhalten, keine Runtime-Steuerung. Die Sequenz gehoert in das Prompt-Template.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 10.
+> Der Review-Ablauf beschreibt Worker-Verhalten, keine Runtime-Steuerung. Die Sequenz gehoert in das Prompt-Template.
 
 ### 26.5.3 Review-Ablauf
 
@@ -470,9 +461,6 @@ Review-Guard (Kap. 68.5) erkennt den Sentinel und erzeugt ein
 `review_compliant`-Event. Das Integrity-Gate prüft bei Closure,
 ob alle Review-Requests ein zugehöriges `review_compliant` haben.
 
-> **[Entscheidung 2026-04-08]** Element 5 — ReviewTemplate / REVIEW_TEMPLATE_REGISTRY wird als StrEnum + Registry uebernommen. Felder: `template`, `filename`, `applies_to`. Felder `description` und `use_case` entfallen (nicht programmatisch genutzt).
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 5.
-
 ### 26.5.4 Review-Templates
 
 Die Templates liegen in `prompts/sparring/`:
@@ -488,10 +476,10 @@ Die Templates liegen in `prompts/sparring/`:
 
 ## 26.5a Review-Versand ueber Evidence Assembly
 
-> Ab Version 3.0 wird der Review-Versand des Workers ueber die
+> Der Review-Versand des Workers wird ueber die
 > Komponente `EvidenceAssembler` (`agentkit.backend.verify_system.evidence_assembler`)
 > abgewickelt (CLI: `agentkit evidence assemble`).
-> Der Worker kuratiert keine `merge_paths` mehr selbst; das
+> Der Worker kuratiert keine `merge_paths` selbst; das
 > deterministisch assemblierte BundleManifest liefert die
 > `merge_paths` fuer den Review-Versand. Details: **FK-28**.
 
@@ -622,9 +610,6 @@ Suche.
 
 ## 26.8 Worker-Manifest
 
-> **[Entscheidung 2026-04-08]** Element 11 — WorkerArtifactDescriptor / REGISTRY wird uebernommen. `WorkerArtifactKind` als StrEnum. Registry mit `kind`, `filename`, `format`, `min_size`. `checked_by` entfaellt. Falls Routing noetig: `required_checks: frozenset[ArtifactCheck]` statt freier String.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 11.
-
 ### 26.8.1 Drei Worker-Artefakte
 
 Der Worker erzeugt am Ende der Implementation drei Artefakte:
@@ -677,7 +662,7 @@ Der Worker beendet die Implementation mit einem von drei Status:
 }
 ```
 
-**Beispiel: BLOCKED (REF-042)**
+**Beispiel: BLOCKED**
 
 ```json
 {
@@ -766,9 +751,6 @@ Structural Checks validieren: Red Phase (exit != 0), Green Phase
 (exit == 0), Suite Phase (exit == 0), Red/Green-Konsistenz
 (gleicher Befehl, verschiedene Commits).
 
-> **[Entscheidung 2026-04-08]** Element 12 — Telemetry Contract: Crash-Detection (Start/End-Paarung) ist essentiell. Event-Count-Vertrag auf Minimum-Schwellen ("mindestens 1 Review", "mindestens 1 Drift-Check"), keine exakten Zaehler pro Story-Groesse.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 12.
-
 ## 26.10 Telemetrie der Implementation-Phase
 
 Die folgenden Events werden von der Implementation-Phase ausgeloest.
@@ -802,7 +784,7 @@ Wenn der Worker abstürzt oder die Harness-Session (Claude Code / Codex; FK-76) 
 5. Recovery: Orchestrator spawnt neuen Worker (neuer Run mit neuer
    `run_id`). Bestehende Commits bleiben erhalten.
 
-### 26.11.2 Worker meldet BLOCKED (REF-042)
+### 26.11.2 Worker meldet BLOCKED
 
 Wenn der Worker auf eine unloesbare Constraint-Kollision stoesst
 (z.B. Hook-Barriere, fehlende Dependency, Policy-Widerspruch),
@@ -891,10 +873,7 @@ ein gültiges Handover-Paket und das Verify-System entscheidet
 die gesamte Aufgabe nicht weiter verfolgen, weil ein externer
 Constraint dies verhindert.
 
-> **[Entscheidung 2026-04-08]** Element 23 — LLM-Assessment-Sidecar (Schicht 3 des Health-Monitors) ist Pflicht. Kein Feature-Flag.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 23.
-
-## 26.12 Worker-Health-Monitor (REF-042)
+## 26.12 Worker-Health-Monitor
 
 > Der Worker-Health-Monitor (Scoring-Engine im PostToolUse-Hook,
 > Interventions-Gate im PreToolUse-Hook, LLM-Assessment-Sidecar,
@@ -910,8 +889,7 @@ FK-05-123 bis FK-05-126 (Handover-Paket),
 FK-08-006 bis FK-08-012 (Telemetrie-Events Worker),
 FK-06-069/070 (Konzept-Überschreibungsschutz),
 FK-26-200 (Evidence Assembly im Worker-Loop),
-FK-26-210 (Preflight-Turn im Review-Flow),
-REF-042 (Worker-Runaway-Prevention: BLOCKED-Exit, Worker-Health-Monitor)*
+FK-26-210 (Preflight-Turn im Review-Flow)*
 
 **Querverweise:**
 - Kap. 02 (Domain-Design) — Pipeline-Orchestrierung: Worker-Runaway-Prevention, BLOCKED als valider Worker-Exit-Status

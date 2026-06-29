@@ -253,21 +253,22 @@ kein Override. Er ersetzt keinen Knotenentscheid und springt nicht im
 laufenden Flow, sondern beendet die korrupt gewordene Umsetzung
 administrativ und schafft einen neuen sauberen Startzustand.
 
-### 20.1.6 Evolution der bestehenden Workflow-DSL
+### 20.1.6 Generalisierung der Workflow-DSL
 
-Die bereits implementierte Workflow-DSL unter
-`agentkit.backend.pipeline_engine.flow_orchestrator` ist die **erste Auspraegung** der
-hierarchischen Prozess-DSL und wird nicht verworfen, sondern
-verallgemeinert.
+Die Workflow-DSL auf Pipeline-Ebene
+(`agentkit.backend.pipeline_engine.flow_orchestrator`) ist die
+**Basis-Auspraegung** der hierarchischen Prozess-DSL. Die Einheits-DSL
+verallgemeinert dieselben Sprachkonstrukte auf alle Ebenen, statt ein
+zweites Kontrollflussmodell auf Komponentenebene einzufuehren.
 
-| Heutiger Begriff | Zielbegriff in der Einheits-DSL | Rolle |
-|------------------|----------------------------------|-------|
-| `WorkflowDefinition` | `FlowDefinition` | Ablaufvertrag auf beliebiger Ebene |
-| `PhaseDefinition` | `NodeDefinition(kind="subflow")` oder phasenbezogene Spezialisierung | Zusammengesetzter Knoten |
-| `TransitionRule` | `EdgeRule` | Kante im Ablaufgraph |
-| `GuardFn` | `Guard` | Bedingung |
-| `Gate` | `Gate` | unveraendert, aber nicht mehr nur phasenbezogen |
-| `YieldPoint` | `YieldPoint` | unveraendert, aber auf allen Ebenen nutzbar |
+| Konstrukt | Rolle in der Einheits-DSL |
+|-----------|---------------------------|
+| `FlowDefinition` | Ablaufvertrag auf beliebiger Ebene |
+| `NodeDefinition(kind="subflow")` | Zusammengesetzter Knoten (z.B. eine Phase) |
+| `EdgeRule` | Kante im Ablaufgraph |
+| `Guard` | Bedingung |
+| `Gate` | Pruefpunkt, auf allen Ebenen nutzbar (nicht nur phasenbezogen) |
+| `YieldPoint` | Pause, auf allen Ebenen nutzbar |
 
 **Konsequenz fuer AK3:** Die Pipeline bleibt phasenorientiert
 modelliert. Komponenten fuehren jedoch **dieselbe** Sprache fuer ihre
@@ -324,8 +325,6 @@ Kontrolllogik in frei formulierten Python-Dateien zu verstecken.
 | `exploration` | Agent-gesteuert | Entwurfsartefakt erzeugen, Dokumententreue pruefen; Exit-Gate ruft Capability `VerifySystem` (FK-23 §23.5) | Worker-Agent + LLM-Evaluator |
 | `implementation` | Agent-gesteuert + Subflow | Code/Konzept/Research umsetzen; vor Phasenabschluss laeuft der QA-Subflow gegen die Capability `VerifySystem` (4-Schichten-QA, FK-27) inklusive Remediation-Loop | Worker-Agent + Pipeline-Skripte + LLM-Evaluator + Adversarial Agent |
 | `closure` | Deterministisch | Integrity-Gate, Merge, Story-Close, Metriken, Postflight | Pipeline-Skript |
-
-> **[Entscheidung 2026-05-01]** Die vormalige Top-Phase `verify` entfaellt. Output-QA ist kein eigenstaendiger Phasenknoten mehr, sondern interner Subflow innerhalb `implementation` (analog zum Exit-Gate der `exploration`). Die Faehigkeit `VerifySystem` bleibt als Bounded-Context-Capability bestehen und wird sowohl von `ExplorationPhase` als auch von `ImplementationPhase` aufgerufen. Siehe `concept/_meta/bc-cut-decisions.md` "Verify als Capability (Variante Y)".
 
 ### 20.2.1a StoryResetService
 
@@ -424,11 +423,10 @@ stateDiagram-v2
     closure --> [*] : Story abgeschlossen
 ```
 
-> [Terminologie-Hinweis 2026-04-09] **ABBRUCH in Diagrammen = `status: ESCALATED` im State-Modell:** Die Mermaid-Diagramme verwenden `ABBRUCH` und `ABORT` als Beschriftung für den Preflight-FAIL-Terminalknoten. Im v3-Zustandsmodell entspricht dies `status: ESCALATED` mit `escalation_reason: "preflight_fail"`. Es gibt keinen separaten Status `ABBRUCH` — der Begriff ist ausschließlich eine Darstellungshilfe in den Diagrammen.
+> **ABBRUCH in Diagrammen = `status: ESCALATED` im State-Modell:** Die Mermaid-Diagramme verwenden `ABBRUCH` und `ABORT` als Beschriftung für den Preflight-FAIL-Terminalknoten. Im v3-Zustandsmodell entspricht dies `status: ESCALATED` mit `escalation_reason: "preflight_fail"`. Es gibt keinen separaten Status `ABBRUCH` — der Begriff ist ausschließlich eine Darstellungshilfe in den Diagrammen.
 
-> [Korrektur 2026-04-09] **Kein Phasen-Ruecksprung in die Exploration:**
-> Die ursprueengliche Transition `verify --> exploration : Impact-Violation
-> (Exploration Mode)` wurde entfernt. Impact-Violation im QA-Subflow
+> **Kein Phasen-Ruecksprung in die Exploration:**
+> Impact-Violation im QA-Subflow
 > bedeutet Implementierungsversagen und fuehrt zu `status: ESCALATED`.
 > Es gibt keinen automatischen Ruecksprung von Implementation oder
 > ihrem QA-Subflow in die Exploration-Phase. Der Mensch entscheidet
@@ -436,18 +434,7 @@ stateDiagram-v2
 > neuem Mandat als neuer Pipeline-Lauf). Exploration-interne
 > Remediation (max 3 Runden) bleibt davon unberuehrt.
 
-> [Entscheidung 2026-05-01] **`verify` als Top-Phase entfaellt:**
-> Die ehemaligen Phasen-Transitionen `implementation -> verify` und
-> `verify -> closure` existieren nicht mehr. Implementation enthaelt
-> intern den vollstaendigen QA-Subflow (Schicht 1-4 plus
-> Remediation-Loop) gegen die Capability `VerifySystem`. Der Uebergang
-> `implementation -> closure` erfolgt erst, wenn Implementation den
-> QA-Subflow mit `qa_cycle_status = pass` abgeschlossen hat. Der
-> ehemalige Remediation-Phasenwechsel `verify -> implementation` ist
-> jetzt ein Subflow-interner Loop und triggert keinen Top-Phase-Wechsel
-> mehr.
-
-> [Korrektur 2026-04-09] **Exploration-Exit-Gate:** Die Transition
+> **Exploration-Exit-Gate:** Die Transition
 > `exploration --> implementation` erfordert den vollständigen Ablauf
 > gemäß FK-23 und FK-25: Dokumententreue, Design-Review,
 > Prämissen-Challenge, optionale Design-Challenge, H1-Aggregation,
@@ -491,11 +478,6 @@ flowchart TD
 - Pflicht-Feedback-Loop mit 2 verschiedenen LLMs (FK-02 §02.2.4)
 - QA-Prüfung der Feedback-Einarbeitung
 
-> **[Entscheidung 2026-04-08]** Element 16 — PhaseState-Restructuring: Ownership-Trennung in StoryContext (langlebige Story-Semantik), PhaseStateCore (aktueller Laufzeitstatus), PhasePayload (diskriminierte Union pro Phase), RuntimeMetadata (nicht-fachliche Loader-/Guard-Infos). `mode`, `story_type` → raus aus PhaseState, rein in StoryContext. QA-Zyklus-Felder → VerifyState. Exploration-Gate-Felder → ExplorationState. Closure-Substates → ClosureState. Detailkonzept ist in FK-39 ausgearbeitet.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 16.
-
-> **[Ergänzung 2026-04-09]** Das Detailkonzept zu Element 16 liegt vollständig vor (Designwizard R1+R2 vom 2026-04-09). Die ausgearbeiteten Entscheidungen sind in **FK-39 (Phase-State-Persistenz)** eingetragen: PhaseEnvelope + RuntimeMetadata (FK-39 §39.3), AttemptRecord-Typisierung (FK-39 §39.4), PhaseMemory mit Carry-Forward (FK-39 §39.5), PauseReason StrEnum (FK-39 §39.2.2), PhasePayload Discriminated Union mit ExplorationPayload, VerifyPayload, ClosurePayload (FK-37 §37.1, FK-23 §23.5, FK-29 §29.1.0).
-
 ## 20.3 Phase-State-Persistenz
 
 > Phase-State-Modell, PhaseEnvelope, PhasePayload (discriminated union),
@@ -523,14 +505,6 @@ und erhaelt eine strukturierte Maengelliste als Input. Es gibt
 keinen Phasen-Wechsel mehr — Remediation ist eine interne
 Subflow-Iteration, keine Top-Phase-Transition.
 
-> [Entscheidung 2026-05-01] Die fruehere Phasen-Wechsel-Logik
-> `verify (FAILED) -> implementation (IN_PROGRESS)` mit Inkrement von
-> `memory.verify.feedback_rounds` beim Phasenuebergang entfaellt. Der
-> Inkrement-Schritt bleibt erhalten, ist aber jetzt eine interne
-> Subflow-Iteration in `implementation`. Die Implementation-Phase
-> verlaesst den Worker-Run-Knoten erst, wenn der QA-Subflow
-> `qa_cycle_status = pass` erreicht oder eskaliert.
-
 ```mermaid
 sequenceDiagram
     participant O as Orchestrator
@@ -542,7 +516,7 @@ sequenceDiagram
     PR->>V: run_qa_subflow(qa_context=IMPLEMENTATION_INITIAL)
     V-->>PR: PolicyVerdict: FAILED (findings)
 
-    Note over PR: QA-Subflow-Loop (intern, kein Phase-Wechsel) [Entscheidung 2026-05-01]
+    Note over PR: QA-Subflow-Loop (intern, kein Phase-Wechsel)
     Note over PR: 1. Prueft Guard: memory.implementation.qa_feedback_rounds < max (VOR Inkrement)
     alt Guard bestanden (aktueller Wert < max)
         Note over PR: 2. Inkrementiert memory.implementation.qa_feedback_rounds (0->1, 1->2, 2->3)
@@ -560,34 +534,7 @@ sequenceDiagram
     end
 ```
 
-> [Entscheidung 2026-05-01] **Sequenzdiagramm aktualisiert:**
-> Die fruehere Phasen-Wechsel-Logik (`verify (FAILED) ->
-> implementation (IN_PROGRESS) -> verify`) entfaellt mit dem Cut
-> der Top-Phase `verify`. Das jetzt geltende Modell ist
-> Subflow-intern in der Implementation-Phase:
-> 1. QA-Subflow liefert FAILED (mit aktuellem, nicht-inkrementiertem
->    `memory.implementation.qa_feedback_rounds`-Wert)
-> 2. Engine prueft Guard: `memory.implementation.qa_feedback_rounds
->    < policy.max_feedback_rounds` (Pre-Check VOR Inkrement)
-> 3. Guard bestanden -> Engine inkrementiert
->    `memory.implementation.qa_feedback_rounds` (NACH Guard-Check)
->    und persistiert via `save_phase_state()` VOR Spawn des
->    Remediation-Workers
-> 4. Orchestrator setzt den `agents_to_spawn`-Auftrag um —
->    Implementation bleibt aktive Phase, kein Phasen-Wechsel
-> 5. Remediation-Worker laeuft mit Remediation-Prompt
-> 6. Engine ruft `VerifySystem.run_qa_subflow` erneut auf
->    (qa_context = IMPLEMENTATION_REMEDIATION)
-> 7. Implementation-Phase beendet erst nach `qa_cycle_status = pass`
->    oder Eskalation
->
-> Der Zaehler `memory.implementation.qa_feedback_rounds`
-> (vormals `memory.verify.feedback_rounds`) wird per Carry-Forward
-> in `PhaseMemory` mitgefuehrt, weil mehrere Subflow-Iterationen
-> ueber Crash-Recovery hinweg konsistent sein muessen
-> (FK-39 §39.5).
-
-> [Korrektur 2026-04-09] **Ownership-Klarstellung Guard-Check
+> **Ownership-Klarstellung Guard-Check
 > und Inkrement:** Guard-Prüfung (`feedback_rounds < max`),
 > Inkrement (`feedback_rounds++`) und Persistierung
 > (`save_phase_state()`) sind ausschließlich Aufgaben des
@@ -618,9 +565,6 @@ Nach Erreichen des Limits: Pipeline stoppt, Story bleibt
 
 ## 20.6 Eskalation
 
-> **[Entscheidung 2026-04-08, aktualisiert 2026-04-09]** Die ursprünglich 11 Eskalations-Trigger wurden auf 12 Einträge erweitert (Ergänzung: Design-Review-Gate FAIL, Impact-Violation Exploration Mode, Governance-Incident als PAUSED-Trigger). FK-20 §20.6.1 und FK-35 §35.4.2 sind normativ. Kein Trigger ist redundant.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 17.
-
 ### 20.6.1 Eskalations- und Pause-Punkte
 
 Die folgende Tabelle listet alle Auslöser, die die Pipeline stoppen. Spalte „Status" zeigt, ob der Zustand `ESCALATED` (dauerhafter Stopp, erfordert manuellen Reset) oder `PAUSED` (temporär, Resume nach Klärung) ist.
@@ -628,13 +572,13 @@ Die folgende Tabelle listet alle Auslöser, die die Pipeline stoppen. Spalte „
 | Auslöser | Phase | Status | Reaktion |
 |----------|-------|--------|---------|
 | Preflight FAIL | setup | ESCALATED (`escalation_reason: "preflight_fail"`) | Story startet nicht. Kein automatischer Remediation-Pfad. Mensch muss Voraussetzungen klären. |
-| Dokumententreue Ebene 2 FAIL (Entwurfstreue) | exploration | ESCALATED (`escalation_reason: "doc_fidelity_fail"`) | Pipeline wird eskaliert. Mensch muss Konflikt mit Architektur klären. [Korrektur 2026-04-09: War fälschlich als PAUSED dokumentiert.] |
-| Design-Review-Gate FAIL non-remediable oder Rundenlimit überschritten | exploration | ESCALATED (`escalation_reason: "design_review_rejected"`) | `gate_status: REJECTED` → Pipeline eskaliert. Mensch muss Entwurf klären oder Story neu aufsetzen. [Entscheidung 2026-04-09: Terminalpfad gemäß FK-23 §23.5 Stufe 2c.] |
-| Dokumententreue Ebene 3 FAIL (Umsetzungstreue) | implementation (QA-Subflow) | ESCALATED (`escalation_reason: "doc_fidelity_fail"`) | Pipeline wird eskaliert. Worker hat vom Konzept abgewichen, Mensch entscheidet. [Korrektur 2026-04-09: War faelschlich als PAUSED dokumentiert.] [Entscheidung 2026-05-01: Phase ist `implementation` — QA-Subflow statt eigene Verify-Phase.] |
-| Impact-Violation (Execution Mode) | implementation (QA-Subflow) | ESCALATED (`escalation_reason: "impact_violation"`) | Issue-Metadaten waren falsch deklariert. Mensch entscheidet ueber naechste Schritte. [Entscheidung 2026-05-01: Phase ist `implementation` — QA-Subflow.] |
-| Impact-Violation (Exploration Mode) | implementation (QA-Subflow) | ESCALATED (`escalation_reason: "impact_violation"`) | Kein automatischer Ruecksprung in Exploration. Mensch entscheidet (ggf. neue Exploration mit neuem Mandat). [Korrektur 2026-04-09: War faelschlich als Ruecksprung dokumentiert.] [Entscheidung 2026-05-01: Phase ist `implementation` — QA-Subflow.] |
+| Dokumententreue Ebene 2 FAIL (Entwurfstreue) | exploration | ESCALATED (`escalation_reason: "doc_fidelity_fail"`) | Pipeline wird eskaliert. Mensch muss Konflikt mit Architektur klären. |
+| Design-Review-Gate FAIL non-remediable oder Rundenlimit überschritten | exploration | ESCALATED (`escalation_reason: "design_review_rejected"`) | `gate_status: REJECTED` → Pipeline eskaliert. Mensch muss Entwurf klären oder Story neu aufsetzen. |
+| Dokumententreue Ebene 3 FAIL (Umsetzungstreue) | implementation (QA-Subflow) | ESCALATED (`escalation_reason: "doc_fidelity_fail"`) | Pipeline wird eskaliert. Worker hat vom Konzept abgewichen, Mensch entscheidet. |
+| Impact-Violation (Execution Mode) | implementation (QA-Subflow) | ESCALATED (`escalation_reason: "impact_violation"`) | Issue-Metadaten waren falsch deklariert. Mensch entscheidet ueber naechste Schritte. |
+| Impact-Violation (Exploration Mode) | implementation (QA-Subflow) | ESCALATED (`escalation_reason: "impact_violation"`) | Kein automatischer Ruecksprung in Exploration. Mensch entscheidet (ggf. neue Exploration mit neuem Mandat). |
 | Worker BLOCKED (unloesbarer Constraint) | implementation | ESCALATED (`escalation_reason: "worker_blocked"`) | Worker hat ueber `worker-manifest.json` unloesbaren Constraint gemeldet (z.B. Hook-Barriere, fehlende Dependency). Mensch loest externen Constraint. |
-| Max Feedback-Runden erschoepft (QA-Subflow) | implementation | ESCALATED (`escalation_reason: "max_rounds_exceeded"`) | Pipeline stoppt. Mensch muss entscheiden: Story anpassen, Anforderungen lockern, oder manuell fixen. [Entscheidung 2026-05-01: Phase ist `implementation` — Feedback-Runden zaehlen den QA-Subflow-Loop.] |
+| Max Feedback-Runden erschoepft (QA-Subflow) | implementation | ESCALATED (`escalation_reason: "max_rounds_exceeded"`) | Pipeline stoppt. Mensch muss entscheiden: Story anpassen, Anforderungen lockern, oder manuell fixen. |
 | Integrity-Gate FAIL | closure | ESCALATED (`escalation_reason: "integrity_fail"`) | Pipeline stoppt. Mensch prüft Audit-Log (`integrity-violations.log`). |
 | Merge-Konflikt | closure | ESCALATED (`escalation_reason: "merge_fail"`) | Pipeline stoppt. Worker muss rebasen oder Mensch löst Konflikt. |
 | Scope-Explosion (Klasse 3) | exploration | PAUSED (`pause_reason` durch H2-Routing) | Mensch prueft Split-Befund. Standardpfad: `agentkit split-story` statt Weiterarbeit im selben Story-Vertrag. |
@@ -670,9 +614,6 @@ der Resume-Trigger in **FK-39 §39.2.2**.
 **Technisch:** Der Phase-State mit `status: ESCALATED` oder `PAUSED`
 verhindert, dass der Orchestrator die nächste Phase aufruft.
 
-> **[Entscheidung 2026-04-08]** Element 7 — CrashScenario / CRASH_SCENARIO_CATALOG entfaellt als eigene Runtime-Datenstruktur in v3. Die Recovery-Logik (§20.7) existiert separat und bleibt bestehen. Die Szenario-Informationen bleiben in den Konzeptdokumenten (hier §20.7.1).
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 7.
-
 ## 20.7 Recovery
 
 ### 20.7.1 Szenarien
@@ -680,8 +621,8 @@ verhindert, dass der Orchestrator die nächste Phase aufruft.
 | Szenario | Phase-State | Recovery |
 |----------|------------|---------|
 | Agent-Session crashed mitten in Implementation | `phase: implementation, status: IN_PROGRESS` | Neuer Run mit neuer `run_id`. Worktree existiert noch, Commits sind da. Orchestrator spawnt neuen Worker, der die Arbeit fortsetzt. |
-| Phase Runner crashed mitten im QA-Subflow | `phase: implementation, status: IN_PROGRESS, payload.qa_cycle_status: awaiting_qa` | `run-phase implementation` erneut aufrufen — Engine setzt den QA-Subflow am letzten persistierten `qa_cycle_status` fort. Schicht 1 hat bereits `structural.json` geschrieben (idempotent). Fortschritt wird aus vorhandenen Artefakten rekonstruiert. [Entscheidung 2026-04-09: `verify_layer` entfernt — ephemerer Fortschritt, nicht durable.] [Entscheidung 2026-05-01: Phase ist `implementation` — QA-Subflow.] |
-| Closure crashed nach Merge aber vor Story-Close | `payload.progress: {merge_done: true, story_closed: false}` | `run-phase closure` erneut aufrufen. Merge wird übersprungen (bereits gemergt). Story-Close (AK3-Story-Service setzt Status Done) wird ausgeführt. [Entscheidung 2026-04-09: `closure_substates` → `payload.progress` (ClosurePayload).] |
+| Phase Runner crashed mitten im QA-Subflow | `phase: implementation, status: IN_PROGRESS, payload.qa_cycle_status: awaiting_qa` | `run-phase implementation` erneut aufrufen — Engine setzt den QA-Subflow am letzten persistierten `qa_cycle_status` fort. Schicht 1 hat bereits `structural.json` geschrieben (idempotent). Fortschritt wird aus vorhandenen Artefakten rekonstruiert. |
+| Closure crashed nach Merge aber vor Story-Close | `payload.progress: {merge_done: true, story_closed: false}` | `run-phase closure` erneut aufrufen. Merge wird übersprungen (bereits gemergt). Story-Close (AK3-Story-Service setzt Status Done) wird ausgeführt. |
 | Mensch will eskalierten Run fortsetzen | `status: ESCALATED` | Mensch setzt Phase-State zurück: `agentkit reset-escalation --story {story_id}`. Dann neuer Run. |
 
 ### 20.7.2 Run-ID und Retry
@@ -699,7 +640,7 @@ oder des Menschen (bei Eskalation).
 
 ### 20.7.3 Recovery-Vertrag pro Phase (Subflow-Atomicitaet)
 
-[Entscheidung 2026-05-04] Granularitaet des Recovery-Vertrags ist
+Granularitaet des Recovery-Vertrags ist
 **Subflow-Atomicitaet**: nicht ganze Phasen, sondern die einzelnen
 Subflow-Stufen bzw. -Schichten sind atomare Persistenz-Boundaries.
 Die einzige Stelle, an der die Maschine bei einem Crash **nicht**
@@ -743,9 +684,6 @@ zwischen zwei Pfaden:
 Worker-Loop-Recovery ist die einzige Stelle, an der der Recovery-
 Vertrag **menschlich entschieden** wird. Alle anderen Stellen sind
 auto-resume.
-
-> **[Entscheidung 2026-04-08]** Element 8 — Scheduling Policies (3 Klassen) entfallen als Runtime-Datenstrukturen in v3. Die Scheduling-Informationen bleiben in der Konzeptdokumentation (hier §20.8). Reines Doku-Artefakt ohne Verhalten.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 8.
 
 ## 20.8 Scheduling und Priorisierung
 

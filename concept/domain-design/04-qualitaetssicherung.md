@@ -72,8 +72,6 @@ glossary:
 
 # 04 — Mehrstufige Qualitätssicherung
 
-**Quelle:** Konsolidiert aus agentkit-domain-concept.md Kapitel 7 + review-quality-improvement.md
-**Datum:** 2026-04-02
 **Übersicht:** [00-uebersicht.md](00-uebersicht.md)
 
 ---
@@ -195,15 +193,10 @@ nicht als eigenstaendiger Phase-Payload-Wert.
 | `post_implementation` | QA-Subflow nach Worker-Run innerhalb der Implementation-Phase | Volle 4-Schichten-QA (Structural, Semantisch, Adversarial, Policy). | Dies ist der primaere QA-Durchlauf — unabhaengig davon, ob `mode = "exploration"` oder `mode = "execution"`. |
 | `post_remediation` | QA-Subflow nach einer Subflow-internen Remediation-Iteration | Volle 4-Schichten-QA (Structural, Semantisch, Adversarial, Policy). | Nach einer Nachbesserung muss erneut die komplette QA laufen; ein Teilpfad waere ein Governance-Leck. |
 
-> **[Entscheidung 2026-05-01]** Aussagen der Form "Verify nach
-> Implementation laeuft als eigene Phase" gelten nicht mehr.
-> `verify-system` ist Capability-BC, der QA-Lauf ist
-> Subflow-intern in der Implementation-Phase. Der Loop
-> `Worker-Run -> QA-Subflow FAIL -> Remediation -> erneuter
+> Der Loop `Worker-Run -> QA-Subflow FAIL -> Remediation -> erneuter
 > QA-Subflow` ist Subflow-intern; es gibt keinen Phasen-Wechsel
-> `verify -> implementation` mehr. Siehe
-> `concept/_meta/bc-cut-decisions.md` "Verify als Capability
-> (Variante Y)".
+> `verify -> implementation`. Siehe `concept/_meta/bc-cut-decisions.md`
+> "Verify als Capability (Variante Y)".
 
 ### Invariante: Kein Structural-only-QA-Subflow fuer Code-Stories
 
@@ -236,9 +229,6 @@ als WARNING klassifiziert — nicht als BLOCKER.
 
 ## 4.6 Finding-Resolution und Remediation-Haertung
 
-> **Provenienz:** Multi-LLM-Sparring (Claude + ChatGPT + Grok),
-> validiert gegen BB2-012 Protokollmaterial
->
 > **Leitprinzip:** Reduktion von Wahrheitsquellen statt zusaetzliche
 > Governance-Mechanik. Null neue Artefakttypen, null neue Tracking-
 > Systeme, aber harte Gate-Wirkung ueber die bestehende Architektur.

@@ -17,8 +17,6 @@ formal_scope: prose-only
 
 # 06 — Agent Requirements Engine (ARE)
 
-**Quelle:** Konsolidiert aus agentkit-domain-concept.md, Kapitel 9
-**Datum:** 2026-04-02
 **Übersicht:** [00-uebersicht.md](00-uebersicht.md)
 
 ---
@@ -43,8 +41,7 @@ Ob die eingereichte Evidenz den Anspruch der Anforderung tatsächlich
 erfüllt, bleibt Aufgabe der QA-Subflow innerhalb der Implementation-Phase ([04-qualitaetssicherung.md](04-qualitaetssicherung.md)) und des
 menschlichen Reviewers.
 
-> **[Entscheidung 2026-04-08]** Element 21 — ARE-Integration: Beide Modi sind Produktionspfade. ARE deaktiviert: Pipeline laeuft ohne ARE-Gate. ARE aktiviert: ARE-Gate ist Pflicht, ohne ARE-Bestaetigung kein Merge. Installer entscheidet Modus. Kein Fallback, kein Graceful-Degradation.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 21.
+> ARE-Integration: Beide Modi sind Produktionspfade. ARE deaktiviert: Pipeline laeuft ohne ARE-Gate. ARE aktiviert: ARE-Gate ist Pflicht, ohne ARE-Bestaetigung kein Merge. Installer entscheidet Modus. Kein Fallback, kein Graceful-Degradation.
 
 ### 6.1 Andock-Punkte in AgentKit
 

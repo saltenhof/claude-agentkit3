@@ -18,17 +18,8 @@ formal_scope: prose-only
 
 ## Status
 
-Stand: 16/16 BCs geschnitten (2026-05-01) -- alle initialen BCs geschnitten.
-
-Update 2026-06-05 (PO-Trigger): Bounded Context `task-management` als
-neuer BC ergaenzt (Tasks / offene Handlungspunkte, nicht AK3-gemanagt).
-Komponenten-Schnitt am Dokumentende. Registry und Konzepte (DK-15,
-FK-77, formal.task-management.*) angelegt; Rewire der Producer
-(FK-38/FK-29 raus aus Failure Corpus) ist ein separater Folgeschritt.
-
-Quelle: Mehrrundige Architektur-Diskussion (User + Hauptagent). Dieses
-Dokument ist die persistierte Entscheidungsbasis. Aenderungen nur per
-explizitem User-Trigger im Product-Owner-Modus.
+Dieses Dokument ist die persistierte Entscheidungsbasis fuer den
+BC-Komponenten-Schnitt.
 
 ---
 
@@ -46,8 +37,9 @@ explizitem User-Trigger im Product-Owner-Modus.
 ### Zero Debt Policy
 
 - Kein Legacy, kein Deprecated, kein Migrationspfad
-- Lints schlagen rot bis Code passt — das ist erwuenscht
-- Konzepte mit alten Begriffen werden refactored, nicht toleriert
+- Die Zielarchitektur traegt nicht alte und neue Modelle parallel
+- Konzepte verwenden ausschliesslich die kanonische Begriffswelt; alte
+  Begriffe werden nicht toleriert
 
 ### Hierarchie-Schnitt
 
@@ -67,11 +59,6 @@ explizitem User-Trigger im Product-Owner-Modus.
   nur bei nachgewiesenem Komplexitaetsbedarf (nicht als Default)
 
 ### Verify als Capability (Variante Y)
-
-Status: **eingearbeitet** (2026-05-03) -- Konzeptebene umgesetzt
-in FK-20, FK-27, FK-29, FK-37, FK-38, FK-39, FK-45, DK-00, DK-02,
-DK-04 sowie CLAUDE.md. Formal-Spec-Anpassungen (formal.story-workflow,
-formal.verify) bleiben offen.
 
 - Phase `verify` als eigenstaendige Top-Phase entfaellt
 - 4 Top-Phasen: Setup, Exploration, Implementation, Closure
@@ -118,11 +105,54 @@ QaContext-Werte: `IMPLEMENTATION_INITIAL`, `IMPLEMENTATION_REMEDIATION`,
 - Anti-Laundering-Regel: A -> R -> T erlaubt, aber R-Schnittstelle darf
   keine T-Typen exponieren
 
-### Refresh-Prozess
+### Topologie & Betriebsmodell (zentraler Core / Thin-Local)
 
-- User in Product-Owner-Rolle gibt Trigger (neue BC-Schnitt-Runde)
-- Umsetzung durch (Sub-)Agent gemaess diesem Dokument als Eingabe
-- Kein implizites Nachziehen — jede Aenderung braucht expliziten Auftrag
+Verankert in DK-00 §1a (fachliche Leitplanke), DK-08 (Installationsanteile)
+und FK-01 §1.1a (technische Topologie).
+
+**Zentraler, zustandsbehafteter Core:**
+- AK3-Core ist ein einzelner, langlebiger, zustandsbehafteter Dienst (Runtime
+  inkl. In-Memory-Zustand + kanonischer Postgres-Zustand), keine Sammlung
+  kurzlebiger lokaler Prozesse.
+- Begruendung: Der In-Memory-Anteil des Laufzeitzustands laesst sich nicht ueber
+  „DB + N Instanzen" kohaerent teilen; Lifecycle eines lebenden Systems (eine
+  Version, nicht N); Team-/projektuebergreifender Betrieb (DK-00 §1a).
+- Zwei Deployments, ein Contract: rechnerlokal (Einzel-Stratege) oder zentral
+  auf dediziertem Server (Team).
+
+**Thin-Local — drei regelfreie Akteure pro Project Space:**
+- LLM-Agent (`worker`/`orchestrator`), deterministischer Executor
+  (`pipeline_deterministic`), Hooks (Zone 1). Keiner traegt Geschaeftsregeln
+  oder kanonischen Zustand.
+- Einheit ist der **Project Space** (git-Checkout), nicht der Rechner: ein
+  Rechner traegt >=1 Project Spaces, ein Zielprojekt kann ueber >=1 Project
+  Spaces verteilt sein.
+
+**Harness-Transparenz-Constraint + Lokalitaets-Trennung:**
+- Agentenseitige Assets (Prompt-/Skill-Bundles) + AK3-Client muessen pro
+  Entwicklerrechner lokal als Dateien vorliegen (Harness liest Dateien, kein
+  transparentes HTTP). Kanonische Quelle zentral, Materialisierung pro Rechner
+  (`manifest-contract`-gepinnt). Symlink kollabiert nur die rechnerinterne
+  Duplikation, zeigt nie auf den entfernten Core.
+- Nur der Core (Zustand + Orchestrierung) zentralisiert; die Bundles nicht.
+
+**Kommandokanal:** technisch unidirektional (Arm initiiert immer, Pull-Modell;
+Core pusht nie zur Dev-Seite, kein fs-Zugriff hinein), fachlich bidirektional
+(Core-Response kann Auftrag sein).
+
+**D1 — deterministische Logik serverseitig:** Phase Runner, Structural-/Policy-/
+Integrity-Gate, Closure-Orchestrierung, Governance-Adjudication sind Core-Logik.
+
+**D2 — GitHub/git (Variante b):** git-Worktree-Mechanik bleibt lokal (gh/git-
+CLI, ff-only-Push mit CAS/Lease gegen `locked_sha`, FK-29) unter
+Core-*Autoritaet* (Lock, Integrity-Gate, Story-Status); GitHub-API-Metadaten
+Core-vermittelt. Kein zentraler GitHub-REST-Adapter, der den Worktree ersetzt.
+
+**Drittsystem-Carve-out (zwei Kriterien):** Direkt-Kante nur bei (1)
+Agent-Eigenbedarf *oder* (2) fs/worktree-Bindung bzw. Bulk ohne Kontrollgewinn.
+Sonst Core-vermittelt. Core-vermittelt: Postgres, AK3-Bewertungs-LLM-Calls,
+Sonar/Jenkins-Urteil, GitHub-API-Metadaten, ARE-Coverage-Read. Lokal-direkt:
+git-Mechanik, ARE-Evidence-Upload, Weaviate-Suche, Agent-LLM-Sparring.
 
 ---
 
@@ -170,13 +200,6 @@ QaContext-Werte: `IMPLEMENTATION_INITIAL`, `IMPLEMENTATION_REMEDIATION`,
 |---|---|---|
 | `telemetry-and-events` | PF -> T | `Telemetry.write_projection` fuer PhaseStateProjection-Records aus PhaseExecutor |
 
-**Konzept-Refactor-Liste:**
-- FK-20 (Workflow-Engine): Modul-Pfade von `agentkit.pipeline` auf
-  `agentkit.backend.pipeline_engine` migrieren
-- FK-36 (CompactionResilience): Prefix-Aktualisierung
-- FK-39 (Phase-State-Persistenz): Prefix-Aktualisierung
-- FK-45 (Phase-Runner-CLI): Prefix-Aktualisierung
-
 ---
 
 ### BC 2: verify-system
@@ -220,19 +243,11 @@ QaContext-Werte: `IMPLEMENTATION_INITIAL`, `IMPLEMENTATION_REMEDIATION`,
 
 **Beziehungen:**
 - Wird von PipelineEngine aufgerufen (ueber Top-Surface)
-- Liest Artefakte ueber ArtifactReference (BC: artifacts, noch nicht geschnitten)
+- Liest Artefakte ueber ArtifactReference (BC: artifacts)
 
 | Andere BC | Richtung | Was |
 |---|---|---|
 | `telemetry-and-events` | VS -> T | `Telemetry.write_projection` fuer QaStageResult/QaFinding-Records aus StageRegistry |
-
-**Konzept-Refactor-Liste:**
-- Modul-Pfade von `agentkit.backend.governance.doc_fidelity` auf
-  `agentkit.backend.verify_system.conformance_service` migrieren
-- Modul-Pfade von `agentkit.backend.governance.policies` auf
-  `agentkit.backend.verify_system.stage_registry` migrieren
-- Modul-Pfade von `agentkit.llm_evaluator` auf
-  `agentkit.backend.verify_system.llm_evaluator` migrieren
 
 ---
 
@@ -333,20 +348,10 @@ QaContext-Werte: `IMPLEMENTATION_INITIAL`, `IMPLEMENTATION_REMEDIATION`,
 - Wird von PipelineEngine aufgerufen (GuardDecision, IntegrityGate)
 - SetupPreflightGate wird in Setup-Phase von PipelineEngine genutzt
 
-**Konzept-Refactor-Liste:**
-- `agentkit.guard_system` und `agentkit.backend.governance.guards` auf
-  `agentkit.backend.governance.guard_system` konsolidieren
-- `agentkit.backend.governance.monitoring` und `agentkit.backend.governance.integrity_gate`
-  auf `agentkit.backend.governance.governance_observer` und
-  `agentkit.backend.governance.integrity_gate` aufteilen
-- FK-22 (SetupPreflight): Modul-Pfad bestaetigen unter
-  `agentkit.backend.governance.setup_preflight_gate`
-
 ---
 
 ### BC 5: exploration-and-design
 
-**Status:** geschnitten (2026-05-01)
 **Quellen:** FK-23, FK-25
 **BC-Verantwortung:** Konzeptarbeit fuer Stories ohne belastbaren Loesungsrahmen
 inkl. eigenem Check/Remediation-Subgraph. Eskalations-Mechanik **excluded**
@@ -403,24 +408,17 @@ Layer 3: ExplorationReview (nutzt ChangeFrame + Mandate)
 | `story-context-manager` | E → SLC | `StoryIdentity.load_story_context()` fuer concept_paths, story_type |
 | `Integrations.llm_pools` | E → LLM | Multi-LLM fuer Fine-Design-Diskussion |
 
-**Konzept-Refactor-Liste:**
-
-- FK-23 vs. FK-25 Freeze-Position-Drift: FK-25 ueberschreibt FK-23 (Freeze nach Gate-PASS, nicht davor). FK-23 muss nachgezogen werden — Mermaid-Flowchart in §23.3.1 entsprechend.
-- Eskalation-Mechanik in FK-23/FK-25 raus — gehoert zu governance-and-guards. Nur fachliche Erkennung (MandateClass, ScopeExplosion) bleibt hier; PAUSED/ESCALATED-Mechanik wird nur referenziert.
-- CLI-Beispiele raus (Boundary-Controls).
-
 **Eigenstaendige Detail-Entscheidungen:**
 
 - Top-Name `Exploration` statt `ExplorationDesign` oder `ExplorationOrchestrator` — kuerzer, BC-konform.
 - `MandateClassification` als ein Sub (statt Mandates + FineDesign + ScopeExplosion getrennt): "verteile nicht wenn nicht muss". Sub-Subs spaeter bei Bedarf.
 - `ModeRouter` `sub_exposed` weil Setup-Subflow direkt ruft (nicht den ganzen `Exploration.run_phase()` durchlaufen).
-- Naming: `ExplorationDrafting` und `ExplorationReview` (statt urspruenglich `ChangeFrameAuthoring` und `ExplorationGate`) — User-Korrektur 2026-05-01: die kreative Erforschung muss als eigene Sub explizit sichtbar sein.
+- Naming: `ExplorationDrafting` und `ExplorationReview` — die kreative Erforschung muss als eigene Sub explizit sichtbar sein.
 
 ---
 
 ### BC 6: implementation-phase
 
-**Status:** geschnitten (2026-05-01)
 **Quellen:** FK-26, FK-49
 **BC-Verantwortung:** Worker-Loop, Inkrement-Disziplin, Handover,
 Worker-Health. Owns: WorkerSession, Handover-Schnittstelle, Increment,
@@ -491,20 +489,6 @@ Layer 3: WorkerLoop (orchestriert Inkremente, schreibt Handover)
 | `prompt-runtime` | I -> PR | Worker-Prompt-Bundles (worker-implementation/-bugfix/-remediation.md), REVIEW_TEMPLATE_REGISTRY |
 | `Integrations.llm_pools` | I (Sidecar) -> LLM | Multi-LLM-Hub fuer LLM-Assessment |
 
-**Konzept-Refactor-Liste:**
-
-- FK-26 §26.5a/§26.5b: Modul-Pfad-Aktualisierung wenn von
-  `agentkit.backend.verify_system.evidence_assembler` gesprochen wird (korrekt
-  per FK-28, Evidence Assembler im verify-system).
-- FK-26 §26.10 Telemetrie-Tabelle: Events bleiben referenziert, sind
-  Owner-Sache von telemetry-and-events.
-- FK-49 §49.1.6 review_guard-Verweis: bleibt unter
-  `agentkit.backend.governance.guard_system`.
-- FK-49 §49.1.7 `worker_health.*`-Konfiguration: in implementation-phase
-  definiert, FK-93 (Defaults-Foundation) referenziert nur.
-- BLOCKED-Eskalation §26.11.2: Wording in FK-26 §26.11.2 praeziser
-  machen ("ImplementationHandler signalisiert ESCALATED via HandlerResult").
-
 **Eigenstaendige Detail-Entscheidungen:**
 
 1. Top-Name `Implementation` (kurz, BC-konform, parallel zu `Exploration`
@@ -544,9 +528,8 @@ Layer 3: WorkerLoop (orchestriert Inkremente, schreibt Handover)
 
 ### BC 7: story-closure
 
-**Status:** geschnitten (2026-05-01)
 **Quellen:** FK-29 (contract). Sekundaer betroffen: FK-27
-(Splits-Liste — Closure-Anteile gehoeren hierher).
+(Closure-Anteile gehoeren hierher).
 **BC-Verantwortung:** Closure-Sequence mit irreversiblen Seiteneffekten
 — Finding-Resolution, Branch-Push, Merge, Worktree-Cleanup, Story-Close,
 Postflight, VektorDB-Sync, Guard-Deaktivierung. Owns: ClosurePayload,
@@ -637,27 +620,6 @@ Layer 4: ExecutionReport (am Ende — auch bei FAIL/ESCALATED)
 | `Integrations.github` | C -> R | Branch-Push, Merge, Story-Close (FK-12) |
 | `Integrations.vector_db` | C -> R | VektorDB-Sync (async fire-and-forget, FK-13) |
 
-**Konzept-Refactor-Liste:**
-
-1. FK-29 §29.1.2 Mermaid-Flowchart und §29.5: IntegrityGate-Aufruf
-   praezisieren — Closure delegiert an `agentkit.backend.governance.integrity_gate`
-   (Sub von Governance, BC 4). Kein Closure-eigener IntegrityGate-Sub.
-2. FK-29 §29.5 Guard-Deaktivierung: Lock-Record-Verwaltung gehoert zu
-   Governance. Closure ruft `Governance.deactivate_locks(story_id)`.
-   Wording entsprechend praezisieren.
-3. FK-29 referenziert mehrfach Layer-2-Artefakte und Doctreue-Ebene-4 —
-   Modul-Pfade aktualisieren auf `agentkit.backend.verify_system.*` (Konsequenz
-   BC-2-Refactor).
-4. FK-27 (mischt Verify-Pipeline und Closure-Orchestration, bekannt aus
-   Splits-Liste): Closure-Anteile (closure-sequence, ClosurePayload,
-   Finding-Resolution-Gate-Mechanik) gehoeren ausschliesslich nach FK-29.
-   FK-27 darf nur referenzieren.
-5. FK-29 §29.4: ExecutionReport wird auch bei FAILED/ESCALATED in fruehen
-   Phasen erzeugt — Annahme: Closure-Top wird IMMER als letzter Schritt
-   aufgerufen, im Skip-Modus mit nur Report-Erzeugung. Wenn das Konzept
-   anders ist (pipeline-framework triggert Report direkt), muss
-   `ExecutionReport` `sub_exposed` werden.
-
 **Eigenstaendige Detail-Entscheidungen:**
 
 1. Top-Name `Closure` (kurz, BC-konform, parallel zu
@@ -689,7 +651,6 @@ Layer 4: ExecutionReport (am Ende — auch bei FAIL/ESCALATED)
 
 ### BC 8: artifacts
 
-**Status:** geschnitten (2026-05-01)
 **Quellen:** FK-71
 **BC-Verantwortung:** Artefakt-Referenzen, Envelope-Format, Producer-Registry,
 Artefakt-Klassen — generische Artefakt-Infrastruktur. Owns: ArtifactReference,
@@ -753,23 +714,6 @@ Layer 1: ProducerRegistry
 | `story-closure` | C -> A | Layer-2-Artefakte lesen, closure.json + execution-report.md schreiben |
 | State-Backend-Drivers | A -> SBD | T-Adapter (`agentkit.backend.state_backend.*`) als Persistenz-Schicht |
 
-**Konzept-Refactor-Liste:**
-
-1. FK-71 §71.3 Lock-Mechanismus: gehoert nicht zu artifacts. Inhalt nach
-   FK-31 (Hook-Enforcement, governance) verschieben. FK-71 darf nur referenzieren.
-2. FK-71 §71.4 Stage-Registry: `StageDefinition`-Klasse gehoert zu
-   `verify-system.StageRegistry`-Sub. FK-71 §71.4 zu verify-system
-   konsolidieren oder nur referenzieren.
-3. FK-71 §71.1.2 PROTECTED_ARTIFACTS-Liste: Implementierungsdetail des
-   Integrity-Hooks (governance.guard_system). Liste gehoert zur
-   Hook-Konfiguration in BC 4, nicht hier.
-4. FK-71 §71.1.1 Schutzgrad-Spalte: Schutz-Information ist
-   governance-Verantwortung. Hier bleibt nur Klassifikation (Erzeuger,
-   Beispiele); Schutzgrad wird in governance-Doku gefuehrt.
-5. FK-71 `authority_over` einschraenken: nur `artefakt-envelope` und
-   `producer-registry` bleiben. `lock-mechanismus` und
-   `stage-registry-types` entfernen.
-
 **Eigenstaendige Detail-Entscheidungen:**
 
 1. Top-Name `Artifacts` (Plural). Abweichung vom Singular-Pattern
@@ -794,7 +738,6 @@ Layer 1: ProducerRegistry
 
 ### BC 9: telemetry-and-events
 
-**Status:** geschnitten (2026-05-01)
 **Quellen:** DK-05, FK-68, FK-69
 **BC-Verantwortung:** ExecutionEvent-Stream, Event-Schemata,
 Phase-State-Projektionen, QA-Read-Models. Owns: ExecutionEvent,
@@ -872,25 +815,6 @@ Layer 3: TelemetryContract (Validierungs-Schicht)
 | `kpi-and-dashboard` | K -> T | `execution_events` + `ProjectionAccessor` lesen fuer KPI-Rollups |
 | State-Backend-Drivers | T -> SBD | T-Adapter (`agentkit.backend.state_backend.postgres_*`) fuer events + read_models |
 
-**Konzept-Refactor-Liste:**
-
-1. FK-69-Split: `fc_incidents`, `fc_patterns`, `fc_check_proposals`
-   (FK-69 §69.9) gehoeren zu failure-corpus, nicht hierher. FK-69 muss
-   inhaltlich aufgeteilt werden.
-2. FK-68 §68.8 Governance-Risk-Window: `NormalizedEvent` bleibt hier
-   (Sensor), aber Score-Akkumulation gehoert zu
-   `governance.GovernanceObserver`. FK-68 §68.8 praezisieren.
-3. FK-68 §68.6 Budget-Hook strittig: Hybrid aus Event-Emission
-   (telemetry) und Blocking (governance). Konzept klaeren — moegliche
-   Aufspaltung in `telemetry.hooks.BudgetEventEmitter` +
-   `governance.guard_system.WebCallBudgetGuard`.
-4. FK-68 §68.3.1 Hook-Pfad-Tabelle: Modul-Pfade von `telemetry/hook.py`,
-   `telemetry/review_guard.py`, `telemetry/budget.py`,
-   `telemetry/divergence.py` auf `agentkit.backend.telemetry.hooks.*` aktualisieren.
-5. FK-68 `authority_over`: telemetry, eventing, workflow-metriken bleiben.
-6. FK-69 §69.6-69.8 (qa_*, story_metrics): bleiben hier, Modul-Pfade auf
-   `agentkit.backend.telemetry.read_models.*` aktualisieren.
-
 **Eigenstaendige Detail-Entscheidungen:**
 
 1. Top-Name `Telemetry` (kurz, ohne `-and-events`-Suffix; Events sind
@@ -902,20 +826,19 @@ Layer 3: TelemetryContract (Validierungs-Schicht)
    IntegrityGate (governance) rufen direkt. Konsistent mit BC 6
    WorkerHealthMonitor.
 5. `ProjectionAccessor` mit `mix_allowed:[T]`: starke Postgres-Persistenz-Affinitaet (Accessor schreibt direkt SQL gegen Telemetrie-DB).
-6. fc_*-Tabellen NICHT hier: gehoeren zu failure-corpus. Drift in FK-69
-   expliziert.
+6. fc_*-Tabellen NICHT hier: gehoeren zu failure-corpus.
 7. Governance-Risk-Window-Score-Akkumulation NICHT hier: gehoert zu
    governance.GovernanceObserver. NormalizedEvent als Sensor-Daten bleibt
    hier.
-8. Budget-Hook strittig: bleibt erstmal in `telemetry.hooks.BudgetHook`
-   (Status quo aus FK-68). Aufspaltung in spaeterem Refactor.
+8. Budget-Hook: bleibt in `telemetry.hooks.BudgetHook` (vereint Event-Emission
+   und Blockierung, FK-68 §68.6); moegliche Aufspaltung ist offene Designfrage
+   (siehe Cross-BC-Entscheidungen).
 9. telemetry-and-events ownt die **Telemetrie-Datenbank-Zugriffsschicht** (Accessor + generisches Envelope + Tabellen-Register), NICHT die domain-spezifischen Schemas pro Tabelle. QaStageResult-Schema gehoert zu verify-system, StoryMetric-Schema zu story-closure, PhaseStateProjection-Schema zu pipeline-framework. Owner-BCs nutzen den generischen Accessor (`Telemetry.write_projection`) und uebergeben ihre Records. Single-Writer-Regel pro Tabelle (FK-69 §69.4) bleibt erfuellt durch Owner-BC-Disziplin.
 
 ---
 
 ### BC 10: prompt-runtime
 
-**Status:** geschnitten (2026-05-01)
 **Quellen:** FK-44
 **BC-Verantwortung:** Prompt-Bundle-Komposition, Materialisierung, Audit-Hash,
 Template-Mechanik. Drift-Vermeidung und Context-Schonung des Orchestrators als
@@ -980,15 +903,6 @@ Layer 3: Materialization (erzeugt Instanzen aus Bindung + Bundle)
 | `telemetry-and-events` | PR -> T | `Telemetry.write_event` fuer Prompt-Nutzungs-Events (optional) |
 | Filesystem-Driver | M -> FS | T-Adapter fuer Hardlink/Symlink/Datei-Erzeugung |
 
-**Konzept-Refactor-Liste:**
-
-1. FK-44 §44.6 "Artefakt-ID" fuer Audit-Records: AuditRecord wird via `artifacts.ArtifactManager` persistiert. Beziehung PR -> A explizit dokumentieren.
-2. FK-44 §44.4.2 Evaluator-Prompts: `verify_system.LlmEvaluator` muss alle Templates via `PromptRuntime.materialize_prompt` aufloesen.
-3. FK-44 verweist auf FK-50 (Installer): Bundle-Bindungs-Aktualisierung erfolgt durch `installation-and-bootstrap` ueber Top-Surface `PromptRuntime.update_binding`. FK-50 muss diese Schnittstelle dokumentieren.
-4. FK-44 §44.5 Modul-Pfade in Code-Beispielen: Filesystem-Konvention; Schema dafuer lebt in `BundlePinning`-Sub.
-5. Audit-Hash-Felder (FK-44 §44.6): `template_sha256`, `render_input_digest`, `output_sha256` im `PromptAuditHash`-Pydantic-Schema (Materialization-Sub). FK-44 Schema-Owner-Cut explizit machen.
-6. `prompt_used`-Event-Frage offen — falls eingefuehrt, in EventTypeId-Liste (BC 9) ergaenzen.
-
 **Eigenstaendige Detail-Entscheidungen:**
 
 1. Top-Name `PromptRuntime` (kurz, BC-konform, parallel zu Telemetry/Closure/Implementation).
@@ -1003,7 +917,6 @@ Layer 3: Materialization (erzeugt Instanzen aus Bindung + Bundle)
 
 ### BC 11: agent-skills
 
-**Status:** geschnitten (2026-05-01)
 **Quellen:** DK-01, DK-12, FK-43
 **BC-Verantwortung:** Welche Capabilities brauchen Agents jenseits ihrer
 Werkseinstellungen, Skill-Definition, Skill-Variants (z.B. core/ARE),
@@ -1066,16 +979,7 @@ Layer 3: SkillQualityMetric (Beobachtung post-binding)
 | `failure-corpus` | AS -> FC | `QualityMetricCollector` liest fc_incidents fuer Skill-Wirksamkeits-Beobachtung |
 | Configuration (FK-03 Foundation) | AS -> C | `PlaceholderSubstitutor` liest gh_owner/gh_repo/project_prefix/project_key aus PipelineConfig |
 | Filesystem-Driver | SB -> FS | T-Adapter fuer Symlink-Erzeugung (SkillBinding) |
-| `governance-and-guards` | GG -> AS | (Enforcement F-43-030 Normative Skill-Nutzung) — siehe Drift-Punkt |
-
-**Konzept-Refactor-Liste:**
-
-1. FK-43 §43.4.2 `PlaceholderSubstitutor`: substituiert Werte aus `PipelineConfig` (gh_owner etc.) aus FK-03 Foundation. Konfigurations-Schnittstelle (read-only auf PipelineConfig) dokumentieren.
-2. FK-43 §43.5.2 Upgrade-Verhalten: Bundle-Version-Pin-Mechanik. Verhaeltnis zu `prompt-runtime.BundlePinning` klaeren — eigenstaendiger Skill-Pin oder gemeinsamer? Vermutlich eigenstaendig (Skills haben anderen Lifecycle als Prompt-Bundles).
-3. FK-43 §43.6.2 Skill-Quality: SkillQualityMetric verwendet Workflow-Metric-Daten (Owner: story-closure.PostMergeFinalization, BC 7) und fc_*-Tabellen (failure-corpus). Lese-Schnittstellen via `Telemetry.read_projection` (sub_exposed) und failure-corpus-Top.
-4. FK-43 §43.4.1 Installer-Aufruf: `Skills.bind_skill` als Top-Surface (analog zu `PromptRuntime.update_binding`). FK-50 muss diese Schnittstelle dokumentieren.
-5. FK-43 frontmatter `defers_to: FK-44`: Skill-Template-Materialisierung kann ueber prompt-runtime laufen, ist aber nicht zwingend. Wording in FK-43 praezisieren: agent-skills hat eigenes Bundle-Konzept fuer Skill-Verzeichnisse; prompt-runtime wird nur fuer Inhalt-Render bei Run aufgerufen, falls noetig.
-6. F-43-030 Normative Skill-Nutzung: Agents MUESSEN Skills nutzen. Enforcement durch `governance.guard_system` oder `verify-system.PolicyEngine`? Aktuell unklar. Cross-BC-Drift-Punkt.
+| `governance-and-guards` | GG -> AS | Enforcement F-43-030 Normative Skill-Nutzung (Enforcement-Owner: governance.guard_system) |
 
 **Eigenstaendige Detail-Entscheidungen:**
 
@@ -1086,13 +990,12 @@ Layer 3: SkillQualityMetric (Beobachtung post-binding)
 5. `SkillBundleStore` separat von `prompt-runtime.BundleStore` — beide BCs haben eigenstaendige Bundle-Konzepte (Skills vs. Prompts). Strukturelle Aehnlichkeit ist Konvention, keine Wiederverwendung. Skills sind Verzeichnis-Symlinks, Prompts sind Datei-Materialisierungen.
 6. Placeholder-Substitution in agent-skills (Bind-Zeit), NICHT in prompt-runtime. Skill-Placeholder werden zur Bindezeit substituiert (statisch); Prompt-Render-Inputs werden zur Run-Zeit aufgeloest.
 7. SkillQualityMetric als eigene Sub trotz nur ~3 Klassen — fachlich klar abgegrenzte Verantwortung. Konsistent mit BC 7 ExecutionReport (~3) und BC 8 ProducerRegistry (~5).
-8. F-43-030 Enforcement ist NICHT hier implementiert — pruefe ob Skill genutzt wurde, gehoert zu governance.guard_system (Hook-basiert) oder verify-system.PolicyEngine (Stage-basiert).
+8. F-43-030 Enforcement ist nicht agent-skills-Verantwortung — die Pruefung, ob ein Skill genutzt wurde, gehoert zu governance.guard_system (Hook-basiert; siehe Cross-BC-Entscheidungen).
 
 ---
 
 ### BC 12: installation-and-bootstrap
 
-**Status:** geschnitten (2026-05-01)
 **Quellen:** DK-08, FK-50, FK-51
 **BC-Verantwortung:** Projektregistrierung, Installer-Checkpoints,
 Hook/Wrapper-Bindung, Upgrade/Migration, Customization-Preservation.
@@ -1149,7 +1052,7 @@ Layer 4: Upgrade (orthogonal, nutzt Engine fuer Re-Run)
 |---|---|---|
 | `agent-skills` | INST -> AS | CP 8 ruft `Skills.bind_skill(skill_id, bundle_version, project_root, profile)` |
 | `prompt-runtime` | INST -> PR | CP 8 ruft `PromptRuntime.update_binding(bundle_id, version)` |
-| `governance-and-guards` | INST -> GG | CP 9 ruft `Governance.register_hooks(hook_definitions)` (siehe Drift-Punkt) |
+| `governance-and-guards` | INST -> GG | CP 9 ruft `Governance.register_hooks(hook_definitions)` |
 | `story-context-manager` | INST -> SCM | indirekt (StoryStorageBackend-Initialisierung bei Backend-Registrierung) |
 | `telemetry-and-events` | INST -> T | `Telemetry.write_event` fuer CheckpointResult-Events; `Telemetry.write_projection` fuer ProjectRegistration |
 | `pipeline-framework` | INST -> PF | nutzt FlowDefinition-DSL (Einheits-DSL FK-20) fuer CheckpointFlow |
@@ -1157,15 +1060,6 @@ Layer 4: Upgrade (orthogonal, nutzt Engine fuer Re-Run)
 | `Integrations.vector_db` | INST -> R | CP 10/10a (MCP-Server-Registration, Erstindizierung) |
 | Filesystem-Driver | INST -> T | Harness-spezifische Skill-Symlinks und Hook-Settings (Claude Code: `.claude/skills/`, `.claude/settings.json`; Codex: harness-eigene Aequivalente — siehe FK-76), `.agentkit/config/project.yaml`, `.bak`-Backup |
 | State-Backend-Drivers | INST -> SBD | T-Adapter fuer ProjectRegistration-Upsert |
-
-**Konzept-Refactor-Liste:**
-
-1. FK-50 §50.3.1 Checkpoint-Engine als Komponenten-Flow: nutzt FlowDefinition aus pipeline-framework (Einheits-DSL FK-20). Cross-BC-Beziehung dokumentieren.
-2. FK-50 CP 8 Skill-Symlinks: Installer ruft `Skills.bind_skill` (BC 11) und `PromptRuntime.update_binding` (BC 10), erzeugt Symlinks NICHT direkt. Wording in FK-50 praezisieren — Code-Beispiel mit `create_symlink(...)` ist irrefuehrend.
-3. FK-50 CP 9 Hook-Registration: Installer schreibt direkt harness-spezifische Settings (Claude Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent). Konsistente Trennung waere: Installer ruft `Governance.register_hooks(hook_definitions)` (BC 4 Top-Surface), und der Harness-Adapter (FK-76 §76.4) materialisiert die harness-spezifische Settings-Datei. JSON-/TOML-Manipulation gehoert zu governance.guard_system bzw. dem jeweiligen Harness-Adapter.
-4. FK-50 CP 7 BackendRegistration: Owner ist installation-and-bootstrap (eigene `project_registry`-Tabelle). Schema lebt hier; Schreib-Adapter via T-Driver. Konsistenz mit BC 9 (telemetry ownt DB-Zugriff, nicht Schemas pro Tabelle).
-5. FK-51 Customization-Erkennung: CustomizationFootprint kombiniert PipelineConfig (FK-03), CCAG-Regeln (governance) und Bundle-Bindings (prompt-runtime + agent-skills). Lese-Schnittstellen via Top-Surfaces.
-6. FK-50 §50.2 CLI-Aufrufe (`agentkit register-project`): CLI ist Boundary-Control des aufrufenden BC. Installer ist transport-agnostisch.
 
 **Eigenstaendige Detail-Entscheidungen:**
 
@@ -1175,14 +1069,13 @@ Layer 4: Upgrade (orthogonal, nutzt Engine fuer Re-Run)
 4. Upgrade als eigene Sub trotz Wiederverwendung der CheckpointEngine — FK-51 Mechanik ist eigenstaendige Verantwortung.
 5. `BootstrapCheckpoints` mit `mix_allowed:[R,T]` (in Prose) — CP 2-4 rufen GitHub-Adapter (R), CP 5/7 schreiben Filesystem/State-Backend (T).
 6. `IntegrationCheckpoints` mit `mix_allowed:[T]` — Filesystem-Operations dominant.
-7. CP 9 Hook-Registration: derzeit direkte JSON-Manipulation modelliert. Alternativer Pfad: `Governance.register_hooks` aufrufen. Drift-Punkt.
+7. CP 9 Hook-Registration: der Installer ruft `Governance.register_hooks` (BC 4 Top-Surface) statt direkter JSON-Manipulation (siehe Cross-BC-Entscheidungen).
 8. CheckpointEngine nutzt FlowDefinition aus pipeline-framework — strukturelle Cross-BC-Wiederverwendung der Einheits-DSL.
 
 ---
 
 ### BC 13: failure-corpus
 
-**Status:** geschnitten (2026-05-01)
 **Quellen:** DK-07, FK-41
 **BC-Verantwortung:** Fehlmuster-Sammlung, Pattern-Promotion, Check-Factory,
 Lernschleife in deterministische Guards. Owns: FailurePattern, IncidentStatus,
@@ -1228,7 +1121,7 @@ Modul-Prefixes:
   `CheckId` (NewType)
 - `IncidentTriage` (~6): `IncidentTriage` (Coordinator), `Incident`, `IncidentNormalizer`,
   `IngressCriteria`, `ProjectionWriterPort` (schmale write_projection-Sicht; kein
-  failure_corpus-eigenes DB-Repo, KONFLIKT-2), `IncidentSeverity` (StrEnum: low,
+  failure_corpus-eigenes DB-Repo), `IncidentSeverity` (StrEnum: low,
   medium, high, critical)
 - `PatternPromotion` (~7): `PatternPromotion` (Coordinator), `FailurePattern`,
   `PatternClusterer`, `PromotionRule` (StrEnum: Wiederholung, HoheSchwere, Checkbarkeit),
@@ -1262,30 +1155,6 @@ Total: ~27 Klassen.
 | `prompt-runtime` | FC -> PR | LlmEvaluator-Aufrufe in Schritt 1+3 ueber `materialize_prompt` |
 | `Integrations.github` | FC -> R | CheckImplementationStoryGenerator ruft GitHub-Adapter fuer Story-Erzeugung |
 
-**Konzept-Refactor-Liste:**
-
-1. FK-69 §69.9 fc_*-Tabellen-Schemas: gehoeren zu failure-corpus (Aufloesung des
-   BC-9-Drift-Punkts). Schemas (FailurePattern, GeneratedCheckProposal,
-   fc_incidents-Schema) leben hier; Postgres-Persistenz via
-   `Telemetry.write_projection`. FK-69 muss aufgeteilt oder die fc_*-Sektionen
-   verweisen auf failure-corpus als Owner.
-2. FK-41 §41.3 Speicherung `.agentkit/failure-corpus/`: JSONL-Dateien als
-   Legacy/Export. Kanonische Wahrheit liegt in Postgres-fc_*-Tabellen. FK-41
-   wording praezisieren.
-3. FK-41 §41.6.2/§41.6.4 LLM-Aufrufe (Schritt 1 Schaerfen, Schritt 3
-   Proposal-Generierung): laufen ueber `verify-system.LlmEvaluator` mit
-   `prompt-runtime.materialize_prompt`. Modul-Pfade dokumentieren.
-4. FK-41 §41.6.6 Schritt 5 (Story-Erzeugung): ruft `Integrations.github`-Adapter.
-   Cross-BC-Beziehung zu pipeline-framework dokumentieren.
-5. FK-41 §41.4.2 QA-Evaluation als Capture-Akteur (F-41-069): Verify-System ruft
-   `FailureCorpus.record_incident` direkt.
-6. FK-41 §41.6.7 Auto-Deaktivierung: nutzt `qa_check_outcomes` (Owner
-   verify-system; Zugriff via telemetry-and-events `Telemetry.read_projection`),
-   gefiltert ueber `check_proposal_ref`/`since_days`. NICHT aus
-   `story_metrics`/Workflow-Metric-Daten und nicht owned by story-closure.
-7. FK-41 §41.9 CLI-Befehle: Boundary-Control des aufrufenden BC. FailureCorpus
-   ist transport-agnostisch.
-
 **Eigenstaendige Detail-Entscheidungen:**
 
 1. Top-Name `FailureCorpus` (CamelCase aus zwei Worten; kuerzer als
@@ -1299,7 +1168,8 @@ Total: ~27 Klassen.
 5. fc_*-Tabellen-Persistenz via `Telemetry.write_projection` — failure-corpus ownt
    Schemas und Schreib-Logik, telemetry-and-events ownt nur DB-Zugriff. Konsistent
    mit BC-9-Korrektur-Pattern.
-6. JSONL-Speicherung als Legacy/Export, nicht kanonisch — FK-41 muss nachziehen.
+6. JSONL-Speicherung ist Legacy/Export, nicht kanonisch; kanonische Wahrheit
+   liegt in den Postgres-fc_*-Tabellen.
 7. CheckFactory Schritt 5 erzeugt GitHub-Story (Integrations.github direkt); Story
    durchlaeuft pipeline-framework regulaer.
 8. F-43-030 Skill-Quality-Beobachtung: agent-skills.QualityMetricCollector liest
@@ -1309,7 +1179,6 @@ Total: ~27 Klassen.
 
 ### BC 14: execution-planning
 
-**Status:** geschnitten (2026-05-01)
 **Quellen:** FK-70
 **BC-Verantwortung:** Backlog-Readiness, Abhaengigkeitsgraph, Wellen,
 Plan-Proposal, Scheduling- und Parallelisierungspolicy. Owns:
@@ -1396,32 +1265,6 @@ Total: ~32 Klassen.
 | `artifacts` | EP -> A | ExecutionPlan optional als Artefakt-Snapshot |
 | `Integrations.github` | EP <- R | Story- und Board-Metadaten als Importquelle (FK-12) |
 
-**Konzept-Refactor-Liste:**
-
-1. FK-70 §70.10.1 Port-Vokabular: `DependencyGraphPort`,
-   `ReadinessAssessmentPort`, `ExecutionPlanPort`,
-   `SchedulingPolicyPort` sind Port-Begriffe (Hexagonal). Per
-   BC-Vokabular-Disziplin verboten. Umformulieren auf "Komponenten"
-   und "Top-Surfaces".
-2. FK-70 §70.10.2 Persistenz: ExecutionPlan + PlannedStory +
-   DependencyEdge via `Telemetry.write_projection`
-   (execution-planning-spezifische Tabellen, Schema-Owner:
-   execution-planning). Konsistent mit BC-9-Pattern.
-3. FK-70 §70.10.3 Audit-Events: neue EventTypeId-Werte ergaenzen
-   FK-68 — `dependency_recorded`, `story_ready`, `story_blocked`,
-   `plan_revised`, `scheduling_decided`, `gate_resolved`,
-   `rulebook_compiled`, `wave_collapsed`.
-4. FK-70 §70.7d Rulebook-DSL: NICHT die FlowDefinition-DSL aus
-   FK-20. Verhaeltnis explizit dokumentieren — execution-planning
-   hat eigene Rulebook-DSL fuer Scheduling-Hints.
-5. FK-70 §70.5.2 READY ist regelbasiert: Konsistenz mit BC 3
-   (StoryContextManager.StoryIdentity hat basis-StoryStatus;
-   ExecutionPlanning leitet PlanningStatus ab). Wording in
-   FK-21/FK-24 nachziehen.
-6. FK-70 §70.8 Orchestrator-Vertrag: pipeline-framework.PipelineEngine
-   MUSS `ExecutionPlanning.evaluate_scheduling` vor jedem Story-Start
-   aufrufen. FK-20 ergaenzen.
-
 **Eigenstaendige Detail-Entscheidungen:**
 
 1. Top-Name `ExecutionPlanning` (matcht FK-70
@@ -1436,8 +1279,7 @@ Total: ~32 Klassen.
 4. ProposalIngest und RulebookCompile in einem Sub konsolidiert —
    beides Eingangs-Schichten fuer external Updates. "Verteile nicht
    wenn nicht musst".
-5. Kein "Port"-Vokabular im Code/Konzept — FK-70 §70.10.1 muss
-   umformuliert werden.
+5. Kein "Port"-Vokabular im Code/Konzept (BC-Vokabular-Disziplin).
 6. Persistenz via `Telemetry.write_projection` — execution-planning
    ownt Schemas und Schreib-Logik, telemetry-and-events ownt nur
    DB-Zugriff.
@@ -1449,7 +1291,6 @@ Total: ~32 Klassen.
 
 ### BC 15: requirements-and-scope-coverage
 
-**Status:** geschnitten (2026-05-01)
 **Quellen:** DK-06, FK-40
 **BC-Verantwortung:** must_cover-Pflichtanforderungen, Evidence-Einreichung,
 Scope-Mapping, ARE-Dock-Points, Coverage-Verdict. Vollstaendigkeit, NICHT
@@ -1524,34 +1365,6 @@ Total: ~24 Klassen.
 | `governance-and-guards` | GG -> RC | IntegrityGate prueft bei Closure dass `are_gate_result` mit `status: PASS` in Telemetrie vorliegt (FK-40 §40.8) |
 | Configuration (FK-03) | RC -> C | `features.are`, `are.mcp_server`, `are.module_scope_map`, `repositories[].are_scope` |
 
-**Konzept-Refactor-Liste:**
-
-1. FK-40 §40.4 MCP-Wrapper-Wording ist konzeptionell falsch fuer den
-   AgentKit-internen Aufruf-Pfad: `AreClient` ist REST-Client (nicht
-   MCP-Wrapper). MCP ist Boundary-Control fuer Harness-Agents (Worker/QA,
-   harness-neutral via Adapter aus FK-76),
-   die direkt mit ARE reden; AgentKit-Code selbst nutzt REST. FK-40 §40.4 muss
-   umformuliert werden — getrennte Aufruf-Pfade fuer "AgentKit-Code (REST)" vs.
-   "Harness-Agents (MCP)" dokumentieren. Modul-Pfad
-   `agentkit.backend.requirements_coverage.are_client`. Konsistent mit GitHub-REST-Adapter
-   (FK-12).
-2. FK-40 §40.5 Vier Andock-Punkte sind Top-Surface-Methoden in
-   RequirementsCoverage, NICHT eigenstaendige Komponenten. Wording in
-   FK-40 praezisieren.
-3. FK-40 §40.7 ARE-Stage in StageRegistry: BC verify-system registriert die
-   Stage; BC requirements-and-scope-coverage stellt nur die Gate-Logik
-   bereit (`check_gate`). Verhaeltnis dokumentieren.
-4. FK-40 §40.6 Fallback ohne ARE: wenn `features.are: false`, ist die
-   gesamte Top-Surface no-op. Aufrufer-BCs brauchen keinen Fallback-Code.
-5. FK-40 §40.3.2 Scope-Mapping wird vom Installer (BC 12 CP 5/CP 10c)
-   gepflegt, von requirements-and-scope-coverage gelesen. Schreib-Owner:
-   installation-and-bootstrap. Lese-Owner: requirements-and-scope-coverage.
-6. FK-40 §40.5.2 `are_bundle.json` Content-Plane-Artefakt via
-   `artifacts.ArtifactManager` mit ArtifactClass.QA. Producer-Registry-Eintrag
-   in BC 8 ergaenzen — Producer `qa-are-context-loader`.
-7. FK-40 §40.8 Telemetrie-Events: neue EventTypeId-Werte in FK-68 ergaenzen
-   — `are_requirements_linked`, `are_evidence_submitted`, `are_gate_result`.
-
 **Eigenstaendige Detail-Entscheidungen:**
 
 1. Top-Name `RequirementsCoverage` (matcht BC-Namen; `-and-scope-` weggekuerzt
@@ -1576,7 +1389,6 @@ Total: ~24 Klassen.
 
 ### BC 16: kpi-and-dashboard
 
-**Status:** geschnitten (2026-05-01)
 **Quellen:** DK-13, FK-60, FK-61, FK-62, FK-63, FK-64
 **BC-Verantwortung:** KPI-Katalog, Erhebung, Aggregation/Rollups,
 Fact-Tabellen, Dashboard-Sichten, ControlPlaneDesignSystem. Owns:
@@ -1657,31 +1469,6 @@ Total: ~35 Klassen.
 | State-Backend-Drivers | KA -> SBD | T-Adapter fuer analytics-Schema (Postgres) |
 | `control_plane` (R-Frontend) | CP -> KA | HTTP-Aufrufe an Top-Surface; konsumiert `get_design_tokens` fuer UI |
 
-**Konzept-Refactor-Liste:**
-
-1. FK-60 §60.1 Top-Level "KpiAnalyticsEngine" -> BC-Top heisst
-   `KpiAnalytics` (kein -Engine-Suffix; konsistent mit anderen Tops).
-2. FK-61 Collection-Points sind deklarative Mapping-Aussagen, NICHT
-   eigene Hook-Logik. Hooks/Events leben in
-   telemetry-and-events.TelemetryHooks. Wording in FK-61 praezisieren.
-3. FK-62 Refresh-Worker liest aus runtime-Schema
-   (Owner: telemetry-and-events.ProjectionAccessor) und FC-Tabellen
-   (Owner: failure-corpus). Lese-Schnittstelle ueber
-   `Telemetry.read_projection`. FK-62 muss diese Top-Surface-Nutzung
-   dokumentieren.
-4. FK-62 §62 Aggregation schreibt in analytics-Schema (Fact-Tabellen).
-   Owner: kpi-and-dashboard.FactStore. Schreib-Adapter via T-Driver
-   direkt. Konsistent mit BC-9-Pattern.
-5. FK-63 Dashboard HTTP-Server: Boundary-Control gehoert in das
-   aufrufende BC (control_plane Frontend). KpiAnalytics-Top-Surface ist
-   transport-agnostisch. FK-63 wording praezisieren.
-6. FK-64 DesignSystem ist UI-Layer: Tokens werden vom Frontend
-   (control_plane) konsumiert. DesignSystem-Sub haelt nur die
-   Token-Definitionen + Guidelines.
-7. FK-69-Verweis auf FK-63 fuer Dashboard-Autoritaet ist konsistent --
-   telemetry-and-events.ProjectionAccessor ist DB-Zugriff,
-   kpi-and-dashboard.Dashboard ist Sicht-Schicht.
-
 **Eigenstaendige Detail-Entscheidungen:**
 
 1. Top-Name `KpiAnalytics` -- matcht FK-60 `KpiAnalyticsEngine`
@@ -1707,15 +1494,15 @@ Total: ~35 Klassen.
 
 ---
 
-## Cross-BC Drift-Punkte
+## Cross-BC-Entscheidungen
 
 ### IntegrityGate
 
-- FK-20 sagt: IntegrityGate ist Sub von ClosurePhase
-- bounded-contexts.yaml sagt: IntegrityGate gehoert zu governance-and-guards
-- **Entscheidung: bounded-contexts.yaml gewinnt.** IntegrityGate ist Sub von
-  Governance (`agentkit.backend.governance.integrity_gate`). FK-20 muss entsprechend
-  refactored werden.
+- FK-20 modelliert IntegrityGate als Sub der Closure-Phase; die
+  Bounded-Context-Registry ordnet es governance-and-guards zu.
+- **Entscheidung:** IntegrityGate ist Sub von Governance
+  (`agentkit.backend.governance.integrity_gate`); die Registry-Autoritaet
+  gewinnt. Closure delegiert nur.
 
 ### SetupPreflightGate
 
@@ -1733,59 +1520,40 @@ Total: ~35 Klassen.
   (StoryContextManager)
 - Modellierung als `component_kind: shared` in entities.md
 
-### FK-23 vs. FK-25 Freeze-Position-Drift (exploration-and-design)
+### Freeze-Position (exploration-and-design)
 
-- FK-25 ueberschreibt FK-23: DesignFreeze erfolgt nach Gate-PASS, nicht davor.
-- FK-23 Mermaid-Flowchart in §23.3.1 muss nachgezogen werden.
+- DesignFreeze erfolgt nach Gate-PASS, nicht davor (FK-25 ueberschreibt FK-23).
 - Eskalations-Mechanik (PAUSED/ESCALATED) gehoert zu governance-and-guards.
-  In FK-23/FK-25 nur fachliche Erkennung (MandateClass, ScopeExplosion) behalten;
-  operative Mechanik nur referenzieren.
+  In exploration-and-design bleibt nur die fachliche Erkennung (MandateClass,
+  ScopeExplosion); die operative Mechanik wird referenziert.
 
-### BLOCKED-Eskalation §26.11.2 (implementation-phase)
+### BLOCKED-Eskalation (implementation-phase)
 
-- FK-26 §26.11.2 beschreibt die BLOCKED->ESCALATED-Kette ungenaue:
-  Phase-Runner-Logik (Mapping auf PhaseStatus.ESCALATED) gehoert zu
-  pipeline-framework.PhaseExecutor, nicht zu implementation-phase.
 - **Entscheidung:** ImplementationHandler signalisiert ESCALATED via
-  HandlerResult. PhaseExecutor reagiert generisch. Wording in FK-26
-  §26.11.2 muss praezisiert werden ("ImplementationHandler signalisiert
-  ESCALATED via HandlerResult; pipeline-framework.PhaseExecutor reagiert
-  generisch auf PhaseStatus.ESCALATED").
+  HandlerResult; pipeline-framework.PhaseExecutor reagiert generisch auf
+  PhaseStatus.ESCALATED. Die Mapping-Logik gehoert zu
+  pipeline-framework.PhaseExecutor, nicht zu implementation-phase
+  (FK-26 §26.11.2).
 
-### ExecutionReport-Trigger bei vorherigem FAILED (story-closure) — entschieden
+### ExecutionReport-Trigger bei vorherigem FAILED (story-closure)
 
-- FK-29 §29.4.1 sagt: ExecutionReport wird "am Ende jeder
-  Story-Bearbeitung — unabhaengig vom Ergebnis (COMPLETED, ESCALATED,
-  FAILED)" erzeugt.
-- **Entscheidung: Option A.** `pipeline-framework.PipelineEngine` ruft
-  ClosureSequence-Top auch bei FAILED in fruehen Phasen auf — im
-  Skip-Modus mit nur Report-Erzeugung. `ClosureProgress`-Felder bleiben
-  auf `false`. `ExecutionReport` ist intern in BC 7 (NICHT
-  `sub_exposed`); pipeline-framework ruft NICHT direkt auf.
-- Begruendung: Single-Owner fuer alle Closure-Anteile;
-  pipeline-framework bleibt orchestrierend statt fachlich.
-- FK-29 §29.4.1 dokumentiert die Entscheidung explizit.
+- ExecutionReport wird am Ende jeder Story-Bearbeitung erzeugt — unabhaengig
+  vom Ergebnis (COMPLETED, ESCALATED, FAILED) (FK-29 §29.4.1).
+- **Entscheidung (Option A):** `pipeline-framework.PipelineEngine` ruft die
+  Closure-Top auch bei FAILED in fruehen Phasen auf — im Skip-Modus mit nur
+  Report-Erzeugung. `ClosureProgress`-Felder bleiben auf `false`.
+  `ExecutionReport` ist intern in story-closure (NICHT `sub_exposed`);
+  pipeline-framework ruft NICHT direkt auf.
+- Begruendung: Single-Owner fuer alle Closure-Anteile; pipeline-framework
+  bleibt orchestrierend statt fachlich.
 
-### ConformanceService und StageRegistry
+### Tabellen-Ownership (telemetry-and-events vs. failure-corpus)
 
-- Alte Prefixe (`agentkit.backend.governance.doc_fidelity`,
-  `agentkit.backend.governance.policies`) stammen aus dem v2-Modell
-- Neue Prefixe: `agentkit.backend.verify_system.conformance_service` und
-  `agentkit.backend.verify_system.stage_registry`
-- Die alten module-Prefixe erzeugen Code-Lints — das ist erwuenscht
-  (Zero-Debt-Policy)
-
-### FK-69 mischt telemetry-and-events und failure-corpus
-
-- FK-69 definiert sechs Tabellen: qa_stage_results, qa_findings,
-  story_metrics, phase_state_projection (telemetry-and-events) UND
-  fc_incidents, fc_patterns, fc_check_proposals (failure-corpus).
-- Ownership-Cut: FK-69 §69.4 listet bereits korrekte Owner
-  ("failure_corpus" fuer fc_*-Tabellen). Aber FK-69 als Ganzes hat
-  domain `telemetry-and-events`.
-- Aufloesungs-Vorschlag: FK-69 in zwei Doks aufteilen oder
-  fc_*-Sektionen nach failure-corpus-Doc verschieben. Bis dahin:
-  Inhalt-Owner pro Sub-Sektion respektieren.
+- Owner-Cut der sechs Projektions-Tabellen (FK-69 §69.4): qa_stage_results,
+  qa_findings, story_metrics, phase_state_projection gehoeren zu
+  telemetry-and-events; fc_incidents, fc_patterns, fc_check_proposals
+  gehoeren zu failure-corpus.
+- Inhalt-Owner pro Sub-Sektion wird respektiert.
 
 ### Projektions-Schema-Ownership (telemetry-and-events vs. Owner-BCs)
 
@@ -1796,17 +1564,16 @@ Total: ~35 Klassen.
   - `phase_state_projection` -> pipeline-framework.PhaseExecutor
 - Owner-BCs definieren Pydantic-Schemas, telemetry-and-events haelt nur ProjectionRecordBase + Tabellen-Register.
 - Single-Writer-Regel (FK-69 §69.4) bleibt erfuellt durch Owner-BC-Disziplin: jede Tabelle hat genau einen Owner-BC, der via `Telemetry.write_projection` schreibt.
-- Konzept-Refactor: FK-68/FK-69 sollten dieses Owner-Modell explizit dokumentieren.
 
 ### Budget-Hook Hybrid (telemetry-and-events vs. governance-and-guards)
 
-- FK-68 §68.6 `telemetry/budget.py` emittiert `web_call`-Event
-  (Telemetry) UND blockiert bei Schwellwert-Ueberschreitung (Governance).
-- Strittig — passt nicht in saubere BC-Trennung.
-- Aufloesungs-Vorschlag: Aufspaltung in
-  `telemetry.hooks.BudgetEventEmitter` (nur Event) +
+- Der Budget-Hook (FK-68 §68.6) spannt zwei Verantwortungen: Event-Emission
+  (`web_call`-Event, Telemetry) und Blockierung bei
+  Schwellwert-Ueberschreitung (Governance) — das passt nicht in eine saubere
+  BC-Trennung.
+- Offene Designfrage: moegliche Aufspaltung in
+  `telemetry.hooks.BudgetEventEmitter` (nur Event) und
   `governance.guard_system.WebCallBudgetGuard` (Blockierung).
-  Entscheidung in spaeterem Refactor.
 
 ### Governance-Risk-Window-Sensor (telemetry-and-events vs. governance-and-guards)
 
@@ -1816,17 +1583,17 @@ Total: ~35 Klassen.
   telemetry-and-events.ReadModels.
 - Score-Akkumulation und Schwellenwert-Pruefung gehoeren zu
   governance.GovernanceObserver (BC 4).
-- FK-68 §68.8 wording praezisieren.
 
-### F-43-030 Normative Skill-Nutzung — Enforcement-Owner entschieden
+### F-43-030 Normative Skill-Nutzung — Enforcement-Owner
 
-- FK-43 §43.6.2 F-43-030: Agents MUESSEN Skills nutzen, nicht ad-hoc-Methodik einsetzen.
+- F-43-030 (FK-43 §43.6.2): Agents MUESSEN Skills nutzen, nicht ad-hoc-Methodik
+  einsetzen.
 - agent-skills definiert die Norm (Norm-Owner: BC agent-skills).
 - **Entscheidung (Option A):** Enforcement-Owner ist BC governance-and-guards
   (`governance.guard_system`, Hook `skill_usage_check`). Erkennung und Blockade
   erfolgen zur Laufzeit vor dem Tool-Call (fail-fast), nicht erst im Verify-Block.
-  verify-system.PolicyEngine ist kein Enforcement-Owner fuer F-43-030.
-- Dokumentiert in: FK-43 §43.6.2, FK-30 §30.5.1.
+  verify-system.PolicyEngine ist kein Enforcement-Owner fuer F-43-030
+  (FK-30 §30.5.1).
 
 ### Skill-Bundle vs. Prompt-Bundle (agent-skills vs. prompt-runtime)
 
@@ -1838,147 +1605,45 @@ Total: ~35 Klassen.
 - FK-43 frontmatter `defers_to: FK-44` ist mehrdeutig: Skill-Template-Inhalt kann optional
   via prompt-runtime materialisiert werden, aber Skill-Bundle-Mechanik (Symlinks) bleibt
   agent-skills-eigenstaendig.
-- Aufloesung: FK-43 wording praezisieren.
 
 ### Hook-Registration Owner (installation-and-bootstrap vs. governance-and-guards)
 
-- FK-50 CP 9: Installer schreibt direkt harness-spezifische Settings-Dateien (Claude Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent — siehe FK-76 §76.5) mit Hook-Eintraegen.
-- Konsistente Trennung waere: Installer ruft `Governance.register_hooks(hook_definitions)`
-  (BC 4 Top-Surface), und der Harness-Adapter materialisiert die harness-spezifische Settings-Datei. JSON-/TOML-Manipulation gehoert zu governance.guard_system / HookRuntime bzw. dem jeweiligen Harness-Adapter.
-- Aufloesungs-Vorschlag: BC 4 (governance-and-guards) erhaelt Top-Surface-Methode
-  `register_hooks`; Installer ruft diese statt direkter JSON-Manipulation.
-- FK-50 §50.3 CP 9 entsprechend nachziehen.
+- Der Installer ruft `Governance.register_hooks(hook_definitions)`
+  (governance-and-guards Top-Surface, BC 4); er manipuliert Hook-Settings nicht
+  direkt.
+- Der Harness-Adapter materialisiert die harness-spezifische Settings-Datei
+  (Claude Code: `.claude/settings.json`; Codex: harness-eigenes Aequivalent —
+  FK-76 §76.5). JSON-/TOML-Manipulation gehoert zu governance.guard_system /
+  HookRuntime bzw. dem jeweiligen Harness-Adapter (FK-50 CP 9).
 
 ### CheckpointEngine nutzt FlowDefinition (installation-and-bootstrap vs. pipeline-framework)
 
-- FK-50 §50.3.1: Checkpoint-Engine modelliert ihren Ablauf ueber
-  `FlowDefinition(level="component", owner="Installer")`.
-- FlowDefinition-DSL ist Owner pipeline-framework (FK-20).
-- Cross-BC-Beziehung: Installer NUTZT die DSL als Mechanik, definiert aber nicht die
-  DSL selbst.
-- Aufloesung: dokumentieren als zulaessige Cross-BC-Wiederverwendung;
-  FlowDefinition-Schnittstelle bleibt pipeline-framework-Top-Surface (sub_exposed).
-
-### Port-Vokabular in FK-70
-
-- FK-70 §70.10.1 nutzt `DependencyGraphPort`, `ReadinessAssessmentPort`,
-  `ExecutionPlanPort`, `SchedulingPolicyPort`.
-- Per BC-Vokabular-Disziplin (Komponente, Klasse, Schnittstelle — kein
-  Port/Adapter/Hexagonal) sind diese Begriffe verboten.
-- Aufloesung: FK-70 umformulieren auf "Komponenten" und "Top-Surfaces";
-  Klassen heissen direkt nach ihrer Verantwortung.
+- Die Checkpoint-Engine modelliert ihren Ablauf ueber
+  `FlowDefinition(level="component", owner="Installer")` (FK-50 §50.3.1).
+- Die FlowDefinition-DSL ist Owner pipeline-framework (FK-20). Der Installer
+  NUTZT die DSL als Mechanik, definiert sie nicht selbst — zulaessige
+  Cross-BC-Wiederverwendung. Die FlowDefinition-Schnittstelle bleibt
+  pipeline-framework-Top-Surface (sub_exposed).
 
 ### Orchestrator-Vertrag (execution-planning vs. pipeline-framework)
 
-- FK-70 §70.8: pipeline-framework.PipelineEngine MUSS
-  `ExecutionPlanning.evaluate_scheduling` vor jedem Story-Start aufrufen.
-- pipeline-framework darf nicht frei in Backlog greifen.
-- Aufloesungs-Vorschlag: FK-20 ergaenzen — PipelineEngine konsumiert
-  `ExecutionPlanning`-Top-Surface; PipelineEngine ist transport-agnostisch.
+- pipeline-framework.PipelineEngine ruft `ExecutionPlanning.evaluate_scheduling`
+  vor jedem Story-Start auf (FK-70 §70.8) und greift nicht frei in den Backlog.
+- PipelineEngine konsumiert die `ExecutionPlanning`-Top-Surface und bleibt
+  transport-agnostisch.
 
 ---
 
-## Konzept-Refactor-Liste (konsolidiert)
+## Noch nicht geschnittene BCs
 
-Die folgende Liste enthaelt alle identifizierten Refactor-Aufgaben
-aus den 4 BC-Schnitten. Sie ist nicht abschliessend — weitere Punkte
-koennen bei der Implementierungsphase auftauchen.
-
-| Prio | Ziel-BC | Aufgabe |
-|------|---------|---------|
-| 1 | pipeline-framework | Modul-Pfade von `agentkit.pipeline` auf `agentkit.backend.pipeline_engine` migrieren (FK-20, FK-36, FK-39, FK-45) |
-| 2 | verify-system | `agentkit.backend.governance.doc_fidelity` -> `agentkit.backend.verify_system.conformance_service` |
-| 3 | verify-system | `agentkit.backend.governance.policies` -> `agentkit.backend.verify_system.stage_registry` |
-| 4 | verify-system | `agentkit.llm_evaluator` -> `agentkit.backend.verify_system.llm_evaluator` |
-| 5 | governance-and-guards | `agentkit.guard_system` + `agentkit.backend.governance.guards` -> `agentkit.backend.governance.guard_system` |
-| 6 | governance-and-guards | `agentkit.backend.governance.monitoring` -> `agentkit.backend.governance.governance_observer` |
-| 7 | governance-and-guards | IntegrityGate-Prefix in FK-20 auf `agentkit.backend.governance.integrity_gate` aendern |
-| 8 | governance-and-guards | `agentkit.backend.governance.hookruntime` (HookRuntime, BC noch offen) bleibt unveraendert bis HookRuntime-BC geschnitten wird |
-| 9 | exploration-and-design | FK-23 §23.3.1 Mermaid-Flowchart: Freeze-Position nach Gate-PASS korrigieren (FK-25 gewinnt) |
-| 10 | exploration-and-design | Eskalations-Mechanik aus FK-23/FK-25 auslagern — nur fachliche Erkennung (MandateClass, ScopeExplosion) bleibt |
-| 11 | exploration-and-design | CLI-Beispiele aus FK-23/FK-25 entfernen (Boundary-Controls) |
-| 12 | implementation-phase | FK-26 §26.5a/§26.5b: Modul-Pfad-Aktualisierung fuer `agentkit.backend.verify_system.evidence_assembler` (FK-28-Referenz korrekt bestaetigen) |
-| 13 | implementation-phase | FK-26 §26.10 Telemetrie-Tabelle: Events bleiben referenziert, Owner-Sache von telemetry-and-events (kein Prefix-Konflikt, Wording klaeren) |
-| 14 | implementation-phase | FK-49 §49.1.6 review_guard-Verweis: bleibt unter `agentkit.backend.governance.guard_system` (Pfad bestaetigen) |
-| 15 | implementation-phase | FK-49 §49.1.7 `worker_health.*`-Konfiguration: in implementation-phase definiert; FK-93 referenziert nur |
-| 16 | implementation-phase | FK-26 §26.11.2: Wording praezisieren ("ImplementationHandler signalisiert ESCALATED via HandlerResult; PhaseExecutor reagiert generisch") |
-| 17 | story-closure | FK-29 §29.1.2 Mermaid-Flowchart und §29.5: IntegrityGate-Aufruf praezisieren — Closure delegiert an `agentkit.backend.governance.integrity_gate`. Kein Closure-eigener IntegrityGate-Sub. |
-| 18 | story-closure | FK-29 §29.5 Guard-Deaktivierung: Lock-Record-Verwaltung gehoert zu Governance. Closure ruft `Governance.deactivate_locks(story_id)`. Wording praezisieren. |
-| 19 | story-closure | FK-29 Layer-2-Artefakte und Doctreue-Ebene-4: Modul-Pfade auf `agentkit.backend.verify_system.*` aktualisieren (Konsequenz BC-2-Refactor). |
-| 20 | story-closure | FK-27: Closure-Anteile (closure-sequence, ClosurePayload, Finding-Resolution-Gate-Mechanik) ausschliesslich nach FK-29 verschieben. FK-27 darf nur referenzieren. |
-| 21 | story-closure | FK-29 §29.4: ExecutionReport-Aufrufpfad bei FAILED in fruehen Phasen praezisieren — Annahme Closure-Top im Skip-Modus; falls pipeline-framework direkt triggert, `ExecutionReport` auf `sub_exposed` aendern. |
-| 22 | artifacts | FK-71 §71.3 Lock-Mechanismus auslagern: Inhalt nach FK-31 (governance/Hook-Enforcement) verschieben; FK-71 darf nur referenzieren. |
-| 23 | artifacts | FK-71 §71.4 Stage-Registry: `StageDefinition`-Klasse zu `verify-system.StageRegistry`-Sub verschieben; FK-71 §71.4 zu verify-system konsolidieren oder nur referenzieren. |
-| 24 | artifacts | FK-71 §71.1.2 PROTECTED_ARTIFACTS-Liste: gehoert zur Hook-Konfiguration in BC 4 (governance.guard_system), nicht zu artifacts. |
-| 25 | artifacts | FK-71 §71.1.1 Schutzgrad-Spalte: Schutz-Information in governance-Doku fuehren; artifacts behaelt nur Klassifikation (Erzeuger, Beispiele). |
-| 26 | artifacts | FK-71 `authority_over` einschraenken: nur `artefakt-envelope` und `producer-registry` behalten; `lock-mechanismus` und `stage-registry-types` entfernen. |
-| 27 | telemetry-and-events | FK-69-Split: `fc_incidents`, `fc_patterns`, `fc_check_proposals` (FK-69 §69.9) gehoeren zu failure-corpus. FK-69 muss inhaltlich aufgeteilt werden. |
-| 28 | telemetry-and-events | FK-68 §68.8 Governance-Risk-Window: `NormalizedEvent` bleibt in ReadModels (Sensor); Score-Akkumulation gehoert zu `governance.GovernanceObserver`. FK-68 §68.8 praezisieren. |
-| 29 | telemetry-and-events | FK-68 §68.6 Budget-Hook: Hybrid aus Event-Emission (telemetry) und Blocking (governance). Moegliche Aufspaltung in `telemetry.hooks.BudgetEventEmitter` + `governance.guard_system.WebCallBudgetGuard`. |
-| 30 | telemetry-and-events | FK-68 §68.3.1 Hook-Pfad-Tabelle: Modul-Pfade auf `agentkit.backend.telemetry.hooks.*` aktualisieren (von `telemetry/hook.py`, `telemetry/review_guard.py`, `telemetry/budget.py`, `telemetry/divergence.py`). |
-| 31 | telemetry-and-events | FK-68 `authority_over`: telemetry, eventing, workflow-metriken bleiben; fc_*-Tabellen-Anteile entfernen. |
-| 32 | telemetry-and-events | FK-69 §69.6-69.8 (qa_*, story_metrics): bleiben in telemetry-and-events, Modul-Pfade auf `agentkit.backend.telemetry.read_models.*` aktualisieren. |
-| 33 | telemetry-and-events / verify-system / story-closure / pipeline-framework | Projektions-Schema-Ownership: ProjectionAccessor in telemetry-and-events ownt nur DB-Zugriffsschicht; QaStageResult/QaFinding-Schemas wandern zu verify-system, StoryMetric/WorkflowMetric zu story-closure, PhaseStateProjection zu pipeline-framework. FK-68/FK-69 entsprechend nachziehen. |
-| 34 | prompt-runtime | FK-44 §44.6 "Artefakt-ID" fuer Audit-Records: AuditRecord wird via `artifacts.ArtifactManager` persistiert. Beziehung PR -> A explizit in FK-44 dokumentieren. |
-| 35 | prompt-runtime | FK-44 §44.4.2 Evaluator-Prompts: `verify_system.LlmEvaluator` muss alle Templates via `PromptRuntime.materialize_prompt` aufloesen. FK-44 entsprechend praezisieren. |
-| 36 | prompt-runtime / installation-and-bootstrap | FK-44 verweist auf FK-50 (Installer): `update_binding(bundle_id, version)` ist Top-Surface von PromptRuntime; FK-50 muss diese Schnittstelle dokumentieren. |
-| 37 | prompt-runtime | FK-44 §44.5 Modul-Pfade in Code-Beispielen: Filesystem-Konvention; Schema lebt in `BundlePinning`-Sub (`agentkit.backend.prompt_runtime.bundle_pinning`). Pfade in FK-44 aktualisieren. Vokabular: `project-prompt-binding`-Glossarbegriff in FK-44 entweder beibehalten als fachlicher Begriff oder auf `project-prompt-pin` vereinheitlichen (Klassen heissen `ProjectPromptPin`). |
-| 38 | prompt-runtime | FK-44 §44.6 Audit-Hash-Felder (`template_sha256`, `render_input_digest`, `output_sha256`): PromptAuditHash-Pydantic-Schema Owner ist Materialization-Sub. FK-44 Schema-Owner-Cut explizit machen. |
-| 39 | prompt-runtime / telemetry-and-events | `prompt_used`-Event-Frage offen: falls eingefuehrt, in EventTypeId-Liste (BC 9 TelemetryContract) ergaenzen und in FK-44 dokumentieren. |
-| 40 | agent-skills | FK-43 §43.4.2 `PlaceholderSubstitutor`: Konfigurations-Schnittstelle (read-only auf PipelineConfig) dokumentieren; substituiert gh_owner/gh_repo/project_prefix/project_key aus FK-03 Foundation. |
-| 41 | agent-skills | FK-43 §43.5.2 Upgrade-Verhalten: Bundle-Version-Pin-Mechanik klaeren — eigenstaendiger Skill-Pin (Skills haben anderen Lifecycle als Prompt-Bundles); Verhaeltnis zu `prompt-runtime.BundlePinning` explizit machen. |
-| 42 | agent-skills | FK-43 §43.6.2 Skill-Quality: Lese-Schnittstellen via `Telemetry.read_projection` (sub_exposed) und failure-corpus-Top dokumentieren; WorkflowMetric-Daten-Owner (story-closure.PostMergeFinalization) referenzieren. |
-| 43 | agent-skills / installation-and-bootstrap | FK-43 §43.4.1 Installer-Aufruf: `Skills.bind_skill` als Top-Surface (analog zu `PromptRuntime.update_binding`); FK-50 muss diese Schnittstelle dokumentieren. |
-| 44 | agent-skills / prompt-runtime | FK-43 frontmatter `defers_to: FK-44` praezisieren: agent-skills hat eigenes Bundle-Konzept fuer Skill-Verzeichnisse; prompt-runtime wird nur fuer Inhalt-Render bei Run aufgerufen, falls noetig. |
-| 45 | agent-skills / governance-and-guards / verify-system | F-43-030 Normative Skill-Nutzung: Enforcement-Owner festlegen (governance.guard_system Hook-basiert vs. verify-system.PolicyEngine Stage-basiert); FK-43 entsprechend praezisieren. |
-| 46 | installation-and-bootstrap | FK-50 §50.3.1 Checkpoint-Engine als Komponenten-Flow: nutzt FlowDefinition aus pipeline-framework (Einheits-DSL FK-20). Cross-BC-Beziehung in FK-50 dokumentieren. |
-| 47 | installation-and-bootstrap | FK-50 CP 8 Skill-Symlinks: Installer ruft `Skills.bind_skill` (BC 11) und `PromptRuntime.update_binding` (BC 10). Code-Beispiel mit `create_symlink(...)` in FK-50 ist irrefuehrend; Wording praezisieren. |
-| 48 | installation-and-bootstrap | FK-50 CP 9 Hook-Registration: konsistente Trennung via `Governance.register_hooks(hook_definitions)` (BC 4 Top-Surface). JSON-Manipulation gehoert zu governance.guard_system. FK-50 §50.3 CP 9 nachziehen. |
-| 49 | installation-and-bootstrap | FK-50 CP 7 BackendRegistration: Owner installation-and-bootstrap (eigene `project_registry`-Tabelle). Schema lebt hier; Schreib-Adapter via T-Driver. Konsistenz mit BC 9 Owner-Modell dokumentieren. |
-| 50 | installation-and-bootstrap | FK-51 Customization-Erkennung: CustomizationFootprint kombiniert PipelineConfig (FK-03), CCAG-Regeln (governance) und Bundle-Bindings (prompt-runtime + agent-skills). Lese-Schnittstellen via Top-Surfaces dokumentieren. |
-| 51 | installation-and-bootstrap | FK-50 §50.2 CLI-Aufrufe (`agentkit register-project`): CLI ist Boundary-Control des aufrufenden BC. Installer ist transport-agnostisch; CLI-Beispiele entsprechend auslagern. |
-| 52 | failure-corpus | FK-69 §69.9 fc_*-Tabellen-Schemas: gehoeren zu failure-corpus. Schemas (FailurePattern, GeneratedCheckProposal, fc_incidents-Schema) leben hier; Postgres-Persistenz via `Telemetry.write_projection`. FK-69 muss aufgeteilt oder fc_*-Sektionen verweisen auf failure-corpus als Owner. |
-| 53 | failure-corpus | FK-41 §41.3 Speicherung `.agentkit/failure-corpus/`: JSONL-Dateien als Legacy/Export. Kanonische Wahrheit liegt in Postgres-fc_*-Tabellen. FK-41 wording praezisieren. |
-| 54 | failure-corpus | FK-41 §41.6.2/§41.6.4 LLM-Aufrufe (Schritt 1 Schaerfen, Schritt 3 Proposal-Generierung): laufen ueber `verify-system.LlmEvaluator` mit `prompt-runtime.materialize_prompt`. Modul-Pfade in FK-41 dokumentieren. |
-| 55 | failure-corpus | FK-41 §41.6.6 Schritt 5 (Story-Erzeugung): ruft `Integrations.github`-Adapter. Cross-BC-Beziehung zu pipeline-framework (Story durchlaeuft Pipeline regulaer) in FK-41 dokumentieren. |
-| 56 | failure-corpus | FK-41 §41.4.2 QA-Evaluation als Capture-Akteur (F-41-069): Verify-System ruft `FailureCorpus.record_incident` direkt. FK-41 Capture-Akteur-Tabelle entsprechend praezisieren. |
-| 57 | failure-corpus | FK-41 §41.6.7 Auto-Deaktivierung: nutzt `qa_check_outcomes` (Owner verify-system; Zugriff via telemetry-and-events `Telemetry.read_projection`), gefiltert ueber `check_proposal_ref`/`since_days`. NICHT aus `story_metrics`/Workflow-Metric-Daten, nicht owned by story-closure. In FK-41 dokumentieren. |
-| 58 | failure-corpus | FK-41 §41.9 CLI-Befehle: Boundary-Control des aufrufenden BC. FailureCorpus ist transport-agnostisch; CLI-Beispiele aus FK-41 auslagern. |
-| 59 | execution-planning | FK-70 §70.10.1 Port-Vokabular: `DependencyGraphPort`, `ReadinessAssessmentPort`, `ExecutionPlanPort`, `SchedulingPolicyPort` auf "Komponenten" und "Top-Surfaces" umformulieren. |
-| 60 | execution-planning | FK-70 §70.10.2 Persistenz: ExecutionPlan + PlannedStory + DependencyEdge via `Telemetry.write_projection`; Schema-Owner: execution-planning. Konsistent mit BC-9-Pattern. |
-| 61 | execution-planning | FK-70 §70.10.3 Audit-Events: EventTypeId-Werte ergaenzen FK-68 — `dependency_recorded`, `story_ready`, `story_blocked`, `plan_revised`, `scheduling_decided`, `gate_resolved`, `rulebook_compiled`, `wave_collapsed`. |
-| 62 | execution-planning | FK-70 §70.7d Rulebook-DSL: NICHT die FlowDefinition-DSL aus FK-20. Verhaeltnis explizit in FK-70 dokumentieren — execution-planning hat eigene Rulebook-DSL fuer Scheduling-Hints. |
-| 63 | execution-planning | FK-70 §70.5.2 READY regelbasiert: Konsistenz mit BC 3 (StoryIdentity hat basis-StoryStatus; ExecutionPlanning leitet PlanningStatus ab). Wording in FK-21/FK-24 nachziehen. |
-| 64 | execution-planning / pipeline-framework | FK-70 §70.8 Orchestrator-Vertrag: PipelineEngine MUSS `ExecutionPlanning.evaluate_scheduling` vor jedem Story-Start aufrufen. FK-20 ergaenzen. |
-| 65 | requirements-and-scope-coverage | FK-40 §40.4: `AreClient` ist REST-Client zur ARE-REST-API (NICHT MCP-Wrapper). MCP ist Boundary-Control fuer Harness-Agents (harness-neutral via Adapter aus FK-76), die direkt mit ARE reden; AgentKit-Code nutzt REST. FK-40 §40.4 wording umformulieren — getrennte Aufruf-Pfade fuer AgentKit-Code (REST) vs. Harness-Agents (MCP). Konsistent mit GitHub-REST-Adapter (FK-12). |
-| 66 | requirements-and-scope-coverage | FK-40 §40.5 Vier Andock-Punkte sind Top-Surface-Methoden in RequirementsCoverage, NICHT eigenstaendige Komponenten. Wording in FK-40 praezisieren. |
-| 67 | requirements-and-scope-coverage / verify-system | FK-40 §40.7 ARE-Stage in StageRegistry: BC verify-system registriert die Stage; BC requirements-and-scope-coverage stellt nur die Gate-Logik bereit (`check_gate`). Verhaeltnis dokumentieren. |
-| 68 | requirements-and-scope-coverage | FK-40 §40.6 Fallback ohne ARE: wenn `features.are: false`, ist die gesamte Top-Surface no-op. Aufrufer-BCs brauchen keinen Fallback-Code. |
-| 69 | requirements-and-scope-coverage / installation-and-bootstrap | FK-40 §40.3.2 Scope-Mapping wird vom Installer (BC 12 CP 5/CP 10c) gepflegt, von requirements-and-scope-coverage gelesen. Schreib-Owner: installation-and-bootstrap. Lese-Owner: requirements-and-scope-coverage. |
-| 70 | requirements-and-scope-coverage / artifacts | FK-40 §40.5.2 `are_bundle.json` Content-Plane-Artefakt via `artifacts.ArtifactManager` mit ArtifactClass.QA. Producer-Registry-Eintrag in BC 8 ergaenzen — Producer `qa-are-context-loader`. |
-| 71 | requirements-and-scope-coverage / telemetry-and-events | FK-40 §40.8 Telemetrie-Events: neue EventTypeId-Werte in FK-68 ergaenzen — `are_requirements_linked`, `are_evidence_submitted`, `are_gate_result`. |
-| 72 | kpi-and-dashboard | FK-60 §60.1 Top-Level "KpiAnalyticsEngine" umbenennen: BC-Top heisst `KpiAnalytics` (kein -Engine-Suffix; konsistent mit anderen Tops). |
-| 73 | kpi-and-dashboard | FK-61 Collection-Points sind deklarative Mapping-Aussagen, NICHT eigene Hook-Logik. Hooks/Events leben in telemetry-and-events.TelemetryHooks. Wording in FK-61 praezisieren. |
-| 74 | kpi-and-dashboard | FK-62 Refresh-Worker liest aus runtime-Schema (Owner: telemetry-and-events.ProjectionAccessor) und FC-Tabellen (Owner: failure-corpus) ueber `Telemetry.read_projection`. FK-62 muss diese Top-Surface-Nutzung dokumentieren. |
-| 75 | kpi-and-dashboard | FK-62 §62 Aggregation schreibt in analytics-Schema (Fact-Tabellen). Owner: kpi-and-dashboard.FactStore. Schreib-Adapter via T-Driver direkt. Konsistent mit BC-9-Pattern. |
-| 76 | kpi-and-dashboard | FK-63 Dashboard HTTP-Server: Boundary-Control gehoert in das aufrufende BC (control_plane Frontend). KpiAnalytics-Top-Surface ist transport-agnostisch. FK-63 wording praezisieren. |
-| 77 | kpi-and-dashboard | FK-64 DesignSystem ist UI-Layer: Tokens werden vom Frontend (control_plane) konsumiert. DesignSystem-Sub haelt nur Token-Definitionen + Guidelines. |
-| 78 | kpi-and-dashboard / telemetry-and-events | FK-69-Verweis auf FK-63 fuer Dashboard-Autoritaet ist konsistent -- telemetry-and-events.ProjectionAccessor ist DB-Zugriff, kpi-and-dashboard.Dashboard ist Sicht-Schicht. Beziehung explizit in FK-69 dokumentieren. |
+Folgende Bounded Contexts sind in diesem Decision-Log noch nicht detailliert
+geschnitten: story, control_plane, projectedge, hook_runtime,
+state_backend_drivers, phase_state_store.
 
 ---
 
-## Noch nicht geschnittene BCs (0/16) -- alle BCs geschnitten
+## Nachtrag-BC: task-management
 
-Alle 16 BCs sind geschnitten. Bestehende entities.md-Eintraege fuer
-verbleibende Stubs (story, control_plane, projectedge, hook_runtime,
-state_backend_drivers, phase_state_store) bleiben unveraendert bis
-der jeweilige BC geschnitten wird.
-
----
-
-## Nachtrag-BC: task-management (2026-06-05, PO-Trigger)
-
-**Status:** geschnitten (2026-06-05)
 **Quellen:** DK-15 (Domain), FK-77 (Technik), formal.task-management.*
 **BC-Verantwortung:** Verwaltung offener Handlungspunkte (Tasks), deren
 Abarbeitung **nicht** von AK3 gemanagt wird und die deshalb **nie** die
@@ -2024,21 +1689,12 @@ Layer 1: TaskLinkGraph (Verlinkung auf bestehende Tasks/Stories)
 | Andere BC | Richtung | Was |
 |---|---|---|
 | `pipeline-framework` | — | KEINE. Tasks sind nicht pipeline-gemanagt; kein Phase-Handler. |
-| `story-closure` | C -> TM | `create_task` (Konzept-Feedback / Rueckkopplungstreue) — via Rewire-Schritt |
+| `story-closure` | C -> TM | `create_task` (Konzept-Feedback / Rueckkopplungstreue) |
 | `verify-system` | VS -> TM | `create_task` fuer handlungstragende Befunde |
 | `governance-and-guards` | GG -> TM | `create_task` fuer handlungstragende Befunde |
 | `story-lifecycle` | TM <-> SLC | TaskLink target_kind=story; von beiden Seiten lesbar, kein gespiegelter Status |
 | `telemetry-and-events` | TM -> T | `Telemetry.write_projection`/`read_projection` (Schema-Owner TM; Muster wie `fc_*`) |
 | `control_plane`/Frontend | FE -> TM | „Tasks / Offene Punkte"-View liest Top-Surface (FK-72/frontend-contracts) |
-
-**Konzept-Refactor-/Folgeliste (separater Schritt, nach BC-Freigabe):**
-
-1. FK-38 Ebene-4 (Rueckkopplungstreue): Ergebnis → `TaskManagement.create_task`
-   statt Incident-Kandidat im Failure Corpus.
-2. FK-29 / `PostMergeFinalization.FeedbackFidelityCheck`: Producer-Verdrahtung
-   auf task-management; Beziehung „C -> FC (Doctreue-FAIL)" (BC 7 oben)
-   entsprechend auf „C -> TM" aendern.
-3. FK-72 + frontend-contracts: „Tasks / Offene Punkte"-View + Wire-Entity.
 
 **Eigenstaendige Detail-Entscheidungen:**
 

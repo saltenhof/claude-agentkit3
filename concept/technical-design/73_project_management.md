@@ -123,25 +123,9 @@ Erwartungswert** und gehoert zu den `configuration`-Feldern der Project-Entitaet
   Installer-Input (FK-50 CP 7/CP 10d). FK-73 ownt ausschliesslich den
   **dauerhaften Erwartungswert** und die Re-Baseline-Aktion.
 
-> **Code-Realitaet / Owner pro Wert (FEHLT heute):** Das `configuration`-Objekt
-> der Project-Entitaet traegt heute **kein** Baseline-Hash-Feld:
-> `ProjectConfiguration` (`src/agentkit/backend/project_management/entities.py:14`)
-> kennt nur `repo_url` (`:34`), `default_branch` (`:35`), `are_url`,
-> `default_worker_count` und `repositories` — keinen erwarteten
-> Config-Baseline-Hash. Das Integrity-Gate bestaetigt das Fehlen ausdruecklich
-> (`src/agentkit/backend/governance/integrity_gate/dim9_drift.py:26-30`: „no
-> captured/registered baseline … the state backend stores no expected
-> config-hash … deliberately does NOT fabricate one"). **Code-Owner ist der
-> `project-management`-BC** (Project-Entitaet/`ProjectConfiguration`) — **nicht**
-> AG3-070: AG3-070 ownt `project.yaml`/`project-config` (config_version,
-> sonarqube-Stanza), nicht die Project-Entitaet, und liefert dieses Feld daher
-> **nicht**. Es existiert **kein** Backlog-Owner fuer den Feld-Bau: die
-> project-management-GAP-Analyse (`stories/project-management-gap-analyse.md`
-> §4.1) listet nur `project_detail`/`mode_lock`/`story_counters`/
-> `concept_anchors` (A1–A4), das Baseline-Hash-`configuration`-Feld ist **nicht**
-> darunter. Der Feld-Bau ist daher als nummerierte PO-Eskalation (CP3) gegen
-> `project-management` zu fuehren (Remediation-Report AG3-104); **kein** Feld-Bau
-> und **kein** AG3-070-Lieferanspruch in dieser doc-only-Story.
+Der Baseline-Hash-Erwartungswert ist ein `configuration`-Feld der
+Project-Entitaet (§73.1) und wird im `project_registry`/`projects`-Storage
+(§73.4) gefuehrt.
 
 ## 73.7 Abgrenzung zu Bootstrap
 

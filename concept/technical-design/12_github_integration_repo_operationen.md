@@ -257,12 +257,6 @@ def merge_worktree(story_id: str, *, merge_policy: str = "ff_only") -> MergeResu
     """
 ```
 
-Der frueher hier beschriebene Ablauf „push -> checkout/pull main ->
-merge -> push main" ist durch FK-29 §29.1a abgeloest: der Push des
-Story-Branch liegt **innerhalb** des Locks nach gruener Messung, und es
-gibt kein separates `checkout/pull main` mehr, weil `main` ueber ein
-ff-only CAS/Lease-Update gegen `locked_sha` aktualisiert wird.
-
 Bei Multi-Repo-Stories wird die Merge-Mechanik nicht pro Repo
 einzeln in dieser Reihenfolge entschieden, sondern als atomare
 Per-Repo-Pre-Merge-Scan-und-Merge-Bloecke ueber alle teilnehmenden
@@ -324,7 +318,7 @@ repositories:
     language: markdown
 ```
 
-[Entscheidung 2026-05-04 — Repo-Identifikation] Identifikator ist
+Identifikator ist
 der Repo-`name` (String). Es gibt keinen separaten Repo-Schluessel.
 `participating_repos` einer Story (FK-22 §22.6.1) referenziert die
 Namen aus dieser Liste.

@@ -435,7 +435,7 @@ Pipeline-Wirkungen ohne menschliche Freigabe.
 Optional (zukuenftiger Schritt, nicht v1): bestaetigte Pattern
 koennten als kontextueller Hinweis an LLM-Reviewer (Verify-Subflow
 Layer 2) gegeben werden — als nicht-blockierende Information, nicht
-als deterministischer Check. Heute ist dieser Pfad nicht aktiv.
+als deterministischer Check.
 
 ### 41.5.4 Pattern-Schema
 

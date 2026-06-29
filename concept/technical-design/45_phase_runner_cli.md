@@ -121,8 +121,7 @@ def run_phase(phase: str, story_id: str, config: PipelineConfig) -> PhaseState:
             raise ValueError(f"Unknown phase: {phase}")
 ```
 
-> **[Entscheidung 2026-05-01]** Die CLI-Phase `verify` entfaellt;
-> `agentkit run-phase verify` existiert nicht mehr. Der QA-Subflow
+> Der QA-Subflow
 > laeuft als interner Bestandteil von `_phase_implementation()` gegen
 > die Capability `VerifySystem` (FK-27, BC verify-system). Vier
 > Top-Phasen: `setup`, `exploration`, `implementation`, `closure`.
@@ -136,7 +135,7 @@ wertet zusaetzlich `payload.verify_context` (auf
 bestimmen: Bei `POST_REMEDIATION` laufen die Checks auf Basis der
 Remediation-Ergebnisse, bei `POST_IMPLEMENTATION` der volle
 4-Schichten-QA-Subflow.
-[Entscheidung 2026-04-09, aktualisiert 2026-05-01] `verify_context`
+`verify_context`
 ist kein Top-Level-Feld mehr, sondern Teil des
 `ImplementationPayload` (vormals `VerifyPayload`; siehe FK-39 §39.2,
 PhasePayload). `_phase_implementation()` erkennt zudem
@@ -174,13 +173,9 @@ dispatched wird. Die Validierung ist fail-closed: ein ungültiger
      Schritt 2 behandelt — kein Phasenuebergang. Der
      Subflow-interne Remediation-Loop ist Subflow-intern und
      erzeugt keinen Top-Phasen-Wechsel.
-     [Entscheidung 2026-05-01: ehemaliger Pfad `verify -> implementation`
-     mit `from_status: FAILED` und Guard
-     `memory.verify.feedback_rounds < max` entfaellt — der QA-Subflow
-     ist Subflow-intern in `implementation`, der Zaehler heisst jetzt
-     `memory.implementation.qa_feedback_rounds`. Inkrement und
-     Guard-Check finden zu Beginn der Subflow-Iteration statt, nicht
-     beim Phasenuebergang.]
+     Der Zaehler heisst `memory.implementation.qa_feedback_rounds`.
+     Inkrement und Guard-Check finden zu Beginn der
+     Subflow-Iteration statt, nicht beim Phasenuebergang.
    - **Resume-Pfad**: `PAUSED` -> Fortsetzung derselben Phase
      (wird bereits in Schritt 2 behandelt, kein Phasenuebergang).
    - `ESCALATED` ist ein **Endzustand** — keine weitere Transition
@@ -188,11 +183,6 @@ dispatched wird. Die Validierung ist fail-closed: ein ungültiger
    - Von `implementation` zu `closure` ausschliesslich bei
      COMPLETED. Implementation kann nur dann COMPLETED erreichen,
      wenn der QA-Subflow `qa_cycle_status = pass` erreicht hat.
-   [Korrektur 2026-04-09: `exploration` aus der Ausnahmeliste
-   entfernt — kein Ruecksprung von QA-Subflow zu exploration, siehe
-   Entscheidung 2026-04-09 in FK-20 §20.2.2.]
-   [Entscheidung 2026-05-01: Ausnahmeliste angepasst — Top-Phase
-   `verify` entfallen.]
 5. **Erstaufruf ohne State-Datei:** Existiert keine
    `phase-state.json`, darf ausschließlich `setup` aufgerufen
    werden. Jede andere Phase → PIPELINE_ERROR.
@@ -204,14 +194,13 @@ werden nach der Graphen-Validierung geprüft:
 
 - `mode="exploration"` + `phase="implementation"` +
   **Transition von `exploration`** (erster Eintritt):
-  `payload.gate_status` muss `APPROVED` sein
-  [Entscheidung 2026-04-09: Feld in ExplorationPayload verschoben].
+  `payload.gate_status` muss `APPROVED` sein.
   Ohne bestandenes Exploration-Gate wird die
   Implementation-Phase nicht betreten. Defense-in-Depth: Diese
   Pruefung ergaenzt den bestehenden Guard im QA-Subflow innerhalb
   `_phase_implementation()`, der als zweite Verteidigungslinie
   erhalten bleibt.
-  [Entscheidung 2026-04-09, aktualisiert 2026-05-01] **Nicht bei
+  **Nicht bei
   Subflow-interner Remediation:** Innerhalb des QA-Subflows (interner
   Remediation-Loop) wird `payload.gate_status` NICHT erneut geprueft.
   Das Gate wurde bereits beim ersten Eintritt in die
@@ -220,7 +209,7 @@ werden nach der Graphen-Validierung geprüft:
   ExplorationPayload nach dem Phasenwechsel zu Implementation nicht
   mehr aktiv ist und der Subflow-Loop kein Phasenwechsel ist.
 
-> **[Entscheidung 2026-04-09]** Der Gate-String `"approved_for_implementation"` ist ein v2-Artefakt. In v3 wird `ExplorationPayload.gate_status == ExplorationGateStatus.APPROVED` geprueft. Der Guard `exploration_gate_approved` liest diesen Wert aus dem Payload der aktuellen Phase. Siehe FK-23 §23.5.0.
+> In v3 wird `ExplorationPayload.gate_status == ExplorationGateStatus.APPROVED` geprueft. Der Guard `exploration_gate_approved` liest diesen Wert aus dem Payload der aktuellen Phase. Siehe FK-23 §23.5.0.
 
 - `phase="closure"`:
   - Bei Implementation/Bugfix-Stories: Implementation muss mit
@@ -231,8 +220,6 @@ werden nach der Graphen-Validierung geprüft:
     nicht starten.
   - Bei Concept/Research-Stories: Keine QA-Subflow-Precondition —
     diese Stories haben keinen QA-Subflow (FK-20 §20.2.3).
-
-  > [Korrektur 2026-04-09, aktualisiert 2026-05-01: Closure-Precondition lautet jetzt "Implementation COMPLETED" (mit QA-Subflow PASS) statt "Verify COMPLETED". Concept/Research haben keinen QA-Subflow (FK-20 §20.2.3).]
 
 **Diagnostische Fehlermeldungen:**
 
@@ -262,12 +249,9 @@ def run_phase(phase: str, story_id: str, config: PipelineConfig) -> PhaseState:
                 # PIPELINE_ERROR: ungültiger Übergang
                 ...
 
-            # Status-Pruefung der Vorphase [Entscheidung 2026-04-09, aktualisiert 2026-05-01]
-            # Der ehemalige Remediation-Pfad `verify -> implementation` mit
-            # `from_status: FAILED` ist mit Cut der Top-Phase `verify`
-            # entfallen. Der QA-Subflow-Remediation-Loop ist jetzt
-            # Subflow-intern in `implementation` und erzeugt keinen
-            # Phasenuebergang mehr; Inkrement und Guard-Check fuer
+            # Status-Pruefung der Vorphase. Der QA-Subflow-Remediation-Loop
+            # ist Subflow-intern in `implementation` und erzeugt keinen
+            # Phasenuebergang; Inkrement und Guard-Check fuer
             # `memory.implementation.qa_feedback_rounds` finden zu Beginn
             # der naechsten Subflow-Iteration in `_phase_implementation()`
             # statt, nicht hier in der Phasen-Transition.
@@ -275,8 +259,8 @@ def run_phase(phase: str, story_id: str, config: PipelineConfig) -> PhaseState:
                 # Normale Vorwaerts-Transition: nur aus COMPLETED
                 ...
 
-        # Semantische Preconditions [Entscheidung 2026-04-09: Payload-Pfad]
-        # [Entscheidung 2026-04-09, aktualisiert 2026-05-01] gate_status-Check nur
+        # Semantische Preconditions
+        # gate_status-Check nur
         # bei exploration -> implementation (erster Eintritt). Subflow-interne
         # Remediation-Iterationen innerhalb derselben Implementation-Phase
         # erzeugen keinen Phasenuebergang und werden in Schritt 2 abgefangen.
@@ -287,7 +271,6 @@ def run_phase(phase: str, story_id: str, config: PipelineConfig) -> PhaseState:
             if gate != "APPROVED":
                 # PIPELINE_ERROR: Gate nicht bestanden
                 ...
-        # [Entscheidung 2026-04-09] Der Gate-String "approved_for_implementation" ist ein v2-Artefakt.
         # In v3 wird ExplorationPayload.gate_status == ExplorationGateStatus.APPROVED geprueft.
         # Der Guard exploration_gate_approved liest diesen Wert aus dem Payload der aktuellen Phase.
         if phase == "closure":
@@ -300,7 +283,7 @@ def run_phase(phase: str, story_id: str, config: PipelineConfig) -> PhaseState:
             ...
     # --- Ende Transition-Enforcement ---
 
-    # [Korrektur 2026-04-09] load_or_create_phase_state() gibt PhaseEnvelope zurueck.
+    # load_or_create_phase_state() gibt PhaseEnvelope zurueck.
     # Liest hier den BEREITS PERSISTIERTEN State. Subflow-interne Inkremente
     # von memory.implementation.qa_feedback_rounds erfolgen waehrend
     # _phase_implementation() (Subflow-Loop), nicht hier; der Persistenz-Punkt
@@ -317,12 +300,8 @@ def run_phase(phase: str, story_id: str, config: PipelineConfig) -> PhaseState:
   Subflow setzt am letzten persistierten `qa_cycle_status` fort
   (kein Phasenwechsel, FK-20 §20.7)
 
-[Korrektur 2026-04-09, aktualisiert 2026-05-01] Der ehemalige Pfad
-`verify -> exploration` (Impact-Violation im Exploration Mode) wurde
-entfernt. Impact-Violation fuehrt zu `status: ESCALATED`, nicht zu
-einem Ruecksprung in die Exploration-Phase. Mit Cut der Top-Phase
-`verify` ist auch der ehemalige Phasen-Wechsel `verify ->
-implementation` fuer Remediation entfallen — Remediation laeuft
+Impact-Violation fuehrt zu `status: ESCALATED`, nicht zu
+einem Ruecksprung in die Exploration-Phase. Remediation laeuft
 Subflow-intern in `implementation` (FK-20 §20.5).
 
 Referenz: DK-02 §Phase-Transition-Enforcement, FK-23 §23.4
@@ -335,14 +314,14 @@ Referenz: DK-02 §Phase-Transition-Enforcement, FK-23 §23.4
 | `setup` COMPLETED | `mode: execution` oder `exploration`, `agents_to_spawn: [worker]` | Spawnt Worker (oder Exploration-Worker bei Exploration Mode) |
 | `setup` ESCALATED | `escalation_reason: "preflight_fail"`, `errors: [...]` | Eskalation an Mensch — Preflight-Checks fehlgeschlagen, kein automatischer Remediation-Pfad (FK-20 §20.6.1). |
 | `exploration` COMPLETED | `agents_to_spawn: [worker]` | Spawnt Implementation-Worker |
-| `exploration` PAUSED | `pause_reason: "awaiting_design_review"` oder `"awaiting_design_challenge"` | Orchestrator wartet auf externe Klärung (Design-Review bzw. Design-Challenge). Resume nach Abschluss via `POST /phases/exploration/start` (Service-Resume) oder Operator-CLI `agentkit resume` (§45.4). [Entscheidung 2026-04-09: PAUSED-Ergebnis ergänzt — Exploration nutzt PAUSED zentral für Design-Review und Design-Challenge.] |
-| `exploration` ESCALATED | `escalation_reason: "doc_fidelity_fail"` oder `"design_review_rejected"` | Eskalation an Mensch. Auslöser: (1) Dokumententreue FAIL (doc_fidelity_fail), (2) Design-Review FAIL non-remediable oder Rundenlimit überschritten (gate_status = REJECTED → design_review_rejected). [Entscheidung 2026-04-09: Design-Review-Terminalpfad gemäß FK-23 §23.5 Stufe 2c ergänzt; `errors`-Feld durch `escalation_reason` ersetzt für Konsistenz mit anderen ESCALATED-Zeilen.] |
-| `implementation` COMPLETED (QA-Subflow PASS) | `agents_to_spawn: []`, `payload.qa_cycle_status: pass` | Startet `POST /phases/closure/start`. Implementation kann COMPLETED nur erreichen, wenn der interne QA-Subflow `qa_cycle_status = pass` erreicht. [Entscheidung 2026-05-01: kein `run-phase verify` mehr — Top-Phase `verify` entfaellt.] |
-| `implementation` mit QA-Subflow im Remediation-Loop | `payload.qa_cycle_status: awaiting_remediation`, `agents_to_spawn: [remediation_worker]` | Subflow-intern: QA-Subflow lieferte FAIL mit verbleibenden Runden. Phase Runner inkrementiert `memory.implementation.qa_feedback_rounds` nach Guard-Check (Pre-Check VOR Inkrement) und persistiert via `save_phase_state()`. Orchestrator spawnt Remediation-Worker. Nach Worker-Abschluss erneut `POST /phases/implementation/start` — der Subflow setzt mit `verify_context = POST_REMEDIATION` fort, kein Phasenwechsel. [Entscheidung 2026-05-01: vormals zwei Eintraege `verify FAILED -> run-phase implementation -> run-phase verify`; mit Cut der Top-Phase `verify` Subflow-intern in `implementation`.] |
+| `exploration` PAUSED | `pause_reason: "awaiting_design_review"` oder `"awaiting_design_challenge"` | Orchestrator wartet auf externe Klärung (Design-Review bzw. Design-Challenge). Resume nach Abschluss via `POST /phases/exploration/start` (Service-Resume) oder Operator-CLI `agentkit resume` (§45.4). |
+| `exploration` ESCALATED | `escalation_reason: "doc_fidelity_fail"` oder `"design_review_rejected"` | Eskalation an Mensch. Auslöser: (1) Dokumententreue FAIL (doc_fidelity_fail), (2) Design-Review FAIL non-remediable oder Rundenlimit überschritten (gate_status = REJECTED → design_review_rejected). |
+| `implementation` COMPLETED (QA-Subflow PASS) | `agents_to_spawn: []`, `payload.qa_cycle_status: pass` | Startet `POST /phases/closure/start`. Implementation kann COMPLETED nur erreichen, wenn der interne QA-Subflow `qa_cycle_status = pass` erreicht. |
+| `implementation` mit QA-Subflow im Remediation-Loop | `payload.qa_cycle_status: awaiting_remediation`, `agents_to_spawn: [remediation_worker]` | Subflow-intern: QA-Subflow lieferte FAIL mit verbleibenden Runden. Phase Runner inkrementiert `memory.implementation.qa_feedback_rounds` nach Guard-Check (Pre-Check VOR Inkrement) und persistiert via `save_phase_state()`. Orchestrator spawnt Remediation-Worker. Nach Worker-Abschluss erneut `POST /phases/implementation/start` — der Subflow setzt mit `verify_context = POST_REMEDIATION` fort, kein Phasenwechsel. |
 | `implementation` ESCALATED (Worker BLOCKED) | `escalation_reason: "worker_blocked"`, Blocker-Details aus `worker-manifest.json` | Eskalation an Mensch. Worker hat unloesbaren Constraint gemeldet (z.B. Hook-Barriere, fehlende Dependency). |
-| `implementation` ESCALATED (QA-Subflow) | `escalation_reason: "max_rounds_exceeded"` / `"doc_fidelity_fail"` / `"impact_violation"`, `payload.qa_cycle_status: escalated` | Eskalation an Mensch. Ausloeser im QA-Subflow: (1) Max Feedback-Runden erschoepft, (2) Dokumententreue Ebene 3 FAIL (Umsetzungstreue), (3) Impact-Violation (Issue-Metadaten falsch deklariert). [Entscheidung 2026-04-09: Beschreibung um Dokumententreue-FAIL und Impact-Violation erweitert — waren in FK-20 §20.6.1 dokumentiert, fehlten in der Uebersichtstabelle.] [Entscheidung 2026-05-01: Phase ist `implementation` — QA-Subflow statt eigene Verify-Phase.] |
+| `implementation` ESCALATED (QA-Subflow) | `escalation_reason: "max_rounds_exceeded"` / `"doc_fidelity_fail"` / `"impact_violation"`, `payload.qa_cycle_status: escalated` | Eskalation an Mensch. Ausloeser im QA-Subflow: (1) Max Feedback-Runden erschoepft, (2) Dokumententreue Ebene 3 FAIL (Umsetzungstreue), (3) Impact-Violation (Issue-Metadaten falsch deklariert). |
 | `closure` COMPLETED | `payload.progress: {alle true}` | Story ist Done |
-| `closure` ESCALATED | `escalation_reason: "integrity_fail"` oder `"merge_fail"` | Eskalation an Mensch. [Korrektur 2026-04-09: `errors`-Feld durch `escalation_reason` ersetzt für Konsistenz mit anderen ESCALATED-Zeilen.] |
+| `closure` ESCALATED | `escalation_reason: "integrity_fail"` oder `"merge_fail"` | Eskalation an Mensch. |
 
 ## 45.4 Operator-Recovery-CLI (Spezialfall)
 

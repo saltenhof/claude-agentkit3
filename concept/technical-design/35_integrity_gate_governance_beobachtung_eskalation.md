@@ -273,7 +273,7 @@ Pruefung).
 | 4 | **Policy-Decision** | `DECISION_INVALID` | kanonischer Policy-/Verify-Decision-Record > 200 Bytes, hat `major_threshold`, Producer = `qa-policy-engine` |
 | 5 | **LLM-Bewertungen** | `NO_LLM_REVIEW` | Bei implementation/bugfix: `ArtifactRecord(llm_review)` + `ArtifactRecord(semantic_review)` existieren, Status != SKIPPED |
 | 6 | **Adversarial-Ergebnis** | `NO_ADVERSARIAL` | Bei implementation/bugfix: `ArtifactRecord(adversarial)` existiert, > 200 Bytes, Producer = `qa-adversarial` |
-| 7 | **QA-Subflow innerhalb Implementation** | `NO_VERIFY` | `flow_end` fuer den QA-Subflow-Flow innerhalb der Implementation-Phase mit `status == COMPLETED` (`qa_cycle_status == pass`); optional zusaetzlich entsprechende `phase_state_projection`. [Entscheidung 2026-05-01: Top-Phase `verify` entfaellt — Output-QA ist Subflow-intern in `implementation`.] |
+| 7 | **QA-Subflow innerhalb Implementation** | `NO_VERIFY` | `flow_end` fuer den QA-Subflow-Flow innerhalb der Implementation-Phase mit `status == COMPLETED` (`qa_cycle_status == pass`); optional zusaetzlich entsprechende `phase_state_projection`. |
 | 8 | **Timestamp-Kausalität** | `TIMESTAMP_INVERSION` | `ArtifactRecord(context).finished_at` < `ArtifactRecord(decision).finished_at` |
 | 9 | **SonarQube-Green** | `SONAR_NOT_GREEN` | Bei implementation/bugfix **und APPLICABLE** (Sonar verfuegbar, `mode != fast`; FK-33 §33.6.5, §35.2.4a): commit-gebundene Sonar-Attestation des integrierten Pre-Merge-Stands existiert, ist an `commit_sha`/`tree_hash` des Merge gebunden, QG OK auf der Overall-Code-Invariante (per `analysisId`), Exception-Ledger-Hash und Tool-/Config-Versionen stimmen mit dem Erwartungswert. **Verifiziert nur — vermisst nicht neu** (§35.2.4a). NOT_APPLICABLE bei `sonarqube.available == false` oder `mode=fast` (dann Sanity-Gate, §35.2.4a). |
 
@@ -799,9 +799,6 @@ Bei `scope_explosion` ist die Standard-Intervention nicht bloß
 `resume`, sondern die Entscheidung ueber einen offiziellen Story-Split
 gemäß FK-54.
 
-> **[Entscheidung 2026-04-08]** Element 17 — Alle 11 Eskalations-Trigger werden beibehalten. FK-20 §20.6.1 und FK-35 §35.4.2 normativ. Kein Trigger ist redundant.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 17.
-
 ### 35.4.2 Eskalationspunkte (vollständig)
 
 Vollstaendige Liste in FK-20 §20.6.1 (12 Trigger; normative Quelle).
@@ -916,19 +913,19 @@ Integrity-Gate ist der finale Konsistenz-Check über alles.
 
 ### 35.6.1 TelemetrySnapshot-Erweiterung
 
-`TelemetrySnapshot` (in `qa/recurring_guards.py`) wird um zwei
-Felder für den Preflight-Stream erweitert:
+`TelemetrySnapshot` (in `qa/recurring_guards.py`) enthält zwei
+Felder für den Preflight-Stream:
 
 | Feld | Typ | Berechnung |
 |------|-----|-----------|
 | `preflight_request_count` | `int` | `count_events(project_key, story_id, run_id, EventType.PREFLIGHT_REQUEST)` |
 | `preflight_compliant_count` | `int` | `count_events(project_key, story_id, run_id, EventType.PREFLIGHT_COMPLIANT)` |
 
-Diese Felder werden zusammen mit den bestehenden Snapshot-Feldern
+Diese Felder werden zusammen mit den übrigen Snapshot-Feldern
 (z.B. `review_request_count`, `review_compliant_count`) beim
 Erstellen des Snapshots befüllt.
 
-### 35.6.2 Neuer Guard: `check_guard_preflight_compliance()`
+### 35.6.2 Guard: `check_guard_preflight_compliance()`
 
 ```python
 def check_guard_preflight_compliance(

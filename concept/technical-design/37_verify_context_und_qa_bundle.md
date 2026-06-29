@@ -92,34 +92,15 @@ formal_refs:
 
 ## 37.1 Verify-Kontext: QA-Tiefe ueber `verify_context` (FK-27-250)
 
-> **[Entscheidung 2026-04-09]** `verify_context` wird als typisiertes `QaContext`-Feld gefuehrt statt als freier String auf dem flachen PhaseState. `QaContext` ist ein StrEnum mit vier Werten: `IMPLEMENTATION_INITIAL | IMPLEMENTATION_REMEDIATION | EXPLORATION_INITIAL | EXPLORATION_REMEDIATION`. Steuert die QA-Tiefe normativ. Verweis auf Designwizard R1+R2 vom 2026-04-09.
-
-> **[Entscheidung 2026-05-01, BC-Cut nachgezogen]** `verify_context` ist
-> Subflow-internes Diskriminator-Feld innerhalb der produktiven Phasen
-> (Implementation und Exploration), kein eigenstaendiger Phase-Payload-Typ
-> mehr. Die ehemalige Top-Phase `verify` und der Payload-Typ
-> `VerifyPayload` sind entfallen (Capability-Cut, siehe
-> `concept/_meta/bc-cut-decisions.md` "Verify als Capability (Variante Y)"
-> und "QA-Subflow-Vertrag", `bc-cut-decisions.md:84-101`). Das Feld lebt
-> jetzt auf `ImplementationPayload` (FK-39 §39.2.3); der Subflow-Loop-Zaehler
-> liegt in `PhaseMemory.implementation.qa_feedback_rounds` (FK-39 §39.5).
-> Das alte v2-StrEnum `VerifyContext` mit nur zwei Werten
-> (`POST_IMPLEMENTATION`/`POST_REMEDIATION`) ist durch das viergliedrige
-> `QaContext`-StrEnum abgeloest worden.
-
-> **[Owner-Hinweis — Code autoritativ, FK zieht nach]** Der autoritative
-> Vertrag ist `concept/_meta/bc-cut-decisions.md:84-101` ("QA-Subflow-Vertrag")
-> und die Code-Realitaet `src/agentkit/backend/core_types/qa_context.py:15-30`
-> (`class QaContext(StrEnum)` mit genau diesen vier Werten; der Modul-Docstring
-> vermerkt explizit "Replaces the v2 name `VerifyContext` (only two values)",
-> d. h. das v2-Enum `VerifyContext` mit nur zwei Werten ist ersetzt).
-> Dieser BC-Cut ist bewusst: der **Code ist autoritativ**, die FK-Prosa zieht
-> nach. Es wird kein Legacy-/Deprecated-Parallelbegriff `VerifyContext` neben
-> `QaContext` gefuehrt (Zero-Debt). Abgrenzung: der **eigenstaendige**
-> Contract-Typ `VerifyContextBundle`
-> (`src/agentkit/backend/verify_system/contract.py:136`, der `ctx`-Run-Kontext-Carrier
-> von `run_qa_subflow`) ist davon **getrennt** und bleibt gueltig — er ist
-> KEIN Ersetzungsziel.
+> **QA-Subflow-Kontext-Diskriminator.** Der maßgebliche Vertrag ist der
+> "QA-Subflow-Vertrag" (`concept/_meta/bc-cut-decisions.md`): Diskriminator
+> ist das Enum `QaContext` mit genau **vier** Werten. Es ersetzt den
+> Zwei-Werte-Begriff `VerifyContext` des Vorgaengers (v2). Es wird **kein**
+> Legacy-/Deprecated-Parallelbegriff `VerifyContext` neben `QaContext`
+> gefuehrt (Zero-Debt). Abgrenzung: der **eigenstaendige** Contract-Typ
+> `VerifyContextBundle` (der `ctx`-Run-Kontext-Carrier von `run_qa_subflow`)
+> ist davon **getrennt** und bleibt gueltig — er ist **kein**
+> Ersetzungsziel.
 
 ### 37.1.0 verify_context — Subflow-internes Diskriminator-Feld
 
@@ -160,9 +141,7 @@ bekannten Kontext.
 | Entwurfslauf am Exploration-Exit-Gate abgeschlossen | `EXPLORATION_INITIAL` | Reduzierter Pfad (LLM-Bewertung + Policy; kein Structural/Adversarial) |
 | Subflow-interne Remediation-Iteration der Exploration-Phase abgeschlossen | `EXPLORATION_REMEDIATION` | Reduzierter Pfad (wie `EXPLORATION_INITIAL`) |
 
-[Praezisierung 2026-06-12, BC-Cut nachgezogen: Der **Implementation**-interne QA-Subflow wird nicht durch einen Top-Phasenwechsel direkt aus der Exploration getriggert (§37.1.1, FK-29 §29.1.1) — diese Aussage bleibt sachlich gueltig. Die frueher pauschale "Exploration wird nie via QA-Subflow geprueft"-Annahme aus der Zwei-Werte-Welt ist jedoch nach dem Vier-Werte-Cut nicht mehr wahr: Exploration besitzt ihren **eigenen** QA-Subflow-Aufrufkontext (`EXPLORATION_INITIAL`/`EXPLORATION_REMEDIATION`, reduzierter Pfad, `src/agentkit/backend/verify_system/routing.py:12-14,74-75`, `bc-cut-decisions.md:76-79`).] [Entscheidung 2026-05-01: Implementation-interne Trigger sind Subflow-interne Schritte, keine Top-Phase-Wechsel mehr.]
-
-**Nicht in ImplementationPayload:** `qa_feedback_rounds` — dieser Zaehler lebt in `PhaseMemory.implementation.qa_feedback_rounds` (FK-39 §39.5, carry-forward ueber Phasenwechsel und Subflow-Iterationen). [Entscheidung 2026-05-01: vormals `PhaseMemory.verify.feedback_rounds`.]
+**Nicht in ImplementationPayload:** `qa_feedback_rounds` — dieser Zaehler lebt in `PhaseMemory.implementation.qa_feedback_rounds` (FK-39 §39.5, carry-forward ueber Phasenwechsel und Subflow-Iterationen).
 
 ### 37.1.1 Problem: `mode` ist kein hinreichender Diskriminator
 
@@ -174,15 +153,6 @@ Schichtmenge). Wenn die Pipeline nur `mode` auswertet, werden
 Layer 2-4 fuer ALLE QA-Subflow-Durchlaeufe uebersprungen — ein
 kritischer Governance-Fehler. `mode` ist also **kein** hinreichender
 Diskriminator fuer die QA-Tiefe (BB2-057); das gilt unveraendert.
-[Praezisierung 2026-06-12, BC-Cut nachgezogen: Das `mode`-Argument bleibt
-gueltig. Die frueher pauschale "Dokumententreue nach Exploration laeuft
-nur in der Exploration-Phase, nicht via QA-Subflow"-Aussage ist nach dem
-Vier-Werte-Cut nicht mehr zutreffend — Exploration besitzt ihren eigenen
-QA-Subflow-Aufrufkontext (`QaContext.EXPLORATION_INITIAL`/
-`QaContext.EXPLORATION_REMEDIATION`, reduzierter Pfad, §37.1.5,
-`bc-cut-decisions.md:76-79`). Korrekt bleibt: der **Implementation**-interne
-QA-Subflow wird nicht durch einen Top-Phasenwechsel aus der Exploration
-getriggert.]
 
 **Empirischer Anlass (BB2-057):** Eine Implementation-Story im
 Exploration Mode wurde nach der Implementation ohne ein einziges
@@ -201,22 +171,11 @@ identifiziert, in welchem Subflow-Kontext der aktuelle QA-Durchlauf
 stattfindet. Der Phase Runner setzt `verify_context` basierend auf
 dem Subflow-Ausloeser:
 
-[Entscheidung 2026-06-12, BC-Cut nachgezogen: `QaContext` ist ein StrEnum mit
-vier Werten (`IMPLEMENTATION_INITIAL`, `IMPLEMENTATION_REMEDIATION`,
-`EXPLORATION_INITIAL`, `EXPLORATION_REMEDIATION`); es loest das v2-StrEnum
-`VerifyContext` (nur zwei Werte) ab. `STRUCTURAL_ONLY_PASS` entfaellt ebenfalls.
-Exploration ist **nicht** mehr aus dem QA-Subflow ausgenommen — sie besitzt
-ihren eigenen, reduzierten Aufrufkontext (`EXPLORATION_*`, §37.1.5); nur der
-**Implementation**-interne Subflow wird nicht via Top-Phasenwechsel aus der
-Exploration getriggert. Autoritativ: `bc-cut-decisions.md:84-101`,
-`core_types/qa_context.py:15-30`.]
-[Entscheidung 2026-05-01: `verify_context` ist Subflow-internes Diskriminator-Feld auf `ImplementationPayload`, nicht mehr Phase-Payload-Feld auf `VerifyPayload`.]
-
 | `verify_context` | Ausloeser | QA-Tiefe | Begruendung |
 |------------------|-----------|----------|-------------|
 | `QaContext.IMPLEMENTATION_INITIAL` | QA-Subflow nach Worker-Run innerhalb der Implementation-Phase | Volle Schichtmenge (Structural, LLM-Bewertung, Adversarial, SonarQube-Gate, Policy). | Primaerer QA-Durchlauf — unabhaengig davon, ob `mode = "exploration"` oder `mode = "execution"`. |
 | `QaContext.IMPLEMENTATION_REMEDIATION` | QA-Subflow nach einer Subflow-internen Remediation-Iteration der Implementation-Phase | Volle Schichtmenge (Structural, LLM-Bewertung, Adversarial, SonarQube-Gate, Policy). | Erneuter vollstaendiger QA-Durchlauf nach Worker-Remediation — identische Prueftiefe wie nach Worker-Initial-Run. |
-| `QaContext.EXPLORATION_INITIAL` | QA-Subflow am Exploration-Exit-Gate (Entwurfslauf) | Reduzierter Pfad (LLM-Bewertung + Policy; kein Structural/Adversarial). | Design-Review-Pfad fuer das Exploration-Artefakt (`routing.py:12-14,65-68,74-75`, BC-Cut Exploration-Vertrag). |
+| `QaContext.EXPLORATION_INITIAL` | QA-Subflow am Exploration-Exit-Gate (Entwurfslauf) | Reduzierter Pfad (LLM-Bewertung + Policy; kein Structural/Adversarial). | Design-Review-Pfad fuer das Exploration-Artefakt (BC-Cut Exploration-Vertrag). |
 | `QaContext.EXPLORATION_REMEDIATION` | QA-Subflow nach einer Subflow-internen Remediation-Iteration der Exploration-Phase | Reduzierter Pfad (LLM-Bewertung + Policy; kein Structural/Adversarial). | Erneuter Design-Review nach Exploration-Remediation — identische reduzierte Prueftiefe wie `EXPLORATION_INITIAL`. |
 
 ### 37.1.3 Vertragsprofil `integration_stabilization`
@@ -245,28 +204,14 @@ Vertrag nicht fuer Closure.
 
 ### 37.1.4 Entscheidungsregel
 
-[Entscheidung 2026-06-12, BC-Cut nachgezogen: Code-Beispiel auf `QaContext` StrEnum
-(vier Werte) umgestellt. `STRUCTURAL_ONLY_PASS` entfernt. Die Tiefe ist
-kontextabhaengig (§37.1.5): `IMPLEMENTATION_*` -> volle Schichtmenge,
-`EXPLORATION_*` -> reduzierter Pfad (LLM-Bewertung + Policy).]
-
-[Korrektur 2026-04-09: PAUSED/agents_to_spawn/RUN_SEMANTIC entfernt —
-Layer 2 laeuft vollstaendig intern im Phase Runner (ThreadPoolExecutor),
-kein Orchestrator-Roundtrip, kein PAUSED-Zustand in Verify.]
-
 ```python
 # Im Phase Runner — QA-Subflow-Einstieg:
-# [Entscheidung 2026-06-12] QaContext ist ein StrEnum (vier Werte), kein String-Literal.
-# [Korrektur 2026-04-09] Layer 2 laeuft intern im Phase Runner (ThreadPoolExecutor),
-# kein Orchestrator-Roundtrip. Layer 3 (Adversarial) spawnt externen Agenten (§37.1.5).
-# [Entscheidung 2026-05-01] state.verify_context lebt jetzt auf ImplementationPayload,
-# nicht mehr auf einer eigenen VerifyPayload-Top-Phase.
 
 if state.verify_context is None:
     # fail-closed (§37.1.0): kein QA-Subflow-Lauf ohne bekannten Kontext
     return PhaseResult(status="ESCALATED", reason="Missing verify_context — Phase Runner Defekt")
 
-# Die Schichtauswahl ist kontextabhaengig (routing.py: select_layers):
+# Die Schichtauswahl ist kontextabhaengig:
 #   IMPLEMENTATION_* -> volle Schichtmenge (Structural, LLM-Bewertung,
 #                       Adversarial, SonarQube-Gate, Policy)
 #   EXPLORATION_*    -> reduzierter Pfad (LLM-Bewertung + Policy)
@@ -327,24 +272,14 @@ die volle Schichtmenge (Schicht 1-4 inkl. der nach Adversarial
 sequenzierten SonarQube-Gate-Stufe) aus, unabhaengig von `mode`. Es
 gibt keinen Structural-only-QA-Pfad. **Invariante (Exploration):** Die
 `EXPLORATION_*`-Werte loesen den reduzierten Design-Review-Pfad aus
-(LLM-Bewertung + Policy; kein Structural/Adversarial,
-`routing.py:65-68,74-75`).
+(LLM-Bewertung + Policy; kein Structural/Adversarial).
 
 ### 37.1.5 Invariante: QA-Tiefe ist kontextabhaengig (Implementation voll, Exploration reduziert)
 
-[Entscheidung 2026-04-09: `STRUCTURAL_ONLY_PASS` existiert nicht mehr.
-Die gesamte alte Invariante (STRUCTURAL_ONLY_PASS nach Implementation verboten)
-entfaellt, da es keinen Structural-only-QA-Pfad mehr gibt.]
-
-[Korrektur 2026-04-09: Falsche Invariante entfernt — der QA-Subflow verwendet
-keinen PAUSED-Zustand, kein agents_to_spawn und kein RUN_SEMANTIC fuer
-Layer 2. Layer 2 laeuft intern im Phase Runner.]
-
 Der QA-Subflow kennt vier Aufrufkontexte (`QaContext`,
-`bc-cut-decisions.md:84-101`, `core_types/qa_context.py:15-30`) mit
-**kontextabhaengiger** Tiefe — die alte "in jedem Fall volle
-4-Schichten-Pipeline"-Pauschale gilt nur fuer den Implementation-Pfad,
-nicht fuer Exploration.
+`bc-cut-decisions.md`) mit **kontextabhaengiger** Tiefe: Die volle
+4-Schichten-Pipeline gilt nur fuer den Implementation-Pfad, nicht fuer
+Exploration.
 
 **Implementation-Pfad (`IMPLEMENTATION_INITIAL` /
 `IMPLEMENTATION_REMEDIATION`):** Code-produzierende Stories
@@ -363,18 +298,14 @@ Design-Review-Pfad auf — nur Schicht 2 (LLM-Bewertung) + Schicht 4
 (Policy), **ohne** Structural (Schicht 1), **ohne** Adversarial
 (Schicht 3) und **ohne** die SonarQube-Gate-Stufe (nachgelagerte
 deterministische Layer-1-Konvergenzstufe, s. Hinweis unten) — gemaess
-`routing.py:65-68,74-75` (BC-Cut Exploration-Vertrag). Damit ist die
-fruehere Aussage "der QA-Subflow wird nie via Exploration aufgerufen"
-ueberholt: Exploration besitzt ihren eigenen, getrennten
-QA-Subflow-Aufrufkontext (`bc-cut-decisions.md:76-79`).
+BC-Cut Exploration-Vertrag. Exploration besitzt damit ihren eigenen,
+getrennten QA-Subflow-Aufrufkontext (`bc-cut-decisions.md`).
 
-[Hinweis Schicht-Zaehlung: Der Code fuehrt `SONARQUBE_GATE` als eigene,
-nach Adversarial sequenzierte Layer-1-Stufe (`routing.py:37-49`, FK-33
-§33.8.3). Die FK spricht weiterhin von "4 Schichten", da das
+[Hinweis Schicht-Zaehlung: `SONARQUBE_GATE` ist eine eigene, nach
+Adversarial sequenzierte Layer-1-Stufe (FK-33 §33.8.3). Die FK spricht
+weiterhin von "4 Schichten", da das
 SonarQube-Green-Gate eine nachgelagerte deterministische
 Layer-1-Konvergenzstufe des Implementation-Pfads ist.]
-
-[Korrektur 2026-04-09: "Der QA-Subflow ist atomar" bezieht sich nur auf Layer 2 — Layer 3 (Adversarial) spawnt weiterhin einen externen Agenten via Orchestrator (FK-27 §27.6.1), da Dateisystem-Zugriff und Subprocess-Ausfuehrung erforderlich sind.]
 
 Layer 2 (LLM-Bewertungen) laeuft vollstaendig intern im Phase Runner
 via `ThreadPoolExecutor` — kein Orchestrator-Roundtrip, kein
@@ -411,27 +342,21 @@ Beide Gates sind als BLOCKING klassifiziert (nicht WARNING/MAJOR) und
 dürfen NICHT zu einem einzigen Gate zusammengefasst werden (siehe
 FK-27 §27.4.3).
 
-[Korrektur 2026-04-09: guard.llm_reviews und guard.multi_llm sind Schicht-1-Checks (FK-27 §27.4.3), kein Layer-4-Gate. Ein BLOCKING-FAIL in Schicht 1 stoppt die Pipeline, Layer 4 wird nicht erreicht.]
+**Provenienz:** Domänenkonzept 4.4a.
 
-**Provenienz:** REF-036, Domänenkonzept 4.4a.
+### 37.1.7 Layer-2-Eingabemodell: das `ReviewBundle`
 
-### 37.1.7 Layer-2-Eingabemodell: das reale `ReviewBundle`
+Das Eingabemodell der Layer-2-Bewertung ist der getypte,
+unveraenderliche `ReviewBundle` (`frozen=True`, `extra="forbid"`), den
+die drei Layer-2-Reviewer (qa_review, semantic_review, doc_fidelity)
+erhalten. Er realisiert die sechsfeldrige
+`ContextBundle`-Domaenenabstraktion (§37.2/§37.3).
 
-Das produktive Eingabemodell der Layer-2-Bewertung ist der getypte,
-unveraenderliche `ReviewBundle`
-(`src/agentkit/backend/verify_system/llm_evaluator/bundle.py:34-66`,
-`frozen=True`, `extra="forbid"`), den die drei Layer-2-Reviewer
-(qa_review, semantic_review, doc_fidelity) erhalten. Er ist die
-**Code-autoritative** Realisierung der sechsfeldrigen
-`ContextBundle`-Domaenenabstraktion (§37.2/§37.3); die FK-Prosa zieht
-den realen Feldsatz nach (BC-Cut, Code autoritativ).
-
-Re-gegrounded gegen den aktuellen Code-Stand (nach AG3-067) traegt
-`ReviewBundle` folgende Felder:
+`ReviewBundle` traegt folgende Felder:
 
 | Feld | Typ | Rolle |
 |------|-----|-------|
-| `story_id` | `str` | Story-Display-ID (z.B. `AG3-043`). |
+| `story_id` | `str` | Story-Display-ID (z.B. `ABC-123`). |
 | `story_brief_excerpt` | `str` | Story-Spezifikationstext bzw. Auszug (mappt aus `story_spec`). |
 | `acceptance_criteria` | `list[str]` | Akzeptanzkriterien-Zeilen der Story. |
 | `diff_summary` | `str` | Diff-Zusammenfassung (`git diff --stat`-Form). |
@@ -444,29 +369,17 @@ Re-gegrounded gegen den aktuellen Code-Stand (nach AG3-067) traegt
 | `previous_findings` | `list[Finding] \| None` | Befunde der Vorrunde im Remediation-Modus (FK-34 §34.9 / DK-04 §4.6); `None` in der Initialrunde. |
 | `qa_cycle_round` | `int` | 1-basierte QA-Zyklus-Runde; `> 1` aktiviert den Finding-Resolution-Prompt-Abschnitt. |
 
-**Stand der FK-37-Kontextfelder (Re-Grounding-Befund):** Die
-fruehere Lueckenmeldung (`arch_references`/`evidence_manifest` fehlen
-als getypte Bundle-Felder) ist mit AG3-067 **geschlossen** — beide
-sind heute **vorhandene, getypte** Felder von `ReviewBundle`
-(`bundle.py:62-63`) und werden ueber `build_review_bundle(...)`
-(`bundle.py:110-182`) befuellt. Es verbleibt **kein** offener
-Code-Bedarf zu diesen beiden Feldern in dieser FK. Der
-ContextSufficiencyBuilder (§37.2) und das Section-aware Packing
-(§37.3), die diese Felder pruefen/packen, bleiben in ihrem eigenen
-Scope (Owner: AG3-067) und werden hier nur referenziert.
-
 ## 37.2 Context Sufficiency Builder (Pre-Step Schicht 2)
 
 ### 37.2.1 Zweck (FK-27-200)
 
-Zusätzlich zur bestehenden Schicht 2 (FK-27 §27.5) wird ab Version 3.0
-ein deterministischer Pre-Step eingeführt, der VOR dem Start des
-`ParallelEvalRunner` die Vollständigkeit des Kontext-Bundles prüft
-und ergänzt. Ziel: Schicht-2-Evaluatoren erhalten ein geprüftes,
+Vor der Schicht 2 (FK-27 §27.5) prüft und ergänzt ein
+deterministischer Pre-Step die Vollständigkeit des Kontext-Bundles —
+VOR dem Start des `ParallelEvalRunner`. Ziel: Schicht-2-Evaluatoren erhalten ein geprüftes,
 angereichertes Bundle statt eines möglicherweise lückenhaften
 Kontexts.
 
-**Architektonische Einordnung:** [Korrektur 2026-04-09: "Layer-2-Caller" als eigenständige Komponente entfernt — Layer 2 läuft vollständig intern im Phase Runner via `_run_layer2_parallel()`.]
+**Architektonische Einordnung:**
 
 - **ContextSufficiencyBuilder** (innerhalb Phase Runner): Orchestrierung + Dateisystem — prüft
   und ergänzt das Bundle BEVOR der Runner startet
@@ -493,7 +406,7 @@ Der Context Sufficiency Builder prüft alle 6 `ContextBundle`-Felder:
 | `arch_references` | Vorhanden? Architektur-Docs geladen? | `present` / `missing` |
 | `evidence_manifest` | Vorhanden? Evidence-Assembly-Ergebnis? | `present` / `missing` |
 
-**Loader-Vollständigkeit als Invariante (REF-035):** Für jedes der
+**Loader-Vollständigkeit als Invariante:** Für jedes der
 6 Felder MUSS ein kanonischer Bezugsweg existieren: entweder eine
 dedizierte Loader-Methode im Builder ODER eine dokumentierte
 caller-seitige Einspeisung. Felder ohne definierten Bezugsweg werden
@@ -519,7 +432,7 @@ Kanonische Loader-Methoden und Quellen:
 | `reviewable_with_gaps` | Felder vorhanden, aber Lücken (z.B. Trunkierung, nur Summary) | Layer 2 startet, Lücken als Warnung in `context_sufficiency.json` |
 | `partially_reviewable` | Wesentliche Felder fehlen oder leer | **Warning**, Layer 2 läuft trotzdem (fail-open für Sufficiency) |
 
-**Klassifikationsregel (REF-035):** Trunkierung allein (z.B.
+**Klassifikationsregel:** Trunkierung allein (z.B.
 `diff_summary` von 84.979 auf 32.000 Zeichen gekürzt) ergibt
 `reviewable_with_gaps`, NICHT `partially_reviewable`. Nur fehlende
 Pflichtfelder (z.B. `story_spec` oder `diff_summary` nicht ladbar)
@@ -539,8 +452,8 @@ nicht wegen fehlender Kontexte übersprungen werden.
 ### 37.2.4 Enrichment
 
 Wo möglich ergänzt der Builder fehlende Felder:
-- `story_spec`: `story.md` aus `story_dir` laden (REF-035).
-- `handover`: `handover.json` aus `story_dir` laden (REF-035).
+- `story_spec`: `story.md` aus `story_dir` laden.
+- `handover`: `handover.json` aus `story_dir` laden.
 - `concept_excerpt`: Konzeptdokumente über `concept_paths` aus
   `context.json` auflösen und aus dem konfigurierten `concepts_dir`
   des Zielprojekts laden (Primärquellen statt nur Summary).
@@ -554,7 +467,7 @@ Wo möglich ergänzt der Builder fehlende Felder:
   werden durch den Builder in `arch_references` eingebettet und
   fließen über dieses Bundle-Feld zum Reviewer.]
 
-**Path-Resolution-Fallback für Concept-Excerpts (REF-035):**
+**Path-Resolution-Fallback für Concept-Excerpts:**
 Concept-Pfade in `context.json` können nackte Dateinamen enthalten
 (z.B. `02-komponentenstruktur.md` statt
 `concepts/technical-design/02-komponentenstruktur.md`). Der Builder
@@ -567,7 +480,7 @@ Builder ueber die teilnehmenden Worktrees in der Reihenfolge von
 `participating_repos`; der erste Treffer gewinnt (Spawn-Worktree
 als deterministischer Ankerpunkt, FK-22 §22.6.4).
 
-**Kanonische Feldnamen aus `story_sections.py` (REF-035):**
+**Kanonische Feldnamen aus `story_sections.py`:**
 Der Builder MUSS die kanonischen Feldnamen aus `story_sections.py`
 (Single Source of Truth) verwenden — keine eigenen Schlüsselsuchen.
 Konkret: Die Setup-Phase speichert Architektur-Referenzen unter
@@ -641,14 +554,11 @@ context_dict = _pack_and_convert(enriched_bundle)
 runner.run(context=context_dict, ...)
 ```
 
-> **[Entscheidung 2026-04-08]** Element 28 — Section-aware Bundle-Packing ist Pflicht. FK-34-121 normativ. In v2 bereits implementiert.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 28.
+> Section-aware Bundle-Packing ist Pflicht. FK-34-121 normativ.
 
 ## 37.3 Konvertierungs-Verantwortung und Section-aware Packing
 
 ### 37.3.1 Design-Entscheidung D7: Domänen-Abstraktion vs. Transport-Schicht (FK-27-210)
-
-[Korrektur 2026-04-09: "Layer-2-Caller" als eigenständige Komponente entfernt — die Konvertierung (ContextBundle → dict[str, str]) findet innerhalb von `_run_layer2_parallel()` statt, nicht in einer separaten Caller-Komponente.]
 
 **ContextBundle ist die Domänen-Abstraktion (Track B).
 `dict[str, str]` ist die Transport-Schicht (Runner/Evaluator).**
@@ -794,6 +704,4 @@ ARCH_PRIORITY_HEADINGS = ["Architecture", "Architektur", "Components", "Komponen
 # arch_references → ARCH_PRIORITY_HEADINGS
 ```
 
-> **[Entscheidung 2026-04-08]** Element 26 — Quorum / Tiebreaker ist Pflicht. Dritter Reviewer bei Divergenz.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 26.
-> [Scope-Begrenzung FK-37 (2026-04-29): FK-37 dokumentiert die drei festen parallelen Evaluatoren (QA, Semantic, Umsetzungstreue) ohne Tiebreaker-Mechanismus. Die Quorum/Divergenz-Logik (Divergenzbedingung, Tiebreak-Reviewer, Aggregationsregel) ist normativ nach FK-34 ausgelagert und implementierbar erst wenn FK-34 diese Verträge definiert. Bis dahin gilt: alle drei Evaluatoren müssen PASS liefern, FAIL in einem Evaluator → gesamte Schicht 2 FAIL (kein Tiebreaker).]
+> [Scope-Begrenzung FK-37: FK-37 dokumentiert die drei festen parallelen Evaluatoren (QA, Semantic, Umsetzungstreue) ohne Tiebreaker-Mechanismus. Die Quorum/Divergenz-Logik (Divergenzbedingung, Tiebreak-Reviewer, Aggregationsregel) ist normativ nach FK-34 ausgelagert. Ohne Tiebreaker-Logik gilt: alle drei Evaluatoren müssen PASS liefern, FAIL in einem Evaluator → gesamte Schicht 2 FAIL (kein Tiebreaker).]

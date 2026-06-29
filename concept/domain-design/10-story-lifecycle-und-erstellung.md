@@ -46,8 +46,6 @@ glossary:
 
 # 10 — Story-Lifecycle und Story-Erstellung
 
-**Quelle:** Konsolidiert aus agentkit-domain-concept.md Kapitel 5 + Appendix B/C
-**Datum:** 2026-04-29
 **Übersicht:** [00-uebersicht.md](00-uebersicht.md)
 
 ---
@@ -128,8 +126,7 @@ Ein Agent erstellt die Story-Definition mit Problemstellung,
 Lösungsansatz und Akzeptanzkriterien. Bei komplexen Vorhaben geht dem
 eine eigene Konzept-Story voraus, deren Ergebnis als Grundlage dient.
 
-> **[Entscheidung 2026-04-08]** Element 22 — VektorDB-Abgleich ist immer aktiv. Keine Feature-Flag-Stufung.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 22.
+> VektorDB-Abgleich ist immer aktiv. Keine Feature-Flag-Stufung.
 
 **VektorDB-Abgleich:** Bevor die Story finalisiert wird, gleicht der
 Agent den Inhalt gegen die Wissensbasis (VektorDB) ab. Gibt es bereits

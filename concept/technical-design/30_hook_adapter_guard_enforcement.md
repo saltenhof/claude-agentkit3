@@ -437,7 +437,7 @@ trifft:
 }
 ```
 
-[Klarstellung 2026-05-05] Die obigen Hook-Befehle sind logische
+Die obigen Hook-Befehle sind logische
 Hook-Identifikatoren, kein direkter `python -m`-Modulpfad. Der
 harness-spezifische Wrapper (`agentkit-hook-claude`,
 `agentkit-hook-codex`) liest stdin im jeweiligen Harness-Format,
@@ -661,8 +661,8 @@ Dokumente). `concept sync` folgt als Pflichtschritt (~2-5s bei
 inkrementellem Sync).
 
 **Installer-Integration:** Der Post-Commit-Hook wird über
-Checkpoint CP 9d (oder eigener Checkpoint) registriert, analog
-zum Pre-Commit-Hook. `core.hooksPath` zeigt bereits auf
+Checkpoint CP 9d registriert, analog
+zum Pre-Commit-Hook. `core.hooksPath` zeigt auf
 `tools/hooks/` — der Post-Commit-Hook wird dort abgelegt.
 
 ### 30.5.4 Governance-Selbstschutz-Hook
@@ -832,16 +832,16 @@ Tests, die ein Git-Repo benötigen.
 
 ### 30.9.1 Preflight-Sentinel-Regex
 
-Analog zum bestehenden `_REVIEW_SENTINEL` für Review-Templates
+Analog zum `_REVIEW_SENTINEL` für Review-Templates
 existiert ein eigener Sentinel für Preflight-Turns:
 
 ```python
 import re
 
-# Bestehend (Reviews):
+# Reviews:
 _REVIEW_SENTINEL = re.compile(r"\[TEMPLATE:([\w-]+)-v1:([A-Z]+-\d+)\]")
 
-# Neu (Preflight):
+# Preflight:
 _PREFLIGHT_SENTINEL = re.compile(r"\[PREFLIGHT:([\w-]+)-v1:([A-Z]+-\d+)\]")
 ```
 
@@ -858,11 +858,11 @@ erkannt wird und umgekehrt.
 | PostToolUse (Pool-Send) | `handle_preflight_response()` | `PREFLIGHT_RESPONSE` | `_PREFLIGHT_SENTINEL` matcht in der ursprünglichen Nachricht |
 
 Die Handler sind in `telemetry/hook.py` implementiert, analog zu
-den bestehenden Review-Handlern. Sie nutzen `insert_event()`
+den Review-Handlern. Sie nutzen `insert_event()`
 mit `EventType.PREFLIGHT_REQUEST` bzw.
 `EventType.PREFLIGHT_RESPONSE`.
 
-### 30.9.3 Review-Guard-Erweiterung für Preflight
+### 30.9.3 Review-Guard-Verhalten für Preflight
 
 `telemetry/review_guard.py` erkennt beide Sentinel-Typen und
 emittiert jeweils das korrekte Compliance-Event:
@@ -879,7 +879,7 @@ das passende Event.
 
 ### 30.9.4 Telemetrie-Catalog-Erweiterung
 
-2 neue `TelemetryHookEntry`-Einträge werden in
+Zwei `TelemetryHookEntry`-Einträge für Preflight sind in
 `TELEMETRY_CATALOG` (`telemetry/telemetry_catalog.py`)
 registriert:
 
@@ -889,12 +889,12 @@ registriert:
 | `telemetry.hook` | PostToolUse | `PREFLIGHT_RESPONSE` | `*_send` |
 
 `ALL_TELEMETRY_EVENT_TYPES` wird automatisch aus dem Catalog
-berechnet und enthält damit auch die neuen Preflight-Event-Typen.
+berechnet und enthält damit auch die Preflight-Event-Typen.
 
-### 30.9.5 Registrierungsreihenfolge (Abhängigkeitskette)
+### 30.9.5 Abhängigkeitskette der Preflight-Komponenten
 
-Die Preflight-Integration betrifft 7 Dateien in 4 Packages.
-Die Abhängigkeitsreihenfolge ist:
+Die Preflight-Komponenten binden in einer festen Abhängigkeitskette
+aneinander; `EventType` ist die maßgebliche Bindequelle:
 
 ```
 1. events.py: EventType-Enum + EVENT_CATALOG       ← Fundament
@@ -905,19 +905,18 @@ Die Abhängigkeitsreihenfolge ist:
 6. integrity.py: Integrity-Proofs                   ← Nutzt count_events()
 ```
 
-Alle Dateien binden an `EventType`-Werte aus `events.py`. Wenn
-`events.py` nicht aktualisiert wird, kompilieren die
-Downstream-Referenzen zwar (weil `insert_event()` einen `str`
-akzeptiert), aber die `EventType`-Validierung und der
-`EVENT_CATALOG`-Lookup schlagen fehl.
+Alle Komponenten binden an `EventType`-Werte aus `events.py`. Ohne
+gültige `EventType`-Definition kompilieren die Downstream-Referenzen
+zwar (weil `insert_event()` einen `str` akzeptiert), aber die
+`EventType`-Validierung und der `EVENT_CATALOG`-Lookup schlagen fehl.
 
 ## 30.10 Worker-Health-Monitor-Hooks
 
 > Der Worker-Health-Monitor (Scoring-Engine im PostToolUse-Hook, Interventions-Gate im PreToolUse-Hook, LLM-Assessment-Sidecar, Hook-Commit-Failure-Klassifikation, Persistenz-Artefakte und Konfiguration) ist normativ in **FK-49 (Worker-Health-Monitor)** beschrieben.
 
-## 30.11 Agent-Harness-Anbindung (verlagert nach FK-76)
+## 30.11 Agent-Harness-Anbindung (Owner: FK-76)
 
-Dieser Abschnitt ist nicht mehr normativ. Die harness-spezifische Anbindung von Claude Code/Codex — Adapter, CLI-Wrapper, Settings-Schemas, stdin/stdout/Exit-Code und Sub-Agent-/Hybrid-Lifecycle — ist vollstaendig in FK-76 verankert.
+Die harness-spezifische Anbindung von Claude Code/Codex — Adapter, CLI-Wrapper, Settings-Schemas, stdin/stdout/Exit-Code und Sub-Agent-/Hybrid-Lifecycle — ist in FK-76 verankert.
 FK-30 behaelt ausschliesslich die harness-neutrale Hook-/Guard-Definition und das Enforcement-Verhalten (`guard_evaluation`).
 Zielverweise: Adapter-/HookEvent-Mapping → FK-76 §76.4; Settings-Schemas → FK-76 §76.5; Parallel-Registrierung → FK-76 §76.7.
 

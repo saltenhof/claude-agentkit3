@@ -164,8 +164,6 @@ formal_refs:
 
 ### 29.1.0 ClosurePayload — durable Contract Fields
 
-> **[Entscheidung 2026-04-09]** `ClosurePayload` führt `ClosureProgress` als typisiertes Objekt mit granularen Booleans. Granularität ist notwendig, weil "nach Merge vor Story-Closed" als Recovery-Zustand eindeutig identifizierbar sein muss. Ein grobes `current_substate`-Enum würde diese Eindeutigkeit nicht liefern. Verweis auf Designwizard R1+R2 vom 2026-04-09.
-
 `ClosurePayload` ist die phasenspezifische Payload für die Closure-Phase (diskriminierte Union, FK-39 §39.2.3):
 
 ```python
@@ -197,46 +195,28 @@ und Research-Stories** durchlaufen keinen QA-Subflow — fuer diese
 Story-Typen wird Closure direkt nach der Implementation-Phase
 aufgerufen. `integrity_passed`, `story_branch_pushed` und `merge_done`
 werden fuer Concept/Research direkt auf `true` gesetzt (kein QA-Subflow,
-kein Pre-Merge-Scan; FK-20 §20.8.2). [Entscheidung 2026-06-01 (revidiert):
-Concept/Research-Stories haben **keinen** Worktree und **keinen**
+kein Pre-Merge-Scan; FK-20 §20.8.2). Concept/Research-Stories haben **keinen** Worktree und **keinen**
 `story/{story_id}`-Branch und arbeiten **direkt auf `main`** (FK-20 §20.8.2,
 FK-22 §22.5.1). Fuer sie ist `story_branch_pushed` **nicht anwendbar (N/A)**
 und wird im Recovery-Sinn als „nichts zu pushen" uebersprungen; das Boolean
 wird der Einheitlichkeit der `ClosureProgress`-Struktur halber auf `true`
-gesetzt, ohne dass ein Branch-Push stattfindet. Die fruehere „uniforme
-Branch-Push"-Lesart (Concept/Research arbeiten auf `story/{story_id}` und
-pushen) ist damit **zurueckgenommen**: der gesamte Pre-Merge-Scan-und-Merge-
+gesetzt, ohne dass ein Branch-Push stattfindet. Der gesamte Pre-Merge-Scan-und-Merge-
 Block, das SonarQube-Green-Gate und die Integrity-Gate-Dimension 9 sind
 **ausschliesslich fuer impl/bugfix** (§29.1a, §29.2; FK-22 §22.4c; FK-10
 §10.5.3; FK-39 §39.2.3). Der Recovery-Algorithmus (§29.1.3) braucht damit
 genau eine Story-Typ-Fallunterscheidung: code-Stories durchlaufen den
-gesperrten Block, non-code-Stories nicht.]
+gesperrten Block, non-code-Stories nicht.
 
-> **[Entscheidung 2026-05-01]** Closure-Precondition lautet jetzt
-> "Implementation COMPLETED" statt "Verify COMPLETED". Die Top-Phase
-> `verify` ist entfallen; Output-QA ist interner Subflow innerhalb
-> der Implementation-Phase (analog zum Exit-Gate der
-> Exploration-Phase, FK-23 §23.5). Die Capability `VerifySystem`
-> bleibt als Bounded-Context-Capability bestehen und wird sowohl von
-> `ExplorationPhase` als auch von `ImplementationPhase` aufgerufen.
-> Siehe `concept/_meta/bc-cut-decisions.md` "Verify als Capability
-> (Variante Y)".
-
-**REF-034:** Fuer Exploration-Mode-Stories gilt: Der QA-Subflow laeuft
+**Exploration-Mode-Stories:** Der QA-Subflow laeuft
 innerhalb der Implementation-Phase, also NACH der vollstaendigen
 Exploration-Phase (einschliesslich Design-Review-Gate). Das
 Design-Review-Gate (`ExplorationGateStatus.APPROVED`) wird durch den
 Phase-Runner-Guard am Uebergang `exploration -> implementation`
 erzwungen (FK-20 §20.4.2a). Wenn Closure erreicht wird, ist `APPROVED`
 durch die State-Machine-Invariante garantiert — kein erneuter
-Payload-Zugriff noetig. [Korrektur 2026-04-09: Direkte Referenz auf
-`ExplorationPayload.gate_status` aus dem QA-Subflow entfernt —
-ExplorationPayload ist nicht der aktive Payload in der
-Implementation-Phase (aktiv: ImplementationPayload). Die Garantie
-stammt aus dem Transition-Guard, nicht aus einem Laufzeit-Check im
-QA-Subflow.] [Entscheidung 2026-05-01: ehemals "Verify-Phase" / "VerifyPayload" — jetzt QA-Subflow innerhalb Implementation / ImplementationPayload.]
+Payload-Zugriff noetig.
 
-**REF-036 / FK-37 §37.1:** Die QA-Tiefe wird ueber `verify_context`
+**QA-Tiefe (FK-37 §37.1):** Die QA-Tiefe wird ueber `verify_context`
 gesteuert, nicht ueber `mode`. Nach Worker-Run innerhalb der
 Implementation-Phase gilt `verify_context = VerifyContext.POST_IMPLEMENTATION`,
 nach einer Subflow-internen Remediation-Iteration
@@ -244,14 +224,7 @@ nach einer Subflow-internen Remediation-Iteration
 vollen 4-Schichten-QA-Subflow aus, unabhaengig davon, ob die Story im
 Exploration- oder Execution-Modus gestartet wurde. `verify_context`
 ist Subflow-internes Diskriminator-Feld auf `ImplementationPayload`
-(FK-39 §39.2.3). [Korrektur 2026-04-09: `STRUCTURAL_ONLY_PASS` und
-`post_exploration` entfernt — der QA-Subflow laeuft immer mit voller
-Pipeline (FK-37 §37.1.5).] [Entscheidung 2026-05-01: `verify_context`
-liegt jetzt auf `ImplementationPayload`, nicht mehr auf
-`VerifyPayload`.]
-
-> **[Entscheidung 2026-04-08]** Element 17 — Alle 11 Eskalations-Trigger werden beibehalten. FK-20 §20.6.1 und FK-35 §35.4.2 normativ. Kein Trigger ist redundant.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 17.
+(FK-39 §39.2.3).
 
 ### 29.1.2 Ablauf mit Substates
 
@@ -306,10 +279,6 @@ flowchart TD
 ```
 
 ### 29.1.3 Substates und Recovery
-
-[Entscheidung 2026-04-09: `closure_substates` ersetzt durch
-`ClosurePayload.progress` (Typ `ClosureProgress`). Die Bool-
-Felder liegen jetzt unter `payload.progress.*` im Phase-State.]
 
 Die sechs ClosureProgress-Booleans markieren die kritischen
 Checkpoints mit Crash-Recovery-Relevanz. Weitere Schritte
@@ -402,10 +371,9 @@ folgende kanonische Closure-Reihenfolge:
 8. Dann VektorDB-Sync → für nachfolgende Stories suchbar
 9. Zuletzt Guards deaktivieren → AI-Augmented-Modus wieder frei
 
-**Kausalitaet (Korrektur 2026-06-01, praezisiert 2026-06-27):** Das Integrity-Gate sitzt jetzt
+**Kausalitaet:** Das Integrity-Gate sitzt
 bewusst **innerhalb** des gesperrten Blocks **nach** dem Scan (Schritt
-2.e) und **vor** dem ff-Merge nach `main` (Schritt 2.g) — nicht mehr als
-separater Schritt vor dem Block. Grund: Dimension 9 verifiziert die
+2.e) und **vor** dem ff-Merge nach `main` (Schritt 2.g). Grund: Dimension 9 verifiziert die
 commit-gebundene Attestation des integrierten Kandidaten; diese
 existiert erst, nachdem der Jenkins-Scan in Schritt 2.e gelaufen ist. Der
 Story-/Pre-Merge-Ref-Push liegt dagegen **vor** Build/Test/Sonar, weil Jenkins
@@ -451,9 +419,7 @@ offiziellen Merge-Policy `no_ff`.
 
 ### 29.1.6 Multi-Repo-Closure (Atomicity)
 
-[Entscheidung 2026-05-04, praezisiert 2026-06-01 — Multi-Repo-Closure:
-Gruen-Barriere atomar, Cross-Remote-Push best-effort mit kompensierender
-Recovery] Bei Stories mit mehreren teilnehmenden Repos
+Bei Stories mit mehreren teilnehmenden Repos
 (`participating_repos` mit |N| >= 2, FK-22 §22.6) gilt eine **praezise**
 Garantie statt einer Garantie, die das System gar nicht halten kann:
 
@@ -472,10 +438,7 @@ Garantie statt einer Garantie, die das System gar nicht halten kann:
   (§29.1.6.3) behandelt wird.
 
 Eine partial-pushed Story ist daher ein **eskalierter** (nicht stiller,
-nicht „atomar gutgeschriebener") Endzustand. Die frueher behauptete
-unbedingte „alles-oder-nichts ueber alle Remotes"-Atomicity ist damit
-**zurueckgenommen**; die honest-formulierte Garantie ist die der
-Gruen-und-FF-Mergbarkeits-Barriere vor dem ersten Push.
+nicht „atomar gutgeschriebener") Endzustand.
 
 #### 29.1.6.1 Sequenz
 
@@ -614,8 +577,8 @@ Guard-Umgehung.
 #### 29.1.6.4 Implementations-Anker
 
 Die AK2-Implementierung (`agentkit.worktree.merge.merge_story_multi_repo`
-mit `pre_merge_sha`-Rollback) ist die fachliche Vorlage. Die AK3-
-Umsetzung lebt im BC `story-closure` und respektiert die
+mit `pre_merge_sha`-Rollback) ist die fachliche Vorlage. Die
+Multi-Repo-Closure gehoert zum BC `story-closure` und respektiert die
 ClosureProgress-Granularitaet aus §29.1.0.
 
 ## 29.1a Pre-Merge-Scan-und-Merge-Block (SonarQube-Green, FK-33-Punkt-3)
@@ -843,19 +806,12 @@ def load_previous_findings(story_id: str, previous_cycle_id: str) -> list[dict]:
 
 ### 29.2.4 Gate-Pruefung vor Closure (FK-27-224)
 
-[Korrektur 2026-04-09: Die Finding-Resolution-Pruefung laeuft als
-**Closure-Gate** (§29.2.1), nicht als Teil der Policy-Evaluation
-(Schicht 4). Policy-Evaluation prueft auf BLOCKING-Failures und
-major_threshold — Finding-Resolution ist ein eigenstaendiger
-Vorstufen-Check am Beginn der Closure-Phase, konsistent mit dem
-Abschnittstitel "Finding-Resolution als Closure-Gate" und FK-27 §27.7.1.]
-
 Die Finding-Resolution-Pruefung laeuft als Closure-Gate (§29.2.1)
 — vor dem Integrity-Gate, am Beginn der Closure-Phase. Sie prueft
 alle drei Layer-2-Artefakte:
 
 ```python
-# [Korrektur 2026-04-09] Alle drei Layer-2-Artefakte pruefen (FK-27 §27.5.5),
+# Alle drei Layer-2-Artefakte pruefen (FK-27 §27.5.5),
 # konsistent mit §29.2.3 und FK-38 §38.1.1.
 def check_finding_resolution(story_id: str) -> bool:
     """Prueft ob alle Findings vollstaendig aufgeloest sind.
@@ -946,7 +902,7 @@ pipeline-framework bleibt orchestrierend statt fachlich.
 | **Errors and Warnings** | Aggregierte Fehler und Warnungen aus allen Phasen |
 | **Structural Check Results** | Ergebnisse der deterministischen Checks (Schicht 1) |
 | **Policy Engine Verdict** | Aggregiertes Policy-Ergebnis mit Blocking/Major/Minor Counts |
-| **Closure Sub-Step Status** | Status jedes `ClosureProgress`-Feldes (`payload.progress.integrity_passed`, `payload.progress.story_branch_pushed`, `payload.progress.merge_done`, `payload.progress.story_closed`, `payload.progress.metrics_written`, `payload.progress.postflight_done`) [Entscheidung 2026-04-09] |
+| **Closure Sub-Step Status** | Status jedes `ClosureProgress`-Feldes (`payload.progress.integrity_passed`, `payload.progress.story_branch_pushed`, `payload.progress.merge_done`, `payload.progress.story_closed`, `payload.progress.metrics_written`, `payload.progress.postflight_done`) |
 | **Telemetry Event Counts** | Zähler aller relevanten Telemetrie-Events |
 | **Integrity Violations Log** | Vollständiger Integrity-Violations-Auszug (falls vorhanden) |
 

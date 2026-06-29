@@ -158,9 +158,8 @@ der Entscheidung passiert.
 ### 23.3.1 Ablauf
 
 Die Exploration-Phase endet erst, wenn ein dreistufiges Exit-Gate vollständig
-bestanden wurde (REF-034). Die Phase ist erst `COMPLETED` wenn
+bestanden wurde. Die Phase ist erst `COMPLETED` wenn
 `ExplorationPayload.gate_status == ExplorationGateStatus.APPROVED`.
-[Entscheidung 2026-04-09] Gate-Status verwendet `ExplorationGateStatus` StrEnum statt String-Literale.
 
 ```mermaid
 flowchart TD
@@ -202,7 +201,7 @@ flowchart TD
     FREEZE --> DONE(["Phase: exploration COMPLETED"])
 ```
 
-**Korrektur gegenüber früherem Stand:** Der Draft wird nicht mehr vor
+Der Draft wird nicht vor
 der unabhängigen Prüfung eingefroren. Dokumententreue, Review,
 Prämissen-Challenge, Design-Challenge, Nachklassifikation und
 gegebenenfalls Feindesign laufen auf einem noch editierbaren Draft.
@@ -353,9 +352,7 @@ Nach bestandenem Gate wird das Entwurfsartefakt eingefroren:
 Schutz läuft über den Hook-Mechanismus (Kap. 02.7), nicht über
 Dateiberechtigungen.
 
-## 23.5 Exploration Exit-Gate: Drei-Stufen-Modell (REF-034)
-
-> **[Entscheidung 2026-04-09]** Das Feld `gate_status` (Typ: `ExplorationGateStatus`) auf `ExplorationPayload` (diskriminierte Union, FK-39 §39.2.3) ersetzt den v2-String `exploration_gate_status`. `ExplorationGateStatus` ist ein StrEnum: `PENDING | APPROVED | REJECTED`. Hat Transition-Relevanz: Guards prüfen `gate_status == APPROVED` für den Eintritt in die Implementation-Phase. `design_artifact_path` kommt nicht in ExplorationPayload (ableitbar aus Story-Verzeichniskonvention). Verweis auf Designwizard R1+R2 vom 2026-04-09.
+## 23.5 Exploration Exit-Gate: Drei-Stufen-Modell
 
 ### 23.5.0 ExplorationPayload — durable Contract Fields
 
@@ -376,7 +373,7 @@ class ExplorationPayload(BaseModel):
 
 **Nicht in ExplorationPayload:** `design_artifact_path` — ableitbar aus der Story-Verzeichniskonvention (`_temp/qa/{story_id}/change_frame.json`), kein orchestrierungsvertragliches Feld.
 
-**Granulare Gate-Stufen:** Die v2-Werte `doc_compliance_passed`, `design_review_passed`, `design_review_failed` werden nicht auf einzelne StrEnum-Werte abgebildet. Die Zwischenzustände während des Gate-Durchlaufs sind Implementierungsdetail des Phase Handlers, nicht Teil des persistierten Contracts. Der Contract kennt nur das Endergebnis: `PENDING | APPROVED | REJECTED`.
+**Granulare Gate-Stufen:** Granulare Zwischenstufen des Gate-Durchlaufs werden nicht auf einzelne StrEnum-Werte abgebildet. Die Zwischenzustände während des Gate-Durchlaufs sind Implementierungsdetail des Phase Handlers, nicht Teil des persistierten Contracts. Der Contract kennt nur das Endergebnis: `PENDING | APPROVED | REJECTED`.
 
 Das Ende der Exploration-Phase ist ein dreistufiges Exit-Gate.
 `ExplorationPayload.gate_status` (Typ: `ExplorationGateStatus` StrEnum)
@@ -386,11 +383,9 @@ verfolgt den Fortschritt im `phase-state.json`:
 |------|-----------|
 | `ExplorationGateStatus.PENDING` | Gate noch nicht gestartet oder Zwischenstufe (Stufe 1 bestanden, Design-Review läuft) |
 | `ExplorationGateStatus.APPROVED` | Alle Stufen bestanden — bereit für Implementation |
-| `ExplorationGateStatus.REJECTED` | Gate endgültig abgelehnt — tritt ein bei: (a) Stufe-1-FAIL (Architekturkonflikt), (b) Stufe-2c FAIL non-remediable, (c) Rundenlimit erreicht (`review_rounds ≥ 3`), (d) menschliche Ablehnung im HUMAN-Knoten — Eskalation. [Korrektur 2026-04-09: Stufe-1-FAIL und menschliche Ablehnung ergänzt] |
+| `ExplorationGateStatus.REJECTED` | Gate endgültig abgelehnt — tritt ein bei: (a) Stufe-1-FAIL (Architekturkonflikt), (b) Stufe-2c FAIL non-remediable, (c) Rundenlimit erreicht (`review_rounds ≥ 3`), (d) menschliche Ablehnung im HUMAN-Knoten — Eskalation. |
 
-[Entscheidung 2026-04-09] Die bisherigen String-Literale (`doc_compliance_passed`,
-`design_review_passed`, `design_review_failed`, `approved_for_implementation`) sind
-durch das `ExplorationGateStatus` StrEnum mit genau 3 Werten ersetzt. Zwischenstände
+Zwischenstände
 (z.B. "Stufe 1 bestanden, Stufe 2 steht aus") werden durch `PENDING` abgebildet, da
 sie keine eigenständige Gate-Entscheidung darstellen. Die Detailinformation, welche
 Stufe zuletzt bestanden wurde, ergibt sich aus den vorhandenen QA-Artefakten
@@ -398,10 +393,8 @@ Stufe zuletzt bestanden wurde, ergibt sich aus den vorhandenen QA-Artefakten
 
 Die Anzahl gelaufener Design-Review-Remediation-Runden wird in
 `ExplorationPhaseMemory.review_rounds` (Integer) in der PhaseMemory-Schicht
-verfolgt — nicht mehr im Phase-State selbst.
+verfolgt — nicht im Phase-State-Core selbst.
 Maximum: 3 Runden, dann Eskalation an Mensch.
-
-> **[Entscheidung 2026-04-09, aktualisiert 2026-05-01]** `exploration_review_round` aus v2 ist kein Artefakt, sondern wird als `PhaseMemory.exploration.review_rounds` in die neue PhaseMemory-Schicht ueberfuehrt (max 3 Remediation-Runden). Die Engine verwaltet diesen Zaehler als Carry-Forward analog zu `phase_memory.implementation.qa_feedback_rounds`. Siehe FK-39 §39.5. [Entscheidung 2026-05-01: vormals `phase_memory.verify.feedback_rounds`; mit Cut der Top-Phase `verify` heisst der QA-Subflow-Loop-Zaehler jetzt `qa_feedback_rounds` und liegt im `ImplementationPhaseMemory`.]
 
 ### Trennung Dokumententreue vs. Design-Review
 
@@ -411,7 +404,7 @@ Maximum: 3 Runden, dann Eskalation an Mensch.
 | **Prüfgegenstände** | Architekturkonformität, Referenzbindungen | Innere Konsistenz, Vollständigkeit, Machbarkeit |
 | **Ausführung** | StructuredEvaluator (deterministisch) | LLM-Review-Agent (unabhängig vom Worker) |
 | **Ergebnis** | PASS / FAIL (binär) | PASS / PASS_WITH_CONCERNS / FAIL |
-| **Bei FAIL** | Eskalation an Mensch (`gate_status = REJECTED` → ESCALATED) | Remediation wenn remediable und `round < 3` (max 3 Runden, `ExplorationPhaseMemory.review_rounds`); bei non-remediable oder `round ≥ 3`: `gate_status = REJECTED` → ESCALATED [Entscheidung 2026-04-09] |
+| **Bei FAIL** | Eskalation an Mensch (`gate_status = REJECTED` → ESCALATED) | Remediation wenn remediable und `round < 3` (max 3 Runden, `ExplorationPhaseMemory.review_rounds`); bei non-remediable oder `round ≥ 3`: `gate_status = REJECTED` → ESCALATED |
 | **Verboten** | Qualitätskritik | Architekturregeln neu erfinden |
 
 ### 23.5.1 Stufe 1: Dokumententreue Ebene 2: Entwurfstreue
@@ -457,12 +450,6 @@ Beide Listen werden dem LLM als Kontext-Bundle übergeben
 
 ### 23.5.3 Ergebnis
 
-[Korrektur 2026-04-09] Tabelle korrigiert: `PASS_WITH_CONCERNS` entfernt (gehört zu
-Stufe 2, nicht zu Stufe 1 — Stufe 1 ist der StructuredEvaluator, der binär urteilt,
-vgl. Trenntabelle in §23.5). Reaktion bei PASS korrigiert: nach Stufe 1 folgt
-Stufe 2 (Design-Review-Gate), nicht direkt die Implementation. Beschreibung des
-`freigabe_noetig`-Blocks präzisiert bezüglich Zusammenspiel mit Stufe 2.
-
 | Status | Bedeutung | Reaktion |
 |--------|-----------|---------|
 | PASS | Entwurf ist konform mit bestehender Architektur | Weiter zu Review-/Challenge-Zyklus und Nachklassifikation |
@@ -475,11 +462,10 @@ Review-Zyklus durch H2 gemäß FK-25 klassifiziert.
 
 ## 23.6 Übergang zur Implementation
 
-### 23.6.1 Bei Exploration Mode (REF-034)
+### 23.6.1 Bei Exploration Mode
 
 Nach bestandenem vollständigem Exit-Gate
 (`payload.gate_status == ExplorationGateStatus.APPROVED`):
-[Entscheidung 2026-04-09] Gate-Status verwendet `ExplorationPayload.gate_status` (`ExplorationGateStatus` StrEnum).
 
 1. Phase-State: `phase: exploration, status: COMPLETED`,
    `payload.gate_status: ExplorationGateStatus.APPROVED`
@@ -493,10 +479,9 @@ Nach bestandenem vollständigem Exit-Gate
    - Das eingefrorene Entwurfsartefakt als verbindliche Vorgabe
    - `design-review.json` mit Review- und Challenge-Befunden
 
-**Neu gegenüber früherem Zustand:**
 - Die Exploration endet erst nach erfolgreichem Design-Review-Gate
-- `STRUCTURAL_ONLY_PASS` wurde entfernt — Verify läuft nach Implementation
-  immer mit der vollen 4-Schichten-Pipeline (auch für exploration-mode Stories)
+- Verify läuft nach Implementation immer mit der vollen 4-Schichten-Pipeline
+  (auch für exploration-mode Stories)
 - `design-review.json` ist ein Pflichtartefakt für Exploration-Mode-Stories
 
 Der Worker darf vom Entwurf abweichen, aber nur mit expliziter
@@ -505,7 +490,7 @@ neue Strukturen einführt oder den Impact-Level überschreitet,
 muss der Worker die Implementierung korrigieren (Selbstkorrektur)
 oder `status: BLOCKED` melden (-> `status: ESCALATED`). Eine erneute
 Dokumententreue-Prüfung aus der Implementation heraus findet nicht
-statt (siehe §23.7.3). [Korrektur 2026-04-09]
+statt (siehe §23.7.3).
 
 ### 23.6.2 Bei Execution Mode
 
@@ -523,8 +508,8 @@ Entwurf abweicht:
 
 | Drift-Art | Erkennung | Reaktion |
 |-----------|-----------|---------|
-| Neue Strukturen (APIs, Datenmodelle) nicht im Entwurf | Worker erkennt selbst | **Signifikanter Drift**: Worker muss Implementierung korrigieren (Selbstkorrektur) oder BLOCKED melden [Entscheidung 2026-04-09] |
-| Deklarierter Impact-Level überschritten | Worker erkennt selbst | **Signifikanter Drift**: Worker muss Implementierung korrigieren (Selbstkorrektur) oder BLOCKED melden [Entscheidung 2026-04-09] |
+| Neue Strukturen (APIs, Datenmodelle) nicht im Entwurf | Worker erkennt selbst | **Signifikanter Drift**: Worker muss Implementierung korrigieren (Selbstkorrektur) oder BLOCKED melden |
+| Deklarierter Impact-Level überschritten | Worker erkennt selbst | **Signifikanter Drift**: Worker muss Implementierung korrigieren (Selbstkorrektur) oder BLOCKED melden |
 | Anderes Pattern gewählt als im Entwurf | Worker erkennt selbst | Normale Drift: Dokumentation der Abweichung im Handover-Paket reicht |
 | Detailentscheidung anders als im Entwurf | Worker erkennt selbst | Normale Drift: Dokumentation im Handover-Paket reicht |
 
@@ -537,7 +522,7 @@ Jede Drift-Prüfung erzeugt ein Telemetrie-Event in `execution_events`:
 | `drift_check` | `{"result": "ok"}` |
 | `drift_check` | `{"result": "drift", "drift_type": "new_structure", "description": "Neue Entity MarketQuoteHistory nicht im Entwurf"}` |
 
-### 23.7.3 Reaktion bei signifikantem Drift [Entscheidung 2026-04-09]
+### 23.7.3 Reaktion bei signifikantem Drift
 
 Wenn der Worker während der Implementierung signifikanten Drift
 erkennt (neue Strukturen oder Impact-Überschreitung), hat er genau
@@ -620,7 +605,7 @@ def check_impact_violation(context: StoryContext, git: GitOperations) -> Structu
 
 ### 23.8.3 Reaktion bei Violation
 
-[Entscheidung 2026-04-09] Eine Impact-Violation ist ein Implementierungsversagen, kein
+Eine Impact-Violation ist ein Implementierungsversagen, kein
 Explorationsfehler. Ein automatischer Rücksprung in die Exploration-Phase findet nicht
 statt — weder für Exploration-Mode- noch für Execution-Mode-Stories. Beide Modi
 eskalieren an den Menschen, der über die nächsten Schritte entscheidet: Implementierung

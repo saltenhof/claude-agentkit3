@@ -80,9 +80,6 @@ Enthaelt stabile Projekt-, Story- und Kontextdaten.
 - `story_custom_field_definitions`
 - `story_custom_field_values`
 
-`story_custom_field_definitions` und `story_custom_field_values` sind
-seit AG3-087 im Backend-Schema vorhanden.
-
 ### 18.3.2 Execution
 
 **Owner:** `pipeline_engine`
@@ -105,8 +102,6 @@ Enthaelt explizite Eingriffe und Entscheidungen.
 
 - `override_records`
 - `guard_decisions`
-
-`guard_decisions` ist seit AG3-087 im Backend-Schema vorhanden.
 
 ### 18.3.4 Artifacts
 
@@ -141,8 +136,7 @@ Enthaelt nur rebuildbare Lesemodelle.
 
 - `phase_states`
 - `phase_snapshots`
-- `kpi_projections` (offener Code-Bedarf AG3-081/AG3-083; nicht im
-  aktuellen Backend-Schema vorhanden)
+- `kpi_projections`
 
 ## 18.4 Tabellen pro Entität
 
@@ -162,7 +156,7 @@ Enthaelt nur rebuildbare Lesemodelle.
 | `ExecutionEvent` | `execution_events` | runtime-nahe Beobachtung und Audit, append-only pro gültiger Umsetzung |
 | `PhaseState` | `phase_states` | aktuelle Projektion |
 | `PhaseSnapshot` | `phase_snapshots` | abgeschlossene Phasenprojektion |
-| `KpiProjection` | `kpi_projections` | offene Projektion; Code-Bedarf AG3-081/AG3-083 |
+| `KpiProjection` | `kpi_projections` | Projektion |
 
 ## 18.5 Relationale Leitentscheidung pro Tabelle
 
@@ -234,12 +228,12 @@ kanonische Payloads wie:
 | Tabelle | Fachlicher Identitätskandidat | Unique-Regeln |
 |---------|-------------------------------|---------------|
 | `project_spaces` | `(project_key)` | `project_key` systemweit eindeutig |
-| `stories` | `(project_key, story_number)` fachlich; `story_uuid` technisch | `story_uuid` global eindeutig; `(project_key, story_number)` pro Projekt eindeutig; `story_display_id` **global UNIQUE** (materialisierte Anzeige-ID, keine `story_id`-Spalte); zusätzlich `(project_key, story_display_id)` UNIQUE (trägt die projektgescopten StoryDependency-FKs, AG3-050) |
+| `stories` | `(project_key, story_number)` fachlich; `story_uuid` technisch | `story_uuid` global eindeutig; `(project_key, story_number)` pro Projekt eindeutig; `story_display_id` **global UNIQUE** (materialisierte Anzeige-ID, keine `story_id`-Spalte); zusätzlich `(project_key, story_display_id)` UNIQUE (trägt die projektgescopten StoryDependency-FKs) |
 | `story_contexts` | `(project_key, story_id)` | pro Story genau ein aktiver Kontext (`story_id` trägt hier die Display-ID als Laufzeit-Korrelations-String) |
 | `story_custom_field_definitions` | `(project_key, field_key)` | `field_key` pro Projekt eindeutig |
 | `story_custom_field_values` | `(project_key, story_id, field_key)` | pro Story höchstens ein aktueller Wert je Feld |
 
-> **Identität `stories` (AG3-050, FK-02 §2.11.2):** Die `stories`-Stammdaten
+> **Identität `stories` (FK-02 §2.11.2):** Die `stories`-Stammdaten
 > tragen **keine** `story_id`-Spalte. Kanonische Identität ist fachlich
 > `(project_key, story_number)`, technisch `story_uuid`. `story_display_id`
 > (z.B. `AK3-042`) ist die einmal materialisierte Anzeige-Repräsentation aus
@@ -271,7 +265,7 @@ kanonische Payloads wie:
 |---------|-------------------------------|---------------|
 | `phase_states` | `(project_key, story_id, run_id)` | genau eine aktuelle Projektion pro Run |
 | `phase_snapshots` | `(project_key, story_id, run_id, phase)` | höchstens ein Snapshot je Run und Phase |
-| `kpi_projections` | `(project_key, projection_key)` | Zielregel fuer AG3-081/AG3-083; `projection_key` pro Projekt eindeutig |
+| `kpi_projections` | `(project_key, projection_key)` | `projection_key` pro Projekt eindeutig |
 
 ## 18.6b Mutierbarkeit und Lebenszyklusregeln
 
@@ -291,7 +285,7 @@ kanonische Payloads wie:
 | `execution_events` | append-only innerhalb eines Runs | Event darf nach Persistenz nicht verändert werden, wird aber bei vollständigem Story-Reset physisch gelöscht |
 | `phase_states` | replace/update | vollständig rebuildbar |
 | `phase_snapshots` | replace/update | vollständig rebuildbar |
-| `kpi_projections` | replace/update | Zielregel fuer AG3-081/AG3-083; vollständig rebuildbar |
+| `kpi_projections` | replace/update | vollständig rebuildbar |
 
 ## 18.6c Append-only-Regeln
 
@@ -373,7 +367,7 @@ kanonische Tabellen, nie umgekehrt.
 |---------|----------------|
 | `phase_states` | `project_key`, `story_id`, `run_id`, `phase`, `status`, `updated_at` |
 | `phase_snapshots` | `project_key`, `story_id`, `run_id`, `phase`, `status`, `completed_at` |
-| `kpi_projections` | `project_key`, `projection_key`, `metric_name`, `metric_value`, `computed_at` (Zielspalten fuer AG3-081/AG3-083) |
+| `kpi_projections` | `project_key`, `projection_key`, `metric_name`, `metric_value`, `computed_at` |
 
 ## 18.6f Optionale Spalten nach Fachregel
 
@@ -392,7 +386,7 @@ gesetzt und deshalb logisch optional:
 | `guard_decisions` | `node_id`, `reason`, `evidence_ref` | falls nodebezogen oder begruendet/evidenzgestuetzt |
 | `artifact_envelopes` | `attempt_no`, `qa_cycle_id`, `qa_cycle_round`, `evidence_epoch`, `finished_at` | nur fuer QA-/attemptgebundene Artefakte |
 | `execution_events` | `flow_id`, `node_id`, `event_payload_ref` | nur wenn Event fachlich darauf bezogen ist |
-| `kpi_projections` | `window_start`, `window_end` | Zielspalten fuer AG3-081/AG3-083; nur bei fensterbezogenen Kennzahlen |
+| `kpi_projections` | `window_start`, `window_end` | nur bei fensterbezogenen Kennzahlen |
 
 ## 18.7 Projektionen
 
@@ -408,9 +402,7 @@ Lesemodell fuer:
 
 ### 18.7.2 `kpi_projections`
 
-`kpi_projections` ist als Read-Model fachlich vorgesehen, aber im
-aktuellen Backend-Schema noch nicht vorhanden. Umsetzung und Schema-Owner
-liegen bei AG3-081/AG3-083.
+`kpi_projections` ist als Read-Model fachlich vorgesehen.
 
 Lesemodell fuer:
 
@@ -451,7 +443,7 @@ Unzulaessig ist:
 
 ## 18.9a Schema-Versionierung und Side-by-Side-Datenbanken
 
-[Entscheidung 2026-05-04] AK3 fuehrt eine **explizite
+AK3 fuehrt eine **explizite
 Schema-Version** als Code-Konstante. Bei einer Versionsaenderung
 wird **automatisch eine neue Datenbank daneben** angelegt — die alte
 DB bleibt unangetastet.
@@ -515,10 +507,10 @@ Wenn ein Stratege Daten von einer alten in eine neue Version
 uebernehmen will, ist das eine **separate, gezielt gestartete
 Aktion** — nicht Auto-Boot-Verhalten. Der Mechanismus dafuer ist
 nicht-kriegsentscheidend; ein einfacher Migrations-Befehl wie
-`agentkit migrate --from=3.0.0 --to=3.1.0` reicht. Die Mechanik
-wird zum Zeitpunkt der ersten realen Migrations-Anforderung
-spezifiziert — heute ist das Side-by-Side-Verhalten und das
-Bootstrap-Auto-Anlage-Verhalten das Wesentliche.
+`agentkit migrate --from=3.0.0 --to=3.1.0` reicht. Die detaillierte
+Mechanik wird erst bei der ersten realen Migrations-Anforderung
+spezifiziert; wesentlich sind das Side-by-Side-Verhalten und das
+Bootstrap-Auto-Anlage-Verhalten.
 
 Bis zur ersten realen Daten-Uebertragung gilt: **leere neue DB
 neben der alten leben lassen.**
@@ -613,7 +605,7 @@ Migrationen einfacher und bleibt näher am fachlichen Modell.
 |---------|-----------------|
 | `phase_states` | `(project_key, story_id, run_id)` |
 | `phase_snapshots` | `(project_key, story_id, run_id, phase)` |
-| `kpi_projections` | `(project_key, projection_key)` (Zielregel fuer AG3-081/AG3-083) |
+| `kpi_projections` | `(project_key, projection_key)` |
 
 ## 18.13 Fremdschlüssel
 
@@ -640,7 +632,7 @@ modelliert.
 `node_id` sind nullable FK-Pfade zulässig. Ein Event muss nicht immer
 an Flow und Node gebunden sein.
 
-**StoryDependency → STATISCHE Story-Stammdaten (AG3-050).** Die Kanten der
+**StoryDependency → STATISCHE Story-Stammdaten.** Die Kanten der
 `story_dependencies`-Edge-Tabelle referenzieren die statische `stories`-Entität
 (FK-02 §2.11.3), **nicht** die Laufzeit-Projektion `story_contexts`.
 Abhängigkeiten sind Story-Inhalt, kein Laufzeitzustand. Als FK-Ziel wird
@@ -672,7 +664,7 @@ projektgescopte Edge kann keine Endpunkte aus einem anderen Projekt binden.
 | `execution_events` | Zeitachsen-Lookup nach `project_key, run_id, occurred_at`; Lookup nach `project_key, event_type`; optional nach `project_key, story_id, occurred_at` |
 | `phase_states` | Lookup nach `project_key, story_id`; Lookup nach `project_key, status` |
 | `phase_snapshots` | Lookup nach `project_key, story_id`; Lookup nach `project_key, phase` |
-| `kpi_projections` | Zielindex fuer AG3-081/AG3-083: Lookup nach `project_key, metric_name`; optional Fenster-Lookup |
+| `kpi_projections` | Lookup nach `project_key, metric_name`; optional Fenster-Lookup |
 
 ### 18.14.2 JSONB-Indizes
 
@@ -779,8 +771,8 @@ separater Export-/Archivpfad.
 
 `phase_states` und `phase_snapshots` dürfen jederzeit aus den kanonischen
 Daten neu aufgebaut werden. Beide werden beim vollständigen Story-Reset
-immer mit entfernt. `kpi_projections` ist weiterhin offener Code-Bedarf
-fuer AG3-081/AG3-083 und wird hier nur als Ziel-Read-Model benannt.
+immer mit entfernt. `kpi_projections` ist als Read-Model vorgesehen und
+wird vollständig aus den kanonischen Daten abgeleitet.
 
 ### 18.16.5 Retention
 

@@ -65,8 +65,6 @@ glossary:
 
 # 11 — Review-Qualitätsverbesserung
 
-**Quelle:** Konsolidiert aus DK-04 §4.5 (Stand 2026-04-02) — Sparring Claude + ChatGPT
-**Datum:** 2026-04-29
 **Übersicht:** [00-uebersicht.md](00-uebersicht.md)
 
 ---
@@ -79,10 +77,6 @@ StructuredEvaluator). Die technischen Spezifikationen liegen in
 (Verify-Context und QA-Bundle).
 
 
-> **Status:** Entwurf — in Konsolidierung
->
-> **Provenienz:** Konsolidiert aus Sparring Claude + ChatGPT
->
 > **Bezug:** QA-Subflow innerhalb Implementation-Phase, Review-System, LLM-Bewertungen
 
 ### 4.5.1 Problemstellung
@@ -295,8 +289,7 @@ Statt "The source files for this story are attached — review them all" wird da
 - handover.json: changes_summary, risks_for_qa, acceptance_criteria_status
 ```
 
-> **[Entscheidung 2026-04-08]** Element 24 — Preflight-Turn / Request-DSL ist Pflicht. FK-26 §26.5b, 7 Request-Typen.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 24.
+> Preflight-Turn / Request-DSL ist Pflicht. FK-26 §26.5b, 7 Request-Typen.
 
 #### 4.5.3.3 Säule 3 — Request-DSL (einmaliger Nachforderungs-Turn)
 
@@ -338,8 +331,7 @@ Worker assembliert Bundle (via Evidence Assembler)
 
 **Aktivierung:** Immer — unabhängig von Story-Größe. Eine größenabhängige Aktivierung (z.B. nur ab M) würde voraussetzen, dass die Story-Größe zuverlässig geschätzt ist. Empirisch ist das nicht der Fall: LLMs schätzen Story-Größen nicht zuverlässig ein. Daher volles Programm für jede Story.
 
-> **[Entscheidung 2026-04-08]** Element 26 — Quorum / Tiebreaker ist Pflicht. Dritter Reviewer bei Divergenz.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 26.
+> Quorum / Tiebreaker ist Pflicht. Dritter Reviewer bei Divergenz.
 
 #### 4.5.3.4 Säule 4 — Divergenz-Instrumentierung und Quorum
 
@@ -391,8 +383,7 @@ Der StructuredEvaluator-Contract ist auf "ein Prompt → strukturierte Checks �
 
 Ein Preflight-Roundtrip wäre hier ein Fremdkörper. Stattdessen wird der Kontext VOR dem Evaluator deterministisch optimiert.
 
-> **[Entscheidung 2026-04-08]** Element 27 — Context Sufficiency Builder ist Pflicht-Gate VOR dem Review. Reviews finden IMMER statt.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 27.
+> Context Sufficiency Builder ist Pflicht-Gate VOR dem Review. Reviews finden IMMER statt.
 
 #### 4.5.4.2 Context Sufficiency Builder (neue deterministische Stufe)
 
@@ -471,8 +462,7 @@ bedeuten, dass der Reviewer zentrale Informationen nicht hat.
 
 **Policy-Integration:** Die `sufficiency`-Klassifikation ist ein **Audit-Metadatum**, kein Gate-Faktor. Die Policy Engine loggt eine WARNING bei `reviewable_with_gaps` oder `partially_reviewable`, blockiert aber nicht.
 
-> **[Entscheidung 2026-04-08]** Element 28 — Section-aware Bundle-Packing ist Pflicht. FK-34-121 normativ.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 28.
+> Section-aware Bundle-Packing ist Pflicht. FK-34-121 normativ.
 
 #### 4.5.4.3 Smarteres Bundle-Packing
 
@@ -554,12 +544,10 @@ Statt blindem Mittelschnitt:
 
 ### 4.5.9 Geklärte Fragen
 
-Alle ursprünglich offenen Fragen wurden geklärt:
-
-| # | Frage | Entscheidung | Methode |
-|---|-------|-------------|---------|
-| F1 | Sprachspezifische Extraktion TS/Java | Detailliertes Pattern-Set für TS (6 Klassen + Alias + Barrel) und Java (Imports + Package-Index + Spring-Heuristiken). Siehe Sektion 4.5.3.1 Stufe 2. | Sparring mit ChatGPT |
-| F2 | Bundle-Größen-Grenzen | 350 KB unkomprimiert. Priorisierung nach Autoritätsklasse bei Überschreitung. Siehe Sektion 4.5.3.1. | Nutzer-Entscheidung |
-| F3 | Preflight-Kosten für kleine Stories | Immer volles Programm, keine Story-Größen-Abhängigkeit. LLMs schätzen Story-Größen nicht zuverlässig. | Nutzer-Entscheidung |
-| F4 | Divergenz-Mechanismus | Quorum statt Scoring. Verdikt A != Verdikt B → dritter Reviewer (Tiebreaker), 2 gegen 1 gewinnt. QA-Agent steuert eigenständig. Kein deterministisches Score-Modell. | Nutzer-Entscheidung |
-| F5 | Rückwirkung auf Worker-Templates | Template-Update der Worker-Prompts (worker-implementation.md, worker-bugfix.md). Kein konzeptuelles Problem, reine Umsetzungsaufgabe. | Nutzer-Entscheidung |
+| # | Frage | Entscheidung |
+|---|-------|-------------|
+| F1 | Sprachspezifische Extraktion TS/Java | Detailliertes Pattern-Set für TS (6 Klassen + Alias + Barrel) und Java (Imports + Package-Index + Spring-Heuristiken). Siehe Sektion 4.5.3.1 Stufe 2. |
+| F2 | Bundle-Größen-Grenzen | 350 KB unkomprimiert. Priorisierung nach Autoritätsklasse bei Überschreitung. Siehe Sektion 4.5.3.1. |
+| F3 | Preflight-Kosten für kleine Stories | Immer volles Programm, keine Story-Größen-Abhängigkeit. LLMs schätzen Story-Größen nicht zuverlässig. |
+| F4 | Divergenz-Mechanismus | Quorum statt Scoring. Verdikt A != Verdikt B → dritter Reviewer (Tiebreaker), 2 gegen 1 gewinnt. QA-Agent steuert eigenständig. Kein deterministisches Score-Modell. |
+| F5 | Rückwirkung auf Worker-Templates | Template-Update der Worker-Prompts (worker-implementation.md, worker-bugfix.md). Kein konzeptuelles Problem, reine Umsetzungsaufgabe. |

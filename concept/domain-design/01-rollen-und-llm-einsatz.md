@@ -43,8 +43,6 @@ glossary:
 
 # 01 — Spezialisierte Rollen und LLM-Einsatz
 
-**Quelle:** Konsolidiert aus agentkit-domain-concept.md, Kapitel 4
-**Datum:** 2026-04-02
 **Übersicht:** [00-uebersicht.md](00-uebersicht.md)
 
 ---

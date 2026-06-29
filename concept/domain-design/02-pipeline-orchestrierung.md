@@ -59,8 +59,6 @@ glossary:
 
 <!-- PROSE-FORMAL: formal.setup-preflight.state-machine, formal.setup-preflight.invariants, formal.setup-preflight.scenarios, formal.implementation.entities, formal.implementation.commands, formal.implementation.events, formal.implementation.state-machine, formal.implementation.invariants, formal.implementation.scenarios, formal.verify.state-machine, formal.verify.invariants, formal.verify.scenarios, formal.exploration.state-machine, formal.exploration.invariants, formal.exploration.scenarios, formal.story-workflow.state-machine, formal.story-workflow.commands, formal.story-workflow.events, formal.story-workflow.invariants, formal.story-workflow.scenarios -->
 
-**Quelle:** Konsolidiert aus agentkit-domain-concept.md Kapitel 5 + Appendix A/B/C/D/F
-**Datum:** 2026-04-02
 **Übersicht:** [00-uebersicht.md](00-uebersicht.md)
 
 ---
@@ -179,7 +177,7 @@ flowchart TD
     ROUTING -->|Execution Mode| PLAN
     ROUTING -->|Exploration Mode| EXPLORE
 
-    subgraph EXPLORE_PHASE ["Exploration-Phase (REF-034: inkl. Exit-Gate)"]
+    subgraph EXPLORE_PHASE ["Exploration-Phase (inkl. Exit-Gate)"]
         EXPLORE["Story verdichten,<br/>Änderungsfläche lokalisieren,<br/>Lösungsrichtung wählen"]:::exploration
         EXPLORE --> SELF_CONFORM["Selbst-Konformitätsprüfung<br/>gegen Referenzdokumente"]:::exploration
         SELF_CONFORM --> DOC_CHECK["Stufe 1: Dokumententreue-Prüfung<br/>(LLM-basiert, unabhängig)"]:::exploration
@@ -356,16 +354,13 @@ aufgerufen werden. Das Resume derselben Phase (z.B. Exploration nach
 PAUSED, oder Implementation mit aktivem QA-Subflow) ist kein
 Phasenuebergang und wird nicht blockiert.
 
-> **[Entscheidung 2026-05-01]** Die Top-Phase `verify` ist entfallen.
 > Output-QA ist interner Subflow innerhalb der Implementation-Phase
 > (analog zum Exit-Gate der Exploration-Phase). Die Capability
-> `VerifySystem` (BC verify-system) bleibt bestehen und wird sowohl
-> aus `ExplorationPhase` (Exit-Gate, FK-23 §23.5) als auch aus
-> `ImplementationPhase` (QA-Subflow, FK-27) aufgerufen. Es gibt
-> keinen Phasen-Wechsel `verify -> implementation` und kein
-> `verify -> closure` mehr. Siehe
-> `concept/_meta/bc-cut-decisions.md` "Verify als Capability
-> (Variante Y)".
+> `VerifySystem` (BC verify-system) wird sowohl aus `ExplorationPhase`
+> (Exit-Gate, FK-23 §23.5) als auch aus `ImplementationPhase`
+> (QA-Subflow, FK-27) aufgerufen. Es gibt keinen Phasen-Wechsel
+> `verify -> implementation` und kein `verify -> closure`. Siehe
+> `concept/_meta/bc-cut-decisions.md` "Verify als Capability (Variante Y)".
 
 **Status-Pruefung der Vorphase:** Die letzte Phase muss den
 Status COMPLETED haben, bevor die naechste Phase starten darf. Der
@@ -567,9 +562,6 @@ unterschiedlich stark zum Score bei:
 | Fortschritts-Stagnation | Stark | Kein Commit, kein Manifest trotz grüner Tests |
 | Tool-Call-Anzahl | Schwach | Nur als Verstärker, da problemabhängig |
 | LLM-Assessment | Korrekturfaktor | Optionaler asynchroner Sidecar, verschiebt Score um ±10 Punkte |
-
-> **[Entscheidung 2026-04-08]** Element 23 — LLM-Assessment-Sidecar ist Pflicht. Kein Feature-Flag. Der Sidecar ist keine optionale Erweiterung, sondern integraler Bestandteil der Produktionsarchitektur.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 23.
 
 Das Scoring läuft deterministisch im Hook. Ein optionaler
 asynchroner LLM-Assessment-Sidecar kann die Bewertung verfeinern,

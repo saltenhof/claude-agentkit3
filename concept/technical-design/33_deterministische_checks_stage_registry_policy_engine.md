@@ -224,9 +224,9 @@ Die Policy-Engine lädt Artefakte fachlich ueber `ArtifactRecord`
 wird, gilt `_temp/qa/{story_id}/{stage.id}.json` als Standardpfad —
 kein separates Mapping nötig.
 
-**Migration:** Historische Namen wie `qa_review.json`,
+**Export-Kompatibilität:** Abweichende Export-Namen wie `qa_review.json`,
 `semantic_review.json` oder `decision.json` koennen als Legacy-Exporte
-weiterexistieren, sind aber nie die kanonische Referenz. Die Pipeline
+koexistieren, sind aber nie die kanonische Referenz. Die Pipeline
 arbeitet fachlich gegen `artifact_records(kind = stage.id)`; Exportnamen
 sind nur Materialisierungskonvention.
 

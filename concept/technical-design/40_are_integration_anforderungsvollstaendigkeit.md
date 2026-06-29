@@ -116,8 +116,7 @@ Review) und beim Menschen im GitHub-Review. Diese Trennung ist
 beabsichtigt: ARE garantiert Lückenlosigkeit des Prozesses,
 nicht die fachliche Korrektheit des Ergebnisses.
 
-> **[Entscheidung 2026-04-08]** Element 21 — ARE-Integration: Beide Modi sind Produktionspfade. ARE deaktiviert: Pipeline laeuft ohne ARE-Gate. ARE aktiviert: ARE-Gate ist Pflicht, ohne ARE-Bestaetigung kein Merge. Installer entscheidet Modus. Kein Fallback, kein Graceful-Degradation.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 21.
+> ARE-Integration: Beide Modi sind Produktionspfade. ARE deaktiviert: Pipeline laeuft ohne ARE-Gate. ARE aktiviert: ARE-Gate ist Pflicht, ohne ARE-Bestaetigung kein Merge. Installer entscheidet Modus. Kein Fallback, kein Graceful-Degradation.
 
 ## 40.2 Aktivierung
 
@@ -382,7 +381,6 @@ haben. FAIL mit Liste der unbelegten Anforderungen wenn nicht.
 
 ## 40.5b Persistenz: `StoryAreLink`-Edge-Tabelle
 
-[Entscheidung 2026-05-04 — Persistenz der Story↔ARE-Verknuepfung]
 Die Story-seitige Spiegelung der ARE-Anforderungs-Verknuepfung wird
 in der Edge-Tabelle `StoryAreLink` gefuehrt (Anker FK-02 §2.11.4).
 Die Tabelle gehoert dem BC `requirements-and-scope-coverage`. ARE

@@ -82,19 +82,6 @@ formal_refs:
 
 <!-- PROSE-FORMAL: formal.verify.commands, formal.verify.events, formal.verify.invariants -->
 
-> **[Entscheidung 2026-05-01]** Die ehemalige Top-Phase `verify` ist
-> entfallen; Output-QA ist jetzt interner Subflow innerhalb der
-> Implementation-Phase. Der hier beschriebene Feedback- und
-> Remediation-Loop ist Subflow-intern: ein QA-Subflow-FAIL fuehrt
-> nicht mehr zu einem Phase-Wechsel `verify -> implementation`,
-> sondern zu einer Subflow-internen Iteration innerhalb derselben
-> Implementation-Phase (analog zum Exit-Gate der Exploration-Phase,
-> FK-23 §23.5). Der Zaehler heisst jetzt
-> `PhaseMemory.implementation.qa_feedback_rounds` (vormals
-> `PhaseMemory.verify.feedback_rounds`). Siehe
-> `concept/_meta/bc-cut-decisions.md` "Verify als Capability
-> (Variante Y)".
-
 ## 38.1 Feedback-Mechanismus
 
 ### 38.1.1 Maengelliste erzeugen
@@ -173,8 +160,6 @@ Der Remediation-Worker (FK-26 §26.2.3) erhält diese Datei als Input.
 
 ### 38.1.3 Remediation-Loop und Max-Rounds-Eskalation
 
-> **[Entscheidung 2026-04-09, aktualisiert 2026-05-01]** `qa_feedback_rounds` wird nicht im QA-Subflow-Handler inkrementiert. Die Engine verwaltet `phase_memory.implementation.qa_feedback_rounds` als Carry-Forward-Akkumulator: Inkrementierung erfolgt zu Beginn einer neuen Subflow-Iteration innerhalb der Implementation-Phase (nach Worker-Spawn-Anforderung, VOR der erneuten QA-Subflow-Ausfuehrung). Der QA-Subflow-Handler liest `verify_context: QaContext` aus dem `ImplementationPayload`, schreibt aber keine Zaehler. Siehe FK-39 §39.5. [BC-Cut nachgezogen 2026-06-12: Typ ist das viergliedrige `QaContext`-StrEnum (`core_types/qa_context.py:15-30`, autoritativ `bc-cut-decisions.md:84-101`), nicht das abgeloeste v2-`VerifyContext` (zwei Werte).] [Entscheidung 2026-05-01: vormals `phase_memory.verify.feedback_rounds`, Inkrement am Phasenwechsel `verify -> implementation`. Mit Cut der Top-Phase `verify` ist der Loop Subflow-intern; Inkrement an der Subflow-Iteration, kein Phasenwechsel.]
-
 Der QA-Subflow-Remediation-Zyklus ist auf eine konfigurierbare Anzahl
 von Runden begrenzt:
 
@@ -185,14 +170,14 @@ von Runden begrenzt:
   ausschliesslich von der **Engine (Phase Runner)** inkrementiert —
   zu Beginn einer neuen Subflow-Iteration innerhalb der
   Implementation-Phase, NACH dem Guard-Check und VOR Spawn des
-  Remediation-Workers. [Entscheidung 2026-04-09, aktualisiert 2026-05-01]
+  Remediation-Workers.
 - Bei jedem QA-Subflow-FAIL mit verbleibenden Runden:
   `_handle_verify_failure` inkrementiert `qa_feedback_rounds` NICHT
   selbst — er liefert nur das FAILED-Ergebnis zurueck, setzt
   `qa_cycle_status = "awaiting_remediation"` und assembliert den
   Remediation-Worker-Spawn-Contract mit der `feedback.json`-Maengelliste.
   Die eigentliche Inkrementierung erfolgt durch die Engine zu Beginn
-  der naechsten Subflow-Iteration. [Entscheidung 2026-04-09, aktualisiert 2026-05-01]
+  der naechsten Subflow-Iteration.
 - Wenn `qa_feedback_rounds >= max_feedback_rounds` (nach Inkrementierung
   durch die Engine): Status wird `ESCALATED`, `qa_cycle_status` wird
   `"escalated"`. Die Story ist permanent blockiert bis ein Mensch
@@ -204,8 +189,7 @@ von Runden begrenzt:
   invalidiert alle zyklusgebundenen Artefakte (siehe FK-27 §27.2).
   Danach laufen alle vier QA-Subflow-Schichten vollstaendig von vorne.
 
-> **[Entscheidung 2026-05-01]** Es gibt keinen Phasen-Wechsel
-> `verify -> implementation` mehr. Der Remediation-Loop ist eine
+> Der Remediation-Loop ist eine
 > Subflow-interne Iteration innerhalb derselben
 > Implementation-Phase: Worker-Run -> QA-Subflow FAIL ->
 > Subflow-internes `awaiting_remediation` -> Remediation-Worker-Spawn
@@ -296,10 +280,10 @@ evaluator.evaluate(
 Gibt es undokumentierten Drift?
 
 **Bei FAIL:** Story geht in den Feedback-Loop (via S2G → FAIL → §38.1).
-[Korrektur 2026-04-09: Impact-Violation wird ausschließlich durch den
+Impact-Violation wird ausschließlich durch den
 deterministischen Layer-1-Check `impact.violation` (FK-27 §27.4.2) erkannt und
 direkt zu ESCALATED eskaliert. Ein Layer-2-Doc-Fidelity-Befund führt
-immer in den Feedback-Loop — es gibt keinen LLM-basierten Pfad zu ESCALATED.]
+immer in den Feedback-Loop — es gibt keinen LLM-basierten Pfad zu ESCALATED.
 
 ## 38.3 Dokumententreue Ebene 4: Rückkopplungstreue
 

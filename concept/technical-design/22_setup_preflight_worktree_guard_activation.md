@@ -175,10 +175,6 @@ flowchart TD
     MODE --> DONE_FULL(["Setup abgeschlossen<br/>mode: execution|exploration<br/>agents_to_spawn gesetzt"])
 ```
 
-> **[Entscheidung 2026-04-08]** Element 15 — Multi-Repo Worktree Logic ist Produktionsanforderung. `worktree_paths` (Dict: repo-name → Pfad) im Spawn-Vertrag. Runtime-Anforderung fuer Multi-Repo-Zielprojekte. Eine ausgezeichnete Repo-Sonderrolle gibt es seit der Entscheidung 2026-05-04 nicht mehr (siehe §22.6.1, gleichberechtigte Teilnehmer); der Spawn-CWD-Anker ergibt sich deterministisch als `participating_repos[0]` (siehe §22.6.4).
-> Element 29 — Scope-Overlap-Check (Preflight-Check 9) ist Pflicht. Parallele Story-Ausfuehrung ist Produktionsszenario.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Elemente 15, 29.
-
 ## 22.3 Preflight-Gates
 
 ### 22.3.1 Die zehn Checks
@@ -554,8 +550,6 @@ dass der Research-Agent noch einmal ausgeführt werden muss.
 
 Der Phase-State wird gesetzt:
 
-> **[Hinweis 2026-04-08]** Dieses Beispiel zeigt noch die flache PhaseState-Struktur aus v2. In v3 wird PhaseState in StoryContext + PhaseStateCore + PhasePayload (diskriminierte Union) + RuntimeMetadata aufgeteilt. Detailkonzept ausstehend. Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 16.
-
 ```json
 {
   "phase": "setup",
@@ -594,7 +588,7 @@ Implementation- und Bugfix-Stories haben mindestens einen
 teilnehmenden Repo. Concept- und Research-Stories durchlaufen
 diese Phase nicht (§22.5.1) und erhalten keinen Worktree.
 
-[Entscheidung 2026-05-04 — Multi-Repo Schnitt] Alle teilnehmenden
+Alle teilnehmenden
 Repos sind **gleichberechtigt**. Es gibt **keine ausgezeichnete
 Sonderrolle** eines einzelnen Repos. Identifiziert wird ein Repo
 ausschliesslich ueber seinen Repo-Namen aus
@@ -660,7 +654,7 @@ def setup_worktree(story_id: str, repo: RepoEntry,
 
 ### 22.6.4 Worker-Modell bei Multi-Repo
 
-[Entscheidung 2026-05-04 — Worker-Modell bei Multi-Repo] Ein einziger
+Ein einziger
 Worker pro Story, auch bei N teilnehmenden Repos. Der Worker erhaelt
 beim Spawn eine **Worktree-Map** als Kontext (Repo-Name -> Worktree-Pfad)
 und wechselt CWD pro Tool-Call zwischen Worktrees, soweit fachlich noetig.
@@ -700,9 +694,9 @@ notwendige Bedingung fuer das Story-Regime. Er allein aktiviert die
 Guards noch nicht; massgeblich bleibt die spaetere
 Modus-Aufloesung aus Run-Bindung + Lock + Worktree-Match.
 
-Zusätzlich gilt ab AK3:
+Zusätzlich gilt:
 
-- der lokale Projektzustand wird nicht mehr markerbasiert frei
+- der lokale Projektzustand wird nicht markerbasiert frei
   fortgeschrieben
 - der offizielle lokale `Project Edge Client` publiziert nach dem
   zentralen Zustandswechsel ein komplettes Edge-Bundle unter
@@ -766,7 +760,7 @@ Kein Agent kann sie manipulieren — der Pfad
 
 ## 22.8 Modus-Ermittlung
 
-### 22.8.1 Vier Trigger (REF-032)
+### 22.8.1 Vier Trigger
 
 Die Modus-Ermittlung liest die Felder aus `StoryContext`
 (optional ueber dessen `context.json`-Export, nicht aus GitHub).
@@ -781,7 +775,7 @@ zurückgegeben.
 
 ```python
 def determine_mode(context: StoryContext, *, project_root: Path) -> str:
-    """Returns 'execution' or 'exploration'.  REF-032: 4-trigger model."""
+    """Returns 'execution' or 'exploration'.  4-trigger model."""
 
     # Nicht-implementierende Story-Typen: kein Exploration-Check
     if context.story_type not in ("implementation", "bugfix"):
@@ -825,7 +819,7 @@ existierendes Dokument zählt als "kein gültiges Konzept".
 `_has_valid_concept_paths` benötigt das tatsächliche Projekt-Root (nicht
 das CWD). Der Phase Runner übergibt immer explizit `project_root`. Wird
 kein `project_root` übergeben, fällt der Guard auf CWD zurück und loggt
-eine WARNING (REF-032 Bug-Fix).
+eine WARNING.
 
 ### 22.8.2 Entscheidungsregel
 
@@ -840,19 +834,17 @@ eine WARNING (REF-032 Bug-Fix).
 | Unbekannter Feldwert (Change Impact / Concept Quality) | Exploration + WARNING |
 | VektorDB-Konflikt (Flag am Issue) | Exploration (erzwungen, vor Trigger-Auswertung) |
 
-### 22.8.2b Abgeschaffte Kriterien (REF-032)
+### 22.8.2b Bewusst nicht im Modell enthaltene Kriterien
 
-Die folgenden Felder und Kriterien wurden in REF-032 entfernt:
+Das 4-Trigger-Modell verzichtet bewusst auf die folgenden Kriterien:
 
-| Entfernt | Grund |
-|----------|-------|
-| `Requires Exploration` (GitHub Boolean) | Ersetzt durch `Concept Quality = Low` |
+| Kriterium | Grund |
+|-----------|-------|
+| `Requires Exploration` (Boolean-Flag) | Durch `Concept Quality = Low` abgedeckt |
 | `External Integrations` (Boolean) | Redundant zu Trigger 2 (Change Impact) und Trigger 3 (New Structures) |
-| Maturity-Kriterium in `_determine_mode` | Redundant zu `Concept Quality`; das Story-Attribut `Maturity` bleibt im AK3-Story-Backend für andere Zwecke bestehen |
+| Maturity-Kriterium in der Modus-Ermittlung | Redundant zu `Concept Quality`; das Story-Attribut `Maturity` bleibt im AK3-Story-Backend für andere Zwecke bestehen |
 
 ### 22.8.3 Ergebnis im Phase-State
-
-> **[Hinweis 2026-04-08]** Diese Beispiele zeigen noch die flache PhaseState-Struktur aus v2. In v3 wird PhaseState in StoryContext + PhaseStateCore + PhasePayload (diskriminierte Union) + RuntimeMetadata aufgeteilt. Detailkonzept ausstehend. Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 16.
 
 ```json
 {
@@ -923,5 +915,4 @@ Control-Plane-Exporte unter `_temp/governance/`.
 *FK-Referenzen: FK-05-052 bis FK-05-073 (Setup-Phase komplett),
 FK-05-058 bis FK-05-066 (Preflight-Checks 1-9; Check 10 Mode-Konflikt aus FK-24 §24.3.3 nachgezogen),
 FK-05-067 bis FK-05-069 (Worktree, Context, Guards),
-FK-05-070 bis FK-05-073 (Modus-Ermittlung),
-REF-032 (4-Trigger-Modell, ersetzt FK-06-044 bis FK-06-055)*
+FK-05-070 bis FK-05-073 (Modus-Ermittlung)*

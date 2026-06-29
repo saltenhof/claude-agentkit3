@@ -39,8 +39,7 @@ Konzepten.
 | **Konzept-Stories** | Überschneidungen mit bestehenden Konzepten | Duplikatwarnung vor Konzepterstellung | FK-05-042 |
 | **Kontext-Selektion (P6)** | Relevante Regeln und Wissensabschnitte für eine Rolle | Gefiltertes Kontextpaket für Agent-Prompt | FK-04-021 bis FK-04-023 |
 
-> **[Entscheidung 2026-04-08]** Element 22 — VektorDB-Abgleich ist immer aktiv. Keine Feature-Flag-Stufung.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 22.
+> VektorDB-Abgleich ist immer aktiv. Keine Feature-Flag-Stufung.
 
 ## 13.2 Technologie-Stack
 
@@ -303,7 +302,7 @@ betroffene Operation mit einem Fehler abgebrochen (fail-closed).
 ### 13.9.1 Hintergrund
 
 Ein Stichproben-Audit von 5 User Stories zeigte, dass alle 5
-unvollständige Konzept-Referenzen hatten (REF-026). Sechs
+unvollständige Konzept-Referenzen hatten. Sechs
 systematische Fehler-Muster wurden identifiziert: fehlende
 benachbarte Konzepte, ignorierte Appendices, fehlende Fundament-
 Konzepte, unerkannte Konflikte, unvollständige Intra-Dokument-
@@ -610,7 +609,7 @@ schnell (~1s), und führt den VectorDB-Sync als Pflichtschritt durch.
 Der Pre-Commit-Hook (Ring 2) bleibt ausschließlich für die
 Validierung zuständig — er erzeugt keine Artefakte.
 
-**Trigger für VectorDB-Sync (Legacy-Kompatibilität):**
+**Trigger für VectorDB-Sync:**
 
 | Trigger | Methode | Voll/Inkrementell |
 |---------|--------|-------------------|

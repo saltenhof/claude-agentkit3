@@ -45,7 +45,98 @@ einem zentralen State-Backend.
 Das Zielbild: 1-2 Menschen steuern eine Flotte autonomer Agenten, die
 98% der Konzeptions-, Implementierungs- und Absicherungsarbeit an
 geschäftskritischen Systemen (250k+ LOC) leisten. Der Mensch ist
-Stratege und Controller, kein klassischer Entwickler.
+Stratege und Controller, kein klassischer Entwickler. Dieses
+1-2-Verhältnis gilt pro Projekt; AK3 selbst ist als gemeinsam nutzbare,
+zentral betreibbare Capability für Teams und mehrere Projekte ausgelegt
+(§1.1a; DK-00 §1a).
+
+## 1.1a Topologie und Betriebsmodell
+
+Realisierung der fachlichen Leitplanke aus DK-00 §1a. AK3 trennt einen
+zentralen, zustandsbehafteten **Core** von einem dünnen **lokalen Arm pro
+Project Space** — dem git-Checkout eines Zielprojekts mit installiertem AK3
+Project Bundle, Hooks und Project-Edge-Launcher (projektlokal, DK-08). Ein
+Rechner kann mehrere Project Spaces tragen; ein Zielprojekt kann über mehrere
+Project Spaces (Rechner/Entwickler) verteilt sein.
+
+**Core (zentral, ein Dienst).** Der AK3-Core ist ein einzelner, langlebiger,
+zustandsbehafteter Dienst — keine Sammlung kurzlebiger lokaler Prozesse. Er
+hält die autoritative Laufzeit *einschließlich In-Memory-Zustand* (aktive
+Runs, Sessions, in-flight Logs) **und** den kanonischen Postgres-Zustand. Die
+deterministische Geschäfts- und Bewertungslogik — Phase Runner,
+`StructuralChecker`-Steuerung, `PolicyEngine`, `IntegrityGate`,
+Closure-Orchestrierung, Governance-Adjudication — ist Core-Logik (Zone 2,
+§1.4).
+
+**Begründung der Zentralisierung.** Ein Teil des Laufzeitzustands ist immer im
+Speicher und noch nicht persistiert; „zentrale DB + N lokale Instanzen" teilt
+nur den persistierten Teil und wird inkohärent. Zusammen mit dem Lifecycle
+eines lebenden Systems (eine Version, nicht N) und dem Team-Betrieb (DK-00 §1a)
+folgt: **eine autoritative Core-Instanz, nicht verteilte.**
+
+**Mengenverhältnisse (multi-tenant).** Der Core bedient parallel mehrere
+Zielprojekte über mehrere Project Spaces — inklusive desselben Zielprojekts,
+das in mehreren Project Spaces gleichzeitig bearbeitet wird. Runtime- und
+kanonischer Zustand werden je Story-Run geführt, der an genau einen Project
+Space gebunden ist.
+
+**Zwei Deployments, ein Contract.** Der Core läuft wahlweise rechnerlokal
+(Einzel-Stratege) oder zentral auf einem dedizierten Server (Team) — reiner
+Deployment-Schalter, identischer Arm↔Core-Contract.
+
+**Lokaler Arm (pro Project Space, dünn, zustandslos, regelfrei).** Drei
+Akteure, keiner trägt Geschäftsregeln:
+
+| Akteur | Principal (FK-55) | Aufgabe |
+|--------|-------------------|---------|
+| LLM-Agent | `worker` / `orchestrator` | kreative Arbeit (Code, Konfliktauflösung, Design) — geliehene Intelligenz |
+| Deterministischer Executor | `pipeline_deterministic` | fs/worktree-gebundene Mechanik (Build/Test, git), meldet Roh-Records — kein eigener Verstand |
+| Hooks | Plattform (Zone 1) | Tool-Call-Enforcement, lesen lokalen Cache, rufen den Core |
+
+Der Arm hält keinen kanonischen Zustand (§1.2.3) und keine Bewertungslogik.
+
+**Lokalität der Installation.** Zwei Anteile mit unterschiedlicher Lokalität:
+(a) der **Core** ist zentral betreibbar und wird vom Arm ausschließlich über
+den Project-Edge-Client (REST) erreicht — Remoteness ist transparent, weil der
+Client der Adapter ist; (b) die **agentenseitigen Assets** (Prompt-/
+Skill-Bundles) und der **AK3-Client** (Project-Edge, Hook-Skripte) müssen auf
+*jedem Entwicklerrechner lokal* vorliegen, weil der Agent-Harness sie
+transparent als Dateien konsumiert — ein Remote-/HTTP-Zugriff ist für den
+Harness nicht transparent (Harness-Transparenz-Constraint). Die kanonische
+Quelle der Bundles ist zentral (versionierte Registry), die Materialisierung
+erfolgt pro Rechner (Sync, `manifest-contract`-gepinnt, DK-08) — dasselbe
+Muster „kanonisch zentral, lokal materialisiert" wie Edge-Bundle (FK-30) und
+Permission-Export (FK-55). Der Project-Space-Symlink kollabiert nur die
+Duplikation *innerhalb* eines Rechners (alle Project Spaces → eine rechnerweite
+Bundle-Materialisierung); er verweist nie auf den entfernten Core.
+
+**Kommandokanal — technisch unidirektional, fachlich bidirektional.** Die
+Kommunikation geht *immer* vom Arm aus: der Orchestrator-Agent zieht über den
+Project-Edge-Launcher den jeweils nächsten Schritt beim Core ab (Pull-Modell,
+FK-45 §45.1.1); der Core antwortet mit einem fachlichen Response, der auch ein
+Auftrag sein kann (z. B. „Merge-Konflikt auflösen"). **Der Core initiiert nie
+zur Dev-Seite und hat keinen Dateisystem-Zugriff auf den Entwicklerrechner.**
+Im Team-Deployment wird die Zone-2/Zone-3-Grenze (§1.4) damit zur Prozess- und
+Netzgrenze und ist entsprechend härter.
+
+**Drittsystem-Vermittlung (Zwei-Kriterien-Carve-out).** Eine direkte
+Lokal→Infra-Kante ist nur erlaubt, wenn der Aufruf (1) Eigenbedarf des Agents
+ist (nicht AK3-mandatiert) *oder* (2) fs/worktree-gebunden bzw. Bulk ist und
+Core-Vermittlung keinen Kontrollgewinn bringt. Sonst Core-vermittelt:
+
+| 3rd-Party | Core-vermittelt (AK3-mandatiert, Kontrollinteresse) | Lokal-direkt (Ausnahme) |
+|-----------|------------------------------------------------------|-------------------------|
+| Postgres | kanonischer State + Telemetrie | — |
+| LLM-Hub | AK3-Bewertungs-/Adjudication-Calls | Agent-Sparring (MCP) |
+| SonarQube / Jenkins | Konformitätsurteil / CI-Gate | Ad-hoc-Einsicht |
+| GitHub | API-Metadaten + Autorität über Closure | git-Worktree-Mechanik (gh/git-CLI lokal) |
+| ARE | Coverage-Read | Evidence-Upload |
+| Weaviate | — | semantische Suche |
+
+**D1/D2 als Ableitungen.** Dass die deterministische Logik serverseitig läuft
+(D1) und die git-Mechanik lokal unter Core-Autorität (D2), folgt aus diesem
+Betriebsmodell und ist keine eigenständige Entscheidung. Siehe
+`concept/_meta/bc-cut-decisions.md` (Topologie & Betriebsmodell).
 
 ## 1.2 Systemgrenzen
 
@@ -53,39 +144,55 @@ Stratege und Controller, kein klassischer Entwickler.
 
 ```mermaid
 graph TB
-    subgraph DEV["Entwicklermaschine"]
+    subgraph DEV["Entwicklerrechner — Project Space (dünner Arm)"]
 
         subgraph CC["Harness-Session (Claude Code oder Codex; FK-76)"]
-            AGENT["Agent<br/>(Orchestrator / Worker /<br/>QA / Adversarial)"]
-            HOOKS["Hook-Schicht<br/>PreToolUse / PostToolUse<br/>(agentkit Python-Hooks via Harness-Adapter)"]
-            TOOLS["Tool-Ausführung<br/>(harness-spezifische Tool-Namen,<br/>z. B. Bash/Read/Write/Edit/Glob/Grep/Agent)"]
-            SETTINGS["Harness-Settings<br/>(z. B. .claude/settings.json fuer Claude Code,<br/>harness-eigenes Aequivalent fuer Codex)"]
+            AGENT["LLM-Agent<br/>(Orchestrator / Worker /<br/>QA / Adversarial)"]
+            HOOKS["Hook-Schicht<br/>PreToolUse / PostToolUse<br/>(lesen lokalen Cache, rufen Core)"]
+            TOOLS["Tool-Ausführung + det. Executor<br/>(Build/Test, git-Mechanik)"]
+            SETTINGS["Harness-Settings<br/>(.claude/settings.json bzw. Codex-Aequivalent)"]
 
             AGENT -->|"Tool-Aufruf"| HOOKS
             HOOKS -->|"exit 0: erlaubt<br/>exit 2: blockiert"| TOOLS
             SETTINGS -.->|"Hook-Registrierung"| HOOKS
         end
 
+        PE["Project-Edge-Client"]
         REPO["Zielprojekt-Repo<br/>(Git Worktree)"]
         TOOLS -->|"Dateisystem + Git"| REPO
+        AGENT -->|"nächster Schritt"| PE
+        HOOKS -->|"Guard / Telemetrie"| PE
     end
 
-    subgraph EXTERN_MCP["Externe Systeme (via MCP)"]
-        LLM_POOLS["LLM-Session-Pools<br/>(beliebige Implementierung)<br/>MCP: acquire / send / release"]
-        VEKTORDB["Story-Knowledge-Base<br/>(Weaviate via MCP)"]
-        ARE["ARE (optional)<br/>(MCP)"]
+    subgraph CORE_BOX["AK3-Core — zentral oder rechnerlokal (§1.1a)"]
+        CORE["AK3-Core<br/>Phase Runner, Gates,<br/>Orchestrierung + In-Memory-Laufzeit"]
+        PG[("Postgres<br/>kanonischer State")]
+        CORE --> PG
     end
 
-    subgraph EXTERN_OTHER["Externe Systeme (andere Protokolle)"]
-        GITHUB["GitHub<br/>Code-Backend (Repos, Branches, PRs)<br/>(via gh CLI)"]
-        LLM_WEB["LLM-Web-Interfaces<br/>(ChatGPT, Gemini, Grok)"]
+    subgraph TP["3rd-Party — Core-vermittelt"]
+        SONAR["SonarQube"]
+        JENKINS["Jenkins"]
+        GH["GitHub-API"]
+        HUB["LLM-Hub"]
+        ARER["ARE — Coverage-Read"]
     end
 
-    TOOLS -->|"MCP stdio"| LLM_POOLS
-    TOOLS -->|"MCP stdio"| VEKTORDB
-    TOOLS -->|"MCP"| ARE
-    TOOLS -->|"gh CLI"| GITHUB
-    LLM_POOLS -->|"impl.-spezifisch"| LLM_WEB
+    subgraph DIRECT["Lokal-direkte Ausnahmen (Carve-out §1.1a)"]
+        WV["Weaviate (Semantik)"]
+        AREW["ARE — Evidence-Upload"]
+    end
+
+    PE -->|"Pull / REST — Arm initiiert"| CORE
+    CORE --> SONAR
+    CORE --> JENKINS
+    CORE --> GH
+    CORE --> HUB
+    CORE --> ARER
+    TOOLS -.->|"MCP — Agent-Sparring"| HUB
+    TOOLS -.->|"MCP"| WV
+    TOOLS -.->|"Evidence"| AREW
+    TOOLS -.->|"gh/git CLI — Worktree-Mechanik"| GH
 ```
 
 
@@ -107,7 +214,11 @@ graph TB
 | Git | Versionskontrolle | CLI (`git`) |
 | GitHub | Code-Backend (Repos, Branches, PRs) | CLI (`gh`) |
 
-**Externe Dienste** (via MCP, austauschbar):
+**Externe Dienste** (austauschbar). Vermittlung nach dem §1.1a-Carve-out:
+AK3-mandatierte Bewertungs-/Adjudication-Aufrufe (LLM-Hub) und
+ARE-Coverage-Reads laufen über den Core; die unten gezeigten MCP-Direktpfade
+gelten für Agent-Eigenbedarf (LLM-Sparring) und read-mostly-Zugriffe
+(Weaviate, ARE-Evidence):
 
 | Dienst | Schnittstelle zu AgentKit | Anforderung |
 |--------|--------------------------|-------------|
@@ -200,9 +311,10 @@ Fachlogik bleibt lokal in der Komponente.
 
 - Kein CI/CD-System — es ersetzt keine Build-Pipeline, sondern
   orchestriert Agenten, die in einer solchen arbeiten.
-- Kein projektlokaler AgentKit-Server — Zielprojekte enthalten keine
-  eigene AgentKit-Runtime. Das State-Backend ist zentral und vom
-  Projekt entkoppelt.
+- Kein in das Zielprojekt eingebetteter AgentKit-Server — das
+  Zielprojekt-Repo enthält keine AgentKit-Runtime. Die Runtime ist der
+  zentrale Core (§1.1a), vom Projekt entkoppelt; er kann rechnerlokal oder
+  auf einem dedizierten Server betrieben werden.
 - Kein LLM-Anbieter — es nutzt LLMs ueber Harness-Sessions (Claude
   Code mit Anthropic-Modellen, Codex mit OpenAI-Modellen; FK-76)
   sowie ChatGPT, Gemini und Grok als externe Dienste.
@@ -285,11 +397,12 @@ sequenceDiagram
 mit Dateisystem-Zugriff. Wird für Worker und Adversarial Agent
 eingesetzt.
 
-**LLM als Bewertungsfunktion:** Deterministisches Python-Skript ruft
-ein LLM über Browser-Pool (MCP) auf. Der Pool-Call (`chatgpt_send`,
-`gemini_send`, `grok_send`) sendet einen strukturierten Prompt und
+**LLM als Bewertungsfunktion:** Deterministische Core-Logik ruft ein LLM
+über den zentralen LLM-Hub-Gateway des Core auf (§1.1a-Carve-out:
+AK3-mandatierte Bewertung ist Core-vermittelt, nicht MCP-direkt vom
+Entwicklerrechner). Der Aufruf sendet einen strukturierten Prompt und
 empfängt eine Textantwort, die als JSON geparst wird. Kein
-Dateisystem-Zugriff. Kein autonomes Handeln. Das Skript validiert
+Dateisystem-Zugriff. Kein autonomes Handeln. Der Core validiert
 die Antwort und entscheidet, die Pipeline entscheidet.
 
 ### P4: Rollentrennung durch technische Mittel
@@ -370,8 +483,10 @@ Optionale Dependencies:
 setzt eine zentrale PostgreSQL-Instanz als State- und Analytics-Store
 voraus. Der passende Treiber ist deshalb Teil der Runtime-
 Implementierung, auch wenn er nicht zum minimalen Agenten-Kern gehört.
-Externe Systeme werden über CLI-Tools (`gh`, `git`), MCP-Protokoll
-oder die zentrale Postgres-Infrastruktur angesprochen.
+Postgres wird ausschließlich vom Core angesprochen. Weitere Drittsysteme
+folgen dem Carve-out aus §1.1a: Core-vermittelt bei AK3-mandatiertem
+Kontrollinteresse, lokal-direkt über CLI/MCP nur bei fs/worktree-Bindung,
+Bulk-Evidenz oder Eigenbedarf des Agents.
 
 ### P8: Datenformate
 
@@ -527,7 +642,7 @@ flowchart TD
 | Telemetrie-Events (Laufzeit) | PostgreSQL | — | Kanonischer State-Backend-Store (P8); JSONL ist Archiv-/Export-Format, kein kanonischer Laufzeitspeicher |
 | QA-Artefakte | Strukturierte Records in PostgreSQL | — | Kanonisch im State-Backend (P8); optionale JSON-Exporte sind abgeleitetes Format, nicht dateibasiert kanonisch |
 | VCS | Git | 2.30+ | CLI (`git`) |
-| GitHub | GitHub API | REST v3 | CLI (`gh`) |
+| GitHub | GitHub API | REST v3 | git-Mechanik lokal via `gh`/`git`; API-Metadaten Core-vermittelt (§1.1a, D2) |
 | VektorDB | Weaviate | 1.25+ | gRPC + HTTP REST |
 | Embedding | text2vec-transformers | — | Docker Sidecar |
 | VektorDB-MCP | FastMCP | 1.2+ | stdio-Transport |

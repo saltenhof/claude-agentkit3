@@ -80,42 +80,13 @@ Volldefinition mit Heuristiken, Erkennungstests und Beispielen:
 
 ## 7.4 Normativer Top-Level-Schnitt
 
-> **Aspirations-Hinweis zur Port-Nomenklatur (§7.4.1–§7.4.6):** Die in
-> den Spalten „Provided Contracts" gefuehrten Port-Namen sind **Zielbild
-> (aspirational)**, nicht durchgaengig als literale Code-Symbole
-> implementiert oder maschinell erzwungen. Das ist konsistent mit §7.6
-> (Repository-Regel „noch im Umbau, normativ aber nicht vollumfaenglich
-> maschinell erzwungen") und §7.7.4 (vollstaendige Repository-Konformanz
-> je A-Komponente „bewusst noch nicht voll maschinell erzwungen"). Die
-> real existierenden Ports tragen heute teils abweichende, funktions-
-> bezogene Namen. Belege:
->
-> - Der in §7.4.1 genannte `StoryContextPort` existiert **nicht** als
->   Symbol. Das reale Pendant heisst `StoryContextQueryPort` (Protocol-
->   Definition `src/agentkit/backend/verify_system/protocols.py:120`; verwendet in
->   `src/agentkit/backend/verify_system/system.py:102` `_NullStoryContextPort`,
->   `:129` Default-Alias, `:185` Feld; gespiegelt in
->   `src/agentkit/backend/exploration/ports.py:10`).
-> - Reale Protocol-Ports der Exploration-Phase tragen funktionsbezogene
->   Namen statt der FK-07-Contract-Namen:
->   `src/agentkit/backend/exploration/ports.py:36` `RunScopeResolver`,
->   `:57` `ChangeFrameReader`, `:82` `WorkerDraftPresenceReader`,
->   `:111` `ChangeFrameWriter`, `:152` `DeclaredImpactReader`.
-> - Die Closure-Runtime-Ports tragen ebenfalls funktionsbezogene,
->   nicht die §7.4-Contract-Namen
->   (`src/agentkit/backend/closure/runtime_ports.py:104` `ProductiveSanityGatePort`,
->   `:202` `ProductiveDocFidelityFeedbackPort`,
->   `:260` `ProductiveVectorDbSyncPort`,
->   `:390` `ProductiveTelemetryEvidencePort`,
->   `:495` `ProductiveGuardDeactivationPort`,
->   `:522` `ProductiveGuardCounterFlushPort`,
->   `:563` `ProductiveModeLockReleasePort`).
->
-> **Owner pro Wert:** Die Doku-Angleichung (dieser Hinweis) erfolgt hier.
-> Eine etwaige spaetere Vereinheitlichung der Port-Namen im Code ist
-> **Code-Folgearbeit ohne aktuellen Backlog-Owner** und wird **nicht** in
-> einer doc-only-Story gefixt; sie ist als PO-Eskalation gegen die
-> jeweils betroffenen BCs zu fuehren (vgl. Remediation-Report AG3-104).
+> **Port-Nomenklatur (§7.4.1–§7.4.6):** Die in den Spalten „Provided
+> Contracts" gefuehrten Port-Namen benennen die fachlichen
+> Ziel-Vertraege je Komponente. Sie sind Vertrags-Zielbild; eine
+> konkrete Implementierung darf ihre Symbole funktionsbezogen anders
+> benennen, solange der Vertrag erfuellt ist. Maschinell erzwungen
+> werden die Import- und Mutationsgrenzen (§7.7–§7.9), nicht die
+> literalen Port-Symbolnamen.
 
 ### 7.4.1 Story- und Ausfuehrungskern
 
@@ -127,28 +98,14 @@ Volldefinition mit Heuristiken, Erkennungstests und Beispielen:
 | `StoryExecutionLifecycleService` | A | owns Session-/Run-Binding, Story-Execution-Lock, Edge-Bundle-Metadaten und idempotente Lifecycle-Mutationen | `SessionBindingPort`, `StoryExecutionLockPort`, `EdgeBundlePort`, `ExecutionLifecycleMutationPort` |
 | `WorktreeManager` | A | owns Worktree- und Branch-Lifecycle fuer Story-Ausfuehrungen und administrative Story-Eingriffe | `WorktreePort` |
 
-> **Drift-Hinweis `WorktreeManager` (Soll-Schnitt steht, Code weicht ab —
-> Owner existiert bereits):** Der **Soll-Schnitt** ist eine **shared
-> Komponente** `agentkit.worktree_manager` (`bc-cut-decisions.md:275-283`:
-> `component_kind: shared`, `allowed_importers: PipelineEngine,
-> StoryContextManager`, exportierte Symbole `WorktreeManager.create`/
-> `.merge`/`.cleanup`/`.exists`) mit **explizitem Owner**
-> `owner_group_id: architecture-conformance.group.story_context_manager`
-> (`bc-cut-decisions.md:278`). PROJECT_STRUCTURE.md fuehrt den shared-BC
-> bereits (`PROJECT_STRUCTURE.md:219`, `:297`). Der Port-Name `WorktreePort`
-> ist — wie der Aspirations-Hinweis oben — Zielbild und existiert noch
-> nicht als literales Symbol. **Code-Realitaet (Drift):** Es gibt heute
-> **keinen** Backend-Namespace `src/agentkit/backend/worktree_manager/`; die
-> Worktree-Logik ist verstreut auf
-> `src/agentkit/backend/governance/setup_preflight_gate/worktree.py` (Setup) und
-> `src/agentkit/backend/closure/multi_repo_saga.py` (Merge/Teardown). **Owner pro
-> Wert:** Die FK-/PROJECT_STRUCTURE-Prosa bleibt beim Soll-Schnitt; der
-> Drift ist ein **Code-Bedarf gegen den bestehenden, geowneten Soll-Owner
-> `story_context_manager`** (BC `story-lifecycle`) — **nicht** ein
-> owner-loser Befund. Da keine konkrete Backlog-Story den Umzug traegt,
-> wird der Code-Bedarf als nummerierte PO-Eskalation (CP1) gegen
-> `story-lifecycle`/`story_context_manager` gefuehrt (Remediation-Report
-> AG3-104); **kein** Code-Fix in dieser doc-only-Story.
+> **`WorktreeManager`:** Der Soll-Schnitt ist eine **shared Komponente**
+> `agentkit.worktree_manager` (`component_kind: shared`, importierbar durch
+> `PipelineEngine` und `StoryContextManager`, exportierte Symbole
+> `WorktreeManager.create`/`.merge`/`.cleanup`/`.exists`) mit Owner-Gruppe
+> `architecture-conformance.group.story_context_manager` (BC
+> `story-lifecycle`); siehe `bc-cut-decisions.md` und PROJECT_STRUCTURE.md.
+> Der Port-Name `WorktreePort` ist — wie die uebrigen Port-Namen —
+> Vertrags-Zielbild.
 
 ### 7.4.2 Governance- und QA-Kern
 
@@ -214,8 +171,8 @@ Diese Bausteine sind notwendig, aber keine Fachkomponenten:
 | `ConceptCatalog` | R | Foundation-Adapter zum Markdown-Konzept-Korpus, FK-Doc-Resolver (FK-74) |
 | `StateBackendDriver` | T | physischer Postgres-/SQLite-Treiber, Transaktionen, SQL und Serialisierung |
 
-`HookRuntime` taucht hier **nicht** mehr auf, weil die Hook-Auswertung
-seit `entities.md` Version 19 in zwei Subs von `GuardSystem` lebt:
+`HookRuntime` ist hier **keine** eigene Komponente, weil die
+Hook-Auswertung in zwei Subs von `GuardSystem` lebt:
 `GuardEvaluation` (A-Kern, harness-neutral) und
 `HarnessAdapters.{Harness}` (pro Harness eine lokalisierte AT-Mediation
 — aktuell `claude_code` und `codex` (FK-76 §76.4), kuenftig z.B.
@@ -228,13 +185,12 @@ zulaessiger Top-Level-Baustein. GitHub, LLM-Pools, ARE und VectorDB
 bleiben getrennte Adapter und duerfen nicht durch ein Kategorielabel zu
 einer scheinfachlichen Komponente zusammengefasst werden.
 
-**Geparkt:** Vollstaendige Bluttypen-Klassifikation der bestehenden
-`boundary_modules` (`shared`, `config`, `filesystem`,
-`state_persistence_scope`) wurde noch nicht im Detail durchgezogen.
-`shared` ist seit dieser Iteration als Bluttyp `0` (Null-Software)
-modelliert (`entities.md` `boundary.shared`); die anderen werden bei
-Bedarf nachgezogen, sobald ihre fachneutralen Anteile sauber von ihren
-Konventions-Anteilen trennbar sind.
+**Bluttypen der `boundary_modules`:** `shared` ist als Bluttyp `0`
+(Null-Software) modelliert (`entities.md` `boundary.shared`). Die
+uebrigen `boundary_modules` (`config`, `filesystem`,
+`state_persistence_scope`) werden klassifiziert, sobald ihre
+fachneutralen Anteile sauber von ihren Konventions-Anteilen trennbar
+sind.
 
 ## 7.6 Repository-Regel
 
@@ -242,9 +198,7 @@ Fachkomponenten haengen nicht an `agentkit.backend.state_backend.store` als
 generischer Mega-Fassade. Die Zielarchitektur verlangt
 komponentenspezifische Repository-Vertraege.
 
-Die aktuelle Codebasis ist an dieser Stelle noch im Umbau. Solange der
-Refactoring-Schnitt `A4` aus dem Architektur-Workbook nicht vollzogen
-ist, bleibt diese Regel normativ, aber nicht vollumfaenglich
+Diese Regel ist normativ, wird aber zunaechst nicht vollumfaenglich
 maschinell erzwungen. Die maschinell erzwungenen Invarianten in diesem
 Kapitel konzentrieren sich deshalb zuerst auf robuste Import- und
 Adaptergrenzen.
@@ -285,9 +239,10 @@ Sie prueft importbasiert:
 Diese Schicht ist bewusst ein pragmatischer Zwischenschritt:
 
 - sie verhindert neue Architekturdrift sofort fail-closed
-- sie fixiert die heutige erlaubte Write-Surface deterministisch
-- sie ersetzt noch nicht die spaetere vollstaendige
-  Repository-Konformanz je A-Komponente
+- sie fixiert die jeweils etablierte erlaubte Write-Surface
+  deterministisch
+- sie ersetzt nicht die vollstaendige Repository-Konformanz je
+  A-Komponente
 
 ### 7.7.4 Was bewusst noch nicht voll maschinell erzwungen ist
 

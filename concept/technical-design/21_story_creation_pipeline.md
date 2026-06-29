@@ -147,7 +147,7 @@ flowchart TD
 
     subgraph FIELDS_PHASE ["Feldbelegung"]
         FIELDS["Story-Typ, Größe,<br/>Modul, Akzeptanzkriterien<br/>bestimmen"]
-        FIELDS --> MODE_FIELDS["Modus-Felder setzen<br/>(REF-032, 4-Trigger):<br/>Change Impact,<br/>New Structures,<br/>Concept Quality"]
+        FIELDS --> MODE_FIELDS["Modus-Felder setzen<br/>(4-Trigger):<br/>Change Impact,<br/>New Structures,<br/>Concept Quality"]
         MODE_FIELDS --> CONCEPT_REF["Konzeptquellen +<br/>externe Quellen<br/>referenzieren (s. 21.3.3)"]
         CONCEPT_REF --> ARE_CHECK{"ARE<br/>aktiviert?"}
 
@@ -287,7 +287,7 @@ gilt folgende Regel:
 | **Implementation** | Empfohlen; Story-Ersteller bewertet Verfügbarkeit und Reife | High/Medium/Low (Pflicht) | Trigger 1 (keine Pfade) oder Trigger 4 (Low) |
 | **Bugfix** | Optional — Bug kann konzeptbezogen sein oder rein technisch | High/Medium/Low (Pflicht) | Trigger 4 (Low) möglich, aber selten |
 
-REF-032 + Remediation: `Requires Exploration` wurde entfernt. `Concept Quality`
+`Concept Quality`
 (Pflichtfeld mit Werten High/Medium/Low, Default: High) steuert Exploration als
 Trigger 4 des 4-Trigger-Modells (Kap. 22). Fehlende Konzept-Pfade lösen Trigger 1 aus.
 
@@ -303,8 +303,7 @@ nicht-deterministische Ermessensentscheidung des Story-Erstellers.
 Die Absicherung erfolgt über die obligatorische Peer-Review jeder
 Story vor Freigabe.
 
-> **[Entscheidung 2026-04-08]** Element 22 — VektorDB-Abgleich ist immer aktiv. Keine Feature-Flag-Stufung.
-> Siehe `stories/entscheidung-v2-ballast-bewertung.md`, Element 22.
+> VektorDB-Abgleich ist immer aktiv. Keine Feature-Flag-Stufung.
 
 ## 21.4 VektorDB-Abgleich
 
@@ -460,8 +459,7 @@ Bearbeitung:
 | `New Structures` | Agent prüft: Werden neue APIs, Datenmodelle, Services eingeführt? (true/false) |
 | `Concept Quality` | Agent bewertet: High (vollständige Konzepte), Medium (lückenhaft), Low (keine oder zu grobe Konzepte). Pflichtfeld, Default: High. |
 
-REF-032 + Remediation: `Maturity`, `External Integrations` und `Requires Exploration`
-wurden entfernt. `Concept Quality` (High/Medium/Low) ist das neue Pflichtfeld.
+`Concept Quality` (High/Medium/Low) ist das neue Pflichtfeld.
 
 **Qualität dieser Felder:** Die Modus-Ermittlung ist fail-closed
 (Kap. 22/23). Wenn der Agent ein Feld falsch einschätzt (z.B. Impact

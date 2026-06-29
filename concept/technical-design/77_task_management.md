@@ -19,7 +19,7 @@ defers_to:
     reason: Persistenz und Projektionen laufen ueber telemetry-and-events als Speicher-Substrat
   - target: FK-29
     scope: closure-producer
-    reason: Closure ist erster Producer von Tasks; die konkrete Einspeise-Verdrahtung wird im Rewire-Schritt in FK-29 verankert
+    reason: Closure ist erster Producer von Tasks; die konkrete Einspeise-Verdrahtung ist in FK-29 verankert
 supersedes: []
 superseded_by:
 formal_refs:
@@ -135,7 +135,7 @@ Menschen und andere BCs — Tasks anlegen, verlinken, schliessen **und lesen**:
   filter: status | type | kind | origin)`,
   `list_tasks_for_target(project_key, target_kind, target_id)` fuer die
   Rueckschau von der Story-Detailseite, sowie
-  `list_task_links(project_key)` (AG3-105/AK11): liefert alle `TaskLink`-Kanten
+  `list_task_links(project_key)`: liefert alle `TaskLink`-Kanten
   einer Projekt-Partition, damit eine Task-Listensicht die *eigenen*
   (ausgehenden) Links pro Task in EINEM Read aus der Backend-Wahrheit
   hydrieren kann (kein Session-Schattenstate). Diese Read exponiert nur das
@@ -155,12 +155,13 @@ frontend-contracts) katalogisiert, wenn ein konkreter Konsument
 modelliert ist — ein Event rechtfertigt sich ueber seinen Konsumenten,
 nicht seinen Emittenten.
 
-## 77.8 Offene Folgeaenderungen (separate Freigabe)
+## 77.8 Producer- und Sicht-Verankerung in anderen Konzepten
 
-Nicht Teil dieses Dokuments und als eigener Schritt zu verankern:
+Die Verdrahtung der Task-Producer und der Frontend-Sicht ist in den
+jeweils zustaendigen Konzepten verankert:
 
-- Rewire der Producer-Verdrahtung in **FK-38** (Rueckkopplungstreue Ebene
-  4) und **FK-29** (Closure / `PostMergeFinalization`): Ergebnis fliesst
-  in einen Task statt in den Failure Corpus (FK-41).
-- Frontend „Tasks / Offene Punkte"-Sicht in **FK-72** und
-  `frontend-contracts`.
+- Producer sind die Rueckkopplungstreue Ebene 4 (**FK-38**) und Closure /
+  `PostMergeFinalization` (**FK-29**): deren Ergebnis fliesst in einen
+  Task statt in den Failure Corpus (FK-41).
+- Die Frontend-Sicht „Tasks / Offene Punkte" ist in **FK-72** und
+  `frontend-contracts` verortet.

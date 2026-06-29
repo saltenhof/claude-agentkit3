@@ -348,11 +348,11 @@ beeinflussen Pipeline-Verhalten für genau diese Story:
 Telemetrie-Werte; sie werden nicht hier gepflegt, sondern in der
 Telemetrie-DB ausgewertet (FK-68).
 
-**Modus-Ermittlung** (REF-032 + Remediation: 4-Trigger-Modell) liest die Felder
+**Modus-Ermittlung** (4-Trigger-Modell) liest die Felder
 `Story Type`, `Change Impact`, `New Structures` und `Concept Quality` sowie
 Konzeptpfade (`concept_paths` als Story-Attribut aus dem AK3-Story-Backend) über `StoryContext`
 bzw. dessen `context.json`-Export.
-`Maturity`, `External Integrations` und `Requires Exploration` wurden entfernt.
+`Maturity`, `External Integrations` und `Requires Exploration` gehören nicht zum Trigger-Modell.
 
 ### Ebene 4: Aufruf-Parameter
 

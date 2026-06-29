@@ -105,7 +105,7 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
 | `/v1/project-edge/sync` | `POST` | Lokalen Edge-Bundle-Stand fuer einen Projekt-Client bounded neu abgleichen |
 | `/v1/project-edge/operations/{op_id}` | `GET` | Unklare Remote-Lage eines mutierenden Requests ueber `op_id` reconciliieren |
 | `/v1/telemetry/events` | `POST` | Kanonisches Telemetrie-Event ingestieren |
-| `/v1/projects/{project_key}/planning/dependency-graph` | `GET` | Projektgebundenen Abhaengigkeits- und Konfliktgraph lesen. Pfad-Autoritaet: Code `execution_planning/http/routes.py:51-52` (`_DEPENDENCY_GRAPH_PATH`); FK-72 §72.8.2 + AG3-091. Endpunkt-Bau: AG3-091. |
+| `/v1/projects/{project_key}/planning/dependency-graph` | `GET` | Projektgebundenen Abhaengigkeits- und Konfliktgraph lesen (FK-72 §72.8.2) |
 | `/v1/projects/{project_key}/planning/ready-set` | `GET` | Aktuell `READY`, blockierte und konfliktierte Stories mit Gruenden lesen |
 | `/v1/projects/{project_key}/planning/execution-plan` | `GET` | Kritischen Pfad, Waves, empfohlenen Batch und maximale Parallelisierung lesen |
 | `/v1/projects/{project_key}/planning/proposals` | `POST` | Strukturierte Agenten- oder Analyse-Proposals fuer Abhaengigkeiten, Gates und Waves offiziell einreichen |
@@ -173,10 +173,7 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
    -Story-Attribute. Sie duerfen optional als read-only Anzeige
    gespiegelt werden, treiben aber keinen Story-Lifecycle.
 10. Jeder CLI-Befehl in §91.1 ist Adapter auf einen
-    Control-Plane-Endpoint. Wo der Endpoint hier noch nicht
-    aufgefuehrt ist (z. B. `reset-story`, `split-story`, `exit-story`,
-    `resolve-conflict`, `approve-permission-request`), gilt das als
-    offene Konzept-Schuld; eigenstaendige CLI-Implementierungen ohne
+    Control-Plane-Endpoint. Eigenstaendige CLI-Implementierungen ohne
     API-Vertrag sind unzulaessig.
 
 ## 91.1 Operator-Recovery-CLI (agentkit)
@@ -497,7 +494,7 @@ zu holen. Es gibt keinen Sequence-Cursor, kein Acknowledge-Protokoll.
 ### 91.8.3 Event-Topics (projekt-skopierter Stream)
 
 Der Katalog der unter `/v1/projects/{key}/events` gestreamten Topics
-entwickelt sich mit dem Implementierungsstand. Die folgenden Topics
+ist ueber das formale Set erweiterbar. Die folgenden Topics
 sind als verbindliche Bereiche festgelegt; die Spalte
 "Wire-Schemas" verweist auf die formalen Event-IDs in
 `formal.frontend-contracts.events`. Erweiterungen werden ueber das

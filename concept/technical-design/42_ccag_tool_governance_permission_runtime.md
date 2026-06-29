@@ -99,9 +99,7 @@ technisch: Guards erzwingen nicht verhandelbare Regeln; CCAG verwaltet
 persistente, vom Menschen gelernte Freigaben.
 
 **Soll-Namespace:** Der BC-Cut und `PROJECT_STRUCTURE.md` verorten diese
-Komponente unter `agentkit.backend.governance.ccag_permission_runtime`. Der
-heutige Code-Pfad `agentkit.backend.governance.ccag` ist eine Code-Verzeichnis-
-Divergenz und kein Grund, die FK-Prosa auf `ccag` zurueckzuziehen.
+Komponente unter `agentkit.backend.governance.ccag_permission_runtime`.
 
 **Capability-Grenze:** Seit FK-55 gilt explizit: CCAG ist kein
 Capability-Escalation-System. CCAG darf nur innerhalb eines bereits
@@ -373,14 +371,6 @@ Adapter (FK-76 §76.5): unter Claude Code via
 Adapter normalisiert; CCAG selbst arbeitet auf den
 harness-neutralen `HookEvent`-Feldern (`operation`, `operation_args`,
 `principal_kind`).
-
-[Implementierungsanker 2026-05-04] Die AK3-CCAG-Implementierung steht
-aus. Fachliche Vorlage in AK2: `agentkit/governance/ccag_gatekeeper.py`
-und das Regelbundle unter `ccag/bundle/`. AK3 setzt das im BC
-`governance-and-guards` als eigenstaendigen Sub um (kein Teil von
-`GuardSystem`, siehe §42.1). Die Angleichung des Code-Verzeichnisses an
-`agentkit.backend.governance.ccag_permission_runtime` bleibt Code-Folgeauftrag
-der ausstehenden governance-/CCAG-Implementierung.
 
 ## 42.6 Zusammenspiel CCAG und Guards
 

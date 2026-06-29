@@ -188,9 +188,9 @@ Secrets werden an **zwei Stellen** abgefangen:
 
 **Stufe 1: Pre-Commit-Hook (verhindert das Entstehen)**
 
-> **Hinweis:** Der Pre-Commit-Hook verwendet seit der
-> ConceptContext-Einführung (Kap. 13.9) pfadbasiertes Dispatching
-> für funktionale Checks (Versionsbump, Concept-Validation).
+> **Hinweis:** Der Pre-Commit-Hook verwendet pfadbasiertes
+> Dispatching für funktionale Checks (Versionsbump,
+> Concept-Validation; Kap. 13.9).
 > Die Secret-Detection bleibt davon **unberührt** — sie ist
 > global aktiv und läuft bei jedem Commit, unabhängig von den
 > geänderten Pfaden. Details: Kap. 30.5.3.
@@ -384,9 +384,9 @@ Der Secret-Detection-Check (15.5.2) wirkt präventiv auf Code-Ebene.
 
 ### 15.10.1 Geltungsbereich
 
-Mit der Einfuehrung der Control-Plane-HTTP-Schicht und der dort
-erreichbaren Endpunkte (UI-BFF auf 9701, Project-API auf 9702, vgl.
-FK-10 §10.7) wird API-Authentifizierung erforderlich. AK3 wird primaer
+Die Control-Plane-HTTP-Schicht und ihre erreichbaren Endpunkte
+(UI-BFF auf 9701, Project-API auf 9702, vgl. FK-10 §10.7) machen
+API-Authentifizierung erforderlich. AK3 wird primaer
 **lokal** auf einem Strategen-Laptop betrieben, der gelegentlich in
 fremden Netzwerken haengt — minimaler Schutz gegen netzwerkseitigen
 Drittzugriff ist Pflicht.

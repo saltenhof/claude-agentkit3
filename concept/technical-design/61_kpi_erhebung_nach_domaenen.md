@@ -233,11 +233,8 @@ werden weiterhin in `execution_events` geschrieben. Der
 Scratchpad-Counter ersetzt nur die Volumen-KPI (Nenner der
 Violation-Rate), nicht den Audit-Trail.
 
-**Sparring-Referenz**: Dieses Design entstand aus einem
-3-LLM-Sparring (Claude + ChatGPT + Qwen). Alle drei
-konvergierten auf Counter-statt-Events. ChatGPT schlug
-die Wochen-Granularitaet im Key vor, Qwen das UPSERT-Pattern
-und `WITHOUT ROWID`.
+**Persistenz-Design:** Counter statt Events; Wochen-Granularitaet im
+Key; UPSERT-Pattern mit `WITHOUT ROWID`.
 
 ---
 
