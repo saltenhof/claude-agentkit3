@@ -1,0 +1,16 @@
+story_id: AG3-120
+title: "GitHub-Issue-Story-Kopplung restlos entfernen (issue_nr-Spine, Variante B)"
+type: implementation
+status: ready
+phase: setup
+created: "2026-06-29"
+size: L
+# WP-H aus var/abweichungskarte-zentralisierung.md (KRITISCH). Scope = Variante B
+# (Vollentfernung, Mark&Ask Runde 2): AK3 fuehrt die User-Story selbst
+# (StoryContext.story_id, branch-sicher). GitHub ist nur Code-Backend (FK-12
+# §12.1.1, FK-91 §91.2 Regel 9). Die Konzeptseite ist bereits geradegezogen
+# (Commits 36a55ee + 6c1b6ac); verbleibt ausschliesslich die Code-Seite H1-H6:
+# Issue-CRUD-Adapter, Setup-Issue-Lesen, issue_nr-Modell/-Persistenz, Closure-
+# _close_github_issue (tot), Prompt-Platzhalter #{issue_nr}, CLI --issue-nr.
+depends_on: []
+unblocks: []

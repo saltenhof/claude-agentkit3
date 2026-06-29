@@ -235,6 +235,36 @@ beim Abarbeiten antriffst, melde ihn — entweder das `unblocks`-Feld
 in AG3-014 ist veraltet oder die `depends_on` in AG3-007/AG3-010
 fehlen.
 
+### 6.6 Zentralisierungs-/Architektur-Drift-Remediation (AG3-120…133)
+
+Neuer Batch aus der Soll-/Ist-Abweichungsanalyse „Code vs. Konzept
+(Zentralisierung)" (Belege: `var/abweichungskarte-zentralisierung.md`).
+Beseitigt die Drifts gegen das zentrale-Kern-Leitbild (FK-10 §10.1.0 I1–I6),
+die vertikale Kapselung (FK-07 §7.6) und die GitHub-Issues-Altlast. Autoritativ
+ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben (Foundation zuerst).
+
+| ID | Titel | WP | Größe | Status | depends_on |
+|----|-------|----|-------|--------|------------|
+| AG3-120 | GitHub-Issue-Story-Kopplung entfernen (`issue_nr`-Spine + `issues.py`) | H | L | ready | — |
+| AG3-121 | `/v1`-Versions-Handshake: `GET /v1/compat` + Client-Header + 426 | G | M | ready | — |
+| AG3-122 | Install-Dreifaltigkeit: `serve`/`update`/`detach`/`decommission` + `install`-Rückbau | F | L | blocked | 121 |
+| AG3-123 | Phase-Dispatch von lokalem `project_root` entkoppeln (Kern-Worktree-Bindung) | D | L | ready | — |
+| AG3-124 | Capability-REST: `pipeline_engine` (503-Stub → Server-Ausführung) | D | L | blocked | 123 |
+| AG3-125 | Capability-REST: `verify_system`+`closure`+`governance` | D | L | blocked | 123 |
+| AG3-126 | `story`-BC Read-Port (echte Kapselung statt `state_backend.store`-Re-Export) | I | L | ready | — |
+| AG3-127 | `telemetry`+`project_management` Read-Ports; BFF entkoppeln | I | M | blocked | 126 |
+| AG3-128 | Konformanz-Suite: Repository-Vertrags-Invariante erzwingen (FK-07 §7.6) | I | M | blocked | 126,127 |
+| AG3-129 | Hook→Backend: Guard-Counter/Worker-Health/Telemetrie über REST statt Direkt-DB | A | L | blocked | 124,125 |
+| AG3-130 | Operator-CLI `run-phase` über REST statt in-process Runtime | A | M | blocked | 123,124 |
+| AG3-131 | CCAG Requests/Leases + Mode-Lock-Holder zentral (Postgres+REST) | E | L | blocked | 129 |
+| AG3-132 | Drittsystem-Vermittlung Sonar/Jenkins/ARE über Backend | B | L | blocked | 125 |
+| AG3-133 | LLM-Hub-Evals in den Kern (C1/C3) + Layer-2 produktiv anbinden | C | L | blocked | 125,129 |
+
+**Sofort startbar (`ready`):** AG3-120, AG3-121, AG3-123, AG3-126.
+**Sequenz-Treiber:** WP-D (123→124/125) ist Fundament für die dev-seitigen
+Umstellungen A/B/C/E; WP-I-Read-Ports (126→127→128) laufen unabhängig parallel;
+H/G/F sind voneinander unabhängig.
+
 ## 7. Konzept- und Guardrail-Bezug
 
 - **Konzepte** unter `concept/` sind die Quelle der Wahrheit fuer

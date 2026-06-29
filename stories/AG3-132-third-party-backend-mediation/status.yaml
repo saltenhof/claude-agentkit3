@@ -1,0 +1,18 @@
+story_id: AG3-132
+title: "Drittsystem-Backend-Vermittlung Sonar/Jenkins/ARE (Kern treibt, I2)"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-06-29"
+size: L
+# WP-B (Abweichungskarte Zentralisierung): Sonar/Jenkins/ARE werden in
+# AK3-verantworteten Verify-/Closure-/Setup-/Installer-Vorgaengen in-process
+# auf der Dev-Seite instanziiert (SonarClient/JenkinsClient/AreClient), nicht
+# vom Kern getrieben -> Verstoss gegen FK-10 §10.1.0 I2. Backend hat heute
+# KEINE REST-Route, die diese Drittsysteme vermittelt. Diese Story zieht die
+# Treiber-Instanziierung in den Kern (REST-Vermittlung), waehrend die
+# integration_clients-Adapter duenn bleiben. Git-Mechanik via gh/git bleibt
+# Carve-out (FK-01 §1.1a) und ist explizit OUT of scope.
+depends_on:
+  - AG3-125
+unblocks: []

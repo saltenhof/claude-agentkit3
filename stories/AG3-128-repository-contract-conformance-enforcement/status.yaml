@@ -1,0 +1,11 @@
+story_id: AG3-128
+title: "Repository-Vertrag maschinell erzwingen: Konformanz-Suite + Formal-Spec schliessen die FK-07-§7.6-Luecke"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-06-29"
+size: M
+depends_on:
+  - AG3-126
+  - AG3-127
+unblocks: []

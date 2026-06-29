@@ -1,0 +1,12 @@
+story_id: AG3-124
+title: "pipeline_engine/http: 503-Stub zur realen server-seitigen Capability-Route (Phasen-Ausfuehrung via Kern)"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-06-29"
+size: L
+depends_on:
+  - AG3-123
+unblocks:
+  - AG3-129
+  - AG3-130

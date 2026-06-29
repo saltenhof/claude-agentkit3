@@ -1,0 +1,13 @@
+story_id: AG3-125
+title: "verify_system/closure/governance http: 503-Stubs zu realen server-seitigen Capability-Routen"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-06-29"
+size: L
+depends_on:
+  - AG3-123
+unblocks:
+  - AG3-129
+  - AG3-132
+  - AG3-133

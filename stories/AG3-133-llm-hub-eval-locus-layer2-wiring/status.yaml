@@ -1,0 +1,19 @@
+story_id: AG3-133
+title: "LLM-Hub-Eval-Locus in den Kern + produktive Verify-Layer-2-Anbindung (I2)"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-06-29"
+size: L
+# WP-C (Abweichungskarte Zentralisierung): zwei direkte Dev->Hub-Kanten
+# (Story-Creation Conflict-Adjudication runtime_factory.py:221; Worker-Health-
+# Sidecar sidecar.py:48) muessen in den Kern wandern -> FK-10 §10.1.4 "keine
+# direkte Dev->Hub-Kante". Zusaetzlich PO-Mandat: Verify-Layer-2 defaultet auf
+# FailClosedLlmClient (composition_root.py:1128) und ist damit produktiv inaktiv;
+# muss produktiv + fehlerfrei (fail-closed-korrekt) mit einem realen HubLlmClient
+# verdrahtet werden. Transport (HubClient = FK-75-Adapter) ist konform; der
+# Ausfuehrungsort ist der Verstoss. C2 (Exploration-Fine-Design) -> AG3-125.
+depends_on:
+  - AG3-125
+  - AG3-129
+unblocks: []

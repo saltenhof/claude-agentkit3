@@ -1,0 +1,11 @@
+story_id: AG3-126
+title: "Story-BC: echter veroeffentlichter Read-Port (story.repository) statt generischem State-Backend-Re-Export"
+type: implementation
+status: ready
+phase: setup
+created: "2026-06-29"
+size: L
+depends_on: []
+unblocks:
+  - AG3-127
+  - AG3-128

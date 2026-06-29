@@ -1,0 +1,19 @@
+story_id: AG3-122
+title: "Install-Dreifaltigkeit: ebenen-spezifische Lifecycle-Verben (serve/update/detach/decommission)"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-06-29"
+size: L
+# WP-F aus var/abweichungskarte-zentralisierung.md. SOLL FK-10 §10.2.0 (drei
+# Ebenen Core/Maschine/Projekt), §10.2.5 (serve), §10.2.6, §10.2.8 (update),
+# §10.2.9 (Projekt-Detach / Maschinen-Uninstall / Core-Decommission). Ist:
+# register-project/verify-project/upgrade-project/serve-control-plane/install/
+# uninstall vorhanden; MISSING bare serve, update, detach, decommission;
+# generisches install konflatiert Ebenen -> ebenen-spezifisch zurueckbauen.
+# depends_on AG3-121: `agentkit update` (Ebene 2) liest das Kompatibilitaets-
+# Fenster ueber GET /v1/compat; ohne den Endpunkt ist der Update-Server-Hinweis
+# nicht real testbar (Codex-Review AG3-122).
+depends_on:
+  - AG3-121
+unblocks: []

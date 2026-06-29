@@ -1,0 +1,15 @@
+story_id: AG3-121
+title: "/v1 Versions-Handshake (dev central): GET /v1/compat + 426 fail-closed"
+type: implementation
+status: ready
+phase: setup
+created: "2026-06-29"
+size: M
+# WP-G aus var/abweichungskarte-zentralisierung.md. SOLL FK-91 §91.2 Regel 11 +
+# FK-10 §10.2.7/§10.2.8: jeder Dev->Kern-Request traegt Agent-Runtime-Version +
+# gebundenes Skill-Bundle (Header); Server prueft gegen [min, max] und
+# annonciert recommended/blocked; inkompatibel = fail-closed HTTP 426; Endpoint
+# GET /v1/compat liefert das Fenster. Ist: ABSENT (keine compat-Route, kein
+# Client-Versions-Header, keine 426-Validierung).
+depends_on: []
+unblocks: []
