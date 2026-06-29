@@ -24,7 +24,7 @@ Im Scope sind:
 Nicht Teil dieses Kontexts sind:
 
 - konkrete Template-Inhalte einzelner Prompts
-- LLM-Pool-Protokolle selbst
+- LLM-Hub-Protokolle selbst
 - Skill-Inhalte und Skill-Methodik
 - Datenbanktabellen- und SQL-Details
 

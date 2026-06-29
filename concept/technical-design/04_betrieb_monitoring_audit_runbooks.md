@@ -156,15 +156,16 @@ agentkit weekly-review
 
 ## 4.5 Runbooks
 
-### 4.5.1 LLM-Pool nicht erreichbar
+### 4.5.1 LLM-Hub nicht erreichbar
 
 ```
-Symptom: agentkit status zeigt Pool als ERROR
-Ursache: Pool-Server nicht gestartet oder Login abgelaufen
+Symptom: agentkit status zeigt den LLM-Hub als ERROR
+Ursache: Hub nicht gestartet oder Modell-Login abgelaufen (Hub-intern)
 
 Lösung:
-1. Pool-Server starten (start.cmd für ChatGPT, boot.sh für Gemini/Grok)
-2. Bei Login-Problem: VNC verbinden und manuell einloggen
+1. Hub-Verfügbarkeit/Backends gemäß Hub-Betrieb wiederherstellen
+   (Backend-Start/Login ist Hub-Deploymentdetail, nicht AK3)
+2. Bei Login-Problem: am betroffenen Hub-Backend einloggen (Hub-intern)
 3. Verifizieren: Hub-Health → "ok" (FK-11 §11.2.1)
 ```
 
@@ -320,17 +321,16 @@ Loesung:
 | Ressource | Kosten | Steuerung |
 |-----------|--------|----------|
 | Claude API (Worker, Orchestrator) | API-Kosten pro Token | Story-Größe begrenzen, Feedback-Loops begrenzen (max 3) |
-| LLM-Pools (Browser) | Kostenlos | Kein API-Budget, Pool-Slots begrenzen Parallelität |
+| LLM-Hub (Browser-Backends) | Kostenlos | Kein API-Budget; Slot-Kapazität des Hubs begrenzt Parallelität |
 | Weaviate (Docker) | Lokale Rechenleistung | CPU/RAM des Docker-Containers |
 | GitHub API | Kostenlos (im Rahmen der Rate Limits) | Wenige Aufrufe pro Story |
 | Disk | Lokaler Speicher | Archivierung alter QA-Artefakte |
 
 ### 4.6.2 Parallelitäts-Limits
 
-Die Parallelität ist durch die Pool-Sizes begrenzt (Kap. 10):
-- ChatGPT: 4 Slots (Default)
-- Gemini: 3 Slots (Default)
-- Grok: 3 Slots (Default)
+Die Parallelität ist durch die Slot-Kapazität des LLM-Hubs begrenzt
+(Hub-internes Deploymentdetail; die konkreten Slot-Zahlen pro
+Modell-Backend legt der Hub fest, nicht AK3).
 
 Wenn alle Slots belegt sind, warten nachfolgende Aufrufe in der
 Queue. Das ist eine natürliche Begrenzung der Parallelität —

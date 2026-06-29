@@ -81,8 +81,8 @@ Anders als die Guards (Kap. 30/31) ist Dokumententreue **nicht
 deterministisch**, sondern LLM-basiert. Sie erfordert einen
 semantischen Abgleich, den kein Algorithmus leisten kann. Deshalb
 läuft sie über den StructuredEvaluator (Kap. 11) — ein
-deterministisches Python-Skript ruft ein LLM über den Browser-Pool
-auf und validiert die Antwort.
+deterministisches Python-Skript ruft ein Modell über das
+Unified-REST-Interface des LLM-Hubs auf und validiert die Antwort.
 
 **Architekturzuordnung:** Der `ConformanceService` ist eine
 Subkomponente von `VerifySystem` (`agentkit.backend.verify_system.conformance_service`).

@@ -278,7 +278,7 @@ Der Preflight-Turn ist ein eigenständiger Kommunikationsschritt
 zwischen dem Orchestrator und einem LLM-Reviewer **vor** dem
 eigentlichen Review. Er läuft NICHT über den bestehenden
 `LlmEvaluator`/`StructuredEvaluator` (FK-11), sondern als
-direkter MCP-Pool-Call.
+direkter Hub-Aufruf über das MCP-Interface (FK-11 §11.2.1).
 
 ```mermaid
 sequenceDiagram

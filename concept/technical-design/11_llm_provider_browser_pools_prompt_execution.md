@@ -23,7 +23,7 @@ tags: [llm, multi-llm-hub, prompt, evaluator, mcp]
 formal_scope: prose-only
 ---
 
-# 11 — LLM-Provider, Browser-Pools und Prompt-Execution
+# 11 — LLM-Provider, LLM-Hub und Prompt-Execution
 
 ## 11.1 Zwei Einsatzarten von LLMs
 

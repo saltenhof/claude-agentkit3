@@ -255,17 +255,17 @@ Operator-Recovery-Pfad, kein Agent-Eingangstor.**
 | `agent_end` | 14 | Hook (PostToolUse Agent) | Agent regulär beendet |
 | `increment_commit` | 14 | Hook (PreToolUse Bash) | Worker committet Inkrement |
 | `drift_check` | 14 | Hook (PreToolUse Bash) | Drift-Prüfung Ergebnis |
-| `review_request` | 14 | Hook (PreToolUse Pool-Send) | Worker fordert Review an |
-| `review_response` | 14 | Hook (PostToolUse Pool-Send) | Review-Antwort empfangen |
+| `review_request` | 14 | Hook (PreToolUse Hub-Send) | Worker fordert Review an |
+| `review_response` | 14 | Hook (PostToolUse Hub-Send) | Review-Antwort empfangen |
 | `review_compliant` | 14 | Review-Guard (PostToolUse) | Review über freigegebenes Template |
-| `llm_call` | 14 | LLM-Evaluator / Hook | LLM über Pool aufgerufen |
+| `llm_call` | 14 | LLM-Evaluator / Hook | LLM über den LLM-Hub aufgerufen |
 | `conformance_assessment_started` | 32 | ConformanceService | Dokumententreue-Bewertung begonnen |
 | `conformance_level_evaluated` | 32 | ConformanceService | Dokumententreue-Ebene bewertet |
 | `conformance_assessment_completed` | 32 | ConformanceService | Dokumententreue-Bewertung abgeschlossen |
 | `llm_evaluation_started` | 34 | Verify Layer 2/3 Runner | Layer-2- oder Layer-3-Bewertung gestartet |
 | `llm_evaluation_completed` | 34 | Verify Layer 2/3 Runner | Layer-2- oder Layer-3-Bewertung abgeschlossen |
 | `adversarial_start` | 14 | Hook (PostToolUse Agent) | Adversarial Agent gestartet |
-| `adversarial_sparring` | 14 | Hook (PostToolUse Pool-Send) | Sparring-LLM aufgerufen |
+| `adversarial_sparring` | 14 | Hook (PostToolUse Hub-Send) | Sparring-LLM aufgerufen |
 | `adversarial_test_created` | 14 | Hook (PostToolUse Write) | Neuer Test in Sandbox |
 | `adversarial_test_executed` | 14 | Hook (PostToolUse Bash) | Test ausgeführt |
 | `adversarial_end` | 14 | Hook (PostToolUse Agent) | Adversarial Agent beendet |
@@ -379,8 +379,8 @@ Operator-Recovery-Pfad, kein Agent-Eingangstor.**
 | `verify_passed` | 27 | Verify | Vollständige 4-Schichten-QA erfolgreich abgeschlossen |
 | `verify_failed` | 27 | Verify | QA-Befunde erfordern Remediation |
 | `verify_escalated` | 27 | Verify | Verify wegen harter Verletzung oder Impact-Violation eskaliert |
-| `preflight_request` | 14 | Hook (PreToolUse Pool-Send) | Preflight-Prompt an LLM-Pool gesendet (Preflight-Sentinel) |
-| `preflight_response` | 14 | Hook (PostToolUse Pool-Send) | Preflight-Antwort vom LLM empfangen |
+| `preflight_request` | 14 | Hook (PreToolUse Hub-Send) | Preflight-Prompt an den LLM-Hub gesendet (Preflight-Sentinel) |
+| `preflight_response` | 14 | Hook (PostToolUse Hub-Send) | Preflight-Antwort vom LLM empfangen |
 | `preflight_compliant` | 14 | Review-Guard (PostToolUse) | Preflight verwendete genehmigtes Template (Preflight-Sentinel) |
 | `review_divergence` | 14 | `telemetry/divergence.py` | Divergenz zwischen zwei Reviewern gemessen |
 | `are_requirements_linked` | 40 | Pipeline-Skript | ARE: Anforderungen verlinkt |
@@ -400,6 +400,20 @@ Die LLM-Hub-Schnittstelle (Endpunkte, Tool-Namen, Parameter) liefert
 **der Hub selbst**. *Wie AK3 sie nutzt* (Session-Operationen,
 Transportwahl REST vs. MCP) steht in **FK-11 §11.2.1**. Dieser Katalog
 klont sie nicht.
+
+Der AK3-eigene Control-Plane-Adapter unter `/v1/hub/*` ist dagegen Teil
+des AK3-API-Katalogs. Normative Quelle fuer Verantwortung und
+Adapter-Grenze ist **FK-75**; dieser Katalog fuehrt die oeffentliche
+HTTP-Surface:
+
+| Methode | Pfad | Zweck |
+|---|---|---|
+| `GET` | `/v1/hub/status` | Pool-Uebersicht und Backend-Health |
+| `GET` | `/v1/hub/sessions` | aktive und resumable Sessions |
+| `GET` | `/v1/hub/sessions/{id}/stats` | read-only Session-Statistik fuer Post-hoc-Verifikation |
+| `POST` | `/v1/hub/sessions` | Session acquire ueber den Adapter |
+| `POST` | `/v1/hub/sessions/{id}/messages` | Send-Operation ueber den Adapter |
+| `POST` | `/v1/hub/sessions/{id}/release` | Session release ueber den Adapter |
 
 ### Story-Knowledge-Base (Weaviate)
 

@@ -855,7 +855,7 @@ agentkit query-telemetry --story ODIN-042 --event integrity_gate_result
 ### 35.4.5 Override-Mechanismus
 
 In seltenen Fällen muss der Mensch das Integrity-Gate bewusst
-overriden — z.B. wenn ein LLM-Pool während des Runs nicht
+overriden — z.B. wenn der LLM-Hub während des Runs nicht
 erreichbar war und deshalb Telemetrie-Nachweise fehlen.
 
 ```bash

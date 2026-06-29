@@ -277,7 +277,6 @@ conceptrefs
 foundation
 frontend
 lifecycle
-llm-pools
 markdown
 multi-bc
 multi-llm-hub

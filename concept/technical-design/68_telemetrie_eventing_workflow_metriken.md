@@ -136,7 +136,7 @@ glossary:
     - id: review-guard
       definition: >
         Observational-Hook (telemetry/review_guard.py), der nach jedem
-        Pool-Send prueft, ob der Review ueber ein genehmigtes Template-Sentinel
+        Hub-Send prueft, ob der Review ueber ein genehmigtes Template-Sentinel
         ([TEMPLATE:{name}-v1:{story_id}]) lief. Bei Treffer schreibt er ein
         review_compliant-Event. Blockiert nie (exit 0). Abwesenheit des Events
         wird vom Integrity-Gate als Befund gewertet.
@@ -323,15 +323,15 @@ einen expliziten Zielknoten erfolgt.
 
 | Event | Wann | Zusatzfelder | Erwartungswert | Quelle |
 |-------|------|-------------|----------------|--------|
-| `review_request` | Worker fordert Review von Pflicht-LLM an | `pool`, `role` | Mindestens 1 pro Story | Hook (PreToolUse für Pool-Send mit Review-Template) |
-| `review_response` | Pflicht-LLM liefert Review-Ergebnis | `pool`, `role` | Gleiche Anzahl wie review_request | Hook (PostToolUse für Pool-Send) |
+| `review_request` | Worker fordert Review von Pflicht-LLM an | `pool`, `role` | Mindestens 1 pro Story | Hook (PreToolUse für Hub-Send mit Review-Template) |
+| `review_response` | Pflicht-LLM liefert Review-Ergebnis | `pool`, `role` | Gleiche Anzahl wie review_request | Hook (PostToolUse für Hub-Send) |
 | `review_compliant` | Review lief über freigegebenes Template | `pool`, `template_name` | Jeder review_request muss ein review_compliant haben | Review-Guard (PostToolUse) |
 
 #### LLM-Aufrufe (generisch)
 
 | Event | Wann | Zusatzfelder | Erwartungswert | Quelle |
 |-------|------|-------------|----------------|--------|
-| `llm_call` | LLM wird über Pool aufgerufen | `pool`, `role`, `retry` (bool), `status` | Pro konfiguriertem Pflicht-Reviewer >= 1 | LLM-Evaluator / Hook |
+| `llm_call` | LLM wird über den LLM-Hub aufgerufen | `pool`, `role`, `retry` (bool), `status` | Pro konfiguriertem Pflicht-Reviewer >= 1 | LLM-Evaluator / Hook |
 
 **Wichtig:** Keine anbieterspezifischen Events (`chatgpt_call`,
 `gemini_call`). Das generische `llm_call`-Event mit `pool`-Feld
@@ -342,7 +342,7 @@ hält die Pool-Abstraktion intakt (Kap. 01 P8, Kap. 11).
 | Event | Wann | Zusatzfelder | Erwartungswert | Quelle |
 |-------|------|-------------|----------------|--------|
 | `adversarial_start` | Adversarial Agent wird gestartet | — | Genau 1 (nur implementierende Stories) | Hook (PostToolUse für Agent) |
-| `adversarial_sparring` | Adversarial holt Sparring-LLM | `pool` | >= 1 (Pflicht) | Hook (PostToolUse für Pool-Send) |
+| `adversarial_sparring` | Adversarial holt Sparring-LLM | `pool` | >= 1 (Pflicht) | Hook (PostToolUse für Hub-Send) |
 | `adversarial_test_created` | Adversarial schreibt neuen Test | `file_path` | >= 0 (neue Tests nur wenn bestehende unzureichend, FK-05-198/199) | Hook (PostToolUse für Write in Sandbox-Pfad) |
 | `adversarial_test_executed` | Adversarial führt Test aus | `result` (pass/fail), `test_count` | >= 1 (Pflicht) | Hook (PostToolUse für Bash mit Test-Kommando) |
 | `adversarial_end` | Adversarial Agent beendet | `findings_count` | Genau 1, nach adversarial_start | Hook (PostToolUse für Agent) |
@@ -351,8 +351,8 @@ hält die Pool-Abstraktion intakt (Kap. 01 P8, Kap. 11).
 
 | Event | Wann | Zusatzfelder | Erwartungswert | Quelle |
 |-------|------|-------------|----------------|--------|
-| `preflight_request` | Preflight-Prompt an LLM-Pool gesendet. Hook: PreToolUse für Pool-Send wenn Preflight-Sentinel `[PREFLIGHT:...-v1:{story_id}]` erkannt. | `pool` | >= 1 pro Story (Pflicht) | Hook (PreToolUse Pool-Send, Preflight-Sentinel) |
-| `preflight_response` | Preflight-Antwort vom LLM empfangen. Hook: PostToolUse für Pool-Send. | `pool`, `request_count` | == preflight_request count | Hook (PostToolUse Pool-Send, Preflight-Sentinel) |
+| `preflight_request` | Preflight-Prompt an den LLM-Hub gesendet. Hook: PreToolUse für Hub-Send wenn Preflight-Sentinel `[PREFLIGHT:...-v1:{story_id}]` erkannt. | `pool` | >= 1 pro Story (Pflicht) | Hook (PreToolUse Hub-Send, Preflight-Sentinel) |
+| `preflight_response` | Preflight-Antwort vom LLM empfangen. Hook: PostToolUse für Hub-Send. | `pool`, `request_count` | == preflight_request count | Hook (PostToolUse Hub-Send, Preflight-Sentinel) |
 | `preflight_compliant` | Preflight verwendete genehmigtes Template. Emittiert durch review_guard wenn Preflight-Sentinel gefunden. | `pool`, `template_name` | == preflight_request count | Review-Guard (PostToolUse, Preflight-Sentinel) |
 
 #### Review-Divergenz
@@ -440,11 +440,11 @@ Mitwirkung des Agents beobachten koennen.
 | Hook | Modul | Typ | Erkennung | Events |
 |------|-------|-----|-----------|--------|
 | AgentLifecycleHook | `agentkit.backend.telemetry.hooks.agent_lifecycle` | PostToolUse (Agent) | Tool = `Agent`, `subagent_type` aus Prompt | `agent_start`, `agent_end`, `adversarial_start`, `adversarial_end` |
-| LlmCallHook | `agentkit.backend.telemetry.hooks.llm_call` | PostToolUse (Pool-Send) | Tool enthaelt `_send`, Story aus aktivem Run im State-Backend | `llm_call` |
+| LlmCallHook | `agentkit.backend.telemetry.hooks.llm_call` | PostToolUse (Hub-Send) | Tool enthaelt `_send`, Story aus aktivem Run im State-Backend | `llm_call` |
 | CommitHook | `agentkit.backend.telemetry.hooks.commit` | PreToolUse (Bash) | `git commit` im Worktree | `increment_commit` |
 | DriftCheckHook | `agentkit.backend.telemetry.hooks.drift_check` | PreToolUse (Bash) | Marker-Befehl `DRIFT_CHECK:` | `drift_check` |
-| ReviewSentinelHook | `agentkit.backend.telemetry.hooks.review_sentinel` | PostToolUse (Pool-Send) | Review-Template-Sentinel erkannt | `review_request`, `review_response` |
-| ReviewGuard | `agentkit.backend.telemetry.hooks.review_guard` | PostToolUse (Pool-Send) | Template-Sentinel-Pattern | `review_compliant` |
+| ReviewSentinelHook | `agentkit.backend.telemetry.hooks.review_sentinel` | PostToolUse (Hub-Send) | Review-Template-Sentinel erkannt | `review_request`, `review_response` |
+| ReviewGuard | `agentkit.backend.telemetry.hooks.review_guard` | PostToolUse (Hub-Send) | Template-Sentinel-Pattern | `review_compliant` |
 | BudgetEventEmitter | `agentkit.backend.telemetry.hooks.budget` | PostToolUse (WebSearch/WebFetch) | Tool-Name | `web_call` |
 | Guard-Hooks (inkl. SkillUsageCheck) | `agentkit.backend.governance.guard_system` | PreToolUse | Blockade (exit 2) | `integrity_violation` |
 
@@ -603,7 +603,7 @@ geprüft:
 
 Der Review-Guard (`telemetry/review_guard.py`) prüft, ob LLM-Reviews
 über freigegebene Templates ausgeführt wurden. Er sucht nach
-einem Sentinel-Pattern in der Pool-Send-Nachricht:
+einem Sentinel-Pattern in der Hub-Send-Nachricht:
 
 **Pattern:** `[TEMPLATE:{template-name}-v1:{story_id}]`
 

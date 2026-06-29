@@ -165,7 +165,7 @@ sequenceDiagram
     O->>H: Spawn worker<br/>prompt_file=worker-implementation.md
     Note over H: Hook: agent_start Event<br/>(Telemetrie)
     H->>W: Neue Session mit Prompt
-    Note over W: Worker hat Zugriff auf:<br/>- Worktree-Map (Repo-Name -> Worktree-Pfad,<br/>  einer pro teilnehmendem Repo;<br/>  FK-22 §22.6.4)<br/>- Prompts, Skills<br/>- LLM-Pools (für Reviews)<br/>- NICHT: QA-Artefakte (gesperrt)
+    Note over W: Worker hat Zugriff auf:<br/>- Worktree-Map (Repo-Name -> Worktree-Pfad,<br/>  einer pro teilnehmendem Repo,<br/>  FK-22 §22.6.4)<br/>- Prompts, Skills<br/>- LLM-Hub (für Reviews)<br/>- NICHT: QA-Artefakte (gesperrt)
 ```
 
 Bei Multi-Repo-Stories (`participating_repos` mit |N| >= 2) erhaelt
@@ -422,7 +422,7 @@ nach Regelwerk:
 
 ## 26.5 Reviews durch konfigurierte LLMs
 
-> LLM-Pool-basierte Reviews sind Pflicht. Immer ueber LLM-Pools. Kein Claude-Sub-Agent-Fallback.
+> LLM-Hub-basierte Reviews sind Pflicht. Immer über den LLM-Hub (MCP, agent-ausgeführtes Sparring). Kein Claude-Sub-Agent-Fallback.
 
 ### 26.5.1 Pflicht-Reviews (FK-05-116 bis FK-05-122)
 
@@ -448,11 +448,11 @@ nicht den QA-Subflow.
 ```mermaid
 sequenceDiagram
     participant W as Worker
-    participant P as LLM-Pool (z.B. ChatGPT)
+    participant P as LLM-Hub (MCP)
 
     W->>W: Review-Punkt erreicht<br/>(nach Inkrement oder vor Handover)
     Note over W: Kontext zusammenstellen:<br/>Diff, Story, Konzept
-    W->>P: Pool-Send mit Review-Template<br/>[TEMPLATE:review-consolidated-v1:ODIN-042]
+    W->>P: Hub-Send mit Review-Template<br/>[TEMPLATE:review-consolidated-v1:ODIN-042]
     Note over P: Hook: review_request Event
     P-->>W: Review-Feedback (Markdown)
     Note over W: Hook: review_response Event
@@ -771,7 +771,7 @@ Die Tabelle dokumentiert die fachlichen Erwartungswerte pro Story-Lauf.
 | `review_request` | Bei Review-Punkt | Mindestens 1 pro Story |
 | `review_response` | Nach Review | = Anzahl review_request |
 | `review_compliant` | Review ueber Template | = Anzahl review_request |
-| `llm_call` (role: Worker-Review) | Bei Pool-Send | = Anzahl review_request |
+| `llm_call` (role: Worker-Review) | Bei Hub-Send | = Anzahl review_request |
 | `worker_health_score` | Bei Score-Berechnung (PostToolUse) | >= 0 |
 | `worker_health_intervention` | Bei Soft-Intervention oder Hard Stop | 0 oder 1 |
 | `agent_end` (subagent_type: worker) | Worker beendet | Genau 1 |

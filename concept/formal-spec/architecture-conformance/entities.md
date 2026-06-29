@@ -47,7 +47,7 @@ boundary_module_kinds:
     meaning: Eingangs-Boundary (CLI, HTTP-Server, Event-Listener) — ruft fachliche Komponenten auf, hat keine Geschaeftslogik. Nichts importiert ein entry_boundary von innen.
   - id: architecture-conformance.boundary_kind.adapter_boundary
     code: adapter_boundary
-    meaning: Adapter zu externen Systemen oder Datenquellen (GitHub, ARE, LLM-Pools, VectorDB, MCP, Filesystem-basierte Konzept-Korpora) — uebersetzt zwischen externer Repraesentation und Domaene. Wird von fachlichen BCs genutzt; importiert keine BCs selbst.
+    meaning: Adapter zu externen Systemen oder Datenquellen (GitHub, ARE, LLM-Hub, VectorDB, MCP, Filesystem-basierte Konzept-Korpora) — uebersetzt zwischen externer Repraesentation und Domaene. Wird von fachlichen BCs genutzt; importiert keine BCs selbst.
   - id: architecture-conformance.boundary_kind.config_foundation
     code: config_foundation
     meaning: Konfigurations-Loader, Schema-Validierung, Defaults. Wird von fachlichen Komponenten gelesen, nie geschrieben. Keine Domain-Logik.

@@ -110,7 +110,7 @@ Erweiterung an die jeweilige Agent-Laufzeit:
 | Harness-**neutrale** Hook-/Guard-**Definition** + Enforcement-Verhalten (`guard_evaluation`) | governance-and-guards (FK-30) |
 | Harness-**spezifische** Adapter, CLI-Wrapper, Settings-Schemas, Lifecycle | **harness-integration (FK-76)** |
 | Install-zeitliche Registrierung/Bindung (WANN/Reihenfolge, parallel) | installation-and-bootstrap (FK-50) |
-| LLM-Pool/Prompt-Execution, Agent-vs-Bewertungsfunktion | FK-11 |
+| LLM-Hub/Prompt-Execution, Agent-vs-Bewertungsfunktion | FK-11 |
 | Externer Multi-LLM-Hub (Modell-Provider-Sessions) | FK-75 |
 
 **Trennregel:** FK-30 definiert *was* ein Guard tut und *dass* er an einem

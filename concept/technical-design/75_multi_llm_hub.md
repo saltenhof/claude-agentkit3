@@ -21,7 +21,7 @@ defers_to:
     reason: fachliche Routing-Regeln (welches Modell fuer welche Phase) leben in prompt_runtime, nicht hier
 supersedes: []
 superseded_by:
-tags: [multi-llm-hub, foundation, llm-pools, adapter]
+tags: [multi-llm-hub, foundation, adapter]
 formal_scope: prose-only
 ---
 
@@ -42,6 +42,7 @@ Kimi, …). Dieses Foundation-Modul stellt den Adapter dazu bereit.
 | Aufgabe | Inhalt |
 |---|---|
 | **Session-Lifecycle** | acquire/release/resume von Hub-Sessions ueber die externe Hub-API |
+| **Session-Stats** | read-only Post-hoc-Statistik pro Session fuer AK3-Konsumenten (z. B. Feindesign-Verifikation), ohne Enforcement-Logik |
 | **Backend-Status** | Slot-Auslastung, Health, Error-Listen — Leseproxy auf den Hub |
 | **Send-Operationen** | broadcast/group/single an die Hub-API durchreichen |
 | **Hub-Cockpit-Read-Models** | Sessions, Backend-Metriken, Holders in Form, die das Frontend rendern kann |
@@ -70,21 +71,27 @@ Multi-LLM-Hub (extern)  ◄──REST──►  agentkit.integration_clients.mul
                                                   - Frontend Hub-Cockpit
 ```
 
-## 75.5 API-Endpunkte (Auswahl)
+## 75.5 AK3-Control-Plane-Endpunkte (Auswahl)
 
-Offiziell katalogisiert in **FK-91**.
+Offiziell katalogisiert in **FK-91**. Diese Tabelle beschreibt die
+AK3-Adapter-Surface unter `/v1/hub/*`; sie ist **kein Klon** der
+externen Hub-Schnittstellenspezifikation. Die externe Hub-API bleibt
+Quelle der Wahrheit fuer Hub-interne Pfade, Parameter, Tool-Namen und
+Fehlercodes.
 
 | Methode | Pfad | Zweck |
 |---|---|---|
 | `GET` | `/v1/hub/status` | Pool-Uebersicht, Backend-Health |
 | `GET` | `/v1/hub/sessions` | aktive und resumable Sessions |
+| `GET` | `/v1/hub/sessions/{id}/stats` | read-only Session-Statistik fuer Post-hoc-Verifikation |
 | `POST` | `/v1/hub/sessions` | acquire (proxy zur externen Hub-API) |
 | `POST` | `/v1/hub/sessions/{id}/messages` | send (broadcast/group/single, proxy) |
 | `POST` | `/v1/hub/sessions/{id}/release` | release (proxy) |
 
-Der Adapter setzt Auth, Retry und Fehlerbehandlung um. Er traegt
-keine eigene fachliche Aussage; das ist Eigenschaft eines R-Adapters
-nach FK-07 §7.3.
+Der Adapter setzt Auth, Retry, Fehlerbehandlung und das Mapping auf die
+externe Hub-API um. Er traegt keine eigene fachliche Aussage; das ist
+Eigenschaft eines R-Adapters nach FK-07 §7.3. Fachliche Reaktionen auf
+Stats, Timeouts oder fehlende Antworten liegen bei den Konsumenten.
 
 ## 75.6 Bluttyp und Klassifizierung
 

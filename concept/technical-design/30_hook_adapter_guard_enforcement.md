@@ -88,12 +88,12 @@ glossary:
     - id: preflight-sentinel
       reason: >
         Internes Telemetrie-Erkennungsmuster ([PREFLIGHT:...-v1:{story_id}])
-        fuer Pool-Send-Hooks. Implementierungsdetail der Hook-Telemetrie,
+        fuer Hub-Send-Hooks. Implementierungsdetail der Hook-Telemetrie,
         kein exportierter Vertragstyp.
     - id: review-sentinel
       reason: >
         Internes Telemetrie-Erkennungsmuster ([TEMPLATE:...-v1:{story_id}])
-        fuer Pool-Send-Hooks. Implementierungsdetail der Hook-Telemetrie,
+        fuer Hub-Send-Hooks. Implementierungsdetail der Hook-Telemetrie,
         kein exportierter Vertragstyp.
 ---
 
@@ -594,11 +594,11 @@ oder PostToolUse sein.
 |------|--------|---------|
 | `telemetry.hook` (PreToolUse Bash) | `increment_commit`, `drift_check` | Erkennt `git commit` und `DRIFT_CHECK:` |
 | `telemetry.hook` (PostToolUse Agent) | `agent_start`, `agent_end`, `adversarial_start`, `adversarial_end` | Erkennt Agent-Spawn und -Ende |
-| `telemetry.hook` (PostToolUse Pool-Send) | `llm_call`, `review_request`, `review_response` | Erkennt Pool-Calls (Review-Sentinel) |
-| `telemetry.hook` (PreToolUse Pool-Send) | `preflight_request` | Erkennt Preflight-Sentinel `[PREFLIGHT:...-v1:{story_id}]` |
-| `telemetry.hook` (PostToolUse Pool-Send) | `preflight_response` | Erkennt Preflight-Sentinel in Antwort |
-| `review_guard` (PostToolUse Pool-Send) | `review_compliant` | Erkennt Review-Sentinel `[TEMPLATE:...]` |
-| `review_guard` (PostToolUse Pool-Send) | `preflight_compliant` | Erkennt Preflight-Sentinel `[PREFLIGHT:...]` |
+| `telemetry.hook` (PostToolUse Hub-Send) | `llm_call`, `review_request`, `review_response` | Erkennt Pool-Calls (Review-Sentinel) |
+| `telemetry.hook` (PreToolUse Hub-Send) | `preflight_request` | Erkennt Preflight-Sentinel `[PREFLIGHT:...-v1:{story_id}]` |
+| `telemetry.hook` (PostToolUse Hub-Send) | `preflight_response` | Erkennt Preflight-Sentinel in Antwort |
+| `review_guard` (PostToolUse Hub-Send) | `review_compliant` | Erkennt Review-Sentinel `[TEMPLATE:...]` |
+| `review_guard` (PostToolUse Hub-Send) | `preflight_compliant` | Erkennt Preflight-Sentinel `[PREFLIGHT:...]` |
 | `budget` (PostToolUse Web) | `web_call` | Zählt Web-Aufrufe |
 | `health_monitor post` (PostToolUse alle) | `health_score_update` | Score-Berechnung, Tool-Call-Logging, Hook-Failure-Klassifikation (§30.10.1) |
 
@@ -855,7 +855,7 @@ erkannt wird und umgekehrt.
 | Hook-Zeitpunkt | Handler | Emittiertes Event | Bedingung |
 |----------------|---------|------------------|-----------|
 | PreToolUse (Hub-Send) | `handle_preflight_send()` | `PREFLIGHT_REQUEST` | `_PREFLIGHT_SENTINEL` matcht in der Hub-Send-Nachricht |
-| PostToolUse (Pool-Send) | `handle_preflight_response()` | `PREFLIGHT_RESPONSE` | `_PREFLIGHT_SENTINEL` matcht in der ursprünglichen Nachricht |
+| PostToolUse (Hub-Send) | `handle_preflight_response()` | `PREFLIGHT_RESPONSE` | `_PREFLIGHT_SENTINEL` matcht in der ursprünglichen Nachricht |
 
 Die Handler sind in `telemetry/hook.py` implementiert, analog zu
 den Review-Handlern. Sie nutzen `insert_event()`
@@ -872,7 +872,7 @@ emittiert jeweils das korrekte Compliance-Event:
 | `_REVIEW_SENTINEL` (`[TEMPLATE:...]`) | `EventType.REVIEW_COMPLIANT` |
 | `_PREFLIGHT_SENTINEL` (`[PREFLIGHT:...]`) | `EventType.PREFLIGHT_COMPLIANT` |
 
-Die Erkennung ist getrennt: ein Pool-Send kann entweder einen
+Die Erkennung ist getrennt: ein Hub-Send kann entweder einen
 Review-Sentinel ODER einen Preflight-Sentinel enthalten, nie
 beide. Der Guard prüft beide Patterns sequentiell und emittiert
 das passende Event.

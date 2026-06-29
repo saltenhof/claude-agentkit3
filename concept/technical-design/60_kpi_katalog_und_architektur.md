@@ -108,7 +108,7 @@ Es ist das Meta-Dokument des Analytics-Blocks (Nummernkreis 60-69):
 | Nummernkreis | Domaene | Beschreibung |
 |---|---|---|
 | 00-09 | Foundation | Systemkontext, Domaenenmodell, Konfiguration |
-| 10-19 | Infrastruktur | Runtime, LLM-Pools, GitHub, VektorDB, Event-Infrastruktur, Security |
+| 10-19 | Infrastruktur | Runtime, LLM-Hub, GitHub, VektorDB, Event-Infrastruktur, Security |
 | 20-29 | Pipeline & Workflow | Story-Creation, Setup, Exploration, Implementation, Verify, Evidence |
 | 30-39 | Governance & Guards | Hooks, Guards, Dokumententreue, Checks, LLM-Bewertungen, Integrity-Gate |
 | 40-49 | Integrationen | ARE, Failure Corpus, CCAG, Skills |

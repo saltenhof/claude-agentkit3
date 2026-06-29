@@ -180,7 +180,7 @@ Hook-Auswertung in zwei Subs von `GuardSystem` lebt:
 Claude-Code-Adapter und gehoert zur AT-Insel.
 
 **Explizite Nicht-Komponente:** `IntegrationHub` ist kein normativ
-zulaessiger Top-Level-Baustein. GitHub, LLM-Pools, ARE und VectorDB
+zulaessiger Top-Level-Baustein. GitHub, LLM-Hub, ARE und VectorDB
 bleiben getrennte Adapter und duerfen nicht durch ein Kategorielabel zu
 einer scheinfachlichen Komponente zusammengefasst werden.
 

@@ -118,7 +118,7 @@ explizite Admin-/Betriebs-Tools zulaessig.
 | Force-Push | ✅ | ❌ (Guard*) | ❌ (Guard*) | ❌ (Guard*) | ❌ (Guard*) | ❌ |
 | AK3-Story-Status ändern (Backend) | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
 | Lock-Record erstellen/beenden | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| LLM-Pool aufrufen | ✅ | ✅ | ✅ | ❌ | ✅ (Sparring) | ✅ (Evaluator) |
+| LLM-Hub aufrufen | ✅ | ✅ | ✅ | ❌ | ✅ (Sparring) | ✅ (Evaluator) |
 | Agents spawnen | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Zentralen Workflow-State mutieren | ✅ (über Admin/CLI) | ❌ | ❌ | ❌ | ❌ | ✅ |
 
@@ -178,7 +178,7 @@ keine Token im Code, in der Konfiguration oder in Artefakten.
 | Secret-Typ | Wo gespeichert | Zugriff durch AgentKit |
 |-----------|---------------|----------------------|
 | GitHub-Token | `gh` CLI (OS Keychain) | Implizit über `gh` CLI-Aufrufe |
-| LLM-Pool-Auth | Pool-intern (z.B. Browser-Cookies) | Kein Zugriff — Pools verwalten Auth selbst |
+| LLM-Hub-Auth | Hub-intern (z.B. Browser-Cookies) | Kein Zugriff — der Hub verwaltet Auth selbst |
 | Weaviate | Kein Auth (localhost-only) | Direkt über HTTP/gRPC |
 | ARE | MCP-Server-Config | Kein direkter DB-Zugriff |
 
@@ -330,29 +330,28 @@ Netzwerkverbindungen von außen:
 
 | Dienst | Binding | Expose |
 |--------|---------|--------|
-| LLM-Pools (REST) | `127.0.0.1:{port}` | Nur lokal |
+| LLM-Hub (REST) | `127.0.0.1:9600` (loopback) bzw. zentraler Host | Lokal oder Team-Server |
 | Weaviate (HTTP/gRPC) | `localhost:9903/50051` | Nur lokal |
 | MCP-Server (stdio) | Kein Netzwerk | Prozess-lokal |
-| VNC (Gemini/Grok) | `127.0.0.1:5900/5901` | Nur lokal |
 
 ### 15.8.2 Ausgehende Verbindungen
 
 | Ziel | Protokoll | Zweck |
 |------|----------|-------|
 | `github.com` | HTTPS | `gh` CLI, `git push/pull` |
-| LLM-Web-Interfaces | HTTPS | LLM-Pools (Browser-Automation an jeweiligen Anbieter) |
+| LLM-Anbieter-Sites | HTTPS | nur vom **LLM-Hub** (Backend-Automation), nicht von AK3 |
 | Docker Hub | HTTPS | Weaviate-Image-Pull (einmalig) |
 
-Keine outbound-Verbindungen von AgentKit-Code selbst. Alle
-externen Verbindungen laufen über die Pools oder `gh`/`git`.
-Die konkreten LLM-Anbieter (aktuell ChatGPT, Gemini, Grok) sind
-austauschbar — AgentKit kennt nur Pool-Namen, nicht Anbieter-URLs.
+Keine outbound-Verbindungen von AgentKit-Code selbst. Die
+LLM-Anbieter-Verbindungen macht der **LLM-Hub**, nicht AK3; AK3 spricht
+nur den Hub-Endpunkt sowie `gh`/`git` an. Die konkreten Modelle sind
+austauschbar — AgentKit kennt nur den Hub und die Modellnamen.
 
 ## 15.9 Datenschutz und Datenflüsse
 
 ### 15.9.1 Was an externe LLMs gesendet wird
 
-Über die Browser-Pools werden an externe LLMs gesendet:
+Über den LLM-Hub werden an externe Modelle gesendet:
 
 | Daten | Wann | Enthält |
 |-------|------|---------|

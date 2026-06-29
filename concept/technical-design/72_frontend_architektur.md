@@ -499,7 +499,7 @@ Stratege die Phasen-Leistung eines Agents bewerten koennen muss
   abgearbeitet wurden.
 - **Tokens** (Total/In/Out/Cached): nicht phasenaufgeteilt, pro
   Story. `tokens_cached` ist Pflicht und stammt aus der echten
-  Cache-Messung der LLM-Pools, nicht aus einer Frontend-Heuristik.
+  Cache-Messung des LLM-Hubs, nicht aus einer Frontend-Heuristik.
 
 Schema: `frontend-contracts.entity.story_telemetry_summary`. Das
 Frontend konsumiert dieses Aggregat unveraendert; eine

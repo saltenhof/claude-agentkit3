@@ -433,7 +433,7 @@ entities:
         required: true
         notes:
           - >
-            Real von der LLM-Pool-Schicht gemessener Cache-Hit-Anteil
+            Real vom LLM-Hub gemessener Cache-Hit-Anteil
             der Input-Tokens. Keine Frontend-Synthese.
       - name: llm_calls
         kind: integer
@@ -491,7 +491,7 @@ entities:
         kind: string
         required: true
         notes:
-          - LLM-Pool-Identifier (z. B. `chatgpt`, `gemini`, `grok`).
+          - Hub-Backend-Identifier (z. B. `chatgpt`, `gemini`, `grok`).
       - name: role
         kind: string
         required: true

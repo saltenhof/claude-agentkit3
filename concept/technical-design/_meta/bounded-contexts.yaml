@@ -259,7 +259,7 @@ bounded_contexts:
     excluded:
       - Hook-/Guard-DEFINITION + Enforcement (governance-and-guards/FK-30)
       - Install-Orchestrierung WANN/Reihenfolge (installation-and-bootstrap/FK-50)
-      - LLM-Pool/Prompt-Execution, Agent-vs-Bewertungsfunktion (FK-11)
+      - LLM-Hub/Prompt-Execution, Agent-vs-Bewertungsfunktion (FK-11)
       - Externer Multi-LLM-Hub / Modell-Provider-Sessions (FK-75)
       - Story-/Prompt-/QA-/Telemetrie-Semantik
 
