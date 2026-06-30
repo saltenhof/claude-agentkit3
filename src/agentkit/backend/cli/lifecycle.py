@@ -224,6 +224,7 @@ def cmd_update(args: argparse.Namespace) -> int:
         "status": decision.status.value,
         "local_version": decision.local_version,
         "min_version": decision.min_version,
+        "max_version": decision.max_version,
         "recommended_version": decision.recommended_version,
         "blocked": list(decision.blocked),
         "reason": decision.reason,
@@ -251,6 +252,7 @@ def cmd_detach(args: argparse.Namespace) -> int:
                 "removed_bindings": list(result.removed_bindings),
                 "removed_ak3_hooks": list(result.removed_ak3_hooks),
                 "preserved_foreign_hooks": list(result.preserved_foreign_hooks),
+                "preserved_foreign_files": list(result.preserved_foreign_files),
             },
             sort_keys=True,
         )
@@ -431,18 +433,14 @@ class _OperatorServiceController:
                 argv, check=False, capture_output=True, text=True
             )
         except OSError as exc:
-            msg = (
-                f"core teardown command {argv!r} could not be executed "
-                f"({exc}); services NOT stopped (fail-closed)."
-            )
+            msg = f"core teardown command {argv!r} could not be executed "
+            msg += f"({exc}); services NOT stopped (fail-closed)."
             raise ServiceTeardownError(msg) from exc
         if completed.returncode != 0:
             stderr = (completed.stderr or "").strip()
-            msg = (
-                f"core teardown command {argv!r} failed (exit "
-                f"{completed.returncode}): {stderr}; services NOT stopped "
-                "(fail-closed)."
-            )
+            msg = f"core teardown command {argv!r} failed (exit "
+            msg += f"{completed.returncode}): {stderr}; services NOT stopped "
+            msg += "(fail-closed)."
             raise ServiceTeardownError(msg)
         return ("backend", "frontend")
 

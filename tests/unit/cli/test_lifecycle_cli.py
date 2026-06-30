@@ -200,6 +200,33 @@ class TestDetachAndDecommissionDispatch:
         assert "removed_bindings" in out
         assert not (project / ".agentkit").exists()
 
+    def test_detach_cli_reports_preserved_foreign_files(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """F3 regression: the CLI JSON output reports ``preserved_foreign_files``.
+
+        ``detach_project`` preserves a foreign ``.codex/config.toml`` (D5) and
+        returns it on ``DetachResult.preserved_foreign_files``, but the operator
+        only learned of removals — the preserve+report intent was half-defeated.
+        The CLI now surfaces the preserved foreign files in its payload.
+        """
+        import json
+
+        project = tmp_path / "proj"
+        (project / ".codex").mkdir(parents=True)
+        (project / ".codex" / "config.toml").write_text(
+            "# foreign operator config, not AK3\n[foreign]\nkeep = true\n",
+            encoding="utf-8",
+        )
+
+        exit_code = main(["detach", "--project-root", str(project)])
+
+        assert exit_code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert str(PurePath(".codex/config.toml")) in payload["preserved_foreign_files"]
+        # The foreign file itself was preserved on disk (never deleted wholesale).
+        assert (project / ".codex" / "config.toml").is_file()
+
     def test_detach_cli_fails_closed_on_missing_root(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:

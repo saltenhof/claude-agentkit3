@@ -19,11 +19,14 @@ cannot delete a higher level's canonical state (FK-10 §10.2.0 base rule).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, cast
+from pathlib import Path
+from typing import cast
 
+from agentkit.backend.installer.codex_settings import build_codex_config_toml
 from agentkit.backend.installer.paths import (
     AGENTKIT_DIR,
     AGENTKIT_TOOLS_DIR,
@@ -35,9 +38,6 @@ from agentkit.backend.installer.paths import (
     codex_config_path,
 )
 from agentkit.backend.skills import is_directory_link, remove_directory_link
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 #: AK3 Claude hooks are emitted through this wrapper command (settings_writer).
 AK3_CLAUDE_HOOK_WRAPPER = "agentkit-hook-claude"
@@ -54,6 +54,11 @@ _AK3_HOOK_MARKERS = (
     AK3_CODEX_HOOK_WRAPPER,
     ".agentkit/hooks",
 )
+
+#: Structural keys of a Codex matcher group. Any OTHER key is foreign-owned data
+#: that must survive even when the group's AK3 handler list is fully stripped
+#: (FK-10 §10.2.9 surgical removal — never discard foreign config).
+_CODEX_GROUP_STRUCTURAL_KEYS = frozenset({"matcher", "hooks"})
 
 
 def _is_ak3_hook_command(command: object) -> bool:
@@ -74,6 +79,9 @@ class DetachResult:
         removed_bindings: AK3 binding files/dirs removed (relative paths).
         removed_ak3_hooks: AK3 hook commands surgically removed.
         preserved_foreign_hooks: Foreign hook commands left intact.
+        preserved_foreign_files: Files left intact because their content is not
+            the unmodified AK3-deployed content (a user-modified prompt template
+            or a ``.codex/config.toml`` carrying foreign config); relative paths.
         success: Whether the detach completed.
     """
 
@@ -82,6 +90,7 @@ class DetachResult:
     removed_bindings: tuple[str, ...]
     removed_ak3_hooks: tuple[str, ...]
     preserved_foreign_hooks: tuple[str, ...]
+    preserved_foreign_files: tuple[str, ...] = ()
     success: bool = True
 
 
@@ -104,7 +113,8 @@ def detach_project(project_root: Path) -> DetachResult:
 
     detached_junctions = _detach_skill_junctions(project_root)
     removed_ak3, preserved = _strip_all_ak3_hooks(project_root)
-    removed_bindings = _remove_ak3_bindings(project_root)
+    preserved_files: list[str] = []
+    removed_bindings = _remove_ak3_bindings(project_root, preserved_files)
 
     return DetachResult(
         project_root=project_root,
@@ -112,6 +122,7 @@ def detach_project(project_root: Path) -> DetachResult:
         removed_bindings=tuple(removed_bindings),
         removed_ak3_hooks=tuple(removed_ak3),
         preserved_foreign_hooks=tuple(preserved),
+        preserved_foreign_files=tuple(preserved_files),
     )
 
 
@@ -188,6 +199,11 @@ def _strip_claude_hooks(settings_path: Path) -> tuple[list[str], list[str]]:
         ]
         if kept_entries:
             new_hooks[event_key] = kept_entries
+    if not removed:
+        # No AK3 hook was found: the strip changed nothing. Leave the file
+        # byte-for-byte untouched (never rewrite a purely-foreign settings file —
+        # surgical, only AK3 bindings, FK-10 §10.2.9).
+        return [], preserved
     if new_hooks:
         settings["hooks"] = new_hooks
     else:
@@ -228,6 +244,11 @@ def _strip_codex_hooks(hooks_path: Path) -> tuple[list[str], list[str]]:
         kept_groups = _strip_codex_groups(groups, removed, preserved)
         if kept_groups:
             new_hooks[event_key] = kept_groups
+    if not removed:
+        # No AK3 handler was found: the strip changed nothing. Leave the file
+        # byte-for-byte untouched (never rewrite a purely-foreign hooks file —
+        # surgical, only AK3 bindings, FK-10 §10.2.9).
+        return [], preserved
     if new_hooks:
         settings["hooks"] = new_hooks
     else:
@@ -260,7 +281,27 @@ def _strip_codex_groups(
         if kept_handlers:
             group["hooks"] = kept_handlers
             kept_groups.append(group)
+        elif _group_has_foreign_keys(group):
+            # All handlers were AK3, but the group carries foreign sibling keys
+            # beyond the structural ``matcher``/``hooks`` (e.g. a foreign ``note``).
+            # Keep the foreign data but leave a schema-VALID empty ``hooks`` LIST
+            # rather than popping the key: the Codex settings writer
+            # (settings_writer._validate_group_shape) fails closed on a group
+            # without a ``hooks`` list, so a popped key would break a later hook
+            # registration/reinstall on the preserved file (FK-10 §10.2.9 surgical
+            # removal — never discard foreign config, never leave it schema-invalid).
+            group["hooks"] = []
+            kept_groups.append(group)
     return kept_groups
+
+
+def _group_has_foreign_keys(group: dict[str, object]) -> bool:
+    """Return whether a Codex matcher group carries keys beyond the AK3 structure.
+
+    A pure AK3 registration group has only the structural ``matcher``/``hooks``
+    keys; any other key is foreign-owned data that must survive an emptied strip.
+    """
+    return any(key not in _CODEX_GROUP_STRUCTURAL_KEYS for key in group)
 
 
 def _is_well_formed_codex_handlers(handlers: object) -> bool:
@@ -279,18 +320,22 @@ def _record_ak3_command(
     return False
 
 
-def _remove_ak3_bindings(project_root: Path) -> list[str]:
+def _remove_ak3_bindings(project_root: Path, preserved_files: list[str]) -> list[str]:
     """Remove the remaining AK3 binding artifacts (launcher, ``.agentkit/``, etc.).
 
     Each tree removal is guarded against a junction so a stray reparse point is
-    detached, never recursed through (FK-43 §43.4.1.1).
+    detached, never recursed through (FK-43 §43.4.1.1). Files whose content is not
+    the unmodified AK3-deployed content (a foreign ``.codex/config.toml`` or a
+    user-modified prompt template) are preserved and reported via
+    ``preserved_files`` instead of being deleted (FK-10 §10.2.9, "preserve project
+    code").
     """
     removed: list[str] = []
-    removed.extend(_remove_file(codex_config_path(project_root), project_root))
+    removed.extend(_remove_ak3_codex_config(project_root, preserved_files))
     removed.extend(_safe_remove_tree(project_root / AGENTKIT_TOOLS_DIR, project_root))
     removed.extend(_remove_empty_dir(project_root / "tools", project_root))
     removed.extend(_safe_remove_tree(project_root / AGENTKIT_DIR, project_root))
-    removed.extend(_safe_remove_tree(project_root / STATIC_PROMPTS_DIR, project_root))
+    removed.extend(_remove_ak3_prompt_bindings(project_root, preserved_files))
     removed.extend(_remove_empty_dir(project_root / CLAUDE_DIR / "context", project_root))
     removed.extend(_remove_empty_dir(project_root / CLAUDE_DIR / "skills", project_root))
     removed.extend(_remove_empty_dir(project_root / CODEX_DIR / "skills", project_root))
@@ -298,6 +343,145 @@ def _remove_ak3_bindings(project_root: Path) -> list[str]:
     removed.extend(_remove_empty_dir(project_root / CODEX_DIR, project_root))
     removed.extend(_remove_empty_dir(project_root / STORIES_DIR, project_root))
     return removed
+
+
+def _remove_ak3_codex_config(project_root: Path, preserved_files: list[str]) -> list[str]:
+    """Remove ``.codex/config.toml`` ONLY when it byte-equals the AK3 config.
+
+    Install (``codex_settings.write_codex_settings``) writes a fixed AK3 config
+    (``build_codex_config_toml``) and decides a re-write by comparing the on-disk
+    text to that builder output. Detach mirrors that comparison: it removes the
+    file only when its current content equals the AK3-generated config. A file a
+    user extended with foreign Codex config differs and is PRESERVED (reported via
+    ``preserved_files``) rather than deleted wholesale (FK-10 §10.2.9, "preserve
+    project code"; same data-loss class as the settings/hooks surgical strip).
+    """
+    config_path = codex_config_path(project_root)
+    if not config_path.is_file():
+        return []
+    try:
+        current = config_path.read_text(encoding="utf-8")
+    except OSError:
+        current = None
+    if current != build_codex_config_toml():
+        # Foreign/modified content: preserve it, never delete foreign config.
+        preserved_files.append(str(config_path.relative_to(project_root)))
+        return []
+    return _remove_file(config_path, project_root)
+
+
+def _remove_ak3_prompt_bindings(project_root: Path, preserved_files: list[str]) -> list[str]:
+    """Remove the AK3-deployed prompt templates + manifest, preserving foreign files.
+
+    Install (``runner._deploy_prompt_bindings``) hardlinks the prompt-bundle
+    ``manifest.json`` plus, for every ``templates`` entry, a file named
+    ``Path(relpath).name`` into ``project_root/prompts/``; each manifest entry also
+    carries the ``sha256`` of the deployed file's bytes (``runner._file_digests``:
+    ``hashlib.sha256(file_bytes).hexdigest()``). Detach recovers EXACTLY that
+    AK3-owned set from the deployed manifest and removes a template ONLY when its
+    current content's sha256 still matches the manifest digest — proving it is the
+    unmodified AK3-deployed file. A user-MODIFIED template (digest mismatch) or a
+    foreign file colliding with an AK3 basename therefore SURVIVES and is reported
+    as preserved (FK-10 §10.2.9 surgical removal, "preserve project code").
+
+    Fail-safe (D4): when the manifest is missing or cannot be parsed into the
+    expected ``{templates: {...}}`` shape, NOTHING is removed from ``prompts/`` —
+    the directory and the manifest stay intact (an unreadable manifest is never a
+    licence to delete).
+    """
+    prompts_dir = project_root / STATIC_PROMPTS_DIR
+    if not prompts_dir.is_dir():
+        return []
+    manifest_path = prompts_dir / _prompt_manifest_filename()
+    expected = _ak3_prompt_template_digests(manifest_path)
+    if expected is None:
+        # Missing/malformed/unreadable manifest: fail safe, touch nothing.
+        return []
+    removed: list[str] = []
+    for name, digest in expected.items():
+        template_path = prompts_dir / name
+        if _file_sha256_matches(template_path, digest):
+            removed.extend(_remove_file(template_path, project_root))
+        elif template_path.is_file():
+            # Modified AK3 template or a foreign file colliding with the basename:
+            # the digest no longer matches the deployed content, so preserve it.
+            preserved_files.append(str(template_path.relative_to(project_root)))
+    # The manifest's AK3 set is now removed-or-accounted-for: drop the manifest,
+    # then remove ``prompts/`` only when a clean strip leaves it empty.
+    removed.extend(_remove_file(manifest_path, project_root))
+    removed.extend(_remove_empty_dir(prompts_dir, project_root))
+    return removed
+
+
+def _file_sha256_matches(path: Path, expected_digest: str) -> bool:
+    """Return whether ``path`` exists and its bytes hash to ``expected_digest``.
+
+    Reuses the installer's hashing (``runner._file_digests`` /
+    ``_prompt_template_digests``): the manifest ``sha256`` is
+    ``hashlib.sha256(file_bytes).hexdigest()`` over the raw file bytes, so an
+    unmodified AK3-deployed template matches and a modified/foreign one does not.
+    """
+    if not path.is_file():
+        return False
+    try:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return False
+    return digest == expected_digest
+
+
+def _prompt_manifest_filename() -> str:
+    """Return the install-owned prompt-bundle manifest filename (single source).
+
+    Reuses the installer's constant so detach and install agree on the deployed
+    manifest name without a duplicated literal (lazy import avoids a module-load
+    cycle; ``runner`` itself imports ``detach`` lazily for teardown).
+    """
+    from agentkit.backend.installer.runner import PROMPT_MANIFEST_FILENAME
+
+    return PROMPT_MANIFEST_FILENAME
+
+
+def _ak3_prompt_template_digests(manifest_path: Path) -> dict[str, str] | None:
+    """Return ``{deployed_basename: sha256}`` from the deployed manifest, or ``None``.
+
+    Mirrors ``runner._deploy_prompt_bindings`` / ``runner._prompt_template_digests``:
+    each well-formed ``templates`` entry deploys a file named ``Path(relpath).name``
+    and carries that file's ``sha256``. Returns the basename->digest map when EVERY
+    entry carries BOTH a usable ``relpath`` and a non-empty ``sha256``.
+
+    Returns ``None`` (D4 fail-safe) when the manifest is missing, unreadable, not a
+    JSON object, lacks the expected ``templates`` object, OR carries ANY malformed
+    entry (an entry that is not an object, or one missing/empty/non-str ``relpath``
+    or ``sha256``). A partial digest map would let the caller remove the valid
+    templates AND drop ``prompts/manifest.json`` while real content next to a single
+    malformed entry slips through — D4 requires "malformed -> remove nothing", so an
+    untrustworthy manifest is never a licence to delete (an unreadable manifest is
+    never a licence to delete).
+    """
+    if not manifest_path.is_file():
+        return None
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(manifest, dict):
+        return None
+    templates = manifest.get("templates")
+    if not isinstance(templates, dict):
+        return None
+    digests: dict[str, str] = {}
+    for entry in templates.values():
+        if not isinstance(entry, dict):
+            return None
+        relpath = entry.get("relpath")
+        sha256 = entry.get("sha256")
+        if not (isinstance(relpath, str) and relpath):
+            return None
+        if not (isinstance(sha256, str) and sha256):
+            return None
+        digests[Path(relpath).name] = sha256
+    return digests
 
 
 def _load_json_object(path: Path) -> dict[str, object] | None:

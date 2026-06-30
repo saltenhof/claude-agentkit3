@@ -421,7 +421,7 @@ class VersionHandshakeMiddleware:
     def _classify_runtime(self, client_version: str) -> tuple[_RuntimeDecision, str]:
         """Classify the agent-runtime version against the window (FK-10 §10.2.8)."""
         runtime = self.window.agent_runtime
-        if client_version in runtime.blocked:
+        if _is_blocked_version(client_version, runtime.blocked):
             return (
                 _RuntimeDecision.BLOCK,
                 f"Agent-runtime version {client_version!r} is blocked",
@@ -536,6 +536,45 @@ def _wire_version_from_path(route_path: str) -> str | None:
     """Extract the wire version ``N`` from a ``/vN/...`` path, else None."""
     match = _WIRE_VERSION_PATTERN.match(route_path)
     return match.group("wire") if match is not None else None
+
+
+def _is_blocked_version(client_version: str, blocked: tuple[str, ...]) -> bool:
+    """Return whether ``client_version`` matches a blocked entry (numeric-aware).
+
+    Mirrors the level-2 update driver (``installer.lifecycle.update._is_blocked_version``)
+    so the server handshake and ``agentkit update`` share ONE blocked semantics
+    (SINGLE SOURCE OF TRUTH, fail-closed): a blocked entry matches when it is
+    byte-for-byte equal to ``client_version`` OR when it parses to the same numeric
+    version (so a blocked ``"1.2.0"`` also rejects an equivalent ``"1.2"`` and vice
+    versa — the fail-open class where a blocked version in a different notation slips
+    past is closed on both sides). An unparsable blocked entry (or an unparsable
+    client version) never crashes the comparison: it can still match by exact string,
+    otherwise it is skipped — an unparsable ``client_version`` that matches nothing
+    here is still caught by the parse-block in :meth:`_classify_runtime`, never PASS.
+
+    Args:
+        client_version: The agent-runtime version carried on the request (raw).
+        blocked: The blocked version strings of the agent-runtime axis.
+
+    Returns:
+        Whether ``client_version`` is blocked.
+    """
+    try:
+        parsed_client: tuple[int, ...] | None = _parse_version(client_version)
+    except ValueError:
+        parsed_client = None
+    for entry in blocked:
+        if entry == client_version:
+            return True
+        if parsed_client is None:
+            continue
+        try:
+            parsed_entry = _parse_version(entry)
+        except ValueError:
+            continue
+        if _compare_versions(parsed_client, parsed_entry) == 0:
+            return True
+    return False
 
 
 def _parse_version(value: str) -> tuple[int, ...]:

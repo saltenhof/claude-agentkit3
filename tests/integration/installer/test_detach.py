@@ -10,6 +10,7 @@ preserved) and the FK-10 §10.2.0 base rule (no canonical state deleted).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tempfile
@@ -17,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from agentkit.backend.installer.codex_settings import build_codex_config_toml
 from agentkit.backend.installer.lifecycle.detach import detach_project
 from agentkit.backend.skills import create_directory_link, is_directory_link
 
@@ -93,7 +95,10 @@ def _build_project_with_bindings(tmp_path: Path) -> tuple[Path, Path]:
     (project_root / ".codex" / "hooks.json").write_text(
         json.dumps(codex_hooks, indent=2), encoding="utf-8"
     )
-    (project_root / ".codex" / "config.toml").write_text("# ak3", encoding="utf-8")
+    # The real AK3-generated Codex config (byte-equal -> detach removes it).
+    (project_root / ".codex" / "config.toml").write_text(
+        build_codex_config_toml(), encoding="utf-8"
+    )
 
     # AK3 bindings + edge launcher.
     (project_root / ".agentkit" / "config").mkdir(parents=True)
@@ -282,6 +287,360 @@ def test_detach_preserves_foreign_codex_group_in_unexpected_shape(
     # The well-formed group keeps only the foreign handler.
     well_formed = next(g for g in groups if g["matcher"] == "Bash")
     assert [h["command"] for h in well_formed["hooks"]] == ["/opt/foreign/codex-audit.sh"]
+
+
+def test_detach_leaves_pure_foreign_claude_settings_byte_identical(
+    tmp_path: Path,
+) -> None:
+    """B2 surgical regression: a settings.json with ZERO AK3 hooks is NOT rewritten.
+
+    A project-owned ``.claude/settings.json`` that contains only FOREIGN, well-formed
+    hooks must survive byte-for-byte — no indent/trailing-newline churn (the prior
+    code rewrote it unconditionally once ``hooks`` was a well-formed object).
+    """
+    project_root = tmp_path / "project"
+    (project_root / ".claude").mkdir(parents=True)
+    settings_path = project_root / ".claude" / "settings.json"
+    # Indent 4 + trailing newline: distinct from the indent-2, no-newline rewrite.
+    content = (
+        json.dumps(
+            {
+                "permissions": {"allow": ["Bash"]},
+                "hooks": {
+                    "PreToolUse": [
+                        {"matcher": "Bash", "command": "/opt/foreign/audit-hook.sh"}
+                    ]
+                },
+            },
+            indent=4,
+        )
+        + "\n"
+    )
+    settings_path.write_text(content, encoding="utf-8")
+    before = settings_path.read_bytes()
+
+    result = detach_project(project_root)
+
+    assert settings_path.read_bytes() == before  # byte-for-byte untouched
+    assert result.removed_ak3_hooks == ()
+    assert "/opt/foreign/audit-hook.sh" in result.preserved_foreign_hooks
+
+
+def test_detach_leaves_pure_foreign_codex_hooks_byte_identical(tmp_path: Path) -> None:
+    """B2 surgical regression (Codex mirror): a hooks.json with ZERO AK3 handlers
+    is NOT rewritten and survives byte-for-byte."""
+    project_root = tmp_path / "project"
+    (project_root / ".codex").mkdir(parents=True)
+    hooks_path = project_root / ".codex" / "hooks.json"
+    content = (
+        json.dumps(
+            {
+                "hooks": {
+                    "PreToolUse": [
+                        {
+                            "matcher": "Bash",
+                            "hooks": [
+                                {"type": "command", "command": "/opt/foreign/audit.sh"}
+                            ],
+                        }
+                    ]
+                }
+            },
+            indent=4,
+        )
+        + "\n"
+    )
+    hooks_path.write_text(content, encoding="utf-8")
+    before = hooks_path.read_bytes()
+
+    result = detach_project(project_root)
+
+    assert hooks_path.read_bytes() == before  # byte-for-byte untouched
+    assert result.removed_ak3_hooks == ()
+
+
+def test_detach_preserves_foreign_sibling_key_in_emptied_codex_group(
+    tmp_path: Path,
+) -> None:
+    """B3 regression: dropping an AK3-only handler list must NOT discard foreign
+    sibling keys of the matcher group (e.g. a foreign ``note``)."""
+    project_root = tmp_path / "project"
+    (project_root / ".codex").mkdir(parents=True)
+    hooks_path = project_root / ".codex" / "hooks.json"
+    codex = {
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "agentkit-hook-codex pre branch_guard",
+                        }
+                    ],
+                    "note": "foreign-owned annotation",
+                }
+            ]
+        }
+    }
+    hooks_path.write_text(json.dumps(codex, indent=2), encoding="utf-8")
+
+    result = detach_project(project_root)
+
+    surviving = json.loads(hooks_path.read_text(encoding="utf-8"))
+    group = surviving["hooks"]["PreToolUse"][0]
+    # Foreign sibling key survives; the emptied AK3 hook list becomes [] (D2: the
+    # ``hooks`` key MUST stay present as a list — popping it leaves a schema-invalid
+    # group the Codex writer rejects).
+    assert group["note"] == "foreign-owned annotation"
+    assert group["matcher"] == "Bash"
+    assert "hooks" in group
+    assert group["hooks"] == []
+    assert "agentkit-hook-codex pre branch_guard" in result.removed_ak3_hooks
+    # D2: the preserved group must pass the Codex settings-writer validation
+    # (a popped ``hooks`` key would fail closed on a later registration/reinstall).
+    from agentkit.harness_client.harness_adapters.settings_writer import (
+        _coerce_hooks_section,
+    )
+
+    coerced = _coerce_hooks_section(surviving["hooks"])
+    assert coerced["PreToolUse"][0]["hooks"] == []
+
+
+def test_detach_drops_pure_ak3_codex_group_without_foreign_keys(
+    tmp_path: Path,
+) -> None:
+    """A matcher group that is purely an AK3 registration (only structural keys) is
+    still fully dropped when its handlers are all AK3."""
+    project_root = tmp_path / "project"
+    (project_root / ".codex").mkdir(parents=True)
+    hooks_path = project_root / ".codex" / "hooks.json"
+    codex = {
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "agentkit-hook-codex pre branch_guard",
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+    hooks_path.write_text(json.dumps(codex, indent=2), encoding="utf-8")
+
+    detach_project(project_root)
+
+    # The AK3-only group emptied the event, leaving the file structurally empty:
+    # it is removed (no orphan matcher group left behind).
+    assert not hooks_path.exists()
+
+
+_AK3_PROMPT_BODY = "ak3 prompt body"
+
+
+def _write_prompt_bundle(prompts_dir: Path, *, relpaths: dict[str, str]) -> None:
+    """Materialise an AK3-deployed ``prompts/`` dir (manifest + template files).
+
+    Mirrors ``runner._deploy_prompt_bindings``: the manifest lists ``templates``
+    with a ``relpath`` AND the deployed file's ``sha256`` (raw-bytes digest, as
+    ``runner._file_digests`` computes it); each template is deployed as
+    ``Path(relpath).name`` with that exact content so the digest matches.
+    """
+    prompts_dir.mkdir(parents=True)
+    digest = hashlib.sha256(_AK3_PROMPT_BODY.encode("utf-8")).hexdigest()
+    manifest = {
+        "bundle_id": "prompts-core",
+        "bundle_version": "1",
+        "templates": {
+            name: {"relpath": relpath, "sha256": digest}
+            for name, relpath in relpaths.items()
+        },
+    }
+    (prompts_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    for relpath in relpaths.values():
+        (prompts_dir / Path(relpath).name).write_text(_AK3_PROMPT_BODY, encoding="utf-8")
+
+
+def test_detach_preserves_foreign_prompt_file_and_removes_ak3(tmp_path: Path) -> None:
+    """B4 regression: a foreign file in ``prompts/`` SURVIVES detach while the
+    AK3-deployed manifest + templates are removed (no wholesale ``rmtree``)."""
+    project_root = tmp_path / "project"
+    prompts = project_root / "prompts"
+    _write_prompt_bundle(prompts, relpaths={"exec": "execute/exec.md", "plan": "plan.md"})
+    # A user-owned file dropped into prompts/ (must survive).
+    (prompts / "my-own.md").write_text("user content", encoding="utf-8")
+
+    result = detach_project(project_root)
+
+    assert (prompts / "my-own.md").read_text(encoding="utf-8") == "user content"
+    assert not (prompts / "exec.md").exists()
+    assert not (prompts / "plan.md").exists()
+    assert not (prompts / "manifest.json").exists()
+    assert prompts.is_dir()  # kept: the foreign file still lives here
+    assert str(Path("prompts/exec.md")) in result.removed_bindings
+    assert str(Path("prompts/manifest.json")) in result.removed_bindings
+
+
+def test_detach_removes_prompts_dir_when_only_ak3_content(tmp_path: Path) -> None:
+    """The normal AK3-only case still fully cleans up ``prompts/`` (empty -> removed)."""
+    project_root = tmp_path / "project"
+    prompts = project_root / "prompts"
+    _write_prompt_bundle(prompts, relpaths={"plan": "plan.md"})
+
+    detach_project(project_root)
+
+    assert not prompts.exists()
+
+
+def test_detach_preserves_user_modified_prompt_template(tmp_path: Path) -> None:
+    """D3 regression: a user-MODIFIED AK3-named template SURVIVES detach.
+
+    Detach must delete a prompt file only when its content's sha256 still matches
+    the manifest digest (proving it is unmodified AK3 content). A user edit changes
+    the digest, so the file is preserved byte-for-byte while the unmodified sibling
+    is removed.
+    """
+    project_root = tmp_path / "project"
+    prompts = project_root / "prompts"
+    _write_prompt_bundle(prompts, relpaths={"exec": "exec.md", "plan": "plan.md"})
+    # The user edits one AK3-deployed template -> digest no longer matches.
+    modified = "MY OWN EDITS\n" + _AK3_PROMPT_BODY
+    (prompts / "plan.md").write_text(modified, encoding="utf-8")
+
+    result = detach_project(project_root)
+
+    # Unmodified template removed; modified template preserved byte-for-byte.
+    assert not (prompts / "exec.md").exists()
+    assert (prompts / "plan.md").read_text(encoding="utf-8") == modified
+    assert prompts.is_dir()  # kept: the modified file still lives here
+    assert str(Path("prompts/plan.md")) in result.preserved_foreign_files
+    assert str(Path("prompts/plan.md")) not in result.removed_bindings
+
+
+def test_detach_preserves_foreign_file_colliding_with_ak3_basename(
+    tmp_path: Path,
+) -> None:
+    """D3: a FOREIGN file whose basename collides with an AK3 template but whose
+    content differs (digest mismatch) SURVIVES detach."""
+    project_root = tmp_path / "project"
+    prompts = project_root / "prompts"
+    # The manifest claims ``plan.md`` is AK3, but on disk it is foreign content.
+    digest = hashlib.sha256(_AK3_PROMPT_BODY.encode("utf-8")).hexdigest()
+    prompts.mkdir(parents=True)
+    manifest = {
+        "bundle_id": "prompts-core",
+        "bundle_version": "1",
+        "templates": {"plan": {"relpath": "plan.md", "sha256": digest}},
+    }
+    (prompts / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (prompts / "plan.md").write_text("foreign content, not AK3", encoding="utf-8")
+
+    result = detach_project(project_root)
+
+    assert (prompts / "plan.md").read_text(encoding="utf-8") == "foreign content, not AK3"
+    assert str(Path("prompts/plan.md")) in result.preserved_foreign_files
+    # The manifest itself is AK3-owned and is removed (its set is accounted for).
+    assert not (prompts / "manifest.json").exists()
+
+
+def test_detach_with_malformed_manifest_removes_nothing(tmp_path: Path) -> None:
+    """D4 regression: a malformed/hand-edited ``prompts/manifest.json`` makes detach
+    remove NOTHING from ``prompts/`` (fail safe) — manifest and files survive."""
+    project_root = tmp_path / "project"
+    prompts = project_root / "prompts"
+    prompts.mkdir(parents=True)
+    # Hand-edited, no longer valid JSON.
+    (prompts / "manifest.json").write_text('{"templates": {trunca', encoding="utf-8")
+    (prompts / "plan.md").write_text(_AK3_PROMPT_BODY, encoding="utf-8")
+
+    result = detach_project(project_root)
+
+    # Nothing in prompts/ was touched.
+    assert (prompts / "manifest.json").read_text(encoding="utf-8") == '{"templates": {trunca'
+    assert (prompts / "plan.md").read_text(encoding="utf-8") == _AK3_PROMPT_BODY
+    assert prompts.is_dir()
+    assert not any(p.startswith("prompts") for p in result.removed_bindings)
+
+
+@pytest.mark.parametrize(
+    "bad_entry",
+    [
+        pytest.param("not-a-dict", id="entry-not-dict"),
+        pytest.param({"sha256": "deadbeef"}, id="missing-relpath"),
+        pytest.param({"relpath": "", "sha256": "deadbeef"}, id="empty-relpath"),
+        pytest.param({"relpath": "bad.md"}, id="missing-sha256"),
+        pytest.param({"relpath": "bad.md", "sha256": ""}, id="empty-sha256"),
+    ],
+)
+def test_detach_entry_level_malformed_manifest_removes_nothing(
+    tmp_path: Path, bad_entry: object
+) -> None:
+    """F2 regression: a manifest with ONE valid + ONE malformed ``templates`` entry
+    makes detach remove NOTHING from ``prompts/`` (fail safe, D4).
+
+    A partial digest map previously removed the valid template AND dropped the
+    manifest, deleting real content next to a single malformed entry. D4 requires
+    "malformed -> remove nothing": the valid template, the colliding entry's file
+    AND the manifest must all survive.
+    """
+    project_root = tmp_path / "project"
+    prompts = project_root / "prompts"
+    prompts.mkdir(parents=True)
+    valid_digest = hashlib.sha256(_AK3_PROMPT_BODY.encode("utf-8")).hexdigest()
+    manifest = {
+        "bundle_id": "prompts-core",
+        "bundle_version": "1",
+        "templates": {
+            "plan": {"relpath": "plan.md", "sha256": valid_digest},
+            "broken": bad_entry,
+        },
+    }
+    (prompts / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (prompts / "plan.md").write_text(_AK3_PROMPT_BODY, encoding="utf-8")
+
+    result = detach_project(project_root)
+
+    # The valid template AND the manifest survive — nothing in prompts/ was touched.
+    assert (prompts / "plan.md").read_text(encoding="utf-8") == _AK3_PROMPT_BODY
+    assert (prompts / "manifest.json").is_file()
+    assert prompts.is_dir()
+    assert not any(p.startswith("prompts") for p in result.removed_bindings)
+    assert not any(p.startswith("prompts") for p in result.preserved_foreign_files)
+
+
+def test_detach_removes_byte_equal_ak3_codex_config(tmp_path: Path) -> None:
+    """D5: a ``.codex/config.toml`` that byte-equals the AK3 config is removed."""
+    project_root = tmp_path / "project"
+    (project_root / ".codex").mkdir(parents=True)
+    config_path = project_root / ".codex" / "config.toml"
+    config_path.write_text(build_codex_config_toml(), encoding="utf-8")
+
+    result = detach_project(project_root)
+
+    assert not config_path.exists()
+    assert str(Path(".codex/config.toml")) in result.removed_bindings
+
+
+def test_detach_preserves_foreign_codex_config(tmp_path: Path) -> None:
+    """D5 regression: a ``.codex/config.toml`` carrying foreign config (not byte-equal
+    to the AK3 config) SURVIVES detach byte-for-byte instead of being deleted."""
+    project_root = tmp_path / "project"
+    (project_root / ".codex").mkdir(parents=True)
+    config_path = project_root / ".codex" / "config.toml"
+    # AK3 config PLUS a foreign user-added section.
+    foreign = build_codex_config_toml() + '\n[user.custom]\nkey = "value"\n'
+    config_path.write_text(foreign, encoding="utf-8")
+    before = config_path.read_bytes()
+
+    result = detach_project(project_root)
+
+    assert config_path.read_bytes() == before  # byte-for-byte preserved
+    assert str(Path(".codex/config.toml")) in result.preserved_foreign_files
+    assert str(Path(".codex/config.toml")) not in result.removed_bindings
 
 
 def test_detach_missing_project_root_fails_closed(tmp_path: Path) -> None:

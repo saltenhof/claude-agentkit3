@@ -166,12 +166,10 @@ def decommission_machine(
     # (not resolved) BEFORE any enumeration or removal: a link root aborts the
     # whole verb so nothing is removed (fail-closed).
     if is_directory_link(bundle_store_root):
-        msg = (
-            f"refusing to run machine-uninstall: the bundle store root "
-            f"{bundle_store_root} is itself a symlink/junction (reparse point); "
-            "removing version directories underneath it would delete THROUGH the "
-            "link into its target; nothing removed (fail-closed)."
-        )
+        msg = "refusing to run machine-uninstall: the bundle store root "
+        msg += f"{bundle_store_root} is itself a symlink/junction (reparse point); "
+        msg += "removing version directories underneath it would delete THROUGH the "
+        msg += "link into its target; nothing removed (fail-closed)."
         raise MachineDecommissionError(msg)
     targets = _bundle_versions_to_remove(bundle_store_root, bundle_version)
     # Validate EVERY target name (the explicit --bundle-version AND each
@@ -241,12 +239,10 @@ def _ensure_safe_bundle_version_path(
         or len(candidate.parts) != 1
         or candidate.name != version_dir
     ):
-        msg = (
-            f"refusing to remove bundle version {version_dir!r}: a bundle-store "
-            "version directory must be a single relative child name (no path "
-            "separators, no drive/root/anchor, not '.' or '..'); nothing removed "
-            "(fail-closed)."
-        )
+        msg = f"refusing to remove bundle version {version_dir!r}: a bundle-store "
+        msg += "version directory must be a single relative child name (no path "
+        msg += "separators, no drive/root/anchor, not '.' or '..'); nothing removed "
+        msg += "(fail-closed)."
         raise MachineDecommissionError(msg)
     # Resolving BOTH the root and the child confines all removal to within the
     # resolved bundle store even when the store is reached through a symlinked/
@@ -258,11 +254,9 @@ def _ensure_safe_bundle_version_path(
     root_resolved = bundle_store_root.resolve()
     resolved = (bundle_store_root / version_dir).resolve()
     if resolved == root_resolved or not resolved.is_relative_to(root_resolved):
-        msg = (
-            f"refusing to remove bundle version {version_dir!r}: the resolved "
-            f"removal path {resolved} escapes the bundle store {root_resolved}; "
-            "nothing removed (fail-closed)."
-        )
+        msg = f"refusing to remove bundle version {version_dir!r}: the resolved "
+        msg += f"removal path {resolved} escapes the bundle store {root_resolved}; "
+        msg += "nothing removed (fail-closed)."
         raise MachineDecommissionError(msg)
     return bundle_store_root / version_dir
 
@@ -286,12 +280,10 @@ def _ensure_real_directory_entry(version_dir: str, path: Path) -> None:
         MachineDecommissionError: When ``path`` is a symlink/junction.
     """
     if is_directory_link(path):
-        msg = (
-            f"refusing to remove bundle version {version_dir!r}: the store entry "
-            f"{path} is a symlink/junction (reparse point), not a real directory; "
-            "removing it would delete THROUGH the link into its target; nothing "
-            "removed (fail-closed)."
-        )
+        msg = f"refusing to remove bundle version {version_dir!r}: the store entry "
+        msg += f"{path} is a symlink/junction (reparse point), not a real directory; "
+        msg += "removing it would delete THROUGH the link into its target; nothing "
+        msg += "removed (fail-closed)."
         raise MachineDecommissionError(msg)
 
 
@@ -338,17 +330,13 @@ def decommission_core(
             non-zero (raised by the controller AFTER a successful export).
     """
     if not request.confirm:
-        msg = (
-            "core-decommission is destructive and requires explicit confirmation "
-            "(--confirm); aborting without tearing anything down (fail-closed)."
-        )
+        msg = "core-decommission is destructive and requires explicit confirmation "
+        msg += "(--confirm); aborting without tearing anything down (fail-closed)."
         raise CoreDecommissionError(msg)
     if request.export_dir is None:
-        msg = (
-            "core-decommission requires a mandatory state-backend export "
-            "(--export-dir) of the audit trail / closure records / QA results "
-            "BEFORE teardown; aborting (fail-closed)."
-        )
+        msg = "core-decommission requires a mandatory state-backend export "
+        msg += "(--export-dir) of the audit trail / closure records / QA results "
+        msg += "BEFORE teardown; aborting (fail-closed)."
         raise CoreDecommissionError(msg)
 
     exporter = (
@@ -361,10 +349,8 @@ def decommission_core(
     try:
         exported_to = exporter.export(request.export_dir)
     except Exception as exc:  # noqa: BLE001 - fail-closed: any export failure aborts
-        msg = (
-            "core-decommission mandatory state-backend export FAILED; nothing torn "
-            f"down (fail-closed): {exc}"
-        )
+        msg = "core-decommission mandatory state-backend export FAILED; nothing torn "
+        msg += f"down (fail-closed): {exc}"
         raise CoreDecommissionError(msg) from exc
     stopped = tuple(service_controller.stop_services())
     # The DB volume is intentionally NOT touched here: volume deletion is a

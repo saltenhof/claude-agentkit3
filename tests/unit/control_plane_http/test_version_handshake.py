@@ -214,6 +214,66 @@ def test_runtime_in_blocked_list_blocks_with_426() -> None:
     assert telemetry.calls == 0
 
 
+def test_runtime_blocked_matches_numeric_equal_notation() -> None:
+    """F1 fail-open regression: the server blocks a runtime that is numerically
+    equal to a blocked entry in a DIFFERENT notation, matching the level-2 update
+    driver (``installer.lifecycle.update._is_blocked_version``).
+
+    A client ``"1.2"`` against blocked ``["1.2.0"]`` was PASS under the prior
+    exact-string membership (fail-open: a blocked version in a different notation
+    slipped past the server while ``agentkit update`` already reported BLOCKED).
+    The numeric-aware blocked semantics is the SSOT, so both sides now reject it.
+    """
+    telemetry = _RecordingTelemetryService()
+    window = CompatWindow(
+        agent_runtime=VersionAxisWindow(
+            min="1.0.0", max="3.0.0", recommended="1.0.0", blocked=("1.2.0",),
+        ),
+        wire=VersionAxisWindow(min="1", max="1", recommended="1", blocked=()),
+    )
+    app = ControlPlaneApplication(
+        version_handshake_middleware=VersionHandshakeMiddleware(window=window),
+        telemetry_service=telemetry,  # type: ignore[arg-type]
+    )
+
+    response = app.handle_request(
+        method="POST",
+        path=_TELEMETRY_PATH,
+        body=_valid_telemetry_body(),
+        request_headers={CLIENT_VERSION_HEADER: "1.2", SKILL_BUNDLE_HEADER: "b"},
+    )
+
+    assert response.status_code == int(HTTPStatus.UPGRADE_REQUIRED)
+    assert "blocked" in json.loads(response.body)["error"].lower()
+    assert telemetry.calls == 0
+
+
+def test_runtime_unparsable_blocked_entry_does_not_crash() -> None:
+    """F1 tolerance: an unparsable blocked entry never crashes the comparison; a
+    non-matching runtime still proceeds (mirrors update.py's skip-safely tolerance)."""
+    telemetry = _RecordingTelemetryService()
+    window = CompatWindow(
+        agent_runtime=VersionAxisWindow(
+            min="1.0.0", max="3.0.0", recommended="1.0.0", blocked=("garbage", "1.2.0"),
+        ),
+        wire=VersionAxisWindow(min="1", max="1", recommended="1", blocked=()),
+    )
+    app = ControlPlaneApplication(
+        version_handshake_middleware=VersionHandshakeMiddleware(window=window),
+        telemetry_service=telemetry,  # type: ignore[arg-type]
+    )
+
+    response = app.handle_request(
+        method="POST",
+        path=_TELEMETRY_PATH,
+        body=_valid_telemetry_body(),
+        request_headers={CLIENT_VERSION_HEADER: "1.3.0", SKILL_BUNDLE_HEADER: "b"},
+    )
+
+    assert response.status_code == int(HTTPStatus.CREATED)
+    assert telemetry.calls == 1
+
+
 def test_unsupported_wire_version_blocks_with_426() -> None:
     """AC2: an unsupported wire version (``/v2``) at a mutation -> 426."""
     telemetry = _RecordingTelemetryService()
