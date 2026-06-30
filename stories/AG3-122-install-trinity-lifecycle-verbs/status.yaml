@@ -1,9 +1,10 @@
 story_id: AG3-122
 title: "Install-Dreifaltigkeit: ebenen-spezifische Lifecycle-Verben (serve/update/detach/decommission)"
 type: implementation
-status: in_progress
+status: completed
 phase: setup
 created: "2026-06-29"
+completed_at: "2026-07-01T00:25:00+02:00"
 size: L
 # WP-F aus var/abweichungskarte-zentralisierung.md. SOLL FK-10 §10.2.0 (drei
 # Ebenen Core/Maschine/Projekt), §10.2.5 (serve), §10.2.6, §10.2.8 (update),
