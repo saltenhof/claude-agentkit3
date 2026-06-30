@@ -1,7 +1,7 @@
 story_id: AG3-123
 title: "Phase-Dispatch / RuntimeService vom dev-lokalen project_root entkoppeln (Backend-resolved Workspace)"
 type: implementation
-status: ready
+status: in_progress
 phase: setup
 created: "2026-06-29"
 size: L
