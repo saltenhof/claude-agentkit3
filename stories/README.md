@@ -251,7 +251,7 @@ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben (Foundation zuerst)
 | AG3-123 | Phase-Dispatch von lokalem `project_root` entkoppeln (Kern-Worktree-Bindung) | D | L | completed | — |
 | AG3-124 | Capability-REST: `pipeline_engine` (503-Stub → Server-Ausführung) | D | L | ready | 123 |
 | AG3-125 | Capability-REST: `verify_system`+`closure`+`governance` | D | L | ready | 123 |
-| AG3-126 | `story`-BC Read-Port (echte Kapselung statt `state_backend.store`-Re-Export) | I | L | ready | — |
+| AG3-126 | `story`-BC Read-Port (echte Kapselung statt `state_backend.store`-Re-Export) | I | L | in_progress | — |
 | AG3-127 | `telemetry`+`project_management` Read-Ports; BFF entkoppeln | I | M | blocked | 126 |
 | AG3-128 | Konformanz-Suite: Repository-Vertrags-Invariante erzwingen (FK-07 §7.6) | I | M | blocked | 126,127 |
 | AG3-129 | Hook→Backend: Guard-Counter/Worker-Health/Telemetrie über REST statt Direkt-DB | A | L | blocked | 124,125 |
@@ -260,7 +260,7 @@ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben (Foundation zuerst)
 | AG3-132 | Drittsystem-Vermittlung Sonar/Jenkins/ARE über Backend | B | L | blocked | 125 |
 | AG3-133 | LLM-Hub-Evals in den Kern (C1/C3) + Layer-2 produktiv anbinden | C | L | blocked | 125,129 |
 
-**Sofort startbar (`ready`):** AG3-122, AG3-124, AG3-125, AG3-126. (AG3-120, AG3-121, AG3-123 ✅ completed.)
+**Sofort startbar (`ready`):** AG3-122, AG3-124, AG3-125. (AG3-120, AG3-121, AG3-123 ✅ completed; AG3-126 in Arbeit.)
 **Sequenz-Treiber:** WP-D (123→124/125) ist Fundament für die dev-seitigen
 Umstellungen A/B/C/E; WP-I-Read-Ports (126→127→128) laufen unabhängig parallel;
 H/G/F sind voneinander unabhängig.
