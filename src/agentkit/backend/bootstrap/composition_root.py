@@ -3400,5 +3400,42 @@ def cli_load_execution_events_for_project_global(
     return load_execution_events_for_project_global(project_key, limit=limit)  # type: ignore[return-value]
 
 
+def build_compat_window_reader(
+    base_url: str,
+    *,
+    skill_bundle_version: str | None = None,
+) -> Callable[[], dict[str, object]]:
+    """Build a reader for the Core compat window (FK-10 §10.2.8, AG3-122).
+
+    Wires the official ProjectEdge HTTPS transport and returns a zero-arg callable
+    that performs ``GET /v1/compat`` (AG3-121). The level-2 ``agentkit update``
+    driver consumes this read path; it never rebuilds the endpoint. The CLI is an
+    entry boundary that cannot import the ProjectEdge adapter directly, so this
+    wiring lives in the composition root.
+
+    Args:
+        base_url: The Core control-plane base URL.
+        skill_bundle_version: The locally bound skill-bundle version (handshake
+            header); ``None`` when no bundle is bound (``/v1/compat`` is exempt).
+
+    Returns:
+        A callable returning the decoded compat-window body.
+    """
+    from agentkit.harness_client.projectedge.client import (
+        HttpsJsonTransport,
+        fetch_compat_window,
+    )
+
+    transport = HttpsJsonTransport(
+        base_url=base_url,
+        skill_bundle_version=skill_bundle_version,
+    )
+
+    def _read() -> dict[str, object]:
+        return fetch_compat_window(transport)
+
+    return _read
+
+
 # Keep export metadata compact so module-level LOC stays under the project gate.
-__all__ = ["ClosureConfigUnavailableError", "build_artifact_invalidation_sink", "build_review_completion_sink", "build_artifact_manager", "build_closure_phase_handler", "build_exploration_drafting", "build_exploration_phase_handler", "build_exploration_review", "build_failure_corpus", "build_integrity_gate", "build_phase_state_residue_probe", "build_pipeline_engine", "build_pipeline_handler_registry", "build_planning_projection_accessor", "build_planning_story_dependency_repository", "build_producer_registry", "build_projection_accessor", "build_runtime_execution_purge_port", "build_runtime_execution_residue_probe", "build_setup_config_for_run", "build_setup_phase_handler", "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_structural_are_provider", "build_structural_build_test_port", "build_verify_system", "cli_load_story_context", "cli_load_execution_events_for_project_global", "cli_read_phase_state_record"]  # noqa: E501
+__all__ = ["ClosureConfigUnavailableError", "build_compat_window_reader", "build_artifact_invalidation_sink", "build_review_completion_sink", "build_artifact_manager", "build_closure_phase_handler", "build_exploration_drafting", "build_exploration_phase_handler", "build_exploration_review", "build_failure_corpus", "build_integrity_gate", "build_phase_state_residue_probe", "build_pipeline_engine", "build_pipeline_handler_registry", "build_planning_projection_accessor", "build_planning_story_dependency_repository", "build_producer_registry", "build_projection_accessor", "build_runtime_execution_purge_port", "build_runtime_execution_residue_probe", "build_setup_config_for_run", "build_setup_phase_handler", "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_structural_are_provider", "build_structural_build_test_port", "build_verify_system", "cli_load_story_context", "cli_load_execution_events_for_project_global", "cli_read_phase_state_record"]  # noqa: E501

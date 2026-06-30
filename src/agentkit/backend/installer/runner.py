@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -31,20 +30,14 @@ from agentkit.backend.installer.file_ops import (
     create_or_replace_hardlink,
 )
 from agentkit.backend.installer.paths import (
-    AGENTKIT_DIR,
-    AGENTKIT_TOOLS_DIR,
     CLAUDE_DIR,
     CODEBASE_DIR,
-    CODEX_DIR,
     CONCEPTS_DIR,
     GUARDRAILS_DIR,
     INPUT_DIR,
     MEETINGS_DIR,
     PROJECT_TEMP_DIR,
-    STATIC_PROMPTS_DIR,
     STORIES_DIR,
-    claude_settings_path,
-    codex_config_path,
     config_dir,
     control_plane_config_path,
     manifests_dir,
@@ -2217,59 +2210,16 @@ def _resolve_branch_plugin_self_test(
     return _self_test
 
 
-def _remove_file(path: Path, project_root: Path) -> list[str]:
-    if not path.exists():
-        return []
-    path.unlink()
-    return [str(path.relative_to(project_root))]
-
-
-def _remove_tree(path: Path, project_root: Path) -> list[str]:
-    if not path.exists():
-        return []
-    shutil.rmtree(path)
-    return [str(path.relative_to(project_root))]
-
-
-def _remove_empty_dir(path: Path, project_root: Path) -> list[str]:
-    if not path.is_dir() or any(path.iterdir()):
-        return []
-    path.rmdir()
-    return [str(path.relative_to(project_root))]
-
-
-def _remove_skill_link_bindpoints(project_root: Path) -> list[str]:
-    """Detach every harness skill LINK under the bind points (Codex-r7-r2).
-
-    Symmetric to install (FK-43 §43.4.1.1): install creates
-    ``.claude/skills/<name>`` and ``.codex/skills/<name>`` as thin links to the
-    central bundle, so uninstall must DETACH them — otherwise the junctions /
-    symlinks (and their non-empty parent dirs) survive. A junction is detached via
-    ``os.rmdir`` (through the agent-skills link layer), NEVER ``shutil.rmtree``,
-    which would delete the CENTRAL bundle through the link. Every link under the
-    bind point is removed (mandatory AND custom skills).
-
-    Filesystem-only: the central state-backend binding rows are out of
-    uninstall's scope — exactly like the project-registration rows that uninstall
-    also leaves untouched (uninstall removes project-local artifacts, not central
-    state). A re-install rebinds and overwrites those rows.
-    """
-    from agentkit.backend.skills import is_directory_link, remove_directory_link
-
-    removed: list[str] = []
-    for harness_dir in (CLAUDE_DIR, CODEX_DIR):
-        skills_dir = project_root / harness_dir / "skills"
-        if not skills_dir.is_dir():
-            continue
-        for entry in sorted(skills_dir.iterdir()):
-            if is_directory_link(entry):
-                remove_directory_link(entry)
-                removed.append(str(entry.relative_to(project_root)))
-    return removed
-
-
 def uninstall_agentkit(project_root: Path) -> UninstallResult:
-    """Remove AgentKit-managed install artifacts from a target project."""
+    """Remove AgentKit-managed install artifacts from a target project.
+
+    This is the DEPRECATED generic teardown; it delegates to the single level-3
+    project-detach path (``detach_project``, FK-10 §10.2.9) so there is exactly
+    one teardown implementation. Detach is surgical (AK3 hook blocks only, foreign
+    hooks preserved) and removes skill junctions via ``unlink``/``rmdir`` after an
+    ``isjunction`` check — never ``rmtree`` through the link (FK-43 §43.4.1.1).
+    """
+    from agentkit.backend.installer.lifecycle.detach import detach_project
 
     if not project_root.is_dir():
         raise ProjectError(
@@ -2277,26 +2227,10 @@ def uninstall_agentkit(project_root: Path) -> UninstallResult:
             detail={"project_root": str(project_root)},
         )
 
-    removed: list[str] = []
-    # Detach skill links FIRST (Codex-r7-r2) so the bind-point dirs become empty
-    # and removable; a junction is detached without recursing into its target.
-    removed.extend(_remove_skill_link_bindpoints(project_root))
-    removed.extend(_remove_file(project_root / CODEX_DIR / "hooks.json", project_root))
-    removed.extend(_remove_file(codex_config_path(project_root), project_root))
-    removed.extend(_remove_file(claude_settings_path(project_root), project_root))
-    removed.extend(_remove_empty_dir(project_root / CLAUDE_DIR / "context", project_root))
-    removed.extend(_remove_empty_dir(project_root / CLAUDE_DIR / "skills", project_root))
-    removed.extend(_remove_empty_dir(project_root / CODEX_DIR / "skills", project_root))
-    removed.extend(_remove_empty_dir(project_root / CLAUDE_DIR, project_root))
-    removed.extend(_remove_empty_dir(project_root / CODEX_DIR, project_root))
-    removed.extend(_remove_tree(project_root / AGENTKIT_DIR, project_root))
-    removed.extend(_remove_tree(project_root / AGENTKIT_TOOLS_DIR, project_root))
-    removed.extend(_remove_empty_dir(project_root / "tools", project_root))
-    removed.extend(_remove_tree(project_root / STATIC_PROMPTS_DIR, project_root))
-    removed.extend(_remove_empty_dir(project_root / STORIES_DIR, project_root))
-
+    result = detach_project(project_root)
+    removed = list(result.detached_junctions) + list(result.removed_bindings)
     return UninstallResult(
-        success=True,
+        success=result.success,
         project_root=project_root,
         removed_files=tuple(removed),
     )

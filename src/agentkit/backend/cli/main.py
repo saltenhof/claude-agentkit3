@@ -54,9 +54,12 @@ def main(argv: list[str] | None = None) -> int:
 
     subparsers = parser.add_subparsers(dest="command")
 
-    # install
+    # install — AG3-122: DEPRECATED level-conflating verb. The canonical level-3
+    # project registration is 'register-project'; level 1 is 'serve', level 1/2 is
+    # 'decommission'. Kept only as an explicitly-documented deprecated compat alias.
     install_parser = subparsers.add_parser(
-        "install", help="Install AgentKit into a target project",
+        "install",
+        help="[deprecated] Use 'register-project' (level 3); see FK-10 §10.2.0",
     )
     install_parser.add_argument("--project-key", required=True)
     install_parser.add_argument("--project-name", required=True)
@@ -144,8 +147,12 @@ def main(argv: list[str] | None = None) -> int:
             "opt-out (pre-merge runner not applicable)."
         ),
     )
+    # uninstall — AG3-122: DEPRECATED. The canonical level-3 teardown is 'detach'
+    # (surgical AK3-hook-block removal, safe junction detach). Kept only as an
+    # explicitly-documented deprecated compat alias delegating to that one path.
     uninstall_parser = subparsers.add_parser(
-        "uninstall", help="Remove AgentKit from a target project",
+        "uninstall",
+        help="[deprecated] Use 'detach' (level 3); see FK-10 §10.2.9",
     )
     uninstall_parser.add_argument("--project-root", required=True)
 
@@ -246,12 +253,15 @@ def main(argv: list[str] | None = None) -> int:
         default=".",
         help=_PROJECT_ROOT_HELP,
     )
+    # AG3-122 (FK-10 §10.2.5): retired to a deprecated compat alias onto
+    # 'serve --project-api' (ONE serve implementation). The port default migrated
+    # from the legacy 9080 to the Project-API 9702; cert/key flags stay compatible.
     control_plane_parser = subparsers.add_parser(
         "serve-control-plane",
-        help="Run the AgentKit control-plane HTTP server",
+        help="[deprecated] Alias for 'serve --project-api' (FK-10 §10.2.5)",
     )
     control_plane_parser.add_argument("--host", default="127.0.0.1")
-    control_plane_parser.add_argument("--port", type=int, default=9080)
+    control_plane_parser.add_argument("--port", type=int, default=None)
     control_plane_parser.add_argument("--certfile", required=True)
     control_plane_parser.add_argument("--keyfile")
     # AG3-068 (FK-21 §21.11): deterministic story.md export + batch repair.
@@ -301,6 +311,11 @@ def main(argv: list[str] | None = None) -> int:
     # AG3-076: operator/recovery commands
     _setup_operator_recovery_subparsers(subparsers)
 
+    # AG3-122: install-trinity level-specific lifecycle verbs (FK-10 §10.2.0).
+    from agentkit.backend.cli.lifecycle import add_lifecycle_parsers
+
+    add_lifecycle_parsers(subparsers)
+
     args = parser.parse_args(argv)
 
     if args.version:
@@ -321,6 +336,8 @@ def _dispatch_command(
     args: argparse.Namespace, cli_args: list[str]
 ) -> tuple[bool, int]:
     """Dispatch a parsed subcommand. Returns ``(handled, exit_code)``."""
+    from agentkit.backend.cli import lifecycle
+
     handlers = {
         "install": lambda: _cmd_install(args),
         "uninstall": lambda: _cmd_uninstall(args),
@@ -333,7 +350,14 @@ def _dispatch_command(
         "reset-story": lambda: _cmd_reset_story(args),
         "exit-story": lambda: _cmd_exit_story(args, cli_args),
         "doctor": lambda: _cmd_doctor(args),
-        "serve-control-plane": lambda: _cmd_serve_control_plane(args),
+        # AG3-122: install-trinity level-specific lifecycle verbs (FK-10 §10.2.0).
+        "serve": lambda: lifecycle.cmd_serve(args),
+        "ui": lambda: lifecycle.cmd_ui(args),
+        "update": lambda: lifecycle.cmd_update(args),
+        "detach": lambda: lifecycle.cmd_detach(args),
+        "decommission": lambda: lifecycle.cmd_decommission(args),
+        # serve-control-plane is a deprecated alias onto the single serve impl.
+        "serve-control-plane": lambda: lifecycle.cmd_serve_control_plane_alias(args),
         "export-story-md": lambda: _cmd_export_story_md(args),
         "repair-story-md": lambda: _cmd_repair_story_md(args),
         # failure-corpus (FK-41 §41.9, AG3-078)
@@ -444,6 +468,14 @@ def _cmd_install(args: argparse.Namespace) -> int:
     from agentkit.backend.exceptions import InstallationError
     from agentkit.backend.installer import InstallConfig, install_agentkit
 
+    # AG3-122 (FK-10 §10.2.0): the generic 'install' verb conflated levels and is
+    # retired to a deprecated alias. Point the operator at the level-3 verb.
+    print(
+        "agentkit install is deprecated (it conflated install levels). Use the "
+        "level-specific verbs: 'register-project' (level 3 project), 'serve' "
+        "(level 1 core), 'decommission' (level 1/2). See FK-10 §10.2.0.",
+        file=sys.stderr,
+    )
     project_root = Path(args.project_root)
 
     # AG3-039 (FK-50 §50.3 CP 7): resolve the MANDATORY github coordinates
@@ -641,6 +673,13 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
 
     from agentkit.backend.installer import uninstall_agentkit
 
+    # AG3-122 (FK-10 §10.2.9): 'uninstall' is retired to a deprecated alias that
+    # delegates to the single level-3 detach teardown path (no second path).
+    print(
+        "agentkit uninstall is deprecated. Use 'agentkit detach' (level-3 "
+        "project-detach). Delegating to the same teardown path.",
+        file=sys.stderr,
+    )
     result = uninstall_agentkit(Path(args.project_root))
     if result.success:
         print(f"AgentKit uninstalled from {args.project_root}")
@@ -1272,22 +1311,6 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     print(f"  gh CLI: {'found' if shutil.which('gh') else 'NOT FOUND'}")
     print(f"  git:    {'found' if shutil.which('git') else 'NOT FOUND'}")
     print(f"  version: {__version__}")
-    return 0
-
-
-def _cmd_serve_control_plane(args: argparse.Namespace) -> int:
-    """Handle ``agentkit serve-control-plane`` command."""
-
-    from pathlib import Path
-
-    from agentkit.backend.control_plane.http import serve_control_plane
-
-    serve_control_plane(
-        host=args.host,
-        port=args.port,
-        certfile=Path(args.certfile),
-        keyfile=Path(args.keyfile) if args.keyfile is not None else None,
-    )
     return 0
 
 

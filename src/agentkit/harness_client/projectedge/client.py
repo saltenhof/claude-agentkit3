@@ -319,6 +319,29 @@ def _parse_api_error_body(
     )
 
 
+def fetch_compat_window(
+    transport: ControlPlaneTransport,
+    *,
+    wire_version: str = "1",
+) -> dict[str, object]:
+    """Read the Core's compatibility window via ``GET /v1/compat`` (FK-91 §91.1a).
+
+    The official Dev->Core read path for the level-2 ``agentkit update`` driver
+    (FK-10 §10.2.8): it consumes the AG3-121 compat endpoint, it does not rebuild
+    it. ``/v1/compat`` is handshake-exempt (otherwise a too-old client could never
+    learn it is too old), so the read succeeds even when the local runtime is
+    below ``min``.
+
+    Args:
+        transport: The control-plane JSON transport.
+        wire_version: The wire prefix to address (``/v{wire_version}/compat``).
+
+    Returns:
+        The decoded compat window body (``agent_runtime``/``wire`` axes).
+    """
+    return transport.send(method="GET", path=f"/v{wire_version}/compat")
+
+
 class LocalEdgePublisher:
     """Atomically publish the locally readable governance bundle."""
 
