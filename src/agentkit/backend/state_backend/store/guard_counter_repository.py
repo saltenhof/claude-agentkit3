@@ -82,11 +82,12 @@ def _sqlite_connect(store_dir: Path) -> Iterator[sqlite3.Connection]:
     db_path = _sqlite_db_path(store_dir)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys = ON")
-    sqlite_store._ensure_schema(conn)
     try:
+        # Setup runs inside try so a bootstrap failure closes the conn (no leak).
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys = ON")
+        sqlite_store._ensure_schema(conn)
         yield conn
         conn.commit()
     except Exception:

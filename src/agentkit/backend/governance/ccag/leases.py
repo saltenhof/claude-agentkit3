@@ -109,9 +109,10 @@ def _connect(db_path: Path) -> Generator[sqlite3.Connection, None, None]:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     _assert_sqlite_allowed()
     conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    conn.executescript(_SCHEMA)
     try:
+        # Setup runs inside try so a bootstrap failure closes the conn (no leak).
+        conn.row_factory = sqlite3.Row
+        conn.executescript(_SCHEMA)
         yield conn
         conn.commit()
     finally:

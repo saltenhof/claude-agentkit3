@@ -237,15 +237,21 @@ def _connect_global() -> Iterator[_CompatConnection]:
         _database_url(),
         row_factory=dict_row,
     )
-    compat = _CompatConnection(conn)
-    _ensure_versioned_schema(compat)
-    # ``ensure_versioned_schema`` creates/selects the target schema under a
-    # global advisory DDL lock. Release that lock before the heavy table/index
-    # bootstrap; otherwise parallel test schemas serialize behind one worker.
-    conn.commit()
-    _ensure_schema_once(compat)
-    conn.commit()
+    # The schema bootstrap must live INSIDE the try so a failure during
+    # ``_ensure_versioned_schema`` / ``_ensure_schema_once`` (or the interleaved
+    # commits) closes the connection instead of leaking the open handle
+    # (fail-closed resource lifecycle). A leaked connection mid-bootstrap can
+    # retain table locks from a half-applied DDL transaction.
     try:
+        compat = _CompatConnection(conn)
+        _ensure_versioned_schema(compat)
+        # ``ensure_versioned_schema`` creates/selects the target schema under a
+        # global advisory DDL lock. Release that lock before the heavy
+        # table/index bootstrap; otherwise parallel test schemas serialize
+        # behind one worker.
+        conn.commit()
+        _ensure_schema_once(compat)
+        conn.commit()
         yield compat
         conn.commit()
     finally:

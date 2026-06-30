@@ -423,10 +423,11 @@ def _sqlite_connect(store_dir: Path) -> Iterator[sqlite3.Connection]:
     db_path = _sqlite_db_path(store_dir)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys = ON")
     try:
+        # Setup runs inside try so a bootstrap failure closes the conn (no leak).
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys = ON")
         yield conn
         conn.commit()
     except Exception:
@@ -480,20 +481,24 @@ def _sqlite_connect_qa(store_dir: Path) -> Iterator[sqlite3.Connection]:
     db_path = _sqlite_db_path(store_dir)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path), timeout=30.0)
-    conn.row_factory = sqlite3.Row
-    # AG3-028 Codex-r2: busy_timeout FIRST, so a held write lock (e.g. the
-    # BEGIN IMMEDIATE allocation in fc_incident_repository) makes other writers
-    # wait instead of immediately raising SQLITE_BUSY — race-safe first allocation.
-    conn.execute("PRAGMA busy_timeout = 30000")
-    # Only switch when not already WAL (the WAL switch does not honour
-    # busy_timeout; setting it repeatedly would raise spurious locks under concurrency).
-    current_mode = conn.execute("PRAGMA journal_mode").fetchone()
-    if current_mode is None or str(current_mode[0]).lower() != "wal":
-        conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys = ON")
-    # Bootstrap via the canonical schema owner (SINGLE SOURCE OF TRUTH, finding B)
-    sqlite_store._ensure_schema(conn)
     try:
+        # Setup runs inside try so a bootstrap failure closes the conn (no leak).
+        conn.row_factory = sqlite3.Row
+        # AG3-028 Codex-r2: busy_timeout FIRST, so a held write lock (e.g. the
+        # BEGIN IMMEDIATE allocation in fc_incident_repository) makes other
+        # writers wait instead of immediately raising SQLITE_BUSY — race-safe
+        # first allocation.
+        conn.execute("PRAGMA busy_timeout = 30000")
+        # Only switch when not already WAL (the WAL switch does not honour
+        # busy_timeout; setting it repeatedly would raise spurious locks under
+        # concurrency).
+        current_mode = conn.execute("PRAGMA journal_mode").fetchone()
+        if current_mode is None or str(current_mode[0]).lower() != "wal":
+            conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys = ON")
+        # Bootstrap via the canonical schema owner (SINGLE SOURCE OF TRUTH,
+        # finding B)
+        sqlite_store._ensure_schema(conn)
         yield conn
         conn.commit()
     except Exception:

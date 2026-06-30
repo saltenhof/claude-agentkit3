@@ -96,14 +96,15 @@ def _sqlite_connect(store_dir: Path) -> Iterator[sqlite3.Connection]:
     db_path = _sqlite_db_path(store_dir)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path), timeout=30.0)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA busy_timeout = 30000")
-    current_mode = conn.execute("PRAGMA journal_mode").fetchone()
-    if current_mode is None or str(current_mode[0]).lower() != "wal":
-        conn.execute("PRAGMA journal_mode=WAL")
-    for statement in _PLANNING_DDL_SQLITE:
-        conn.execute(statement)
     try:
+        # Setup runs inside try so a bootstrap failure closes the conn (no leak).
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout = 30000")
+        current_mode = conn.execute("PRAGMA journal_mode").fetchone()
+        if current_mode is None or str(current_mode[0]).lower() != "wal":
+            conn.execute("PRAGMA journal_mode=WAL")
+        for statement in _PLANNING_DDL_SQLITE:
+            conn.execute(statement)
         yield conn
         conn.commit()
     except Exception:

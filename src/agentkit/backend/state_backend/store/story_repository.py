@@ -373,26 +373,28 @@ def _sqlite_connect(store_dir: Path) -> Iterator[sqlite3.Connection]:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     _assert_sqlite_allowed()
     conn = sqlite3.connect(str(db_path), timeout=30.0)
-    conn.row_factory = sqlite3.Row
-    # AG3-050 C2: set busy_timeout FIRST so every subsequent lock acquisition
-    # (including the WAL switch and BEGIN IMMEDIATE inside create_story_atomic)
-    # waits for a held write lock instead of failing immediately. This keeps
-    # the single canonical allocator gap-free + race-safe under real
-    # cross-connection concurrency.
-    conn.execute("PRAGMA busy_timeout = 30000")
-    # Only switch journal mode when it is not already WAL. The WAL switch needs
-    # an exclusive moment that does NOT honour busy_timeout, so re-issuing it on
-    # every connection would spuriously raise "database is locked" under
-    # concurrent create_story_atomic calls. Reading the current mode takes no
-    # write lock; once any connection has set WAL it is persistent for the file.
-    current_mode = conn.execute("PRAGMA journal_mode").fetchone()
-    if current_mode is None or str(current_mode[0]).lower() != "wal":
-        conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys = ON")
-    # Ensure the stories tables exist (additive, idempotent). The CREATE TABLE
-    # IF NOT EXISTS DDL waits on the write lock via busy_timeout above.
-    _ensure_story_tables_sqlite(conn)
     try:
+        # Setup runs inside try so a bootstrap failure closes the conn (no leak).
+        conn.row_factory = sqlite3.Row
+        # AG3-050 C2: set busy_timeout FIRST so every subsequent lock acquisition
+        # (including the WAL switch and BEGIN IMMEDIATE inside
+        # create_story_atomic) waits for a held write lock instead of failing
+        # immediately. This keeps the single canonical allocator gap-free +
+        # race-safe under real cross-connection concurrency.
+        conn.execute("PRAGMA busy_timeout = 30000")
+        # Only switch journal mode when it is not already WAL. The WAL switch
+        # needs an exclusive moment that does NOT honour busy_timeout, so
+        # re-issuing it on every connection would spuriously raise "database is
+        # locked" under concurrent create_story_atomic calls. Reading the
+        # current mode takes no write lock; once any connection has set WAL it
+        # is persistent for the file.
+        current_mode = conn.execute("PRAGMA journal_mode").fetchone()
+        if current_mode is None or str(current_mode[0]).lower() != "wal":
+            conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys = ON")
+        # Ensure the stories tables exist (additive, idempotent). The CREATE
+        # TABLE IF NOT EXISTS DDL waits on the write lock via busy_timeout above.
+        _ensure_story_tables_sqlite(conn)
         yield conn
         conn.commit()
     except Exception:

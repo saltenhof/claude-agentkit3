@@ -96,10 +96,15 @@ def _connect(story_dir: Path) -> Iterator[sqlite3.Connection]:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     _assert_sqlite_allowed()
     conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    _ensure_schema(conn)
+    # The connection setup (row factory, PRAGMA, schema bootstrap) must live
+    # INSIDE the try so a failure during bootstrap closes the connection instead
+    # of leaking the open handle (fail-closed resource lifecycle). Leaking an
+    # open SQLite connection keeps an OS handle on the database file and bled
+    # into later tests under randomized ordering.
     try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        _ensure_schema(conn)
         yield conn
         conn.commit()
     finally:

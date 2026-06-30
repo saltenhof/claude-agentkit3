@@ -75,15 +75,16 @@ def _sqlite_connect(store_dir: Path) -> Iterator[sqlite3.Connection]:
     db_path = _sqlite_db_path(store_dir)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path), timeout=30.0, isolation_level=None)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA busy_timeout = 30000")
-    with _sqlite_init_lock(db_path):
-        current_mode = conn.execute("PRAGMA journal_mode").fetchone()
-        if current_mode is None or str(current_mode[0]).lower() != "wal":
-            conn.execute("PRAGMA journal_mode=WAL")
-        sqlite_store._ensure_schema(conn)
-    conn.execute("PRAGMA foreign_keys = ON")
     try:
+        # Setup runs inside try so a bootstrap failure closes the conn (no leak).
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout = 30000")
+        with _sqlite_init_lock(db_path):
+            current_mode = conn.execute("PRAGMA journal_mode").fetchone()
+            if current_mode is None or str(current_mode[0]).lower() != "wal":
+                conn.execute("PRAGMA journal_mode=WAL")
+            sqlite_store._ensure_schema(conn)
+        conn.execute("PRAGMA foreign_keys = ON")
         yield conn
     finally:
         conn.close()
