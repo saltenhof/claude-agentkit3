@@ -20,6 +20,10 @@ from agentkit.backend.control_plane.dispatch import (
     PreStartGuard,
     _enforce_transition,
 )
+from agentkit.backend.control_plane.workspace_locator import (
+    StoryWorkspace,
+    StoryWorkspaceUnresolvedError,
+)
 from agentkit.backend.pipeline_engine.engine import PipelineEngine
 from agentkit.backend.pipeline_engine.lifecycle import (
     HandlerResult,
@@ -151,18 +155,41 @@ def _ctx(
     return ctx
 
 
+class _FakeWorkspaceLocator:
+    """Backend workspace locator fake: returns the test story_dir as the anchor.
+
+    AG3-123: the dispatcher resolves the FS anchor Backend-side via this port, NOT
+    from ``ctx.project_root``. The unit tests inject this fake so the workspace is
+    deterministic; the productive ``StateBackendStoryWorkspaceLocator`` is proven
+    separately (resolver tests + the real-runtime integration flow).
+    """
+
+    def __init__(self, story_dir: Path) -> None:
+        self._story_dir = story_dir
+
+    def resolve(
+        self, project_key: str, story_id: str, run_id: str
+    ) -> StoryWorkspace:
+        return StoryWorkspace(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            project_root=self._story_dir.parent,
+            story_dir=self._story_dir,
+        )
+
+
 def _engine_factory(
-    story_dir: Path,
     overrides: dict[str, object] | None = None,
 ):
     overrides = overrides or {}
 
-    def _factory(ctx: StoryContext) -> PipelineEngine:
+    def _factory(ctx: StoryContext, workspace: StoryWorkspace) -> PipelineEngine:
         workflow = resolve_workflow(ctx.story_type)
         registry = PhaseHandlerRegistry()
         for name in workflow.phase_names:
             registry.register(name, overrides.get(name, NoOpHandler()))  # type: ignore[arg-type]
-        return PipelineEngine(workflow, registry, story_dir)
+        return PipelineEngine(workflow, registry, workspace.story_dir)
 
     return _factory
 
@@ -175,8 +202,9 @@ def _dispatcher(
 ) -> PhaseDispatcher:
     resolved_guard = guard or _allow_guard()
     return PhaseDispatcher(
-        engine_factory=_engine_factory(story_dir, overrides),
-        guard_factory=lambda ctx: resolved_guard,
+        workspace_locator=_FakeWorkspaceLocator(story_dir),
+        engine_factory=_engine_factory(overrides),
+        guard_factory=lambda workspace: resolved_guard,
     )
 
 
@@ -204,7 +232,6 @@ class TestSinglePhaseDispatch:
         result = dispatcher.dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=False,
         )
@@ -232,7 +259,6 @@ class TestSinglePhaseDispatch:
         result = dispatcher.dispatch(
             ctx=ctx,
             phase="implementation",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=False,
         )
@@ -256,7 +282,6 @@ class TestSinglePhaseDispatch:
         dispatcher.dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=False,
         )
@@ -264,7 +289,6 @@ class TestSinglePhaseDispatch:
         result = dispatcher.dispatch(
             ctx=ctx,
             phase="closure",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=True,
         )
@@ -290,7 +314,6 @@ class TestSinglePhaseDispatch:
         dispatcher.dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=False,
         )
@@ -298,7 +321,6 @@ class TestSinglePhaseDispatch:
         result = dispatcher.dispatch(
             ctx=ctx,
             phase="implementation",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=True,
         )
@@ -318,7 +340,6 @@ class TestSinglePhaseDispatch:
         dispatcher.dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=False,
         )
@@ -326,7 +347,6 @@ class TestSinglePhaseDispatch:
         result = dispatcher.dispatch(
             ctx=ctx,
             phase="implementation",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=True,
         )
@@ -367,14 +387,12 @@ class TestResume:
         dispatcher.dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=False,
         )
         paused = dispatcher.dispatch(
             ctx=ctx,
             phase="exploration",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=True,
         )
@@ -383,7 +401,6 @@ class TestResume:
         resumed = dispatcher.dispatch(
             ctx=ctx,
             phase="exploration",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=True,
             detail={"resume_trigger": "design_approved"},
@@ -404,7 +421,6 @@ class TestGuardScope:
         result = dispatcher.dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=False,
         )
@@ -426,7 +442,6 @@ class TestGuardScope:
         _dispatcher(story_dir).dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=False,
         )
@@ -437,7 +452,6 @@ class TestGuardScope:
         result = deny_dispatcher.dispatch(
             ctx=ctx,
             phase="implementation",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=True,
         )
@@ -456,14 +470,12 @@ class TestGuardScope:
         permissive.dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=False,
         )
         permissive.dispatch(
             ctx=ctx,
             phase="exploration",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=True,
         )
@@ -476,7 +488,6 @@ class TestGuardScope:
         resumed = deny.dispatch(
             ctx=ctx,
             phase="exploration",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=True,
             detail={"resume_trigger": "design_approved"},
@@ -497,7 +508,6 @@ class TestStoryTypeSwitch:
         result = dispatcher.dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=False,
         )
@@ -526,7 +536,6 @@ class TestStoryTypeSwitch:
         dispatcher.dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=False,
         )
@@ -534,7 +543,6 @@ class TestStoryTypeSwitch:
         result = dispatcher.dispatch(
             ctx=ctx,
             phase="exploration",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=True,
         )
@@ -561,7 +569,6 @@ class TestStoryTypeSwitch:
         dispatcher.dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=False,
         )
@@ -569,7 +576,6 @@ class TestStoryTypeSwitch:
         result = dispatcher.dispatch(
             ctx=ctx,
             phase="exploration",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=True,
         )
@@ -644,7 +650,6 @@ class TestSamePhaseReentry:
         first = dispatcher.dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=False,
         )
@@ -656,7 +661,6 @@ class TestSamePhaseReentry:
         second = dispatcher.dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=True,
         )
@@ -679,14 +683,12 @@ class TestSamePhaseReentry:
         dispatcher.dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=False,
         )
         escalated = dispatcher.dispatch(
             ctx=ctx,
             phase="implementation",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=True,
         )
@@ -700,7 +702,6 @@ class TestSamePhaseReentry:
         result = reentry_dispatcher.dispatch(
             ctx=ctx,
             phase="implementation",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=True,
         )
@@ -732,7 +733,6 @@ class TestTransitionGuardEnforcement:
         dispatcher.dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=False,
         )
@@ -740,7 +740,6 @@ class TestTransitionGuardEnforcement:
         result = dispatcher.dispatch(
             ctx=ctx,
             phase="exploration",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=True,
         )
@@ -953,7 +952,6 @@ class TestTransitionGuardEnforcement:
         dispatcher.dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=False,
         )
@@ -961,7 +959,6 @@ class TestTransitionGuardEnforcement:
         result = dispatcher.dispatch(
             ctx=ctx,
             phase="exploration",
-            story_dir=story_dir,
             run_id=_RUN_ID,
             run_admitted=True,
         )
@@ -1004,7 +1001,6 @@ class TestRunScopedAdmissionGate:
         old = old_run.dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id="run-OLD",
             run_admitted=False,
         )
@@ -1023,7 +1019,6 @@ class TestRunScopedAdmissionGate:
         result = new_run.dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id="run-NEW",
             run_admitted=False,
         )
@@ -1050,7 +1045,6 @@ class TestRunScopedAdmissionGate:
         result = dispatcher.dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id="run-NEW",
             run_admitted=True,
         )
@@ -1079,14 +1073,12 @@ class TestRunScopedAdmissionGate:
         old_run.dispatch(
             ctx=ctx,
             phase="setup",
-            story_dir=story_dir,
             run_id="run-OLD",
             run_admitted=False,
         )
         old_impl = old_run.dispatch(
             ctx=ctx,
             phase="implementation",
-            story_dir=story_dir,
             run_id="run-OLD",
             run_admitted=True,
         )
@@ -1097,7 +1089,6 @@ class TestRunScopedAdmissionGate:
         result = new_run.dispatch(
             ctx=ctx,
             phase="implementation",
-            story_dir=story_dir,
             run_id="run-NEW",
             run_admitted=False,
         )
@@ -1105,3 +1096,143 @@ class TestRunScopedAdmissionGate:
         assert result.status == "rejected"
         assert result.dispatched is False
         assert "only 'setup' may start a fresh run" in (result.rejection_reason or "")
+
+
+class _UnresolvableWorkspaceLocator:
+    """A locator that always fails closed (AG3-123 AC3)."""
+
+    def resolve(
+        self, project_key: str, story_id: str, run_id: str
+    ) -> StoryWorkspace:
+        raise StoryWorkspaceUnresolvedError(
+            "no project_registry entry (fail-closed)",
+            detail={
+                "project_key": project_key,
+                "story_id": story_id,
+                "run_id": run_id,
+            },
+        )
+
+
+def _project_root_less_ctx(story_id: str = "AG3-700") -> StoryContext:
+    """A run context carrying NO dev-local ``project_root`` (AG3-123)."""
+    return StoryContext(
+        project_key="test-project",
+        story_id=story_id,
+        story_type=StoryType.IMPLEMENTATION,
+        execution_route=StoryMode.EXECUTION,
+        project_root=None,
+    )
+
+
+class TestBackendResolvedWorkspace:
+    """AG3-123 AC1/AC3: the FS anchor is Backend-resolved, never from ctx."""
+
+    def test_dispatch_succeeds_with_backend_resolved_workspace_no_project_root(
+        self, tmp_path: Path
+    ) -> None:
+        """AC1: dispatch succeeds with a Backend-resolved workspace and NO dev path.
+
+        The run ``StoryContext`` carries ``project_root=None`` (the dev process
+        supplies no canonical FS input); the injected locator resolves the
+        workspace Backend-side. The setup phase still dispatches -- the decoupling
+        is proven by the absence of any dev-local path parameter / ctx anchor.
+        """
+        story_dir = tmp_path / "stories" / "AG3-700"
+        story_dir.mkdir(parents=True)
+        ctx = _project_root_less_ctx()
+        save_story_context(story_dir, ctx)
+        dispatcher = _dispatcher(story_dir)
+
+        result = dispatcher.dispatch(
+            ctx=ctx,
+            phase="setup",
+            run_id=_RUN_ID,
+            run_admitted=False,
+        )
+
+        assert result.dispatched is True
+        assert result.phase == "setup"
+        assert result.status == "phase_completed"
+
+    def test_unresolvable_workspace_rejects_fail_closed(self) -> None:
+        """AC3: an unresolvable workspace rejects fail-closed (no silent no-op)."""
+        ctx = _project_root_less_ctx()
+        dispatcher = PhaseDispatcher(
+            workspace_locator=_UnresolvableWorkspaceLocator(),
+            engine_factory=_engine_factory(),
+            guard_factory=lambda workspace: _allow_guard(),
+        )
+
+        result = dispatcher.dispatch(
+            ctx=ctx,
+            phase="setup",
+            run_id=_RUN_ID,
+            run_admitted=False,
+        )
+
+        assert result.status == "rejected"
+        assert result.dispatched is False
+        assert "fail-closed" in (result.rejection_reason or "")
+
+    def test_relative_registry_row_dispatch_normalizes_not_escapes(self) -> None:
+        """AG3-123 r2 (MAJOR 2): a relative/corrupt registry row -> normalized reject.
+
+        The PRODUCTIVE ``StateBackendStoryWorkspaceLocator`` decodes the row through
+        the ``ProjectRegistration`` model; a legacy relative-root row makes that
+        decode raise a pydantic ``ValidationError``. The locator converts it to
+        ``StoryWorkspaceUnresolvedError`` (a ``PipelineError``), so the dispatcher
+        normalizes it to a fail-closed rejection INSTEAD of letting the
+        ``ValidationError`` ESCAPE the dispatch (the fail-OPEN crash this fix closes).
+        """
+        from pydantic import ValidationError
+
+        from agentkit.backend.control_plane.workspace_locator import (
+            StateBackendStoryWorkspaceLocator,
+        )
+        from agentkit.backend.installer.registration import (
+            ProjectRegistration,
+            RuntimeProfile,
+        )
+
+        class _RelativeRowLookup:
+            """Reproduces the repository decode of a relative-root ``project_registry`` row."""
+
+            def get(self, project_key: str) -> ProjectRegistration:
+                from datetime import UTC, datetime
+                from pathlib import Path
+
+                return ProjectRegistration(
+                    project_key=project_key,
+                    project_root=Path("relative/legacy/root"),
+                    github_owner="acme",
+                    github_repo="demo",
+                    runtime_profile=RuntimeProfile.CORE,
+                    config_version="3.0",
+                    config_digest="deadbeef",
+                    registered_at=datetime.now(tz=UTC),
+                )
+
+        ctx = _project_root_less_ctx()
+        dispatcher = PhaseDispatcher(
+            workspace_locator=StateBackendStoryWorkspaceLocator(
+                registration_lookup=_RelativeRowLookup()
+            ),
+            engine_factory=_engine_factory(),
+            guard_factory=lambda workspace: _allow_guard(),
+        )
+
+        # No escaping ValidationError -- a normalized fail-closed rejection.
+        try:
+            result = dispatcher.dispatch(
+                ctx=ctx,
+                phase="setup",
+                run_id=_RUN_ID,
+                run_admitted=False,
+            )
+        except ValidationError as exc:  # pragma: no cover - the regression we close
+            pytest.fail(f"ValidationError escaped the dispatch (fail-open): {exc}")
+
+        assert result.status == "rejected"
+        assert result.dispatched is False
+        assert "fail-closed" in (result.rejection_reason or "")

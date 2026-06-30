@@ -401,7 +401,10 @@ def test_load_sonar_config_propagates_config_error_no_silent_skip(
             "pipeline:\n  max_feedback_rounds: 3\n",
             encoding="utf-8",
         )
-        story_dir = tmp_path / "stories" / "AG3-001"
+        # AG3-123: story_dir lives UNDER project_root so the structurally-derived
+        # config root IS this project_root -- the PRESENT-but-invalid config then
+        # loads and raises E6 ConfigError, which must propagate (no silent skip).
+        story_dir = project_root / "stories" / "AG3-001"
         story_dir.mkdir(parents=True, exist_ok=True)
         _save_ctx_with_project_root(story_dir, project_root)
 
@@ -441,7 +444,11 @@ def test_load_sonar_config_available_false_is_declared_absence_none(
             "  ci:\n    available: false\n    enabled: false\n",
             encoding="utf-8",
         )
-        story_dir = tmp_path / "stories" / "AG3-001"
+        # AG3-123: the Dim-9 config root is the canonical
+        # ``<project_root>/stories/<story_id>`` layout anchor (structurally
+        # derived from story_dir), so the story_dir lives UNDER the project_root
+        # whose config is loaded -- never a re-loaded dev-supplied ctx.project_root.
+        story_dir = project_root / "stories" / "AG3-001"
         story_dir.mkdir(parents=True, exist_ok=True)
         _save_ctx_with_project_root(story_dir, project_root)
 

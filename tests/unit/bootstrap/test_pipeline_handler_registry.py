@@ -309,12 +309,12 @@ class TestProductiveSetupConfigComposition:
         )
         ctx = _persist_ctx_for_run(tmp_path)
 
-        config = build_setup_config_for_run(ctx)
+        config = build_setup_config_for_run(ctx, project_root=tmp_path)
 
         assert isinstance(config, SetupConfig)
-        # AG3-120: the setup config carries the run's authoritative project_root
-        # (the run store), never an empty dummy; a code-producing story creates a
-        # worktree. AK3 owns the story via story_id -- no issue/owner/repo key.
+        # AG3-123: the setup config carries the Backend-resolved project_root
+        # (the run store anchor), never an empty dummy; a code-producing story
+        # creates a worktree. AK3 owns the story via story_id -- no issue/owner/repo.
         assert config.project_root == tmp_path
         assert config.create_worktree is True
 
@@ -332,7 +332,7 @@ class TestProductiveSetupConfigComposition:
             story_dir,
             story_type=ctx.story_type,
             project_key=ctx.project_key,
-            setup_config=build_setup_config_for_run(ctx),
+            setup_config=build_setup_config_for_run(ctx, project_root=tmp_path),
         )
         setup_handler = engine._registry.get_handler("setup")  # type: ignore[attr-defined]
         config = setup_handler._config  # type: ignore[attr-defined]
@@ -342,108 +342,41 @@ class TestProductiveSetupConfigComposition:
         # project root (the run store), not cwd.
         assert config.project_root == tmp_path
 
-    def test_dispatcher_engine_factory_uses_run_store_and_real_config(
+    def test_dispatcher_engine_factory_uses_backend_resolved_workspace(
         self, tmp_path: Path
     ) -> None:
-        """The PRODUCTIVE ``build_phase_dispatcher`` engine factory uses ctx coords.
+        """AG3-123: the PRODUCTIVE engine factory wires the Backend-resolved anchor.
 
-        Drives the real dispatcher's engine factory (not an injected one) and
-        asserts the resolved setup handler carries the run's real coordinates and
-        project root -- the W10 regression that hid E1/E7.
+        Drives the real dispatcher's engine factory (not an injected one) with a
+        Backend-resolved :class:`StoryWorkspace` and asserts the resolved setup
+        handler carries the WORKSPACE anchor (``workspace.project_root``) -- the
+        setup store anchor is the resolver's, threaded structurally as
+        ``build_setup_config_for_run(ctx, project_root=workspace.project_root)``.
+        The dispatch-level decoupling from ``ctx.project_root`` (project_root=None)
+        is proven separately in ``test_phase_dispatch`` / the e2e flow.
         """
         from agentkit.backend.control_plane.dispatch import build_phase_dispatcher
+        from agentkit.backend.control_plane.workspace_locator import StoryWorkspace
 
         _write_project_config(
             tmp_path, github_owner="acme-org", github_repo="trading"
         )
         ctx = _persist_ctx_for_run(tmp_path)
+        workspace = StoryWorkspace(
+            project_key=ctx.project_key,
+            story_id=ctx.story_id,
+            run_id="run-1",
+            project_root=tmp_path,
+            story_dir=tmp_path / "stories" / ctx.story_id,
+        )
 
         dispatcher = build_phase_dispatcher()
-        engine = dispatcher.engine_factory(ctx)
+        engine = dispatcher.engine_factory(ctx, workspace)
         config = engine._registry.get_handler("setup")._config  # type: ignore[attr-defined]
 
         assert config.create_worktree is True
+        # The setup store anchor is the Backend-resolved workspace root.
         assert config.project_root == tmp_path
-
-    def test_productive_fresh_setup_rejects_when_coordinates_missing(
-        self, tmp_path: Path
-    ) -> None:
-        """E1: the productive dispatcher REJECTS a fresh setup start with no coords.
-
-        AG3-120: the only setup coordinate ``build_setup_config_for_run`` still
-        requires is the run's ``project_root``. A fresh setup start whose context
-        carries no ``project_root`` must be rejected fail-closed (setup must never
-        run against an empty store root) -- not silently dispatched against a dummy.
-        """
-        from agentkit.backend.control_plane.dispatch import build_phase_dispatcher
-
-        story_id = "AG3-920"
-        ctx = StoryContext(
-            project_key="test-project",
-            story_id=story_id,
-            story_type=StoryType.IMPLEMENTATION,
-            execution_route=StoryMode.EXECUTION,
-            project_root=None,  # no resolvable run store -> fail-closed
-        )
-        story_dir = tmp_path / "stories" / story_id
-
-        from agentkit.backend.control_plane.dispatch import PreStartGuard
-
-        class _Allow:
-            def is_approved(self, project_key: str, story_display_id: str) -> bool:
-                del project_key, story_display_id
-                return True
-
-            def is_ready_and_admitted(
-                self, project_key: str, story_display_id: str
-            ) -> bool:
-                del project_key, story_display_id
-                return True
-
-        admit = PreStartGuard(approval_reader=_Allow(), scheduling_reader=_Allow())
-        base = build_phase_dispatcher()
-        # Admit Tor1/Tor2 so the failure is isolated to the coordinate precheck.
-        dispatcher = base.__class__(
-            engine_factory=base.engine_factory,
-            guard_factory=lambda c: admit,
-            setup_coordinates_check=base.setup_coordinates_check,
-        )
-
-        result = dispatcher.dispatch(
-            ctx=ctx,
-            phase="setup",
-            story_dir=story_dir,
-            run_id="run-1",
-            run_admitted=False,
-        )
-
-        assert result.status == "rejected"
-        assert result.dispatched is False
-        assert "setup coordinates" in (result.rejection_reason or "")
-
-    def test_missing_project_root_fail_closed(self, tmp_path: Path) -> None:
-        """Fail-closed (E1): no project_root -> SetupCoordinatesUnavailableError.
-
-        AG3-120: the run's ``project_root`` is the only setup coordinate the config
-        builder still requires (AK3 owns the story via ``story_id``; GitHub is only
-        the code backend). A context with no resolvable run store fails closed.
-        """
-        del tmp_path
-        from agentkit.backend.bootstrap.composition_root import (
-            SetupCoordinatesUnavailableError,
-            build_setup_config_for_run,
-        )
-
-        ctx = StoryContext(
-            project_key="test-project",
-            story_id="AG3-920",
-            story_type=StoryType.IMPLEMENTATION,
-            execution_route=StoryMode.EXECUTION,
-            project_root=None,
-        )
-
-        with pytest.raises(SetupCoordinatesUnavailableError):
-            build_setup_config_for_run(ctx)
 
     def test_code_producing_story_succeeds_without_github_or_issue(
         self, tmp_path: Path
@@ -463,7 +396,7 @@ class TestProductiveSetupConfigComposition:
         _write_project_config(tmp_path, github_owner=None, github_repo=None)
         ctx = _persist_ctx_for_run(tmp_path)
 
-        config = build_setup_config_for_run(ctx)
+        config = build_setup_config_for_run(ctx, project_root=tmp_path)
 
         assert isinstance(config, SetupConfig)
         assert config.project_root == tmp_path
@@ -496,7 +429,7 @@ class TestProductiveSetupConfigComposition:
         )
         ctx = _persist_ctx_for_run(tmp_path, story_type=story_type)
 
-        config = build_setup_config_for_run(ctx)
+        config = build_setup_config_for_run(ctx, project_root=tmp_path)
 
         assert isinstance(config, SetupConfig)
         assert config.create_worktree is False, (

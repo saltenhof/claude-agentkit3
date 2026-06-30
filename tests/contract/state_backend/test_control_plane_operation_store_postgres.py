@@ -169,12 +169,11 @@ class _CountingDispatcher:
         *,
         ctx: StoryContext,
         phase: str,
-        story_dir: Path,
         run_id: str,
         run_admitted: bool,
         detail: dict[str, object] | None = None,
     ) -> PhaseDispatchResult:
-        del ctx, story_dir, run_id, run_admitted, detail
+        del ctx, run_id, run_admitted, detail
         self.calls.append(phase)
         return PhaseDispatchResult(
             phase="setup",
@@ -261,12 +260,11 @@ def test_exception_after_claim_releases_real_store_claim(
             *,
             ctx: StoryContext,
             phase: str,
-            story_dir: Path,
             run_id: str,
             run_admitted: bool,
             detail: dict[str, object] | None = None,
         ) -> PhaseDispatchResult:
-            del ctx, story_dir, run_id, run_admitted, detail
+            del ctx, run_id, run_admitted, detail
             self.calls += 1
             if self.calls == 1:
                 raise RuntimeError("dispatch boom (real store)")

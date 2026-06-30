@@ -430,12 +430,14 @@ class _ControlPlaneRuntimeAdmissionBase:
         ERROR-1 fix (#1): the run-scoped first-call (run-admission) enforcement is
         computed HERE, in the runtime, INDEPENDENT of ``_dispatch_phase``'s
         ctx-resolvability short-circuit. ``_dispatch_phase`` returns ``None`` when
-        the ``StoryContext`` is unresolvable (no ctx / no ``project_root``) BEFORE
-        the dispatcher's own run-scoped first-call gate runs. Without this gate, a
-        fresh, UN-ADMITTED, NON-setup start with an unresolvable ctx would fall
-        through to the admitted path and materialize binding/locks/events out of
-        thin air. The invariant held on ALL paths: an un-admitted run can NEVER
-        materialize state via a non-setup start, regardless of ctx resolvability.
+        the run ``StoryContext`` is ABSENT (AG3-123: decoupled from
+        ``project_root`` resolvability -- the Backend resolves the workspace anchor
+        inside the dispatcher) BEFORE the dispatcher's own run-scoped first-call
+        gate runs. Without this gate, a fresh, UN-ADMITTED, NON-setup start with an
+        absent ctx would fall through to the admitted path and materialize
+        binding/locks/events out of thin air. The invariant holds on ALL paths: an
+        un-admitted run can NEVER materialize state via a non-setup start,
+        regardless of ctx resolvability.
         """
         #: ERROR-1 fix (#1): run-admission evidence for THIS exact run, computed
         #: BEFORE/independent of the ctx-resolvability short-circuit. A fresh setup
@@ -452,12 +454,12 @@ class _ControlPlaneRuntimeAdmissionBase:
         )
         if dispatch_result is None and phase == PhaseName.SETUP.value and not run_admitted:
             #: Fail-closed run admission (FK-20 §20.8.2): a FRESH SETUP START whose
-            #: ``StoryContext`` is unresolvable (no ctx / no project_root) could not
-            #: have its Approved+READY run-admission evaluated. Active write-guards
-            #: do NOT satisfy the run-admission invariant -- a run never
-            #: Approved/READY must not start. We REJECT fail-closed so NO session
-            #: binding, NO lock-records, NO ``phase_start`` edge bundle and NO
-            #: lifecycle events are materialized, and NO operation is stored (a
+            #: ``StoryContext`` is ABSENT (AG3-123: no longer "no project_root")
+            #: could not have its Approved+READY run-admission evaluated. Active
+            #: write-guards do NOT satisfy the run-admission invariant -- a run
+            #: never Approved/READY must not start. We REJECT fail-closed so NO
+            #: session binding, NO lock-records, NO ``phase_start`` edge bundle and
+            #: NO lifecycle events are materialized, and NO operation is stored (a
             #: later retry with a resolvable, Approved+READY context re-evaluates).
             return _StartPhaseOutcome(
                 rejection=self._fail_closed_setup_rejection(
@@ -466,8 +468,8 @@ class _ControlPlaneRuntimeAdmissionBase:
                     op_id=request.op_id,
                     reason=(
                         "Fresh setup start rejected: the run's StoryContext is "
-                        "unresolvable, so Approved + READY run-admission cannot "
-                        "be evaluated; fail-closed (FK-20 §20.8.2)."
+                        "absent, so Approved + READY run-admission cannot be "
+                        "evaluated; fail-closed (FK-20 §20.8.2)."
                     ),
                 ),
                 dispatch_result=None,
@@ -477,14 +479,14 @@ class _ControlPlaneRuntimeAdmissionBase:
             and phase != PhaseName.SETUP.value
             and not run_admitted
         ):
-            #: ERROR-1 fix (#1): a FRESH, UN-ADMITTED, NON-setup start whose
-            #: ``StoryContext`` is unresolvable. ``_dispatch_phase`` returned ``None``
-            #: BEFORE the dispatcher's run-scoped first-call gate could run, so the
-            #: run-admission invariant must be enforced HERE. A non-setup phase may
-            #: only start once the run was admitted by a prior committed setup start
-            #: (or a run-matched binding). With no such evidence the run was never
-            #: admitted -> REJECT fail-closed: NO binding / lock / event / edge
-            #: bundle is materialized and NO operation is stored (a later retry,
+            #: ERROR-1 fix (#1): a FRESH, UN-ADMITTED, NON-setup start whose run
+            #: ``StoryContext`` is ABSENT (AG3-123). ``_dispatch_phase`` returned
+            #: ``None`` BEFORE the dispatcher's run-scoped first-call gate could run,
+            #: so the run-admission invariant must be enforced HERE. A non-setup
+            #: phase may only start once the run was admitted by a prior committed
+            #: setup start (or a run-matched binding). With no such evidence the run
+            #: was never admitted -> REJECT fail-closed: NO binding / lock / event /
+            #: edge bundle is materialized and NO operation is stored (a later retry,
             #: once the run is properly admitted, re-evaluates and can succeed).
             return _StartPhaseOutcome(
                 rejection=_rejection_result(
@@ -495,10 +497,10 @@ class _ControlPlaneRuntimeAdmissionBase:
                     reason=(
                         f"phase_start({phase}) rejected: the run is NOT admitted "
                         "(no committed setup phase_start and no session binding for "
-                        "THIS project/story/run) and its StoryContext is "
-                        "unresolvable, so run-admission cannot be evaluated. A "
-                        "non-setup start must never materialize story-scoped state "
-                        "for an unadmitted run; fail-closed (FK-20 §20.8.2)."
+                        "THIS project/story/run) and its StoryContext is absent, so "
+                        "run-admission cannot be evaluated. A non-setup start must "
+                        "never materialize story-scoped state for an unadmitted run; "
+                        "fail-closed (FK-20 §20.8.2)."
                     ),
                     dispatch_phase=phase,
                 ),
@@ -826,8 +828,8 @@ class _ControlPlaneRuntimeAdmissionBase:
         Resolves the run's :class:`StoryContext` through the sanctioned story read
         surface (same surface the mode resolution already uses) and drives the
         injected :class:`PhaseDispatcher`. Returns ``None`` when the story context
-        is unresolvable -- the idempotent persistence still commits, but no phase
-        is dispatched (a missing context is surfaced by the dispatcher's own
+        is absent -- the idempotent persistence still commits, but no phase is
+        dispatched (a missing context is surfaced by the dispatcher's own
         fail-closed path on the next resolvable call).
 
         AG3-054 ERROR-1: the fresh-setup / first-call ADMISSION decision is computed
@@ -837,14 +839,21 @@ class _ControlPlaneRuntimeAdmissionBase:
         OLD run's phase-state for the SAME story (after ``reset-escalation``, which
         mints a new run id but reuses the per-story story_dir) can never make a NEW,
         un-admitted run "not fresh" and SKIP the fail-closed pre-start guard.
-        """
-        from agentkit.backend.installer.paths import story_dir as resolve_story_dir
 
+        AG3-123: the Backend resolves the story-workspace filesystem anchor INSIDE
+        the dispatcher via the injected ``StoryWorkspaceLocator`` (from canonical
+        level-1 state, NOT ``ctx.project_root``). This method therefore no longer
+        derives a ``story_dir`` from ``ctx.project_root`` -- the run-admission
+        evaluation is decoupled from ``project_root`` resolvability. An unresolvable
+        workspace is failed closed by the dispatcher as a structured rejection
+        (``dispatched=False``); ``None`` is returned ONLY when the run
+        ``StoryContext`` is absent, which the run-admission gate in
+        :meth:`_start_phase_after_claim` handles fail-closed.
+        """
         ctx = self._repo.load_story_context(request.project_key, request.story_id)
-        if ctx is None or ctx.project_root is None:
+        if ctx is None:
             return None
         dispatcher = self._resolve_dispatcher()
-        s_dir = resolve_story_dir(ctx.project_root, ctx.story_id)
         run_admitted = self._run_admission_evidence(
             project_key=request.project_key,
             story_id=request.story_id,
@@ -854,7 +863,6 @@ class _ControlPlaneRuntimeAdmissionBase:
         return dispatcher.dispatch(
             ctx=ctx,
             phase=phase,
-            story_dir=s_dir,
             run_id=run_id,
             run_admitted=run_admitted,
             detail=request.detail,

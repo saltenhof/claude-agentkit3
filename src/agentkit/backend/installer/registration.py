@@ -27,7 +27,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 
 class RuntimeProfile(StrEnum):
@@ -86,6 +86,33 @@ class ProjectRegistration(BaseModel):
     last_upgraded_at: datetime | None = None
 
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+    @field_validator("project_root")
+    @classmethod
+    def _validate_project_root_absolute(cls, value: Path) -> Path:
+        """Enforce that the canonical ``project_root`` is an ABSOLUTE path (AG3-123).
+
+        The ``project_registry`` anchor is the Backend-resolved filesystem root
+        (FK-10 §10.2.0); the Backend may run REMOTE from the dev process, so a
+        relative root has no canonical meaning -- it would resolve against the
+        backend process ``cwd`` and silently reintroduce the dev-local fallback
+        AG3-123 removes. This is the model-side floor that makes it IMPOSSIBLE to
+        persist a relative anchor regardless of the code path (FAIL-CLOSED /
+        FIX-THE-MODEL); the :class:`StoryWorkspaceLocator` enforces the same
+        invariant defensively at read time.
+
+        Raises:
+            ValueError: When ``project_root`` is not absolute.
+        """
+        if not value.is_absolute():
+            raise ValueError(
+                f"ProjectRegistration project_root={str(value)!r} must be an "
+                "ABSOLUTE path: the canonical project_registry anchor is the "
+                "Backend filesystem root (FK-10 §10.2.0). A relative root would "
+                "resolve against the backend process cwd and reintroduce the "
+                "dev-local fallback (AG3-123, FAIL-CLOSED)."
+            )
+        return value
 
     @model_validator(mode="after")
     def _validate_github_coordinates(self) -> Self:

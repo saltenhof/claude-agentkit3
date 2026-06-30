@@ -1951,6 +1951,10 @@ def _cmd_resume(args: argparse.Namespace) -> int:
             story_dir,
             story_type=story_type,
             project_key=project_key,
+            # AG3-123: the operator CLI supplies the concrete project_root; thread
+            # it so the closure pre-merge config root is read from it, not from a
+            # re-loaded ``ctx.project_root``.
+            project_root=project_root,
         )
         result = engine.resume_phase(ctx, paused_envelope, args.trigger)
     except Exception as exc:  # noqa: BLE001

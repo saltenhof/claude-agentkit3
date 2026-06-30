@@ -61,6 +61,10 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+    from agentkit.backend.control_plane.workspace_locator import (
+        StoryWorkspace,
+        StoryWorkspaceLocator,
+    )
     from agentkit.backend.pipeline_engine.engine import EngineResult, PipelineEngine
     from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
     from agentkit.backend.process.language.model import EdgeRule, WorkflowDefinition
@@ -209,33 +213,34 @@ class PhaseDispatcher:
     the engine, and normalizes the engine result. PAUSED/ESCALATED never starts a
     follow-up phase (the dispatch returns; the orchestrator decides next).
 
+    AG3-123: the story-workspace filesystem anchor is Backend-resolved via the
+    injected :class:`StoryWorkspaceLocator` -- NOT from ``ctx.project_root`` or a
+    dev-supplied path. The resolver is the SINGLE source for ``story_dir`` and the
+    run store root; ``engine_factory`` / ``guard_factory`` consume the resolved
+    :class:`StoryWorkspace`, never a dev-local path (FK-10 §10.2.3 / I3).
+
     Attributes:
-        engine_factory: Resolves a wired ``PipelineEngine`` for a story run
-            (composition-root ``build_pipeline_engine``). Injected so tests drive
-            the productive composition without a self-build.
+        workspace_locator: The Backend-side port that resolves the run's
+            :class:`StoryWorkspace` (FS anchor) from canonical level-1 state. An
+            unresolvable workspace fails the dispatch closed (FK-10 §10.6).
+        engine_factory: Resolves a wired ``PipelineEngine`` for a story run from
+            the run ``ctx`` AND its Backend-resolved :class:`StoryWorkspace`
+            (composition-root ``build_pipeline_engine`` over ``workspace.story_dir``).
+            Injected so tests drive the productive composition without a self-build.
         guard_factory: Resolves the fail-closed pre-start run-admission guard FOR
-            THIS RUN (E7 fix): both Gate-1 (approval) and Gate-2 (scheduling)
-            readers must read from the RUN'S authoritative store/project root, not
-            cwd. The dispatcher is built once but ``dispatch`` carries the run
-            ``ctx``, so the guard is resolved per run from ``ctx`` (e.g. its
-            ``project_root``). The factory is consulted ONLY before a fresh-run
-            setup start.
+            THIS RUN: both Gate-1 (approval) and Gate-2 (scheduling) readers read
+            from the run's Backend-resolved store root
+            (``workspace.project_root``), not cwd. Consulted ONLY before a
+            fresh-run setup start.
         resume_trigger_resolver: Maps a phase mutation request's ``detail`` to the
             resume trigger string for a same-phase resume of a PAUSED phase.
     """
 
-    engine_factory: Callable[[StoryContext], PipelineEngine]
-    guard_factory: Callable[[StoryContext], PreStartGuard]
+    workspace_locator: StoryWorkspaceLocator
+    engine_factory: Callable[[StoryContext, StoryWorkspace], PipelineEngine]
+    guard_factory: Callable[[StoryWorkspace], PreStartGuard]
     resume_trigger_resolver: Callable[[dict[str, object]], str | None] = field(
         default=lambda detail: _default_resume_trigger(detail)
-    )
-    #: E1: a fresh-setup-start precheck that returns a rejection reason when the
-    #: run's authoritative GitHub setup coordinates cannot be resolved (so setup is
-    #: never dispatched against empty/dummy coordinates), or ``None`` to admit. The
-    #: productive factory wires the real resolver; the default no-op is for the
-    #: dispatch-contract tests that STUB the setup boundary (no real GitHub).
-    setup_coordinates_check: Callable[[StoryContext], str | None] = field(
-        default=lambda ctx: None
     )
 
     def dispatch(
@@ -243,23 +248,27 @@ class PhaseDispatcher:
         *,
         ctx: StoryContext,
         phase: str,
-        story_dir: Path,
         run_id: str,
         run_admitted: bool,
         detail: dict[str, object] | None = None,
     ) -> PhaseDispatchResult:
         """Dispatch exactly ONE phase for a story run (FK-45 §45.1.2 / §45.3).
 
+        AG3-123: the story working directory is NOT a parameter -- it is resolved
+        Backend-side via :attr:`workspace_locator` from ``(project_key, story_id,
+        run_id)``. An unresolvable workspace rejects the dispatch fail-closed
+        (structured :class:`StoryWorkspaceUnresolvedError` -> normalized rejection),
+        so no code path interprets a dev-supplied ``project_root`` as a canonical
+        FS input.
+
         Args:
             ctx: The run's story context (carries ``story_id``, ``story_type``,
                 ``project_key``).
             phase: The requested phase name (``setup`` / ``exploration`` /
                 ``implementation`` / ``closure``).
-            story_dir: The story working directory (engine persistence root).
-            run_id: The authoritative run id of THIS dispatch. Identifies the run
-                whose admission the caller evaluated; carried for diagnostics and
-                to keep the admission decision unambiguously RUN-scoped (AG3-054
-                ERROR-1).
+            run_id: The authoritative run id of THIS dispatch. Resolves the
+                Backend workspace and keeps the admission decision unambiguously
+                RUN-scoped (AG3-054 ERROR-1).
             run_admitted: Whether THIS exact run is already admitted, decided
                 RUN-scoped by the caller (control-plane ``_run_admission_evidence``:
                 a run-matched session binding OR a committed setup ``phase_start``
@@ -282,23 +291,41 @@ class PhaseDispatcher:
         """
         from agentkit.backend.process.language.definitions import resolve_workflow
 
-        del run_id  # RUN scope is carried by ``run_admitted``; id kept for clarity.
         detail = detail or {}
+        # AG3-123: resolve the workspace FS anchor Backend-side from canonical
+        # level-1 state. An unresolvable workspace is a structured typed error
+        # (StoryWorkspaceUnresolvedError, a PipelineError) -> fail-closed rejection,
+        # never a silent no-op and never a dev-supplied path fallback (FK-10 §10.6).
+        try:
+            workspace = self.workspace_locator.resolve(
+                ctx.project_key, ctx.story_id, run_id
+            )
+        except PipelineError as exc:
+            return _rejected(phase, str(exc))
+        story_dir = workspace.story_dir
+        # AG3-123: the in-memory ``StoryContext`` only ever MIRRORS the
+        # Backend-resolved workspace anchor (story §2.1.1) -- so every downstream
+        # handler that reads ``ctx.project_root`` (implementation/closure/verify
+        # execution) sees the workspace root, never a dev-supplied path. The
+        # canonical level-1 state stays the SINGLE source (the locator); this is a
+        # pure projection of it onto the run-carrier, not a second truth.
+        if ctx.project_root != workspace.project_root:
+            ctx = ctx.model_copy(update={"project_root": workspace.project_root})
         workflow = resolve_workflow(ctx.story_type)
         phase_names = tuple(workflow.phase_names)
         existing = _load_phase_state(ctx, story_dir, phase_names)
 
         admission_rejection = self._admission_rejection(
-            ctx=ctx, phase=phase, run_admitted=run_admitted
+            ctx=ctx, phase=phase, run_admitted=run_admitted, workspace=workspace
         )
         if admission_rejection is not None:
             return _rejected(phase, admission_rejection)
 
-        # The engine is built AFTER the first-call/guard/coordinate checks. The
-        # productive engine factory resolves the run's REAL ``SetupConfig``
-        # (owner/repo/issue) from ``ctx`` and threads it into the setup handler.
+        # The engine is built AFTER the first-call/guard checks. The productive
+        # engine factory threads the Backend-resolved ``workspace`` (story_dir +
+        # store root) and the run's REAL ``SetupConfig`` into the setup handler.
         try:
-            engine = self.engine_factory(ctx)
+            engine = self.engine_factory(ctx, workspace)
         except PipelineError as exc:
             return _rejected(phase, str(exc))
 
@@ -333,19 +360,19 @@ class PhaseDispatcher:
         ctx: StoryContext,
         phase: str,
         run_admitted: bool,
+        workspace: StoryWorkspace,
     ) -> str | None:
         first_call_rejection = _first_call_rejection(phase, run_admitted)
         if first_call_rejection is not None:
             return first_call_rejection
         if run_admitted or phase != PhaseName.SETUP.value:
             return None
-        rejection = self.guard_factory(ctx).evaluate(
+        # The pre-start guard reads from the run's Backend-resolved store root
+        # (``workspace.project_root``), not cwd or a dev-supplied path.
+        return self.guard_factory(workspace).evaluate(
             project_key=ctx.project_key,
             story_display_id=ctx.story_id,
         )
-        if rejection is not None:
-            return rejection
-        return self.setup_coordinates_check(ctx)
 
 
 def _first_call_rejection(phase: str, run_admitted: bool) -> str | None:
@@ -769,73 +796,50 @@ def build_pre_start_guard(store_dir: Path | None = None) -> PreStartGuard:
 def build_phase_dispatcher() -> PhaseDispatcher:
     """Build the productive single-phase dispatcher over the composition root.
 
-    The engine factory resolves a wired ``PipelineEngine`` per run via
-    ``build_pipeline_engine`` (one truth; no self-build). ``story_dir`` is derived
-    from the story context's ``project_root`` + story id. E1 fix: the productive
-    engine factory builds a REAL ``SetupConfig`` from the run ``ctx`` (the GitHub
-    coordinates resolved from the run's project config), never an empty dummy.
+    AG3-123: the story-workspace FS anchor is Backend-resolved via the productive
+    :class:`StoryWorkspaceLocator` (canonical level-1 ``project_registry``), NOT
+    from ``ctx.project_root``. The engine factory wires a ``PipelineEngine`` over
+    the resolved ``workspace.story_dir`` (one truth; no self-build) and threads the
+    run's REAL ``SetupConfig`` (built against the resolved ``workspace.project_root``)
+    into the setup handler, never an empty dummy.
 
-    E7 fix: the pre-start run-admission guard is resolved PER RUN from ``ctx`` so
-    both Gate-1 (approval) and Gate-2 (scheduling) readers read from the RUN'S
-    authoritative store/project root, not cwd.
+    The pre-start run-admission guard is resolved PER RUN against the Backend
+    store root (``workspace.project_root``) so both Gate-1 (approval) and Gate-2
+    (scheduling) readers read from the RUN'S authoritative store, not cwd.
     """
     from agentkit.backend.bootstrap.composition_root import (
-        SetupCoordinatesUnavailableError,
         build_pipeline_engine,
         build_setup_config_for_run,
     )
+    from agentkit.backend.control_plane.workspace_locator import (
+        build_story_workspace_locator,
+    )
 
-    def _engine_factory(ctx: StoryContext) -> PipelineEngine:
-        story_dir = _resolve_story_dir(ctx)
-        # E1: thread the run's REAL ``SetupConfig`` (owner/repo/issue from ``ctx``)
-        # into the engine. The setup handler is built eagerly with the rest of the
-        # registry; a non-setup dispatch never enters it, so unresolvable
-        # coordinates here must NOT block a legitimate follow-up phase. The
-        # fail-closed REJECTION of a FRESH SETUP start on unresolvable coordinates
-        # is enforced separately in :meth:`PhaseDispatcher.dispatch` (the
-        # ``_require_setup_coordinates`` precheck), where the requested phase is
-        # known. So: best-effort here, hard-reject there.
-        try:
-            setup_config: object | None = build_setup_config_for_run(ctx)
-        except SetupCoordinatesUnavailableError:
-            setup_config = None
+    def _engine_factory(ctx: StoryContext, workspace: StoryWorkspace) -> PipelineEngine:
+        # Thread the run's REAL ``SetupConfig`` (built against the Backend-resolved
+        # store root) into the engine. The setup handler is built eagerly with the
+        # rest of the registry; a non-setup dispatch never enters it.
+        setup_config = build_setup_config_for_run(
+            ctx, project_root=workspace.project_root
+        )
         return build_pipeline_engine(
-            story_dir,
+            workspace.story_dir,
             story_type=ctx.story_type,
             project_key=ctx.project_key,
+            # AG3-123: thread the Backend-resolved store root so the closure
+            # pre-merge config root is read from the workspace, NEVER from a
+            # dev-supplied ``ctx.project_root`` (FK-10 §10.2.3 / I3).
+            project_root=workspace.project_root,
             setup_config=setup_config,
         )
 
-    def _guard_factory(ctx: StoryContext) -> PreStartGuard:
-        # The run's store root is its project root (the SINGLE store the run
-        # uses). Both admission reads target it (E7).
-        return build_pre_start_guard(ctx.project_root)
-
-    def _require_setup_coordinates(ctx: StoryContext) -> str | None:
-        # E1: a FRESH setup start MUST have authoritative GitHub coordinates;
-        # never run setup against empty/dummy coordinates. Returns a rejection
-        # reason when unresolvable, else ``None``.
-        try:
-            build_setup_config_for_run(ctx)
-        except SetupCoordinatesUnavailableError as exc:
-            return str(exc)
-        return None
+    def _guard_factory(workspace: StoryWorkspace) -> PreStartGuard:
+        # The run's store root is its Backend-resolved project root (the SINGLE
+        # store the run uses). Both admission reads target it.
+        return build_pre_start_guard(workspace.project_root)
 
     return PhaseDispatcher(
+        workspace_locator=build_story_workspace_locator(),
         engine_factory=_engine_factory,
         guard_factory=_guard_factory,
-        setup_coordinates_check=_require_setup_coordinates,
     )
-
-
-def _resolve_story_dir(ctx: StoryContext) -> Path:
-    """Resolve the story working directory from the run context (fail-closed)."""
-    from agentkit.backend.installer.paths import story_dir
-
-    if ctx.project_root is None:
-        raise PipelineError(
-            "Cannot dispatch a phase without a resolved project_root on the "
-            "StoryContext (fail-closed).",
-            detail={"story_id": ctx.story_id},
-        )
-    return story_dir(ctx.project_root, ctx.story_id)

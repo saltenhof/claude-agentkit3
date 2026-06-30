@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentkit.backend.artifacts import ArtifactManager, EnvelopeValidator, ProducerRegistry
-from agentkit.backend.exceptions import PipelineError
 from agentkit.backend.exploration.register import register_exploration_producers
 from agentkit.backend.implementation.register import register_implementation_producers
 from agentkit.backend.prompt_runtime.register import register_prompt_runtime_producers
@@ -1797,29 +1796,35 @@ def _load_sonar_config(gate_ctx: object) -> object | None:
     from agentkit.backend.config.loader import load_project_config
     from agentkit.backend.exceptions import ConfigError
     from agentkit.backend.governance.integrity_gate import IntegrityGateContext
-    from agentkit.backend.state_backend.store import facade
+    from agentkit.backend.installer.paths import project_root_for_story_dir
     from agentkit.backend.verify_system.sonarqube_gate import is_code_producing_story
 
     assert isinstance(gate_ctx, IntegrityGateContext)  # noqa: S101 - DI guard
-    try:
-        ctx = facade.load_story_context(gate_ctx.story_dir)
-    except Exception:  # noqa: BLE001 -- unreadable context -> no config
-        return None
-    if ctx is None or ctx.project_root is None:
+    # AG3-123: the project-config root is derived structurally from the canonical
+    # ``<project_root>/stories/<story_id>`` story_dir layout -- the SAME anchor the
+    # Backend ``StoryWorkspaceLocator`` yields -- NOT from a re-loaded, dev-supplied
+    # ``ctx.project_root``. The Dim-9 fail-closed semantics are preserved: an
+    # off-layout / unresolvable root for a code-producing story is a broken
+    # precondition (never a silent skip; FK-33 §33.6.5, R4-C/A2).
+    project_root = project_root_for_story_dir(gate_ctx.story_dir)
+    if project_root is None or not _project_config_present(project_root):
         if is_code_producing_story(gate_ctx.story_type):
-            # Code-producing story without a resolvable project root: the config
-            # is unloadable, so a deliberate absence cannot be proven. Fail
+            # Code-producing story whose project config cannot be located (the
+            # story_dir is off-layout, or the project declares no AK3 config): the
+            # config is unloadable, so a deliberate absence cannot be proven. Fail
             # closed (never a silent Dim-9 skip; FK-33 §33.6.5, R4-C/A2).
             msg = (
-                "cannot resolve project_root for code-producing story "
+                "cannot resolve a project config root for code-producing story "
                 f"{gate_ctx.story_type.value!r}: project config unloadable -> "
                 "Dim 9 fail-closed (no silent skip)"
             )
             raise ConfigError(msg)
+        # Non-code-producing story (concept/research): a missing config is a
+        # legitimate declared absence -> None (the gate never applies to it).
         return None
-    # NO try/except ConfigError/OSError -> None here: a broken/unreadable config
+    # NO try/except ConfigError/OSError -> None here: a PRESENT-but-broken config
     # is a fail-closed condition, NOT a declared absence (R3-C/A2).
-    project_config = load_project_config(ctx.project_root)
+    project_config = load_project_config(project_root)
     pipeline = getattr(project_config, "pipeline", None)
     return getattr(pipeline, "sonarqube", None) if pipeline is not None else None
 
@@ -2124,6 +2129,7 @@ def build_closure_phase_handler(
     *,
     store_dir: Path | None = None,
     project_key: str = "",
+    project_root: Path | None = None,
     layer2_llm_client: LlmClient | None = None,
 ) -> ClosurePhaseHandler:
     """Wire a fully-collaborated ``ClosurePhaseHandler`` (FK-29, AG3-053).
@@ -2161,6 +2167,14 @@ def build_closure_phase_handler(
         store_dir: State-backend base dir (SQLite); ``None`` => the config's
             ``story_dir``.
         project_key: Owning project key for the governance top surface.
+        project_root: The Backend-resolved
+            :class:`~agentkit.backend.control_plane.workspace_locator.StoryWorkspace`
+            anchor (AG3-123). The pre-merge ``ci``/``sonarqube`` config root is
+            read from it — NOT by reloading the run ``StoryContext`` and reading a
+            dev-supplied ``ctx.project_root``. ``None`` (test/legacy callers)
+            falls back to the canonical ``<project_root>/stories/<story_id>``
+            layout derived structurally from ``config.story_dir`` — the SAME
+            anchor the workspace yields, never a ``cwd`` or ctx-supplied path.
         layer2_llm_client: The Layer-2 LLM transport (the same one passed to
             ``build_verify_system``), injected into the level-4 doc-fidelity
             feedback seam so it runs a REAL evaluation through the shared
@@ -2175,11 +2189,22 @@ def build_closure_phase_handler(
     if not isinstance(config, ClosureConfig):
         msg = f"config must be a ClosureConfig; got {type(config).__name__}"
         raise TypeError(msg)
+    from agentkit.backend.installer.paths import project_root_for_story_dir
+
     base_dir = store_dir or config.story_dir or Path.cwd()
     config.progress_store = _build_closure_progress_store(base_dir)
     config.integrity_gate = build_integrity_gate(base_dir)
     config.artifact_manager = build_artifact_manager(base_dir)
-    ci_config, sonar_config = _resolve_pre_merge_configs(config.story_dir)
+    # AG3-123: the pre-merge config root is the Backend-resolved workspace anchor
+    # (threaded down), NOT a re-loaded ``ctx.project_root``. When omitted by a
+    # test/legacy caller it is derived structurally from the canonical story_dir
+    # layout -- the identical anchor, never a cwd/ctx fallback.
+    effective_project_root = project_root or (
+        project_root_for_story_dir(config.story_dir)
+        if config.story_dir is not None
+        else None
+    )
+    ci_config, sonar_config = _resolve_pre_merge_configs(effective_project_root)
     config.sonar_config = sonar_config
     # FIX-C: build a runner pair PER participating repo (each bound to ITS OWN
     # root/ledger/tree), so every repo is verified against its own root. The
@@ -2301,6 +2326,7 @@ def build_pipeline_handler_registry(
     *,
     story_type: StoryType,
     project_key: str = "",
+    project_root: Path | None = None,
     setup_config: object | None = None,
     layer2_llm_client: LlmClient | None = None,
 ) -> PhaseHandlerRegistry:
@@ -2332,6 +2358,11 @@ def build_pipeline_handler_registry(
         story_type: The story type whose typed workflow decides which phases are
             present (and therefore which handlers are registered).
         project_key: Owning project key (threaded to the closure governance seam).
+        project_root: The Backend-resolved workspace anchor (AG3-123), threaded
+            into the closure handler so its pre-merge ``ci``/``sonarqube`` config
+            root is read from the workspace, never a dev-supplied
+            ``ctx.project_root``. ``None`` => structural fallback to the canonical
+            story_dir layout (the identical anchor).
         setup_config: The run-specific ``SetupConfig`` carrying the authoritative
             GitHub coordinates the Setup handler needs (E1). The PRODUCTIVE path
             (``build_pipeline_engine`` <- dispatch) ALWAYS supplies a real config
@@ -2400,6 +2431,9 @@ def build_pipeline_handler_registry(
                 ClosureConfig(story_dir=story_dir),
                 store_dir=story_dir,
                 project_key=project_key,
+                # AG3-123: thread the Backend-resolved workspace anchor so the
+                # closure pre-merge config root never reads ``ctx.project_root``.
+                project_root=project_root,
                 # AG3-067 AC7: the SAME Layer-2 transport build_verify_system uses
                 # reaches the level-4 ProductiveDocFidelityFeedbackPort here.
                 layer2_llm_client=layer2_llm_client,
@@ -2463,6 +2497,7 @@ def build_pipeline_engine(
     *,
     story_type: StoryType,
     project_key: str = "",
+    project_root: Path | None = None,
     setup_config: object | None = None,
     layer2_llm_client: LlmClient | None = None,
 ) -> PipelineEngine:
@@ -2477,6 +2512,10 @@ def build_pipeline_engine(
         story_dir: The story working directory (engine persistence root).
         story_type: The story type whose typed workflow the engine interprets.
         project_key: Owning project key (threaded to the closure governance seam).
+        project_root: The Backend-resolved workspace anchor (AG3-123), threaded
+            into the closure handler's pre-merge config resolution so it no longer
+            reads a dev-supplied ``ctx.project_root``. ``None`` => structural
+            fallback to the canonical story_dir layout.
         setup_config: The run-specific ``SetupConfig`` carrying the authoritative
             ``project_root`` (E1 fix). The PRODUCTIVE caller resolves it from the
             run ``StoryContext`` via :func:`build_setup_config_for_run` and passes
@@ -2500,26 +2539,11 @@ def build_pipeline_engine(
         story_dir,
         story_type=story_type,
         project_key=project_key,
+        project_root=project_root,
         setup_config=setup_config,
         layer2_llm_client=layer2_llm_client,
     )
     return PipelineEngine(workflow, registry, story_dir)
-
-
-class SetupCoordinatesUnavailableError(PipelineError):
-    """The run's authoritative setup coordinates cannot be resolved (E1).
-
-    Raised by :func:`build_setup_config_for_run` when a run that requires setup
-    cannot have its authoritative ``project_root`` resolved from the run
-    ``StoryContext``. FAIL-CLOSED: setup must never run against an empty/dummy
-    ``project_root``, so the dispatch rejects the setup start rather than
-    fabricating coordinates (ZERO DEBT / FIX-THE-MODEL -- no second source of
-    truth).
-
-    Subclasses :class:`~agentkit.backend.exceptions.PipelineError` so the dispatch's
-    fail-closed engine-build guard (which already maps ``PipelineError`` to a
-    normalized rejection) surfaces it as a setup-start rejection.
-    """
 
 
 def _story_is_github_backed(ctx: StoryContext) -> bool:
@@ -2546,8 +2570,8 @@ def _story_is_github_backed(ctx: StoryContext) -> bool:
     return is_code_producing_story(ctx.story_type)
 
 
-def build_setup_config_for_run(ctx: StoryContext) -> object:
-    """Build the run's authoritative ``SetupConfig`` from the StoryContext (E1/E5).
+def build_setup_config_for_run(ctx: StoryContext, *, project_root: Path) -> object:
+    """Build the run's authoritative ``SetupConfig`` (AG3-123 / E5).
 
     AK3 owns the user story via ``story_id`` (branch-safe ``story/{story_id}``);
     GitHub is exclusively the code backend (FK-12 §12.1.1, FK-91 §91.2 rule 9).
@@ -2556,36 +2580,29 @@ def build_setup_config_for_run(ctx: StoryContext) -> object:
     present and branch-safe on the ``StoryContext``), resolved against the AK3
     Story-Service record by the setup handler.
 
+    AG3-123: the ``project_root`` (run store / worktree anchor) is the
+    Backend-resolved :class:`~agentkit.backend.control_plane.workspace_locator.StoryWorkspace`
+    anchor — NOT ``ctx.project_root``. The locator is the SINGLE source for the
+    workspace location (FIX THE MODEL); this builder consumes the resolved anchor
+    rather than re-reading a dev-supplied path. An unresolvable workspace already
+    failed the dispatch closed at the locator (FK-10 §10.6), so a valid anchor is
+    always supplied here.
+
     For an INTERNAL story (CONCEPT/RESEARCH; not code-producing) the setup
     handler never creates a worktree or merges, so ``create_worktree`` is off.
 
-    FAIL-CLOSED: ``project_root`` must be resolvable; otherwise this raises
-    :class:`SetupCoordinatesUnavailableError`. The story-identity gate itself is
-    enforced downstream: a code-producing story whose ``story_id`` does not
-    resolve in the AK3 Story-Service fails Setup closed when the context is built
-    (``build_story_context`` raises ``StoryModeResolutionError``).
-
     Args:
-        ctx: The run's story context.
+        ctx: The run's story context (story type drives the worktree decision).
+        project_root: The Backend-resolved run store / worktree filesystem anchor.
 
     Returns:
         A ``SetupConfig`` for the run (with ``create_worktree`` off for a
         non-code-producing story).
-
-    Raises:
-        SetupCoordinatesUnavailableError: When the run ``project_root`` cannot be
-            resolved (fail-closed; setup must never run against an empty root).
     """
     from agentkit.backend.governance.setup_preflight_gate.phase import SetupConfig
 
-    if ctx.project_root is None:
-        raise SetupCoordinatesUnavailableError(
-            "cannot resolve setup coordinates: the run StoryContext has no "
-            "project_root (fail-closed; E1)."
-        )
-
     return SetupConfig(
-        project_root=ctx.project_root,
+        project_root=project_root,
         create_worktree=_story_is_github_backed(ctx),
     )
 
@@ -2604,63 +2621,57 @@ class ClosureConfigUnavailableError(Exception):
 
 
 def _resolve_pre_merge_configs(
-    story_dir: Path | None,
+    project_root: Path | None,
 ) -> tuple[object | None, object | None]:
     """Resolve the ``ci`` + ``sonarqube`` config stanzas (truth boundary, AG3-056).
 
     The composition root owns the project-config read (``governance``/``closure``
-    stay free of direct config reads). Resolves the run ``StoryContext`` to find
-    the project root, then loads the ``ci`` (Jenkins) and ``sonarqube`` stanzas
-    for the AG3-056 pre-merge runner wiring + the Dim-9 version-drift check.
+    stay free of direct config reads). Loads the ``ci`` (Jenkins) and ``sonarqube``
+    stanzas for the AG3-056 pre-merge runner wiring + the Dim-9 version-drift check.
+
+    AG3-123: the ``project_root`` is the Backend-resolved
+    :class:`~agentkit.backend.control_plane.workspace_locator.StoryWorkspace`
+    anchor threaded down from the dispatcher — it is NO LONGER re-derived by
+    reloading the run ``StoryContext`` and reading its dev-supplied
+    ``ctx.project_root``. The locator is the SINGLE source for the workspace
+    location (FIX THE MODEL); an unresolvable workspace already failed the
+    dispatch closed at the locator (FK-10 §10.6), so a valid anchor is supplied.
 
     FIX-2 fail-closed distinction (a broken config must NEVER silently disable
     verification, NO ERROR BYPASSING):
 
-    * DELIBERATE absence -- no ``pipeline`` stanza at all (a non-code-producing
-      project never declares CI/Sonar) -> ``(None, None)``: the runner wiring
-      treats it as a declared skip and the applicability layer (FIX-3) decides
-      per story type whether that is allowed.
-    * BROKEN config/context -- an unresolvable project root, an unreadable
-      story context, or a config that fails to load/parse -> FAIL-CLOSED
-      (:class:`ClosureConfigUnavailableError`). Never downgraded to a declared
-      absence.
+    * DELIBERATE absence -- no AK3 config file / no ``pipeline`` stanza (a
+      non-code-producing project never declares CI/Sonar) -> ``(None, None)``:
+      the runner wiring treats it as a declared skip and the applicability layer
+      (FIX-3) decides per story type whether that is allowed.
+    * BROKEN config -- an unresolvable project root, or a config that fails to
+      load/parse -> FAIL-CLOSED (:class:`ClosureConfigUnavailableError`). Never
+      downgraded to a declared absence.
 
     A PRESENT stanza with ``available == false`` is also a deliberate absence,
     but that is decided downstream (``build_pre_merge_runners`` returns ``None``
     for it); here we only fail closed on a genuinely broken read.
     """
     from agentkit.backend.config.loader import load_project_config
-    from agentkit.backend.state_backend.store import facade
 
-    if story_dir is None:
+    if project_root is None:
         raise ClosureConfigUnavailableError(
-            "closure config resolution requires a story_dir (FIX-2, fail-closed)"
+            "closure config resolution requires a resolvable project_root "
+            "(FIX-2 / AG3-123, fail-closed -- the Backend-resolved workspace "
+            "anchor could not be determined)"
         )
-    try:
-        ctx = facade.load_story_context(story_dir)
-    # Broken context is fail-closed, not absence.
-    except Exception as exc:  # noqa: BLE001
-        raise ClosureConfigUnavailableError(
-            f"story context at {story_dir} is unreadable/malformed "
-            f"(FIX-2, fail-closed -- never silently skip verification): {exc}"
-        ) from exc
-    if ctx is None or ctx.project_root is None:
-        raise ClosureConfigUnavailableError(
-            f"no resolvable story context / project root at {story_dir} "
-            "(FIX-2, fail-closed)"
-        )
-    if not _project_config_present(ctx.project_root):
+    if not _project_config_present(project_root):
         # Deliberate absence: the project declares no AK3 config file at all
         # (a non-code-producing project never wires a pipeline). The
         # applicability layer (FIX-3) decides per story type whether a missing
         # runner is allowed -- it is for concept/research, fail-closed for code.
         return (None, None)
     try:
-        project_config = load_project_config(ctx.project_root)
+        project_config = load_project_config(project_root)
     # Broken config is fail-closed, not absence.
     except Exception as exc:  # noqa: BLE001
         raise ClosureConfigUnavailableError(
-            f"project config at {ctx.project_root} is present but "
+            f"project config at {project_root} is present but "
             f"unreadable/malformed (FIX-2, fail-closed -- a broken config never "
             f"silently disables Sonar/CI): {exc}"
         ) from exc
@@ -3340,4 +3351,4 @@ def cli_load_execution_events_for_project_global(
 
 
 # Keep export metadata compact so module-level LOC stays under the project gate.
-__all__ = ["ClosureConfigUnavailableError", "SetupCoordinatesUnavailableError", "build_artifact_invalidation_sink", "build_review_completion_sink", "build_artifact_manager", "build_closure_phase_handler", "build_exploration_drafting", "build_exploration_phase_handler", "build_exploration_review", "build_failure_corpus", "build_integrity_gate", "build_phase_state_residue_probe", "build_pipeline_engine", "build_pipeline_handler_registry", "build_planning_projection_accessor", "build_planning_story_dependency_repository", "build_producer_registry", "build_projection_accessor", "build_runtime_execution_purge_port", "build_runtime_execution_residue_probe", "build_setup_config_for_run", "build_setup_phase_handler", "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_structural_are_provider", "build_structural_build_test_port", "build_verify_system", "cli_load_story_context", "cli_load_execution_events_for_project_global", "cli_read_phase_state_record"]  # noqa: E501
+__all__ = ["ClosureConfigUnavailableError", "build_artifact_invalidation_sink", "build_review_completion_sink", "build_artifact_manager", "build_closure_phase_handler", "build_exploration_drafting", "build_exploration_phase_handler", "build_exploration_review", "build_failure_corpus", "build_integrity_gate", "build_phase_state_residue_probe", "build_pipeline_engine", "build_pipeline_handler_registry", "build_planning_projection_accessor", "build_planning_story_dependency_repository", "build_producer_registry", "build_projection_accessor", "build_runtime_execution_purge_port", "build_runtime_execution_residue_probe", "build_setup_config_for_run", "build_setup_phase_handler", "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_structural_are_provider", "build_structural_build_test_port", "build_verify_system", "cli_load_story_context", "cli_load_execution_events_for_project_global", "cli_read_phase_state_record"]  # noqa: E501

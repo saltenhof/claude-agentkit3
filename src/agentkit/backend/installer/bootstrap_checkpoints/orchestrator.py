@@ -10,6 +10,7 @@ is the flow contract; this module only wires and runs the engine.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from agentkit.backend.exceptions import ProjectError
@@ -100,12 +101,26 @@ def run_checkpoint_install(
     """
     from agentkit.backend.installer.runner import InstallResult
 
-    root = config.project_root
+    # AG3-123 (single canonical resolution point): canonicalize the install
+    # boundary to an ABSOLUTE backend anchor HERE -- the single funnel every
+    # install path (CLI ``agentkit install --project-root .`` and a direct
+    # ``install_agentkit(InstallConfig(...))`` call) flows through. The CLI passes
+    # a possibly RELATIVE ``--project-root`` (e.g. ``.``); resolving it once at
+    # this entry makes the whole checkpoint flow -- and the CP 7
+    # ``ProjectRegistration`` it persists -- operate on the same absolute root,
+    # so the model-floor ``_validate_project_root_absolute`` is satisfied without
+    # relaxing it. ``resolve()`` on an existing dir keeps pointing at the same
+    # project; the dir-existence check below still fails closed on a missing root.
+    # This is the ONLY normalization point -- no shadow/duplicate path resolution
+    # downstream (FIX-THE-MODEL / SINGLE SOURCE OF TRUTH).
+    root = config.project_root.resolve()
     if not root.is_dir():
         raise ProjectError(
             f"Project root does not exist: {root}",
             detail={"project_root": str(root)},
         )
+    if root != config.project_root:
+        config = replace(config, project_root=root)
 
     # PREFLIGHT (FK-50 §50.5, Codex-r7 FINDING — behaviour preserved): resolve
     # the mandatory skill bundles BEFORE the engine writes anything in register

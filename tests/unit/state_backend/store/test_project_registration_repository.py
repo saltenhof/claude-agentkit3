@@ -21,6 +21,10 @@ from agentkit.backend.state_backend.store.project_registration_repository import
 )
 
 _REGISTERED_AT = datetime(2026, 6, 4, 10, 0, tzinfo=UTC)
+#: Platform-absolute filesystem root prefix (AG3-123 requires the canonical
+#: ``project_root`` to be absolute; ``Path.cwd().anchor`` is ``"/"`` on POSIX and
+#: e.g. ``"C:\\"`` on Windows so the registry root is absolute on both).
+_ABS_ROOT = Path(Path.cwd().anchor) / "srv"
 
 
 def _make(
@@ -28,7 +32,7 @@ def _make(
 ) -> ProjectRegistration:
     return ProjectRegistration(
         project_key=project_key,
-        project_root=Path(f"/srv/{project_key}"),
+        project_root=_ABS_ROOT / project_key,
         github_owner="acme",
         github_repo=project_key,
         runtime_profile=profile,
@@ -118,7 +122,7 @@ def test_unique_project_root_fails_closed(tmp_path: Path) -> None:
     repo.save(_make("demo", digest="a" * 64, profile=RuntimeProfile.CORE))
     clash = ProjectRegistration(
         project_key="other",
-        project_root=Path("/srv/demo"),  # same root as "demo"
+        project_root=_ABS_ROOT / "demo",  # same root as "demo"
         github_owner="acme",
         github_repo="other",
         runtime_profile=RuntimeProfile.CORE,

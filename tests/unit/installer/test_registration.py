@@ -16,11 +16,16 @@ from agentkit.backend.installer.registration import (
     RuntimeProfile,
 )
 
+#: An ABSOLUTE project root on the current platform (AG3-123 requires the
+#: canonical ``project_root`` to be absolute). ``Path.cwd().anchor`` is ``"/"`` on
+#: POSIX and e.g. ``"C:\\"`` on Windows, so this is absolute on both.
+_ABS_PROJECT_ROOT = Path(Path.cwd().anchor) / "srv" / "demo"
+
 
 def _registration(**overrides: object) -> ProjectRegistration:
     base: dict[str, object] = {
         "project_key": "demo",
-        "project_root": Path("/srv/demo"),
+        "project_root": _ABS_PROJECT_ROOT,
         "github_owner": "acme",
         "github_repo": "demo",
         "runtime_profile": RuntimeProfile.CORE,
@@ -82,7 +87,7 @@ def test_registration_forbids_extra_fields() -> None:
 def test_registration_requires_all_mandatory_fields(missing: str) -> None:
     kwargs: dict[str, object] = {
         "project_key": "demo",
-        "project_root": Path("/srv/demo"),
+        "project_root": _ABS_PROJECT_ROOT,
         "github_owner": "acme",
         "github_repo": "demo",
         "runtime_profile": RuntimeProfile.CORE,

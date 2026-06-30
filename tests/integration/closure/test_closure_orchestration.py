@@ -293,13 +293,20 @@ def test_e2e_impl_closure_completes(tmp_path: Path) -> None:
     assert progress.postflight_done
 
 
-def test_fix2_missing_story_context_fails_closed(tmp_path: Path) -> None:
-    """FIX-2: a missing/unreadable story context fails closed (no silent skip)."""
+def test_fix2_unresolvable_project_root_fails_closed(tmp_path: Path) -> None:
+    """FIX-2 / AG3-123: an UNRESOLVABLE workspace anchor fails closed (no silent skip).
+
+    Post-AG3-123 the closure pre-merge config root is the Backend-resolved
+    ``StoryWorkspace.project_root``, NOT a re-loaded ``ctx.project_root``. With no
+    explicit ``project_root`` AND an OFF-LAYOUT ``story_dir`` (not under a
+    ``stories/`` parent) the structural fallback cannot derive the anchor either
+    -> fail closed (never a silent (None, None) that would disable Sonar/CI).
+    """
     from agentkit.backend.bootstrap.composition_root import ClosureConfigUnavailableError
 
-    s_dir = tmp_path / "stories" / "TEST-404"
+    # Off-layout story_dir: ``project_root_for_story_dir`` cannot resolve a root.
+    s_dir = tmp_path / "not-stories" / "TEST-404"
     s_dir.mkdir(parents=True)
-    # Deliberately persist NO story context -> broken/missing context.
     config = ClosureConfig(story_dir=s_dir)
     with pytest.raises(ClosureConfigUnavailableError):
         build_closure_phase_handler(config, store_dir=s_dir, project_key="p")

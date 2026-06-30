@@ -28,6 +28,7 @@ from agentkit.backend.story_context_manager.types import StoryType
 
 if TYPE_CHECKING:
     from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
+    from agentkit.backend.pipeline_engine.engine import PipelineEngine
     from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 
@@ -761,7 +762,9 @@ def test_fast_story_skips_story_scoped_session_and_locks() -> None:
     state.operations["op-admit-setup"] = _committed_op_for_run(
         op_id="op-admit-setup", run_id="run-100"
     )
-    service = ControlPlaneRuntimeService(repository=_repository(state))
+    # AG3-123: the workspace is resolvable (admitted stub dispatch) so this test
+    # isolates the mode-resolution materialization, not the workspace anchor.
+    service = _admitting_service(state)
 
     result = service.start_phase(
         run_id="run-100",
@@ -799,7 +802,9 @@ def test_standard_story_still_materializes_session_and_locks() -> None:
     state.operations["op-admit-setup"] = _committed_op_for_run(
         op_id="op-admit-setup", run_id="run-100"
     )
-    service = ControlPlaneRuntimeService(repository=_repository(state))
+    # AG3-123: the workspace is resolvable (admitted stub dispatch) so this test
+    # isolates the mode-resolution materialization, not the workspace anchor.
+    service = _admitting_service(state)
 
     result = service.start_phase(
         run_id="run-100",
@@ -837,7 +842,9 @@ def test_agent_supplied_mode_cannot_override_authoritative_store() -> None:
     state.operations["op-admit-setup"] = _committed_op_for_run(
         op_id="op-admit-setup", run_id="run-100"
     )
-    service = ControlPlaneRuntimeService(repository=_repository(state))
+    # AG3-123: the workspace is resolvable (admitted stub dispatch) so this test
+    # isolates the mode-resolution materialization, not the workspace anchor.
+    service = _admitting_service(state)
 
     result = service.start_phase(
         run_id="run-100",
@@ -915,12 +922,11 @@ class _StubDispatcher:
         *,
         ctx: StoryContext,
         phase: str,
-        story_dir: Path,
         run_id: str,
         run_admitted: bool,
         detail: dict[str, object] | None = None,
     ) -> PhaseDispatchResult:
-        del ctx, story_dir, run_id, detail
+        del ctx, run_id, detail
         self.calls.append(phase)
         self.run_admitted_calls.append(run_admitted)
         return self._result
@@ -1103,21 +1109,56 @@ def test_fresh_setup_start_with_no_story_context_rejects_fail_closed() -> None:
     assert state.operations == {}, "rejection must store no operation"
 
 
-def test_fresh_setup_start_with_no_project_root_rejects_fail_closed() -> None:
-    """ERROR-1: ctx present but ``project_root is None`` also rejects fail-closed.
+def test_fresh_setup_start_with_unresolvable_workspace_rejects_fail_closed() -> None:
+    """AG3-123 AC3/AC4: a fresh setup start with an unresolvable workspace rejects.
 
-    The dispatch cannot resolve a story_dir without a project_root, so the run's
-    Approved+READY admission cannot be evaluated. Same fail-closed materialize-
-    nothing outcome as the ctx-is-None case.
+    Run-admission is decoupled from ``project_root``; the FS anchor is resolved
+    Backend-side via the ``StoryWorkspaceLocator``. When the locator cannot resolve
+    the workspace, the REAL ``PhaseDispatcher.dispatch`` fails closed (structured
+    :class:`StoryWorkspaceUnresolvedError` -> rejected) BEFORE the engine / guard
+    is ever built, and the runtime materializes NOTHING (no binding / lock / event
+    / operation). Driven through the real ``ControlPlaneRuntimeService`` path.
     """
+    from agentkit.backend.control_plane.dispatch import PhaseDispatcher, PreStartGuard
+    from agentkit.backend.control_plane.workspace_locator import (
+        StoryWorkspace,
+        StoryWorkspaceUnresolvedError,
+    )
+
+    class _UnresolvableLocator:
+        def resolve(
+            self, project_key: str, story_id: str, run_id: str
+        ) -> StoryWorkspace:
+            raise StoryWorkspaceUnresolvedError(
+                "no project_registry entry (fail-closed)",
+                detail={
+                    "project_key": project_key,
+                    "story_id": story_id,
+                    "run_id": run_id,
+                },
+            )
+
+    def _engine_factory(ctx: StoryContext, workspace: StoryWorkspace) -> PipelineEngine:
+        raise AssertionError("engine must not build on an unresolvable workspace")
+
+    def _guard_factory(workspace: StoryWorkspace) -> PreStartGuard:
+        raise AssertionError("guard must not build on an unresolvable workspace")
+
+    dispatcher = PhaseDispatcher(
+        workspace_locator=_UnresolvableLocator(),
+        engine_factory=_engine_factory,
+        guard_factory=_guard_factory,
+    )
     state = _RepoState()
     state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
         project_key="tenant-a",
         story_id="AG3-100",
         mode=WireStoryMode.STANDARD,
-        project_root=None,  # unresolvable story_dir
     )
-    service = ControlPlaneRuntimeService(repository=_repository(state))
+    service = ControlPlaneRuntimeService(
+        repository=_repository(state),
+        phase_dispatcher=dispatcher,
+    )
 
     result = service.start_phase(
         run_id="run-100",
@@ -1974,12 +2015,11 @@ def test_exception_after_claim_releases_claim_and_leaves_op_reclaimable() -> Non
             *,
             ctx: StoryContext,
             phase: str,
-            story_dir: Path,
             run_id: str,
             run_admitted: bool,
             detail: dict[str, object] | None = None,
         ) -> PhaseDispatchResult:
-            del ctx, story_dir, run_id, run_admitted, detail
+            del ctx, run_id, run_admitted, detail
             self.calls += 1
             if self.calls == 1:
                 raise RuntimeError("dispatch boom (mid-flight)")
@@ -2316,12 +2356,11 @@ def test_exception_after_claim_releases_only_my_claim_and_retry_succeeds() -> No
             *,
             ctx: StoryContext,
             phase: str,
-            story_dir: Path,
             run_id: str,
             run_admitted: bool,
             detail: dict[str, object] | None = None,
         ) -> PhaseDispatchResult:
-            del ctx, story_dir, run_id, run_admitted, detail
+            del ctx, run_id, run_admitted, detail
             self.calls += 1
             if self.calls == 1:
                 raise RuntimeError("dispatch boom (leased)")

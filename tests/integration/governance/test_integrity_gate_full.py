@@ -333,7 +333,9 @@ def test_implementation_sonar_unavailable_is_deliberate_absence_skip(
     project_root = tmp_path / "project"
     project_root.mkdir(parents=True, exist_ok=True)
     _write_sonar_unavailable_project_config(project_root)
-    story_dir = _story_dir(tmp_path)
+    # AG3-123: story_dir lives UNDER project_root so the structurally-derived
+    # Dim-9 config root resolves to this project_root (canonical layout).
+    story_dir = _story_dir(project_root)
     _create_context(
         story_dir, StoryType.IMPLEMENTATION, project_root=project_root
     )
@@ -370,7 +372,9 @@ def test_implementation_applicable_without_attestation_escalates(
     project_root = tmp_path / "project"
     project_root.mkdir(parents=True, exist_ok=True)
     _write_sonar_project_config(project_root)
-    story_dir = _story_dir(tmp_path)
+    # AG3-123: story_dir lives UNDER project_root so the structurally-derived
+    # Dim-9 config root resolves to this project_root (canonical layout).
+    story_dir = _story_dir(project_root)
     _create_context(
         story_dir, StoryType.IMPLEMENTATION, project_root=project_root
     )
@@ -402,7 +406,9 @@ def test_missing_decision_aborts_and_blocks_later_dims(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
     project_root.mkdir(parents=True, exist_ok=True)
     _write_sonar_unavailable_project_config(project_root)
-    story_dir = _story_dir(tmp_path)
+    # AG3-123: story_dir lives UNDER project_root so the structurally-derived
+    # Dim-9 config root resolves to this project_root (canonical layout).
+    story_dir = _story_dir(project_root)
     _create_context(
         story_dir, StoryType.IMPLEMENTATION, project_root=project_root
     )

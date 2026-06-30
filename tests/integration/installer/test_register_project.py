@@ -15,7 +15,7 @@ to every ``/integration/`` item — AG3-051). Verifies:
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 from tests.fixtures.git_repo import ensure_git_repo
@@ -53,9 +53,6 @@ from agentkit.backend.state_backend.store.project_registration_repository import
 from agentkit.backend.state_backend.store.skill_binding_repository import (
     StateBackendSkillBindingRepository,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 _BUNDLE_IDS = {name: f"{name}-core" for name in MANDATORY_SKILLS}
 
@@ -350,6 +347,47 @@ def test_idempotent_rerun_skips_cp7(tmp_path: Path) -> None:
     assert after_second is not None
     assert after_second.config_digest == digest_after_first.config_digest
     assert after_second.last_upgraded_at is None
+
+
+@pytest.mark.integration
+def test_relative_project_root_install_persists_absolute(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AG3-123 r2 (MAJOR 1): a RELATIVE ``--project-root`` install still registers.
+
+    The productive CLI passes ``--project-root .`` verbatim, so the install entry
+    receives a RELATIVE ``project_root``. The model-floor
+    ``_validate_project_root_absolute`` would reject that on the CP 7 persist; the
+    single canonical resolution point (``run_checkpoint_install``) resolves the
+    install boundary to an ABSOLUTE backend anchor FIRST, so the install registers
+    successfully AND the persisted ``project_root`` is absolute (no relative anchor
+    can ever reach ``project_registry``).
+    """
+    root = tmp_path / "proj-relative"
+    root.mkdir()
+    store = _bundle_store_with_all_skills(tmp_path)
+    repo = StateBackendProjectRegistrationRepository(root)
+    # The CLI passes the operator's ``--project-root`` verbatim; ``.`` (relative)
+    # is the common productive invocation. Run it from inside ``root`` so ``.``
+    # resolves to ``root``.
+    monkeypatch.chdir(root)
+    config = dataclasses.replace(
+        _make_config(root, store=store, registration_repo=repo),
+        project_root=Path("."),
+    )
+
+    result = install_agentkit(config)
+
+    assert result.success
+    # The install result root is the resolved ABSOLUTE anchor, not the relative ``.``.
+    assert result.project_root.is_absolute()
+    assert result.project_root == root.resolve()
+
+    # The persisted registration carries the ABSOLUTE canonical anchor.
+    stored = repo.get(config.project_key)
+    assert stored is not None
+    assert stored.project_root.is_absolute()
+    assert stored.project_root == root.resolve()
 
 
 @pytest.mark.integration

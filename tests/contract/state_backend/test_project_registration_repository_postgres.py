@@ -24,7 +24,12 @@ import psycopg
 import pytest
 from psycopg import errors as pg_errors
 from psycopg import sql
+from pydantic import ValidationError
 
+from agentkit.backend.control_plane.workspace_locator import (
+    StateBackendStoryWorkspaceLocator,
+    StoryWorkspaceUnresolvedError,
+)
 from agentkit.backend.installer.registration import ProjectRegistration, RuntimeProfile
 from agentkit.backend.state_backend.config import resolve_schema_name
 from agentkit.backend.state_backend.store.project_registration_repository import (
@@ -37,6 +42,9 @@ if TYPE_CHECKING:
 pytest_plugins = ("tests.fixtures.postgres_backend",)
 
 _REGISTERED_AT = datetime(2026, 6, 4, 10, 0, tzinfo=UTC)
+#: Platform-absolute filesystem root prefix (AG3-123 requires the canonical
+#: ``project_root`` to be absolute on the host that persists it).
+_ABS_ROOT = Path(Path.cwd().anchor) / "srv"
 
 
 def _make(
@@ -44,7 +52,7 @@ def _make(
 ) -> ProjectRegistration:
     return ProjectRegistration(
         project_key=project_key,
-        project_root=Path(f"/srv/{project_key}"),
+        project_root=_ABS_ROOT / project_key,
         github_owner="acme",
         github_repo=project_key,
         runtime_profile=profile,
@@ -159,7 +167,7 @@ def test_postgres_unique_project_root_fails_closed(
     repo.save(_make("pg-root-a", digest="a" * 64))
     clash = ProjectRegistration(
         project_key="pg-root-b",
-        project_root=Path("/srv/pg-root-a"),  # same root
+        project_root=_ABS_ROOT / "pg-root-a",  # same root
         github_owner="acme",
         github_repo="pg-root-b",
         runtime_profile=RuntimeProfile.CORE,
@@ -179,6 +187,55 @@ def test_postgres_duplicate_primary_key_fails_closed(
     repo.save(_make("pg-dup", digest="a" * 64))
     with pytest.raises(pg_errors.UniqueViolation):
         repo.save(_make("pg-dup", digest="c" * 64))
+
+
+@pytest.mark.contract
+def test_postgres_relative_root_row_decode_fails_closed(
+    _pg_conn: psycopg.Connection[object], tmp_path: Path
+) -> None:
+    """AG3-123 r2 (MAJOR 2): a pre-existing RELATIVE-root row fails closed.
+
+    A legacy/corrupt ``project_registry`` row carrying a RELATIVE ``project_root``
+    is inserted via raw SQL (bypassing the model-floor, exactly as a pre-AG3-123
+    row would exist). Decoding it through the typed repository raises a pydantic
+    ``ValidationError`` (the model-floor rejects the relative root) -- so the
+    PRODUCTIVE ``StateBackendStoryWorkspaceLocator`` over that repository MUST
+    convert it to the typed :class:`StoryWorkspaceUnresolvedError` (a
+    ``PipelineError``) rather than let the ``ValidationError`` ESCAPE (the
+    fail-OPEN crash the dispatcher could not normalize).
+    """
+    _pg_conn.execute(
+        "INSERT INTO project_registry (project_key, project_root, github_owner, "
+        "github_repo, runtime_profile, config_version, config_digest, "
+        "registered_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+        (
+            "pg-relative-root",
+            "relative/legacy/root",  # RELATIVE -- the model-floor forbids it.
+            "acme",
+            "pg-relative-root",
+            "core",
+            "1",
+            "a" * 64,
+            _REGISTERED_AT,
+        ),
+    )
+    repo = StateBackendProjectRegistrationRepository(store_dir=tmp_path)
+
+    # The repository decode of the relative-root row raises ValidationError -- this
+    # is exactly the error that would ESCAPE the dispatcher unguarded.
+    with pytest.raises(ValidationError):
+        repo.get("pg-relative-root")
+
+    # The productive locator over the SAME real repository converts that decode
+    # failure into the typed fail-closed rejection instead of letting it escape.
+    locator = StateBackendStoryWorkspaceLocator(registration_lookup=repo)
+    with pytest.raises(StoryWorkspaceUnresolvedError) as exc_info:
+        locator.resolve("pg-relative-root", "AG3-700", "run-1")
+    assert not isinstance(exc_info.value, ValidationError)
+    assert isinstance(exc_info.value.__cause__, ValidationError)
+    detail = exc_info.value.detail
+    assert detail is not None
+    assert detail["project_key"] == "pg-relative-root"  # type: ignore[index]
 
 
 @pytest.mark.contract
