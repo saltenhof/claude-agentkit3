@@ -23,11 +23,11 @@ from agentkit.backend.kpi_analytics.dashboard.models import (
     DashboardStorySummary,
 )
 from agentkit.backend.kpi_analytics.errors import AnalyticsNotConfiguredError
-from agentkit.backend.story import StoryService
 
 if TYPE_CHECKING:
     from agentkit.backend.kpi_analytics.fact_store import FactStore
     from agentkit.backend.kpi_analytics.fact_store.models import PeriodFilter
+    from agentkit.backend.story import StoryService
     from agentkit.backend.story.models import StorySummary
 
 logger = logging.getLogger(__name__)
@@ -105,7 +105,14 @@ class DashboardService:
         story_service: StoryService | None = None,
         fact_store: FactStore | None = None,
     ) -> None:
-        self._story_service = story_service or StoryService()
+        if story_service is not None:
+            self._story_service = story_service
+        else:
+            from agentkit.backend.bootstrap.composition_root import (
+                build_story_read_service,
+            )
+
+            self._story_service = build_story_read_service()
         self._fact_store = fact_store
 
     def get_board(self, project_key: str) -> DashboardBoardResponse:

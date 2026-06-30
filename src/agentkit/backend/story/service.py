@@ -13,12 +13,12 @@ from agentkit.backend.story.models import (
     StoryRunView,
     StorySummary,
 )
-from agentkit.backend.story.repository import StoryRepository
 
 if TYPE_CHECKING:
     from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
     from agentkit.backend.phase_state_store.models import FlowExecution
     from agentkit.backend.pipeline_engine.phase_executor import PhaseState
+    from agentkit.backend.story.repository import StoryReadPort
     from agentkit.backend.story_context_manager.models import StoryContext
     from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
@@ -26,10 +26,16 @@ _RECENT_EVENT_LIMIT = 25
 
 
 class StoryService:
-    """Build application-facing story list and detail payloads."""
+    """Build application-facing story list and detail payloads.
 
-    def __init__(self, *, repository: StoryRepository | None = None) -> None:
-        self._repo = repository or StoryRepository()
+    The story read view is injected as a :class:`StoryReadPort` (FK-07 §7.6):
+    the service depends only on the published port, never on the
+    ``state_backend.store`` loaders. The composition root wires the productive
+    ``StateBackendStoryReadRepository`` adapter via ``build_story_read_service``.
+    """
+
+    def __init__(self, *, repository: StoryReadPort) -> None:
+        self._repo = repository
 
     def list_stories(self, project_key: str) -> StoryListResponse:
         contexts = self._repo.list_story_contexts(project_key)

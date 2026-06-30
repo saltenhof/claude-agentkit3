@@ -24,7 +24,6 @@ from agentkit.backend.state_backend.store import (
     save_story_execution_lock_global,
     takeover_control_plane_operation_global,
 )
-from agentkit.backend.story.repository import StoryRepository
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -42,16 +41,22 @@ def _load_story_context_via_story_surface(
     project_key: str,
     story_id: str,
 ) -> StoryContext | None:
-    """Resolve a StoryContext through the sanctioned story read surface.
+    """Resolve a StoryContext through the sanctioned story read port (FK-07 §7.6).
 
     Architecture Conformance AC004 (``architecture-conformance.rule.
     story_read_surface``): the global story read loader
     (``load_story_context_global``) may only be imported from
-    ``agentkit.backend.state_backend`` / ``agentkit.backend.story.repository``. The control
-    plane therefore consumes it via :class:`agentkit.backend.story.repository.
-    StoryRepository`, never by importing the loader symbol directly.
+    ``agentkit.backend.state_backend`` / ``agentkit.backend.story.repository``. The
+    control plane therefore consumes the story read view via the productive
+    :class:`StoryReadPort` adapter
+    (``state_backend.store.story_read_repository.StateBackendStoryReadRepository``),
+    never by importing the loader symbol directly.
     """
-    return StoryRepository().load_story_context(project_key, story_id)
+    from agentkit.backend.state_backend.store.story_read_repository import (
+        StateBackendStoryReadRepository,
+    )
+
+    return StateBackendStoryReadRepository().load_story_context(project_key, story_id)
 
 
 @dataclass(frozen=True)

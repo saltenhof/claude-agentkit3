@@ -194,12 +194,16 @@ def _default_split_source_state_loader(
     This CONSUMES the existing FK-25 detection; it does not rebuild it.
     """
     from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
-    from agentkit.backend.story.repository import StoryRepository
+    from agentkit.backend.state_backend.store.story_read_repository import (
+        StateBackendStoryReadRepository,
+    )
     from agentkit.backend.story_split.service import SplitSourceState
 
     scope_exploded = False
     paused_with_scope_explosion = False
-    events = StoryRepository().load_recent_execution_events(
+    # No store_dir in scope here; this path reads only the inherently global
+    # execution-events stream (load_recent_execution_events takes no store_dir).
+    events = StateBackendStoryReadRepository().load_recent_execution_events(
         request.project_key, request.source_story_id, request.run_id, 1000
     )
     for event in events:
@@ -402,10 +406,12 @@ def build_story_reset_service(
         StateBackendHookRegistrationRepository,
     )
     from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
+    from agentkit.backend.state_backend.store.story_read_repository import (
+        StateBackendStoryReadRepository,
+    )
     from agentkit.backend.state_backend.store.worktree_repository import (
         StateBackendWorktreeRepository,
     )
-    from agentkit.backend.story.repository import StoryRepository
     from agentkit.backend.story_context_manager.service import StoryService
     from agentkit.backend.story_reset import FileResetRecordStore, StoryResetService
 
@@ -419,7 +425,7 @@ def build_story_reset_service(
         worktree_repo=StateBackendWorktreeRepository(resolved_root),
     )
     cp_repo = ControlPlaneRuntimeRepository()
-    story_repo = StoryRepository()
+    story_repo = StateBackendStoryReadRepository(store_dir=store_dir)
     accessor = build_projection_accessor(store_dir)
     refresh_worker = RefreshWorker(
         FactStore(StateBackendFactRepository(store_dir)),
@@ -512,6 +518,22 @@ def build_kpi_analytics_read_facade(store_dir: Path | None = None) -> KpiAnalyti
     return KpiAnalytics(catalog=KpiCatalog(), fact_store=FactStore(fact_repository))
 
 
+def build_story_read_service() -> StoryService:
+    """Wire the Story-BC read service over the productive ``StoryReadPort`` adapter.
+
+    Composition root for :class:`agentkit.backend.story.service.StoryService`
+    (FK-07 §7.6): injects the ``StateBackendStoryReadRepository`` adapter so the
+    BFF/HTTP story list/detail endpoints read exclusively through the published
+    port, never through a ``state_backend.store`` passthrough.
+    """
+    from agentkit.backend.state_backend.store.story_read_repository import (
+        StateBackendStoryReadRepository,
+    )
+    from agentkit.backend.story import StoryService
+
+    return StoryService(repository=StateBackendStoryReadRepository())
+
+
 def build_dashboard_service(
     story_service: StoryService, store_dir: Path | None = None
 ) -> DashboardService:
@@ -560,16 +582,44 @@ def build_project_read_model_routes(store_dir: Path | None = None) -> ReadModelR
     from agentkit.backend.state_backend.store.parallelization_config_repository import (
         StateBackendParallelizationConfigRepository,
     )
+    from agentkit.backend.state_backend.store.project_management_repository import (
+        StateBackendProjectRepository,
+    )
     from agentkit.backend.state_backend.store.story_are_link_repository import (
         StateBackendStoryAreLinkRepository,
     )
+    from agentkit.backend.state_backend.store.story_dependency_repository import (
+        StateBackendStoryDependencyRepository,
+    )
+    from agentkit.backend.state_backend.store.story_read_repository import (
+        StateBackendStoryReadRepository,
+    )
+    from agentkit.backend.state_backend.store.story_repository import (
+        StateBackendIdempotencyKeyRepository,
+        StateBackendStoryRepository,
+    )
     from agentkit.backend.story_context_manager.service import StoryService as _StoryContextService
+
+    # Thread store_dir into EVERY state-backend repository the story service uses
+    # for reads (story stammdaten, project, idempotency, dependency edges).
+    # _handle_flow reads story.get_story BEFORE the phase_state_loader; without
+    # store_dir-aware injection the default StoryService falls back to Path.cwd()
+    # and returns story_not_found for stories persisted only under store_dir.
+    story_service = _StoryContextService(
+        story_repository=StateBackendStoryRepository(store_dir),
+        project_repository=StateBackendProjectRepository(store_dir),
+        idempotency_repository=StateBackendIdempotencyKeyRepository(store_dir),
+        dependency_repository=StateBackendStoryDependencyRepository(store_dir),
+    )
 
     return ReadModelRoutes(
         project_repository=build_project_repository(store_dir),
-        story_service=_StoryContextService(),
+        story_service=story_service,
         config_repository=StateBackendParallelizationConfigRepository(store_dir),
         are_link_repository=StateBackendStoryAreLinkRepository(store_dir),
+        phase_state_loader=StateBackendStoryReadRepository(
+            store_dir=store_dir
+        ).load_phase_state,
     )
 
 

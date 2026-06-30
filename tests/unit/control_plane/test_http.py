@@ -6,6 +6,8 @@ from http import HTTPStatus
 from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, cast
 
+from tests.story_read_port_stub import StubStoryReadPort
+
 from agentkit.backend.control_plane.http import (
     ControlPlaneApplication,
     ControlPlaneApplicationRoutes,
@@ -176,7 +178,7 @@ class _FakeRuntimeService(ControlPlaneRuntimeService):
 
 class _FakeStoryService(StoryService):
     def __init__(self) -> None:
-        super().__init__()
+        super().__init__(repository=StubStoryReadPort())
         self.calls: list[tuple[str, str | None]] = []
         self.error: Exception | None = None
 

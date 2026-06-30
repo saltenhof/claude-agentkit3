@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from tests.story_read_port_stub import StubStoryReadPort
+
 from agentkit.backend.kpi_analytics.dashboard.service import (
     _COLUMN_ORDER,
     _LIFECYCLE_TO_COLUMN,
@@ -28,6 +30,9 @@ from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 
 class _FakeStoryService(StoryService):
+    def __init__(self) -> None:
+        super().__init__(repository=StubStoryReadPort())
+
     def list_stories(self, project_key: str) -> StoryListResponse:
         return StoryListResponse(
             project_key=project_key,
@@ -197,6 +202,9 @@ def test_get_story_metrics_no_story_service_call_when_fact_store_present() -> No
     """
 
     class _SpyStoryService(StoryService):
+        def __init__(self) -> None:
+            super().__init__(repository=StubStoryReadPort())
+
         def list_stories(self, project_key: str) -> StoryListResponse:
             raise AssertionError(
                 "get_story_metrics MUST NOT call StoryService.list_stories "

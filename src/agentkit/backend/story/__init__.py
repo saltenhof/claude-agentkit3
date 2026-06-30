@@ -9,7 +9,7 @@ from agentkit.backend.story.models import (
     StoryRunView,
     StorySummary,
 )
-from agentkit.backend.story.repository import StoryRepository
+from agentkit.backend.story.repository import StoryReadPort
 from agentkit.backend.story.service import StoryService
 from agentkit.backend.story_context_manager.types import (
     ImplementationContract,
@@ -23,7 +23,7 @@ __all__ = [
     "StoryListResponse",
     "StoryMetricsView",
     "StoryMode",
-    "StoryRepository",
+    "StoryReadPort",
     "StoryRunView",
     "StoryService",
     "StorySummary",

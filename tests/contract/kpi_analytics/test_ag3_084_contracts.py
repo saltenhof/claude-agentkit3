@@ -317,11 +317,16 @@ def test_get_story_metrics_does_not_call_story_service_list_stories() -> None:
 
     A spy StoryService that raises on list_stories() must NOT be triggered.
     """
+    from tests.story_read_port_stub import StubStoryReadPort
+
     from agentkit.backend.kpi_analytics.dashboard.service import DashboardService
     from agentkit.backend.story.models import StoryListResponse  # noqa: TC001
     from agentkit.backend.story.service import StoryService
 
     class _SpyStoryService(StoryService):
+        def __init__(self) -> None:
+            super().__init__(repository=StubStoryReadPort())
+
         def list_stories(self, project_key: str) -> StoryListResponse:
             raise AssertionError(
                 "DRIFT-AG3-038: get_story_metrics MUST NOT call StoryService.list_stories"
@@ -342,6 +347,8 @@ def test_get_story_metrics_does_not_call_story_service_list_stories() -> None:
 
 def test_get_board_still_reads_story_service() -> None:
     """Contract regression: get_board (live Kanban) still uses StoryService.list_stories."""
+    from tests.story_read_port_stub import StubStoryReadPort
+
     from agentkit.backend.kpi_analytics.dashboard.service import DashboardService
     from agentkit.backend.story.models import StoryListResponse
     from agentkit.backend.story.service import StoryService
@@ -349,6 +356,9 @@ def test_get_board_still_reads_story_service() -> None:
     called: list[str] = []
 
     class _TracingStoryService(StoryService):
+        def __init__(self) -> None:
+            super().__init__(repository=StubStoryReadPort())
+
         def list_stories(self, project_key: str) -> StoryListResponse:
             called.append(project_key)
             return StoryListResponse(project_key=project_key, stories=[])

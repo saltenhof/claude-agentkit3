@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from tests.phase_state_factory import make_phase_state
 
 from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.backend.phase_state_store.models import FlowExecution
 from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
-from agentkit.backend.story.repository import StoryRepository
+from agentkit.backend.story.repository import StoryReadPort
 from agentkit.backend.story.service import StoryService
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import (
@@ -16,6 +18,59 @@ from agentkit.backend.story_context_manager.types import (
     StoryType,
 )
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from agentkit.backend.pipeline_engine.phase_executor import PhaseState
+
+
+def _empty_contexts(project_key: str) -> list[StoryContext]:
+    return []
+
+
+def _missing_context(project_key: str, story_id: str) -> StoryContext | None:
+    return None
+
+
+def _missing_phase_state(story_id: str) -> PhaseState | None:
+    return None
+
+
+def _missing_flow(project_key: str, story_id: str) -> FlowExecution | None:
+    return None
+
+
+def _missing_metrics(project_key: str, story_id: str) -> StoryMetricsRecord | None:
+    return None
+
+
+def _no_events(
+    project_key: str, story_id: str, run_id: str, limit: int
+) -> list[ExecutionEventRecord]:
+    return []
+
+
+@dataclass
+class _FakeStoryReadPort:
+    """In-process ``StoryReadPort`` fake — drives ``StoryService`` with NO state backend."""
+
+    list_story_contexts: Callable[[str], list[StoryContext]] = _empty_contexts
+    load_story_context: Callable[[str, str], StoryContext | None] = _missing_context
+    load_phase_state: Callable[[str], PhaseState | None] = _missing_phase_state
+    load_flow_execution: Callable[[str, str], FlowExecution | None] = _missing_flow
+    load_latest_story_metrics: Callable[[str, str], StoryMetricsRecord | None] = (
+        _missing_metrics
+    )
+    load_recent_execution_events: Callable[
+        [str, str, str, int], list[ExecutionEventRecord]
+    ] = _no_events
+
+
+def test_fake_port_satisfies_runtime_checkable_protocol() -> None:
+    # AC3: the Protocol is structurally honoured by the in-process fake — the
+    # service runs against the port with NO state backend present.
+    assert isinstance(_FakeStoryReadPort(), StoryReadPort)
 
 
 def _context(story_id: str) -> StoryContext:
@@ -57,7 +112,7 @@ def _event(
 def test_list_stories_builds_project_scoped_read_model() -> None:
     context = _context("AG3-100")
     service = StoryService(
-        repository=StoryRepository(
+        repository=_FakeStoryReadPort(
             list_story_contexts=lambda project_key: [context],
             load_story_context=lambda project_key, story_id: context,
             load_phase_state=lambda story_id: make_phase_state(
@@ -108,7 +163,7 @@ def test_get_story_returns_detail_with_latest_metrics() -> None:
         completed_at="2026-04-22T11:30:00+00:00",
     )
     service = StoryService(
-        repository=StoryRepository(
+        repository=_FakeStoryReadPort(
             list_story_contexts=lambda project_key: [context],
             load_story_context=lambda project_key, story_id: context,
             load_phase_state=lambda story_id: make_phase_state(
@@ -174,7 +229,7 @@ def test_get_story_uses_metrics_run_when_no_current_run_exists() -> None:
         return []
 
     service = StoryService(
-        repository=StoryRepository(
+        repository=_FakeStoryReadPort(
             list_story_contexts=lambda project_key: [context],
             load_story_context=lambda project_key, story_id: context,
             load_phase_state=lambda story_id: None,
@@ -192,7 +247,7 @@ def test_get_story_uses_metrics_run_when_no_current_run_exists() -> None:
 
 def test_get_story_returns_none_when_missing() -> None:
     service = StoryService(
-        repository=StoryRepository(
+        repository=_FakeStoryReadPort(
             list_story_contexts=lambda project_key: [],
             load_story_context=lambda project_key, story_id: None,
             load_phase_state=lambda story_id: None,

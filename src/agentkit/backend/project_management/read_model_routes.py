@@ -45,7 +45,6 @@ from agentkit.backend.project_management.read_models import (
     build_story_counters,
     build_story_flow_snapshot,
 )
-from agentkit.backend.story.repository import StoryRepository as _StoryRepository
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -102,6 +101,23 @@ _STORY_NOT_FOUND_MESSAGE_TEMPLATE = "Story {story_id!r} not found"
 ReadModelRouteResponse = BcRouteResponse
 
 
+def _default_phase_state_loader(story_id: str) -> PhaseState | None:
+    """Resolve the current PhaseState through the sanctioned story read port.
+
+    FK-07 §7.6: the production default routes the global phase-state read through
+    the single :class:`StoryReadPort` adapter
+    (``state_backend.store.story_read_repository.StateBackendStoryReadRepository``)
+    — the only place that knows the ``state_backend.store`` story loaders.
+    Integration tests inject a closure that scopes the read to an ephemeral
+    ``tmp_path`` instead (the loader is the explicit seam, not a passthrough).
+    """
+    from agentkit.backend.state_backend.store.story_read_repository import (
+        StateBackendStoryReadRepository,
+    )
+
+    return StateBackendStoryReadRepository().load_phase_state(story_id)
+
+
 @dataclass(frozen=True)
 class ReadModelRoutes:
     """Route handler for the six AG3-091 project-scoped read-model endpoints.
@@ -119,11 +135,11 @@ class ReadModelRoutes:
             transport is the only allowed fake boundary (AC10).
         phase_state_loader: Callable that resolves the current
             :class:`~agentkit.backend.pipeline_engine.phase_executor.PhaseState` for
-            a story by story_id.  Defaults to
-            ``agentkit.backend.story.repository.load_phase_state_global`` (production
-            wiring: SQLite backend reads ``phase_states`` table from
-            ``Path.cwd()``).  Integration tests inject a closure that passes
-            the ephemeral ``tmp_path`` as ``store_dir``.
+            a story by story_id.  Defaults to the productive
+            :class:`StoryReadPort` adapter (``StateBackendStoryReadRepository.
+            load_phase_state``, FK-07 §7.6) — the SQLite backend reads the
+            ``phase_states`` table.  Integration tests inject a closure that
+            passes the ephemeral ``tmp_path`` as ``store_dir``.
     """
 
     project_repository: ProjectRepository
@@ -132,7 +148,7 @@ class ReadModelRoutes:
     are_link_repository: StoryAreLinkRepository
     are_client: AreClient | None = field(default=None)
     phase_state_loader: Callable[[str], PhaseState | None] = field(
-        default_factory=lambda: _StoryRepository().load_phase_state
+        default_factory=lambda: _default_phase_state_loader
     )
 
     def handle_get(
@@ -386,10 +402,10 @@ class ReadModelRoutes:
     ) -> object | None | ReadModelRouteResponse:
         """Load the single current PhaseState for a story (FK-39, FAIL-CLOSED).
 
-        Delegates to ``self.phase_state_loader`` (default:
-        ``agentkit.backend.story.repository.load_phase_state_global``) to read the
-        canonical runtime ``phase_states`` table (one row per story, written
-        by the real PhaseExecutor write path).
+        Delegates to ``self.phase_state_loader`` (default: the productive
+        :class:`StoryReadPort` adapter ``StateBackendStoryReadRepository.
+        load_phase_state``) to read the canonical runtime ``phase_states`` table
+        (one row per story, written by the real PhaseExecutor write path).
 
         Returns the raw PhaseState when the story has been started, or ``None``
         when no phase state exists yet (story not started -> all phases pending).

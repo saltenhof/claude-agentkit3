@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from agentkit.backend.state_backend.store.worktree_repository import (
         StateBackendWorktreeRepository,
     )
-    from agentkit.backend.story.repository import StoryRepository
+    from agentkit.backend.story.repository import StoryReadPort
     from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
 
 
@@ -46,7 +46,7 @@ _WORKSPACE_SUBDIRS = ("scratch", "tmp", "adversarial_sandbox", "exports")
 class RunScopeAdapter:
     """Resolve the story's current run_id via the canonical FlowExecution read."""
 
-    story_repo: StoryRepository
+    story_repo: StoryReadPort
 
     def resolve_run_id(self, project_key: str, story_id: str) -> str | None:
         """Return the current/last ``run_id`` of the story, or ``None``."""
@@ -58,7 +58,7 @@ class RunScopeAdapter:
 class EscalationEvidenceAdapter:
     """Confirm the §53.4 escalation/exception finding from execution events."""
 
-    story_repo: StoryRepository
+    story_repo: StoryReadPort
 
     def has_escalation_finding(
         self, project_key: str, story_id: str, run_id: str | None

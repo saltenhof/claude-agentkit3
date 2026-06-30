@@ -31,7 +31,6 @@ from agentkit.backend.control_plane.telemetry import ControlPlaneTelemetryServic
 from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
 from agentkit.backend.control_plane_http.version_handshake import CompatWindow, VersionHandshakeMiddleware
 from agentkit.backend.exceptions import ConfigError
-from agentkit.backend.story.service import StoryService
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
@@ -51,6 +50,7 @@ if TYPE_CHECKING:
     from agentkit.backend.project_management.http.routes import ProjectManagementRoutes, ProjectRouteResponse
     from agentkit.backend.project_management.read_model_routes import ReadModelRoutes
     from agentkit.backend.requirements_coverage.http.routes import RequirementsCoverageRoutes
+    from agentkit.backend.story.service import StoryService
     from agentkit.backend.story_context_manager.http.routes import StoryContextRoutes, StoryRouteResponse
     from agentkit.backend.task_management.http.routes import TaskManagementRoutes
     from agentkit.backend.telemetry.http.routes import TelemetryRouteResponse, TelemetryRoutes
@@ -121,6 +121,17 @@ _CORRELATION_HEADER = "X-Correlation-Id"
 # ---------------------------------------------------------------------------
 # Default-builder helpers (lazy imports)
 # ---------------------------------------------------------------------------
+
+
+def _build_default_story_service() -> StoryService:
+    """Build the BFF story read service through the Story-BC ``StoryReadPort``.
+
+    FK-07 §7.6: the default wiring routes story list/detail reads through the
+    published port adapter (composition root), never a state-backend passthrough.
+    """
+    from agentkit.backend.bootstrap.composition_root import build_story_read_service
+
+    return build_story_read_service()
 
 
 def _build_default_project_routes() -> ProjectManagementRoutes:
@@ -414,7 +425,7 @@ class ControlPlaneApplication:
         r = routes or ControlPlaneApplicationRoutes()
         self._telemetry_service = telemetry_service or ControlPlaneTelemetryService()
         self._runtime_service = runtime_service or ControlPlaneRuntimeService()
-        self._story_service = story_service or StoryService()
+        self._story_service = story_service or _build_default_story_service()
         if dashboard_service is not None:
             self._dashboard_service = dashboard_service
         else:
