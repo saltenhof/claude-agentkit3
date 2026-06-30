@@ -1,7 +1,7 @@
 story_id: AG3-122
 title: "Install-Dreifaltigkeit: ebenen-spezifische Lifecycle-Verben (serve/update/detach/decommission)"
 type: implementation
-status: ready
+status: in_progress
 phase: setup
 created: "2026-06-29"
 size: L
