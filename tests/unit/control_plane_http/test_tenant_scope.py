@@ -134,7 +134,7 @@ def test_unknown_project_get_returns_404() -> None:
 
     result = middleware.validate(
         method="GET",
-        route_path="/v1/projects/no-such-project/phases",
+        route_path="/v1/projects/no-such-project/stories",
         correlation_id="corr-3",
     )
     from agentkit.backend.control_plane_http.app import HttpResponse
@@ -261,7 +261,7 @@ def test_valid_project_get_passes_through() -> None:
 
     result = middleware.validate(
         method="GET",
-        route_path="/v1/projects/myproj/phases",
+        route_path="/v1/projects/myproj/stories",
         correlation_id="corr-10",
     )
     assert result is None
@@ -290,7 +290,7 @@ def test_repo_exception_returns_503() -> None:
 
     result = middleware.validate(
         method="GET",
-        route_path="/v1/projects/myproj/phases",
+        route_path="/v1/projects/myproj/stories",
         correlation_id="corr-12",
     )
     from agentkit.backend.control_plane_http.app import HttpResponse
@@ -313,7 +313,7 @@ def test_404_carries_correlation_id_header() -> None:
 
     result = middleware.validate(
         method="GET",
-        route_path="/v1/projects/ghost/phases",
+        route_path="/v1/projects/ghost/stories",
         correlation_id="trace-abc",
     )
     from agentkit.backend.control_plane_http.app import HttpResponse

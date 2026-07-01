@@ -8,7 +8,6 @@ Covers:
   - AC3: story mutations through project-scoped path blocked by archived-project scope
   - AC7: X-Correlation-Id and typed ApiErrorResponse on errors
   - AC8: SSE path (/v1/projects/{key}/events) passes through unmodified
-  - 503 unavailable for BC with absent backend
 """
 
 from __future__ import annotations
@@ -29,7 +28,6 @@ from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplicationRoutes,
     HttpResponse,
 )
-from agentkit.backend.pipeline_engine.http.routes import PipelineEngineRoutes
 from agentkit.backend.telemetry.http.routes import TelemetryRouteResponse
 
 # ---------------------------------------------------------------------------
@@ -355,18 +353,11 @@ class _FakeReadModelRoutes:
 def _make_app(
     *,
     tenant_scope: object | None = None,
-    pipeline_engine_routes: PipelineEngineRoutes | None = None,
     telemetry_routes: object | None = None,
     read_model_routes: object | None = None,
 ) -> ControlPlaneApplication:
     """Build a minimal ControlPlaneApplication wired with all fakes."""
-    from agentkit.backend.artifacts.http.routes import ArtifactsRoutes
-    from agentkit.backend.closure.http.routes import ClosureRoutes
-    from agentkit.backend.failure_corpus.http.routes import FailureCorpusRoutes
-    from agentkit.backend.governance.http.routes import GovernanceRoutes
     from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
-    from agentkit.backend.requirements_coverage.http.routes import RequirementsCoverageRoutes
-    from agentkit.backend.verify_system.http.routes import VerifySystemRoutes
 
     return ControlPlaneApplication(
         routes=ControlPlaneApplicationRoutes(
@@ -377,14 +368,7 @@ def _make_app(
             planning_routes=_FakePlanningRoutes(),  # type: ignore[arg-type]
             telemetry_routes=telemetry_routes or _FakeTelemetryRoutes(),  # type: ignore[arg-type]
             auth_routes=_FakeAuthRoutes(),  # type: ignore[arg-type]
-            pipeline_engine_routes=pipeline_engine_routes or PipelineEngineRoutes(service_available=True),
-            verify_system_routes=VerifySystemRoutes(service_available=True),
-            governance_routes=GovernanceRoutes(service_available=True),
-            closure_routes=ClosureRoutes(service_available=True),
-            artifacts_routes=ArtifactsRoutes(service_available=True),
             kpi_analytics_routes=KpiAnalyticsRoutes(),  # no kpi_analytics → 503 on dim routes
-            failure_corpus_routes=FailureCorpusRoutes(service_available=True),
-            requirements_coverage_routes=RequirementsCoverageRoutes(service_available=True),
             read_model_routes=read_model_routes or _FakeReadModelRoutes(),  # type: ignore[arg-type]
         ),
         tenant_scope_middleware=tenant_scope or _NoopTenantScope(),  # type: ignore[arg-type]
@@ -426,7 +410,7 @@ def test_correlation_id_reflected_from_request_header() -> None:
     app = _make_app()
     response = app.handle_request(
         method="GET",
-        path="/v1/projects/myproj/phases",
+        path="/v1/projects/myproj/kpi/design-tokens",
         body=b"",
         request_headers={"X-Correlation-Id": "custom-corr-99"},
     )
@@ -446,7 +430,7 @@ def test_correlation_id_adopted_case_insensitively_on_success_and_error() -> Non
     # Lower-cased header name, as it can arrive after urllib normalization.
     success = app.handle_request(
         method="GET",
-        path="/v1/projects/myproj/phases",
+        path="/v1/projects/myproj/kpi/design-tokens",
         body=b"",
         request_headers={"x-correlation-id": "corr-ci-1"},
     )
@@ -469,60 +453,6 @@ def test_correlation_id_adopted_case_insensitively_on_success_and_error() -> Non
 # ---------------------------------------------------------------------------
 # AC2 — project-scoped URL routing
 # ---------------------------------------------------------------------------
-
-
-def test_get_project_scoped_phases_returns_200() -> None:
-    """GET /v1/projects/{key}/phases hits PipelineEngineRoutes (AC2, AC4)."""
-    app = _make_app()
-    response = app.handle_request(
-        method="GET",
-        path="/v1/projects/myproj/phases",
-        body=b"",
-    )
-    assert response.status_code == HTTPStatus.OK
-    body = _json_body(response)
-    assert isinstance(body, dict)
-    assert body["project_key"] == "myproj"
-
-
-def test_get_project_scoped_verify_returns_200() -> None:
-    app = _make_app()
-    response = app.handle_request(
-        method="GET",
-        path="/v1/projects/myproj/verify",
-        body=b"",
-    )
-    assert response.status_code == HTTPStatus.OK
-
-
-def test_get_project_scoped_governance_returns_200() -> None:
-    app = _make_app()
-    response = app.handle_request(
-        method="GET",
-        path="/v1/projects/myproj/governance",
-        body=b"",
-    )
-    assert response.status_code == HTTPStatus.OK
-
-
-def test_get_project_scoped_closure_returns_200() -> None:
-    app = _make_app()
-    response = app.handle_request(
-        method="GET",
-        path="/v1/projects/myproj/closure",
-        body=b"",
-    )
-    assert response.status_code == HTTPStatus.OK
-
-
-def test_get_project_scoped_artifacts_returns_200() -> None:
-    app = _make_app()
-    response = app.handle_request(
-        method="GET",
-        path="/v1/projects/myproj/artifacts",
-        body=b"",
-    )
-    assert response.status_code == HTTPStatus.OK
 
 
 def test_get_project_scoped_kpi_returns_503_without_analytics() -> None:
@@ -555,26 +485,6 @@ def test_get_project_scoped_kpi_design_tokens_returns_200() -> None:
     response = app.handle_request(
         method="GET",
         path="/v1/projects/myproj/kpi/design-tokens",
-        body=b"",
-    )
-    assert response.status_code == HTTPStatus.OK
-
-
-def test_get_project_scoped_failure_corpus_returns_200() -> None:
-    app = _make_app()
-    response = app.handle_request(
-        method="GET",
-        path="/v1/projects/myproj/failure-corpus",
-        body=b"",
-    )
-    assert response.status_code == HTTPStatus.OK
-
-
-def test_get_project_scoped_coverage_returns_200() -> None:
-    app = _make_app()
-    response = app.handle_request(
-        method="GET",
-        path="/v1/projects/myproj/coverage",
         body=b"",
     )
     assert response.status_code == HTTPStatus.OK
@@ -740,7 +650,7 @@ def test_unknown_project_returns_404() -> None:
     app = _make_app(tenant_scope=_RejectingTenantScope())
     response = app.handle_request(
         method="GET",
-        path="/v1/projects/no-such-project/phases",
+        path="/v1/projects/no-such-project/stories",
         body=b"",
     )
     assert response.status_code == HTTPStatus.NOT_FOUND
@@ -754,7 +664,7 @@ def test_archived_project_mutation_returns_403() -> None:
     app = _make_app(tenant_scope=_ArchivedTenantScope())
     response = app.handle_request(
         method="POST",
-        path="/v1/projects/archived-proj/phases",
+        path="/v1/projects/archived-proj/stories",
         body=json.dumps({}).encode(),
     )
     assert response.status_code == HTTPStatus.FORBIDDEN
@@ -768,10 +678,10 @@ def test_archived_project_get_passes_through() -> None:
     app = _make_app(tenant_scope=_ArchivedTenantScope())
     response = app.handle_request(
         method="GET",
-        path="/v1/projects/archived-proj/phases",
+        path="/v1/projects/archived-proj/kpi/design-tokens",
         body=b"",
     )
-    # Middleware passes (GET), route returns 200 (PipelineEngineRoutes available)
+    # Middleware passes (GET), route returns 200 (kpi design-tokens always available)
     assert response.status_code == HTTPStatus.OK
 
 
@@ -817,27 +727,6 @@ def test_sse_path_with_unknown_project_returns_404() -> None:
     body = _json_body(response)
     assert isinstance(body, dict)
     assert body["error_code"] == "project_not_found"
-
-
-# ---------------------------------------------------------------------------
-# 503 unavailable — BC with absent backend
-# ---------------------------------------------------------------------------
-
-
-def test_bc_route_absent_backend_returns_503() -> None:
-    """service_available=False -> 503 phases_unavailable (not silent 200, not 501)."""
-    app = _make_app(
-        pipeline_engine_routes=PipelineEngineRoutes(service_available=False),
-    )
-    response = app.handle_request(
-        method="GET",
-        path="/v1/projects/myproj/phases",
-        body=b"",
-    )
-    assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
-    body = _json_body(response)
-    assert isinstance(body, dict)
-    assert body["error_code"] == "phases_unavailable"
 
 
 # ---------------------------------------------------------------------------
@@ -891,13 +780,7 @@ def _make_app_with_real_story_routes(
     tenant_scope: object | None = None,
 ) -> ControlPlaneApplication:
     """ControlPlaneApplication with real StoryContextRoutes for integration checks."""
-    from agentkit.backend.artifacts.http.routes import ArtifactsRoutes
-    from agentkit.backend.closure.http.routes import ClosureRoutes
-    from agentkit.backend.failure_corpus.http.routes import FailureCorpusRoutes
-    from agentkit.backend.governance.http.routes import GovernanceRoutes
     from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
-    from agentkit.backend.requirements_coverage.http.routes import RequirementsCoverageRoutes
-    from agentkit.backend.verify_system.http.routes import VerifySystemRoutes
 
     return ControlPlaneApplication(
         routes=ControlPlaneApplicationRoutes(
@@ -908,14 +791,7 @@ def _make_app_with_real_story_routes(
             planning_routes=_FakePlanningRoutes(),  # type: ignore[arg-type]
             telemetry_routes=_FakeTelemetryRoutes(),  # type: ignore[arg-type]
             auth_routes=_FakeAuthRoutes(),  # type: ignore[arg-type]
-            pipeline_engine_routes=PipelineEngineRoutes(service_available=True),
-            verify_system_routes=VerifySystemRoutes(service_available=True),
-            governance_routes=GovernanceRoutes(service_available=True),
-            closure_routes=ClosureRoutes(service_available=True),
-            artifacts_routes=ArtifactsRoutes(service_available=True),
             kpi_analytics_routes=KpiAnalyticsRoutes(),  # no kpi_analytics → 503 on dim routes
-            failure_corpus_routes=FailureCorpusRoutes(service_available=True),
-            requirements_coverage_routes=RequirementsCoverageRoutes(service_available=True),
             read_model_routes=_FakeReadModelRoutes(),  # type: ignore[arg-type]
         ),
         tenant_scope_middleware=tenant_scope or _NoopTenantScope(),  # type: ignore[arg-type]

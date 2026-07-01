@@ -15,7 +15,6 @@ from __future__ import annotations
 import http.client
 import json
 import threading
-from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import HTTPServer
 from pathlib import Path
@@ -26,11 +25,9 @@ import pytest
 from agentkit.backend.control_plane.models import TelemetryEventAccepted
 from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
-    ControlPlaneApplicationRoutes,
     _build_handler,
     serve_control_plane,
 )
-from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
 from agentkit.backend.control_plane_http.version_handshake import (
     CLIENT_VERSION_HEADER,
     SKILL_BUNDLE_HEADER,
@@ -39,9 +36,6 @@ from agentkit.backend.control_plane_http.version_handshake import (
     VersionHandshakeMiddleware,
 )
 from agentkit.backend.exceptions import ControlPlaneApiError
-from agentkit.backend.governance.http.routes import GovernanceRoutes
-from agentkit.backend.project_management.entities import Project, ProjectConfiguration
-from agentkit.backend.project_management.lifecycle import create_project
 from agentkit.harness_client.projectedge.client import HttpsJsonTransport
 
 if TYPE_CHECKING:
@@ -390,122 +384,3 @@ def test_auth_login_without_handshake_works_through_production_wiring(
 
     # Login is handshake-exempt: it must reach the auth handler, never 426.
     assert status != int(HTTPStatus.UPGRADE_REQUIRED)
-
-
-# ---------------------------------------------------------------------------
-# Item 1 — the browser governance READ must NOT be handshake-gated (FK-72 §72.11)
-# ---------------------------------------------------------------------------
-
-
-_GOVERNANCE_PROJECT = "gov-proj"
-
-
-def _raw_get(
-    base_url: str, path: str, headers: dict[str, str],
-) -> tuple[int, dict[str, object]]:
-    """GET over a raw HTTP socket with EXACT headers (no transport header magic)."""
-    host_port = base_url.removeprefix("http://")
-    host, port = host_port.split(":")
-    conn = http.client.HTTPConnection(host, int(port))
-    try:
-        conn.request("GET", path, headers=headers)
-        response = conn.getresponse()
-        raw = response.read()
-        return response.status, json.loads(raw) if raw else {}
-    finally:
-        conn.close()
-
-
-@dataclass
-class _ProjectRepo:
-    """In-memory project repository double so tenant-scope PASSES (project exists)."""
-
-    known_keys: frozenset[str] = field(
-        default_factory=lambda: frozenset([_GOVERNANCE_PROJECT]),
-    )
-
-    def get(self, key: str) -> Project | None:
-        if key not in self.known_keys:
-            return None
-        return create_project(
-            key,
-            f"Project {key}",
-            "AK3",
-            ProjectConfiguration(
-                repo_url="",
-                default_branch="main",
-                default_worker_count=1,
-                repositories=["repo-a"],
-            ),
-            repositories=["repo-a"],
-        )
-
-
-@pytest.fixture()
-def governance_core() -> Iterator[str]:
-    """A gated core whose tenant-scope passes and whose governance service is up.
-
-    The handshake middleware is ON (default window). Tenant-scope is wired with an
-    in-memory repository so a project-scoped request reaches the handshake stage
-    (a real repo would 404/503 before it), letting the test prove the handshake
-    behaviour itself.
-    """
-    app = ControlPlaneApplication(
-        routes=ControlPlaneApplicationRoutes(
-            governance_routes=GovernanceRoutes(service_available=True),
-        ),
-        tenant_scope_middleware=TenantScopeMiddleware(repository=_ProjectRepo()),  # type: ignore[arg-type]
-        version_handshake_middleware=VersionHandshakeMiddleware(),
-    )
-    server, thread = _serve(app)
-    host, port = server.server_address
-    try:
-        yield f"http://{host}:{port}"
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
-
-
-def test_governance_get_read_without_handshake_is_not_426_over_socket(
-    governance_core: str,
-) -> None:
-    """Item 1 (BLOCKER): GET governance WITHOUT X-AK3-* reaches the real read, not 426.
-
-    FK-72 §72.11: the Frontend Inspector READS governance status (Guard-/Hook-
-    Status) browser->Core through the same control-plane process carrying NO
-    ``X-AK3-*`` header. Gating that read would 426 the production UI (the auth-
-    login bug class). Proven over a real localhost socket with no handshake headers.
-    """
-    base_url = governance_core
-
-    status, payload = _raw_get(
-        base_url, f"/v1/projects/{_GOVERNANCE_PROJECT}/governance", {},
-    )
-
-    # Must NOT be the fail-closed handshake block ...
-    assert status != int(HTTPStatus.UPGRADE_REQUIRED)
-    # ... it is the REAL governance route response (200 ok, or 503 if the service
-    # were down). Here the service is up, so the browser read returns the status.
-    assert status == int(HTTPStatus.OK)
-    assert payload["project_key"] == _GOVERNANCE_PROJECT
-    assert payload["status"] == "ok"
-
-
-def test_governance_mutation_without_handshake_still_426_over_socket(
-    governance_core: str,
-) -> None:
-    """Item 1: a governance MUTATION over /v1 WITHOUT X-AK3-* stays fail-closed 426.
-
-    FK-91 §91.1a Regel 11: governance *commands* are the Dev-agent->Core surface
-    and remain handshake-required, so a handshake-less POST is rejected 426 — the
-    method-aware split exempts only the browser READ, not mutations.
-    """
-    base_url = governance_core
-
-    status, payload = _raw_post(
-        base_url, f"/v1/projects/{_GOVERNANCE_PROJECT}/governance", {}, {},
-    )
-
-    assert status == int(HTTPStatus.UPGRADE_REQUIRED)
-    assert payload["error_code"] == "upgrade_required"

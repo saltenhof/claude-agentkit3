@@ -36,25 +36,18 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
     from pathlib import Path
 
-    from agentkit.backend.artifacts.http.routes import ArtifactsRoutes
     from agentkit.backend.auth.http.routes import AuthRouteResponse, AuthRoutes
     from agentkit.backend.auth.middleware import AuthMiddleware
-    from agentkit.backend.closure.http.routes import ClosureRoutes
     from agentkit.backend.concept_catalog.http.routes import ConceptCatalogRoutes, ConceptRouteResponse
     from agentkit.backend.execution_planning.http.routes import ExecutionPlanningRouteResponse, ExecutionPlanningRoutes
-    from agentkit.backend.failure_corpus.http.routes import FailureCorpusRoutes
-    from agentkit.backend.governance.http.routes import GovernanceRoutes
     from agentkit.backend.kpi_analytics.dashboard import DashboardService
     from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
-    from agentkit.backend.pipeline_engine.http.routes import PipelineEngineRoutes
     from agentkit.backend.project_management.http.routes import ProjectManagementRoutes, ProjectRouteResponse
     from agentkit.backend.project_management.read_model_routes import ReadModelRoutes
-    from agentkit.backend.requirements_coverage.http.routes import RequirementsCoverageRoutes
     from agentkit.backend.story.service import StoryService
     from agentkit.backend.story_context_manager.http.routes import StoryContextRoutes, StoryRouteResponse
     from agentkit.backend.task_management.http.routes import TaskManagementRoutes
     from agentkit.backend.telemetry.http.routes import TelemetryRouteResponse, TelemetryRoutes
-    from agentkit.backend.verify_system.http.routes import VerifySystemRoutes
     from agentkit.integration_clients.multi_llm_hub.http.routes import MultiLlmHubRouteResponse, MultiLlmHubRoutes
 
 logger = logging.getLogger(__name__)
@@ -197,36 +190,6 @@ def _build_default_auth_routes(auth_middleware: AuthMiddleware | None) -> AuthRo
     return AuthRoutes()
 
 
-def _build_default_pipeline_engine_routes() -> PipelineEngineRoutes:
-    from agentkit.backend.pipeline_engine.http.routes import PipelineEngineRoutes
-
-    return PipelineEngineRoutes()
-
-
-def _build_default_verify_system_routes() -> VerifySystemRoutes:
-    from agentkit.backend.verify_system.http.routes import VerifySystemRoutes
-
-    return VerifySystemRoutes()
-
-
-def _build_default_governance_routes() -> GovernanceRoutes:
-    from agentkit.backend.governance.http.routes import GovernanceRoutes
-
-    return GovernanceRoutes()
-
-
-def _build_default_closure_routes() -> ClosureRoutes:
-    from agentkit.backend.closure.http.routes import ClosureRoutes
-
-    return ClosureRoutes()
-
-
-def _build_default_artifacts_routes() -> ArtifactsRoutes:
-    from agentkit.backend.artifacts.http.routes import ArtifactsRoutes
-
-    return ArtifactsRoutes()
-
-
 def _build_default_kpi_analytics_routes() -> KpiAnalyticsRoutes:
     """Build the default KpiAnalyticsRoutes backed by a real FactStore.
 
@@ -251,18 +214,6 @@ def _build_default_task_management_routes() -> TaskManagementRoutes:
     from agentkit.backend.bootstrap.composition_root import build_task_management_routes
 
     return build_task_management_routes()
-
-
-def _build_default_failure_corpus_routes() -> FailureCorpusRoutes:
-    from agentkit.backend.failure_corpus.http.routes import FailureCorpusRoutes
-
-    return FailureCorpusRoutes()
-
-
-def _build_default_requirements_coverage_routes() -> RequirementsCoverageRoutes:
-    from agentkit.backend.requirements_coverage.http.routes import RequirementsCoverageRoutes
-
-    return RequirementsCoverageRoutes()
 
 
 def _build_default_read_model_routes() -> ReadModelRoutes:
@@ -372,7 +323,7 @@ class HttpResponse:
 class ControlPlaneApplicationRoutes:
     """Optional route-bundle for :class:`ControlPlaneApplication`.
 
-    Collects all 15 BC-route and middleware route overrides into a single
+    Collects all BC-route and middleware route overrides into a single
     typed object so that the constructor stays within the S107 parameter-count
     limit.  Every field defaults to ``None``; missing entries are filled with
     their respective ``_build_default_*`` helpers at construction time.
@@ -385,14 +336,7 @@ class ControlPlaneApplicationRoutes:
     planning_routes: ExecutionPlanningRoutes | None = None
     telemetry_routes: TelemetryRoutes | None = None
     auth_routes: AuthRoutes | None = None
-    pipeline_engine_routes: PipelineEngineRoutes | None = None
-    verify_system_routes: VerifySystemRoutes | None = None
-    governance_routes: GovernanceRoutes | None = None
-    closure_routes: ClosureRoutes | None = None
-    artifacts_routes: ArtifactsRoutes | None = None
     kpi_analytics_routes: KpiAnalyticsRoutes | None = None
-    failure_corpus_routes: FailureCorpusRoutes | None = None
-    requirements_coverage_routes: RequirementsCoverageRoutes | None = None
     read_model_routes: ReadModelRoutes | None = None
     task_management_routes: TaskManagementRoutes | None = None
 
@@ -449,27 +393,9 @@ class ControlPlaneApplication:
         self._init_bc_routes(r)
 
     def _init_bc_routes(self, r: ControlPlaneApplicationRoutes) -> None:
-        """Initialise the eight AG3-090 BC route handlers (extracted to reduce S3776 complexity)."""
-        self._pipeline_engine_routes = (
-            r.pipeline_engine_routes or _build_default_pipeline_engine_routes()
-        )
-        self._verify_system_routes = (
-            r.verify_system_routes or _build_default_verify_system_routes()
-        )
-        self._governance_routes = (
-            r.governance_routes or _build_default_governance_routes()
-        )
-        self._closure_routes = r.closure_routes or _build_default_closure_routes()
-        self._artifacts_routes = r.artifacts_routes or _build_default_artifacts_routes()
+        """Initialise the grounded BC route handlers (extracted to reduce S3776 complexity)."""
         self._kpi_analytics_routes = (
             r.kpi_analytics_routes or _build_default_kpi_analytics_routes()
-        )
-        self._failure_corpus_routes = (
-            r.failure_corpus_routes or _build_default_failure_corpus_routes()
-        )
-        self._requirements_coverage_routes = (
-            r.requirements_coverage_routes
-            or _build_default_requirements_coverage_routes()
         )
         self._read_model_routes = (
             r.read_model_routes or _build_default_read_model_routes()
@@ -720,7 +646,7 @@ class ControlPlaneApplication:
                 metrics_match.group("project_key"), correlation_id,
             )
 
-        # Eight new BC GET routes (project-scoped):
+        # Grounded BC GET routes (kpi_analytics, task_management; project-scoped):
         bc_get = self._dispatch_new_bc_get(route_path, query, correlation_id)
         if bc_get is not None:
             return bc_get
@@ -747,14 +673,7 @@ class ControlPlaneApplication:
     ) -> HttpResponse | None:
         """Dispatch GET to the BC http/ modules (AG3-090)."""
         for routes in (
-            self._pipeline_engine_routes,
-            self._verify_system_routes,
-            self._governance_routes,
-            self._closure_routes,
-            self._artifacts_routes,
             self._kpi_analytics_routes,
-            self._failure_corpus_routes,
-            self._requirements_coverage_routes,
             self._task_management_routes,
         ):
             response = routes.handle_get(route_path, query, correlation_id)
@@ -829,7 +748,7 @@ class ControlPlaneApplication:
                 correlation_id=correlation_id,
             )
 
-        # Eight new BC POST routes:
+        # Grounded BC POST routes (kpi_analytics, task_management):
         bc_post = self._dispatch_new_bc_post(route_path, payload, correlation_id)
         if bc_post is not None:
             return bc_post
@@ -880,16 +799,9 @@ class ControlPlaneApplication:
         payload: object,
         correlation_id: str,
     ) -> HttpResponse | None:
-        """Dispatch POST to the 8 new BC http/ modules (AG3-090)."""
+        """Dispatch POST to the grounded BC http/ modules (AG3-090)."""
         for routes in (
-            self._pipeline_engine_routes,
-            self._verify_system_routes,
-            self._governance_routes,
-            self._closure_routes,
-            self._artifacts_routes,
             self._kpi_analytics_routes,
-            self._failure_corpus_routes,
-            self._requirements_coverage_routes,
             self._task_management_routes,
         ):
             response = routes.handle_post(route_path, payload, correlation_id)

@@ -170,14 +170,7 @@ def _build_app(
             planning_routes=planning_routes,
             telemetry_routes=fake,  # type: ignore[arg-type]
             auth_routes=fake,  # type: ignore[arg-type]
-            pipeline_engine_routes=fake,  # type: ignore[arg-type]
-            verify_system_routes=fake,  # type: ignore[arg-type]
-            governance_routes=fake,  # type: ignore[arg-type]
-            closure_routes=fake,  # type: ignore[arg-type]
-            artifacts_routes=fake,  # type: ignore[arg-type]
             kpi_analytics_routes=fake,  # type: ignore[arg-type]
-            failure_corpus_routes=fake,  # type: ignore[arg-type]
-            requirements_coverage_routes=fake,  # type: ignore[arg-type]
         ),
         tenant_scope_middleware=TenantScopeMiddleware(repository=project_repo),  # type: ignore[arg-type]
     )

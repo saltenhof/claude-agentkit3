@@ -106,14 +106,7 @@ def _build_app() -> ControlPlaneApplication:
             planning_routes=fake,  # type: ignore[arg-type]
             telemetry_routes=fake,  # type: ignore[arg-type]
             auth_routes=fake,  # type: ignore[arg-type]
-            pipeline_engine_routes=fake,  # type: ignore[arg-type]
-            verify_system_routes=fake,  # type: ignore[arg-type]
-            governance_routes=fake,  # type: ignore[arg-type]
-            closure_routes=fake,  # type: ignore[arg-type]
-            artifacts_routes=fake,  # type: ignore[arg-type]
             kpi_analytics_routes=KpiAnalyticsRoutes(),  # ← REAL, not a fake
-            failure_corpus_routes=fake,  # type: ignore[arg-type]
-            requirements_coverage_routes=fake,  # type: ignore[arg-type]
         ),
         tenant_scope_middleware=TenantScopeMiddleware(repository=project_repo),  # type: ignore[arg-type]
     )

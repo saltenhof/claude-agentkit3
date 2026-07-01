@@ -228,30 +228,45 @@ Endpunkte, die *nicht* projekt-bezogen sind (z. B. Liste aller Projekte,
 Hub-Status, Concept-Browser), liegen unter `/v1/<bc>/<resource>` ohne
 Projekt-Praefix.
 
-### 72.8.2 Modul-Aufteilung
+### 72.8.2 Modul-Aufteilung — Read/Query-Port (Pflicht) vs. Frontend-HTTP-Surface (bedarfsverankert)
 
-```
-agentkit/control_plane_http/        # App, Auth, Tenant-Scope-Middleware, Router-Registry
-agentkit/project_management/http/   # /v1/projects (nicht projekt-skopiert; Liste/CRUD)
-agentkit/story_context_manager/http/  # /v1/projects/{key}/stories
-agentkit/execution_planning/http/   # /v1/projects/{key}/planning, /v1/projects/{key}/planning/next-ready, /v1/projects/{key}/planning/config
-agentkit/pipeline_engine/http/      # /v1/projects/{key}/phases
-agentkit/verify_system/http/        # /v1/projects/{key}/verify
-agentkit/governance/http/           # /v1/projects/{key}/governance
-agentkit/closure/http/              # /v1/projects/{key}/closure
-agentkit/artifacts/http/            # /v1/projects/{key}/artifacts
-agentkit/telemetry/http/            # /v1/projects/{key}/telemetry
-agentkit/kpi_analytics/http/        # /v1/projects/{key}/kpi
-agentkit/failure_corpus/http/       # /v1/projects/{key}/failure-corpus
-agentkit/requirements_coverage/http/  # /v1/projects/{key}/coverage (inkl. /coverage/stories/{story_id}/are-evidence)
-agentkit/concept_catalog/http/      # /v1/concepts (projektneutral, Konzept-Korpus ist Repository-weit)
-agentkit/multi_llm_hub/http/        # Hub-Adapter-HTTP (projektneutral, Vertrag in FK-75)
-```
+**Grundsatz.** Jeder fachliche BC publiziert seine **Read-/Query-Ports** — **in-process**, vom
+BFF (Bluttyp R) zur Read-Model-Komposition konsumiert. Eine **frontend-sichtbare HTTP-Surface**
+pro BC besteht **ausschliesslich dort, wo ein konkreter Konsument/Ablauf sie verankert**.
+Kanonische Schreibpfade sind Single Source of Truth (FK-91).
 
-`control_plane_http` hostet App, Auth, Tenant-Scope, Router-Registry.
-Es implementiert keine fachlichen Read-Modelle gegen Persistenz, sondern
-delegiert an die fachlichen HTTP-/Service-Surfaces der BCs. Keine
-Microservices. Der offizielle API-Vertrag im Detail liegt in **FK-91**.
+**Ebene 1 — verankerte frontend-sichtbare Surfaces.**
+
+| Surface | URL | Konsument / Zweck |
+|---|---|---|
+| `control_plane_http` | (Host) | App, Auth, Tenant-Scope, Router-Registry — genau ein Host |
+| `project_management/http` | `/v1/projects` (+CRUD, `…/{key}`, `…/{key}/configuration`) | Projektliste und -verwaltung |
+| `story_context_manager/http` | `/v1/projects/{key}/stories`, `…/{id}` (Detail, `PATCH`), Commands (`…/{id}/{approve\|reject\|cancel}`) | Story-Liste, -Detail, Field-Update, Commands |
+| `execution_planning/http` | `/v1/projects/{key}/planning/dependency-graph`, `…/execution-input/{snapshot,limits}` | Dependency-Graph, Execution-Input-Snapshot, Limits |
+| `project_management/read_model_routes` | `…/stories/{id}/flow`, `…/stories/counters`, `…/mode-lock`, `…/coverage/stories/{id}/{are-evidence,acceptance}` | Komponierte Inspector-Reads (Ablauf, Coverage, Counters, Mode-Lock) aus BC-Ports |
+| `telemetry` | `/v1/projects/{key}/events` (SSE), `/v1/telemetry/events` (Ingest) | Live- und Historien-Events |
+| `multi_llm_hub/http` | `/v1/hub/{status,sessions}` | Hub-Status und -Sessions |
+
+**Kanonische Zuordnung.** Folgende Beduerfnisse werden ueber die genannten kanonischen Pfade
+bedient und haben **keinen** eigenen BC-HTTP-Mount:
+
+- **Phasen-Lesen:** komponiertes Flow-Read-Model (`…/stories/{id}/flow`) und SSE-Topic `phases`.
+- **Phasen- und Closure-Mutation:** ausschliesslich `POST /v1/projects/{key}/story-runs/{run_id}/phases/{phase}/{start|complete|fail}` bzw. `…/story-runs/{run_id}/closure/complete` (FK-91 §91.1a).
+- **Coverage-Lesen:** komponiertes Read-Model (`…/coverage/stories/{id}/{are-evidence,acceptance}`).
+- **Verify:** in-process Capability-Subflow der Implementation-Phase (kein HTTP-Owner).
+- **Governance:** Guard-/Gate-Signale werden ueber die komponierten Story-/Event-Projektionen und die SSE-Topics (`gates`, `governance`) sichtbar.
+
+**Ebene 2 — Stereotyp fuer BC-eigene Surfaces.** Eine BC-eigene, frontend-sichtbare Surface
+wird ausschliesslich bei **benanntem Konsument und Zweck** (Aufnahme in Ebene 1) aktiviert und
+ist dann **stereotyp** wie folgt gebaut:
+
+1. Projekt-skopierter Pfad `/v1/projects/{key}/<resource>` (§72.8.1); `project_key` filtert lesend und mutierend; Auth, Tenant-Scope und `X-Correlation-Id` gelten unveraendert.
+2. **Duenner Adapter:** Lesen ueber die publizierten Read-/Query-Ports des BCs; Mutation ueber den **jeweiligen kanonischen Owner-Command des BCs** (`story-runs` ist der kanonische Pfad ausschliesslich fuer Phasen-/Closure-Lifecycle-Mutationen) — kein zweiter Executor, kein zweiter Mutations-Vertrag.
+3. Wire-Keys, Vokabular und Status aus FK-91 (§91.5, `op_id`-Pflicht fuer Mutationen); fail-closed 503 bei nicht aufloesbarem Kern (FK-10 §10.6).
+
+`control_plane_http` hostet App, Auth, Tenant-Scope und Router-Registry und delegiert an die
+in-process Read-/Query-Ports bzw. die verankerten HTTP-Surfaces der BCs. Keine Microservices.
+Der offizielle API-Vertrag im Detail liegt in **FK-91**.
 
 ## 72.9 Foundation-Bereiche
 
