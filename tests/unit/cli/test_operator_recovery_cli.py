@@ -30,6 +30,88 @@ def _invoke(
     return code, captured.out, captured.err
 
 
+def _mutation_result(
+    status: str = "committed",
+    *,
+    operation_kind: str = "phase_start",
+    dispatch_status: str | None = None,
+) -> object:
+    """Build a real :class:`ControlPlaneMutationResult` for the CLI REST tests.
+
+    Committed/replayed results must carry an edge_bundle (model invariant); a
+    rejected result carries none. The optional ``dispatch_status`` attaches a
+    ``phase_dispatch`` so the resume exit-code mapping can be exercised.
+    """
+    from datetime import UTC, datetime
+
+    from agentkit.backend.control_plane.models import (
+        ControlPlaneMutationResult,
+        EdgeBundle,
+        EdgePointer,
+        PhaseDispatchResult,
+    )
+
+    now = datetime(2025, 1, 1, tzinfo=UTC)
+    bundle = None
+    if status != "rejected":
+        bundle = EdgeBundle(
+            current=EdgePointer(
+                project_key="proj-key",
+                export_version="edge-1",
+                operating_mode="ai_augmented",
+                bundle_dir="_temp/governance/bundles/edge-1",
+                sync_after=now,
+                freshness_class="mutation",
+                generated_at=now,
+            ),
+        )
+    dispatch = None
+    if dispatch_status is not None:
+        reaction_map = {
+            "phase_completed": "advance",
+            "yielded": "await_external",
+            "failed": "escalate",
+            "escalated": "escalate",
+            "rejected": "rejected",
+        }
+        dispatch = PhaseDispatchResult(
+            phase="implementation",
+            status=dispatch_status,  # type: ignore[arg-type]
+            reaction=reaction_map[dispatch_status],  # type: ignore[arg-type]
+            dispatched=dispatch_status != "rejected",
+        )
+    return ControlPlaneMutationResult(
+        status=status,  # type: ignore[arg-type]
+        op_id="op-x",
+        operation_kind=operation_kind,
+        run_id="run-1",
+        phase="implementation" if dispatch_status else "setup",
+        edge_bundle=bundle,
+        phase_dispatch=dispatch,
+    )
+
+
+class _RecordingClient:
+    """A ProjectEdgeClient stand-in that records phase calls (AG3-130 CLI tests).
+
+    Only the REST vermittlung is stubbed here at the CLI seam; the real client /
+    transport / route is exercised by the integration test (kein Mock der
+    Vermittlungsschicht dort).
+    """
+
+    def __init__(self, result: object) -> None:
+        self._result = result
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    def run_phase(self, **kwargs: object) -> object:
+        self.calls.append(("run_phase", kwargs))
+        return self._result
+
+    def resume_phase(self, **kwargs: object) -> object:
+        self.calls.append(("resume_phase", kwargs))
+        return self._result
+
+
 # ===========================================================================
 # §2.12 Mandatory negative-path tests
 # ===========================================================================
@@ -156,34 +238,26 @@ class TestRunPhaseNegativePaths:
         assert code != 0
         assert "ProjectKey" in err or "project" in err.lower()
 
-    def test_valid_phase_builds_phase_mutation_request_and_calls_start_phase(
+    def test_valid_phase_calls_rest_run_phase_with_request(
         self,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """Valid input builds PhaseMutationRequest and calls start_phase (ERROR 6 fix).
+        """Valid input calls the REST ``run_phase`` client (AG3-130), not in-process.
 
-        The test does NOT just patch the handler — it patches the service and
-        inspects the actual PhaseMutationRequest payload delivered to start_phase.
+        The test patches ONLY the CLI client seam and inspects the actual
+        PhaseMutationRequest delivered to the client's ``run_phase`` over the
+        canonical project-scoped route (run_id/phase/project_key carried).
         """
         monkeypatch.setenv("AGENTKIT_PROJECT_KEY", "proj-key")
 
-        mock_result = MagicMock()
-        mock_result.status = "committed"
-        mock_result.op_id = "op-x"
-        mock_result.operation_kind = "phase_start"
-        mock_result.run_id = "run-1"
-        mock_result.phase = "setup"
-        mock_result.phase_dispatch = None
-
-        mock_svc_inst = MagicMock()
-        mock_svc_inst.start_phase.return_value = mock_result
+        client = _RecordingClient(_mutation_result("committed"))
 
         with patch(
-            "agentkit.backend.control_plane.runtime.ControlPlaneRuntimeService",
-            return_value=mock_svc_inst,
+            "agentkit.backend.cli.main._build_control_plane_client",
+            return_value=client,
         ):
-            code, out, err = _invoke(
+            code, _out, _err = _invoke(
                 [
                     "run-phase",
                     "setup",
@@ -193,18 +267,19 @@ class TestRunPhaseNegativePaths:
                     "--principal", "agent",
                     "--worktree", "/tmp/wt",
                     "--project", "proj-key",
+                    "--base-url", "https://127.0.0.1:9702",
                 ],
                 capsys,
             )
 
-        # start_phase MUST have been called (not silently skipped)
-        mock_svc_inst.start_phase.assert_called_once()
-        # Inspect the call args — first kwarg is run_id, second is request
-        _, call_kwargs = mock_svc_inst.start_phase.call_args
-        assert call_kwargs.get("run_id") == "run-1", "run_id must be passed"
-        assert call_kwargs.get("phase") == "setup", "phase must be passed"
-        request = call_kwargs.get("request")
-        assert request is not None, "PhaseMutationRequest must be passed"
+        assert len(client.calls) == 1
+        verb, kwargs = client.calls[0]
+        assert verb == "run_phase"
+        assert kwargs.get("run_id") == "run-1"
+        assert kwargs.get("phase") == "setup"
+        assert kwargs.get("project_key") == "proj-key"
+        request = kwargs.get("request")
+        assert request is not None
         assert str(request.project_key) == "proj-key"
         assert str(request.story_id) == "AG3-001"
         assert str(request.session_id) == "sess-1"
@@ -212,47 +287,194 @@ class TestRunPhaseNegativePaths:
         assert list(request.worktree_roots) == ["/tmp/wt"]
         assert code == 0
 
+    def test_missing_base_url_returns_nonzero(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """No ``--base-url`` -> fail-closed non-zero (no in-process fallback)."""
+        monkeypatch.setenv("AGENTKIT_PROJECT_KEY", "proj-key")
+        code, _out, err = _invoke(
+            [
+                "run-phase",
+                "setup",
+                "--story", "AG3-001",
+                "--run", "run-1",
+                "--session", "sess-1",
+                "--principal", "agent",
+                "--worktree", "/tmp/wt",
+                "--project", "proj-key",
+            ],
+            capsys,
+        )
+        assert code != 0
+        assert "BaseUrl" in err or "base-url" in err.lower()
+
+    def test_backend_unreachable_fails_closed(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Unreachable backend -> CLI exit != 0, structured message, no fallback."""
+        monkeypatch.setenv("AGENTKIT_PROJECT_KEY", "proj-key")
+
+        code, _out, err = _invoke(
+            [
+                "run-phase",
+                "setup",
+                "--story", "AG3-001",
+                "--run", "run-1",
+                "--session", "sess-1",
+                "--principal", "agent",
+                "--worktree", "/tmp/wt",
+                "--project", "proj-key",
+                # Port 1 is not listening -> urllib URLError (connection refused).
+                "--base-url", "http://127.0.0.1:1",
+            ],
+            capsys,
+        )
+        assert code != 0
+        assert "run-phase failed" in err
+
+    def test_invalid_base_url_fails_closed_structured(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """An invalid ``--base-url`` fails closed with a structured message (Codex M2)."""
+        monkeypatch.setenv("AGENTKIT_PROJECT_KEY", "proj-key")
+
+        code, _out, err = _invoke(
+            [
+                "run-phase",
+                "setup",
+                "--story", "AG3-001",
+                "--run", "run-1",
+                "--session", "sess-1",
+                "--principal", "agent",
+                "--worktree", "/tmp/wt",
+                "--project", "proj-key",
+                # A malformed URL (unknown scheme) -> urllib ValueError, which must
+                # be caught fail-closed rather than escaping through main().
+                "--base-url", "not-a-url",
+            ],
+            capsys,
+        )
+        assert code != 0
+        assert "run-phase failed [InvalidBaseUrl]" in err
+
 
 class TestResumeNegativePaths:
-    """AK 3 / §2.12 negative paths for ``agentkit resume``."""
+    """AK 3 / §2.12 negative paths for ``agentkit resume`` (AG3-130 REST path)."""
+
+    _BASE_ARGS = [
+        "resume",
+        "implementation",
+        "--story", "AG3-001",
+        "--run", "run-1",
+        "--session", "sess-1",
+        "--principal", "operator",
+        "--worktree", "/tmp/wt",
+        "--trigger", "approval_received",
+        "--project", "proj-key",
+    ]
 
     def test_missing_story_flag_causes_argparse_error(self) -> None:
         """``--story`` is required; absence -> argparse SystemExit."""
         with pytest.raises(SystemExit) as exc_info:
-            main(["resume", "--trigger", "approval_received"])
+            main(["resume", "implementation", "--trigger", "approval_received"])
         assert exc_info.value.code != 0
 
     def test_missing_trigger_flag_causes_argparse_error(self) -> None:
         """``--trigger`` is required; absence -> argparse SystemExit."""
         with pytest.raises(SystemExit) as exc_info:
-            main(["resume", "--story", "AG3-001"])
+            main(
+                [
+                    "resume", "implementation",
+                    "--story", "AG3-001",
+                    "--run", "run-1",
+                    "--session", "sess-1",
+                    "--principal", "operator",
+                    "--worktree", "/tmp/wt",
+                ]
+            )
         assert exc_info.value.code != 0
 
-    def test_no_paused_envelope_returns_nonzero(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """No PAUSED PhaseEnvelope for the story -> non-zero + finding."""
-        story_dir = tmp_path / "stories" / "AG3-001"
-        story_dir.mkdir(parents=True)
+    def test_missing_phase_positional_causes_argparse_error(self) -> None:
+        """The phase positional is required (REST route carries the phase)."""
+        with pytest.raises(SystemExit) as exc_info:
+            main(["resume", "--story", "AG3-001", "--trigger", "x"])
+        assert exc_info.value.code != 0
 
-        # Story context file exists but no PAUSED envelope
-        code, _, err = _invoke(
-            [
-                "resume",
-                "--story", "AG3-001",
-                "--trigger", "approval_received",
-                "--project-root", str(tmp_path),
-            ],
-            capsys,
-        )
+    def test_invalid_phase_returns_nonzero(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """An invalid phase is rejected CLI-side before any REST call."""
+        args = list(self._BASE_ARGS)
+        args[1] = "not-a-phase"
+        args += ["--base-url", "https://127.0.0.1:9702"]
+        code, _out, err = _invoke(args, capsys)
         assert code != 0
-        # Either MissingStoryContext or NoPausedEnvelope
-        assert (
-            "failed" in err.lower()
-            or "gap" in err.lower()
-            or "paused" in err.lower()
-            or "context" in err.lower()
+        assert "InvalidPhase" in err
+
+    def test_missing_base_url_returns_nonzero(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """No ``--base-url`` -> fail-closed non-zero (no in-process fallback)."""
+        code, _out, err = _invoke(list(self._BASE_ARGS), capsys)
+        assert code != 0
+        assert "BaseUrl" in err or "base-url" in err.lower()
+
+    def test_backend_unreachable_fails_closed(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Unreachable backend -> CLI exit != 0, structured message, no fallback."""
+        args = list(self._BASE_ARGS) + ["--base-url", "http://127.0.0.1:1"]
+        code, _out, err = _invoke(args, capsys)
+        assert code != 0
+        assert "resume failed" in err
+
+    def test_valid_resume_calls_rest_resume_phase_with_trigger(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A valid resume calls the REST ``resume_phase`` with the trigger in detail."""
+        client = _RecordingClient(
+            _mutation_result("committed", operation_kind="phase_resume",
+                             dispatch_status="phase_completed")
         )
+        args = list(self._BASE_ARGS) + ["--base-url", "https://127.0.0.1:9702"]
+        with patch(
+            "agentkit.backend.cli.main._build_control_plane_client",
+            return_value=client,
+        ):
+            code, _out, _err = _invoke(args, capsys)
+
+        assert code == 0
+        assert len(client.calls) == 1
+        verb, kwargs = client.calls[0]
+        assert verb == "resume_phase"
+        assert kwargs.get("phase") == "implementation"
+        assert kwargs.get("run_id") == "run-1"
+        assert kwargs.get("project_key") == "proj-key"
+        request = kwargs.get("request")
+        assert request is not None
+        assert request.detail.get("resume_trigger") == "approval_received"
+
+    def test_resume_failed_dispatch_returns_nonzero(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A committed resume whose phase dispatch failed exits non-zero."""
+        client = _RecordingClient(
+            _mutation_result("committed", operation_kind="phase_resume",
+                             dispatch_status="failed")
+        )
+        args = list(self._BASE_ARGS) + ["--base-url", "https://127.0.0.1:9702"]
+        with patch(
+            "agentkit.backend.cli.main._build_control_plane_client",
+            return_value=client,
+        ):
+            code, _out, _err = _invoke(args, capsys)
+        assert code != 0
 
 
 class TestResetEscalationNegativePath:
@@ -698,35 +920,22 @@ class TestRunPhaseValidPhases:
     """AK 1 — valid phase names are accepted; ``verify`` is rejected; start_phase is called."""
 
     @pytest.mark.parametrize("phase", ["setup", "exploration", "implementation", "closure"])
-    def test_valid_phases_call_start_phase_with_correct_request(
+    def test_valid_phases_call_rest_run_phase_with_request(
         self,
         phase: str,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """Valid phases: start_phase is called and request payload matches flags (ERROR 6 fix).
-
-        Replaces the old test that only checked 'InvalidPhase not in err' with a
-        test that asserts the actual start_phase call and the PhaseMutationRequest.
-        """
+        """Valid phases: the REST ``run_phase`` client is called with the request (AG3-130)."""
         monkeypatch.setenv("AGENTKIT_PROJECT_KEY", "proj-key")
 
-        mock_result = MagicMock()
-        mock_result.status = "committed"
-        mock_result.op_id = "op-x"
-        mock_result.operation_kind = "phase_start"
-        mock_result.run_id = "run-1"
-        mock_result.phase = phase
-        mock_result.phase_dispatch = None
-
-        mock_svc_inst = MagicMock()
-        mock_svc_inst.start_phase.return_value = mock_result
+        client = _RecordingClient(_mutation_result("committed"))
 
         with patch(
-            "agentkit.backend.control_plane.runtime.ControlPlaneRuntimeService",
-            return_value=mock_svc_inst,
+            "agentkit.backend.cli.main._build_control_plane_client",
+            return_value=client,
         ):
-            code, out, err = _invoke(
+            _code, _out, err = _invoke(
                 [
                     "run-phase",
                     phase,
@@ -735,17 +944,18 @@ class TestRunPhaseValidPhases:
                     "--session", "sess-1",
                     "--principal", "agent",
                     "--worktree", "/tmp/wt",
+                    "--base-url", "https://127.0.0.1:9702",
                 ],
                 capsys,
             )
 
-        # Phase validation passed AND start_phase was called
         assert "InvalidPhase" not in err
-        mock_svc_inst.start_phase.assert_called_once()
-
-        _, call_kwargs = mock_svc_inst.start_phase.call_args
-        request = call_kwargs.get("request")
-        assert request is not None, "PhaseMutationRequest must be passed to start_phase"
+        assert len(client.calls) == 1
+        verb, kwargs = client.calls[0]
+        assert verb == "run_phase"
+        assert kwargs.get("phase") == phase
+        request = kwargs.get("request")
+        assert request is not None
         assert str(request.story_id) == "AG3-001"
         assert str(request.session_id) == "sess-1"
         assert str(request.principal_type) == "agent"
@@ -1590,3 +1800,88 @@ class TestQueryTelemetrySinceWithEventTimestamp:
         assert len(payload["events"]) == 0, (
             "An event with no recognisable time field must be excluded by the since filter"
         )
+
+
+# ===========================================================================
+# AG3-130 — run-phase / resume are REST requesters, never in-process
+# ===========================================================================
+
+
+class TestOperatorCliRestRegression:
+    """AG3-130 AK1-4: run-phase/resume drive the core over REST, never in-process."""
+
+    #: The forbidden call/instantiation forms (the ``(`` avoids matching docstring
+    #: prose that merely names ``ControlPlaneRuntimeService`` while explaining the
+    #: fix). ``postgres_store`` / ``_connect_global`` never appear in prose here.
+    _FORBIDDEN = (
+        "ControlPlaneRuntimeService(",
+        "build_pipeline_engine(",
+        "build_phase_envelope_store(",
+        "postgres_store",
+        "_connect_global",
+    )
+
+    def test_source_has_no_in_process_runtime_or_postgres_reference(self) -> None:
+        """Static regression: the run-phase/resume CLI path builds no core in-process."""
+        import ast
+        import inspect
+
+        from agentkit.backend.cli import main as cli_main
+
+        # Strip docstrings so only executable code / identifiers are scanned.
+        chunks: list[str] = []
+        for fn in (
+            cli_main._cmd_run_phase,
+            cli_main._cmd_resume,
+            cli_main._prepare_phase_call,
+            cli_main._invoke_control_plane_phase,
+            cli_main._build_control_plane_client,
+        ):
+            module = ast.parse(inspect.getsource(fn))
+            func = module.body[0]
+            assert isinstance(func, ast.FunctionDef)
+            body = func.body
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+            ):
+                body = body[1:]
+            chunks.append("\n".join(ast.unparse(node) for node in body))
+        sources = "\n".join(chunks)
+        for forbidden in self._FORBIDDEN:
+            assert forbidden not in sources, (
+                f"run-phase/resume must not reference {forbidden!r} in the CLI "
+                "process (AG3-130 FK-10 §10.1.0 I1/I3)"
+            )
+
+    def test_run_phase_does_not_instantiate_runtime_service(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Dynamic regression: run-phase never constructs ControlPlaneRuntimeService."""
+        monkeypatch.setenv("AGENTKIT_PROJECT_KEY", "proj-key")
+        client = _RecordingClient(_mutation_result("committed"))
+        with (
+            patch(
+                "agentkit.backend.cli.main._build_control_plane_client",
+                return_value=client,
+            ),
+            patch(
+                "agentkit.backend.control_plane.runtime.ControlPlaneRuntimeService"
+            ) as svc,
+        ):
+            _invoke(
+                [
+                    "run-phase", "setup",
+                    "--story", "AG3-001",
+                    "--run", "run-1",
+                    "--session", "sess-1",
+                    "--principal", "agent",
+                    "--worktree", "/tmp/wt",
+                    "--base-url", "https://127.0.0.1:9702",
+                ],
+                capsys,
+            )
+        svc.assert_not_called()

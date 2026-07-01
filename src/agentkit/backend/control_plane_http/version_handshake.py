@@ -107,10 +107,12 @@ _REQUIRED_LOGICAL_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^/project-edge/sync$"),
     re.compile(r"^/project-edge/operations/[^/]+$"),
     # Story-run phase + closure mutations (bare and project-scoped forms).
-    re.compile(r"^/story-runs/[^/]+/phases/[^/]+/(?:start|complete|fail)$"),
+    # AG3-130: ``resume`` is a phase mutation of the same story-runs family and is
+    # therefore handshake-required like start/complete/fail (FK-91 §91.1a Regel 11).
+    re.compile(r"^/story-runs/[^/]+/phases/[^/]+/(?:start|complete|fail|resume)$"),
     re.compile(r"^/story-runs/[^/]+/closure/complete$"),
     re.compile(
-        r"^/projects/[^/]+/story-runs/[^/]+/phases/[^/]+/(?:start|complete|fail)$",
+        r"^/projects/[^/]+/story-runs/[^/]+/phases/[^/]+/(?:start|complete|fail|resume)$",
     ),
     re.compile(r"^/projects/[^/]+/story-runs/[^/]+/closure/complete$"),
 )

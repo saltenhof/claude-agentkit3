@@ -1188,7 +1188,20 @@ boundary_modules:
       - architecture-conformance.boundary.integrations
       - architecture-conformance.boundary.control_plane_http
       - architecture-conformance.boundary.control_plane_records
-      - architecture-conformance.boundary.control_plane_runtime
+      - architecture-conformance.boundary.projectedge
+      # AG3-130 (FK-10 §10.1.0 I3): the operator-recovery verbs run-phase/resume are
+      # thin REST requesters at the core. They call the official Dev-Edge client
+      # (agentkit.harness_client.projectedge.client.ProjectEdgeClient / HttpsJsonTransport)
+      # instead of building a ControlPlaneRuntimeService in-process, so the CLI
+      # holds a ProjectEdge boundary grant. It remains a duenne client seam (no
+      # second HTTP stack, no phase logic on the dev side).
+      #
+      # The ``control_plane_runtime`` grant was REMOVED (Codex m1): after AG3-130 no
+      # CLI module imports the in-process runtime service/repository/telemetry, and
+      # dropping the grant makes the architecture guard fail-closed if runtime and
+      # ProjectEdge are ever re-coupled here (a future in-process ControlPlaneRuntimeService
+      # in the CLI would violate AC010). The CLI still reaches the core-owned phase
+      # mutations exclusively over REST via ProjectEdge.
       # The CLI holds no state_backend_repository grant. The operator/recovery
       # CLI routes ALL state-backend
       # reads through agentkit.backend.bootstrap.composition_root wrapper functions

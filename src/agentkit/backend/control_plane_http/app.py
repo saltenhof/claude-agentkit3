@@ -69,7 +69,7 @@ _PROJECT_SCOPED_PREFIX = re.compile(
 # story-runs (project-scoped by project_key in path since AG3-090):
 _PROJECT_PHASE_PATH_PATTERN = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/story-runs/(?P<run_id>[^/]+)"
-    r"/phases/(?P<phase>[^/]+)/(?P<action>start|complete|fail)$",
+    r"/phases/(?P<phase>[^/]+)/(?P<action>start|complete|fail|resume)$",
 )
 _PROJECT_CLOSURE_PATH_PATTERN = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/story-runs/(?P<run_id>[^/]+)/closure/complete$",
@@ -976,8 +976,16 @@ class ControlPlaneApplication:
                     phase=phase,
                     request=request,
                 )
-            else:
+            elif action == "fail":
                 result = self._runtime_service.fail_phase(
+                    run_id=run_id,
+                    phase=phase,
+                    request=request,
+                )
+            else:
+                # AG3-130: resume a PAUSED phase; the core drives the pipeline
+                # engine's resume path server-side (FK-45, FK-91 §91.1a).
+                result = self._runtime_service.resume_phase(
                     run_id=run_id,
                     phase=phase,
                     request=request,

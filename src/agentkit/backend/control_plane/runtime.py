@@ -538,6 +538,7 @@ class _ControlPlaneRuntimeAdmissionBase:
         run_id: str,
         phase: str,
         owner_token: str,
+        operation_kind: str = "phase_start",
     ) -> _ClaimOutcome:
         """Acquire the leased, owner-scoped claim before dispatch (AG3-054, #1).
 
@@ -568,7 +569,12 @@ class _ControlPlaneRuntimeAdmissionBase:
         """
         now = self._now_fn()
         placeholder = _build_claim_placeholder(
-            request, run_id=run_id, phase=phase, owner_token=owner_token, now=now
+            request,
+            run_id=run_id,
+            phase=phase,
+            owner_token=owner_token,
+            now=now,
+            operation_kind=operation_kind,
         )
         #: WARNING-4 fix (#4): the RAW lease epoch this caller stamps. The writer
         #: stores ``claimed_at`` as ``isoformat`` TEXT, so this is the exact raw
@@ -587,7 +593,7 @@ class _ControlPlaneRuntimeAdmissionBase:
                 return _ClaimOutcome(
                     won=True, result=None, claimed_at_raw=claim_instant_raw
                 )
-            return _ClaimOutcome(won=False, result=self._in_flight_rejection(request))
+            return _ClaimOutcome(won=False, result=self._in_flight_rejection(request, operation_kind=operation_kind))
         if stored.status != "claimed":
             # A terminal result already exists -- replay, never re-dispatch.
             return _ClaimOutcome(
@@ -596,7 +602,7 @@ class _ControlPlaneRuntimeAdmissionBase:
             )
         if not self._claim_is_expired(stored, now=now):
             # A LIVE foreign claim -- a winner is mid-dispatch. Never steal.
-            return _ClaimOutcome(won=False, result=self._in_flight_rejection(request))
+            return _ClaimOutcome(won=False, result=self._in_flight_rejection(request, operation_kind=operation_kind))
         # EXPIRED claim (crashed owner): atomic CAS takeover of the exact observed
         # lease. A concurrent winner that finalized/took over changed the row, so
         # the CAS affects zero rows and this caller loses the takeover race.
@@ -618,7 +624,7 @@ class _ControlPlaneRuntimeAdmissionBase:
             return _ClaimOutcome(
                 won=True, result=None, claimed_at_raw=claim_instant_raw
             )
-        return _ClaimOutcome(won=False, result=self._in_flight_rejection(request))
+        return _ClaimOutcome(won=False, result=self._in_flight_rejection(request, operation_kind=operation_kind))
 
     def _claim_is_expired(
         self,
@@ -651,6 +657,8 @@ class _ControlPlaneRuntimeAdmissionBase:
     def _in_flight_rejection(
         self,
         request: PhaseMutationRequest,
+        *,
+        operation_kind: str = "phase_start",
     ) -> ControlPlaneMutationResult:
         """Build the fail-closed "operation in flight, retry" loser rejection.
 
@@ -662,7 +670,7 @@ class _ControlPlaneRuntimeAdmissionBase:
         """
         return _rejection_result(
             op_id=request.op_id,
-            operation_kind="phase_start",
+            operation_kind=operation_kind,
             run_id=None,
             phase=None,
             reason=(
@@ -1210,6 +1218,293 @@ class ControlPlaneRuntimeService(_ControlPlaneRuntimeAdmissionBase):
                 reason=reason,
                 dispatch_phase="closure",
             )
+
+    def resume_phase(
+        self,
+        *,
+        run_id: str,
+        phase: str,
+        request: PhaseMutationRequest,
+    ) -> ControlPlaneMutationResult:
+        """Resume a PAUSED phase server-side by driving the pipeline-engine resume.
+
+        AG3-130: the operator CLI ``resume`` is a thin REST requester; the core
+        drives the real resume path here. The deterministic single-phase
+        dispatcher derives resume-vs-start from the persisted PAUSED phase-state
+        and calls :meth:`PipelineEngine.resume_phase` with the resume trigger the
+        caller supplies in ``request.detail['resume_trigger']`` -- no phase
+        business logic lives in the HTTP adapter or the CLI (FK-45 §45.2/§45.4,
+        FK-10 §10.1.0 I3).
+
+        The admission and idempotency rules mirror complete/fail
+        (:meth:`_mutate_admitted_phase`): a replay of the same ``op_id`` returns
+        the stored result; a resume for a run with no prior admitted start is
+        rejected fail-closed (it must not materialize story-scoped state for an
+        unadmitted run). The normalized phase outcome rides back on the SAME
+        :class:`ControlPlaneMutationResult` via ``phase_dispatch`` (one truth, no
+        second dispatch/state path).
+
+        Args:
+            run_id: The story run identifier.
+            phase: The PAUSED phase to resume.
+            request: The phase mutation request; ``detail['resume_trigger']``
+                carries the resume trigger event name.
+
+        Returns:
+            The committed (or replayed) :class:`ControlPlaneMutationResult`
+            carrying the ``phase_dispatch`` resume outcome, or a fail-closed
+            rejection.
+        """
+        self._require_postgres_backend_on_first_use()
+        existing = self._load_existing_operation(request.op_id)
+        if existing is not None:
+            return existing
+        if not self._run_was_admitted(request, run_id=run_id):
+            return _rejection_result(
+                op_id=request.op_id,
+                operation_kind="phase_resume",
+                run_id=run_id,
+                phase=phase,
+                reason=(
+                    "phase_resume rejected: the run has no prior admitted start "
+                    "(no committed setup phase_start and no session binding for "
+                    "THIS project/story/run); fail-closed -- a resume must not "
+                    "materialize story-scoped state for an unadmitted run "
+                    "(FK-20 §20.8.2)."
+                ),
+                dispatch_phase=phase,
+            )
+        #: AG3-130 (Codex B1): reserve the op_id via the SAME leased owner-scoped
+        #: claim as ``start_phase`` BEFORE the side-effecting engine resume runs.
+        #: Exactly one concurrent caller wins; a loser is handed a fail-closed
+        #: result (replay of a terminal row, or an in-flight-retry rejection) and
+        #: NEVER runs ``PipelineEngine.resume_phase`` a second time (no double
+        #: resume).
+        owner_token = self._mint_owner_token()
+        claim = self._acquire_claim(
+            request,
+            run_id=run_id,
+            phase=phase,
+            owner_token=owner_token,
+            operation_kind="phase_resume",
+        )
+        if not claim.won:
+            return claim.result_or_raise()
+        owner_claimed_at = claim.claimed_at_raw
+        finalized = False
+        try:
+            #: Drive the deterministic dispatcher: with the persisted phase-state
+            #: PAUSED for this phase it derives a resume (not a fresh start) and
+            #: runs ``PipelineEngine.resume_phase`` with the trigger from
+            #: ``request.detail`` -- now protected by the claim.
+            dispatch_result = self._dispatch_phase(
+                run_id=run_id, phase=phase, request=request
+            )
+            rejection = self._resume_rejection_if_unsuccessful(
+                dispatch_result, run_id=run_id, phase=phase, request=request
+            )
+            if rejection is not None:
+                #: AG3-130 (Codex M3): a resume that did NOT advance/re-pause the
+                #: phase (absent ctx, not-PAUSED, invalid trigger -> EngineResult
+                #: failed with ``dispatched=True``, or a failed/escalated resume)
+                #: must NOT commit an operation or materialize a binding/lock/
+                #: SESSION_RUN_BINDING_CREATED. Release MY claim and return the
+                #: NON-stored rejection (the engine's own phase-state, if any,
+                #: stands). A retry then re-evaluates.
+                self._release_my_claim(
+                    request.op_id, owner_token, owner_claimed_at
+                )
+                return rejection
+            result = self._finalize_resume_phase(
+                run_id=run_id,
+                phase=phase,
+                request=request,
+                owner_token=owner_token,
+                owner_claimed_at=owner_claimed_at,
+                phase_dispatch=dispatch_result,
+            )
+            finalized = True
+            return result
+        except ControlPlaneBindingCollisionError as exc:
+            #: AG3-054 run-scoping: the binding SAVE would overwrite a live binding
+            #: belonging to a DIFFERENT run that rebound the same session. The store
+            #: refused fail-closed and the WHOLE transaction rolled back -- a resume
+            #: for an old run must never clobber a foreign run's live binding.
+            self._release_my_claim_best_effort(
+                request.op_id, owner_token, owner_claimed_at
+            )
+            reason = _phase_binding_collision_reason("phase_resume", exc)
+            return _rejection_result(
+                op_id=request.op_id,
+                operation_kind="phase_resume",
+                run_id=run_id,
+                phase=phase,
+                reason=reason,
+                dispatch_phase=phase,
+            )
+        except BaseException:
+            #: Any error before the terminal finalize MUST release MY claim (best
+            #: effort, never masking the original error) so the op_id is not
+            #: stranded (NO ERROR BYPASSING).
+            if not finalized:
+                self._release_my_claim_best_effort(
+                    request.op_id, owner_token, owner_claimed_at
+                )
+            raise
+
+    def _resume_rejection_if_unsuccessful(
+        self,
+        dispatch_result: PhaseDispatchResult | None,
+        *,
+        run_id: str,
+        phase: str,
+        request: PhaseMutationRequest,
+    ) -> ControlPlaneMutationResult | None:
+        """Return a NON-stored resume rejection, or ``None`` when the resume advanced.
+
+        AG3-130 (Codex M3): a resume commits (materializes binding/locks + a
+        terminal op) ONLY when it actually advanced or re-paused the phase
+        (``phase_completed`` / ``yielded``). Every other outcome -- an absent
+        StoryContext, a dispatcher rejection, an invalid resume trigger (the engine
+        returns ``EngineResult(status="failed")`` which ``_normalize`` reports as
+        ``dispatched=True``), or a failed/escalated resume -- is a fail-closed
+        rejection that stores NO operation and NO side effects.
+        """
+        if dispatch_result is None:
+            return _rejection_result(
+                op_id=request.op_id,
+                operation_kind="phase_resume",
+                run_id=run_id,
+                phase=phase,
+                reason=(
+                    "phase_resume rejected: the run's StoryContext is absent, so "
+                    "the PAUSED phase cannot be resolved server-side; fail-closed "
+                    "(FK-20 §20.8.2)."
+                ),
+                dispatch_phase=phase,
+            )
+        if dispatch_result.status in ("phase_completed", "yielded"):
+            return None
+        #: Not advanced (rejected / failed / escalated). Carry the normalized
+        #: dispatch outcome on ``phase_dispatch`` (edge_bundle stays None -> the
+        #: ``rejected`` result invariant holds).
+        return ControlPlaneMutationResult(
+            status="rejected",
+            op_id=request.op_id,
+            operation_kind="phase_resume",
+            run_id=run_id,
+            phase=phase,
+            edge_bundle=None,
+            phase_dispatch=dispatch_result,
+        )
+
+    def _finalize_resume_phase(
+        self,
+        *,
+        run_id: str,
+        phase: str,
+        request: PhaseMutationRequest,
+        owner_token: str,
+        owner_claimed_at: str | None,
+        phase_dispatch: PhaseDispatchResult | None,
+    ) -> ControlPlaneMutationResult:
+        """Commit ONLY the ``phase_resume`` op record; never re-materialize a start.
+
+        Codex N1: a successful resume CONTINUES an existing run. The engine already
+        persisted the phase-state transition during the dispatch. The control plane
+        therefore persists ONLY (a) the idempotent ``phase_resume`` operation record
+        (op_id replay) under the ownership CAS -- with NO binding / lock / event side
+        effects -- and returns an edge bundle that MIRRORS the run's CURRENT
+        (unchanged) session binding + story-execution lock. It writes NO new
+        :class:`SessionRunBindingRecord`, NO new / re-activated ACTIVE lock and emits
+        NO ``SESSION_RUN_BINDING_CREATED`` / ``STORY_EXECUTION_REGIME_ACTIVATED``
+        events: those were materialized by the ORIGINAL start; a resume must not
+        duplicate them (a false second activation / a clobbered ``activated_at`` /
+        ``binding_version``).
+
+        A lost ownership CAS (a concurrent takeover after lease expiry) replays the
+        winner's terminal row; the loser writes nothing.
+        """
+        now = self._now_fn()
+        bundle = self._resume_edge_bundle(request, run_id=run_id, now=now)
+        result = ControlPlaneMutationResult(
+            status="committed",
+            op_id=request.op_id,
+            operation_kind="phase_resume",
+            run_id=run_id,
+            phase=phase,
+            edge_bundle=bundle,
+            phase_dispatch=phase_dispatch,
+        )
+        record = _operation_record(
+            op_id=request.op_id,
+            project_key=request.project_key,
+            story_id=request.story_id,
+            run_id=run_id,
+            session_id=request.session_id,
+            operation_kind="phase_resume",
+            phase=phase,
+            result=result,
+            now=now,
+        )
+        #: Ownership-CAS finalize of ONLY the op record (binding/locks/events are
+        #: EMPTY -- mirrors the fast-start finalize which materializes no side
+        #: effects). The resume never re-writes the run's binding/lock regime.
+        if self._repo.finalize_start_phase(
+            record,
+            owner_token=owner_token,
+            owner_claimed_at=owner_claimed_at,
+            binding=None,
+            locks=(),
+            events=(),
+        ):
+            return result
+        existing = self._load_existing_operation(request.op_id)
+        if existing is not None:
+            return existing
+        return self._in_flight_rejection(request, operation_kind="phase_resume")
+
+    def _resume_edge_bundle(
+        self,
+        request: PhaseMutationRequest,
+        *,
+        run_id: str,
+        now: datetime,
+    ) -> EdgeBundle:
+        """Build the resume edge bundle from the run's EXISTING binding/lock (read-only).
+
+        The bundle MIRRORS the current story-execution regime so the local edge
+        keeps its operating mode; it triggers NO write (Codex N1). When no
+        run-matched binding/lock exists (a fast story or an already-cleaned run) an
+        ``ai_augmented`` bundle is returned.
+        """
+        binding = self._repo.load_binding(request.session_id)
+        if (
+            binding is None
+            or binding.project_key != request.project_key
+            or binding.story_id != request.story_id
+            or binding.run_id != run_id
+        ):
+            return _build_fast_edge_bundle(
+                project_key=request.project_key, sync_class="mutation", now=now
+            )
+        lock = self._repo.load_lock(
+            binding.project_key, binding.story_id, binding.run_id, "story_execution"
+        )
+        if lock is None:
+            return _build_fast_edge_bundle(
+                project_key=request.project_key, sync_class="mutation", now=now
+            )
+        qa_lock = self._repo.load_lock(
+            binding.project_key, binding.story_id, binding.run_id, "qa_artifact_write"
+        )
+        return _build_edge_bundle(
+            binding=binding,
+            lock=lock,
+            qa_lock=qa_lock,
+            sync_class="mutation",
+            now=now,
+        )
 
     def _complete_standard_closure(
         self,
@@ -1859,6 +2154,7 @@ def _build_claim_placeholder(
     phase: str,
     owner_token: str,
     now: datetime,
+    operation_kind: str = "phase_start",
 ) -> ControlPlaneOperationRecord:
     """Build the in-flight leased ``claimed`` placeholder op record (AG3-054).
 
@@ -1867,6 +2163,11 @@ def _build_claim_placeholder(
     ``response_payload`` is empty (not a replayable result). ``claimed_by`` is the
     per-call owner token and ``claimed_at`` is the lease start instant -- the
     expiry compare and the CAS takeover both key off this exact lease.
+
+    AG3-130: ``operation_kind`` parametrizes the leased reservation so ``resume``
+    reserves its op_id under ``phase_resume`` through the SAME claim-before-dispatch
+    protocol as ``start`` (no double-resume: the side-effecting engine resume runs
+    only after the reservation).
     """
     return ControlPlaneOperationRecord(
         op_id=request.op_id,
@@ -1874,7 +2175,7 @@ def _build_claim_placeholder(
         story_id=request.story_id,
         run_id=run_id,
         session_id=request.session_id,
-        operation_kind="phase_start",
+        operation_kind=operation_kind,
         phase=phase,
         status="claimed",
         response_payload={},

@@ -203,6 +203,129 @@ def test_project_edge_client_supports_all_mutation_paths(tmp_path: Path) -> None
     ]
 
 
+def test_operator_run_phase_hits_project_scoped_route_without_publish(
+    tmp_path: Path,
+) -> None:
+    """AG3-130: run_phase targets the canonical project-scoped route, no local publish."""
+    result = _mutation_result(str(tmp_path / "worktree"))
+    transport = _FakeTransport(result)
+    client = ProjectEdgeClient(
+        transport=transport,
+        publisher=LocalEdgePublisher(project_root=tmp_path),
+    )
+    phase_request = PhaseMutationRequest(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        session_id="sess-001",
+        principal_type="operator",
+        worktree_roots=[str(tmp_path / "worktree")],
+    )
+
+    returned = client.run_phase(
+        project_key="tenant-a",
+        run_id="run-100",
+        phase="setup",
+        request=phase_request,
+    )
+
+    assert returned.operation_kind == "phase_start"
+    assert transport.calls == [
+        ("POST", "/v1/projects/tenant-a/story-runs/run-100/phases/setup/start"),
+    ]
+    # Operator dispatch is a pure core call: no local governance bundle published.
+    assert not (tmp_path / "_temp" / "governance" / "current.json").exists()
+
+
+def test_operator_resume_phase_hits_project_scoped_resume_route(
+    tmp_path: Path,
+) -> None:
+    """AG3-130: resume_phase targets ``.../phases/{phase}/resume`` (project-scoped)."""
+    result = _mutation_result(str(tmp_path / "worktree"))
+    transport = _FakeTransport(result)
+    client = ProjectEdgeClient(
+        transport=transport,
+        publisher=LocalEdgePublisher(project_root=tmp_path),
+    )
+    phase_request = PhaseMutationRequest(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        session_id="sess-001",
+        principal_type="operator",
+        worktree_roots=[str(tmp_path / "worktree")],
+        detail={"resume_trigger": "approval_received"},
+    )
+
+    client.resume_phase(
+        project_key="tenant-a",
+        run_id="run-100",
+        phase="implementation",
+        request=phase_request,
+    )
+
+    assert transport.calls == [
+        ("POST", "/v1/projects/tenant-a/story-runs/run-100/phases/implementation/resume"),
+    ]
+    assert not (tmp_path / "_temp" / "governance" / "current.json").exists()
+
+
+def test_operator_phase_route_url_encodes_project_key(tmp_path: Path) -> None:
+    """A project key with reserved chars stays inside the path segment (AG3-130)."""
+    result = _mutation_result(str(tmp_path / "worktree"))
+    transport = _FakeTransport(result)
+    client = ProjectEdgeClient(
+        transport=transport,
+        publisher=LocalEdgePublisher(project_root=tmp_path),
+    )
+    phase_request = PhaseMutationRequest(
+        project_key="tenant/a b",
+        story_id="AG3-100",
+        session_id="sess-001",
+        principal_type="operator",
+        worktree_roots=[str(tmp_path / "worktree")],
+    )
+
+    client.run_phase(
+        project_key="tenant/a b",
+        run_id="run-100",
+        phase="setup",
+        request=phase_request,
+    )
+
+    assert transport.calls == [
+        ("POST", "/v1/projects/tenant%2Fa%20b/story-runs/run-100/phases/setup/start"),
+    ]
+
+
+def test_operator_phase_route_url_encodes_run_id_and_phase(tmp_path: Path) -> None:
+    """A run_id/phase with reserved chars stays inside its path segment (Codex M1)."""
+    result = _mutation_result(str(tmp_path / "worktree"))
+    transport = _FakeTransport(result)
+    client = ProjectEdgeClient(
+        transport=transport,
+        publisher=LocalEdgePublisher(project_root=tmp_path),
+    )
+    phase_request = PhaseMutationRequest(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        session_id="sess-001",
+        principal_type="operator",
+        worktree_roots=[str(tmp_path / "worktree")],
+    )
+
+    # A ``run_id="run/evil"`` must not break out of the run-id path segment and
+    # address a different route (e.g. ``.../story-runs/run/evil/phases/...``).
+    client.run_phase(
+        project_key="tenant-a",
+        run_id="run/evil",
+        phase="set up",
+        request=phase_request,
+    )
+
+    assert transport.calls == [
+        ("POST", "/v1/projects/tenant-a/story-runs/run%2Fevil/phases/set%20up/start"),
+    ]
+
+
 def test_local_edge_publisher_removes_tombstoned_lock_export(tmp_path: Path) -> None:
     worktree = tmp_path / "worktree"
     lock_path = worktree / ".agent-guard" / "lock.json"

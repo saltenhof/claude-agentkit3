@@ -251,7 +251,7 @@ Kanonische Schreibpfade sind Single Source of Truth (FK-91).
 bedient und haben **keinen** eigenen BC-HTTP-Mount:
 
 - **Phasen-Lesen:** komponiertes Flow-Read-Model (`…/stories/{id}/flow`) und SSE-Topic `phases`.
-- **Phasen- und Closure-Mutation:** ausschliesslich `POST /v1/projects/{key}/story-runs/{run_id}/phases/{phase}/{start|complete|fail}` bzw. `…/story-runs/{run_id}/closure/complete` (FK-91 §91.1a).
+- **Phasen- und Closure-Mutation:** ausschliesslich `POST /v1/projects/{key}/story-runs/{run_id}/phases/{phase}/{start|complete|fail|resume}` bzw. `…/story-runs/{run_id}/closure/complete` (FK-91 §91.1a).
 - **Coverage-Lesen:** komponiertes Read-Model (`…/coverage/stories/{id}/{are-evidence,acceptance}`).
 - **Verify:** in-process Capability-Subflow der Implementation-Phase (kein HTTP-Owner).
 - **Governance:** Guard-/Gate-Signale werden ueber die komponierten Story-/Event-Projektionen und die SSE-Topics (`gates`, `governance`) sichtbar.

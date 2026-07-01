@@ -101,6 +101,7 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
 | `/v1/projects/{project_key}/story-runs/{run_id}/phases/{phase}/start` | `POST` | Offiziellen Start einer Phase anfordern (projekt-skopiert seit AG3-090, FK-72 §72.8.1) |
 | `/v1/projects/{project_key}/story-runs/{run_id}/phases/{phase}/complete` | `POST` | Erfolgreichen Phasenabschluss melden |
 | `/v1/projects/{project_key}/story-runs/{run_id}/phases/{phase}/fail` | `POST` | Fehlerhaften Phasenabschluss melden |
+| `/v1/projects/{project_key}/story-runs/{run_id}/phases/{phase}/resume` | `POST` | Fortsetzung einer PAUSED-Phase anfordern (Operator-Recovery, FK-45) |
 | `/v1/projects/{project_key}/story-runs/{run_id}/closure/complete` | `POST` | Offiziellen Closure-Abschluss anfordern |
 | `/v1/project-edge/sync` | `POST` | Lokalen Edge-Bundle-Stand fuer einen Projekt-Client bounded neu abgleichen |
 | `/v1/project-edge/operations/{op_id}` | `GET` | Unklare Remote-Lage eines mutierenden Requests ueber `op_id` reconciliieren |
@@ -209,13 +210,13 @@ Operator-Recovery-Pfad, kein Agent-Eingangstor.**
 | `agentkit register-project --gh-owner {owner} --gh-repo {repo}` | 50 | Projekt registrieren bzw. idempotent erneut registrieren |
 | `agentkit register-project --gh-owner {owner} --gh-repo {repo} --dry-run` | 50 | Checkpoint-Vorschau ohne Mutation |
 | `agentkit verify-project` | 50 | Read-only Verifikation des Registrierungszustands |
-| `agentkit run-phase {phase} --story {story_id}` | 45 | Pipeline-Phase ausfuehren — **Operator-Recovery-Spezialfall**; Standardweg ist `POST /v1/story-runs/{run_id}/phases/{phase}/start` (§91.1a) |
+| `agentkit run-phase {phase} --story {story_id} --run {run_id} --session {session_id} --principal {principal_type} --worktree {path} --project {project_key} --base-url {url}` | 45 | Pipeline-Phase ausfuehren — **Operator-Recovery-Spezialfall**. Seit AG3-130 duenner REST-Anforderer: dispatcht ausschliesslich ueber `POST /v1/projects/{project_key}/story-runs/{run_id}/phases/{phase}/start` (§91.1a, FK-10 §10.1.0 I3), kein in-process Runtime-Build im CLI-Prozess |
 | `agentkit structural` | 33 | Structural Checks ausführen |
 | `agentkit policy` | 33 | Policy-Evaluation ausführen |
 | `agentkit stages` | 33 | Stage-Registry anzeigen |
 | `agentkit status` | 52 | Systemstatus anzeigen |
 | `agentkit cleanup --story {story_id}` | 20 | Stale Worktree/Branch/Locks aufräumen |
-| `agentkit resume --story {story_id}` | 35 | Pausierte Story fortsetzen |
+| `agentkit resume {phase} --story {story_id} --run {run_id} --session {session_id} --principal {principal_type} --worktree {path} --trigger {resume_trigger} --project {project_key} --base-url {url}` | 35 | Pausierte Phase fortsetzen. Seit AG3-130 duenner REST-Anforderer: dispatcht ueber `POST /v1/projects/{project_key}/story-runs/{run_id}/phases/{phase}/resume` (§91.1a, FK-45); der Resume-Trigger reist im `PhaseMutationRequest.detail.resume_trigger`, kein in-process Pipeline-Engine-Build im CLI-Prozess |
 | `agentkit reset-escalation --story {story_id}` | 35 | Eskalation zurücksetzen |
 | `agentkit reset-story --story {story_id}` | 53 | Vollständige korrupt gewordene Umsetzung administrativ zurücksetzen — **Operator-Notfallpfad** |
 | `agentkit split-story --story {story_id}` | 54 | Scope-Explosion kontrolliert in Nachfolger-Stories überführen — **Operator-Notfallpfad** |

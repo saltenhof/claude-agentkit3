@@ -456,8 +456,12 @@ def test_route_classifier_required_set() -> None:
         "/v1/project-edge/sync",
         "/v1/project-edge/operations/op-1",
         "/v1/story-runs/r1/phases/implementation/start",
+        # AG3-130 (Codex N2): resume is a phase mutation of the story-runs family
+        # and MUST be handshake-gated like start/complete/fail (bare + scoped forms).
+        "/v1/story-runs/r1/phases/exploration/resume",
         "/v1/story-runs/r1/closure/complete",
         "/v1/projects/p/story-runs/r1/phases/setup/complete",
+        "/v1/projects/p/story-runs/r1/phases/exploration/resume",
         "/v1/projects/p/story-runs/r1/closure/complete",
     ):
         # Always-required patterns are gated regardless of method.

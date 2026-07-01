@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import pytest
 from tests.exploration_change_frame_fixture import EXAMPLE_RUN_ID, example_change_frame
 from tests.phase_state_factory import make_phase_state
 
@@ -42,12 +43,26 @@ from agentkit.backend.telemetry.emitters import MemoryEmitter
 from agentkit.backend.telemetry.events import EventType
 
 if TYPE_CHECKING:
-    import pytest
-
     from agentkit.backend.exploration.change_frame import ChangeFrame
     from agentkit.backend.exploration.review import ExplorationGateResult
 
 _STORY_ID = "AG3-047"
+
+
+@pytest.fixture(autouse=True)
+def _redirect_relative_story_dir_to_tmp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep the handler's cwd-relative ``story_dir`` debris out of the repo root.
+
+    ``_handler`` wires ``ExplorationConfig(story_dir=Path("story"))`` (a cwd-relative
+    path); running ``on_enter`` materializes the story context / exploration summary
+    / state-backend files under ``./story``. Chdir'ing each test to its ``tmp_path``
+    redirects that ephemeral output into the auto-cleaned temp dir instead of the
+    repository root (CLAUDE.md: "Ephemere Dateien nach var/ oder Test-tmp_path";
+    no untracked ``story/`` in the delivery state).
+    """
+    monkeypatch.chdir(tmp_path)
 
 
 @dataclass

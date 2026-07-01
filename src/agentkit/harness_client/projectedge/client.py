@@ -448,6 +448,111 @@ class ProjectEdgeClient:
             payload=request.model_dump(mode="json"),
         )
 
+    def run_phase(
+        self,
+        *,
+        project_key: str,
+        run_id: str,
+        phase: str,
+        request: PhaseMutationRequest,
+    ) -> ControlPlaneMutationResult:
+        """Dispatch a single phase over the canonical project-scoped route (AG3-130).
+
+        The operator CLI ``run-phase`` REST path (FK-10 §10.1.0 I3): the phase is
+        dispatched by the core via ``POST /v1/projects/{project_key}/story-runs/
+        {run_id}/phases/{phase}/start``; there is NO in-process runtime build on
+        the dev side. Unlike the worker-edge phase methods this does NOT publish a
+        local governance bundle -- the operator drives the core, it does not
+        activate a local edge in its own working directory.
+
+        Args:
+            project_key: The owning project key (URL path segment, tenant-scoped).
+            run_id: The story run identifier.
+            phase: The phase to dispatch (``setup`` / ``exploration`` /
+                ``implementation`` / ``closure``).
+            request: The canonical phase mutation request.
+
+        Returns:
+            The :class:`ControlPlaneMutationResult` the core returned (committed /
+            replayed / rejected).
+        """
+        return self._post_project_phase(
+            project_key=project_key,
+            run_id=run_id,
+            phase=phase,
+            action="start",
+            request=request,
+        )
+
+    def resume_phase(
+        self,
+        *,
+        project_key: str,
+        run_id: str,
+        phase: str,
+        request: PhaseMutationRequest,
+    ) -> ControlPlaneMutationResult:
+        """Resume a PAUSED phase over the canonical project-scoped route (AG3-130).
+
+        The operator CLI ``resume`` REST path (FK-45 / FK-91 §91.1a): the core
+        drives the pipeline-engine resume via ``POST /v1/projects/{project_key}/
+        story-runs/{run_id}/phases/{phase}/resume``. The resume trigger travels in
+        ``request.detail['resume_trigger']``; no phase logic runs on the dev side.
+
+        Args:
+            project_key: The owning project key (URL path segment, tenant-scoped).
+            run_id: The story run identifier.
+            phase: The PAUSED phase to resume.
+            request: The canonical phase mutation request carrying the resume
+                trigger in ``detail['resume_trigger']``.
+
+        Returns:
+            The :class:`ControlPlaneMutationResult` the core returned (committed /
+            replayed / rejected).
+        """
+        return self._post_project_phase(
+            project_key=project_key,
+            run_id=run_id,
+            phase=phase,
+            action="resume",
+            request=request,
+        )
+
+    def _post_project_phase(
+        self,
+        *,
+        project_key: str,
+        run_id: str,
+        phase: str,
+        action: str,
+        request: PhaseMutationRequest,
+    ) -> ControlPlaneMutationResult:
+        """POST a project-scoped phase mutation and validate the result (AG3-130).
+
+        No local publish (operator dispatch is a pure core call). EVERY caller-
+        supplied path segment (``project_key`` / ``run_id`` / ``phase``) is
+        URL-encoded with ``safe=""`` so a value with reserved characters (e.g.
+        ``run_id="run/evil"``) cannot break out of its path segment and address a
+        different route (Codex M1; mirrors :meth:`create_story`).
+        """
+        project_segment = urllib.parse.quote(project_key, safe="")
+        run_segment = urllib.parse.quote(run_id, safe="")
+        phase_segment = urllib.parse.quote(phase, safe="")
+        data = self._transport.send(
+            method="POST",
+            path=(
+                f"/v1/projects/{project_segment}/story-runs/{run_segment}"
+                f"/phases/{phase_segment}/{action}"
+            ),
+            payload=request.model_dump(mode="json"),
+        )
+        # The transport surfaces the server's audited correlation id (FK-91 §91.1a
+        # Regel #7) by injecting it onto the decoded body. ``ControlPlaneMutationResult``
+        # forbids extras and carries no correlation field (the ``op_id`` is the
+        # idempotency/audit key), so drop the transport-added key before validating.
+        data.pop("correlation_id", None)
+        return ControlPlaneMutationResult.model_validate(data)
+
     def create_story(
         self,
         inputs: CreateStoryInputs,

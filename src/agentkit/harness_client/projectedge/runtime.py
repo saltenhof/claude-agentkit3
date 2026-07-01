@@ -134,6 +134,18 @@ def _read_bound_skill_bundle_version(project_root: Path) -> str | None:
     return None
 
 
+def read_bound_skill_bundle_version(project_root: Path) -> str | None:
+    """Public accessor for the bound skill-bundle version (AG3-130 handshake).
+
+    The operator CLI (``run-phase`` / ``resume``) is a Dev->Core mutation surface
+    and must carry the ``X-AK3-Skill-Bundle`` version handshake header (FK-91
+    §91.1a Regel 11). It resolves the value from the SAME authoritative
+    prompt-bundle lock as the worker edge, never inventing a version; ``None`` when
+    no readable lock is present (the core then fails the mutation closed).
+    """
+    return _read_bound_skill_bundle_version(project_root)
+
+
 def build_project_edge_client(project_root: Path) -> ProjectEdgeClient:
     """Construct a configured project-edge client from local project config."""
     config = json.loads(
@@ -355,4 +367,5 @@ __all__ = [
     "ProjectEdgeResolver",
     "ResolvedEdgeState",
     "build_project_edge_client",
+    "read_bound_skill_bundle_version",
 ]
