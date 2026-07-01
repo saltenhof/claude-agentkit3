@@ -1,7 +1,7 @@
 story_id: AG3-129
 title: "Hook-Prozess vermittelt Guard-Counter, Worker-Health und Telemetrie ueber Backend-REST statt Direkt-DB"
 type: implementation
-status: ready
+status: in_progress
 phase: setup
 created: "2026-06-29"
 size: L

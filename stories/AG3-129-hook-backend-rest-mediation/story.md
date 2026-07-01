@@ -95,7 +95,14 @@ Re-verifiziert gegen den aktuellen Code (`src/agentkit/backend/`; die Pfade in `
 - Kein Commit ohne expliziten Auftrag. „done" nur mit Beleg: Diff, Test-Namen (inkl. Negativpfade), gruene Pflichtbefehle.
 
 ## 7. Vorbedingungen
-- `depends_on: AG3-124, AG3-125` muessen `completed` sein (Backend-REST-/Endpunkt- bzw. Hook-Adapter-Vorarbeiten). Solange offen: `status: blocked`, nicht starten.
+- `depends_on: []` (autoritativ, siehe `status.yaml`). Die urspruenglichen Deps
+  AG3-124/125 wurden mit der FK-72-§72.8.2-Erdung (Commit 95d5ac1) **superseded**
+  und entfernt; die dort erwarteten Vorarbeiten liegen bereits vor: die kanonischen
+  Surfaces existieren (`control_plane_http/app.py` mit `/v1/telemetry/events:720`;
+  `harness_client/projectedge/client.py` als REST-Client-Muster), und die 7
+  redundanten BC-HTTP-Stubs (u.a. `governance/http`) sind rueckgebaut — **kein**
+  `governance/http`-Mount wiederbeleben; neue Guard-Counter-/Worker-Health-Routen
+  gehen als `control_plane_http`-Routen ueber die zustaendigen BC-Services.
 - Erreichbares zentrales State-Backend (PostgreSQL) fuer Integrationstests; Test-DB auf ephemerem Port (nie 5432), siehe `tests/fixtures/postgres_backend.py`.
 
 ---
