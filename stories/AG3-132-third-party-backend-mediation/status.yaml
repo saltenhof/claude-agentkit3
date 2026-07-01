@@ -13,6 +13,12 @@ size: L
 # Treiber-Instanziierung in den Kern (REST-Vermittlung), waehrend die
 # integration_clients-Adapter duenn bleiben. Git-Mechanik via gh/git bleibt
 # Carve-out (FK-01 §1.1a) und ist explizit OUT of scope.
-depends_on:
-  - AG3-125
+# KONZEPT-KONFLIKT / PO-ENTSCHEIDUNG (Downstream-Grounding nach Commit 95d5ac1):
+# Die geplanten Zielsurfaces verify_system/http + closure/http (§2.1.1/§2.3) sind
+# rueckgebaut und kollidieren mit reconciled FK-72 "Verify = kein HTTP-Owner". Der
+# I2-Zweck (Kern treibt Sonar/Jenkins/ARE) ist erfuellt, sobald die Phase kern-seitig
+# laeuft (AG3-130-Achse) -> keine dedizierte HTTP-Mediation noetig. Dep AG3-125 superseded.
+# OFFEN (PO): harte SUPERSEDE vs. Neuschnitt auf NUR den Installer-Preflight-Carve-out
+# (CP-10d, FK-50 §50.3). Kein Start auf dem alten Schnitt.
+depends_on: []
 unblocks: []

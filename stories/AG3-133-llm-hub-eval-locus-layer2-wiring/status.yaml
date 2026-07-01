@@ -13,7 +13,11 @@ size: L
 # muss produktiv + fehlerfrei (fail-closed-korrekt) mit einem realen HubLlmClient
 # verdrahtet werden. Transport (HubClient = FK-75-Adapter) ist konform; der
 # Ausfuehrungsort ist der Verstoss. C2 (Exploration-Fine-Design) -> AG3-125.
+# NEU-ERDEN (Downstream-Grounding nach Commit 95d5ac1): C5 Layer-2-Wiring bleibt
+# in-process (composition_root FailClosedLlmClient->HubLlmClient) und wird durch
+# reconciled FK-72 ("Verify = in-process, kein HTTP-Owner") bestaetigt; C1/C3-Dev->Hub-
+# Loci in den Kern; etwaige Eval-Anforderungsroute auf control_plane_http (kein
+# rueckgebauter Mount). Dep AG3-125 superseded entfernt; AG3-129 (Sibling) bleibt.
 depends_on:
-  - AG3-125
   - AG3-129
 unblocks: []

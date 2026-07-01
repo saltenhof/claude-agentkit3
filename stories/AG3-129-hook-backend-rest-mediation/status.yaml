@@ -1,13 +1,17 @@
 story_id: AG3-129
 title: "Hook-Prozess vermittelt Guard-Counter, Worker-Health und Telemetrie ueber Backend-REST statt Direkt-DB"
 type: implementation
-status: blocked
+status: ready
 phase: setup
 created: "2026-06-29"
 size: L
-depends_on:
-  - AG3-124
-  - AG3-125
+# NEU-ERDEN (Downstream-Grounding nach Commit 95d5ac1): Praemisse traegt (Direkt-DB-
+# Loci guard_counter/worker_health bestehen), kein rueckgebauter Mount beruehrt.
+# Kanonisch: Guard-Counter-/Worker-Health-Vorgaenge als control-plane-Routen in
+# control_plane_http (Muster story-runs/telemetrie), NICHT als governance/http-Mount;
+# Telemetrie ueber bestehendes /v1/telemetry/events. Deps AG3-124/125 superseded ->
+# entfernt; die benoetigten kanonischen Surfaces existieren bereits.
+depends_on: []
 unblocks:
   - AG3-131
   - AG3-133

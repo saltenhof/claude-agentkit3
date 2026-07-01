@@ -254,13 +254,13 @@ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben (Foundation zuerst)
 | AG3-126 | `story`-BC Read-Port (echte Kapselung statt `state_backend.store`-Re-Export) | I | L | completed | — |
 | AG3-127 | `telemetry`+`project_management` Read-Ports; BFF entkoppeln | I | M | ready | 126 |
 | AG3-128 | Konformanz-Suite: Repository-Vertrags-Invariante erzwingen (FK-07 §7.6) | I | M | blocked | 126,127 |
-| AG3-129 | Hook→Backend: Guard-Counter/Worker-Health/Telemetrie über REST statt Direkt-DB | A | L | blocked | 124,125 |
-| AG3-130 | Operator-CLI `run-phase` über REST statt in-process Runtime | A | M | blocked | 123,124 |
+| AG3-129 | Hook→Backend REST (neu geerdet: control-plane-Routen in `control_plane_http`, kein `governance/http`) | A | L | ready | — |
+| AG3-130 | Operator-CLI `run-phase`/`resume` über REST (neu geerdet: kanonische `story-runs`-Route) | A | M | ready | 123 |
 | AG3-131 | CCAG Requests/Leases + Mode-Lock-Holder zentral (Postgres+REST) | E | L | blocked | 129 |
-| AG3-132 | Drittsystem-Vermittlung Sonar/Jenkins/ARE über Backend | B | L | blocked | 125 |
-| AG3-133 | LLM-Hub-Evals in den Kern (C1/C3) + Layer-2 produktiv anbinden | C | L | blocked | 125,129 |
+| AG3-132 | ⚠ Konzept-Konflikt (reconciled „Verify = kein HTTP-Owner"): Drittsystem-Vermittlung — PO-Entscheidung supersede vs. nur Installer-Preflight | B | L | blocked (PO) | — |
+| AG3-133 | LLM-Hub-Evals in den Kern (C1/C3) + Layer-2 produktiv (neu geerdet: C5 in-process, Eval-Route `control_plane_http`) | C | L | blocked | 129 |
 
-**Sofort startbar (`ready`):** AG3-127. (AG3-120, AG3-121, AG3-122, AG3-123, AG3-126 ✅ completed. AG3-124, AG3-125 ⊘ superseded durch FK-72-§72.8.2-Erdung, Commit 95d5ac1 — die BC-HTTP-Mount-Familie war pauschale Über-Projektion; die Downstream-Stories **AG3-129, AG3-130, AG3-132, AG3-133** sind gegen die rekonziliierte Architektur (kanonische `story-runs`-Routen + Read-Model-Komposition, kein eigener Capability-Mount) **neu zu erden**, bevor sie startbar sind.)
+**Sofort startbar (`ready`):** AG3-127, AG3-129, AG3-130. (AG3-120, AG3-121, AG3-122, AG3-123, AG3-126 ✅ completed. AG3-124, AG3-125 ⊘ superseded (FK-72-§72.8.2-Erdung, Commit 95d5ac1). Downstream gegen die rekonziliierte Architektur neu geerdet: **AG3-129, AG3-130** ready (kanonische `story-runs`-/`control_plane_http`-Surfaces existieren bereits); **AG3-133** blocked auf 129; **AG3-132** ⚠ **PO-Entscheidung offen** — Konzept-Konflikt mit reconciled „Verify = kein HTTP-Owner" (harte supersede vs. Neuschnitt auf Installer-Preflight-Carve-out).)
 **Sequenz-Treiber:** WP-D (123→124/125) ist Fundament für die dev-seitigen
 Umstellungen A/B/C/E; WP-I-Read-Ports (126→127→128) laufen unabhängig parallel;
 H/G/F sind voneinander unabhängig.

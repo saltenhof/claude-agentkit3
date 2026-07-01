@@ -1,11 +1,16 @@
 story_id: AG3-130
 title: "Operator-CLI run-phase/resume ruft die Control-Plane ueber REST statt in-process Runtime"
 type: implementation
-status: blocked
+status: ready
 phase: setup
 created: "2026-06-29"
 size: M
+# NEU-ERDEN (Downstream-Grounding nach Commit 95d5ac1): run-phase erdet auf die
+# bestehende kanonische Route story-runs/{run_id}/phases/{phase}/{start|complete|fail}
+# (control_plane_http, delegiert an ControlPlaneRuntimeService); resume als NEUE Aktion
+# derselben story-runs-Familie in control_plane_http (kein zweiter Executor). Der
+# Optionsanker pipeline_engine/http (rueckgebaut) faellt weg. Dep AG3-124 superseded
+# entfernt; AG3-123 (completed) bleibt.
 depends_on:
   - AG3-123
-  - AG3-124
 unblocks: []
