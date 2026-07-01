@@ -257,10 +257,10 @@ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben (Foundation zuerst)
 | AG3-129 | Hook→Backend REST (neu geerdet: control-plane-Routen in `control_plane_http`, kein `governance/http`) | A | L | ready | — |
 | AG3-130 | Operator-CLI `run-phase`/`resume` über REST (neu geerdet: kanonische `story-runs`-Route) | A | M | ready | 123 |
 | AG3-131 | CCAG Requests/Leases + Mode-Lock-Holder zentral (Postgres+REST) | E | L | blocked | 129 |
-| AG3-132 | ⚠ Konzept-Konflikt (reconciled „Verify = kein HTTP-Owner"): Drittsystem-Vermittlung — PO-Entscheidung supersede vs. nur Installer-Preflight | B | L | blocked (PO) | — |
+| AG3-132 | Backend-Validierung der Drittsystem-Erreichbarkeit (Installer prüft nicht mehr direkt, I2) — neu geschnitten + Codex-reviewed | B | L | ready | — |
 | AG3-133 | LLM-Hub-Evals in den Kern (C1/C3) + Layer-2 produktiv (neu geerdet: C5 in-process, Eval-Route `control_plane_http`) | C | L | blocked | 129 |
 
-**Sofort startbar (`ready`):** AG3-127, AG3-129, AG3-130. (AG3-120, AG3-121, AG3-122, AG3-123, AG3-126 ✅ completed. AG3-124, AG3-125 ⊘ superseded (FK-72-§72.8.2-Erdung, Commit 95d5ac1). Downstream gegen die rekonziliierte Architektur neu geerdet: **AG3-129, AG3-130** ready (kanonische `story-runs`-/`control_plane_http`-Surfaces existieren bereits); **AG3-133** blocked auf 129; **AG3-132** ⚠ **PO-Entscheidung offen** — Konzept-Konflikt mit reconciled „Verify = kein HTTP-Owner" (harte supersede vs. Neuschnitt auf Installer-Preflight-Carve-out).)
+**Sofort startbar (`ready`):** AG3-127, AG3-129, AG3-130. (AG3-120, AG3-121, AG3-122, AG3-123, AG3-126 ✅ completed. AG3-124, AG3-125 ⊘ superseded (FK-72-§72.8.2-Erdung, Commit 95d5ac1). Downstream gegen die rekonziliierte Architektur neu geerdet: **AG3-129, AG3-130** ready (kanonische `story-runs`-/`control_plane_http`-Surfaces existieren bereits); **AG3-133** blocked auf 129; **AG3-132** neu geschnitten (Backend validiert Drittsystem-Erreichbarkeit, Installer prüft nicht mehr direkt) + Codex-reviewed → **ready**.)
 **Sequenz-Treiber:** WP-D (123→124/125) ist Fundament für die dev-seitigen
 Umstellungen A/B/C/E; WP-I-Read-Ports (126→127→128) laufen unabhängig parallel;
 H/G/F sind voneinander unabhängig.

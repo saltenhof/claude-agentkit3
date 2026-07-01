@@ -1,24 +1,21 @@
 story_id: AG3-132
-title: "Drittsystem-Backend-Vermittlung Sonar/Jenkins/ARE (Kern treibt, I2)"
+title: "Backend besitzt die Drittsystem-Erreichbarkeits-Validierung; Installer prueft nicht mehr direkt (I2)"
 type: implementation
-status: blocked
+status: ready
 phase: setup
 created: "2026-06-29"
 size: L
-# WP-B (Abweichungskarte Zentralisierung): Sonar/Jenkins/ARE werden in
-# AK3-verantworteten Verify-/Closure-/Setup-/Installer-Vorgaengen in-process
-# auf der Dev-Seite instanziiert (SonarClient/JenkinsClient/AreClient), nicht
-# vom Kern getrieben -> Verstoss gegen FK-10 §10.1.0 I2. Backend hat heute
-# KEINE REST-Route, die diese Drittsysteme vermittelt. Diese Story zieht die
-# Treiber-Instanziierung in den Kern (REST-Vermittlung), waehrend die
-# integration_clients-Adapter duenn bleiben. Git-Mechanik via gh/git bleibt
-# Carve-out (FK-01 §1.1a) und ist explizit OUT of scope.
-# KONZEPT-KONFLIKT / PO-ENTSCHEIDUNG (Downstream-Grounding nach Commit 95d5ac1):
-# Die geplanten Zielsurfaces verify_system/http + closure/http (§2.1.1/§2.3) sind
-# rueckgebaut und kollidieren mit reconciled FK-72 "Verify = kein HTTP-Owner". Der
-# I2-Zweck (Kern treibt Sonar/Jenkins/ARE) ist erfuellt, sobald die Phase kern-seitig
-# laeuft (AG3-130-Achse) -> keine dedizierte HTTP-Mediation noetig. Dep AG3-125 superseded.
-# OFFEN (PO): harte SUPERSEDE vs. Neuschnitt auf NUR den Installer-Preflight-Carve-out
-# (CP-10d, FK-50 §50.3). Kein Start auf dem alten Schnitt.
+# NEU GESCHNITTEN (nach FK-72-§72.8.2-Erdung, Commit 95d5ac1) + Codex-reviewed
+# (results/ag3-132-recut-review-codex.md: "umsetzbar nach Nachschaerfungen" —
+# eingearbeitet). Alter verify/closure-http-Mediations-Zuschnitt verworfen
+# (rueckgebaut, kollidiert mit reconciled FK-72 "Verify = kein HTTP-Owner").
+# Neu: das Backend validiert Sonar/Jenkins/ARE-Erreichbarkeit kern-seitig (I2);
+# der Installer prueft nicht mehr direkt, konsumiert nur das fail-closed-Verdikt.
+# P1 traegt (FK-10 §10.2.1/§10.2.2: Backend-Erreichbarkeit = Pflicht/CP7 — Sollbild).
+# Bewusste Konzept-Edits (dem PO vor Uebernahme vorzulegen): FK-50 §50.2/§50.3,
+# formal-spec installer (commands/invariants/state-machine), FK-91-Endpunkt,
+# Config-Modell (token_env backend-seitig aufgeloest).
+# Abgrenzung: phasen-seitige Sonar/Jenkins-Hoheit -> AG3-130-Achse; Backend-
+# Mediation des Register-*Records* selbst -> eigene Folge-Story (I1-Angleichung).
 depends_on: []
 unblocks: []
