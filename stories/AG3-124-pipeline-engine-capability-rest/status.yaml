@@ -1,10 +1,15 @@
 story_id: AG3-124
 title: "pipeline_engine/http: 503-Stub zur realen server-seitigen Capability-Route (Phasen-Ausfuehrung via Kern)"
 type: implementation
-status: ready
+status: superseded
 phase: setup
 created: "2026-06-29"
 size: L
+# SUPERSEDED durch Architektur-Review (Commit 95d5ac1, "FK-72 §72.8.2 erden"):
+# pipeline_engine/http war eine pauschale Ueber-Projektion (503-Stub ohne
+# Konsument). Phasen-Lesen = Flow-Read-Model + SSE; Phasen-Mutation = kanonisch
+# story-runs (FK-91 §91.1a). Kein eigener Capability-Endpunkt zu bauen.
+# Downstream AG3-129/130 sind gegen die rekonziliierte Architektur neu zu erden.
 depends_on:
   - AG3-123
 unblocks:

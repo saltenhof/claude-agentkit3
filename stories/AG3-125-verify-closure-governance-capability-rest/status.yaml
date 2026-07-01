@@ -1,10 +1,16 @@
 story_id: AG3-125
 title: "verify_system/closure/governance http: 503-Stubs zu realen server-seitigen Capability-Routen"
 type: implementation
-status: ready
+status: superseded
 phase: setup
 created: "2026-06-29"
 size: L
+# SUPERSEDED durch Architektur-Review (Commit 95d5ac1, "FK-72 §72.8.2 erden"):
+# verify_system/closure/governance http waren pauschale Ueber-Projektionen
+# (503-Stubs ohne Konsument). Verify = in-process Capability-Subflow; Closure-
+# Mutation = kanonisch story-runs; Governance = Gates/Events im komponierten
+# Story-Detail. Kein eigener Capability-Endpunkt zu bauen.
+# Downstream AG3-129/132/133 sind gegen die rekonziliierte Architektur neu zu erden.
 depends_on:
   - AG3-123
 unblocks:
