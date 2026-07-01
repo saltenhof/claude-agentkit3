@@ -1,0 +1,17 @@
+story_id: AG3-134
+title: "Skill-Bundle execute-userstory-core auf REST/BC-reconciled Orchestrierung migrieren (Vor-REST-Dialekt-Rueckstand W1 + resume-Signatur-Korpus W2)"
+type: implementation
+status: ready
+phase: setup
+created: "2026-07-01"
+size: L
+# ENTDECKT bei der AG3-130-Landung (Commit 72a8889), verifiziert gegen den
+# Vor-AG3-130-Stand: das einzige deployte Bundle execute-userstory-core/4.0.0
+# spricht noch den Vor-REST-Dialekt und traegt gegen die aktuelle CLI nicht.
+# KEIN AG3-130-Defekt (Drift bestand vor AG3-130; run-phase verlangte --run/
+# --session/--principal schon auf main; verify-Rejection stammt aus dem BC-Cut).
+# W1 (Bundle) + W2 (resume-Signatur-Korpus) hier gebuendelt.
+# Evidenz: results/ag3-130-review3-codex.md (Fund 2) + eigene Verifikation.
+depends_on:
+  - AG3-130
+unblocks: []

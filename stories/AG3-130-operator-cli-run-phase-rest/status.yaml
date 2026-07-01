@@ -1,7 +1,8 @@
 story_id: AG3-130
 title: "Operator-CLI run-phase/resume ruft die Control-Plane ueber REST statt in-process Runtime"
 type: implementation
-status: ready
+status: completed
+completed_at: "2026-07-01T20:00:00"
 phase: setup
 created: "2026-06-29"
 size: M

@@ -255,12 +255,13 @@ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben (Foundation zuerst)
 | AG3-127 | `telemetry`+`project_management` Read-Ports; BFF entkoppeln | I | M | ready | 126 |
 | AG3-128 | Konformanz-Suite: Repository-Vertrags-Invariante erzwingen (FK-07 §7.6) | I | M | blocked | 126,127 |
 | AG3-129 | Hook→Backend REST (neu geerdet: control-plane-Routen in `control_plane_http`, kein `governance/http`) | A | L | ready | — |
-| AG3-130 | Operator-CLI `run-phase`/`resume` über REST (neu geerdet: kanonische `story-runs`-Route) | A | M | ready | 123 |
+| AG3-130 | Operator-CLI `run-phase`/`resume` über REST (neu geerdet: kanonische `story-runs`-Route) | A | M | completed | 123 |
 | AG3-131 | CCAG Requests/Leases + Mode-Lock-Holder zentral (Postgres+REST) | E | L | blocked | 129 |
 | AG3-132 | Backend-Validierung der Drittsystem-Erreichbarkeit (Installer prüft nicht mehr direkt, I2) — neu geschnitten + Codex-reviewed | B | L | ready | — |
 | AG3-133 | LLM-Hub-Evals in den Kern (C1/C3) + Layer-2 produktiv (neu geerdet: C5 in-process, Eval-Route `control_plane_http`) | C | L | blocked | 129 |
+| AG3-134 | Skill-Bundle `execute-userstory-core` auf REST/BC-reconciled Orchestrierung migrieren (Bundle spricht noch Vor-REST-Dialekt: `run-phase --story`-only, `run-phase verify`, file-State) + resume-Signatur-Korpus angleichen | A | L | ready | 130 |
 
-**Sofort startbar (`ready`):** AG3-127, AG3-129, AG3-130. (AG3-120, AG3-121, AG3-122, AG3-123, AG3-126 ✅ completed. AG3-124, AG3-125 ⊘ superseded (FK-72-§72.8.2-Erdung, Commit 95d5ac1). Downstream gegen die rekonziliierte Architektur neu geerdet: **AG3-129, AG3-130** ready (kanonische `story-runs`-/`control_plane_http`-Surfaces existieren bereits); **AG3-133** blocked auf 129; **AG3-132** neu geschnitten (Backend validiert Drittsystem-Erreichbarkeit, Installer prüft nicht mehr direkt) + Codex-reviewed → **ready**.)
+**Sofort startbar (`ready`):** AG3-127, AG3-129, AG3-132, AG3-134. (AG3-120, AG3-121, AG3-122, AG3-123, AG3-126, **AG3-130** ✅ completed. AG3-124, AG3-125 ⊘ superseded (FK-72-§72.8.2-Erdung, Commit 95d5ac1). Downstream gegen die rekonziliierte Architektur neu geerdet: **AG3-129** ready; **AG3-133** blocked auf 129; **AG3-132** neu geschnitten + Codex-reviewed → ready.) **AG3-134** (neu) erfasst den bei der AG3-130-Landung verifizierten, vorbestehenden Bundle-/Spec-Drift gegen den REST-Kontrakt (W1+W2); kein AG3-130-Defekt, eigener Scope.
 **Sequenz-Treiber:** WP-D (123→124/125) ist Fundament für die dev-seitigen
 Umstellungen A/B/C/E; WP-I-Read-Ports (126→127→128) laufen unabhängig parallel;
 H/G/F sind voneinander unabhängig.
