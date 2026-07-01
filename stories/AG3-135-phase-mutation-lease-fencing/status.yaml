@@ -1,0 +1,18 @@
+story_id: AG3-135
+title: "Phasen-Mutationen gegen Lease-Ablauf absichern (Fencing/Dispatch-Idempotenz statt reiner 5-Min-TTL-Uebernahme)"
+type: implementation
+status: ready
+phase: setup
+created: "2026-07-01"
+size: M
+# ENTDECKT in der AG3-130-Codex-Review-Runde 3 (results/ag3-130-review3-codex.md,
+# Fund 1), vom Orchestrator gegen den Code verifiziert: der geleaste, owner-
+# scoped Claim (AG3-054) uebernimmt einen >5-Min-alten Claim per CAS als
+# "abgestuerzt". Bei einem langsamen (nicht abgestuerzten) Owner fuehrt das zu
+# Doppel-Dispatch bzw. zu "Engine hat fortgeschritten, aber kein dauerhafter
+# Control-Plane-Op-Record". Querschnittlich: betrifft start_phase UND
+# resume_phase. KEIN AG3-130-Defekt (Mechanismus ist aelter, AG3-130 spiegelt
+# nur start). Anker: control_plane/runtime.py:83 (_CLAIM_LEASE_TTL=5min),
+# :68-69 (CAS-Uebernahme), claim_operation/_acquire_claim.
+depends_on: []
+unblocks: []
