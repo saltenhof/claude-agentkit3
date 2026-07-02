@@ -1,0 +1,16 @@
+story_id: AG3-142
+title: "Ownership-Fencing der Regime-Pfade: Record-Schreiben im Setup, ownership_epoch-Fence in start/complete/fail/closure/Executor, Ablösung von _run_admission_evidence, Ex-Owner-Fehlerbild"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-02"
+size: L
+# Herkunft: GAP-ST-06 (gap-analyse-session-ownership.md v4, Codex-APPROVE).
+# Macht den RunOwnershipRecord aus AG3-137 zur einzigen Admission- und
+# Fencing-Wahrheit aller Regime-Mutationspfade (start/complete/fail/
+# closure/resume + serverseitige Executor) und loest die committed-op-
+# Heuristik _run_admission_evidence ab. Neues Ex-Owner-Fehlerbild
+# (409/403 + ownership_transferred-Payload, FK-91 Regel 18). Das
+# Disown-VERHALTEN (Owner-Notification/Tombstone/Reconcile) liegt in AG3-149.
+depends_on: ["AG3-137"]
+unblocks: ["AG3-144", "AG3-145", "AG3-148"]

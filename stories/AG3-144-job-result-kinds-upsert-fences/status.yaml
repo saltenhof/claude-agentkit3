@@ -1,0 +1,17 @@
+story_id: AG3-144
+title: "Job-Muster + Ergebnisarten + Upsert-Fences: 202-Job-Annahme, Ergebnisart-Registry, stale_observation-Store, materialisierte Fence-Sicht, gefencte artifact-/QA-/closure-Upserts"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-02"
+size: L
+# Herkunft: GAP-ST-09 (gap-analyse-session-ownership.md v4, Codex-APPROVE).
+# Fuehrt das 202-Job-Muster (FK-91 Regel 14) und die drei Ergebnisarten
+# fuer Job-Abschluesse (Regel 15: append-only / Projektions-Upsert /
+# steuernd) als Registry ein; baut den immutablen stale_observation-Store,
+# die materialisierte Run-Status-/Fence-Sicht und fenct die heute blinden
+# ON-CONFLICT-Upserts (artifact_envelopes, qa_*, decision_records) sowie
+# die Verify-/Closure-Projektions-Writes. Praedikate kommen aus AG3-142
+# (Ownership) und AG3-143 (Digest — Kante ST-12→ST-09, Review-Runde 1 E2).
+depends_on: ["AG3-141", "AG3-142", "AG3-143"]
+unblocks: ["AG3-153"]

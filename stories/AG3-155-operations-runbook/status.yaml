@@ -1,0 +1,16 @@
+story_id: AG3-155
+title: "Betriebs-Runbook (FK-04): Takeover-Ablauf, admin_abort, Startup-Rekonsiliierung, Migrationsreihenfolge ST-01→ST-02→ST-03"
+type: concept
+status: blocked
+phase: setup
+created: "2026-07-02"
+size: S
+# Herkunft: GAP-ST-13 (gap-analyse-session-ownership.md v4, Codex-APPROVE).
+# Doku-Story (IMPL-024): Betriebs-Runbooks in FK-04 §4.5 fuer Takeover
+# (request -> challenge -> human confirm -> reconcile), admin_abort,
+# Startup-Rekonsiliierung und die verbindliche Migrationsreihenfolge
+# (kein Deployment-Zustand ohne Verwaisungs-Handling). KEINE Code-
+# Aenderungen; erst nach AG3-139 (TTL-Entfall), AG3-149 (Disown),
+# AG3-151 (Reconcile-Zustaende/Quarantaene) + AG3-154 (CLI-Bedienpfade) final.
+depends_on: ["AG3-139", "AG3-149", "AG3-151", "AG3-154"]
+unblocks: []

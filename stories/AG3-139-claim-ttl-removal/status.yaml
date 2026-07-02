@@ -1,0 +1,17 @@
+story_id: AG3-139
+title: "TTL-Entfall: Rückbau von Claim-Lease-TTL und CAS-Auto-Takeover"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-02"
+size: S
+# Herkunft: GAP-ST-03 (gap-analyse-session-ownership.md v4, Codex-APPROVE).
+# RUECKBAU-Story: entfernt _CLAIM_LEASE_TTL, _claim_is_expired und den
+# takeover_operation-Pfad (Auto-Uebernahme abgelaufener Claims) — genau das
+# Modell, das Regel 2 des Strangs verbietet (Ownership/Claims laufen NIE
+# automatisch ab).
+# KRITISCHE KANTE (IMPL-006): erst NACH AG3-138 — die TTL ist bis dahin das
+# einzige Verwaisungs-Handling; ohne Startup-Rekonsiliierung gaebe es einen
+# Deployment-Zustand ohne jedes Verwaisungs-Handling.
+depends_on: ["AG3-138"]
+unblocks: ["AG3-155"]

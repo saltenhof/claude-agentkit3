@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: frontend-contracts
 spec_kind: entity-set
-version: 2
+version: 3
 prose_refs:
   - concept/technical-design/72_frontend_architektur.md
   - concept/technical-design/91_api_event_katalog.md
@@ -22,7 +22,7 @@ weder Pflichtattribute weglassen noch deren Semantik aendern.
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.frontend-contracts.entities
-schema_version: 2
+schema_version: 3
 kind: entity-set
 context: frontend-contracts
 
@@ -1000,12 +1000,18 @@ entities:
       - name: open_operation_ids
         kind: list<string>
         required: true
-      - name: last_commit_sha
-        kind: string
-        required: false
-      - name: worktree_dirty
-        kind: boolean
+      - name: repo_push_status
+        kind: list<object>
         required: true
+        notes:
+          - >
+            Je teilnehmendem Repo: repo_id, last_pushed_head_sha,
+            last_push_at, push_lag_hint — der letzte gemeldete
+            gepushte Head und seine Frische (FK-72 §72.14.7(1),
+            FK-10 §10.2.4b, Branch-Ref-Meldung FK-91 §91.1b).
+            Einen Dirty-/Lokalstand der Worktrees kennt das Backend
+            nicht (FK-10 §10.2.4a); ein Dirty-Feld existiert in
+            diesem Read-Model bewusst nicht.
       - name: takeover_history_count
         kind: integer
         required: true

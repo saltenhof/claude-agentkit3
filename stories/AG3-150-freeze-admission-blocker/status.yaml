@@ -1,0 +1,15 @@
+story_id: AG3-150
+title: "Freeze-Zustaende als Admission-Blocker: freeze_epoch/freeze_reason auf der conflict_freeze-Familie, Challenge-Invalidierung bei Freeze-Eintritt, Split-Fence -> Admin-Freeze"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-02"
+size: M
+# Herkunft: GAP-ST-07c (gap-analyse-session-ownership.md v4, Codex-APPROVE).
+# Generalisiert conflict_freeze zur story-scoped Freeze-Familie mit
+# freeze_epoch/freeze_reason als generischem Admission-Blocker; jeder
+# Freeze-Eintritt invalidiert offene Takeover-Challenges; die exklusive
+# Split-Fence wird auf einen Admin-Freeze mit kurzen gefencten
+# Sub-Commits umgestellt (FK-54 §54.8.2a).
+depends_on: ["AG3-149"]
+unblocks: ["AG3-151"]

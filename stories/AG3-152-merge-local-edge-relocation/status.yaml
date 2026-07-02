@@ -1,0 +1,16 @@
+story_id: AG3-152
+title: "merge_local-Umzug (Closure): FK-29-Merge-Block als Edge-Auftrag mit unverändertem Vertrag (locked_sha-CAS, pre_merge_sha-Rollback, Multi-Repo), Closure-Resume-Cross-Fall mit Reprovisionierung"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-02"
+size: M
+# Herkunft: GAP-ST-14b (gap-analyse-session-ownership.md v4, Codex-APPROVE;
+# K1-Verankerung 58c190b7). Reiner Ausfuehrungsort-Umzug: der gesamte
+# Pre-Merge-Scan-und-Merge-Block wandert vom Backend-Subprocess zum
+# Project Edge (Auftragsart merge_local, FK-29 §29.1a — Vertrag
+# UNVERAENDERT). Traegerschicht: AG3-145 (Command-Queue); Vorbedingung:
+# AG3-147 (Remote-Push + serverseitiger Ref-Read vor produktivem
+# merge_local).
+depends_on: ["AG3-145", "AG3-147"]
+unblocks: []

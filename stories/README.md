@@ -338,10 +338,63 @@ formal.operating-modes (Confirm-Signatur), FK-15 §15.5.4/FK-55 §55.9
 (App-Identität + Edge-Push-Gate), FK-36/FK-72 (Konsistenz-Anpassungen).
 Decision-Record:
 `concept/_meta/decisions/2026-07-02-k1-worktree-topologie.md`.
-**Nächster Schritt: GAP-Update** — IMPL-008/009 ersetzt, ST-08 neu
-herzuleiten (Transfer-Record statt Snapshot-Writer, Reconcile-SHA-Semantik);
-neue Story-Kandidaten: Worktree-/Git-Operationen zum Edge bzw. Code-Backend,
-Sync-Punkte + Push-Gate + Ref-Schutz, Edge-Command-Queue.
+
+**Stand 2026-07-02, Abschluss (c)–(e):** Die GAP-Analyse (Schritt c;
+`_temp/gap-analyse-session-ownership.md` v4, Nenner SOLL-001..194 +
+IMPL-001..025, Traceability maschinell verifiziert) wurde reviewt
+(Schritt d; Codex, 3 Runden bis APPROVE) und in **19 Stories
+AG3-137..AG3-155 geschnitten** (Schritt e; Tabelle §6.8). Der Schnitt
+durchlief eine doppelte adversariale Review (Codex + ChatGPT, beide
+initial REJECT) mit Remediation: 5 zusätzliche Abhängigkeits-Kanten,
+minimaler `takeover_reconcile_required`-Blocker bereits im
+Confirm-Vollzug (AG3-148), zwei kleine Formal-Nachzüge
+(frontend-contracts v3: `repo_push_status` statt K1-widrigem
+`worktree_dirty`/`last_commit_sha`; state-storage v5:
+`takeover-transfer-record` je Repo) — danach beide APPROVE. Jede Story
+trägt eine maschinenlesbare `**Deckt ab:**`-Traceability-Zeile; ein
+Prüfskript verifiziert Matrix-Deckung + Graph-Symmetrie.
+**Nächster Schritt: (f) Umsetzung via Backlog-Pull (§6.8).**
+
+**Offener Klärungspunkt an den PO (WARNING, aus der Schnitt-Review):**
+`verify_system/evidence/request_resolver.py:154-176` führt
+Test-Kommandos backend-seitig per `subprocess(shell=True)` im
+Spawn-Worktree aus — dieselbe Co-Location-Annahme, die K1 für
+Git-/Worktree-Operationen verbietet, liegt aber außerhalb des
+Git-Ops-Nenners der GAP-Analyse (ältere Verify-System-Konzepte legen
+den Pfad noch backend-seitig an). Braucht Entscheidung: eigener
+Umzugs-Story-Kandidat (Edge führt Test-Evidenz aus, analog ST-14a)
+oder explizit formalisierte Ausnahme.
+
+### 6.8 Session-Ownership-Umsetzungs-Backlog (AG3-137…AG3-155)
+
+Geschnitten aus der GAP-Analyse §6.7 (Schritt e, 2026-07-02); je Story
+Briefing mit SOLL-/IMPL-Rückverweisen, Konzept-Ankern und
+Querschnitts-Auflagen (Postgres-only K5, Blutgruppen, Bundle-Assets).
+Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
+
+| ID | Titel (Kurzform) | Größe | Status | depends_on |
+|----|------------------|-------|--------|------------|
+| AG3-137 | Ownership-Schema-Fundament (Records/Claims/Transfer, Backfill) | L | **ready** | — |
+| AG3-138 | Instanz-Identität + Startup-Rekonsiliierung + admin_abort | L | blocked | 137 |
+| AG3-139 | TTL-Entfall (Rückbau, NUR nach 138) | S | blocked | 138 |
+| AG3-140 | Einheitlicher Idempotenz-Vertrag (BC-weit, Client-op_id) | L | blocked | 137 |
+| AG3-141 | Objekt-Serialisierung (Story-Claims, Lock-Sets, 409/bounded-wait) | L | blocked | 137, 138 |
+| AG3-142 | Ownership-Fencing der Regime-Pfade (`ownership_epoch`) | L | blocked | 137 |
+| AG3-143 | Execution-Contract-Digest + Spec-Freeze | M | blocked | 137 |
+| AG3-144 | Job-Muster + Ergebnisarten + Upsert-Fences | L | blocked | 141, 142, 143 |
+| AG3-145 | Edge-Command-Queue + Worktree-Ops-Umzug | L | blocked | 137, 141, 142, 146 |
+| AG3-146 | Provider-Adapter-Schnitt (ls-remote, gh nur im Adapter) | M | **ready** | — |
+| AG3-147 | Sync-Punkte + Push-Gate + Ref-Schutz (pushed-only) | L | blocked | 145, 146 |
+| AG3-148 | Transfer-Kern (Challenge-Confirm-CAS, Approval-Queue) | L | blocked | 141, 142, 147 |
+| AG3-149 | Disown-Baustein + Ex-Owner + Ping-Pong-Schranke | M | blocked | 148 |
+| AG3-150 | Freeze-Admission-Blocker (`freeze_epoch`) | M | blocked | 149 |
+| AG3-151 | Takeover-Reconcile + Quarantäne + Edge-Zustände | L | blocked | 145, 148, 149, 150 |
+| AG3-152 | merge_local-Umzug (Closure via Edge) | M | blocked | 145, 147 |
+| AG3-153 | Frontend Takeover (globaler governance-Stream, Overlay, Cockpit) | L | blocked | 144, 148, 151 |
+| AG3-154 | CLI/Admin-Kommandos + Edge-Tool (inkl. recover-story) | M | blocked | 138, 145, 148 |
+| AG3-155 | Betriebs-Runbook FK-04 (concept) | S | blocked | 139, 149, 151, 154 |
+
+**Sofort startbar (`ready`): AG3-137, AG3-146.**
 
 ## 7. Konzept- und Guardrail-Bezug
 

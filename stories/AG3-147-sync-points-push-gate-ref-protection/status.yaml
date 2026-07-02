@@ -1,0 +1,17 @@
+story_id: AG3-147
+title: "Sync-Punkte + Push-Gate + Ref-Schutz: pushed-only-Durchsetzung mit harten fail-closed Push-Barrieren, serverseitiger ls-remote-Verifikation, opportunistischen Pushes, Edge-Push-Gate (online-pflichtig), Dienst-Identität und story/*-Ref-Schutz"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-02"
+size: L
+# Herkunft: GAP-ST-15 (gap-analyse-session-ownership.md v4, Codex-APPROVE;
+# K1-Verankerung 58c190b7, PO-Entscheidung II pushed-only). Setzt die
+# Pushed-only-Regel durch: harte Push-Barrieren an Phasen-/QA-/Yield-/
+# Closure-Grenzen (Edge-Erhebung + serverseitiger Ref-Read), Push-Frische,
+# Edge-Push-Gate ohne Bundle-Fallback, Dienst-Identitaet, Ref-Schutz als
+# Provider-Capability mit Degradations-WARNING. sync_push laeuft ueber die
+# Command-Queue (AG3-145); Ref-Schutz-Administration ueber den
+# Provider-Adapter (AG3-146).
+depends_on: ["AG3-145", "AG3-146"]
+unblocks: ["AG3-148", "AG3-152"]

@@ -1,0 +1,15 @@
+story_id: AG3-154
+title: "CLI/Admin-Kommandos + Edge-Tool: takeover-request/-confirm (human_cli, direkter Challenge-Dialog), echtes recover-story (acquired_via=recovery, neuer Run auf bestehendem Worktree), Agent-Kommandos im deployten projectedge.py"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-02"
+size: M
+# Herkunft: GAP-ST-11 (gap-analyse-session-ownership.md v4, Codex-APPROVE).
+# Operator-/Agent-Zugangswege: CLI-Adapter takeover-request/-confirm +
+# echtes recover-story (existiert heute NICHT; FK-20 §20.7.3/4, FK-56
+# §56.13g); deploytes Zielprojekt-Asset projectedge.py erhaelt die
+# Takeover-/Abort-/Recover-Kommandos fuer Agents (Bundle-Asset-Pflicht).
+# Human-CLI-admin-abort + Endpoint = AG3-138; Transfer-Kern = AG3-148.
+depends_on: ["AG3-138", "AG3-145", "AG3-148"]
+unblocks: ["AG3-155"]

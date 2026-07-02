@@ -1,0 +1,16 @@
+story_id: AG3-143
+title: "Execution-Contract-Digest + Spec-Freeze: Digest beim Setup, Wirkungsklassen, Freeze tragender Spec-Felder, Digest als Fence-Prädikat"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-02"
+size: M
+# Herkunft: GAP-ST-12 (gap-analyse-session-ownership.md v4, Codex-APPROVE).
+# Bildet beim Setup den execution_contract_digest (FK-44 §44.3a; run-prompt-
+# pin ist Komponente), setzt die drei Wirkungsklassen fuer Contract-
+# Aenderungen durch (nie stiller Mid-run-Drift), friert fachlich tragende
+# Story-Spec-Felder waehrend eines aktiven Execution-Regimes ein
+# (FK-59 §59.9a) und DEFINIERT das Digest-Fence-Praedikat. Die VERWENDUNG
+# des Praedikats in den Job-/Upsert-Fences liegt in AG3-144 (Kante ST-12→ST-09).
+depends_on: ["AG3-137"]
+unblocks: ["AG3-144"]

@@ -1,0 +1,15 @@
+story_id: AG3-137
+title: "Ownership-Schema-Fundament: run_ownership_records, object_mutation_claims, takeover_transfer_records, Instanz-Spalten + Backfill (additiv, Postgres-only)"
+type: implementation
+status: ready
+phase: setup
+created: "2026-07-02"
+size: L
+# Herkunft: GAP-ST-01 (gap-analyse-session-ownership.md v4, Codex-APPROVE).
+# Fundament-Story des Session-Ownership-Strangs (stories/README.md §6.7,
+# Schritt e): legt das komplette Persistenz-Fundament (Tabellen, Enums,
+# Records, Repositories, Backfill laufender Runs) REIN ADDITIV an.
+# KEINE Verhaltensaenderung der Regime-Pfade (Fencing = AG3-142).
+# Postgres-only (Querschnitts-Auflage K5), kein SQLite-Spiegel.
+depends_on: []
+unblocks: ["AG3-138", "AG3-140", "AG3-141", "AG3-142", "AG3-143", "AG3-145"]

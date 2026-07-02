@@ -1,0 +1,17 @@
+story_id: AG3-138
+title: "Instanz-Identität + Startup-Rekonsiliierung + admin_abort_inflight_operation"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-02"
+size: L
+# Herkunft: GAP-ST-02 (gap-analyse-session-ownership.md v4, Codex-APPROVE).
+# Baut Instanz-Identität (backend_instance_id + Boot-Inkarnation), den
+# Pre-Serve-Startup-Hook mit Verwaisten-Finalisierung + Engine-Teil-Write-
+# Repair, das operation_epoch-CAS-Finalize und den admin-abort-Endpoint + CLI.
+# KRITISCH: Diese Story ist die zwingende Vorbedingung fuer AG3-139
+# (TTL-Entfall) — die TTL ist heute das EINZIGE Verwaisungs-Handling
+# (IMPL-006): zwischen beiden darf kein Deployment-Zustand ohne
+# Verwaisungs-Handling existieren.
+depends_on: ["AG3-137"]
+unblocks: ["AG3-139", "AG3-141", "AG3-154"]

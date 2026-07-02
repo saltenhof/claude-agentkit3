@@ -1,0 +1,16 @@
+story_id: AG3-145
+title: "Edge-Command-Queue + Worktree-Ops-Umzug: Auftrags-Endpoints (Ack/Result), provision/teardown/preflight_probe, Marker-Materialisierung dev-lokal, workspace_locator als reiner State-Anker"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-02"
+size: L
+# Herkunft: GAP-ST-14a (gap-analyse-session-ownership.md v4, Codex-APPROVE;
+# K1-Verankerung 58c190b7). Grosses Fundament der K1-Familie: baut die
+# Edge-Command-Queue (FK-91 §91.1b) und zieht die physischen Worktree-
+# Operationen (Setup-Provisionierung, Preflight 7/8, Teardown, Marker)
+# vom Backend zum Project Edge um. Interner Schnitt in Teilschritten
+# (Plan §3). sync_push -> AG3-147, merge_local -> AG3-152, Reconcile-
+# Ausfuehrung -> AG3-151, Edge-Tool Takeover/Abort/Recover -> AG3-154.
+depends_on: ["AG3-137", "AG3-141", "AG3-142", "AG3-146"]
+unblocks: ["AG3-147", "AG3-151", "AG3-152", "AG3-154"]

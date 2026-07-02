@@ -1,0 +1,15 @@
+story_id: AG3-148
+title: "Transfer-Kern: takeover-request/-confirm (Challenge-Confirm-CAS), persistente Approval-Queue, pending_human_approval, atomarer Vollzug mit takeover_base_sha"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-02"
+size: L
+# Herkunft: GAP-ST-07a (gap-analyse-session-ownership.md v4, Codex-APPROVE).
+# Kern des Ownership-Transfers: Challenge-Confirm-Protokoll, Approval-Queue
+# (persistent/verfallbar/benutzeruebergreifend), pending_human_approval,
+# atomarer Vollzug (ownership_epoch+1 + takeover_base_sha je Repo im
+# takeover-transfer-record — KEIN Snapshot). Ping-Pong/Disown = AG3-149,
+# Freeze-Invalidierung = AG3-150, Reconcile = AG3-151, UI = AG3-153, CLI = AG3-154.
+depends_on: ["AG3-141", "AG3-142", "AG3-147"]
+unblocks: ["AG3-149", "AG3-151", "AG3-153", "AG3-154"]

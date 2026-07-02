@@ -1,0 +1,16 @@
+story_id: AG3-151
+title: "Takeover-Reconcile + Quarantaene + Edge-Zustaende: takeover-reconcile-worktree mit base_sha-Abgleich, atomare Quarantaene + Reprovisionierung, vier Guard-Zustaende (K1-Semantik)"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-02"
+size: L
+# Herkunft: GAP-ST-08 (gap-analyse-session-ownership.md v4, Codex-APPROVE;
+# per Commit 58c190b7 neu hergeleitet: SHA-Semantik statt Datei-Snapshot).
+# Reconcile-Wire-Contract auf base_sha-Abgleich gegen den
+# takeover-transfer-record; Edge-seitige Quarantaene (atomarer Move/Copy,
+# NIE git stash) + Reprovisionierung aus takeover_base_sha;
+# Worktree-Identitaet via Marker+Pfad; vier Guard-Zustaende via
+# Bundle-Sync + Hook-Guards; KEIN Salvage-Pfad (FK-31 §31.1.3c).
+depends_on: ["AG3-145", "AG3-148", "AG3-149", "AG3-150"]
+unblocks: ["AG3-153", "AG3-155"]

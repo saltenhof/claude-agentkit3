@@ -1,0 +1,16 @@
+story_id: AG3-146
+title: "Provider-Adapter-Schnitt: schmale Code-Backend-Adapter-Schnittstelle (Capability-Set), git-Protokoll-Präferenz (ls-remote), gh nur im GitHub-Adapter, Azure-DevOps-Tauglichkeit als Abnahmekriterium"
+type: implementation
+status: ready
+phase: setup
+created: "2026-07-02"
+size: M
+# Herkunft: GAP-ST-16 (gap-analyse-session-ownership.md v4, Codex-APPROVE;
+# PO-Direktive III Provider-Neutralitaet, 58c190b7). Umbau der bestehenden
+# Git-/GitHub-Zugriffsschicht: Provider-Funktionen nur ueber eine schmale,
+# austauschbare Adapter-Schnittstelle; backend-seitige Ref-Reads via
+# git ls-remote; gh-CLI ausschliesslich im GitHub-Adapter. depends_on leer
+# (kein Ownership-Schema noetig) -> ready. Ref-Schutz-DURCHSETZUNG und
+# Dienst-Identitaet liegen in AG3-147.
+depends_on: []
+unblocks: ["AG3-145", "AG3-147"]

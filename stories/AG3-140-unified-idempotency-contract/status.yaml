@@ -1,0 +1,18 @@
+story_id: AG3-140
+title: "Einheitlicher Idempotenz-Vertrag (BC-weit): Client-op_id-Pflicht + In-Flight-Schutz + Body-Hash überall"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-02"
+size: L
+# Herkunft: GAP-ST-04 (gap-analyse-session-ownership.md v4, Codex-APPROVE;
+# Review-Runde 1 E1: Scope auf ALLE mutierenden BC-Routen erweitert —
+# task_management-POSTs haben heute GAR KEIN op_id).
+# Setzt FK-91 §91.1a Regel 5 (EIN Idempotenz-Vertrag) durch: serverseitiges
+# op_id-Minten raus (~11 default_factory-Stellen inkl. control_plane/models.py),
+# idempotency_keys-Pfad bekommt In-Flight-Schutz bzw. wird auf den
+# inflight-operation-record (AG3-137) konsolidiert; Guard-Counter-Pfad
+# vollstaendig unter den Vertrag. Pflicht-Inventar aller mutierenden Routen +
+# Bundle-Asset projectedge.py (client-seitiges Minten ist vertragskonform).
+depends_on: ["AG3-137"]
+unblocks: []
