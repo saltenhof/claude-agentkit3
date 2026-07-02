@@ -1,7 +1,8 @@
 story_id: AG3-136
 title: "Projekt-Katalog-Read-Surface erzwingen (load_projects off-port) + decommission-Reroute"
 type: implementation
-status: in_progress
+status: completed
+completed_at: "2026-07-02T00:00:00"
 phase: setup
 created: "2026-07-02"
 size: S
