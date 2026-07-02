@@ -196,9 +196,14 @@ nicht als operative Wahrheitsquelle.
 
 ## 71.3 Lock-Mechanismus fuer QA-Artefaktschutz (Referenz)
 
-Der vollstaendige Lock-Mechanismus — Lock-Record-Schema, Lebenszyklus,
-Stale-Erkennung, CCAG-Regel, Scoping (nur Sub-Agents gesperrt) — ist
-Owner des BC 4 (governance-and-guards).
+Der vollstaendige Lock-Mechanismus — Lock-Record-Schema, Lebenszyklus
+mit expliziten Beendigungspfaden (Closure, Exit, Reset, Split,
+Ownership-Transfer), CCAG-Regel, Scoping (nur Sub-Agents gesperrt) —
+ist Owner des BC 4 (governance-and-guards). Locks — ausdruecklich auch
+der qa_artifact_write-Lock — enden nie automatisch aufgrund
+clientseitiger Stille (kein Lease-TTL, kein Heartbeat-Entzug, keine
+PID-Autofreigabe); eine Stale-Anzeige ist als Information zulaessig,
+loest aber niemals eine Freigabe aus.
 
 Siehe **FK-31** — Hook-Enforcement, Guard-Aktivierung und
 QA-Artefakt-Lock-Record.

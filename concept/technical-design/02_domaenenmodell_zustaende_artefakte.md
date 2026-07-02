@@ -460,14 +460,14 @@ einer Story.
 
 > Artefaktklassen (Worker / QA / Pipeline / Telemetrie / Governance /
 > Entwurf / Handover / Adversarial-Sandbox) und ihre Ownership-Regeln
-> sind in **FK-71 §67.1** normiert. Die Producer-Registry liegt in
-> **FK-71 §67.2**.
+> sind in **FK-71 §71.1** normiert. Die Producer-Registry liegt in
+> **FK-71 §71.2**.
 
 ## 2.5 Artefakt-Envelope-Schema
 
 > Artefakt-Envelope (Pflichtfelder, LLM-Status-Mapping
 > PASS/PASS_WITH_CONCERNS/FAIL → PASS/WARN/FAIL, Producer-Registry)
-> ist in **FK-71 §67.2** normiert.
+> ist in **FK-71 §71.2** normiert.
 
 ## 2.6 Fachliche Invarianten (technisch durchgesetzt)
 
@@ -490,14 +490,15 @@ einer Story.
 ## 2.7 Lock-Mechanismus für QA-Artefaktschutz
 
 > Lock-Record-Mechanismus (Prinzip, qa_artifact_write_lock-Record,
-> Lebenszyklus, PID-/TTL-basierte Stale-Erkennung, Sub-Agent-Scoping,
-> CCAG-Regel) ist in **FK-71 §67.3** normiert.
+> Lebenszyklus mit expliziten Beendigungspfaden — Closure, Exit, Reset,
+> Split, Ownership-Transfer; keine automatische Stale-Freigabe —,
+> Sub-Agent-Scoping, CCAG-Regel) ist in **FK-71 §71.3** normiert.
 
 ## 2.9 Typisierte Stage-Registry
 
 > Typisierte Stage-Registry (StageDefinition-Datamodell mit
 > id/layer/kind/applies_to/blocking/trust_class/producer und
-> Standard-Stages) ist in **FK-71 §67.4** normiert.
+> Standard-Stages) ist in **FK-71 §71.4** normiert.
 
 ## 2.10 Abgegrenzte Nicht-Bestandteile (Designentscheidungen)
 

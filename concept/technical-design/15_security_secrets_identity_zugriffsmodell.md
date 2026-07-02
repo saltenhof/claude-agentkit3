@@ -318,8 +318,11 @@ Zentrale Lock-Records können vom Agent nicht manipuliert werden, weil:
 1. Lock-Records liegen im State-Backend (geschützter Zustandsraum)
 2. Nur Pipeline-Skripte (Zone 2) schreiben Lock-Records
 3. Der CCAG-/Guard-Pfad blockiert unzulässige Sub-Agent-Aktionen
-4. PID + TTL als Stale-Detection (Kap. 02.7) — kein manuelles
-   Löschen nötig
+4. Locks enden nie automatisch (kein PID-/TTL-Mechanismus), sondern
+   nur über offizielle Pfade — Closure, Exit, Reset, Split,
+   Ownership-Transfer (Kap. 02.7); explizites, auditiertes Handeln
+   ist der gewollte Pfad, einen freien Löschpfad für Agents gibt
+   es nicht
 
 ## 15.8 Netzwerk-Sicherheit
 

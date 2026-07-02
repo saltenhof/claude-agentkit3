@@ -5,10 +5,11 @@ status: active
 doc_kind: spec
 context: operating-modes
 spec_kind: entity-set
-version: 1
+version: 2
 prose_refs:
   - concept/technical-design/56_ai_augmented_mode_and_story_execution_separation.md
   - concept/technical-design/55_principal_capability_model_story_scope_enforcement.md
+  - concept/technical-design/17_fachliches_datenmodell_ownership.md
 ---
 
 # Operating Mode Entities
@@ -16,7 +17,7 @@ prose_refs:
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.operating-modes.entities
-schema_version: 1
+schema_version: 2
 kind: entity-set
 context: operating-modes
 entities:
@@ -29,6 +30,14 @@ entities:
       - principal_type
       - worktree_roots
       - binding_version
+  - id: operating-modes.entity.run-ownership-record
+    identity: project_key + story_id + run_id
+    attributes:
+      - owner_session_id
+      - ownership_epoch
+      - status
+      - acquired_via
+      - acquired_at
   - id: operating-modes.entity.local-edge-bundle
     identity: project_key + export_version
     attributes:

@@ -105,6 +105,9 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
 | `/v1/projects/{project_key}/story-runs/{run_id}/closure/complete` | `POST` | Offiziellen Closure-Abschluss anfordern |
 | `/v1/project-edge/sync` | `POST` | Lokalen Edge-Bundle-Stand fuer einen Projekt-Client bounded neu abgleichen |
 | `/v1/project-edge/operations/{op_id}` | `GET` | Unklare Remote-Lage eines mutierenden Requests ueber `op_id` reconciliieren |
+| `/v1/project-edge/story-runs/{run_id}/ownership/takeover-request` | `POST` | Expliziten Ownership-Transfer (Takeover) fuer einen aktiven Story-Run anfragen (formal: `operating-modes.command.request-run-ownership-takeover`). Antwort ist nie der Vollzug, sondern eine von zwei Varianten: menschlich initiierte Requests (`human_cli`/UI via BFF) erhalten einen versionierten **Challenge** (`offered`: Eigentumslage inkl. `owner_session_id`, `ownership_epoch`, `binding_version`, Phasenstand, Anzeigedaten aus dem Owner-BC); agenteninitiierte Requests erhalten deterministisch **`pending_human_approval`** (Vollzug erfordert menschliche Frontend-Freigabe; Ausgang beobachtbar ueber `GET /v1/project-edge/operations/{op_id}`). Jede Anfrage traegt eine Begruendungspflicht (auditiert) |
+| `/v1/project-edge/story-runs/{run_id}/ownership/takeover-confirm` | `POST` | Takeover per Challenge-Echo vollziehen (formal: `operating-modes.command.confirm-run-ownership-takeover`; Klasse `admin_transition`, FK-55 §55.5): CAS auf `ownership_epoch`/`binding_version`. Fehlerbild bei verfallenem oder invalidiertem Challenge (zwischenzeitlicher Transfer, Exit, Reset, Split, Closure oder Freeze-Eintritt): deterministischer fail-closed Fehlschlag ohne Vollzug — erneuter Request gegen die aktuelle Eigentumslage noetig |
+| `/v1/project-edge/operations/{op_id}/admin-abort` | `POST` | Haengende serverseitige In-Flight-Operation administrativ abbrechen (`admin_abort_inflight_operation`, Klasse `admin_transition`, FK-55 §55.5; auditiert). Betrifft ausschliesslich servereigene Claims und leitet niemals Client-Ownership aus Stille ab (Regel 16). Das Finalize ist per `operation_epoch`-CAS gefenct: Late-Commits eines physisch noch weiterlaufenden Alt-Executors scheitern deterministisch am Operation-Fence und registrieren hoechstens einen No-op-/Abort-Vermerk; hat die abgebrochene Mutation bereits Teil-Writes hinterlassen, geht die Operation in einen expliziten, auditierten Reconcile-/Repair-Zustand statt stillschweigend in `failed` |
 | `/v1/compat` | `GET` | Unterstuetztes Versionsfenster lesen: `min`/`recommended`/`blocked` fuer Agent-Runtime und Wire (dev↔central-Handshake, FK-10 §10.2.7) |
 | `/v1/telemetry/events` | `POST` | Kanonisches Telemetrie-Event ingestieren |
 | `/v1/telemetry/events` | `GET` | Kanonische Execution-Events einer `(project_key, story_id)`-Sicht lesen (optional `event_type`-Filter); server-vermittelter Read fuer den Hook-Emitter (FK-10 §10.1.0 I1, AG3-129) |
@@ -162,7 +165,20 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
    `qa_artifact_write`.
 5. Jeder mutierende Endpoint muss `op_id` als Idempotenzschluessel
    akzeptieren; Wiederholungen mit derselben `op_id` duerfen keine
-   zweite Mutation erzeugen.
+   zweite Mutation erzeugen. Das `op_id` wird **vom Client
+   beigestellt**; serverseitiges Minten ist unzulaessig, weil es
+   Retries blind macht (der Client kann eine unklare Mutation dann
+   nicht mehr ueber `op_id` rekonsiliieren). Es gilt **EIN
+   einheitlicher Idempotenz-Vertrag** fuer alle mutierenden
+   Endpoints: ein Replay derselben `op_id` liefert das gespeicherte
+   Ergebnis ohne zweite Mutation; gleiche `op_id` mit abweichendem
+   Body ist fail-closed `409 idempotency_mismatch`
+   (Body-Hash-Pruefung); eine parallel laufende gleiche `op_id` wird
+   als in-flight abgewiesen bzw. serialisiert, nie doppelt
+   ausgefuehrt (In-Flight-Schutz). Body-Hash-Pruefung und
+   In-Flight-Schutz gelten ueberall — zwei getrennte Mechanismen mit
+   unterschiedlicher Schutztiefe (Claim-Pfad mit In-Flight-Schutz
+   neben einem Idempotenz-Schluessel-Pfad ohne) sind unzulaessig.
 6. Die API ist die fachlich autoritative Zielgrenze. CLI und
    `Project Edge Client` erzeugen keine zweite Befehls- oder
    Event-Semantik neben der API; sie sind ausschliesslich
@@ -211,8 +227,81 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
     `op_id` und ist damit **exactly-once** pro `op_id` (Regel 5): Increment und
     Idempotenz-Schluessel committen atomar in EINER Transaktion (Crash zwischen
     beiden rollt beides zurueck); gleiches `op_id` mit abweichendem Body ist ein
-    `409 idempotency_mismatch`. Der Worker-Health-Write ist ein idempotenter
-    Upsert.
+    `409 idempotency_mismatch`. Auch dieser Pfad unterliegt dem einheitlichen
+    Idempotenz-Vertrag aus Regel 5 vollstaendig — client-beigestelltes `op_id`,
+    Body-Hash-Pruefung UND In-Flight-Schutz; ein Idempotenz-Schluessel-Pfad
+    ohne In-Flight-Schutz ist kein zulaessiger Sondermechanismus. Der
+    Worker-Health-Write ist ein idempotenter Upsert.
+13. **Serialisierungsobjekt-Deklaration.** Jede mutierende Operation
+    deklariert ihr Serialisierungsobjekt. Default fuer umsetzungs- und
+    lifecyclebezogene Mutationen ist `(project_key, story_id)`;
+    projektweite Mutationen (z. B. Mode-Lock, Story-Nummernvergabe,
+    Projekt-/Planning-Konfiguration) serialisieren auf `(project_key)`.
+    Mehr-Objekt-Mutationen deklarieren ein **Lock-Set mit globaler
+    Erwerbsordnung**: erst der Projekt-Claim, dann Story-Claims in
+    lexikographischer `story_id`-Reihenfolge; niemals einen Story-Claim
+    halten und danach den Projekt-Claim anfordern. Gegen Starvation gilt
+    **Queue-Fairness**: ein wartender Projekt-Claim konfligiert auch mit
+    spaeter eintreffenden Story-Claims desselben Projekts — juengere
+    Story-Claims ueberholen ihn nicht; administrative Uebergaenge haben
+    definierte FIFO-Fairness. **Reads nehmen niemals Sperren.**
+14. **Bounded-Pflicht und Job-Muster.** Objekt-serialisierte Mutationen
+    muessen kurz, transaktional und technisch bounded sein. Was nicht
+    bounded ist, ist per Definition ein Job: die Annahme ist eine kurze
+    Mutation (Job-Record, Antwort `202` mit `op_id`), der Fortschritt
+    ist ueber `GET /v1/project-edge/operations/{op_id}` beobachtbar,
+    der Abschluss ist eine interne, gefencte Mutation (Regel 15).
+    Zwischen Annahme und Abschluss haelt der Job **keine**
+    Serialisierung.
+15. **Drei Ergebnisarten fuer Job-Abschluesse.** Jeder Job deklariert
+    seine Ergebnisart; der Abschluss-Commit ist danach gefenct:
+    (a) **Reine append-only Observationen** (immutable Evidenzen,
+    Historieneintraege) duerfen auch nach einem Owner-Wechsel abgelegt
+    werden — dem Run zugeordnet und mit dem `ownership_epoch` ihres
+    Starts markiert; sie aktualisieren **niemals** eine
+    „latest"-Sicht, einen Current-Pointer oder eine Projektion.
+    (b) **Projektions-/Upsert-Ergebnisse**: das Artefakt selbst darf
+    abgelegt werden, aber die aktuelle Projektion bzw. der
+    Current-Pointer wird **nur bei gueltigen Fences** aktualisiert;
+    bei ungueltigen Fences wird das Ergebnis als separater, immutabler
+    `stale_observation`-Historieneintrag abgelegt und ueberschreibt
+    die aktuelle Projektion **nicht**. (c) **Steuernde Ergebnisse**
+    (Gate-Entscheidungen, Phasenfortschritt, Run-/Story-Zustand)
+    werden nur wirksam, wenn die Fencing-Praedikate zum
+    Commit-Zeitpunkt passen; andernfalls deterministisch
+    `stale_observation`, nachrichtlich, ohne Steuerwirkung. Die
+    Fencing-Praedikate: aktiver Ownership-Record der Story,
+    `ownership_epoch`/`binding_version` wie erwartet,
+    `operation_epoch` des eigenen Claims unveraendert,
+    Reset-Fence/`compaction_epoch` wo einschlaegig,
+    `execution_contract_digest` wo einschlaegig, Zielversion des
+    adressierten Artefakts wo einschlaegig.
+16. **In-Flight-Claims sind instanzgebunden, nie wanduhrgebunden.**
+    Jeder In-Flight-Claim traegt eine stabile Instanz-Identitaet
+    (`backend_instance_id` + Boot-Inkarnation) und endet nur auf zwei
+    Wegen: durch die **Start-Rekonsiliierung der eigenen Instanz**
+    (beim Serverstart, vor Beginn der Request-Annahme, werden
+    verwaiste Claims der eigenen Identitaet aus frueheren
+    Inkarnationen deterministisch als gescheitert finalisiert) oder
+    durch den expliziten administrativen Abbruch
+    (`admin_abort_inflight_operation`) — **niemals** durch Wanduhr,
+    TTL oder Lease-Ablauf. Betriebsannahme (normativ): **genau eine
+    aktive Control-Plane-Writer-Instanz pro Datenbank**
+    (FK-10 §10.5.4).
+17. **Transport-Timeouts haben keine fachliche Bedeutung.**
+    HTTP-/Proxy-Timeouts duerfen existieren, sind aber kein
+    Steuerungsinstrument fuer Ownership oder Operations-Semantik: ein
+    Client, dessen Verbindung riss, rekonsiliiert seine unklare
+    Mutation ueber `GET /v1/project-edge/operations/{op_id}` — er
+    verliert dadurch niemals sein Ownership.
+18. **Ex-Owner-Fehlerbild.** Mutierende Story-Umsetzungs-Calls einer
+    Session, deren Run-Ownership uebertragen wurde, werden
+    deterministisch mit `409` bzw. `403` und einer
+    `ownership_transferred`-Payload abgewiesen — mindestens: Grund,
+    neuer Owner, Zeitpunkt des Transfers — eingebettet in den
+    Fehlervertrag aus Regel 8. Reads, einschliesslich
+    `GET /v1/project-edge/operations/{op_id}` zur Rekonsiliierung
+    eigener frueherer Mutationen, bleiben dem Ex-Owner erlaubt.
 
 ## 91.1 Operator-Recovery-CLI (agentkit)
 
@@ -340,6 +429,10 @@ Operator-Recovery-Pfad, kein Agent-Eingangstor.**
 | `binding_invalid_detected` | 56 | GuardSystem | Inkonsistenter Lock-/Bindungszustand wurde als blockierende inkonsistente Story-Bindung erkannt |
 | `local_edge_bundle_materialized` | 56 | offizieller lokaler Project Edge Client | Lokales Edge-Bundle fuer Hooks und Guards atomar publiziert |
 | `edge_operation_reconciled` | 56 | offizieller lokaler Project Edge Client / Control Plane | Unklare Remote-Lage einer Mutation ueber `op_id` reconciliiert |
+| `run_ownership_takeover_offered` | 56 | Control Plane / Admin-Service | Versionierter Takeover-Challenge fuer einen aktiven Story-Run ausgestellt (Wire-Schema: `operating-modes.event.run_ownership_takeover_offered`) |
+| `run_ownership_takeover_approval_requested` | 56 | Control Plane / Permission-Request-Pfad | Agenteninitiierter Takeover-Request wartet auf menschliche Frontend-Freigabe; Anfrager erhielt `pending_human_approval` (Wire-Schema: `operating-modes.event.run_ownership_takeover_approval_requested`) |
+| `session_run_binding_transferred` | 56 | Control Plane / Admin-Service | Run-Bindung per bestaetigtem Takeover (CAS auf `ownership_epoch`/`binding_version`) auf die neue Session uebertragen (Wire-Schema: `operating-modes.event.session_run_binding_transferred`) |
+| `session_disowned` | 56 | Control Plane / Admin-Service | Ex-Owner-Session entmuendigt: Zustand `binding_invalid` mit Grund `ownership_transferred`, Edge-Bundle tombstoned (Wire-Schema: `operating-modes.event.session_disowned`) |
 | `story_contract_classified` | 59 | Setup / Story-Metadata | Persistenter Story-Vertrag aus `story_type` und optionalem `implementation_contract` wurde konsolidiert |
 | `runtime_classification_derived` | 59 | Setup / GuardSystem | Laufzeitklassifikation aus `operating_mode` und `execution_route` wurde abgeleitet |
 | `story_marked_done` | 59 | Closure | Story wurde erfolgreich geliefert und auf `Done` gesetzt |
@@ -534,7 +627,7 @@ Event-Schemas ist explizit unzulaessig (keine zweite Wahrheitsquelle).
 | `stories` | Story-Lifecycle: angelegt, geaendert, entfernt | `story_context_manager` | `frontend-contracts.event.story_upserted`, `.story_deleted` |
 | `phases` | Phasen- und Substep-Uebergaenge, Phase-Status | `pipeline_engine` | `frontend-contracts.event.phase_transitioned` |
 | `gates` | QA-Gate-Ergebnisse (pass, warning, fail) | `verify_system` | `frontend-contracts.event.gate_evaluated` |
-| `governance` | Guard-Verletzungen, Integrity-Gate-Resultate | `governance` | `frontend-contracts.event.governance_signal` |
+| `governance` | Guard-Verletzungen, Integrity-Gate-Resultate, ausstehende Takeover-Freigaben (globaler Overlay, FK-72 §72.14.7) | `governance` | `frontend-contracts.event.governance_signal`, `.takeover_approval_changed` |
 | `closure` | Closure-Substate-Uebergaenge | `closure` | `frontend-contracts.event.closure_transitioned` |
 | `artifacts` | Artefakt-Erzeugungen mit Envelope-Metadaten | `artifacts` | `frontend-contracts.event.artifact_produced` |
 | `telemetry` | Mode-Lock-Projektion plus rohe Execution-Events (verbose) | `telemetry` | `frontend-contracts.event.mode_lock_changed` |

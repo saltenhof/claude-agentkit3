@@ -754,6 +754,46 @@ def guard_decision(tool_name: str, tool_input: dict) -> int:
         return 2  # Blockiert
 ```
 
+### 30.6.3 Guard-erzwungene Takeover-Zustaende
+
+Nach einem Ownership-Transfer (FK-56 §56.13) kennt das Edge-Bundle
+zwei zusaetzliche, hook-erzwungene Zustaende. Beide sind harte
+Guard-Zustaende, keine UI-Flags:
+
+**`takeover_reconcile_required`** — Startzustand des Edge-Bundles
+des neuen Owners nach dem Transfer. Der Transfer uebertraegt
+Backend-Ownership und Worktree-Referenz, aber keine
+OS-Dateiexklusivitaet; deshalb muss der uebernommene Worktree-Stand
+zuerst gegen den beim Vollzug festgehaltenen Takeover-Snapshot
+(FK-56 §56.13c; Schema:
+`state-storage.entity.takeover-worktree-snapshot`) abgeglichen
+werden. Solange dieser Zustand aktiv ist, blockieren die
+Hook-/Tool-Guards fail-closed:
+
+- dateimutierende Werkzeuge (`Write`, `Edit`, Shell-Dateimutationen)
+  in den Story-Worktrees
+- Commits — ausdruecklich auch den Salvage-Commit (FK-31 §31.1.3c)
+- `complete_phase` / `fail_phase`
+- Verify-/Closure-Starts, die auf dem Worktree-Zustand beruhen
+
+Erst der erfolgreiche Abgleich ueber den offiziellen
+`takeover-reconcile-worktree`-Pfad hebt die Sperre auf; lesende
+Zugriffe bleiben durchgehend erlaubt.
+
+**`contested_local_writes`** — Ergebnis eines fehlgeschlagenen
+Abgleichs: Weicht der Ist-Stand des Worktrees vom Takeover-Snapshot
+ab (z. B. weil ein lokal weiterlaufender Ex-Owner-Prozess physisch
+weitergeschrieben hat), gilt der Worktree als contested. Der Zustand
+ist ein **read-only Konflikt-Freeze**: kein normales Fortfahren,
+keine Mutationen, bis eine menschliche bzw. administrative
+Entscheidung den Konflikt aufloest. Als Freeze-Zustand ist er
+Admission-Blocker mit `freeze_epoch`, `freeze_reason` und Audit-Spur
+(FK-56 §56.13f).
+
+Beide Zustaende werden wie alle Guard-Signale aus dem lokal
+publizierten Edge-Bundle gelesen (§30.2.7, §30.6.1); fehlt das
+Signal oder ist der Bundle-Stand inkonsistent, gilt fail-closed.
+
 ## 30.7 Opake Fehlermeldungen
 
 ### 30.7.1 Prinzip (FK-06-017, FK-06-093)

@@ -234,8 +234,12 @@ des Hooks wird so gewahrt:
 **Parallelität.** Der Harness ruft Hooks sequentiell auf (ein Hook pro
 Tool-Call). Mehrere Sub-Agent-Sessions können parallel laufen, also
 mehrere Hook-Prozesse gleichzeitig Backend-Requests stellen.
-Konsistenz und Serialisierung sind Aufgabe des Backends (DB-
-Transaktionen), nicht des Projekt-Dateisystems.
+Konsistenz und Serialisierung sind Aufgabe des Backends, nicht des
+Projekt-Dateisystems — präzise: Serialisierung erfolgt pro
+deklariertem Objekt über durable Objekt-Mutation-Claims;
+transaktionsgebundene DB-Locks decken nur Mutationen ab, die
+vollständig in einer Transaktion liegen; Reads sind sperrenfrei
+(§10.5.4).
 
 ### 10.1.4 LLM-Nutzung über den LLM-Hub (Unified REST)
 
@@ -743,7 +747,7 @@ Speicherorte, Laufzeitrollen und Datenfluesse.
 | Was | Wann | Wie |
 |-----|------|-----|
 | Export-Bundles | Nach Story-Closure | Nach zentraler Retention-Policy archivierbar (Backend) |
-| Locks | Closure (Backend) entfernt sie | Automatisch bei Closure; stale Locks via Lease/TTL |
+| Locks | Closure (Backend) entfernt sie; sonst nur offizielle Pfade (Exit, Reset, Split, Ownership-Transfer) | Explizit statt automatisch: keine Stale-Freigabe via Lease/TTL; Stale-Anzeige bleibt als Information erlaubt |
 | Lokale Read-Projektionen | Nach Run / bei TTL-Ablauf | Verwerfbar; jederzeit aus Backend rematerialisierbar |
 | Ephemere Sandboxes außerhalb des Projekts | Nach Test-Promotion durch Pipeline | Automatisch löschbar |
 | Worktree | Closure-Phase (teardown) | `git worktree remove` |
@@ -769,7 +773,7 @@ verwerfbare Projektionen.
 | Konfliktzone | Risiko | Absicherung |
 |-------------|--------|-------------|
 | State-Backend-Telemetrie (mehrere Hooks melden gleichzeitig) | Write-Contention | Backend-seitige DB-Transaktionen / Serialisierung |
-| Story-Locks | Falsche Zuordnung | Story-spezifische Lease-/Lock-Records (Backend) |
+| Story-Locks | Falsche Zuordnung | Story-spezifische Lock-Records (Backend) |
 | QA-Artefakte | Überschreiben durch falschen Prozess | Nur Backend-/Service-Principals dürfen mutieren |
 | Git-Worktree | Branch-Konflikte | Jede Story hat eigenen Branch (`story/{story_id}`) |
 | AK3-Story-Status | Race Condition bei parallelen Status-Updates | Backend aktualisiert Status nur bei Phasenwechsel (sequentiell pro Story) |
@@ -787,13 +791,47 @@ Alle Pipeline-Schritte müssen idempotent sein:
 | Closure | Nicht pauschal idempotent — Closure hat sequentielle Seiteneffekte über verschiedene Systeme (Merge, Story-Close, Metriken, Postflight). Wird über persistierte Substates abgesichert: `integrity_passed`, `story_branch_pushed`, `merge_done`, `story_closed`, `metrics_written`, `postflight_done` (sechs Booleans, vollständige Liste in FK-29 §29.1.0). Bei Crash: Recovery setzt beim letzten bestätigten Substate wieder an. |
 | Postflight | Prüft nur, ändert nichts. Wiederholbar. |
 
+### 10.5.4 Objekt-Serialisierung und Ein-Writer-Betriebsannahme
+
+Serialisierung erfolgt **pro deklariertem Objekt** (Deklarationspflicht
+und Lock-Set-Ordnung: FK-91 §91.1a Regel 13): Default für umsetzungs-
+und lifecyclebezogene Mutationen ist `(project_key, story_id)`,
+projektweite Mutationen serialisieren auf `(project_key)`. Der
+Mechanismus ist eine **durable Objekt-Mutation-Claim-Zeile**
+(`state-storage.entity.object-mutation-claim`), die **vor dem
+Dispatch** erworben und bis Finalize/Abort gehalten wird — denn
+Engine-Writes und Control-Plane-Finalisierung laufen in getrennten
+DB-Transaktionen, die ein transaktionsgebundenes Lock nicht gemeinsam
+umschließen kann. **Transaktionsgebundene Locks** (`SELECT … FOR
+UPDATE`, `pg_advisory_xact_lock`) bleiben das Mittel der Wahl
+ausschließlich für Mutationen, die vollständig in **einer**
+Transaktion liegen (so nutzt sie das `project_mode_lock` heute schon).
+**Reads nehmen niemals Sperren.**
+
+Objekt-Mutation-Claims und In-Flight-Operation-Claims sind
+**instanzgebunden, nie wanduhrgebunden**: Jeder Claim trägt
+`backend_instance_id` plus Boot-Inkarnation und wird nur über zwei
+Wege aufgelöst — die Start-Rekonsiliierung der eigenen Instanz oder
+den expliziten administrativen Abbruch
+(`admin_abort_inflight_operation`, FK-91 §91.1a). Kein Lease, kein
+TTL, keine PID-Heuristik (§10.4.2, §10.6.2).
+
+**Betriebsannahme (normativ): genau eine aktive
+Control-Plane-Writer-Instanz pro Datenbank.** Beim Serverstart — vor
+Beginn der Request-Annahme — finalisiert die Instanz verwaiste Claims
+**ihrer eigenen Identität aus früheren Inkarnationen** deterministisch
+als gescheitert (Start-Rekonsiliierung): Der Server muss über seinen
+eigenen Absturz nicht spekulieren; über das Schweigen eines Clients
+schon. Die Persistenz-Invarianten dazu sind in
+`formal.state-storage.invariants` normiert.
+
 ## 10.6 Fehlerbehandlung und Recovery
 
 ### 10.6.1 Absturz-Szenarien
 
 | Szenario | Zustand nach Absturz | Recovery |
 |----------|---------------------|---------|
-| Harness-Session (Claude Code / Codex; FK-76) crashed | Worktree existiert, Lock aktiv (Backend), Telemetrie unvollständig | PID-basierte Lock-Erkennung (Kap. 02.7). Neuer Run mit neuer `run_id`, bestehender Worktree wird wiederverwendet. |
+| Harness-Session (Claude Code / Codex; FK-76) crashed | Worktree existiert, Lock aktiv (Backend), Telemetrie unvollständig | Lock und Bindung bleiben bestehen — kein automatischer Entzug (Kap. 02.7). UI/CLI zeigen den letzten API-Kontakt als Stale-Anzeige (Information, keine Diagnose). Mensch entscheidet explizit über Recovery: neuer Run mit neuer `run_id`, bestehender Worktree wird wiederverwendet. |
 | AK3 Backend nicht erreichbar | Kanonische Operationen schlagen fehl | Fail-closed: Hooks blockieren (kein bestätigter Schreibpfad), CLI/Edge brechen ab. Read-Projektionen sind nur lesend und werden nicht zur Ersatzwahrheit. |
 | Pipeline-Phase crashed (Backend) | QA-Artefakt möglicherweise unvollständig | Backend-Phase Runner kann Phase wiederholen. Idempotente Schritte. |
 | Hook-Prozess crashed | Tool-Call wird blockiert (fail-closed: kein exit(0) = blockiert) | Der Harness behandelt Hook-Fehler als Blockade. Agent erhält Fehlermeldung. |
@@ -805,14 +843,20 @@ Alle Pipeline-Schritte müssen idempotent sein:
 
 Bei einem abgebrochenen Story-Run:
 
-1. Mensch erkennt Problem (Stagnation, Fehlermeldung, Lock-Timeout)
+1. Mensch erkennt Problem (Stagnation, Fehlermeldung, Stale-Anzeige)
 2. Mensch prüft Zustand: `agentkit status --story {story_id}` (REST) oder
    Backend-State-Eintrag des Runs
-3. Stale Locks werden via PID-Prüfung automatisch erkannt (Backend)
-4. Neuer Run mit `POST /phases/setup/start` (Aufruf-Parameter gemaess FK-91 §91.1a)
-   oder Operator-CLI `agentkit run-phase setup --story {story_id}` (§91.1) —
-   Preflight erkennt bestehenden Worktree/Branch und kann
-   konfigurierbar damit umgehen (abbrechen oder wiederverwenden)
+3. Locks und Bindungen bleiben bestehen — es gibt keine automatische
+   Stale-Freigabe (kein Lease/TTL, keine PID-Prüfung als Auslöser).
+   Die Stale-Anzeige (z. B. letzter API-Kontakt) ist reine Information;
+   Inaktivität ist keine Diagnose (Kap. 02.7)
+4. Mensch entscheidet explizit über den offiziellen Recovery-Pfad:
+   Neuer Run mit `POST /phases/setup/start` (Aufruf-Parameter gemaess
+   FK-91 §91.1a) oder Operator-CLI
+   `agentkit run-phase setup --story {story_id}` (§91.1) — Preflight
+   erkennt bestehenden Worktree/Branch; der bestehende Worktree wird
+   wiederverwendet (explizit-administrative Entscheidung, kein
+   Automatismus)
 5. Alternativ: Manuelles Cleanup via
    `agentkit cleanup --story {story_id}` (Worktree, Branch, Locks, Artefakte)
 

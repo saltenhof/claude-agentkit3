@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: operating-modes
 spec_kind: invariant-set
-version: 2
+version: 3
 prose_refs:
   - concept/technical-design/56_ai_augmented_mode_and_story_execution_separation.md
   - concept/technical-design/30_hook_adapter_guard_enforcement.md
@@ -17,7 +17,7 @@ prose_refs:
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.operating-modes.invariants
-schema_version: 2
+schema_version: 3
 kind: invariant-set
 context: operating-modes
 invariants:
@@ -57,5 +57,29 @@ invariants:
   - id: operating-modes.invariant.uncertain_remote_mutation_must_be_reconciled_by_op_id
     scope: governance
     rule: if the remote result of a mutating operation is unknown the local system must reconcile the operation by op_id before further local materialization or free-mode fallback
+  - id: operating-modes.invariant.at_most_one_active_ownership_per_story
+    scope: governance
+    rule: at most one run ownership record per project_key and story_id may hold status active and this uniqueness must be enforced by the persistence layer
+  - id: operating-modes.invariant.historical_ownership_records_are_never_admission_evidence
+    scope: governance
+    rule: run ownership records with a status other than active are audit history and must never be accepted as admission evidence for story execution mutations
+  - id: operating-modes.invariant.story_execution_mutations_require_current_ownership_epoch
+    scope: governance
+    rule: every mutating story execution path including complete_phase fail_phase closure and the server side executor paths must fence against the owner_session_id and ownership_epoch of the currently active run ownership record
+  - id: operating-modes.invariant.ownership_transfer_requires_explicit_confirmed_request
+    scope: governance
+    rule: run ownership changes owner only through an explicit reasoned challenge confirm takeover an official end path or recovery and never through timeout lease expiry heartbeat loss or any other automatic inference from client silence
+  - id: operating-modes.invariant.agent_initiated_takeover_requires_human_frontend_approval
+    scope: governance
+    rule: an agent initiated takeover request must not execute before a human approves it in the frontend and the requesting agent receives pending_human_approval and observes the outcome by op_id while the approval which may lapse like any open permission request is outstanding
+  - id: operating-modes.invariant.takeover_confirm_fences_in_flight_mutations
+    scope: governance
+    rule: takeover confirm is serialized behind in flight mutations of the same story and is a compare and swap on ownership_epoch and binding_version so any interim ownership change exit reset split or closure invalidates open challenges
+  - id: operating-modes.invariant.disowned_session_cannot_immediately_reclaim
+    scope: governance
+    rule: a session disowned by takeover cannot immediately reconfirm ownership and a repeated transfer of the same story shortly afterwards requires a privileged principal and an explicit reason
+  - id: operating-modes.invariant.freeze_states_are_admission_blockers_and_invalidate_challenges
+    scope: governance
+    rule: story scoped freeze states carry freeze_epoch and freeze_reason block mutating admissions in addition to the active ownership record invalidate open takeover challenges on entry and make takeover confirm fail while the story is not takeover admissible
 ```
 <!-- FORMAL-SPEC:END -->

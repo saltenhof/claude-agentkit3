@@ -5,11 +5,12 @@ status: active
 doc_kind: spec
 context: state-storage
 spec_kind: entity-set
-version: 1
+version: 3
 prose_refs:
   - concept/technical-design/17_fachliches_datenmodell_ownership.md
   - concept/technical-design/18_relationales_abbildungsmodell_postgres.md
   - concept/technical-design/15_security_secrets_identity_zugriffsmodell.md
+  - concept/technical-design/10_runtime_deployment_speicher.md
 ---
 
 # State Storage Entities
@@ -20,7 +21,7 @@ sondern fachliche Record-Families.
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.state-storage.entities
-schema_version: 1
+schema_version: 3
 kind: entity-set
 context: state-storage
 entities:
@@ -62,5 +63,40 @@ entities:
       - target_family_id
       - dependency_kind
       - reset_follow_up
+  - id: state-storage.entity.inflight-operation-record
+    identity_key: op_id
+    attributes:
+      - op_id
+      - status
+      - operation_epoch
+      - backend_instance_id
+      - instance_incarnation
+      - declared_serialization_scope
+      - claimed_at
+      - finalized_at
+  - id: state-storage.entity.object-mutation-claim
+    identity_key: project_key + serialization_scope + scope_key
+    attributes:
+      - project_key
+      - serialization_scope
+      - scope_key
+      - op_id
+      - backend_instance_id
+      - instance_incarnation
+      - acquired_at
+      - queue_position
+  - id: state-storage.entity.takeover-worktree-snapshot
+    identity_key: project_key + story_id + run_id + ownership_epoch
+    attributes:
+      - project_key
+      - story_id
+      - run_id
+      - ownership_epoch
+      - repo_id
+      - worktree_path
+      - head_sha
+      - index_status
+      - binary_diff_ref
+      - untracked_manifest_ref
 ```
 <!-- FORMAL-SPEC:END -->

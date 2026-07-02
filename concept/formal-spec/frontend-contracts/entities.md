@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: frontend-contracts
 spec_kind: entity-set
-version: 1
+version: 2
 prose_refs:
   - concept/technical-design/72_frontend_architektur.md
   - concept/technical-design/91_api_event_katalog.md
@@ -22,7 +22,7 @@ weder Pflichtattribute weglassen noch deren Semantik aendern.
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.frontend-contracts.entities
-schema_version: 1
+schema_version: 2
 kind: entity-set
 context: frontend-contracts
 
@@ -943,5 +943,95 @@ entities:
           - >
             Eine harte Kante blockiert Readiness (FK-70 §70.11). Eine
             weiche Kante ist Plan-Reihenfolge und kein Blocker.
+
+  # ---- Ownership-Takeover ---------------------------------------------
+
+  - id: frontend-contracts.entity.takeover_approval_request
+    identity: approval_id
+    description: >
+      Ausstehende menschliche Freigabe eines agenteninitiierten
+      Ownership-Takeover-Requests (FK-56 §56.13b). Wird vom globalen
+      Takeover-Freigabe-Overlay der App-Shell gerendert (FK-72
+      §72.14.7): benutzeruebergreifend sichtbar, nicht an einen
+      spezifischen Benutzer gebunden. Die Challenge-Felder spiegeln
+      den versionierten Challenge aus dem Owner-BC `story-lifecycle`
+      und stammen nicht aus nachlaufenden Read-Models.
+    attributes:
+      - name: approval_id
+        kind: string
+        required: true
+      - name: project_key
+        kind: string
+        required: true
+      - name: story_id
+        kind: string
+        required: true
+      - name: run_id
+        kind: string
+        required: true
+      - name: requested_by_principal
+        kind: string
+        required: true
+      - name: reason
+        kind: string
+        required: true
+        notes:
+          - Begruendungspflicht des Takeover-Requests (FK-56 §56.13a).
+      - name: owner_session_id
+        kind: string
+        required: true
+      - name: ownership_epoch
+        kind: integer
+        required: true
+      - name: binding_version
+        kind: integer
+        required: true
+      - name: phase
+        kind: string
+        required: true
+      - name: last_api_contact_at
+        kind: timestamp
+        required: false
+        notes:
+          - >
+            Reine Information fuer die Anzeige "zuletzt aktiv"; die UI
+            MUSS den Nicht-Diagnose-Hinweis mitrendern (Inaktivitaet
+            ist keine Diagnose, FK-56 §56.13a).
+      - name: open_operation_ids
+        kind: list<string>
+        required: true
+      - name: last_commit_sha
+        kind: string
+        required: false
+      - name: worktree_dirty
+        kind: boolean
+        required: true
+      - name: takeover_history_count
+        kind: integer
+        required: true
+        notes:
+          - >
+            Anzahl bisheriger Transfers dieser Story; die UI zeigt die
+            Historie prominent (Ping-Pong-Sichtbarkeit, FK-56 §56.13d).
+      - name: status
+        kind: enum
+        required: true
+        values: [pending, approved, denied, expired]
+        notes:
+          - >
+            `expired` ist ein Entscheidungs-Verfall der offenen
+            Anfrage, nie ein Ownership-Entzug (FK-55 §55.9a).
+      - name: requested_at
+        kind: timestamp
+        required: true
+      - name: expires_at
+        kind: timestamp
+        required: false
+    notes:
+      - >
+        Der Confirm gegen einen veralteten Challenge (Epoche oder
+        Bindung zwischenzeitlich geaendert) scheitert deterministisch;
+        das Frontend laedt dann die aktuelle Eigentumslage neu
+        (FK-56 §56.13a).
 ```
 <!-- FORMAL-SPEC:END -->

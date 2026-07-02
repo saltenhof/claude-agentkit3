@@ -43,6 +43,7 @@ Nicht Teil dieses Kontexts sind:
 
 ## Prosa-Quellen
 
+- [FK-10](/T:/codebase/claude-agentkit3/concept/technical-design/10_runtime_deployment_speicher.md)
 - [FK-17](/T:/codebase/claude-agentkit3/concept/technical-design/17_fachliches_datenmodell_ownership.md)
 - [FK-18](/T:/codebase/claude-agentkit3/concept/technical-design/18_relationales_abbildungsmodell_postgres.md)
 - [FK-68](/T:/codebase/claude-agentkit3/concept/technical-design/68_telemetrie_eventing_workflow_metriken.md)

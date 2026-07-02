@@ -24,13 +24,14 @@ formal_refs:
   - formal.story-closure.entities
   - formal.story-split.entities
   - formal.story-reset.entities
+  - formal.operating-modes.entities
   - formal.state-storage.entities
   - formal.state-storage.invariants
 ---
 
 # 17 — Fachliches Datenmodell und Ownership
 
-<!-- PROSE-FORMAL: formal.story-creation.entities, formal.dependency-rebinding.entities, formal.story-closure.entities, formal.story-split.entities, formal.story-reset.entities, formal.state-storage.entities, formal.state-storage.invariants -->
+<!-- PROSE-FORMAL: formal.story-creation.entities, formal.dependency-rebinding.entities, formal.story-closure.entities, formal.story-split.entities, formal.story-reset.entities, formal.operating-modes.entities, formal.state-storage.entities, formal.state-storage.invariants -->
 
 ## 17.1 Zweck
 
@@ -74,6 +75,7 @@ PostgreSQL-Notation.
 | `ProjectKey` | Mandanten-Schlüssel | systemweit eindeutig, stabil, nicht leer |
 | `StoryId` | Story-Kennung | innerhalb eines `ProjectKey` eindeutig |
 | `RunId` | Laufkennung | innerhalb eines `ProjectKey` eindeutig |
+| `SessionId` | Kennung einer Client-Session (Harness-/Agent-Prozess) | systemweit eindeutig, stabil je Session |
 | `FlowId` | Kennung eines Flows | innerhalb eines `RunId` eindeutig |
 | `NodeId` | Kennung eines Nodes | innerhalb eines `FlowId` eindeutig |
 | `FieldKey` | Kennung eines Story-Attributs | innerhalb eines `ProjectKey` eindeutig |
@@ -111,6 +113,8 @@ Wertemengen zu behandeln:
 - `ProtectionLevel = unprotected | hook_locked | frozen`
 - `EventSeverity = debug | info | warning | error | critical`
 - `ProviderSyncStatus = pending | synced | conflict | failed`
+- `OwnershipStatus = active | transferred | ended | reset | split | closed`
+- `OwnershipAcquisition = setup | takeover | recovery`
 
 ## 17.3 Kanonische Entitäten
 
@@ -429,6 +433,62 @@ langfristig auditierbar.
 Repräsentiert abgeleitete Kennzahlen und Auswertungen. Diese Entität ist
 nicht kanonisch fuer die operative Steuerung.
 
+### 17.3.15 RunOwnershipRecord
+
+**Owner:** `control_plane_runtime`
+
+Kanonischer, DB-erzwungener Ownership-Anker eines Story-Runs. Er
+beantwortet, welcher Session die Umsetzung einer Story gehört, und
+ist die maßgebliche Admission-Grundlage aller Regime-Mutationen
+(FK-56). Die Control-Plane-Laufzeit schreibt ihn im Auftrag des BC
+`story-lifecycle`.
+
+**Eigenschaften:**
+
+- `project_key`
+- `story_id`
+- `run_id`
+- `owner_session_id`
+- `ownership_epoch`
+- `status`
+- `acquired_via`
+- `acquired_at`
+- `audit_ref`
+
+**Normative Auslegung:** Pro `(project_key, story_id)` existiert
+höchstens ein Record mit `status = active`; diese Invariante wird von
+der Persistenzschicht erzwungen. Historische Records sind reine
+Audit-Fakten und niemals Admission-Evidenz. Ownership endet oder
+wechselt nur über offizielle Pfade (Closure, Exit, Reset, Split,
+Ownership-Transfer, Recovery), niemals durch Zeitablauf oder
+clientseitige Stille.
+
+### 17.3.16 SessionRunBinding
+
+**Owner:** `control_plane_runtime`
+
+Aktive Bindung einer Session an genau einen Story-Run. Die Bindung
+ist die **session-seitige Projektion** des aktiven
+`RunOwnershipRecord`: Sie löst den Betriebsmodus auf und trägt die
+Session-Sicht (Principal, Worktrees, Bindungsversion), ist dem
+Ownership-Record aber nachgeordnet (FK-56). Auch sie schreibt die
+Control-Plane-Laufzeit im Auftrag des BC `story-lifecycle`.
+
+**Eigenschaften:**
+
+- `session_id`
+- `project_key`
+- `story_id`
+- `run_id`
+- `principal_type`
+- `worktree_roots`
+- `binding_version`
+
+**Normative Auslegung:** Bei Widerspruch zwischen Bindung und aktivem
+Ownership-Record gilt der Ownership-Record. Eine widerrufene Bindung
+fällt nicht still auf den freien Modus zurück, sondern in den
+Fehlerzustand `binding_invalid` (FK-56).
+
 ## 17.3a Attributverträge
 
 Die folgenden Tabellen machen aus der Entitätenliste ein belastbares
@@ -656,6 +716,32 @@ Umsetzung physisch mit.
 | `window_end` | `Instant` | nein | Ende des Aggregationsfensters |
 | `computed_at` | `Instant` | ja | letzter Projektionslauf |
 
+### 17.3a.15 RunOwnershipRecord
+
+| Attribut | Typ | Pflicht | Regel |
+|----------|-----|---------|-------|
+| `project_key` | `ProjectKey` | ja | Teil der Identität |
+| `story_id` | `StoryId` | ja | Teil der Identität |
+| `run_id` | `RunId` | ja | Teil der Identität |
+| `owner_session_id` | `SessionId` | ja | Owner der aktuellen Epoche |
+| `ownership_epoch` | `Integer` | ja | >= 1, beginnt mit dem Setup, monoton steigend |
+| `status` | `Enum<OwnershipStatus>` | ja | höchstens ein `active` pro Story |
+| `acquired_via` | `Enum<OwnershipAcquisition>` | ja | Erwerbspfad des Eigentums |
+| `acquired_at` | `Instant` | ja | Zeitpunkt des Erwerbs |
+| `audit_ref` | `UriRef` oder `Text` | ja | Verweis auf den auslösenden Audit-Vorgang |
+
+### 17.3a.16 SessionRunBinding
+
+| Attribut | Typ | Pflicht | Regel |
+|----------|-----|---------|-------|
+| `session_id` | `SessionId` | ja | Identität |
+| `project_key` | `ProjectKey` | ja | gebundenes Projekt |
+| `story_id` | `StoryId` | ja | gebundene Story |
+| `run_id` | `RunId` | ja | gebundener Run |
+| `principal_type` | `Text` | ja | geschlossener Principal-Raum gemäß FK-55 |
+| `worktree_roots` | `StringSet` | ja | Menge der erlaubten Worktree-Wurzeln |
+| `binding_version` | `Integer` | ja | >= 1, wechselt bei jeder Neubindung |
+
 ## 17.4 Beziehungen
 
 - Ein `ProjectSpace` hat viele `Story`.
@@ -668,6 +754,11 @@ Umsetzung physisch mit.
 - Eine `FlowExecution` hat viele `AttemptRecord`.
 - Eine `FlowExecution` kann viele `OverrideRecord`, `GuardDecision`,
   `ArtifactRecord` und `ExecutionEvent` haben.
+- Eine `Story` hat viele `RunOwnershipRecord`, davon höchstens einen
+  aktiven.
+- Eine `SessionRunBinding` projiziert genau einen aktiven
+  `RunOwnershipRecord`; sie referenziert Projekt, Story und Run nur
+  per ID.
 - `KpiProjection` wird aus `FlowExecution`, `NodeExecution`,
   `AttemptRecord`, `GuardDecision` und `ExecutionEvent` abgeleitet.
 
@@ -691,6 +782,12 @@ Umsetzung physisch mit.
   `AttemptRecord` für Phasen-Audit und Crash-Sicherheit.
 - `PhaseState` ist bewusst kein eigenes Wahrheitsaggregat, sondern eine
   rekonstruierbare Projektion über dem Runtime-Umfeld.
+- `RunOwnershipRecord` und `SessionRunBinding` sind eigene, kleine
+  Aggregate der Control-Plane-Laufzeit. Die Bindung ist fachlich die
+  nachgeordnete session-seitige Projektion des aktiven
+  Ownership-Records, wegen ihrer sessioneigenen Attribute (Principal,
+  Worktrees) aber keine bloß rekonstruierbare Projektion im Sinne von
+  `PhaseState`.
 
 **Normative Regel:** Auf Aggregate wird fachlich nur über ihre jeweilige
 Root zugegriffen. Querverweise zwischen Aggregaten erfolgen nur per ID,
@@ -775,6 +872,22 @@ Events bleiben dagegen fachlich getrennte Aggregate mit eigenem Owner.
 - Intern geführte Objekte:
   projektionseigene Verdichtungen oder Kennzahlwerte
 
+### Aggregate Root: `RunOwnershipRecord`
+
+- Root-Entity: `RunOwnershipRecord`
+- Intern geführte Objekte:
+  keine weiteren kanonischen Unterobjekte in diesem Dokument
+
+### Aggregate Root: `SessionRunBinding`
+
+- Root-Entity: `SessionRunBinding`
+- Intern geführte Objekte:
+  keine weiteren kanonischen Unterobjekte in diesem Dokument
+
+**Normative Auslegung:** `SessionRunBinding` bleibt ein eigenes,
+kleines Aggregat mit Identität `session_id`, ist fachlich aber dem
+aktiven `RunOwnershipRecord` nachgeordnet.
+
 ### Kein Aggregate Root: `PhaseState`
 
 `PhaseState` ist bewusst kein Aggregate Root, weil er nur eine
@@ -792,12 +905,25 @@ rekonstruierbare Laufzeitprojektion ist.
 - `artifact_manager` owns Artefakt-Referenzen.
 - `telemetry_service` owns Events.
 - `analytics` owns Projektionen und KPIs.
+- `control_plane_runtime` owns `RunOwnershipRecord` und
+  `SessionRunBinding` im Auftrag des BC `story-lifecycle`.
 
 **Strikte Regel:** Komponenten dürfen übergreifend lesen, aber nicht
 beliebig fremde kanonische Entitäten schreiben.
 
 **Single-Writer-Prinzip:** Jede kanonische Entity hat genau einen
 schreibenden Owner.
+
+**Objekt-Serialisierung:** Das Single-Writer-Prinzip regelt, *wer*
+eine Entität schreiben darf; die Objekt-Serialisierung regelt,
+*wann*: Eine Mutation auf einem Objekt terminiert, bevor eine andere
+Mutation auf demselben Objekt beginnt. Jede mutierende Operation
+deklariert ihr Serialisierungsobjekt; Default für umsetzungs- und
+lifecyclebezogene Mutationen ist `(project_key, story_id)`,
+projektweite Mutationen serialisieren auf `(project_key)`. Lesende
+Zugriffe sind sperrenfrei und laufen parallel. Die vollständige
+API-Semantik (Idempotenz, In-Flight-Verhalten, Job-Muster) normiert
+FK-91.
 
 **Cross-Aggregate-Regel:** Konsistenz über Aggregatgrenzen hinweg wird
 nicht über eine gemeinsame Wahrheit erzwungen, sondern über
@@ -845,6 +971,8 @@ Abbildung genau einem Persistenzmodell zugeordnet werden:
 - `ExecutionEvent`: `runtime_observation_append`
 - `PhaseState`: `runtime_projection`
 - `KpiProjection`: `analytics_projection`
+- `RunOwnershipRecord`: `canonical_runtime_ledger`
+- `SessionRunBinding`: `canonical_runtime_snapshot`
 
 Der formale Speichervertrag fuer diese Persistenzmodell-Tags liegt in
 `formal.state-storage.entities` und
@@ -869,11 +997,18 @@ Runtime-Zustände werden entfernt.
 - umsetzungsbezogene `ArtifactRecord`
 - `ExecutionEvent`
 - `PhaseState`
+- aktive `SessionRunBinding`
 
 **Normative Regel:** Nach vollständigem Story-Reset darf kein
 verbliebenes Artefakt, Event oder Guard-Ergebnis die erneute Aufnahme
 der Story verhindern. Ein neuer Run muss gegen einen sauberen
 Runtime-Zustand starten.
+
+Der `RunOwnershipRecord` der zurückgesetzten Umsetzung wird dabei
+nicht entfernt, sondern wechselt auf `status = reset`. Das
+widerspricht der Regel nicht: Historische Ownership-Records sind
+niemals Admission-Evidenz und können eine erneute Aufnahme nicht
+blockieren (FK-56).
 
 ## 17.7b Story-Split bei Scope-Explosion
 

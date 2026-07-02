@@ -118,6 +118,22 @@ nach:
 - administrativ beendetem Story-Run
 - anschliessend freiem `ai_augmented`
 
+### 58.2a Abgrenzung zum Ownership-Transfer
+
+Der Story-Exit und der Ownership-Transfer (FK-56 §56.13) sind zwei
+verschiedene offizielle Antworten auf denselben Ausgangsbefund
+"diese Umsetzung kann so nicht weiterlaufen":
+
+- **Exit** beendet den Run administrativ und fuehrt kontrolliert nach
+  `ai_augmented` — die Story verlaesst das Execution-Regime.
+- **Transfer** fuehrt denselben Run unter neuem Owner fort — die
+  Story bleibt im Execution-Regime, nur der Besitzer wechselt.
+
+Beide Pfade sind explizit, offiziell und vollstaendig auditiert.
+Keiner der beiden entsteht automatisch aus clientseitiger Stille;
+Ownership endet oder wechselt nur ueber offizielle Pfade
+(FK-56 §56.8a).
+
 ## 58.3 Wann der Exit zulaessig ist
 
 Der Exit ist nur zulaessig, wenn mindestens einer dieser Gruende
@@ -187,6 +203,26 @@ Nach erfolgreichem Story-Exit gilt:
    geloest
 5. die Session faellt erst danach kontrolliert auf `ai_augmented`
    zurueck
+
+Die Entwertung einer noch aktiven Session-Bindung (Punkt 4) nutzt den
+Disown-Baustein aus FK-56 §56.13h. Der bisherige Owner erhaelt damit
+auf dem Exit-Pfad dieselbe deterministische, maschinenlesbare Auskunft
+wie bei jedem anderen offiziellen Entzugspfad — keine stillen
+Fehlversuche. Der Run-Ownership-Record der beendeten Umsetzung
+wechselt auf `status = ended` und ist fortan reiner Audit-Fakt
+(FK-56 §56.8a).
+
+### 58.6a Worktree-Schicksal beim Exit
+
+Worktree und Branch bleiben nach dem Exit als Arbeitsstand erhalten;
+es gibt **keinen** Auto-Teardown. Der Exit ist gerade der "Mensch
+uebernimmt die Arbeit"-Pfad (`exit_class=viability_handoff`): der
+vorhandene Stand ist das Uebergabegut, nicht Abraum. Aufgeraeumt wird
+erst durch die Closure einer Nachfolge-Umsetzung oder durch einen
+expliziten Reset-/Cleanup-Pfad (FK-53 bzw. `agentkit cleanup`). Das
+Loesen von Story-Locks, Session-Bindung und Guard-Regime (§58.6)
+bleibt davon unberuehrt: die Governance-Bindung endet, der
+Arbeitsstand besteht fort.
 
 ## 58.7 Kein Fluchtkanal
 

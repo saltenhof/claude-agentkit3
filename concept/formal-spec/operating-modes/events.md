@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: operating-modes
 spec_kind: event-set
-version: 1
+version: 2
 prose_refs:
   - concept/technical-design/56_ai_augmented_mode_and_story_execution_separation.md
   - concept/technical-design/91_api_event_katalog.md
@@ -16,7 +16,7 @@ prose_refs:
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.operating-modes.events
-schema_version: 1
+schema_version: 2
 kind: event-set
 context: operating-modes
 events:
@@ -37,6 +37,14 @@ events:
   - id: operating-modes.event.local_edge_bundle_materialized
     role: governance
   - id: operating-modes.event.edge_operation_reconciled
+    role: audit
+  - id: operating-modes.event.run_ownership_takeover_offered
+    role: governance
+  - id: operating-modes.event.run_ownership_takeover_approval_requested
+    role: governance
+  - id: operating-modes.event.session_run_binding_transferred
+    role: governance
+  - id: operating-modes.event.session_disowned
     role: audit
 ```
 <!-- FORMAL-SPEC:END -->

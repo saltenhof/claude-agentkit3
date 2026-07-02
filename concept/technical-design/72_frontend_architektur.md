@@ -118,6 +118,13 @@ Der Topbar-Projekt-Selector wird vom `contexts/project_management/`
 als Slot-Komponente in der App-Shell-Layout-Region gerendert. Die
 Shell stellt nur den Slot.
 
+Dasselbe Slot-Prinzip gilt fuer den **globalen
+Takeover-Freigabe-Overlay** (§72.14.7): Die Shell hostet eine
+Overlay-Region, die ueber allen Sichten erscheinen kann; Inhalt und
+Entscheidungssemantik (Challenge-Daten, Freigabe-Aktion) kommen aus
+dem Story-Slice bzw. dem Owner-BC — die Shell trifft keine
+fachliche Aussage ueber die Eigentumslage.
+
 ## 72.5 Sichten-Inventar und BC-Mapping
 
 Die Hauptnavigation der Web-App fuehrt **fuenf** Top-Sichten:
@@ -447,11 +454,13 @@ Die formale Schicht deckt ab:
   TelemetrySummary, Gates, Phases, Events), StoryFlowSnapshot
   (inkl. Phasen und Substeps mit Loop-Iterationen),
   ExecutionInputSnapshot, ExecutionInputStack, ExecutionLimits,
-  DependencyGraphSnapshot.
+  DependencyGraphSnapshot, TakeoverApprovalRequest (§72.14.7).
 - **Mutationen** als `command-set` in
   `formal.frontend-contracts.commands`: `create_story`,
   `update_story_fields`, `approve_story`, `reject_story`,
-  `cancel_story`, `update_execution_limits`. Jeder Command ist
+  `cancel_story`, `update_execution_limits`,
+  `request_story_run_takeover`, `confirm_story_run_takeover`
+  (§72.14.7). Jeder Command ist
   auf den Endpoint aus FK-91 §91.1a gebunden, traegt einen
   `op_id`-Idempotenzschluessel und nennt den fachlichen Owner-BC.
 - **Live-Events** als `event-set` in
@@ -633,3 +642,58 @@ hier die UI-Lesart.
   ein dezenter „Verbindung verloren"-Indikator am Topbar
   signalisiert den Stand. Optimistic-Updates werden nicht
   gestartet.
+
+### 72.14.7 Ownership-Takeover: Cockpit-Sicht, Freigabe-Overlay und Zustaende
+
+Der Ownership-Transfer (FK-56 §56.13) hat drei Frontend-Anteile.
+Layout und Bedienung sind prototyp-normativ (§72.13); normativ sind
+hier Dateninhalt, Datenherkunft und Freigabe-Semantik.
+
+**(1) Takeover-Sicht im Story Cockpit.** Das Story Cockpit
+(Story-Inspector) zeigt fuer eine Story mit aktivem Run die
+Eigentumslage als Entscheidungsgrundlage:
+
+- Owner-Session, Principal und `ownership_epoch`
+- „zuletzt aktiv" (letzter API-Kontakt) — **mit explizitem Hinweis,
+  dass Inaktivitaet keine Diagnose ist** (FK-56 §56.13a); die Anzeige
+  ist Information, nie Ausloeser
+- offene Jobs mit ihren `op_id`s und der Phasenstand
+- letzter Commit und Dirty-Stand der Story-Worktrees
+- die bisherige Takeover-Historie (prominente Anzeige, FK-56 §56.13d)
+
+Der Uebernahme-Dialog **ist** der versionierte Challenge aus
+FK-56 §56.13a: Was der Benutzer sieht, ist exakt der Stand, den sein
+Confirm per Challenge-Echo bestaetigt. Die Entscheidungsdaten kommen
+aus dem Owner-BC-Port (`story-lifecycle`), **nicht** aus
+moeglicherweise nachlaufenden Read-Models; veraltet der Challenge
+(Epoche/Bindung zwischenzeitlich geaendert), scheitert der Confirm
+deterministisch und die Sicht laedt die aktuelle Eigentumslage neu.
+
+**(2) Globaler Takeover-Freigabe-Overlay in der App-Shell
+(PO-Entscheidung).** Agenteninitiierte Takeover-Requests
+(FK-56 §56.13b) erscheinen **sofort** als Overlay ueber allen
+Sichten — kein Suchen nach dem richtigen Dialog. Der Overlay ist
+**benutzeruebergreifend**: Er ist nicht an einen spezifischen
+Benutzer gebunden; jeder eingeloggte Benutzer sieht ihn und kann
+entscheiden. Er traegt die vollstaendige Challenge-Information aus
+(1); erst die Bestaetigung im Overlay vollzieht den Transfer. Eine
+Ablehnung oder der Fristablauf laesst nur die offene Anfrage
+verfallen und entzieht niemals Eigentum (FK-55 §55.9a). Die Shell
+hostet nur die Overlay-Region (§72.4); Daten und Aktion kommen aus
+dem Owner-BC.
+
+**(3) Job-, Snapshot- und Contested-Anzeige.** Die Sicht zeigt
+laufende Jobs als solche an (`202` + `op_id`, beobachtbar ueber
+`GET operations/{op_id}`, FK-91 §91.1a Regel 14), nach einem
+Transfer den Takeover-Snapshot als Verantwortungsgrenze sowie die
+Edge-Zustaende `takeover_reconcile_required` und
+`contested_local_writes` (FK-30 §30.6.3) als blockierende Zustaende
+mit Klartext-Hinweis, welcher offizielle Pfad sie aufloest.
+
+**Wire-Bindung.** Die zugehoerigen Wire-Vertraege liegen in
+`formal.frontend-contracts.*`: die Commands
+`request_story_run_takeover` und `confirm_story_run_takeover`
+(`owner_bc: story-lifecycle`, gebunden an die
+Ownership-Endpoints aus FK-91 §91.1a), das Read-Model
+`takeover_approval_request` fuer den Overlay und das SSE-Event
+`takeover_approval_changed` (Topic `governance`, FK-91 §91.8.3).

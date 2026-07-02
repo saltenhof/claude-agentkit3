@@ -10,6 +10,7 @@ authority_over:
   - scope: prompt-bundles
   - scope: prompt-materialization
   - scope: prompt-audit
+  - scope: execution-contract-digest
 defers_to:
   - target: FK-10
     scope: runtime-deployment
@@ -75,6 +76,18 @@ glossary:
         identifiziert durch logical_prompt_id und template_relpath. Kann
         statisch (wird unveraendert verwendet) oder dynamisch (wird zur
         Laufzeit gerendert) sein.
+    - id: execution-contract-digest
+      definition: >
+        Beim Setup gebildeter Digest des fachlichen Execution-Contracts
+        eines Runs: Story-Spec-Version und fachlich tragende Spec-Felder,
+        einschlaegige Projekt-/QA-/Gate-Konfiguration sowie
+        Skill-/Prompt-/Capability-Versionen. Der run-prompt-pin ist eine
+        Komponente davon. Dient als Fencing-Praedikat fuer gefencte
+        Abschluss-Commits und macht Contract-Aenderungen waehrend eines
+        aktiven Runs explizit statt still wirksam.
+      see_also:
+        - term: run-prompt-pin
+          domain: prompt-runtime
     - id: run-prompt-pin
       definition: >
         Der bei Run-Start eingefrorene Snapshot der aufgeloesten Bundle-Bindung
@@ -213,6 +226,44 @@ Die Schnittstelle `PromptRuntime.update_binding(bundle_id, version)` ist
 die Top-Surface dieses BC fuer projektweite Pin-Aktualisierungen.
 Aufrufer ist ausschliesslich `installation-and-bootstrap` (FK-50).
 Andere BCs rufen diese Schnittstelle nicht direkt auf.
+
+## 44.3a Verallgemeinerung: Execution-Contract-Digest
+
+Das Run-Pinning aus §44.3 ist der Prototyp eines allgemeineren
+Prinzips: Ein aktiver Run arbeitet nicht nur gegen einen
+eingefrorenen Prompt-Stand, sondern gegen einen eingefrorenen
+**fachlichen Execution-Contract**. Beim Setup wird dafuer ein
+**`execution_contract_digest`** gebildet aus:
+
+- der Story-Spec-Version und den fachlich tragenden Spec-Feldern
+  (Scope, Akzeptanzkriterien, Story-Text; Mutations-Schranken dieser
+  Felder: FK-59 §59.9a)
+- der einschlaegigen Projekt-, QA- und Gate-Konfiguration
+- den Skill-, Prompt- und Capability-Versionen
+
+Der bestehende `run-prompt-pin` (§44.3) ist eine **Komponente** dieses
+Digests; seine Semantik ("spaetere Rebind-Aktionen veraendern den Pin
+eines laufenden Runs nicht") bleibt unangetastet gueltig.
+
+Fuer Aenderungen an Contract-Bestandteilen waehrend eines aktiven
+Runs gibt es genau drei zulaessige Wirkungsklassen:
+
+1. **run-neutral** — die Aenderung beruehrt keinen Bestandteil des
+   Digests des laufenden Runs;
+2. **gepinnt-fuer-neue-Runs** — die Aenderung wird wirksam, aber erst
+   fuer kuenftige Runs; der laufende Run arbeitet auf seinem Digest
+   weiter (Default, analog §44.3);
+3. **bewusster administrativer Eingriff** — die Aenderung soll den
+   laufenden Run treffen; sie laeuft dann sichtbar gegen den
+   Run-Owner bzw. als explizite Run-Invalidierung, nie als stiller
+   Mid-run-Drift.
+
+Der Digest ist zugleich **Fencing-Praedikat**: Gefencte
+Abschluss-Commits pruefen ihn, wo einschlaegig, zum Commit-Zeitpunkt
+(FK-91 §91.1a Regel 15). Ein Job-Ergebnis, dessen Contract-Grundlage
+sich administrativ geaendert hat, wird damit deterministisch als
+`stale_observation` behandelt statt still auf einer veralteten
+Grundlage steuernd zu wirken.
 
 ## 44.4 Materialisierung
 

@@ -238,13 +238,44 @@ gesperrt:
 - kein neuer Worker-Spawn
 - keine manuelle Git-Weiterarbeit unter Story-Lock
 
+### 54.8.2a Split als administrative Saga
+
+Der Split ist real eine mehrstufige Operation (Quiesce,
+Successor-Anlage, Rebinding, Source-Cancel, Reindex) und wird deshalb
+**nicht** als eine ueber die gesamte Dauer gehaltene
+Serialisierungs-Mutation modelliert, sondern als **administrative
+Saga**:
+
+1. Der Fence aus §54.8.2 ist ein fachlicher **Admin-Freeze** ueber
+   die gesamte Saga-Dauer: nie auto-ablaufend, vollstaendig
+   auditiert. Freeze-Zustaende sind Admission-Blocker gemaess
+   FK-56 §56.13f — sie blockieren zusaetzlich zum Ownership-Regime
+   und invalidieren offene Takeover-Challenges.
+2. Jeder Saga-Schritt ist eine **kurze, bounded, gefencte Mutation**
+   mit eigenem Claim-Erwerb und eigener Freigabe. Die Claims
+   (Projekt-Claim fuer Anlage/Nummernvergabe, Story-Claims) werden je
+   Schritt in der globalen Erwerbsordnung genommen
+   (FK-91 §91.1a Regeln 13 und 14); die Saga als Ganzes haelt
+   **keine** Serialisierungs-Claims ueber ihre Laufzeit.
+3. Wiederaufnahme ist reentranzsicher ueber die
+   **`op_id`-Abstammung** der Saga: verschachtelte Story-Anlagen
+   innerhalb der Saga leiten ihre Idempotenzschluessel deterministisch
+   vom Saga-Vorgang ab und koennen bei einem Resume nicht doppelt
+   ausgefuehrt werden.
+
+Die Entwertung aktiver fremder Session-Bindungen der Ausgangs-Story
+nutzt den Disown-Baustein aus FK-56 §56.13h — der Split ist ein
+administrativer Beendigungspfad, **kein** Hintertuer-Takeover: Wer
+die Umsetzung unter neuem Owner fortfuehren will, nimmt den
+offiziellen Ownership-Transfer (FK-56 §56.13).
+
 ### 54.8.3 Schritt 3: Aktive Runtime quiescen
 
 Der Service beendet oder entwertet alle steuernden Laufzeitobjekte:
 
 - aktive Flow- und Node-Ausfuehrungen
 - Phase-State-Projektion der Story
-- story-bezogene Locks und Leases
+- story-bezogene Locks und In-Flight-Operation-Claims
 - Story-Branch und Worktree
 
 **Ziel:** Die Ausgangs-Story darf die Erstellung und Bearbeitung ihrer
@@ -308,7 +339,7 @@ Alle steuernden Runtime-Reste der Ausgangs-Story werden entfernt oder
 invalidiert:
 
 - `phase_state_projection`
-- aktive Lock-/Lease-Zustaende
+- aktive Lock-Zustaende und In-Flight-Operation-Claims
 - offene Retry-/Resume-Mechanik
 - Story-Branch / Worktree
 

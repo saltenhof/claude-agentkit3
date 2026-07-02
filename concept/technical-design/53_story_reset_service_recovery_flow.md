@@ -163,7 +163,8 @@ Minimaler Reset-Record:
 - `ExecutionEvent`
 - FK-69-Read-Models
 - FK-60ff-Analytics-Ableitungen der korrupten Umsetzung
-- story-bezogene Locks, Leases, Queue-/Retry-Zustaende
+- story-bezogene Locks, In-Flight-Operation-Claims,
+  Queue-/Retry-Zustaende
 - ephemere Arbeitsartefakte, Worktree-Bindungen und tainted
   Arbeitsverzeichnisse
 
@@ -196,15 +197,36 @@ Der Service:
 
 ### 53.7.3 Schritt 3: Aktive Laufzeitteilnehmer quiescen
 
-Der Service beendet oder entwertet alle noch aktiven Laufzeitbesitzer:
+Der Service beendet oder entwertet alle noch aktiven
+Laufzeitmechanismen:
 
-- Worker-Leases
-- Heartbeats
+- laufende In-Flight-Operationen (servereigene, instanzgebundene
+  Claims)
 - Retry-/Resume-Mechanismen
 - story-bezogene Queue- oder Timer-Eintraege
 
+Ownership-Leases oder Heartbeat-Bindungen gibt es nicht — Ownership
+endet nie automatisch. Die aktive Session-Bindung wird hier ueber den
+offiziellen Reset-Pfad selbst explizit entwertet, nicht ueber einen
+Lease- oder Heartbeat-Entzug.
+
 Ziel ist nicht "sanft weitermachen", sondern "keine neue Mutation mehr
 zulassen".
+
+### 53.7.3a Entwertung der aktiven fremden Bindung (Disown-Baustein)
+
+Haelt zum Reset-Zeitpunkt noch eine fremde Session die aktive
+Run-Bindung, entwertet der Reset sie ueber den Disown-Baustein aus
+FK-56 §56.13h — denselben Baustein, den auch Ownership-Transfer,
+Story-Exit und Story-Split nutzen. Der Ex-Owner erhaelt beim
+naechsten Kontakt eine deterministische Reconcile-Antwort statt
+stiller Fehlversuche.
+
+Der Run-Ownership-Record der gekappten Umsetzung wird dabei nicht
+geloescht, sondern wechselt auf `status = reset`. Er ist fortan
+reiner Audit-Fakt und niemals Admission-Evidenz; er kann eine
+spaetere Neuaufnahme der Story nicht blockieren (FK-17 §17.7a,
+FK-56 §56.8a).
 
 ### 53.7.4 Schritt 4: Minimalen Beweis sichern
 
@@ -229,7 +251,7 @@ Purge-Domaene:
 - Execution
 - Governance-Laufzeitreste
 - PhaseState-Projektion
-- story-bezogene Lock- und Lease-Objekte
+- story-bezogene Lock-Objekte und In-Flight-Operation-Claims
 
 **Regel:** Kein verbleibendes Objekt dieses Schritts darf einen
 spaeteren Neustart, Resume oder Guard-Entscheid beeinflussen.

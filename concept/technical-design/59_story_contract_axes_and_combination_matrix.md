@@ -279,6 +279,30 @@ Vertragsachsen:
 Sie gehoeren in State Machines, Guards, Routing-Inputs oder
 Audit-Telemetrie, nicht in die Vertragsmatrix.
 
+## 59.9a Spec-Freeze waehrend eines aktiven Execution-Regimes
+
+Die Klassifikation der Story-Felder hat eine Mutations-Konsequenz:
+Waehrend eines aktiven Execution-Regimes sind die **fachlich
+tragenden Story-Spec-Felder** — Scope, Akzeptanzkriterien,
+Story-Text — **eingefroren**. Ein Aenderungswunsch an diesen Feldern
+laeuft als expliziter Vorgang gegen den aktuellen Run-Owner oder als
+bewusste administrative Run-Invalidierung (FK-56 §56.13,
+FK-44 §44.3a) — nie als stille Feldpflege, die den arbeitenden Owner
+semantisch invalidiert.
+
+Rein administrative Metadaten (Labels, Anzeigename und vergleichbare
+Nicht-Achsen-Felder aus §59.9) bleiben dagegen frei mutierbar; sie
+unterliegen nur der normalen Story-Serialisierung (FK-91 §91.1a
+Regel 13). Ausserhalb eines aktiven Execution-Regimes gilt der Freeze
+nicht — Anlage, Approval und Feldpflege sind dort normale,
+story-serialisierte Mutationen.
+
+Welche Felder und Konfigurationsbestandteile im Detail zum
+eingefrorenen Execution-Contract gehoeren, normiert der
+`execution_contract_digest` (FK-44 §44.3a); dieses Kapitel legt nur
+die Vertragsklassifikation fest: fachlich tragend = eingefroren,
+administrativ = frei.
+
 ## 59.10 Abgeleitete Konsequenzen
 
 Aus der Matrix folgen einige harte Regeln direkt:

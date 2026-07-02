@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: frontend-contracts
 spec_kind: command-set
-version: 1
+version: 2
 prose_refs:
   - concept/technical-design/72_frontend_architektur.md
   - concept/technical-design/91_api_event_katalog.md
@@ -55,7 +55,7 @@ UI-Verhalten bei Fehler:
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.frontend-contracts.commands
-schema_version: 1
+schema_version: 2
 kind: command-set
 context: frontend-contracts
 
@@ -407,5 +407,108 @@ commands:
         bedient nur sehr wenige Nutzer, die Caps werden selten und
         nicht von mehreren parallel veraendert. Beide Strategen
         sehen das Endergebnis ueber `limits_changed`.
+
+  # ---- Ownership-Takeover --------------------------------------------
+
+  - id: frontend-contracts.command.request_story_run_takeover
+    description: >
+      Menschlich initiierter Ownership-Takeover-Request aus der UI
+      (FK-56 §56.13a, FK-72 §72.14.7). Die Antwort ist nie der
+      Vollzug, sondern der versionierte Challenge mit der
+      Eigentumslage; der anschliessende Confirm bestaetigt exakt
+      diesen Challenge-Stand per Echo.
+    transport:
+      method: POST
+      endpoint: /v1/project-edge/story-runs/{run_id}/ownership/takeover-request
+    inputs:
+      - name: run_id
+        kind: string
+        required: true
+      - name: reason
+        kind: string
+        required: true
+        notes:
+          - Begruendungspflicht, auditiert (FK-56 §56.13a).
+      - name: op_id
+        kind: string
+        required: true
+    owner_bc: story-lifecycle
+    error_codes:
+      - code: validation_failed
+        http_status: 400
+        reason: Begruendung fehlt oder ist leer.
+      - code: story_not_found
+        http_status: 404
+        reason: Run bzw. Story existiert nicht oder hat keinen aktiven Ownership-Record.
+      - code: conflict
+        http_status: 409
+        reason: Story ist nicht takeover-admissible (aktiver Freeze-Zustand, FK-56 §56.13f).
+      - code: forbidden
+        http_status: 403
+      - code: idempotency_mismatch
+        http_status: 409
+      - code: internal_error
+        http_status: 500
+    notes:
+      - >
+        Dieses Kommando emittiert kein Frontend-Event: Der Challenge
+        kommt synchron als Antwort aus dem Owner-BC. Das Event
+        `takeover_approval_changed` gehoert zum agenteninitiierten
+        Pfad, der nicht vom Frontend ausgeloest wird.
+
+  - id: frontend-contracts.command.confirm_story_run_takeover
+    description: >
+      Vollzug eines Ownership-Takeovers per Challenge-Echo
+      (FK-56 §56.13a/§56.13c; Operationsklasse `admin_transition`,
+      FK-55 §55.5). Derselbe Command vollzieht die Freigabe eines
+      agenteninitiierten Requests aus dem globalen
+      Takeover-Freigabe-Overlay (FK-72 §72.14.7).
+    transport:
+      method: POST
+      endpoint: /v1/project-edge/story-runs/{run_id}/ownership/takeover-confirm
+    inputs:
+      - name: run_id
+        kind: string
+        required: true
+      - name: challenge_echo
+        kind: string
+        required: true
+        notes:
+          - >
+            Echo des versionierten Challenge (mindestens
+            `ownership_epoch` und `binding_version`); der Vollzug ist
+            ein CAS auf diese Versionen (FK-56 §56.13a).
+      - name: op_id
+        kind: string
+        required: true
+    emits:
+      - frontend-contracts.event.takeover_approval_changed
+    owner_bc: story-lifecycle
+    error_codes:
+      - code: conflict
+        http_status: 409
+        reason: >
+          Challenge veraltet oder invalidiert (zwischenzeitlicher
+          Transfer, Exit, Reset, Split, Closure oder Freeze-Eintritt)
+          — deterministischer fail-closed Fehlschlag ohne Vollzug;
+          erneuter Request gegen die aktuelle Eigentumslage noetig.
+      - code: story_not_found
+        http_status: 404
+      - code: forbidden
+        http_status: 403
+        reason: >
+          Auch die Ping-Pong-Schranke faellt hierunter: eine disowned
+          Session kann nicht unmittelbar zurueckuebernehmen
+          (FK-55 §55.8.4).
+      - code: idempotency_mismatch
+        http_status: 409
+      - code: internal_error
+        http_status: 500
+    notes:
+      - >
+        `takeover_approval_changed` wird emittiert, wenn der Confirm
+        eine ausstehende agenteninitiierte Freigabe aufloest; bei rein
+        menschlich initiierten Takeovers existiert kein
+        Approval-Objekt und damit kein solches Event.
 ```
 <!-- FORMAL-SPEC:END -->

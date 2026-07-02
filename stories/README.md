@@ -296,6 +296,23 @@ den regulären akribischen Story-Prozess (mit Reviews); (f) erst dann Umsetzung.
 **Kein Teil-Übernehmen der AG3-135-Arbeit** — das Endergebnis wird signifikant
 anders.
 
+**Stand 2026-07-02: Schritte (a)+(b) abgeschlossen.** Konzeptentwurf in
+`_temp/entwurf-session-ownership-und-nebenlaeufigkeit.md` (3 Review-Runden
+Codex+LLM-Hub bis 2× APPROVE; PO-Entscheidungen eingearbeitet: Sperr-Objekt =
+Story, Run-Fortführung mit `ownership_epoch`, Branch wird bei Takeover
+fortgeführt nie resettet, Agent-Takeover-Request mit menschlicher
+Frontend-Freigabe via globalem Overlay). Normative Verankerung in 4
+Arbeitspaketen gelandet: FK-56 §56.8a/§56.13 (Run-Ownership-Record,
+Ownership-Transfer), formal.operating-modes (+8 Invarianten), FK-17, FK-91
+§91.1a Regeln 13–18 + Ownership-Endpoints, FK-10, formal.state-storage/
+story-workflow, Disown-Familie (FK-58/53/54/55/20/44/59/30/31), FK-72
+(Takeover-UI + globaler Freigabe-Overlay); TTL/PID/Lease-Autofreigabe aus
+FK-02/10/15/53/54/71/93 + formal.story-reset/-split entfernt. Finale
+Diff-Review (Codex) mit 4 ERRORs → remediert (u. a. neue Entität
+`inflight-operation-record`, `defers_to`-Kanten zurückgebaut). Flankierend:
+`concept/_meta/konzept-konsistenz-governance.md` (Konsistenz-Prinzipien +
+Werkzeuge W1–W4). **Nächster Schritt: (c) GAP-Analyse.**
+
 ## 7. Konzept- und Guardrail-Bezug
 
 - **Konzepte** unter `concept/` sind die Quelle der Wahrheit fuer

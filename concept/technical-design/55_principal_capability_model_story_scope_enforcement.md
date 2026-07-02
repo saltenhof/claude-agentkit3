@@ -353,7 +353,7 @@ Operationsklasse normalisiert:
 | `execute` | Testlauf, Build, Toolausfuehrung |
 | `git_mutation` | Commit, Push, Branch-/Worktree-Aenderung |
 | `curate` | semantische Mutation an Story-/ARE-/Dependency-Zuordnungen |
-| `admin_transition` | Reset, Split, offizielle Konfliktaufloesung, registrierte Servicepfade |
+| `admin_transition` | Reset, Split, offizielle Konfliktaufloesung, Ownership-Transfer-Confirm (FK-56 §56.13), `admin_abort_inflight_operation` (FK-91 §91.1a), registrierte Servicepfade |
 
 ## 55.6 Capability-Entscheidung
 
@@ -500,6 +500,29 @@ Der Freeze ist keine freundliche Bitte, sondern eine technische
 Sperrschicht. Er verhindert gerade, dass ein Orchestrator nach einem
 HARD STOP "aufräumt", "repariert" oder Guard-Schranken umgeht.
 
+### 55.8.3 Entmuendigung nach Ownership-Transfer
+
+Die Entmuendigung des Ex-Owners nach einem Ownership-Transfer
+(FK-56 §56.13c) wirkt capability-seitig analog zum
+`conflict_freeze`: Die entmuendigte Session verliert jede
+storybezogene Mutationsberechtigung — ausdruecklich auch fuer
+`complete_phase`/`fail_phase`/Closure —, lesende Zugriffe
+einschliesslich der `op_id`-Rekonsiliierung bleiben erlaubt.
+Aufgeloest wird dieser Zustand nur ueber offizielle Pfade (erneuter
+Transfer, Neubindung nach Run-Ende), nie durch Zeitablauf oder
+erneute Aktivitaet der entmuendigten Session. Anders als der
+`conflict_freeze` ist die Entmuendigung kein Story-Freeze: Die Story
+selbst bleibt unter dem neuen Owner voll arbeitsfaehig.
+
+### 55.8.4 Ping-Pong-Schranke als Capability-Schranke
+
+Die Ping-Pong-Schranke des Transfers (FK-56 §56.13d) ist eine
+Capability-Regel, keine Konvention: Eine disowned Session kann nicht
+unmittelbar per Confirm zurueckuebernehmen; ein wiederholter Transfer
+derselben Story kurz darauf erfordert einen privilegierten Principal
+(`human_cli`/`admin_service`) und eine Begruendung. Formal:
+`operating-modes.invariant.disowned_session_cannot_immediately_reclaim`.
+
 ## 55.9 Offizielle Servicepfade
 
 Mutationen an besonders sensiblen Zonen duerfen nur ueber explizite
@@ -545,6 +568,13 @@ auf `PAUSED`. `permission_request_expired` fuehrt ohne menschliche
 Entscheidung zu `ESCALATED`. Eine Freigabe erzeugt nur die Lease; sie
 setzt den Run nicht implizit fort. Fuer die Fortsetzung ist ein
 expliziter Resume-Pfad notwendig.
+
+**Abgrenzung zum Ownership:** Eine Permission-Lease und ihr Verfall
+lassen ausschliesslich offene Anfragen verfallen — sie entziehen
+niemals bestehendes Eigentum an einem Run (FK-56 §56.13,
+FK-91 §91.1a Regel 16). Die menschliche Frontend-Freigabe eines
+agenteninitiierten Takeover-Requests (FK-56 §56.13b) gehoert zur
+selben Permission-Request-Familie und folgt denselben Regeln.
 
 ### 55.9a.1 Externe Permission-Substrate
 
@@ -764,7 +794,9 @@ mindestens:
 
 Laeuft die Frist ab, ohne dass der Mensch explizit entscheidet, wird der
 Fall deterministisch als `DENIED` abgeschlossen. Diese Ablehnung erzeugt
-keine neue Regel und keine neue Lease.
+keine neue Regel und keine neue Lease. Der Fristablauf ist ein reiner
+Entscheidungs-Verfall offener Anfragen und niemals ein Entzug
+bestehenden Eigentums (FK-56 §56.13, FK-91 §91.1a Regel 16).
 
 Die Expiration wird nicht durch einen permanenten Daemon erzwungen,
 sondern lazy beim naechsten relevanten Hook-/CLI-Zugriff materialisiert.

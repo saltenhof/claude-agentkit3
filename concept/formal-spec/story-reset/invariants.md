@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: story-reset
 spec_kind: invariant-set
-version: 1
+version: 2
 prose_refs:
   - concept/technical-design/53_story_reset_service_recovery_flow.md
   - concept/technical-design/20_workflow_engine_state_machine.md
@@ -20,7 +20,7 @@ gewordene Umsetzungen.
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.story-reset.invariants
-schema_version: 1
+schema_version: 2
 kind: invariant-set
 context: story-reset
 invariants:
@@ -37,7 +37,7 @@ invariants:
     rule: runtime state must be purged before read models and analytics derived from that runtime are removed
   - id: story-reset.invariant.completed_reset_leaves_no_resumable_run
     scope: outcome
-    rule: after completed reset there is no resumable run, no active lock, no active worker lease, and no active retry or resume residue for that story
+    rule: after completed reset there is no resumable run, no active lock, no in-flight operation claim, and no active retry or resume residue for that story
   - id: story-reset.invariant.story_anchor_remains
     scope: outcome
     rule: reset keeps the story as a business work item while removing the corrupted execution epoch

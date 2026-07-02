@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: frontend-contracts
 spec_kind: event-set
-version: 1
+version: 2
 prose_refs:
   - concept/technical-design/72_frontend_architektur.md
   - concept/technical-design/91_api_event_katalog.md
@@ -29,7 +29,7 @@ README.
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.frontend-contracts.events
-schema_version: 1
+schema_version: 2
 kind: event-set
 context: frontend-contracts
 
@@ -190,6 +190,38 @@ events:
       - name: detail
         kind: string
         required: false
+
+  - id: frontend-contracts.event.takeover_approval_changed
+    topic: governance
+    description: >
+      Eine ausstehende Takeover-Freigabe wurde angelegt oder hat
+      ihren Zustand geaendert (approved, denied, expired). Loest den
+      globalen, benutzeruebergreifenden Takeover-Freigabe-Overlay der
+      App-Shell aus bzw. schliesst ihn (FK-72 §72.14.7). Die
+      ausstehende Freigabe gehoert zur Permission-Request-Familie
+      (FK-56 §56.13b, FK-55 §55.9a).
+    producer:
+      bc: telemetry
+      source_bc: story-lifecycle
+    payload:
+      - name: project_key
+        kind: string
+        required: true
+      - name: story_id
+        kind: string
+        required: true
+      - name: approval_id
+        kind: string
+        required: true
+      - name: approval
+        kind: ref
+        required: true
+        target: frontend-contracts.entity.takeover_approval_request
+    notes:
+      - >
+        Der Overlay verlaesst sich nicht allein auf das lossy
+        SSE-Event: Beim Connection-Aufbau holt das Frontend offene
+        Freigaben per Initial-GET (Lossy-Re-Sync, FK-72 §72.12.4).
 
   # ---- Topic: closure -----------------------------------------------
 

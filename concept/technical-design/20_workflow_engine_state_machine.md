@@ -685,6 +685,21 @@ Worker-Loop-Recovery ist die einzige Stelle, an der der Recovery-
 Vertrag **menschlich entschieden** wird. Alle anderen Stellen sind
 auto-resume.
 
+### 20.7.4 Einordnung: Crash-Recovery als Ownership-Transfer-Spezialfall
+
+Ownership-seitig ist die Crash-Recovery ein Spezialfall des
+Ownership-Transfers (FK-56 §56.13g): `agentkit recover-story` erwirbt
+das Run-Ownership mit `acquired_via=recovery` — aber mit **neuem Run
+auf dem bestehenden Worktree**, weil der alte Run-Zustand nach einem
+Crash nicht vertrauenswuerdig ist. Der Takeover (FK-56 §56.13) fuehrt
+dagegen denselben `run_id` unter neuer `ownership_epoch` fort — dort
+ist nichts abgestuerzt, der Zustand ist konsistent.
+
+Die Uebernahme-/Verwerfen-Semantik aus §20.7.3 (Worker-Loop-Recovery)
+bleibt unveraendert gueltig; sie beschreibt das Schicksal des
+Worktree-Halbstands innerhalb des Recovery-Pfads und wird durch die
+Ownership-Einordnung nur eingeordnet, nicht veraendert.
+
 ## 20.8 Scheduling und Priorisierung
 
 ### 20.8.1 Kein automatisches Scheduling

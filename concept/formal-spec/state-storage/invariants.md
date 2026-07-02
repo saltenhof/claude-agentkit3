@@ -5,12 +5,13 @@ status: active
 doc_kind: spec
 context: state-storage
 spec_kind: invariant-set
-version: 1
+version: 2
 prose_refs:
   - concept/technical-design/17_fachliches_datenmodell_ownership.md
   - concept/technical-design/18_relationales_abbildungsmodell_postgres.md
   - concept/technical-design/69_qa_telemetrie_aggregation_dashboard.md
   - concept/technical-design/53_story_reset_service_recovery_flow.md
+  - concept/technical-design/10_runtime_deployment_speicher.md
 ---
 
 # State Storage Invariants
@@ -20,7 +21,7 @@ Diese Invarianten beschreiben die fachlich harte Speicherseite von AK3.
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.state-storage.invariants
-schema_version: 1
+schema_version: 2
 kind: invariant-set
 context: state-storage
 invariants:
@@ -57,5 +58,20 @@ invariants:
   - id: state-storage.invariant.rebuild_only_families_require_canonical_source
     scope: rebuild
     rule: read-model and analytics rebuild is legal only from canonical families of the same scope and never from telemetry or other derived families
+  - id: state-storage.invariant.object_mutation_claims_are_instance_bound_and_never_expire_by_wall_clock
+    scope: locking
+    rule: object mutation claims and in-flight operation claims are bound to backend_instance_id plus instance_incarnation and must never be released expired or taken over based on wall clock time ttl lease expiry heartbeat loss or process id heuristics
+  - id: state-storage.invariant.orphaned_claims_are_finalized_only_by_same_instance_startup_reconciliation_or_admin_abort
+    scope: locking
+    rule: an orphaned claim may be finalized as failed only by the startup reconciliation that the same backend instance identity runs over its earlier incarnations before request acceptance or by an explicit audited admin abort of the in-flight operation
+  - id: state-storage.invariant.operation_finalize_requires_cas_on_operation_epoch
+    scope: locking
+    rule: an operation finalize commits only by compare and swap while the operation is still inflight with unchanged operation_epoch so a late executor after an admin abort can at most register a no-op abort note and an aborted operation with partial writes enters an audited reconcile repair state instead of silently becoming failed
+  - id: state-storage.invariant.pending_project_claims_are_not_overtaken_by_younger_story_claims
+    scope: locking
+    rule: claim acquisition follows the global order of project before stories with story_ids in lexicographic order and a waiting project-scoped claim also conflicts with story claims of the same project arriving later so younger story claims never overtake it
+  - id: state-storage.invariant.stale_results_never_overwrite_current_projections
+    scope: canonicality
+    rule: a job result whose fencing predicates are no longer valid at commit time must be stored as a separate immutable stale_observation history record and must never update a current pointer latest view projection or steering state
 ```
 <!-- FORMAL-SPEC:END -->

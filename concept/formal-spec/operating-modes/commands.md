@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: operating-modes
 spec_kind: command-set
-version: 1
+version: 2
 prose_refs:
   - concept/technical-design/56_ai_augmented_mode_and_story_execution_separation.md
   - concept/technical-design/91_api_event_katalog.md
@@ -16,7 +16,7 @@ prose_refs:
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.operating-modes.commands
-schema_version: 1
+schema_version: 2
 kind: command-set
 context: operating-modes
 commands:
@@ -69,5 +69,28 @@ commands:
       - operating-modes.status.binding_invalid
     emits:
       - operating-modes.event.edge_operation_reconciled
+  - id: operating-modes.command.request-run-ownership-takeover
+    signature: internal request explicit run ownership takeover for a story in active story execution returning a versioned challenge or for agent initiated requests a pending human frontend approval
+    allowed_statuses:
+      - operating-modes.status.ai_augmented
+      - operating-modes.status.unresolved
+    emits:
+      - operating-modes.event.run_ownership_takeover_offered
+      - operating-modes.event.run_ownership_takeover_approval_requested
+  - id: operating-modes.command.confirm-run-ownership-takeover
+    signature: internal confirm run ownership takeover by compare and swap on ownership_epoch and binding_version transferring the run binding with unchanged run_id and worktree_roots to the requesting session and disowning the previous owner
+    allowed_statuses:
+      - operating-modes.status.ai_augmented
+      - operating-modes.status.unresolved
+    requires:
+      - operating-modes.invariant.at_most_one_active_ownership_per_story
+      - operating-modes.invariant.ownership_transfer_requires_explicit_confirmed_request
+      - operating-modes.invariant.agent_initiated_takeover_requires_human_frontend_approval
+      - operating-modes.invariant.takeover_confirm_fences_in_flight_mutations
+      - operating-modes.invariant.disowned_session_cannot_immediately_reclaim
+      - operating-modes.invariant.freeze_states_are_admission_blockers_and_invalidate_challenges
+    emits:
+      - operating-modes.event.session_run_binding_transferred
+      - operating-modes.event.session_disowned
 ```
 <!-- FORMAL-SPEC:END -->

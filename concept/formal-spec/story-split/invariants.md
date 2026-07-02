@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: story-split
 spec_kind: invariant-set
-version: 1
+version: 2
 prose_refs:
   - concept/technical-design/54_story_split_service_scope_explosion.md
   - concept/technical-design/35_integrity_gate_governance_beobachtung_eskalation.md
@@ -19,7 +19,7 @@ Scope-Explosion.
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.story-split.invariants
-schema_version: 1
+schema_version: 2
 kind: invariant-set
 context: story-split
 invariants:
@@ -43,6 +43,6 @@ invariants:
     rule: split may not complete while declared dependency rebinding still points dependents at the cancelled source story
   - id: story-split.invariant.runtime_residues_cleared_before_completion
     scope: process
-    rule: split may not complete while source-story runtime locks, leases, worktrees, branches, or resumable control residues remain active
+    rule: split may not complete while source-story runtime locks, in-flight operation claims, worktrees, branches, or resumable control residues remain active
 ```
 <!-- FORMAL-SPEC:END -->

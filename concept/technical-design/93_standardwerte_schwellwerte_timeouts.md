@@ -108,8 +108,7 @@ Die folgende Punktetabelle ist normative FK-93-Sollwert-Quelle.
 
 | Parameter | Default | Quelle | Kapitel |
 |-----------|---------|--------|---------|
-| Lock-TTL | 86400s (24h) | In Lock-Datei | 02 |
-| PID-Prüfung | Primär (vor TTL) | Fest im Code | 02 |
+| Automatische Lock-Freigabe (TTL/PID) | Entfällt — Locks enden nur über offizielle Pfade (Closure, Exit, Reset, Split, Ownership-Transfer); Stale-Anzeige nur als Information | Fest im Code | 02 |
 
 ## 93.10 Review-Häufigkeit
 
