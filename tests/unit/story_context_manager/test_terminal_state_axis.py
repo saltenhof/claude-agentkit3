@@ -285,7 +285,7 @@ def test_binding_invalid_is_not_free_ai_augmented() -> None:
         run_id="run-1",
         principal_type="story_worker",
         worktree_roots=(),
-        binding_version="bind-1",
+        binding_version="1",
         updated_at=now,
     )
     inactive_lock = StoryExecutionLockRecord(

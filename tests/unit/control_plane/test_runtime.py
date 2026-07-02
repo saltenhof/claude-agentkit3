@@ -20,7 +20,10 @@ from agentkit.backend.control_plane.records import (
     SessionRunBindingRecord,
 )
 from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
-from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
+from agentkit.backend.control_plane.runtime import (
+    ControlPlaneRuntimeService,
+    _next_binding_version,
+)
 from agentkit.backend.core_types import StoryMode
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.story_model import WireStoryMode
@@ -462,7 +465,7 @@ def _seed_admitted_run(
         run_id=run_id,
         principal_type="orchestrator",
         worktree_roots=("T:/worktrees/ag3-100",),
-        binding_version="bind-001",
+        binding_version="1",
         updated_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
     )
 
@@ -500,6 +503,55 @@ def test_start_phase_persists_binding_lock_and_operation() -> None:
     ]
 
 
+def test_next_binding_version_is_db_monotone_not_wall_clock() -> None:
+    """Codex ERROR §4: the mint derives from the persisted value (+1), never a clock.
+
+    Deterministic and process-independent: no binding -> the initial version;
+    an existing binding -> previous + 1. Same input -> same output (no wall-clock
+    / process-local counter dependency), so it is a sound CAS foundation
+    (FK-56 §56.13a).
+    """
+    assert _next_binding_version(None) == "1"
+    assert _next_binding_version("1") == "2"
+    assert _next_binding_version("41") == "42"
+    assert _next_binding_version("999") == "1000"
+    # Determinism: repeated calls with the same input never drift (no clock).
+    assert _next_binding_version("7") == _next_binding_version("7") == "8"
+
+
+def test_start_then_complete_increments_binding_version_db_monotone() -> None:
+    """The persisted binding_version increases DB-monotone across phase mutations.
+
+    A fresh start (no prior binding) mints ``"1"``; the subsequent complete reads
+    the persisted ``"1"`` and mints ``"2"`` -- derived from DB state, not a wall
+    clock. Proves the real runtime write path uses the DB-monotone mint.
+    """
+    state = _RepoState()
+    _resolvable_standard_ctx(state)
+    service = _admitting_service(state)
+    base_request = {
+        "project_key": "tenant-a",
+        "story_id": "AG3-100",
+        "session_id": "sess-001",
+        "principal_type": "orchestrator",
+        "worktree_roots": ["T:/worktrees/ag3-100"],
+    }
+
+    service.start_phase(
+        run_id="run-100",
+        phase="setup",
+        request=PhaseMutationRequest(**base_request, op_id="op-start-mono"),
+    )
+    assert state.bindings["sess-001"].binding_version == "1"
+
+    service.complete_phase(
+        run_id="run-100",
+        phase="implementation",
+        request=PhaseMutationRequest(**base_request, op_id="op-complete-mono"),
+    )
+    assert state.bindings["sess-001"].binding_version == "2"
+
+
 def test_repeated_op_id_replays_without_second_mutation() -> None:
     state = _RepoState()
     _resolvable_standard_ctx(state)
@@ -532,7 +584,7 @@ def test_complete_closure_unbinds_and_returns_tombstone_roots() -> None:
         run_id="run-100",
         principal_type="orchestrator",
         worktree_roots=("T:/worktrees/ag3-100",),
-        binding_version="bind-001",
+        binding_version="1",
         updated_at=now,
     )
     service = ControlPlaneRuntimeService(repository=_repository(state))
@@ -645,7 +697,7 @@ def test_complete_closure_standard_story_still_deactivates_locks() -> None:
         run_id="run-100",
         principal_type="orchestrator",
         worktree_roots=("T:/worktrees/ag3-100",),
-        binding_version="bind-001",
+        binding_version="1",
         updated_at=now,
     )
     service = ControlPlaneRuntimeService(repository=_repository(state))
@@ -693,7 +745,7 @@ def test_project_edge_sync_with_missing_lock_returns_binding_invalid() -> None:
         run_id="run-100",
         principal_type="orchestrator",
         worktree_roots=("T:/worktrees/ag3-100",),
-        binding_version="bind-001",
+        binding_version="1",
         updated_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
     )
     service = ControlPlaneRuntimeService(repository=_repository(state))
@@ -1396,7 +1448,7 @@ def test_complete_phase_with_prior_binding_is_admitted() -> None:
         run_id="run-100",
         principal_type="orchestrator",
         worktree_roots=("T:/worktrees/ag3-100",),
-        binding_version="bind-001",
+        binding_version="1",
         updated_at=now,
     )
     service = ControlPlaneRuntimeService(repository=_repository(state))
@@ -1436,7 +1488,7 @@ def test_complete_phase_reusing_live_claimed_start_op_id_does_not_clobber() -> N
         run_id="run-100",
         principal_type="orchestrator",
         worktree_roots=("T:/worktrees/ag3-100",),
-        binding_version="bind-001",
+        binding_version="1",
         updated_at=now,
     )
     op_id = "op-shared-with-live-start"
@@ -1473,7 +1525,7 @@ def test_complete_phase_reusing_live_claimed_start_op_id_does_not_clobber() -> N
     # ERROR-2 (#2): the rejection is ATOMIC -- NO orphan side effect was written.
     # The pre-existing admission binding is untouched (NOT recreated/overwritten by
     # a second materialization) and no NEW lock / event leaked before the collision.
-    assert state.bindings["sess-001"].binding_version == "bind-001"
+    assert state.bindings["sess-001"].binding_version == "1"
     assert state.locks == {}, "no orphan lock may be written on a rejected complete"
     assert state.events == [], "no orphan event may be emitted on a rejected complete"
     # The collision rejection stored only the live claimed start row (no committed op).
@@ -1506,7 +1558,7 @@ def test_complete_closure_reusing_live_claimed_start_op_id_is_atomic() -> None:
         run_id="run-100",
         principal_type="orchestrator",
         worktree_roots=("T:/worktrees/ag3-100",),
-        binding_version="bind-001",
+        binding_version="1",
         updated_at=now,
     )
     op_id = "op-closure-shared-with-live-start"
@@ -1576,7 +1628,7 @@ def test_complete_phase_with_binding_for_different_run_is_rejected() -> None:
         run_id="run-999",
         principal_type="orchestrator",
         worktree_roots=("T:/worktrees/ag3-999",),
-        binding_version="bind-999",
+        binding_version="999",
         updated_at=now,
     )
     service = ControlPlaneRuntimeService(repository=_repository(state))
@@ -1646,7 +1698,7 @@ def test_complete_closure_for_different_run_binding_is_rejected() -> None:
         run_id="run-999",
         principal_type="orchestrator",
         worktree_roots=("T:/worktrees/ag3-999",),
-        binding_version="bind-999",
+        binding_version="999",
         updated_at=now,
     )
     service = ControlPlaneRuntimeService(repository=_repository(state))
@@ -1683,7 +1735,7 @@ def _new_run_binding(state: _RepoState, *, run_id: str = "run-NEW") -> None:
         run_id=run_id,
         principal_type="orchestrator",
         worktree_roots=("T:/worktrees/ag3-100-new",),
-        binding_version="bind-NEW",
+        binding_version="500",
         updated_at=datetime(2026, 4, 22, 12, 0, tzinfo=UTC),
     )
 
@@ -1747,7 +1799,7 @@ def test_complete_phase_old_run_does_not_overwrite_new_runs_binding() -> None:
     assert result.operation_kind == "phase_complete"
     # run-NEW's live binding is UNCHANGED (run_id + version intact).
     assert state.bindings["sess-001"].run_id == "run-NEW"
-    assert state.bindings["sess-001"].binding_version == "bind-NEW"
+    assert state.bindings["sess-001"].binding_version == "500"
     # No committed completion op, no lock change, no events for the old run.
     assert "op-old-complete" not in state.operations
     assert state.locks == {}
@@ -1775,7 +1827,7 @@ def test_fail_phase_old_run_does_not_overwrite_new_runs_binding() -> None:
     assert result.status == "rejected"
     assert result.operation_kind == "phase_fail"
     assert state.bindings["sess-001"].run_id == "run-NEW"
-    assert state.bindings["sess-001"].binding_version == "bind-NEW"
+    assert state.bindings["sess-001"].binding_version == "500"
     assert "op-old-fail" not in state.operations
     assert state.locks == {}
     assert state.events == []
@@ -1815,7 +1867,7 @@ def test_standard_closure_old_run_does_not_delete_new_runs_binding() -> None:
     assert result.operation_kind == "closure_complete"
     # run-NEW's binding survives untouched.
     assert state.bindings["sess-001"].run_id == "run-NEW"
-    assert state.bindings["sess-001"].binding_version == "bind-NEW"
+    assert state.bindings["sess-001"].binding_version == "500"
     # No INACTIVE locks and no deactivation events for the foreign run.
     assert state.locks == {}
     assert state.events == []
@@ -1855,7 +1907,7 @@ def test_fast_closure_old_run_does_not_delete_new_runs_binding() -> None:
     assert result.status == "rejected"
     assert result.operation_kind == "closure_complete"
     assert state.bindings["sess-001"].run_id == "run-NEW"
-    assert state.bindings["sess-001"].binding_version == "bind-NEW"
+    assert state.bindings["sess-001"].binding_version == "500"
     assert state.locks == {}
     assert state.events == []
     assert "op-old-fast-closure" not in state.operations

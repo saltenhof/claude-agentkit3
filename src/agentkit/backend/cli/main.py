@@ -31,6 +31,15 @@ _STORY_ID_FIELD_LABEL = "Story ID"
 #: Shared ``--project-root`` help label, reused across the operator subcommands.
 _PROJECT_ROOT_HELP = "Project root directory"
 
+#: Shared ``--run`` help label, reused across the operator/recovery subcommands.
+_RUN_ID_HELP = "Run ID"
+
+#: Shared ``--project`` override help label, reused across the subcommands.
+_PROJECT_KEY_OVERRIDE_HELP = "Project key override"
+
+#: Shared ``--config`` override help label, reused across the subcommands.
+_CONFIG_PATH_OVERRIDE_HELP = "Config path override"
+
 
 def main(argv: list[str] | None = None) -> int:
     """Main CLI entrypoint.
@@ -1707,7 +1716,7 @@ def _setup_operator_recovery_subparsers(
     )
     run_phase_parser.add_argument("phase", help="Phase name: setup/exploration/implementation/closure")
     run_phase_parser.add_argument("--story", required=True, help=_STORY_ID_FIELD_LABEL)
-    run_phase_parser.add_argument("--run", required=True, help="Run ID")
+    run_phase_parser.add_argument("--run", required=True, help=_RUN_ID_HELP)
     run_phase_parser.add_argument("--session", required=True, help="Session ID")
     run_phase_parser.add_argument("--principal", required=True, help="Principal type")
     run_phase_parser.add_argument(
@@ -1719,8 +1728,8 @@ def _setup_operator_recovery_subparsers(
         metavar="PATH",
         help="Worktree root path (may be repeated)",
     )
-    run_phase_parser.add_argument("--project", required=False, help="Project key override")
-    run_phase_parser.add_argument("--config", required=False, help="Config path override")
+    run_phase_parser.add_argument("--project", required=False, help=_PROJECT_KEY_OVERRIDE_HELP)
+    run_phase_parser.add_argument("--config", required=False, help=_CONFIG_PATH_OVERRIDE_HELP)
     run_phase_parser.add_argument("--project-root", default=".", help=_PROJECT_ROOT_HELP)
     run_phase_parser.add_argument(
         "--base-url",
@@ -1735,7 +1744,7 @@ def _setup_operator_recovery_subparsers(
     )
     resume_parser.add_argument("phase", help="Phase name: setup/exploration/implementation/closure")
     resume_parser.add_argument("--story", required=True, help=_STORY_ID_FIELD_LABEL)
-    resume_parser.add_argument("--run", required=True, help="Run ID")
+    resume_parser.add_argument("--run", required=True, help=_RUN_ID_HELP)
     resume_parser.add_argument("--session", required=True, help="Session ID")
     resume_parser.add_argument("--principal", required=True, help="Principal type")
     resume_parser.add_argument(
@@ -1748,8 +1757,8 @@ def _setup_operator_recovery_subparsers(
         help="Worktree root path (may be repeated)",
     )
     resume_parser.add_argument("--trigger", required=True, help="Resume trigger event name")
-    resume_parser.add_argument("--project", required=False, help="Project key override")
-    resume_parser.add_argument("--config", required=False, help="Config path override")
+    resume_parser.add_argument("--project", required=False, help=_PROJECT_KEY_OVERRIDE_HELP)
+    resume_parser.add_argument("--config", required=False, help=_CONFIG_PATH_OVERRIDE_HELP)
     resume_parser.add_argument("--project-root", default=".", help=_PROJECT_ROOT_HELP)
     resume_parser.add_argument(
         "--base-url",
@@ -1808,8 +1817,8 @@ def _setup_operator_recovery_subparsers(
             "Supports {N}d/{N}h/{N}m (e.g. 7d, 24h, 30m) or an ISO-8601 timestamp."
         ),
     )
-    query_tel_parser.add_argument("--project", required=False, help="Project key override")
-    query_tel_parser.add_argument("--config", required=False, help="Config path override")
+    query_tel_parser.add_argument("--project", required=False, help=_PROJECT_KEY_OVERRIDE_HELP)
+    query_tel_parser.add_argument("--config", required=False, help=_CONFIG_PATH_OVERRIDE_HELP)
     query_tel_parser.add_argument("--project-root", default=".", help=_PROJECT_ROOT_HELP)
 
     # weekly-review (Class C for Failure-Corpus sections / Class A for renderer frame)
@@ -1832,7 +1841,7 @@ def _setup_operator_recovery_subparsers(
         help="Export a completed story run as a JSONL audit bundle (AG3-076, FK-68)",
     )
     export_tel_parser.add_argument("--story", required=True, help=_STORY_ID_FIELD_LABEL)
-    export_tel_parser.add_argument("--run", required=True, help="Run ID")
+    export_tel_parser.add_argument("--run", required=True, help=_RUN_ID_HELP)
     export_tel_parser.add_argument("--output-dir", required=True, help="Directory to write the bundle into")
     export_tel_parser.add_argument(
         "--dry-run",
@@ -2033,10 +2042,14 @@ def _invoke_control_plane_phase(
         print(f"{verb} failed [{exc.error_code}]: {exc}", file=sys.stderr)
     except URLError as exc:
         print(f"{verb} failed [BackendUnreachable]: {exc}", file=sys.stderr)
-    except ValueError as exc:
-        print(f"{verb} failed [InvalidBaseUrl]: {exc}", file=sys.stderr)
+    # ``json.JSONDecodeError`` is a ``ValueError`` subclass: a malformed / non-
+    # contract response is a TransportError (docstring), so this clause MUST come
+    # BEFORE the bare ``ValueError`` (an invalid --base-url) — otherwise the
+    # ValueError clause would swallow it (Sonar S1045: already-caught exception).
     except (RuntimeError, json.JSONDecodeError) as exc:
         print(f"{verb} failed [TransportError]: {exc}", file=sys.stderr)
+    except ValueError as exc:
+        print(f"{verb} failed [InvalidBaseUrl]: {exc}", file=sys.stderr)
     return None
 
 

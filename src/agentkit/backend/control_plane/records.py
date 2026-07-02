@@ -21,7 +21,12 @@ from agentkit.backend.control_plane.ownership import (
     BindingStatus,
     OwnershipAcquisition,
     OwnershipStatus,
+    is_canonical_binding_version,
 )
+
+#: Closed set of admissible ``SessionRunBindingRecord.status`` values (the
+#: ``BindingStatus`` value space) for fail-closed record-boundary validation.
+_VALID_BINDING_STATUS = frozenset(status.value for status in BindingStatus)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -63,17 +68,31 @@ class SessionRunBindingRecord:
     (principal, worktrees, ``binding_version``) but is subordinate to the
     ownership record.
 
-    AG3-137 (additive): ``status`` (``active`` | ``revoked``, FK-56 §56.7a) and a
-    machine-readable ``revocation_reason`` (vocabulary includes
-    ``ownership_transferred``) are additive with safe defaults so pre-existing
-    constructors stay compatible. ``binding_version`` carries a monotone
-    positive-integer version token (FK-17 §17.3a.16, minted by
-    ``control_plane.runtime._next_binding_version``); it stays typed ``str``
-    because the same value flows verbatim into the derived
-    ``StoryExecutionLockRecord`` / edge-bundle projections, which legitimately
-    also carry non-integer correlation tokens (e.g. the story-exit ``exit-<id>``
-    teardown token). No admission/fencing semantics change here (that is
-    AG3-142).
+    AG3-137 (additive, fail-closed value domains): ``status`` (``active`` |
+    ``revoked``, FK-56 §56.7a) and a machine-readable ``revocation_reason``
+    (vocabulary includes ``ownership_transferred``) are additive with safe
+    defaults so pre-existing constructors stay compatible. ``binding_version``
+    carries a monotone positive-integer version token (FK-17 §17.3a.16, minted
+    DB-monotone by ``control_plane.runtime._next_binding_version``).
+
+    The value stays typed ``str`` (a canonical decimal, e.g. ``"1"``, ``"2"``)
+    rather than ``int`` because it flows verbatim into the derived
+    ``StoryExecutionLockRecord`` / edge-bundle projections whose column lives in
+    ``sqlite_store`` (K5: not migrated to a numeric column here); a literal
+    numeric-column migration is the fencing consumer's job (AG3-142). But the
+    value DOMAIN is a monotone positive integer and is enforced hard here at the
+    record boundary (:func:`is_canonical_binding_version`), so no ``bind-*`` /
+    ``exit-*`` correlation token, empty string or leading-zero form can enter a
+    binding. The ``exit-<id>`` teardown token legitimately carried by the
+    story-exit path lives on the ``StoryExecutionLockRecord`` axis, NOT here.
+
+    No admission/fencing semantics change here (that is AG3-142).
+
+    Raises:
+        ValueError: On a non-canonical ``binding_version`` (not a base-10 integer
+            ``>= 1``), an unknown ``status`` (outside the ``BindingStatus`` space),
+            a ``revocation_reason`` set on an ``active`` binding, or a missing
+            ``revocation_reason`` on a ``revoked`` binding.
     """
 
     session_id: str
@@ -86,6 +105,34 @@ class SessionRunBindingRecord:
     updated_at: datetime
     status: str = BindingStatus.ACTIVE.value
     revocation_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if not is_canonical_binding_version(self.binding_version):
+            raise ValueError(
+                "binding_version must be a canonical base-10 integer >= 1 "
+                "(FK-17 §17.3a.16: monotone, CAS-capable); got "
+                f"{self.binding_version!r} (a bind-*/exit-* correlation token, "
+                "empty string or leading-zero form is not a valid binding "
+                "version).",
+            )
+        if self.status not in _VALID_BINDING_STATUS:
+            raise ValueError(
+                "SessionRunBindingRecord.status must be one of "
+                f"{sorted(_VALID_BINDING_STATUS)} (FK-56 §56.7a), got "
+                f"{self.status!r}",
+            )
+        if self.status == BindingStatus.ACTIVE.value:
+            if self.revocation_reason is not None:
+                raise ValueError(
+                    "an active binding must not carry a revocation_reason "
+                    "(FK-56 §56.7a: the reason is an attribute of a REVOKED "
+                    f"binding); got {self.revocation_reason!r}",
+                )
+        elif self.revocation_reason is None or not self.revocation_reason.strip():
+            raise ValueError(
+                "a revoked binding requires a machine-readable revocation_reason "
+                "(FK-56 §56.7a); got an empty/missing reason",
+            )
 
 
 @dataclass(frozen=True)

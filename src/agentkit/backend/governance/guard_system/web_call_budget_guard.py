@@ -202,10 +202,8 @@ class WebCallBudgetGuard:
             # rejected read is NOT "zero events" -- an unverifiable counter is an
             # inconsistent state on an active research web call, so we DENY (never
             # a fail-open allow, never a direct-DB fallback).
-            detail = (
-                "web_call_counter_unavailable: cannot read the canonical web-call "
-                f"counter fail-closed ({exc})"
-            )
+            detail = "web_call_counter_unavailable: cannot read the canonical "
+            detail += f"web-call counter fail-closed ({exc})"
             verdict = GuardVerdict.block(
                 self.name,
                 ViolationType.POLICY_VIOLATION,

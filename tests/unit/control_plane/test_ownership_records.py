@@ -235,20 +235,98 @@ def test_backend_instance_identity_validation() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _binding(**overrides: object) -> SessionRunBindingRecord:
+    base: dict[str, object] = {
+        "session_id": "sess-1",
+        "project_key": "tenant-a",
+        "story_id": "AG3-100",
+        "run_id": "run-1",
+        "principal_type": "orchestrator",
+        "worktree_roots": ("wt",),
+        "binding_version": "1",
+        "updated_at": _NOW,
+    }
+    base.update(overrides)
+    return SessionRunBindingRecord(**base)  # type: ignore[arg-type]
+
+
 def test_session_binding_additive_fields_default_active() -> None:
     """Additive status/revocation_reason default so pre-AG3-137 constructors work."""
-    binding = SessionRunBindingRecord(
-        session_id="sess-1",
-        project_key="tenant-a",
-        story_id="AG3-100",
-        run_id="run-1",
-        principal_type="orchestrator",
-        worktree_roots=("wt",),
-        binding_version="1",
-        updated_at=_NOW,
-    )
+    binding = _binding()
     assert binding.status == "active"
     assert binding.revocation_reason is None
+
+
+def test_session_binding_accepts_canonical_integer_versions() -> None:
+    """Valid boundary values are ACCEPTED (no over-reject): 1, 2, large integers."""
+    for value in ("1", "2", "999", "1000000"):
+        assert _binding(binding_version=value).binding_version == value
+
+
+@pytest.mark.parametrize(
+    "bad_version",
+    [
+        "bind-not-int",  # Codex ERROR §4: the exact reproduced bypass
+        "bind-001",
+        "exit-abc",
+        "",
+        " ",
+        "0",  # not >= 1
+        "01",  # leading-zero ambiguity
+        "007",
+        "-1",
+        "+1",
+        "1.0",
+        "1 ",
+        "1\n",  # fullmatch anchors: no trailing-newline tolerance
+        "١",  # non-ASCII digit
+    ],
+)
+def test_session_binding_rejects_non_canonical_version(bad_version: str) -> None:
+    """AK8 / Codex ERROR §4: a non-integer binding_version fails closed at the record.
+
+    Reproduces the exact bypass Codex demonstrated
+    (``SessionRunBindingRecord(..., binding_version='bind-not-int')`` used to
+    construct successfully). The value domain is now enforced at the record
+    boundary, so NO path (direct constructor, mapper, store) can carry a
+    ``bind-*``/``exit-*`` correlation token, empty/whitespace, sign, decimal,
+    ``0`` or leading-zero form as a binding version.
+    """
+    with pytest.raises(ValueError, match="binding_version"):
+        _binding(binding_version=bad_version)
+
+
+def test_session_binding_rejects_unknown_status() -> None:
+    """AK8 / Codex ERROR §9: an out-of-vocabulary status fails closed at the record."""
+    with pytest.raises(ValueError, match="status"):
+        _binding(status="bogus")
+
+
+def test_session_binding_rejects_reason_on_active() -> None:
+    """AK8: a revocation_reason on an ACTIVE binding is inconsistent (fail-closed)."""
+    with pytest.raises(ValueError, match="active binding"):
+        _binding(
+            status=BindingStatus.ACTIVE.value,
+            revocation_reason=OWNERSHIP_TRANSFERRED_REVOCATION_REASON,
+        )
+
+
+def test_session_binding_rejects_revoked_without_reason() -> None:
+    """AK8: a REVOKED binding requires a machine-readable reason (FK-56 §56.7a)."""
+    with pytest.raises(ValueError, match="revoked binding"):
+        _binding(status=BindingStatus.REVOKED.value, revocation_reason=None)
+    with pytest.raises(ValueError, match="revoked binding"):
+        _binding(status=BindingStatus.REVOKED.value, revocation_reason="  ")
+
+
+def test_session_binding_accepts_revoked_with_reason() -> None:
+    """A REVOKED binding with a valid reason is accepted (no over-reject)."""
+    binding = _binding(
+        status=BindingStatus.REVOKED.value,
+        revocation_reason=BindingRevocationReason.OWNERSHIP_TRANSFERRED.value,
+    )
+    assert binding.status == "revoked"
+    assert binding.revocation_reason == "ownership_transferred"
 
 
 # ---------------------------------------------------------------------------

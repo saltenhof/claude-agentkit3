@@ -314,12 +314,19 @@ def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
         "phase_snapshots",
         "project_mode_lock",
         "qa_stage_results",
-        # AG3-137 canary: a pre-AG3-137 schema lacks run_ownership_records, so it
-        # reports "not bootstrapped" and re-runs the full _ensure_schema — which
-        # creates the new session-ownership tables, applies the additive ALTERs
-        # and runs the run-ownership backfill. Without this canary the DDL
-        # short-circuit would skip the migration on an existing production DB.
+        # AG3-137 canary: a pre-AG3-137 schema lacks these tables, so it reports
+        # "not bootstrapped" and re-runs the full _ensure_schema — which creates
+        # the new session-ownership tables, applies the additive ALTERs and runs
+        # the run-ownership backfill. Without this canary the DDL short-circuit
+        # would skip the migration on an existing production DB. ALL four AG3-137
+        # tables are checked (not just run_ownership_records) so a PARTIALLY
+        # migrated DB (one table present, the rest missing — a failed rollout or
+        # a manual repair) still fails closed and forces a full bootstrap
+        # (Codex WARNING §6 / ZERO DEBT).
         "run_ownership_records",
+        "object_mutation_claims",
+        "takeover_transfer_records",
+        "backend_instance_identity",
     )
     table_rows = conn.execute(
         """
@@ -343,9 +350,50 @@ def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
     ).fetchone()
     if flow_id is None:
         return False
+    if not _ag3_137_additive_columns_present(conn):
+        return False
     if not _analytics_versions_are_recorded(conn):
         return False
     return _fact_tables_are_fk62_shaped(conn)
+
+
+#: The AG3-137 additive columns on the two pre-existing control-plane tables. A
+#: partially migrated DB (the new tables created but a table missing its additive
+#: ALTER columns) must fail the bootstrap canary so the additive ALTERs re-run
+#: (Codex WARNING §6). Kept in lock-step with _schema_alter_statements() and the
+#: fresh CREATE TABLE columns in postgres_schema.sql.
+_AG3_137_ADDITIVE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("session_run_bindings", "status"),
+    ("session_run_bindings", "revocation_reason"),
+    ("control_plane_operations", "operation_epoch"),
+    ("control_plane_operations", "backend_instance_id"),
+    ("control_plane_operations", "instance_incarnation"),
+    ("control_plane_operations", "declared_serialization_scope"),
+    ("control_plane_operations", "finalized_at"),
+)
+
+
+def _ag3_137_additive_columns_present(conn: _CompatConnection) -> bool:
+    """Return whether every AG3-137 additive column exists (partial-migration guard).
+
+    Complements the table-level canary in :func:`_schema_is_bootstrapped`: the new
+    AG3-137 tables can all be present while an additive column on an EXISTING
+    control-plane table is still missing (a partial rollout). Checking the
+    columns too forces a full bootstrap in that case rather than silently
+    skipping the additive ALTERs (Codex WARNING §6, fail-closed).
+    """
+    tables = sorted({table for table, _ in _AG3_137_ADDITIVE_COLUMNS})
+    rows = conn.execute(
+        """
+        SELECT table_name, column_name
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = ANY(%s)
+        """,
+        (tables,),
+    ).fetchall()
+    present = {(str(row["table_name"]), str(row["column_name"])) for row in rows}
+    return set(_AG3_137_ADDITIVE_COLUMNS) <= present
 
 
 def _analytics_versions_are_recorded(conn: _CompatConnection) -> bool:
@@ -674,6 +722,7 @@ def _ensure_schema(conn: _CompatConnection) -> None:
     _ensure_story_identity_constraints(conn)
     _ensure_failure_corpus_constraints(conn)
     _ensure_run_ownership_backfill(conn)
+    _ensure_session_binding_constraints(conn)
     _ensure_analytics_migration(conn)
 
 
@@ -716,8 +765,12 @@ def _ensure_run_ownership_backfill(conn: _CompatConnection) -> None:
         "WHERE status IS NULL OR status = ''",
     )
     conn.execute(
+        # Normalise every NON-canonical legacy value (random bind-<uuid4>, empty,
+        # '0', leading-zero forms) to the initial version '1' so the canonical
+        # value domain (^[1-9][0-9]*$) holds before the CHECK constraint is added
+        # in _ensure_session_binding_constraints (Codex ERROR §4 follow-through).
         "UPDATE session_run_bindings SET binding_version = '1' "
-        "WHERE binding_version !~ '^[0-9]+$'",
+        "WHERE binding_version !~ '^[1-9][0-9]*$'",
     )
 
     # 2. Ambiguity guard: two active bindings for the same (project, story)
@@ -771,6 +824,60 @@ def _ensure_run_ownership_backfill(conn: _CompatConnection) -> None:
         "WHERE r.project_key = b.project_key AND r.story_id = b.story_id "
         "AND r.run_id = b.run_id) "
         "ON CONFLICT (project_key, story_id, run_id) DO NOTHING",
+    )
+
+
+def _ensure_session_binding_constraints(conn: _CompatConnection) -> None:
+    """Idempotently ensure the AG3-137 session-binding CHECK constraints.
+
+    Applied AFTER :func:`_ensure_run_ownership_backfill` has normalised legacy
+    ``binding_version`` / ``status`` values, so ``ADD CONSTRAINT`` never trips on
+    pre-existing rows. This closes Codex WARNING §5a: the additive
+    ``session_run_bindings.status`` ALTER adds the column WITHOUT a check, so an
+    existing production DB would otherwise get a SOFTER value domain than a fresh
+    schema. Both named constraints mirror the fresh CREATE TABLE (postgres_schema
+    .sql) 1:1:
+
+    * ``session_run_bindings_status_check``: ``status IN ('active','revoked')``.
+    * ``session_run_bindings_binding_version_check``: canonical integer domain
+      (``^[1-9][0-9]*$``), the persistence-boundary mirror of
+      ``ownership.is_canonical_binding_version`` (Codex ERROR §4).
+
+    Named + existence-guarded so a fresh schema (whose CREATE TABLE already
+    created the SAME named constraints) is a no-op, and re-running the bootstrap
+    never duplicates a constraint.
+    """
+    conn.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint c
+                JOIN pg_class t ON t.oid = c.conrelid
+                JOIN pg_namespace n ON n.oid = t.relnamespace
+                WHERE c.conname = 'session_run_bindings_status_check'
+                  AND n.nspname = current_schema()
+            ) THEN
+                ALTER TABLE session_run_bindings
+                ADD CONSTRAINT session_run_bindings_status_check
+                CHECK (status IN ('active', 'revoked'));
+            END IF;
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint c
+                JOIN pg_class t ON t.oid = c.conrelid
+                JOIN pg_namespace n ON n.oid = t.relnamespace
+                WHERE c.conname = 'session_run_bindings_binding_version_check'
+                  AND n.nspname = current_schema()
+            ) THEN
+                ALTER TABLE session_run_bindings
+                ADD CONSTRAINT session_run_bindings_binding_version_check
+                CHECK (binding_version ~ '^[1-9][0-9]*$');
+            END IF;
+        END
+        $$;
+        """,
     )
 
 
@@ -2898,13 +3005,19 @@ def _insert_session_binding_row(conn: _CompatConnection, row: dict[str, Any]) ->
         """
         INSERT INTO session_run_bindings (
             session_id, project_key, story_id, run_id, principal_type,
-            worktree_roots_json, binding_version, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            worktree_roots_json, binding_version, updated_at,
+            status, revocation_reason
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (session_id) DO UPDATE SET
             principal_type = EXCLUDED.principal_type,
             worktree_roots_json = EXCLUDED.worktree_roots_json,
             binding_version = EXCLUDED.binding_version,
-            updated_at = EXCLUDED.updated_at
+            updated_at = EXCLUDED.updated_at,
+            -- AG3-137 (Codex WARNING §5b): carry status / revocation_reason on a
+            -- same-run rebind too, so an update never leaves a stale status or a
+            -- stale reason behind (the mapper always supplies both).
+            status = EXCLUDED.status,
+            revocation_reason = EXCLUDED.revocation_reason
         WHERE session_run_bindings.project_key = EXCLUDED.project_key
           AND session_run_bindings.story_id = EXCLUDED.story_id
           AND session_run_bindings.run_id = EXCLUDED.run_id
@@ -2918,6 +3031,8 @@ def _insert_session_binding_row(conn: _CompatConnection, row: dict[str, Any]) ->
             row["worktree_roots_json"],
             row["binding_version"],
             row["updated_at"],
+            row["status"],
+            row["revocation_reason"],
         ),
     )
     if int(cursor.rowcount) == 0:

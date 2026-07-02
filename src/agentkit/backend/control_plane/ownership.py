@@ -23,11 +23,13 @@ Concept anchors:
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from typing import NewType
 
 __all__ = (
     "AT_MOST_ONE_ACTIVE_OWNERSHIP_PER_STORY",
+    "BINDING_VERSION_SQL_CHECK",
     "INITIAL_OWNERSHIP_EPOCH",
     "MIN_BINDING_VERSION",
     "MIN_INSTANCE_INCARNATION",
@@ -39,6 +41,7 @@ __all__ = (
     "OwnershipAcquisition",
     "OwnershipStatus",
     "SessionId",
+    "is_canonical_binding_version",
 )
 
 #: Semantic type for a client session identifier (FK-17 §17.2b: systemwide
@@ -119,6 +122,39 @@ INITIAL_OWNERSHIP_EPOCH = 1
 
 #: ``binding_version`` lower bound (FK-17 §17.3a.16: ``>= 1``).
 MIN_BINDING_VERSION = 1
+
+#: Canonical ``binding_version`` value domain (FK-17 §17.3a.16): a base-10
+#: integer ``>= 1`` with NO leading-zero ambiguity, NO sign, NO ``bind-``/
+#: ``exit-`` correlation prefix and NO whitespace. The value stays a ``str`` at
+#: the record/wire level (it flows verbatim into derived lock projections), but
+#: its domain is a monotone positive integer, enforced at BOTH the record
+#: boundary (:func:`is_canonical_binding_version`) and the persistence boundary
+#: (:data:`BINDING_VERSION_SQL_CHECK`). The two encodings are kept deliberately
+#: in lock-step; changing one requires changing the other.
+_CANONICAL_BINDING_VERSION_RE = re.compile(r"[1-9][0-9]*")
+
+#: Postgres regex fragment mirroring :func:`is_canonical_binding_version` for the
+#: schema ``CHECK`` constraint (fresh CREATE TABLE and existing-schema ALTER).
+#: ``~`` is a partial match in Postgres, hence the explicit ``^``/``$`` anchors.
+BINDING_VERSION_SQL_CHECK = "^[1-9][0-9]*$"
+
+
+def is_canonical_binding_version(value: str) -> bool:
+    """Return whether *value* is a canonical ``binding_version`` (FK-17 §17.3a.16).
+
+    A canonical value is a base-10 integer ``>= 1`` in its shortest form: a
+    leading non-zero digit followed by any digits. This rejects the empty
+    string, whitespace, ``bind-<uuid>``/``exit-<id>`` correlation tokens, signs,
+    decimals, ``0`` and leading-zero forms (``001``). ``re.fullmatch`` anchors
+    the whole string (no ``$``-before-newline tolerance).
+
+    Args:
+        value: The candidate version token.
+
+    Returns:
+        ``True`` iff *value* is a canonical monotone positive integer string.
+    """
+    return _CANONICAL_BINDING_VERSION_RE.fullmatch(value) is not None
 
 #: ``instance_incarnation`` lower bound (FK-91 §91.1a rule 16: monotone boot
 #: incarnation counter, first boot is 1).

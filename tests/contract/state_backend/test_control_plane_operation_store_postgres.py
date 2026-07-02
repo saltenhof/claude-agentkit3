@@ -573,7 +573,7 @@ def test_loser_after_takeover_writes_no_side_effects_real_store(
         run_id="run-100",
         principal_type="orchestrator",
         worktree_roots=("T:/worktrees/loser",),
-        binding_version="bind-loser",
+        binding_version="1",
         updated_at=now,
     )
     lock = StoryExecutionLockRecord(
@@ -583,7 +583,7 @@ def test_loser_after_takeover_writes_no_side_effects_real_store(
         lock_type="story_execution",
         status="ACTIVE",
         worktree_roots=("T:/worktrees/loser",),
-        binding_version="bind-loser",
+        binding_version="1",
         activated_at=now,
         updated_at=now,
     )
@@ -857,7 +857,7 @@ def _seed_admission_binding(*, now: datetime) -> None:
             run_id="run-100",
             principal_type="orchestrator",
             worktree_roots=("T:/worktrees/ag3-100",),
-            binding_version="bind-001",
+            binding_version="1",
             updated_at=now,
         )
     )
@@ -908,7 +908,7 @@ def test_complete_phase_collision_writes_no_side_effects_real_store(
     # ERROR-2: NO orphan side effect was committed.
     binding = load_session_run_binding_global("sess-001")
     assert binding is not None, "the admission binding must survive the rejection"
-    assert binding.binding_version == "bind-001", "binding must NOT be re-materialized"
+    assert binding.binding_version == "1", "binding must NOT be re-materialized"
     assert (
         load_story_execution_lock_global(
             "tenant-a", "AG3-100", "run-100", "story_execution"
@@ -1012,10 +1012,10 @@ def test_binding_save_run_scoped_collision_real_store(
     from agentkit.backend.state_backend.store.mappers import session_binding_to_row
 
     del postgres_backend_env
-    save_session_run_binding_global(_binding("run-NEW", version="bind-NEW"))
+    save_session_run_binding_global(_binding("run-NEW", version="500"))
 
     # A run-OLD save for the same session is refused (foreign run).
-    old_row = session_binding_to_row(_binding("run-OLD", version="bind-OLD"))
+    old_row = session_binding_to_row(_binding("run-OLD", version="400"))
     with pytest.raises(ControlPlaneBindingCollisionError), _connect_global() as conn:
         _insert_session_binding_row(conn, old_row)
 
@@ -1023,14 +1023,14 @@ def test_binding_save_run_scoped_collision_real_store(
     survived = load_session_run_binding_global("sess-001")
     assert survived is not None
     assert survived.run_id == "run-NEW"
-    assert survived.binding_version == "bind-NEW"
+    assert survived.binding_version == "500"
 
     # A run-matched re-save (the OWNING run) still updates successfully.
-    save_session_run_binding_global(_binding("run-NEW", version="bind-NEW-2"))
+    save_session_run_binding_global(_binding("run-NEW", version="501"))
     updated = load_session_run_binding_global("sess-001")
     assert updated is not None
     assert updated.run_id == "run-NEW"
-    assert updated.binding_version == "bind-NEW-2"
+    assert updated.binding_version == "501"
 
 
 @pytest.mark.contract
@@ -1051,7 +1051,7 @@ def test_standard_closure_foreign_binding_protected_real_store(
     _seed_pg_story_context(tmp_path)
     now = datetime(2026, 6, 7, 10, 0, tzinfo=UTC)
     # run-NEW owns the live binding under sess-001.
-    save_session_run_binding_global(_binding("run-NEW", version="bind-NEW"))
+    save_session_run_binding_global(_binding("run-NEW", version="500"))
     # run-OLD is admitted by its own committed setup phase_start op.
     save_control_plane_operation_global(
         ControlPlaneOperationRecord(
@@ -1085,7 +1085,7 @@ def test_standard_closure_foreign_binding_protected_real_store(
     survived = load_session_run_binding_global("sess-001")
     assert survived is not None, "run-NEW's live binding must survive the old closure"
     assert survived.run_id == "run-NEW"
-    assert survived.binding_version == "bind-NEW"
+    assert survived.binding_version == "500"
     assert (
         load_story_execution_lock_global(
             "tenant-a", "AG3-100", "run-OLD", "story_execution"

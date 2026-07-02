@@ -41,6 +41,7 @@ from agentkit.backend.state_backend.store import (
     load_control_plane_operation_global,
     load_object_mutation_claim_global,
     load_run_ownership_record_global,
+    load_session_run_binding_global,
     load_takeover_transfer_record_global,
     reset_backend_cache_for_tests,
     save_backend_instance_identity_global,
@@ -424,3 +425,208 @@ def test_backfill_fails_closed_on_ambiguous_double_active_bindings() -> None:
     with pytest.raises(postgres_store.RunOwnershipBackfillError, match="ambiguous"), postgres_store._connect_global() as conn:
         postgres_store._ensure_run_ownership_backfill(conn)
     assert _count_ownership("tenant-a", "AG3-233") == 0
+
+
+# ---------------------------------------------------------------------------
+# AK4 / Codex ERROR §4 + WARNING §5a — DB-enforced binding_version / status
+# value domain (parity fresh CREATE TABLE and existing-schema ALTER)
+# ---------------------------------------------------------------------------
+
+
+def _raw_insert_binding(
+    conn: object,
+    *,
+    session_id: str,
+    binding_version: str,
+    status: str = "active",
+    story_id: str = "AG3-240",
+) -> None:
+    """Raw INSERT bypassing the record validation to hit the DB CHECK directly."""
+    conn.execute(  # type: ignore[attr-defined]
+        """
+        INSERT INTO session_run_bindings (
+            session_id, project_key, story_id, run_id, principal_type,
+            worktree_roots_json, binding_version, updated_at, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            session_id,
+            "tenant-a",
+            story_id,
+            "run-1",
+            "orchestrator",
+            "[]",
+            binding_version,
+            _NOW.isoformat(),
+            status,
+        ),
+    )
+
+
+def test_schema_check_rejects_non_canonical_binding_version() -> None:
+    """Codex ERROR §4: the DB CHECK rejects a non-integer binding_version.
+
+    Even a writer that bypasses the record validation (raw SQL) cannot persist a
+    ``bind-*`` correlation token: the ``session_run_bindings_binding_version_check``
+    constraint fails closed at the persistence boundary.
+    """
+    with (
+        pytest.raises(psycopg.errors.CheckViolation),
+        postgres_store._connect_global() as conn,
+    ):
+        _raw_insert_binding(
+            conn, session_id="sess-badver", binding_version="bind-not-int"
+        )
+
+
+def test_schema_check_rejects_zero_and_leading_zero_binding_version() -> None:
+    """Codex ERROR §4: '0' and leading-zero forms are not canonical integers >= 1."""
+    for bad in ("0", "01"):
+        with (
+            pytest.raises(psycopg.errors.CheckViolation),
+            postgres_store._connect_global() as conn,
+        ):
+            _raw_insert_binding(
+                conn, session_id=f"sess-{bad}", binding_version=bad
+            )
+
+
+def test_schema_check_rejects_unknown_binding_status() -> None:
+    """Codex ERROR §9: the DB CHECK rejects an out-of-vocabulary binding status."""
+    with (
+        pytest.raises(psycopg.errors.CheckViolation),
+        postgres_store._connect_global() as conn,
+    ):
+        _raw_insert_binding(
+            conn, session_id="sess-badstatus", binding_version="1", status="bogus"
+        )
+
+
+def test_insert_session_binding_row_persists_status_and_reason() -> None:
+    """Codex WARNING §5b: the atomic binding insert writes status/revocation_reason.
+
+    The internal ``_insert_session_binding_row`` used to write only the legacy
+    columns; a revoked binding round-trips its status and machine-readable reason
+    instead of silently defaulting to ``active`` / ``NULL``.
+    """
+    from agentkit.backend.state_backend.store.mappers import session_binding_to_row
+
+    revoked = SessionRunBindingRecord(
+        session_id="sess-revoked",
+        project_key="tenant-a",
+        story_id="AG3-243",
+        run_id="run-1",
+        principal_type="orchestrator",
+        worktree_roots=("wt",),
+        binding_version="2",
+        updated_at=_NOW,
+        status="revoked",
+        revocation_reason="ownership_transferred",
+    )
+    with postgres_store._connect_global() as conn:
+        postgres_store._insert_session_binding_row(
+            conn, session_binding_to_row(revoked)
+        )
+    loaded = load_session_run_binding_global("sess-revoked")
+    assert loaded is not None
+    assert loaded.status == "revoked"
+    assert loaded.revocation_reason == "ownership_transferred"
+    assert loaded.binding_version == "2"
+
+
+def test_existing_schema_backfill_normalizes_then_reapplies_checks() -> None:
+    """Codex WARNING §5a: an existing DB gets the SAME hard binding_version boundary.
+
+    Emulates a pre-check existing schema: the AG3-137 CHECK is dropped and a
+    legacy random ``bind-<uuid>`` version row is inserted. The existing-schema
+    migration path (backfill normalisation + ``_ensure_session_binding_constraints``)
+    lifts the value to the canonical ``'1'`` and re-adds the constraint, so the
+    existing DB is NOT left softer than a fresh schema — a subsequent
+    non-canonical write is rejected fail-closed.
+    """
+    with postgres_store._connect_global() as conn:
+        conn.execute(
+            "ALTER TABLE session_run_bindings "
+            "DROP CONSTRAINT IF EXISTS session_run_bindings_binding_version_check"
+        )
+        _raw_insert_binding(
+            conn,
+            session_id="sess-legacy",
+            binding_version="bind-legacy-uuid",
+            story_id="AG3-244",
+        )
+
+    with postgres_store._connect_global() as conn:
+        postgres_store._ensure_run_ownership_backfill(conn)
+        postgres_store._ensure_session_binding_constraints(conn)
+
+    loaded = load_session_run_binding_global("sess-legacy")
+    assert loaded is not None
+    assert loaded.binding_version == "1", "legacy non-canonical version lifted to '1'"
+    assert loaded.status == "active"
+
+    # The re-applied CHECK now rejects a fresh non-canonical write (parity with fresh).
+    with (
+        pytest.raises(psycopg.errors.CheckViolation),
+        postgres_store._connect_global() as conn,
+    ):
+        _raw_insert_binding(
+            conn,
+            session_id="sess-legacy-2",
+            binding_version="bind-again",
+            story_id="AG3-244",
+        )
+
+
+# ---------------------------------------------------------------------------
+# AK4-adjacent / Codex WARNING §6 — canary is fail-closed on partial migration
+# ---------------------------------------------------------------------------
+
+
+def test_canary_fails_closed_when_an_ag3_137_table_is_missing() -> None:
+    """Codex WARNING §6: a partial migration (one new table missing) is NOT bootstrapped.
+
+    The old canary checked only ``run_ownership_records``; a DB where that table
+    exists but another AG3-137 table was lost (failed rollout / manual repair)
+    would report bootstrapped and skip the migration. The hardened canary reports
+    False, forcing a full bootstrap that recreates the dropped table.
+    """
+    with postgres_store._connect_global() as conn:
+        conn.execute("DROP TABLE IF EXISTS object_mutation_claims CASCADE")
+        assert postgres_store._schema_is_bootstrapped(conn) is False
+
+    reset_backend_cache_for_tests()
+    with postgres_store._connect_global():
+        pass  # reconnect re-runs the full bootstrap (canary False -> recreate)
+    assert "object_mutation_claims" in _table_names()
+
+
+def test_canary_fails_closed_when_an_additive_column_is_missing() -> None:
+    """Codex WARNING §6: a missing additive column also forces a full bootstrap.
+
+    The new tables can all exist while an additive ALTER column on an existing
+    control-plane table is still missing (a partial rollout). The column-level
+    canary catches that and re-runs the additive ALTERs.
+    """
+    with postgres_store._connect_global() as conn:
+        conn.execute(
+            "ALTER TABLE control_plane_operations "
+            "DROP COLUMN IF EXISTS operation_epoch"
+        )
+        assert postgres_store._schema_is_bootstrapped(conn) is False
+
+    reset_backend_cache_for_tests()
+    with postgres_store._connect_global():
+        pass
+    assert "operation_epoch" in _column_names("control_plane_operations")
+
+
+def _table_names() -> set[str]:
+    with postgres_store._connect_global() as conn:
+        rows = conn.execute(
+            """
+            SELECT table_name FROM information_schema.tables
+            WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'
+            """,
+        ).fetchall()
+    return {str(row["table_name"]) for row in rows}

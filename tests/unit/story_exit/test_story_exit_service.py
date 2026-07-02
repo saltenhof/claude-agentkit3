@@ -152,7 +152,7 @@ def _seed_binding(state: _RepoState) -> None:
         run_id="run-1",
         principal_type="orchestrator",
         worktree_roots=("T:/worktrees/ag3-073",),
-        binding_version="bind-1",
+        binding_version="1",
         updated_at=NOW,
     )
 

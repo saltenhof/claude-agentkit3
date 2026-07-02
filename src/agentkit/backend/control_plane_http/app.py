@@ -362,7 +362,197 @@ class ControlPlaneApplicationRoutes:
 # ---------------------------------------------------------------------------
 
 
-class ControlPlaneApplication:
+class _GovernanceMediationHandlers:
+    """Governance hook-mediation HTTP handlers (AG3-129), split out of the app.
+
+    Extracted from :class:`ControlPlaneApplication` so that transport class stays
+    within the per-class LOC budget (``PY_CLASS_MAX_LOC_800``) WITHOUT any
+    behaviour change: these handlers depend only on the injected mediation
+    services and the module-level response helpers, never on the app's routing
+    state. The three collaborators are supplied by
+    ``ControlPlaneApplication.__init__``; they are declared here as annotations
+    for the type checker (the mixin never constructs them).
+    """
+
+    _telemetry_service: ControlPlaneTelemetryService
+    _guard_counter_service: ControlPlaneGuardCounterService
+    _worker_health_service: ControlPlaneWorkerHealthService
+
+    def _handle_post_telemetry(
+        self,
+        payload: object,
+        correlation_id: str,
+    ) -> HttpResponse:
+        try:
+            request = TelemetryEventIngestRequest.model_validate(payload)
+            accepted = self._telemetry_service.ingest_event(request)
+        except ValidationError as exc:
+            return _error_response(
+                HTTPStatus.BAD_REQUEST,
+                error_code="invalid_telemetry_event_payload",
+                message="Invalid telemetry event payload",
+                correlation_id=correlation_id,
+                detail=exc.errors(),
+            )
+        except RuntimeError as exc:
+            logger.warning("Control-plane telemetry ingest unavailable: %s", exc)
+            return _error_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                error_code="telemetry_unavailable",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+        return _json_response(
+            HTTPStatus.CREATED,
+            accepted.model_dump(mode="json"),
+            correlation_id=correlation_id,
+        )
+
+    def _handle_post_guard_counter(
+        self,
+        payload: object,
+        correlation_id: str,
+    ) -> HttpResponse:
+        """Apply a guard-invocation counter mutation (AG3-129, FK-61 §61.4.3)."""
+        from agentkit.backend.story_context_manager.errors import (
+            IdempotencyMismatchError,
+        )
+
+        try:
+            request = GuardCounterMutationRequest.model_validate(payload)
+            accepted = self._guard_counter_service.apply(request)
+        except ValidationError as exc:
+            return _error_response(
+                HTTPStatus.BAD_REQUEST,
+                error_code="invalid_guard_counter_payload",
+                message="Invalid guard-counter mutation payload",
+                correlation_id=correlation_id,
+                detail=exc.errors(),
+            )
+        except IdempotencyMismatchError as exc:
+            # FK-91 §91.1a Regel 5: same op_id + different body -> fail-closed 409.
+            return _error_response(
+                HTTPStatus.CONFLICT,
+                error_code="idempotency_mismatch",
+                message=str(exc),
+                correlation_id=correlation_id,
+                detail=exc.detail,
+            )
+        except RuntimeError as exc:
+            logger.warning("Guard-counter mutation unavailable: %s", exc)
+            return _error_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                error_code="guard_counter_unavailable",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+        return _json_response(
+            HTTPStatus.CREATED,
+            accepted.model_dump(mode="json"),
+            correlation_id=correlation_id,
+        )
+
+    def _handle_get_worker_health(
+        self,
+        query: dict[str, list[str]],
+        correlation_id: str,
+    ) -> HttpResponse:
+        """Read canonical worker-health state (AG3-129, FK-30 §30.10)."""
+        story_id = _single_query_value(query, "story_id")
+        worker_id = _single_query_value(query, "worker_id")
+        if not story_id or not worker_id:
+            return _error_response(
+                HTTPStatus.BAD_REQUEST,
+                error_code="invalid_worker_health_query",
+                message="story_id and worker_id query parameters are required",
+                correlation_id=correlation_id,
+            )
+        try:
+            result = self._worker_health_service.load(
+                story_id=story_id, worker_id=worker_id
+            )
+        except RuntimeError as exc:
+            logger.warning("Worker-health read unavailable: %s", exc)
+            return _error_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                error_code="worker_health_unavailable",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+        return _json_response(
+            HTTPStatus.OK,
+            result.model_dump(mode="json"),
+            correlation_id=correlation_id,
+        )
+
+    def _handle_post_worker_health(
+        self,
+        payload: object,
+        correlation_id: str,
+    ) -> HttpResponse:
+        """Write canonical worker-health state (AG3-129, FK-30 §30.10)."""
+        try:
+            accepted = self._worker_health_service.save(payload)
+        except ValidationError as exc:
+            return _error_response(
+                HTTPStatus.BAD_REQUEST,
+                error_code="invalid_worker_health_payload",
+                message="Invalid worker-health state payload",
+                correlation_id=correlation_id,
+                detail=exc.errors(),
+            )
+        except RuntimeError as exc:
+            logger.warning("Worker-health write unavailable: %s", exc)
+            return _error_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                error_code="worker_health_unavailable",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+        return _json_response(
+            HTTPStatus.CREATED,
+            accepted.model_dump(mode="json"),
+            correlation_id=correlation_id,
+        )
+
+    def _handle_get_telemetry_events(
+        self,
+        query: dict[str, list[str]],
+        correlation_id: str,
+    ) -> HttpResponse:
+        """Read canonical execution events for one scope (AG3-129)."""
+        project_key = _single_query_value(query, "project_key")
+        story_id = _single_query_value(query, "story_id")
+        event_type = _single_query_value(query, "event_type")
+        if not project_key or not story_id:
+            return _error_response(
+                HTTPStatus.BAD_REQUEST,
+                error_code="invalid_telemetry_query",
+                message="project_key and story_id query parameters are required",
+                correlation_id=correlation_id,
+            )
+        try:
+            result = self._telemetry_service.query_events(
+                project_key=project_key,
+                story_id=story_id,
+                event_type=event_type,
+            )
+        except RuntimeError as exc:
+            logger.warning("Telemetry read unavailable: %s", exc)
+            return _error_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                error_code="telemetry_unavailable",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+        return _json_response(
+            HTTPStatus.OK,
+            result.model_dump(mode="json"),
+            correlation_id=correlation_id,
+        )
+
+
+class ControlPlaneApplication(_GovernanceMediationHandlers):
     """Route and validate HTTP requests for the control plane (FK-72 §72.8.2).
 
     This is the **single** transport/router.  All BC http/ modules register
@@ -394,27 +584,49 @@ class ControlPlaneApplication:
         )
         self._runtime_service = runtime_service or ControlPlaneRuntimeService()
         self._story_service = story_service or _build_default_story_service()
-        if dashboard_service is not None:
-            self._dashboard_service = dashboard_service
-        else:
-            from agentkit.backend.bootstrap.composition_root import build_dashboard_service
-
-            self._dashboard_service = build_dashboard_service(self._story_service)
-        self._project_routes = r.project_routes or _build_default_project_routes()
-        self._story_routes = r.story_routes or _build_default_story_routes()
-        self._concept_routes = r.concept_routes or _build_default_concept_routes()
-        self._hub_routes = r.hub_routes or _build_default_hub_routes()
-        self._planning_routes = r.planning_routes or _build_default_planning_routes()
-        self._telemetry_routes = r.telemetry_routes or _build_default_telemetry_routes()
-        self._auth_routes = r.auth_routes or _build_default_auth_routes(auth_middleware)
+        self._dashboard_service = self._resolve_dashboard_service(dashboard_service)
         self._auth_middleware = auth_middleware
+        self._init_default_routes(r, auth_middleware)
         self._tenant_scope = tenant_scope_middleware or TenantScopeMiddleware()
         # Opt-in like ``auth_middleware``; production wires it ON in
         # ``serve_control_plane`` (FK-91 §91.1a Regel 11). The announced
         # ``/v1/compat`` window is the middleware's, else the central default.
         self._version_handshake = version_handshake_middleware
-        self._compat_window: CompatWindow = (version_handshake_middleware or VersionHandshakeMiddleware()).window
+        self._compat_window: CompatWindow = (
+            version_handshake_middleware or VersionHandshakeMiddleware()
+        ).window
         self._init_bc_routes(r)
+
+    def _resolve_dashboard_service(
+        self, dashboard_service: DashboardService | None
+    ) -> DashboardService:
+        """Return the injected dashboard service, else build the default (S3776 split)."""
+        if dashboard_service is not None:
+            return dashboard_service
+        from agentkit.backend.bootstrap.composition_root import build_dashboard_service
+
+        return build_dashboard_service(self._story_service)
+
+    def _init_default_routes(
+        self,
+        r: ControlPlaneApplicationRoutes,
+        auth_middleware: AuthMiddleware | None,
+    ) -> None:
+        """Populate the per-BC route tables, defaulting any the caller omitted.
+
+        Extracted from ``__init__`` so the constructor's cognitive complexity
+        stays within the S3776 budget (the seven ``or``-default assignments live
+        here instead of inline). No behaviour change.
+        """
+        self._project_routes = r.project_routes or _build_default_project_routes()
+        self._story_routes = r.story_routes or _build_default_story_routes()
+        self._concept_routes = r.concept_routes or _build_default_concept_routes()
+        self._hub_routes = r.hub_routes or _build_default_hub_routes()
+        self._planning_routes = r.planning_routes or _build_default_planning_routes()
+        self._telemetry_routes = (
+            r.telemetry_routes or _build_default_telemetry_routes()
+        )
+        self._auth_routes = r.auth_routes or _build_default_auth_routes(auth_middleware)
 
     def _init_bc_routes(self, r: ControlPlaneApplicationRoutes) -> None:
         """Initialise the grounded BC route handlers (extracted to reduce S3776 complexity)."""
@@ -957,179 +1169,6 @@ class ControlPlaneApplication:
     # ------------------------------------------------------------------
     # Private handler implementations
     # ------------------------------------------------------------------
-
-    def _handle_post_telemetry(
-        self,
-        payload: object,
-        correlation_id: str,
-    ) -> HttpResponse:
-        try:
-            request = TelemetryEventIngestRequest.model_validate(payload)
-            accepted = self._telemetry_service.ingest_event(request)
-        except ValidationError as exc:
-            return _error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="invalid_telemetry_event_payload",
-                message="Invalid telemetry event payload",
-                correlation_id=correlation_id,
-                detail=exc.errors(),
-            )
-        except RuntimeError as exc:
-            logger.warning("Control-plane telemetry ingest unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="telemetry_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _json_response(
-            HTTPStatus.CREATED,
-            accepted.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
-
-    def _handle_post_guard_counter(
-        self,
-        payload: object,
-        correlation_id: str,
-    ) -> HttpResponse:
-        """Apply a guard-invocation counter mutation (AG3-129, FK-61 §61.4.3)."""
-        from agentkit.backend.story_context_manager.errors import (
-            IdempotencyMismatchError,
-        )
-
-        try:
-            request = GuardCounterMutationRequest.model_validate(payload)
-            accepted = self._guard_counter_service.apply(request)
-        except ValidationError as exc:
-            return _error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="invalid_guard_counter_payload",
-                message="Invalid guard-counter mutation payload",
-                correlation_id=correlation_id,
-                detail=exc.errors(),
-            )
-        except IdempotencyMismatchError as exc:
-            # FK-91 §91.1a Regel 5: same op_id + different body -> fail-closed 409.
-            return _error_response(
-                HTTPStatus.CONFLICT,
-                error_code="idempotency_mismatch",
-                message=str(exc),
-                correlation_id=correlation_id,
-                detail=exc.detail,
-            )
-        except RuntimeError as exc:
-            logger.warning("Guard-counter mutation unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="guard_counter_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _json_response(
-            HTTPStatus.CREATED,
-            accepted.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
-
-    def _handle_get_worker_health(
-        self,
-        query: dict[str, list[str]],
-        correlation_id: str,
-    ) -> HttpResponse:
-        """Read canonical worker-health state (AG3-129, FK-30 §30.10)."""
-        story_id = _single_query_value(query, "story_id")
-        worker_id = _single_query_value(query, "worker_id")
-        if not story_id or not worker_id:
-            return _error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="invalid_worker_health_query",
-                message="story_id and worker_id query parameters are required",
-                correlation_id=correlation_id,
-            )
-        try:
-            result = self._worker_health_service.load(
-                story_id=story_id, worker_id=worker_id
-            )
-        except RuntimeError as exc:
-            logger.warning("Worker-health read unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="worker_health_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _json_response(
-            HTTPStatus.OK,
-            result.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
-
-    def _handle_post_worker_health(
-        self,
-        payload: object,
-        correlation_id: str,
-    ) -> HttpResponse:
-        """Write canonical worker-health state (AG3-129, FK-30 §30.10)."""
-        try:
-            accepted = self._worker_health_service.save(payload)
-        except ValidationError as exc:
-            return _error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="invalid_worker_health_payload",
-                message="Invalid worker-health state payload",
-                correlation_id=correlation_id,
-                detail=exc.errors(),
-            )
-        except RuntimeError as exc:
-            logger.warning("Worker-health write unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="worker_health_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _json_response(
-            HTTPStatus.CREATED,
-            accepted.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
-
-    def _handle_get_telemetry_events(
-        self,
-        query: dict[str, list[str]],
-        correlation_id: str,
-    ) -> HttpResponse:
-        """Read canonical execution events for one scope (AG3-129)."""
-        project_key = _single_query_value(query, "project_key")
-        story_id = _single_query_value(query, "story_id")
-        event_type = _single_query_value(query, "event_type")
-        if not project_key or not story_id:
-            return _error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="invalid_telemetry_query",
-                message="project_key and story_id query parameters are required",
-                correlation_id=correlation_id,
-            )
-        try:
-            result = self._telemetry_service.query_events(
-                project_key=project_key,
-                story_id=story_id,
-                event_type=event_type,
-            )
-        except RuntimeError as exc:
-            logger.warning("Telemetry read unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="telemetry_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _json_response(
-            HTTPStatus.OK,
-            result.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
 
     def _handle_post_phase_mutation(
         self,

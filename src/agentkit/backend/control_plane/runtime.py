@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -20,6 +19,7 @@ from agentkit.backend.control_plane.models import (
     SessionRunBindingView,
     StoryExecutionLockView,
 )
+from agentkit.backend.control_plane.ownership import MIN_BINDING_VERSION
 from agentkit.backend.control_plane.records import (
     BindingDeleteScope,
     ControlPlaneOperationRecord,
@@ -771,9 +771,29 @@ class _ControlPlaneRuntimeAdmissionBase:
         now = self._now_fn()
         if self._story_scoped_materialization_enabled(request):
             return _plan_story_scoped_materialization(
-                run_id=run_id, phase=phase, request=request, now=now
+                run_id=run_id,
+                phase=phase,
+                request=request,
+                now=now,
+                previous_binding_version=self._current_binding_version(
+                    request.session_id
+                ),
             )
         return _plan_fast_materialization(request=request, now=now)
+
+    def _current_binding_version(self, session_id: str) -> str | None:
+        """Read the session's currently persisted ``binding_version`` (DB-monotone).
+
+        Returns the affected binding's version so the mint can derive the next
+        monotone value (``+ 1``) from persisted DB state rather than a wall clock
+        (FK-56 §56.13a). ``None`` when the session has no binding yet (first
+        bind -> :data:`MIN_BINDING_VERSION`). The read is a plain load at the
+        persistence boundary of the enclosing mutation; the atomic commit that
+        applies the plan (ownership CAS / run-scoped upsert) serialises the
+        write, so no new fence is introduced (AG3-137 value-domain change only).
+        """
+        binding = self._repo.load_binding(session_id)
+        return binding.binding_version if binding is not None else None
 
     def _release_my_claim(
         self, op_id: str, owner_token: str, owner_claimed_at: str | None
@@ -1539,7 +1559,9 @@ class ControlPlaneRuntimeService(_ControlPlaneRuntimeAdmissionBase):
         binding = self._run_matched_binding_for_teardown(request, run_id=run_id)
         worktree_roots = binding.worktree_roots if binding is not None else ()
         binding_version = (
-            binding.binding_version if binding is not None else _next_binding_version()
+            binding.binding_version
+            if binding is not None
+            else _next_binding_version(None)
         )
         lock = StoryExecutionLockRecord(
             project_key=request.project_key,
@@ -1688,7 +1710,9 @@ class ControlPlaneRuntimeService(_ControlPlaneRuntimeAdmissionBase):
                 lock_type="story_execution",
                 status="INACTIVE",
                 worktree_roots=(),
-                binding_version=_next_binding_version(),
+                binding_version=_next_binding_version(
+                    binding.binding_version if binding is not None else None
+                ),
                 activated_at=now,
                 updated_at=now,
                 deactivated_at=now,
@@ -1778,7 +1802,13 @@ class ControlPlaneRuntimeService(_ControlPlaneRuntimeAdmissionBase):
         #: so a live-claim collision left orphan side effects behind.
         if self._story_scoped_materialization_enabled(request):
             plan = _plan_story_scoped_materialization(
-                run_id=run_id, phase=phase, request=request, now=now
+                run_id=run_id,
+                phase=phase,
+                request=request,
+                now=now,
+                previous_binding_version=self._current_binding_version(
+                    request.session_id
+                ),
             )
         else:
             plan = _plan_fast_materialization(request=request, now=now)
@@ -1958,6 +1988,7 @@ def _plan_story_scoped_materialization(
     phase: str,
     request: PhaseMutationRequest,
     now: datetime,
+    previous_binding_version: str | None,
 ) -> _StartPhaseMaterialization:
     """Build (NO writes) the full story-scoped binding + locks + events (#1).
 
@@ -1966,8 +1997,14 @@ def _plan_story_scoped_materialization(
     write them atomically under the ownership CAS (ERROR-1). The complete/fail
     commit (``_mutate_phase``) reuses this planner too, applying the records under
     the atomic collision-gated commit (ERROR-2).
+
+    Args:
+        previous_binding_version: The session's currently persisted
+            ``binding_version`` (read at the persistence boundary by the caller),
+            or ``None`` when the session has no binding yet. The next version is
+            derived DB-monotone from it (``+ 1``), not from a wall clock.
     """
-    binding_version = _next_binding_version()
+    binding_version = _next_binding_version(previous_binding_version)
     binding = SessionRunBindingRecord(
         session_id=request.session_id,
         project_key=request.project_key,
@@ -2419,36 +2456,38 @@ def _as_aware_utc(value: datetime) -> datetime | None:
     return value.astimezone(UTC)
 
 
-#: Process-local strict-monotone floor for the binding-version mint. Seeded from
-#: a high-resolution wall clock so the version is monotone across process
-#: restarts (a fresh process never re-issues an earlier value); the floor
-#: guarantees strict increase even for two mints within the same microsecond.
-_BINDING_VERSION_LOCK = threading.Lock()
-_LAST_BINDING_VERSION = 0
-
-
-def _next_binding_version() -> str:
+def _next_binding_version(previous_version: str | None) -> str:
     """Mint the next binding version (FK-17 §17.3a.16: monotone Integer >= 1).
 
-    Returns a canonical decimal string of a strictly monotone positive integer,
-    CAS-capable (SOLL-008). This replaces the former random ``bind-<uuid4>``
-    token, which was non-monotone and thus not CAS-fenceable. The value is an
-    opaque version token and is NEVER interpreted as wall-clock time (no lease /
-    expiry / heartbeat semantics), so deriving it from a clock does not conflict
-    with the anti-wall-clock ownership rule.
+    DB-monotone, process-independent (CAS-capable, FK-56 §56.13a): the value is
+    derived from the affected binding's PREVIOUSLY PERSISTED version (``previous
+    + 1``), or the initial :data:`MIN_BINDING_VERSION` when no binding exists
+    yet. There is deliberately NO wall clock and NO process-local counter — the
+    former ``bind-<uuid4>`` token was non-monotone, and a clock-derived token
+    both leaks a wall-clock dependency into ownership/takeover challenge material
+    and is only process-local monotone, neither of which is a sound CAS
+    foundation.
 
-    Representation note (AG3-137 scope §5, ``reine Repräsentationsänderung``): the
-    value stays typed ``str`` because it flows verbatim into the derived
-    ``StoryExecutionLockRecord`` / edge-bundle projections, which legitimately
-    also carry non-integer correlation tokens (e.g. the story-exit ``exit-<id>``
-    teardown token, FK-58) and whose column lives in ``sqlite_store`` (K5: not
-    changed here). Only the value domain changes to a monotone positive integer;
-    a literal numeric column migration is deferred to the fencing consumer
-    AG3-142, which coordinates the lock/view/wire representation holistically.
+    The caller reads ``previous_version`` from the store at the persistence
+    boundary of the SAME mutation whose atomic commit (ownership CAS at
+    start-phase finalize / run-scoped binding upsert) serialises the write, so no
+    NEW fencing/lock is introduced (AG3-137 is a pure value-domain change; the
+    fence lives in AG3-142).
+
+    Representation note (AG3-137 scope §5): the returned value is a canonical
+    decimal ``str`` because it flows verbatim into the derived
+    ``StoryExecutionLockRecord`` / edge-bundle projections whose column lives in
+    ``sqlite_store`` (K5: not migrated here); a literal numeric-column migration
+    is deferred to AG3-142. Only the value DOMAIN is a monotone positive integer.
+
+    Args:
+        previous_version: The affected binding's currently persisted
+            ``binding_version`` (a canonical integer string), or ``None`` when no
+            binding exists yet for the target session.
+
+    Returns:
+        The next canonical decimal version string.
     """
-    global _LAST_BINDING_VERSION
-    with _BINDING_VERSION_LOCK:
-        candidate = int(datetime.now(tz=UTC).timestamp() * 1_000_000)
-        version = max(candidate, _LAST_BINDING_VERSION + 1)
-        _LAST_BINDING_VERSION = version
-        return str(version)
+    if previous_version is None:
+        return str(MIN_BINDING_VERSION)
+    return str(int(previous_version) + 1)

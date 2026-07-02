@@ -182,17 +182,23 @@
             principal_type TEXT NOT NULL,
             worktree_roots_json TEXT NOT NULL,
             -- binding_version carries a monotone positive-integer version token
-            -- as canonical decimal TEXT (FK-17 §17.3a.16, minted by
+            -- as canonical decimal TEXT (FK-17 §17.3a.16, minted DB-monotone by
             -- control_plane.runtime._next_binding_version). It stays TEXT so the
-            -- same value flows verbatim into story_execution_locks, which also
-            -- carry non-integer correlation tokens (e.g. story-exit exit-<id>).
-            binding_version TEXT NOT NULL,
+            -- same value flows verbatim into story_execution_locks (K5: not
+            -- migrated to a numeric column here); the CHECK enforces the integer
+            -- value domain (>= 1, no leading zeros / correlation tokens) at the
+            -- persistence boundary. The named constraint mirrors the existing-
+            -- schema ALTER (postgres_store._ensure_session_binding_constraints).
+            binding_version TEXT NOT NULL
+                CONSTRAINT session_run_bindings_binding_version_check
+                CHECK (binding_version ~ '^[1-9][0-9]*$'),
             updated_at TEXT NOT NULL,
             -- AG3-137 (FK-56 §56.7a): session-binding status (active | revoked)
             -- plus a machine-readable revocation reason (vocabulary includes
             -- 'ownership_transferred'). Additive; DEFAULT 'active' keeps a
             -- pre-existing binding row lossless across the bootstrap.
             status TEXT NOT NULL DEFAULT 'active'
+                CONSTRAINT session_run_bindings_status_check
                 CHECK (status IN ('active', 'revoked')),
             revocation_reason TEXT
         );

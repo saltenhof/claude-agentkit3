@@ -133,7 +133,7 @@ _MUTATION_ONLY_LOGICAL_PATTERNS: tuple[re.Pattern[str], ...] = (
     # write) are bare (non-project-scoped, like ``/telemetry/events``). Their
     # WRITE verbs are handshake-required; the worker-health GET read stays exempt
     # (governance reads are method-aware, FK-72 §72.11).
-    re.compile(r"^/governance/(?:.*)?$"),
+    re.compile(r"^/governance/.*$"),
 )
 
 
