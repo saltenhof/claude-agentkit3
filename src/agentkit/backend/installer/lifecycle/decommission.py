@@ -431,9 +431,19 @@ class _FacadeCanonicalStateReadPort:
         self._store_dir = store_dir
 
     def project_keys(self) -> Sequence[str]:
-        from agentkit.backend.state_backend.store import load_projects
+        # AG3-136: read the project catalog through the published ProjectRepository
+        # port (via the sanctioned composition-root wiring seam) instead of importing
+        # the generic ``state_backend.store`` facade loader directly. ``load_projects``
+        # is pinned to the state-backend project-catalog read surface by
+        # ``read_surface_rule.project_catalog_read_surface`` (FK-07 §7.9); A-code
+        # (this installer BC) must consume it via the published port. Behaviour is
+        # identical (the adapter's ``list()`` delegates to the same loader).
+        from agentkit.backend.bootstrap.composition_root import (
+            build_project_repository,
+        )
 
-        return [project.key for project in load_projects(self._store_dir)]
+        repository = build_project_repository(self._store_dir)
+        return [project.key for project in repository.list()]
 
     def story_ids(self, project_key: str) -> Sequence[str]:
         contexts = self._story_repo().list_story_contexts(project_key)

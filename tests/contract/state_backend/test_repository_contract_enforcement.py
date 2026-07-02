@@ -23,14 +23,20 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CHECK_SCRIPT = REPO_ROOT / "scripts" / "ci" / "check_architecture_conformance.py"
 
-# One representative pinned loader per read surface extended by AG3-128:
-# a project telemetry loader, its driver-row twin, a story-context loader and a
-# story execution-event driver-row loader. Each must fail closed off-surface.
+# One representative pinned loader per read surface: telemetry project loader +
+# its driver-row twin, a story-context loader, a story execution-event driver-row
+# loader (AG3-128) and the project-catalog loader (AG3-136). Each must fail
+# closed off-surface.
 _PINNED_GLOBAL_READ_LOADERS = (
     "load_execution_events_for_project_global",
     "load_execution_event_rows_for_project_global",
     "load_story_context_by_uuid_global",
     "load_execution_event_rows_global",
+    # AG3-136 project-catalog family (all three loaders, not just load_projects,
+    # so a later spec edit dropping one is caught):
+    "load_project",
+    "load_projects",
+    "load_project_by_story_id_prefix",
 )
 
 

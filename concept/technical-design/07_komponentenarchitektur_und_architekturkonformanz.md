@@ -222,8 +222,9 @@ robuste Import- und Adaptergrenzen (§7.7–§7.9). Der konkrete
 Durchgriffsvektor — die Read-Model-Kopplung an die generische
 Mega-Fassade — wird ueber symbolgenaue Read-Surface-Grenzen fail-closed
 erzwungen: die globalen Story-Read-Loader (§7.9 Punkt 8), die
-Control-Plane-Lifecycle-Reads (§7.9 Punkt 9) und der projekt-skopierte
-Telemetrie-Execution-Event-Loader (§7.9 Punkt 11) duerfen nur auf den
+Control-Plane-Lifecycle-Reads (§7.9 Punkt 9), der projekt-skopierte
+Telemetrie-Execution-Event-Loader (§7.9 Punkt 11) und die
+Projekt-Katalog-Read-Loader (§7.9 Punkt 12) duerfen nur auf den
 fachlich benannten Repository-Kanten bzw. innerhalb der
 State-Backend-Read-Surface importiert werden; jeder direkte Import aus
 A-Code oder BFF-Read-Pfaden laeuft fail-closed auf. Die generische
@@ -401,6 +402,12 @@ Invarianten:
     (`agentkit.backend.state_backend`) und der Composition-Root-
     Verdrahtungskante importiert werden; direkte Kopplung anderer
     A-Komponenten oder BFF-Read-Pfade an diesen Loader ist verboten.
+12. Die Projekt-Katalog-Read-Loader (`load_project`, `load_projects`,
+    `load_project_by_story_id_prefix`) duerfen nur auf der
+    State-Backend-Read-Surface (`agentkit.backend.state_backend`)
+    importiert werden; A-Komponenten und BFF-Read-Pfade konsumieren den
+    veroeffentlichten `ProjectRepository`-Port, nicht die generische
+    `state_backend.store`-Fassade.
 
 ## 7.10 Beziehung zu anderen Konzepten
 

@@ -337,6 +337,9 @@ def test_real_spec_pins_extended_story_and_telemetry_read_loaders() -> None:
         "load_story_context_by_uuid_global",
         "load_execution_event_rows_global",
         "load_execution_event_rows_for_project_global",
+        "load_project",
+        "load_projects",
+        "load_project_by_story_id_prefix",
     ],
 )
 def test_real_spec_rejects_offsurface_global_read_loader(
