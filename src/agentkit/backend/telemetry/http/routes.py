@@ -9,14 +9,14 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 from agentkit.backend.telemetry.sse_stream import (
-    ProjectTelemetryEventSource,
-    StateBackendProjectTelemetryEventSource,
     iter_project_sse_stream,
     parse_project_topics,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+
+    from agentkit.backend.telemetry.repository import ProjectTelemetryEventSource
 
 _CORRELATION_HEADER = "X-Correlation-Id"
 _PROJECT_EVENTS_PATH = re.compile(r"^/v1/projects/(?P<project_key>[^/]+)/events$")
@@ -33,10 +33,19 @@ class TelemetryRouteResponse:
 
 
 class TelemetryRoutes:
-    """Route handler for project-scoped telemetry SSE streams."""
+    """Route handler for project-scoped telemetry SSE streams.
 
-    def __init__(self, source: ProjectTelemetryEventSource | None = None) -> None:
-        self._source = source or StateBackendProjectTelemetryEventSource()
+    Args:
+        source: Project-scoped execution-event read port. **Mandatory**: the
+            productive adapter lives in ``state_backend.store`` and is injected
+            by the composition root (``_build_default_telemetry_routes`` /
+            ``build_project_telemetry_event_source``). The telemetry BC never
+            self-instantiates a state-backend adapter (AG3-127, single read
+            edge / no second read truth).
+    """
+
+    def __init__(self, source: ProjectTelemetryEventSource) -> None:
+        self._source = source
 
     def handle_get(
         self,

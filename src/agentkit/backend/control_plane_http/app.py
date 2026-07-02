@@ -131,6 +131,7 @@ def _build_default_story_service() -> StoryService:
 
 
 def _build_default_project_routes() -> ProjectManagementRoutes:
+    from agentkit.backend.bootstrap.composition_root import build_project_repository
     from agentkit.backend.project_management.http.routes import ProjectManagementRoutes
     from agentkit.backend.story_context_manager.service import (
         StoryService as StoryContextStoryService,
@@ -149,7 +150,13 @@ def _build_default_project_routes() -> ProjectManagementRoutes:
         in_use = svc.list_active_repos(project_key)
         return [r for r in repos if r in in_use]
 
-    return ProjectManagementRoutes(repos_in_use_checker=_repos_in_use_checker)
+    # FK-07 §7.6/§7.9 (AG3-127): the BFF composition root owns the project read
+    # adapter wiring — inject the ``ProjectRepository`` port through the
+    # composition root instead of relying on the BC-internal default.
+    return ProjectManagementRoutes(
+        repos_in_use_checker=_repos_in_use_checker,
+        repository=build_project_repository(),
+    )
 
 
 def _build_default_story_routes() -> StoryContextRoutes:
@@ -177,9 +184,15 @@ def _build_default_planning_routes() -> ExecutionPlanningRoutes:
 
 
 def _build_default_telemetry_routes() -> TelemetryRoutes:
+    from agentkit.backend.bootstrap.composition_root import (
+        build_project_telemetry_event_source,
+    )
     from agentkit.backend.telemetry.http.routes import TelemetryRoutes
 
-    return TelemetryRoutes()
+    # FK-07 §7.6/§7.8 (AG3-127): the BFF composition root owns the telemetry read
+    # adapter wiring — inject the ``ProjectTelemetryEventSource`` port; the
+    # telemetry BC no longer self-instantiates a state-backend adapter.
+    return TelemetryRoutes(build_project_telemetry_event_source())
 
 
 def _build_default_auth_routes(auth_middleware: AuthMiddleware | None) -> AuthRoutes:

@@ -5,14 +5,13 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Protocol
-
-from agentkit.backend.state_backend.store.facade import load_execution_events_for_project_global
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Sequence
 
     from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+    from agentkit.backend.telemetry.repository import ProjectTelemetryEventSource
 
 ProjectSseTopic = Literal[
     "stories",
@@ -43,32 +42,6 @@ PROJECT_SSE_TOPICS: frozenset[ProjectSseTopic] = frozenset(
         "coverage",
     },
 )
-
-
-class ProjectTelemetryEventSource(Protocol):
-    """Read-side source for project-scoped execution events."""
-
-    def events_for_project(
-        self,
-        project_key: str,
-        *,
-        limit: int = 200,
-    ) -> list[ExecutionEventRecord]:
-        """Return recent execution events for one project."""
-        ...
-
-
-class StateBackendProjectTelemetryEventSource:
-    """Project-scoped execution-event reader backed by state_backend."""
-
-    def events_for_project(
-        self,
-        project_key: str,
-        *,
-        limit: int = 200,
-    ) -> list[ExecutionEventRecord]:
-        """Return recent execution events for one project."""
-        return load_execution_events_for_project_global(project_key, limit=limit)
 
 
 @dataclass(frozen=True)
@@ -201,9 +174,7 @@ def _topic_for_record(record: ExecutionEventRecord) -> ProjectSseTopic:
 __all__ = [
     "PROJECT_SSE_TOPICS",
     "ProjectSseTopic",
-    "ProjectTelemetryEventSource",
     "SseEnvelope",
-    "StateBackendProjectTelemetryEventSource",
     "iter_project_sse_stream",
     "parse_project_topics",
     "project_event_to_sse",

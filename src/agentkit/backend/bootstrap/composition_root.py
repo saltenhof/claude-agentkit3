@@ -77,6 +77,7 @@ if TYPE_CHECKING:
     from agentkit.backend.task_management.http.routes import TaskManagementRoutes
     from agentkit.backend.telemetry.emitters import EventEmitter
     from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
+    from agentkit.backend.telemetry.repository import ProjectTelemetryEventSource
     from agentkit.backend.verify_system.llm_evaluator.llm_client import LlmClient
     from agentkit.backend.verify_system.pre_merge_runner.contract import BuildTestPort
     from agentkit.backend.verify_system.qa_cycle.invalidation import (
@@ -532,6 +533,22 @@ def build_story_read_service() -> StoryService:
     from agentkit.backend.story import StoryService
 
     return StoryService(repository=StateBackendStoryReadRepository())
+
+
+def build_project_telemetry_event_source() -> ProjectTelemetryEventSource:
+    """Wire the telemetry-BC read edge over the productive event-source adapter.
+
+    Composition root for the ``ProjectTelemetryEventSource`` port (FK-07
+    §7.6/§7.8, AG3-127): injects the ``StateBackendProjectTelemetryEventSource``
+    adapter so the SSE live-view route reads project execution events
+    exclusively through the published port, never through a
+    ``state_backend.store`` passthrough inside the telemetry BC.
+    """
+    from agentkit.backend.state_backend.store.telemetry_read_repository import (
+        StateBackendProjectTelemetryEventSource,
+    )
+
+    return StateBackendProjectTelemetryEventSource()
 
 
 def build_dashboard_service(
