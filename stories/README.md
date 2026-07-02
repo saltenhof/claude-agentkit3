@@ -261,12 +261,40 @@ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben (Foundation zuerst)
 | AG3-132 | Backend-Validierung der Drittsystem-Erreichbarkeit (Installer prüft nicht mehr direkt, I2) — neu geschnitten + Codex-reviewed | B | L | ready | — |
 | AG3-133 | LLM-Hub-Evals in den Kern (C1/C3) + Layer-2 produktiv (neu geerdet: C5 in-process, Eval-Route `control_plane_http`) | C | L | ready | 129 |
 | AG3-134 | Skill-Bundle `execute-userstory-core` auf REST/BC-reconciled Orchestrierung migrieren (Bundle spricht noch Vor-REST-Dialekt: `run-phase --story`-only, `run-phase verify`, file-State) + resume-Signatur-Korpus angleichen | A | L | ready | 130 |
-| AG3-135 | Phasen-Mutationen gegen Lease-Ablauf absichern (Fencing/Dispatch-Idempotenz statt reiner 5-Min-TTL-Übernahme; Doppel-Dispatch + zerrissener Op-Record) | A | M | ready | — |
+| AG3-135 | ⊘ superseded (wird NICHT implementiert): Lease-Fencing-Prämisse fachlich falsch — Auto-Ablauf/Auto-Takeover darf es nicht geben. Ersetzt durch Session-Ownership-Strang (§6.7) | A | M | superseded | — |
 
-**Sofort startbar (`ready`):** AG3-131, AG3-132, AG3-133, AG3-134, AG3-135. (AG3-127, AG3-128, AG3-129, AG3-130, AG3-136 ✅ completed. WP-I-Strang [126→127→128] abgeschlossen; AG3-136 [`load_projects` off-port] als Review-Folge nachgezogen.) (AG3-120, AG3-121, AG3-122, AG3-123, AG3-126, **AG3-130** ✅ completed. AG3-124, AG3-125 ⊘ superseded (FK-72-§72.8.2-Erdung, Commit 95d5ac1). Downstream gegen die rekonziliierte Architektur neu geerdet: **AG3-129** ready; **AG3-133** blocked auf 129; **AG3-132** neu geschnitten + Codex-reviewed → ready.) **AG3-134** (neu) erfasst den bei der AG3-130-Landung verifizierten, vorbestehenden Bundle-/Spec-Drift gegen den REST-Kontrakt (W1+W2); kein AG3-130-Defekt, eigener Scope.
+**Sofort startbar (`ready`):** AG3-131, AG3-132, AG3-133, AG3-134. (AG3-127, AG3-128, AG3-129, AG3-130, AG3-136 ✅ completed. **AG3-135 ⊘ superseded** → Session-Ownership-Strang §6.7. WP-I-Strang [126→127→128] abgeschlossen; AG3-136 [`load_projects` off-port] als Review-Folge nachgezogen.) (AG3-120, AG3-121, AG3-122, AG3-123, AG3-126, **AG3-130** ✅ completed. AG3-124, AG3-125 ⊘ superseded (FK-72-§72.8.2-Erdung, Commit 95d5ac1). Downstream gegen die rekonziliierte Architektur neu geerdet: **AG3-129** ready; **AG3-133** blocked auf 129; **AG3-132** neu geschnitten + Codex-reviewed → ready.) **AG3-134** (neu) erfasst den bei der AG3-130-Landung verifizierten, vorbestehenden Bundle-/Spec-Drift gegen den REST-Kontrakt (W1+W2); kein AG3-130-Defekt, eigener Scope.
 **Sequenz-Treiber:** WP-D (123→124/125) ist Fundament für die dev-seitigen
 Umstellungen A/B/C/E; WP-I-Read-Ports (126→127→128) laufen unabhängig parallel;
 H/G/F sind voneinander unabhängig.
+
+### 6.7 Session-Ownership & Nebenläufigkeit (neuer normativer Strang, ersetzt AG3-135)
+
+Ausgelöst durch die AG3-135-Analyse: die Nebenläufigkeit von Phasen-/Story-
+Mutationen ist **fachlich neu zu fundieren**, bevor Code entsteht. Normative
+Regeln (PO-Entscheidung 2026-07-02), noch in den Konzepten zu verankern:
+
+1. **Story-Lifecycle = Eigentum einer Session** (`SessionRunBinding`); der
+   gesamte Lifecycle ist an die besitzende Session gekoppelt.
+2. **Kein automatischer Ablauf/Entzug.** AgentKit kann client-seitiges Schweigen
+   nicht deuten (tot / Langläufer / Pause / wartet auf Benutzereingabe) →
+   Ownership läuft NIE automatisch ab; kein Timeout, kein Heartbeat-Entzug.
+3. **Übernahme nur explizit & folgenschwer.** Ein anderer Owner (Mensch via UI
+   oder Agent via Control-Plane-API — nie ein Automatismus) beantragt die
+   Übernahme ausdrücklich; die alte Session wird entmündigt, der handelnde Agent
+   wird informiert, dass dies kein Regelbetrieb ist.
+4. **Einzige technische Nebenläufigkeits-Garantie:** In-Flight-Idempotenz +
+   Serialisierung **pro mutiertem Objekt** (Reads immer frei parallel; Mutationen
+   sequenziell pro Objekt, an das Objekt gebunden, nicht an den Aufrufer).
+
+Vorgehen (systematisch, jede Stufe reviewed): (a) Regeln normativ in den
+zuständigen BCs/PCs + formal-spec verankern; (b) **Machbarkeits-/Edge-Case-
+Review** (Codex für Codebase/DB — insb. „was genau ist das gesperrte Objekt?
+Composite-Objekte?"; LLM-Hub für konzeptionelle Lücken); (c) **GAP-Analyse**
+Soll↔Ist → fehlende Stories; (d) GAP-Analyse reviewen; (e) neue Stories durch
+den regulären akribischen Story-Prozess (mit Reviews); (f) erst dann Umsetzung.
+**Kein Teil-Übernehmen der AG3-135-Arbeit** — das Endergebnis wird signifikant
+anders.
 
 ## 7. Konzept- und Guardrail-Bezug
 

@@ -1,10 +1,23 @@
 story_id: AG3-135
 title: "Phasen-Mutationen gegen Lease-Ablauf absichern (Fencing/Dispatch-Idempotenz statt reiner 5-Min-TTL-Uebernahme)"
 type: implementation
-status: in_progress
+status: superseded
 phase: setup
 created: "2026-07-01"
 size: M
+# SUPERSEDED (wird NICHT implementiert, PO-Entscheidung 2026-07-02): Die Praemisse
+# ist fachlich falsch. Ein automatischer 5-Min-Lease-Takeover darf es gar nicht
+# geben — AgentKit kann client-seitiges Schweigen (tot? Langlaeufer? Pause? wartet
+# auf Benutzereingabe?) prinzipiell nicht deuten, also darf Ownership NIE
+# automatisch ablaufen/entzogen werden, und ein Heartbeat/Automatismus hat kein
+# Recht, eine Session zu entreissen. Korrektes Zielmodell: Story-Lifecycle an eine
+# besitzende Session gekoppelt (SessionRunBinding); Ownership laeuft nie ab;
+# Uebernahme nur EXPLIZIT, folgenschwer, von Mensch (UI) oder Agent (Control-Plane-
+# API) beantragt (Session-Rebind, alter Owner entmuendigt) — kein Automatismus;
+# einzige technische Nebenlaeufigkeits-Garantie = In-Flight-Idempotenz +
+# Serialisierung PRO MUTIERTEM OBJEKT (Reads frei parallel). Ersetzt durch neue
+# Stories nach normativer Konzept-Verankerung + GAP-Analyse (siehe README §6.7).
+# Uncommittete Fix-Arbeit revertet.
 # ENTDECKT in der AG3-130-Codex-Review-Runde 3 (results/ag3-130-review3-codex.md,
 # Fund 1), vom Orchestrator gegen den Code verifiziert: der geleaste, owner-
 # scoped Claim (AG3-054) uebernimmt einen >5-Min-alten Claim per CAS als
