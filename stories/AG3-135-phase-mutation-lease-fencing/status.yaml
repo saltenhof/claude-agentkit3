@@ -1,7 +1,7 @@
 story_id: AG3-135
 title: "Phasen-Mutationen gegen Lease-Ablauf absichern (Fencing/Dispatch-Idempotenz statt reiner 5-Min-TTL-Uebernahme)"
 type: implementation
-status: ready
+status: in_progress
 phase: setup
 created: "2026-07-01"
 size: M
