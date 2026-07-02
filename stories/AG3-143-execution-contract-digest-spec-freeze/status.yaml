@@ -1,7 +1,7 @@
 story_id: AG3-143
 title: "Execution-Contract-Digest + Spec-Freeze: Digest beim Setup, Wirkungsklassen, Freeze tragender Spec-Felder, Digest als Fence-Prädikat"
 type: implementation
-status: blocked
+status: ready
 phase: setup
 created: "2026-07-02"
 size: M

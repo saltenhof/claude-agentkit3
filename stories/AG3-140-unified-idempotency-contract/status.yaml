@@ -1,7 +1,7 @@
 story_id: AG3-140
 title: "Einheitlicher Idempotenz-Vertrag (BC-weit): Client-op_id-Pflicht + In-Flight-Schutz + Body-Hash überall"
 type: implementation
-status: blocked
+status: ready
 phase: setup
 created: "2026-07-02"
 size: L

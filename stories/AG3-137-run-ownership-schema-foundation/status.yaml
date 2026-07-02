@@ -1,7 +1,8 @@
 story_id: AG3-137
 title: "Ownership-Schema-Fundament: run_ownership_records, object_mutation_claims, takeover_transfer_records, Instanz-Spalten + Backfill (additiv, Postgres-only)"
 type: implementation
-status: ready
+status: completed
+completed_at: "2026-07-02T20:11:52Z"
 phase: setup
 created: "2026-07-02"
 size: L

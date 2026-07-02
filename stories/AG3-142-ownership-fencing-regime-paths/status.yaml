@@ -1,7 +1,7 @@
 story_id: AG3-142
 title: "Ownership-Fencing der Regime-Pfade: Record-Schreiben im Setup, ownership_epoch-Fence in start/complete/fail/closure/Executor, Ablösung von _run_admission_evidence, Ex-Owner-Fehlerbild"
 type: implementation
-status: blocked
+status: ready
 phase: setup
 created: "2026-07-02"
 size: L
