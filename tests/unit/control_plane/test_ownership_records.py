@@ -279,7 +279,10 @@ def test_session_binding_accepts_canonical_integer_versions() -> None:
         "1.0",
         "1 ",
         "1\n",  # fullmatch anchors: no trailing-newline tolerance
-        "١",  # non-ASCII digit
+        "١",  # non-ASCII digit (leading): rejected by the ASCII [1-9] class
+        "١٢٣",  # S6353 guard: full Arabic-Indic "123" stays rejected
+        "1٢",  # S6353 guard: ASCII head + Unicode tail — the case a naive
+        # bare ``\d`` (without re.ASCII) would WRONGLY accept; re.ASCII keeps it out
     ],
 )
 def test_session_binding_rejects_non_canonical_version(bad_version: str) -> None:

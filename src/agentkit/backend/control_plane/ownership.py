@@ -130,8 +130,12 @@ MIN_BINDING_VERSION = 1
 #: its domain is a monotone positive integer, enforced at BOTH the record
 #: boundary (:func:`is_canonical_binding_version`) and the persistence boundary
 #: (:data:`BINDING_VERSION_SQL_CHECK`). The two encodings are kept deliberately
-#: in lock-step; changing one requires changing the other.
-_CANONICAL_BINDING_VERSION_RE = re.compile(r"[1-9][0-9]*")
+#: in lock-step (same accept/reject set); changing one requires changing the
+#: other. Their *spelling* differs on purpose: the Python side uses ``\d`` under
+#: :data:`re.ASCII` (so ``\d`` stays strictly ``[0-9]`` and never widens to
+#: Unicode digits), whereas the Postgres ``CHECK`` keeps ``[0-9]`` because
+#: Postgres ARE ``\d`` would broaden with locale.
+_CANONICAL_BINDING_VERSION_RE = re.compile(r"[1-9]\d*", re.ASCII)
 
 #: Postgres regex fragment mirroring :func:`is_canonical_binding_version` for the
 #: schema ``CHECK`` constraint (fresh CREATE TABLE and existing-schema ALTER).
