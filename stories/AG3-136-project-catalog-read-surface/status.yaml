@@ -1,0 +1,18 @@
+story_id: AG3-136
+title: "Projekt-Katalog-Read-Surface erzwingen (load_projects off-port) + decommission-Reroute"
+type: implementation
+status: ready
+phase: setup
+created: "2026-07-02"
+size: S
+# ENTDECKT bei der AG3-128-Landung (Codex-Review + eigene Vollstaendigkeits-Pruefung):
+# AG3-128 hat die _global-Read-Loader-Familie (story/telemetry/control-plane)
+# vollstaendig gepinnt. load_projects ist eine ANDERE Familie (Projekt-Katalog-
+# Reads, Owner = project_management ProjectRepository-Port, AG3-127) und ist von
+# keiner read_surface_rule erfasst. Genau EIN echter Off-Port-Importeur:
+# installer/lifecycle/decommission.py:434 liest load_projects direkt von der
+# state_backend.store-Fassade (gleicher Durchgriff-Typ wie die in AG3-128
+# reroutete Execution-Event-Lesung). Bewusst NICHT in AG3-128 gezogen (eigene
+# Regel-Familie, eigener Import-Audit, Risiko Rot). KEIN AG3-128-Defekt.
+depends_on: []
+unblocks: []

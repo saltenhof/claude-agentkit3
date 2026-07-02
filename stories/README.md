@@ -253,7 +253,8 @@ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben (Foundation zuerst)
 | AG3-125 | ⊘ superseded (FK-72 §72.8.2 erden, Commit 95d5ac1): `verify_system`+`closure`+`governance` http redundant zurückgebaut | D | L | superseded | 123 |
 | AG3-126 | `story`-BC Read-Port (echte Kapselung statt `state_backend.store`-Re-Export) | I | L | completed | — |
 | AG3-127 | `telemetry`+`project_management` Read-Ports; BFF entkoppeln | I | M | completed | 126 |
-| AG3-128 | Konformanz-Suite: Repository-Vertrags-Invariante erzwingen (FK-07 §7.6) | I | M | ready | 126,127 |
+| AG3-128 | Konformanz-Suite: Repository-Vertrags-Invariante erzwingen (FK-07 §7.6) | I | M | completed | 126,127 |
+| AG3-136 | Projekt-Katalog-Read-Surface erzwingen (`load_projects` off-port) + decommission-Reroute | I | S | ready | — |
 | AG3-129 | Hook→Backend REST (neu geerdet: control-plane-Routen in `control_plane_http`, kein `governance/http`) | A | L | completed | — |
 | AG3-130 | Operator-CLI `run-phase`/`resume` über REST (neu geerdet: kanonische `story-runs`-Route) | A | M | completed | 123 |
 | AG3-131 | CCAG Requests/Leases + Mode-Lock-Holder zentral (Postgres+REST) | E | L | ready | 129 |
@@ -262,7 +263,7 @@ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben (Foundation zuerst)
 | AG3-134 | Skill-Bundle `execute-userstory-core` auf REST/BC-reconciled Orchestrierung migrieren (Bundle spricht noch Vor-REST-Dialekt: `run-phase --story`-only, `run-phase verify`, file-State) + resume-Signatur-Korpus angleichen | A | L | ready | 130 |
 | AG3-135 | Phasen-Mutationen gegen Lease-Ablauf absichern (Fencing/Dispatch-Idempotenz statt reiner 5-Min-TTL-Übernahme; Doppel-Dispatch + zerrissener Op-Record) | A | M | ready | — |
 
-**Sofort startbar (`ready`):** AG3-128, AG3-131, AG3-132, AG3-133, AG3-134, AG3-135. (AG3-127, AG3-129, AG3-130 ✅ completed; AG3-127 hat AG3-128 entblockt, AG3-129 hat AG3-131 und AG3-133 entblockt.) (AG3-120, AG3-121, AG3-122, AG3-123, AG3-126, **AG3-130** ✅ completed. AG3-124, AG3-125 ⊘ superseded (FK-72-§72.8.2-Erdung, Commit 95d5ac1). Downstream gegen die rekonziliierte Architektur neu geerdet: **AG3-129** ready; **AG3-133** blocked auf 129; **AG3-132** neu geschnitten + Codex-reviewed → ready.) **AG3-134** (neu) erfasst den bei der AG3-130-Landung verifizierten, vorbestehenden Bundle-/Spec-Drift gegen den REST-Kontrakt (W1+W2); kein AG3-130-Defekt, eigener Scope.
+**Sofort startbar (`ready`):** AG3-131, AG3-132, AG3-133, AG3-134, AG3-135, AG3-136. (AG3-127, AG3-128, AG3-129, AG3-130 ✅ completed. WP-I-Strang [126→127→128] vollständig abgeschlossen; AG3-136 ist die Folge-Story aus dem AG3-128-Review [`load_projects` off-port].) (AG3-120, AG3-121, AG3-122, AG3-123, AG3-126, **AG3-130** ✅ completed. AG3-124, AG3-125 ⊘ superseded (FK-72-§72.8.2-Erdung, Commit 95d5ac1). Downstream gegen die rekonziliierte Architektur neu geerdet: **AG3-129** ready; **AG3-133** blocked auf 129; **AG3-132** neu geschnitten + Codex-reviewed → ready.) **AG3-134** (neu) erfasst den bei der AG3-130-Landung verifizierten, vorbestehenden Bundle-/Spec-Drift gegen den REST-Kontrakt (W1+W2); kein AG3-130-Defekt, eigener Scope.
 **Sequenz-Treiber:** WP-D (123→124/125) ist Fundament für die dev-seitigen
 Umstellungen A/B/C/E; WP-I-Read-Ports (126→127→128) laufen unabhängig parallel;
 H/G/F sind voneinander unabhängig.
