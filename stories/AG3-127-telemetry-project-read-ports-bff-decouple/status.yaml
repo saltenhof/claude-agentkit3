@@ -1,7 +1,8 @@
 story_id: AG3-127
 title: "Telemetry- und project_management-Read-Ports: BFF-Durchgriff auf state_backend.store entkoppeln"
 type: implementation
-status: in_progress
+status: completed
+completed_at: "2026-07-02T00:00:00"
 phase: setup
 created: "2026-06-29"
 size: M
