@@ -1,7 +1,7 @@
 story_id: AG3-131
 title: "CCAG-Permission-Requests/Leases und Mode-Lock zentral im Backend-State (kein projektlokaler Owner)"
 type: implementation
-status: blocked
+status: ready
 phase: setup
 created: "2026-06-29"
 size: L
