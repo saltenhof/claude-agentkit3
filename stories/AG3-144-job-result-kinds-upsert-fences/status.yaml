@@ -14,4 +14,4 @@ size: L
 # die Verify-/Closure-Projektions-Writes. Praedikate kommen aus AG3-142
 # (Ownership) und AG3-143 (Digest — Kante ST-12→ST-09, Review-Runde 1 E2).
 depends_on: ["AG3-141", "AG3-142", "AG3-143"]
-unblocks: ["AG3-153"]
+unblocks: ["AG3-153", "AG3-156"]

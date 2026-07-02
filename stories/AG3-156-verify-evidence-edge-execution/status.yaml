@@ -1,0 +1,19 @@
+story_id: AG3-156
+title: "Verify-Evidenz-Ausführungsort: Request-DSL-Resolver vom Backend-Worktree-Zugriff lösen (K1-Akteursmodell), shell=True-Härtung, FK-47-Konzept-Nachzug"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-02"
+size: L
+# Herkunft: Story-Schnitt-Review 2026-07-02 (Codex-WARNING "Verify-System-
+# Testevidence bleibt backend-seitiger shell=True-Worktree-Zugriff" +
+# Batch-C-Befund; PO-Freigabe 2026-07-02). Loest die worktree-beruehrenden
+# Request-DSL-Resolver (FK-47) vom Backend-Ausfuehrungsort: Aufloesung als
+# Edge-Auftrag ueber die AG3-145-Command-Queue ODER im Agenten-Turn (beide
+# Varianten im FK-47-Rahmen pruefen, Konzept-Nachzug + P3-Decision-Record
+# entscheiden). Hart normiert: Ausfuehrungsort nie Backend, fail-closed ohne
+# Edge, keine shell=True-Ausfuehrung von LLM-geliefertem Text ohne
+# Kommando-Whitelist/Vertrag. Ergebnisanwendung als gefencte Evidenz ueber
+# die AG3-144-Ergebnisart-Registry. Diff-Expansion gehoert AG3-147.
+depends_on: ["AG3-144", "AG3-145"]
+unblocks: []

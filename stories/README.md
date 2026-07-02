@@ -355,15 +355,12 @@ trägt eine maschinenlesbare `**Deckt ab:**`-Traceability-Zeile; ein
 Prüfskript verifiziert Matrix-Deckung + Graph-Symmetrie.
 **Nächster Schritt: (f) Umsetzung via Backlog-Pull (§6.8).**
 
-**Offener Klärungspunkt an den PO (WARNING, aus der Schnitt-Review):**
-`verify_system/evidence/request_resolver.py:154-176` führt
-Test-Kommandos backend-seitig per `subprocess(shell=True)` im
-Spawn-Worktree aus — dieselbe Co-Location-Annahme, die K1 für
-Git-/Worktree-Operationen verbietet, liegt aber außerhalb des
-Git-Ops-Nenners der GAP-Analyse (ältere Verify-System-Konzepte legen
-den Pfad noch backend-seitig an). Braucht Entscheidung: eigener
-Umzugs-Story-Kandidat (Edge führt Test-Evidenz aus, analog ST-14a)
-oder explizit formalisierte Ausnahme.
+**Klärungspunkt entschieden (PO-Go 2026-07-02):** Die backend-seitige
+Verify-Evidenz-Auflösung (`request_resolver.py` inkl. `shell=True`-
+Testausführung, plus die Worktree-Reads des `evidence/assembler.py`)
+wird als eigene Story **AG3-156** vom Backend gelöst (Ausführungsort
+Edge/Agent, FK-47-/FK-28-Konzept-Nachzug mit P3-Decision-Record im
+Story-Scope); siehe §6.8.
 
 ### 6.8 Session-Ownership-Umsetzungs-Backlog (AG3-137…AG3-155)
 
@@ -393,8 +390,24 @@ Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
 | AG3-153 | Frontend Takeover (globaler governance-Stream, Overlay, Cockpit) | L | blocked | 144, 148, 151 |
 | AG3-154 | CLI/Admin-Kommandos + Edge-Tool (inkl. recover-story) | M | blocked | 138, 145, 148 |
 | AG3-155 | Betriebs-Runbook FK-04 (concept) | S | blocked | 139, 149, 151, 154 |
+| AG3-156 | Verify-Evidenz-Ausführungsort: Request-DSL-Resolver + Evidence-Assembler vom Backend-Worktree-Zugriff lösen (Review-Fund, PO-Go 2026-07-02) | L | blocked | 144, 145 |
 
-**Sofort startbar (`ready`): AG3-137, AG3-146.**
+**Sofort startbar (`ready`): AG3-137, AG3-146.** (AG3-137 wurde am
+2026-07-02 von einer Implementierungs-Session gezogen.)
+
+### 6.9 Konzept-Konsistenz-Werkzeuge W1–W4 (AG3-157…AG3-160)
+
+Eigener Strang aus `concept/_meta/konzept-konsistenz-governance.md`
+(§5 Werkzeug-Spezifikationen, §6 Betriebsmodell, §7 Fahrplan).
+Reihenfolge nach §7 als Kanten kodiert (W1→W4→W2→W3; nur W3←W2 ist
+technisch, die übrigen sind ausgewiesene Sequenz-Kanten).
+
+| ID | Werkzeug | Größe | Status | depends_on |
+|----|----------|-------|--------|------------|
+| AG3-157 | W1 `concept-reference-integrity` — deterministisches CI-Pflichtgate (Querverweis-Auflösbarkeit, §-Anker, formal.*-IDs, Pfade; + `defers_to`-Scope-Zyklen-Semantik) | M | **ready** | — |
+| AG3-158 | W4 `concept-decision-record-gate` — P3-Durchsetzung (Konzeptdiff ⇒ Decision-Record) | S | blocked | 157 (Sequenz) |
+| AG3-159 | W2 `concept-authority-prose` — LLM-Bewertung + deterministische Policy (unzuständige normative Behauptungen) | L | blocked | 158 (Sequenz) |
+| AG3-160 | W3 `concept-scope-consistency` — LLM-Sweep pro Scope (Widerspruchssuche auf kleinen Mengen) | M | blocked | 159 (technisch) |
 
 ## 7. Konzept- und Guardrail-Bezug
 

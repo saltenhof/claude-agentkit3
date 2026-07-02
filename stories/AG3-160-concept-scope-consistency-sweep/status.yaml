@@ -1,0 +1,19 @@
+story_id: AG3-160
+title: "Konzept-Scope-Konsistenz-Sweep (W3): LLM-Sweep pro authority_over-Scope — alle Aussagen-Chunks eines Scopes als geschlossenes Set auf Widersprüche prüfen (nightly, Baseline wie W2)"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-02"
+size: M
+# Herkunft: META-CONCEPT-CONSISTENCY (concept/_meta/konzept-konsistenz-
+# governance.md) §5/W3, §6 Betriebsmodell, §7 Fahrplan Punkt 4; PO-Freigabe
+# 2026-07-02. Widerspruchssuche kollabiert auf kleine Mengen: pro
+# authority_over-Scope werden alle Aussagen-Chunks des Scopes als
+# geschlossenes Set auf Widersprueche geprueft. Setzt die W2-Infrastruktur
+# (AG3-159: Chunk-Klassifikation, Baseline-Mechanik) TECHNISCH voraus —
+# ohne sie degeneriert die Pruefung zu O(n^2) ueber den Gesamtkorpus.
+# Betrieb nightly, Baseline nur mit begruendeten Eintraegen (wie W2).
+# Chunk-Quelle: deterministische repo-lokale Discovery (kein externer
+# Weaviate-/MCP-Index als Pruef-Grundlage).
+depends_on: ["AG3-159"]
+unblocks: []

@@ -1,0 +1,19 @@
+story_id: AG3-157
+title: "Konzept-Referenz-Integritäts-Gate (W1): Auflösbarkeit aller Querverweise (Dokument-IDs, §-Anker, formal.*-IDs, Dateipfade) als deterministisches CI-Pflichtgate + scope-qualifizierte defers_to-Azyklik"
+type: implementation
+status: ready
+phase: setup
+created: "2026-07-02"
+size: M
+# Herkunft: META-CONCEPT-CONSISTENCY (concept/_meta/konzept-konsistenz-
+# governance.md) §5/W1, §6 Betriebsmodell, §7 Fahrplan Punkt 1; PO-Freigabe
+# 2026-07-02. Deterministisches, blockierendes CI-Gate (scripts/ci-Muster,
+# gleiche CI-Stufe wie die vier bestehenden Konzept-Gates): loest ALLE
+# Querverweise auf (Dokument-IDs, echte §-Anker, formal.*-IDs, Dateipfade);
+# erweitert die bestehende Prose-Link-Pruefung von compile_formal_specs.py.
+# Zusatzauftrag: defers_to-Semantik pro Scope — Scope-Delegationsketten
+# azyklisch (ERROR), Dokumentebenen-Zyklen zunaechst Report/Baseline.
+# depends_on leer (W1 hat keine Abhaengigkeiten, §7) -> ready. Kante zu
+# AG3-158 ist eine SEQUENZ-Kante nach §7-Fahrplan.
+depends_on: []
+unblocks: ["AG3-158"]

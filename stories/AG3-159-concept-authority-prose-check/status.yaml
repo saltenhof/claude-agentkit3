@@ -1,0 +1,20 @@
+story_id: AG3-159
+title: "Konzept-Authority-Prosa-Prüfung (W2): LLM-Bewertung + deterministische Policy — normative Aussagen je Chunk klassifizieren, Scope-Abgleich gegen Authority/defers_to, nightly + vor Konzept-Merges"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-02"
+size: L
+# Herkunft: META-CONCEPT-CONSISTENCY (concept/_meta/konzept-konsistenz-
+# governance.md) §5/W2, §6 Betriebsmodell, §7 Fahrplan Punkt 3; PO-Freigabe
+# 2026-07-02. Muster "LLM nur als Bewertungsfunktion, Entscheidung
+# deterministisch" (analog Verify-Layer 2, FK-27/FK-11): chunk-weise
+# (H2-Ebene) ueber den Korpus; pro Chunk: normative Aussagen? ueber welche
+# Scopes? Deterministischer Registry-Abgleich: normative Aussage ueber
+# Scope X ohne Authority und ohne defers_to-Kante -> ERROR (unzustaendige
+# Behauptung). Nightly + vor Konzept-Merges; Baseline nur mit begruendeten
+# Eintraegen; Prompts/Modelle versioniert, Befunde idempotent referenziert.
+# Kante auf AG3-158 ist eine SEQUENZ-Kante nach META §7-Fahrplan (W4 vor
+# W2), keine technische Abhaengigkeit.
+depends_on: ["AG3-158"]
+unblocks: ["AG3-160"]

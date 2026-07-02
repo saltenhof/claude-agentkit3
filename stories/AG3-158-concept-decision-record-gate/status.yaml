@@ -1,0 +1,18 @@
+story_id: AG3-158
+title: "Konzept-Decision-Record-Gate (W4): P3-Durchsetzung — Konzeptdiff an normativen Dokumenten erfordert Decision-Record-Referenz (Commit-Konvention + deterministischer Check)"
+type: implementation
+status: blocked
+phase: setup
+created: "2026-07-02"
+size: S
+# Herkunft: META-CONCEPT-CONSISTENCY (concept/_meta/konzept-konsistenz-
+# governance.md) §5/W4, §6 Betriebsmodell, §7 Fahrplan Punkt 2; PO-Freigabe
+# 2026-07-02. Erzwingt P3: Diff an normativen Konzeptdokumenten ohne
+# decisions/-Eintrag oder Record-Referenz in der Commit-Message -> Befund.
+# Tippfehler-/Format-Fixes ausgenommen (keine Aenderung normativer Saetze;
+# prueffbare Heuristik wird in dieser Story festgelegt). Gilt manuell
+# bereits seit Inkrafttreten des META-Dokuments (Review-Checkliste).
+# Die Kante auf AG3-157 ist eine SEQUENZ-Kante nach META §7-Fahrplan
+# (W1 zuerst — sofortiger Nutzen), KEINE technische Abhaengigkeit.
+depends_on: ["AG3-157"]
+unblocks: ["AG3-159"]

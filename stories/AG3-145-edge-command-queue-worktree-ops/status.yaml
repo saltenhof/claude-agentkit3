@@ -13,4 +13,4 @@ size: L
 # (Plan §3). sync_push -> AG3-147, merge_local -> AG3-152, Reconcile-
 # Ausfuehrung -> AG3-151, Edge-Tool Takeover/Abort/Recover -> AG3-154.
 depends_on: ["AG3-137", "AG3-141", "AG3-142", "AG3-146"]
-unblocks: ["AG3-147", "AG3-151", "AG3-152", "AG3-154"]
+unblocks: ["AG3-147", "AG3-151", "AG3-152", "AG3-154", "AG3-156"]
