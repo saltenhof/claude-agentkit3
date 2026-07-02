@@ -41,6 +41,9 @@ from agentkit.backend.state_backend.store.facade import (
     delete_control_plane_operation_global as delete_control_plane_operation_global,
 )
 from agentkit.backend.state_backend.store.facade import (
+    delete_object_mutation_claim_global as delete_object_mutation_claim_global,
+)
+from agentkit.backend.state_backend.store.facade import (
     delete_session_run_binding_global as delete_session_run_binding_global,
 )
 from agentkit.backend.state_backend.store.facade import (
@@ -62,6 +65,15 @@ from agentkit.backend.state_backend.store.facade import (
     has_committed_story_exit_operation_for_run_global as has_committed_story_exit_operation_for_run_global,
 )
 from agentkit.backend.state_backend.store.facade import (
+    insert_object_mutation_claim_global as insert_object_mutation_claim_global,
+)
+from agentkit.backend.state_backend.store.facade import (
+    insert_run_ownership_record_global as insert_run_ownership_record_global,
+)
+from agentkit.backend.state_backend.store.facade import (
+    load_active_run_ownership_record_global as load_active_run_ownership_record_global,
+)
+from agentkit.backend.state_backend.store.facade import (
     load_artifact_record as load_artifact_record,
 )
 from agentkit.backend.state_backend.store.facade import (
@@ -69,6 +81,9 @@ from agentkit.backend.state_backend.store.facade import (
 )
 from agentkit.backend.state_backend.store.facade import (
     load_attempts as load_attempts,
+)
+from agentkit.backend.state_backend.store.facade import (
+    load_backend_instance_identity_global as load_backend_instance_identity_global,
 )
 from agentkit.backend.state_backend.store.facade import (
     load_control_plane_operation_global as load_control_plane_operation_global,
@@ -102,6 +117,9 @@ from agentkit.backend.state_backend.store.facade import (
 )
 from agentkit.backend.state_backend.store.facade import (
     load_node_execution_ledger as load_node_execution_ledger,
+)
+from agentkit.backend.state_backend.store.facade import (
+    load_object_mutation_claim_global as load_object_mutation_claim_global,
 )
 from agentkit.backend.state_backend.store.facade import (
     load_override_records as load_override_records,
@@ -140,6 +158,9 @@ from agentkit.backend.state_backend.store.facade import (
     load_qa_stage_results_for_scope as load_qa_stage_results_for_scope,
 )
 from agentkit.backend.state_backend.store.facade import (
+    load_run_ownership_record_global as load_run_ownership_record_global,
+)
+from agentkit.backend.state_backend.store.facade import (
     load_session_run_binding_global as load_session_run_binding_global,
 )
 from agentkit.backend.state_backend.store.facade import (
@@ -174,6 +195,9 @@ from agentkit.backend.state_backend.store.facade import (
 )
 from agentkit.backend.state_backend.store.facade import (
     load_story_metrics_for_scope as load_story_metrics_for_scope,
+)
+from agentkit.backend.state_backend.store.facade import (
+    load_takeover_transfer_record_global as load_takeover_transfer_record_global,
 )
 from agentkit.backend.state_backend.store.facade import (
     purge_attempts as purge_attempts,
@@ -242,6 +266,9 @@ from agentkit.backend.state_backend.store.facade import (
     save_attempt as save_attempt,
 )
 from agentkit.backend.state_backend.store.facade import (
+    save_backend_instance_identity_global as save_backend_instance_identity_global,
+)
+from agentkit.backend.state_backend.store.facade import (
     save_control_plane_operation_global as save_control_plane_operation_global,
 )
 from agentkit.backend.state_backend.store.facade import (
@@ -282,6 +309,9 @@ from agentkit.backend.state_backend.store.facade import (
 )
 from agentkit.backend.state_backend.store.facade import (
     save_story_execution_lock_global as save_story_execution_lock_global,
+)
+from agentkit.backend.state_backend.store.facade import (
+    save_takeover_transfer_record_global as save_takeover_transfer_record_global,
 )
 from agentkit.backend.state_backend.store.facade import (
     takeover_control_plane_operation_global as takeover_control_plane_operation_global,

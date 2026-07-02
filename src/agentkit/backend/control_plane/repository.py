@@ -10,18 +10,28 @@ from agentkit.backend.state_backend.store import (
     claim_control_plane_operation_global,
     commit_control_plane_operation_with_side_effects_global,
     delete_control_plane_operation_global,
+    delete_object_mutation_claim_global,
     delete_session_run_binding_global,
     finalize_control_plane_operation_global,
     finalize_control_plane_start_phase_global,
     has_committed_control_plane_operation_for_run_global,
     has_committed_story_exit_operation_for_run_global,
+    insert_object_mutation_claim_global,
+    insert_run_ownership_record_global,
+    load_active_run_ownership_record_global,
+    load_backend_instance_identity_global,
     load_control_plane_operation_global,
+    load_object_mutation_claim_global,
+    load_run_ownership_record_global,
     load_session_run_binding_global,
     load_story_execution_lock_global,
+    load_takeover_transfer_record_global,
     release_control_plane_operation_global,
+    save_backend_instance_identity_global,
     save_control_plane_operation_global,
     save_session_run_binding_global,
     save_story_execution_lock_global,
+    save_takeover_transfer_record_global,
     takeover_control_plane_operation_global,
 )
 
@@ -29,8 +39,12 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from agentkit.backend.control_plane.records import (
+        BackendInstanceIdentityRecord,
         ControlPlaneOperationRecord,
+        ObjectMutationClaimRecord,
+        RunOwnershipRecord,
         SessionRunBindingRecord,
+        TakeoverTransferRecord,
     )
     from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
     from agentkit.backend.story_context_manager.models import StoryContext
@@ -139,4 +153,77 @@ class ControlPlaneRuntimeRepository:
     #: materialized for a fast story.
     load_story_context: Callable[[str, str], StoryContext | None] = (
         _load_story_context_via_story_surface
+    )
+
+
+@dataclass(frozen=True)
+class RunOwnershipRepository:
+    """Persistence port for the canonical run-ownership record (AG3-137).
+
+    The single writer is ``control_plane_runtime`` on behalf of the
+    ``story-lifecycle`` BC (FK-17 §17.5). ``insert_ownership`` is a strict insert:
+    the DB-enforced ``at_most_one_active_ownership_per_story`` partial-unique
+    invariant (FK-56 §56.8a) rejects a second active record for the same story,
+    and the facade rejects a ``transferred`` write (no writer in this strand).
+    Postgres-only (K5): a non-Postgres backend fails closed with ``ConfigError``.
+    """
+
+    insert_ownership: Callable[[RunOwnershipRecord], None] = (
+        insert_run_ownership_record_global
+    )
+    load_ownership: Callable[[str, str, str], RunOwnershipRecord | None] = (
+        load_run_ownership_record_global
+    )
+    load_active_ownership: Callable[[str, str], RunOwnershipRecord | None] = (
+        load_active_run_ownership_record_global
+    )
+
+
+@dataclass(frozen=True)
+class ObjectMutationClaimRepository:
+    """Persistence port for instance-bound object-mutation claims (AG3-137).
+
+    Provides the schema-level persistence surface only; the productive claim
+    acquisition, lock-sets, queue fairness and wait semantics are AG3-141. The
+    claim never expires by wall clock (no TTL). Postgres-only (K5).
+    """
+
+    insert_claim: Callable[[ObjectMutationClaimRecord], None] = (
+        insert_object_mutation_claim_global
+    )
+    load_claim: Callable[[str, str, str], ObjectMutationClaimRecord | None] = (
+        load_object_mutation_claim_global
+    )
+    delete_claim: Callable[[str, str, str], None] = delete_object_mutation_claim_global
+
+
+@dataclass(frozen=True)
+class TakeoverTransferRepository:
+    """Persistence port for per-repo takeover transfer records (AG3-137).
+
+    Schema/record/repository foundation only; the productive challenge → confirm
+    CAS writer is AG3-148. One row per participating repo. Postgres-only (K5).
+    """
+
+    save_transfer: Callable[[TakeoverTransferRecord], None] = (
+        save_takeover_transfer_record_global
+    )
+    load_transfer: Callable[
+        [str, str, str, int, str], TakeoverTransferRecord | None
+    ] = load_takeover_transfer_record_global
+
+
+@dataclass(frozen=True)
+class BackendInstanceIdentityRepository:
+    """Persistence port for the backend instance identity (AG3-137, IMPL-004).
+
+    Persists ``backend_instance_id`` plus a monotone boot incarnation so AG3-138
+    need only create/increment on boot. Postgres-only (K5).
+    """
+
+    save_identity: Callable[[BackendInstanceIdentityRecord], None] = (
+        save_backend_instance_identity_global
+    )
+    load_identity: Callable[[str], BackendInstanceIdentityRecord | None] = (
+        load_backend_instance_identity_global
     )

@@ -25,8 +25,12 @@ if TYPE_CHECKING:
     from agentkit.backend.auth.entities import ProjectApiToken
     from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
     from agentkit.backend.control_plane.records import (
+        BackendInstanceIdentityRecord,
         ControlPlaneOperationRecord,
+        ObjectMutationClaimRecord,
+        RunOwnershipRecord,
         SessionRunBindingRecord,
+        TakeoverTransferRecord,
     )
     from agentkit.backend.execution_planning.entities import (
         ParallelizationConfig,
@@ -1053,6 +1057,10 @@ def session_binding_to_row(record: SessionRunBindingRecord) -> dict[str, Any]:
         "worktree_roots_json": dump_json(list(record.worktree_roots)),
         "binding_version": record.binding_version,
         "updated_at": record.updated_at.isoformat(),
+        # AG3-137 additive (FK-56 §56.7a): session-binding status + revocation
+        # reason. Defaults keep pre-AG3-137 rows lossless.
+        "status": record.status,
+        "revocation_reason": record.revocation_reason,
     }
 
 
@@ -1065,6 +1073,8 @@ def session_binding_row_to_record(row: dict[str, Any]) -> SessionRunBindingRecor
         SessionRunBindingRecord as _SessionRunBindingRecord,
     )
 
+    status_value = row.get("status")
+    reason_value = row.get("revocation_reason")
     return _SessionRunBindingRecord(
         session_id=str(row["session_id"]),
         project_key=str(row["project_key"]),
@@ -1074,6 +1084,8 @@ def session_binding_row_to_record(row: dict[str, Any]) -> SessionRunBindingRecor
         worktree_roots=tuple(load_json(row["worktree_roots_json"], [])),
         binding_version=str(row["binding_version"]),
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
+        status=str(status_value) if status_value is not None else "active",
+        revocation_reason=str(reason_value) if reason_value is not None else None,
     )
 
 
@@ -1103,6 +1115,17 @@ def control_plane_op_to_row(record: ControlPlaneOperationRecord) -> dict[str, An
         "claimed_by": record.claimed_by,
         "claimed_at": (
             record.claimed_at.isoformat() if record.claimed_at is not None else None
+        ),
+        # AG3-137 additive (inflight-operation-record, FK-91 §91.1a rules 13/16).
+        # ``None`` on AG3-137 writes; populated by AG3-138/AG3-141.
+        "operation_epoch": record.operation_epoch,
+        "backend_instance_id": record.backend_instance_id,
+        "instance_incarnation": record.instance_incarnation,
+        "declared_serialization_scope": record.declared_serialization_scope,
+        "finalized_at": (
+            record.finalized_at.isoformat()
+            if record.finalized_at is not None
+            else None
         ),
     }
 
@@ -1138,7 +1161,34 @@ def control_plane_op_row_to_record(
         # naive/legacy/malformed row would never CAS-match against the normalized
         # ``claimed_at`` (the op_id would be permanently poisoned).
         claimed_at_raw=_raw_claimed_at_text(row.get("claimed_at")),
+        # AG3-137 additive (inflight-operation-record). ``None`` on legacy /
+        # pre-AG3-137 rows (the columns are absent or NULL).
+        operation_epoch=_optional_int(row.get("operation_epoch")),
+        backend_instance_id=cast("_OptionalString", row.get("backend_instance_id")),
+        instance_incarnation=_optional_int(row.get("instance_incarnation")),
+        declared_serialization_scope=cast(
+            "_OptionalString", row.get("declared_serialization_scope")
+        ),
+        finalized_at=_optional_iso_datetime(row.get("finalized_at")),
     )
+
+
+def _optional_int(value: object) -> int | None:
+    """Coerce a nullable integer column value to ``int | None``."""
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    return int(str(value))
+
+
+def _optional_iso_datetime(value: object) -> datetime | None:
+    """Parse a nullable ISO-8601 TEXT instant column to ``datetime | None``."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(str(value))
 
 
 def _raw_claimed_at_text(claimed_at_raw: object) -> str | None:
@@ -1205,6 +1255,187 @@ def _parse_aware_claimed_at(claimed_at_raw: object) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
+
+
+# ---------------------------------------------------------------------------
+# RunOwnershipRecord (AG3-137)
+# ---------------------------------------------------------------------------
+
+
+def run_ownership_to_row(record: RunOwnershipRecord) -> dict[str, Any]:
+    """Convert a ``RunOwnershipRecord`` to a DB-insertable row dict."""
+
+    return {
+        "project_key": record.project_key,
+        "story_id": record.story_id,
+        "run_id": record.run_id,
+        "owner_session_id": record.owner_session_id,
+        "ownership_epoch": record.ownership_epoch,
+        "status": record.status.value,
+        "acquired_via": record.acquired_via.value,
+        "acquired_at": record.acquired_at.isoformat(),
+        "audit_ref": record.audit_ref,
+    }
+
+
+def run_ownership_row_to_record(row: dict[str, Any]) -> RunOwnershipRecord:
+    """Convert a DB row dict to a ``RunOwnershipRecord``."""
+
+    from datetime import datetime
+
+    from agentkit.backend.control_plane.ownership import (
+        OwnershipAcquisition,
+        OwnershipStatus,
+    )
+    from agentkit.backend.control_plane.records import (
+        RunOwnershipRecord as _RunOwnershipRecord,
+    )
+
+    return _RunOwnershipRecord(
+        project_key=str(row["project_key"]),
+        story_id=str(row["story_id"]),
+        run_id=str(row["run_id"]),
+        owner_session_id=str(row["owner_session_id"]),
+        ownership_epoch=int(row["ownership_epoch"]),
+        status=OwnershipStatus(str(row["status"])),
+        acquired_via=OwnershipAcquisition(str(row["acquired_via"])),
+        acquired_at=datetime.fromisoformat(str(row["acquired_at"])),
+        audit_ref=str(row["audit_ref"]),
+    )
+
+
+# ---------------------------------------------------------------------------
+# ObjectMutationClaimRecord (AG3-137)
+# ---------------------------------------------------------------------------
+
+
+def object_mutation_claim_to_row(record: ObjectMutationClaimRecord) -> dict[str, Any]:
+    """Convert an ``ObjectMutationClaimRecord`` to a DB-insertable row dict."""
+
+    return {
+        "project_key": record.project_key,
+        "serialization_scope": record.serialization_scope,
+        "scope_key": record.scope_key,
+        "op_id": record.op_id,
+        "backend_instance_id": record.backend_instance_id,
+        "instance_incarnation": record.instance_incarnation,
+        "acquired_at": record.acquired_at.isoformat(),
+        "queue_position": record.queue_position,
+    }
+
+
+def object_mutation_claim_row_to_record(
+    row: dict[str, Any],
+) -> ObjectMutationClaimRecord:
+    """Convert a DB row dict to an ``ObjectMutationClaimRecord``."""
+
+    from datetime import datetime
+
+    from agentkit.backend.control_plane.records import (
+        ObjectMutationClaimRecord as _ObjectMutationClaimRecord,
+    )
+
+    return _ObjectMutationClaimRecord(
+        project_key=str(row["project_key"]),
+        serialization_scope=str(row["serialization_scope"]),
+        scope_key=str(row["scope_key"]),
+        op_id=str(row["op_id"]),
+        backend_instance_id=str(row["backend_instance_id"]),
+        instance_incarnation=int(row["instance_incarnation"]),
+        acquired_at=datetime.fromisoformat(str(row["acquired_at"])),
+        queue_position=int(row["queue_position"]),
+    )
+
+
+# ---------------------------------------------------------------------------
+# TakeoverTransferRecord (AG3-137)
+# ---------------------------------------------------------------------------
+
+
+def takeover_transfer_to_row(record: TakeoverTransferRecord) -> dict[str, Any]:
+    """Convert a ``TakeoverTransferRecord`` to a DB-insertable row dict."""
+
+    return {
+        "project_key": record.project_key,
+        "story_id": record.story_id,
+        "run_id": record.run_id,
+        "ownership_epoch": record.ownership_epoch,
+        "repo_id": record.repo_id,
+        "takeover_base_sha": record.takeover_base_sha,
+        "last_push_at": (
+            record.last_push_at.isoformat()
+            if record.last_push_at is not None
+            else None
+        ),
+        "push_lag_hint": record.push_lag_hint,
+        "base_quality": record.base_quality,
+        "challenge_ref": record.challenge_ref,
+        "confirm_ref": record.confirm_ref,
+    }
+
+
+def takeover_transfer_row_to_record(row: dict[str, Any]) -> TakeoverTransferRecord:
+    """Convert a DB row dict to a ``TakeoverTransferRecord``."""
+
+    from agentkit.backend.control_plane.records import (
+        TakeoverTransferRecord as _TakeoverTransferRecord,
+    )
+
+    return _TakeoverTransferRecord(
+        project_key=str(row["project_key"]),
+        story_id=str(row["story_id"]),
+        run_id=str(row["run_id"]),
+        ownership_epoch=int(row["ownership_epoch"]),
+        repo_id=str(row["repo_id"]),
+        takeover_base_sha=_optional_str(row.get("takeover_base_sha")),
+        last_push_at=_optional_iso_datetime(row.get("last_push_at")),
+        push_lag_hint=_optional_str(row.get("push_lag_hint")),
+        base_quality=_optional_str(row.get("base_quality")),
+        challenge_ref=_optional_str(row.get("challenge_ref")),
+        confirm_ref=_optional_str(row.get("confirm_ref")),
+    )
+
+
+def _optional_str(value: object) -> str | None:
+    """Coerce a nullable TEXT column value to ``str | None``."""
+    if value is None:
+        return None
+    return str(value)
+
+
+# ---------------------------------------------------------------------------
+# BackendInstanceIdentityRecord (AG3-137)
+# ---------------------------------------------------------------------------
+
+
+def backend_instance_identity_to_row(
+    record: BackendInstanceIdentityRecord,
+) -> dict[str, Any]:
+    """Convert a ``BackendInstanceIdentityRecord`` to a DB-insertable row dict."""
+
+    return {
+        "backend_instance_id": record.backend_instance_id,
+        "instance_incarnation": record.instance_incarnation,
+        "updated_at": record.updated_at.isoformat(),
+    }
+
+
+def backend_instance_identity_row_to_record(
+    row: dict[str, Any],
+) -> BackendInstanceIdentityRecord:
+    """Convert a DB row dict to a ``BackendInstanceIdentityRecord``."""
+
+    from datetime import datetime
+
+    from agentkit.backend.control_plane.records import (
+        BackendInstanceIdentityRecord as _BackendInstanceIdentityRecord,
+    )
+
+    return _BackendInstanceIdentityRecord(
+        backend_instance_id=str(row["backend_instance_id"]),
+        instance_incarnation=int(row["instance_incarnation"]),
+        updated_at=datetime.fromisoformat(str(row["updated_at"])),
+    )
 
 
 # ---------------------------------------------------------------------------

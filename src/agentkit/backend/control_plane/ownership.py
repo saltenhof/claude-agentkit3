@@ -1,0 +1,128 @@
+"""Run-ownership domain vocabulary (blood-type A: technology-free core).
+
+This module holds the canonical, technology-free ownership vocabulary of the
+session-ownership model (FK-17 §17.2c, FK-56 §56.8a,
+``formal.operating-modes.entities``): the :data:`SessionId` semantic type, the
+closed :class:`OwnershipStatus` / :class:`OwnershipAcquisition` enum spaces and
+the invariant name/bound constants that the persistence layer enforces.
+
+It is deliberately AT-free (no transactions, no SQL, no I/O): the constraint
+*mechanics* for the ``at_most_one_active_ownership_per_story`` invariant live in
+the ``state_backend`` repository/DDL layer (blood-type AT/T). Only the *meaning*
+lives here.
+
+Concept anchors:
+    - FK-17 §17.2c (``OwnershipStatus`` / ``OwnershipAcquisition`` enum spaces),
+      §17.3a.15 (``RunOwnershipRecord`` attribute contract, ``ownership_epoch``
+      >= 1), §17.3a.16 (``binding_version`` >= 1).
+    - FK-56 §56.7a (``binding_invalid`` reason as an attribute; the
+      ``ownership_transferred`` revocation reason), §56.8a (partial-unique
+      active invariant, epoch semantics).
+    - ``formal.operating-modes.invariants.at_most_one_active_ownership_per_story``.
+"""
+
+from __future__ import annotations
+
+from enum import StrEnum
+from typing import NewType
+
+__all__ = (
+    "AT_MOST_ONE_ACTIVE_OWNERSHIP_PER_STORY",
+    "INITIAL_OWNERSHIP_EPOCH",
+    "MIN_BINDING_VERSION",
+    "MIN_INSTANCE_INCARNATION",
+    "MIN_OWNERSHIP_EPOCH",
+    "MIN_QUEUE_POSITION",
+    "OWNERSHIP_TRANSFERRED_REVOCATION_REASON",
+    "BindingRevocationReason",
+    "BindingStatus",
+    "OwnershipAcquisition",
+    "OwnershipStatus",
+    "SessionId",
+)
+
+#: Semantic type for a client session identifier (FK-17 §17.2b: systemwide
+#: unique, stable per session). Modelled as a ``NewType`` over ``str`` so the
+#: ownership surface can name the concept without a runtime wrapper; existing
+#: ``session_id: str`` fields stay wire-compatible.
+SessionId = NewType("SessionId", str)
+
+
+class OwnershipStatus(StrEnum):
+    """Closed status space of a ``RunOwnershipRecord`` (FK-17 §17.2c).
+
+    ``ACTIVE`` is the only admission-relevant status; every other value is an
+    audit fact (FK-56 §56.8a,
+    ``historical_ownership_records_are_never_admission_evidence``).
+
+    ``TRANSFERRED`` is part of the canonical vocabulary but has **no writer** in
+    the current normative strand: no path (takeover/disown/recovery) sets it,
+    and any attempt to persist it is fail-closed rejected until a normative
+    concretisation exists (AG3-137 scope §1). A run-continuing takeover is an
+    in-place CAS on the SAME row (owner change, ``ownership_epoch + 1``, record
+    stays ``ACTIVE``) and never sets ``TRANSFERRED``.
+    """
+
+    ACTIVE = "active"
+    TRANSFERRED = "transferred"
+    ENDED = "ended"
+    RESET = "reset"
+    SPLIT = "split"
+    CLOSED = "closed"
+
+
+class OwnershipAcquisition(StrEnum):
+    """Closed acquisition-path space of a ``RunOwnershipRecord`` (FK-17 §17.2c)."""
+
+    SETUP = "setup"
+    TAKEOVER = "takeover"
+    RECOVERY = "recovery"
+
+
+class BindingStatus(StrEnum):
+    """Closed status space of a ``SessionRunBinding`` (FK-56 §56.7a).
+
+    A binding is ``ACTIVE`` or ``REVOKED``; the revocation *reason* is a
+    separate machine-readable attribute (``binding_invalid`` is a mode, not a
+    per-cause status).
+    """
+
+    ACTIVE = "active"
+    REVOKED = "revoked"
+
+
+class BindingRevocationReason(StrEnum):
+    """Known machine-readable binding revocation reasons (FK-56 §56.7a).
+
+    The reason is an attribute of a revoked binding, not a status per cause.
+    ``OWNERSHIP_TRANSFERRED`` is the concept-named reason introduced with the
+    ownership transfer (§56.13). The reason column stays an open ``TEXT`` at the
+    schema level so downstream stories (AG3-142/148/149) may extend the
+    vocabulary without a schema change; this enum documents the known values.
+    """
+
+    OWNERSHIP_TRANSFERRED = "ownership_transferred"
+
+
+#: Enforced-by-persistence invariant name (``formal.operating-modes.invariants``).
+AT_MOST_ONE_ACTIVE_OWNERSHIP_PER_STORY = "at_most_one_active_ownership_per_story"
+
+#: The concept-named revocation reason string (FK-56 §56.7a).
+OWNERSHIP_TRANSFERRED_REVOCATION_REASON = (
+    BindingRevocationReason.OWNERSHIP_TRANSFERRED.value
+)
+
+#: ``ownership_epoch`` lower bound and the setup start value (FK-17 §17.3a.15:
+#: ``>= 1``, begins with setup, monotone increasing).
+MIN_OWNERSHIP_EPOCH = 1
+INITIAL_OWNERSHIP_EPOCH = 1
+
+#: ``binding_version`` lower bound (FK-17 §17.3a.16: ``>= 1``).
+MIN_BINDING_VERSION = 1
+
+#: ``instance_incarnation`` lower bound (FK-91 §91.1a rule 16: monotone boot
+#: incarnation counter, first boot is 1).
+MIN_INSTANCE_INCARNATION = 1
+
+#: ``queue_position`` lower bound for an object-mutation claim (0-based FIFO).
+MIN_QUEUE_POSITION = 0

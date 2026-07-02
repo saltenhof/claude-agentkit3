@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -2418,5 +2419,36 @@ def _as_aware_utc(value: datetime) -> datetime | None:
     return value.astimezone(UTC)
 
 
+#: Process-local strict-monotone floor for the binding-version mint. Seeded from
+#: a high-resolution wall clock so the version is monotone across process
+#: restarts (a fresh process never re-issues an earlier value); the floor
+#: guarantees strict increase even for two mints within the same microsecond.
+_BINDING_VERSION_LOCK = threading.Lock()
+_LAST_BINDING_VERSION = 0
+
+
 def _next_binding_version() -> str:
-    return f"bind-{uuid.uuid4().hex}"
+    """Mint the next binding version (FK-17 §17.3a.16: monotone Integer >= 1).
+
+    Returns a canonical decimal string of a strictly monotone positive integer,
+    CAS-capable (SOLL-008). This replaces the former random ``bind-<uuid4>``
+    token, which was non-monotone and thus not CAS-fenceable. The value is an
+    opaque version token and is NEVER interpreted as wall-clock time (no lease /
+    expiry / heartbeat semantics), so deriving it from a clock does not conflict
+    with the anti-wall-clock ownership rule.
+
+    Representation note (AG3-137 scope §5, ``reine Repräsentationsänderung``): the
+    value stays typed ``str`` because it flows verbatim into the derived
+    ``StoryExecutionLockRecord`` / edge-bundle projections, which legitimately
+    also carry non-integer correlation tokens (e.g. the story-exit ``exit-<id>``
+    teardown token, FK-58) and whose column lives in ``sqlite_store`` (K5: not
+    changed here). Only the value domain changes to a monotone positive integer;
+    a literal numeric column migration is deferred to the fencing consumer
+    AG3-142, which coordinates the lock/view/wire representation holistically.
+    """
+    global _LAST_BINDING_VERSION
+    with _BINDING_VERSION_LOCK:
+        candidate = int(datetime.now(tz=UTC).timestamp() * 1_000_000)
+        version = max(candidate, _LAST_BINDING_VERSION + 1)
+        _LAST_BINDING_VERSION = version
+        return str(version)

@@ -181,8 +181,20 @@
             run_id TEXT NOT NULL,
             principal_type TEXT NOT NULL,
             worktree_roots_json TEXT NOT NULL,
+            -- binding_version carries a monotone positive-integer version token
+            -- as canonical decimal TEXT (FK-17 §17.3a.16, minted by
+            -- control_plane.runtime._next_binding_version). It stays TEXT so the
+            -- same value flows verbatim into story_execution_locks, which also
+            -- carry non-integer correlation tokens (e.g. story-exit exit-<id>).
             binding_version TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            -- AG3-137 (FK-56 §56.7a): session-binding status (active | revoked)
+            -- plus a machine-readable revocation reason (vocabulary includes
+            -- 'ownership_transferred'). Additive; DEFAULT 'active' keeps a
+            -- pre-existing binding row lossless across the bootstrap.
+            status TEXT NOT NULL DEFAULT 'active'
+                CHECK (status IN ('active', 'revoked')),
+            revocation_reason TEXT
         );
 
         -- AG3-031 Pass-5 FK-22 §22.7 corrective: PK is (project_key, story_id, run_id, lock_type).
@@ -241,11 +253,100 @@
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             claimed_by TEXT,
-            claimed_at TEXT
+            claimed_at TEXT,
+            -- AG3-137 (inflight-operation-record, FK-91 §91.1a rules 13/16):
+            -- additive columns for the in-flight operation fence. Nullable so a
+            -- DB pre-populated with legacy control_plane_operations rows
+            -- survives the bootstrap losslessly; population + fencing arrive in
+            -- AG3-138 / AG3-141.
+            operation_epoch INTEGER,
+            backend_instance_id TEXT,
+            instance_incarnation INTEGER,
+            declared_serialization_scope TEXT,
+            finalized_at TEXT
         );
 
         CREATE INDEX IF NOT EXISTS control_plane_operations_run_idx
             ON control_plane_operations (project_key, story_id, run_id);
+
+        -- AG3-137 Session-Ownership schema foundation (Postgres-only, K5).
+        -- run_ownership_records is the canonical, DB-enforced ownership anchor
+        -- of a story run (FK-17 §17.3.15, FK-56 §56.8a). Identity is one row per
+        -- run; the partial-unique index below enforces the
+        -- at_most_one_active_ownership_per_story invariant
+        -- (formal.operating-modes.invariants) at the persistence layer, not as
+        -- an application-side check. 'transferred' stays in the CHECK vocabulary
+        -- (FK-17 §17.2c) but has NO writer in this strand -- the repository
+        -- rejects persisting it fail-closed (AG3-137 scope §1).
+        CREATE TABLE IF NOT EXISTS run_ownership_records (
+            project_key TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            owner_session_id TEXT NOT NULL,
+            ownership_epoch INTEGER NOT NULL CHECK (ownership_epoch >= 1),
+            status TEXT NOT NULL CHECK (
+                status IN (
+                    'active', 'transferred', 'ended', 'reset', 'split', 'closed'
+                )
+            ),
+            acquired_via TEXT NOT NULL CHECK (
+                acquired_via IN ('setup', 'takeover', 'recovery')
+            ),
+            acquired_at TEXT NOT NULL,
+            audit_ref TEXT NOT NULL,
+            PRIMARY KEY (project_key, story_id, run_id)
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS run_ownership_records_active_uidx
+            ON run_ownership_records (project_key, story_id)
+            WHERE status = 'active';
+
+        -- object_mutation_claims serialises mutations per mutated object
+        -- (state-storage.entity.object-mutation-claim; FK-91 §91.1a rules 13/16).
+        -- Instance-bound (backend_instance_id + instance_incarnation) and never
+        -- expiring by wall clock: there is deliberately NO ttl/expiry column
+        -- (object_mutation_claims_are_instance_bound_and_never_expire_by_wall_clock).
+        CREATE TABLE IF NOT EXISTS object_mutation_claims (
+            project_key TEXT NOT NULL,
+            serialization_scope TEXT NOT NULL,
+            scope_key TEXT NOT NULL,
+            op_id TEXT NOT NULL,
+            backend_instance_id TEXT NOT NULL,
+            instance_incarnation INTEGER NOT NULL CHECK (instance_incarnation >= 1),
+            acquired_at TEXT NOT NULL,
+            queue_position INTEGER NOT NULL CHECK (queue_position >= 0),
+            PRIMARY KEY (project_key, serialization_scope, scope_key)
+        );
+
+        -- takeover_transfer_records: ONE row per participating repo
+        -- (state-storage.entity.takeover-transfer-record, state-storage v5). The
+        -- transfer record REPLACES the former takeover-worktree-snapshot
+        -- (SOLL-147): the handover object is a SHA, never a file snapshot. Only
+        -- the identity is NOT NULL; the attributes are materialised across the
+        -- transfer lifecycle by the productive writer AG3-148.
+        CREATE TABLE IF NOT EXISTS takeover_transfer_records (
+            project_key TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            ownership_epoch INTEGER NOT NULL CHECK (ownership_epoch >= 1),
+            repo_id TEXT NOT NULL,
+            takeover_base_sha TEXT,
+            last_push_at TEXT,
+            push_lag_hint TEXT,
+            base_quality TEXT,
+            challenge_ref TEXT,
+            confirm_ref TEXT,
+            PRIMARY KEY (project_key, story_id, run_id, ownership_epoch, repo_id)
+        );
+
+        -- backend_instance_identity: persistent store for backend_instance_id +
+        -- a monotone boot incarnation counter (IMPL-004 persistence part; FK-91
+        -- §91.1a rule 16). AG3-138 creates/increments on boot.
+        CREATE TABLE IF NOT EXISTS backend_instance_identity (
+            backend_instance_id TEXT PRIMARY KEY,
+            instance_incarnation INTEGER NOT NULL CHECK (instance_incarnation >= 1),
+            updated_at TEXT NOT NULL
+        );
 
         CREATE TABLE IF NOT EXISTS story_metrics (
             project_key TEXT NOT NULL,

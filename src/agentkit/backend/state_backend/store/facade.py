@@ -32,9 +32,13 @@ if TYPE_CHECKING:
     from agentkit.backend.closure.execution_report.records import ExecutionReport
     from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
     from agentkit.backend.control_plane.records import (
+        BackendInstanceIdentityRecord,
         BindingDeleteScope,
         ControlPlaneOperationRecord,
+        ObjectMutationClaimRecord,
+        RunOwnershipRecord,
         SessionRunBindingRecord,
+        TakeoverTransferRecord,
     )
     from agentkit.backend.execution_planning.entities import (
         ParallelizationConfig,
@@ -143,6 +147,33 @@ def control_plane_backend_available() -> bool:
     return hasattr(
         _backend_module(), "claim_control_plane_operation_global_row"
     )
+
+
+def _require_control_plane_backend() -> None:
+    """Fail closed with a ``ConfigError`` unless the Postgres control plane is active.
+
+    AG3-137 (AK7, K5): the session-ownership tables (``run_ownership_records``,
+    ``object_mutation_claims``, ``takeover_transfer_records``,
+    ``backend_instance_identity``) are Postgres-only by design. Access through a
+    non-Postgres backend is a configuration error, surfaced explicitly at the
+    sanctioned ``state_backend.store`` surface (the same fail-closed contract as
+    ``control_plane.runtime._require_postgres_control_plane_backend``), never a
+    silent no-op or a SQLite fallback.
+
+    Raises:
+        ConfigError: When the active backend does not provide the control-plane
+            store.
+    """
+    if not control_plane_backend_available():
+        from agentkit.backend.exceptions import ConfigError
+
+        raise ConfigError(
+            "The session-ownership store (run_ownership_records, "
+            "object_mutation_claims, takeover_transfer_records, "
+            "backend_instance_identity) requires the Postgres state backend: "
+            "these tables are Postgres-only (AG3-137 K5) and have no SQLite "
+            "implementation. Set AGENTKIT_STATE_BACKEND=postgres; fail-closed.",
+        )
 
 
 def _cast_json_record(value: object) -> JsonRecord | None:
@@ -760,6 +791,168 @@ def delete_session_run_binding_global(session_id: str) -> None:
     if not hasattr(backend, "delete_session_run_binding_global"):
         raise RuntimeError(_SESSION_BINDING_UNSUPPORTED)
     backend.delete_session_run_binding_global(session_id)
+
+
+# ---------------------------------------------------------------------------
+# RunOwnershipRecord (AG3-137, Postgres-only K5)
+# ---------------------------------------------------------------------------
+
+
+def insert_run_ownership_record_global(record: RunOwnershipRecord) -> None:
+    """Strictly INSERT one run-ownership record (AG3-137).
+
+    Fail-closed on a non-Postgres backend (``ConfigError``). The ``TRANSFERRED``
+    status has no writer in this strand (AG3-137 scope §1): persisting it is
+    rejected here at the write boundary, so no path (takeover/disown/recovery)
+    can silently set it. A second active record for the same story is rejected by
+    the persistence layer's partial-unique index (AK1).
+
+    Raises:
+        ConfigError: On a non-Postgres backend.
+        ValueError: When ``status`` is ``TRANSFERRED`` (no writer, fail-closed).
+    """
+    from agentkit.backend.control_plane.ownership import OwnershipStatus
+
+    if record.status is OwnershipStatus.TRANSFERRED:
+        raise ValueError(
+            "run-ownership status 'transferred' has no writer in this strand "
+            "(AG3-137 scope §1): a run-continuing takeover is an in-place CAS "
+            "that keeps status='active'; setting 'transferred' is fail-closed "
+            "rejected until a normative concretisation exists.",
+        )
+    _require_control_plane_backend()
+    backend = _backend_module()
+    backend.insert_run_ownership_record_global_row(mappers.run_ownership_to_row(record))
+
+
+def load_run_ownership_record_global(
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> RunOwnershipRecord | None:
+    """Load one run-ownership record by run identity, or ``None``."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    row = backend.load_run_ownership_record_global_row(project_key, story_id, run_id)
+    if row is None:
+        return None
+    return mappers.run_ownership_row_to_record(row)
+
+
+def load_active_run_ownership_record_global(
+    project_key: str,
+    story_id: str,
+) -> RunOwnershipRecord | None:
+    """Load the single active run-ownership record for a story, or ``None``."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    row = backend.load_active_run_ownership_record_global_row(project_key, story_id)
+    if row is None:
+        return None
+    return mappers.run_ownership_row_to_record(row)
+
+
+# ---------------------------------------------------------------------------
+# ObjectMutationClaimRecord (AG3-137, Postgres-only K5)
+# ---------------------------------------------------------------------------
+
+
+def insert_object_mutation_claim_global(record: ObjectMutationClaimRecord) -> None:
+    """Strictly INSERT one object-mutation claim (AG3-137). Fail-closed off-Postgres."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    backend.insert_object_mutation_claim_global_row(
+        mappers.object_mutation_claim_to_row(record),
+    )
+
+
+def load_object_mutation_claim_global(
+    project_key: str,
+    serialization_scope: str,
+    scope_key: str,
+) -> ObjectMutationClaimRecord | None:
+    """Load one object-mutation claim by claimed-object identity, or ``None``."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    row = backend.load_object_mutation_claim_global_row(
+        project_key, serialization_scope, scope_key,
+    )
+    if row is None:
+        return None
+    return mappers.object_mutation_claim_row_to_record(row)
+
+
+def delete_object_mutation_claim_global(
+    project_key: str,
+    serialization_scope: str,
+    scope_key: str,
+) -> None:
+    """Delete one object-mutation claim (idempotent). Fail-closed off-Postgres."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    backend.delete_object_mutation_claim_global(
+        project_key, serialization_scope, scope_key,
+    )
+
+
+# ---------------------------------------------------------------------------
+# TakeoverTransferRecord (AG3-137, Postgres-only K5)
+# ---------------------------------------------------------------------------
+
+
+def save_takeover_transfer_record_global(record: TakeoverTransferRecord) -> None:
+    """Upsert one takeover-transfer record (AG3-137). Fail-closed off-Postgres."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    backend.save_takeover_transfer_record_global_row(
+        mappers.takeover_transfer_to_row(record),
+    )
+
+
+def load_takeover_transfer_record_global(
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    ownership_epoch: int,
+    repo_id: str,
+) -> TakeoverTransferRecord | None:
+    """Load one takeover-transfer record by per-repo identity, or ``None``."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    row = backend.load_takeover_transfer_record_global_row(
+        project_key, story_id, run_id, ownership_epoch, repo_id,
+    )
+    if row is None:
+        return None
+    return mappers.takeover_transfer_row_to_record(row)
+
+
+# ---------------------------------------------------------------------------
+# BackendInstanceIdentityRecord (AG3-137, Postgres-only K5)
+# ---------------------------------------------------------------------------
+
+
+def save_backend_instance_identity_global(
+    record: BackendInstanceIdentityRecord,
+) -> None:
+    """Upsert the backend-instance-identity record (AG3-137). Fail-closed off-Postgres."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    backend.save_backend_instance_identity_global_row(
+        mappers.backend_instance_identity_to_row(record),
+    )
+
+
+def load_backend_instance_identity_global(
+    backend_instance_id: str,
+) -> BackendInstanceIdentityRecord | None:
+    """Load the backend-instance-identity record, or ``None``."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    row = backend.load_backend_instance_identity_global_row(backend_instance_id)
+    if row is None:
+        return None
+    return mappers.backend_instance_identity_row_to_record(row)
 
 
 # ---------------------------------------------------------------------------

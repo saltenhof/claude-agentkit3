@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Mapping
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -313,6 +314,12 @@ def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
         "phase_snapshots",
         "project_mode_lock",
         "qa_stage_results",
+        # AG3-137 canary: a pre-AG3-137 schema lacks run_ownership_records, so it
+        # reports "not bootstrapped" and re-runs the full _ensure_schema — which
+        # creates the new session-ownership tables, applies the additive ALTERs
+        # and runs the run-ownership backfill. Without this canary the DDL
+        # short-circuit would skip the migration on an existing production DB.
+        "run_ownership_records",
     )
     table_rows = conn.execute(
         """
@@ -509,6 +516,40 @@ def _schema_alter_statements() -> tuple[str, ...]:
             "CREATE INDEX IF NOT EXISTS control_plane_operations_run_idx "
             "ON control_plane_operations (project_key, story_id, run_id)"
         ),
+        # AG3-137 (Session-Ownership schema foundation, Postgres-only K5): the
+        # new tables come from postgres_schema.sql CREATE TABLE IF NOT EXISTS; the
+        # ADDITIVE columns on the two pre-existing control-plane tables are
+        # applied idempotently here for an existing same-version schema. All are
+        # nullable / DEFAULT so a DB pre-populated with legacy rows survives
+        # losslessly (AK3/AK4).
+        (
+            "ALTER TABLE session_run_bindings "
+            "ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'"
+        ),
+        (
+            "ALTER TABLE session_run_bindings "
+            "ADD COLUMN IF NOT EXISTS revocation_reason TEXT"
+        ),
+        (
+            "ALTER TABLE control_plane_operations "
+            "ADD COLUMN IF NOT EXISTS operation_epoch INTEGER"
+        ),
+        (
+            "ALTER TABLE control_plane_operations "
+            "ADD COLUMN IF NOT EXISTS backend_instance_id TEXT"
+        ),
+        (
+            "ALTER TABLE control_plane_operations "
+            "ADD COLUMN IF NOT EXISTS instance_incarnation INTEGER"
+        ),
+        (
+            "ALTER TABLE control_plane_operations "
+            "ADD COLUMN IF NOT EXISTS declared_serialization_scope TEXT"
+        ),
+        (
+            "ALTER TABLE control_plane_operations "
+            "ADD COLUMN IF NOT EXISTS finalized_at TEXT"
+        ),
         # The legacy ``attempt_records`` table was removed with schema 3.5.0
         # (AG3-025 re-review finding 2). No more migration updates.
         # AG3-057: Trigger 3 input column for existing Postgres schemas that
@@ -632,7 +673,113 @@ def _ensure_schema(conn: _CompatConnection) -> None:
     _ensure_reporting_indexes(conn)
     _ensure_story_identity_constraints(conn)
     _ensure_failure_corpus_constraints(conn)
+    _ensure_run_ownership_backfill(conn)
     _ensure_analytics_migration(conn)
+
+
+class RunOwnershipBackfillError(RuntimeError):
+    """Fail-closed signal that the AG3-137 ownership backfill cannot proceed.
+
+    Raised when a running run's owner cannot be derived deterministically (no
+    active binding to derive an owner from) or when the existing data would
+    violate ``at_most_one_active_ownership_per_story`` (two active bindings for
+    the same ``(project_key, story_id)``). The backfill never guesses an owner
+    (IMPL-007 / AK6): it reports the finding and blocks so an operator resolves
+    it explicitly.
+    """
+
+
+def _ensure_run_ownership_backfill(conn: _CompatConnection) -> None:
+    """Idempotently backfill ``run_ownership_records`` for running runs (IMPL-007).
+
+    For every running run that already has an active session binding, materialise
+    exactly one active ownership record (``ownership_epoch = 1``,
+    ``acquired_via = 'setup'``, owner derived from the binding). Pre-existing
+    bindings are lifted to the new ``status`` / ``binding_version`` format. The
+    step is deterministic and idempotent: a second bootstrap creates no duplicate
+    (the ``NOT EXISTS`` guard plus ``ON CONFLICT DO NOTHING``), and it never
+    guesses an owner — an unownable running run or an ambiguous double-active
+    binding raises :class:`RunOwnershipBackfillError` fail-closed.
+
+    Runs on the versioned Postgres control-plane schema only; the tables are
+    Postgres-only by design (K5). No data-discarding path.
+
+    Raises:
+        RunOwnershipBackfillError: On a running run without a derivable owner or
+            an ambiguous double-active binding per story.
+    """
+    # 1. Lift pre-existing bindings to the new format (idempotent value
+    #    normalisation, never data-discarding): legacy rows carry a random
+    #    ``bind-<uuid4>`` binding_version and no status.
+    conn.execute(
+        "UPDATE session_run_bindings SET status = 'active' "
+        "WHERE status IS NULL OR status = ''",
+    )
+    conn.execute(
+        "UPDATE session_run_bindings SET binding_version = '1' "
+        "WHERE binding_version !~ '^[0-9]+$'",
+    )
+
+    # 2. Ambiguity guard: two active bindings for the same (project, story)
+    #    cannot both become an active ownership record. Fail closed, never pick.
+    ambiguous = conn.execute(
+        "SELECT project_key, story_id, COUNT(*) AS n "
+        "FROM session_run_bindings WHERE status = 'active' "
+        "GROUP BY project_key, story_id HAVING COUNT(*) > 1",
+    ).fetchall()
+    if ambiguous:
+        raise RunOwnershipBackfillError(
+            "AG3-137 ownership backfill refused: ambiguous active bindings "
+            "(more than one active session binding per (project_key, story_id)) "
+            f"for {[_backfill_row_key(row) for row in ambiguous]}; ownership is "
+            "not guessed (IMPL-007, fail-closed).",
+        )
+
+    # 3. Fail-closed finding: a running run (an ACTIVE story_execution lock) with
+    #    NO active binding to derive an owner from and NO active ownership record
+    #    already. Never guessed.
+    orphans = conn.execute(
+        "SELECT l.project_key, l.story_id, l.run_id "
+        "FROM story_execution_locks l "
+        "WHERE l.lock_type = 'story_execution' AND l.status = 'ACTIVE' "
+        "AND NOT EXISTS (SELECT 1 FROM session_run_bindings b "
+        "WHERE b.project_key = l.project_key AND b.story_id = l.story_id "
+        "AND b.run_id = l.run_id AND b.status = 'active') "
+        "AND NOT EXISTS (SELECT 1 FROM run_ownership_records r "
+        "WHERE r.project_key = l.project_key AND r.story_id = l.story_id "
+        "AND r.run_id = l.run_id AND r.status = 'active')",
+    ).fetchall()
+    if orphans:
+        raise RunOwnershipBackfillError(
+            "AG3-137 ownership backfill refused: running run(s) without a "
+            "derivable owner (active story_execution lock, no active binding, no "
+            f"active ownership record) for {[_backfill_row_key(row) for row in orphans]}; "
+            "ownership is not guessed (IMPL-007, fail-closed).",
+        )
+
+    # 4. Backfill one active ownership record per active binding lacking one.
+    #    Idempotent via NOT EXISTS + ON CONFLICT (identity) DO NOTHING.
+    conn.execute(
+        "INSERT INTO run_ownership_records ("
+        "project_key, story_id, run_id, owner_session_id, ownership_epoch, "
+        "status, acquired_via, acquired_at, audit_ref) "
+        "SELECT b.project_key, b.story_id, b.run_id, b.session_id, 1, "
+        "'active', 'setup', b.updated_at, 'backfill:AG3-137' "
+        "FROM session_run_bindings b "
+        "WHERE b.status = 'active' AND NOT EXISTS ("
+        "SELECT 1 FROM run_ownership_records r "
+        "WHERE r.project_key = b.project_key AND r.story_id = b.story_id "
+        "AND r.run_id = b.run_id) "
+        "ON CONFLICT (project_key, story_id, run_id) DO NOTHING",
+    )
+
+
+def _backfill_row_key(row: object) -> tuple[object, ...]:
+    """Render a backfill finding row (``dict_row`` mapping) as a stable key tuple."""
+    if isinstance(row, Mapping):
+        keys = ("project_key", "story_id", "run_id")
+        return tuple(row[key] for key in keys if key in row)
+    return (row,)
 
 
 #: AG3-117 (FK-62 §62.2.1-62.2.5): the five recompute-disposable rollup tables.
@@ -2088,8 +2235,9 @@ def save_session_run_binding_global_row(row: dict[str, Any]) -> None:
             """
             INSERT INTO session_run_bindings (
                 session_id, project_key, story_id, run_id, principal_type,
-                worktree_roots_json, binding_version, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                worktree_roots_json, binding_version, updated_at,
+                status, revocation_reason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (session_id) DO UPDATE SET
                 project_key = EXCLUDED.project_key,
                 story_id = EXCLUDED.story_id,
@@ -2097,7 +2245,9 @@ def save_session_run_binding_global_row(row: dict[str, Any]) -> None:
                 principal_type = EXCLUDED.principal_type,
                 worktree_roots_json = EXCLUDED.worktree_roots_json,
                 binding_version = EXCLUDED.binding_version,
-                updated_at = EXCLUDED.updated_at
+                updated_at = EXCLUDED.updated_at,
+                status = EXCLUDED.status,
+                revocation_reason = EXCLUDED.revocation_reason
             """,
             (
                 row["session_id"],
@@ -2108,6 +2258,8 @@ def save_session_run_binding_global_row(row: dict[str, Any]) -> None:
                 row["worktree_roots_json"],
                 row["binding_version"],
                 row["updated_at"],
+                row.get("status", "active"),
+                row.get("revocation_reason"),
             ),
         )
 
@@ -2141,6 +2293,282 @@ def delete_session_run_binding_global(session_id: str) -> None:
             """,
             (session_id,),
         )
+
+
+# ---------------------------------------------------------------------------
+# RunOwnershipRecord rows (AG3-137, Postgres-only K5)
+# ---------------------------------------------------------------------------
+
+
+def insert_run_ownership_record_global_row(row: dict[str, Any]) -> None:
+    """Strictly INSERT one run-ownership row (AG3-137).
+
+    A plain ``INSERT`` (no ``ON CONFLICT``): a duplicate identity
+    ``(project_key, story_id, run_id)`` OR a second ``status='active'`` row for
+    the same ``(project_key, story_id)`` fails deterministically with a
+    constraint violation (the primary key resp. the
+    ``run_ownership_records_active_uidx`` partial-unique index). There is no
+    silent overwrite and no application-side check — the persistence layer is the
+    single enforcer of ``at_most_one_active_ownership_per_story`` (FK-56 §56.8a,
+    AK1). The idempotent backfill uses its own ``ON CONFLICT DO NOTHING`` path.
+
+    Raises:
+        psycopg.errors.UniqueViolation: On a duplicate identity or a second
+            active ownership record for the same story (fail-closed).
+    """
+
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            INSERT INTO run_ownership_records (
+                project_key, story_id, run_id, owner_session_id,
+                ownership_epoch, status, acquired_via, acquired_at, audit_ref
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["project_key"],
+                row["story_id"],
+                row["run_id"],
+                row["owner_session_id"],
+                row["ownership_epoch"],
+                row["status"],
+                row["acquired_via"],
+                row["acquired_at"],
+                row["audit_ref"],
+            ),
+        )
+
+
+def load_run_ownership_record_global_row(
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> dict[str, Any] | None:
+    """Return the raw run-ownership row for one run identity, or None."""
+
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM run_ownership_records
+            WHERE project_key = ? AND story_id = ? AND run_id = ?
+            """,
+            (project_key, story_id, run_id),
+        ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def load_active_run_ownership_record_global_row(
+    project_key: str,
+    story_id: str,
+) -> dict[str, Any] | None:
+    """Return the raw ACTIVE run-ownership row for a story, or None.
+
+    At most one active row can exist per ``(project_key, story_id)``
+    (partial-unique), so this returns a single row.
+    """
+
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM run_ownership_records
+            WHERE project_key = ? AND story_id = ? AND status = 'active'
+            """,
+            (project_key, story_id),
+        ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+# ---------------------------------------------------------------------------
+# ObjectMutationClaimRecord rows (AG3-137, Postgres-only K5)
+# ---------------------------------------------------------------------------
+
+
+def insert_object_mutation_claim_global_row(row: dict[str, Any]) -> None:
+    """Strictly INSERT one object-mutation-claim row (AG3-137).
+
+    Plain ``INSERT``: a duplicate identity
+    ``(project_key, serialization_scope, scope_key)`` fails deterministically
+    with a primary-key violation (AK2, the claimed object is exclusive). The
+    productive claim-acquisition / queue logic is AG3-141.
+
+    Raises:
+        psycopg.errors.UniqueViolation: On a duplicate claimed object.
+    """
+
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            INSERT INTO object_mutation_claims (
+                project_key, serialization_scope, scope_key, op_id,
+                backend_instance_id, instance_incarnation, acquired_at,
+                queue_position
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["project_key"],
+                row["serialization_scope"],
+                row["scope_key"],
+                row["op_id"],
+                row["backend_instance_id"],
+                row["instance_incarnation"],
+                row["acquired_at"],
+                row["queue_position"],
+            ),
+        )
+
+
+def load_object_mutation_claim_global_row(
+    project_key: str,
+    serialization_scope: str,
+    scope_key: str,
+) -> dict[str, Any] | None:
+    """Return the raw object-mutation-claim row for one object, or None."""
+
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM object_mutation_claims
+            WHERE project_key = ? AND serialization_scope = ? AND scope_key = ?
+            """,
+            (project_key, serialization_scope, scope_key),
+        ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def delete_object_mutation_claim_global(
+    project_key: str,
+    serialization_scope: str,
+    scope_key: str,
+) -> None:
+    """Delete one object-mutation-claim row (idempotent)."""
+
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            DELETE FROM object_mutation_claims
+            WHERE project_key = ? AND serialization_scope = ? AND scope_key = ?
+            """,
+            (project_key, serialization_scope, scope_key),
+        )
+
+
+# ---------------------------------------------------------------------------
+# TakeoverTransferRecord rows (AG3-137, Postgres-only K5)
+# ---------------------------------------------------------------------------
+
+
+def save_takeover_transfer_record_global_row(row: dict[str, Any]) -> None:
+    """Upsert one takeover-transfer row, keyed per participating repo (AG3-137).
+
+    Identity is ``(project_key, story_id, run_id, ownership_epoch, repo_id)`` —
+    one row per repo (state-storage v5). Upsert so the productive writer AG3-148
+    can materialise the attributes across the challenge → confirm lifecycle.
+    """
+
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            INSERT INTO takeover_transfer_records (
+                project_key, story_id, run_id, ownership_epoch, repo_id,
+                takeover_base_sha, last_push_at, push_lag_hint, base_quality,
+                challenge_ref, confirm_ref
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (project_key, story_id, run_id, ownership_epoch, repo_id)
+            DO UPDATE SET
+                takeover_base_sha = EXCLUDED.takeover_base_sha,
+                last_push_at = EXCLUDED.last_push_at,
+                push_lag_hint = EXCLUDED.push_lag_hint,
+                base_quality = EXCLUDED.base_quality,
+                challenge_ref = EXCLUDED.challenge_ref,
+                confirm_ref = EXCLUDED.confirm_ref
+            """,
+            (
+                row["project_key"],
+                row["story_id"],
+                row["run_id"],
+                row["ownership_epoch"],
+                row["repo_id"],
+                row.get("takeover_base_sha"),
+                row.get("last_push_at"),
+                row.get("push_lag_hint"),
+                row.get("base_quality"),
+                row.get("challenge_ref"),
+                row.get("confirm_ref"),
+            ),
+        )
+
+
+def load_takeover_transfer_record_global_row(
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    ownership_epoch: int,
+    repo_id: str,
+) -> dict[str, Any] | None:
+    """Return the raw takeover-transfer row for one repo identity, or None."""
+
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM takeover_transfer_records
+            WHERE project_key = ? AND story_id = ? AND run_id = ?
+            AND ownership_epoch = ? AND repo_id = ?
+            """,
+            (project_key, story_id, run_id, ownership_epoch, repo_id),
+        ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+# ---------------------------------------------------------------------------
+# BackendInstanceIdentityRecord rows (AG3-137, Postgres-only K5)
+# ---------------------------------------------------------------------------
+
+
+def save_backend_instance_identity_global_row(row: dict[str, Any]) -> None:
+    """Upsert the persistent backend-instance-identity row (AG3-137, IMPL-004)."""
+
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            INSERT INTO backend_instance_identity (
+                backend_instance_id, instance_incarnation, updated_at
+            ) VALUES (?, ?, ?)
+            ON CONFLICT (backend_instance_id) DO UPDATE SET
+                instance_incarnation = EXCLUDED.instance_incarnation,
+                updated_at = EXCLUDED.updated_at
+            """,
+            (
+                row["backend_instance_id"],
+                row["instance_incarnation"],
+                row["updated_at"],
+            ),
+        )
+
+
+def load_backend_instance_identity_global_row(
+    backend_instance_id: str,
+) -> dict[str, Any] | None:
+    """Return the raw backend-instance-identity row, or None."""
+
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM backend_instance_identity
+            WHERE backend_instance_id = ?
+            """,
+            (backend_instance_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
 
 
 # ---------------------------------------------------------------------------
@@ -2240,8 +2668,10 @@ def save_control_plane_operation_global_row(row: dict[str, Any]) -> None:
             INSERT INTO control_plane_operations (
                 op_id, project_key, story_id, run_id, session_id,
                 operation_kind, phase, status, response_json,
-                created_at, updated_at, claimed_by, claimed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                created_at, updated_at, claimed_by, claimed_at,
+                operation_epoch, backend_instance_id, instance_incarnation,
+                declared_serialization_scope, finalized_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (op_id) DO UPDATE SET
                 project_key = EXCLUDED.project_key,
                 story_id = EXCLUDED.story_id,
@@ -2253,7 +2683,13 @@ def save_control_plane_operation_global_row(row: dict[str, Any]) -> None:
                 response_json = EXCLUDED.response_json,
                 updated_at = EXCLUDED.updated_at,
                 claimed_by = EXCLUDED.claimed_by,
-                claimed_at = EXCLUDED.claimed_at
+                claimed_at = EXCLUDED.claimed_at,
+                operation_epoch = EXCLUDED.operation_epoch,
+                backend_instance_id = EXCLUDED.backend_instance_id,
+                instance_incarnation = EXCLUDED.instance_incarnation,
+                declared_serialization_scope =
+                    EXCLUDED.declared_serialization_scope,
+                finalized_at = EXCLUDED.finalized_at
             WHERE control_plane_operations.status <> 'claimed'
             """,
             (
@@ -2270,6 +2706,11 @@ def save_control_plane_operation_global_row(row: dict[str, Any]) -> None:
                 row["updated_at"],
                 row.get("claimed_by"),
                 row.get("claimed_at"),
+                row.get("operation_epoch"),
+                row.get("backend_instance_id"),
+                row.get("instance_incarnation"),
+                row.get("declared_serialization_scope"),
+                row.get("finalized_at"),
             ),
         )
         # rowcount == 1 on a fresh insert or a qualifying (non-claimed) update;
