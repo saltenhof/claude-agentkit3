@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: architecture-conformance
 spec_kind: invariant-set
-version: 2
+version: 3
 prose_refs:
   - concept/technical-design/01_systemkontext_und_architekturprinzipien.md
   - concept/technical-design/07_komponentenarchitektur_und_architekturkonformanz.md
@@ -150,10 +150,14 @@ read_surface_rules:
     reader_symbols:
       - load_story_contexts_global
       - load_story_context_global
+      - load_story_context_by_story_number_global
+      - load_story_context_by_uuid_global
+      - load_story_context_rows_global
       - load_phase_state_global
       - load_flow_execution_global
       - load_latest_story_metrics_global
       - load_execution_events_global
+      - load_execution_event_rows_global
     allowed_module_prefixes:
       - agentkit.backend.state_backend
       - agentkit.backend.story.repository
@@ -167,6 +171,14 @@ read_surface_rules:
       - agentkit.backend.state_backend
       - agentkit.backend.control_plane.repository
     message: control-plane runtime read loaders may only be imported from the explicit control-plane repository surface
+  - id: architecture-conformance.rule.telemetry_project_read_surface
+    reader_symbols:
+      - load_execution_events_for_project_global
+      - load_execution_event_rows_for_project_global
+    allowed_module_prefixes:
+      - agentkit.backend.state_backend
+      - agentkit.backend.bootstrap.composition_root
+    message: project-scoped telemetry execution-event read loaders may only be imported from the state-backend telemetry read surface or the composition-root wiring seam; A-code and BFF read paths must consume the published telemetry read port instead of the generic state_backend.store facade
 invariants:
   - id: architecture-conformance.invariant.story_dashboard_transport_boundary
     scope: static-analysis
@@ -195,5 +207,8 @@ invariants:
   - id: architecture-conformance.invariant.control_plane_runtime_read_surface_is_bounded
     scope: static-analysis
     rule: imports of global control-plane runtime read loaders must stay within the explicit control-plane repository surface
+  - id: architecture-conformance.invariant.telemetry_project_read_surface_is_bounded
+    scope: static-analysis
+    rule: imports of the global project-scoped telemetry execution-event read loader must stay within the state-backend telemetry read surface and the composition-root wiring seam; A-code and BFF read models depend on the published telemetry read port, not on the generic state_backend.store facade
 ```
 <!-- FORMAL-SPEC:END -->

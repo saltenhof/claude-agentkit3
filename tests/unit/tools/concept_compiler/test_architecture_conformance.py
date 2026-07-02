@@ -29,6 +29,12 @@ STORY_READ_RULE_ID = "architecture-conformance.rule.story_read_surface"
 CONTROL_PLANE_READ_RULE_ID = (
     "architecture-conformance.rule.control_plane_runtime_read_surface"
 )
+TELEMETRY_PROJECT_READ_RULE_ID = (
+    "architecture-conformance.rule.telemetry_project_read_surface"
+)
+TELEMETRY_PROJECT_READ_INVARIANT_ID = (
+    "architecture-conformance.invariant.telemetry_project_read_surface_is_bounded"
+)
 
 
 def test_architecture_conformance_loads_formal_policy(tmp_path: Path) -> None:
@@ -176,6 +182,191 @@ def test_architecture_conformance_rejects_unauthorized_control_plane_read_import
         violation.rule_id == CONTROL_PLANE_READ_RULE_ID
         for violation in violations
     )
+
+
+def test_architecture_conformance_rejects_unauthorized_telemetry_project_read_import(
+    tmp_path: Path,
+) -> None:
+    """AG3-128: A-code importing the project telemetry loader off-surface is AC004."""
+    root = _write_fixture(
+        tmp_path,
+        module_name="agentkit.backend.kpi_analytics.service",
+        source="""
+            from agentkit.backend.state_backend.store.facade import (
+                load_execution_events_for_project_global,
+            )
+
+            def expose() -> object:
+                return load_execution_events_for_project_global
+        """,
+        read_surface_rules=f"""
+            read_surface_rules:
+              - id: {TELEMETRY_PROJECT_READ_RULE_ID}
+                reader_symbols:
+                  - load_execution_events_for_project_global
+                allowed_module_prefixes:
+                  - agentkit.backend.state_backend
+                  - agentkit.backend.bootstrap.composition_root
+                message: >
+                  project-scoped telemetry execution-event read loaders may
+                  only be imported from the state-backend telemetry read
+                  surface or the composition-root wiring seam
+        """,
+    )
+
+    compiled = compile_formal_specs(root / "concept" / "formal-spec")
+    violations = audit_architecture_conformance(compiled, root / "src")
+
+    assert any(violation.code == "AC004" for violation in violations)
+    assert any(
+        violation.rule_id == TELEMETRY_PROJECT_READ_RULE_ID for violation in violations
+    )
+
+
+def test_architecture_conformance_allows_telemetry_project_read_on_surface(
+    tmp_path: Path,
+) -> None:
+    """AG3-128: the composition-root wiring seam may import the pinned loader."""
+    root = _write_fixture(
+        tmp_path,
+        module_name="agentkit.backend.bootstrap.composition_root",
+        source="""
+            from agentkit.backend.state_backend.store.facade import (
+                load_execution_events_for_project_global,
+            )
+
+            def wire() -> object:
+                return load_execution_events_for_project_global
+        """,
+        read_surface_rules=f"""
+            read_surface_rules:
+              - id: {TELEMETRY_PROJECT_READ_RULE_ID}
+                reader_symbols:
+                  - load_execution_events_for_project_global
+                allowed_module_prefixes:
+                  - agentkit.backend.state_backend
+                  - agentkit.backend.bootstrap.composition_root
+                message: >
+                  project-scoped telemetry execution-event read loaders may
+                  only be imported from the state-backend telemetry read
+                  surface or the composition-root wiring seam
+        """,
+    )
+
+    compiled = compile_formal_specs(root / "concept" / "formal-spec")
+    violations = audit_architecture_conformance(compiled, root / "src")
+
+    assert not any(
+        violation.rule_id == TELEMETRY_PROJECT_READ_RULE_ID for violation in violations
+    )
+
+
+def test_real_spec_pins_telemetry_project_read_surface() -> None:
+    """AG3-128: the productive invariants spec loads the new read-surface rule.
+
+    Guards the FIX-THE-MODEL contract: the executable ``read_surface_rule`` and
+    its declarative ``invariants:`` twin both exist (no second source of truth).
+    """
+    compiled = compile_formal_specs(Path("concept/formal-spec"))
+    config = load_architecture_conformance_config(compiled)
+
+    rule = next(
+        (
+            r
+            for r in config.read_surface_rules
+            if r.rule_id == TELEMETRY_PROJECT_READ_RULE_ID
+        ),
+        None,
+    )
+    assert rule is not None, "telemetry_project_read_surface rule missing"
+    assert rule.reader_symbols == (
+        "load_execution_events_for_project_global",
+        "load_execution_event_rows_for_project_global",
+    )
+    assert rule.allowed_module_prefixes == (
+        "agentkit.backend.state_backend",
+        "agentkit.backend.bootstrap.composition_root",
+    )
+
+    invariants_doc = next(
+        doc
+        for doc in compiled.documents
+        if doc.doc_id == "formal.architecture-conformance.invariants"
+    )
+    declared_ids = {
+        entry["id"] for entry in invariants_doc.spec.get("invariants", [])
+    }
+    assert TELEMETRY_PROJECT_READ_INVARIANT_ID in declared_ids, (
+        "declarative invariant twin missing (second source of truth risk)"
+    )
+
+
+_NEWLY_PINNED_STORY_READ_LOADERS = (
+    "load_story_context_by_story_number_global",
+    "load_story_context_by_uuid_global",
+    "load_story_context_rows_global",
+    "load_execution_event_rows_global",
+)
+
+
+def test_real_spec_pins_extended_story_and_telemetry_read_loaders() -> None:
+    """AG3-128 review FUND1: every newly pinned global read loader is on-surface."""
+    compiled = compile_formal_specs(Path("concept/formal-spec"))
+    config = load_architecture_conformance_config(compiled)
+
+    story_rule = next(
+        r for r in config.read_surface_rules if r.rule_id == STORY_READ_RULE_ID
+    )
+    for symbol in _NEWLY_PINNED_STORY_READ_LOADERS:
+        assert symbol in story_rule.reader_symbols, symbol
+
+    telemetry_rule = next(
+        r
+        for r in config.read_surface_rules
+        if r.rule_id == TELEMETRY_PROJECT_READ_RULE_ID
+    )
+    assert (
+        "load_execution_event_rows_for_project_global"
+        in telemetry_rule.reader_symbols
+    )
+
+
+@pytest.mark.parametrize(
+    "loader_symbol",
+    [
+        "load_story_context_by_uuid_global",
+        "load_execution_event_rows_global",
+        "load_execution_event_rows_for_project_global",
+    ],
+)
+def test_real_spec_rejects_offsurface_global_read_loader(
+    tmp_path: Path, loader_symbol: str
+) -> None:
+    """AG3-128 review FUND2: real-spec audit flags off-surface pinned loaders.
+
+    Uses the productive ``concept/formal-spec`` rules (not a synthetic fixture)
+    against a synthetic A-code module to prove fail-closed AC004 coverage of the
+    newly pinned story-context and execution-event-rows loaders.
+    """
+    code_root = tmp_path / "src"
+    module_dir = code_root / "agentkit" / "backend" / "kpi_analytics"
+    module_dir.mkdir(parents=True)
+    (module_dir / "read_model_leak.py").write_text(
+        "from __future__ import annotations\n"
+        "from agentkit.backend.state_backend.store.facade import (\n"
+        f"    {loader_symbol},\n"
+        ")\n\n\n"
+        "def leak() -> object:\n"
+        f"    return {loader_symbol}\n",
+        encoding="utf-8",
+    )
+
+    compiled = compile_formal_specs(Path("concept/formal-spec"))
+    violations = audit_architecture_conformance(compiled, code_root)
+
+    ac004 = [v for v in violations if v.code == "AC004"]
+    assert ac004, f"expected AC004 for {loader_symbol}, got {violations}"
+    assert any(loader_symbol in v.message for v in ac004)
 
 
 def test_architecture_conformance_accepts_current_repo() -> None:

@@ -218,10 +218,20 @@ BC-Ports auf und komponiert daraus das Wire-Read-Model; sie umgeht die
 Ports nicht durch direkten Datenbank- oder Repository-Zugriff.
 
 Diese Regel ist normativ. Maschinell erzwungen werden in diesem Kapitel
-robuste Import- und Adaptergrenzen (§7.7–§7.9); die vollumfaengliche
-maschinelle Durchsetzung der komponentenspezifischen
-Repository-Vertraege ist als Soll definiert, aber nicht Teil der
-maschinell erzwungenen Invarianten dieses Kapitels.
+robuste Import- und Adaptergrenzen (§7.7–§7.9). Der konkrete
+Durchgriffsvektor — die Read-Model-Kopplung an die generische
+Mega-Fassade — wird ueber symbolgenaue Read-Surface-Grenzen fail-closed
+erzwungen: die globalen Story-Read-Loader (§7.9 Punkt 8), die
+Control-Plane-Lifecycle-Reads (§7.9 Punkt 9) und der projekt-skopierte
+Telemetrie-Execution-Event-Loader (§7.9 Punkt 11) duerfen nur auf den
+fachlich benannten Repository-Kanten bzw. innerhalb der
+State-Backend-Read-Surface importiert werden; jeder direkte Import aus
+A-Code oder BFF-Read-Pfaden laeuft fail-closed auf. Die generische
+Repository-Schicht bleibt fuer legitime Adapter-Verdrahtung importierbar,
+ist aber kein oeffentlicher Read-Bus. Die vollumfaengliche Durchsetzung
+der komponentenspezifischen Repository-Vertraege auf der
+Schreib-/Adapter-Verdrahtungsseite bleibt darueber hinaus als Soll
+definiert.
 
 ## 7.7 Deterministische Architektur-Pruefung
 
@@ -346,6 +356,12 @@ Die Konformanz-Suite zieht mindestens diese Grenzen:
 8. `ControlPlaneHttp`-/BFF-Module duerfen `state_backend.store` und
    fachliche Repository-Interna fremder BCs nicht direkt importieren.
    Sie rufen fachliche Read-/Query-Ports der Owner-BCs auf.
+9. Der projekt-skopierte Telemetrie-Execution-Event-Read-Loader
+   (`load_execution_events_for_project_global`) darf nur innerhalb von
+   `agentkit.backend.state_backend` selbst und auf der
+   Composition-Root-Verdrahtungskante importiert werden. A-Komponenten
+   und BFF-Read-Pfade konsumieren die veroeffentlichte Telemetrie-
+   Read-Port-Kante, nicht die generische `state_backend.store`-Fassade.
 
 ## 7.9 Messbare Architektur-Invarianten
 
@@ -380,6 +396,11 @@ Invarianten:
 10. BFF-/HTTP-Entry-Boundaries importieren keine StateBackend-Repository-
     Interna fuer fachliche Read-Modelle. Cross-BC-Read-Models entstehen
     durch Orchestrierung veroeffentlichter BC-Ports.
+11. Der globale projekt-skopierte Telemetrie-Execution-Event-Read-Loader
+    darf nur auf der State-Backend-Read-Surface
+    (`agentkit.backend.state_backend`) und der Composition-Root-
+    Verdrahtungskante importiert werden; direkte Kopplung anderer
+    A-Komponenten oder BFF-Read-Pfade an diesen Loader ist verboten.
 
 ## 7.10 Beziehung zu anderen Konzepten
 

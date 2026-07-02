@@ -440,11 +440,19 @@ class _FacadeCanonicalStateReadPort:
         return [context.story_id for context in contexts]
 
     def audit_trail_records(self, project_key: str) -> Sequence[Mapping[str, object]]:
-        from agentkit.backend.state_backend.store import (
-            load_execution_events_for_project_global,
+        # AG3-128: route the project-scoped execution-event read through the
+        # sanctioned composition-root wiring seam instead of importing the
+        # generic ``state_backend.store`` facade loader directly. The
+        # ``load_execution_events_for_project_global`` loader is pinned to the
+        # state-backend telemetry read surface + composition root by
+        # ``read_surface_rule.telemetry_project_read_surface`` (FK-07 §7.7.5);
+        # A-code (this installer BC) must consume it via the published seam, not
+        # by direct facade coupling.
+        from agentkit.backend.bootstrap.composition_root import (
+            cli_load_execution_events_for_project_global,
         )
 
-        events = load_execution_events_for_project_global(project_key)
+        events = cli_load_execution_events_for_project_global(project_key)
         return [_record_to_jsonable(event) for event in events]
 
     def closure_records(
