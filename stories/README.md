@@ -395,6 +395,24 @@ Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
 **Sofort startbar (`ready`): AG3-137, AG3-146.** (AG3-137 wurde am
 2026-07-02 von einer Implementierungs-Session gezogen.)
 
+**Sequenzieller Ausführungsplan (gültige topologische Reihenfolge):**
+Die IDs wurden topologisch vergeben; aufsteigende Abarbeitung ist
+gültig — mit genau **einer** Ausnahme aus der Schnitt-Review:
+**AG3-146 vor AG3-145** (Provider-Adapter liefert die
+`ls-remote`-Lesefläche der Command-Queue). Verbindliche Sequenz:
+
+> AG3-137 → 138 → 139 → 140 → 141 → 142 → 143 → 144 → **146 → 145**
+> → 147 → 148 → 149 → 150 → 151 → 152 → 153 → 154 → 155 → 156
+> (→ 157 → 158 → 159 → 160, §6.9 — eigener Strang, jederzeit
+> einschiebbar, da ohne Kanten in den Ownership-Strang)
+
+Autoritativ bleibt je Story `status.yaml.depends_on` (§2.1): Vor dem
+Start einer Story prüft der Ausführende, dass alle ihre `depends_on`
+`completed` sind — die Sequenz oben ist eine gültige Linearisierung
+des Graphen, ersetzt aber nicht den Check. Parallelisierung ist
+erlaubt, wo Kanten es zulassen (z. B. AG3-140 unabhängig neben
+138–144; AG3-157 ff. jederzeit).
+
 ### 6.9 Konzept-Konsistenz-Werkzeuge W1–W4 (AG3-157…AG3-160)
 
 Eigener Strang aus `concept/_meta/konzept-konsistenz-governance.md`
