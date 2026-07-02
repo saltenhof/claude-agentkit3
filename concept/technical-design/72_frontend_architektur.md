@@ -675,7 +675,9 @@ deterministisch und die Sicht laedt die aktuelle Eigentumslage neu.
 Sichten — kein Suchen nach dem richtigen Dialog. Der Overlay ist
 **benutzeruebergreifend**: Er ist nicht an einen spezifischen
 Benutzer gebunden; jeder eingeloggte Benutzer sieht ihn und kann
-entscheiden. Er traegt die vollstaendige Challenge-Information aus
+entscheiden. Der Overlay speist sich aus dem projektuebergreifenden
+governance-Stream (FK-91 §91.8.1), nicht aus dem projekt-skopierten
+Projekt-Stream. Er traegt die vollstaendige Challenge-Information aus
 (1); erst die Bestaetigung im Overlay vollzieht den Transfer. Eine
 Ablehnung oder der Fristablauf laesst nur die offene Anfrage
 verfallen und entzieht niemals Eigentum (FK-55 §55.9a). Die Shell

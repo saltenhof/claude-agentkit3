@@ -777,8 +777,9 @@ Hook-/Tool-Guards fail-closed:
 - Verify-/Closure-Starts, die auf dem Worktree-Zustand beruhen
 
 Erst der erfolgreiche Abgleich ueber den offiziellen
-`takeover-reconcile-worktree`-Pfad hebt die Sperre auf; lesende
-Zugriffe bleiben durchgehend erlaubt.
+`takeover-reconcile-worktree`-Pfad (Wire-Contract: FK-91 §91.1a,
+`POST .../ownership/takeover-reconcile-worktree`) hebt die Sperre
+auf; lesende Zugriffe bleiben durchgehend erlaubt.
 
 **`contested_local_writes`** — Ergebnis eines fehlgeschlagenen
 Abgleichs: Weicht der Ist-Stand des Worktrees vom Takeover-Snapshot

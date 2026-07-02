@@ -107,6 +107,7 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
 | `/v1/project-edge/operations/{op_id}` | `GET` | Unklare Remote-Lage eines mutierenden Requests ueber `op_id` reconciliieren |
 | `/v1/project-edge/story-runs/{run_id}/ownership/takeover-request` | `POST` | Expliziten Ownership-Transfer (Takeover) fuer einen aktiven Story-Run anfragen (formal: `operating-modes.command.request-run-ownership-takeover`). Antwort ist nie der Vollzug, sondern eine von zwei Varianten: menschlich initiierte Requests (`human_cli`/UI via BFF) erhalten einen versionierten **Challenge** (`offered`: Eigentumslage inkl. `owner_session_id`, `ownership_epoch`, `binding_version`, Phasenstand, Anzeigedaten aus dem Owner-BC); agenteninitiierte Requests erhalten deterministisch **`pending_human_approval`** (Vollzug erfordert menschliche Frontend-Freigabe; Ausgang beobachtbar ueber `GET /v1/project-edge/operations/{op_id}`). Jede Anfrage traegt eine Begruendungspflicht (auditiert) |
 | `/v1/project-edge/story-runs/{run_id}/ownership/takeover-confirm` | `POST` | Takeover per Challenge-Echo vollziehen (formal: `operating-modes.command.confirm-run-ownership-takeover`; Klasse `admin_transition`, FK-55 §55.5): CAS auf `ownership_epoch`/`binding_version`. Fehlerbild bei verfallenem oder invalidiertem Challenge (zwischenzeitlicher Transfer, Exit, Reset, Split, Closure oder Freeze-Eintritt): deterministischer fail-closed Fehlschlag ohne Vollzug — erneuter Request gegen die aktuelle Eigentumslage noetig |
+| `/v1/project-edge/story-runs/{run_id}/ownership/takeover-reconcile-worktree` | `POST` | Snapshot-Abgleich des uebernommenen Worktrees durch den neuen Owner melden: Ist-Stand der Story-Worktrees gegen den beim Vollzug festgehaltenen Takeover-Snapshot (`state-storage.entity.takeover-worktree-snapshot`, FK-56 §56.13c). Bei Uebereinstimmung hebt das Backend den Edge-Zustand `takeover_reconcile_required` auf (Guard-Semantik und Exklusivitaet dieses Pfads: FK-30 §30.6.3); bei Drift geht das Edge-Bundle deterministisch in `contested_local_writes` (read-only Konflikt-Freeze, FK-30 §30.6.3, FK-56 §56.13f). Mutierende Operation: client-beigestelltes `op_id` (Regel 5), Serialisierungsobjekt `(project_key, story_id)` (Regel 13); zulaessig nur fuer den aktuellen Owner (Fence auf `owner_session_id`/`ownership_epoch`, FK-56 §56.8a) |
 | `/v1/project-edge/operations/{op_id}/admin-abort` | `POST` | Haengende serverseitige In-Flight-Operation administrativ abbrechen (`admin_abort_inflight_operation`, Klasse `admin_transition`, FK-55 §55.5; auditiert). Betrifft ausschliesslich servereigene Claims und leitet niemals Client-Ownership aus Stille ab (Regel 16). Das Finalize ist per `operation_epoch`-CAS gefenct: Late-Commits eines physisch noch weiterlaufenden Alt-Executors scheitern deterministisch am Operation-Fence und registrieren hoechstens einen No-op-/Abort-Vermerk; hat die abgebrochene Mutation bereits Teil-Writes hinterlassen, geht die Operation in einen expliziten, auditierten Reconcile-/Repair-Zustand statt stillschweigend in `failed` |
 | `/v1/compat` | `GET` | Unterstuetztes Versionsfenster lesen: `min`/`recommended`/`blocked` fuer Agent-Runtime und Wire (dev↔central-Handshake, FK-10 §10.2.7) |
 | `/v1/telemetry/events` | `POST` | Kanonisches Telemetrie-Event ingestieren |
@@ -600,10 +601,26 @@ nicht-Frontend-Pfaden verwendet werden.
 |---|---|---|---|
 | `GET /v1/projects/{key}/events` | projekt-skopiert | `telemetry` (Single-Producer) | Strategen-Cookie (UI-BFF) bzw. Thin-Client-Token (Project-API), siehe FK-15 §15.10 |
 | `GET /v1/events/hub` | projektneutral | `multi_llm_hub`-Adapter (Ausnahme) | Strategen-Cookie |
+| `GET /v1/events/governance` | projektuebergreifend | `telemetry` (Single-Producer) | Strategen-Cookie (UI-BFF) |
 
-Beide Endpunkte unterstuetzen den Query-Parameter `?topics=` (Komma-
+Alle Endpunkte unterstuetzen den Query-Parameter `?topics=` (Komma-
 getrennte Liste), der die zu liefernden Topics einschraenkt. Ohne
 Filter werden alle Topics geliefert. Server filtert serverseitig.
+
+Der projektuebergreifende governance-Stream
+(`GET /v1/events/governance`) existiert fuer benutzeruebergreifende
+Governance-Freigaben — ausstehende Takeover-Approvals, die jeder
+eingeloggte Benutzer sehen und entscheiden koennen muss
+(FK-72 §72.14.7). Er buendelt das `governance`-Topic (§91.8.3) ueber
+alle Projekte; die Wire-Schemas sind dieselben wie auf dem
+projekt-skopierten Stream (`formal.frontend-contracts.events`), es
+gibt keine zweite Event-Definition. Der Lossy-Vertrag (§91.8.2) gilt
+unveraendert: Re-Sync ueber den Initial-GET des fachlichen
+Read-Models (`frontend-contracts.entity.takeover_approval_request`).
+Namenskonvention analog `/v1/events/hub`: projektneutrale bzw.
+projektuebergreifende Streams liegen als eigenes Pfadsegment unter
+`/v1/events/`; einen globalen All-Topic-Stream `/v1/events` gibt es
+nicht.
 
 ### 91.8.2 Lossy-Vertrag
 
@@ -627,7 +644,7 @@ Event-Schemas ist explizit unzulaessig (keine zweite Wahrheitsquelle).
 | `stories` | Story-Lifecycle: angelegt, geaendert, entfernt | `story_context_manager` | `frontend-contracts.event.story_upserted`, `.story_deleted` |
 | `phases` | Phasen- und Substep-Uebergaenge, Phase-Status | `pipeline_engine` | `frontend-contracts.event.phase_transitioned` |
 | `gates` | QA-Gate-Ergebnisse (pass, warning, fail) | `verify_system` | `frontend-contracts.event.gate_evaluated` |
-| `governance` | Guard-Verletzungen, Integrity-Gate-Resultate, ausstehende Takeover-Freigaben (globaler Overlay, FK-72 §72.14.7) | `governance` | `frontend-contracts.event.governance_signal`, `.takeover_approval_changed` |
+| `governance` | Guard-Verletzungen, Integrity-Gate-Resultate, ausstehende Takeover-Freigaben (projekt-skopierte Sichten; der globale Overlay konsumiert den projektuebergreifenden governance-Stream, §91.8.1, FK-72 §72.14.7) | `governance` | `frontend-contracts.event.governance_signal`, `.takeover_approval_changed` |
 | `closure` | Closure-Substate-Uebergaenge | `closure` | `frontend-contracts.event.closure_transitioned` |
 | `artifacts` | Artefakt-Erzeugungen mit Envelope-Metadaten | `artifacts` | `frontend-contracts.event.artifact_produced` |
 | `telemetry` | Mode-Lock-Projektion plus rohe Execution-Events (verbose) | `telemetry` | `frontend-contracts.event.mode_lock_changed` |

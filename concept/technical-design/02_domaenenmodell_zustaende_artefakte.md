@@ -486,6 +486,7 @@ einer Story.
 | Maximal 2 LLM-Aufrufe pro Check | LLM-Evaluator begrenzt Retry auf 1 | `llm_evaluator.py` |
 | Konzept-Feedback ist Pflicht | Telemetrie + QA-Agent prüfen Feedback-Einarbeitung | Konzept-Feedback-Loop (2.2.4) |
 | Adversarial Agent schreibt nicht direkt ins Repo | Tests nur in Sandbox, Promotion durch Pipeline-Skript | Adversarial-Sandbox + Promotion-Skript |
+| Eine Story-Umsetzung gehört höchstens einer Session; Ownership endet nie automatisch | Run-Ownership-Record mit DB-erzwungener Aktiv-Invariante; `ownership_epoch`-Fence aller Regime-Mutationen; Transfer nur über expliziten Challenge-Confirm | FK-56 §56.8a/§56.13; `formal.operating-modes.invariants` |
 
 ## 2.7 Lock-Mechanismus für QA-Artefaktschutz
 
