@@ -11,11 +11,13 @@ the mapper. Also pins the Postgres-only fail-closed gate (AK7) and the
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
 from agentkit.backend.control_plane.ownership import (
+    BINDING_VERSION_SQL_CHECK,
     OwnershipAcquisition,
     OwnershipStatus,
 )
@@ -150,6 +152,33 @@ def test_backend_instance_identity_row_is_field_exact_and_roundtrips() -> None:
     row = mappers.backend_instance_identity_to_row(record)
     assert set(row) == _INSTANCE_KEYS
     assert mappers.backend_instance_identity_row_to_record(row) == record
+
+
+@pytest.mark.contract
+def test_postgres_schema_binding_version_check_is_single_sourced() -> None:
+    """target-3 / SSOT: the fresh-schema DDL CHECK regex == BINDING_VERSION_SQL_CHECK.
+
+    ``ownership.BINDING_VERSION_SQL_CHECK`` is the ONE canonical source for the
+    ``binding_version`` value domain: the record-boundary predicate
+    (``is_canonical_binding_version``) and the existing-schema ALTER in
+    ``postgres_store._ensure_session_binding_constraints`` both derive from it. The
+    static ``postgres_schema.sql`` fresh-schema CREATE TABLE cannot interpolate a
+    Python constant, so this guard pins its literal against the constant instead —
+    a drift between the fresh-schema CHECK and the constant turns this contract red
+    (Codex ERROR §4 / target-3, no second value-domain source).
+    """
+    from agentkit.backend.state_backend import postgres_store
+
+    sql_text = (
+        Path(postgres_store.__file__)
+        .with_name("postgres_schema.sql")
+        .read_text(encoding="utf-8")
+    )
+    expected = f"CHECK (binding_version ~ '{BINDING_VERSION_SQL_CHECK}')"
+    assert expected in sql_text, (
+        "postgres_schema.sql binding_version CHECK regex drifted from "
+        "ownership.BINDING_VERSION_SQL_CHECK (target-3 SSOT guard)"
+    )
 
 
 @pytest.mark.contract

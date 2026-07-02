@@ -4,6 +4,14 @@ This module is a T-bloodtype infrastructure driver.
 It MUST NOT import BC-Records (A-bloodtype components).
 All BC-Record <-> dict conversions live in
 ``agentkit.backend.state_backend.store.mappers`` (boundary.state_backend_repository).
+
+The sole sanctioned cross-import is the scalar persistence-boundary regex constant
+``ownership.BINDING_VERSION_SQL_CHECK`` (a ``str``, not a record type; no
+record <-> dict conversion crosses the boundary). It is imported so the DDL CHECK
+constraint the driver installs on ``session_run_bindings.binding_version`` is
+single-sourced from the SAME canonical value as the record-boundary predicate
+``ownership.is_canonical_binding_version`` — the two encodings cannot drift
+(Codex target-3 / SSOT).
 """
 
 from __future__ import annotations
@@ -21,6 +29,7 @@ from psycopg.rows import dict_row
 
 from agentkit.backend.boundary.filesystem import atomic_write_json, load_json_object
 from agentkit.backend.boundary.shared.time import now_iso
+from agentkit.backend.control_plane.ownership import BINDING_VERSION_SQL_CHECK
 from agentkit.backend.core_types.qa_artifact_names import VERIFY_DECISION_FILE
 from agentkit.backend.exceptions import (
     ControlPlaneBindingCollisionError,
@@ -352,6 +361,8 @@ def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
         return False
     if not _ag3_137_additive_columns_present(conn):
         return False
+    if not _ag3_137_binding_constraints_present(conn):
+        return False
     if not _analytics_versions_are_recorded(conn):
         return False
     return _fact_tables_are_fk62_shaped(conn)
@@ -394,6 +405,49 @@ def _ag3_137_additive_columns_present(conn: _CompatConnection) -> bool:
     ).fetchall()
     present = {(str(row["table_name"]), str(row["column_name"])) for row in rows}
     return set(_AG3_137_ADDITIVE_COLUMNS) <= present
+
+
+#: The two AG3-137 remediation CHECK constraints on ``session_run_bindings``. A DB
+#: already shaped by the r1 rollout (b2b3d0bd) carries the four AG3-137 tables and
+#: the additive columns but NOT these named CHECKs: the additive ``status`` ALTER
+#: adds its column WITHOUT a check, and ``binding_version`` stayed a bare
+#: ``TEXT NOT NULL``. The table/column canary above would therefore report such a
+#: DB as bootstrapped, short-circuiting ``_ensure_schema`` so the legacy
+#: normalisation (``_ensure_run_ownership_backfill``) and the ``ADD CONSTRAINT``
+#: step (``_ensure_session_binding_constraints``) never run on the exact
+#: existing-schema state this remediation targets. Inspecting ``pg_constraint``
+#: for BOTH names closes that gap: a missing constraint fails the canary, forces a
+#: full bootstrap, and the existing DB ends up as hard as a fresh schema at the
+#: persistence boundary (Codex ERROR §5a/§4, fail-closed).
+_AG3_137_BINDING_CONSTRAINTS: tuple[str, ...] = (
+    "session_run_bindings_status_check",
+    "session_run_bindings_binding_version_check",
+)
+
+
+def _ag3_137_binding_constraints_present(conn: _CompatConnection) -> bool:
+    """Return whether both AG3-137 session-binding CHECK constraints exist.
+
+    Complements the table/column canary in :func:`_schema_is_bootstrapped`: a DB
+    migrated by the r1 rollout (``b2b3d0bd``) has every AG3-137 table and additive
+    column yet lacks these two named CHECK constraints, so without this probe it
+    would report bootstrapped and skip the constraint + legacy-normalisation step.
+    Reading ``pg_constraint`` (scoped to ``current_schema()``) forces a full
+    bootstrap when either constraint is absent (Codex ERROR §5a, fail-closed).
+    """
+    rows = conn.execute(
+        """
+        SELECT c.conname
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE n.nspname = current_schema()
+          AND c.conname = ANY(%s)
+        """,
+        (list(_AG3_137_BINDING_CONSTRAINTS),),
+    ).fetchall()
+    present = {str(row["conname"]) for row in rows}
+    return set(_AG3_137_BINDING_CONSTRAINTS) <= present
 
 
 def _analytics_versions_are_recorded(conn: _CompatConnection) -> bool:
@@ -767,10 +821,13 @@ def _ensure_run_ownership_backfill(conn: _CompatConnection) -> None:
     conn.execute(
         # Normalise every NON-canonical legacy value (random bind-<uuid4>, empty,
         # '0', leading-zero forms) to the initial version '1' so the canonical
-        # value domain (^[1-9][0-9]*$) holds before the CHECK constraint is added
-        # in _ensure_session_binding_constraints (Codex ERROR §4 follow-through).
+        # value domain holds before the CHECK constraint is added in
+        # _ensure_session_binding_constraints (Codex ERROR §4 follow-through). The
+        # regex is single-sourced from ownership.BINDING_VERSION_SQL_CHECK (a
+        # trusted module constant, not user input) so it cannot drift from the
+        # CHECK the same bootstrap installs below (target-3 / SSOT).
         "UPDATE session_run_bindings SET binding_version = '1' "
-        "WHERE binding_version !~ '^[1-9][0-9]*$'",
+        f"WHERE binding_version !~ '{BINDING_VERSION_SQL_CHECK}'",
     )
 
     # 2. Ambiguity guard: two active bindings for the same (project, story)
@@ -839,16 +896,20 @@ def _ensure_session_binding_constraints(conn: _CompatConnection) -> None:
     .sql) 1:1:
 
     * ``session_run_bindings_status_check``: ``status IN ('active','revoked')``.
-    * ``session_run_bindings_binding_version_check``: canonical integer domain
-      (``^[1-9][0-9]*$``), the persistence-boundary mirror of
-      ``ownership.is_canonical_binding_version`` (Codex ERROR §4).
+    * ``session_run_bindings_binding_version_check``: canonical integer domain,
+      the persistence-boundary mirror of ``ownership.is_canonical_binding_version``
+      (Codex ERROR §4). The regex is interpolated from the single canonical source
+      ``ownership.BINDING_VERSION_SQL_CHECK`` (a trusted module constant, not user
+      input) so the ALTER CHECK cannot drift from the Python predicate (target-3 /
+      SSOT). The static ``postgres_schema.sql`` fresh-schema CHECK cannot
+      interpolate the constant; its parity is pinned by a contract test instead.
 
     Named + existence-guarded so a fresh schema (whose CREATE TABLE already
     created the SAME named constraints) is a no-op, and re-running the bootstrap
     never duplicates a constraint.
     """
     conn.execute(
-        """
+        f"""
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -873,7 +934,7 @@ def _ensure_session_binding_constraints(conn: _CompatConnection) -> None:
             ) THEN
                 ALTER TABLE session_run_bindings
                 ADD CONSTRAINT session_run_bindings_binding_version_check
-                CHECK (binding_version ~ '^[1-9][0-9]*$');
+                CHECK (binding_version ~ '{BINDING_VERSION_SQL_CHECK}');
             END IF;
         END
         $$;

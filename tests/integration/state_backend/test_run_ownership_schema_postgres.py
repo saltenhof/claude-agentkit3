@@ -621,6 +621,113 @@ def test_canary_fails_closed_when_an_additive_column_is_missing() -> None:
     assert "operation_epoch" in _column_names("control_plane_operations")
 
 
+_AG3_137_BINDING_CONSTRAINT_NAMES = {
+    "session_run_bindings_status_check",
+    "session_run_bindings_binding_version_check",
+}
+
+
+def _present_binding_constraint_names() -> set[str]:
+    """Return which AG3-137 session-binding CHECK constraints exist in the schema."""
+    with postgres_store._connect_global() as conn:
+        rows = conn.execute(
+            """
+            SELECT c.conname
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = current_schema()
+              AND c.conname = ANY(%s)
+            """,
+            (sorted(_AG3_137_BINDING_CONSTRAINT_NAMES),),
+        ).fetchall()
+    return {str(row["conname"]) for row in rows}
+
+
+def test_bootstrap_reapplies_binding_constraints_on_b2b3d0bd_shaped_db() -> None:
+    """Codex ERROR §5a/§4: the REAL connect path re-hardens an r1-shaped existing DB.
+
+    A DB already migrated by r1 (``b2b3d0bd``) has the four AG3-137 tables and the
+    additive columns but NOT the two ``session_run_bindings`` CHECK constraints
+    (the additive ``status`` ALTER adds its column without a check, and
+    ``binding_version`` stayed a bare ``TEXT``), plus a legacy non-canonical
+    ``binding_version`` row. The bootstrap short-circuit
+    (``_ensure_schema_once`` -> ``_schema_is_bootstrapped``) must NOT declare that
+    DB bootstrapped: the ``pg_constraint`` canary makes it re-run
+    ``_ensure_schema``, which normalises the legacy row THEN adds the constraints.
+
+    Proven through ``_connect_global`` / ``_ensure_schema_once`` (the REAL path) —
+    the sibling ``test_existing_schema_backfill_normalizes_then_reapplies_checks``
+    only calls the helpers manually and never exercises this short-circuit.
+    Without the ``pg_constraint`` probe in ``_schema_is_bootstrapped`` this test is
+    red at step 2 (the canary would return ``True`` on the constraint-less DB) and
+    at (a)/(b) (constraints/normalisation would never run on reconnect).
+    """
+    # 1. Reshape the freshly-bootstrapped fixture schema into the b2b3d0bd state:
+    #    drop BOTH remediation CHECK constraints and insert a legacy bind-<...> row
+    #    (only possible while the binding_version CHECK is absent). All AG3-137
+    #    tables + additive columns stay present — exactly the r1 rollout shape.
+    with postgres_store._connect_global() as conn:
+        conn.execute(
+            "ALTER TABLE session_run_bindings "
+            "DROP CONSTRAINT IF EXISTS session_run_bindings_binding_version_check"
+        )
+        conn.execute(
+            "ALTER TABLE session_run_bindings "
+            "DROP CONSTRAINT IF EXISTS session_run_bindings_status_check"
+        )
+        _raw_insert_binding(
+            conn,
+            session_id="sess-r1",
+            binding_version="bind-001",
+            story_id="AG3-137",
+        )
+
+    # 2. The canary must now report the schema as NOT bootstrapped (constraints
+    #    absent) even though every AG3-137 table + additive column is present.
+    #    The still-cached bootstrap name keeps _ensure_schema_once from re-adding
+    #    them here, so this observes the pure b2b3d0bd state. This is the exact gap
+    #    the fix closes.
+    with postgres_store._connect_global() as conn:
+        assert postgres_store._schema_is_bootstrapped(conn) is False
+
+    # 3. Drive the REAL path: clear the process bootstrap cache and reconnect so
+    #    _ensure_schema_once actually re-runs _ensure_schema (NOT the manual
+    #    helpers) on the b2b3d0bd-shaped schema.
+    reset_backend_cache_for_tests()
+    with postgres_store._connect_global():
+        pass
+
+    # (a) Both constraints exist again.
+    assert _present_binding_constraint_names() == _AG3_137_BINDING_CONSTRAINT_NAMES
+
+    # (b) The legacy non-canonical row was normalised to the canonical '1'.
+    loaded = load_session_run_binding_global("sess-r1")
+    assert loaded is not None
+    assert loaded.binding_version == "1"
+    assert loaded.status == "active"
+
+    # (c) The re-added CHECK now rejects a fresh non-canonical raw write (parity
+    #     with a fresh schema — the existing DB is no longer softer).
+    with (
+        pytest.raises(psycopg.errors.CheckViolation),
+        postgres_store._connect_global() as conn,
+    ):
+        _raw_insert_binding(
+            conn,
+            session_id="sess-r1-2",
+            binding_version="bind-again",
+            story_id="AG3-137",
+        )
+
+    # (d) Idempotency: a second real connect short-circuits cleanly (canary now
+    #     True), with no error and no duplicate backfilled ownership record.
+    reset_backend_cache_for_tests()
+    with postgres_store._connect_global() as conn:
+        assert postgres_store._schema_is_bootstrapped(conn) is True
+    assert _count_ownership("tenant-a", "AG3-137") == 1
+
+
 def _table_names() -> set[str]:
     with postgres_store._connect_global() as conn:
         rows = conn.execute(
