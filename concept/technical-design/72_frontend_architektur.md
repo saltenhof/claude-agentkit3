@@ -658,7 +658,10 @@ Eigentumslage als Entscheidungsgrundlage:
   dass Inaktivitaet keine Diagnose ist** (FK-56 §56.13a); die Anzeige
   ist Information, nie Ausloeser
 - offene Jobs mit ihren `op_id`s und der Phasenstand
-- letzter Commit und Dirty-Stand der Story-Worktrees
+- letzter gemeldeter gepushter Head-SHA und die Push-Frische je
+  teilnehmendem Repo (Branch-Ref-Meldung, FK-10 §10.2.4b,
+  FK-91 §91.1b) — einen Dirty-/Lokalstand der Worktrees kennt das
+  Backend nicht (FK-10 §10.2.4a)
 - die bisherige Takeover-Historie (prominente Anzeige, FK-56 §56.13d)
 
 Der Uebernahme-Dialog **ist** der versionierte Challenge aus
@@ -678,19 +681,25 @@ Benutzer gebunden; jeder eingeloggte Benutzer sieht ihn und kann
 entscheiden. Der Overlay speist sich aus dem projektuebergreifenden
 governance-Stream (FK-91 §91.8.1), nicht aus dem projekt-skopierten
 Projekt-Stream. Er traegt die vollstaendige Challenge-Information aus
-(1); erst die Bestaetigung im Overlay vollzieht den Transfer. Eine
-Ablehnung oder der Fristablauf laesst nur die offene Anfrage
-verfallen und entzieht niemals Eigentum (FK-55 §55.9a). Die Shell
-hostet nur die Overlay-Region (§72.4); Daten und Aktion kommen aus
-dem Owner-BC.
+(1); erst die Bestaetigung im Overlay vollzieht den Transfer.
+Challenge-Dialog und Overlay tragen verpflichtend den
+Verlustkorridor-Pflichttext aus FK-56 §56.13c (uebernommen wird
+ausschliesslich der gepushte Stand `<sha>`; nicht Gepushtes ist kein
+Uebergabegut). Eine Ablehnung oder der Fristablauf laesst nur die
+offene Anfrage verfallen und entzieht niemals Eigentum
+(FK-55 §55.9a). Die Shell hostet nur die Overlay-Region (§72.4);
+Daten und Aktion kommen aus dem Owner-BC.
 
 **(3) Job-, Snapshot- und Contested-Anzeige.** Die Sicht zeigt
 laufende Jobs als solche an (`202` + `op_id`, beobachtbar ueber
 `GET operations/{op_id}`, FK-91 §91.1a Regel 14), nach einem
-Transfer den Takeover-Snapshot als Verantwortungsgrenze sowie die
-Edge-Zustaende `takeover_reconcile_required` und
-`contested_local_writes` (FK-30 §30.6.3) als blockierende Zustaende
-mit Klartext-Hinweis, welcher offizielle Pfad sie aufloest.
+Transfer den `takeover_base_sha` des Transfer-Records als
+Verantwortungsgrenze (FK-56 §56.13c) sowie die Edge-Zustaende
+`takeover_reconcile_required`, `contested_local_writes`,
+`remote_branch_diverged_after_takeover` und
+`local_stale_or_dirty_takeover_target` (FK-30 §30.6.3) als
+blockierende Zustaende mit Klartext-Hinweis, welcher offizielle Pfad
+sie aufloest.
 
 **Wire-Bindung.** Die zugehoerigen Wire-Vertraege liegen in
 `formal.frontend-contracts.*`: die Commands

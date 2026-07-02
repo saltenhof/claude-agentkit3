@@ -170,30 +170,35 @@ ist weiterhin unprivilegiert.
 
 ### 31.1.3c Salvage-Commit nach Ownership-Takeover
 
-Nach einem Ownership-Transfer (FK-56 §56.13) uebernimmt der neue
-Owner den Worktree as-is, einschliesslich uncommitteter Aenderungen
-des Vorgaengers. Fuer deren Sicherung gilt:
+**Der Salvage-Commit entfaellt** (Pushed-only-Regel, FK-10
+§10.2.4b): Ein Ownership-Transfer uebergibt keine uncommitteten
+Aenderungen und keine ungepushten Commits mehr — das Uebergabeobjekt
+ist ausschliesslich der beim Confirm materialisierte
+`takeover_base_sha` (FK-56 §56.13c). Es gibt damit nichts, was der
+neue Owner „salvagen" koennte; nicht gepushte Reste der bisherigen
+Session werden beim Reconcile lokal quarantaeniert (FK-56 §56.13e),
+sind fuer AgentKit kein Uebergabegut und erreichen das Backend nie.
 
-- **Kein automatischer WIP-Commit durch den Vollzieher des
-  Transfers.** Der Vollzieher ist nicht der Autor; ein Auto-Commit
-  wuerde Autorenschaft und Branch-Guard-Semantik verwischen und
-  koennte commit-getriggerte Automatiken ausloesen.
-- **Der Salvage-Commit ist der offizielle Pfad:** Nach erfolgreichem
-  Takeover-Reconcile (FK-30 §30.6.3) darf der neue Owner die
-  uebernommenen uncommitteten Aenderungen als expliziten
-  Salvage-Commit auf dem Story-Branch committen — mit **eigener
-  Autorenschaft** und einem Verweis auf den Takeover-Snapshot in der
-  Commit-Message. Fuer den Branch-Guard ist das ein normaler Commit
-  auf dem Story-Branch (§31.1.3 "Explizit erlaubt"), kein
-  Sonderprivileg.
+Fuer quarantaenierte Inhalte gilt:
+
+- **Menschliche Verwertung ausserhalb des Vertrags:** Quarantaenierte
+  Dateien sind lokale Dateien des Menschen; ihre Sichtung und
+  Verwertung ist zulaessig — aber nie als Nachreichung, Replay oder
+  Salvage durch den Ex-Owner.
+- **Wiedereinfuehrung nur durch den aktuellen Owner:** Sollen Inhalte
+  zurueck in die Story, uebernimmt sie der **aktuelle Owner** nach
+  abgeschlossenem Reconcile bewusst, committet und pusht sie neu und
+  fuehrt sie durch die normalen QA-/Closure-Pfade. Fuer den
+  Branch-Guard ist das ein normaler Commit auf dem Story-Branch
+  (§31.1.3 "Explizit erlaubt"), kein Sonderprivileg.
 - Vor abgeschlossenem Reconcile blockieren die Hook-Guards jeden
-  Commit, auch den Salvage-Commit (FK-30 §30.6.3).
+  Commit (FK-30 §30.6.3).
 
 Die Branch-Guard-Blockade freier destruktiver Git-Operationen
 (Force-Push, Hard-Reset, Force-Delete, §31.1.3) bleibt durch den
-Takeover unveraendert bestehen; das Verwerfen des uebernommenen
-Stands ist kein Git-Handgriff, sondern der offizielle Reset-Pfad
-(FK-53).
+Takeover unveraendert bestehen; das Verwerfen des gepushten
+Story-Stands ist kein Git-Handgriff, sondern der offizielle
+Reset-Pfad (FK-53).
 
 ### 31.1.4 Push-Remote-Erkennung
 

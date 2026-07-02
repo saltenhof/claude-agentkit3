@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: operating-modes
 spec_kind: command-set
-version: 2
+version: 3
 prose_refs:
   - concept/technical-design/56_ai_augmented_mode_and_story_execution_separation.md
   - concept/technical-design/91_api_event_katalog.md
@@ -16,7 +16,7 @@ prose_refs:
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.operating-modes.commands
-schema_version: 2
+schema_version: 3
 kind: command-set
 context: operating-modes
 commands:
@@ -78,7 +78,7 @@ commands:
       - operating-modes.event.run_ownership_takeover_offered
       - operating-modes.event.run_ownership_takeover_approval_requested
   - id: operating-modes.command.confirm-run-ownership-takeover
-    signature: internal confirm run ownership takeover by compare and swap on ownership_epoch and binding_version transferring the run binding with unchanged run_id and worktree_roots to the requesting session and disowning the previous owner
+    signature: internal confirm run ownership takeover by compare and swap on ownership_epoch and binding_version transferring the run binding with unchanged run_id to the requesting session materializing the takeover transfer record with the pushed takeover_base_sha per participating repo rebinding worktree_roots to the edge reported roots of the new session and disowning the previous owner
     allowed_statuses:
       - operating-modes.status.ai_augmented
       - operating-modes.status.unresolved

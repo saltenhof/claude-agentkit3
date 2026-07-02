@@ -107,7 +107,7 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
 | `/v1/project-edge/operations/{op_id}` | `GET` | Unklare Remote-Lage eines mutierenden Requests ueber `op_id` reconciliieren |
 | `/v1/project-edge/story-runs/{run_id}/ownership/takeover-request` | `POST` | Expliziten Ownership-Transfer (Takeover) fuer einen aktiven Story-Run anfragen (formal: `operating-modes.command.request-run-ownership-takeover`). Antwort ist nie der Vollzug, sondern eine von zwei Varianten: menschlich initiierte Requests (`human_cli`/UI via BFF) erhalten einen versionierten **Challenge** (`offered`: Eigentumslage inkl. `owner_session_id`, `ownership_epoch`, `binding_version`, Phasenstand, Anzeigedaten aus dem Owner-BC); agenteninitiierte Requests erhalten deterministisch **`pending_human_approval`** (Vollzug erfordert menschliche Frontend-Freigabe; Ausgang beobachtbar ueber `GET /v1/project-edge/operations/{op_id}`). Jede Anfrage traegt eine Begruendungspflicht (auditiert) |
 | `/v1/project-edge/story-runs/{run_id}/ownership/takeover-confirm` | `POST` | Takeover per Challenge-Echo vollziehen (formal: `operating-modes.command.confirm-run-ownership-takeover`; Klasse `admin_transition`, FK-55 §55.5): CAS auf `ownership_epoch`/`binding_version`. Fehlerbild bei verfallenem oder invalidiertem Challenge (zwischenzeitlicher Transfer, Exit, Reset, Split, Closure oder Freeze-Eintritt): deterministischer fail-closed Fehlschlag ohne Vollzug — erneuter Request gegen die aktuelle Eigentumslage noetig |
-| `/v1/project-edge/story-runs/{run_id}/ownership/takeover-reconcile-worktree` | `POST` | Snapshot-Abgleich des uebernommenen Worktrees durch den neuen Owner melden: Ist-Stand der Story-Worktrees gegen den beim Vollzug festgehaltenen Takeover-Snapshot (`state-storage.entity.takeover-worktree-snapshot`, FK-56 §56.13c). Bei Uebereinstimmung hebt das Backend den Edge-Zustand `takeover_reconcile_required` auf (Guard-Semantik und Exklusivitaet dieses Pfads: FK-30 §30.6.3); bei Drift geht das Edge-Bundle deterministisch in `contested_local_writes` (read-only Konflikt-Freeze, FK-30 §30.6.3, FK-56 §56.13f). Mutierende Operation: client-beigestelltes `op_id` (Regel 5), Serialisierungsobjekt `(project_key, story_id)` (Regel 13); zulaessig nur fuer den aktuellen Owner (Fence auf `owner_session_id`/`ownership_epoch`, FK-56 §56.8a) |
+| `/v1/project-edge/story-runs/{run_id}/ownership/takeover-reconcile-worktree` | `POST` | Reconcile des uebernommenen Worktrees durch den neuen Owner melden — **SHA-Semantik**: Abgleich gegen den beim Confirm materialisierten `takeover_base_sha` des Transfer-Records (`state-storage.entity.takeover-transfer-record`, FK-56 §56.13c), nicht gegen einen Datei-Snapshot. Erfolg (Worktree exakt auf `takeover_base_sha` ausgerichtet, Quarantaene abgeschlossen — FK-56 §56.13e) hebt den Edge-Zustand `takeover_reconcile_required` auf (Guard-Semantik und Exklusivitaet dieses Pfads: FK-30 §30.6.3). Fehlerbilder (benannte Zustaende, FK-30 §30.6.3): Scheitern oder unklare Worktree-Identitaet → `contested_local_writes` (read-only Konflikt-Freeze, FK-56 §56.13f); Remote-Head ≠ `takeover_base_sha` → `remote_branch_diverged_after_takeover`; altes/schmutziges Provisionierungsziel → `local_stale_or_dirty_takeover_target`. Mutierende Operation: client-beigestelltes `op_id` (Regel 5), Serialisierungsobjekt `(project_key, story_id)` (Regel 13); zulaessig nur fuer den aktuellen Owner (Fence auf `owner_session_id`/`ownership_epoch`, FK-56 §56.8a) |
 | `/v1/project-edge/operations/{op_id}/admin-abort` | `POST` | Haengende serverseitige In-Flight-Operation administrativ abbrechen (`admin_abort_inflight_operation`, Klasse `admin_transition`, FK-55 §55.5; auditiert). Betrifft ausschliesslich servereigene Claims und leitet niemals Client-Ownership aus Stille ab (Regel 16). Das Finalize ist per `operation_epoch`-CAS gefenct: Late-Commits eines physisch noch weiterlaufenden Alt-Executors scheitern deterministisch am Operation-Fence und registrieren hoechstens einen No-op-/Abort-Vermerk; hat die abgebrochene Mutation bereits Teil-Writes hinterlassen, geht die Operation in einen expliziten, auditierten Reconcile-/Repair-Zustand statt stillschweigend in `failed` |
 | `/v1/compat` | `GET` | Unterstuetztes Versionsfenster lesen: `min`/`recommended`/`blocked` fuer Agent-Runtime und Wire (dev↔central-Handshake, FK-10 §10.2.7) |
 | `/v1/telemetry/events` | `POST` | Kanonisches Telemetrie-Event ingestieren |
@@ -303,6 +303,44 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
     Fehlervertrag aus Regel 8. Reads, einschliesslich
     `GET /v1/project-edge/operations/{op_id}` zur Rekonsiliierung
     eigener frueherer Mutationen, bleiben dem Ex-Owner erlaubt.
+
+## 91.1b Edge-Command-Queue (Auftrag/Meldung)
+
+Physische Git-/Worktree-Operationen laufen dev-lokal
+(FK-10 §10.2.4a). Das Backend beauftragt den Project Edge dafuer
+ueber eine eigene **Command-Queue** — Command-Records mit Ack und
+Result. Der Bundle-Sync (`POST /v1/project-edge/sync`, §91.1a)
+bleibt reine Zustands-/Result-Projektion und wird nicht mit
+Auftraegen ueberladen.
+
+| Endpoint | Methode | Beschreibung |
+|----------|---------|--------------|
+| `/v1/project-edge/story-runs/{run_id}/commands` | `GET` | Offene Edge-Auftraege (Command-Records) der eigenen Session abrufen; der Abruf quittiert die Zustellung (Ack). Read — nimmt keine Sperren (Regel 13) |
+| `/v1/project-edge/commands/{command_id}/result` | `POST` | Ergebnis eines Edge-Auftrags melden. Mutierende Operation: client-beigestelltes `op_id` (Regel 5), Serialisierungsobjekt `(project_key, story_id)` (Regel 13); der Abschluss-Commit ist nach Regel 15 gegen den aktiven Ownership-Record gefenct |
+
+**Auftragsarten (initial):** `provision_worktree` (FK-22 §22.6.2),
+`teardown_worktree` (FK-12 §12.5.3), `preflight_probe`
+(FK-22 §22.3.1), `sync_push` (FK-10 §10.2.4b), `takeover_reconcile`
+(FK-30 §30.6.3; das Ergebnis wird ueber den Wire-Contract
+`takeover-reconcile-worktree` gemeldet, §91.1a) und `merge_local`
+(FK-29 §29.1a).
+
+**Result-Typen:** `branch_ref_report` (Branch-Klasse + Head-SHA je
+teilnehmendem Repo — die Branch-Ref-Meldung nach jedem Sync-Punkt,
+FK-10 §10.2.4b), `push_status_report` (Push-Erfolg bzw.
+Push-Rueckstand), `worktree_report` (Provisionierungs-/
+Teardown-Ergebnis inklusive der gemeldeten Worktree-Pfade =
+`worktree_roots` der Session, FK-56 §56.8) sowie
+Quarantaene-Ergebnisdetails beim `takeover_reconcile`
+(FK-56 §56.13e). Fehlerbilder der Takeover-Familie
+(`remote_branch_diverged_after_takeover`,
+`local_stale_or_dirty_takeover_target`, `contested_local_writes`)
+sind benannte Result-Zustaende, kein Sammel-FAIL (FK-30 §30.6.3).
+
+**Serverseitige Push-Verifikation:** Die harten Push-Barrieren
+(FK-10 §10.2.4b) verifiziert das Backend serverseitig gegen das
+Code-Backend (Ref-Read auf den gepushten Story-Branch,
+FK-12 §12.1) — die Edge-Meldung allein ist nie hinreichend.
 
 ## 91.1 Operator-Recovery-CLI (agentkit)
 

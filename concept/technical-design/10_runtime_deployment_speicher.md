@@ -347,7 +347,7 @@ Pflicht-Infrastrukturdienste benötigt (Weaviate).
 |-------------|-----------------|---------|
 | Python 3.14 (Mindestanforderung) | Pflicht | Installer Checkpoint 1 |
 | Git ≥ 2.30 | Pflicht | Installer Checkpoint 2 |
-| `gh` CLI (vom Backend genutzt, nicht dev-seitig) | Pflicht | Installer Checkpoint 2 |
+| Provider-CLI-Werkzeuge (z. B. `gh` bei GitHub) — nur im Provider-Adapter-Rahmen (FK-12 §12.1); die beauftragte Git-Mechanik des Project Edge nutzt die `git` CLI | Optional (provider-abhaengig) | Installer Checkpoint 2 (nur wenn Provider-Adapter sie erfordert) |
 | AK3 Backend erreichbar (REST /v1) | Pflicht | Installer Checkpoint CP7 (State-Backend + Control-Plane erreichbar) |
 | Agent-Harness (Claude Code oder Codex; FK-76) | Pflicht (mindestens einer) | Voraussetzung (nicht geprüft) |
 | LLM-Hub (Unified REST) | Pflicht: Drehscheibe muss mind. zwei verschiedene LLM-Modelle zusätzlich zu Claude bereitstellen (Schicht 2 fordert verschiedene Modelle für QA-Review und Semantic Review) | Integrity-Gate bei Closure prüft konfigurierte `llm_roles` gegen Telemetrie |
@@ -418,9 +418,96 @@ Platzierung ist topologie-agnostisch:
 
 In **beiden** Fällen ist die **REST-/Trust-Boundary invariant**: Die
 Dev-Seite spricht nur über `/v1` mit dem Backend (I3/I6), unabhängig
-davon, wo das Backend physisch läuft. Die in-process-Kopplung an einen
-lokalen `project_root`/Worktree gehört auf die Backend-Seite und ist
-kein Dev-seitiger Fachlogik-Anker.
+davon, wo das Backend physisch läuft. `project_root` ist dabei ein
+rein backend-lokaler State-Anker (§10.2.4a); die Worktrees liegen in
+beiden Topologien dev-lokal — Loopback-Ko-Lokalisierung ändert daran
+nichts (§10.2.4a).
+
+### 10.2.4a Worktree-Topologie: dev-lokal (Akteursmodell und Ausführungsort)
+
+**Normative Topologie-Regel (PO-Entscheidung 2026-07-02):** Worktrees
+leben im Projektverzeichnis, das physisch auf dem Dev-Rechner
+existiert. **AgentKit darf niemals annehmen, dass es backend-seitig
+physischen Zugriff auf einen Worktree hat.** Co-located Zugriff (etwa
+in der Loopback-Installation, §10.2.4) ist Zufall der Installation,
+kein Betriebsmodell — es gilt **ein** Modell für beide
+Installationsformen. Begründung: Ein zentrales Backend mit
+backend-lokalen Worktrees würde erzwingen, dass die Harnesse auf dem
+Server laufen; Menschen könnten nie lokal arbeiten, und
+Mehrentwickler-Parallelität (jeder Entwickler bearbeitet seine Stories
+auf seiner Maschine) wäre unmöglich.
+
+**Akteursmodell für physische Worktree-Operationen:** ausschließlich
+
+1. der **Agent** (Codearbeit),
+2. der **Project Edge** (führt vom Backend beauftragte, eng umrissene
+   Kommandos lokal aus und meldet Ergebnisse; Auftragsvertrag:
+   FK-91 §91.1b), oder
+3. **niemand** — Designs ohne Worktree-Interaktion des Systems sind
+   vorzuziehen.
+
+Das Backend kennt Branch-Refs, SHAs und Edge-Meldungen — nie das
+Dateisystem.
+
+**Ausführungsort-Grundsatz:** Jede physische Git-/Worktree-Operation
+eines AK3-verantworteten Ablaufs läuft entweder (a) als
+**Edge-Auftrag** (Auftrag/Meldung über die Edge-Command-Queue,
+FK-91 §91.1b), (b) über den **gepushten Stand** — Ref-Reads und
+Push-Verifikation bevorzugt via provider-neutralem git-Protokoll
+(`git ls-remote`, kein Worktree nötig), Compare/Change-Evidence über
+den schmalen Provider-Adapter oder Edge-gemeldet (FK-12 §12.1,
+Provider-Neutralität) — oder (c) **entfällt**. Backend-seitige
+Subprocess-Git-Zugriffe, physische Worktree-Pfadableitungen und
+Governance-Writes in Worktrees sind Fehlbetrieb, kein Sollzustand.
+
+**workspace_locator-Trennung:** `project_root` ist ein **reiner
+backend-lokaler State-Anker** (AK3-Laufzeitdaten); eine
+Worktree-Anker-Rolle hat er nicht — sie entfällt ersatzlos. Physische
+Worktree-Pfade sind ausschließlich die **Edge-gemeldeten
+`worktree_roots`** der jeweiligen Session (FK-56 §56.8); das Backend
+leitet niemals selbst Worktree-Pfade ab.
+
+### 10.2.4b Pushed-only und Sync-Punkte (Hybrid)
+
+**Pushed-only-Regel (PO-Entscheidung 2026-07-02):** Alles, was nicht
+auf den Story-Branch committed **und** gepusht ist, ist für AgentKit
+de facto nicht existent und niemals übernahmefähig.
+Committed-aber-ungepusht ist rechnerlokal und zählt genauso wenig wie
+uncommittete Änderungen. Das ist eine bewusste Designentscheidung mit
+akzeptiertem **Verlustkorridor**: Bei einem Ownership-Transfer geht
+Arbeit seit dem letzten Push aus AgentKit-Sicht verloren (Transfer-
+und Quarantäne-Mechanik: FK-56 §56.13c/§56.13e). Das Übergabeobjekt
+eines Transfers ist ein **SHA**, nie ein Dateizustand. Die Sync-Punkte
+machen den Korridor klein und bekannt; sie heben ihn nicht auf.
+
+**Sync-Punkte (Hybrid-Modell):** Der Edge pusht den Story-Branch an
+definierten Punkten und meldet den Head-SHA ans Backend
+(Branch-Ref-Meldung, FK-91 §91.1b):
+
+- **Harte Push-Barrieren (Pflicht, fail-closed):** Phasen-Abschlüsse
+  (`completion.push`, FK-33), QA-Zyklus-Grenzen, Yield-Points,
+  Closure-Eintritt. Ohne erfolgreichen Push kein Phasen-Abschluss.
+  Die Verifikation erfolgt als Edge-Erhebung **plus** serverseitige
+  Verifikation gegen das Code-Backend (Ref-Read) — nie allein aus der
+  lokalen Erhebung.
+- **Opportunistische Pushes (best-effort, queued):** nach jedem
+  AK3-registrierten Commit. Scheitern blockiert die lokale Arbeit
+  nicht, ist aber sichtbarer Zustand (Push-Rückstand).
+
+Die **Push-Frische** (letzter gemeldeter Head-SHA + Zeitpunkt) ist
+Teil der Eigentumslage-Anzeige und des Takeover-Challenge
+(FK-56 §56.13c). Kein Sync-Punkt löst je Ownership-Wirkungen aus —
+Stille/Frische ist Information, nie Entscheidung (Kap. 02.7).
+
+**WIP-Ref-Push ist verworfen:** Ein Push uncommitteter Stände als
+eigener Ref würde Nicht-Existentes existent machen (Widerspruch zur
+Pushed-only-Regel), kollidiert mit dem Branch-Guard (Ziel-Ref ungleich
+`story/{story_id}`) und schafft Governance-Risiken (Secret-Leaks aus
+uncommitteten Ständen, Ref-Hygiene).
+
+Scheitert eine harte Push-Barriere dauerhaft (Remote nicht
+erreichbar), läuft die lokale Arbeit weiter; der Phasen-Abschluss
+bleibt fail-closed blockiert und der Push-Rückstand sichtbar.
 
 ### 10.2.5 Ebene 1 — Bootstrap des zentralen Core
 
@@ -750,8 +837,8 @@ Speicherorte, Laufzeitrollen und Datenfluesse.
 | Locks | Closure (Backend) entfernt sie; sonst nur offizielle Pfade (Exit, Reset, Split, Ownership-Transfer) | Explizit statt automatisch: keine Stale-Freigabe via Lease/TTL; Stale-Anzeige bleibt als Information erlaubt |
 | Lokale Read-Projektionen | Nach Run / bei TTL-Ablauf | Verwerfbar; jederzeit aus Backend rematerialisierbar |
 | Ephemere Sandboxes außerhalb des Projekts | Nach Test-Promotion durch Pipeline | Automatisch löschbar |
-| Worktree | Closure-Phase (teardown) | `git worktree remove` |
-| Story-Branch | Closure-Phase (nach Merge) | `git branch -d` |
+| Worktree | Closure-Phase (teardown) | Edge-Auftrag `teardown_worktree` (§10.2.4a, FK-91 §91.1b): `git worktree remove` dev-lokal |
+| Story-Branch | Closure-Phase (nach Merge) | Edge-Auftrag `teardown_worktree`: `git branch -d` dev-lokal |
 
 **Kein kanonischer Audit-Trail im Projekt-Dateisystem.**
 Audit- und QA-Daten leben zentral im Backend; lokale Dateien sind nur
@@ -785,7 +872,7 @@ Alle Pipeline-Schritte müssen idempotent sein:
 | Schritt | Idempotenz-Garantie |
 |--------|-------------------|
 | Preflight | Prüft nur, ändert nichts. Wiederholbar. |
-| Setup (Worktree) | Prüft ob Worktree existiert, erstellt nur wenn nicht vorhanden. |
+| Setup (Worktree) | Edge-Auftrag `provision_worktree` (§10.2.4a): prüft ob Worktree existiert, erstellt nur wenn nicht vorhanden. |
 | Structural Checks | Liest nur, schreibt Ergebnis. Wiederholbar (überschreibt vorheriges Ergebnis). |
 | LLM-Evaluator | Sendet an den LLM-Hub, schreibt Ergebnis. Wiederholbar (überschreibt). |
 | Closure | Nicht pauschal idempotent — Closure hat sequentielle Seiteneffekte über verschiedene Systeme (Merge, Story-Close, Metriken, Postflight). Wird über persistierte Substates abgesichert: `integrity_passed`, `story_branch_pushed`, `merge_done`, `story_closed`, `metrics_written`, `postflight_done` (sechs Booleans, vollständige Liste in FK-29 §29.1.0). Bei Crash: Recovery setzt beim letzten bestätigten Substate wieder an. |
@@ -837,7 +924,7 @@ schon. Die Persistenz-Invarianten dazu sind in
 | Hook-Prozess crashed | Tool-Call wird blockiert (fail-closed: kein exit(0) = blockiert) | Der Harness behandelt Hook-Fehler als Blockade. Agent erhält Fehlermeldung. |
 | LLM-Hub nicht erreichbar | Hub-Call schlägt fehl | Retry-Logik im LLM-Evaluator (1 Retry). Bei Scheitern: Check = FAIL (fail-closed). |
 | Weaviate nicht erreichbar | VektorDB-Suche schlägt fehl | Story-Erstellung schlägt fehl (fail-closed). VektorDB ist Pflichtbestandteil der Infrastruktur (I4-Direktkante). |
-| Git-Remote/GitHub nicht erreichbar | Push/Merge-Mechanik schlägt fehl | Closure scheitert → Eskalation an Mensch. Story-Start und Story-Status kommen aus AK3, nicht aus GitHub. |
+| Git-Remote/GitHub nicht erreichbar | Push/Merge-Mechanik (Edge-Auftrag) schlägt fehl | Closure scheitert → Eskalation an Mensch; harte Push-Barrieren bleiben fail-closed blockiert (§10.2.4b). Story-Start und Story-Status kommen aus AK3, nicht aus GitHub. |
 
 ### 10.6.2 Recovery-Protokoll
 

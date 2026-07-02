@@ -177,7 +177,8 @@ keine Token im Code, in der Konfiguration oder in Artefakten.
 
 | Secret-Typ | Wo gespeichert | Zugriff durch AgentKit |
 |-----------|---------------|----------------------|
-| GitHub-Token | `gh` CLI (OS Keychain) | Implizit über `gh` CLI-Aufrufe |
+| GitHub-Token (persoenlich) | `gh` CLI (OS Keychain) | Implizit über `gh` CLI-Aufrufe |
+| AK3-/Edge-Dienst-Identitaet (Code-Backend, `story/*`-Refs; provider-neutral, Mechanik im Provider-Adapter, FK-12 §12.1) | Backend-verwaltet, nie im Repo | Nur ueber den offiziellen Edge-Push-Pfad (§15.5.4) |
 | LLM-Hub-Auth | Hub-intern (z.B. Browser-Cookies) | Kein Zugriff — der Hub verwaltet Auth selbst |
 | Weaviate | Kein Auth (localhost-only) | Direkt über HTTP/gRPC |
 | ARE | MCP-Server-Config | Kein direkter DB-Zugriff |
@@ -236,6 +237,34 @@ Zugriffe auf Secrets als Hook-Signal:
 Das ist einer der wenigen Fälle, in denen der Hook nicht
 über einen Risikoscore eskaliert, sondern sofort und hart
 blockiert.
+
+### 15.5.4 Code-Backend-Dienst-Identitaet und Ref-Schutz (story/*)
+
+Fuer Story-Branches gilt ein zweistufiges Schutzmodell (Mechanik der
+Ref-Regeln: FK-12 §12.1.3; Capability-Einordnung: FK-55 §55.9):
+
+1. **Ref-Schutz im Code-Backend:** `story/*`-Refs sind
+   regelgeschuetzt. Direkte Entwickler-Pushes — auch
+   Fast-Forward-Pushes — sind verboten; geschrieben wird nur ueber
+   die **AK3-/Edge-Dienst-Identitaet** (provider-neutrale Service-Identitaet; konkrete Mechanik ausschliesslich im Provider-Adapter, FK-12 §12.1/§12.1.3), und AK3 gibt die
+   Schreibfaehigkeit nur fuer den aktuellen
+   `(owner_session, ownership_epoch)` frei (FK-56 §56.8a). Die
+   Dienst-Identitaet ist ein von AK3 verwaltetes Credential; sie liegt
+   nie im Repository und ist nicht das persoenliche
+   Entwickler-Token aus §15.5.1.
+2. **Edge-Push-Gate (online-pflichtig):** Der offizielle Push-Pfad
+   des Edge verifiziert die Ownership **online** unmittelbar vor dem
+   Push (bounded); ohne Server-Bestaetigung kein Push — offline
+   heisst: lokale Arbeit ja, Push nein. Der Re-Sync-Fallback auf ein
+   lokal vorhandenes Edge-Bundle (FK-56 §56.9a) gilt fuer den
+   Push-Pfad ausdruecklich **nicht** (fail-closed): Ein stales
+   ACTIVE-Bundle darf keinen Push mehr erlauben.
+
+Edge-Selbstdisziplin allein (Hook-Guard auf der eigenen Maschine)
+ist als Schutz gegen Ex-Owner-Pushes unzureichend — der Hook-Guard
+wirkt nur lokal, ein stales Bundle koennte `git push` weiter
+erlauben, und Fast-Forward-Pushes umgehen Force-Push-Verbote. Erst
+die serverseitige Stufe 1 macht die Schranke belastbar.
 
 ## 15.6 Opake Fehlermeldungen
 

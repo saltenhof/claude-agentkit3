@@ -757,41 +757,63 @@ def guard_decision(tool_name: str, tool_input: dict) -> int:
 ### 30.6.3 Guard-erzwungene Takeover-Zustaende
 
 Nach einem Ownership-Transfer (FK-56 §56.13) kennt das Edge-Bundle
-zwei zusaetzliche, hook-erzwungene Zustaende. Beide sind harte
+zusaetzliche, hook-erzwungene Zustaende. Sie sind harte
 Guard-Zustaende, keine UI-Flags:
 
 **`takeover_reconcile_required`** — Startzustand des Edge-Bundles
 des neuen Owners nach dem Transfer. Der Transfer uebertraegt
-Backend-Ownership und Worktree-Referenz, aber keine
-OS-Dateiexklusivitaet; deshalb muss der uebernommene Worktree-Stand
-zuerst gegen den beim Vollzug festgehaltenen Takeover-Snapshot
+Backend-Ownership und das Uebergabeobjekt `takeover_base_sha`
 (FK-56 §56.13c; Schema:
-`state-storage.entity.takeover-worktree-snapshot`) abgeglichen
-werden. Solange dieser Zustand aktiv ist, blockieren die
-Hook-/Tool-Guards fail-closed:
+`state-storage.entity.takeover-transfer-record`), aber keinen
+Dateizustand und keine OS-Dateiexklusivitaet; deshalb muss der
+lokale Worktree zuerst exakt auf `takeover_base_sha` ausgerichtet
+werden. Der Reconcile ist **Quarantaene plus Reprovisionierung**
+(FK-56 §56.13e): Vorhandener Bestand wird vollstaendig und atomar in
+die lokale Quarantaene-Ablage verschoben (nie `git stash`), der Pfad
+sauber aus `takeover_base_sha` reprovisioniert. Eine menschliche
+Entscheidung ist dafuer NICHT noetig — nur bei Scheitern oder
+unklarer Identitaet (unten). Solange dieser Zustand aktiv ist,
+blockieren die Hook-/Tool-Guards fail-closed:
 
 - dateimutierende Werkzeuge (`Write`, `Edit`, Shell-Dateimutationen)
   in den Story-Worktrees
-- Commits — ausdruecklich auch den Salvage-Commit (FK-31 §31.1.3c)
+- Commits (einen Salvage-Commit uebernommener uncommitteter
+  Aenderungen gibt es nicht mehr, FK-31 §31.1.3c)
 - `complete_phase` / `fail_phase`
 - Verify-/Closure-Starts, die auf dem Worktree-Zustand beruhen
 
 Erst der erfolgreiche Abgleich ueber den offiziellen
 `takeover-reconcile-worktree`-Pfad (Wire-Contract: FK-91 §91.1a,
-`POST .../ownership/takeover-reconcile-worktree`) hebt die Sperre
-auf; lesende Zugriffe bleiben durchgehend erlaubt.
+`POST .../ownership/takeover-reconcile-worktree`; SHA-Semantik:
+Abgleich gegen `takeover_base_sha`/Transfer-Record, nicht gegen
+einen Datei-Snapshot) hebt die Sperre auf; lesende Zugriffe bleiben
+durchgehend erlaubt.
 
-**`contested_local_writes`** — Ergebnis eines fehlgeschlagenen
-Abgleichs: Weicht der Ist-Stand des Worktrees vom Takeover-Snapshot
-ab (z. B. weil ein lokal weiterlaufender Ex-Owner-Prozess physisch
-weitergeschrieben hat), gilt der Worktree als contested. Der Zustand
-ist ein **read-only Konflikt-Freeze**: kein normales Fortfahren,
-keine Mutationen, bis eine menschliche bzw. administrative
-Entscheidung den Konflikt aufloest. Als Freeze-Zustand ist er
-Admission-Blocker mit `freeze_epoch`, `freeze_reason` und Audit-Spur
-(FK-56 §56.13f).
+**`contested_local_writes`** — Ergebnis eines gescheiterten oder
+nicht eindeutig verifizierbaren Reconciles: Scheitert die
+Quarantaene bzw. Reprovisionierung (z. B. gesperrte Dateien,
+laufende Prozesse) oder ist die Worktree-Identitaet ueber Marker und
+Pfadbindung nicht eindeutig verifizierbar (FK-56 §56.13e), gilt der
+Worktree als contested. Der Zustand ist ein **read-only
+Konflikt-Freeze**: kein normales Fortfahren, keine Mutationen, bis
+eine menschliche bzw. administrative Entscheidung den Konflikt
+aufloest. Als Freeze-Zustand ist er Admission-Blocker mit
+`freeze_epoch`, `freeze_reason` und Audit-Spur (FK-56 §56.13f).
 
-Beide Zustaende werden wie alle Guard-Signale aus dem lokal
+**`remote_branch_diverged_after_takeover`** — der Remote-Head des
+Story-Branch weicht nach dem Confirm vom `takeover_base_sha` ab
+(z. B. ein regelwidrig durchgeschluepfter Ex-Owner-Push,
+FK-56 §56.13c). Blockierend; administrative Aufloesung — der
+SHA-Vergleich macht den Verstoss sichtbar und zuordenbar. Kein
+stilles Mitnehmen des divergierten Stands.
+
+**`local_stale_or_dirty_takeover_target`** — am Provisionierungsziel
+existiert ein alter oder schmutziger Worktree derselben Story
+(Reprovisionierungs-Fall, FK-56 §56.13e). Gleiche
+Quarantaene-Mechanik wie beim Same-Worktree-Reconcile; nie stilles
+Ueberschreiben.
+
+Alle Zustaende werden wie alle Guard-Signale aus dem lokal
 publizierten Edge-Bundle gelesen (§30.2.7, §30.6.1); fehlt das
 Signal oder ist der Bundle-Stand inkonsistent, gilt fail-closed.
 

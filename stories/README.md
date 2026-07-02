@@ -313,6 +313,36 @@ Diff-Review (Codex) mit 4 ERRORs → remediert (u. a. neue Entität
 `concept/_meta/konzept-konsistenz-governance.md` (Konsistenz-Prinzipien +
 Werkzeuge W1–W4). **Nächster Schritt: (c) GAP-Analyse.**
 
+**Stand 2026-07-02, Nachtrag (K1-Worktree-Topologie verankert):** Die im
+Session-Ownership-Strang offen gebliebene Frage K1 ist durch zwei
+PO-Entscheidungen vom 2026-07-02 entschieden: **(I) dev-lokale Worktrees** —
+das Backend hat nie physischen Worktree-Zugriff (Akteursmodell
+Agent/Edge/niemand); **(II) pushed-only** — für AgentKit existiert nur der
+gepushte Stand; Übergabeobjekt eines Transfers ist ein SHA
+(`takeover_base_sha`), nie ein Dateizustand. Das K1-Delta
+(`_temp/entwurf-k1-worktree-topologie.md`, v4; drei Review-Runden
+Codex+LLM-Hub, von beiden freigegeben) ist normativ verankert: FK-10
+§10.2.4a/§10.2.4b (Topologie, Akteursmodell, Ausführungsort-Grundsatz,
+Pushed-only, Sync-Punkte-Hybrid, workspace_locator-Trennung), FK-12
+(Ausführungsort Edge, Code-Backend-API nur lesend/verifizierend, §12.1.3
+App-Identität + `story/*`-Ref-Schutz), FK-22 (Preflight 7/8 als Edge-Probe
+mit differenzierten Befunden), FK-29 §29.1a (Merge-Block via `merge_local`
+durch den Edge, Verträge unverändert), FK-56 §56.13c/e (Transfer-Record
+statt Snapshot, Worktree-Identitäts-Klassifikation, Quarantäne-Semantik,
+Verlustkorridor-Pflichttext), FK-30 §30.6.3 (+`remote_branch_diverged_
+after_takeover`, +`local_stale_or_dirty_takeover_target`), FK-31 §31.1.3c
+(Salvage-Commit entfällt), FK-91 §91.1b (Edge-Command-Queue) +
+Reconcile-Endpoint auf SHA-Semantik, formal.state-storage
+(`takeover-transfer-record` ersetzt `takeover-worktree-snapshot`),
+formal.operating-modes (Confirm-Signatur), FK-15 §15.5.4/FK-55 §55.9
+(App-Identität + Edge-Push-Gate), FK-36/FK-72 (Konsistenz-Anpassungen).
+Decision-Record:
+`concept/_meta/decisions/2026-07-02-k1-worktree-topologie.md`.
+**Nächster Schritt: GAP-Update** — IMPL-008/009 ersetzt, ST-08 neu
+herzuleiten (Transfer-Record statt Snapshot-Writer, Reconcile-SHA-Semantik);
+neue Story-Kandidaten: Worktree-/Git-Operationen zum Edge bzw. Code-Backend,
+Sync-Punkte + Push-Gate + Ref-Schutz, Edge-Command-Queue.
+
 ## 7. Konzept- und Guardrail-Bezug
 
 - **Konzepte** unter `concept/` sind die Quelle der Wahrheit fuer

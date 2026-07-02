@@ -623,7 +623,26 @@ sein und neue Violations einschleppen (main-Drift).
 Die Gate-Semantik (Green-Definition, Overall-Code-Invariante,
 Attestation, Accepted-Ledger + Single-Match-Reconciler) ist **nicht
 hier**, sondern in **FK-33 §33.6.3/§33.6.4** modelliert; Closure ist
-Aufrufer. Die Integrity-Gate-Dimension 9 (FK-35 §35.2.4a) verifiziert
+Aufrufer.
+
+**Ausfuehrungsort (FK-10 §10.2.4a):** Der gesamte Block wird vom
+**Project Edge** ausgefuehrt — die Closure beauftragt ihn ueber die
+Edge-Command-Queue (Auftragsart `merge_local`, FK-91 §91.1b) und
+konsumiert die Ergebnis-Meldung. **Vertraglich aendert sich dadurch
+nichts:** Kandidatenbildung, Merge-Serialisierungs-Lock,
+`locked_sha`-CAS, `pre_merge_sha`-Rollback und die Multi-Repo-Stufen
+(§29.1.6) gelten unveraendert; nur der Ausfuehrungsort der
+Git-Mechanik wandert vom Backend zum Edge. Die Code-Backend-API wird
+ausschliesslich lesend und verifizierend genutzt (Ref-Reads, Compare,
+serverseitige Push-Verifikation; FK-12 §12.1). Ein Merge ueber einen
+Code-Backend-Adapter — also ohne lokalen Worktree — ist ein eigener,
+spaeterer Strang und nur zulaessig, wenn der Adapter
+exact-old-head-CAS, Kandidatenbildung/Gruen-Barriere und
+Multi-Repo-Kompensation nachweislich abbildet
+(FK-29-Aequivalenznachweis). Wird die Closure auf einer anderen
+Maschine fortgesetzt (Cross-Fall), provisioniert der ausfuehrende
+Edge vor `merge_local` zuerst einen sauberen Worktree aus dem
+massgeblichen gepushten Stand (FK-22 §22.6.2). Die Integrity-Gate-Dimension 9 (FK-35 §35.2.4a) verifiziert
 die hier erzeugte Attestation — sie vermisst nicht selbst neu.
 
 ### 29.1a.2 Merge-Serialisierungs-Lock (ein Merge zur Zeit)

@@ -539,6 +539,16 @@ Servicepfade erfolgen.
 **Normative Regel:** Ein freier Bash-Befehl darf nie denselben
 Capability-Status erhalten wie ein offizieller Servicepfad.
 
+**Story-Branch-Pushes (`story/*`-Refs):** Ein Push auf `story/*`-Refs
+ist nur ueber den **offiziellen Edge-Push-Pfad** zulaessig —
+Online-Ownership-Verifikation unmittelbar vor dem Push, offline kein
+Push (FK-15 §15.5.4); die Ref-Schutz-Mechanik liegt in FK-12 §12.1.3.
+Die Schreibfaehigkeit auf diese Refs haengt an der
+AK3-/Edge-Dienst-Identitaet (provider-neutral, FK-12 §12.1.3) und wird nur fuer den aktuellen
+`(owner_session, ownership_epoch)` freigegeben. Fuer eine disowned
+Session ist der Push damit capability-seitig doppelt gesperrt
+(§55.8.3): Edge-Push-Gate und Code-Backend-Ref-Schutz.
+
 ## 55.9a Permission-Request- und Lease-Modell
 
 Damit unbekannte Freigaben nicht den laufenden Tool-Call blockieren,

@@ -45,13 +45,43 @@ formal_refs:
 GitHub dient AgentKit als externes Code-Backend fuer Repositories,
 Branches, Pull Requests und Merge:
 
-| Zweck | GitHub-Feature | Zugriff |
+| Zweck | Code-Backend-Feature | Zugriff |
 |-------|---------------|--------|
-| Code-Verwaltung | Repositories | `git` CLI (lokal) + `gh` CLI (remote) |
+| Code-Verwaltung (physische Git-Mechanik) | Repositories | `git` CLI (lokal) — ausgefuehrt **dev-lokal** durch Agent bzw. Project Edge (FK-10 §10.2.4a) |
+| Lesen/Verifizieren auf gepushtem Stand | git-Protokoll bevorzugt; Provider-Adapter nur wo noetig | Backend: Ref-Reads/Push-Verifikation via `git ls-remote` (provider-neutral, kein Worktree noetig); Compare/Change-Evidence via schmalem Provider-Adapter oder Edge-gemeldet |
 
-AgentKit betreibt keinen eigenen GitHub-Adapter oder REST-Client.
-Alle GitHub-Interaktionen laufen über die `gh`/`git` CLI, die
-Authentifizierung, Token-Handling und Retry selbst übernimmt.
+**Provider-Neutralitaet (normativ):** GitHub ist der
+**Referenz-Provider**, nicht die Kopplungsflaeche. AgentKit spricht mit
+dem Code-Backend bevorzugt ueber das **universelle git-Protokoll**
+(`git`-CLI dev-lokal; `git ls-remote` fuer backend-seitige Ref-Reads
+und Push-Verifikation — das ist Netzwerk-Protokoll, kein physischer
+Repo-Zugriff). Provider-spezifische Funktionen (REST-APIs, Ref-Schutz-
+Administration, Compare-Endpunkte) laufen ausschliesslich ueber eine
+**schmale, austauschbare Provider-Adapter-Schnittstelle** mit
+definiertem, minimalem Capability-Set; Provider-Spezifika duerfen
+ausserhalb des Adapters nirgends auftauchen (weder in Konzept-Regeln
+noch in Fachlogik). Zielbild ist der Betrieb gegen beliebige
+Git-Code-Backends (z. B. Azure DevOps) durch Austausch allein des
+Adapters.
+
+**Ausfuehrungsort (FK-10 §10.2.4a):** Physische Git-/Worktree-Mechanik
+laeuft ausschliesslich dev-lokal — durch den **Agent** (Codearbeit)
+oder den **Project Edge** (vom Backend beauftragte Kommandos ueber die
+Edge-Command-Queue, FK-91 §91.1b). Das Backend hat keinen physischen
+Repo-Zugriff. Es liest und verifiziert **nur**: Ref-Reads und
+serverseitige Push-Verifikation der harten Barrieren bevorzugt via
+`git ls-remote` (FK-10 §10.2.4b); Compare/Change-Evidence auf
+gepushtem Stand via Provider-Adapter oder Edge-Meldung. Einen
+**schreibenden** Code-Backend-Adapter (etwa fuer Merges) betreibt
+AgentKit nicht; eine spaetere Umstellung des finalen Merges auf einen
+solchen Adapter ist ein eigener Strang und nur zulaessig, wenn der
+Adapter exact-old-head-CAS, Kandidatenbildung und
+Multi-Repo-Kompensation nachweislich abbildet (FK-29 §29.1a).
+
+Fuer die CLI-Pfade uebernimmt die `git` CLI Authentifizierung,
+Token-Handling und Retry selbst (`gh` CLI nur als GitHub-spezifisches
+Werkzeug innerhalb des Adapter-Rahmens); fuer Pushes auf `story/*`-Refs
+gilt zusaetzlich die Dienst-Identitaet und der Ref-Schutz aus §12.1.3.
 
 ### 12.1.1 Abgrenzung zur Story-Autoritaet
 
@@ -77,6 +107,35 @@ ausgefuehrt, nicht ueber GitHub-Mechanik.
 | GitHub nicht erreichbar bei Push (Closure) | `git push origin story/{story_id}` scheitert | Closure FAIL → Eskalation. Merge wurde nicht gestartet (Closure-Substates). |
 | Rate Limiting (403) | Alle API-Calls | Retry mit Backoff (1s, 2s, 4s). Max 3 Retries. Danach FAIL. |
 | Token abgelaufen | Alle API-Calls | `gh auth status` prüfen. Mensch muss `gh auth login` ausführen. |
+
+### 12.1.3 AK3-/Edge-Dienst-Identitaet und regelgeschuetzte story/*-Refs
+
+Die `story/*`-Refs sind im Code-Backend **regelgeschuetzt**. Der
+Ref-Schutz ist als **Capability-Anforderung an den Provider**
+formuliert, nicht als Provider-Feature (Provider-Neutralitaet, §12.1):
+
+- **Direkte Entwickler-Pushes sind verboten** — ausdruecklich auch
+  Fast-Forward-Pushes, die Force-Push-Verbote sonst umgehen wuerden.
+- Geschrieben wird nur ueber die **AK3-/Edge-Dienst-Identitaet** (eine
+  vom jeweiligen Provider bereitgestellte Service-Identitaet — GitHub:
+  App/Deploy-Identitaet; Azure DevOps: Service-Principal/Branch-
+  Security; die konkrete Mechanik lebt ausschliesslich im
+  Provider-Adapter); AK3 gibt die Schreibfaehigkeit nur fuer den
+  aktuellen `(owner_session, ownership_epoch)` frei (FK-56 §56.8a).
+- Fuer den Ex-Owner nach einem Ownership-Transfer scheitern
+  Push-Versuche damit zweifach: am Edge-Push-Gate (online-pflichtige
+  Ownership-Verifikation, FK-15 §15.5.4) und am serverseitigen
+  Ref-Schutz.
+- **Degradations-Regel:** Das Edge-Push-Gate (Stufe 2) ist die ueberall
+  verpflichtende Basis und provider-unabhaengig. Kann ein Provider die
+  Ref-Schutz-Capability nicht abbilden, ist das ein dokumentierter,
+  projektsichtbarer Betriebs-Befund (WARNING-Pflicht) — kein stilles
+  Weglassen.
+
+Das ist mit §12.1.1 vereinbar: Branch-/Ref-Schutz ist
+Code-Backend-Mechanik, kein Story-Management. Das Zugriffs- und
+Credential-Modell der Dienst-Identitaet liegt in FK-15 §15.5.4, die
+Capability-Einordnung des offiziellen Push-Pfads in FK-55 §55.9.
 
 ## 12.4 Branching-Protokoll
 
@@ -163,7 +222,9 @@ flowchart LR
 vorhandenen Commits arbeiten. Vor jedem Merge muss der aktuelle
 Story-Branch in allen beteiligten Repos erfolgreich auf den Remote
 gepusht worden sein. Erst danach darf der Merge nach `main`
-beginnen.
+beginnen. Der Push-Erfolg wird nicht allein lokal erhoben, sondern
+serverseitig gegen das Code-Backend verifiziert (Ref-Read;
+FK-10 §10.2.4b, FK-91 §91.1b).
 
 ### 12.4.4 Commit-Konventionen (Story-Execution)
 
@@ -185,6 +246,14 @@ Der Structural Check prüft, ob die Story-ID im letzten Commit
 enthalten ist (als Trailer oder im Commit-Body).
 
 ## 12.5 Worktree-Management
+
+**Ausfuehrungsort:** `setup_worktree` und `teardown_worktree` sind
+**Edge-Auftraege** (`provision_worktree` bzw. `teardown_worktree`,
+FK-91 §91.1b): Das Backend beauftragt, der Project Edge fuehrt die
+Git-Mechanik dev-lokal aus und meldet das Ergebnis (inkl.
+Worktree-Pfad) zurueck (FK-10 §10.2.4a). Die folgenden Signaturen
+beschreiben die fachliche Mechanik, nicht einen Backend-seitigen
+Subprocess.
 
 ### 12.5.1 Worktree-Erstellung (Setup-Phase)
 
@@ -281,6 +350,13 @@ immer gegen den bereits gepushten Story-Branch. Closure ist damit
 nicht nur ein lokaler Merge-Ablauf, sondern ein Remote-synchroner
 Integrationsschritt.
 
+**Ausfuehrungsort des Merge-Blocks:** Der gesamte
+Pre-Merge-Scan-und-Merge-Block wird vom **Project Edge** ausgefuehrt
+(Auftragsart `merge_local`, FK-91 §91.1b); der vertragliche Ablauf —
+Kandidatenbildung, `locked_sha`-CAS, `pre_merge_sha`-Rollback,
+Multi-Repo-Stufen — bleibt unveraendert und liegt normativ in
+FK-29 §29.1a (defers_to, s. o.).
+
 ### 12.5.3 Worktree-Teardown (Closure-Phase)
 
 ```python
@@ -352,11 +428,11 @@ Push- und Merge-Status pro Repo ueber `ClosurePayload.multi_repo`
 
 ### 12.7.1 Übersicht: Wann wird GitHub kontaktiert
 
-| Phase | Operation | GitHub-Feature | Richtung |
+| Phase | Operation | GitHub-Feature | Richtung (Akteur, FK-10 §10.2.4a) |
 |-------|----------|---------------|---------|
-| **Setup** | Story-Branch `story/{story_id}` anlegen, Worktree mounten | Repository | Schreiben (lokal) |
-| **Worker** | Commits, ggf. Push auf Story-Branch | Repository Remote | Schreiben |
-| **Closure** | Story-Branch auf Remote pushen, Merge nach `main` | Repository Remote | Schreiben |
+| **Setup** | Story-Branch `story/{story_id}` anlegen, Worktree mounten | Repository | Schreiben (lokal; Edge-Auftrag `provision_worktree`) |
+| **Worker** | Commits, ggf. Push auf Story-Branch | Repository Remote | Schreiben (Agent; Push ueber den offiziellen Edge-Push-Pfad, FK-15 §15.5.4) |
+| **Closure** | Story-Branch auf Remote pushen, Merge nach `main` | Repository Remote | Schreiben (Edge-Auftrag `merge_local`; Push-Verifikation serverseitig via git-Protokoll-Ref-Read — `git ls-remote` —, Provider-Adapter nur als Fallback; §12.1) |
 
 Story-Status, Story-Attribute, Story-Erstellung, Story-Closure-Status
 und Closure-Metriken laufen ueber das AK3-Story-Backend

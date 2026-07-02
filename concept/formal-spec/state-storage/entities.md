@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: state-storage
 spec_kind: entity-set
-version: 3
+version: 4
 prose_refs:
   - concept/technical-design/17_fachliches_datenmodell_ownership.md
   - concept/technical-design/18_relationales_abbildungsmodell_postgres.md
@@ -21,7 +21,7 @@ sondern fachliche Record-Families.
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.state-storage.entities
-schema_version: 3
+schema_version: 4
 kind: entity-set
 context: state-storage
 entities:
@@ -85,7 +85,7 @@ entities:
       - instance_incarnation
       - acquired_at
       - queue_position
-  - id: state-storage.entity.takeover-worktree-snapshot
+  - id: state-storage.entity.takeover-transfer-record
     identity_key: project_key + story_id + run_id + ownership_epoch
     attributes:
       - project_key
@@ -93,10 +93,11 @@ entities:
       - run_id
       - ownership_epoch
       - repo_id
-      - worktree_path
-      - head_sha
-      - index_status
-      - binary_diff_ref
-      - untracked_manifest_ref
+      - takeover_base_sha
+      - last_push_at
+      - push_lag_hint
+      - base_quality
+      - challenge_ref
+      - confirm_ref
 ```
 <!-- FORMAL-SPEC:END -->

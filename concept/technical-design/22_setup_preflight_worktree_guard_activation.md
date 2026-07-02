@@ -187,10 +187,34 @@ flowchart TD
 | 4 | `dependencies_done` | Alle Dependencies (`StoryDependency`) der Story haben Status Done | AK3-Story-Service-Dependency-Liste lesen, fuer jede referenzierte Story den Status pruefen | Mindestens eine Dependency-Story ist noch nicht in Status Done |
 | 5 | `no_execution_artifacts` | Keine Reste aus vorherigen Läufen **oder** vorheriger Run sauber abgeschlossen | Prüfe `artifact_records` und `phase_state_projection` fuer die Story. Bei unabgeschlossenem Run: FAIL. Bei sauber abgeschlossenem Run: Exporte archiviertbar, kein Blocker. | Artefakte eines unabgeschlossenen vorherigen Laufs gefunden |
 | 6 | `no_active_runtime_residue` | Keine aktiven Runtime-Reste eines vorherigen Runs | Prüfe kanonische Runtime-Zustände (`flow_executions`, aktive Lock-Records, `phase_state_projection`) für die Story. Telemetrie in `execution_events` ist **kein** Start-Gate; sie darf nur diagnostisch herangezogen werden. Bei aktivem oder inkonsistentem Runtime-Zustand: FAIL. | Aktiver oder inkonsistenter Runtime-Zustand eines vorherigen Runs vorhanden |
-| 7 | `no_story_branch` | Kein Branch `story/{story_id}` existiert **oder** Branch gehört zu abgeschlossenem Run | `git rev-parse --verify story/{story_id}`. Bei Existenz: prüfe ob zugehöriger Run abgeschlossen. Bei abgestürztem Run: FAIL (Mensch muss entscheiden: Cleanup oder Recovery). | Branch eines unaufgeräumten Runs vorhanden |
-| 8 | `no_stale_worktree` | Kein Worktree für diese Story **oder** Worktree gehört zu abgeschlossenem Run | `git worktree list --porcelain` + Suche nach Story-ID. Logik analog zu Check 7. | Worktree eines unaufgeräumten Runs vorhanden |
+| 7 | `no_story_branch` | Kein Branch `story/{story_id}` existiert **oder** Branch gehört zu abgeschlossenem Run **oder** legitime Übernahme | Edge-Probe `preflight_probe` (Branch-Klasse + Head-SHA je Repo) plus Code-Backend-Ref-Read; das Backend entscheidet mit Ownership-Kontext (s. u.). Legitim übernommen (aktiver Ownership-Record der eigenen Session + Ausrichtung auf `takeover_base_sha`, FK-56 §56.13c): PASS. Stale fremd (unaufgeräumter fremder Run): FAIL (Mensch entscheidet: Cleanup oder Recovery). | Benannter Befund: stale lokaler Branch, lokal voraus, falsche Story oder Remote-Divergenz — kein Sammel-FAIL |
+| 8 | `no_stale_worktree` | Kein Worktree für diese Story **oder** Worktree gehört zu abgeschlossenem Run **oder** legitime Übernahme | Edge-Probe `preflight_probe` (lokale Worktree-Lage inkl. Marker `.agentkit-story.json` und Pfad); Entscheidungslogik analog zu Check 7. Alter/schmutziger Bestand am Provisionierungsziel ist der Befund `local_stale_or_dirty_takeover_target` (Quarantäne-Mechanik, FK-56 §56.13e, FK-30 §30.6.3). | Benannter Befund: fremder Worktree, falscher Marker, falsche Story oder stale/dirty Provisionierungsziel |
 | 9 | `no_scope_overlap` | Keine aktive parallele Story arbeitet an denselben Modulen/Pfaden | Aktive Lock-Records und deren `StoryContext` im State-Backend lesen und Scope ueber `scope_keys`/`repo_bindings` vergleichen. Bei Ueberschneidung: FAIL. | Parallele Story arbeitet an überlappenden Modulen — Merge-Konflikt vorprogrammiert |
 | 10 | `no_competing_story_mode_active` | Kein konflikthafter Story-Mode (FK-24 §24.3.3) ist projektweit aktiv | Projektweiten `mode_lock` der Control Plane lesen. Erlaubt: `mode_lock = null` oder `mode_lock.mode = gewuenschter Mode`. FAIL: Mode-Lock haelt einen anderen Mode (`fast` waehrend `standard` aktiv ist oder umgekehrt). | Fast und Standard sind fachlich ausschliesslich; aktive Stories des anderen Modus muessen erst Done/Cancelled sein |
+
+**Erhebung der Checks 7/8 als Edge-Probe (FK-10 §10.2.4a):** Die
+physische Branch-/Worktree-Lage liegt dev-lokal; das Backend prueft
+sie nie per eigenem `git`-Subprocess. Der Setup beauftragt den
+Project Edge mit einer `preflight_probe` (FK-91 §91.1b): Der Edge
+meldet je teilnehmendem Repo die Branch-Klasse (kein Branch /
+Branch vorhanden mit Head-SHA) und die lokale Worktree-Lage (kein
+Worktree / Worktree mit Marker-Inhalt und Pfad). Die **Entscheidung
+trifft das Backend** mit Ownership-Kontext (aktiver
+Ownership-Record, Transfer-Record); zusaetzlich verifiziert es die
+Remote-Lage des Story-Branch ueber die Code-Backend-API (Ref-Read,
+FK-12 §12.1).
+
+**Differenzierte Befunde statt Sammel-FAIL:** Gruen ist
+ausschliesslich die saubere Provisionierung aus `takeover_base_sha`
+(bzw. der Erst-Setup ohne Bestand). Alle anderen Lagen — stale
+lokaler Branch, lokal voraus, falscher Marker, falsche Story,
+fremder Worktree, Remote-Divergenz — sind benannte, unterscheidbare
+Befunde. Fuer Check 7 gilt insbesondere die Unterscheidung **„stale
+fremd"** (Branch/Worktree eines unaufgeraeumten fremden Runs → FAIL,
+Mensch entscheidet) vs. **„legitim uebernommen"** (aktiver
+Ownership-Record der eigenen Session **plus** Ausrichtung auf den
+beim Confirm materialisierten `takeover_base_sha`, FK-56 §56.13c →
+PASS).
 
 ### 22.3.2 Fail-closed
 
@@ -601,6 +625,15 @@ Repo-Schluessel oder eine Repo-ID wird nicht eingefuehrt.
 
 ### 22.6.2 Ablauf
 
+**Ausfuehrungsort (FK-10 §10.2.4a):** `setup_worktrees` beauftragt je
+teilnehmendem Repo den Project Edge (`provision_worktree`,
+FK-91 §91.1b); der Edge fuehrt die Git-Mechanik dev-lokal aus
+(FK-12 §12.5.1) und meldet das `WorktreeResult` — inklusive des
+physischen Worktree-Pfads — als Ergebnis zurueck. Die gemeldeten
+Pfade sind die `worktree_roots` der Session (FK-56 §56.8); das
+Backend leitet keine physischen Pfade selbst ab. Der folgende Ablauf
+beschreibt die fachliche Logik dieses Auftrags:
+
 ```python
 def setup_worktrees(story_id: str, context: StoryContext,
                     project: Project,
@@ -649,7 +682,7 @@ def setup_worktree(story_id: str, repo: RepoEntry,
 
 | Element | Wert |
 |---------|------|
-| Pfad | `{repo.path}/worktrees/{story_id}` (pro teilnehmendem Repo) |
+| Pfad | `{repo.path}/worktrees/{story_id}` (pro teilnehmendem Repo; dev-lokal, Edge-gemeldet — FK-10 §10.2.4a) |
 | Branch | `story/{story_id}` (identisch in allen teilnehmenden Repos) |
 | Base | `main` (oder konfigurierbar) |
 | `.agent-guard/lock.json` | Optionaler Worktree-Export des lokal publizierten Edge-Bundles; wird nicht ad hoc im Worktree erfunden |

@@ -293,10 +293,17 @@ dient als cwd-basierter Story-Discriminator fuer PostCompact-Epoch-Scoping
 }
 ```
 
-**Producer:** `_phase_setup()` in `phase_runner.py`.
+**Producer:** Setup-Phase (fachlicher Auftraggeber `_phase_setup()` in
+`phase_runner.py`); die physische Materialisierung im Worktree erfolgt
+dev-lokal durch den Project Edge im Rahmen des
+`provision_worktree`-Auftrags (FK-10 §10.2.4a, FK-22 §22.6.2,
+FK-91 §91.1b).
 
 **Verwendung:** Ausschliesslich `epoch_writer` (PostCompact) via Walk-up-Suche
 im `cwd`. `manifest_writer` nutzt stattdessen den Spawn-Key (DD-06).
+Zusaetzlich dient der Marker zusammen mit der Pfadbindung als
+Verifikationsanker der Worktree-Identitaet beim Ownership-Transfer
+(FK-56 §56.13e).
 
 **Concept/Research Agent-Root:** Fuer Stories ohne Worktree wird ein dediziertes
 Arbeitsverzeichnis unter `_temp/qa/{story_id}/agent-root/` angelegt. Der
