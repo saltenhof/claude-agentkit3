@@ -30,8 +30,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.backend.governance.guard_evaluation import HookEvent
-    from agentkit.backend.state_backend.store.worker_health_repository import (
-        WorkerHealthStateRepository,
+    from agentkit.backend.implementation.worker_health.ports import (
+        WorkerHealthGateStore,
     )
 
 
@@ -39,7 +39,7 @@ def apply_post_tool_use(
     *,
     event: HookEvent,
     outcome: PostToolOutcome,
-    repository: WorkerHealthStateRepository,
+    repository: WorkerHealthGateStore,
     project_root: Path,
     config: WorkerHealthConfig | None = None,
     story_id: str | None = None,

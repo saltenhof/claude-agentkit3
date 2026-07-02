@@ -193,9 +193,30 @@ class WebCallBudgetGuard:
                 severity=BudgetSeverity.PASS,
             )
 
-        prior_calls = len(
-            self._emitter.query(observation.story_id, EventType.WEB_CALL)
-        )
+        try:
+            prior_calls = len(
+                self._emitter.query(observation.story_id, EventType.WEB_CALL)
+            )
+        except Exception as exc:  # noqa: BLE001 -- enforcement read must fail CLOSED (AC5 / §2.1.4)
+            # AG3-129: the web-call counter is read via REST. A core-unreachable /
+            # rejected read is NOT "zero events" -- an unverifiable counter is an
+            # inconsistent state on an active research web call, so we DENY (never
+            # a fail-open allow, never a direct-DB fallback).
+            detail = (
+                "web_call_counter_unavailable: cannot read the canonical web-call "
+                f"counter fail-closed ({exc})"
+            )
+            verdict = GuardVerdict.block(
+                self.name,
+                ViolationType.POLICY_VIOLATION,
+                detail,
+                detail={"story_id": observation.story_id, "tool": observation.tool},
+            )
+            return WebCallBudgetDecision(
+                verdict=verdict,
+                severity=BudgetSeverity.ERROR,
+                audit_events=(self._integrity_violation(observation, detail),),
+            )
         # The current attempt is the (prior_calls + 1)-th web call.
         current_count = prior_calls + 1
 

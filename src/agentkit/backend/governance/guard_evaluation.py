@@ -375,7 +375,7 @@ def _maybe_seam_guard(
     except Exception as exc:  # noqa: BLE001
         return FailClosedSeamGuard(f"seam guard construction error: {exc}")
 
-    emitter = _is_event_emitter(s_dir, project_key)
+    emitter = _is_event_emitter(project_root, project_key=project_key, run_id=run_id)
     return SeamAllowlistGuard(
         allowlist,
         emitter=emitter,
@@ -445,7 +445,7 @@ def _maybe_budget_guard(
     except Exception as exc:  # noqa: BLE001
         return FailClosedSeamGuard(f"budget guard construction error: {exc}")
 
-    emitter = _is_event_emitter(s_dir, project_key)
+    emitter = _is_event_emitter(project_root, project_key=project_key, run_id=run_id)
     return StabilizationBudgetGuard(
         manifest=manifest,
         story_dir=s_dir,
@@ -456,18 +456,21 @@ def _maybe_budget_guard(
     )
 
 
-def _is_event_emitter(story_dir: Path, project_key: str) -> EventEmitter | None:
-    """Build the state-backed telemetry emitter for IS guard events, or ``None``.
+def _is_event_emitter(
+    project_root: Path, *, project_key: str, run_id: str
+) -> EventEmitter:
+    """Build the REST telemetry emitter for IS guard events (AG3-129).
 
-    A telemetry-construction fault must NOT make the guard fail-open; the guard
-    still enforces and simply skips emission when no emitter is available.
+    AG3-129 (FK-10 §10.1.0 I1): IS-guard telemetry is server-mediated over REST,
+    never a direct-DB ``StateBackendEmitter``. Emission is best-effort /
+    non-blocking (the guard still enforces regardless); an unavailable core
+    degrades to a fail-soft ``NullEmitter`` inside the shared seam.
     """
-    try:
-        from agentkit.backend.telemetry.storage import StateBackendEmitter
+    from agentkit.backend.governance import rest_edge
 
-        return StateBackendEmitter(story_dir, default_project_key=project_key)
-    except Exception:  # noqa: BLE001 -- emission is best-effort; the guard still blocks
-        return None
+    return rest_edge.build_rest_event_emitter(
+        project_root, project_key=project_key, run_id=run_id
+    )
 
 
 __all__ = [

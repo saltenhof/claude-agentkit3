@@ -101,5 +101,24 @@ class StateBackendStoryReadRepository:
             limit=limit,
         )
 
+    def query_execution_events(
+        self,
+        project_key: str,
+        story_id: str,
+        *,
+        event_type: str | None = None,
+    ) -> list[ExecutionEventRecord]:
+        """Return execution events for a scope, optionally filtered by type.
+
+        Global-only loader (no store_dir). Backs the AG3-129 server-mediated
+        telemetry read for the hook's REST event emitter — the loader stays
+        inside this explicit story-read surface (architecture-conformance AC004).
+        """
+        return load_execution_events_global(
+            project_key,
+            story_id,
+            event_type=event_type,
+        )
+
 
 __all__ = ["StateBackendStoryReadRepository"]

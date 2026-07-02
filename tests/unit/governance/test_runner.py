@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
-
-import pytest
 
 from agentkit.backend.governance.guard_evaluation import HookEvent
 from agentkit.backend.governance.guards.artifact_guard import ArtifactGuard
@@ -19,22 +16,13 @@ from agentkit.backend.governance.runner import (
     _is_code_producing_story,
     _resolve_local_story_type,
 )
-from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
-from agentkit.backend.state_backend.store.story_repository import StateBackendStoryRepository
-from agentkit.backend.story_context_manager.story_model import Story, WireStoryType
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
     from pathlib import Path
 
-    from agentkit.backend.governance.guard_system.records import GuardDecision
+    import pytest
 
-_TYPE_TO_WIRE = {
-    "implementation": WireStoryType.IMPLEMENTATION,
-    "bugfix": WireStoryType.BUGFIX,
-    "concept": WireStoryType.CONCEPT,
-    "research": WireStoryType.RESEARCH,
-}
+    from agentkit.backend.governance.guard_system.records import GuardDecision
 
 
 class _AlwaysAllowGuard:
@@ -184,31 +172,36 @@ class TestGuardRunnerWithRealGuards:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
-def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
-    monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
-    monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-    monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
-    reset_backend_cache_for_tests()
-    yield
-    reset_backend_cache_for_tests()
-
-
 _STORY_ID = "AK3-300"
+_PROJECT_KEY = "p"
 
 
-def _save_story(project_root: Path, story_type: str) -> None:
-    """Persist a canonical Story record (the authoritative story-type source)."""
-    StateBackendStoryRepository(project_root).save(
-        Story(
-            project_key="p",
-            story_number=300,
-            story_display_id=_STORY_ID,
-            title="t",
-            story_type=_TYPE_TO_WIRE[story_type],
-            participating_repos=["repo-a"],
-            created_at=datetime.now(UTC),
-        ),
+def _patch_story_type(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    story_type: str | None = None,
+    fault: bool = False,
+) -> None:
+    """Route the story-type read seam to a first-class fake client (AG3-129).
+
+    ``_resolve_local_story_type`` reads the story type over REST via
+    ``rest_edge.governance_edge_client`` (FK-10 §10.1.0 I1), so these unit tests
+    patch that seam with a fake returning a story type, ``None`` (missing record)
+    or raising (transport/core fault) instead of opening a database.
+    """
+    from agentkit.backend.governance import rest_edge
+
+    class _FakeClient:
+        def get_story_type(
+            self, *, project_key: str, story_id: str
+        ) -> str | None:
+            _ = project_key, story_id
+            if fault:
+                raise RuntimeError("core unreachable")
+            return story_type
+
+    monkeypatch.setattr(
+        rest_edge, "governance_edge_client", lambda project_root: _FakeClient()
     )
 
 
@@ -236,27 +229,34 @@ class TestResolveLocalStoryType:
     """``_resolve_local_story_type`` is a TYPED outcome (AG3-036 FIX-A)."""
 
     def test_research_story_resolves(
-        self, tmp_path: Path, _sqlite_backend: None
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _save_story(tmp_path, "research")
-        resolution = _resolve_local_story_type(_STORY_ID, store_dir=tmp_path)
+        _patch_story_type(monkeypatch, story_type="research")
+        resolution = _resolve_local_story_type(
+            _STORY_ID, project_key=_PROJECT_KEY, project_root=tmp_path
+        )
         assert resolution.resolved is True
         assert resolution.story_type == "research"
         assert resolution.is_code_producing is False
 
     def test_implementation_is_code_producing_resolution(
-        self, tmp_path: Path, _sqlite_backend: None
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _save_story(tmp_path, "implementation")
-        resolution = _resolve_local_story_type(_STORY_ID, store_dir=tmp_path)
+        _patch_story_type(monkeypatch, story_type="implementation")
+        resolution = _resolve_local_story_type(
+            _STORY_ID, project_key=_PROJECT_KEY, project_root=tmp_path
+        )
         assert resolution.resolved is True
         assert resolution.is_code_producing is True
 
     def test_missing_record_is_unresolved(
-        self, tmp_path: Path, _sqlite_backend: None
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # FIX-A: a missing record is UNRESOLVED, NOT an empty story-type string.
-        resolution = _resolve_local_story_type("AK3-999", store_dir=tmp_path)
+        _patch_story_type(monkeypatch, story_type=None)
+        resolution = _resolve_local_story_type(
+            "AK3-999", project_key=_PROJECT_KEY, project_root=tmp_path
+        )
         assert resolution.resolved is False
         assert resolution.story_type == ""
         assert resolution.is_code_producing is False
@@ -264,19 +264,12 @@ class TestResolveLocalStoryType:
     def test_backend_fault_is_unresolved(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # FIX-A: a backend fault is UNRESOLVED (fail-closed downstream), never a
-        # silently-downgraded story type. Force the repository read to raise.
-        import agentkit.backend.state_backend.store.story_repository as story_repo_mod
-
-        def _boom(self: object, display_id: str) -> object:
-            raise RuntimeError("backend down")
-
-        monkeypatch.setattr(
-            story_repo_mod.StateBackendStoryRepository,
-            "get_by_display_id",
-            _boom,
+        # A core/transport fault is UNRESOLVED (fail-closed downstream), never a
+        # silently-downgraded story type. Force the REST read to raise (AG3-129).
+        _patch_story_type(monkeypatch, fault=True)
+        resolution = _resolve_local_story_type(
+            _STORY_ID, project_key=_PROJECT_KEY, project_root=tmp_path
         )
-        resolution = _resolve_local_story_type(_STORY_ID, store_dir=tmp_path)
         assert resolution.resolved is False
         assert resolution.is_code_producing is False
 
@@ -285,16 +278,26 @@ class TestIsCodeProducingStory:
     """``_is_code_producing_story`` (FIX-2 fail-closed gate)."""
 
     def test_implementation_is_code_producing(
-        self, tmp_path: Path, _sqlite_backend: None
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _save_story(tmp_path, "implementation")
-        assert _is_code_producing_story(_STORY_ID, store_dir=tmp_path) is True
+        _patch_story_type(monkeypatch, story_type="implementation")
+        assert (
+            _is_code_producing_story(
+                _STORY_ID, project_key=_PROJECT_KEY, project_root=tmp_path
+            )
+            is True
+        )
 
     def test_research_is_not_code_producing(
-        self, tmp_path: Path, _sqlite_backend: None
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _save_story(tmp_path, "research")
-        assert _is_code_producing_story(_STORY_ID, store_dir=tmp_path) is False
+        _patch_story_type(monkeypatch, story_type="research")
+        assert (
+            _is_code_producing_story(
+                _STORY_ID, project_key=_PROJECT_KEY, project_root=tmp_path
+            )
+            is False
+        )
 
 
 class TestAuthoritativeRequiredRoles:
@@ -327,50 +330,51 @@ class TestAuthoritativeRequiredRoles:
         )
 
     def test_roles_from_config(
-        self, tmp_path: Path, _sqlite_backend: None
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # A RESOLVED code-producing story yields the configured roles.
-        _save_story(tmp_path, "implementation")
+        _patch_story_type(monkeypatch, story_type="implementation")
         self._write_config(tmp_path, required_roles=["qa", "security"])
         outcome = _authoritative_required_roles(
-            project_root=tmp_path, story_id=_STORY_ID
+            project_root=tmp_path, project_key=_PROJECT_KEY, story_id=_STORY_ID
         )
         assert outcome.block is None
         assert outcome.non_code_story is False
         assert outcome.roles == ("qa", "security")
 
     def test_missing_config_code_story_fails_closed(
-        self, tmp_path: Path, _sqlite_backend: None
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # Code-producing story + no project.yaml -> fail-closed DENY.
-        _save_story(tmp_path, "implementation")
+        _patch_story_type(monkeypatch, story_type="implementation")
         outcome = _authoritative_required_roles(
-            project_root=tmp_path, story_id=_STORY_ID
+            project_root=tmp_path, project_key=_PROJECT_KEY, story_id=_STORY_ID
         )
         assert outcome.block is not None
         assert outcome.block.allowed is False
         assert "review_config_unavailable" in (outcome.block.message or "")
 
     def test_non_code_story_allows_via_non_code_signal(
-        self, tmp_path: Path, _sqlite_backend: None
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # RESOLVED research story -> non_code_story allow (ReviewGuard N/A),
         # distinct from the UNRESOLVED block path. Config is never even consulted.
-        _save_story(tmp_path, "research")
+        _patch_story_type(monkeypatch, story_type="research")
         outcome = _authoritative_required_roles(
-            project_root=tmp_path, story_id=_STORY_ID
+            project_root=tmp_path, project_key=_PROJECT_KEY, story_id=_STORY_ID
         )
         assert outcome.block is None
         assert outcome.non_code_story is True
         assert outcome.roles == ()
 
     def test_unresolved_story_fails_closed(
-        self, tmp_path: Path, _sqlite_backend: None
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # FIX-C: a missing record (UNRESOLVED) must fail-closed, NOT downgrade to
         # the non-code allow path.
+        _patch_story_type(monkeypatch, story_type=None)
         outcome = _authoritative_required_roles(
-            project_root=tmp_path, story_id="AK3-999"
+            project_root=tmp_path, project_key=_PROJECT_KEY, story_id="AK3-999"
         )
         assert outcome.non_code_story is False
         assert outcome.block is not None
@@ -378,27 +382,27 @@ class TestAuthoritativeRequiredRoles:
         assert "story_type_unresolved" in (outcome.block.message or "")
 
     def test_code_story_empty_required_roles_fails_closed(
-        self, tmp_path: Path, _sqlite_backend: None
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # FIX-C: a RESOLVED code story with EMPTY required_roles is a fail-closed
         # block (empty coverage is NOT "fully compliant").
-        _save_story(tmp_path, "implementation")
+        _patch_story_type(monkeypatch, story_type="implementation")
         self._write_config(tmp_path, required_roles=[])
         outcome = _authoritative_required_roles(
-            project_root=tmp_path, story_id=_STORY_ID
+            project_root=tmp_path, project_key=_PROJECT_KEY, story_id=_STORY_ID
         )
         assert outcome.block is not None
         assert outcome.block.allowed is False
         assert "review_required_roles_empty" in (outcome.block.message or "")
 
     def test_code_story_with_roles_resolves(
-        self, tmp_path: Path, _sqlite_backend: None
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # RESOLVED code story + non-empty roles -> the authoritative roles.
-        _save_story(tmp_path, "implementation")
+        _patch_story_type(monkeypatch, story_type="implementation")
         self._write_config(tmp_path, required_roles=["qa"])
         outcome = _authoritative_required_roles(
-            project_root=tmp_path, story_id=_STORY_ID
+            project_root=tmp_path, project_key=_PROJECT_KEY, story_id=_STORY_ID
         )
         assert outcome.block is None
         assert outcome.non_code_story is False

@@ -128,6 +128,12 @@ _REQUIRED_LOGICAL_PATTERNS: tuple[re.Pattern[str], ...] = (
 #: (POST/PUT/PATCH/DELETE), if any exist over ``/v1``, remain handshake-REQUIRED.
 _MUTATION_ONLY_LOGICAL_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^/projects/[^/]+/governance(?:/.*)?$"),
+    # AG3-129 (FK-91 §91.1a Regel 11 / Regel 12): the Dev-agent->Core governance
+    # hook-mediation mutations (guard-counter record/housekeeping, worker-health
+    # write) are bare (non-project-scoped, like ``/telemetry/events``). Their
+    # WRITE verbs are handshake-required; the worker-health GET read stays exempt
+    # (governance reads are method-aware, FK-72 §72.11).
+    re.compile(r"^/governance/(?:.*)?$"),
 )
 
 

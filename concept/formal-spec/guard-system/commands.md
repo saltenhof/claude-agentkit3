@@ -40,6 +40,14 @@ commands:
       - guard-system.invariant.branch-guard-allows-official-closure-path
     emits:
       - guard-system.event.guard.allowed
+  - id: guard-system.command.mediate-guard-invocation-counter
+    signature: POST /v1/governance/guard-counters {operation record|housekeeping, op_id} — Dev→Core REST mediation of the guard-invocation volume counter; non-blocking, no direct-DB, exactly-once per op_id via atomic counter+key transaction, 409 idempotency_mismatch on body-hash conflict (FK-91 §91.1a Regel 5) (FK-61 §61.4.3, FK-10 §10.1.0 I1, AG3-129)
+    allowed_statuses:
+      - guard-system.status.received
+    requires:
+      - guard-system.invariant.fail_closed_for_unknown_or_crashing_hooks
+    emits:
+      - guard-system.event.guard.allowed
   - id: guard-system.command.illegal-manual-history-rewrite
     signature: manual git rebase/reset/force-push on active story scope
     allowed_statuses:

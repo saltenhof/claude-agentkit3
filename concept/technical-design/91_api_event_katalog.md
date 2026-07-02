@@ -107,6 +107,11 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
 | `/v1/project-edge/operations/{op_id}` | `GET` | Unklare Remote-Lage eines mutierenden Requests ueber `op_id` reconciliieren |
 | `/v1/compat` | `GET` | Unterstuetztes Versionsfenster lesen: `min`/`recommended`/`blocked` fuer Agent-Runtime und Wire (dev↔central-Handshake, FK-10 §10.2.7) |
 | `/v1/telemetry/events` | `POST` | Kanonisches Telemetrie-Event ingestieren |
+| `/v1/telemetry/events` | `GET` | Kanonische Execution-Events einer `(project_key, story_id)`-Sicht lesen (optional `event_type`-Filter); server-vermittelter Read fuer den Hook-Emitter (FK-10 §10.1.0 I1, AG3-129) |
+| `/v1/governance/guard-counters` | `POST` | Guard-Invocation-Counter server-vermittelt mutieren (`record` inkl. Week-Rollover oder `housekeeping`-Sweep, FK-61 §61.4.3); reiner Volume-Counter, nicht-blockierend (FK-30), Dev-Seite ist REST-Anforderer (FK-10 §10.1.0 I1, AG3-129). Traegt `op_id` (Regel 5): ein wiederholtes `op_id` zaehlt **exakt einmal** — Counter-Increment und `idempotency_keys`-Eintrag committen **atomar in EINER Transaktion** (kein Doppelzaehlen und kein verlorener Increment bei Crash/Retry); gleiches `op_id` mit ABWEICHENDEM Body ⇒ fail-closed `409 idempotency_mismatch` |
+| `/v1/governance/worker-health` | `GET` | Kanonischen Worker-Health-State einer `(story_id, worker_id)`-Sicht lesen; fail-closed Gate-Operation (FK-30 §30.10, FK-10 §10.1.0 I1, AG3-129) |
+| `/v1/governance/worker-health` | `POST` | Kanonischen Worker-Health-State server-vermittelt schreiben; fail-closed Gate-Operation (FK-30 §30.10, FK-10 §10.1.0 I1, AG3-129). Der Save ist ein **idempotenter Upsert** auf `(story_id, worker_id)` — ein Retry ueberschreibt denselben State (harmlos), daher kein separates `op_id` noetig |
+| `/v1/projects/{project_key}/stories/{story_id}` | `GET` | Projekt-skopierte Story-Detailansicht (`StoryDetail`→`StorySummary`, inkl. Wire-Key `story_type`); vom Governance-Hook als **server-vermittelter Story-Typ-Read** konsumiert (FK-24 §24.3.2, FK-10 §10.1.0 I1, AG3-129) — fehlender Record ⇒ `404 story_not_found` ⇒ Hook fail-closed UNRESOLVED |
 | `/v1/projects/{project_key}/planning/dependency-graph` | `GET` | Projektgebundenen Abhaengigkeits- und Konfliktgraph lesen (FK-72 §72.8.2) |
 | `/v1/projects/{project_key}/planning/ready-set` | `GET` | Aktuell `READY`, blockierte und konfliktierte Stories mit Gruenden lesen |
 | `/v1/projects/{project_key}/planning/execution-plan` | `GET` | Kritischen Pfad, Waves, empfohlenen Batch und maximale Parallelisierung lesen |
@@ -190,6 +195,24 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
     ist WARNING (Request laeuft). `/v1` bleibt eine statische Grenze; ein
     Bruch erzeugt `/v2`, keine In-Place-Aenderung. Treibermodell und
     vollstaendige Reaktionsmatrix: FK-10 §10.2.7/§10.2.8.
+12. **Hook-Mediation (Dev→Core, AG3-129).** Der kurzlebige Hook-Prozess
+    oeffnet keine direkte Datenbankverbindung (FK-10 §10.1.0 I1); Guard-Counter,
+    Worker-Health und Telemetrie laufen ueber die obigen `/v1`-Endpunkte, deren
+    serverseitige Adapter die zustaendigen BC-Services aufrufen. Die
+    Blockier-Wirkung ist differenziert: **Worker-Health** ist eine kanonische
+    Gate-Operation und **fail-closed** (unerreichbarer Kern blockt); der reine
+    **Guard-Volume-Counter** und die **Telemetrie-Emission** sind
+    **nicht-blockierend** (FK-30 „blockieren nie") — ein unerreichbarer Kern
+    verwirft das Event sauber, niemals ein Direkt-DB-Fallback und niemals ein
+    stilles „leeres OK". Der **Story-Typ** wird ebenfalls server-vermittelt
+    gelesen (`GET /v1/projects/{project_key}/stories/{story_id}` → `story_type`,
+    FK-24 §24.3.2); ein fehlender Record ODER Kern-Fault ist fail-closed
+    UNRESOLVED (nie ein stiller Story-Typ). Der Guard-Counter-`record` traegt
+    `op_id` und ist damit **exactly-once** pro `op_id` (Regel 5): Increment und
+    Idempotenz-Schluessel committen atomar in EINER Transaktion (Crash zwischen
+    beiden rollt beides zurueck); gleiches `op_id` mit abweichendem Body ist ein
+    `409 idempotency_mismatch`. Der Worker-Health-Write ist ein idempotenter
+    Upsert.
 
 ## 91.1 Operator-Recovery-CLI (agentkit)
 

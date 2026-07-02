@@ -148,6 +148,59 @@ def test_missing_both_headers_blocks_mutation_with_426() -> None:
     assert telemetry.calls == 0
 
 
+# ---------------------------------------------------------------------------
+# AG3-129 FUND 4 — bare governance hook-mediation mutations are handshake-gated
+# ---------------------------------------------------------------------------
+
+_GUARD_COUNTER_PATH = "/v1/governance/guard-counters"
+_WORKER_HEALTH_PATH = "/v1/governance/worker-health"
+_VALID_HANDSHAKE = {CLIENT_VERSION_HEADER: "2.0.0", SKILL_BUNDLE_HEADER: "b"}
+
+
+def test_governance_bare_mutations_require_handshake_classifier() -> None:
+    """FUND 4: the bare governance mutation routes are handshake-required; the
+    worker-health GET read stays exempt (method-aware governance, FK-72 §72.11)."""
+    classifier = HandshakeRouteClassifier()
+    assert classifier.requires_handshake(_GUARD_COUNTER_PATH, "POST") is True
+    assert classifier.requires_handshake(_WORKER_HEALTH_PATH, "POST") is True
+    assert classifier.requires_handshake(_WORKER_HEALTH_PATH, "GET") is False
+
+
+def test_guard_counter_mutation_missing_handshake_blocks_426() -> None:
+    """FUND 4: POST /v1/governance/guard-counters with no handshake -> 426."""
+    app = _build_app()
+    response = app.handle_request(
+        method="POST", path=_GUARD_COUNTER_PATH, body=b"{}", request_headers={},
+    )
+    assert response.status_code == int(HTTPStatus.UPGRADE_REQUIRED)
+    assert json.loads(response.body)["error_code"] == "upgrade_required"
+
+
+def test_worker_health_write_missing_handshake_blocks_426() -> None:
+    """FUND 4: POST /v1/governance/worker-health with no handshake -> 426."""
+    app = _build_app()
+    response = app.handle_request(
+        method="POST", path=_WORKER_HEALTH_PATH, body=b"{}", request_headers={},
+    )
+    assert response.status_code == int(HTTPStatus.UPGRADE_REQUIRED)
+
+
+def test_guard_counter_mutation_with_handshake_passes_to_handler() -> None:
+    """FUND 4: with a valid handshake the request passes the gate and reaches the
+    handler (a bad body then yields 400, NOT 426 -- proving the gate let it through)."""
+    app = _build_app()
+    response = app.handle_request(
+        method="POST",
+        path=_GUARD_COUNTER_PATH,
+        body=b"{}",
+        request_headers=dict(_VALID_HANDSHAKE),
+    )
+    assert response.status_code == int(HTTPStatus.BAD_REQUEST)
+    assert (
+        json.loads(response.body)["error_code"] == "invalid_guard_counter_payload"
+    )
+
+
 def test_missing_client_header_blocks_with_426() -> None:
     """AC3: missing X-AK3-Client alone -> 426."""
     telemetry = _RecordingTelemetryService()

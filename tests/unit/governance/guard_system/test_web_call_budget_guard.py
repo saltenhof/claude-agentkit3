@@ -17,6 +17,23 @@ from agentkit.backend.telemetry.emitters import MemoryEmitter
 from agentkit.backend.telemetry.events import Event, EventType, validate_event_payload
 
 
+class _FailingQueryEmitter:
+    """Emitter whose enforcement read fails (core unreachable) -- AG3-129 FUND 3.
+
+    A strict REST counter read RAISES on a core-unreachable read; the guard must
+    fail CLOSED (block) rather than read the failure as ``[]`` (== zero calls).
+    """
+
+    def emit(self, event: Event) -> None:
+        _ = event
+
+    def query(
+        self, story_id: str, event_type: EventType | None = None
+    ) -> list[Event]:
+        _ = story_id, event_type
+        raise RuntimeError("web_call_counter_unavailable: core unreachable")
+
+
 def _obs(
     story_type: str,
     *,
@@ -43,6 +60,21 @@ def _seed(emitter: MemoryEmitter, n: int) -> None:
                 payload={"web_call_count": i + 1},
             )
         )
+
+
+def test_unreadable_counter_fails_closed() -> None:
+    # AG3-129 FUND 3 (AC5 / §2.1.4): a research web call whose counter cannot be
+    # read (core unreachable) is an inconsistent state -> fail-CLOSED BLOCK, never
+    # a fail-open allow, plus an integrity_violation audit.
+    emitter = _FailingQueryEmitter()
+    guard = WebCallBudgetGuard(emitter, web_call_limit=200, web_call_warning=180)
+    decision = guard.evaluate(_obs("research"))
+
+    assert decision.verdict.allowed is False
+    assert decision.severity is BudgetSeverity.ERROR
+    assert "web_call_counter_unavailable" in (decision.verdict.message or "")
+    assert len(decision.audit_events) == 1
+    assert decision.audit_events[0].event_type is EventType.INTEGRITY_VIOLATION
 
 
 def test_under_limit_allows_no_audit() -> None:

@@ -72,7 +72,17 @@ def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, No
 
 
 def _save_story(project_root: Path, story_type: WireStoryType) -> None:
-    """Persist a canonical Story record (the authoritative story-type source)."""
+    """Persist the canonical story-type source (Story + StoryContext).
+
+    AG3-129: the hook resolves the story type via the server-mediated story
+    detail read (StoryReadPort -> ``load_story_context``), so a StoryContext is
+    seeded alongside the Story record the setup path uses.
+    """
+    from agentkit.backend.state_backend.store.story_context_repository import (
+        StateBackendStoryContextRepository,
+    )
+    from agentkit.backend.story_context_manager.models import StoryContext
+
     StateBackendStoryRepository(project_root).save(
         Story(
             project_key=_PROJECT,
@@ -82,6 +92,16 @@ def _save_story(project_root: Path, story_type: WireStoryType) -> None:
             story_type=story_type,
             participating_repos=["repo"],
             created_at=datetime.now(UTC),
+        ),
+    )
+    _code_types = {WireStoryType.IMPLEMENTATION, WireStoryType.BUGFIX}
+    StateBackendStoryContextRepository(project_root).save(
+        StoryContext(
+            project_key=_PROJECT,
+            story_id=_STORY,
+            story_type=story_type.value,
+            execution_route="execution" if story_type in _code_types else None,
+            participating_repos=["repo"],
         ),
     )
 

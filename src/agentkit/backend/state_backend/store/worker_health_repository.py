@@ -223,6 +223,11 @@ class StateBackendWorkerHealthRepository:
         return [_load_state(str(row["payload_json"])) for row in rows]
 
     def _pg_save(self, state: AgentHealthState) -> None:
+        # psycopg3 cannot adapt a raw ``dict`` to a JSONB column; wrap it in
+        # ``Jsonb`` so the payload binds correctly (AG3-129: first exercise of the
+        # worker-health write over Postgres via the control-plane REST path).
+        from psycopg.types.json import Jsonb
+
         with _postgres_connect() as conn:
             conn.execute(
                 """
@@ -242,7 +247,7 @@ class StateBackendWorkerHealthRepository:
                     "worker_id": state.worker_id,
                     "project_key": state.project_key,
                     "run_id": state.run_id,
-                    "payload_json": json.loads(_dump_state(state)),
+                    "payload_json": Jsonb(json.loads(_dump_state(state))),
                     "updated_at": state.last_updated,
                 },
             )

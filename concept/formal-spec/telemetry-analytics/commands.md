@@ -59,6 +59,14 @@ commands:
       - telemetry-analytics.invariant.dashboard-is-read-only-over-runtime-and-analytics
     emits:
       - telemetry-analytics.event.dashboard.served
+  - id: telemetry-analytics.command.query-execution-events
+    signature: GET /v1/telemetry/events {project_key, story_id, event_type?} — server-mediated execution-event read for the Dev-side hook emitter (FK-10 §10.1.0 I1, AG3-129)
+    allowed_statuses:
+      - telemetry-analytics.status.collected
+    requires:
+      - telemetry-analytics.invariant.dashboard-is-read-only-over-runtime-and-analytics
+    emits:
+      - telemetry-analytics.event.dashboard.served
   - id: telemetry-analytics.command.invalidate-reset-affected-data
     signature: internal purge or invalidate telemetry, read models, and facts after full story reset
     allowed_statuses:

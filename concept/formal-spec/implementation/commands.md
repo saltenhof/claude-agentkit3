@@ -37,5 +37,13 @@ commands:
       - implementation.event.handover.written
       - implementation.event.implementation.completed
       - implementation.event.implementation.escalated
+  - id: implementation.command.mediate-worker-health
+    signature: GET/POST /v1/governance/worker-health {story_id, worker_id} — Dev→Core REST mediation of canonical worker-health state; fail-closed gate, no direct-DB (FK-30 §30.10, FK-10 §10.1.0 I1, AG3-129)
+    allowed_statuses:
+      - implementation.status.requested
+    requires:
+      - implementation.invariant.start_requires_setup_or_exploration_gate
+    emits:
+      - implementation.event.worker.blocked
 ```
 <!-- FORMAL-SPEC:END -->

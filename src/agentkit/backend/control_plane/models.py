@@ -54,6 +54,96 @@ class TelemetryEventAccepted(BaseModel):
     event_id: str
 
 
+class GuardCounterMutationRequest(BaseModel):
+    """Dev->Core request to mutate the guard-invocation counter scratchpad.
+
+    AG3-129 (FK-10 §10.1.0 I1/I3): the short-lived hook process is a REST
+    requester, never a direct-DB writer. This carries either a single
+    ``record`` invocation (with an implicit week-rollover drain, FK-61
+    §61.4.3) or a cross-story ``housekeeping`` sweep. Both are the pure
+    volume-KPI counter (FK-30 "blockieren nie"): non-blocking on the Dev
+    side; the counter is NOT the audit trail.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    operation: Literal["record", "housekeeping"]
+    occurred_at: datetime
+    #: Idempotency key (FK-91 §91.1a Regel 5): a replayed ``op_id`` is
+    #: processed exactly once, so a retried record never double-counts the pure
+    #: volume KPI. Minted hook-side per request (default factory).
+    op_id: str = Field(
+        default_factory=lambda: f"gc-{uuid.uuid4().hex}", min_length=1
+    )
+    project_key: str | None = None
+    story_id: str | None = None
+    guard_key: str | None = None
+    blocked: bool | None = None
+
+    @model_validator(mode="after")
+    def _require_record_fields(self) -> GuardCounterMutationRequest:
+        """Fail-closed: a ``record`` operation must carry its full scope."""
+        if self.operation == "record" and (
+            not self.project_key
+            or not self.story_id
+            or not self.guard_key
+            or self.blocked is None
+        ):
+            raise ValueError(
+                "guard-counter record requires project_key, story_id, "
+                "guard_key and blocked",
+            )
+        return self
+
+
+class GuardCounterMutationAccepted(BaseModel):
+    """HTTP response body for an accepted guard-counter mutation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: Literal["accepted"] = "accepted"
+    operation: Literal["record", "housekeeping"]
+    drained: int = 0
+
+
+class WorkerHealthStateResponse(BaseModel):
+    """Server-mediated worker-health read result (AG3-129, FK-10 §10.3.2).
+
+    ``state`` is the canonical ``AgentHealthState`` wire object, or ``None``
+    when no health row exists for the ``(story_id, worker_id)`` scope. A
+    transport / core-unreachable fault is a fail-closed error on the Dev
+    side (never a silent empty ``None``).
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    state: dict[str, object] | None = None
+
+
+class WorkerHealthSaveAccepted(BaseModel):
+    """HTTP response body for an accepted worker-health write."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: Literal["accepted"] = "accepted"
+    story_id: str
+    worker_id: str
+
+
+class TelemetryEventQueryResponse(BaseModel):
+    """Server-mediated telemetry read result (AG3-129).
+
+    Returns the canonical execution events for one ``(project_key, story_id)``
+    scope, optionally filtered by ``event_type``. Backs the REST event emitter's
+    ``query`` so the hook reads counts (web-call / commit) via the core instead
+    of opening the database directly (FK-10 §10.1.0 I1).
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    events: list[dict[str, object]] = Field(default_factory=list)
+
+
 class ApiErrorResponse(BaseModel):
     """Stable error contract for control-plane HTTP responses."""
 

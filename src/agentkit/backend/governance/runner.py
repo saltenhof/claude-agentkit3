@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 from uuid import uuid4
 
+from agentkit.backend.governance import rest_edge
 from agentkit.backend.governance.errors import LockRecordNotFoundError
 from agentkit.backend.governance.guard_system.records import GuardDecision, GuardDecisionOutcome
 from agentkit.backend.governance.hook_registration import HookId
@@ -37,6 +38,8 @@ if TYPE_CHECKING:
         WorktreeRepository,
     )
     from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
+    from agentkit.backend.telemetry.emitters import EventEmitter
+    from agentkit.harness_client.projectedge.governance_client import GovernanceEdgeClient
 
 type HookDecision = GuardVerdict
 
@@ -644,6 +647,59 @@ def run_hook(
     return verdict
 
 
+def _governance_edge_client(project_root: Path) -> GovernanceEdgeClient:
+    """Build the hook-side governance REST client via the shared seam (AG3-129).
+
+    Delegates to :func:`rest_edge.governance_edge_client` (the ONE seam shared by
+    guard dispatch and the guard-evaluation chain) so guard-counter,
+    worker-health, telemetry and story-type reads all mediate over REST (FK-10
+    §10.1.0 I1) -- never a database DSN, never ``psycopg``.
+
+    Args:
+        project_root: Project root carrying the local control-plane config.
+
+    Returns:
+        A configured governance edge client.
+    """
+    return rest_edge.governance_edge_client(project_root)
+
+
+def _rest_event_emitter(
+    project_root: Path,
+    *,
+    project_key: str,
+    run_id: str,
+    default_source_component: str = "telemetry_service",
+    strict_query: bool = False,
+) -> EventEmitter:
+    """Build the hook's REST telemetry emitter via the shared seam (AG3-129).
+
+    Delegates to :func:`rest_edge.build_rest_event_emitter`. Telemetry is
+    server-mediated (FK-10 §10.1.0 I1) and non-blocking (FK-30); observability
+    reads are fail-soft (``[]``) while an enforcement reader (``strict_query``)
+    fails CLOSED on an unreadable counter (AC5 / §2.1.4).
+
+    Args:
+        project_root: Project root carrying the local control-plane config.
+        project_key: Active project scope for events omitting their own key.
+        run_id: Active run scope for events omitting their own run id.
+        default_source_component: Source-component label applied to generic
+            ``telemetry_service`` events.
+        strict_query: Whether ``query`` fails closed (enforcement reads).
+
+    Returns:
+        A REST-backed emitter (or fail-soft/fail-closed stand-in when the client
+        is unavailable).
+    """
+    return rest_edge.build_rest_event_emitter(
+        project_root,
+        project_key=project_key,
+        run_id=run_id,
+        default_source_component=default_source_component,
+        strict_query=strict_query,
+    )
+
+
 def _record_guard_invocation(
     hook_id: str,
     event: HookEvent,
@@ -674,30 +730,29 @@ def _record_guard_invocation(
         return
     project_key, story_id = scope
     try:
-        from agentkit.backend.kpi_analytics import GuardCounterService
-        from agentkit.backend.state_backend.store.guard_counter_repository import (
-            StateBackendGuardCounterRepository,
-        )
+        from agentkit.backend.control_plane.models import GuardCounterMutationRequest
 
-        now = datetime.now(UTC)
-        service = GuardCounterService(
-            StateBackendGuardCounterRepository(project_root)
+        # AG3-129 (FK-10 §10.1.0 I1): the counter is recorded server-side via REST,
+        # never by opening PostgreSQL from the hook. The core-side ``record``
+        # operation also drains older weekly buckets (Week-Rollover, FK-61
+        # §61.4.3 Trigger 2) before recording into the current week.
+        _governance_edge_client(project_root).mutate_guard_counter(
+            GuardCounterMutationRequest(
+                operation="record",
+                occurred_at=datetime.now(UTC),
+                project_key=project_key,
+                story_id=story_id,
+                guard_key=hook_id,
+                blocked=not verdict.allowed,
+            )
         )
-        # Week-Rollover (Trigger 2): drain the story's older weekly buckets before
-        # recording into the current week (a new week was entered).
-        service.flush_week_rollover(project_key, story_id, now=now)
-        service.record_invocation(
-            project_key=project_key,
-            story_id=story_id,
-            guard_key=hook_id,
-            blocked=not verdict.allowed,
-            now=now,
-        )
-    # BLE001: counter is the volume KPI, not the audit trail — never raise.
+    # BLE001: counter is the pure volume KPI, not the audit trail — non-blocking
+    # (FK-30 "blockieren nie"); a core-unreachable record is dropped, NEVER routed
+    # to a direct-DB back door and NEVER a block.
     except Exception:  # noqa: BLE001
         logger.warning(
-            "guard_invocation_counters UPSERT failed for hook_id=%s story_id=%s "
-            "(best-effort scratchpad; audit trail unaffected)",
+            "guard_invocation_counters record failed for hook_id=%s story_id=%s "
+            "(best-effort volume KPI via REST; no direct-DB fallback)",
             hook_id,
             story_id,
             exc_info=True,
@@ -796,20 +851,27 @@ def _run_health_monitor_post(event: HookEvent, *, project_root: Path) -> HookDec
     if event.post_tool_outcome is None:
         return GuardVerdict.allow("health_monitor")
     from agentkit.backend.implementation.worker_health import PostToolOutcome, apply_post_tool_use
-    from agentkit.backend.state_backend.store.worker_health_repository import (
-        StateBackendWorkerHealthRepository,
+    from agentkit.backend.implementation.worker_health.rest_repository import (
+        RestWorkerHealthRepository,
     )
 
     outcome = PostToolOutcome.model_validate(event.post_tool_outcome)
-    repository = StateBackendWorkerHealthRepository(project_root)
-    apply_post_tool_use(
-        event=event,
-        outcome=outcome,
-        repository=repository,
-        project_root=project_root,
-        story_id=story_id,
-        worker_id=_health_worker_id(event),
-    )
+    # AG3-129 (FK-10 §10.1.0 I1 / §10.3.2): worker-health is read/written via REST,
+    # never by opening PostgreSQL from the hook. Worker-health is a fail-closed gate
+    # operation (FK-30 §30.10): a core-unreachable read/write BLOCKS, never a silent
+    # OK and never a direct-DB fallback.
+    try:
+        repository = RestWorkerHealthRepository(_governance_edge_client(project_root))
+        apply_post_tool_use(
+            event=event,
+            outcome=outcome,
+            repository=repository,
+            project_root=project_root,
+            story_id=story_id,
+            worker_id=_health_worker_id(event),
+        )
+    except Exception as exc:  # noqa: BLE001 -- fail-closed worker-health; no direct-DB fallback
+        return _worker_health_unavailable_block(story_id, exc)
     # FK-61 §61.4.3 Trigger 3 (AG3-081 AC5): the PostToolUse health-monitor tick is
     # the operational periodic-maintenance path. Piggy-back the guard-counter
     # Housekeeping sweep here: counter rows older than 24h without an update belong
@@ -834,19 +896,22 @@ def _sweep_stale_guard_counters(project_root: Path) -> None:
     raised — it must never convert an observational PostToolUse tick into a block.
     """
     try:
-        from agentkit.backend.kpi_analytics import GuardCounterService
-        from agentkit.backend.state_backend.store.guard_counter_repository import (
-            StateBackendGuardCounterRepository,
-        )
+        from agentkit.backend.control_plane.models import GuardCounterMutationRequest
 
-        GuardCounterService(
-            StateBackendGuardCounterRepository(project_root)
-        ).flush_housekeeping()
-    # BLE001: housekeeping is the volume KPI, not the audit trail — never raise.
+        # AG3-129 (FK-10 §10.1.0 I1): the stale-counter sweep runs server-side via
+        # REST, never by opening PostgreSQL from the hook.
+        _governance_edge_client(project_root).mutate_guard_counter(
+            GuardCounterMutationRequest(
+                operation="housekeeping",
+                occurred_at=datetime.now(UTC),
+            )
+        )
+    # BLE001: housekeeping is the volume KPI, not the audit trail — non-blocking;
+    # a core-unreachable sweep is dropped, NEVER a direct-DB fallback.
     except Exception:  # noqa: BLE001
         logger.warning(
             "guard_invocation_counters Housekeeping sweep failed "
-            "(best-effort scratchpad; audit trail unaffected)",
+            "(best-effort volume KPI via REST; no direct-DB fallback)",
             exc_info=True,
         )
 
@@ -860,16 +925,25 @@ def _run_health_monitor_pre(event: HookEvent, *, project_root: Path) -> HookDeci
     from agentkit.backend.implementation.worker_health.interventions import (
         intervention_decision_result,
     )
-    from agentkit.backend.state_backend.store.worker_health_repository import (
-        StateBackendWorkerHealthRepository,
+    from agentkit.backend.implementation.worker_health.rest_repository import (
+        RestWorkerHealthRepository,
     )
 
-    repository = StateBackendWorkerHealthRepository(project_root)
-    state = repository.load(story_id=story_id, worker_id=_health_worker_id(event))
+    # AG3-129 (FK-10 §10.1.0 I1): the intervention gate reads/writes worker-health
+    # via REST, never PostgreSQL. Fail-closed (FK-30 §30.10): a core-unreachable
+    # read/write BLOCKS, never a silent allow and never a direct-DB fallback.
+    try:
+        repository = RestWorkerHealthRepository(_governance_edge_client(project_root))
+        state = repository.load(story_id=story_id, worker_id=_health_worker_id(event))
+    except Exception as exc:  # noqa: BLE001 -- fail-closed worker-health; no direct-DB fallback
+        return _worker_health_unavailable_block(story_id, exc)
     if state is None:
         return GuardVerdict.allow("health_monitor")
     result = intervention_decision_result(state)
-    repository.save(result.state)
+    try:
+        repository.save(result.state)
+    except Exception as exc:  # noqa: BLE001 -- fail-closed worker-health; no direct-DB fallback
+        return _worker_health_unavailable_block(story_id, exc)
     if result.exit_code == 0:
         return GuardVerdict.allow("health_monitor")
     return GuardVerdict.block(
@@ -881,6 +955,29 @@ def _run_health_monitor_pre(event: HookEvent, *, project_root: Path) -> HookDeci
             "worker_id": state.worker_id,
             "score": state.total_score,
         },
+    )
+
+
+def _worker_health_unavailable_block(story_id: str, exc: Exception) -> HookDecision:
+    """Fail-closed BLOCK when worker-health cannot be mediated over REST (AG3-129).
+
+    FK-30 §30.10 / FK-10 §10.1.0 I1: worker-health is a canonical gate operation.
+    A core-unreachable read/write must BLOCK (never a silent OK, never a direct-DB
+    fallback). The concrete fault class is recorded for the audit trail.
+
+    Args:
+        story_id: The active story id.
+        exc: The transport / core fault.
+
+    Returns:
+        A blocking :class:`~agentkit.backend.governance.protocols.GuardVerdict`.
+    """
+    return GuardVerdict.block(
+        "health_monitor",
+        ViolationType.POLICY_VIOLATION,
+        "worker_health_unavailable: canonical worker-health state could not be "
+        f"mediated over REST fail-closed ({exc})",
+        detail={"story_id": story_id, "fault_class": type(exc).__name__},
     )
 
 
@@ -907,8 +1004,8 @@ def _run_review_guard(event: HookEvent, *, project_root: Path) -> HookDecision:
 
     AG3-036 (FK-68 §68.3.1) FIX-1/FIX-2: builds the telemetry
     :class:`~agentkit.backend.telemetry.hooks.review_guard.ReviewGuard` over the canonical
-    :class:`~agentkit.backend.telemetry.storage.StateBackendEmitter` bound to the active
-    story directory (story binding resolved from the LOCAL edge bundle, same
+    REST telemetry emitter (AG3-129, server-mediated) bound to the active
+    story run (story binding resolved from the LOCAL edge bundle, same
     source as the capability enforcement). On a missing reviewer role the guard
     returns a fail-closed DENY (blocking the PreToolUse ``git commit`` BEFORE it
     runs) and emits ``review_guard_intervention``; otherwise it allows the commit
@@ -935,7 +1032,6 @@ def _run_review_guard(event: HookEvent, *, project_root: Path) -> HookDecision:
     """
     from agentkit.backend.telemetry.hooks.base import HookContext, HookTrigger
     from agentkit.backend.telemetry.hooks.review_guard import ReviewGuard
-    from agentkit.backend.telemetry.storage import StateBackendEmitter
     from agentkit.harness_client.projectedge.runtime import ProjectEdgeResolver
 
     resolved = ProjectEdgeResolver(project_root=project_root).resolve(
@@ -951,14 +1047,14 @@ def _run_review_guard(event: HookEvent, *, project_root: Path) -> HookDecision:
     if not story_id or not run_id:
         return GuardVerdict.allow("review_guard")
 
-    story_dir = project_root / "stories" / story_id
-
     # FIX-C: branch on the TYPED authoritative outcome. The UNRESOLVED story type,
     # a config fault, AND an empty required_roles for a code story are all
     # fail-closed blocks here; only a RESOLVED non-code story takes the allow path
     # (distinct from UNRESOLVED — they do NOT share one path).
     roles_outcome = _authoritative_required_roles(
-        project_root=project_root, story_id=story_id
+        project_root=project_root,
+        project_key=session.project_key,
+        story_id=story_id,
     )
     if roles_outcome.block is not None:
         return roles_outcome.block
@@ -969,7 +1065,9 @@ def _run_review_guard(event: HookEvent, *, project_root: Path) -> HookDecision:
     required_roles = roles_outcome.roles
 
     guard = ReviewGuard(
-        StateBackendEmitter(story_dir, default_project_key=session.project_key),
+        _rest_event_emitter(
+            project_root, project_key=session.project_key, run_id=run_id
+        ),
         required_roles=required_roles,
     )
     context = HookContext(
@@ -1009,7 +1107,7 @@ class _RequiredRolesOutcome:
 
 
 def _authoritative_required_roles(
-    *, project_root: Path, story_id: str
+    *, project_root: Path, project_key: str, story_id: str
 ) -> _RequiredRolesOutcome:
     """Resolve mandatory reviewer roles from the authoritative pipeline config.
 
@@ -1029,7 +1127,8 @@ def _authoritative_required_roles(
     - RESOLVED code story + non-empty roles → return the roles.
 
     Args:
-        project_root: Project root for config + story-store resolution.
+        project_root: Project root for config + story-type resolution.
+        project_key: The owning project key (story-type read scope).
         story_id: Canonical story display id for the authoritative story type.
 
     Returns:
@@ -1038,7 +1137,9 @@ def _authoritative_required_roles(
     """
     from agentkit.backend.config.loader import load_project_config
 
-    resolution = _resolve_local_story_type(story_id, store_dir=project_root)
+    resolution = _resolve_local_story_type(
+        story_id, project_key=project_key, project_root=project_root
+    )
     if not resolution.resolved:
         # UNRESOLVED (backend fault OR missing record): fail-closed. Must NOT
         # downgrade to non-code (which would share the allow path).
@@ -1136,64 +1237,69 @@ class _StoryTypeResolution:
 
 
 def _resolve_local_story_type(
-    story_id: str, *, store_dir: Path
+    story_id: str, *, project_key: str, project_root: Path
 ) -> _StoryTypeResolution:
     """Resolve the authoritative story type as a TYPED outcome (AG3-036 FIX-A).
 
-    FK-24 §24.3.2: the story type is read from the CANONICAL story master data
-    (the state-backend ``stories`` table via
-    :class:`~agentkit.backend.state_backend.store.story_repository.StateBackendStoryRepository`)
-    — NOT from a forgeable ``operation_args`` payload and NOT from a file-based
-    export loader (the truth-boundary contract forbids governance modules reading
-    story export json / calling ``load_story_context``; the DB store is the
-    canonical truth).
+    AG3-129 (FK-10 §10.1.0 I1): the story type is read SERVER-MEDIATED over REST
+    (``GET /v1/projects/{project_key}/stories/{story_id}`` via the hook's
+    governance edge client) instead of opening PostgreSQL from the hook. It is
+    still NOT read from a forgeable ``operation_args`` payload and NOT from a
+    file-based export loader.
 
     Returns a :class:`_StoryTypeResolution` distinguishing exactly RESOLVED
-    (store read + record found) from UNRESOLVED (backend fault OR missing record).
-    The two error cases are deliberately NOT collapsed into a story-type string:
-    an UNRESOLVED outcome must fail-closed at the dispatch sites instead of
-    silently downgrading to "not research" / "not code-producing".
+    (core read + record found) from UNRESOLVED (transport/core fault OR missing
+    record). The two error cases are deliberately NOT collapsed into a story-type
+    string: an UNRESOLVED outcome must fail-closed at the dispatch sites instead
+    of silently downgrading to "not research" / "not code-producing".
 
     Args:
         story_id: Canonical story display id.
-        store_dir: Base store directory for the SQLite backend (project root).
+        project_key: The owning project key (URL path scope for the read).
+        project_root: Project root carrying the local control-plane config.
 
     Returns:
         A RESOLVED outcome with the story-type string, or the UNRESOLVED outcome.
     """
-    from agentkit.backend.state_backend.store.story_repository import (
-        StateBackendStoryRepository,
-    )
-
-    try:
-        story = StateBackendStoryRepository(store_dir).get_by_display_id(story_id)
-    except Exception:  # noqa: BLE001 -- fail-closed mapping of any backend/store fault to UNRESOLVED (never a story type)
-        # Backend fault: UNRESOLVED (fail-closed downstream), never a story type.
+    if not project_key or not story_id:
+        # No scope to read fail-closed -> UNRESOLVED (never a story type).
         return _StoryTypeResolution.unresolved()
-    if story is None:
+    try:
+        story_type = rest_edge.governance_edge_client(project_root).get_story_type(
+            project_key=project_key, story_id=story_id
+        )
+    except Exception:  # noqa: BLE001 -- fail-closed mapping of any transport/core fault to UNRESOLVED
+        # Transport / core fault: UNRESOLVED (fail-closed downstream), never a type.
+        return _StoryTypeResolution.unresolved()
+    if not story_type:
         # Missing record: UNRESOLVED (fail-closed downstream), never a story type.
         return _StoryTypeResolution.unresolved()
-    return _StoryTypeResolution.of(str(story.story_type.value))
+    return _StoryTypeResolution.of(story_type)
 
 
-def _is_code_producing_story(story_id: str, *, store_dir: Path) -> bool:
+def _is_code_producing_story(
+    story_id: str, *, project_key: str, project_root: Path
+) -> bool:
     """Return whether a RESOLVED story is code-producing (implementation/bugfix).
 
     Thin convenience over :func:`_resolve_local_story_type`. An UNRESOLVED outcome
-    (backend fault OR missing record) returns ``False`` here; callers that must
-    fail-closed on UNRESOLVED branch on the typed
+    (transport/core fault OR missing record) returns ``False`` here; callers that
+    must fail-closed on UNRESOLVED branch on the typed
     :class:`_StoryTypeResolution` directly (see :func:`_authoritative_required_roles`
     and :func:`_run_web_call_budget_guard`) — they do NOT use this boolean as an
     allow path.
 
     Args:
         story_id: Canonical story display id.
-        store_dir: Base store directory for the SQLite backend (project root).
+        project_key: The owning project key.
+        project_root: Project root carrying the local control-plane config.
 
     Returns:
         ``True`` only for a RESOLVED implementation/bugfix story.
     """
-    return _resolve_local_story_type(story_id, store_dir=store_dir).is_code_producing
+    return _resolve_local_story_type(
+        story_id, project_key=project_key, project_root=project_root
+    ).is_code_producing
 
 
 def _run_web_call_budget_guard(
@@ -1202,7 +1308,7 @@ def _run_web_call_budget_guard(
     """Dispatch the ``budget`` PreToolUse guard-hook (FK-30 §30.5.1a, AG3-086).
 
     Builds the :class:`~agentkit.backend.governance.guard_system.WebCallBudgetGuard` over
-    the canonical :class:`~agentkit.backend.telemetry.storage.StateBackendEmitter` for the
+    the REST telemetry emitter (AG3-129, server-mediated) for the
     active story. It reads the existing web-call counter and decides fail-closed;
     it writes NO ``web_call`` counter event (the observational PostToolUse emitter
     owns that). Only research stories are budget-gated; the authoritative story
@@ -1227,7 +1333,6 @@ def _run_web_call_budget_guard(
         WebCallBudgetGuard,
         WebCallBudgetObservation,
     )
-    from agentkit.backend.telemetry.storage import StateBackendEmitter
     from agentkit.harness_client.projectedge.runtime import ProjectEdgeResolver
 
     tool = _event_tool(event)
@@ -1248,12 +1353,20 @@ def _run_web_call_budget_guard(
     if not story_id or not run_id:
         return GuardVerdict.allow("web_call_budget_guard")
 
-    story_dir = project_root / "stories" / story_id
     limit, warning = _web_call_thresholds(project_root)
 
-    resolution = _resolve_local_story_type(story_id, store_dir=project_root)
+    resolution = _resolve_local_story_type(
+        story_id, project_key=session.project_key, project_root=project_root
+    )
     guard = WebCallBudgetGuard(
-        StateBackendEmitter(story_dir, default_project_key=session.project_key),
+        # strict_query: this is the ENFORCEMENT reader of the web-call counter. An
+        # unreadable counter must fail CLOSED (block), never read as zero (AC5).
+        _rest_event_emitter(
+            project_root,
+            project_key=session.project_key,
+            run_id=run_id,
+            strict_query=True,
+        ),
         web_call_limit=limit,
         web_call_warning=warning,
     )
@@ -1334,7 +1447,7 @@ def _run_budget_event_emitter_post(
 
     Builds the observational
     :class:`~agentkit.backend.telemetry.hooks.budget_event_emitter.BudgetEventEmitter`
-    over the canonical :class:`~agentkit.backend.telemetry.storage.StateBackendEmitter`
+    over the REST telemetry emitter (AG3-129, server-mediated)
     and emits the ``web_call`` counter for a research web call. It NEVER blocks
     (AG3-086: the budget block is the PreToolUse WebCallBudgetGuard). Always
     returns an allow verdict.
@@ -1348,7 +1461,6 @@ def _run_budget_event_emitter_post(
     """
     from agentkit.backend.telemetry.hooks.base import HookContext, HookTrigger
     from agentkit.backend.telemetry.hooks.budget_event_emitter import BudgetEventEmitter
-    from agentkit.backend.telemetry.storage import StateBackendEmitter
     from agentkit.harness_client.projectedge.runtime import ProjectEdgeResolver
 
     tool = _event_tool(event)
@@ -1368,12 +1480,15 @@ def _run_budget_event_emitter_post(
     if not story_id or not run_id:
         return GuardVerdict.allow("budget_event_emitter")
 
-    story_dir = project_root / "stories" / story_id
     limit, _ = _web_call_thresholds(project_root)
-    resolution = _resolve_local_story_type(story_id, store_dir=project_root)
+    resolution = _resolve_local_story_type(
+        story_id, project_key=session.project_key, project_root=project_root
+    )
 
     emitter = BudgetEventEmitter(
-        StateBackendEmitter(story_dir, default_project_key=session.project_key),
+        _rest_event_emitter(
+            project_root, project_key=session.project_key, run_id=run_id
+        ),
         web_call_limit=limit,
     )
     context = HookContext(
@@ -1416,7 +1531,6 @@ def _run_skill_usage_check(
         SkillUsageCheckGuard,
         SkillUsageObservation,
     )
-    from agentkit.backend.telemetry.storage import StateBackendEmitter
     from agentkit.harness_client.projectedge.runtime import ProjectEdgeResolver
 
     resolved = ProjectEdgeResolver(project_root=project_root).resolve(
@@ -1432,10 +1546,11 @@ def _run_skill_usage_check(
     if not story_id or not run_id:
         return GuardVerdict.allow("skill_usage_check")
 
-    story_dir = project_root / "stories" / story_id
     guard = SkillUsageCheckGuard(
         _SkillBindingLookupAdapter(project_root),
-        StateBackendEmitter(story_dir, default_project_key=session.project_key),
+        _rest_event_emitter(
+            project_root, project_key=session.project_key, run_id=run_id
+        ),
     )
     observation = SkillUsageObservation(
         story_id=story_id,
@@ -1525,7 +1640,6 @@ def _run_prompt_integrity_guard(
         SpawnMode,
         SpawnObservation,
     )
-    from agentkit.backend.telemetry.storage import StateBackendEmitter
     from agentkit.harness_client.projectedge.runtime import ProjectEdgeResolver
 
     if _event_tool(event) != _AGENT_TOOL:
@@ -1558,7 +1672,7 @@ def _run_prompt_integrity_guard(
 
     story_dir = project_root / "stories" / story_id if story_id else project_root
     guard = PromptIntegrityGuard(
-        StateBackendEmitter(story_dir, default_project_key=project_key),
+        _rest_event_emitter(project_root, project_key=project_key, run_id=run_id),
     )
     observation = SpawnObservation(
         story_id=story_id,
