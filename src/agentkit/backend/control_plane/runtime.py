@@ -375,10 +375,16 @@ class _ClaimMixin:
                 )
             return _ClaimOutcome(won=False, result=self._in_flight_rejection(request, operation_kind=operation_kind))
         if stored.status != "claimed":
-            # A terminal result already exists -- replay, never re-dispatch.
+            # A terminal result already exists -- replay, never re-dispatch. AG3-140:
+            # a reused op_id whose body-hash DIFFERS is a fail-closed
+            # ``409 idempotency_mismatch`` (the raise propagates out of
+            # ``_acquire_claim`` up through the entrypoint to the HTTP layer -- it is
+            # NOT caught here). A matching (or legacy null) hash replays as before.
             return _ClaimOutcome(
                 won=False,
-                result=_replayed_result(stored.response_payload),
+                result=_replay_or_mismatch(
+                    request, stored, operation_kind=operation_kind, phase=phase
+                ),
             )
         # AG3-139: a foreign ``claimed`` row -- of ANY age -- is a LOSER. There is
         # no wall-clock expiry and no CAS takeover; an in-flight claim never ends
@@ -614,7 +620,9 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
             carrying the normalized ``phase_dispatch`` outcome on a fresh commit.
         """
         self._require_postgres_backend_on_first_use()
-        existing = self._load_existing_operation(request.op_id)
+        existing = self._load_existing_operation(
+            request, operation_kind="phase_start", phase=phase
+        )
         if existing is not None:
             return existing
         locked = self._repair_locked_rejection(
@@ -888,6 +896,9 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
             phase=phase,
             result=result,
             now=self._now_fn(),
+            request_body_hash=_control_plane_request_body_hash(
+                request, operation_kind="phase_start", phase=phase
+            ),
         )
         if self._repo.finalize_start_phase(
             record,
@@ -906,7 +917,9 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         #: Replay the winner's terminal row; NEVER overwrite it (or, in the narrow
         #: window where it is not yet readable, surface the in-flight retry
         #: rejection).
-        existing = self._load_existing_operation(request.op_id)
+        existing = self._load_existing_operation(
+            request, operation_kind="phase_start", phase=phase
+        )
         if existing is not None:
             return existing
         return self._in_flight_rejection(request)
@@ -1127,7 +1140,9 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
             prior admitted run exists.
         """
         self._require_postgres_backend_on_first_use()
-        existing = self._load_existing_operation(request.op_id)
+        existing = self._load_existing_operation(
+            request, operation_kind=operation_kind, phase=phase
+        )
         if existing is not None:
             return existing
         locked = self._repair_locked_rejection(
@@ -1290,9 +1305,12 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
 
     def _load_existing_operation(
         self,
-        op_id: str,
+        request: PhaseMutationRequest | ClosureCompleteRequest,
+        *,
+        operation_kind: str,
+        phase: str | None,
     ) -> ControlPlaneMutationResult | None:
-        del op_id
+        del request, operation_kind, phase
         raise NotImplementedError
 
     def _story_scoped_materialization_enabled(
@@ -1516,7 +1534,9 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
             The committed (or replayed) closure :class:`ControlPlaneMutationResult`.
         """
         self._require_postgres_backend_on_first_use()
-        existing = self._load_existing_operation(request.op_id)
+        existing = self._load_existing_operation(
+            request, operation_kind="closure_complete", phase="closure"
+        )
         if existing is not None:
             return existing
         locked = self._repair_locked_rejection(
@@ -1636,7 +1656,9 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
             rejection.
         """
         self._require_postgres_backend_on_first_use()
-        existing = self._load_existing_operation(request.op_id)
+        existing = self._load_existing_operation(
+            request, operation_kind="phase_resume", phase=phase
+        )
         if existing is not None:
             return existing
         locked = self._repair_locked_rejection(
@@ -1839,6 +1861,9 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
             phase=phase,
             result=result,
             now=now,
+            request_body_hash=_control_plane_request_body_hash(
+                request, operation_kind="phase_resume", phase=phase
+            ),
         )
         #: Ownership-CAS finalize of ONLY the op record (binding/locks/events are
         #: EMPTY -- mirrors the fast-start finalize which materializes no side
@@ -1853,7 +1878,9 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
             events=(),
         ):
             return result
-        existing = self._load_existing_operation(request.op_id)
+        existing = self._load_existing_operation(
+            request, operation_kind="phase_resume", phase=phase
+        )
         if existing is not None:
             return existing
         return self._in_flight_rejection(request, operation_kind="phase_resume")
@@ -2006,6 +2033,9 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
             phase="closure",
             result=result,
             now=now,
+            request_body_hash=_control_plane_request_body_hash(
+                request, operation_kind="closure_complete", phase="closure"
+            ),
         )
         #: Atomic: the conditional op-row upsert (collision gate FIRST) + the
         #: INACTIVE locks, the binding deletion and the deactivation events apply in
@@ -2167,7 +2197,9 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
         operation_kind: str,
         phase_dispatch: PhaseDispatchResult | None = None,
     ) -> ControlPlaneMutationResult:
-        existing = self._load_existing_operation(request.op_id)
+        existing = self._load_existing_operation(
+            request, operation_kind=operation_kind, phase=phase
+        )
         if existing is not None:
             return existing
 
@@ -2211,6 +2243,9 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
             phase=phase,
             result=result,
             now=now,
+            request_body_hash=_control_plane_request_body_hash(
+                request, operation_kind=operation_kind, phase=phase
+            ),
         )
         #: Atomic: the conditional op-row upsert (collision gate) + side effects in
         #: ONE transaction. A collision raises ``ControlPlaneClaimCollisionError``
@@ -2281,9 +2316,12 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
 
     def _load_existing_operation(
         self,
-        op_id: str,
+        request: PhaseMutationRequest | ClosureCompleteRequest,
+        *,
+        operation_kind: str,
+        phase: str | None,
     ) -> ControlPlaneMutationResult | None:
-        existing = self._repo.load_operation(op_id)
+        existing = self._repo.load_operation(request.op_id)
         if existing is None:
             return None
         if existing.status == "claimed":
@@ -2291,7 +2329,15 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
             #: committed/replayable result (its ``response_payload`` is empty). It
             #: is NOT a replay target.
             return None
-        return _replayed_result(existing.response_payload)
+        #: AG3-140: a terminal row replays ONLY when the incoming body-hash matches
+        #: the stored one; a reused op_id with a DIFFERENT body raises
+        #: ``IdempotencyMismatchError`` (409). The operation_kind + phase fed here
+        #: are IDENTICAL to this entrypoint's terminal-write, so an honest replay
+        #: never false-mismatches (a legacy null stored hash falls back to op_id-only
+        #: replay, fail-open only on the pre-AG3-140 gap).
+        return _replay_or_mismatch(
+            request, existing, operation_kind=operation_kind, phase=phase
+        )
 
 
 def _complete_fast_closure(
@@ -2339,6 +2385,9 @@ def _complete_fast_closure(
         phase="closure",
         result=result,
         now=now,
+        request_body_hash=_control_plane_request_body_hash(
+            request, operation_kind="closure_complete", phase="closure"
+        ),
     )
     repo.commit_operation_with_side_effects(
         record,
@@ -2477,6 +2526,106 @@ def _plan_fast_materialization(
     )
 
 
+def _control_plane_request_body_hash(
+    request: PhaseMutationRequest | ClosureCompleteRequest,
+    *,
+    operation_kind: str,
+    phase: str | None,
+) -> str:
+    """Canonical body-hash of a phase/closure request (AG3-140, FK-91 §91.1a Regel 5).
+
+    SHA-256 of the canonical request body (``op_id`` excluded by
+    :func:`compute_body_hash`). ``operation_kind`` and ``phase`` are folded in so a
+    reused ``op_id`` that carries the SAME :class:`PhaseMutationRequest` for a
+    DIFFERENT action (start vs complete vs fail vs resume) or a DIFFERENT phase
+    hashes differently -- a claim/terminal write stamps this and a claim-loser /
+    replay compares it (hash match -> replay; hash differs -> ``409
+    idempotency_mismatch``).
+
+    The ``operation_kind`` + ``phase`` fed here on the CLAIM / terminal WRITE for a
+    given entrypoint MUST equal the ones fed on its REPLAY check, otherwise a
+    legitimate replay would false-mismatch (see the per-entrypoint call sites).
+
+    Args:
+        request: The phase or closure mutation request.
+        operation_kind: The operation kind of THIS entrypoint (``phase_start`` /
+            ``phase_complete`` / ``phase_fail`` / ``phase_resume`` /
+            ``closure_complete``).
+        phase: The requested phase (``None``/``""`` for a closure carries the same
+            ``"closure"`` value at every site).
+
+    Returns:
+        A lowercase hex SHA-256 digest string.
+    """
+    from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+        compute_body_hash,
+    )
+
+    payload = dict(request.model_dump(mode="json"))
+    #: Distinguish start/complete/fail/resume reusing the SAME PhaseMutationRequest,
+    #: and setup vs closure vs any other phase, under one op_id.
+    payload["__operation_kind"] = operation_kind
+    payload["__phase"] = phase or ""
+    #: ``compute_body_hash`` excludes the ``op_id`` key -> a pure function of the
+    #: mutation data (a replay of the same mutation hashes equal).
+    return compute_body_hash(payload)
+
+
+def _replay_or_mismatch(
+    request: PhaseMutationRequest | ClosureCompleteRequest,
+    stored: ControlPlaneOperationRecord,
+    *,
+    operation_kind: str,
+    phase: str | None,
+) -> ControlPlaneMutationResult:
+    """Replay a terminal row, or fail closed with ``409 idempotency_mismatch`` (AG3-140).
+
+    A claim-loser / replay classifies a stored TERMINAL row by comparing the
+    incoming request's body-hash against the one stamped on the row:
+
+    * hash MATCHES -> a legitimate replay of the SAME mutation: return the stored
+      result (``_replayed_result``).
+    * hash DIFFERS -> the ``op_id`` is being reused for a DIFFERENT phase/action/
+      body: fail closed with :class:`IdempotencyMismatchError` (mapped to HTTP
+      ``409 idempotency_mismatch`` at the adapter, FK-91 §91.1a Regel 5).
+
+    Fail-closed note: a ``None`` stored hash is a legacy / pre-AG3-140 row that was
+    written before the body-hash was populated on this path -- it falls back to
+    op_id-only replay (NEVER raises on a null stored hash), so an in-flight rollout
+    can never turn an honest replay into a spurious mismatch.
+
+    Args:
+        request: The incoming phase or closure mutation request.
+        stored: The stored TERMINAL operation record.
+        operation_kind: This entrypoint's operation kind (MUST match the write).
+        phase: This entrypoint's phase (MUST match the write).
+
+    Returns:
+        The stored result as a ``replayed`` (or verbatim reconcile-preserved)
+        result on a hash match / legacy null hash.
+
+    Raises:
+        IdempotencyMismatchError: When the stored row carries a body-hash that
+            differs from the incoming request's (409 idempotency_mismatch).
+    """
+    stored_hash = stored.request_body_hash
+    if stored_hash is not None:
+        incoming = _control_plane_request_body_hash(
+            request, operation_kind=operation_kind, phase=phase
+        )
+        if incoming != stored_hash:
+            from agentkit.backend.story_context_manager.errors import (
+                IdempotencyMismatchError,
+            )
+
+            raise IdempotencyMismatchError(
+                f"op_id {request.op_id!r} was previously used with a different "
+                "request body; use a new op_id for a different mutation",
+                detail={"op_id": request.op_id, "conflict": "body_hash_mismatch"},
+            )
+    return _replayed_result(stored.response_payload)
+
+
 def _operation_record(
     *,
     op_id: str,
@@ -2488,8 +2637,17 @@ def _operation_record(
     phase: str | None,
     result: ControlPlaneMutationResult,
     now: datetime,
+    request_body_hash: str | None = None,
 ) -> ControlPlaneOperationRecord:
-    """Build the terminal operation record (no live claim -- a terminal row)."""
+    """Build the terminal operation record (no live claim -- a terminal row).
+
+    AG3-140: ``request_body_hash`` is the canonical body-hash of the originating
+    request (op_id excluded), stamped so a later replay of the SAME op_id can
+    distinguish a legitimate replay (hash match) from a ``409 idempotency_mismatch``
+    (hash differs). Fed by :func:`_control_plane_request_body_hash` at every call
+    site with THAT site's ``operation_kind`` + ``phase`` (consistent with its
+    replay check).
+    """
     return ControlPlaneOperationRecord(
         op_id=op_id,
         project_key=project_key,
@@ -2502,6 +2660,7 @@ def _operation_record(
         response_payload=result.model_dump(mode="json"),
         created_at=now,
         updated_at=now,
+        request_body_hash=request_body_hash,
     )
 
 
@@ -2628,6 +2787,14 @@ def _build_claim_placeholder(
         backend_instance_id=instance_identity.backend_instance_id,
         instance_incarnation=instance_identity.instance_incarnation,
         declared_serialization_scope=f"{request.project_key}:{request.story_id}",
+        #: AG3-140: stamp the canonical body-hash on the claim so a claim-loser
+        #: (``_acquire_claim`` terminal-replay branch) can classify a reused op_id
+        #: as a legitimate replay (hash match) vs ``409 idempotency_mismatch`` (hash
+        #: differs). Fed with THIS claim's operation_kind + phase, identical to the
+        #: terminal-write/replay pair of the same entrypoint (no false-mismatch).
+        request_body_hash=_control_plane_request_body_hash(
+            request, operation_kind=operation_kind, phase=phase
+        ),
     )
 
 

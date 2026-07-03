@@ -1594,6 +1594,48 @@ def test_phase_mutation_repair_lock_rejection_maps_to_409() -> None:
     assert "repair" in str(body["phase_dispatch"]["rejection_reason"])
 
 
+def test_phase_mutation_body_hash_mismatch_maps_to_409() -> None:
+    """AG3-140 finding 3: a reused op_id with a different body -> 409 idempotency_mismatch.
+
+    The runtime raises ``IdempotencyMismatchError`` when a terminal op_id is
+    replayed with a different request body-hash; the phase-mutation route maps it
+    to HTTP 409 ``idempotency_mismatch`` (not a wrong replay of the stored result).
+    """
+    from agentkit.backend.story_context_manager.errors import IdempotencyMismatchError
+
+    class _MismatchRuntime(ControlPlaneRuntimeService):
+        def start_phase(
+            self, *, run_id: str, phase: str, request: object
+        ) -> ControlPlaneMutationResult:
+            del run_id, phase, request
+            raise IdempotencyMismatchError(
+                "op_id 'op-x' was previously used with a different request body; "
+                "use a new op_id for a different mutation",
+                detail={"op_id": "op-x", "conflict": "body_hash_mismatch"},
+            )
+
+    app = _abort_app(_MismatchRuntime())
+    response = app.handle_request(
+        method="POST",
+        path="/v1/projects/tenant-a/story-runs/run-100/phases/setup/start",
+        body=json.dumps(
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "session_id": "sess-001",
+                "principal_type": "orchestrator",
+                "worktree_roots": ["T:/worktrees/ag3-100"],
+                "op_id": "op-x",
+            },
+        ).encode("utf-8"),
+    )
+
+    assert response.status_code == HTTPStatus.CONFLICT
+    body = _json_body(response)
+    assert body["error_code"] == "idempotency_mismatch"
+    assert body["detail"]["conflict"] == "body_hash_mismatch"
+
+
 def test_closure_complete_repair_lock_rejection_maps_to_409() -> None:
     """AC10 (AG3-138 P2): a repair-locked closure-complete surfaces as HTTP 409.
 

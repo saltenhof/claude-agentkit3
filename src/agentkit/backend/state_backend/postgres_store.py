@@ -3896,8 +3896,9 @@ def _conditional_upsert_control_plane_op_row(
         INSERT INTO control_plane_operations (
             op_id, project_key, story_id, run_id, session_id,
             operation_kind, phase, status, response_json,
-            created_at, updated_at, claimed_by, claimed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            created_at, updated_at, claimed_by, claimed_at,
+            request_body_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (op_id) DO UPDATE SET
             project_key = EXCLUDED.project_key,
             story_id = EXCLUDED.story_id,
@@ -3909,7 +3910,8 @@ def _conditional_upsert_control_plane_op_row(
             response_json = EXCLUDED.response_json,
             updated_at = EXCLUDED.updated_at,
             claimed_by = EXCLUDED.claimed_by,
-            claimed_at = EXCLUDED.claimed_at
+            claimed_at = EXCLUDED.claimed_at,
+            request_body_hash = EXCLUDED.request_body_hash
         WHERE control_plane_operations.status <> 'claimed'
         """,
         (
@@ -3926,6 +3928,11 @@ def _conditional_upsert_control_plane_op_row(
             row["updated_at"],
             row.get("claimed_by"),
             row.get("claimed_at"),
+            # AG3-140 finding 3: the complete/fail/closure terminal upsert (no
+            # prior claim placeholder) must persist the body-hash so a later
+            # replay can classify replay vs 409 idempotency_mismatch on the real
+            # store (mirrors save_control_plane_operation_global_row).
+            row.get("request_body_hash"),
         ),
     )
     if int(cursor.rowcount) == 0:

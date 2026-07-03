@@ -1108,3 +1108,119 @@ def test_standard_closure_foreign_binding_protected_real_store(
     assert old_events == [], "no deactivation event may fire for the old run"
     # The stale closure stored no committed op.
     assert load_control_plane_operation_global("op-pg-old-closure") is None
+
+
+# ---------------------------------------------------------------------------
+# AG3-140 / Codex finding 3 against the REAL Postgres store: op_id reuse with a
+# DIFFERENT body must fail closed with ``409 idempotency_mismatch`` (the stamped
+# ``request_body_hash`` is compared on replay), never replay the wrong result.
+# ---------------------------------------------------------------------------
+
+
+def _pg_setup_request_wt(op_id: str, worktree_root: str) -> PhaseMutationRequest:
+    return PhaseMutationRequest(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        session_id="sess-001",
+        principal_type="orchestrator",
+        worktree_roots=[worktree_root],
+        op_id=op_id,
+    )
+
+
+@pytest.mark.contract
+def test_phase_start_reused_op_id_different_body_mismatch_real_store(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    """A reused start op_id with a DIFFERENT body is 409 idempotency_mismatch (real store).
+
+    Codex finding 3: against the GENUINE Postgres control-plane store the stamped
+    ``request_body_hash`` on the committed terminal row is compared on replay -- a
+    reuse with a different body (here different ``worktree_roots``) fails closed
+    instead of surfacing the wrong stored result; an identical-body reuse replays.
+    """
+    from agentkit.backend.story_context_manager.errors import IdempotencyMismatchError
+
+    del postgres_backend_env
+    _seed_pg_story_context(tmp_path)
+    service = ControlPlaneRuntimeService(phase_dispatcher=_CountingDispatcher())  # type: ignore[arg-type]
+
+    first = service.start_phase(
+        run_id="run-100",
+        phase="setup",
+        request=_pg_setup_request_wt("op-pg-mismatch-001", "T:/worktrees/a"),
+    )
+    assert first.status == "committed"
+
+    with pytest.raises(IdempotencyMismatchError) as excinfo:
+        service.start_phase(
+            run_id="run-100",
+            phase="setup",
+            request=_pg_setup_request_wt("op-pg-mismatch-001", "T:/worktrees/DIFFERENT"),
+        )
+    assert excinfo.value.detail["conflict"] == "body_hash_mismatch"
+    assert excinfo.value.detail["op_id"] == "op-pg-mismatch-001"
+
+    # An identical-body reuse still replays the stored result (no false mismatch).
+    replay = service.start_phase(
+        run_id="run-100",
+        phase="setup",
+        request=_pg_setup_request_wt("op-pg-mismatch-001", "T:/worktrees/a"),
+    )
+    assert replay.status == "replayed"
+
+
+@pytest.mark.contract
+def test_closure_reused_op_id_different_body_mismatch_real_store(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    """A reused closure op_id with a DIFFERENT body is 409 idempotency_mismatch (real store).
+
+    A committed closure over the real store MUST stamp its ``request_body_hash``; a
+    reuse of the same op_id with a different ``detail`` MUST fail closed, while an
+    identical-body reuse replays. AG3-140 finding-3 fix: the atomic side-effects
+    commit (``commit_control_plane_operation_with_side_effects_global_row``) now
+    persists ``request_body_hash``, so complete/fail/closure enforce the mismatch
+    on the real store (this test no longer xfails).
+    """
+    from agentkit.backend.story_context_manager.errors import IdempotencyMismatchError
+
+    del postgres_backend_env
+    _seed_pg_story_context(tmp_path)
+    service = ControlPlaneRuntimeService(phase_dispatcher=_CountingDispatcher())  # type: ignore[arg-type]
+    # Admit the run: a committed setup start materializes the run-matched evidence
+    # closure requires (a session binding + a committed setup phase_start).
+    admitted = service.start_phase(
+        run_id="run-100",
+        phase="setup",
+        request=_pg_setup_request("op-pg-closure-admit-001"),
+    )
+    assert admitted.status == "committed"
+
+    def _closure(op_id: str, detail: dict[str, object]) -> ClosureCompleteRequest:
+        return ClosureCompleteRequest(
+            project_key="tenant-a",
+            story_id="AG3-100",
+            session_id="sess-001",
+            op_id=op_id,
+            detail=detail,
+        )
+
+    first = service.complete_closure(
+        run_id="run-100", request=_closure("op-pg-closure-mismatch-001", {"k": "v1"})
+    )
+    assert first.status == "committed"
+
+    with pytest.raises(IdempotencyMismatchError) as excinfo:
+        service.complete_closure(
+            run_id="run-100",
+            request=_closure("op-pg-closure-mismatch-001", {"k": "DIFFERENT"}),
+        )
+    assert excinfo.value.detail["conflict"] == "body_hash_mismatch"
+
+    replay = service.complete_closure(
+        run_id="run-100", request=_closure("op-pg-closure-mismatch-001", {"k": "v1"})
+    )
+    assert replay.status == "replayed"

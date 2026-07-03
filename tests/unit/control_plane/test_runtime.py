@@ -3601,3 +3601,173 @@ def test_di_service_binds_a_deterministic_identity_without_explicit_injection() 
     identity = service._current_instance_identity()
     assert identity.backend_instance_id.strip()
     assert identity.instance_incarnation >= 1
+
+
+# ---------------------------------------------------------------------------
+# AG3-140 / Codex finding 3: op_id reuse with a DIFFERENT body must NOT replay
+# the stored result -- it fails closed with ``409 idempotency_mismatch`` (the
+# body-hash is stamped on the terminal/claim row and compared on replay). A
+# reuse with the IDENTICAL body still replays. Covers a phase mutation AND a
+# closure.
+# ---------------------------------------------------------------------------
+
+
+def _mismatch_phase_request(*, op_id: str, worktree_root: str) -> PhaseMutationRequest:
+    return PhaseMutationRequest(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        session_id="sess-001",
+        principal_type="orchestrator",
+        worktree_roots=[worktree_root],
+        op_id=op_id,
+    )
+
+
+def test_phase_start_reused_op_id_with_different_body_raises_mismatch() -> None:
+    """A reused start op_id with a DIFFERENT body is 409 idempotency_mismatch (AG3-140).
+
+    Codex finding 3: the phase-mutation idempotency path previously replayed the
+    stored result by op_id ALONE, so a client reusing one op_id for a DIFFERENT
+    request body got the wrong stored result. Now the stamped body-hash is
+    compared: a different body (here different ``worktree_roots``) fails closed.
+    """
+    from agentkit.backend.story_context_manager.errors import IdempotencyMismatchError
+
+    state = _RepoState()
+    _resolvable_standard_ctx(state)
+    service = _admitting_service(state)
+
+    first = service.start_phase(
+        run_id="run-100",
+        phase="setup",
+        request=_mismatch_phase_request(
+            op_id="op-mismatch-phase-001", worktree_root="T:/worktrees/a"
+        ),
+    )
+    assert first.status == "committed"
+
+    with pytest.raises(IdempotencyMismatchError) as excinfo:
+        service.start_phase(
+            run_id="run-100",
+            phase="setup",
+            request=_mismatch_phase_request(
+                op_id="op-mismatch-phase-001", worktree_root="T:/worktrees/DIFFERENT"
+            ),
+        )
+    assert excinfo.value.detail["conflict"] == "body_hash_mismatch"
+    assert excinfo.value.detail["op_id"] == "op-mismatch-phase-001"
+    # The stored terminal row was NOT overwritten; no second op was created.
+    assert len(state.operations) == 1
+
+
+def test_phase_start_reused_op_id_with_identical_body_replays() -> None:
+    """A reused start op_id with the IDENTICAL body still replays (no mismatch)."""
+    state = _RepoState()
+    _resolvable_standard_ctx(state)
+    service = _admitting_service(state)
+    request = _mismatch_phase_request(
+        op_id="op-replay-phase-001", worktree_root="T:/worktrees/a"
+    )
+
+    first = service.start_phase(run_id="run-100", phase="setup", request=request)
+    second = service.start_phase(run_id="run-100", phase="setup", request=request)
+
+    assert first.status == "committed"
+    assert second.status == "replayed"
+    assert len(state.operations) == 1
+
+
+def test_phase_complete_reused_op_id_with_different_body_raises_mismatch() -> None:
+    """A reused complete op_id with a DIFFERENT body is 409 idempotency_mismatch.
+
+    Exercises the ``_mutate_phase`` terminal-write / replay path (distinct from
+    the claim-based start path): the same op_id reused for a different body fails
+    closed rather than replaying the wrong stored result.
+    """
+    from agentkit.backend.story_context_manager.errors import IdempotencyMismatchError
+
+    state = _RepoState()
+    _resolvable_standard_ctx(state)
+    _seed_admitted_run(state, run_id="run-100")
+    service = _admitting_service(state)
+
+    first = service.complete_phase(
+        run_id="run-100",
+        phase="implementation",
+        request=_mismatch_phase_request(
+            op_id="op-mismatch-complete-001", worktree_root="T:/worktrees/a"
+        ),
+    )
+    assert first.status == "committed"
+
+    with pytest.raises(IdempotencyMismatchError) as excinfo:
+        service.complete_phase(
+            run_id="run-100",
+            phase="implementation",
+            request=_mismatch_phase_request(
+                op_id="op-mismatch-complete-001",
+                worktree_root="T:/worktrees/DIFFERENT",
+            ),
+        )
+    assert excinfo.value.detail["conflict"] == "body_hash_mismatch"
+
+
+def _closure_request(*, op_id: str, detail: dict[str, object]) -> ClosureCompleteRequest:
+    return ClosureCompleteRequest(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        session_id="sess-001",
+        op_id=op_id,
+        detail=detail,
+    )
+
+
+def test_closure_reused_op_id_with_different_body_raises_mismatch() -> None:
+    """A reused closure op_id with a DIFFERENT body is 409 idempotency_mismatch."""
+    from agentkit.backend.story_context_manager.errors import IdempotencyMismatchError
+
+    state = _RepoState()
+    state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        mode=WireStoryMode.FAST,
+    )
+    _seed_admitted_run(state, run_id="run-100")
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    first = service.complete_closure(
+        run_id="run-100",
+        request=_closure_request(op_id="op-mismatch-closure-001", detail={"k": "v1"}),
+    )
+    assert first.status == "committed"
+
+    with pytest.raises(IdempotencyMismatchError) as excinfo:
+        service.complete_closure(
+            run_id="run-100",
+            request=_closure_request(
+                op_id="op-mismatch-closure-001", detail={"k": "DIFFERENT"}
+            ),
+        )
+    assert excinfo.value.detail["conflict"] == "body_hash_mismatch"
+    assert excinfo.value.detail["op_id"] == "op-mismatch-closure-001"
+    assert len(state.operations) == 1
+
+
+def test_closure_reused_op_id_with_identical_body_replays() -> None:
+    """A reused closure op_id with the IDENTICAL body still replays (no mismatch)."""
+    state = _RepoState()
+    state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        mode=WireStoryMode.FAST,
+    )
+    _seed_admitted_run(state, run_id="run-100")
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+    request = _closure_request(op_id="op-replay-closure-001", detail={"k": "v1"})
+
+    first = service.complete_closure(run_id="run-100", request=request)
+    second = service.complete_closure(run_id="run-100", request=request)
+
+    assert first.status == "committed"
+    assert second.status == "replayed"
+    assert len(state.operations) == 1
