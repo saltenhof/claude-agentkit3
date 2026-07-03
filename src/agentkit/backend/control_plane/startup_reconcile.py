@@ -1,19 +1,37 @@
 """Startup reconciliation of orphaned in-flight claims (AG3-138, IMPL-003/IMPL-005).
 
-FK-91 §91.1a rule 16 / FK-10 §10.5.4: "der Server muss über seinen eigenen
-Absturz nicht spekulieren; über das Schweigen eines Clients schon". Before the
-control-plane listener accepts its first request, THIS instance finalizes every
-``claimed`` in-flight operation stamped with its OWN ``backend_instance_id``
-from a strictly EARLIER ``instance_incarnation`` (a crash of a previous boot).
-Claims of a foreign instance identity are NEVER touched here -- their only
-other end-way is the explicit ``admin_abort_inflight_operation`` endpoint
+FK-91 §91.1a rule 16 / FK-10 §10.5.4: a server need not speculate about its own
+crash, but it must about a client's silence. Before the control-plane listener
+accepts its first request, THIS instance finalizes every ``claimed`` in-flight
+operation stamped with its OWN ``backend_instance_id`` from a strictly EARLIER
+``instance_incarnation`` (a crash of a previous boot). Claims of a foreign
+instance identity are NEVER touched here -- their only other end-way is the
+explicit ``admin_abort_inflight_operation`` endpoint
 (``formal.state-storage.invariants``
 ``orphaned_claims_are_finalized_only_by_same_instance_startup_reconciliation_or_admin_abort``).
 
 Deterministic, event-based partial write detection (IMPL-005, no wall-clock
 mechanism): an orphaned claim whose ``phase_states``/``flow_executions`` were
 already persisted at or after the claim's own ``claimed_at`` goes to an
-explicit, auditable ``repair`` state instead of silently ``failed``.
+explicit, auditable ``repair`` state instead of silently ``failed``. This
+detection is FAIL-CLOSED-BIASED, not silently permissive: it can only ever route
+an orphan toward ``repair`` (a visible, auditable, mutation-locking handling
+state), never toward a silent ``failed`` that would drop a real partial write on
+the floor. Its residual imprecision -- an occasional over-conservative ``repair``
+for a story whose only post-``claimed_at`` engine write actually came from a
+different, successfully committed operation -- requires the durable
+object-mutation-claim serialization (single active operation per story) to
+eliminate, and that serialization is AG3-141's charter (unwired here). See
+``has_engine_writes_since_control_plane_claim_global_row`` for the full precision
+argument. An over-conservative ``repair`` is never a permanent story deadlock:
+it is productively resolvable via the admin-abort repair-resolve path (AC10).
+
+Epoch fence (AC4, IMPL-005): finalize is a mandatory compare-and-swap on the
+orphan's ``operation_epoch`` (``operation_finalize_requires_cas_on_operation_epoch``).
+An own-identity claim is always AG3-138-stamped and therefore always carries an
+``operation_epoch``; a scanned orphan with a ``NULL`` epoch is a contradiction and
+is treated fail-closed (the reconciliation aborts, AC9), never finalized without a
+fence.
 
 Fail-closed start (AC9): any failure during reconciliation -- a DB error, an
 unreachable store -- is surfaced as :class:`StartupReconciliationError` and MUST
@@ -96,7 +114,10 @@ def run_startup_reconciliation(
         return _run(repo, identity, now_fn=now_fn)
     except StartupReconciliationError:
         raise
-    except Exception as exc:  # noqa: BLE001 -- fail-closed wrap, never swallowed
+    # Fail-closed wrap: the broad catch is intentional and never swallows -- every
+    # non-specific failure is re-raised as StartupReconciliationError so the
+    # pre-serve hook aborts the boot (AC9).
+    except Exception as exc:  # noqa: BLE001
         raise StartupReconciliationError(
             "startup reconciliation failed: the claim inventory of instance "
             f"{identity.backend_instance_id!r} (incarnation "
@@ -118,6 +139,20 @@ def _run(
     finalized: list[str] = []
     repaired: list[str] = []
     for op in orphaned:
+        if op.operation_epoch is None:
+            #: Fail-closed (AC4/AC9): a scanned own-identity orphan ALWAYS carries an
+            #: ``operation_epoch`` (AG3-138 stamps it on every claim; the orphan scan
+            #: only returns rows whose ``backend_instance_id`` matched this instance,
+            #: so a pre-AG3-137 legacy row with a NULL instance is never scanned here).
+            #: A NULL epoch on a scanned orphan is therefore a contradiction; we refuse
+            #: to finalize it without the mandatory epoch fence rather than fall back to
+            #: an identity-only finalize (which would violate
+            #: ``operation_finalize_requires_cas_on_operation_epoch``).
+            raise StartupReconciliationError(
+                f"orphaned claim {op.op_id!r} of backend instance "
+                f"{identity.backend_instance_id!r} carries no operation_epoch; "
+                "refusing an unfenced finalize (fail-closed, AC4/AC9).",
+            )
         status, note = _resolve_terminal_status(repo, op, identity=identity)
         response_payload = _orphan_result_payload(op, status=status, admin_note=note)
         applied = repo.finalize_orphaned_operation(

@@ -326,8 +326,11 @@ class _FakeOps:
         status: str,
         response_payload: dict[str, object],
         now: datetime,
+        owner_operation_epoch: int,
     ) -> bool:
-        # Identity-fenced CAS: apply only when still claimed by the OWN identity.
+        # Identity-fenced CAS: apply only when still claimed by the OWN identity AND
+        # the observed operation_epoch is unchanged (AG3-138 AC4, mandatory epoch
+        # fence -- a NULL-epoch row or a bumped epoch matches nothing, fail-closed).
         from dataclasses import replace
 
         existing = self._state.operations.get(op_id)
@@ -335,6 +338,7 @@ class _FakeOps:
             existing is None
             or existing.status != "claimed"
             or existing.backend_instance_id != backend_instance_id
+            or existing.operation_epoch != owner_operation_epoch
         ):
             return False
         self._state.operations[op_id] = replace(
@@ -372,6 +376,29 @@ class _FakeOps:
             operation_epoch=(existing.operation_epoch or 0) + 1,
             claimed_by=None,
             claimed_at=None,
+        )
+        return True
+
+    def resolve_repair(
+        self,
+        *,
+        op_id: str,
+        response_payload: dict[str, object],
+        now: datetime,
+    ) -> bool:
+        # CAS-resolve an OPEN repair row to 'resolved' (AC10 lock exit); a row not
+        # currently in 'repair' matches nothing (409).
+        from dataclasses import replace
+
+        existing = self._state.operations.get(op_id)
+        if existing is None or existing.status != "repair":
+            return False
+        self._state.operations[op_id] = replace(
+            existing,
+            status="resolved",
+            response_payload=response_payload,
+            updated_at=now,
+            finalized_at=now,
         )
         return True
 
@@ -524,6 +551,7 @@ def _repository(state: _RepoState) -> ControlPlaneRuntimeRepository:
         list_orphaned_claimed_operations=ops.list_orphaned,
         finalize_orphaned_operation=ops.finalize_orphaned,
         admin_abort_operation=ops.admin_abort,
+        resolve_repair_operation=ops.resolve_repair,
         has_engine_writes_since=ops.has_engine_writes_since,
         has_open_repair_for_story=ops.has_open_repair_for_story,
     )
@@ -3451,14 +3479,16 @@ def test_mutating_dispatch_against_story_in_repair_is_rejected() -> None:
     assert "op-new-mut" not in state.operations
 
 
-def test_repair_lock_is_reversible_mutations_allowed_after_repair_resolved() -> None:
-    """AC10: the repair mutation-lock is data-driven and reversible (no deadlock).
+def test_repair_lock_is_reversible_via_admin_abort_resolve_service_path() -> None:
+    """AC10: the repair mutation-lock has a PRODUCTIVE exit via a real service path.
 
-    The lock is a pure function of an OPEN ``repair`` control-plane operation for the
-    story (``has_open_repair_for_story``); there is no separate, driftable lock flag.
-    Once that repair record is RESOLVED (its status transitions away from ``repair``
-    -- an operator/recovery or AG3-150 resolution), the story is no longer locked and
-    a fresh mutating start commits again. This proves there IS a way out of repair.
+    The exit is NOT a fake state edit: the repair is resolved by invoking the
+    productive ``admin_abort_inflight_operation`` service path against the open
+    ``repair`` operation, which CAS-transitions it to ``resolved``. Because the
+    story-scoped lock is a pure function of an OPEN ``repair`` record
+    (``has_open_repair_for_story``), that transition lifts the lock and re-admits a
+    fresh mutating start. This proves there IS a productive way out of repair, so
+    even an over-conservative repair can never be a permanent story deadlock (E1/E2).
     """
     state = _RepoState()
     _resolvable_standard_ctx(state)
@@ -3488,13 +3518,13 @@ def test_repair_lock_is_reversible_mutations_allowed_after_repair_resolved() -> 
     assert locked.status == "rejected"
     assert "op-locked" not in state.operations
 
-    # (2) resolve the repair: the record's status leaves ``repair`` (recovery closed
-    # it). The lock is keyed purely on this record, so the story unlocks.
-    from dataclasses import replace
-
-    state.operations["op-repair-open"] = replace(
-        state.operations["op-repair-open"], status="aborted"
+    # (2) resolve the repair via the REAL service path (admin-abort of the repair op).
+    resolved = service.admin_abort_inflight_operation(
+        "op-repair-open", _admin_abort_request()
     )
+    assert resolved.status == "resolved"
+    assert resolved.admin_note is not None
+    assert state.operations["op-repair-open"].status == "resolved"
 
     # (3) the same story's fresh start now commits again -- no deadlock.
     unlocked = service.start_phase(
@@ -3502,6 +3532,28 @@ def test_repair_lock_is_reversible_mutations_allowed_after_repair_resolved() -> 
     )
     assert unlocked.status == "committed"
     assert "op-after-repair" in state.operations
+
+
+def test_admin_abort_of_resolved_op_is_not_abortable() -> None:
+    """AC6: a second admin-abort of an already-``resolved`` op -> 409 (idempotent)."""
+    state = _RepoState()
+    now = datetime(2026, 7, 2, 11, 0, tzinfo=UTC)
+    state.operations["op-resolved"] = ControlPlaneOperationRecord(
+        op_id="op-resolved",
+        project_key="tenant-a",
+        story_id="AG3-100",
+        run_id="run-100",
+        session_id="sess-001",
+        operation_kind="phase_start",
+        phase="implementation",
+        status="resolved",
+        response_payload={"status": "resolved", "op_id": "op-resolved"},
+        created_at=now,
+        updated_at=now,
+    )
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+    with pytest.raises(OperationNotAbortableError):
+        service.admin_abort_inflight_operation("op-resolved", _admin_abort_request())
 
 
 def test_claim_stamps_instance_identity_and_operation_epoch() -> None:

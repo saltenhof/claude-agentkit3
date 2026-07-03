@@ -1316,16 +1316,18 @@ def finalize_orphaned_control_plane_operation_global(
     status: str,
     response_payload: dict[str, object],
     now: datetime,
-    owner_operation_epoch: int | None = None,
+    owner_operation_epoch: int,
 ) -> bool:
     """CAS-finalize one orphaned claim during startup reconciliation (AG3-138).
 
     Fail-closed identity fence at the store: the CAS additionally matches
     ``backend_instance_id`` -- a claim whose identity is not the caller's own is
     never touched by this call. ``owner_operation_epoch`` (the ``operation_epoch``
-    observed by the orphan scan) additionally fences the finalize on that epoch, so a
-    row whose epoch moved between scan and finalize is left untouched
-    (``operation_finalize_requires_cas_on_operation_epoch``).
+    observed by the orphan scan) is MANDATORY and additionally fences the finalize on
+    that epoch (AC4), so a row whose epoch moved between scan and finalize -- or a
+    malformed ``NULL``-epoch row -- is left untouched
+    (``operation_finalize_requires_cas_on_operation_epoch``). There is no identity-only
+    (epoch-less) finalize path.
     """
     _require_control_plane_backend()
     backend = _backend_module()
@@ -1360,6 +1362,29 @@ def admin_abort_control_plane_operation_global(
         backend.admin_abort_control_plane_operation_global_row(
             op_id=op_id,
             status=status,
+            response_json=mappers.dump_json(response_payload),
+            now=now.isoformat(),
+        )
+    )
+
+
+def resolve_repair_control_plane_operation_global(
+    *,
+    op_id: str,
+    response_payload: dict[str, object],
+    now: datetime,
+) -> bool:
+    """CAS-resolve one open ``repair`` operation to ``resolved`` (AG3-138, AC10).
+
+    The productive end-way out of the repair mutation lock: transitions a
+    ``status = 'repair'`` row to ``resolved`` so the story-scoped lock lifts. Returns
+    ``False`` (caller surfaces 409) when the row is not currently in ``repair``.
+    """
+    _require_control_plane_backend()
+    backend = _backend_module()
+    return bool(
+        backend.resolve_repair_control_plane_operation_global_row(
+            op_id=op_id,
             response_json=mappers.dump_json(response_payload),
             now=now.isoformat(),
         )

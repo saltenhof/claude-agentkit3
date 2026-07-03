@@ -3,9 +3,10 @@
 Pins the stable request/response/error shapes of
 ``POST /v1/project-edge/operations/{op_id}/admin-abort`` (FK-91 §91.1a, FK-55
 §55.5 ``admin_transition``): the audited request, the terminal
-``aborted`` / ``repair`` result carrying the machine-readable ``admin_note``, and
-the ``edge_bundle``-optionality invariant that a non-materializing terminal
-result never carries an edge bundle. ARCH-55: all wire keys / status tokens /
+``aborted`` / ``repair`` / ``resolved`` result carrying the machine-readable
+``admin_note``, and the ``edge_bundle``-optionality invariant that a
+non-materializing terminal result never carries an edge bundle (``resolved`` is
+the productive repair-lock exit, AC10). ARCH-55: all wire keys / status tokens /
 error codes are English.
 """
 
@@ -83,7 +84,7 @@ def test_admin_abort_request_rejects_empty_mandatory_fields(field: str) -> None:
 
 
 @pytest.mark.contract
-@pytest.mark.parametrize("status", ["aborted", "repair", "failed"])
+@pytest.mark.parametrize("status", ["aborted", "repair", "failed", "resolved"])
 def test_reconcile_terminal_result_carries_admin_note_and_no_edge_bundle(
     status: str,
 ) -> None:
@@ -107,7 +108,7 @@ def test_reconcile_terminal_result_carries_admin_note_and_no_edge_bundle(
 
 
 @pytest.mark.contract
-@pytest.mark.parametrize("status", ["aborted", "repair", "failed"])
+@pytest.mark.parametrize("status", ["aborted", "repair", "failed", "resolved"])
 def test_reconcile_terminal_result_must_not_carry_edge_bundle(status: str) -> None:
     """A non-materializing terminal result carrying an edge bundle is rejected."""
     with pytest.raises(ValidationError, match="must not"):

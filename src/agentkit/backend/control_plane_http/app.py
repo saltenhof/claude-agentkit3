@@ -37,6 +37,22 @@ from agentkit.backend.control_plane.runtime import (
 )
 from agentkit.backend.control_plane.telemetry import ControlPlaneTelemetryService
 from agentkit.backend.control_plane.worker_health import ControlPlaneWorkerHealthService
+from agentkit.backend.control_plane_http._route_patterns import (
+    _OPERATION_ADMIN_ABORT_PATTERN,
+    _OPERATION_PATH_PATTERN,
+    _PROJECT_CLOSURE_PATH_PATTERN,
+    _PROJECT_DASHBOARD_BOARD,
+    _PROJECT_DASHBOARD_STORY_METRICS,
+    _PROJECT_PHASE_PATH_PATTERN,
+    _PROJECT_STORIES_COLLECTION,
+    _PROJECT_STORY_APPROVE,
+    _PROJECT_STORY_CANCEL,
+    _PROJECT_STORY_DETAIL,
+    _PROJECT_STORY_FIELD_KEY,
+    _PROJECT_STORY_FIELDS,
+    _PROJECT_STORY_REJECT,
+    _PROJECT_STORY_SEARCH,
+)
 from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
 from agentkit.backend.control_plane_http.version_handshake import CompatWindow, VersionHandshakeMiddleware
 from agentkit.backend.exceptions import ConfigError
@@ -61,66 +77,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Path patterns — project-scoped (FK-72 §72.8.1)
-# ---------------------------------------------------------------------------
-
-# Legacy non-project paths (kept for non-project-scoped resources only):
-_OPERATION_PATH_PATTERN = re.compile(
-    r"^/v1/project-edge/operations/(?P<op_id>[^/]+)$",
-)
-
-# AG3-138: administrative abort of a hanging server-owned in-flight operation
-# (FK-91 §91.1a ``admin_abort_inflight_operation``, FK-55 §55.5 admin_transition).
-_OPERATION_ADMIN_ABORT_PATTERN = re.compile(
-    r"^/v1/project-edge/operations/(?P<op_id>[^/]+)/admin-abort$",
-)
-
-# Project-scoped paths under /v1/projects/{project_key}/<bc>/...
-_PROJECT_SCOPED_PREFIX = re.compile(
-    r"^/v1/projects/(?P<project_key>[^/]+)/(?P<rest>.+)$",
-)
-
-# story-runs (project-scoped by project_key in path since AG3-090):
-_PROJECT_PHASE_PATH_PATTERN = re.compile(
-    r"^/v1/projects/(?P<project_key>[^/]+)/story-runs/(?P<run_id>[^/]+)"
-    r"/phases/(?P<phase>[^/]+)/(?P<action>start|complete|fail|resume)$",
-)
-_PROJECT_CLOSURE_PATH_PATTERN = re.compile(
-    r"^/v1/projects/(?P<project_key>[^/]+)/story-runs/(?P<run_id>[^/]+)/closure/complete$",
-)
-# Project-scoped story paths:
-_PROJECT_STORIES_COLLECTION = re.compile(
-    r"^/v1/projects/(?P<project_key>[^/]+)/stories$",
-)
-_PROJECT_STORY_DETAIL = re.compile(
-    r"^/v1/projects/(?P<project_key>[^/]+)/stories/(?P<story_id>[^/]+)$",
-)
-_PROJECT_STORY_APPROVE = re.compile(
-    r"^/v1/projects/(?P<project_key>[^/]+)/stories/(?P<story_id>[^/]+)/approve$",
-)
-_PROJECT_STORY_REJECT = re.compile(
-    r"^/v1/projects/(?P<project_key>[^/]+)/stories/(?P<story_id>[^/]+)/reject$",
-)
-_PROJECT_STORY_CANCEL = re.compile(
-    r"^/v1/projects/(?P<project_key>[^/]+)/stories/(?P<story_id>[^/]+)/cancel$",
-)
-_PROJECT_STORY_FIELDS = re.compile(
-    r"^/v1/projects/(?P<project_key>[^/]+)/stories/(?P<story_id>[^/]+)/fields$",
-)
-_PROJECT_STORY_FIELD_KEY = re.compile(
-    r"^/v1/projects/(?P<project_key>[^/]+)/stories/(?P<story_id>[^/]+)"
-    r"/fields/(?P<field_key>[^/]+)$",
-)
-_PROJECT_STORY_SEARCH = re.compile(
-    r"^/v1/projects/(?P<project_key>[^/]+)/stories/search$",
-)
-_PROJECT_DASHBOARD_BOARD = re.compile(
-    r"^/v1/projects/(?P<project_key>[^/]+)/dashboard/board$",
-)
-_PROJECT_DASHBOARD_STORY_METRICS = re.compile(
-    r"^/v1/projects/(?P<project_key>[^/]+)/dashboard/story-metrics$",
-)
+# Route path patterns (FK-72 §72.8.1) are defined in the sibling ``_route_patterns``
+# module (imported at the top of this file) so this module's executed top-level stays
+# lean (PY_MODULE_TOP_LEVEL_MAX_LOC_100); they are used under their original names, so
+# route matching is unchanged.
 
 _NOT_FOUND_MESSAGE = "Not found"
 _CORRELATION_HEADER = "X-Correlation-Id"
@@ -564,7 +524,175 @@ class _GovernanceMediationHandlers:
         )
 
 
-class ControlPlaneApplication(_GovernanceMediationHandlers):
+class _StoryDashboardHandlersMixin:
+    """Story + dashboard resource HTTP handlers (extracted mixin).
+
+    Cohesive story collection/detail/fields/search and dashboard board/story-metrics
+    handlers, split out of :class:`ControlPlaneApplication` for cohesion (no
+    behaviour change). The concrete application supplies the dependencies below.
+    """
+
+    if TYPE_CHECKING:
+        _story_service: StoryService
+        _story_routes: StoryContextRoutes
+        _dashboard_service: DashboardService
+
+    def _handle_get_stories(
+        self,
+        project_key: str,
+        correlation_id: str,
+    ) -> HttpResponse:
+        try:
+            result = self._story_service.list_stories(project_key)
+        except RuntimeError as exc:
+            logger.warning("Story list unavailable: %s", exc)
+            return _error_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                error_code="story_list_unavailable",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+        return _json_response(
+            HTTPStatus.OK,
+            result.model_dump(mode="json"),
+            correlation_id=correlation_id,
+        )
+
+    def _handle_post_story(
+        self,
+        payload: object,
+        correlation_id: str,
+    ) -> HttpResponse:
+        # Delegate to story_routes which already handles POST /v1/stories:
+        result = self._story_routes.handle_post(
+            "/v1/stories", payload, correlation_id,
+        )
+        if result is not None:
+            return _story_response_to_http_response(result)
+        return _error_response(
+            HTTPStatus.NOT_FOUND,
+            error_code="not_found",
+            message=_NOT_FOUND_MESSAGE,
+            correlation_id=correlation_id,
+        )
+
+    def _handle_get_story(
+        self,
+        story_id: str,
+        project_key: str,
+        correlation_id: str,
+    ) -> HttpResponse:
+        try:
+            result = self._story_service.get_story(project_key, story_id)
+        except RuntimeError as exc:
+            logger.warning("Story detail unavailable: %s", exc)
+            return _error_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                error_code="story_detail_unavailable",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+        if result is None:
+            return _error_response(
+                HTTPStatus.NOT_FOUND,
+                error_code="story_not_found",
+                message="Story not found",
+                correlation_id=correlation_id,
+            )
+        return _json_response(
+            HTTPStatus.OK,
+            result.model_dump(mode="json"),
+            correlation_id=correlation_id,
+        )
+
+    def _handle_get_story_fields(
+        self,
+        story_id: str,
+        correlation_id: str,
+    ) -> HttpResponse:
+        result = self._story_routes.handle_get(
+            f"/v1/stories/{story_id}/fields",
+            correlation_id,
+            {},
+        )
+        if result is not None:
+            return _story_response_to_http_response(result)
+        return _error_response(
+            HTTPStatus.NOT_FOUND,
+            error_code="not_found",
+            message=_NOT_FOUND_MESSAGE,
+            correlation_id=correlation_id,
+        )
+
+    def _handle_get_story_search(
+        self,
+        project_key: str,
+        query: dict[str, list[str]],
+        correlation_id: str,
+    ) -> HttpResponse:
+        """GET /v1/projects/{key}/stories/search?q=... (project-scoped, tenant-checked)."""
+        result = self._story_routes.handle_get(
+            f"/v1/projects/{project_key}/stories/search",
+            correlation_id,
+            query,
+        )
+        if result is not None:
+            return _story_response_to_http_response(result)
+        return _error_response(
+            HTTPStatus.NOT_FOUND,
+            error_code="not_found",
+            message=_NOT_FOUND_MESSAGE,
+            correlation_id=correlation_id,
+        )
+
+    def _handle_get_dashboard_board(
+        self,
+        project_key: str,
+        correlation_id: str,
+    ) -> HttpResponse:
+        try:
+            result = self._dashboard_service.get_board(project_key)
+        except RuntimeError as exc:
+            logger.warning("Dashboard board unavailable: %s", exc)
+            return _error_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                error_code="dashboard_board_unavailable",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+        return _json_response(
+            HTTPStatus.OK,
+            result.model_dump(mode="json"),
+            correlation_id=correlation_id,
+        )
+
+    def _handle_get_dashboard_story_metrics(
+        self,
+        project_key: str,
+        correlation_id: str,
+    ) -> HttpResponse:
+        from agentkit.backend.kpi_analytics.errors import AnalyticsNotConfiguredError
+
+        try:
+            result = self._dashboard_service.get_story_metrics(project_key, period=None)
+        except (RuntimeError, AnalyticsNotConfiguredError) as exc:
+            logger.warning("Dashboard metrics unavailable: %s", exc)
+            return _error_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                error_code="dashboard_story_metrics_unavailable",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+        return _json_response(
+            HTTPStatus.OK,
+            result.model_dump(mode="json"),
+            correlation_id=correlation_id,
+        )
+
+
+class ControlPlaneApplication(
+    _StoryDashboardHandlersMixin, _GovernanceMediationHandlers
+):
     """Route and validate HTTP requests for the control plane (FK-72 §72.8.2).
 
     This is the **single** transport/router.  All BC http/ modules register
@@ -1418,158 +1546,6 @@ class ControlPlaneApplication(_GovernanceMediationHandlers):
             return _error_response(
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 error_code="admin_abort_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _json_response(
-            HTTPStatus.OK,
-            result.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
-
-    def _handle_get_stories(
-        self,
-        project_key: str,
-        correlation_id: str,
-    ) -> HttpResponse:
-        try:
-            result = self._story_service.list_stories(project_key)
-        except RuntimeError as exc:
-            logger.warning("Story list unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="story_list_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _json_response(
-            HTTPStatus.OK,
-            result.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
-
-    def _handle_post_story(
-        self,
-        payload: object,
-        correlation_id: str,
-    ) -> HttpResponse:
-        # Delegate to story_routes which already handles POST /v1/stories:
-        result = self._story_routes.handle_post(
-            "/v1/stories", payload, correlation_id,
-        )
-        if result is not None:
-            return _story_response_to_http_response(result)
-        return _error_response(
-            HTTPStatus.NOT_FOUND,
-            error_code="not_found",
-            message=_NOT_FOUND_MESSAGE,
-            correlation_id=correlation_id,
-        )
-
-    def _handle_get_story(
-        self,
-        story_id: str,
-        project_key: str,
-        correlation_id: str,
-    ) -> HttpResponse:
-        try:
-            result = self._story_service.get_story(project_key, story_id)
-        except RuntimeError as exc:
-            logger.warning("Story detail unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="story_detail_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        if result is None:
-            return _error_response(
-                HTTPStatus.NOT_FOUND,
-                error_code="story_not_found",
-                message="Story not found",
-                correlation_id=correlation_id,
-            )
-        return _json_response(
-            HTTPStatus.OK,
-            result.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
-
-    def _handle_get_story_fields(
-        self,
-        story_id: str,
-        correlation_id: str,
-    ) -> HttpResponse:
-        result = self._story_routes.handle_get(
-            f"/v1/stories/{story_id}/fields",
-            correlation_id,
-            {},
-        )
-        if result is not None:
-            return _story_response_to_http_response(result)
-        return _error_response(
-            HTTPStatus.NOT_FOUND,
-            error_code="not_found",
-            message=_NOT_FOUND_MESSAGE,
-            correlation_id=correlation_id,
-        )
-
-    def _handle_get_story_search(
-        self,
-        project_key: str,
-        query: dict[str, list[str]],
-        correlation_id: str,
-    ) -> HttpResponse:
-        """GET /v1/projects/{key}/stories/search?q=... (project-scoped, tenant-checked)."""
-        result = self._story_routes.handle_get(
-            f"/v1/projects/{project_key}/stories/search",
-            correlation_id,
-            query,
-        )
-        if result is not None:
-            return _story_response_to_http_response(result)
-        return _error_response(
-            HTTPStatus.NOT_FOUND,
-            error_code="not_found",
-            message=_NOT_FOUND_MESSAGE,
-            correlation_id=correlation_id,
-        )
-
-    def _handle_get_dashboard_board(
-        self,
-        project_key: str,
-        correlation_id: str,
-    ) -> HttpResponse:
-        try:
-            result = self._dashboard_service.get_board(project_key)
-        except RuntimeError as exc:
-            logger.warning("Dashboard board unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="dashboard_board_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _json_response(
-            HTTPStatus.OK,
-            result.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
-
-    def _handle_get_dashboard_story_metrics(
-        self,
-        project_key: str,
-        correlation_id: str,
-    ) -> HttpResponse:
-        from agentkit.backend.kpi_analytics.errors import AnalyticsNotConfiguredError
-
-        try:
-            result = self._dashboard_service.get_story_metrics(project_key, period=None)
-        except (RuntimeError, AnalyticsNotConfiguredError) as exc:
-            logger.warning("Dashboard metrics unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="dashboard_story_metrics_unavailable",
                 message=str(exc),
                 correlation_id=correlation_id,
             )

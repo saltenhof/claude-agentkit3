@@ -16,7 +16,8 @@ use:
   routes an admin-abort into the explicit ``repair`` state, visible via the
   operation load surface.
 * AC9 -- a failing reconciliation makes the pre-serve startup hook fail closed.
-* AC10 -- a story in an open ``repair`` state mutation-locks a new dispatch.
+* AC10 -- a story in an open ``repair`` state mutation-locks a new dispatch, and the
+  admin-abort repair-resolve service path productively lifts that lock (no deadlock).
 
 The Postgres backend is auto-attached to every ``tests/integration`` item
 (``tests/integration/conftest.py``); no explicit fixture parameter is needed.
@@ -406,6 +407,10 @@ def test_admin_abort_partial_write_goes_to_repair_and_locks_story(
        explicit ``repair`` state (visible via the operation load surface, AC5).
     3. A new mutating dispatch against the now-in-repair story is fail-closed
        ``rejected`` at the operations layer (AC10).
+    4. The open repair is productively resolved via the REAL admin-abort service path
+       (repair -> ``resolved``), lifting the story-scoped mutation lock (AC10 exit).
+    5. A fresh mutating start against the story is re-admitted -- proving there is a
+       productive way out of repair (no permanent deadlock; E1/E2).
     """
     story_id = "AG3-350"
     run_id = "run-350"
@@ -472,3 +477,34 @@ def test_admin_abort_partial_write_goes_to_repair_and_locks_story(
     )
     assert locked.status == "rejected", "the story is mutation-locked while in repair"
     assert load_control_plane_operation_global("op-350-blocked") is None
+
+    # (4) resolve the repair via the REAL service path (admin-abort of the repair op)
+    #     -> 'resolved'; this is the productive exit from the AC10 lock (no fake edit).
+    resolve_service = ControlPlaneRuntimeService(
+        now_fn=lambda: _T0 + timedelta(minutes=6),
+        instance_identity=identity,
+    )
+    resolved = resolve_service.admin_abort_inflight_operation(
+        "op-350-crash", _abort_request()
+    )
+    assert resolved.status == "resolved", "the open repair is productively closed out"
+    reloaded = load_control_plane_operation_global("op-350-crash")
+    assert reloaded is not None and reloaded.status == "resolved"
+
+    # (5) the story is no longer repair-locked: the same fresh mutating start that was
+    #     rejected in step (3) is now re-admitted (fresh unbound session so the only
+    #     thing that changed is the lifted lock, not run/session binding).
+    unlocked = service.start_phase(
+        run_id="run-350-new",
+        phase="setup",
+        request=PhaseMutationRequest(
+            project_key="tenant-a",
+            story_id=story_id,
+            session_id="sess-after-repair",
+            principal_type="orchestrator",
+            worktree_roots=["T:/worktrees/ag3-350"],
+            op_id="op-350-after-repair",
+        ),
+    )
+    assert unlocked.status == "committed", "repair resolved -> mutations allowed again"
+    assert load_control_plane_operation_global("op-350-after-repair") is not None

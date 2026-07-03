@@ -43,6 +43,7 @@ def _build_public_api_names() -> tuple[str, ...]:
         "list_orphaned_claimed_control_plane_operations_global",
         "finalize_orphaned_control_plane_operation_global",
         "admin_abort_control_plane_operation_global",
+        "resolve_repair_control_plane_operation_global",
         "has_engine_writes_since_control_plane_claim_global",
         "has_open_repair_control_plane_operation_for_story_global",
         "count_runtime_execution_residue",

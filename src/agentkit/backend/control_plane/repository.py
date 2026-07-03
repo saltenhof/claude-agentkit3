@@ -33,6 +33,7 @@ from agentkit.backend.state_backend.store import (
     load_story_execution_lock_global,
     load_takeover_transfer_record_global,
     release_control_plane_operation_global,
+    resolve_repair_control_plane_operation_global,
     save_backend_instance_identity_global,
     save_control_plane_operation_global,
     save_session_run_binding_global,
@@ -175,6 +176,13 @@ class ControlPlaneRuntimeRepository:
     #: AG3-138 ``admin_abort_inflight_operation`` (FK-91 §91.1a, FK-55 §55.5
     #: ``admin_transition``): CAS-abort ANY currently-``claimed`` operation.
     admin_abort_operation: Callable[..., bool] = admin_abort_control_plane_operation_global
+    #: AG3-138 (AC10): CAS-resolve an open ``repair`` operation to ``resolved`` --
+    #: the productive end-way out of the story-scoped repair mutation lock (op-class
+    #: ``admin_transition``, FK-55 §55.5). Returns ``False`` (409) when the target is
+    #: not currently in ``repair``.
+    resolve_repair_operation: Callable[..., bool] = (
+        resolve_repair_control_plane_operation_global
+    )
     #: AG3-138 (IMPL-005): deterministic partial-write detection -- have
     #: ``phase_states``/``flow_executions`` already been written for this story at
     #: or after the claim's own ``claimed_at`` (never the current wall clock)? Bound

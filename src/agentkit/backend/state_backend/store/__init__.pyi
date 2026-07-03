@@ -278,6 +278,9 @@ from agentkit.backend.state_backend.store.facade import (
     reset_backend_cache_for_tests as reset_backend_cache_for_tests,
 )
 from agentkit.backend.state_backend.store.facade import (
+    resolve_repair_control_plane_operation_global as resolve_repair_control_plane_operation_global,
+)
+from agentkit.backend.state_backend.store.facade import (
     resolve_runtime_scope as resolve_runtime_scope,
 )
 from agentkit.backend.state_backend.store.facade import (

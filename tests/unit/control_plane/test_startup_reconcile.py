@@ -97,7 +97,7 @@ class _FakeReconcileRepo:
         status: str,
         response_payload: dict[str, object],
         now: datetime,
-        owner_operation_epoch: int | None = None,
+        owner_operation_epoch: int,
     ) -> bool:
         existing = self.operations.get(op_id)
         if (
@@ -106,12 +106,10 @@ class _FakeReconcileRepo:
             or existing.backend_instance_id != backend_instance_id
         ):
             return False
-        #: AG3-138 P3: the identity fence PLUS the ``operation_epoch`` CAS observed by
-        #: the orphan scan -- a row whose epoch moved since the scan is left untouched.
-        if (
-            owner_operation_epoch is not None
-            and existing.operation_epoch != owner_operation_epoch
-        ):
+        #: AG3-138 P3/AC4: the identity fence PLUS the MANDATORY ``operation_epoch`` CAS
+        #: observed by the orphan scan -- a row whose epoch moved since the scan (or a
+        #: NULL-epoch row) is left untouched (fail-closed, no identity-only path).
+        if existing.operation_epoch != owner_operation_epoch:
             return False
         self.operations[op_id] = replace(
             existing,
@@ -217,3 +215,27 @@ def test_store_failure_is_fail_closed_start() -> None:
             _identity("inst-me", 2),
             now_fn=lambda: _NOW,
         )
+
+
+def test_null_epoch_own_orphan_is_fail_closed_not_unfenced_finalize() -> None:
+    """AC4/AC9: a scanned own-identity orphan with a NULL operation_epoch fails closed.
+
+    An own-identity claim is always AG3-138-stamped, so a NULL epoch on a scanned
+    orphan is a contradiction; reconciliation must refuse an unfenced (identity-only)
+    finalize rather than silently finalizing it, and abort the boot (fail-closed).
+    """
+    repo = _FakeReconcileRepo()
+    null_epoch_claim = replace(
+        _claim(op_id="op-null-epoch", backend_instance_id="inst-me", incarnation=1),
+        operation_epoch=None,
+    )
+    repo.operations["op-null-epoch"] = null_epoch_claim
+
+    with pytest.raises(StartupReconciliationError):
+        run_startup_reconciliation(
+            repo,  # type: ignore[arg-type]
+            _identity("inst-me", 3),
+            now_fn=lambda: _NOW,
+        )
+    #: The row was NEVER finalized without a fence -- it stays claimed.
+    assert repo.operations["op-null-epoch"].status == "claimed"

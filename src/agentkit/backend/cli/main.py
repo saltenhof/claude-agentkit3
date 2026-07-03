@@ -2173,7 +2173,9 @@ def _cmd_admin_abort(args: argparse.Namespace) -> int:
         args: Parsed CLI arguments.
 
     Returns:
-        0 on a terminal ``aborted``/``repair`` result, 1 on error/unreachable.
+        0 on a successful terminal ``aborted``/``repair``/``resolved`` result, 1 on
+        error/unreachable. (``resolved`` is returned when the target was an open
+        ``repair`` state that this call closed out, lifting the mutation lock, AC10.)
     """
     from urllib.error import URLError
 
@@ -2217,8 +2219,9 @@ def _cmd_admin_abort(args: argparse.Namespace) -> int:
         return 1
 
     print(json.dumps(result.model_dump(mode="json"), sort_keys=True))
-    # Both 'aborted' and 'repair' are successful terminal outcomes of the abort.
-    return 0 if result.status in ("aborted", "repair") else 1
+    # 'aborted'/'repair' (claimed target) and 'resolved' (repair target closed out,
+    # AC10) are all successful terminal outcomes of the admin-abort path.
+    return 0 if result.status in ("aborted", "repair", "resolved") else 1
 
 
 # --- reset-escalation (Class C) ------------------------------------------------

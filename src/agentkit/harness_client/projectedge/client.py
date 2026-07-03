@@ -540,7 +540,8 @@ class ProjectEdgeClient:
 
         Returns:
             The terminal :class:`ControlPlaneMutationResult` the core returned
-            (``aborted`` or ``repair``).
+            (``aborted`` / ``repair`` for a claimed target; ``resolved`` when the
+            target was an open ``repair`` state closed out via this path, AC10).
 
         Raises:
             ControlPlaneApiError: On the stable 404/409 error contract.

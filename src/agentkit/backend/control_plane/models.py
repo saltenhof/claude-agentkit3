@@ -557,8 +557,12 @@ class PhaseDispatchResult(BaseModel):
 #: already partially persisted -- an explicit, auditable reconcile/repair
 #: state (IMPL-005), never silently ``failed``. ``failed``: the deterministic
 #: startup-reconciliation outcome for an orphaned claim of the OWN instance's
-#: earlier incarnation with no partial writes (FK-91 §91.1a rule 16).
-_NO_EDGE_BUNDLE_STATUSES = frozenset({"rejected", "aborted", "repair", "failed"})
+#: earlier incarnation with no partial writes (FK-91 §91.1a rule 16). ``resolved``:
+#: an open ``repair`` state that was productively closed out via the admin-abort
+#: repair-resolve path (AC10), which lifts the story-scoped mutation lock.
+_NO_EDGE_BUNDLE_STATUSES = frozenset(
+    {"rejected", "aborted", "repair", "failed", "resolved"}
+)
 
 
 class ControlPlaneMutationResult(BaseModel):
@@ -567,7 +571,14 @@ class ControlPlaneMutationResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     status: Literal[
-        "committed", "replayed", "synced", "rejected", "aborted", "repair", "failed"
+        "committed",
+        "replayed",
+        "synced",
+        "rejected",
+        "aborted",
+        "repair",
+        "failed",
+        "resolved",
     ]
     op_id: str
     operation_kind: str
@@ -588,9 +599,10 @@ class ControlPlaneMutationResult(BaseModel):
     #: phase result without a second response path.
     phase_dispatch: PhaseDispatchResult | None = None
     #: AG3-138: the machine-readable, auditable reason for an ``aborted`` /
-    #: ``repair`` / ``failed`` terminal outcome (e.g. why an admin-abort target
-    #: went to ``repair`` instead of ``aborted``, or why startup reconciliation
-    #: finalized an orphaned claim). ``None`` for every other status. The
+    #: ``repair`` / ``failed`` / ``resolved`` terminal outcome (e.g. why an
+    #: admin-abort target went to ``repair`` instead of ``aborted``, why startup
+    #: reconciliation finalized an orphaned claim, or the audited actor/reason that
+    #: resolved a ``repair`` state). ``None`` for every other status. The
     #: SEVERITY-SEMANTIK guardrail: a ``repair`` state is a visible, auditable
     #: handling requirement, never a silently discarded fact.
     admin_note: str | None = None

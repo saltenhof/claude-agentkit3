@@ -261,7 +261,260 @@ def _closure_binding_collision_reason(exc: ControlPlaneBindingCollisionError) ->
     )
 
 
-class _ControlPlaneRuntimeAdmissionBase:
+class _ClaimLeaseMixin:
+    """AG3-054 leased, owner-scoped claim/lease protocol (extracted mixin).
+
+    Cohesive owner-token mint + atomic claim/takeover + lease-expiry + ownership-
+    scoped release methods, split out of :class:`_ControlPlaneRuntimeAdmissionBase`
+    for cohesion (no behaviour change). The concrete runtime supplies the shared
+    dependencies below.
+    """
+
+    if TYPE_CHECKING:
+        _repo: ControlPlaneRuntimeRepository
+        _token_factory: Callable[[], str]
+        _now_fn: Callable[[], datetime]
+
+        def _current_instance_identity(self) -> BackendInstanceIdentityRecord: ...
+
+    def _mint_owner_token(self) -> str:
+        """Mint and VALIDATE the per-call owner token at the seam (AG3-054, #5).
+
+        WARNING-5 fix (#5): ownership scoping (release / finalize / takeover CAS) is
+        only sound if the owner token is UNIQUE and well-shaped. A DI-injected
+        ``token_factory`` (tests / alternative wiring) that yields an empty or
+        non-UUID-shaped token would let owner A's stale release/finalize CAS match
+        owner B's claim (cross-ownership). The token is therefore validated here at
+        the mint seam: it MUST be a non-empty string carrying a parseable UUID
+        (the productive factory mints ``owner-<uuid4hex>``). An invalid token is
+        rejected fail-closed with a clear error instead of silently eroding the
+        ownership scope. The token stays injectable for deterministic tests --
+        only its SHAPE is enforced, never a specific value.
+
+        Returns:
+            The validated owner token.
+
+        Raises:
+            ConfigError: When the configured ``token_factory`` yields an
+                empty / non-UUID-shaped token.
+        """
+        token = self._token_factory()
+        if not _is_valid_owner_token(token):
+            from agentkit.backend.exceptions import ConfigError
+
+            raise ConfigError(
+                "control-plane owner token is invalid: the leased owner-scoped "
+                "claim (AG3-054) requires a non-empty, UUID-shaped owner token so "
+                "release / finalize / takeover are ownership-scoped and cannot "
+                "cross-match a different caller's claim. The configured "
+                "token_factory yielded an empty or non-UUID-shaped token; "
+                "fail-closed (#5).",
+            )
+        return token
+
+    def _acquire_claim(
+        self,
+        request: PhaseMutationRequest,
+        *,
+        run_id: str,
+        phase: str,
+        owner_token: str,
+        operation_kind: str = "phase_start",
+    ) -> _ClaimOutcome:
+        """Acquire the leased, owner-scoped claim before dispatch (AG3-054, #1).
+
+        Protocol:
+
+        1. CLAIM = ``INSERT ... ON CONFLICT (op_id) DO NOTHING`` with the per-call
+           ``owner_token`` lease. rowcount==1 => WON.
+        2. Lost the insert => load the blocking row:
+
+           * gone (a concurrent release) => retry the atomic claim ONCE.
+           * TERMINAL (``status != 'claimed'``) => return the stored result as a
+             REPLAY (a winner already finished; never re-dispatch).
+           * LIVE ``claimed`` (now - claimed_at < TTL) => LOSER: a fail-closed
+             "operation in flight, retry" rejection. DO NOT steal, DO NOT dispatch.
+           * EXPIRED ``claimed`` (now - claimed_at >= TTL) => atomic CAS takeover
+             of the crashed owner's lease; rowcount==1 => took over (WON), else a
+             concurrent winner changed the row => LOSER (in-flight rejection).
+
+        Args:
+            request: The phase mutation request (op_id + lookup keys).
+            run_id: The story run identifier.
+            phase: The requested phase name.
+            owner_token: This caller's per-call lease owner token.
+
+        Returns:
+            A :class:`_ClaimOutcome` carrying either the won lease or the loser's
+            fail-closed result.
+        """
+        now = self._now_fn()
+        placeholder = _build_claim_placeholder(
+            request,
+            run_id=run_id,
+            phase=phase,
+            owner_token=owner_token,
+            now=now,
+            operation_kind=operation_kind,
+            instance_identity=self._current_instance_identity(),
+        )
+        #: WARNING-4 fix (#4): the RAW lease epoch this caller stamps. The writer
+        #: stores ``claimed_at`` as ``isoformat`` TEXT, so this is the exact raw
+        #: column value the finalize/release CAS must match (alongside the owner
+        #: token) to scope to THIS lease generation.
+        claim_instant_raw = now.isoformat()
+        #: AG3-138: the fencing epoch THIS claim was stamped with (unchanged by a
+        #: same-instance TTL takeover below -- only an admin-abort bumps it).
+        claim_operation_epoch = placeholder.operation_epoch
+        if self._repo.claim_operation(placeholder):
+            return _ClaimOutcome(
+                won=True,
+                result=None,
+                claimed_at_raw=claim_instant_raw,
+                operation_epoch=claim_operation_epoch,
+            )
+        stored = self._repo.load_operation(request.op_id)
+        if stored is None:
+            # The blocking row vanished between the failed claim and this read
+            # (a concurrent release). Retry the atomic claim once.
+            if self._repo.claim_operation(placeholder):
+                return _ClaimOutcome(
+                    won=True,
+                    result=None,
+                    claimed_at_raw=claim_instant_raw,
+                    operation_epoch=claim_operation_epoch,
+                )
+            return _ClaimOutcome(won=False, result=self._in_flight_rejection(request, operation_kind=operation_kind))
+        if stored.status != "claimed":
+            # A terminal result already exists -- replay, never re-dispatch.
+            return _ClaimOutcome(
+                won=False,
+                result=_replayed_result(stored.response_payload),
+            )
+        if not self._claim_is_expired(stored, now=now):
+            # A LIVE foreign claim -- a winner is mid-dispatch. Never steal.
+            return _ClaimOutcome(won=False, result=self._in_flight_rejection(request, operation_kind=operation_kind))
+        # EXPIRED claim (crashed owner): atomic CAS takeover of the exact observed
+        # lease. A concurrent winner that finalized/took over changed the row, so
+        # the CAS affects zero rows and this caller loses the takeover race.
+        #
+        # ERROR-2 fix (AG3-054): the observed ``claimed_at`` is the RAW stored
+        # column value (``claimed_at_raw``), NOT the normalized aware instant used
+        # to JUDGE expiry above. The CAS compares against the raw TEXT column, so a
+        # naive/legacy/malformed row (judged EXPIRED here) must be matched by its
+        # raw value -- matching the normalized value would never hit the raw column
+        # and would poison the op_id forever (rowcount 0 on every retry).
+        if self._repo.takeover_operation(
+            placeholder,
+            observed_claimed_by=stored.claimed_by,
+            observed_claimed_at=stored.claimed_at_raw,
+        ):
+            #: WARNING-4: the takeover re-stamped the lease to MY ``now``, so MY
+            #: lease epoch is the same ``claim_instant_raw`` -- threaded to
+            #: finalize/release so their CAS scopes to THIS (new) generation.
+            #: AG3-138: ``takeover_operation`` (frozen, untouched by this story)
+            #: does NOT re-stamp ``operation_epoch`` -- it stays the claim's
+            #: original epoch (this is the SAME instance reclaiming its own
+            #: stuck lease, not a new fencing generation), so ``stored``'s epoch
+            #: is unchanged and equals the fresh placeholder's initial epoch.
+            return _ClaimOutcome(
+                won=True,
+                result=None,
+                claimed_at_raw=claim_instant_raw,
+                operation_epoch=stored.operation_epoch,
+            )
+        return _ClaimOutcome(won=False, result=self._in_flight_rejection(request, operation_kind=operation_kind))
+
+    def _claim_is_expired(
+        self,
+        stored: ControlPlaneOperationRecord,
+        *,
+        now: datetime,
+    ) -> bool:
+        """Whether a ``claimed`` row's lease has expired (AG3-054, #4).
+
+        Fail-closed: a ``claimed`` row with NO ``claimed_at`` (a legacy / malformed
+        placeholder that carries no lease) is treated as EXPIRED so the op_id can
+        never be poisoned permanently by an un-leased claim.
+
+        WARNING-4 fix (#4): the mapper boundary normalizes ``claimed_at`` to aware
+        UTC, but a naive ``claimed_at`` (e.g. injected via a fake repo) or a naive
+        ``now`` (an injected ``now_fn``) would still make ``now - claimed_at`` raise
+        ``TypeError`` and crash the retry BEFORE any takeover. Both operands are
+        therefore coerced to aware UTC here, and a value that cannot be coerced is
+        treated as EXPIRED (reclaimable) rather than crashing the takeover path.
+        """
+        if stored.claimed_at is None:
+            return True
+        claimed_at = _as_aware_utc(stored.claimed_at)
+        if claimed_at is None:
+            # An unusable lease instant is fail-closed reclaimable (EXPIRED),
+            # never a crash (NO ERROR BYPASSING -- the op_id stays recoverable).
+            return True
+        return (_as_aware_utc(now) or now) - claimed_at >= _CLAIM_LEASE_TTL
+
+    def _in_flight_rejection(
+        self,
+        request: PhaseMutationRequest,
+        *,
+        operation_kind: str = "phase_start",
+    ) -> ControlPlaneMutationResult:
+        """Build the fail-closed "operation in flight, retry" loser rejection.
+
+        Returned when a LIVE foreign claim holds the op_id (or the CAS takeover of
+        an expired claim was lost to a concurrent winner). The loser NEVER steals
+        and NEVER dispatches; it surfaces a ``rejected`` retry-now result (no
+        fabricated bundle, no second dispatch). A single retry then either replays
+        the committed terminal result or reclaims a now-expired/released claim.
+        """
+        return _rejection_result(
+            op_id=request.op_id,
+            operation_kind=operation_kind,
+            run_id=None,
+            phase=None,
+            reason=(
+                "Operation in flight: another caller holds an active claim for "
+                "this op_id and is mid-dispatch. The dispatch runs EXACTLY ONCE "
+                "under the winning caller; retry to read the committed result "
+                "(AG3-054 leased owner-scoped claim, no double dispatch)."
+            ),
+        )
+
+    def _release_my_claim(
+        self, op_id: str, owner_token: str, owner_claimed_at: str | None
+    ) -> None:
+        """Ownership-scoped release of MY claim (never a foreign / terminal row).
+
+        WARNING-4 fix (#4): the release CAS matches BOTH the owner token AND MY
+        lease epoch (``owner_claimed_at``), so a stale generation (reused token /
+        post-takeover) cannot delete a NEWER lease.
+        """
+        self._repo.release_operation(
+            op_id, owner_token=owner_token, owner_claimed_at=owner_claimed_at
+        )
+
+    def _release_my_claim_best_effort(
+        self, op_id: str, owner_token: str, owner_claimed_at: str | None
+    ) -> None:
+        """Release MY claim without masking an in-flight original error (#1).
+
+        Used on the exception path: a release failure must NOT replace the original
+        exception (it is logged and swallowed), so the real error always
+        propagates (NO ERROR BYPASSING). The CAS is lease-epoch-scoped (#4).
+        """
+        try:
+            self._repo.release_operation(
+                op_id, owner_token=owner_token, owner_claimed_at=owner_claimed_at
+            )
+        except Exception:  # noqa: BLE001 -- never mask the original error
+            logger.warning(
+                "control-plane claim release failed for op_id=%s (original error "
+                "is re-raised; the claim lease will expire and become reclaimable)",
+                op_id,
+            )
+
+
+class _ControlPlaneRuntimeAdmissionBase(_ClaimLeaseMixin):
     """Start-phase admission and dispatch support for the runtime service."""
 
     def __init__(
@@ -392,41 +645,6 @@ class _ControlPlaneRuntimeAdmissionBase:
             return
         _require_postgres_control_plane_backend()
         self._backend_checked = True
-
-    def _mint_owner_token(self) -> str:
-        """Mint and VALIDATE the per-call owner token at the seam (AG3-054, #5).
-
-        WARNING-5 fix (#5): ownership scoping (release / finalize / takeover CAS) is
-        only sound if the owner token is UNIQUE and well-shaped. A DI-injected
-        ``token_factory`` (tests / alternative wiring) that yields an empty or
-        non-UUID-shaped token would let owner A's stale release/finalize CAS match
-        owner B's claim (cross-ownership). The token is therefore validated here at
-        the mint seam: it MUST be a non-empty string carrying a parseable UUID
-        (the productive factory mints ``owner-<uuid4hex>``). An invalid token is
-        rejected fail-closed with a clear error instead of silently eroding the
-        ownership scope. The token stays injectable for deterministic tests --
-        only its SHAPE is enforced, never a specific value.
-
-        Returns:
-            The validated owner token.
-
-        Raises:
-            ConfigError: When the configured ``token_factory`` yields an
-                empty / non-UUID-shaped token.
-        """
-        token = self._token_factory()
-        if not _is_valid_owner_token(token):
-            from agentkit.backend.exceptions import ConfigError
-
-            raise ConfigError(
-                "control-plane owner token is invalid: the leased owner-scoped "
-                "claim (AG3-054) requires a non-empty, UUID-shaped owner token so "
-                "release / finalize / takeover are ownership-scoped and cannot "
-                "cross-match a different caller's claim. The configured "
-                "token_factory yielded an empty or non-UUID-shaped token; "
-                "fail-closed (#5).",
-            )
-        return token
 
     def start_phase(
         self,
@@ -673,174 +891,6 @@ class _ControlPlaneRuntimeAdmissionBase:
         #: place, so a replay of the same op_id returns an identical record.
         return _StartPhaseOutcome(rejection=None, dispatch_result=dispatch_result)
 
-    def _acquire_claim(
-        self,
-        request: PhaseMutationRequest,
-        *,
-        run_id: str,
-        phase: str,
-        owner_token: str,
-        operation_kind: str = "phase_start",
-    ) -> _ClaimOutcome:
-        """Acquire the leased, owner-scoped claim before dispatch (AG3-054, #1).
-
-        Protocol:
-
-        1. CLAIM = ``INSERT ... ON CONFLICT (op_id) DO NOTHING`` with the per-call
-           ``owner_token`` lease. rowcount==1 => WON.
-        2. Lost the insert => load the blocking row:
-
-           * gone (a concurrent release) => retry the atomic claim ONCE.
-           * TERMINAL (``status != 'claimed'``) => return the stored result as a
-             REPLAY (a winner already finished; never re-dispatch).
-           * LIVE ``claimed`` (now - claimed_at < TTL) => LOSER: a fail-closed
-             "operation in flight, retry" rejection. DO NOT steal, DO NOT dispatch.
-           * EXPIRED ``claimed`` (now - claimed_at >= TTL) => atomic CAS takeover
-             of the crashed owner's lease; rowcount==1 => took over (WON), else a
-             concurrent winner changed the row => LOSER (in-flight rejection).
-
-        Args:
-            request: The phase mutation request (op_id + lookup keys).
-            run_id: The story run identifier.
-            phase: The requested phase name.
-            owner_token: This caller's per-call lease owner token.
-
-        Returns:
-            A :class:`_ClaimOutcome` carrying either the won lease or the loser's
-            fail-closed result.
-        """
-        now = self._now_fn()
-        placeholder = _build_claim_placeholder(
-            request,
-            run_id=run_id,
-            phase=phase,
-            owner_token=owner_token,
-            now=now,
-            operation_kind=operation_kind,
-            instance_identity=self._current_instance_identity(),
-        )
-        #: WARNING-4 fix (#4): the RAW lease epoch this caller stamps. The writer
-        #: stores ``claimed_at`` as ``isoformat`` TEXT, so this is the exact raw
-        #: column value the finalize/release CAS must match (alongside the owner
-        #: token) to scope to THIS lease generation.
-        claim_instant_raw = now.isoformat()
-        #: AG3-138: the fencing epoch THIS claim was stamped with (unchanged by a
-        #: same-instance TTL takeover below -- only an admin-abort bumps it).
-        claim_operation_epoch = placeholder.operation_epoch
-        if self._repo.claim_operation(placeholder):
-            return _ClaimOutcome(
-                won=True,
-                result=None,
-                claimed_at_raw=claim_instant_raw,
-                operation_epoch=claim_operation_epoch,
-            )
-        stored = self._repo.load_operation(request.op_id)
-        if stored is None:
-            # The blocking row vanished between the failed claim and this read
-            # (a concurrent release). Retry the atomic claim once.
-            if self._repo.claim_operation(placeholder):
-                return _ClaimOutcome(
-                    won=True,
-                    result=None,
-                    claimed_at_raw=claim_instant_raw,
-                    operation_epoch=claim_operation_epoch,
-                )
-            return _ClaimOutcome(won=False, result=self._in_flight_rejection(request, operation_kind=operation_kind))
-        if stored.status != "claimed":
-            # A terminal result already exists -- replay, never re-dispatch.
-            return _ClaimOutcome(
-                won=False,
-                result=_replayed_result(stored.response_payload),
-            )
-        if not self._claim_is_expired(stored, now=now):
-            # A LIVE foreign claim -- a winner is mid-dispatch. Never steal.
-            return _ClaimOutcome(won=False, result=self._in_flight_rejection(request, operation_kind=operation_kind))
-        # EXPIRED claim (crashed owner): atomic CAS takeover of the exact observed
-        # lease. A concurrent winner that finalized/took over changed the row, so
-        # the CAS affects zero rows and this caller loses the takeover race.
-        #
-        # ERROR-2 fix (AG3-054): the observed ``claimed_at`` is the RAW stored
-        # column value (``claimed_at_raw``), NOT the normalized aware instant used
-        # to JUDGE expiry above. The CAS compares against the raw TEXT column, so a
-        # naive/legacy/malformed row (judged EXPIRED here) must be matched by its
-        # raw value -- matching the normalized value would never hit the raw column
-        # and would poison the op_id forever (rowcount 0 on every retry).
-        if self._repo.takeover_operation(
-            placeholder,
-            observed_claimed_by=stored.claimed_by,
-            observed_claimed_at=stored.claimed_at_raw,
-        ):
-            #: WARNING-4: the takeover re-stamped the lease to MY ``now``, so MY
-            #: lease epoch is the same ``claim_instant_raw`` -- threaded to
-            #: finalize/release so their CAS scopes to THIS (new) generation.
-            #: AG3-138: ``takeover_operation`` (frozen, untouched by this story)
-            #: does NOT re-stamp ``operation_epoch`` -- it stays the claim's
-            #: original epoch (this is the SAME instance reclaiming its own
-            #: stuck lease, not a new fencing generation), so ``stored``'s epoch
-            #: is unchanged and equals the fresh placeholder's initial epoch.
-            return _ClaimOutcome(
-                won=True,
-                result=None,
-                claimed_at_raw=claim_instant_raw,
-                operation_epoch=stored.operation_epoch,
-            )
-        return _ClaimOutcome(won=False, result=self._in_flight_rejection(request, operation_kind=operation_kind))
-
-    def _claim_is_expired(
-        self,
-        stored: ControlPlaneOperationRecord,
-        *,
-        now: datetime,
-    ) -> bool:
-        """Whether a ``claimed`` row's lease has expired (AG3-054, #4).
-
-        Fail-closed: a ``claimed`` row with NO ``claimed_at`` (a legacy / malformed
-        placeholder that carries no lease) is treated as EXPIRED so the op_id can
-        never be poisoned permanently by an un-leased claim.
-
-        WARNING-4 fix (#4): the mapper boundary normalizes ``claimed_at`` to aware
-        UTC, but a naive ``claimed_at`` (e.g. injected via a fake repo) or a naive
-        ``now`` (an injected ``now_fn``) would still make ``now - claimed_at`` raise
-        ``TypeError`` and crash the retry BEFORE any takeover. Both operands are
-        therefore coerced to aware UTC here, and a value that cannot be coerced is
-        treated as EXPIRED (reclaimable) rather than crashing the takeover path.
-        """
-        if stored.claimed_at is None:
-            return True
-        claimed_at = _as_aware_utc(stored.claimed_at)
-        if claimed_at is None:
-            # An unusable lease instant is fail-closed reclaimable (EXPIRED),
-            # never a crash (NO ERROR BYPASSING -- the op_id stays recoverable).
-            return True
-        return (_as_aware_utc(now) or now) - claimed_at >= _CLAIM_LEASE_TTL
-
-    def _in_flight_rejection(
-        self,
-        request: PhaseMutationRequest,
-        *,
-        operation_kind: str = "phase_start",
-    ) -> ControlPlaneMutationResult:
-        """Build the fail-closed "operation in flight, retry" loser rejection.
-
-        Returned when a LIVE foreign claim holds the op_id (or the CAS takeover of
-        an expired claim was lost to a concurrent winner). The loser NEVER steals
-        and NEVER dispatches; it surfaces a ``rejected`` retry-now result (no
-        fabricated bundle, no second dispatch). A single retry then either replays
-        the committed terminal result or reclaims a now-expired/released claim.
-        """
-        return _rejection_result(
-            op_id=request.op_id,
-            operation_kind=operation_kind,
-            run_id=None,
-            phase=None,
-            reason=(
-                "Operation in flight: another caller holds an active claim for "
-                "this op_id and is mid-dispatch. The dispatch runs EXACTLY ONCE "
-                "under the winning caller; retry to read the committed result "
-                "(AG3-054 leased owner-scoped claim, no double dispatch)."
-            ),
-        )
-
     def _finalize_start_phase(
         self,
         *,
@@ -956,39 +1006,6 @@ class _ControlPlaneRuntimeAdmissionBase:
         """
         binding = self._repo.load_binding(session_id)
         return binding.binding_version if binding is not None else None
-
-    def _release_my_claim(
-        self, op_id: str, owner_token: str, owner_claimed_at: str | None
-    ) -> None:
-        """Ownership-scoped release of MY claim (never a foreign / terminal row).
-
-        WARNING-4 fix (#4): the release CAS matches BOTH the owner token AND MY
-        lease epoch (``owner_claimed_at``), so a stale generation (reused token /
-        post-takeover) cannot delete a NEWER lease.
-        """
-        self._repo.release_operation(
-            op_id, owner_token=owner_token, owner_claimed_at=owner_claimed_at
-        )
-
-    def _release_my_claim_best_effort(
-        self, op_id: str, owner_token: str, owner_claimed_at: str | None
-    ) -> None:
-        """Release MY claim without masking an in-flight original error (#1).
-
-        Used on the exception path: a release failure must NOT replace the original
-        exception (it is logged and swallowed), so the real error always
-        propagates (NO ERROR BYPASSING). The CAS is lease-epoch-scoped (#4).
-        """
-        try:
-            self._repo.release_operation(
-                op_id, owner_token=owner_token, owner_claimed_at=owner_claimed_at
-            )
-        except Exception:  # noqa: BLE001 -- never mask the original error
-            logger.warning(
-                "control-plane claim release failed for op_id=%s (original error "
-                "is re-raised; the claim lease will expire and become reclaimable)",
-                op_id,
-            )
 
     def _repair_locked_rejection(
         self,
@@ -1353,7 +1370,180 @@ class _ControlPlaneRuntimeAdmissionBase:
         raise NotImplementedError
 
 
-class ControlPlaneRuntimeService(_ControlPlaneRuntimeAdmissionBase):
+class _AdminTransitionMixin:
+    """AG3-138 ``admin_transition`` abort + repair-resolve service methods (mixin).
+
+    Cohesive admin-abort / partial-write-repair / repair-resolve logic, split out of
+    :class:`ControlPlaneRuntimeService` for cohesion (no behaviour change). The
+    concrete runtime supplies the shared dependencies below.
+    """
+
+    if TYPE_CHECKING:
+        _repo: ControlPlaneRuntimeRepository
+        _now_fn: Callable[[], datetime]
+
+        def _require_postgres_backend_on_first_use(self) -> None: ...
+
+    def admin_abort_inflight_operation(
+        self,
+        op_id: str,
+        request: AdminAbortRequest,
+    ) -> ControlPlaneMutationResult:
+        """Administratively abort a hanging server-owned in-flight operation (AG3-138).
+
+        FK-91 §91.1a ``admin_abort_inflight_operation`` (FK-55 §55.5
+        ``admin_transition``): the explicit manual end-way for an in-flight claim
+        beside the same-instance startup reconciliation, AND the productive exit from
+        the ``repair`` mutation lock (NO ERROR BYPASSING -- no back door that just
+        "frees" claims or "clears" the lock). Acts on the two admin-actionable
+        (non-closed) states:
+
+        * a currently-``claimed`` operation (a server-owned in-flight claim) is
+          CAS-aborted: it bumps ``operation_epoch`` so a late, physically-still-
+          running executor's finalize fails the epoch fence deterministically -- at
+          most a no-op abort note, never a second result or a silent state change
+          (AC4/AC6; ``operation_finalize_requires_cas_on_operation_epoch``) -- and
+          routes a partial write (already-persisted ``phase_states``/
+          ``flow_executions``) into the explicit, auditable ``repair`` state instead
+          of silently ``failed`` (IMPL-005), which then story-scoped mutation-locks
+          the run (AC10);
+        * an open ``repair`` operation is CAS-resolved to ``resolved``, lifting the
+          story-scoped mutation lock so mutating operations are re-admitted (AC10).
+          This is the productive end-way out of ``repair``, so even an
+          over-conservative repair (see the partial-write detector) can never be a
+          permanent story deadlock.
+
+        Both transitions are fully audited: the actor (``session_id`` /
+        ``principal_type``) and the mandatory ``reason`` are persisted on the terminal
+        operation record (visible via ``GET operations/{op_id}``).
+
+        Args:
+            op_id: The target operation id (URL path segment).
+            request: The audited admin-abort request (actor + reason).
+
+        Returns:
+            The terminal :class:`ControlPlaneMutationResult`: for a ``claimed``
+            target ``aborted`` (no partial writes) or ``repair`` (partial writes
+            detected); for a ``repair`` target ``resolved``. An unknown op is 404; a
+            target in a truly closed terminal status (or resolved concurrently) is a
+            fail-closed 409.
+
+        Raises:
+            OperationNotFoundError: When ``op_id`` does not exist (HTTP 404).
+            OperationNotAbortableError: When the operation is neither ``claimed`` nor
+                ``repair`` (already closed terminal, HTTP 409), or was resolved
+                concurrently between the load and the CAS.
+        """
+        self._require_postgres_backend_on_first_use()
+        record = self._repo.load_operation(op_id)
+        if record is None:
+            raise OperationNotFoundError(op_id)
+        if record.status == "claimed":
+            return self._abort_claimed_operation(record, request)
+        if record.status == "repair":
+            #: AC10 productive end-way: admin-abort of an OPEN ``repair`` state closes
+            #: it out to ``resolved``, lifting the story-scoped mutation lock. This is
+            #: the one manual exit from ``repair`` (NO ERROR BYPASSING -- no back door
+            #: that just clears the lock); ``repair`` is not a closed terminal but an
+            #: open, admin-actionable handling state.
+            return self._resolve_repair_operation(record, request)
+        #: Any truly closed terminal status (committed/aborted/failed/resolved/...) is
+        #: not abortable (AC6, 409).
+        raise OperationNotAbortableError(op_id, record.status)
+
+    def _abort_claimed_operation(
+        self,
+        record: ControlPlaneOperationRecord,
+        request: AdminAbortRequest,
+    ) -> ControlPlaneMutationResult:
+        """CAS-abort a currently-``claimed`` operation (AC6, partial write -> repair)."""
+        status, admin_note = self._resolve_abort_terminal_status(record, request)
+        result = ControlPlaneMutationResult(
+            status=status,
+            op_id=record.op_id,
+            operation_kind=record.operation_kind,
+            run_id=record.run_id,
+            phase=record.phase,
+            edge_bundle=None,
+            phase_dispatch=None,
+            admin_note=admin_note,
+        )
+        applied = self._repo.admin_abort_operation(
+            op_id=record.op_id,
+            status=status,
+            response_payload=result.model_dump(mode="json"),
+            now=self._now_fn(),
+        )
+        if not applied:
+            #: The claim was concurrently resolved (finalized/aborted) between the
+            #: load and the CAS. Fail-closed: it is no longer an abortable
+            #: in-flight claim (AC6, 409). NO second/duplicate terminal write.
+            raise OperationNotAbortableError(record.op_id, "resolved_concurrently")
+        return result
+
+    def _resolve_repair_operation(
+        self,
+        record: ControlPlaneOperationRecord,
+        request: AdminAbortRequest,
+    ) -> ControlPlaneMutationResult:
+        """CAS-resolve an open ``repair`` operation to ``resolved`` (AC10 lock exit)."""
+        actor = f"session={request.session_id!r} principal={request.principal_type!r}"
+        admin_note = (
+            f"repair resolved by {actor}: reason={request.reason!r}. The open "
+            "reconcile/repair state was administratively closed out to 'resolved'; "
+            "the story-scoped mutation lock is lifted and mutating operations are "
+            "re-admitted (AC10). op-class admin_transition (FK-55 §55.5)."
+        )
+        result = ControlPlaneMutationResult(
+            status="resolved",
+            op_id=record.op_id,
+            operation_kind=record.operation_kind,
+            run_id=record.run_id,
+            phase=record.phase,
+            edge_bundle=None,
+            phase_dispatch=None,
+            admin_note=admin_note,
+        )
+        applied = self._repo.resolve_repair_operation(
+            op_id=record.op_id,
+            response_payload=result.model_dump(mode="json"),
+            now=self._now_fn(),
+        )
+        if not applied:
+            #: The repair row moved off ``repair`` (resolved concurrently) between the
+            #: load and the CAS. Fail-closed: no second/duplicate resolve (AC6, 409).
+            raise OperationNotAbortableError(record.op_id, "resolved_concurrently")
+        return result
+
+    def _resolve_abort_terminal_status(
+        self,
+        record: ControlPlaneOperationRecord,
+        request: AdminAbortRequest,
+    ) -> tuple[Literal["aborted", "repair"], str]:
+        """Decide ``aborted`` vs ``repair`` for an admin-abort target (IMPL-005)."""
+        since = record.claimed_at or record.created_at
+        has_writes = self._repo.has_engine_writes_since(record.story_id, since)
+        actor = f"session={request.session_id!r} principal={request.principal_type!r}"
+        if has_writes:
+            return (
+                "repair",
+                f"admin_abort_inflight_operation by {actor}: reason="
+                f"{request.reason!r}. The aborted operation had already persisted "
+                "engine writes (phase_states/flow_executions); entering an "
+                "explicit, auditable reconcile/repair state instead of silently "
+                "'failed' (IMPL-005). The story is mutation-locked until the state "
+                "is resolved via repair (AC10).",
+            )
+        return (
+            "aborted",
+            f"admin_abort_inflight_operation by {actor}: reason={request.reason!r}. "
+            "No persisted engine writes detected; the in-flight claim is aborted "
+            "and its operation_epoch bumped so a late executor's finalize fails "
+            "the fence deterministically (AC4).",
+        )
+
+
+class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmissionBase):
     """Implement control-plane mutations with idempotent op replay."""
 
     def complete_closure(
@@ -2023,103 +2213,6 @@ class ControlPlaneRuntimeService(_ControlPlaneRuntimeAdmissionBase):
         #: visible, auditable reconcile/repair state, SEVERITY-SEMANTIK) and
         #: only echoes the ordinary success statuses as ``replayed``.
         return _replayed_result(record.response_payload)
-
-    def admin_abort_inflight_operation(
-        self,
-        op_id: str,
-        request: AdminAbortRequest,
-    ) -> ControlPlaneMutationResult:
-        """Administratively abort a hanging server-owned in-flight operation (AG3-138).
-
-        FK-91 §91.1a ``admin_abort_inflight_operation`` (FK-55 §55.5
-        ``admin_transition``): the ONE explicit manual end-way for an in-flight
-        claim beside the same-instance startup reconciliation (NO ERROR
-        BYPASSING -- no back door that just "frees" claims). Acts ONLY on a
-        currently-``claimed`` operation (a server-owned in-flight claim) and:
-
-        * bumps ``operation_epoch`` so a late, physically-still-running executor's
-          finalize fails the epoch fence deterministically -- at most a no-op
-          abort note, never a second result or a silent state change (AC4/AC6;
-          ``operation_finalize_requires_cas_on_operation_epoch``);
-        * routes a partial write (already-persisted ``phase_states``/
-          ``flow_executions``) into the explicit, auditable ``repair`` state
-          instead of silently ``failed`` (IMPL-005), which then story-scoped
-          mutation-locks the run (AC10);
-        * is fully audited: the actor (``session_id`` / ``principal_type``) and
-          the mandatory ``reason`` are persisted on the terminal operation
-          record (visible via ``GET operations/{op_id}``).
-
-        Args:
-            op_id: The target in-flight operation id (URL path segment).
-            request: The audited admin-abort request (actor + reason).
-
-        Returns:
-            The terminal :class:`ControlPlaneMutationResult`: ``aborted`` (no
-            partial writes) or ``repair`` (partial writes detected). An already
-            resolved / unknown op is a fail-closed rejection the HTTP adapter
-            maps to 409 / 404.
-
-        Raises:
-            OperationNotFoundError: When ``op_id`` does not exist (HTTP 404).
-            OperationNotAbortableError: When the operation is not currently
-                ``claimed`` (already terminal, HTTP 409).
-        """
-        self._require_postgres_backend_on_first_use()
-        record = self._repo.load_operation(op_id)
-        if record is None:
-            raise OperationNotFoundError(op_id)
-        if record.status != "claimed":
-            raise OperationNotAbortableError(op_id, record.status)
-        status, admin_note = self._resolve_abort_terminal_status(record, request)
-        result = ControlPlaneMutationResult(
-            status=status,
-            op_id=op_id,
-            operation_kind=record.operation_kind,
-            run_id=record.run_id,
-            phase=record.phase,
-            edge_bundle=None,
-            phase_dispatch=None,
-            admin_note=admin_note,
-        )
-        applied = self._repo.admin_abort_operation(
-            op_id=op_id,
-            status=status,
-            response_payload=result.model_dump(mode="json"),
-            now=self._now_fn(),
-        )
-        if not applied:
-            #: The claim was concurrently resolved (finalized/aborted) between the
-            #: load and the CAS. Fail-closed: it is no longer an abortable
-            #: in-flight claim (AC6, 409). NO second/duplicate terminal write.
-            raise OperationNotAbortableError(op_id, "resolved_concurrently")
-        return result
-
-    def _resolve_abort_terminal_status(
-        self,
-        record: ControlPlaneOperationRecord,
-        request: AdminAbortRequest,
-    ) -> tuple[Literal["aborted", "repair"], str]:
-        """Decide ``aborted`` vs ``repair`` for an admin-abort target (IMPL-005)."""
-        since = record.claimed_at or record.created_at
-        has_writes = self._repo.has_engine_writes_since(record.story_id, since)
-        actor = f"session={request.session_id!r} principal={request.principal_type!r}"
-        if has_writes:
-            return (
-                "repair",
-                f"admin_abort_inflight_operation by {actor}: reason="
-                f"{request.reason!r}. The aborted operation had already persisted "
-                "engine writes (phase_states/flow_executions); entering an "
-                "explicit, auditable reconcile/repair state instead of silently "
-                "'failed' (IMPL-005). The story is mutation-locked until the state "
-                "is resolved via repair (AC10).",
-            )
-        return (
-            "aborted",
-            f"admin_abort_inflight_operation by {actor}: reason={request.reason!r}. "
-            "No persisted engine writes detected; the in-flight claim is aborted "
-            "and its operation_epoch bumped so a late executor's finalize fails "
-            "the fence deterministically (AC4).",
-        )
 
     def _mutate_phase(
         self,

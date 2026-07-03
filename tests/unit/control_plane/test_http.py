@@ -1382,6 +1382,22 @@ def test_admin_abort_endpoint_partial_write_returns_repair_200() -> None:
     assert _json_body(response)["status"] == "repair"
 
 
+def test_admin_abort_endpoint_repair_resolve_returns_resolved_200() -> None:
+    """AC10: admin-abort of an open ``repair`` target returns 200 ``resolved``.
+
+    The HTTP adapter maps the productive repair-lock exit (repair -> ``resolved``)
+    like any other successful terminal result (200), carrying the audited note.
+    """
+    app = _abort_app(_AbortRuntimeService(result=_abort_result("resolved")))
+
+    response = _post_admin_abort(app, op_id="op-abort-1", body=_ABORT_BODY)
+
+    assert response.status_code == HTTPStatus.OK
+    body = _json_body(response)
+    assert body["status"] == "resolved"
+    assert body["edge_bundle"] is None
+
+
 def test_admin_abort_endpoint_unknown_op_returns_404() -> None:
     """AC6: an unknown op_id is a deterministic fail-closed 404."""
     from agentkit.backend.control_plane.runtime import OperationNotFoundError
