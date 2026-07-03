@@ -1,7 +1,8 @@
 story_id: AG3-139
 title: "TTL-Entfall: Rückbau von Claim-Lease-TTL und CAS-Auto-Takeover"
 type: implementation
-status: ready
+status: completed
+completed_at: "2026-07-03T13:38:20Z"
 phase: setup
 created: "2026-07-02"
 size: S

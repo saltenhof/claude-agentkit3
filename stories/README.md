@@ -373,7 +373,7 @@ Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
 |----|------------------|-------|--------|------------|
 | AG3-137 | Ownership-Schema-Fundament (Records/Claims/Transfer, Backfill) | L | **completed** | — |
 | AG3-138 | Instanz-Identität + Startup-Rekonsiliierung + admin_abort | L | **completed** | 137 |
-| AG3-139 | TTL-Entfall (Rückbau, NUR nach 138) | S | **ready** | 138 |
+| AG3-139 | TTL-Entfall (Rückbau, NUR nach 138) | S | **completed** | 138 |
 | AG3-140 | Einheitlicher Idempotenz-Vertrag (BC-weit, Client-op_id) | L | **ready** | 137 |
 | AG3-141 | Objekt-Serialisierung (Story-Claims, Lock-Sets, 409/bounded-wait) | L | **ready** | 137, 138 |
 | AG3-142 | Ownership-Fencing der Regime-Pfade (`ownership_epoch`) | L | **ready** | 137 |
@@ -392,16 +392,20 @@ Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
 | AG3-155 | Betriebs-Runbook FK-04 (concept) | S | blocked | 139, 149, 151, 154 |
 | AG3-156 | Verify-Evidenz-Ausführungsort: Request-DSL-Resolver + Evidence-Assembler vom Backend-Worktree-Zugriff lösen (Review-Fund, PO-Go 2026-07-02) | L | blocked | 144, 145 |
 
-**Sofort startbar (`ready`): AG3-139, AG3-140, AG3-141, AG3-142, AG3-143, AG3-146.**
+**Sofort startbar (`ready`): AG3-140, AG3-141, AG3-142, AG3-143, AG3-146.**
 (AG3-137 ✅ **completed** 2026-07-02 — Ownership-Schema-Fundament.
 AG3-138 ✅ **completed** 2026-07-03 — Instanz-Identität + Startup-
-Rekonsiliierung + admin_abort gelandet (Best-of-Breed auf sonnet-Basis,
+Rekonsiliierung + admin_abort abgeschlossen (Best-of-Breed auf sonnet-Basis,
 Opus-AC10-Mutationssperre eingearbeitet): Codex-Review APPROVE (r3) +
 SonarQube 0 Issues overall + volle Gate-Suite grün (8354, 91.87 %);
-E1-Posture PO-bestätigt (Teil-Write fail-closed-sicher + auflösbar;
-Präzision folgt mit AG3-141). Entblockt AG3-139 + AG3-141 (beide jetzt
-`ready`); AG3-154 bleibt blocked (braucht 145/148). Nächster Schritt
-laut Sequenz: AG3-139.)
+E1-Posture PO-bestätigt. Entblockte AG3-139 + AG3-141.
+AG3-139 ✅ **completed** 2026-07-03 — TTL-Entfall (Rückbau Claim-Lease-TTL
++ CAS-Auto-Takeover): Codex-Substanz-APPROVE (r3 PP1-3) + SonarQube 0;
+der rote Jenkins-Build 949 war ein last-induzierter Flake in einem
+fremden Test (`test_concurrent_opposite_acquires_cannot_both_pass`,
+SQLite-Bootstrap-Race), PO-Abschluss mit Blick auf den anschließenden
+Test-/Docker-Infrastruktur-Umbau. Entblockt AG3-155 nur teilweise
+(braucht zusätzlich 149/151/154 → bleibt blocked).)
 
 **Sequenzieller Ausführungsplan (gültige topologische Reihenfolge):**
 Die IDs wurden topologisch vergeben; aufsteigende Abarbeitung ist
