@@ -32,6 +32,7 @@ Requests with any other value are rejected with 422 (Pydantic validation).
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -39,13 +40,23 @@ from datetime import UTC, datetime
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from agentkit.backend.control_plane.models import (
     BcRouteResponse,
     bc_error_response,
     bc_json_response,
     bc_unavailable_response,
+    op_id_validation_error,
+)
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    IdempotencyRequest,
+    InflightIdempotencyGuard,
+    InFlightOutcome,
+    MismatchOutcome,
+    ReplayOutcome,
+    StateBackendInflightIdempotencyGuard,
+    compute_body_hash,
 )
 from agentkit.backend.task_management.errors import (
     InvalidTaskLinkTargetError,
@@ -68,6 +79,8 @@ from agentkit.backend.task_management.models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from agentkit.backend.task_management.service import TaskManagement
 
 logger = logging.getLogger(__name__)
@@ -118,10 +131,15 @@ class _CreateTaskRequest(BaseModel):
     task_id is NOT accepted from the client — allocated server-side (finding 9).
     The adapter derives the id as TM-{year}-{padded_seq} using the current year and
     the next available sequence for that year.
+
+    ``op_id`` is the client-supplied, required idempotency key (AG3-140 / FK-91
+    §91.1a Regel 5). It is excluded from the body-hash so a replay of the same
+    mutation under the same ``op_id`` hashes equal.
     """
 
     model_config = ConfigDict(extra="forbid")
 
+    op_id: str = Field(min_length=1)
     kind: TaskKind
     type: str
     title: str
@@ -132,10 +150,15 @@ class _CreateTaskRequest(BaseModel):
 
 
 class _ResolveRequest(BaseModel):
-    """Wire body for POST /tasks/{id}/resolve and /dismiss."""
+    """Wire body for POST /tasks/{id}/resolve and /dismiss.
+
+    ``op_id`` is the client-supplied, required idempotency key (AG3-140 / FK-91
+    §91.1a Regel 5).
+    """
 
     model_config = ConfigDict(extra="forbid")
 
+    op_id: str = Field(min_length=1)
     resolved_by: ResolvedBy
 
 
@@ -144,10 +167,14 @@ class _LinkRequest(BaseModel):
 
     target_kind is restricted to TaskTargetKind (task|story only).
     Any other value is rejected at validation time with ValidationError -> 422.
+
+    ``op_id`` is the client-supplied, required idempotency key (AG3-140 / FK-91
+    §91.1a Regel 5).
     """
 
     model_config = ConfigDict(extra="forbid")
 
+    op_id: str = Field(min_length=1)
     target_kind: TaskTargetKind
     target_id: str
     kind: TaskRelationKind
@@ -219,12 +246,25 @@ class TaskManagementRoutes:
       - Truly unexpected exceptions (programming bugs, unexpected DB errors): 500
         ``internal_error`` — loud failure, NOT masked as 503.
 
+    Idempotency (AG3-140 / FK-91 §91.1a Regel 5): every mutating POST carries a
+    required client-supplied ``op_id`` and runs through the unified
+    ``InflightIdempotencyGuard`` (claim -> mutate -> finalize). A replay of the
+    same ``op_id`` returns the stored result without re-mutating; the same
+    ``op_id`` with a different body is ``409 idempotency_mismatch``; a live
+    parallel claim is ``409 operation_in_flight``.
+
     Args:
         task_management: Optional ``TaskManagement`` service. When ``None`` all
             routes return ``503 task_management_unavailable`` (fail-closed).
+        idempotency_guard: Optional unified idempotency guard. When ``None`` the
+            production Postgres-backed guard is resolved lazily per call (it is
+            stateless). Unit tests inject a shared
+            ``InMemoryInflightIdempotencyGuard`` so claim state persists across
+            calls within one test.
     """
 
     task_management: TaskManagement | None = None
+    idempotency_guard: InflightIdempotencyGuard | None = None
 
     def handle_get(
         self,
@@ -362,6 +402,128 @@ class TaskManagementRoutes:
             "task_management_unavailable",
             message="Task-management service is not available (AG3-105 / FK-77 §77.7)",
             correlation_id=correlation_id,
+        )
+
+    # ------------------------------------------------------------------
+    # Private helpers — unified idempotency guard (AG3-140 / FK-91 §91.1a Regel 5)
+    # ------------------------------------------------------------------
+
+    def _guard(self) -> InflightIdempotencyGuard:
+        """Resolve the idempotency guard (injected instance or production default).
+
+        When an instance was injected it is returned as-is (a shared in-memory
+        guard in unit tests keeps claim state across calls). Otherwise the
+        stateless Postgres-backed production guard is constructed per call.
+        """
+        return self.idempotency_guard or StateBackendInflightIdempotencyGuard()
+
+    def _validation_error(
+        self,
+        exc: ValidationError,
+        *,
+        payload_error_code: str,
+        correlation_id: str,
+    ) -> BcRouteResponse:
+        """Map a wire ``ValidationError`` to the correct fail-closed 422.
+
+        A missing/empty ``op_id`` fails closed with error_code ``missing_op_id``
+        (AG3-140 / FK-91 §91.1a Regel 5, distinct from the ordinary malformed-body
+        rejection). Any other validation failure keeps the route's existing
+        ``invalid_*_payload`` error_code.
+        """
+        if op_id_validation_error(exc):
+            return bc_error_response(
+                HTTPStatus.UNPROCESSABLE_ENTITY,
+                error_code="missing_op_id",
+                message="op_id is required and must be non-empty (FK-91 §91.1a Regel 5)",
+                correlation_id=correlation_id,
+                detail=exc.errors(),
+            )
+        return bc_error_response(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            error_code=payload_error_code,
+            message=str(exc),
+            correlation_id=correlation_id,
+        )
+
+    def _run_idempotent(
+        self,
+        request: IdempotencyRequest,
+        mutate: Callable[[], BcRouteResponse],
+        correlation_id: str,
+    ) -> BcRouteResponse:
+        """Run one mutation under the unified idempotency contract.
+
+        claim -> mutate -> finalize/release:
+          * ``ReplayOutcome`` -> rebuild and return the stored response.
+          * ``MismatchOutcome`` -> ``409 idempotency_mismatch``.
+          * ``InFlightOutcome`` -> ``409 operation_in_flight``.
+          * ``FreshClaim`` -> run ``mutate``; a deterministic business outcome
+            (2xx or domain 4xx) is finalized so a replay returns it verbatim; a
+            truly unexpected ``500`` releases the claim so a retry may re-run.
+        """
+        guard = self._guard()
+        outcome = guard.claim(request)
+        if isinstance(outcome, ReplayOutcome):
+            return self._replay_response(outcome.result_payload, correlation_id)
+        if isinstance(outcome, MismatchOutcome):
+            return bc_error_response(
+                HTTPStatus.CONFLICT,
+                error_code="idempotency_mismatch",
+                message=(
+                    f"op_id {outcome.op_id!r} was previously used with a different "
+                    "request body; use a new op_id for a different mutation"
+                ),
+                correlation_id=correlation_id,
+                detail={"op_id": outcome.op_id, "conflict": "body_hash_mismatch"},
+            )
+        if isinstance(outcome, InFlightOutcome):
+            return bc_error_response(
+                HTTPStatus.CONFLICT,
+                error_code="operation_in_flight",
+                message=(
+                    f"op_id {outcome.op_id!r} is already in flight; retry after the "
+                    "concurrent operation settles"
+                ),
+                correlation_id=correlation_id,
+                detail={"op_id": outcome.op_id},
+            )
+        # FreshClaim — this caller won and must run the mutation.
+        response = mutate()
+        if response.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
+            # Unexpected/infrastructure failure — release so a retry may re-run.
+            guard.release(request, outcome)
+            return response
+        # Deterministic business outcome (2xx or domain 4xx) — record it so a
+        # replay of the same op_id returns the identical stored response.
+        guard.finalize(
+            request,
+            outcome,
+            {"status_code": response.status_code, "body": json.loads(response.body)},
+        )
+        return response
+
+    def _replay_response(
+        self,
+        result_payload: dict[str, object],
+        correlation_id: str,
+    ) -> BcRouteResponse:
+        """Rebuild a stored response from a replay payload (byte-for-byte body).
+
+        The stored shape is ``{"status_code": <int>, "body": <dict>}``. A malformed
+        record fails closed with ``500`` rather than replaying a partial result.
+        """
+        status_raw = result_payload.get("status_code")
+        body_raw = result_payload.get("body")
+        if not isinstance(status_raw, int) or not isinstance(body_raw, dict):
+            return _internal_error(
+                "corrupt idempotency replay record",
+                correlation_id,
+                RuntimeError("stored result payload is malformed"),
+            )
+        body_dict: dict[str, object] = {str(k): v for k, v in body_raw.items()}
+        return bc_json_response(
+            HTTPStatus(status_raw), body_dict, correlation_id=correlation_id
         )
 
     # ------------------------------------------------------------------
@@ -512,13 +674,37 @@ class TaskManagementRoutes:
         try:
             body = _CreateTaskRequest.model_validate(payload or {})
         except ValidationError as exc:
-            return bc_error_response(
-                HTTPStatus.UNPROCESSABLE_ENTITY,
-                error_code="invalid_task_payload",
-                message=str(exc),
+            return self._validation_error(
+                exc,
+                payload_error_code="invalid_task_payload",
                 correlation_id=correlation_id,
             )
+        request = IdempotencyRequest(
+            op_id=body.op_id,
+            operation_kind="task_create",
+            body_hash=compute_body_hash(body.model_dump(mode="json")),
+            project_key=project_key,
+            story_id=None,
+            correlation_id=correlation_id,
+        )
+        return self._run_idempotent(
+            request,
+            lambda: self._do_create_task(project_key, body, correlation_id),
+            correlation_id,
+        )
 
+    def _do_create_task(
+        self,
+        project_key: str,
+        body: _CreateTaskRequest,
+        correlation_id: str,
+    ) -> BcRouteResponse:
+        """Run the create mutation (server-side id allocation with one retry).
+
+        The idempotency guard wraps the WHOLE create attempt: a replay never
+        re-enters this method (it returns the stored 201), so the id allocation
+        runs exactly once per distinct ``op_id``.
+        """
         # Allocate task_id server-side with a single retry on collision.
         max_attempts = 2
         for attempt in range(max_attempts):
@@ -618,12 +804,39 @@ class TaskManagementRoutes:
         try:
             body = _ResolveRequest.model_validate(payload or {})
         except ValidationError as exc:
-            return bc_error_response(
-                HTTPStatus.UNPROCESSABLE_ENTITY,
-                error_code="invalid_resolve_payload",
-                message=str(exc),
+            return self._validation_error(
+                exc,
+                payload_error_code="invalid_resolve_payload",
                 correlation_id=correlation_id,
             )
+        request = IdempotencyRequest(
+            op_id=body.op_id,
+            operation_kind="task_resolve",
+            # AG3-140: fold the URL-path target task_id into the body-hash so the
+            # same op_id reused against a DIFFERENT task fails closed with a
+            # 409 idempotency_mismatch (never a silent wrong-task replay).
+            body_hash=compute_body_hash(
+                {**body.model_dump(mode="json"), "target_task_id": task_id}
+            ),
+            project_key=project_key,
+            story_id=None,
+            correlation_id=correlation_id,
+        )
+        return self._run_idempotent(
+            request,
+            lambda: self._do_resolve_task(project_key, task_id, body, correlation_id),
+            correlation_id,
+        )
+
+    def _do_resolve_task(
+        self,
+        project_key: str,
+        task_id: str,
+        body: _ResolveRequest,
+        correlation_id: str,
+    ) -> BcRouteResponse:
+        """Run the resolve mutation (guarded by :meth:`_run_idempotent`)."""
+        assert self.task_management is not None  # noqa: S101 — guarded by caller
         try:
             task = self.task_management.resolve_task(
                 project_key, task_id, body.resolved_by
@@ -662,12 +875,38 @@ class TaskManagementRoutes:
         try:
             body = _ResolveRequest.model_validate(payload or {})
         except ValidationError as exc:
-            return bc_error_response(
-                HTTPStatus.UNPROCESSABLE_ENTITY,
-                error_code="invalid_dismiss_payload",
-                message=str(exc),
+            return self._validation_error(
+                exc,
+                payload_error_code="invalid_dismiss_payload",
                 correlation_id=correlation_id,
             )
+        request = IdempotencyRequest(
+            op_id=body.op_id,
+            operation_kind="task_dismiss",
+            # AG3-140: fold the URL-path target task_id into the body-hash (see
+            # task_resolve) -- op_id reuse across tasks is a fail-closed mismatch.
+            body_hash=compute_body_hash(
+                {**body.model_dump(mode="json"), "target_task_id": task_id}
+            ),
+            project_key=project_key,
+            story_id=None,
+            correlation_id=correlation_id,
+        )
+        return self._run_idempotent(
+            request,
+            lambda: self._do_dismiss_task(project_key, task_id, body, correlation_id),
+            correlation_id,
+        )
+
+    def _do_dismiss_task(
+        self,
+        project_key: str,
+        task_id: str,
+        body: _ResolveRequest,
+        correlation_id: str,
+    ) -> BcRouteResponse:
+        """Run the dismiss mutation (guarded by :meth:`_run_idempotent`)."""
+        assert self.task_management is not None  # noqa: S101 — guarded by caller
         try:
             task = self.task_management.dismiss_task(
                 project_key, task_id, body.resolved_by
@@ -706,12 +945,38 @@ class TaskManagementRoutes:
         try:
             body = _LinkRequest.model_validate(payload or {})
         except ValidationError as exc:
-            return bc_error_response(
-                HTTPStatus.UNPROCESSABLE_ENTITY,
-                error_code="invalid_link_payload",
-                message=str(exc),
+            return self._validation_error(
+                exc,
+                payload_error_code="invalid_link_payload",
                 correlation_id=correlation_id,
             )
+        request = IdempotencyRequest(
+            op_id=body.op_id,
+            operation_kind="task_link",
+            # AG3-140: fold the URL-path target task_id into the body-hash (see
+            # task_resolve) -- op_id reuse across tasks is a fail-closed mismatch.
+            body_hash=compute_body_hash(
+                {**body.model_dump(mode="json"), "target_task_id": task_id}
+            ),
+            project_key=project_key,
+            story_id=None,
+            correlation_id=correlation_id,
+        )
+        return self._run_idempotent(
+            request,
+            lambda: self._do_link_task(project_key, task_id, body, correlation_id),
+            correlation_id,
+        )
+
+    def _do_link_task(
+        self,
+        project_key: str,
+        task_id: str,
+        body: _LinkRequest,
+        correlation_id: str,
+    ) -> BcRouteResponse:
+        """Run the link mutation (guarded by :meth:`_run_idempotent`)."""
+        assert self.task_management is not None  # noqa: S101 — guarded by caller
         try:
             link = self.task_management.link_task(
                 TaskLink(
@@ -756,12 +1021,38 @@ class TaskManagementRoutes:
         try:
             body = _LinkRequest.model_validate(payload or {})
         except ValidationError as exc:
-            return bc_error_response(
-                HTTPStatus.UNPROCESSABLE_ENTITY,
-                error_code="invalid_link_payload",
-                message=str(exc),
+            return self._validation_error(
+                exc,
+                payload_error_code="invalid_link_payload",
                 correlation_id=correlation_id,
             )
+        request = IdempotencyRequest(
+            op_id=body.op_id,
+            operation_kind="task_unlink",
+            # AG3-140: fold the URL-path target task_id into the body-hash (see
+            # task_resolve) -- op_id reuse across tasks is a fail-closed mismatch.
+            body_hash=compute_body_hash(
+                {**body.model_dump(mode="json"), "target_task_id": task_id}
+            ),
+            project_key=project_key,
+            story_id=None,
+            correlation_id=correlation_id,
+        )
+        return self._run_idempotent(
+            request,
+            lambda: self._do_unlink_task(project_key, task_id, body, correlation_id),
+            correlation_id,
+        )
+
+    def _do_unlink_task(
+        self,
+        project_key: str,
+        task_id: str,
+        body: _LinkRequest,
+        correlation_id: str,
+    ) -> BcRouteResponse:
+        """Run the unlink mutation (guarded by :meth:`_run_idempotent`)."""
+        assert self.task_management is not None  # noqa: S101 — guarded by caller
         try:
             self.task_management.unlink_task(
                 TaskLink(
