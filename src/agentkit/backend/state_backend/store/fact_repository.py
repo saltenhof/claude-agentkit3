@@ -28,7 +28,6 @@ composition root. ``kpi_analytics.fact_store`` never imports this module.
 
 from __future__ import annotations
 
-import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
@@ -94,16 +93,6 @@ def _assert_sqlite_allowed() -> None:
         )
 
 
-def _postgres_database_url() -> str:
-    url = os.environ.get("AGENTKIT_STATE_DATABASE_URL", "")
-    if not url:
-        raise RuntimeError(
-            "AGENTKIT_STATE_DATABASE_URL must be set when "
-            "AGENTKIT_STATE_BACKEND=postgres"
-        )
-    return url
-
-
 def _sqlite_db_path(store_dir: Path) -> Path:
     from agentkit.backend.state_backend.config import versioned_sqlite_db_file
     from agentkit.backend.state_backend.paths import state_backend_dir
@@ -136,24 +125,14 @@ def _sqlite_connect(store_dir: Path) -> Iterator[sqlite3.Connection]:
 
 @contextmanager
 def _postgres_connect() -> Iterator[Any]:
-    import psycopg
-    from psycopg.rows import dict_row
-
     from agentkit.backend.state_backend import postgres_store
     from agentkit.backend.state_backend.schema_bootstrap import ensure_versioned_schema
 
-    conn = psycopg.connect(_postgres_database_url(), row_factory=dict_row)
-    try:
+    with postgres_store.borrow_repository_connection() as conn:
         ensure_versioned_schema(conn)
         postgres_store._ensure_schema_once(postgres_store._CompatConnection(conn))
         conn.commit()
         yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
 
 
 # ---------------------------------------------------------------------------

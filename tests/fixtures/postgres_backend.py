@@ -59,6 +59,19 @@ _REGISTRY_TABLE = "ak3_test_schema_registry"
 _TEST_SCHEMA_PATTERN = re.compile(r"^ak3test_[a-z0-9_]+$")
 _TTL_SWEEP_INTERVAL = "24 hours"
 _PUBLIC_DDL_LOCK_KEY = "agentkit_postgres_test_public_ddl"
+# Migration-cursor table that records the applied analytics schema versions
+# (3.4/3.5/3.6, FK-62 §62.4.3). It is a schema/migration MARKER, not per-test
+# data, so it is deliberately EXEMPT from the per-test TRUNCATE: keeping its rows
+# lets the store's ``_schema_is_bootstrapped`` fast-path return True (its
+# ``_analytics_versions_are_recorded`` probe stays satisfied), so the first store
+# op of each Postgres test no longer replays the full ~55-table canonical DDL
+# bootstrap. Emptying it (the prior coupling) forced a full re-bootstrap per test
+# AND turned the analytics migration/fact-reconcile off — the exact regression this
+# exemption avoids. Structural drift (a dropped table / mis-shaped fact_*) is still
+# caught by the OTHER bootstrap canaries, so a genuinely stale schema still
+# re-bootstraps. Test-data isolation is unaffected: schema_versions holds no
+# per-test rows, and the value is identical for every test on the same schema.
+_MIGRATION_MARKER_TABLES: frozenset[str] = frozenset({"schema_versions"})
 _TEST_POSTGRES_CONTAINER_LABEL = "ak3-test-postgres"
 _TEST_POSTGRES_CONTAINER_LABEL_VALUE = "1"
 _TEST_POSTGRES_CONTAINER_NAME_PREFIX = "ak3-postgres-"
@@ -345,21 +358,89 @@ def _truncate_schema(schema: str) -> None:
     adds no connection churn and a worker holds exactly ONE physical DB connection.
     Uses the bootstrap-SKIPPING borrow (``_borrow_pooled_connection_raw``): running
     the schema bootstrap here would cache the schema as "bootstrapped" BEFORE this
-    TRUNCATE empties ``schema_versions`` / ``fact_*``, wrongly suppressing the
-    re-bootstrap the next store operation must perform. Tables are referenced by
-    qualified ``schema.table`` identifiers, so the result is independent of the
-    connection's ``search_path``.
+    TRUNCATE, wrongly suppressing the re-bootstrap the next store operation must
+    perform after a structural change. Tables are referenced by qualified
+    ``schema.table`` identifiers, so the result is independent of the connection's
+    ``search_path``.
+
+    The migration-marker tables (``schema_versions``) are EXEMPT
+    (:data:`_MIGRATION_MARKER_TABLES`): they carry no per-test data, and keeping
+    their rows lets the store's ``_schema_is_bootstrapped`` fast-path hold, so the
+    full canonical DDL bootstrap no longer re-runs on every Postgres test.
     """
     from agentkit.backend.state_backend import postgres_store
 
     with postgres_store._borrow_pooled_connection_raw() as conn:
-        tables = _base_tables(conn, schema)
+        tables = [
+            table
+            for table in _base_tables(conn, schema)
+            if table not in _MIGRATION_MARKER_TABLES
+        ]
         if not tables:
             return
         target = sql.SQL(", ").join(sql.Identifier(schema, table) for table in tables)
         conn.execute(
             sql.SQL("TRUNCATE TABLE {} RESTART IDENTITY CASCADE").format(target),
         )
+
+
+#: Process-local memo of the reachability probe. Reachability of the shared test
+#: instance is stable for the lifetime of a test process (the shared local
+#: container persists across sessions), so the probe runs at most ONCE per process
+#: instead of once per opt-in Postgres unit test — a suite where the DB is down then
+#: skips its whole Postgres branch after a single short-timeout probe, not one
+#: probe per parametrised test.
+_SHARED_POSTGRES_REACHABLE: bool | None = None
+
+
+def shared_postgres_reachable(connect_timeout: float = 2.0) -> bool:
+    """Return whether the shared test Postgres accepts a connection quickly.
+
+    Fast, fail-closed reachability probe for opt-in Postgres UNIT tests. It
+    resolves the SAME DSN the session fixture would use — an explicit
+    ``AGENTKIT_STATE_DATABASE_URL`` when set, otherwise the single shared local
+    instance (only when a docker binary is present) — and attempts ONE
+    short-timeout connect. Returning ``False`` lets a unit test ``pytest.skip``
+    cleanly and immediately, instead of driving the heavy session fixture
+    (container start + up-to-30s readiness poll) into a ``RuntimeError`` when no
+    instance is up. The PG-available path is unaffected: a reachable instance
+    returns ``True`` and the test runs the real driver. Integration / contract
+    suites keep using the full fixture chain unchanged.
+
+    The result is memoised per process (:data:`_SHARED_POSTGRES_REACHABLE`): the
+    connect probe fires at most once, so the whole Postgres branch of a unit suite
+    skips fast when the DB is down instead of paying the timeout on every
+    parametrised test.
+
+    Args:
+        connect_timeout: Per-attempt connect timeout in seconds (bounds an
+            unreachable host so the probe never blocks on the OS default). Only
+            honoured on the first (uncached) call.
+
+    Returns:
+        ``True`` when a ``SELECT 1`` round-trips within the timeout, else
+        ``False``.
+    """
+    global _SHARED_POSTGRES_REACHABLE
+    if _SHARED_POSTGRES_REACHABLE is not None:
+        return _SHARED_POSTGRES_REACHABLE
+    _SHARED_POSTGRES_REACHABLE = _probe_shared_postgres(connect_timeout)
+    return _SHARED_POSTGRES_REACHABLE
+
+
+def _probe_shared_postgres(connect_timeout: float) -> bool:
+    if _is_explicit_postgres_env():
+        url = str(_EXPLICIT_URL_AT_IMPORT)
+    elif shutil.which("docker") is not None:
+        url = _shared_local_postgres_url()
+    else:
+        return False
+    try:
+        with psycopg.connect(url, connect_timeout=connect_timeout) as conn:
+            conn.execute("SELECT 1")
+    except (psycopg.Error, OSError):
+        return False
+    return True
 
 
 def _shared_local_postgres_url() -> str:

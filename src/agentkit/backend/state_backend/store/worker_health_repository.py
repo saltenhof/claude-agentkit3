@@ -41,15 +41,6 @@ def _assert_sqlite_allowed() -> None:
         )
 
 
-def _postgres_database_url() -> str:
-    url = os.environ.get("AGENTKIT_STATE_DATABASE_URL", "")
-    if not url:
-        raise RuntimeError(
-            "AGENTKIT_STATE_DATABASE_URL must be set when AGENTKIT_STATE_BACKEND=postgres"
-        )
-    return url
-
-
 def _dump_state(state: AgentHealthState) -> str:
     return state.model_dump_json()
 
@@ -117,22 +108,13 @@ def _sqlite_connect(store_dir: Path) -> Iterator[sqlite3.Connection]:
 
 @contextmanager
 def _postgres_connect() -> Iterator[Any]:
-    import psycopg
-    from psycopg.rows import dict_row
-
+    from agentkit.backend.state_backend import postgres_store
     from agentkit.backend.state_backend.schema_bootstrap import ensure_versioned_schema
 
-    conn = psycopg.connect(_postgres_database_url(), row_factory=dict_row)
-    try:
+    with postgres_store.borrow_repository_connection() as conn:
         ensure_versioned_schema(conn)
         conn.execute(_CREATE_POSTGRES)
         yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
 
 
 class StateBackendWorkerHealthRepository:

@@ -116,28 +116,12 @@ def _sqlite_connect(store_dir: Path) -> Iterator[sqlite3.Connection]:
 
 @contextmanager
 def _postgres_connect() -> Iterator[Any]:
-    import os
+    from agentkit.backend.state_backend import postgres_store
 
-    import psycopg
-    from psycopg.rows import dict_row
-
-    url = os.environ.get("AGENTKIT_STATE_DATABASE_URL", "")
-    if not url:
-        raise RuntimeError(
-            "AGENTKIT_STATE_DATABASE_URL must be set when "
-            "AGENTKIT_STATE_BACKEND=postgres"
-        )
-    conn = psycopg.connect(url, row_factory=dict_row)
-    try:
+    with postgres_store.borrow_repository_connection() as conn:
         for statement in _PLANNING_DDL_POSTGRES:
             conn.execute(statement)
         yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
 
 
 class _PlanningTableAdapter:

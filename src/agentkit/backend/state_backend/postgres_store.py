@@ -393,6 +393,43 @@ def _connect(story_dir: Path) -> Iterator[_CompatConnection]:
 
 
 @contextmanager
+def borrow_repository_connection() -> Iterator[psycopg.Connection[Any]]:
+    """Borrow the process-bound pool connection for a StateBackend repository op.
+
+    ONE connection way for the whole backend (FIX THE MODEL): the ``StateBackend*``
+    repositories under ``state_backend.store`` share the SAME process-bound pool as
+    the store instead of each opening a fresh ``psycopg.connect`` per operation. A
+    worker therefore holds at most ONE physical connection (default ``max_size=1``)
+    across store AND repository work, closing the "a repo op opens a SECOND transient
+    connection" gap.
+
+    This is the sanctioned StateBackendRepository -> StateBackendDrivers edge (the
+    repos already import ``schema_bootstrap.ensure_versioned_schema`` from the same
+    driver boundary). The borrow performs NO schema work itself: it yields the pooled
+    raw connection and lets EACH repository run its own bootstrap
+    (``ensure_versioned_schema`` and its per-repo ``CREATE TABLE IF NOT EXISTS`` /
+    ``_ensure_schema_once``) exactly as before — so every repository's schema,
+    ``search_path`` and DDL behaviour is unchanged; only the connection ACQUISITION
+    moves to the pool.
+
+    Transaction semantics are identical to the former connect-per-op model: the block
+    commits on a clean exit and the pool's ``reset`` (``_reset_pooled_connection``,
+    which runs ``conn.rollback()`` first) discards an uncommitted transaction on an
+    exception. The connection is RETURNED to the pool (never closed), and ``RESET
+    ALL`` scrubs session state so ``search_path`` starts each borrow at the same
+    default a fresh connection would carry. Rows are ``dict_row`` (the pool default),
+    matching every repository's dict-keyed row access — no per-repo row_factory
+    override is required. No repository path acquires a second pooled connection while
+    holding one (verified: no Store<->Repo and no Repo<->Repo nesting), so the size-1
+    pool cannot self-deadlock.
+    """
+    pool = _get_pool()
+    with pool.connection() as conn:
+        yield conn
+        conn.commit()
+
+
+@contextmanager
 def _borrow_pooled_connection_raw() -> Iterator[psycopg.Connection[Any]]:
     """Borrow the pooled raw connection WITHOUT running the schema bootstrap.
 

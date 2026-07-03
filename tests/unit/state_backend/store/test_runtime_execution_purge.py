@@ -31,12 +31,11 @@ skips the actual DELETE.
 
 from __future__ import annotations
 
-import os
-import shutil
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.fixtures.postgres_backend import shared_postgres_reachable
 from tests.phase_state_factory import make_phase_state
 
 from agentkit.backend.artifacts import ArtifactEnvelope
@@ -66,7 +65,6 @@ from agentkit.backend.pipeline_engine.phase_executor.records import AttemptRecor
 from agentkit.backend.state_backend.config import (
     ALLOW_SQLITE_ENV,
     STATE_BACKEND_ENV,
-    STATE_DATABASE_URL_ENV,
 )
 from agentkit.backend.state_backend.store import (
     facade,
@@ -98,10 +96,6 @@ _OTHER_RUN = "22222222-2222-4222-8222-222222222222"
 _NOW = datetime(2026, 6, 12, 10, 0, tzinfo=UTC)
 
 
-def _has_postgres_url() -> bool:
-    return bool(os.environ.get(STATE_DATABASE_URL_ENV, ""))
-
-
 # ---------------------------------------------------------------------------
 # Backend parametrization: real SQLite always, real Postgres opt-in
 # ---------------------------------------------------------------------------
@@ -117,12 +111,15 @@ def backend(
 
     The Postgres branch drives the REAL ``postgres_store`` driver against the
     project's worker-scoped test schema (``postgres_isolated_schema`` — docker
-    Postgres or an explicit ``AGENTKIT_STATE_DATABASE_URL``). It skips only when
-    neither a docker daemon nor an explicit URL is available.
+    Postgres or an explicit ``AGENTKIT_STATE_DATABASE_URL``). It skips FAST and
+    cleanly when the shared instance is not reachable, via a short-timeout probe
+    (``shared_postgres_reachable``) — instead of driving the heavy session fixture
+    into a container start + up-to-30s readiness poll that ends in a RuntimeError
+    when no instance is up.
     """
     if request.param == "postgres":
-        if shutil.which("docker") is None and not _has_postgres_url():
-            pytest.skip("No docker / AGENTKIT_STATE_DATABASE_URL — Postgres skipped")
+        if not shared_postgres_reachable():
+            pytest.skip("Shared Postgres not reachable — Postgres branch skipped")
         # Provisions a live PG schema and sets backend=postgres + URL + override.
         request.getfixturevalue("postgres_isolated_schema")
     else:
