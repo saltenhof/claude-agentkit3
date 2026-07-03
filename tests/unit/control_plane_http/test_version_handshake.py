@@ -187,7 +187,9 @@ def test_worker_health_write_missing_handshake_blocks_426() -> None:
 
 def test_guard_counter_mutation_with_handshake_passes_to_handler() -> None:
     """FUND 4: with a valid handshake the request passes the gate and reaches the
-    handler (a bad body then yields 400, NOT 426 -- proving the gate let it through)."""
+    handler (a bad body then yields 422 -- an empty body is missing op_id among
+    other required fields, AG3-140 AC1 -- NOT 426, proving the gate let it
+    through)."""
     app = _build_app()
     response = app.handle_request(
         method="POST",
@@ -195,7 +197,7 @@ def test_guard_counter_mutation_with_handshake_passes_to_handler() -> None:
         body=b"{}",
         request_headers=dict(_VALID_HANDSHAKE),
     )
-    assert response.status_code == int(HTTPStatus.BAD_REQUEST)
+    assert response.status_code == int(HTTPStatus.UNPROCESSABLE_ENTITY)
     assert (
         json.loads(response.body)["error_code"] == "invalid_guard_counter_payload"
     )

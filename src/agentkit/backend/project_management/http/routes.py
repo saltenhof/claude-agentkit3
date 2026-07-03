@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import re
-import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from http import HTTPStatus
@@ -17,6 +16,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from agentkit.backend.control_plane.models import op_id_validation_error
 from agentkit.backend.project_management.entities import Project, ProjectConfiguration
 from agentkit.backend.project_management.errors import (
     ProjectAlreadyArchivedError,
@@ -54,7 +54,13 @@ class ProjectRouteResponse:
 
 
 class ProjectConfigurationPatch(BaseModel):
-    """Partial configuration update payload for PATCH /v1/projects/{key}/configuration."""
+    """Partial configuration update payload.
+
+    Used both nested (``UpdateProjectRequest.configuration``) and, wrapped by
+    :class:`ConfigurationOnlyPatchRequest`, as the standalone
+    ``PATCH /v1/projects/{key}/configuration`` body. Carries no ``op_id`` of its
+    own -- the idempotency key lives on the enclosing request.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -63,6 +69,16 @@ class ProjectConfigurationPatch(BaseModel):
     are_url: str | None = None
     default_worker_count: int | None = Field(default=None, ge=1)
     repositories: list[str] | None = None
+
+
+class ConfigurationOnlyPatchRequest(ProjectConfigurationPatch):
+    """Wire body for the standalone ``PATCH /v1/projects/{key}/configuration``.
+
+    Extends :class:`ProjectConfigurationPatch` with the top-level ``op_id``
+    (FK-91 §91.1a Regel 5, AG3-140: no server default remains).
+    """
+
+    op_id: str = Field(min_length=1)
 
 
 class CreateProjectRequest(BaseModel):
@@ -74,7 +90,9 @@ class CreateProjectRequest(BaseModel):
     name: str
     story_id_prefix: str
     configuration: ProjectConfiguration
-    op_id: str = Field(default_factory=lambda: f"op-{uuid.uuid4().hex}")
+    #: FK-91 §91.1a Regel 5: client-supplied idempotency key (AG3-140: no server
+    #: default remains).
+    op_id: str = Field(min_length=1)
 
 
 class UpdateProjectRequest(BaseModel):
@@ -86,7 +104,7 @@ class UpdateProjectRequest(BaseModel):
     configuration: ProjectConfigurationPatch | None = None
     key: str | None = None
     story_id_prefix: str | None = None
-    op_id: str = Field(default_factory=lambda: f"op-{uuid.uuid4().hex}")
+    op_id: str = Field(min_length=1)
 
 
 class ArchiveProjectRequest(BaseModel):
@@ -94,7 +112,7 @@ class ArchiveProjectRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    op_id: str = Field(default_factory=lambda: f"op-{uuid.uuid4().hex}")
+    op_id: str = Field(min_length=1)
     archived_at: datetime | None = None
 
 
@@ -253,6 +271,9 @@ class ProjectManagementRoutes:
                 "Invalid project update payload",
                 correlation_id,
                 exc,
+                status=HTTPStatus.UNPROCESSABLE_ENTITY
+                if op_id_validation_error(exc)
+                else HTTPStatus.BAD_REQUEST,
             )
 
         if request.key is not None or request.story_id_prefix is not None:
@@ -350,24 +371,31 @@ class ProjectManagementRoutes:
             A ``ProjectRouteResponse``.
         """
         try:
-            patch = ProjectConfigurationPatch.model_validate(payload)
+            patch = ConfigurationOnlyPatchRequest.model_validate(payload)
         except ValidationError as exc:
+            status = (
+                HTTPStatus.UNPROCESSABLE_ENTITY
+                if op_id_validation_error(exc)
+                else HTTPStatus.BAD_REQUEST
+            )
             return _validation_error_response(
                 "invalid_project_configuration_patch",
                 "Invalid project configuration patch",
                 correlation_id,
                 exc,
+                status=status,
             )
 
         project = self._repository.get(key)
         if project is None:
             return _not_found_response(correlation_id)
 
-        op_id = f"op-{uuid.uuid4().hex}"
+        op_id = patch.op_id
         configuration_updates = patch.model_dump(
             mode="python",
             exclude_unset=True,
             exclude_none=False,
+            exclude={"op_id"},
         )
         # Remove keys that are None (unset optional fields)
         configuration_updates = {
@@ -493,6 +521,9 @@ class ProjectManagementRoutes:
                 "Invalid project create payload",
                 correlation_id,
                 exc,
+                status=HTTPStatus.UNPROCESSABLE_ENTITY
+                if op_id_validation_error(exc)
+                else HTTPStatus.BAD_REQUEST,
             )
 
         if self._repository.get(request.key) is not None:
@@ -551,6 +582,9 @@ class ProjectManagementRoutes:
                 "Invalid project archive payload",
                 correlation_id,
                 exc,
+                status=HTTPStatus.UNPROCESSABLE_ENTITY
+                if op_id_validation_error(exc)
+                else HTTPStatus.BAD_REQUEST,
             )
 
         project = self._repository.get(key)
@@ -702,9 +736,11 @@ def _validation_error_response(
     message: str,
     correlation_id: str,
     exc: ValidationError,
+    *,
+    status: HTTPStatus = HTTPStatus.BAD_REQUEST,
 ) -> ProjectRouteResponse:
     return _error_response(
-        HTTPStatus.BAD_REQUEST,
+        status,
         error_code=error_code,
         message=message,
         correlation_id=correlation_id,

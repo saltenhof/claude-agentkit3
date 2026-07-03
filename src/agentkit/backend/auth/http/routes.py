@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from http import HTTPStatus
@@ -18,6 +17,7 @@ from agentkit.backend.auth.errors import AuthFailedError, TokenNotFoundError
 from agentkit.backend.auth.middleware import AuthMiddleware
 from agentkit.backend.auth.sessions import InMemorySessionStore
 from agentkit.backend.auth.tokens import issue_project_api_token
+from agentkit.backend.control_plane.models import op_id_validation_error
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -56,7 +56,9 @@ class CreateProjectApiTokenRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     label: str = "thin-client"
-    op_id: str = Field(default_factory=lambda: f"op-{uuid.uuid4().hex}")
+    #: FK-91 §91.1a Regel 5: client-supplied idempotency key (AG3-140: no server
+    #: default remains).
+    op_id: str = Field(min_length=1)
 
 
 class RevokeProjectApiTokenRequest(BaseModel):
@@ -64,7 +66,7 @@ class RevokeProjectApiTokenRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    op_id: str = Field(default_factory=lambda: f"op-{uuid.uuid4().hex}")
+    op_id: str = Field(min_length=1)
 
 
 class AuthRoutes:
@@ -208,6 +210,9 @@ class AuthRoutes:
                 "Invalid project API token payload",
                 correlation_id,
                 exc,
+                status=HTTPStatus.UNPROCESSABLE_ENTITY
+                if op_id_validation_error(exc)
+                else HTTPStatus.BAD_REQUEST,
             )
         issued = issue_project_api_token(
             project_key=project_key,
@@ -243,6 +248,9 @@ class AuthRoutes:
                 "Invalid project API token revoke payload",
                 correlation_id,
                 exc,
+                status=HTTPStatus.UNPROCESSABLE_ENTITY
+                if op_id_validation_error(exc)
+                else HTTPStatus.BAD_REQUEST,
             )
         except TokenNotFoundError:
             return _error_response(
@@ -346,9 +354,11 @@ def _validation_error_response(
     message: str,
     correlation_id: str,
     exc: ValidationError,
+    *,
+    status: HTTPStatus = HTTPStatus.BAD_REQUEST,
 ) -> AuthRouteResponse:
     return _error_response(
-        HTTPStatus.BAD_REQUEST,
+        status,
         error_code=error_code,
         message=message,
         correlation_id=correlation_id,

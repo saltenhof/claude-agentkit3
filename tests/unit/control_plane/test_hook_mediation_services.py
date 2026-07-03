@@ -133,7 +133,9 @@ def test_guard_counter_service_record() -> None:
 def test_guard_counter_service_housekeeping() -> None:
     repo = _FakeGuardCounterRepo()
     accepted = _guard_counter_service(repo).apply(
-        GuardCounterMutationRequest(operation="housekeeping", occurred_at=_NOW)
+        GuardCounterMutationRequest(
+            operation="housekeeping", occurred_at=_NOW, op_id="op-housekeeping-001"
+        )
     )
 
     assert accepted.operation == "housekeeping"
@@ -182,7 +184,9 @@ def test_guard_counter_same_op_id_different_body_raises_mismatch() -> None:
 
 def test_guard_counter_record_requires_scope() -> None:
     with pytest.raises(ValueError, match="record requires"):
-        GuardCounterMutationRequest(operation="record", occurred_at=_NOW)
+        GuardCounterMutationRequest(
+            operation="record", occurred_at=_NOW, op_id="op-requires-scope-001"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -291,6 +295,7 @@ def test_governance_client_mutate_guard_counter() -> None:
         GuardCounterMutationRequest(
             operation="record",
             occurred_at=_NOW,
+            op_id="op-governance-client-001",
             project_key="tenant-a",
             story_id="AG3-129",
             guard_key="orchestrator_guard",

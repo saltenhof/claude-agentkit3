@@ -730,16 +730,21 @@ def _record_guard_invocation(
         return
     project_key, story_id = scope
     try:
+        import uuid
+
         from agentkit.backend.control_plane.models import GuardCounterMutationRequest
 
         # AG3-129 (FK-10 §10.1.0 I1): the counter is recorded server-side via REST,
         # never by opening PostgreSQL from the hook. The core-side ``record``
         # operation also drains older weekly buckets (Week-Rollover, FK-61
         # §61.4.3 Trigger 2) before recording into the current week.
+        # AG3-140 (FK-91 §91.1a Regel 5): op_id is client-minted here (hook-side) —
+        # the server no longer supplies a default.
         _governance_edge_client(project_root).mutate_guard_counter(
             GuardCounterMutationRequest(
                 operation="record",
                 occurred_at=datetime.now(UTC),
+                op_id=f"gc-{uuid.uuid4().hex}",
                 project_key=project_key,
                 story_id=story_id,
                 guard_key=hook_id,
@@ -896,14 +901,19 @@ def _sweep_stale_guard_counters(project_root: Path) -> None:
     raised — it must never convert an observational PostToolUse tick into a block.
     """
     try:
+        import uuid
+
         from agentkit.backend.control_plane.models import GuardCounterMutationRequest
 
         # AG3-129 (FK-10 §10.1.0 I1): the stale-counter sweep runs server-side via
-        # REST, never by opening PostgreSQL from the hook.
+        # REST, never by opening PostgreSQL from the hook. AG3-140: op_id is
+        # client-minted (hook-side); housekeeping itself needs no dedup (it drains
+        # deterministically), but the wire contract requires a non-empty op_id.
         _governance_edge_client(project_root).mutate_guard_counter(
             GuardCounterMutationRequest(
                 operation="housekeeping",
                 occurred_at=datetime.now(UTC),
+                op_id=f"gc-{uuid.uuid4().hex}",
             )
         )
     # BLE001: housekeeping is the volume KPI, not the audit trail — non-blocking;

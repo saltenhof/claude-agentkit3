@@ -221,7 +221,9 @@ def test_patch_project_rejects_immutable_fields() -> None:
     response = _app(repository).handle_request(
         method="PATCH",
         path="/v1/projects/tenant-a",
-        body=json.dumps({"story_id_prefix": "OTHER"}).encode("utf-8"),
+        body=json.dumps(
+            {"story_id_prefix": "OTHER", "op_id": "op-patch-immutable-001"}
+        ).encode("utf-8"),
         request_headers={"X-Correlation-Id": "req-update"},
     )
 
@@ -264,6 +266,7 @@ def test_post_duplicate_project_returns_409() -> None:
         "name": "Tenant A",
         "story_id_prefix": "AG3",
         "configuration": _configuration_payload(),
+        "op_id": "op-duplicate-project-001",
     }
 
     response = _app(repository).handle_request(
@@ -392,7 +395,9 @@ def test_patch_configuration_updates_repositories() -> None:
     response = _app(repository).handle_request(
         method="PATCH",
         path="/v1/projects/tenant-a/configuration",
-        body=json.dumps({"repositories": ["repo-a", "repo-b"]}).encode("utf-8"),
+        body=json.dumps(
+            {"repositories": ["repo-a", "repo-b"], "op_id": "op-patch-config-001"}
+        ).encode("utf-8"),
         request_headers={"X-Correlation-Id": "req-patch-config"},
     )
 
@@ -423,7 +428,9 @@ def test_patch_configuration_repos_in_use_returns_validation_failed() -> None:
     response = app.handle_request(
         method="PATCH",
         path="/v1/projects/tenant-a/configuration",
-        body=json.dumps({"repositories": ["new-repo"]}).encode("utf-8"),
+        body=json.dumps(
+            {"repositories": ["new-repo"], "op_id": "op-patch-repos-in-use-001"}
+        ).encode("utf-8"),
         request_headers={"X-Correlation-Id": "req-patch-repos-in-use"},
     )
 
@@ -468,7 +475,9 @@ def test_patch_configuration_repos_not_in_use_succeeds() -> None:
     response = app.handle_request(
         method="PATCH",
         path="/v1/projects/tenant-a/configuration",
-        body=json.dumps({"repositories": ["repo-keep"]}).encode("utf-8"),
+        body=json.dumps(
+            {"repositories": ["repo-keep"], "op_id": "op-patch-repos-ok-001"}
+        ).encode("utf-8"),
         request_headers={"X-Correlation-Id": "req-patch-repos-ok"},
     )
 

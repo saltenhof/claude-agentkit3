@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import json
 import re
-import uuid
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from agentkit.backend.control_plane.models import op_id_validation_error
 from agentkit.backend.execution_planning.dependency_graph import DependencyGraph
 from agentkit.backend.execution_planning.entities import (
     ExecutionCapacityBudgets,
@@ -87,7 +87,9 @@ class CreateDependencyRequest(BaseModel):
     story_id: str
     depends_on_story_id: str
     kind: StoryDependencyKind
-    op_id: str = Field(default_factory=lambda: f"op-{uuid.uuid4().hex}")
+    #: FK-91 §91.1a Regel 5: client-supplied idempotency key (AG3-140: no server
+    #: default remains).
+    op_id: str = Field(min_length=1)
 
 
 class UpsertParallelizationConfigRequest(BaseModel):
@@ -97,7 +99,7 @@ class UpsertParallelizationConfigRequest(BaseModel):
 
     max_parallel_stories: int = Field(ge=1)
     max_parallel_stories_per_repo: int | None = Field(default=None, ge=1)
-    op_id: str = Field(default_factory=lambda: f"op-{uuid.uuid4().hex}")
+    op_id: str = Field(min_length=1)
 
 
 class ExecutionPlanningRoutes:
@@ -282,6 +284,9 @@ class ExecutionPlanningRoutes:
                 "Invalid dependency create payload",
                 correlation_id,
                 exc,
+                status=HTTPStatus.UNPROCESSABLE_ENTITY
+                if op_id_validation_error(exc)
+                else HTTPStatus.BAD_REQUEST,
             )
         project = self._project_repository.get(project_key)
         if project is None:
@@ -470,6 +475,9 @@ class ExecutionPlanningRoutes:
                 "Invalid planning config payload",
                 correlation_id,
                 exc,
+                status=HTTPStatus.UNPROCESSABLE_ENTITY
+                if op_id_validation_error(exc)
+                else HTTPStatus.BAD_REQUEST,
             )
         project = self._project_repository.get(project_key)
         if project is None:
@@ -517,9 +525,11 @@ def _validation_error_response(
     message: str,
     correlation_id: str,
     exc: ValidationError,
+    *,
+    status: HTTPStatus = HTTPStatus.BAD_REQUEST,
 ) -> ExecutionPlanningRouteResponse:
     return _error_response(
-        HTTPStatus.BAD_REQUEST,
+        status,
         error_code=error_code,
         message=message,
         correlation_id=correlation_id,

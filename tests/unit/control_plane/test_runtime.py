@@ -593,6 +593,7 @@ def test_start_phase_persists_binding_lock_and_operation() -> None:
             session_id="sess-001",
             principal_type="orchestrator",
             worktree_roots=["T:/worktrees/ag3-100"],
+            op_id="op-start-persists-001",
         ),
     )
 
@@ -704,6 +705,7 @@ def test_complete_closure_unbinds_and_returns_tombstone_roots() -> None:
             project_key="tenant-a",
             story_id="AG3-100",
             session_id="sess-001",
+            op_id="op-closure-tombstone-001",
         ),
     )
 
@@ -746,6 +748,7 @@ def test_complete_closure_fast_story_is_a_no_op() -> None:
             project_key="tenant-a",
             story_id="AG3-100",
             session_id="sess-001",
+            op_id="op-closure-fast-noop-001",
         ),
     )
 
@@ -817,6 +820,7 @@ def test_complete_closure_standard_story_still_deactivates_locks() -> None:
             project_key="tenant-a",
             story_id="AG3-100",
             session_id="sess-001",
+            op_id="op-closure-standard-locks-001",
         ),
     )
 
@@ -837,7 +841,9 @@ def test_project_edge_sync_without_binding_returns_ai_augmented() -> None:
     service = ControlPlaneRuntimeService(repository=_repository(state))
 
     result = service.sync_project_edge(
-        ProjectEdgeSyncRequest(project_key="tenant-a", session_id="sess-001"),
+        ProjectEdgeSyncRequest(
+            project_key="tenant-a", session_id="sess-001", op_id="op-sync-no-binding-001"
+        ),
     )
 
     assert result.status == "synced"
@@ -860,7 +866,9 @@ def test_project_edge_sync_with_missing_lock_returns_binding_invalid() -> None:
     service = ControlPlaneRuntimeService(repository=_repository(state))
 
     result = service.sync_project_edge(
-        ProjectEdgeSyncRequest(project_key="tenant-a", session_id="sess-001"),
+        ProjectEdgeSyncRequest(
+            project_key="tenant-a", session_id="sess-001", op_id="op-sync-missing-lock-001"
+        ),
     )
 
     assert result.edge_bundle is not None
@@ -900,6 +908,7 @@ def _fast_request() -> PhaseMutationRequest:
         session_id="sess-001",
         principal_type="orchestrator",
         worktree_roots=["T:/worktrees/ag3-100"],
+        op_id="op-fast-001",
     )
 
 
@@ -1017,6 +1026,7 @@ def test_agent_supplied_mode_cannot_override_authoritative_store() -> None:
             principal_type="orchestrator",
             worktree_roots=["T:/worktrees/ag3-100"],
             detail={"mode": "fast"},
+            op_id="op-mode-authoritative-001",
         ),
     )
 

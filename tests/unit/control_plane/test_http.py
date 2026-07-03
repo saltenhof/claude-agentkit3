@@ -450,6 +450,7 @@ def test_post_phase_start_returns_created() -> None:
                 "session_id": "sess-001",
                 "principal_type": "orchestrator",
                 "worktree_roots": ["T:/worktrees/ag3-100"],
+                "op_id": "op-phase-start-created-001",
             },
         ).encode("utf-8"),
     )
@@ -513,6 +514,7 @@ def test_post_phase_start_rejection_returns_conflict() -> None:
                 "session_id": "sess-001",
                 "principal_type": "orchestrator",
                 "worktree_roots": ["T:/worktrees/ag3-100"],
+                "op_id": "op-phase-start-rejected-001",
             },
         ).encode("utf-8"),
     )
@@ -540,6 +542,7 @@ def test_post_project_edge_sync_returns_ok() -> None:
             {
                 "project_key": "tenant-a",
                 "session_id": "sess-001",
+                "op_id": "op-sync-ok-001",
             },
         ).encode("utf-8"),
     )
@@ -564,6 +567,7 @@ def test_post_phase_complete_and_fail_route_to_runtime() -> None:
             "session_id": "sess-001",
             "principal_type": "orchestrator",
             "worktree_roots": ["T:/worktrees/ag3-100"],
+            "op_id": "op-complete-and-fail-001",
         },
     ).encode("utf-8")
 
@@ -603,6 +607,7 @@ def test_post_closure_complete_returns_created() -> None:
                 "project_key": "tenant-a",
                 "story_id": "AG3-100",
                 "session_id": "sess-001",
+                "op_id": "op-closure-created-001",
             },
         ).encode("utf-8"),
     )
@@ -913,13 +918,46 @@ def test_invalid_phase_payload_returns_bad_request() -> None:
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
 
+    # op_id is present (valid) so this exercises the ordinary 400 payload-shape
+    # path, distinct from the AG3-140 op_id-specific 422 (see
+    # test_missing_op_id_phase_payload_returns_422 below).
     response = app.handle_request(
         method="POST",
         path="/v1/projects/tenant-a/story-runs/run-100/phases/setup/start",
-        body=json.dumps({"story_id": "AG3-100"}).encode("utf-8"),
+        body=json.dumps({"story_id": "AG3-100", "op_id": "op-phase-bad-1"}).encode("utf-8"),
     )
 
     assert response.status_code == HTTPStatus.BAD_REQUEST
+    _assert_error(
+        response,
+        error_code="invalid_phase_mutation_payload",
+        message="Invalid phase mutation payload",
+    )
+
+
+def test_missing_op_id_phase_payload_returns_422() -> None:
+    """AG3-140 (FK-91 §91.1a Regel 5, AC1): a phase mutation without op_id is 422."""
+    app = ControlPlaneApplication(
+        telemetry_service=_FakeTelemetryService(),
+        runtime_service=_FakeRuntimeService(),
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
+    )
+
+    response = app.handle_request(
+        method="POST",
+        path="/v1/projects/tenant-a/story-runs/run-100/phases/setup/start",
+        body=json.dumps(
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "session_id": "sess-001",
+                "principal_type": "orchestrator",
+                "worktree_roots": ["T:/worktrees/ag3-100"],
+            },
+        ).encode("utf-8"),
+    )
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
     _assert_error(
         response,
         error_code="invalid_phase_mutation_payload",
@@ -934,13 +972,43 @@ def test_invalid_closure_payload_returns_bad_request() -> None:
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
 
+    # op_id is present (valid) so this exercises the ordinary 400 payload-shape
+    # path, distinct from the AG3-140 op_id-specific 422.
     response = app.handle_request(
         method="POST",
         path="/v1/projects/tenant-a/story-runs/run-100/closure/complete",
-        body=json.dumps({"story_id": "AG3-100"}).encode("utf-8"),
+        body=json.dumps({"story_id": "AG3-100", "op_id": "op-closure-bad-1"}).encode("utf-8"),
     )
 
     assert response.status_code == HTTPStatus.BAD_REQUEST
+    _assert_error(
+        response,
+        error_code="invalid_closure_payload",
+        message="Invalid closure payload",
+    )
+
+
+def test_missing_op_id_closure_payload_returns_422() -> None:
+    """AG3-140 (FK-91 §91.1a Regel 5, AC1): a closure completion without op_id is 422."""
+    app = ControlPlaneApplication(
+        telemetry_service=_FakeTelemetryService(),
+        runtime_service=_FakeRuntimeService(),
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
+    )
+
+    response = app.handle_request(
+        method="POST",
+        path="/v1/projects/tenant-a/story-runs/run-100/closure/complete",
+        body=json.dumps(
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "session_id": "sess-001",
+            },
+        ).encode("utf-8"),
+    )
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
     _assert_error(
         response,
         error_code="invalid_closure_payload",
@@ -954,13 +1022,36 @@ def test_invalid_project_edge_sync_payload_returns_bad_request() -> None:
         runtime_service=_FakeRuntimeService(),
     )
 
+    # op_id is present (valid) so this exercises the ordinary 400 payload-shape
+    # path, distinct from the AG3-140 op_id-specific 422.
     response = app.handle_request(
         method="POST",
         path="/v1/project-edge/sync",
-        body=json.dumps({"project_key": "tenant-a"}).encode("utf-8"),
+        body=json.dumps({"project_key": "tenant-a", "op_id": "op-sync-bad-1"}).encode("utf-8"),
     )
 
     assert response.status_code == HTTPStatus.BAD_REQUEST
+    _assert_error(
+        response,
+        error_code="invalid_project_edge_sync_payload",
+        message="Invalid project-edge sync payload",
+    )
+
+
+def test_missing_op_id_project_edge_sync_payload_returns_422() -> None:
+    """AG3-140 (FK-91 §91.1a Regel 5, AC1): a project-edge sync without op_id is 422."""
+    app = ControlPlaneApplication(
+        telemetry_service=_FakeTelemetryService(),
+        runtime_service=_FakeRuntimeService(),
+    )
+
+    response = app.handle_request(
+        method="POST",
+        path="/v1/project-edge/sync",
+        body=json.dumps({"project_key": "tenant-a", "session_id": "sess-001"}).encode("utf-8"),
+    )
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
     _assert_error(
         response,
         error_code="invalid_project_edge_sync_payload",
@@ -983,6 +1074,7 @@ def test_runtime_unavailable_returns_service_unavailable() -> None:
             {
                 "project_key": "tenant-a",
                 "session_id": "sess-001",
+                "op_id": "op-sync-unavailable-001",
             },
         ).encode("utf-8"),
     )
@@ -1014,6 +1106,7 @@ def test_phase_runtime_unavailable_returns_service_unavailable() -> None:
                 "session_id": "sess-001",
                 "principal_type": "orchestrator",
                 "worktree_roots": ["T:/worktrees/ag3-100"],
+                "op_id": "op-phase-unavailable-001",
             },
         ).encode("utf-8"),
     )
@@ -1058,6 +1151,7 @@ def test_config_error_on_phase_start_returns_structured_503() -> None:
                 "session_id": "sess-001",
                 "principal_type": "orchestrator",
                 "worktree_roots": ["T:/worktrees/ag3-100"],
+                "op_id": "op-config-error-start-001",
             },
         ).encode("utf-8"),
     )
@@ -1081,6 +1175,7 @@ def test_config_error_on_phase_complete_returns_structured_503() -> None:
                 "session_id": "sess-001",
                 "principal_type": "orchestrator",
                 "worktree_roots": ["T:/worktrees/ag3-100"],
+                "op_id": "op-config-error-complete-001",
             },
         ).encode("utf-8"),
     )
@@ -1104,6 +1199,7 @@ def test_config_error_on_phase_fail_returns_structured_503() -> None:
                 "session_id": "sess-001",
                 "principal_type": "orchestrator",
                 "worktree_roots": ["T:/worktrees/ag3-100"],
+                "op_id": "op-config-error-fail-001",
             },
         ).encode("utf-8"),
     )
@@ -1125,6 +1221,7 @@ def test_config_error_on_closure_returns_structured_503() -> None:
                 "project_key": "tenant-a",
                 "story_id": "AG3-100",
                 "session_id": "sess-001",
+                "op_id": "op-config-error-closure-001",
             },
         ).encode("utf-8"),
     )

@@ -133,7 +133,7 @@ def test_project_api_token_lifecycle_routes(tmp_path: Path) -> None:
     deleted = app.handle_request(
         method="DELETE",
         path=f"/v1/projects/tenant-a/api-tokens/{token.token_id}",
-        body=b"",
+        body=json.dumps({"op_id": "op-token-revoke"}).encode("utf-8"),
         request_headers=headers,
     )
 

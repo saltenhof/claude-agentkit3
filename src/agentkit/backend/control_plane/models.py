@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import json
 import logging
-import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from http import HTTPStatus
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 # RUNTIME re-import of the canonical FK-56 operating-mode literal from its SINGLE
 # foundation definition (``core_types.operating_mode``). Pydantic must resolve this
@@ -24,6 +23,18 @@ from agentkit.backend.telemetry.events import EventType
 
 _CORRELATION_HEADER = "X-Correlation-Id"
 _bc_route_logger = logging.getLogger(__name__ + ".bc_route_response")
+
+
+def op_id_validation_error(exc: ValidationError) -> bool:
+    """Return whether a wire-model ``ValidationError`` is (also) an ``op_id`` failure.
+
+    FK-91 §91.1a Regel 5: ``op_id`` is a client-supplied, required idempotency key
+    (AG3-140 -- no server-side ``default_factory`` mint remains). A mutating
+    request that omits ``op_id`` (or sends an empty string) must fail closed with
+    ``422`` specifically, distinct from the route's ordinary ``400`` payload-shape
+    rejection for unrelated fields (AC1).
+    """
+    return any(err["loc"] and err["loc"][0] == "op_id" for err in exc.errors())
 
 
 class TelemetryEventIngestRequest(BaseModel):
@@ -71,10 +82,8 @@ class GuardCounterMutationRequest(BaseModel):
     occurred_at: datetime
     #: Idempotency key (FK-91 §91.1a Regel 5): a replayed ``op_id`` is
     #: processed exactly once, so a retried record never double-counts the pure
-    #: volume KPI. Minted hook-side per request (default factory).
-    op_id: str = Field(
-        default_factory=lambda: f"gc-{uuid.uuid4().hex}", min_length=1
-    )
+    #: volume KPI. AG3-140: client-supplied (hook-side mint); no server default.
+    op_id: str = Field(min_length=1)
     project_key: str | None = None
     story_id: str | None = None
     guard_key: str | None = None
@@ -239,7 +248,9 @@ class _ControlPlaneRequest(BaseModel):
     project_key: str = Field(min_length=1)
     story_id: str = Field(min_length=1)
     session_id: str = Field(min_length=1)
-    op_id: str = Field(default_factory=lambda: f"op-{uuid.uuid4().hex}")
+    #: FK-91 §91.1a Regel 5: client-supplied idempotency key. AG3-140: no server
+    #: default remains -- an omitted op_id fails closed at validation (422).
+    op_id: str = Field(min_length=1)
     source_component: str = Field(min_length=1, default="project_edge_client")
 
 
@@ -284,7 +295,9 @@ class ProjectEdgeSyncRequest(BaseModel):
 
     project_key: str = Field(min_length=1)
     session_id: str = Field(min_length=1)
-    op_id: str = Field(default_factory=lambda: f"op-{uuid.uuid4().hex}")
+    #: FK-91 §91.1a Regel 5: client-supplied idempotency key (AG3-140: no server
+    #: default).
+    op_id: str = Field(min_length=1)
     freshness_class: Literal["baseline_read", "guarded_read", "mutation"] = (
         "guarded_read"
     )
@@ -341,7 +354,9 @@ class CreateStoryRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
 
-    op_id: str = Field(min_length=1, default_factory=lambda: f"op-{uuid.uuid4().hex}")
+    #: FK-91 §91.1a Regel 5: client-supplied idempotency key (AG3-140: no server
+    #: default remains).
+    op_id: str = Field(min_length=1)
     project_key: str = Field(min_length=1)
     title: str = Field(min_length=1)
     story_type: str = Field(alias="type", min_length=1)

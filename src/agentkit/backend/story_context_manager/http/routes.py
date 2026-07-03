@@ -701,9 +701,15 @@ def _require_str(
 ) -> str | StoryRouteResponse:
     value = body.get(field)
     if not isinstance(value, str) or not value:
+        # AG3-140 (FK-91 §91.1a Regel 5, AC1): a missing/empty op_id fails closed
+        # with 422 specifically -- distinct from an ordinary 400 payload defect.
+        status = (
+            HTTPStatus.UNPROCESSABLE_ENTITY if field == "op_id" else HTTPStatus.BAD_REQUEST
+        )
+        error_code = "missing_op_id" if field == "op_id" else "validation_failed"
         return _error_response(
-            HTTPStatus.BAD_REQUEST,
-            error_code="validation_failed",
+            status,
+            error_code=error_code,
             message=f"Missing required field: {field!r}",
             correlation_id=correlation_id,
         )

@@ -29,6 +29,7 @@ from agentkit.backend.control_plane.models import (
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,
     TelemetryEventIngestRequest,
+    op_id_validation_error,
 )
 from agentkit.backend.control_plane.runtime import (
     ControlPlaneRuntimeService,
@@ -394,8 +395,12 @@ class _GovernanceMediationHandlers:
             request = GuardCounterMutationRequest.model_validate(payload)
             accepted = self._guard_counter_service.apply(request)
         except ValidationError as exc:
+            # AG3-140 (FK-91 §91.1a Regel 5, AC1): a missing/empty op_id fails
+            # closed with 422, distinct from an ordinary 400 payload-shape defect.
             return _error_response(
-                HTTPStatus.BAD_REQUEST,
+                HTTPStatus.UNPROCESSABLE_ENTITY
+                if op_id_validation_error(exc)
+                else HTTPStatus.BAD_REQUEST,
                 error_code="invalid_guard_counter_payload",
                 message="Invalid guard-counter mutation payload",
                 correlation_id=correlation_id,
@@ -924,7 +929,7 @@ class ControlPlaneApplication(
         if method == "GET":
             return self._handle_get_request(route_path, query, correlation_id)
         if method == "DELETE":
-            return self._handle_delete_request(route_path, correlation_id)
+            return self._handle_delete_request(route_path, body, correlation_id)
         read_only_block = _read_only_method_not_allowed(
             self._read_model_routes, route_path, correlation_id
         )
@@ -1286,6 +1291,7 @@ class ControlPlaneApplication(
     def _handle_delete_request(
         self,
         route_path: str,
+        body: bytes,
         correlation_id: str,
     ) -> HttpResponse:
         # AG3-091 read-only endpoints: DELETE -> 405 (AC1/AC5).
@@ -1293,8 +1299,15 @@ class ControlPlaneApplication(
         if rm_delete is not None:
             return _bc_response_to_http_response(rm_delete)
 
+        # AG3-140 (FK-91 §91.1a Regel 5): the token-revoke DELETE carries the
+        # client-supplied op_id in its (optional) JSON body -- an empty body
+        # decodes to {} so a route that needs no payload is unaffected, but the
+        # auth revoke route can now see a real op_id instead of a hardcoded {}.
+        payload = _decode_optional_json_body(body, correlation_id)
+        if isinstance(payload, HttpResponse):
+            return payload
         auth_response = self._auth_routes.handle_delete(
-            route_path, {}, correlation_id,
+            route_path, payload, correlation_id,
         )
         if auth_response is not None:
             return _auth_response_to_http_response(auth_response)
@@ -1396,8 +1409,12 @@ class ControlPlaneApplication(
                     request=request,
                 )
         except ValidationError as exc:
+            # AG3-140 (FK-91 §91.1a Regel 5, AC1): a missing/empty op_id fails
+            # closed with 422, distinct from an ordinary 400 payload-shape defect.
             return _error_response(
-                HTTPStatus.BAD_REQUEST,
+                HTTPStatus.UNPROCESSABLE_ENTITY
+                if op_id_validation_error(exc)
+                else HTTPStatus.BAD_REQUEST,
                 error_code="invalid_phase_mutation_payload",
                 message="Invalid phase mutation payload",
                 correlation_id=correlation_id,
@@ -1431,8 +1448,12 @@ class ControlPlaneApplication(
                 request=request,
             )
         except ValidationError as exc:
+            # AG3-140 (FK-91 §91.1a Regel 5, AC1): a missing/empty op_id fails
+            # closed with 422, distinct from an ordinary 400 payload-shape defect.
             return _error_response(
-                HTTPStatus.BAD_REQUEST,
+                HTTPStatus.UNPROCESSABLE_ENTITY
+                if op_id_validation_error(exc)
+                else HTTPStatus.BAD_REQUEST,
                 error_code="invalid_closure_payload",
                 message="Invalid closure payload",
                 correlation_id=correlation_id,
@@ -1465,8 +1486,12 @@ class ControlPlaneApplication(
             request = ProjectEdgeSyncRequest.model_validate(payload)
             result = self._runtime_service.sync_project_edge(request)
         except ValidationError as exc:
+            # AG3-140 (FK-91 §91.1a Regel 5, AC1): a missing/empty op_id fails
+            # closed with 422, distinct from an ordinary 400 payload-shape defect.
             return _error_response(
-                HTTPStatus.BAD_REQUEST,
+                HTTPStatus.UNPROCESSABLE_ENTITY
+                if op_id_validation_error(exc)
+                else HTTPStatus.BAD_REQUEST,
                 error_code="invalid_project_edge_sync_payload",
                 message="Invalid project-edge sync payload",
                 correlation_id=correlation_id,
@@ -1855,6 +1880,21 @@ def _decode_json_body(body: bytes, correlation_id: str) -> object | HttpResponse
             message="Request body must be valid JSON",
             correlation_id=correlation_id,
         )
+
+
+def _decode_optional_json_body(
+    body: bytes, correlation_id: str
+) -> object | HttpResponse:
+    """Decode a request body that may legitimately be empty (DELETE routes).
+
+    An empty body decodes to ``{}`` so a route needing no payload is unaffected;
+    a non-empty body must still be valid JSON (fail-closed ``invalid_json`` on a
+    malformed one). AG3-140: the token-revoke DELETE carries its client-supplied
+    ``op_id`` (FK-91 §91.1a Regel 5) in this optional body.
+    """
+    if not body or not body.strip():
+        return {}
+    return _decode_json_body(body, correlation_id)
 
 
 def _single_query_value(query: dict[str, list[str]], key: str) -> str | None:

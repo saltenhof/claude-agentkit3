@@ -150,7 +150,8 @@ def test_post_stories_creates_story() -> None:
     assert body["status"] == "Backlog"
 
 
-def test_post_stories_missing_op_id_returns_400() -> None:
+def test_post_stories_missing_op_id_returns_422() -> None:
+    """AG3-140 (FK-91 §91.1a Regel 5, AC1): missing op_id fails closed with 422."""
     routes = _make_routes()
     resp = routes.handle_post(
         "/v1/stories",
@@ -158,8 +159,8 @@ def test_post_stories_missing_op_id_returns_400() -> None:
         CORR,
     )
     assert resp is not None
-    assert resp.status_code == HTTPStatus.BAD_REQUEST
-    assert _body(resp)["error_code"] == "validation_failed"
+    assert resp.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert _body(resp)["error_code"] == "missing_op_id"
 
 
 def test_post_stories_unknown_project_returns_400() -> None:

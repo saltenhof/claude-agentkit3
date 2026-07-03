@@ -284,6 +284,7 @@ def test_conflicts_and_not_found_status_codes() -> None:
                 "story_id": "AK3-002",
                 "depends_on_story_id": "AK3-001",
                 "kind": "hard_story_dependency",
+                "op_id": "op-dependency-archived-001",
             },
         ).encode("utf-8"),
     )
