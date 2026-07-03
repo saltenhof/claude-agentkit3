@@ -24,6 +24,7 @@ from agentkit.backend.control_plane.models import (
     AdminAbortRequest,
     ApiErrorResponse,
     ClosureCompleteRequest,
+    ControlPlaneMutationResult,
     GuardCounterMutationRequest,
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,
@@ -674,7 +675,7 @@ class ControlPlaneApplication(_GovernanceMediationHandlers):
            incarnation; :mod:`instance_identity`);
         2. finalizes every orphaned ``claimed`` operation of THIS instance's
            OWN earlier incarnations (never a foreign identity), routing
-           Teil-Writes into the explicit ``repair`` state
+           partial writes into the explicit ``repair`` state
            (:mod:`startup_reconcile`);
         3. binds the resolved identity into the runtime service so every
            subsequently-accepted claim carries it.
@@ -1286,16 +1287,7 @@ class ControlPlaneApplication(_GovernanceMediationHandlers):
                 message=str(exc),
                 correlation_id=correlation_id,
             )
-        status = (
-            HTTPStatus.CONFLICT
-            if result.status == "rejected"
-            else HTTPStatus.CREATED
-        )
-        return _json_response(
-            status,
-            result.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
+        return _mutation_result_response(result, correlation_id=correlation_id)
 
     def _handle_post_closure_complete(
         self,
@@ -1330,11 +1322,11 @@ class ControlPlaneApplication(_GovernanceMediationHandlers):
                 message=str(exc),
                 correlation_id=correlation_id,
             )
-        return _json_response(
-            HTTPStatus.CREATED,
-            result.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
+        #: AG3-138 AC10: a repair-locked (or otherwise ``rejected``) closure maps to
+        #: 409 -- identical wiring to the phase mutation entrypoint. Previously this
+        #: path returned 201 CREATED unconditionally, letting a rejected closure look
+        #: like a success (fail-closed violation).
+        return _mutation_result_response(result, correlation_id=correlation_id)
 
     def _handle_post_project_edge_sync(
         self,
@@ -1385,7 +1377,7 @@ class ControlPlaneApplication(_GovernanceMediationHandlers):
         target that is not a live in-flight claim (already terminal / resolved
         concurrently) -> 409 ``operation_not_abortable``. On success the terminal
         ``aborted`` / ``repair`` result (200) carries the audited ``admin_note``;
-        a Teil-Write target goes to ``repair`` (IMPL-005) and mutation-locks its
+        a partial write target goes to ``repair`` (IMPL-005) and mutation-locks its
         story (AC10). Minimal authorization: the mandatory audited actor
         (``session_id`` / ``principal_type``) and ``reason`` are recorded on the
         terminal record; the full HTTP principal-attestation infrastructure
@@ -1731,6 +1723,30 @@ def _json_response(
         status_code=int(status),
         body=json.dumps(payload, sort_keys=True, default=str).encode("utf-8"),
         headers=((_CORRELATION_HEADER, correlation_id),) + tuple(headers),
+    )
+
+
+def _mutation_result_response(
+    result: ControlPlaneMutationResult,
+    *,
+    correlation_id: str,
+) -> HttpResponse:
+    """Map a control-plane mutation result to its fail-closed HTTP status (AG3-138).
+
+    A ``rejected`` result -- the fail-closed outcome of EVERY mutating control-plane
+    entrypoint (``start``/``complete``/``fail``/``resume``/``closure``), including the
+    AC10 open-reconcile/repair mutation lock -- maps to 409 CONFLICT; any other
+    (committed / replayed) result maps to 201 CREATED. Centralizing this here keeps
+    the rejected->409 wiring identical across phase mutations and closure completion,
+    so no mutating entrypoint can return 2xx for a fail-closed rejection.
+    """
+    status = (
+        HTTPStatus.CONFLICT if result.status == "rejected" else HTTPStatus.CREATED
+    )
+    return _json_response(
+        status,
+        result.model_dump(mode="json"),
+        correlation_id=correlation_id,
     )
 
 

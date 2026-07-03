@@ -49,11 +49,13 @@ class _RepoState:
         #: Authoritative server-side StoryContext store keyed by
         #: ``(project_key, story_id)``. Empty => unresolvable (fail-closed).
         self.story_contexts: dict[tuple[str, str], StoryContext] = {}
-        #: AG3-138: (story_id, run_id) pairs for which the engine is treated as
-        #: having already persisted phase_states/flow_executions (Teil-Write).
-        #: Empty => no partial writes (an abort/orphan finalize -> aborted/failed
-        #: rather than repair). Populated by tests exercising the repair path.
-        self.engine_write_runs: set[tuple[str, str]] = set()
+        #: AG3-138: story_id -> earliest persisted engine-write timestamp
+        #: (phase_states/flow_executions partial write). Empty => no partial writes
+        #: (an abort/orphan finalize -> aborted/failed rather than repair). The
+        #: partial-write detection is claim-window scoped (story + ``since``), never
+        #: a ``run_id`` column (the engine's ``flow_executions.run_id`` is
+        #: engine-internal, distinct from the control-plane operation ``run_id``).
+        self.engine_writes: dict[str, datetime] = {}
 
 
 class _FakeOps:
@@ -373,12 +375,12 @@ class _FakeOps:
         )
         return True
 
-    def has_engine_writes_since(
-        self, story_id: str, run_id: str, since: datetime
-    ) -> bool:
-        # Deterministic Teil-Write signal driven by a test-settable set on state
-        # (default empty => no partial writes). Keyed by (story_id, run_id).
-        return (story_id, run_id) in self._state.engine_write_runs
+    def has_engine_writes_since(self, story_id: str, since: datetime) -> bool:
+        # Deterministic partial-write signal driven by a test-settable map on state
+        # (default empty => no partial writes). Claim-window scoped: a recorded
+        # engine write for the story at/after ``since`` (the claim's claimed_at).
+        write_at = self._state.engine_writes.get(story_id)
+        return write_at is not None and write_at >= since
 
     def has_open_repair_for_story(self, project_key: str, story_id: str) -> bool:
         return any(
@@ -3348,7 +3350,8 @@ def test_admin_abort_with_partial_writes_goes_to_repair() -> None:
     """AC5/IMPL-005: an abort target with engine writes -> repair, not aborted."""
     state = _RepoState()
     _seed_live_claim(state, op_id="op-abort-repair", story_id="AG3-100", run_id="run-100")
-    state.engine_write_runs.add(("AG3-100", "run-100"))
+    #: An engine write persisted at the claim's own claimed_at (>= since) -> detected.
+    state.engine_writes["AG3-100"] = datetime(2026, 7, 2, 11, 0, tzinfo=UTC)
     service = ControlPlaneRuntimeService(repository=_repository(state))
 
     result = service.admin_abort_inflight_operation(
@@ -3399,7 +3402,7 @@ def test_get_operation_surfaces_repair_state_verbatim() -> None:
     """AC5: GET operations/{op_id} shows the true repair state (not 'replayed')."""
     state = _RepoState()
     _seed_live_claim(state, op_id="op-visible-repair", run_id="run-100")
-    state.engine_write_runs.add(("AG3-100", "run-100"))
+    state.engine_writes["AG3-100"] = datetime(2026, 7, 2, 11, 0, tzinfo=UTC)
     service = ControlPlaneRuntimeService(repository=_repository(state))
     service.admin_abort_inflight_operation("op-visible-repair", _admin_abort_request())
 
@@ -3444,8 +3447,61 @@ def test_mutating_dispatch_against_story_in_repair_is_rejected() -> None:
     assert result.status == "rejected"
     assert result.edge_bundle is None
     assert result.phase_dispatch is not None
-    assert "Reconcile-/Repair-Zustand" in (result.phase_dispatch.rejection_reason or "")
+    assert "reconcile/repair state" in (result.phase_dispatch.rejection_reason or "")
     assert "op-new-mut" not in state.operations
+
+
+def test_repair_lock_is_reversible_mutations_allowed_after_repair_resolved() -> None:
+    """AC10: the repair mutation-lock is data-driven and reversible (no deadlock).
+
+    The lock is a pure function of an OPEN ``repair`` control-plane operation for the
+    story (``has_open_repair_for_story``); there is no separate, driftable lock flag.
+    Once that repair record is RESOLVED (its status transitions away from ``repair``
+    -- an operator/recovery or AG3-150 resolution), the story is no longer locked and
+    a fresh mutating start commits again. This proves there IS a way out of repair.
+    """
+    state = _RepoState()
+    _resolvable_standard_ctx(state)
+    now = datetime(2026, 7, 2, 11, 0, tzinfo=UTC)
+    state.operations["op-repair-open"] = ControlPlaneOperationRecord(
+        op_id="op-repair-open",
+        project_key="tenant-a",
+        story_id="AG3-100",
+        run_id="run-old",
+        session_id="sess-001",
+        operation_kind="phase_start",
+        phase="implementation",
+        status="repair",
+        response_payload={"status": "repair", "op_id": "op-repair-open"},
+        created_at=now,
+        updated_at=now,
+    )
+    service = ControlPlaneRuntimeService(
+        repository=_repository(state),
+        phase_dispatcher=_StubDispatcher(_admitted_dispatch()),  # type: ignore[arg-type]
+    )
+
+    # (1) while the repair is open, a fresh mutating start is rejected.
+    locked = service.start_phase(
+        run_id="run-new", phase="setup", request=_setup_request("op-locked")
+    )
+    assert locked.status == "rejected"
+    assert "op-locked" not in state.operations
+
+    # (2) resolve the repair: the record's status leaves ``repair`` (recovery closed
+    # it). The lock is keyed purely on this record, so the story unlocks.
+    from dataclasses import replace
+
+    state.operations["op-repair-open"] = replace(
+        state.operations["op-repair-open"], status="aborted"
+    )
+
+    # (3) the same story's fresh start now commits again -- no deadlock.
+    unlocked = service.start_phase(
+        run_id="run-new", phase="setup", request=_setup_request("op-after-repair")
+    )
+    assert unlocked.status == "committed"
+    assert "op-after-repair" in state.operations
 
 
 def test_claim_stamps_instance_identity_and_operation_epoch() -> None:

@@ -554,8 +554,8 @@ class PhaseDispatchResult(BaseModel):
 #: ``rejected``. ``aborted``: an explicit ``admin_abort_inflight_operation``
 #: with no partial engine writes detected. ``repair``: an orphaned/aborted
 #: operation whose engine writes (``phase_states``/``flow_executions``) were
-#: already partially persisted -- an explicit, auditable Reconcile-/Repair-
-#: Zustand (IMPL-005), never silently ``failed``. ``failed``: the deterministic
+#: already partially persisted -- an explicit, auditable reconcile/repair
+#: state (IMPL-005), never silently ``failed``. ``failed``: the deterministic
 #: startup-reconciliation outcome for an orphaned claim of the OWN instance's
 #: earlier incarnation with no partial writes (FK-91 §91.1a rule 16).
 _NO_EDGE_BUNDLE_STATUSES = frozenset({"rejected", "aborted", "repair", "failed"})

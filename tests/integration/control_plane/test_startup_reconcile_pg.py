@@ -12,7 +12,7 @@ use:
 * AC3 -- ``backend_instance_id`` is stable across boots; ``instance_incarnation``
   is strictly monotone at the real store.
 * AC4 -- the ``operation_epoch`` CAS fence is enforced by the real finalize SQL.
-* AC5 -- a Teil-Write (engine writes persisted through the REAL dispatch path)
+* AC5 -- a partial write (engine writes persisted through the REAL dispatch path)
   routes an admin-abort into the explicit ``repair`` state, visible via the
   operation load surface.
 * AC9 -- a failing reconciliation makes the pre-serve startup hook fail closed.
@@ -51,6 +51,7 @@ from agentkit.backend.state_backend.store import (
     boot_backend_instance_identity_global,
     claim_control_plane_operation_global,
     finalize_control_plane_operation_global,
+    finalize_orphaned_control_plane_operation_global,
     load_control_plane_operation_global,
     save_backend_instance_identity_global,
     save_story_context_global,
@@ -266,14 +267,68 @@ def test_operation_epoch_cas_fence_at_real_store() -> None:
     assert still is not None and still.status == "claimed"
 
 
-# --- AC5 / AC10: Teil-Write via the real dispatch path -> repair + lock --------
+def test_orphan_finalize_operation_epoch_cas_fence_at_real_store() -> None:
+    """AG3-138 P3: the startup orphan finalize is fenced on the scanned ``operation_epoch``.
+
+    The startup-reconciliation orphan finalize must apply the SAME
+    ``operation_epoch`` CAS fence as the normal finalize
+    (``operation_finalize_requires_cas_on_operation_epoch``): a finalize presenting
+    the epoch OBSERVED BY THE SCAN applies, but one presenting a STALE epoch (the row
+    moved between scan and finalize) matches zero rows and is a deterministic no-op --
+    so a late finalize can never stamp a terminal status over a row that already
+    advanced under the same still-``claimed`` identity.
+    """
+    save_backend_instance_identity_global(_identity("inst-me", 1))
+    assert claim_control_plane_operation_global(
+        _claimed_op(
+            "op-orphan-epoch",
+            backend_instance_id="inst-me",
+            incarnation=1,
+            epoch=2,
+            story_id="AG3-360",
+        )
+    )
+
+    # Stale epoch (scan thought epoch was 1, stored is 2) -> fenced out, no-op.
+    assert (
+        finalize_orphaned_control_plane_operation_global(
+            op_id="op-orphan-epoch",
+            backend_instance_id="inst-me",
+            status="failed",
+            response_payload={"status": "failed", "op_id": "op-orphan-epoch"},
+            now=_T0,
+            owner_operation_epoch=1,
+        )
+        is False
+    ), "a stale-epoch orphan finalize must be fenced out"
+    still = load_control_plane_operation_global("op-orphan-epoch")
+    assert still is not None and still.status == "claimed"
+
+    # Matching epoch (scan observed 2, stored is 2) -> finalize applies.
+    assert (
+        finalize_orphaned_control_plane_operation_global(
+            op_id="op-orphan-epoch",
+            backend_instance_id="inst-me",
+            status="failed",
+            response_payload={"status": "failed", "op_id": "op-orphan-epoch"},
+            now=_T0,
+            owner_operation_epoch=2,
+        )
+        is True
+    )
+    finalized = load_control_plane_operation_global("op-orphan-epoch")
+    assert finalized is not None and finalized.status == "failed"
+    assert finalized.operation_epoch == 3  # bumped past the scanned epoch
+
+
+# --- AC5 / AC10: partial write via the real dispatch path -> repair + lock --------
 
 
 class _EngineWritingDispatcher:
     """A dispatcher that persists a real ``flow_executions`` engine write mid-dispatch.
 
     Mirrors ``engine.run_phase`` persisting engine state in its OWN transaction
-    during dispatch (BEFORE the control-plane finalize), so the Teil-Write fixture
+    during dispatch (BEFORE the control-plane finalize), so the partial write fixture
     arises through the REAL dispatch path -- not a hand-fabricated pipeline state.
     """
 
@@ -342,12 +397,12 @@ def _seed_story_context(tmp_path: Path, story_id: str) -> None:
 def test_admin_abort_partial_write_goes_to_repair_and_locks_story(
     tmp_path: Path,
 ) -> None:
-    """AC5/AC10: a Teil-Write admin-abort -> ``repair``; the story is mutation-locked.
+    """AC5/AC10: a partial write admin-abort -> ``repair``; the story is mutation-locked.
 
     1. A REAL ``start_phase`` dispatch persists a ``flow_executions`` engine write
        for the run (through the dispatch path).
     2. An orphaned in-flight claim of the run (claimed BEFORE that write) is
-       admin-aborted -> the deterministic Teil-Write detection routes it to the
+       admin-aborted -> the deterministic partial write detection routes it to the
        explicit ``repair`` state (visible via the operation load surface, AC5).
     3. A new mutating dispatch against the now-in-repair story is fail-closed
        ``rejected`` at the operations layer (AC10).
@@ -398,7 +453,7 @@ def test_admin_abort_partial_write_goes_to_repair_and_locks_story(
     )
     result = abort_service.admin_abort_inflight_operation("op-350-crash", _abort_request())
 
-    assert result.status == "repair", "a Teil-Write abort enters the explicit repair state"
+    assert result.status == "repair", "a partial write abort enters the explicit repair state"
     stored = load_control_plane_operation_global("op-350-crash")
     assert stored is not None and stored.status == "repair", "repair visible via GET"
 

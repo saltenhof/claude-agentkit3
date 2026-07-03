@@ -1,14 +1,14 @@
 """Unit tests for the AG3-138 startup reconciliation of orphaned claims.
 
 Blood-type A decision logic over injectable ports (no I/O): only the OWN
-instance's earlier-incarnation orphaned claims are finalized; a Teil-Write goes
+instance's earlier-incarnation orphaned claims are finalized; a partial write goes
 to ``repair``, a clean orphan to ``failed``; a store failure is fail-closed.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -67,7 +67,11 @@ class _FakeReconcileRepo:
     """In-memory identity-fenced orphan store for the reconcile logic."""
 
     operations: dict[str, ControlPlaneOperationRecord] = field(default_factory=dict)
-    engine_write_runs: set[tuple[str, str]] = field(default_factory=set)
+    #: story_id -> earliest persisted engine-write timestamp. The partial-write
+    #: detection is claim-window scoped (story + ``since``), never a ``run_id``
+    #: column (the engine's ``flow_executions.run_id`` is engine-internal, distinct
+    #: from the control-plane operation ``run_id``; AG3-138 P1).
+    engine_writes: dict[str, datetime] = field(default_factory=dict)
     #: When set, the scan raises to prove the fail-closed wrap.
     scan_raises: bool = False
 
@@ -93,6 +97,7 @@ class _FakeReconcileRepo:
         status: str,
         response_payload: dict[str, object],
         now: datetime,
+        owner_operation_epoch: int | None = None,
     ) -> bool:
         existing = self.operations.get(op_id)
         if (
@@ -101,16 +106,27 @@ class _FakeReconcileRepo:
             or existing.backend_instance_id != backend_instance_id
         ):
             return False
+        #: AG3-138 P3: the identity fence PLUS the ``operation_epoch`` CAS observed by
+        #: the orphan scan -- a row whose epoch moved since the scan is left untouched.
+        if (
+            owner_operation_epoch is not None
+            and existing.operation_epoch != owner_operation_epoch
+        ):
+            return False
         self.operations[op_id] = replace(
-            existing, status=status, response_payload=response_payload, updated_at=now
+            existing,
+            status=status,
+            response_payload=response_payload,
+            updated_at=now,
+            operation_epoch=(existing.operation_epoch or 0) + 1,
         )
         return True
 
-    def has_engine_writes_since(
-        self, story_id: str, run_id: str, since: datetime
-    ) -> bool:
-        del since
-        return (story_id, run_id) in self.engine_write_runs
+    def has_engine_writes_since(self, story_id: str, since: datetime) -> bool:
+        #: Claim-window scoped partial-write signal: a recorded engine write for the
+        #: story at/after ``since`` (the orphan claim's own ``claimed_at``).
+        write_at = self.engine_writes.get(story_id)
+        return write_at is not None and write_at >= since
 
 
 def test_only_own_earlier_incarnation_claims_finalized_foreign_untouched() -> None:
@@ -143,12 +159,13 @@ def test_only_own_earlier_incarnation_claims_finalized_foreign_untouched() -> No
 
 
 def test_orphan_with_engine_writes_goes_to_repair_not_failed() -> None:
-    """AC5/IMPL-005: a Teil-Write orphan enters the explicit repair state."""
+    """AC5/IMPL-005: a partial-write orphan enters the explicit repair state."""
     repo = _FakeReconcileRepo()
     repo.operations["op-partial"] = _claim(
         op_id="op-partial", backend_instance_id="inst-me", incarnation=1
     )
-    repo.engine_write_runs.add(("AG3-300", "run-1"))
+    #: An engine write persisted AT the claim's own claimed_at (>= since) -> detected.
+    repo.engine_writes["AG3-300"] = _CLAIMED_AT
 
     outcome = run_startup_reconciliation(
         repo,  # type: ignore[arg-type]
@@ -160,7 +177,35 @@ def test_orphan_with_engine_writes_goes_to_repair_not_failed() -> None:
     assert outcome.repair_op_ids == ("op-partial",)
     result = repo.operations["op-partial"]
     assert result.status == "repair"
-    assert "Reconcile-/Repair-Zustand" in str(result.response_payload["admin_note"])
+    assert "reconcile/repair state" in str(result.response_payload["admin_note"])
+
+
+def test_older_foreign_write_before_claim_does_not_trigger_repair() -> None:
+    """AG3-138 P1: a partial write from BEFORE this claim's window -> failed, not repair.
+
+    A clean-crashed orphan (claimed at ``_CLAIMED_AT``) whose story carries an engine
+    write from an EARLIER operation (persisted strictly before the claim) must NOT be
+    routed to ``repair``: the claim-window (``since = claimed_at``) scoping excludes
+    writes that predate this operation, so the older/foreign write is not attributed
+    to it. This is the operations-scoped guarantee -- an unrelated write of the same
+    story never opens a false repair for a cleanly crashed later operation.
+    """
+    repo = _FakeReconcileRepo()
+    repo.operations["op-clean"] = _claim(
+        op_id="op-clean", backend_instance_id="inst-me", incarnation=1
+    )
+    #: A write one hour BEFORE this orphan's claimed_at -> an earlier operation's write.
+    repo.engine_writes["AG3-300"] = _CLAIMED_AT - timedelta(hours=1)
+
+    outcome = run_startup_reconciliation(
+        repo,  # type: ignore[arg-type]
+        _identity("inst-me", 2),
+        now_fn=lambda: _NOW,
+    )
+
+    assert outcome.finalized_op_ids == ("op-clean",)
+    assert outcome.repair_op_ids == ()
+    assert repo.operations["op-clean"].status == "failed"
 
 
 def test_store_failure_is_fail_closed_start() -> None:

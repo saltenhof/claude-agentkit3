@@ -175,13 +175,16 @@ class ControlPlaneRuntimeRepository:
     #: AG3-138 ``admin_abort_inflight_operation`` (FK-91 §91.1a, FK-55 §55.5
     #: ``admin_transition``): CAS-abort ANY currently-``claimed`` operation.
     admin_abort_operation: Callable[..., bool] = admin_abort_control_plane_operation_global
-    #: AG3-138 (IMPL-005): deterministic Teil-Write detection -- have
-    #: ``phase_states``/``flow_executions`` already been written for this run at
-    #: or after the claim's own ``claimed_at`` (never the current wall clock)?
-    has_engine_writes_since: Callable[[str, str, datetime], bool] = (
+    #: AG3-138 (IMPL-005): deterministic partial-write detection -- have
+    #: ``phase_states``/``flow_executions`` already been written for this story at
+    #: or after the claim's own ``claimed_at`` (never the current wall clock)? Bound
+    #: to the concrete operation by its claim window, not a ``run_id`` column (the
+    #: engine's ``flow_executions.run_id`` is engine-internal, distinct from the
+    #: control-plane operation ``run_id``; ``phase_states`` has no ``run_id`` at all).
+    has_engine_writes_since: Callable[[str, datetime], bool] = (
         has_engine_writes_since_control_plane_claim_global
     )
-    #: AG3-138 (AC10): whether *story_id* carries an open Reconcile-/Repair-Zustand
+    #: AG3-138 (AC10): whether *story_id* carries an open reconcile/repair state
     #: -- backs the fail-closed dispatch-/operations-layer mutation lock.
     has_open_repair_for_story: Callable[[str, str], bool] = (
         has_open_repair_control_plane_operation_for_story_global

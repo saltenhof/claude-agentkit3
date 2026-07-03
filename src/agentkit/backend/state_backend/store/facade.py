@@ -1316,12 +1316,16 @@ def finalize_orphaned_control_plane_operation_global(
     status: str,
     response_payload: dict[str, object],
     now: datetime,
+    owner_operation_epoch: int | None = None,
 ) -> bool:
     """CAS-finalize one orphaned claim during startup reconciliation (AG3-138).
 
     Fail-closed identity fence at the store: the CAS additionally matches
     ``backend_instance_id`` -- a claim whose identity is not the caller's own is
-    never touched by this call.
+    never touched by this call. ``owner_operation_epoch`` (the ``operation_epoch``
+    observed by the orphan scan) additionally fences the finalize on that epoch, so a
+    row whose epoch moved between scan and finalize is left untouched
+    (``operation_finalize_requires_cas_on_operation_epoch``).
     """
     _require_control_plane_backend()
     backend = _backend_module()
@@ -1332,6 +1336,7 @@ def finalize_orphaned_control_plane_operation_global(
             status=status,
             response_json=mappers.dump_json(response_payload),
             now=now.isoformat(),
+            owner_operation_epoch=owner_operation_epoch,
         )
     )
 
@@ -1363,21 +1368,24 @@ def admin_abort_control_plane_operation_global(
 
 def has_engine_writes_since_control_plane_claim_global(
     story_id: str,
-    run_id: str,
     since: datetime,
 ) -> bool:
-    """Whether the engine already persisted ``phase_states``/``flow_executions``.
+    """Whether the engine persisted partial writes under a specific claim window.
 
-    Deterministic Teil-Write detection (AG3-138, IMPL-005): compares ALREADY
-    RECORDED timestamps against ``since`` (the claim's own ``claimed_at``) --
-    never the current wall clock.
+    Deterministic partial-write detection (AG3-138, IMPL-005): compares ALREADY
+    RECORDED timestamps against ``since`` (the claim's own ``claimed_at``) -- never
+    the current wall clock. The detection is bound to the concrete operation through
+    its claim window (``since``), not a ``run_id`` column: the engine persists an
+    engine-internal ``flow_executions.run_id`` distinct from the control-plane
+    operation ``run_id``, and ``phase_states`` has no ``run_id`` column, so the claim
+    window is the sound operation-binding for both engine tables (see the row-level
+    function for the full rationale).
     """
     _require_control_plane_backend()
     backend = _backend_module()
     return bool(
         backend.has_engine_writes_since_control_plane_claim_global_row(
             story_id=story_id,
-            run_id=run_id,
             since=since.isoformat(),
         )
     )
@@ -1387,7 +1395,7 @@ def has_open_repair_control_plane_operation_for_story_global(
     project_key: str,
     story_id: str,
 ) -> bool:
-    """Whether *story_id* has an open (unresolved) Reconcile-/Repair-Zustand.
+    """Whether *story_id* has an open (unresolved) reconcile/repair state.
 
     Backs the AC10 fail-closed mutation lock at the dispatch-/operations-layer.
     """

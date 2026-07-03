@@ -3472,6 +3472,7 @@ def finalize_orphaned_control_plane_operation_global_row(
     status: str,
     response_json: str,
     now: str,
+    owner_operation_epoch: int | None = None,
 ) -> bool:
     """CAS-finalize one orphaned claim during startup reconciliation (AG3-138).
 
@@ -3482,24 +3483,48 @@ def finalize_orphaned_control_plane_operation_global_row(
     ``operation_epoch`` is bumped (``operation_finalize_requires_cas_on_operation_epoch``)
     and the lease columns are cleared.
 
+    ``owner_operation_epoch`` additionally fences the finalize on the
+    ``operation_epoch`` OBSERVED BY THE ORPHAN SCAN, exactly like the normal
+    :func:`finalize_control_plane_operation_global_row` lease-epoch fence: if the
+    row's ``operation_epoch`` changed between the scan and this finalize (e.g. a
+    concurrent admin-abort of the same still-``claimed`` identity bumped it), the
+    CAS matches zero rows and this call is a deterministic no-op (returns
+    ``False``) instead of stamping a terminal status over a row that already moved
+    on. ``None`` keeps the legacy identity-only fence (backward compatible).
+
     Returns:
         ``True`` iff this call's finalize applied (rowcount == 1).
     """
 
+    epoch_clause, epoch_params = _orphan_finalize_epoch_cas_clause(owner_operation_epoch)
     with _connect_global() as conn:
         cursor = conn.execute(
-            """
+            f"""
             UPDATE control_plane_operations
             SET status = ?, response_json = ?, updated_at = ?, finalized_at = ?,
                 operation_epoch = operation_epoch + 1,
                 claimed_by = NULL, claimed_at = NULL
             WHERE op_id = ?
               AND status = 'claimed'
-              AND backend_instance_id = ?
-            """,
-            (status, response_json, now, now, op_id, backend_instance_id),
+              AND backend_instance_id = ?{epoch_clause}
+            """,  # noqa: S608 -- epoch_clause is a constant fragment, no user data
+            (status, response_json, now, now, op_id, backend_instance_id, *epoch_params),
         )
         return int(cursor.rowcount) == 1
+
+
+def _orphan_finalize_epoch_cas_clause(
+    owner_operation_epoch: int | None,
+) -> tuple[str, tuple[int, ...]]:
+    """Build the optional ``operation_epoch`` CAS fragment for the orphan finalize.
+
+    Mirrors :func:`_owner_fencing_cas_clause`'s ``operation_epoch`` predicate but for
+    the startup-reconciliation orphan finalize (which fences on identity, not on an
+    owner lease token). Fixed fragment text, no interpolated user data.
+    """
+    if owner_operation_epoch is None:
+        return "", ()
+    return "\n              AND operation_epoch = ?", (owner_operation_epoch,)
 
 
 def admin_abort_control_plane_operation_global_row(
@@ -3542,30 +3567,47 @@ def admin_abort_control_plane_operation_global_row(
 def has_engine_writes_since_control_plane_claim_global_row(
     *,
     story_id: str,
-    run_id: str,
     since: str,
 ) -> bool:
-    """Whether the engine already persisted ``phase_states``/``flow_executions``.
+    """Whether the engine persisted partial writes UNDER a specific claim window.
 
-    Deterministic, event-based Teil-Write detection (AG3-138, IMPL-005): compares
+    Deterministic, event-based partial-write detection (AG3-138, IMPL-005): compares
     the ALREADY-RECORDED ``flow_executions.started_at`` / ``phase_states.updated_at``
-    against ``since`` (the orphaned/aborted claim's OWN ``claimed_at``) -- never
-    the current wall clock. ``control_plane/dispatch.py`` runs
-    ``engine.run_phase``/``resume_phase`` (own transactions, per the atomicity
-    note in this module) BEFORE the control-plane finalize commits; a value
-    at/after ``since`` for THIS ``run_id`` proves the engine already wrote under
-    the claim now being finalized as orphaned/aborted, so it must go to the
-    ``repair`` state, never silently ``failed``.
+    against ``since`` (the orphaned/aborted claim's OWN ``claimed_at``) -- never the
+    current wall clock. ``control_plane/dispatch.py`` runs
+    ``engine.run_phase``/``resume_phase`` (own transactions, per the atomicity note
+    in this module) BEFORE the control-plane finalize commits; a persisted value
+    at/after ``since`` proves the engine already wrote under the claim now being
+    finalized as orphaned/aborted, so it must go to the ``repair`` state, never
+    silently ``failed``.
+
+    The detection is bound to the CONCRETE OPERATION through its CLAIM WINDOW, not
+    through a ``run_id`` column. The precise binding key here is ``since`` (the
+    operation's own ``claimed_at``) combined with the ``story-lifecycle``
+    at-most-one-active-operation-per-story invariant: while this claim is still
+    in-flight (unreconciled), no other operation can hold the story and write its
+    engine tables, so any ``story_id`` engine write at/after ``since`` is THIS
+    operation's write. A ``run_id`` filter is deliberately NOT applied: the engine
+    persists ``flow_executions.run_id = EngineRuntimeState.resolve_run_id(ctx)`` --
+    an engine-internal id (a fresh ``uuid4`` seed reused via the story's own
+    ``flow_executions`` row), which is DISTINCT from the control-plane operation
+    ``run_id`` (the client-supplied ``/story-runs/{run_id}`` path value). Filtering
+    the flow probe by the control-plane ``run_id`` would therefore miss the engine's
+    real write and silently route a genuine partial write to ``failed`` -- a
+    fail-closed violation (IMPL-005 "never silently failed"). ``phase_states`` is a
+    story-keyed singleton with no ``run_id`` column at all, so the claim window is
+    the only sound operation-binding available for it too; both engine tables use it
+    consistently.
     """
 
     with _connect_global() as conn:
         flow_row = conn.execute(
             """
             SELECT 1 FROM flow_executions
-            WHERE story_id = ? AND run_id = ? AND started_at >= ?
+            WHERE story_id = ? AND started_at >= ?
             LIMIT 1
             """,
-            (story_id, run_id, since),
+            (story_id, since),
         ).fetchone()
         if flow_row is not None:
             return True
@@ -3585,7 +3627,7 @@ def has_open_repair_control_plane_operation_for_story_global_row(
     project_key: str,
     story_id: str,
 ) -> bool:
-    """Whether *story_id* has an open (unresolved) Reconcile-/Repair-Zustand.
+    """Whether *story_id* has an open (unresolved) reconcile/repair state.
 
     Backs the AC10 fail-closed mutation lock at the dispatch-/operations-layer.
     "Open" means a stored ``repair``-status control-plane operation exists for

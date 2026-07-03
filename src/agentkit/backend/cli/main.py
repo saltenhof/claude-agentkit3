@@ -2164,7 +2164,7 @@ def _cmd_admin_abort(args: argparse.Namespace) -> int:
 
     A thin REST adapter onto ``POST /v1/project-edge/operations/{op_id}/
     admin-abort`` (``admin_abort_inflight_operation``): it validates inputs
-    locally and delegates the abort EXECUTION (epoch-fence, Teil-Write->repair
+    locally and delegates the abort EXECUTION (epoch-fence, partial write->repair
     routing, audit) to the core. It NEVER opens a DB connection and builds no
     second semantics -- no own runtime/DB path (Regel 10; the delegation is
     test-pinned).

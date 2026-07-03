@@ -1002,12 +1002,12 @@ class _ControlPlaneRuntimeAdmissionBase:
     ) -> ControlPlaneMutationResult | None:
         """Fail-closed AC10 mutation lock: reject a mutation for a story in repair.
 
-        A story with an open Reconcile-/Repair-Zustand (an orphaned/aborted
+        A story with an open reconcile/repair state (an orphaned/aborted
         operation whose engine writes were already partially persisted, IMPL-005)
         is mutation-locked at this dispatch-/operations-layer entrypoint: no NEW
         mutating operation is admitted until the state is resolved via
         ``admin_abort``/repair (SEVERITY-SEMANTIK: a visible, auditable
-        handling requirement, never silent continued work on a Teil-Write-Stand).
+        handling requirement, never silent continued work on a partial-write state).
 
         Returns:
             A fail-closed ``rejected`` result when the story is locked, else
@@ -1024,7 +1024,7 @@ class _ControlPlaneRuntimeAdmissionBase:
             phase=phase,
             reason=(
                 f"{operation_kind} rejected: story {story_id!r} has an open "
-                "Reconcile-/Repair-Zustand (a prior in-flight operation left "
+                "reconcile/repair state (a prior in-flight operation left "
                 "partial engine writes -- phase_states/flow_executions -- after "
                 "an admin-abort or startup-reconciliation orphan finalize); no "
                 "new mutating operation is admitted until the state is resolved "
@@ -2020,7 +2020,7 @@ class ControlPlaneRuntimeService(_ControlPlaneRuntimeAdmissionBase):
             return None
         #: AG3-138 (AC5, FK-91 §91.1a Regel 17): ``_replayed_result`` surfaces an
         #: ``aborted`` / ``repair`` / ``failed`` terminal state VERBATIM (a
-        #: visible, auditable Reconcile-/Repair-Zustand, SEVERITY-SEMANTIK) and
+        #: visible, auditable reconcile/repair state, SEVERITY-SEMANTIK) and
         #: only echoes the ordinary success statuses as ``replayed``.
         return _replayed_result(record.response_payload)
 
@@ -2041,7 +2041,7 @@ class ControlPlaneRuntimeService(_ControlPlaneRuntimeAdmissionBase):
           finalize fails the epoch fence deterministically -- at most a no-op
           abort note, never a second result or a silent state change (AC4/AC6;
           ``operation_finalize_requires_cas_on_operation_epoch``);
-        * routes a Teil-Write (already-persisted ``phase_states``/
+        * routes a partial write (already-persisted ``phase_states``/
           ``flow_executions``) into the explicit, auditable ``repair`` state
           instead of silently ``failed`` (IMPL-005), which then story-scoped
           mutation-locks the run (AC10);
@@ -2101,9 +2101,7 @@ class ControlPlaneRuntimeService(_ControlPlaneRuntimeAdmissionBase):
     ) -> tuple[Literal["aborted", "repair"], str]:
         """Decide ``aborted`` vs ``repair`` for an admin-abort target (IMPL-005)."""
         since = record.claimed_at or record.created_at
-        has_writes = record.run_id is not None and self._repo.has_engine_writes_since(
-            record.story_id, record.run_id, since
-        )
+        has_writes = self._repo.has_engine_writes_since(record.story_id, since)
         actor = f"session={request.session_id!r} principal={request.principal_type!r}"
         if has_writes:
             return (
@@ -2111,7 +2109,7 @@ class ControlPlaneRuntimeService(_ControlPlaneRuntimeAdmissionBase):
                 f"admin_abort_inflight_operation by {actor}: reason="
                 f"{request.reason!r}. The aborted operation had already persisted "
                 "engine writes (phase_states/flow_executions); entering an "
-                "explicit, auditable Reconcile-/Repair-Zustand instead of silently "
+                "explicit, auditable reconcile/repair state instead of silently "
                 "'failed' (IMPL-005). The story is mutation-locked until the state "
                 "is resolved via repair (AC10).",
             )

@@ -3,7 +3,7 @@
 FK-91 Regel 10: the ``admin-abort`` command is a THIN REST adapter onto
 ``POST /v1/project-edge/operations/{op_id}/admin-abort``. It opens NO DB
 connection and builds NO second semantics -- the core owns the abort /
-epoch-fence / Teil-Write->repair logic. These tests pin the delegation (the REST
+epoch-fence / partial write->repair logic. These tests pin the delegation (the REST
 ``admin_abort_operation`` is called with the op_id + audited request) and the
 fail-closed input handling, without a live backend.
 """

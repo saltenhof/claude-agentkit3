@@ -1373,7 +1373,7 @@ def test_admin_abort_endpoint_returns_aborted_200() -> None:
 
 
 def test_admin_abort_endpoint_partial_write_returns_repair_200() -> None:
-    """AC5/AC6: a Teil-Write target returns 200 with the explicit ``repair`` state."""
+    """AC5/AC6: a partial write target returns 200 with the explicit ``repair`` state."""
     app = _abort_app(_AbortRuntimeService(result=_abort_result("repair")))
 
     response = _post_admin_abort(app, op_id="op-abort-1", body=_ABORT_BODY)
@@ -1431,8 +1431,8 @@ def test_phase_mutation_repair_lock_rejection_maps_to_409() -> None:
 
     The AC10 mutation-lock returns a ``rejected`` ``ControlPlaneMutationResult``
     with a machine-readable reason; the phase-mutation route maps ``rejected`` to
-    409 CONFLICT, so a mutating dispatch against a story in an open Reconcile-/
-    Repair-Zustand is deterministically abgewiesen with a machine-readable reason.
+    409 CONFLICT, so a mutating dispatch against a story in an open reconcile/repair
+    state is deterministically rejected with a machine-readable reason.
     """
 
     class _RepairLockedRuntime(ControlPlaneRuntimeService):
@@ -1454,7 +1454,7 @@ def test_phase_mutation_repair_lock_rejection_maps_to_409() -> None:
                     dispatched=False,
                     rejection_reason=(
                         "phase_start rejected: story has an open "
-                        "Reconcile-/Repair-Zustand (AG3-138 AC10)."
+                        "reconcile/repair state (AG3-138 AC10)."
                     ),
                 ),
             )
@@ -1478,4 +1478,58 @@ def test_phase_mutation_repair_lock_rejection_maps_to_409() -> None:
     assert response.status_code == HTTPStatus.CONFLICT
     body = _json_body(response)
     assert body["status"] == "rejected"
-    assert "Repair" in str(body["phase_dispatch"]["rejection_reason"])
+    assert "repair" in str(body["phase_dispatch"]["rejection_reason"])
+
+
+def test_closure_complete_repair_lock_rejection_maps_to_409() -> None:
+    """AC10 (AG3-138 P2): a repair-locked closure-complete surfaces as HTTP 409.
+
+    The closure-complete route is a MUTATING entrypoint: a ``rejected`` result (the
+    AC10 open-reconcile/repair mutation lock, or any other fail-closed closure
+    rejection) must map to 409 CONFLICT, exactly like the phase-mutation route.
+    Previously this route returned 201 CREATED unconditionally, letting a rejected
+    closure masquerade as a success (fail-closed violation).
+    """
+
+    class _RepairLockedClosureRuntime(ControlPlaneRuntimeService):
+        def complete_closure(
+            self, *, run_id: str, request: object
+        ) -> ControlPlaneMutationResult:
+            del request
+            return ControlPlaneMutationResult(
+                status="rejected",
+                op_id="op-closure-blocked",
+                operation_kind="closure_complete",
+                run_id=run_id,
+                phase="closure",
+                edge_bundle=None,
+                phase_dispatch=PhaseDispatchResult(
+                    phase="closure",
+                    status="rejected",
+                    reaction="rejected",
+                    dispatched=False,
+                    rejection_reason=(
+                        "closure_complete rejected: story has an open "
+                        "reconcile/repair state (AG3-138 AC10)."
+                    ),
+                ),
+            )
+
+    app = _abort_app(_RepairLockedClosureRuntime())
+    response = app.handle_request(
+        method="POST",
+        path="/v1/projects/tenant-a/story-runs/run-100/closure/complete",
+        body=json.dumps(
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "session_id": "sess-001",
+                "op_id": "op-closure-blocked",
+            },
+        ).encode("utf-8"),
+    )
+
+    assert response.status_code == HTTPStatus.CONFLICT
+    body = _json_body(response)
+    assert body["status"] == "rejected"
+    assert body["operation_kind"] == "closure_complete"

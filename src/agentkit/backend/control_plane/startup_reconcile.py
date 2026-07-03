@@ -10,7 +10,7 @@ other end-way is the explicit ``admin_abort_inflight_operation`` endpoint
 (``formal.state-storage.invariants``
 ``orphaned_claims_are_finalized_only_by_same_instance_startup_reconciliation_or_admin_abort``).
 
-Deterministic, event-based Teil-Write detection (IMPL-005, no wall-clock
+Deterministic, event-based partial write detection (IMPL-005, no wall-clock
 mechanism): an orphaned claim whose ``phase_states``/``flow_executions`` were
 already persisted at or after the claim's own ``claimed_at`` goes to an
 explicit, auditable ``repair`` state instead of silently ``failed``.
@@ -62,7 +62,7 @@ class ReconciliationOutcome:
     #: that were deterministically finalized (``failed`` or ``repair``).
     finalized_op_ids: tuple[str, ...]
     #: The subset of ``finalized_op_ids`` that went to the explicit
-    #: Reconcile-/Repair-Zustand (already-persisted engine writes, IMPL-005).
+    #: reconcile/repair state (already-persisted engine writes, IMPL-005).
     repair_op_ids: tuple[str, ...]
 
 
@@ -80,7 +80,7 @@ def run_startup_reconciliation(
 
     Args:
         repo: The control-plane runtime repository (orphan-scan, identity-fenced
-            finalize and Teil-Write-detection ports).
+            finalize and partial-write detection ports).
         identity: THIS boot's resolved backend instance identity (already
             incremented for this boot by :mod:`instance_identity`).
         now_fn: Injectable clock for the ``finalized_at``/``updated_at`` stamp.
@@ -126,6 +126,7 @@ def _run(
             status=status,
             response_payload=response_payload,
             now=now_fn(),
+            owner_operation_epoch=op.operation_epoch,
         )
         if not applied:
             # The row changed underneath the scan (e.g. concurrently resolved by
@@ -148,9 +149,7 @@ def _resolve_terminal_status(
 ) -> tuple[Literal["failed", "repair"], str]:
     """Decide ``failed`` vs ``repair`` for one orphaned claim (IMPL-005)."""
     since = op.claimed_at or op.created_at
-    has_writes = op.run_id is not None and repo.has_engine_writes_since(
-        op.story_id, op.run_id, since
-    )
+    has_writes = repo.has_engine_writes_since(op.story_id, since)
     if has_writes:
         return (
             "repair",
@@ -159,7 +158,7 @@ def _resolve_terminal_status(
             f"{identity.backend_instance_id!r} (now at incarnation "
             f"{identity.instance_incarnation}) already persisted engine writes "
             "(phase_states/flow_executions) before the crash; entering an "
-            "explicit, auditable Reconcile-/Repair-Zustand instead of silently "
+            "explicit, auditable reconcile/repair state instead of silently "
             "'failed' (IMPL-005).",
         )
     return (
