@@ -54,7 +54,6 @@ class AtomicGuardCounterStore(GuardCounterRepository, Protocol):
         blocked: bool,
         updated_at: datetime,
         created_at: datetime,
-        correlation_id: str = "",
     ) -> GuardCounterRecordOutcome:
         """Record one invocation exactly once per ``op_id`` in one transaction."""
         ...

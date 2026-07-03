@@ -207,7 +207,6 @@ class StateBackendGuardCounterRepository:
         blocked: bool,
         updated_at: datetime,
         created_at: datetime,
-        correlation_id: str = "",
     ) -> GuardCounterRecordOutcome:
         """Record one invocation EXACTLY ONCE per ``op_id`` (FK-91 §91.1a Regel 5).
 
