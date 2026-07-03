@@ -2,11 +2,22 @@ from __future__ import annotations
 
 import json
 from http import HTTPStatus
+from unittest.mock import patch
 
 from agentkit.backend.control_plane.http import ControlPlaneApplication
-from agentkit.backend.control_plane_http.app import ControlPlaneApplicationRoutes
+from agentkit.backend.control_plane_http.app import (
+    ControlPlaneApplicationRoutes,
+    HttpResponse,
+)
 from agentkit.backend.project_management.entities import Project, ProjectConfiguration
-from agentkit.backend.project_management.http.routes import ProjectManagementRoutes
+from agentkit.backend.project_management.http.routes import (
+    ProjectManagementRoutes,
+    _no_repos_in_use,
+)
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    IdempotencyRequest,
+    InMemoryInflightIdempotencyGuard,
+)
 
 
 class _InMemoryProjectRepository:
@@ -61,7 +72,6 @@ def _app(
     *,
     stories: list[object] | None = None,
 ) -> ControlPlaneApplication:
-    from agentkit.backend.project_management.http.routes import _no_repos_in_use
     from agentkit.backend.project_management.service import ProjectDetailService
 
     detail_service = ProjectDetailService(
@@ -74,8 +84,32 @@ def _app(
                 repository=repository,
                 repos_in_use_checker=_no_repos_in_use,
                 detail_service=detail_service,
+                # AG3-140: a first-class in-memory idempotency guard (NOT a mock)
+                # so mutating routes exercise the real claim->finalize contract
+                # without a database.  Single-call tests get a fresh guard.
+                idempotency_guard=InMemoryInflightIdempotencyGuard(),
             ),
         ),
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
+    )
+
+
+def _app_with_guard(
+    repository: _InMemoryProjectRepository,
+    guard: InMemoryInflightIdempotencyGuard,
+) -> ControlPlaneApplication:
+    """Build a project-management app with a SHARED idempotency guard injected.
+
+    The same ``guard`` instance persists claim state across calls within one
+    test, so replay / mismatch / in-flight can be driven end-to-end.
+    """
+    routes = ProjectManagementRoutes(
+        repository=repository,
+        repos_in_use_checker=_no_repos_in_use,
+        idempotency_guard=guard,
+    )
+    return ControlPlaneApplication(
+        routes=ControlPlaneApplicationRoutes(project_routes=routes),
         tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
     )
 
@@ -419,6 +453,7 @@ def test_patch_configuration_repos_in_use_returns_validation_failed() -> None:
     routes = ProjectManagementRoutes(
         repository=repository,
         repos_in_use_checker=_checker,
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
     )
     app = ControlPlaneApplication(
         routes=ControlPlaneApplicationRoutes(project_routes=routes),
@@ -466,6 +501,7 @@ def test_patch_configuration_repos_not_in_use_succeeds() -> None:
     routes = ProjectManagementRoutes(
         repository=repository,
         repos_in_use_checker=_checker,
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
     )
     app = ControlPlaneApplication(
         routes=ControlPlaneApplicationRoutes(project_routes=routes),
@@ -508,3 +544,445 @@ def test_patch_project_updates_repositories_via_body_configuration() -> None:
     project = repository.get("tenant-a")
     assert project is not None
     assert project.configuration.repositories == ["repo-new"]
+
+
+# ---------------------------------------------------------------------------
+# AG3-140 / FK-91 §91.1a Regel 5 — unified idempotency contract on the four
+# mutating project routes (create, archive, PATCH detail, PATCH configuration).
+# ---------------------------------------------------------------------------
+
+
+_IDEM_CORR = "req-idem"
+
+
+def _project_b() -> Project:
+    """A second, distinct project (own key + story_id_prefix) for cross-target tests."""
+    return Project(
+        key="tenant-b",
+        name="Tenant B",
+        story_id_prefix="TB",
+        configuration=ProjectConfiguration.model_validate(_configuration_payload()),
+        archived_at=None,
+    )
+
+
+def _create_payload(
+    *,
+    key: str = "tenant-a",
+    name: str = "Tenant A",
+    story_id_prefix: str = "AG3",
+    op_id: str = "op-create",
+) -> dict[str, object]:
+    return {
+        "key": key,
+        "name": name,
+        "story_id_prefix": story_id_prefix,
+        "configuration": _configuration_payload(),
+        "op_id": op_id,
+    }
+
+
+def _request(
+    app: ControlPlaneApplication,
+    *,
+    method: str,
+    path: str,
+    payload: dict[str, object],
+    corr: str = _IDEM_CORR,
+) -> HttpResponse:
+    return app.handle_request(
+        method=method,
+        path=path,
+        body=json.dumps(payload).encode("utf-8"),
+        request_headers={"X-Correlation-Id": corr},
+    )
+
+
+def _preclaim(
+    guard: InMemoryInflightIdempotencyGuard,
+    *,
+    op_id: str,
+    operation_kind: str,
+    project_key: str = "tenant-a",
+) -> None:
+    """Leave a live ``claimed`` row for ``op_id`` (models a concurrent caller)."""
+    guard.claim(
+        IdempotencyRequest(
+            op_id=op_id,
+            operation_kind=operation_kind,
+            body_hash="preclaimed-hash",
+            project_key=project_key,
+            story_id=None,
+            correlation_id=_IDEM_CORR,
+        )
+    )
+
+
+class TestCreateIdempotency:
+    def test_create_missing_op_id_returns_422(self) -> None:
+        repository = _InMemoryProjectRepository()
+        payload = _create_payload()
+        del payload["op_id"]
+        resp = _request(
+            _app_with_guard(repository, InMemoryInflightIdempotencyGuard()),
+            method="POST",
+            path="/v1/projects",
+            payload=payload,
+        )
+        assert resp.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert _json_body(resp.body)["error_code"] == "invalid_project_create_payload"
+
+    def test_create_replay_returns_stored_result_and_runs_once(self) -> None:
+        repository = _InMemoryProjectRepository()
+        app = _app_with_guard(repository, InMemoryInflightIdempotencyGuard())
+        payload = _create_payload(op_id="op-create-replay")
+        with patch.object(repository, "save", wraps=repository.save) as save_spy:
+            first = _request(app, method="POST", path="/v1/projects", payload=payload)
+            second = _request(app, method="POST", path="/v1/projects", payload=payload)
+        assert first.status_code == HTTPStatus.CREATED
+        # Re-execution would 409 (duplicate key); a 201 on the second call proves
+        # the stored result was replayed rather than re-run.
+        assert second.status_code == HTTPStatus.CREATED
+        assert first.body == second.body
+        assert save_spy.call_count == 1
+        assert len(repository.list(include_archived=True)) == 1
+
+    def test_create_same_op_id_different_body_returns_409_mismatch(self) -> None:
+        repository = _InMemoryProjectRepository()
+        app = _app_with_guard(repository, InMemoryInflightIdempotencyGuard())
+        first = _request(
+            app,
+            method="POST",
+            path="/v1/projects",
+            payload=_create_payload(name="Tenant A", op_id="op-create-mismatch"),
+        )
+        assert first.status_code == HTTPStatus.CREATED
+        second = _request(
+            app,
+            method="POST",
+            path="/v1/projects",
+            payload=_create_payload(name="Tenant Renamed", op_id="op-create-mismatch"),
+        )
+        assert second.status_code == HTTPStatus.CONFLICT
+        assert _json_body(second.body)["error_code"] == "idempotency_mismatch"
+
+    def test_create_in_flight_returns_409_operation_in_flight(self) -> None:
+        repository = _InMemoryProjectRepository()
+        guard = InMemoryInflightIdempotencyGuard()
+        _preclaim(
+            guard,
+            op_id="op-create-inflight",
+            operation_kind="project_create",
+            project_key="tenant-a",
+        )
+        resp = _request(
+            _app_with_guard(repository, guard),
+            method="POST",
+            path="/v1/projects",
+            payload=_create_payload(op_id="op-create-inflight"),
+        )
+        assert resp.status_code == HTTPStatus.CONFLICT
+        assert _json_body(resp.body)["error_code"] == "operation_in_flight"
+
+    def test_create_replay_after_failure_returns_stored_409_once(self) -> None:
+        """AC8: a deterministic domain 4xx (duplicate-create) is stored and replayed.
+
+        The second call returns the SAME 409 and ``_do_create`` (which reads the
+        repository) runs exactly once — the replay never re-enters the mutation.
+        """
+        repository = _InMemoryProjectRepository()
+        repository.save(_project())  # tenant-a already exists -> create conflicts
+        app = _app_with_guard(repository, InMemoryInflightIdempotencyGuard())
+        payload = _create_payload(op_id="op-create-dup-fail")
+        with patch.object(repository, "get", wraps=repository.get) as get_spy:
+            first = _request(app, method="POST", path="/v1/projects", payload=payload)
+            second = _request(app, method="POST", path="/v1/projects", payload=payload)
+        assert first.status_code == HTTPStatus.CONFLICT
+        assert second.status_code == HTTPStatus.CONFLICT
+        assert _json_body(second.body)["error_code"] == "project_key_conflict"
+        assert first.body == second.body
+        # _do_create read the repository exactly once; the replay short-circuited.
+        assert get_spy.call_count == 1
+
+
+class TestArchiveIdempotency:
+    def test_archive_missing_op_id_returns_422(self) -> None:
+        repository = _InMemoryProjectRepository()
+        repository.save(_project())
+        resp = _request(
+            _app_with_guard(repository, InMemoryInflightIdempotencyGuard()),
+            method="POST",
+            path="/v1/projects/tenant-a/archive",
+            payload={},
+        )
+        assert resp.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert _json_body(resp.body)["error_code"] == "invalid_project_archive_payload"
+
+    def test_archive_replay_returns_stored_result_and_runs_once(self) -> None:
+        repository = _InMemoryProjectRepository()
+        repository.save(_project())
+        app = _app_with_guard(repository, InMemoryInflightIdempotencyGuard())
+        payload: dict[str, object] = {"op_id": "op-archive-replay"}
+        path = "/v1/projects/tenant-a/archive"
+        with patch.object(repository, "save", wraps=repository.save) as save_spy:
+            first = _request(app, method="POST", path=path, payload=payload)
+            second = _request(app, method="POST", path=path, payload=payload)
+        assert first.status_code == HTTPStatus.OK
+        # Re-execution would 409 project_already_archived; a 200 proves replay.
+        assert second.status_code == HTTPStatus.OK
+        assert first.body == second.body
+        assert save_spy.call_count == 1
+
+    def test_archive_same_op_id_different_body_returns_409_mismatch(self) -> None:
+        repository = _InMemoryProjectRepository()
+        repository.save(_project())
+        app = _app_with_guard(repository, InMemoryInflightIdempotencyGuard())
+        path = "/v1/projects/tenant-a/archive"
+        first = _request(
+            app, method="POST", path=path, payload={"op_id": "op-archive-mismatch"}
+        )
+        assert first.status_code == HTTPStatus.OK
+        second = _request(
+            app,
+            method="POST",
+            path=path,
+            payload={
+                "op_id": "op-archive-mismatch",
+                "archived_at": "2020-01-01T00:00:00+00:00",
+            },
+        )
+        assert second.status_code == HTTPStatus.CONFLICT
+        assert _json_body(second.body)["error_code"] == "idempotency_mismatch"
+
+    def test_archive_same_op_id_different_project_returns_409_mismatch(self) -> None:
+        """Cross-target: the URL-path project key is folded into the body-hash, so
+        the same op_id + identical body against a DIFFERENT project fails closed."""
+        repository = _InMemoryProjectRepository()
+        repository.save(_project())
+        repository.save(_project_b())
+        app = _app_with_guard(repository, InMemoryInflightIdempotencyGuard())
+        payload: dict[str, object] = {"op_id": "op-archive-crosstarget"}
+        first = _request(
+            app, method="POST", path="/v1/projects/tenant-a/archive", payload=payload
+        )
+        assert first.status_code == HTTPStatus.OK
+        second = _request(
+            app, method="POST", path="/v1/projects/tenant-b/archive", payload=payload
+        )
+        assert second.status_code == HTTPStatus.CONFLICT
+        assert _json_body(second.body)["error_code"] == "idempotency_mismatch"
+        # tenant-b was NOT archived by the wrong-target replay.
+        tenant_b = repository.get("tenant-b")
+        assert tenant_b is not None
+        assert tenant_b.archived_at is None
+
+    def test_archive_in_flight_returns_409_operation_in_flight(self) -> None:
+        repository = _InMemoryProjectRepository()
+        repository.save(_project())
+        guard = InMemoryInflightIdempotencyGuard()
+        _preclaim(guard, op_id="op-archive-inflight", operation_kind="project_archive")
+        resp = _request(
+            _app_with_guard(repository, guard),
+            method="POST",
+            path="/v1/projects/tenant-a/archive",
+            payload={"op_id": "op-archive-inflight"},
+        )
+        assert resp.status_code == HTTPStatus.CONFLICT
+        assert _json_body(resp.body)["error_code"] == "operation_in_flight"
+
+
+class TestPatchDetailIdempotency:
+    def test_patch_detail_missing_op_id_returns_422(self) -> None:
+        repository = _InMemoryProjectRepository()
+        repository.save(_project())
+        resp = _request(
+            _app_with_guard(repository, InMemoryInflightIdempotencyGuard()),
+            method="PATCH",
+            path="/v1/projects/tenant-a",
+            payload={"name": "New Name"},
+        )
+        assert resp.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert _json_body(resp.body)["error_code"] == "invalid_project_update_payload"
+
+    def test_patch_detail_replay_returns_stored_result_and_runs_once(self) -> None:
+        repository = _InMemoryProjectRepository()
+        repository.save(_project())
+        app = _app_with_guard(repository, InMemoryInflightIdempotencyGuard())
+        payload: dict[str, object] = {"name": "Tenant Alpha", "op_id": "op-patch-replay"}
+        path = "/v1/projects/tenant-a"
+        with patch.object(repository, "save", wraps=repository.save) as save_spy:
+            first = _request(app, method="PATCH", path=path, payload=payload)
+            second = _request(app, method="PATCH", path=path, payload=payload)
+        assert first.status_code == HTTPStatus.OK
+        assert second.status_code == HTTPStatus.OK
+        assert first.body == second.body
+        # Idempotent update — single execution is proven by the save spy.
+        assert save_spy.call_count == 1
+        updated = repository.get("tenant-a")
+        assert updated is not None and updated.name == "Tenant Alpha"
+
+    def test_patch_detail_same_op_id_different_body_returns_409_mismatch(self) -> None:
+        repository = _InMemoryProjectRepository()
+        repository.save(_project())
+        app = _app_with_guard(repository, InMemoryInflightIdempotencyGuard())
+        path = "/v1/projects/tenant-a"
+        first = _request(
+            app,
+            method="PATCH",
+            path=path,
+            payload={"name": "Alpha", "op_id": "op-patch-mismatch"},
+        )
+        assert first.status_code == HTTPStatus.OK
+        second = _request(
+            app,
+            method="PATCH",
+            path=path,
+            payload={"name": "Beta", "op_id": "op-patch-mismatch"},
+        )
+        assert second.status_code == HTTPStatus.CONFLICT
+        assert _json_body(second.body)["error_code"] == "idempotency_mismatch"
+
+    def test_patch_detail_same_op_id_different_project_returns_409_mismatch(self) -> None:
+        repository = _InMemoryProjectRepository()
+        repository.save(_project())
+        repository.save(_project_b())
+        app = _app_with_guard(repository, InMemoryInflightIdempotencyGuard())
+        payload: dict[str, object] = {"name": "Renamed", "op_id": "op-patch-crosstarget"}
+        first = _request(
+            app, method="PATCH", path="/v1/projects/tenant-a", payload=payload
+        )
+        assert first.status_code == HTTPStatus.OK
+        second = _request(
+            app, method="PATCH", path="/v1/projects/tenant-b", payload=payload
+        )
+        assert second.status_code == HTTPStatus.CONFLICT
+        assert _json_body(second.body)["error_code"] == "idempotency_mismatch"
+        tenant_b = repository.get("tenant-b")
+        assert tenant_b is not None and tenant_b.name == "Tenant B"
+
+    def test_patch_detail_in_flight_returns_409_operation_in_flight(self) -> None:
+        repository = _InMemoryProjectRepository()
+        repository.save(_project())
+        guard = InMemoryInflightIdempotencyGuard()
+        _preclaim(guard, op_id="op-patch-inflight", operation_kind="project_update")
+        resp = _request(
+            _app_with_guard(repository, guard),
+            method="PATCH",
+            path="/v1/projects/tenant-a",
+            payload={"name": "New", "op_id": "op-patch-inflight"},
+        )
+        assert resp.status_code == HTTPStatus.CONFLICT
+        assert _json_body(resp.body)["error_code"] == "operation_in_flight"
+
+
+class TestPatchConfigurationIdempotency:
+    def test_patch_configuration_missing_op_id_returns_422(self) -> None:
+        repository = _InMemoryProjectRepository()
+        repository.save(_project())
+        resp = _request(
+            _app_with_guard(repository, InMemoryInflightIdempotencyGuard()),
+            method="PATCH",
+            path="/v1/projects/tenant-a/configuration",
+            payload={"default_worker_count": 4},
+        )
+        assert resp.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert (
+            _json_body(resp.body)["error_code"]
+            == "invalid_project_configuration_patch"
+        )
+
+    def test_patch_configuration_replay_returns_stored_result_and_runs_once(
+        self,
+    ) -> None:
+        repository = _InMemoryProjectRepository()
+        repository.save(_project())
+        app = _app_with_guard(repository, InMemoryInflightIdempotencyGuard())
+        payload: dict[str, object] = {
+            "default_worker_count": 4,
+            "op_id": "op-config-replay",
+        }
+        path = "/v1/projects/tenant-a/configuration"
+        with patch.object(repository, "save", wraps=repository.save) as save_spy:
+            first = _request(app, method="PATCH", path=path, payload=payload)
+            second = _request(app, method="PATCH", path=path, payload=payload)
+        assert first.status_code == HTTPStatus.OK
+        assert second.status_code == HTTPStatus.OK
+        assert first.body == second.body
+        assert save_spy.call_count == 1
+        updated = repository.get("tenant-a")
+        assert updated is not None
+        assert updated.configuration.default_worker_count == 4
+
+    def test_patch_configuration_same_op_id_different_body_returns_409_mismatch(
+        self,
+    ) -> None:
+        repository = _InMemoryProjectRepository()
+        repository.save(_project())
+        app = _app_with_guard(repository, InMemoryInflightIdempotencyGuard())
+        path = "/v1/projects/tenant-a/configuration"
+        first = _request(
+            app,
+            method="PATCH",
+            path=path,
+            payload={"default_worker_count": 4, "op_id": "op-config-mismatch"},
+        )
+        assert first.status_code == HTTPStatus.OK
+        second = _request(
+            app,
+            method="PATCH",
+            path=path,
+            payload={"default_worker_count": 8, "op_id": "op-config-mismatch"},
+        )
+        assert second.status_code == HTTPStatus.CONFLICT
+        assert _json_body(second.body)["error_code"] == "idempotency_mismatch"
+
+    def test_patch_configuration_same_op_id_different_project_returns_409_mismatch(
+        self,
+    ) -> None:
+        repository = _InMemoryProjectRepository()
+        repository.save(_project())
+        repository.save(_project_b())
+        app = _app_with_guard(repository, InMemoryInflightIdempotencyGuard())
+        payload: dict[str, object] = {
+            "default_worker_count": 4,
+            "op_id": "op-config-crosstarget",
+        }
+        first = _request(
+            app,
+            method="PATCH",
+            path="/v1/projects/tenant-a/configuration",
+            payload=payload,
+        )
+        assert first.status_code == HTTPStatus.OK
+        second = _request(
+            app,
+            method="PATCH",
+            path="/v1/projects/tenant-b/configuration",
+            payload=payload,
+        )
+        assert second.status_code == HTTPStatus.CONFLICT
+        assert _json_body(second.body)["error_code"] == "idempotency_mismatch"
+        # tenant-b configuration untouched by the wrong-target replay.
+        tenant_b = repository.get("tenant-b")
+        assert tenant_b is not None
+        assert tenant_b.configuration.default_worker_count == 2
+
+    def test_patch_configuration_in_flight_returns_409_operation_in_flight(
+        self,
+    ) -> None:
+        repository = _InMemoryProjectRepository()
+        repository.save(_project())
+        guard = InMemoryInflightIdempotencyGuard()
+        _preclaim(
+            guard,
+            op_id="op-config-inflight",
+            operation_kind="project_configuration_update",
+        )
+        resp = _request(
+            _app_with_guard(repository, guard),
+            method="PATCH",
+            path="/v1/projects/tenant-a/configuration",
+            payload={"default_worker_count": 4, "op_id": "op-config-inflight"},
+        )
+        assert resp.status_code == HTTPStatus.CONFLICT
+        assert _json_body(resp.body)["error_code"] == "operation_in_flight"

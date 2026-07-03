@@ -29,6 +29,15 @@ from agentkit.backend.project_management.lifecycle import (
     create_project,
     update_configuration,
 )
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    IdempotencyRequest,
+    InflightIdempotencyGuard,
+    InFlightOutcome,
+    MismatchOutcome,
+    ReplayOutcome,
+    StateBackendInflightIdempotencyGuard,
+    compute_body_hash,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -141,6 +150,20 @@ class ProjectManagementRoutes:
             in production.  Tests that do not exercise the guard path can
             pass ``_no_repos_in_use`` explicitly to opt out — but the opt-out
             is visible in the call site, not hidden in a default.
+        idempotency_guard: Optional unified idempotency guard (AG3-140 / FK-91
+            §91.1a Regel 5).  When ``None`` the production Postgres-backed guard
+            is resolved lazily per call (it is stateless).  Unit tests inject a
+            shared ``InMemoryInflightIdempotencyGuard`` so the claim ->
+            mutate -> finalize lifecycle persists across calls within one test.
+
+    Idempotency (AG3-140 / FK-91 §91.1a Regel 5): every mutating route carries a
+    required client-supplied ``op_id`` and runs through the unified
+    ``InflightIdempotencyGuard`` (claim -> mutate -> finalize).  A replay of the
+    same ``op_id`` returns the stored result without re-mutating; the same
+    ``op_id`` with a different body is ``409 idempotency_mismatch``; a live
+    parallel claim is ``409 operation_in_flight``.  The URL-path project key is
+    folded into the body-hash so a reused ``op_id`` against a different project
+    fails closed with a mismatch rather than a wrong-target replay.
     """
 
     def __init__(
@@ -149,6 +172,7 @@ class ProjectManagementRoutes:
         repos_in_use_checker: Callable[[str, list[str]], list[str]],
         repository: ProjectRepository | None = None,
         detail_service: ProjectDetailService | None = None,
+        idempotency_guard: InflightIdempotencyGuard | None = None,
     ) -> None:
         if repository is None:
             from agentkit.backend.state_backend.store.project_management_repository import (
@@ -159,6 +183,7 @@ class ProjectManagementRoutes:
         self._repository = repository
         self._repos_in_use_checker = repos_in_use_checker
         self._detail_service = detail_service
+        self._idempotency_guard = idempotency_guard
 
     def handle_get(
         self,
@@ -256,13 +281,106 @@ class ProjectManagementRoutes:
             correlation_id,
         )
 
+    # ------------------------------------------------------------------
+    # Unified idempotency guard (AG3-140 / FK-91 §91.1a Regel 5)
+    # ------------------------------------------------------------------
+
+    def _guard(self) -> InflightIdempotencyGuard:
+        """Resolve the idempotency guard (injected instance or production default).
+
+        When an instance was injected it is returned as-is (a shared in-memory
+        guard in unit tests keeps claim state across calls).  Otherwise the
+        stateless Postgres-backed production guard is constructed per call.
+        """
+        return self._idempotency_guard or StateBackendInflightIdempotencyGuard()
+
+    def _run_idempotent(
+        self,
+        request: IdempotencyRequest,
+        mutate: Callable[[], ProjectRouteResponse],
+        correlation_id: str,
+    ) -> ProjectRouteResponse:
+        """Run one mutation under the unified idempotency contract.
+
+        claim -> mutate -> finalize/release:
+          * ``ReplayOutcome`` -> rebuild and return the stored response.
+          * ``MismatchOutcome`` -> ``409 idempotency_mismatch``.
+          * ``InFlightOutcome`` -> ``409 operation_in_flight``.
+          * ``FreshClaim`` -> run ``mutate``; a deterministic business outcome
+            (2xx or domain 4xx) is finalized so a replay returns it verbatim; a
+            truly unexpected ``500`` releases the claim so a retry may re-run.
+        """
+        guard = self._guard()
+        outcome = guard.claim(request)
+        if isinstance(outcome, ReplayOutcome):
+            return self._replay_response(outcome.result_payload, correlation_id)
+        if isinstance(outcome, MismatchOutcome):
+            return _error_response(
+                HTTPStatus.CONFLICT,
+                error_code="idempotency_mismatch",
+                message=(
+                    f"op_id {outcome.op_id!r} was previously used with a different "
+                    "request body; use a new op_id for a different mutation"
+                ),
+                correlation_id=correlation_id,
+                detail={"op_id": outcome.op_id, "conflict": "body_hash_mismatch"},
+            )
+        if isinstance(outcome, InFlightOutcome):
+            return _error_response(
+                HTTPStatus.CONFLICT,
+                error_code="operation_in_flight",
+                message=(
+                    f"op_id {outcome.op_id!r} is already in flight; retry after the "
+                    "concurrent operation settles"
+                ),
+                correlation_id=correlation_id,
+                detail={"op_id": outcome.op_id},
+            )
+        # FreshClaim — this caller won and must run the mutation.
+        response = mutate()
+        if response.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
+            # Unexpected/infrastructure failure — release so a retry may re-run.
+            guard.release(request, outcome)
+            return response
+        # Deterministic business outcome (2xx or domain 4xx) — record it so a
+        # replay of the same op_id returns the identical stored response.
+        guard.finalize(
+            request,
+            outcome,
+            {"status_code": response.status_code, "body": json.loads(response.body)},
+        )
+        return response
+
+    def _replay_response(
+        self,
+        result_payload: dict[str, object],
+        correlation_id: str,
+    ) -> ProjectRouteResponse:
+        """Rebuild a stored response from a replay payload (byte-for-byte body).
+
+        The stored shape is ``{"status_code": <int>, "body": <dict>}``.  A
+        malformed record fails closed with ``500`` rather than replaying a
+        partial result.
+        """
+        status_raw = result_payload.get("status_code")
+        body_raw = result_payload.get("body")
+        if not isinstance(status_raw, int) or not isinstance(body_raw, dict):
+            return _internal_error_response(
+                "corrupt idempotency replay record",
+                correlation_id,
+            )
+        body_dict: dict[str, object] = {str(k): v for k, v in body_raw.items()}
+        return _json_response(
+            HTTPStatus(status_raw), body_dict, correlation_id=correlation_id
+        )
+
     def _handle_patch_detail(
         self,
         key: str,
         payload: object,
         correlation_id: str,
     ) -> ProjectRouteResponse:
-        """Handle ``PATCH /v1/projects/{key}``."""
+        """Handle ``PATCH /v1/projects/{key}`` (validation, then idempotent mutate)."""
         try:
             request = UpdateProjectRequest.model_validate(payload)
         except ValidationError as exc:
@@ -276,6 +394,32 @@ class ProjectManagementRoutes:
                 else HTTPStatus.BAD_REQUEST,
             )
 
+        # AG3-140: fold the URL-path project key into the body-hash so the same
+        # op_id reused against a DIFFERENT project fails closed with a
+        # 409 idempotency_mismatch (never a silent wrong-project replay).
+        idem_request = IdempotencyRequest(
+            op_id=request.op_id,
+            operation_kind="project_update",
+            body_hash=compute_body_hash(
+                {**request.model_dump(mode="json"), "target_project_key": key}
+            ),
+            project_key=key,
+            story_id=None,
+            correlation_id=correlation_id,
+        )
+        return self._run_idempotent(
+            idem_request,
+            lambda: self._do_patch_detail(key, request, correlation_id),
+            correlation_id,
+        )
+
+    def _do_patch_detail(
+        self,
+        key: str,
+        request: UpdateProjectRequest,
+        correlation_id: str,
+    ) -> ProjectRouteResponse:
+        """Run the detail-patch mutation (guarded by :meth:`_run_idempotent`)."""
         if request.key is not None or request.story_id_prefix is not None:
             return _conflict_response(
                 "immutable_project_field",
@@ -386,6 +530,33 @@ class ProjectManagementRoutes:
                 status=status,
             )
 
+        # AG3-140: fold the URL-path project key into the body-hash (see
+        # _handle_patch_detail) so op_id reuse across projects is a fail-closed
+        # mismatch, never a wrong-project replay.  ``op_id`` itself is excluded
+        # from the hash by ``compute_body_hash``.
+        idem_request = IdempotencyRequest(
+            op_id=patch.op_id,
+            operation_kind="project_configuration_update",
+            body_hash=compute_body_hash(
+                {**patch.model_dump(mode="json"), "target_project_key": key}
+            ),
+            project_key=key,
+            story_id=None,
+            correlation_id=correlation_id,
+        )
+        return self._run_idempotent(
+            idem_request,
+            lambda: self._do_patch_configuration(key, patch, correlation_id),
+            correlation_id,
+        )
+
+    def _do_patch_configuration(
+        self,
+        key: str,
+        patch: ConfigurationOnlyPatchRequest,
+        correlation_id: str,
+    ) -> ProjectRouteResponse:
+        """Run the configuration-patch mutation (guarded by :meth:`_run_idempotent`)."""
         project = self._repository.get(key)
         if project is None:
             return _not_found_response(correlation_id)
@@ -526,6 +697,28 @@ class ProjectManagementRoutes:
                 else HTTPStatus.BAD_REQUEST,
             )
 
+        # AG3-140: the project key already lives IN the body (request.key), so the
+        # canonical body-hash naturally scopes this op_id to this project.
+        idem_request = IdempotencyRequest(
+            op_id=request.op_id,
+            operation_kind="project_create",
+            body_hash=compute_body_hash(request.model_dump(mode="json")),
+            project_key=request.key,
+            story_id=None,
+            correlation_id=correlation_id,
+        )
+        return self._run_idempotent(
+            idem_request,
+            lambda: self._do_create(request, correlation_id),
+            correlation_id,
+        )
+
+    def _do_create(
+        self,
+        request: CreateProjectRequest,
+        correlation_id: str,
+    ) -> ProjectRouteResponse:
+        """Run the create mutation (guarded by :meth:`_run_idempotent`)."""
         if self._repository.get(request.key) is not None:
             return _conflict_response(
                 "project_key_conflict",
@@ -587,6 +780,32 @@ class ProjectManagementRoutes:
                 else HTTPStatus.BAD_REQUEST,
             )
 
+        # AG3-140: fold the URL-path project key into the body-hash (the archive
+        # body carries no project key of its own) so op_id reuse across projects
+        # is a fail-closed mismatch, never a wrong-project replay.
+        idem_request = IdempotencyRequest(
+            op_id=request.op_id,
+            operation_kind="project_archive",
+            body_hash=compute_body_hash(
+                {**request.model_dump(mode="json"), "target_project_key": key}
+            ),
+            project_key=key,
+            story_id=None,
+            correlation_id=correlation_id,
+        )
+        return self._run_idempotent(
+            idem_request,
+            lambda: self._do_archive(key, request, correlation_id),
+            correlation_id,
+        )
+
+    def _do_archive(
+        self,
+        key: str,
+        request: ArchiveProjectRequest,
+        correlation_id: str,
+    ) -> ProjectRouteResponse:
+        """Run the archive mutation (guarded by :meth:`_run_idempotent`)."""
         project = self._repository.get(key)
         if project is None:
             return _not_found_response(correlation_id)
@@ -761,6 +980,24 @@ def _validation_error_response_plain(
         message=message,
         correlation_id=correlation_id,
         detail=detail,
+    )
+
+
+def _internal_error_response(
+    message: str,
+    correlation_id: str,
+) -> ProjectRouteResponse:
+    """Return a fail-closed 500 ``internal_error`` response.
+
+    Used when a stored idempotency replay record is malformed: a partial replay
+    would be worse than a loud failure (FAIL-CLOSED), so the guard surfaces a
+    500 instead of reconstructing a corrupt result.
+    """
+    return _error_response(
+        HTTPStatus.INTERNAL_SERVER_ERROR,
+        error_code="internal_error",
+        message=message,
+        correlation_id=correlation_id,
     )
 
 
