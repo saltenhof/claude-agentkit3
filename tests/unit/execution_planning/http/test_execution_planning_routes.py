@@ -20,6 +20,11 @@ from agentkit.backend.execution_planning.errors import (
 from agentkit.backend.execution_planning.http.routes import ExecutionPlanningRoutes
 from agentkit.backend.project_management.entities import Project, ProjectConfiguration
 from agentkit.backend.project_management.lifecycle import archive_project, create_project
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    IdempotencyRequest,
+    InMemoryInflightIdempotencyGuard,
+    compute_body_hash,
+)
 
 
 @dataclass
@@ -164,17 +169,23 @@ def _app(
     dep_repo: _DepRepo | None = None,
     config_repo: _ConfigRepo | None = None,
     project_repo: _ProjectRepo | None = None,
+    guard: InMemoryInflightIdempotencyGuard | None = None,
 ) -> ControlPlaneApplication:
     stories = {
         "AK3-001": _story(1, status="done"),
         "AK3-002": _story(2),
         "AK3-003": _story(3),
     }
+    # AG3-140: the mutating routes now run the unified idempotency contract; unit
+    # tests inject the first-class in-memory guard (the production default is the
+    # Postgres-backed guard, unavailable here). One guard per app -> shared across
+    # the requests issued on that app, so replay/mismatch/in-flight are exercised.
     routes = ExecutionPlanningRoutes(
         project_repository=project_repo or _ProjectRepo(),
         story_repository=_StoryRepo(stories),
         dependency_repository=dep_repo or _DepRepo(),
         config_repository=config_repo or _ConfigRepo(),
+        idempotency_guard=guard or InMemoryInflightIdempotencyGuard(),
     )
     return ControlPlaneApplication(
         routes=ControlPlaneApplicationRoutes(planning_routes=routes),
@@ -242,7 +253,7 @@ def test_delete_dependency() -> None:
     response = _app(dep_repo=dep_repo).handle_request(
         method="DELETE",
         path="/v1/projects/tenant-a/planning/dependencies/AK3-003/AK3-002/hard_story_dependency",
-        body=b"",
+        body=json.dumps({"op_id": "op-del"}).encode("utf-8"),
     )
 
     assert response.status_code == HTTPStatus.OK
@@ -296,3 +307,178 @@ def test_conflicts_and_not_found_status_codes() -> None:
 
     assert archived.status_code == HTTPStatus.CONFLICT
     assert missing.status_code == HTTPStatus.NOT_FOUND
+
+
+# ---------------------------------------------------------------------------
+# AG3-140: the unified idempotency contract on the mutating planning routes
+# ---------------------------------------------------------------------------
+
+_DEP_PATH = "/v1/projects/tenant-a/planning/dependencies"
+_DETAIL = _DEP_PATH + "/AK3-003/AK3-002/hard_story_dependency"
+
+
+def _create_body(op_id: str, *, depends_on: str = "AK3-002") -> bytes:
+    return json.dumps(
+        {
+            "story_id": "AK3-003",
+            "depends_on_story_id": depends_on,
+            "kind": "hard_story_dependency",
+            "op_id": op_id,
+        }
+    ).encode("utf-8")
+
+
+def _existing_edge() -> StoryDependency:
+    return StoryDependency(
+        story_id="AK3-003",
+        depends_on_story_id="AK3-002",
+        kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
+        created_at=datetime.now(UTC),
+    )
+
+
+def test_delete_dependency_missing_op_id_returns_422() -> None:
+    app = _app(dep_repo=_DepRepo([_existing_edge()]))
+    resp = app.handle_request(method="DELETE", path=_DETAIL, body=b"{}")
+    assert resp.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert _json(resp.body)["error_code"] == "invalid_dependency_delete_payload"
+
+
+def test_delete_dependency_replay_returns_stored_result_without_second_remove() -> None:
+    dep_repo = _DepRepo([_existing_edge()])
+    app = _app(dep_repo=dep_repo)
+    body = json.dumps({"op_id": "op-del-replay"}).encode("utf-8")
+    first = app.handle_request(method="DELETE", path=_DETAIL, body=body)
+    second = app.handle_request(method="DELETE", path=_DETAIL, body=body)
+    assert first.status_code == HTTPStatus.OK
+    # A second real remove would raise StoryDependencyNotFoundError -> 404; the
+    # replay returns the stored 200 instead (remove ran exactly once).
+    assert second.status_code == HTTPStatus.OK
+    assert first.body == second.body
+    assert dep_repo.edges == []
+
+
+def test_delete_dependency_same_op_id_different_target_returns_409_mismatch() -> None:
+    dep_repo = _DepRepo(
+        [
+            _existing_edge(),
+            StoryDependency(
+                story_id="AK3-003",
+                depends_on_story_id="AK3-001",
+                kind=StoryDependencyKind.HARD_STORY_DEPENDENCY,
+                created_at=datetime.now(UTC),
+            ),
+        ]
+    )
+    app = _app(dep_repo=dep_repo)
+    body = json.dumps({"op_id": "op-del-x"}).encode("utf-8")
+    first = app.handle_request(method="DELETE", path=_DETAIL, body=body)
+    # SAME op_id, DIFFERENT target dependency (depends_on AK3-001) -> 409 mismatch.
+    other = "/v1/projects/tenant-a/planning/dependencies/AK3-003/AK3-001/hard_story_dependency"
+    second = app.handle_request(method="DELETE", path=other, body=body)
+    assert first.status_code == HTTPStatus.OK
+    assert second.status_code == HTTPStatus.CONFLICT
+    assert _json(second.body)["error_code"] == "idempotency_mismatch"
+
+
+def test_delete_dependency_in_flight_returns_409() -> None:
+    guard = InMemoryInflightIdempotencyGuard()
+    guard.claim(
+        IdempotencyRequest(
+            op_id="op-del-inflight",
+            operation_kind="story_dependency_remove",
+            body_hash=compute_body_hash({"any": "claim"}),
+            project_key="tenant-a",
+        )
+    )
+    app = _app(dep_repo=_DepRepo([_existing_edge()]), guard=guard)
+    resp = app.handle_request(
+        method="DELETE",
+        path=_DETAIL,
+        body=json.dumps({"op_id": "op-del-inflight"}).encode("utf-8"),
+    )
+    assert resp.status_code == HTTPStatus.CONFLICT
+    assert _json(resp.body)["error_code"] == "operation_in_flight"
+
+
+def test_delete_dependency_replay_after_not_found_returns_stored_404() -> None:
+    # No edge present -> first delete is a deterministic 404; the replay returns
+    # the SAME stored 404 (AC8 replay-after-failure).
+    app = _app(dep_repo=_DepRepo([]))
+    body = json.dumps({"op_id": "op-del-404"}).encode("utf-8")
+    first = app.handle_request(method="DELETE", path=_DETAIL, body=body)
+    second = app.handle_request(method="DELETE", path=_DETAIL, body=body)
+    assert first.status_code == HTTPStatus.NOT_FOUND
+    assert second.status_code == HTTPStatus.NOT_FOUND
+    assert first.body == second.body
+
+
+def test_create_dependency_replay_returns_stored_result() -> None:
+    dep_repo = _DepRepo()
+    app = _app(dep_repo=dep_repo)
+    first = app.handle_request(method="POST", path=_DEP_PATH, body=_create_body("op-c"))
+    second = app.handle_request(method="POST", path=_DEP_PATH, body=_create_body("op-c"))
+    assert first.status_code == HTTPStatus.CREATED
+    # A second real add of the same edge would 409 (conflict); the replay returns
+    # the stored 201 and add ran once.
+    assert second.status_code == HTTPStatus.CREATED
+    assert first.body == second.body
+    assert len(dep_repo.edges) == 1
+
+
+def test_create_dependency_same_op_id_different_body_returns_409_mismatch() -> None:
+    app = _app(dep_repo=_DepRepo())
+    first = app.handle_request(method="POST", path=_DEP_PATH, body=_create_body("op-c2"))
+    second = app.handle_request(
+        method="POST", path=_DEP_PATH, body=_create_body("op-c2", depends_on="AK3-001")
+    )
+    assert first.status_code == HTTPStatus.CREATED
+    assert second.status_code == HTTPStatus.CONFLICT
+    assert _json(second.body)["error_code"] == "idempotency_mismatch"
+
+
+def test_create_dependency_in_flight_returns_409() -> None:
+    guard = InMemoryInflightIdempotencyGuard()
+    guard.claim(
+        IdempotencyRequest(
+            op_id="op-c-inflight",
+            operation_kind="story_dependency_add",
+            body_hash=compute_body_hash({"any": "claim"}),
+            project_key="tenant-a",
+        )
+    )
+    app = _app(dep_repo=_DepRepo(), guard=guard)
+    resp = app.handle_request(method="POST", path=_DEP_PATH, body=_create_body("op-c-inflight"))
+    assert resp.status_code == HTTPStatus.CONFLICT
+    assert _json(resp.body)["error_code"] == "operation_in_flight"
+
+
+def test_put_config_replay_returns_stored_result() -> None:
+    config_repo = _ConfigRepo()
+    app = _app(config_repo=config_repo)
+    body = json.dumps({"max_parallel_stories": 3, "op_id": "op-cfg"}).encode("utf-8")
+    first = app.handle_request(method="PUT", path=_CFG_PATH, body=body)
+    second = app.handle_request(method="PUT", path=_CFG_PATH, body=body)
+    assert first.status_code == HTTPStatus.OK
+    assert second.status_code == HTTPStatus.OK
+    assert first.body == second.body
+
+
+def test_put_config_same_op_id_different_body_returns_409_mismatch() -> None:
+    app = _app(config_repo=_ConfigRepo())
+    first = app.handle_request(
+        method="PUT",
+        path=_CFG_PATH,
+        body=json.dumps({"max_parallel_stories": 3, "op_id": "op-cfg2"}).encode("utf-8"),
+    )
+    second = app.handle_request(
+        method="PUT",
+        path=_CFG_PATH,
+        body=json.dumps({"max_parallel_stories": 5, "op_id": "op-cfg2"}).encode("utf-8"),
+    )
+    assert first.status_code == HTTPStatus.OK
+    assert second.status_code == HTTPStatus.CONFLICT
+    assert _json(second.body)["error_code"] == "idempotency_mismatch"
+
+
+_CFG_PATH = "/v1/projects/tenant-a/planning/config"

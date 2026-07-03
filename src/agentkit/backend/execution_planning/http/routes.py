@@ -32,8 +32,19 @@ from agentkit.backend.execution_planning.scheduling import (
     next_from_snapshot,
     select_execution_input,
 )
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    IdempotencyRequest,
+    InflightIdempotencyGuard,
+    InFlightOutcome,
+    MismatchOutcome,
+    ReplayOutcome,
+    StateBackendInflightIdempotencyGuard,
+    compute_body_hash,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from agentkit.backend.execution_planning.entities import StoryRefForPlanning
     from agentkit.backend.execution_planning.lifecycle import PlanningStoryRepository
     from agentkit.backend.execution_planning.repository import (
@@ -102,6 +113,20 @@ class UpsertParallelizationConfigRequest(BaseModel):
     op_id: str = Field(min_length=1)
 
 
+class DeleteDependencyRequest(BaseModel):
+    """Request body for deleting a story dependency (AG3-140).
+
+    The dependency DELETE is a mutating route and therefore carries a required
+    client-supplied ``op_id`` in the DELETE body (FK-91 §91.1a Regel 5). The
+    target is the URL path tuple; folding it into the body-hash makes op_id reuse
+    against a different target a fail-closed ``409 idempotency_mismatch``.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    op_id: str = Field(min_length=1)
+
+
 class ExecutionPlanningRoutes:
     """Route handler for the execution-planning HTTP surface."""
 
@@ -112,6 +137,7 @@ class ExecutionPlanningRoutes:
         story_repository: PlanningStoryRepository | None = None,
         dependency_repository: StoryDependencyRepository | None = None,
         config_repository: ParallelizationConfigRepository | None = None,
+        idempotency_guard: InflightIdempotencyGuard | None = None,
     ) -> None:
         if project_repository is None:
             from agentkit.backend.state_backend.store.project_management_repository import (
@@ -146,6 +172,85 @@ class ExecutionPlanningRoutes:
         self._story_repository = story_repository
         self._dependency_repository = dependency_repository
         self._config_repository = config_repository
+        self._idempotency_guard = idempotency_guard
+
+    # ------------------------------------------------------------------
+    # AG3-140 unified idempotency contract (FK-91 §91.1a Regel 5)
+    # ------------------------------------------------------------------
+
+    def _guard(self) -> InflightIdempotencyGuard:
+        """Return the injected guard, or the Postgres-backed default."""
+        return self._idempotency_guard or StateBackendInflightIdempotencyGuard()
+
+    def _run_idempotent(
+        self,
+        request: IdempotencyRequest,
+        mutate: Callable[[], ExecutionPlanningRouteResponse],
+        correlation_id: str,
+    ) -> ExecutionPlanningRouteResponse:
+        """Run one mutation under the unified claim -> mutate -> finalize contract.
+
+        A replay of the same ``op_id`` returns the STORED response; the same
+        ``op_id`` with a different body-hash is ``409 idempotency_mismatch``; a
+        parallel same ``op_id`` is ``409 operation_in_flight``. A deterministic
+        business outcome (``< 500``, incl. a domain 4xx) is finalized so a replay
+        returns it verbatim (AC8); only an unexpected ``>= 500`` failure releases
+        the claim so a retry may re-run.
+        """
+        guard = self._guard()
+        outcome = guard.claim(request)
+        if isinstance(outcome, ReplayOutcome):
+            return self._replay_response(outcome.result_payload, correlation_id)
+        if isinstance(outcome, MismatchOutcome):
+            return _error_response(
+                HTTPStatus.CONFLICT,
+                error_code="idempotency_mismatch",
+                message=(
+                    f"op_id {outcome.op_id!r} was previously used with a different "
+                    "request body; use a new op_id for a different mutation"
+                ),
+                correlation_id=correlation_id,
+                detail={"op_id": outcome.op_id, "conflict": "body_hash_mismatch"},
+            )
+        if isinstance(outcome, InFlightOutcome):
+            return _error_response(
+                HTTPStatus.CONFLICT,
+                error_code="operation_in_flight",
+                message=(
+                    f"op_id {outcome.op_id!r} is already in flight; retry after "
+                    "the concurrent operation settles"
+                ),
+                correlation_id=correlation_id,
+                detail={"op_id": outcome.op_id},
+            )
+        response = mutate()
+        if response.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
+            guard.release(request, outcome)
+            return response
+        guard.finalize(
+            request,
+            outcome,
+            {"status_code": response.status_code, "body": json.loads(response.body)},
+        )
+        return response
+
+    def _replay_response(
+        self,
+        result_payload: dict[str, object],
+        correlation_id: str,
+    ) -> ExecutionPlanningRouteResponse:
+        """Rebuild a stored response on an idempotent replay (fail-closed on corruption)."""
+        status_raw = result_payload.get("status_code")
+        body_raw = result_payload.get("body")
+        if not isinstance(status_raw, int) or not isinstance(body_raw, dict):
+            return _error_response(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                error_code="corrupt_idempotency_record",
+                message="Stored idempotency result payload is malformed",
+                correlation_id=correlation_id,
+            )
+        body_dict = {str(k): v for k, v in body_raw.items()}
+        return _json_response(HTTPStatus(status_raw), body_dict, correlation_id=correlation_id)
 
     def handle_get(
         self,
@@ -228,14 +333,76 @@ class ExecutionPlanningRoutes:
     def handle_delete(
         self,
         route_path: str,
+        payload: object,
         correlation_id: str,
     ) -> ExecutionPlanningRouteResponse | None:
-        """Handle execution-planning DELETE routes or return None."""
+        """Handle execution-planning DELETE routes or return None.
+
+        AG3-140: the dependency DELETE is a mutating route under the full
+        idempotency contract. It requires a client-supplied ``op_id`` carried in
+        the DELETE body (the control-plane dispatcher threads the DELETE body to
+        planning) and runs claim -> remove -> finalize/replay/mismatch/in-flight.
+        """
 
         match = _DEPENDENCY_DETAIL_PATH.match(route_path)
         if match is None:
             return None
         project_key = match.group("project_key")
+        story_id = match.group("story_id")
+        depends_on_story_id = match.group("depends_on_story_id")
+        kind = match.group("kind")
+        try:
+            request = DeleteDependencyRequest.model_validate(payload or {})
+        except ValidationError as exc:
+            return _validation_error_response(
+                "invalid_dependency_delete_payload",
+                "Invalid dependency delete payload",
+                correlation_id,
+                exc,
+                status=HTTPStatus.UNPROCESSABLE_ENTITY
+                if op_id_validation_error(exc)
+                else HTTPStatus.BAD_REQUEST,
+            )
+        idem = IdempotencyRequest(
+            op_id=request.op_id,
+            operation_kind="story_dependency_remove",
+            # The DELETE target is the URL path tuple; fold it into the body-hash
+            # so op_id reuse against a DIFFERENT dependency is a 409 mismatch.
+            body_hash=compute_body_hash(
+                {
+                    "op_id": request.op_id,
+                    "target_project_key": project_key,
+                    "story_id": story_id,
+                    "depends_on_story_id": depends_on_story_id,
+                    "kind": kind,
+                }
+            ),
+            project_key=project_key,
+            correlation_id=correlation_id,
+        )
+        return self._run_idempotent(
+            idem,
+            lambda: self._do_delete_dependency(
+                project_key,
+                story_id,
+                depends_on_story_id,
+                kind,
+                request.op_id,
+                correlation_id,
+            ),
+            correlation_id,
+        )
+
+    def _do_delete_dependency(
+        self,
+        project_key: str,
+        story_id: str,
+        depends_on_story_id: str,
+        kind: str,
+        op_id: str,
+        correlation_id: str,
+    ) -> ExecutionPlanningRouteResponse:
+        """Run the dependency removal (guarded by :meth:`_run_idempotent`)."""
         project = self._project_repository.get(project_key)
         if project is None:
             return _not_found_response(correlation_id)
@@ -247,9 +414,9 @@ class ExecutionPlanningRoutes:
             )
         try:
             remove_dependency(
-                story_id=match.group("story_id"),
-                depends_on_story_id=match.group("depends_on_story_id"),
-                kind=StoryDependencyKind(match.group("kind")),
+                story_id=story_id,
+                depends_on_story_id=depends_on_story_id,
+                kind=StoryDependencyKind(kind),
                 dep_repo=self._dependency_repository,
             )
         except ValueError:
@@ -264,6 +431,7 @@ class ExecutionPlanningRoutes:
             HTTPStatus.OK,
             {
                 "status": "committed",
+                "op_id": op_id,
                 "operation_kind": "story_dependency_remove",
                 "correlation_id": correlation_id,
             },
@@ -288,6 +456,28 @@ class ExecutionPlanningRoutes:
                 if op_id_validation_error(exc)
                 else HTTPStatus.BAD_REQUEST,
             )
+        idem = IdempotencyRequest(
+            op_id=request.op_id,
+            operation_kind="story_dependency_add",
+            body_hash=compute_body_hash(
+                {**request.model_dump(mode="json"), "target_project_key": project_key}
+            ),
+            project_key=project_key,
+            correlation_id=correlation_id,
+        )
+        return self._run_idempotent(
+            idem,
+            lambda: self._do_create_dependency(project_key, request, correlation_id),
+            correlation_id,
+        )
+
+    def _do_create_dependency(
+        self,
+        project_key: str,
+        request: CreateDependencyRequest,
+        correlation_id: str,
+    ) -> ExecutionPlanningRouteResponse:
+        """Run the dependency creation (guarded by :meth:`_run_idempotent`)."""
         project = self._project_repository.get(project_key)
         if project is None:
             return _not_found_response(correlation_id)
@@ -479,6 +669,28 @@ class ExecutionPlanningRoutes:
                 if op_id_validation_error(exc)
                 else HTTPStatus.BAD_REQUEST,
             )
+        idem = IdempotencyRequest(
+            op_id=request.op_id,
+            operation_kind="planning_config_upsert",
+            body_hash=compute_body_hash(
+                {**request.model_dump(mode="json"), "target_project_key": project_key}
+            ),
+            project_key=project_key,
+            correlation_id=correlation_id,
+        )
+        return self._run_idempotent(
+            idem,
+            lambda: self._do_put_config(project_key, request, correlation_id),
+            correlation_id,
+        )
+
+    def _do_put_config(
+        self,
+        project_key: str,
+        request: UpsertParallelizationConfigRequest,
+        correlation_id: str,
+    ) -> ExecutionPlanningRouteResponse:
+        """Run the planning-config upsert (guarded by :meth:`_run_idempotent`)."""
         project = self._project_repository.get(project_key)
         if project is None:
             return _not_found_response(correlation_id)

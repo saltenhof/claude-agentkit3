@@ -1312,8 +1312,11 @@ class ControlPlaneApplication(
         if auth_response is not None:
             return _auth_response_to_http_response(auth_response)
 
+        # AG3-140: the dependency DELETE is a mutating route under the full
+        # idempotency contract, so it too receives the decoded DELETE body (which
+        # carries the required client op_id), exactly like the auth revoke route.
         planning_response = self._planning_routes.handle_delete(
-            route_path, correlation_id,
+            route_path, payload, correlation_id,
         )
         if planning_response is not None:
             return _planning_response_to_http_response(planning_response)
@@ -1380,6 +1383,10 @@ class ControlPlaneApplication(
         action: str,
         correlation_id: str,
     ) -> HttpResponse:
+        from agentkit.backend.story_context_manager.errors import (
+            IdempotencyMismatchError,
+        )
+
         try:
             request = PhaseMutationRequest.model_validate(payload)
             if action == "start":
@@ -1420,6 +1427,17 @@ class ControlPlaneApplication(
                 correlation_id=correlation_id,
                 detail=exc.errors(),
             )
+        except IdempotencyMismatchError as exc:
+            # AG3-140 finding 3 (FK-91 §91.1a Regel 5): a terminal op_id replayed
+            # with a DIFFERENT phase/action/body is fail-closed 409, not a wrong
+            # replay of the stored result.
+            return _error_response(
+                HTTPStatus.CONFLICT,
+                error_code="idempotency_mismatch",
+                message=str(exc),
+                correlation_id=correlation_id,
+                detail=exc.detail,
+            )
         except ConfigError as exc:
             return _backend_requirement_response(
                 "phase_mutation_unavailable", exc, correlation_id
@@ -1441,6 +1459,10 @@ class ControlPlaneApplication(
         run_id: str,
         correlation_id: str,
     ) -> HttpResponse:
+        from agentkit.backend.story_context_manager.errors import (
+            IdempotencyMismatchError,
+        )
+
         try:
             request = ClosureCompleteRequest.model_validate(payload)
             result = self._runtime_service.complete_closure(
@@ -1458,6 +1480,16 @@ class ControlPlaneApplication(
                 message="Invalid closure payload",
                 correlation_id=correlation_id,
                 detail=exc.errors(),
+            )
+        except IdempotencyMismatchError as exc:
+            # AG3-140 finding 3: a terminal op_id replayed with a different
+            # closure body is fail-closed 409 idempotency_mismatch.
+            return _error_response(
+                HTTPStatus.CONFLICT,
+                error_code="idempotency_mismatch",
+                message=str(exc),
+                correlation_id=correlation_id,
+                detail=exc.detail,
             )
         except ConfigError as exc:
             return _backend_requirement_response(
