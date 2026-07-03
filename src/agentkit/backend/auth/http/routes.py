@@ -17,7 +17,6 @@ from agentkit.backend.auth.errors import AuthFailedError, TokenNotFoundError
 from agentkit.backend.auth.middleware import AuthMiddleware
 from agentkit.backend.auth.sessions import InMemorySessionStore
 from agentkit.backend.auth.tokens import issue_project_api_token
-from agentkit.backend.control_plane.models import op_id_validation_error
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -30,6 +29,20 @@ _TOKEN_COLLECTION_PATH = re.compile(r"^/v1/projects/(?P<project_key>[^/]+)/api-t
 _TOKEN_DETAIL_PATH = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/api-tokens/(?P<token_id>[^/]+)$",
 )
+
+
+def _op_id_validation_error(exc: ValidationError) -> bool:
+    """Return whether a wire-model ``ValidationError`` is (also) an ``op_id`` failure.
+
+    FK-91 §91.1a Regel 5 (AG3-140): a mutating request that omits ``op_id`` fails
+    closed with ``422`` specifically (distinct from the route's ordinary ``400``
+    payload-shape rejection for unrelated fields). Auth is a deliberately minimal
+    adapter boundary (architecture-conformance: it may not import
+    ``ControlPlaneRecords``) with its OWN response type, so it carries this
+    trivial, stateless op_id-error predicate locally rather than reaching across
+    the control-plane boundary for it (AC010).
+    """
+    return any(err["loc"] and err["loc"][0] == "op_id" for err in exc.errors())
 
 
 @dataclass(frozen=True)
@@ -211,7 +224,7 @@ class AuthRoutes:
                 correlation_id,
                 exc,
                 status=HTTPStatus.UNPROCESSABLE_ENTITY
-                if op_id_validation_error(exc)
+                if _op_id_validation_error(exc)
                 else HTTPStatus.BAD_REQUEST,
             )
         issued = issue_project_api_token(
@@ -249,7 +262,7 @@ class AuthRoutes:
                 correlation_id,
                 exc,
                 status=HTTPStatus.UNPROCESSABLE_ENTITY
-                if op_id_validation_error(exc)
+                if _op_id_validation_error(exc)
                 else HTTPStatus.BAD_REQUEST,
             )
         except TokenNotFoundError:
