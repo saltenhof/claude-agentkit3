@@ -487,7 +487,10 @@ class TestResumeClaimAndSideEffects:
         assert result.edge_bundle is None
         # No terminal operation was stored for the invalid-trigger resume (the
         # claim was released; a retry re-evaluates).
-        assert service._load_existing_operation(req.op_id) is None
+        # AG3-140: _load_existing_operation now takes (request, operation_kind,
+        # phase); assert "no stored operation" directly against the repository (a
+        # released/rejected claim leaves NO row).
+        assert service._repo.load_operation(req.op_id) is None
         # The invalid trigger is caught by the engine BEFORE on_resume runs.
         assert handler.resume_calls == 0
 
@@ -516,7 +519,10 @@ class TestResumeClaimAndSideEffects:
         assert result.operation_kind == "phase_resume"
         assert result.edge_bundle is None
         # A failed resume is not a committed control-plane operation.
-        assert service._load_existing_operation(req.op_id) is None
+        # AG3-140: _load_existing_operation now takes (request, operation_kind,
+        # phase); assert "no stored operation" directly against the repository (a
+        # released/rejected claim leaves NO row).
+        assert service._repo.load_operation(req.op_id) is None
         # on_resume DID run this time (valid trigger), unlike the invalid-trigger case.
         assert handler.resume_calls == 1
 
