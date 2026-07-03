@@ -17,9 +17,18 @@ from agentkit.backend.auth.errors import AuthFailedError, TokenNotFoundError
 from agentkit.backend.auth.middleware import AuthMiddleware
 from agentkit.backend.auth.sessions import InMemorySessionStore
 from agentkit.backend.auth.tokens import issue_project_api_token
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    IdempotencyRequest,
+    InflightIdempotencyGuard,
+    InFlightOutcome,
+    MismatchOutcome,
+    ReplayOutcome,
+    StateBackendInflightIdempotencyGuard,
+    compute_body_hash,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from agentkit.backend.auth.entities import ProjectApiToken, Session
     from agentkit.backend.auth.repository import ProjectApiTokenRepository
@@ -91,6 +100,7 @@ class AuthRoutes:
         credential_store: StrategistCredentialStore | None = None,
         session_store: InMemorySessionStore | None = None,
         token_repository: ProjectApiTokenRepository | None = None,
+        idempotency_guard: InflightIdempotencyGuard | None = None,
     ) -> None:
         if token_repository is None:
             from agentkit.backend.state_backend.store.auth_repository import (
@@ -101,6 +111,11 @@ class AuthRoutes:
         self._credential_store = credential_store or StrategistCredentialStore()
         self._session_store = session_store or InMemorySessionStore()
         self._token_repository = token_repository
+        #: FK-91 §91.1a Regel 5 (AG3-140): the unified in-flight idempotency guard.
+        #: ``None`` resolves the stateless Postgres-backed production guard lazily
+        #: per call; unit tests inject a shared in-memory guard so claim state
+        #: persists across calls within one test.
+        self.idempotency_guard = idempotency_guard
 
     @property
     def session_store(self) -> InMemorySessionStore:
@@ -209,6 +224,102 @@ class AuthRoutes:
             headers=(_clear_session_cookie(),),
         )
 
+    # ------------------------------------------------------------------
+    # Unified in-flight idempotency guard (AG3-140 / FK-91 §91.1a Regel 5)
+    # ------------------------------------------------------------------
+
+    def _guard(self) -> InflightIdempotencyGuard:
+        """Resolve the idempotency guard (injected instance or production default).
+
+        When an instance was injected it is returned as-is (a shared in-memory
+        guard in unit tests keeps claim state across calls). Otherwise the
+        stateless Postgres-backed production guard is constructed per call.
+        """
+        return self.idempotency_guard or StateBackendInflightIdempotencyGuard()
+
+    def _run_idempotent(
+        self,
+        request: IdempotencyRequest,
+        mutate: Callable[[], AuthRouteResponse],
+        correlation_id: str,
+    ) -> AuthRouteResponse:
+        """Run one mutation under the unified idempotency contract.
+
+        claim -> mutate -> finalize/release:
+          * ``ReplayOutcome`` -> rebuild and return the stored response verbatim
+            (the mutation ran exactly once; e.g. a replayed token-create returns
+            the SAME plaintext token, never a freshly minted second one).
+          * ``MismatchOutcome`` -> ``409 idempotency_mismatch``.
+          * ``InFlightOutcome`` -> ``409 operation_in_flight``.
+          * ``FreshClaim`` -> run ``mutate``; a deterministic business outcome
+            (2xx or domain 4xx) is finalized so a replay returns it verbatim; a
+            truly unexpected ``5xx`` releases the claim so a retry may re-run.
+        """
+        guard = self._guard()
+        outcome = guard.claim(request)
+        if isinstance(outcome, ReplayOutcome):
+            return self._replay_response(outcome.result_payload, correlation_id)
+        if isinstance(outcome, MismatchOutcome):
+            return _error_response(
+                HTTPStatus.CONFLICT,
+                error_code="idempotency_mismatch",
+                message=(
+                    f"op_id {outcome.op_id!r} was previously used with a different "
+                    "request body; use a new op_id for a different mutation"
+                ),
+                correlation_id=correlation_id,
+                detail={"op_id": outcome.op_id, "conflict": "body_hash_mismatch"},
+            )
+        if isinstance(outcome, InFlightOutcome):
+            return _error_response(
+                HTTPStatus.CONFLICT,
+                error_code="operation_in_flight",
+                message=(
+                    f"op_id {outcome.op_id!r} is already in flight; retry after the "
+                    "concurrent operation settles"
+                ),
+                correlation_id=correlation_id,
+                detail={"op_id": outcome.op_id},
+            )
+        # FreshClaim — this caller won and must run the mutation.
+        response = mutate()
+        if response.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
+            # Unexpected/infrastructure failure — release so a retry may re-run.
+            guard.release(request, outcome)
+            return response
+        # Deterministic business outcome (2xx or domain 4xx) — record it so a
+        # replay of the same op_id returns the identical stored response.
+        guard.finalize(
+            request,
+            outcome,
+            {"status_code": response.status_code, "body": json.loads(response.body)},
+        )
+        return response
+
+    def _replay_response(
+        self,
+        result_payload: dict[str, object],
+        correlation_id: str,
+    ) -> AuthRouteResponse:
+        """Rebuild a stored response from a replay payload (byte-for-byte body).
+
+        The stored shape is ``{"status_code": <int>, "body": <dict>}``. A malformed
+        record fails closed with ``500`` rather than replaying a partial result.
+        """
+        status_raw = result_payload.get("status_code")
+        body_raw = result_payload.get("body")
+        if not isinstance(status_raw, int) or not isinstance(body_raw, dict):
+            return _error_response(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                error_code="corrupt_idempotency_record",
+                message="stored idempotency replay record is malformed",
+                correlation_id=correlation_id,
+            )
+        body_dict: dict[str, object] = {str(k): v for k, v in body_raw.items()}
+        return _json_response(
+            HTTPStatus(status_raw), body_dict, correlation_id=correlation_id
+        )
+
     def _handle_create_token(
         self,
         project_key: str,
@@ -227,6 +338,36 @@ class AuthRoutes:
                 if _op_id_validation_error(exc)
                 else HTTPStatus.BAD_REQUEST,
             )
+        req = IdempotencyRequest(
+            op_id=request.op_id,
+            operation_kind="project_api_token_create",
+            # AG3-140: fold the URL-path target project into the body-hash so the
+            # same op_id reused against a DIFFERENT project fails closed with a
+            # 409 idempotency_mismatch (never a silent wrong-project replay).
+            body_hash=compute_body_hash(
+                {**request.model_dump(mode="json"), "target_project_key": project_key}
+            ),
+            project_key=project_key,
+            correlation_id=correlation_id,
+        )
+        return self._run_idempotent(
+            req,
+            lambda: self._do_create_token(project_key, request, correlation_id),
+            correlation_id,
+        )
+
+    def _do_create_token(
+        self,
+        project_key: str,
+        request: CreateProjectApiTokenRequest,
+        correlation_id: str,
+    ) -> AuthRouteResponse:
+        """Issue one project API token (guarded by :meth:`_run_idempotent`).
+
+        THE KEY FIX (AG3-140): the guard wraps the WHOLE issuance, so a replay of
+        the same ``op_id`` never re-enters this method — ``issue_project_api_token``
+        runs exactly once and the replay returns the SAME stored plaintext token.
+        """
         issued = issue_project_api_token(
             project_key=project_key,
             label=request.label,
@@ -254,7 +395,6 @@ class AuthRoutes:
     ) -> AuthRouteResponse:
         try:
             request = RevokeProjectApiTokenRequest.model_validate(payload)
-            self._token_repository.revoke(project_key, token_id)
         except ValidationError as exc:
             return _validation_error_response(
                 "invalid_project_api_token_revoke_payload",
@@ -265,6 +405,43 @@ class AuthRoutes:
                 if _op_id_validation_error(exc)
                 else HTTPStatus.BAD_REQUEST,
             )
+        req = IdempotencyRequest(
+            op_id=request.op_id,
+            operation_kind="project_api_token_revoke",
+            # AG3-140: fold the URL-path target project AND token into the
+            # body-hash so op_id reuse across a different project/token fails
+            # closed with a 409 mismatch (never a silent wrong-target replay).
+            body_hash=compute_body_hash(
+                {
+                    **request.model_dump(mode="json"),
+                    "target_project_key": project_key,
+                    "target_token_id": token_id,
+                }
+            ),
+            project_key=project_key,
+            correlation_id=correlation_id,
+        )
+        return self._run_idempotent(
+            req,
+            lambda: self._do_revoke_token(project_key, token_id, request, correlation_id),
+            correlation_id,
+        )
+
+    def _do_revoke_token(
+        self,
+        project_key: str,
+        token_id: str,
+        request: RevokeProjectApiTokenRequest,
+        correlation_id: str,
+    ) -> AuthRouteResponse:
+        """Revoke one project API token (guarded by :meth:`_run_idempotent`).
+
+        The deterministic ``404 project_api_token_not_found`` is a business outcome
+        (<500), so it is finalized too: a replay of the same ``op_id`` returns the
+        SAME 404 and ``revoke`` runs exactly once.
+        """
+        try:
+            self._token_repository.revoke(project_key, token_id)
         except TokenNotFoundError:
             return _error_response(
                 HTTPStatus.NOT_FOUND,
