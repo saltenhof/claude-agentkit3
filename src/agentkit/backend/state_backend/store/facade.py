@@ -1056,7 +1056,7 @@ def finalize_control_plane_operation_global(
     owner_claimed_at: str | None = None,
     owner_operation_epoch: int | None = None,
 ) -> bool:
-    """Ownership-scoped terminal write of a claimed op (AG3-054 leased claim).
+    """Ownership-scoped terminal write of a claimed op (AG3-054 owner-scoped claim).
 
     Writes the terminal result + clears ``claimed_by`` ONLY when the row is still
     ``claimed`` by ``owner_token``. Returns ``True`` iff this owner's terminal
@@ -1064,10 +1064,10 @@ def finalize_control_plane_operation_global(
     resolved the row in between (the caller must then replay/reject, never
     overwrite).
 
-    WARNING-4 fix (#4): when ``owner_claimed_at`` (the RAW lease epoch the owner
+    WARNING-4 fix (#4): when ``owner_claimed_at`` (the RAW claim instant the owner
     stamped) is given, the CAS also matches ``claimed_at`` so it scopes to THIS
-    lease generation -- a stale owner whose token is reused cannot match a NEWER
-    lease. ``None`` keeps the legacy owner-only CAS (direct administrative
+    claim generation -- a stale owner whose token is reused cannot match a NEWER
+    claim. ``None`` keeps the legacy owner-only CAS (direct administrative
     callers).
 
     AG3-138: when ``owner_operation_epoch`` is given, the CAS additionally
@@ -1111,20 +1111,20 @@ def finalize_control_plane_start_phase_global(
     Records are converted to rows HERE (mapper boundary); the driver only sees
     row dicts.
 
-    WARNING-4 fix (#4): when ``owner_claimed_at`` (the RAW lease epoch the owner
+    WARNING-4 fix (#4): when ``owner_claimed_at`` (the RAW claim instant the owner
     stamped) is given, the ownership CAS also matches ``claimed_at`` so it scopes
-    to THIS lease generation. ``None`` keeps the legacy owner-only CAS.
+    to THIS claim generation. ``None`` keeps the legacy owner-only CAS.
 
     AG3-138: when ``owner_operation_epoch`` is given, the CAS additionally
     requires the stored ``operation_epoch`` to be unchanged
     (``operation_finalize_requires_cas_on_operation_epoch`` -- an
     ``admin_abort_inflight_operation`` bumps the epoch, fencing a late
-    executor's finalize even when its owner token/lease still matches).
+    executor's finalize even when its owner token/claim instant still matches).
 
     Args:
         record: The terminal control-plane operation record (committed result).
-        owner_token: This caller's lease owner token (the CAS scope).
-        owner_claimed_at: This caller's RAW lease epoch (CAS epoch scope, #4).
+        owner_token: This caller's owner token (the CAS scope).
+        owner_claimed_at: This caller's RAW claim instant (CAS generation scope, #4).
         owner_operation_epoch: This caller's observed fencing epoch (AG3-138).
         binding: The session-run-binding to materialize, or ``None`` (fast story).
         locks: The story/QA lock records to materialize (empty for a fast story).
@@ -1165,7 +1165,7 @@ def commit_control_plane_operation_with_side_effects_global(
     """Atomically commit a terminal op AND its side effects (AG3-054 ERROR-2, #2).
 
     ERROR-2 fix (#2): the conditional op-row upsert (which refuses to clobber a LIVE
-    ``claimed`` start lease and raises :class:`ControlPlaneClaimCollisionError`) and
+    ``claimed`` start claim and raises :class:`ControlPlaneClaimCollisionError`) and
     the mutation's side effects (session-binding create/delete, story/QA lock
     records, lifecycle events) are applied in ONE store transaction, with the
     collision gate running FIRST. A collision rolls back the WHOLE transaction, so a
@@ -1192,7 +1192,7 @@ def commit_control_plane_operation_with_side_effects_global(
 
     Raises:
         ControlPlaneClaimCollisionError: When ``record`` collides with a LIVE
-            ``claimed`` lease (nothing committed; the live claim is intact).
+            ``claimed`` row (nothing committed; the live claim is intact).
         ControlPlaneBindingCollisionError: When the binding save/delete would touch
             a FOREIGN run's live binding (nothing committed; the binding intact).
     """
@@ -1231,16 +1231,16 @@ def release_control_plane_operation_global(
     owner_token: str,
     owner_claimed_at: str | None = None,
 ) -> None:
-    """Ownership-scoped release of a claimed control-plane op (AG3-054 leased claim).
+    """Ownership-scoped release of a claimed control-plane op (AG3-054 owner-scoped claim).
 
     Deletes the row ONLY when it is still ``claimed`` by ``owner_token``. NEVER an
     unconditional delete: a terminal row or another owner's claim is left intact.
     Idempotent.
 
-    WARNING-4 fix (#4): when ``owner_claimed_at`` (the RAW lease epoch the owner
+    WARNING-4 fix (#4): when ``owner_claimed_at`` (the RAW claim instant the owner
     stamped) is given, the delete CAS also matches ``claimed_at`` so it scopes to
-    THIS lease generation -- a stale owner (a reused token in DI/test wiring)
-    cannot delete a NEWER lease. ``None`` keeps the legacy owner-only CAS.
+    THIS claim generation -- a stale owner (a reused token in DI/test wiring)
+    cannot delete a NEWER claim. ``None`` keeps the legacy owner-only CAS.
     """
     backend = _backend_module()
     if not hasattr(backend, "release_control_plane_operation_global_row"):

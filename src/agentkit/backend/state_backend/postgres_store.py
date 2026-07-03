@@ -600,7 +600,7 @@ def _schema_alter_statements() -> tuple[str, ...]:
             "AND existing.phase = 'implementation')"
         ),
         "DELETE FROM phase_snapshots WHERE phase = 'verify'",
-        # AG3-054 (SCHEMA_VERSION 3.20.0, FK-91 / FK-22 §22.9): leased,
+        # AG3-054 (SCHEMA_VERSION 3.20.0, FK-91 / FK-22 §22.9): the
         # owner-scoped claim. A fresh schema gets these from CREATE TABLE; an
         # existing same-version schema gets them idempotently here. TEXT (not
         # TIMESTAMPTZ) for claimed_at matches the table's other instants
@@ -2912,7 +2912,7 @@ def save_control_plane_operation_global_row(row: dict[str, Any]) -> None:
     terminal result).
 
     ERROR-3 fix (AG3-054): the upsert is CONDITIONAL -- it REFUSES to overwrite a
-    row whose ``status='claimed'`` (a live, owned lease). Only the owner's
+    row whose ``status='claimed'`` (a live, owned claim). Only the owner's
     ownership-scoped finalize/release may transition a claimed row. So a
     ``complete_phase`` / ``fail_phase`` (or any non-owner save) reusing a live
     ``start_phase`` op_id can no longer overwrite the claimed row and steal/destroy
@@ -2923,7 +2923,7 @@ def save_control_plane_operation_global_row(row: dict[str, Any]) -> None:
 
     Raises:
         ControlPlaneClaimCollisionError: When the row already exists and is still
-            ``claimed`` (the upsert would have clobbered a live lease).
+            ``claimed`` (the upsert would have clobbered a live claim).
     """
 
     with _connect_global() as conn:
@@ -2979,11 +2979,11 @@ def save_control_plane_operation_global_row(row: dict[str, Any]) -> None:
         )
         # rowcount == 1 on a fresh insert or a qualifying (non-claimed) update;
         # rowcount == 0 ONLY when the conflicting row is still ``claimed`` and the
-        # WHERE blocked the overwrite. Fail-closed: a live claimed lease was hit.
+        # WHERE blocked the overwrite. Fail-closed: a live claimed row was hit.
         if int(cursor.rowcount) == 0:
             raise ControlPlaneClaimCollisionError(
                 "control-plane operation save refused: op_id "
-                f"{row['op_id']!r} is held by a LIVE 'claimed' lease; only the "
+                f"{row['op_id']!r} is held by a LIVE 'claimed' row; only the "
                 "owner's finalize/release may transition it. A non-owner save "
                 "(e.g. complete/fail reusing a live start's op_id) must not "
                 "clobber the claim (AG3-054 ERROR-3, fail-closed).",
@@ -2991,10 +2991,10 @@ def save_control_plane_operation_global_row(row: dict[str, Any]) -> None:
 
 
 def claim_control_plane_operation_global_row(row: dict[str, Any]) -> bool:
-    """Atomically claim an op_id, inserting only if absent (AG3-054 leased claim).
+    """Atomically claim an op_id, inserting only if absent (AG3-054 owner-scoped claim).
 
     Performs a single ``INSERT ... ON CONFLICT (op_id) DO NOTHING`` with
-    ``status='claimed'`` and the per-call ``claimed_by`` / ``claimed_at`` lease, so
+    ``status='claimed'`` and the per-call ``claimed_by`` / ``claimed_at`` stamp, so
     exactly ONE concurrent caller wins the claim for a given ``op_id``; the loser
     sees zero affected rows and must inspect the row (terminal => replay, a
     foreign claim of ANY age => in-flight rejection; AG3-139: never a CAS
@@ -3057,7 +3057,7 @@ def finalize_control_plane_operation_global_row(
     owner_claimed_at: str | None = None,
     owner_operation_epoch: int | None = None,
 ) -> bool:
-    """Ownership-scoped terminal write of a claimed op (AG3-054 leased claim).
+    """Ownership-scoped terminal write of a claimed op (AG3-054 owner-scoped claim).
 
     Writes the terminal status + response_json and CLEARS ``claimed_by`` ONLY when
     the row is still ``claimed`` by ``owner_token``. If another owner finalized the
@@ -3065,10 +3065,10 @@ def finalize_control_plane_operation_global_row(
     this caller must NOT overwrite the foreign/terminal row -- it returns
     ``False`` so the runtime surfaces a replay/rejection instead.
 
-    WARNING-4 fix (#4): when ``owner_claimed_at`` (the RAW lease epoch the owner
+    WARNING-4 fix (#4): when ``owner_claimed_at`` (the RAW claim instant the owner
     stamped) is given, the CAS also matches ``claimed_at`` (raw column) so it
-    scopes to THIS lease generation -- a reused stale owner token (DI/test
-    wiring) cannot match a NEWER lease. ``None`` keeps the legacy owner-only CAS.
+    scopes to THIS claim generation -- a reused stale owner token (DI/test
+    wiring) cannot match a NEWER claim. ``None`` keeps the legacy owner-only CAS.
 
     AG3-138 (``operation_finalize_requires_cas_on_operation_epoch``): when
     ``owner_operation_epoch`` is given, the CAS additionally requires the stored
@@ -3114,11 +3114,11 @@ def finalize_control_plane_operation_global_row(
 def _owner_epoch_cas_clause(
     owner_claimed_at: str | None,
 ) -> tuple[str, tuple[str, ...]]:
-    """Build the optional lease-epoch CAS fragment (AG3-054 WARNING-4, #4).
+    """Build the optional claim-generation CAS fragment (AG3-054 WARNING-4, #4).
 
     When ``owner_claimed_at`` is given, returns a SQL fragment matching the RAW
     ``claimed_at`` column plus its bind parameter, so the ownership CAS scopes to
-    THIS lease generation. When ``None`` (legacy administrative callers), returns
+    THIS claim generation. When ``None`` (legacy administrative callers), returns
     an empty fragment so the CAS stays owner-only (backward compatible). The
     fragment is a fixed string with NO interpolated user data.
     """
@@ -3131,19 +3131,19 @@ def _owner_fencing_cas_clause(
     owner_claimed_at: str | None,
     owner_operation_epoch: int | None,
 ) -> tuple[str, tuple[str | int, ...]]:
-    """Build the optional lease-epoch AND operation-epoch CAS fragment (AG3-138).
+    """Build the optional claim-generation AND operation-epoch CAS fragment (AG3-138).
 
-    Combines the AG3-054 raw-``claimed_at`` lease-generation fence with the
+    Combines the AG3-054 raw-``claimed_at`` claim-generation fence with the
     AG3-138 ``operation_epoch`` fence
     (``operation_finalize_requires_cas_on_operation_epoch``). Either, both or
     neither may be given; each present value adds its own ``AND`` predicate.
     Fixed fragment text, no interpolated user data.
     """
-    lease_clause, lease_params = _owner_epoch_cas_clause(owner_claimed_at)
+    claim_clause, claim_params = _owner_epoch_cas_clause(owner_claimed_at)
     if owner_operation_epoch is None:
-        return lease_clause, lease_params
-    epoch_clause = lease_clause + "\n              AND operation_epoch = ?"
-    return epoch_clause, (*lease_params, owner_operation_epoch)
+        return claim_clause, claim_params
+    epoch_clause = claim_clause + "\n              AND operation_epoch = ?"
+    return epoch_clause, (*claim_params, owner_operation_epoch)
 
 
 def _insert_session_binding_row(conn: _CompatConnection, row: dict[str, Any]) -> None:
@@ -3322,15 +3322,15 @@ def finalize_control_plane_start_phase_global_row(
 
     Args:
         op_row: The terminal control-plane operation row (committed result).
-        owner_token: This caller's lease owner token (the CAS scope).
-        owner_claimed_at: This caller's RAW lease epoch; when given, the ownership
-            CAS also matches ``claimed_at`` so it scopes to THIS lease generation
+        owner_token: This caller's owner token (the CAS scope).
+        owner_claimed_at: This caller's RAW claim instant; when given, the ownership
+            CAS also matches ``claimed_at`` so it scopes to THIS claim generation
             (WARNING-4, #4). ``None`` keeps the legacy owner-only CAS.
         owner_operation_epoch: This caller's observed ``operation_epoch`` (AG3-138,
             ``operation_finalize_requires_cas_on_operation_epoch``); when given,
             the CAS additionally requires the stored epoch to be UNCHANGED, so an
             ``admin_abort_inflight_operation`` bump fences a late executor's
-            finalize even when its owner token/lease would otherwise still match.
+            finalize even when its owner token/claim instant would otherwise still match.
         binding_row: The session-run-binding row to materialize, or ``None`` for a
             fast story (no story-scoped binding).
         lock_rows: The story-execution / qa-artifact-write lock rows (empty for a
@@ -3442,11 +3442,11 @@ def finalize_orphaned_control_plane_operation_global_row(
     identity or status changed concurrently is left untouched (returns
     ``False``); a foreign identity can never be matched by this predicate.
     ``operation_epoch`` is bumped (``operation_finalize_requires_cas_on_operation_epoch``)
-    and the lease columns are cleared.
+    and the claim columns are cleared.
 
     ``owner_operation_epoch`` is MANDATORY (AC4): it fences the finalize on the
     ``operation_epoch`` OBSERVED BY THE ORPHAN SCAN, exactly like the normal
-    :func:`finalize_control_plane_operation_global_row` lease-epoch fence. If the
+    :func:`finalize_control_plane_operation_global_row` claim-generation fence. If the
     row's ``operation_epoch`` changed between the scan and this finalize (e.g. a
     concurrent admin-abort of the same still-``claimed`` identity bumped it), the
     CAS matches zero rows and this call is a deterministic no-op (returns
@@ -3497,7 +3497,7 @@ def admin_abort_control_plane_operation_global_row(
     Acts on ANY currently-``claimed`` operation regardless of which instance
     stamped it -- an explicit administrative override (FK-91 §91.1a
     ``admin_abort_inflight_operation``, FK-55 §55.5 ``admin_transition``) is by
-    construction not scoped to the claim's own owner_token/lease. Bumps
+    construction not scoped to the claim's own owner_token/claim generation. Bumps
     ``operation_epoch`` so a late, physically-still-running executor's
     subsequent finalize fails the epoch fence deterministically (at most a
     no-op abort note; ``operation_finalize_requires_cas_on_operation_epoch``).
@@ -3676,7 +3676,7 @@ def _conditional_upsert_control_plane_op_row(
 
     Shares the conditional-upsert semantics of
     :func:`save_control_plane_operation_global_row` (it REFUSES to overwrite a row
-    that is still ``status='claimed'`` -- a live, owned lease) but runs on a
+    that is still ``status='claimed'`` -- a live, owned claim) but runs on a
     CALLER-supplied connection so the op-row write and the mutation's side effects
     commit (or roll back) in ONE transaction. The collision is surfaced via
     :class:`ControlPlaneClaimCollisionError` raised INSIDE the transaction, so the
@@ -3686,7 +3686,7 @@ def _conditional_upsert_control_plane_op_row(
 
     Raises:
         ControlPlaneClaimCollisionError: When the conflicting row is still
-            ``claimed`` (the upsert would have clobbered a live lease).
+            ``claimed`` (the upsert would have clobbered a live claim).
     """
     cursor = conn.execute(
         """
@@ -3728,7 +3728,7 @@ def _conditional_upsert_control_plane_op_row(
     if int(cursor.rowcount) == 0:
         raise ControlPlaneClaimCollisionError(
             "control-plane operation save refused: op_id "
-            f"{row['op_id']!r} is held by a LIVE 'claimed' lease; only the "
+            f"{row['op_id']!r} is held by a LIVE 'claimed' row; only the "
             "owner's finalize/release may transition it. A non-owner save "
             "(e.g. complete/fail/closure reusing a live start's op_id) must not "
             "clobber the claim (AG3-054 ERROR-3, fail-closed).",
@@ -3750,7 +3750,7 @@ def commit_control_plane_operation_with_side_effects_global_row(
     their side effects (session-binding create/delete, lock records, lifecycle
     events) via SEPARATE ``_connect_global()`` transactions and THEN called the
     conditional op-row upsert -- which raises :class:`ControlPlaneClaimCollisionError`
-    when it would clobber a LIVE ``claimed`` start lease. By then the side effects
+    when it would clobber a LIVE ``claimed`` start claim. By then the side effects
     were already committed -> orphan state (e.g. a deleted binding / deactivated
     lock while the live claim survived and the result was a rejection).
 
@@ -3775,7 +3775,7 @@ def commit_control_plane_operation_with_side_effects_global_row(
 
     Raises:
         ControlPlaneClaimCollisionError: When ``op_row`` collides with a LIVE
-            ``claimed`` lease (nothing is committed; the live claim is intact).
+            ``claimed`` row (nothing is committed; the live claim is intact).
         ControlPlaneBindingCollisionError: When the binding save/delete would touch
             a FOREIGN run's live binding (nothing committed; the binding intact).
     """
@@ -3807,17 +3807,17 @@ def release_control_plane_operation_global_row(
     owner_token: str,
     owner_claimed_at: str | None = None,
 ) -> None:
-    """Ownership-scoped release of a claimed op (AG3-054 leased claim).
+    """Ownership-scoped release of a claimed op (AG3-054 owner-scoped claim).
 
     Deletes the row ONLY when it is still ``claimed`` by ``owner_token``. NEVER an
     unconditional delete: a terminal row (``status != 'claimed'``) and another
     owner's claim are both left untouched, so a release on the exception/rejection
     path can never delete a foreign or committed result. Idempotent.
 
-    WARNING-4 fix (#4): when ``owner_claimed_at`` (the RAW lease epoch the owner
+    WARNING-4 fix (#4): when ``owner_claimed_at`` (the RAW claim instant the owner
     stamped) is given, the delete CAS also matches ``claimed_at`` so it scopes to
-    THIS lease generation -- a stale owner (a reused token in DI/test wiring)
-    cannot delete a NEWER lease. ``None`` keeps the legacy owner-only CAS.
+    THIS claim generation -- a stale owner (a reused token in DI/test wiring)
+    cannot delete a NEWER claim. ``None`` keeps the legacy owner-only CAS.
     """
 
     epoch_clause, epoch_params = _owner_epoch_cas_clause(owner_claimed_at)

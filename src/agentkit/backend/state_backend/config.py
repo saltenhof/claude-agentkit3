@@ -144,7 +144,7 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # 3.19.0 DB is never touched.
 #
 # 3.20.0 (AG3-054): control_plane_operations gains claimed_by / claimed_at for
-# the leased, owner-scoped claim (FK-91, FK-22 §22.9). A fresh schema gets the
+# the owner-scoped claim (FK-91, FK-22 §22.9). A fresh schema gets the
 # columns from CREATE TABLE; an existing same-version schema gets them via the
 # idempotent ALTER TABLE ... ADD COLUMN IF NOT EXISTS statements in
 # postgres_store._schema_alter_statements (FK-62 §62.4 strategy).

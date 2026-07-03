@@ -295,11 +295,11 @@ def test_exception_after_claim_releases_real_store_claim(
 
 
 # ---------------------------------------------------------------------------
-# AG3-054 PART A: leased, owner-scoped claim against the REAL Postgres store
+# AG3-054 PART A: owner-scoped claim against the REAL Postgres store
 # ---------------------------------------------------------------------------
 
 
-def _leased_op(
+def _claimed_op(
     op_id: str,
     *,
     owner: str,
@@ -317,16 +317,16 @@ def test_concurrent_claims_one_wins_loser_in_flight_real_store(
 
     Drives the productive runtime over the REAL store with injected owner-token /
     clock seams. Winner A holds a LIVE claim (mid-dispatch, not yet finalized,
-    simulated by seeding A's live leased claim). Loser B's start_phase must get an
+    simulated by seeding A's live claim). Loser B's start_phase must get an
     in-flight rejection and must NOT dispatch; A's claim is untouched.
     """
     del postgres_backend_env
     _seed_pg_story_context(tmp_path)
     now = datetime(2026, 6, 7, 10, 0, tzinfo=UTC)
-    op_id = "op-pg-leased-race"
+    op_id = "op-pg-claim-race"
     # Winner A's LIVE claim.
     assert claim_control_plane_operation_global(
-        _leased_op(op_id, owner="owner-A", claimed_at=now)
+        _claimed_op(op_id, owner="owner-A", claimed_at=now)
     ) is True
 
     loser_dispatcher = _CountingDispatcher()
@@ -359,7 +359,7 @@ def test_winner_finalizes_then_loser_replays_real_store(
     now = datetime(2026, 6, 7, 10, 0, tzinfo=UTC)
     op_id = "op-pg-finalize"
     assert claim_control_plane_operation_global(
-        _leased_op(op_id, owner="owner-A", claimed_at=now)
+        _claimed_op(op_id, owner="owner-A", claimed_at=now)
     ) is True
 
     terminal = _op(op_id, status="committed")
@@ -393,7 +393,7 @@ def test_owner_release_is_ownership_scoped_real_store(
     start = datetime(2026, 6, 7, 10, 0, tzinfo=UTC)
     op_id = "op-pg-ownership"
     assert claim_control_plane_operation_global(
-        _leased_op(op_id, owner="owner-A", claimed_at=start)
+        _claimed_op(op_id, owner="owner-A", claimed_at=start)
     ) is True
 
     abort_payload: dict[str, object] = {
@@ -448,7 +448,7 @@ def test_foreign_claim_of_any_age_cannot_be_reclaimed_real_store(
     start = datetime(2026, 6, 7, 10, 0, tzinfo=UTC)
     op_id = "op-pg-ancient-claim"
     assert claim_control_plane_operation_global(
-        _leased_op(
+        _claimed_op(
             op_id, owner="owner-crashed", claimed_at=start - timedelta(days=30)
         )
     ) is True
@@ -457,7 +457,7 @@ def test_foreign_claim_of_any_age_cannot_be_reclaimed_real_store(
     # exists at the store, regardless of the row's age.
     assert (
         claim_control_plane_operation_global(
-            _leased_op(op_id, owner="owner-new", claimed_at=start)
+            _claimed_op(op_id, owner="owner-new", claimed_at=start)
         )
         is False
     )
@@ -555,7 +555,7 @@ def test_late_finalize_after_admin_abort_writes_no_side_effects_real_store(
 
     # A wins a claim; an operator then admin-aborts it (the AG3-138 end-way).
     assert claim_control_plane_operation_global(
-        _leased_op(op_id, owner="owner-A", claimed_at=now)
+        _claimed_op(op_id, owner="owner-A", claimed_at=now)
     ) is True
     abort_payload: dict[str, object] = {
         "status": "aborted",
@@ -711,7 +711,7 @@ def test_naive_legacy_claimed_at_row_is_loadable_and_still_a_foreign_claim(
     # A second claim attempt on the SAME op_id still loses -- no reclaim path.
     assert (
         claim_control_plane_operation_global(
-            _leased_op(
+            _claimed_op(
                 op_id,
                 owner="owner-new",
                 claimed_at=datetime(2026, 6, 7, 11, 0, tzinfo=UTC),
@@ -742,7 +742,7 @@ def test_legacy_save_refuses_to_clobber_live_claim_real_store(
     op_id = "op-pg-clobber-guard"
     # A live claimed start row owned by owner-A.
     assert claim_control_plane_operation_global(
-        _leased_op(op_id, owner="owner-A", claimed_at=now)
+        _claimed_op(op_id, owner="owner-A", claimed_at=now)
     ) is True
 
     # A complete/fail reusing the SAME op_id tries to save a terminal row.
@@ -787,7 +787,7 @@ def test_finalize_release_are_lease_epoch_scoped_real_store(
     exception-cleanup path) and owner-X reclaims the SAME op_id fresh (a NEW
     ``claimed_at`` generation -- token reuse, the exact WARNING-4 hazard). The
     PREVIOUS generation's release/finalize -- even reusing the same owner token
-    -- must be a no-op: its lease-epoch-scoped CAS cannot match the NEWER claim
+    -- must be a no-op: its claim-generation-scoped CAS cannot match the NEWER claim
     generation, so it neither deletes nor finalizes it.
     """
     del postgres_backend_env
@@ -797,14 +797,14 @@ def test_finalize_release_are_lease_epoch_scoped_real_store(
 
     # owner-X holds a claim at the OLD generation.
     assert claim_control_plane_operation_global(
-        _leased_op(op_id, owner="owner-X", claimed_at=start)
+        _claimed_op(op_id, owner="owner-X", claimed_at=start)
     ) is True
     # The claim is released and owner-X reclaims the SAME op_id fresh at a NEW
     # generation (token reuse -- the exact WARNING-4 hazard).
     release_control_plane_operation_global(op_id, owner_token="owner-X")
     assert load_control_plane_operation_global(op_id) is None
     assert claim_control_plane_operation_global(
-        _leased_op(op_id, owner="owner-X", claimed_at=new_epoch)
+        _claimed_op(op_id, owner="owner-X", claimed_at=new_epoch)
     ) is True
 
     # The PREVIOUS generation's release (same token, OLD epoch) is a no-op.
@@ -825,7 +825,7 @@ def test_finalize_release_are_lease_epoch_scoped_real_store(
             owner_claimed_at=start.isoformat(),
         )
         is False
-    ), "the stale-epoch finalize must not finalize the new lease"
+    ), "the stale-epoch finalize must not finalize the new claim"
     still = load_control_plane_operation_global(op_id)
     assert still is not None
     assert still.status == "claimed"
@@ -853,9 +853,9 @@ def test_finalize_release_are_lease_epoch_scoped_real_store(
 
 
 def _seed_live_claimed_start(op_id: str, *, now: datetime) -> None:
-    """Seed a LIVE ``claimed`` setup start lease (owner-A, mid-dispatch)."""
+    """Seed a LIVE ``claimed`` setup start claim (owner-A, mid-dispatch)."""
     assert claim_control_plane_operation_global(
-        _leased_op(op_id, owner="owner-A", claimed_at=now)
+        _claimed_op(op_id, owner="owner-A", claimed_at=now)
     ) is True
 
 

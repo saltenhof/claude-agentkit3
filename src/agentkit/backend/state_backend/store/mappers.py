@@ -1109,7 +1109,7 @@ def control_plane_op_to_row(record: ControlPlaneOperationRecord) -> dict[str, An
         "response_json": dump_json(record.response_payload),
         "created_at": record.created_at.isoformat(),
         "updated_at": record.updated_at.isoformat(),
-        # AG3-054 leased claim: ``claimed_at`` is stored as ISO-8601 TEXT so the
+        # AG3-054 owner-scoped claim: ``claimed_at`` is stored as ISO-8601 TEXT so the
         # ownership-scoped finalize/release CAS (WARNING-4) exact-match
         # roundtrips through plain text (matching the table's
         # created_at/updated_at convention).

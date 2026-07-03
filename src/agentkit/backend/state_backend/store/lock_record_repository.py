@@ -281,7 +281,7 @@ class LockRecordRepository:
 
         Read-only probe for the FK-53 §53.8 reset end-state verification
         (``StoryResetService.verify_reset_clean_state``, AG3-071): after a reset,
-        NO active lock/lease of the corrupt run may remain. Unlike
+        NO active lock of the corrupt run may remain. Unlike
         :meth:`deactivate_locks_for_story`, this probe is fail-open on an unknown
         story (returns ``0``): a story with no lock rows at all is trivially free
         of active locks, and a verify probe must not raise on the absence of rows.

@@ -216,7 +216,7 @@ def _claimed_operation_rejection_reason(
     return "".join(
         (
             f"{operation_kind} rejected: op_id {op_id!r} is held by a LIVE ",
-            "'claimed' start lease; only its owner's finalize/release may ",
+            "'claimed' start claim; only its owner's finalize/release may ",
             f"transition it. {suffix}(AG3-054 ERROR-3, fail-closed).",
         )
     )
@@ -244,7 +244,7 @@ def _closure_binding_collision_reason(exc: ControlPlaneBindingCollisionError) ->
     )
 
 
-class _ClaimLeaseMixin:
+class _ClaimMixin:
     """AG3-054 owner-scoped claim protocol (extracted mixin).
 
     Cohesive owner-token mint + atomic claim + ownership-scoped release methods,
@@ -289,7 +289,7 @@ class _ClaimLeaseMixin:
             from agentkit.backend.exceptions import ConfigError
 
             raise ConfigError(
-                "control-plane owner token is invalid: the leased owner-scoped "
+                "control-plane owner token is invalid: the owner-scoped "
                 "claim (AG3-054) requires a non-empty, UUID-shaped owner token so "
                 "release / finalize are ownership-scoped and cannot "
                 "cross-match a different caller's claim. The configured "
@@ -330,10 +330,10 @@ class _ClaimLeaseMixin:
             request: The phase mutation request (op_id + lookup keys).
             run_id: The story run identifier.
             phase: The requested phase name.
-            owner_token: This caller's per-call lease owner token.
+            owner_token: This caller's per-call owner token.
 
         Returns:
-            A :class:`_ClaimOutcome` carrying either the won lease or the loser's
+            A :class:`_ClaimOutcome` carrying either the won claim or the loser's
             fail-closed result.
         """
         now = self._now_fn()
@@ -346,10 +346,10 @@ class _ClaimLeaseMixin:
             operation_kind=operation_kind,
             instance_identity=self._current_instance_identity(),
         )
-        #: WARNING-4 fix (#4): the RAW lease epoch this caller stamps. The writer
+        #: WARNING-4 fix (#4): the RAW claim instant this caller stamps. The writer
         #: stores ``claimed_at`` as ``isoformat`` TEXT, so this is the exact raw
         #: column value the finalize/release CAS must match (alongside the owner
-        #: token) to scope to THIS lease generation.
+        #: token) to scope to THIS claim generation.
         claim_instant_raw = now.isoformat()
         #: AG3-138: the fencing epoch THIS claim was stamped with (only an
         #: admin-abort bumps it; AG3-139 removed the same-instance TTL takeover
@@ -412,7 +412,7 @@ class _ClaimLeaseMixin:
                 "Operation in flight: another caller holds an active claim for "
                 "this op_id and is mid-dispatch. The dispatch runs EXACTLY ONCE "
                 "under the winning caller; retry to read the committed result "
-                "(AG3-054 leased owner-scoped claim, no double dispatch)."
+                "(AG3-054 owner-scoped claim, no double dispatch)."
             ),
         )
 
@@ -422,7 +422,7 @@ class _ClaimLeaseMixin:
         """Ownership-scoped release of MY claim (never a foreign / terminal row).
 
         WARNING-4 fix (#4): the release CAS matches BOTH the owner token AND MY
-        lease epoch (``owner_claimed_at``), so a stale generation (a reused token
+        claim instant (``owner_claimed_at``), so a stale generation (a reused token
         in DI/test wiring) cannot delete a NEWER claim generation.
         """
         self._repo.release_operation(
@@ -436,7 +436,7 @@ class _ClaimLeaseMixin:
 
         Used on the exception path: a release failure must NOT replace the original
         exception (it is logged and swallowed), so the real error always
-        propagates (NO ERROR BYPASSING). The CAS is lease-epoch-scoped (#4).
+        propagates (NO ERROR BYPASSING). The CAS is claim-instant-scoped (#4).
         """
         try:
             self._repo.release_operation(
@@ -453,7 +453,7 @@ class _ClaimLeaseMixin:
             )
 
 
-class _ControlPlaneRuntimeAdmissionBase(_ClaimLeaseMixin):
+class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
     """Start-phase admission and dispatch support for the runtime service."""
 
     def __init__(
@@ -644,9 +644,9 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimLeaseMixin):
             #: ``claim.result`` is the loser's fail-closed result (replay or
             #: in-flight rejection); it is always present when ``won`` is False.
             return claim.result_or_raise()
-        #: WARNING-4 fix (#4): MY exact lease epoch (raw ISO TEXT). Threaded to
+        #: WARNING-4 fix (#4): MY exact claim instant (raw ISO TEXT). Threaded to
         #: finalize/release so their ownership CAS matches BOTH owner token AND
-        #: lease epoch -- a stale generation (a reused token in DI/test wiring)
+        #: claim instant -- a stale generation (a reused token in DI/test wiring)
         #: cannot match the newer claim generation. A won claim always carries it.
         owner_claimed_at = claim.claimed_at_raw
         #: AG3-138: MY observed fencing epoch, threaded to finalize so its CAS
@@ -892,7 +892,7 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimLeaseMixin):
         if self._repo.finalize_start_phase(
             record,
             owner_token=owner_token,
-            #: WARNING-4: the CAS scopes to BOTH owner token AND lease epoch.
+            #: WARNING-4: the CAS scopes to BOTH owner token AND claim instant.
             owner_claimed_at=owner_claimed_at,
             #: AG3-138: additionally fences on the unchanged operation_epoch.
             owner_operation_epoch=owner_operation_epoch,
@@ -1163,7 +1163,7 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimLeaseMixin):
             )
         except ControlPlaneClaimCollisionError:
             #: ERROR-3 fix (#3): the op_id is held by a LIVE ``claimed`` start
-            #: lease. The store refused to clobber it (only the owner's
+            #: claim. The store refused to clobber it (only the owner's
             #: finalize/release may transition a claimed row), so this
             #: complete/fail reusing a live start's op_id is rejected fail-closed
             #: -- it never steals/destroys the start's ownership.
@@ -1567,7 +1567,7 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
             )
         except ControlPlaneClaimCollisionError:
             #: ERROR-3 fix (#3): the op_id is held by a LIVE ``claimed`` start
-            #: lease; the store refused to clobber it. A closure reusing a live
+            #: claim; the store refused to clobber it. A closure reusing a live
             #: start's op_id is rejected fail-closed (consistent with
             #: complete/fail), never stealing the start's ownership.
             reason = _claimed_operation_rejection_reason(
@@ -1664,7 +1664,7 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                 ),
                 dispatch_phase=phase,
             )
-        #: AG3-130 (Codex B1): reserve the op_id via the SAME leased owner-scoped
+        #: AG3-130 (Codex B1): reserve the op_id via the SAME owner-scoped
         #: claim as ``start_phase`` BEFORE the side-effecting engine resume runs.
         #: Exactly one concurrent caller wins; a loser is handed a fail-closed
         #: result (replay of a terminal row, or an in-flight-retry rejection) and
@@ -2370,7 +2370,7 @@ def _plan_story_scoped_materialization(
     """Build (NO writes) the full story-scoped binding + locks + events (#1).
 
     Pure record construction for a standard/exploration run: the records and the
-    edge bundle are built but NOT persisted, so the leased start_phase finalize can
+    edge bundle are built but NOT persisted, so the claimed start_phase finalize can
     write them atomically under the ownership CAS (ERROR-1). The complete/fail
     commit (``_mutate_phase``) reuses this planner too, applying the records under
     the atomic collision-gated commit (ERROR-2).
@@ -2489,7 +2489,7 @@ def _operation_record(
     result: ControlPlaneMutationResult,
     now: datetime,
 ) -> ControlPlaneOperationRecord:
-    """Build the terminal operation record (no claim lease -- a terminal row)."""
+    """Build the terminal operation record (no live claim -- a terminal row)."""
     return ControlPlaneOperationRecord(
         op_id=op_id,
         project_key=project_key,
@@ -2589,7 +2589,7 @@ def _build_claim_placeholder(
     instance_identity: BackendInstanceIdentityRecord,
     operation_kind: str = "phase_start",
 ) -> ControlPlaneOperationRecord:
-    """Build the in-flight leased ``claimed`` placeholder op record (AG3-054).
+    """Build the in-flight ``claimed`` placeholder op record (AG3-054).
 
     The ``claimed`` status marks an in-flight reservation, distinct from the
     terminal ``committed`` / ``rejected`` the winning caller writes next; its
@@ -2598,7 +2598,7 @@ def _build_claim_placeholder(
     instant only (AG3-139: its age is never interpreted to end the claim); the
     ownership-scoped finalize/release CAS keys off this exact value (WARNING-4).
 
-    AG3-130: ``operation_kind`` parametrizes the leased reservation so ``resume``
+    AG3-130: ``operation_kind`` parametrizes the claim reservation so ``resume``
     reserves its op_id under ``phase_resume`` through the SAME claim-before-dispatch
     protocol as ``start`` (no double-resume: the side-effecting engine resume runs
     only after the reservation).

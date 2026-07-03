@@ -59,10 +59,10 @@ class _RepoState:
 
 
 class _FakeOps:
-    """In-memory control-plane operation/claim fakes (leased CAS protocol).
+    """In-memory control-plane operation/claim fakes (owner-scoped claim CAS protocol).
 
     Encapsulates the operation-lifecycle behaviors so ``_repository`` stays a thin
-    wiring function (keeps cyclomatic complexity bounded; the leased-claim CAS
+    wiring function (keeps cyclomatic complexity bounded; the owner-scoped claim CAS
     semantics live here next to the state they mutate).
     """
 
@@ -83,7 +83,7 @@ class _FakeOps:
         owner_claimed_at: str | None = None,
         owner_operation_epoch: int | None = None,
     ) -> bool:
-        # WARNING-4 (#4): the CAS scopes to BOTH owner token AND lease epoch when
+        # WARNING-4 (#4): the CAS scopes to BOTH owner token AND claim instant when
         # the epoch is given. The fake compares the observed value against the
         # stored record's TEXT-equivalent ``claimed_at`` (mirroring the store's
         # raw-column CAS). AG3-138: additionally fences on the unchanged
@@ -116,7 +116,7 @@ class _FakeOps:
         owner_operation_epoch: int | None = None,
     ) -> bool:
         # Ownership-scoped terminal write: apply iff still claimed by owner_token
-        # (and lease epoch when given, #4; and operation_epoch when given, AG3-138).
+        # (and claim instant when given, #4; and operation_epoch when given, AG3-138).
         if not self._still_owned(
             record, owner_token, owner_claimed_at, owner_operation_epoch
         ):
@@ -136,7 +136,7 @@ class _FakeOps:
         events: tuple[ExecutionEventRecord, ...],
     ) -> bool:
         # ERROR-1 (#1): ownership CAS finalize + side-effect materialization in ONE
-        # atomic step. Apply ONLY if still claimed by owner_token (and lease epoch
+        # atomic step. Apply ONLY if still claimed by owner_token (and claim instant
         # when given, #4; and operation_epoch when given, AG3-138); else write
         # NOTHING.
         if not self._still_owned(
@@ -178,7 +178,7 @@ class _FakeOps:
         existing = self._state.operations.get(record.op_id)
         if existing is not None and existing.status == "claimed":
             raise ControlPlaneClaimCollisionError(
-                f"op_id {record.op_id!r} is held by a live 'claimed' lease "
+                f"op_id {record.op_id!r} is held by a live 'claimed' row "
                 "(fake store, AG3-054 ERROR-2 atomic commit)",
             )
         # AG3-054 run-scoping: the binding SAVE/DELETE are run-scoped at the real
@@ -207,7 +207,7 @@ class _FakeOps:
         owner_claimed_at: str | None = None,
     ) -> None:
         # Ownership-scoped release: delete iff still claimed by owner_token (and
-        # lease epoch when given, #4).
+        # claim instant when given, #4).
         existing = self._state.operations.get(op_id)
         if existing is None or existing.status != "claimed":
             return
@@ -257,7 +257,7 @@ class _FakeOps:
 
     def save(self, record: ControlPlaneOperationRecord) -> None:
         # ERROR-3 (#3): the legacy upsert REFUSES to overwrite a row that is still
-        # LIVE ``claimed`` (a live, owned lease). Mirrors the real store's
+        # LIVE ``claimed`` (a live, owned claim). Mirrors the real store's
         # conditional upsert: a complete/fail reusing a live start's op_id is
         # rejected fail-closed via ``ControlPlaneClaimCollisionError``; a fresh
         # insert and an update of a terminal row are unaffected.
@@ -266,7 +266,7 @@ class _FakeOps:
         existing = self._state.operations.get(record.op_id)
         if existing is not None and existing.status == "claimed":
             raise ControlPlaneClaimCollisionError(
-                f"op_id {record.op_id!r} is held by a live 'claimed' lease "
+                f"op_id {record.op_id!r} is held by a live 'claimed' row "
                 "(fake store, AG3-054 ERROR-3)",
             )
         self._state.operations[record.op_id] = record
@@ -1578,7 +1578,7 @@ def test_complete_phase_reusing_live_claimed_start_op_id_does_not_clobber() -> N
     """ERROR-3 (#3): complete/fail reusing a LIVE claimed start op_id is rejected.
 
     A ``complete_phase`` whose op_id is currently held as a LIVE ``claimed``
-    ``start_phase`` lease must NOT overwrite the claimed row and steal/destroy the
+    ``start_phase`` claim must NOT overwrite the claimed row and steal/destroy the
     start's ownership. The conditional save refuses fail-closed; the runtime
     surfaces a ``rejected`` result and the claimed start row is left intact.
     """
@@ -1601,7 +1601,7 @@ def test_complete_phase_reusing_live_claimed_start_op_id_does_not_clobber() -> N
         updated_at=now,
     )
     op_id = "op-shared-with-live-start"
-    # A LIVE claimed start lease holds the SAME op_id (owner-A, mid-dispatch).
+    # A LIVE claimed start claim holds the SAME op_id (owner-A, mid-dispatch).
     state.operations[op_id] = ControlPlaneOperationRecord(
         op_id=op_id,
         project_key="tenant-a",
@@ -1645,7 +1645,7 @@ def test_complete_closure_reusing_live_claimed_start_op_id_is_atomic() -> None:
     """ERROR-2 (#2): a closure reusing a LIVE claimed start op_id has NO side effects.
 
     A ``complete_closure`` whose op_id is currently held as a LIVE ``claimed``
-    ``start_phase`` lease must be fail-closed REJECTED and the rejection must be
+    ``start_phase`` claim must be fail-closed REJECTED and the rejection must be
     ATOMIC: the standard teardown's INACTIVE locks, the binding DELETION and the
     deactivation events must NOT be applied (the prior code committed those side
     effects in separate transactions BEFORE the conditional op-row upsert detected
@@ -1671,7 +1671,7 @@ def test_complete_closure_reusing_live_claimed_start_op_id_is_atomic() -> None:
         updated_at=now,
     )
     op_id = "op-closure-shared-with-live-start"
-    # A LIVE claimed start lease holds the SAME op_id (owner-A, mid-dispatch).
+    # A LIVE claimed start claim holds the SAME op_id (owner-A, mid-dispatch).
     state.operations[op_id] = ControlPlaneOperationRecord(
         op_id=op_id,
         project_key="tenant-a",
@@ -2260,12 +2260,12 @@ def test_replay_revalidates_edge_bundle_invariant() -> None:
 
 
 # ---------------------------------------------------------------------------
-# AG3-054 PART A: leased, owner-scoped claim (lease/CAS protocol)
+# AG3-054 PART A: owner-scoped claim (claim/CAS protocol)
 # ---------------------------------------------------------------------------
 
 
 class _Clock:
-    """A deterministic, injectable lease clock (advanceable in tests)."""
+    """A deterministic, injectable claim clock (advanceable in tests)."""
 
     def __init__(self, start: datetime) -> None:
         self._now = start
@@ -2307,7 +2307,7 @@ class _TokenSequence:
         return token
 
 
-def _leased_service(
+def _claim_service(
     state: _RepoState,
     *,
     token: str,
@@ -2356,7 +2356,7 @@ def test_concurrent_claims_one_wins_loser_gets_in_flight_rejection_mid_dispatch(
     state.operations["op-race-live"] = winner_claim
 
     loser_dispatcher = _StubDispatcher(_admitted_dispatch())
-    loser = _leased_service(
+    loser = _claim_service(
         state, token="owner-B", clock=clock, dispatcher=loser_dispatcher
     )
 
@@ -2379,7 +2379,7 @@ def test_winner_finalizes_then_loser_retry_replays_terminal_result() -> None:
     state = _RepoState()
     _resolvable_standard_ctx(state)
     clock = _Clock(datetime(2026, 6, 7, 10, 0, tzinfo=UTC))
-    winner = _leased_service(state, token="owner-A", clock=clock)
+    winner = _claim_service(state, token="owner-A", clock=clock)
 
     committed = winner.start_phase(
         run_id="run-100", phase="setup", request=_setup_request("op-finalize-replay")
@@ -2390,7 +2390,7 @@ def test_winner_finalizes_then_loser_retry_replays_terminal_result() -> None:
     assert state.operations["op-finalize-replay"].claimed_by is None
 
     loser_dispatcher = _StubDispatcher(_admitted_dispatch())
-    loser = _leased_service(
+    loser = _claim_service(
         state, token="owner-B", clock=clock, dispatcher=loser_dispatcher
     )
     replay = loser.start_phase(
@@ -2492,7 +2492,7 @@ def test_foreign_claim_of_any_age_is_never_taken_over() -> None:
     ):
         _seed_foreign_claim(op_id, claimed_at=start)
         dispatcher = _StubDispatcher(_admitted_dispatch())
-        result = _leased_service(
+        result = _claim_service(
             state, token="owner-new", clock=_Clock(start + age), dispatcher=dispatcher
         ).start_phase(run_id="run-100", phase="setup", request=_setup_request(op_id))
 
@@ -2532,7 +2532,7 @@ def test_exception_after_claim_releases_only_my_claim_and_retry_succeeds() -> No
             del ctx, run_id, run_admitted, detail
             self.calls += 1
             if self.calls == 1:
-                raise RuntimeError("dispatch boom (leased)")
+                raise RuntimeError("dispatch boom (claimed)")
             return _admitted_dispatch()
 
     dispatcher = _ExplodingThenAdmitted()
@@ -2542,12 +2542,12 @@ def test_exception_after_claim_releases_only_my_claim_and_retry_succeeds() -> No
         now_fn=clock,
         token_factory=_TokenSequence("owner-A", "owner-A"),
     )
-    request = _setup_request("op-leased-boom")
+    request = _setup_request("op-claimed-boom")
 
     with pytest.raises(RuntimeError, match="dispatch boom"):
         service.start_phase(run_id="run-100", phase="setup", request=request)
     # MY claim was released -- no stranded op, no half-applied state.
-    assert "op-leased-boom" not in state.operations
+    assert "op-claimed-boom" not in state.operations
     assert state.bindings == {}
     assert state.locks == {}
     assert state.events == []
@@ -2556,7 +2556,7 @@ def test_exception_after_claim_releases_only_my_claim_and_retry_succeeds() -> No
     result = service.start_phase(run_id="run-100", phase="setup", request=request)
     assert result.status == "committed"
     assert dispatcher.calls == 2
-    assert state.operations["op-leased-boom"].status == "committed"
+    assert state.operations["op-claimed-boom"].status == "committed"
 
 
 # ---------------------------------------------------------------------------
@@ -3087,7 +3087,7 @@ def test_naive_or_malformed_claimed_at_foreign_claim_is_rejected_not_taken_over(
     )
     clock = _Clock(datetime(2026, 6, 7, 10, 0, tzinfo=UTC))
     dispatcher = _StubDispatcher(_admitted_dispatch())
-    service = _leased_service(state, token="new-owner", clock=clock, dispatcher=dispatcher)
+    service = _claim_service(state, token="new-owner", clock=clock, dispatcher=dispatcher)
 
     result = service.start_phase(
         run_id="run-100", phase="setup", request=_setup_request("op-naive-claim")

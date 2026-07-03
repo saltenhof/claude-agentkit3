@@ -230,7 +230,7 @@ class RuntimeExecutionResidueProbe:
     a ``run_id`` (FK-53 §53.7.5 rule: no leftover object may influence a later
     restart/resume/guard decision). This is the **Runtime-Residue** fragment only
     — AG3-071 composes it into the full ``verify_reset_clean_state`` (which also
-    covers read-models, analytics, locks/leases, workspace; §53.8/§53.10, MED-7).
+    covers read-models, analytics, locks, workspace; §53.8/§53.10, MED-7).
 
     Args:
         store_dir: State-backend base directory (story dir for SQLite).
