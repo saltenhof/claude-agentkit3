@@ -71,23 +71,6 @@ _SYNC_AFTER_BY_CLASS = {
     "mutation": timedelta(seconds=45),
 }
 
-#: AG3-054 leased claim TTL. A ``claimed`` placeholder older than this is treated
-#: as a CRASHED owner and is reclaimable via an atomic CAS takeover; a younger
-#: claim is an ACTIVE dispatch and is NEVER stolen (the loser gets an in-flight
-#: rejection and retries). The value is the trade-off between the two hazards:
-#:
-#: * Too SHORT and a genuinely-live dispatch (engine + pre-start guard + the QA
-#:   subflow's outermost reach) could exceed it and be stolen -> double dispatch,
-#:   the exact ERROR this story closes. A control-plane ``start_phase`` only
-#:   drives the deterministic single-phase dispatch + idempotent persistence
-#:   (seconds), so a few minutes is comfortably above any non-crashed run.
-#: * Too LONG and a crashed claim poisons the op_id for that long before a retry
-#:   can reclaim it.
-#:
-#: Five minutes is well above the realistic dispatch wall-time and short enough
-#: that a crashed claim is reclaimable within one operator/retry cycle.
-_CLAIM_LEASE_TTL = timedelta(minutes=5)
-
 #: AG3-138: terminal statuses whose stored result ``GET operations/{op_id}``
 #: surfaces VERBATIM (not rewritten to ``replayed``) so a client reconciling an
 #: unclear mutation sees the true ``aborted`` / ``repair`` / ``failed`` outcome
@@ -170,31 +153,31 @@ class _StartPhaseMaterialization:
 
 @dataclass(frozen=True)
 class _ClaimOutcome:
-    """Outcome of the leased, owner-scoped claim acquisition (AG3-054).
+    """Outcome of the owner-scoped claim acquisition (AG3-054; AG3-139).
 
     Exactly one shape is valid:
 
-    * ``won=True`` -- this caller holds the lease (fresh claim or CAS takeover of
-      an expired one) and proceeds to dispatch; ``result`` is ``None`` and
-      ``claimed_at_raw`` is the RAW lease instant this caller stamped.
+    * ``won=True`` -- this caller holds the claim (a fresh insert) and proceeds
+      to dispatch; ``result`` is ``None`` and ``claimed_at_raw`` is the RAW claim
+      instant this caller stamped.
     * ``won=False`` -- this caller LOST; ``result`` is the fail-closed outcome to
-      return (a terminal REPLAY, or an "operation in flight, retry" rejection);
-      ``claimed_at_raw`` is ``None``.
+      return (a terminal REPLAY, or an "operation in flight, retry" rejection for
+      a foreign claim of ANY age); ``claimed_at_raw`` is ``None``.
 
-    WARNING-4 fix (#4): ``claimed_at_raw`` is the EXACT lease epoch (raw ISO TEXT)
-    this caller wrote at claim/takeover time. It is threaded to finalize/release so
-    their ownership CAS matches BOTH ``claimed_by`` AND ``claimed_at`` -- a stale
-    owner whose token is reused (DI/test) or after an expiry-takeover cannot match a
-    NEWER lease generation.
+    AG3-139: there is no wall-clock expiry and no CAS takeover of a foreign claim
+    -- ownership never ends by wall clock / TTL / lease (FK-91 §91.1a Regel 16).
+    An orphaned claim is ended ONLY via the AG3-138 startup reconciliation or an
+    explicit ``admin_abort_inflight_operation``.
+
+    WARNING-4 fix (#4): ``claimed_at_raw`` is the EXACT claim instant (raw ISO
+    TEXT) this caller wrote. It is threaded to finalize/release so their
+    ownership CAS matches BOTH ``claimed_by`` AND ``claimed_at`` -- a stale owner
+    whose token is reused (DI/test wiring) cannot match a NEWER claim generation.
 
     AG3-138: ``operation_epoch`` is the fencing token stamped on the claim at
     acquisition time (``_build_claim_placeholder``), threaded to finalize so its
     CAS additionally requires the stored epoch to be unchanged
-    (``operation_finalize_requires_cas_on_operation_epoch``). A takeover of an
-    EXPIRED claim (:data:`_CLAIM_LEASE_TTL`) never changes the epoch (the SAME
-    instance reclaiming its own stuck lease, not a new fencing generation), so
-    this value is simply the placeholder's initial epoch on both a fresh claim
-    and a takeover.
+    (``operation_finalize_requires_cas_on_operation_epoch``).
     """
 
     won: bool
@@ -262,12 +245,15 @@ def _closure_binding_collision_reason(exc: ControlPlaneBindingCollisionError) ->
 
 
 class _ClaimLeaseMixin:
-    """AG3-054 leased, owner-scoped claim/lease protocol (extracted mixin).
+    """AG3-054 owner-scoped claim protocol (extracted mixin).
 
-    Cohesive owner-token mint + atomic claim/takeover + lease-expiry + ownership-
-    scoped release methods, split out of :class:`_ControlPlaneRuntimeAdmissionBase`
-    for cohesion (no behaviour change). The concrete runtime supplies the shared
-    dependencies below.
+    Cohesive owner-token mint + atomic claim + ownership-scoped release methods,
+    split out of :class:`_ControlPlaneRuntimeAdmissionBase` for cohesion (no
+    behaviour change). AG3-139 removed the wall-clock lease-expiry / CAS-takeover
+    branch: a foreign in-flight claim of ANY age is rejected, never taken over --
+    an orphaned claim ends only via the AG3-138 startup reconciliation or an
+    explicit ``admin_abort_inflight_operation``. The concrete runtime supplies the
+    shared dependencies below.
     """
 
     if TYPE_CHECKING:
@@ -280,8 +266,8 @@ class _ClaimLeaseMixin:
     def _mint_owner_token(self) -> str:
         """Mint and VALIDATE the per-call owner token at the seam (AG3-054, #5).
 
-        WARNING-5 fix (#5): ownership scoping (release / finalize / takeover CAS) is
-        only sound if the owner token is UNIQUE and well-shaped. A DI-injected
+        WARNING-5 fix (#5): ownership scoping (release / finalize CAS) is only
+        sound if the owner token is UNIQUE and well-shaped. A DI-injected
         ``token_factory`` (tests / alternative wiring) that yields an empty or
         non-UUID-shaped token would let owner A's stale release/finalize CAS match
         owner B's claim (cross-ownership). The token is therefore validated here at
@@ -305,7 +291,7 @@ class _ClaimLeaseMixin:
             raise ConfigError(
                 "control-plane owner token is invalid: the leased owner-scoped "
                 "claim (AG3-054) requires a non-empty, UUID-shaped owner token so "
-                "release / finalize / takeover are ownership-scoped and cannot "
+                "release / finalize are ownership-scoped and cannot "
                 "cross-match a different caller's claim. The configured "
                 "token_factory yielded an empty or non-UUID-shaped token; "
                 "fail-closed (#5).",
@@ -321,22 +307,24 @@ class _ClaimLeaseMixin:
         owner_token: str,
         operation_kind: str = "phase_start",
     ) -> _ClaimOutcome:
-        """Acquire the leased, owner-scoped claim before dispatch (AG3-054, #1).
+        """Acquire the owner-scoped claim before dispatch (AG3-054, #1; AG3-139).
 
         Protocol:
 
         1. CLAIM = ``INSERT ... ON CONFLICT (op_id) DO NOTHING`` with the per-call
-           ``owner_token`` lease. rowcount==1 => WON.
+           ``owner_token``. rowcount==1 => WON.
         2. Lost the insert => load the blocking row:
 
            * gone (a concurrent release) => retry the atomic claim ONCE.
            * TERMINAL (``status != 'claimed'``) => return the stored result as a
              REPLAY (a winner already finished; never re-dispatch).
-           * LIVE ``claimed`` (now - claimed_at < TTL) => LOSER: a fail-closed
-             "operation in flight, retry" rejection. DO NOT steal, DO NOT dispatch.
-           * EXPIRED ``claimed`` (now - claimed_at >= TTL) => atomic CAS takeover
-             of the crashed owner's lease; rowcount==1 => took over (WON), else a
-             concurrent winner changed the row => LOSER (in-flight rejection).
+           * ``claimed`` (a foreign in-flight claim, of ANY age) => LOSER: a
+             fail-closed "operation in flight, retry" rejection. DO NOT steal, DO
+             NOT dispatch. AG3-139: there is no wall-clock expiry and no CAS
+             takeover -- an orphaned claim ends ONLY via the AG3-138 startup
+             reconciliation (same-instance restart) or an explicit
+             ``admin_abort_inflight_operation`` (FK-91 §91.1a Regel 16:
+             ownership never ends by wall clock / TTL / lease).
 
         Args:
             request: The phase mutation request (op_id + lookup keys).
@@ -363,8 +351,9 @@ class _ClaimLeaseMixin:
         #: column value the finalize/release CAS must match (alongside the owner
         #: token) to scope to THIS lease generation.
         claim_instant_raw = now.isoformat()
-        #: AG3-138: the fencing epoch THIS claim was stamped with (unchanged by a
-        #: same-instance TTL takeover below -- only an admin-abort bumps it).
+        #: AG3-138: the fencing epoch THIS claim was stamped with (only an
+        #: admin-abort bumps it; AG3-139 removed the same-instance TTL takeover
+        #: that used to also carry this epoch forward unchanged).
         claim_operation_epoch = placeholder.operation_epoch
         if self._repo.claim_operation(placeholder):
             return _ClaimOutcome(
@@ -391,67 +380,12 @@ class _ClaimLeaseMixin:
                 won=False,
                 result=_replayed_result(stored.response_payload),
             )
-        if not self._claim_is_expired(stored, now=now):
-            # A LIVE foreign claim -- a winner is mid-dispatch. Never steal.
-            return _ClaimOutcome(won=False, result=self._in_flight_rejection(request, operation_kind=operation_kind))
-        # EXPIRED claim (crashed owner): atomic CAS takeover of the exact observed
-        # lease. A concurrent winner that finalized/took over changed the row, so
-        # the CAS affects zero rows and this caller loses the takeover race.
-        #
-        # ERROR-2 fix (AG3-054): the observed ``claimed_at`` is the RAW stored
-        # column value (``claimed_at_raw``), NOT the normalized aware instant used
-        # to JUDGE expiry above. The CAS compares against the raw TEXT column, so a
-        # naive/legacy/malformed row (judged EXPIRED here) must be matched by its
-        # raw value -- matching the normalized value would never hit the raw column
-        # and would poison the op_id forever (rowcount 0 on every retry).
-        if self._repo.takeover_operation(
-            placeholder,
-            observed_claimed_by=stored.claimed_by,
-            observed_claimed_at=stored.claimed_at_raw,
-        ):
-            #: WARNING-4: the takeover re-stamped the lease to MY ``now``, so MY
-            #: lease epoch is the same ``claim_instant_raw`` -- threaded to
-            #: finalize/release so their CAS scopes to THIS (new) generation.
-            #: AG3-138: ``takeover_operation`` (frozen, untouched by this story)
-            #: does NOT re-stamp ``operation_epoch`` -- it stays the claim's
-            #: original epoch (this is the SAME instance reclaiming its own
-            #: stuck lease, not a new fencing generation), so ``stored``'s epoch
-            #: is unchanged and equals the fresh placeholder's initial epoch.
-            return _ClaimOutcome(
-                won=True,
-                result=None,
-                claimed_at_raw=claim_instant_raw,
-                operation_epoch=stored.operation_epoch,
-            )
+        # AG3-139: a foreign ``claimed`` row -- of ANY age -- is a LOSER. There is
+        # no wall-clock expiry and no CAS takeover; an in-flight claim never ends
+        # by wall clock / TTL / lease (FK-91 §91.1a Regel 16). An orphaned claim
+        # is ended ONLY via the AG3-138 startup reconciliation (same-instance
+        # restart) or an explicit ``admin_abort_inflight_operation``.
         return _ClaimOutcome(won=False, result=self._in_flight_rejection(request, operation_kind=operation_kind))
-
-    def _claim_is_expired(
-        self,
-        stored: ControlPlaneOperationRecord,
-        *,
-        now: datetime,
-    ) -> bool:
-        """Whether a ``claimed`` row's lease has expired (AG3-054, #4).
-
-        Fail-closed: a ``claimed`` row with NO ``claimed_at`` (a legacy / malformed
-        placeholder that carries no lease) is treated as EXPIRED so the op_id can
-        never be poisoned permanently by an un-leased claim.
-
-        WARNING-4 fix (#4): the mapper boundary normalizes ``claimed_at`` to aware
-        UTC, but a naive ``claimed_at`` (e.g. injected via a fake repo) or a naive
-        ``now`` (an injected ``now_fn``) would still make ``now - claimed_at`` raise
-        ``TypeError`` and crash the retry BEFORE any takeover. Both operands are
-        therefore coerced to aware UTC here, and a value that cannot be coerced is
-        treated as EXPIRED (reclaimable) rather than crashing the takeover path.
-        """
-        if stored.claimed_at is None:
-            return True
-        claimed_at = _as_aware_utc(stored.claimed_at)
-        if claimed_at is None:
-            # An unusable lease instant is fail-closed reclaimable (EXPIRED),
-            # never a crash (NO ERROR BYPASSING -- the op_id stays recoverable).
-            return True
-        return (_as_aware_utc(now) or now) - claimed_at >= _CLAIM_LEASE_TTL
 
     def _in_flight_rejection(
         self,
@@ -461,11 +395,13 @@ class _ClaimLeaseMixin:
     ) -> ControlPlaneMutationResult:
         """Build the fail-closed "operation in flight, retry" loser rejection.
 
-        Returned when a LIVE foreign claim holds the op_id (or the CAS takeover of
-        an expired claim was lost to a concurrent winner). The loser NEVER steals
-        and NEVER dispatches; it surfaces a ``rejected`` retry-now result (no
-        fabricated bundle, no second dispatch). A single retry then either replays
-        the committed terminal result or reclaims a now-expired/released claim.
+        Returned when a foreign claim (of ANY age) holds the op_id (AG3-139: no
+        wall-clock expiry, no CAS takeover). The loser NEVER steals and NEVER
+        dispatches; it surfaces a ``rejected`` retry-now result (no fabricated
+        bundle, no second dispatch). A retry then either replays the committed
+        terminal result once the winner finalizes, or -- once the claim is ended
+        via the AG3-138 startup reconciliation or an explicit
+        ``admin_abort_inflight_operation`` -- reclaims a now-released op_id.
         """
         return _rejection_result(
             op_id=request.op_id,
@@ -486,8 +422,8 @@ class _ClaimLeaseMixin:
         """Ownership-scoped release of MY claim (never a foreign / terminal row).
 
         WARNING-4 fix (#4): the release CAS matches BOTH the owner token AND MY
-        lease epoch (``owner_claimed_at``), so a stale generation (reused token /
-        post-takeover) cannot delete a NEWER lease.
+        lease epoch (``owner_claimed_at``), so a stale generation (a reused token
+        in DI/test wiring) cannot delete a NEWER claim generation.
         """
         self._repo.release_operation(
             op_id, owner_token=owner_token, owner_claimed_at=owner_claimed_at
@@ -509,7 +445,10 @@ class _ClaimLeaseMixin:
         except Exception:  # noqa: BLE001 -- never mask the original error
             logger.warning(
                 "control-plane claim release failed for op_id=%s (original error "
-                "is re-raised; the claim lease will expire and become reclaimable)",
+                "is re-raised; the orphaned claim remains until the AG3-138 "
+                "startup reconciliation or an explicit "
+                "admin_abort_inflight_operation ends it -- AG3-139, no wall-clock "
+                "expiry)",
                 op_id,
             )
 
@@ -542,11 +481,13 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimLeaseMixin):
         #: this service. ``None`` is lazily resolved to the productive composition
         #: on first ``start_phase`` (so non-dispatch flows pay no wiring cost).
         self._phase_dispatcher = phase_dispatcher
-        #: AG3-054 leased claim seams (deterministic-injectable). ``now_fn`` is the
-        #: lease-clock and ``token_factory`` mints the per-call owner token; both
+        #: AG3-054 claim timestamp seams (deterministic-injectable). ``now_fn``
+        #: stamps claim/audit instants (``claimed_at``, operation-record
+        #: timestamps) and ``token_factory`` mints the per-call owner token; both
         #: default to the productive UTC clock / uuid but are injectable so the
-        #: claim/lease protocol is deterministically testable (no wall-clock,
-        #: no random token inside the claim path).
+        #: claim protocol is deterministically testable. AG3-139: ``now_fn`` is no
+        #: longer consulted for any wall-clock expiry decision -- a claim's age is
+        #: never interpreted to end it.
         self._now_fn: Callable[[], datetime] = now_fn or (lambda: datetime.now(tz=UTC))
         self._token_factory: Callable[[], str] = token_factory or (
             lambda: f"owner-{uuid.uuid4().hex}"
@@ -687,13 +628,14 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimLeaseMixin):
         if locked is not None:
             return locked
 
-        #: AG3-054 leased, owner-scoped claim. Mint a per-call owner token and
-        #: atomically CLAIM the op_id BEFORE the dispatch side effects. Exactly ONE
-        #: concurrent caller wins; a loser is handed back a fail-closed result:
-        #: a REPLAY of a terminal row, or an "operation in flight, retry" rejection
-        #: for a still-live foreign claim (it NEVER steals, NEVER dispatches). An
-        #: EXPIRED foreign claim (crashed owner) is taken over via an atomic CAS so
-        #: the op_id is never permanently poisoned (#1).
+        #: AG3-054 owner-scoped claim. Mint a per-call owner token and atomically
+        #: CLAIM the op_id BEFORE the dispatch side effects. Exactly ONE concurrent
+        #: caller wins; a loser is handed back a fail-closed result: a REPLAY of a
+        #: terminal row, or an "operation in flight, retry" rejection for a foreign
+        #: claim of ANY age (it NEVER steals, NEVER dispatches). AG3-139: there is
+        #: no wall-clock expiry and no CAS takeover -- an orphaned claim is ended
+        #: ONLY via the AG3-138 startup reconciliation or an explicit
+        #: ``admin_abort_inflight_operation`` (#1).
         owner_token = self._mint_owner_token()
         claim = self._acquire_claim(
             request, run_id=run_id, phase=phase, owner_token=owner_token
@@ -704,8 +646,8 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimLeaseMixin):
             return claim.result_or_raise()
         #: WARNING-4 fix (#4): MY exact lease epoch (raw ISO TEXT). Threaded to
         #: finalize/release so their ownership CAS matches BOTH owner token AND
-        #: lease epoch -- a stale generation (reused token / post-takeover) cannot
-        #: match the newer lease. A won claim always carries it.
+        #: lease epoch -- a stale generation (a reused token in DI/test wiring)
+        #: cannot match the newer claim generation. A won claim always carries it.
         owner_claimed_at = claim.claimed_at_raw
         #: AG3-138: MY observed fencing epoch, threaded to finalize so its CAS
         #: additionally requires it unchanged
@@ -763,8 +705,8 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimLeaseMixin):
             )
         except BaseException:
             #: An exception after the claim and before the terminal finalize MUST
-            #: release MY claim (#1) -- ownership-scoped, so a concurrent takeover's
-            #: row is never touched. The release failure must not mask the original
+            #: release MY claim (#1) -- ownership-scoped, so a foreign claim's row
+            #: is never touched. The release failure must not mask the original
             #: error, so it is best-effort. Re-raise so NO ERROR BYPASSING holds.
             if not finalized:
                 self._release_my_claim_best_effort(
@@ -911,10 +853,11 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimLeaseMixin):
 
         * CAS affects 1 row -> I still own the claim: the terminal row AND the
           binding/locks/events are written atomically; the committed result stands.
-        * CAS affects 0 rows -> my lease was taken over and finalized by a
-          concurrent owner B: NOTHING is materialized (the store rolls back), so I
-          (the loser) write NO duplicate/conflicting binding / lock / event. I then
-          surface B's terminal row as a REPLAY (never overwriting it), or -- in the
+        * CAS affects 0 rows -> my claim was concurrently finalized or
+          admin-aborted (AG3-138) by a concurrent owner/operator: NOTHING is
+          materialized (the store rolls back), so I (the loser) write NO
+          duplicate/conflicting binding / lock / event. I then surface the
+          winner's terminal row as a REPLAY (never overwriting it), or -- in the
           narrow window before it is readable -- the in-flight retry rejection.
 
         The loser therefore never writes canonical side effects (the EXACT defect
@@ -958,10 +901,11 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimLeaseMixin):
             events=plan.events,
         ):
             return result
-        #: Lost the ownership CAS: a concurrent takeover already finalized AND the
-        #: side effects were rolled back (NO loser double-write). Replay the
-        #: winner's terminal row; NEVER overwrite it (or, in the narrow window
-        #: where it is not yet readable, surface the in-flight retry rejection).
+        #: Lost the ownership CAS: a concurrent finalize/admin-abort already
+        #: applied AND the side effects were rolled back (NO loser double-write).
+        #: Replay the winner's terminal row; NEVER overwrite it (or, in the narrow
+        #: window where it is not yet readable, surface the in-flight retry
+        #: rejection).
         existing = self._load_existing_operation(request.op_id)
         if existing is not None:
             return existing
@@ -1871,8 +1815,8 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
         duplicate them (a false second activation / a clobbered ``activated_at`` /
         ``binding_version``).
 
-        A lost ownership CAS (a concurrent takeover after lease expiry) replays the
-        winner's terminal row; the loser writes nothing.
+        A lost ownership CAS (e.g. a concurrent admin-abort of the same claim)
+        replays the resolved terminal row; the loser writes nothing.
         """
         now = self._now_fn()
         bundle = self._resume_edge_bundle(request, run_id=run_id, now=now)
@@ -2650,8 +2594,9 @@ def _build_claim_placeholder(
     The ``claimed`` status marks an in-flight reservation, distinct from the
     terminal ``committed`` / ``rejected`` the winning caller writes next; its
     ``response_payload`` is empty (not a replayable result). ``claimed_by`` is the
-    per-call owner token and ``claimed_at`` is the lease start instant -- the
-    expiry compare and the CAS takeover both key off this exact lease.
+    per-call owner token and ``claimed_at`` is the claim instant -- an audit
+    instant only (AG3-139: its age is never interpreted to end the claim); the
+    ownership-scoped finalize/release CAS keys off this exact value (WARNING-4).
 
     AG3-130: ``operation_kind`` parametrizes the leased reservation so ``resume``
     reserves its op_id under ``phase_resume`` through the SAME claim-before-dispatch
@@ -2914,20 +2859,6 @@ def _is_valid_owner_token(token: object) -> bool:
     except ValueError:
         return False
     return True
-
-
-def _as_aware_utc(value: datetime) -> datetime | None:
-    """Coerce a datetime to aware UTC for the lease-expiry compare (#4).
-
-    A naive value is assumed UTC; an aware value is converted to UTC. Returns
-    ``None`` only if the value is not a usable datetime (defensive: the caller
-    then treats the lease as EXPIRED rather than crashing).
-    """
-    if not isinstance(value, datetime):
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
 
 
 def _next_binding_version(previous_version: str | None) -> str:

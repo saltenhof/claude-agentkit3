@@ -53,7 +53,6 @@ def _build_public_api_names() -> tuple[str, ...]:
         "has_committed_control_plane_operation_for_run_global",
         "has_committed_story_exit_operation_for_run_global",
         "release_control_plane_operation_global",
-        "takeover_control_plane_operation_global",
         "delete_session_run_binding_global",
         "delete_story_are_link",
         "delete_story_dependency",

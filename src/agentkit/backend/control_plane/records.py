@@ -309,22 +309,18 @@ class BackendInstanceIdentityRecord:
 class ControlPlaneOperationRecord:
     """Idempotent mutation record for one control-plane operation.
 
-    AG3-054 (leased, owner-scoped claim): ``claimed_by`` / ``claimed_at`` carry
-    the lease ownership of an in-flight ``claimed`` row. ``claimed_by`` is the
-    per-call owner token minted by the runtime; ``claimed_at`` is the lease start
-    instant (ISO-8601 TEXT, matching the table's other instants -- the lease
-    expiry compares ``now - claimed_at`` against the lease TTL). Both are ``None``
-    on a TERMINAL row (the finalize clears ``claimed_by`` to mark "no owner
-    holds it"); a terminal row is identified by ``status != 'claimed'``.
-
-    ERROR-2 fix (AG3-054): ``claimed_at_raw`` preserves the EXACT raw ``claimed_at``
-    column value as it was read from the store (before the mapper normalizes a
-    naive/malformed instant for the lease-expiry compare). The takeover CAS matches
-    the RAW stored column like-for-like, so it must observe the raw value -- NOT the
-    normalized ``claimed_at`` (e.g. a row stored as ``'2026-06-07T09:00:00'`` would
-    never CAS-match against the normalized ``'...+00:00'``, permanently poisoning the
-    op_id). It is populated only on a row read back from the store; a record built
-    for a fresh write carries ``None`` (the write stamps a canonical aware value).
+    AG3-054 (owner-scoped claim): ``claimed_by`` / ``claimed_at`` carry the
+    ownership of an in-flight ``claimed`` row. ``claimed_by`` is the per-call
+    owner token minted by the runtime; ``claimed_at`` is the claim instant
+    (ISO-8601 TEXT, matching the table's other instants). AG3-139: ``claimed_at``
+    is a pure AUDIT instant -- no code path compares it against a wall clock or a
+    TTL to decide whether the claim has "expired"; ownership never ends by wall
+    clock (FK-91 §91.1a Regel 16). It IS still consulted, verbatim, by the
+    ownership-scoped finalize/release CAS (WARNING-4, ``owner_claimed_at``) and
+    as the ``since`` bound for the AG3-138 admin-abort partial-write probe. Both
+    ``claimed_by`` / ``claimed_at`` are ``None`` on a TERMINAL row (the finalize
+    clears ``claimed_by`` to mark "no owner holds it"); a terminal row is
+    identified by ``status != 'claimed'``.
 
     AG3-137 (additive, ``inflight-operation-record`` columns): ``operation_epoch``,
     ``backend_instance_id``, ``instance_incarnation``,
@@ -346,11 +342,6 @@ class ControlPlaneOperationRecord:
     updated_at: datetime
     claimed_by: str | None = None
     claimed_at: datetime | None = None
-    #: The EXACT raw ``claimed_at`` column value as read back from the store
-    #: (ISO-8601 TEXT, or ``None``). The takeover CAS observes THIS value so it
-    #: matches the raw column like-for-like (ERROR-2). ``None`` on a fresh
-    #: (not-yet-stored) record.
-    claimed_at_raw: str | None = None
     #: AG3-137 additive ``inflight-operation-record`` columns (FK-91 §91.1a
     #: rules 13/16). Populated by AG3-138/AG3-141; ``None`` on legacy/pre-AG3-137
     #: rows and on AG3-137 writes.

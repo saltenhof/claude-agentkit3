@@ -1049,41 +1049,6 @@ def claim_control_plane_operation_global(
     return bool(backend.claim_control_plane_operation_global_row(row))
 
 
-def takeover_control_plane_operation_global(
-    record: ControlPlaneOperationRecord,
-    *,
-    observed_claimed_by: str | None,
-    observed_claimed_at: str | None,
-) -> bool:
-    """CAS-take over an EXPIRED claim (AG3-054 leased claim).
-
-    Re-stamps the lease to ``record``'s owner ONLY if the row is still the exact
-    ``claimed`` placeholder observed (same owner + lease instant). Returns ``True``
-    iff this caller took over the expired claim; ``False`` when a concurrent
-    winner already changed the row (the caller then loses the takeover race).
-
-    ERROR-2 fix (AG3-054): ``observed_claimed_at`` is the RAW stored ``claimed_at``
-    column TEXT (``ControlPlaneOperationRecord.claimed_at_raw``), passed through
-    UNCHANGED so the CAS matches the raw column like-for-like. It is NOT the
-    normalized aware instant: a naive/legacy/malformed row (e.g. stored as
-    ``'2026-06-07T09:00:00'`` without offset) would otherwise never CAS-match the
-    normalized ``'...+00:00'`` value and the op_id would be permanently poisoned.
-    """
-    backend = _backend_module()
-    if not hasattr(backend, "takeover_control_plane_operation_global_row"):
-        raise RuntimeError(
-            "Control-plane op takeover is unsupported by the active backend",
-        )
-    row = mappers.control_plane_op_to_row(record)
-    return bool(
-        backend.takeover_control_plane_operation_global_row(
-            row,
-            observed_claimed_by=observed_claimed_by,
-            observed_claimed_at=observed_claimed_at,
-        )
-    )
-
-
 def finalize_control_plane_operation_global(
     record: ControlPlaneOperationRecord,
     *,
@@ -1095,14 +1060,15 @@ def finalize_control_plane_operation_global(
 
     Writes the terminal result + clears ``claimed_by`` ONLY when the row is still
     ``claimed`` by ``owner_token``. Returns ``True`` iff this owner's terminal
-    write applied; ``False`` when another owner finalized/took over in between (the
-    caller must then replay/reject, never overwrite).
+    write applied; ``False`` when another owner (or an admin-abort) already
+    resolved the row in between (the caller must then replay/reject, never
+    overwrite).
 
     WARNING-4 fix (#4): when ``owner_claimed_at`` (the RAW lease epoch the owner
     stamped) is given, the CAS also matches ``claimed_at`` so it scopes to THIS
-    lease generation -- a stale owner whose token is reused or after an
-    expiry-takeover cannot match a NEWER lease. ``None`` keeps the legacy
-    owner-only CAS (direct administrative callers).
+    lease generation -- a stale owner whose token is reused cannot match a NEWER
+    lease. ``None`` keeps the legacy owner-only CAS (direct administrative
+    callers).
 
     AG3-138: when ``owner_operation_epoch`` is given, the CAS additionally
     requires the stored ``operation_epoch`` to be unchanged
@@ -1139,10 +1105,11 @@ def finalize_control_plane_start_phase_global(
     ERROR-1 fix (#1): the ownership CAS finalize of the claimed ``phase_start`` and
     its canonical side effects (session binding, story/QA locks, lifecycle events)
     are applied in ONE store transaction, gated on still owning the claim. A loser
-    (its lease expired and was taken over + finalized by a concurrent owner) writes
-    NOTHING: the CAS affects zero rows and the whole transaction rolls back, so no
-    duplicate / conflicting binding / lock / event is materialized. Records are
-    converted to rows HERE (mapper boundary); the driver only sees row dicts.
+    (its claim was finalized or admin-aborted by a concurrent process, AG3-138)
+    writes NOTHING: the CAS affects zero rows and the whole transaction rolls
+    back, so no duplicate / conflicting binding / lock / event is materialized.
+    Records are converted to rows HERE (mapper boundary); the driver only sees
+    row dicts.
 
     WARNING-4 fix (#4): when ``owner_claimed_at`` (the RAW lease epoch the owner
     stamped) is given, the ownership CAS also matches ``claimed_at`` so it scopes
@@ -1272,8 +1239,8 @@ def release_control_plane_operation_global(
 
     WARNING-4 fix (#4): when ``owner_claimed_at`` (the RAW lease epoch the owner
     stamped) is given, the delete CAS also matches ``claimed_at`` so it scopes to
-    THIS lease generation -- a stale owner (reused token / post-takeover) cannot
-    delete a NEWER lease. ``None`` keeps the legacy owner-only CAS.
+    THIS lease generation -- a stale owner (a reused token in DI/test wiring)
+    cannot delete a NEWER lease. ``None`` keeps the legacy owner-only CAS.
     """
     backend = _backend_module()
     if not hasattr(backend, "release_control_plane_operation_global_row"):

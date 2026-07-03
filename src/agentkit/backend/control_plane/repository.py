@@ -39,7 +39,6 @@ from agentkit.backend.state_backend.store import (
     save_session_run_binding_global,
     save_story_execution_lock_global,
     save_takeover_transfer_record_global,
-    takeover_control_plane_operation_global,
 )
 
 if TYPE_CHECKING:
@@ -94,15 +93,11 @@ class ControlPlaneRuntimeRepository:
     #: AG3-054 leased claim: atomically claim an op_id BEFORE dispatch with a
     #: per-call owner-token lease. Returns ``True`` iff this caller inserted the
     #: ``claimed`` row (won the claim). A loser inspects the row (terminal=>replay,
-    #: live claim=>in-flight reject, expired claim=>CAS takeover). Backed by an
-    #: ``INSERT ... ON CONFLICT DO NOTHING`` at the store.
+    #: a foreign claim of ANY age=>in-flight reject; AG3-139: never a CAS
+    #: takeover). Backed by an ``INSERT ... ON CONFLICT DO NOTHING`` at the store.
     claim_operation: Callable[[ControlPlaneOperationRecord], bool] = (
         claim_control_plane_operation_global
     )
-    #: AG3-054 leased claim: CAS-take over an EXPIRED claim. Re-stamps the lease to
-    #: the record's owner ONLY if the row is still the exact observed ``claimed``
-    #: placeholder (same owner + lease instant). Returns ``True`` iff taken over.
-    takeover_operation: Callable[..., bool] = takeover_control_plane_operation_global
     #: AG3-054 leased claim: ownership-scoped terminal write. Writes the terminal
     #: result + clears ``claimed_by`` ONLY when the row is still ``claimed`` by the
     #: owner token. Returns ``True`` iff this owner's terminal write applied.

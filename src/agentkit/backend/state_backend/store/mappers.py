@@ -1110,8 +1110,9 @@ def control_plane_op_to_row(record: ControlPlaneOperationRecord) -> dict[str, An
         "created_at": record.created_at.isoformat(),
         "updated_at": record.updated_at.isoformat(),
         # AG3-054 leased claim: ``claimed_at`` is stored as ISO-8601 TEXT so the
-        # lease-expiry compare and the CAS exact-match roundtrip through plain
-        # text (matching the table's created_at/updated_at convention).
+        # ownership-scoped finalize/release CAS (WARNING-4) exact-match
+        # roundtrips through plain text (matching the table's
+        # created_at/updated_at convention).
         "claimed_by": record.claimed_by,
         "claimed_at": (
             record.claimed_at.isoformat() if record.claimed_at is not None else None
@@ -1156,11 +1157,6 @@ def control_plane_op_row_to_record(
         updated_at=datetime.fromisoformat(str(row["updated_at"])),
         claimed_by=cast("_OptionalString", row.get("claimed_by")),
         claimed_at=_parse_aware_claimed_at(row.get("claimed_at")),
-        # ERROR-2 fix (AG3-054): preserve the EXACT raw column value so the
-        # takeover CAS matches the raw stored ``claimed_at`` like-for-like. A
-        # naive/legacy/malformed row would never CAS-match against the normalized
-        # ``claimed_at`` (the op_id would be permanently poisoned).
-        claimed_at_raw=_raw_claimed_at_text(row.get("claimed_at")),
         # AG3-137 additive (inflight-operation-record). ``None`` on legacy /
         # pre-AG3-137 rows (the columns are absent or NULL).
         operation_epoch=_optional_int(row.get("operation_epoch")),
@@ -1191,47 +1187,30 @@ def _optional_iso_datetime(value: object) -> datetime | None:
     return datetime.fromisoformat(str(value))
 
 
-def _raw_claimed_at_text(claimed_at_raw: object) -> str | None:
-    """Return the raw ``claimed_at`` column value as TEXT (ERROR-2, AG3-054).
-
-    The takeover CAS compares against the RAW ``claimed_at`` TEXT column, so the
-    observed match value must be the raw stored text -- not the normalized aware
-    instant. ``None`` (no lease) stays ``None``; a ``datetime`` column (a backend
-    that hands back native instants) is rendered via ``isoformat`` to match how the
-    writer stamps the column; any other value is stringified.
-    """
-    from datetime import datetime
-
-    if claimed_at_raw is None:
-        return None
-    if isinstance(claimed_at_raw, datetime):
-        return claimed_at_raw.isoformat()
-    return str(claimed_at_raw)
-
-
 def _parse_aware_claimed_at(claimed_at_raw: object) -> datetime | None:
     """Normalize a stored ``claimed_at`` to an aware-UTC datetime (AG3-054 #4).
 
-    WARNING-4 fix (#4): the lease-expiry compare in the runtime is ``aware_now -
-    claimed_at``; a NAIVE (tz-unaware) ``claimed_at`` would raise ``TypeError`` and
-    crash the retry before any takeover could reclaim the op_id. The lease ownership
-    record is therefore normalized to aware UTC at THIS mapper boundary: a value
-    already aware is converted to UTC; a NAIVE value is assumed UTC (the productive
-    writer always stamps aware UTC via ``isoformat``, so a naive value is a
-    legacy/foreign write and the only safe, fail-closed reading is UTC).
+    ``claimed_at`` is a pure AUDIT instant (AG3-139: no code path compares it
+    against a wall clock to decide a claim has "expired" -- ownership never ends
+    by wall clock, FK-91 §91.1a Regel 16). It IS still consulted verbatim by the
+    ownership-scoped finalize/release CAS (WARNING-4) and as the ``since`` bound
+    for the AG3-138 admin-abort partial-write probe, both of which require an
+    aware UTC value. A NAIVE (tz-unaware) ``claimed_at`` is therefore normalized
+    to aware UTC at THIS mapper boundary: a value already aware is converted to
+    UTC; a NAIVE value is assumed UTC (the productive writer always stamps aware
+    UTC via ``isoformat``, so a naive value is a legacy/foreign write and the
+    only safe, fail-closed reading is UTC).
 
-    A ``None`` value (a terminal row, or a legacy claim with no lease) maps to
-    ``None`` -- the runtime's ``_claim_is_expired`` already treats that as EXPIRED
-    (reclaimable). An UNPARSEABLE / malformed value also maps to ``None`` so the
-    op_id is reclaimable (fail-closed) instead of crashing the takeover path.
+    A ``None`` value (a terminal row, or a claim with no audit instant) maps to
+    ``None``. An UNPARSEABLE / malformed value also maps to ``None`` (fail-closed:
+    no audit instant) instead of crashing.
 
     Args:
         claimed_at_raw: The raw ``claimed_at`` column value (TEXT / ``datetime`` /
             ``None``).
 
     Returns:
-        The aware-UTC lease instant, or ``None`` when absent or malformed (both
-        treated as EXPIRED downstream).
+        The aware-UTC claim instant, or ``None`` when absent or malformed.
     """
     from datetime import UTC, datetime
 
@@ -1244,11 +1223,11 @@ def _parse_aware_claimed_at(claimed_at_raw: object) -> datetime | None:
         try:
             parsed = datetime.fromisoformat(str(claimed_at_raw))
         except ValueError:
-            # Malformed lease instant: fail-closed reclaimable (treated as EXPIRED
-            # downstream) rather than crashing the takeover compare with a raise.
+            # Malformed claim instant: fail-closed to "no audit instant" rather
+            # than crashing.
             _log.warning(
                 "control_plane_operations.claimed_at is unparseable (%r); "
-                "treating the claim as EXPIRED (reclaimable, AG3-054 #4)",
+                "treating it as absent (no audit instant, AG3-054 #4)",
                 claimed_at_raw,
             )
             return None

@@ -76,30 +76,6 @@ class _FakeOps:
         self._state.operations[record.op_id] = record
         return True
 
-    def takeover(
-        self,
-        record: ControlPlaneOperationRecord,
-        *,
-        observed_claimed_by: str | None,
-        observed_claimed_at: str | None,
-    ) -> bool:
-        # CAS: re-stamp the lease iff the row is still the exact observed claim.
-        # ERROR-2 (AG3-054): the real store matches against the RAW ``claimed_at``
-        # TEXT column, so the fake compares the observed raw value against the
-        # stored record's raw text (its ``claimed_at_raw`` round-trip), NOT the
-        # normalized datetime. This makes the fake catch a raw-vs-normalized
-        # mismatch instead of silently comparing aware datetimes.
-        existing = self._state.operations.get(record.op_id)
-        if (
-            existing is None
-            or existing.status != "claimed"
-            or existing.claimed_by != observed_claimed_by
-            or _stored_claimed_at_raw(existing) != observed_claimed_at
-        ):
-            return False
-        self._state.operations[record.op_id] = record
-        return True
-
     def _still_owned(
         self,
         record: ControlPlaneOperationRecord,
@@ -108,9 +84,10 @@ class _FakeOps:
         owner_operation_epoch: int | None = None,
     ) -> bool:
         # WARNING-4 (#4): the CAS scopes to BOTH owner token AND lease epoch when
-        # the epoch is given. The fake compares the observed raw epoch against the
-        # stored record's raw text (mirroring the store's raw-column CAS).
-        # AG3-138: additionally fences on the unchanged operation_epoch when given
+        # the epoch is given. The fake compares the observed value against the
+        # stored record's TEXT-equivalent ``claimed_at`` (mirroring the store's
+        # raw-column CAS). AG3-138: additionally fences on the unchanged
+        # operation_epoch when given
         # (``operation_finalize_requires_cas_on_operation_epoch``): an admin-abort
         # bumps the stored epoch, so a stale-epoch finalize matches nothing.
         existing = self._state.operations.get(record.op_id)
@@ -122,7 +99,7 @@ class _FakeOps:
             return False
         if (
             owner_claimed_at is not None
-            and _stored_claimed_at_raw(existing) != owner_claimed_at
+            and _claimed_at_text(existing) != owner_claimed_at
         ):
             return False
         return not (
@@ -238,7 +215,7 @@ class _FakeOps:
             return
         if (
             owner_claimed_at is not None
-            and _stored_claimed_at_raw(existing) != owner_claimed_at
+            and _claimed_at_text(existing) != owner_claimed_at
         ):
             return
         self._state.operations.pop(op_id, None)
@@ -475,37 +452,15 @@ def _fake_run_scoped_delete_binding(
     )
 
 
-def _stored_claimed_at_raw(record: ControlPlaneOperationRecord) -> str | None:
-    """Mimic the store's raw ``claimed_at`` TEXT round-trip for the fake (ERROR-2).
+def _claimed_at_text(record: ControlPlaneOperationRecord) -> str | None:
+    """Mirror the store's ``claimed_at`` TEXT column for the ownership CAS (#4).
 
-    The real store keeps ``claimed_at`` as raw TEXT; a load re-exposes it via
-    ``claimed_at_raw``. The fake holds records in memory without that round-trip,
-    so this helper reconstructs the raw text the store would have read back: the
-    record's preserved ``claimed_at_raw`` when present (it came from a load), else
-    the ``isoformat`` of the written ``claimed_at`` (the writer stamps TEXT).
+    The real store persists ``claimed_at`` as ISO-8601 TEXT and the
+    ownership-scoped finalize/release CAS (WARNING-4) matches ``owner_claimed_at``
+    against that TEXT column. The fake holds records in memory as ``datetime``
+    objects, so this reconstructs the TEXT value the store would compare against.
     """
-    if record.claimed_at_raw is not None:
-        return record.claimed_at_raw
-    if record.claimed_at is None:
-        return None
-    return record.claimed_at.isoformat()
-
-
-def _load_operation_with_raw(
-    state: _RepoState, op_id: str
-) -> ControlPlaneOperationRecord | None:
-    """Load an op, attaching the store-equivalent raw ``claimed_at`` (ERROR-2).
-
-    The runtime observes ``stored.claimed_at_raw`` for the takeover CAS, so the
-    fake load must expose the raw TEXT the store would have round-tripped (a fresh
-    in-memory placeholder carries ``claimed_at_raw=None`` until loaded).
-    """
-    from dataclasses import replace
-
-    record = state.operations.get(op_id)
-    if record is None:
-        return None
-    return replace(record, claimed_at_raw=_stored_claimed_at_raw(record))
+    return record.claimed_at.isoformat() if record.claimed_at is not None else None
 
 
 def _repository(state: _RepoState) -> ControlPlaneRuntimeRepository:
@@ -515,10 +470,9 @@ def _repository(state: _RepoState) -> ControlPlaneRuntimeRepository:
     ops = _FakeOps(state)
 
     return ControlPlaneRuntimeRepository(
-        load_operation=lambda op_id: _load_operation_with_raw(state, op_id),
+        load_operation=state.operations.get,
         save_operation=ops.save,
         claim_operation=ops.claim,
-        takeover_operation=ops.takeover,
         finalize_operation=ops.finalize,
         finalize_start_phase=ops.finalize_start_phase,
         commit_operation_with_side_effects=ops.commit_with_side_effects,
@@ -2159,15 +2113,20 @@ def test_same_op_id_concurrent_starts_dispatch_once() -> None:
     assert len(state.operations) == 1
 
 
-def test_stale_claim_placeholder_is_reclaimable_and_retry_succeeds() -> None:
-    """ERROR-1 (#1): a stale ``claimed`` placeholder never poisons the op_id.
+def test_stale_claim_placeholder_with_no_claimed_at_is_rejected_not_reclaimed() -> (
+    None
+):
+    """AG3-139: a stale ``claimed`` placeholder (no ``claimed_at``) is NOT reclaimed.
 
     A winner that CRASHED mid-claim (process killed before its terminal commit or
-    its except-path release) leaves a stale ``claimed`` row. The OLD behavior
-    surfaced an "in flight" rejection FOREVER -- the op_id was poisoned. The fix
-    RECLAIMS a stale ``claimed`` placeholder: a retry deletes it, re-claims, and
-    proceeds to a committed result. The dispatcher runs (the crashed winner left
-    no side effects behind), and the final op is committed.
+    its except-path release) can leave a stale ``claimed`` row, possibly with no
+    ``claimed_at`` at all (a legacy/malformed placeholder). Previously such a row
+    was treated as fail-closed EXPIRED and auto-reclaimed via CAS takeover.
+    AG3-139 removed that entirely: ownership never ends by wall clock / TTL /
+    lease (FK-91 §91.1a Regel 16), so this is just an ordinary foreign in-flight
+    claim -- it is rejected, never dispatched into, and remains until ended via
+    the AG3-138 startup reconciliation or an explicit
+    ``admin_abort_inflight_operation``.
     """
     state = _RepoState()
     _resolvable_standard_ctx(state)
@@ -2195,10 +2154,10 @@ def test_stale_claim_placeholder_is_reclaimable_and_retry_succeeds() -> None:
         run_id="run-100", phase="setup", request=_setup_request("op-stale-claim")
     )
 
-    # The stale claim was reclaimed and the retry committed (no poison).
-    assert result.status == "committed"
-    assert dispatcher.calls == ["setup"]
-    assert state.operations["op-stale-claim"].status == "committed"
+    # The stale claim is rejected, never reclaimed/dispatched into.
+    assert result.status == "rejected"
+    assert dispatcher.calls == []
+    assert state.operations["op-stale-claim"].status == "claimed"
 
 
 def test_exception_after_claim_releases_claim_and_leaves_op_reclaimable() -> None:
@@ -2392,7 +2351,7 @@ def test_concurrent_claims_one_wins_loser_gets_in_flight_rejection_mid_dispatch(
         created_at=clock(),
         updated_at=clock(),
         claimed_by="owner-A",
-        claimed_at=clock(),  # fresh -> NOT expired
+        claimed_at=clock(),
     )
     state.operations["op-race-live"] = winner_claim
 
@@ -2446,8 +2405,9 @@ def test_winner_finalizes_then_loser_retry_replays_terminal_result() -> None:
 def test_owner_release_is_ownership_scoped_and_does_not_delete_foreign_claim() -> None:
     """PART A: owner A's release deletes ONLY A's claim; B's claim/row is untouched.
 
-    After B took over (the expiry case), A's release/finalize must be a no-op (CAS
-    rowcount 0) and must NOT delete B's row or result.
+    B holds a live claim that A never owned. A's stale release/finalize (a wrong
+    owner token) must be a no-op (CAS rowcount 0) and must NOT delete B's row or
+    result.
     """
     state = _RepoState()
     repo = _repository(state)
@@ -2495,8 +2455,15 @@ def test_owner_release_is_ownership_scoped_and_does_not_delete_foreign_claim() -
     assert state.operations["op-ownership"].claimed_by == "owner-B"
 
 
-def test_expired_claim_is_taken_over_via_cas_non_expired_is_refused() -> None:
-    """PART A: an EXPIRED foreign claim is taken over; a NON-expired one is refused."""
+def test_foreign_claim_of_any_age_is_never_taken_over() -> None:
+    """AG3-139: a foreign in-flight claim is rejected regardless of its age.
+
+    Ownership never ends by wall clock / TTL / lease (FK-91 §91.1a Regel 16). A
+    foreign ``claimed`` row -- whether 1 minute old or well past the FORMER
+    5-minute TTL -- is ALWAYS a fail-closed in-flight rejection; there is no CAS
+    takeover path left to exercise. An orphaned claim ends only via the AG3-138
+    startup reconciliation or an explicit ``admin_abort_inflight_operation``.
+    """
     state = _RepoState()
     _resolvable_standard_ctx(state)
     start = datetime(2026, 6, 7, 10, 0, tzinfo=UTC)
@@ -2518,30 +2485,25 @@ def test_expired_claim_is_taken_over_via_cas_non_expired_is_refused() -> None:
             claimed_at=claimed_at,
         )
 
-    # NON-expired foreign claim (1 minute old): takeover refused -> in-flight reject.
-    _seed_foreign_claim("op-live", claimed_at=start)
-    clock_live = _Clock(start + timedelta(minutes=1))
-    live_dispatcher = _StubDispatcher(_admitted_dispatch())
-    refused = _leased_service(
-        state, token="owner-new", clock=clock_live, dispatcher=live_dispatcher
-    ).start_phase(run_id="run-100", phase="setup", request=_setup_request("op-live"))
-    assert refused.status == "rejected"
-    assert live_dispatcher.calls == [], "a live claim must not be stolen"
-    assert state.operations["op-live"].claimed_by == "owner-crashed"
+    for op_id, age in (
+        ("op-live-1m", timedelta(minutes=1)),
+        ("op-old-10m", timedelta(minutes=10)),  # past the FORMER 5-minute TTL
+        ("op-ancient-30d", timedelta(days=30)),
+    ):
+        _seed_foreign_claim(op_id, claimed_at=start)
+        dispatcher = _StubDispatcher(_admitted_dispatch())
+        result = _leased_service(
+            state, token="owner-new", clock=_Clock(start + age), dispatcher=dispatcher
+        ).start_phase(run_id="run-100", phase="setup", request=_setup_request(op_id))
 
-    # EXPIRED foreign claim (10 minutes old): CAS takeover succeeds -> commit.
-    _seed_foreign_claim("op-expired", claimed_at=start)
-    clock_expired = _Clock(start + timedelta(minutes=10))
-    takeover_dispatcher = _StubDispatcher(_admitted_dispatch())
-    taken = _leased_service(
-        state, token="owner-new", clock=clock_expired, dispatcher=takeover_dispatcher
-    ).start_phase(
-        run_id="run-100", phase="setup", request=_setup_request("op-expired")
-    )
-    assert taken.status == "committed"
-    assert takeover_dispatcher.calls == ["setup"]
-    assert state.operations["op-expired"].status == "committed"
-    assert state.operations["op-expired"].claimed_by is None
+        assert result.status == "rejected", (
+            f"{op_id} (age={age}) must be rejected, never taken over"
+        )
+        assert dispatcher.calls == [], "a foreign claim must never be dispatched into"
+        assert state.operations[op_id].claimed_by == "owner-crashed", (
+            f"{op_id} must remain owned by the original claimant"
+        )
+        assert state.operations[op_id].status == "claimed"
 
 
 def test_exception_after_claim_releases_only_my_claim_and_retry_succeeds() -> None:
@@ -2826,35 +2788,34 @@ def test_committed_setup_phase_start_admits_run() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ERROR-1 (#1): a loser whose lease was taken over writes NO side effects
+# ERROR-1 (#1): a loser whose claim was ended by admin-abort writes NO side
+# effects (AG3-139: there is no CAS takeover left to exercise here).
 # ---------------------------------------------------------------------------
 
 
-def test_loser_after_takeover_materializes_no_side_effects() -> None:
-    """ERROR-1 (#1): owner A (lease taken over by B) writes NO binding/lock/event.
+def test_late_finalize_after_admin_abort_materializes_no_side_effects() -> None:
+    """ERROR-1 (#1): a late finalize after an admin-abort writes NO side effects.
 
-    Owner A's dispatch outran its lease TTL; owner B took over the expired claim AND
-    finalized it (B's terminal result + B's side effects stand). When A finally
-    returns to finalize, the ownership CAS affects ZERO rows, so A materializes NO
-    binding, NO locks and NO events -- no duplicate/conflicting canonical side
-    effect. A's late return surfaces B's committed terminal row as a REPLAY.
+    AG3-139: a foreign in-flight claim is never taken over via CAS -- an
+    orphaned/stuck claim ends ONLY via an explicit
+    ``admin_abort_inflight_operation`` (or the AG3-138 startup reconciliation).
+    When owner A's dispatch is stuck and an operator admin-aborts A's claim
+    (bumping the fencing epoch, AC4), A's late finalize CAS affects ZERO rows
+    (status is no longer ``claimed`` AND the epoch changed), so A materializes NO
+    binding, NO locks and NO events. A's late return surfaces the aborted
+    terminal row verbatim (AG3-138 AC5, FK-91 §91.1a Regel 17: an ``aborted``
+    result is never rewritten to ``replayed``).
     """
     state = _RepoState()
     _resolvable_standard_ctx(state)
     clock = _Clock(datetime(2026, 6, 7, 10, 0, tzinfo=UTC))
     a_token = _owner_token("A")
-
-    # A wins the claim (its own placeholder), then is held mid-dispatch.
-    a_service = ControlPlaneRuntimeService(
-        repository=_repository(state),
-        phase_dispatcher=_StubDispatcher(_admitted_dispatch()),  # type: ignore[arg-type]
-        now_fn=clock,
-        token_factory=_TokenSequence("A"),
-    )
-    op_id = "op-takeover-loser"
+    op_id = "op-abort-loser"
     request = _setup_request(op_id)
-    # A claims (insert-if-absent) -- we drive only A's claim, NOT its finalize, by
-    # seeding A's live claim placeholder directly (simulating A mid-dispatch).
+
+    # A wins the claim, then is held mid-dispatch (seed A's live claim placeholder
+    # directly, simulating A stuck mid-dispatch).
+    a_claimed_at = clock()
     placeholder = ControlPlaneOperationRecord(
         op_id=op_id,
         project_key="tenant-a",
@@ -2865,58 +2826,68 @@ def test_loser_after_takeover_materializes_no_side_effects() -> None:
         phase="setup",
         status="claimed",
         response_payload={},
-        created_at=clock(),
-        updated_at=clock(),
+        created_at=a_claimed_at,
+        updated_at=a_claimed_at,
         claimed_by=a_token,
-        claimed_at=clock(),
+        claimed_at=a_claimed_at,
+        operation_epoch=1,
     )
     state.operations[op_id] = placeholder
 
-    # B takes over the EXPIRED claim (10 min later) and finalizes it fully.
-    clock_b = _Clock(datetime(2026, 6, 7, 10, 10, tzinfo=UTC))
-    b_service = ControlPlaneRuntimeService(
-        repository=_repository(state),
-        phase_dispatcher=_StubDispatcher(_admitted_dispatch()),  # type: ignore[arg-type]
-        now_fn=clock_b,
-        token_factory=_TokenSequence("B"),
+    # An operator admin-aborts A's stuck claim (the AG3-138 end-way): bumps the
+    # fencing epoch and clears the owner (AC4).
+    repo = _repository(state)
+    abort_now = datetime(2026, 6, 7, 10, 10, tzinfo=UTC)
+    abort_result = ControlPlaneMutationResult(
+        status="aborted",
+        op_id=op_id,
+        operation_kind="phase_start",
+        run_id="run-100",
+        phase="setup",
+        edge_bundle=None,
+        phase_dispatch=None,
+        admin_note="admin_abort_inflight_operation by test: reason='stuck dispatch'.",
     )
-    b_result = b_service.start_phase(run_id="run-100", phase="setup", request=request)
-    assert b_result.status == "committed"
-    # B's terminal result + B's side effects stand.
-    assert state.operations[op_id].status == "committed"
+    assert (
+        repo.admin_abort_operation(
+            op_id=op_id,
+            status="aborted",
+            response_payload=abort_result.model_dump(mode="json"),
+            now=abort_now,
+        )
+        is True
+    )
+    assert state.operations[op_id].status == "aborted"
     assert state.operations[op_id].claimed_by is None
-    b_binding_version = state.bindings["sess-001"].binding_version
-    b_lock_version = state.locks[
-        ("tenant-a", "AG3-100", "run-100", "story_execution")
-    ].binding_version
-    b_event_count = len(state.events)
-    assert b_event_count == 2  # binding_created + regime_activated (B's)
+    assert state.operations[op_id].operation_epoch == 2
 
-    # Now A returns to finalize its (lost) claim. Its CAS affects zero rows, so it
-    # materializes NOTHING and surfaces B's terminal row as a replay.
+    # A finally returns to finalize its (now-aborted) claim. Its CAS affects zero
+    # rows, so it materializes NOTHING and surfaces the aborted row verbatim.
+    a_service = ControlPlaneRuntimeService(
+        repository=repo,
+        phase_dispatcher=_StubDispatcher(_admitted_dispatch()),  # type: ignore[arg-type]
+        now_fn=clock,
+        token_factory=_TokenSequence("A"),
+    )
     a_result = a_service._finalize_start_phase(  # noqa: SLF001 -- drive the late path
         run_id="run-100",
         phase="setup",
         request=request,
         owner_token=a_token,
-        # WARNING-4 (#4): A's own RAW lease epoch -- its CAS still loses (the row is
-        # now B's terminal), so A materializes nothing and replays B's result.
-        owner_claimed_at=datetime(2026, 6, 7, 10, 0, tzinfo=UTC).isoformat(),
+        owner_claimed_at=a_claimed_at.isoformat(),
+        owner_operation_epoch=1,
         phase_dispatch=_admitted_dispatch(),
     )
 
-    assert a_result.status == "replayed"
-    # NO duplicate / conflicting side effects: binding/lock unchanged, no new events.
-    assert state.bindings["sess-001"].binding_version == b_binding_version
-    assert (
-        state.locks[
-            ("tenant-a", "AG3-100", "run-100", "story_execution")
-        ].binding_version
-        == b_lock_version
+    assert a_result.status == "aborted", (
+        "the late finalize surfaces the aborted row verbatim, never 'replayed'"
     )
-    assert len(state.events) == b_event_count, "the loser must emit no extra events"
-    # B's terminal op is untouched.
-    assert state.operations[op_id].status == "committed"
+    # NO side effects were materialized by A.
+    assert "sess-001" not in state.bindings
+    assert ("tenant-a", "AG3-100", "run-100", "story_execution") not in state.locks
+    assert state.events == []
+    # The aborted terminal op is untouched.
+    assert state.operations[op_id].status == "aborted"
 
 
 # ---------------------------------------------------------------------------
@@ -3079,22 +3050,26 @@ def test_new_run_setup_with_its_own_committed_start_is_not_fresh() -> None:
 
 
 # ---------------------------------------------------------------------------
-# WARNING-4 (#4): a naive / malformed claimed_at is treated as EXPIRED
+# WARNING-4 (#4): a naive / malformed claimed_at never crashes; AG3-139: it is
+# never a takeover trigger either (there is no expiry judgement left at all).
 # ---------------------------------------------------------------------------
 
 
-def test_naive_claimed_at_is_treated_as_expired_takeover_proceeds() -> None:
-    """WARNING-4 (#4): a NAIVE claimed_at expires (takeover proceeds), no TypeError.
+def test_naive_or_malformed_claimed_at_foreign_claim_is_rejected_not_taken_over() -> (
+    None
+):
+    """AG3-139: a foreign claim with a NAIVE ``claimed_at`` is still rejected.
 
     A ``claimed`` row whose ``claimed_at`` is tz-NAIVE (e.g. an imported/foreign
-    write) must NOT crash ``aware_now - naive_claimed_at`` with a TypeError. The
-    lease-expiry compare coerces both operands to aware UTC, treats the naive
-    instant as a (past) UTC instant, and -- being older than the TTL -- as EXPIRED,
-    so the takeover proceeds and the retry commits.
+    write) must NOT crash. Previously such a row was judged EXPIRED (older than
+    the wall-clock TTL) and taken over via CAS; AG3-139 removed that
+    interpretation entirely -- a claim's age/format is never evaluated, so a
+    foreign ``claimed`` row is ALWAYS a fail-closed rejection regardless of the
+    shape of its ``claimed_at``.
     """
     state = _RepoState()
     _resolvable_standard_ctx(state)
-    naive_old = datetime(2026, 6, 7, 9, 0)  # tz-NAIVE, well older than the TTL
+    naive_old = datetime(2026, 6, 7, 9, 0)  # tz-NAIVE, far in the "past"
     state.operations["op-naive-claim"] = ControlPlaneOperationRecord(
         op_id="op-naive-claim",
         project_key="tenant-a",
@@ -3111,18 +3086,21 @@ def test_naive_claimed_at_is_treated_as_expired_takeover_proceeds() -> None:
         claimed_at=naive_old,
     )
     clock = _Clock(datetime(2026, 6, 7, 10, 0, tzinfo=UTC))
-    service = _leased_service(state, token="new-owner", clock=clock)
+    dispatcher = _StubDispatcher(_admitted_dispatch())
+    service = _leased_service(state, token="new-owner", clock=clock, dispatcher=dispatcher)
 
     result = service.start_phase(
         run_id="run-100", phase="setup", request=_setup_request("op-naive-claim")
     )
 
-    assert result.status == "committed"
-    assert state.operations["op-naive-claim"].status == "committed"
+    assert result.status == "rejected"
+    assert dispatcher.calls == [], "a foreign claim must never be dispatched into"
+    assert state.operations["op-naive-claim"].claimed_by == "owner-crashed-naive"
+    assert state.operations["op-naive-claim"].status == "claimed"
 
 
-def test_malformed_claimed_at_via_mapper_is_treated_as_expired() -> None:
-    """WARNING-4 (#4): an unparseable claimed_at maps to None (EXPIRED), no crash."""
+def test_malformed_claimed_at_via_mapper_maps_to_none() -> None:
+    """AG3-139: an unparseable claimed_at maps to None (no audit instant), no crash."""
     from agentkit.backend.state_backend.store.mappers import control_plane_op_row_to_record
 
     row = {
@@ -3143,7 +3121,7 @@ def test_malformed_claimed_at_via_mapper_is_treated_as_expired() -> None:
 
     record = control_plane_op_row_to_record(row)
 
-    # Malformed lease instant -> None (treated as EXPIRED downstream, no raise).
+    # Malformed claim instant -> None (no audit instant), never a raise.
     assert record.claimed_at is None
 
 

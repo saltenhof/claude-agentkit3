@@ -238,14 +238,17 @@
             UNIQUE (project_key, hook_event_name, matcher, command)
         );
 
-        -- AG3-054 (FK-91, FK-22 §22.9): leased, owner-scoped claim. ``status``
-        -- stays the terminal-vs-claimed discriminator ('claimed' = in-flight
-        -- reservation; 'committed'/'rejected'/'replayed'/'synced' = terminal).
-        -- claimed_by holds the per-call owner token of an in-flight claim;
-        -- claimed_at is the lease start instant (TEXT/ISO-8601, matching the
-        -- table's other instants so the expiry compare and the CAS exact-match
-        -- roundtrip through plain text -- no psycopg datetime drift). Both are
-        -- NULL on a terminal row (finalize clears claimed_by).
+        -- AG3-054 (FK-91, FK-22 §22.9): owner-scoped claim, instance-bound
+        -- (AG3-139: ownership never ends by wall clock / TTL / lease -- FK-91
+        -- §91.1a Regel 16; an orphaned claim ends ONLY via the AG3-138 startup
+        -- reconciliation or an explicit admin_abort_inflight_operation).
+        -- ``status`` stays the terminal-vs-claimed discriminator ('claimed' =
+        -- in-flight reservation; 'committed'/'rejected'/'replayed'/'synced' =
+        -- terminal). claimed_by holds the per-call owner token of an in-flight
+        -- claim; claimed_at is a pure AUDIT instant (TEXT/ISO-8601, matching the
+        -- table's other instants) consulted only by the ownership-scoped
+        -- finalize/release CAS exact-match (WARNING-4, no psycopg datetime
+        -- drift). Both are NULL on a terminal row (finalize clears claimed_by).
         CREATE TABLE IF NOT EXISTS control_plane_operations (
             op_id TEXT PRIMARY KEY,
             project_key TEXT NOT NULL,

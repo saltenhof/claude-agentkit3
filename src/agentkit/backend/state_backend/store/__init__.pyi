@@ -335,9 +335,6 @@ from agentkit.backend.state_backend.store.facade import (
     save_takeover_transfer_record_global as save_takeover_transfer_record_global,
 )
 from agentkit.backend.state_backend.store.facade import (
-    takeover_control_plane_operation_global as takeover_control_plane_operation_global,
-)
-from agentkit.backend.state_backend.store.facade import (
     update_story_are_link_kind as update_story_are_link_kind,
 )
 from agentkit.backend.state_backend.store.facade import (

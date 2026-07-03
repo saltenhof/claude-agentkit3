@@ -35,6 +35,7 @@ from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.backend.core_types import StoryMode
 from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
 from agentkit.backend.state_backend.store import (
+    admin_abort_control_plane_operation_global,
     claim_control_plane_operation_global,
     delete_control_plane_operation_global,
     finalize_control_plane_operation_global,
@@ -48,7 +49,6 @@ from agentkit.backend.state_backend.store import (
     save_control_plane_operation_global,
     save_session_run_binding_global,
     save_story_context_global,
-    takeover_control_plane_operation_global,
 )
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryType
@@ -324,7 +324,7 @@ def test_concurrent_claims_one_wins_loser_in_flight_real_store(
     _seed_pg_story_context(tmp_path)
     now = datetime(2026, 6, 7, 10, 0, tzinfo=UTC)
     op_id = "op-pg-leased-race"
-    # Winner A's LIVE claim (fresh, not expired).
+    # Winner A's LIVE claim.
     assert claim_control_plane_operation_global(
         _leased_op(op_id, owner="owner-A", claimed_at=now)
     ) is True
@@ -332,7 +332,7 @@ def test_concurrent_claims_one_wins_loser_in_flight_real_store(
     loser_dispatcher = _CountingDispatcher()
     loser = ControlPlaneRuntimeService(
         phase_dispatcher=loser_dispatcher,  # type: ignore[arg-type]
-        now_fn=lambda: now + timedelta(minutes=1),  # still within the lease TTL
+        now_fn=lambda: now + timedelta(minutes=1),  # AG3-139: age never matters
         # WARNING-5 (#5): the minted owner token must be UUID-shaped; the loser's
         # token only needs to be valid + distinct (it never wins here).
         token_factory=lambda: f"owner-{uuid4().hex}",
@@ -382,38 +382,45 @@ def test_winner_finalizes_then_loser_replays_real_store(
 def test_owner_release_is_ownership_scoped_real_store(
     postgres_backend_env: object,
 ) -> None:
-    """PART A: A's release/finalize is a no-op once B took over (CAS rowcount 0).
+    """PART A: A's release/finalize is a no-op once the claim is admin-aborted.
 
-    After B takes over the (expired) claim, A's ownership-scoped release must NOT
-    delete B's row and A's ownership-scoped finalize must NOT overwrite B's claim.
+    AG3-139: a foreign claim is never taken over via CAS. Instead: an operator
+    admin-aborts A's claim (the AG3-138 end-way for a stuck claim). A's
+    ownership-scoped release must NOT delete the aborted terminal row and A's
+    ownership-scoped finalize must NOT overwrite it.
     """
     del postgres_backend_env
     start = datetime(2026, 6, 7, 10, 0, tzinfo=UTC)
     op_id = "op-pg-ownership"
-    # A holds an EXPIRED claim.
     assert claim_control_plane_operation_global(
         _leased_op(op_id, owner="owner-A", claimed_at=start)
     ) is True
-    # B takes over via CAS (observing A's exact lease).
-    b_claim = _leased_op(
-        op_id, owner="owner-B", claimed_at=start + timedelta(minutes=10)
-    )
+
+    abort_payload: dict[str, object] = {
+        "status": "aborted",
+        "op_id": op_id,
+        "operation_kind": "phase_start",
+        "run_id": "run-100",
+        "phase": "setup",
+        "edge_bundle": None,
+        "phase_dispatch": None,
+        "admin_note": "admin_abort_inflight_operation by test: reason='stuck'.",
+    }
     assert (
-        takeover_control_plane_operation_global(
-            b_claim,
-            observed_claimed_by="owner-A",
-            # ERROR-2 (AG3-054): the observed value is the RAW stored ``claimed_at``
-            # TEXT (what the store round-trips), not the datetime.
-            observed_claimed_at=start.isoformat(),
+        admin_abort_control_plane_operation_global(
+            op_id=op_id,
+            status="aborted",
+            response_payload=abort_payload,
+            now=start + timedelta(minutes=10),
         )
         is True
     )
 
-    # A's release is now a no-op (it no longer owns the row).
+    # A's release is now a no-op (the row is terminal 'aborted', not 'claimed').
     release_control_plane_operation_global(op_id, owner_token="owner-A")
     stored = load_control_plane_operation_global(op_id)
-    assert stored is not None, "A must not delete B's row"
-    assert stored.claimed_by == "owner-B"
+    assert stored is not None, "A must not delete the aborted terminal row"
+    assert stored.status == "aborted"
 
     # A's finalize is also a no-op (CAS rowcount 0).
     a_terminal = _op(op_id, status="committed")
@@ -421,45 +428,43 @@ def test_owner_release_is_ownership_scoped_real_store(
         finalize_control_plane_operation_global(a_terminal, owner_token="owner-A")
         is False
     )
-    assert load_control_plane_operation_global(op_id).status == "claimed"  # type: ignore[union-attr]
+    assert load_control_plane_operation_global(op_id).status == "aborted"  # type: ignore[union-attr]
 
 
 @pytest.mark.contract
-def test_expired_takeover_succeeds_non_expired_refused_real_store(
+def test_foreign_claim_of_any_age_cannot_be_reclaimed_real_store(
     postgres_backend_env: object,
 ) -> None:
-    """PART A: CAS takeover succeeds for an expired lease; refused for a live one."""
+    """AG3-139: a foreign claim is never reclaimable, however old, at the real store.
+
+    There is no CAS-takeover function left to exercise: ``claim_control_plane_
+    operation_global`` (``INSERT ... ON CONFLICT (op_id) DO NOTHING``) is the ONLY
+    claim-acquisition entrypoint, and it never consults the row's age. This pins
+    that a claim seeded with a ``claimed_at`` well past the FORMER 5-minute TTL
+    still blocks a second claim attempt (ownership never ends by wall clock, FK-91
+    §91.1a Regel 16).
+    """
     del postgres_backend_env
     start = datetime(2026, 6, 7, 10, 0, tzinfo=UTC)
-
-    # Expired claim -> CAS takeover succeeds.
+    op_id = "op-pg-ancient-claim"
     assert claim_control_plane_operation_global(
-        _leased_op("op-pg-expired", owner="owner-crash", claimed_at=start)
-    ) is True
-    taken = _leased_op(
-        "op-pg-expired", owner="owner-new", claimed_at=start + timedelta(minutes=10)
-    )
-    assert (
-        takeover_control_plane_operation_global(
-            taken,
-            observed_claimed_by="owner-crash",
-            observed_claimed_at=start.isoformat(),
+        _leased_op(
+            op_id, owner="owner-crashed", claimed_at=start - timedelta(days=30)
         )
-        is True
-    )
+    ) is True
 
-    # A stale-observation takeover (wrong observed lease) is refused (CAS 0 rows).
+    # A second claim attempt on the SAME op_id still loses -- no reclaim path
+    # exists at the store, regardless of the row's age.
     assert (
-        takeover_control_plane_operation_global(
-            _leased_op("op-pg-expired", owner="owner-other", claimed_at=start),
-            observed_claimed_by="owner-crash",  # no longer the owner
-            observed_claimed_at=start.isoformat(),
+        claim_control_plane_operation_global(
+            _leased_op(op_id, owner="owner-new", claimed_at=start)
         )
         is False
     )
-    stored = load_control_plane_operation_global("op-pg-expired")
+    stored = load_control_plane_operation_global(op_id)
     assert stored is not None
-    assert stored.claimed_by == "owner-new"
+    assert stored.claimed_by == "owner-crashed", "the original claimant is untouched"
+    assert stored.status == "claimed"
 
 
 @pytest.mark.contract
@@ -531,35 +536,43 @@ def test_committed_phase_complete_does_not_admit_real_store(
 
 
 @pytest.mark.contract
-def test_loser_after_takeover_writes_no_side_effects_real_store(
+def test_late_finalize_after_admin_abort_writes_no_side_effects_real_store(
     postgres_backend_env: object,
 ) -> None:
-    """ERROR-1 (#1): the loser's atomic finalize writes NO side effects (real store).
+    """ERROR-1 (#1): a late finalize after an admin-abort writes NO side effects.
 
-    Owner A holds a claim that owner B took over and finalized. When A then calls
-    the atomic CAS-gated start-phase finalize, the ownership CAS affects ZERO rows,
-    so the whole transaction rolls back: NO session binding, NO lock and NO event
-    are materialized by the loser, and B's terminal committed row is untouched.
+    AG3-139: a foreign claim is never taken over via CAS -- an orphaned/stuck
+    claim ends ONLY via an explicit ``admin_abort_inflight_operation`` (or the
+    AG3-138 startup reconciliation). Owner A holds a claim that an operator then
+    admin-aborts. When A later calls the atomic CAS-gated start-phase finalize,
+    the ownership CAS affects ZERO rows (status is no longer ``claimed``), so the
+    whole transaction rolls back: NO session binding, NO lock and NO event are
+    materialized by A, and the aborted terminal row is untouched.
     """
     del postgres_backend_env
     now = datetime(2026, 6, 7, 10, 0, tzinfo=UTC)
     op_id = "op-pg-loser-finalize"
 
-    # A wins a claim, then B takes it over and finalizes it (terminal committed).
+    # A wins a claim; an operator then admin-aborts it (the AG3-138 end-way).
     assert claim_control_plane_operation_global(
         _leased_op(op_id, owner="owner-A", claimed_at=now)
     ) is True
+    abort_payload: dict[str, object] = {
+        "status": "aborted",
+        "op_id": op_id,
+        "operation_kind": "phase_start",
+        "run_id": "run-100",
+        "phase": "setup",
+        "edge_bundle": None,
+        "phase_dispatch": None,
+        "admin_note": "admin_abort_inflight_operation by test: reason='stuck'.",
+    }
     assert (
-        takeover_control_plane_operation_global(
-            _leased_op(op_id, owner="owner-B", claimed_at=now + timedelta(minutes=10)),
-            observed_claimed_by="owner-A",
-            observed_claimed_at=now.isoformat(),
-        )
-        is True
-    )
-    assert (
-        finalize_control_plane_operation_global(
-            _op(op_id, status="committed"), owner_token="owner-B"
+        admin_abort_control_plane_operation_global(
+            op_id=op_id,
+            status="aborted",
+            response_payload=abort_payload,
+            now=now + timedelta(minutes=10),
         )
         is True
     )
@@ -609,7 +622,7 @@ def test_loser_after_takeover_writes_no_side_effects_real_store(
     )
 
     assert applied is False, "the loser's CAS finalize must not apply"
-    # NO side effects were materialized by the loser.
+    # NO side effects were materialized by A.
     assert load_session_run_binding_global("sess-loser") is None
     assert (
         load_story_execution_lock_global(
@@ -617,17 +630,18 @@ def test_loser_after_takeover_writes_no_side_effects_real_store(
         )
         is None
     )
-    # B's terminal committed row is intact.
+    # The aborted terminal row is intact.
     stored = load_control_plane_operation_global(op_id)
     assert stored is not None
-    assert stored.status == "committed"
+    assert stored.status == "aborted"
     assert stored.claimed_by is None
 
 
 # ---------------------------------------------------------------------------
-# AG3-054 adversarial edges: ERROR-2 (naive/legacy claimed_at takeover),
-# ERROR-3 (legacy save refuses to clobber a live claim), WARNING-4 (lease-epoch
-# scoped finalize/release) against the REAL Postgres store.
+# AG3-054 adversarial edges: ERROR-2 (naive/legacy claimed_at never crashes and
+# is never a takeover trigger, AG3-139), ERROR-3 (legacy save refuses to clobber
+# a live claim), WARNING-4 (lease-epoch scoped finalize/release) against the
+# REAL Postgres store.
 # ---------------------------------------------------------------------------
 
 
@@ -669,48 +683,45 @@ def _insert_raw_claimed_at_row(op_id: str, *, claimed_by: str, claimed_at_raw: s
 
 
 @pytest.mark.contract
-def test_naive_legacy_claimed_at_is_reclaimable_real_store(
+def test_naive_legacy_claimed_at_row_is_loadable_and_still_a_foreign_claim(
     postgres_backend_env: object,
 ) -> None:
-    """ERROR-2 (#2): a NAIVE/legacy ``claimed_at`` row is actually taken over.
+    """AG3-139: a naive/legacy ``claimed_at`` row loads fine and stays foreign.
 
-    A row stored with a naive ``claimed_at`` (no UTC offset) is judged EXPIRED by
-    the runtime, but the takeover CAS must match the RAW stored column -- not the
-    mapper-normalized ``'...+00:00'`` value. This test seeds a real naive row,
-    loads it through the store (so ``claimed_at_raw`` carries the verbatim text),
-    and proves the takeover CAS affects ONE row (rowcount 1). The fake-repo unit
-    test compares datetimes and cannot catch this raw-vs-normalized mismatch.
+    A row stored with a naive ``claimed_at`` (no UTC offset) must NOT crash on
+    load. Previously such a row was judged EXPIRED and reclaimed via a
+    raw-column CAS takeover (ERROR-2); AG3-139 removed both the expiry judgement
+    and the takeover CAS entirely -- a naive/legacy row is just an ordinary
+    foreign claim now: it loads without crashing and a second claim attempt on
+    it still loses, exactly like any other foreign claim.
     """
     del postgres_backend_env
     op_id = "op-pg-naive-legacy"
-    # A legacy/naive lease instant (NO offset) -- well in the past => EXPIRED.
     naive_raw = "2026-06-07T09:00:00"
     _insert_raw_claimed_at_row(op_id, claimed_by="owner-legacy", claimed_at_raw=naive_raw)
 
     stored = load_control_plane_operation_global(op_id)
     assert stored is not None
     assert stored.status == "claimed"
-    # The mapper normalized claimed_at for the expiry judgement ...
+    assert stored.claimed_by == "owner-legacy"
+    # The mapper still normalizes claimed_at (audit instant only), no crash.
     assert stored.claimed_at is not None
     assert stored.claimed_at.tzinfo is not None
-    # ... but the RAW value preserved for the CAS is the verbatim naive text.
-    assert stored.claimed_at_raw == naive_raw
 
-    # The takeover CAS must observe the RAW value and affect exactly ONE row.
-    taken = _leased_op(
-        op_id, owner="owner-new", claimed_at=datetime(2026, 6, 7, 11, 0, tzinfo=UTC)
-    )
+    # A second claim attempt on the SAME op_id still loses -- no reclaim path.
     assert (
-        takeover_control_plane_operation_global(
-            taken,
-            observed_claimed_by="owner-legacy",
-            observed_claimed_at=stored.claimed_at_raw,
+        claim_control_plane_operation_global(
+            _leased_op(
+                op_id,
+                owner="owner-new",
+                claimed_at=datetime(2026, 6, 7, 11, 0, tzinfo=UTC),
+            )
         )
-        is True
-    ), "a naive/legacy claimed_at row must be reclaimable (not poisoned)"
+        is False
+    )
     after = load_control_plane_operation_global(op_id)
     assert after is not None
-    assert after.claimed_by == "owner-new"
+    assert after.claimed_by == "owner-legacy", "the original (legacy) claimant is untouched"
 
 
 @pytest.mark.contract
@@ -771,39 +782,40 @@ def test_finalize_release_are_lease_epoch_scoped_real_store(
 ) -> None:
     """WARNING-4 (#4): finalize/release CAS key on owner AND lease epoch.
 
-    After an expiry-takeover re-stamps a NEW ``claimed_at``, the PREVIOUS owner's
-    release/finalize -- even if it reuses the same owner token -- must be a no-op:
-    its lease-epoch-scoped CAS cannot match the NEWER lease generation, so it
-    neither deletes nor finalizes the new lease.
+    AG3-139: there is no more CAS-takeover to produce a "new generation, same
+    token" scenario. Instead: owner-X's claim is released (the AG3-054 #1
+    exception-cleanup path) and owner-X reclaims the SAME op_id fresh (a NEW
+    ``claimed_at`` generation -- token reuse, the exact WARNING-4 hazard). The
+    PREVIOUS generation's release/finalize -- even reusing the same owner token
+    -- must be a no-op: its lease-epoch-scoped CAS cannot match the NEWER claim
+    generation, so it neither deletes nor finalizes it.
     """
     del postgres_backend_env
     start = datetime(2026, 6, 7, 10, 0, tzinfo=UTC)
     new_epoch = start + timedelta(minutes=10)
     op_id = "op-pg-epoch-scope"
 
-    # owner-X holds a claim at the OLD epoch.
+    # owner-X holds a claim at the OLD generation.
     assert claim_control_plane_operation_global(
         _leased_op(op_id, owner="owner-X", claimed_at=start)
     ) is True
-    # A takeover re-stamps the lease to owner-X again but at a NEW epoch (token
-    # reuse + new generation -- the exact WARNING-4 hazard).
-    assert (
-        takeover_control_plane_operation_global(
-            _leased_op(op_id, owner="owner-X", claimed_at=new_epoch),
-            observed_claimed_by="owner-X",
-            observed_claimed_at=start.isoformat(),
-        )
-        is True
-    )
+    # The claim is released and owner-X reclaims the SAME op_id fresh at a NEW
+    # generation (token reuse -- the exact WARNING-4 hazard).
+    release_control_plane_operation_global(op_id, owner_token="owner-X")
+    assert load_control_plane_operation_global(op_id) is None
+    assert claim_control_plane_operation_global(
+        _leased_op(op_id, owner="owner-X", claimed_at=new_epoch)
+    ) is True
 
     # The PREVIOUS generation's release (same token, OLD epoch) is a no-op.
     release_control_plane_operation_global(
         op_id, owner_token="owner-X", owner_claimed_at=start.isoformat()
     )
     stored = load_control_plane_operation_global(op_id)
-    assert stored is not None, "the stale-epoch release must not delete the new lease"
+    assert stored is not None, "the stale-epoch release must not delete the new claim"
     assert stored.status == "claimed"
-    assert stored.claimed_at_raw == new_epoch.isoformat()
+    assert stored.claimed_at is not None
+    assert stored.claimed_at.isoformat() == new_epoch.isoformat()
 
     # The PREVIOUS generation's finalize (same token, OLD epoch) is also a no-op.
     assert (

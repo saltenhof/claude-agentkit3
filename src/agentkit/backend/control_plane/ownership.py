@@ -174,8 +174,7 @@ MIN_QUEUE_POSITION = 0
 #: stamped on a claim at acquisition time and bumped ONLY by an explicit
 #: ``admin_abort_inflight_operation``/startup-reconciliation finalize -- never by
 #: wall clock. The first (and, absent an abort, only) epoch of a claim's lifetime
-#: is 1; a takeover of an EXPIRED claim (``_CLAIM_LEASE_TTL``, AG3-054) preserves
-#: the epoch unchanged (it is the SAME instance/incarnation reclaiming its own
-#: stuck lease, not a new fencing generation).
+#: is 1 (AG3-139: there is no CAS takeover of a foreign claim anymore -- a claim's
+#: epoch changes ONLY via an explicit admin-abort/startup-reconciliation finalize).
 MIN_OPERATION_EPOCH = 1
 INITIAL_OPERATION_EPOCH = 1

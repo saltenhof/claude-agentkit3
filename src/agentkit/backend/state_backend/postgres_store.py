@@ -604,8 +604,8 @@ def _schema_alter_statements() -> tuple[str, ...]:
         # owner-scoped claim. A fresh schema gets these from CREATE TABLE; an
         # existing same-version schema gets them idempotently here. TEXT (not
         # TIMESTAMPTZ) for claimed_at matches the table's other instants
-        # (created_at/updated_at) so the lease-expiry compare and the CAS
-        # exact-match roundtrip through plain ISO-8601 text.
+        # (created_at/updated_at) so the ownership-scoped finalize/release CAS
+        # (AG3-054 WARNING-4) exact-match roundtrips through plain ISO-8601 text.
         (
             "ALTER TABLE control_plane_operations "
             "ADD COLUMN IF NOT EXISTS claimed_by TEXT"
@@ -2996,18 +2996,19 @@ def claim_control_plane_operation_global_row(row: dict[str, Any]) -> bool:
     Performs a single ``INSERT ... ON CONFLICT (op_id) DO NOTHING`` with
     ``status='claimed'`` and the per-call ``claimed_by`` / ``claimed_at`` lease, so
     exactly ONE concurrent caller wins the claim for a given ``op_id``; the loser
-    sees zero affected rows and must inspect the row (terminal => replay,
-    live claim => in-flight rejection, expired claim => CAS takeover). The claim
-    happens BEFORE dispatch, so a loser never dispatches.
+    sees zero affected rows and must inspect the row (terminal => replay, a
+    foreign claim of ANY age => in-flight rejection; AG3-139: never a CAS
+    takeover). The claim happens BEFORE dispatch, so a loser never dispatches.
 
     AG3-138 (``inflight-operation-record``, FK-91 §91.1a rule 16): the fresh
     ``claimed`` placeholder additionally stamps ``operation_epoch``,
     ``backend_instance_id``, ``instance_incarnation`` and
     ``declared_serialization_scope`` -- every newly-acquired claim carries the
-    caller's instance identity and its initial fencing epoch. A subsequent
-    EXPIRED-lease takeover (:func:`takeover_control_plane_operation_global_row`)
-    intentionally does NOT re-stamp these columns: it is the SAME instance
-    reclaiming its own stuck lease, not a new fencing generation.
+    caller's instance identity and its initial fencing epoch. AG3-139: a foreign
+    ``claimed`` row is NEVER taken over here (no CAS takeover exists anymore) --
+    a loser always gets the fail-closed in-flight rejection; these columns are
+    re-stamped only on a genuinely fresh claim (a new op_id, or one released /
+    ended via admin-abort / startup reconciliation).
 
     Returns:
         ``True`` iff this caller inserted the row (won the claim); ``False`` when
@@ -3049,46 +3050,6 @@ def claim_control_plane_operation_global_row(row: dict[str, Any]) -> bool:
         return int(cursor.rowcount) == 1
 
 
-def takeover_control_plane_operation_global_row(
-    row: dict[str, Any],
-    *,
-    observed_claimed_by: str | None,
-    observed_claimed_at: str | None,
-) -> bool:
-    """CAS-take over an EXPIRED claim (AG3-054 leased claim).
-
-    Atomically re-stamps the lease to this caller ONLY if the row is still the
-    exact ``claimed`` placeholder the caller observed (same ``claimed_by`` /
-    ``claimed_at``). A concurrent winner that already finalized, released or took
-    over changed one of those, so the CAS affects zero rows and this caller loses
-    the takeover race (treated as an in-flight loser; it does NOT dispatch).
-
-    Returns:
-        ``True`` iff this caller took over the expired claim (rowcount == 1).
-    """
-
-    with _connect_global() as conn:
-        cursor = conn.execute(
-            """
-            UPDATE control_plane_operations
-            SET claimed_by = ?, claimed_at = ?, updated_at = ?
-            WHERE op_id = ?
-              AND status = 'claimed'
-              AND claimed_by IS NOT DISTINCT FROM ?
-              AND claimed_at IS NOT DISTINCT FROM ?
-            """,
-            (
-                row.get("claimed_by"),
-                row.get("claimed_at"),
-                row["updated_at"],
-                row["op_id"],
-                observed_claimed_by,
-                observed_claimed_at,
-            ),
-        )
-        return int(cursor.rowcount) == 1
-
-
 def finalize_control_plane_operation_global_row(
     row: dict[str, Any],
     *,
@@ -3099,15 +3060,15 @@ def finalize_control_plane_operation_global_row(
     """Ownership-scoped terminal write of a claimed op (AG3-054 leased claim).
 
     Writes the terminal status + response_json and CLEARS ``claimed_by`` ONLY when
-    the row is still ``claimed`` by ``owner_token``. If another owner finalized or
-    took over the (expired) claim in between, the CAS affects zero rows and this
-    caller must NOT overwrite the foreign/terminal row -- it returns ``False`` so
-    the runtime surfaces a replay/rejection instead.
+    the row is still ``claimed`` by ``owner_token``. If another owner finalized the
+    claim, or an admin-abort ended it, in between, the CAS affects zero rows and
+    this caller must NOT overwrite the foreign/terminal row -- it returns
+    ``False`` so the runtime surfaces a replay/rejection instead.
 
     WARNING-4 fix (#4): when ``owner_claimed_at`` (the RAW lease epoch the owner
     stamped) is given, the CAS also matches ``claimed_at`` (raw column) so it
-    scopes to THIS lease generation -- a reused token / post-takeover stale owner
-    cannot match a NEWER lease. ``None`` keeps the legacy owner-only CAS.
+    scopes to THIS lease generation -- a reused stale owner token (DI/test
+    wiring) cannot match a NEWER lease. ``None`` keeps the legacy owner-only CAS.
 
     AG3-138 (``operation_finalize_requires_cas_on_operation_epoch``): when
     ``owner_operation_epoch`` is given, the CAS additionally requires the stored
@@ -3350,11 +3311,11 @@ def finalize_control_plane_start_phase_global_row(
     * rowcount == 1 -> this owner still holds the claim: the binding / locks /
       events are inserted on the SAME connection and the whole transaction commits
       atomically. The terminal op and its canonical side effects appear together.
-    * rowcount == 0 -> the claim was lost/taken-over (a slow owner whose lease
-      expired and was finalized by a concurrent takeover): NOTHING is materialized
-      and the transaction is rolled back (the ``with`` block raises before commit),
-      so the loser writes NO duplicate/conflicting binding / lock / event. The
-      runtime then surfaces the winner's terminal row as a replay.
+    * rowcount == 0 -> the claim was already resolved by a concurrent process (a
+      slow owner's own later finalize, or an admin-abort, AG3-138): NOTHING is
+      materialized and the transaction is rolled back (the ``with`` block raises
+      before commit), so the loser writes NO duplicate/conflicting binding / lock
+      / event. The runtime then surfaces the winner's terminal row as a replay.
 
     The loser therefore never writes canonical side effects -- materialization is
     ownership-gated and atomic with the finalize (FK-22 §22.9, FK-91).
@@ -3855,8 +3816,8 @@ def release_control_plane_operation_global_row(
 
     WARNING-4 fix (#4): when ``owner_claimed_at`` (the RAW lease epoch the owner
     stamped) is given, the delete CAS also matches ``claimed_at`` so it scopes to
-    THIS lease generation -- a stale owner (reused token / post-takeover) cannot
-    delete a NEWER lease. ``None`` keeps the legacy owner-only CAS.
+    THIS lease generation -- a stale owner (a reused token in DI/test wiring)
+    cannot delete a NEWER lease. ``None`` keeps the legacy owner-only CAS.
     """
 
     epoch_clause, epoch_params = _owner_epoch_cas_clause(owner_claimed_at)
