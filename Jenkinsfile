@@ -159,8 +159,8 @@ PY
                         # build container is attached to the same user-defined Docker network as
                         # ``agentkit-postgres-ci``.
                         export AGENTKIT_STATE_BACKEND=postgres
-                        export AGENTKIT_STATE_DATABASE_URL="postgresql://agentkit:agentkit@agentkit-postgres-ci:5432/${DB_NAME}"
-                        export AGENTKIT_PG_ADMIN_DSN="postgresql://agentkit:agentkit@agentkit-postgres-ci:5432/postgres"
+                        export AGENTKIT_STATE_DATABASE_URL="postgresql://agentkit:agentkit@agentkit-postgres-ci:55432/${DB_NAME}"
+                        export AGENTKIT_PG_ADMIN_DSN="postgresql://agentkit:agentkit@agentkit-postgres-ci:55432/postgres"
                         python - <<'PY'
 from __future__ import annotations
 
@@ -202,7 +202,7 @@ while time.time() < deadline:
         time.sleep(1)
 else:
     raise SystemExit(
-        "Postgres service at agentkit-postgres-ci:5432 (shared Docker network) "
+        "Postgres service at agentkit-postgres-ci:55432 (shared Docker network) "
         f"not reachable within 60s: {last_error!r}"
     )
 PY
