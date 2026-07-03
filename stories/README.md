@@ -372,10 +372,10 @@ Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
 | ID | Titel (Kurzform) | Größe | Status | depends_on |
 |----|------------------|-------|--------|------------|
 | AG3-137 | Ownership-Schema-Fundament (Records/Claims/Transfer, Backfill) | L | **completed** | — |
-| AG3-138 | Instanz-Identität + Startup-Rekonsiliierung + admin_abort | L | **ready** | 137 |
-| AG3-139 | TTL-Entfall (Rückbau, NUR nach 138) | S | blocked | 138 |
+| AG3-138 | Instanz-Identität + Startup-Rekonsiliierung + admin_abort | L | **completed** | 137 |
+| AG3-139 | TTL-Entfall (Rückbau, NUR nach 138) | S | **ready** | 138 |
 | AG3-140 | Einheitlicher Idempotenz-Vertrag (BC-weit, Client-op_id) | L | **ready** | 137 |
-| AG3-141 | Objekt-Serialisierung (Story-Claims, Lock-Sets, 409/bounded-wait) | L | blocked | 137, 138 |
+| AG3-141 | Objekt-Serialisierung (Story-Claims, Lock-Sets, 409/bounded-wait) | L | **ready** | 137, 138 |
 | AG3-142 | Ownership-Fencing der Regime-Pfade (`ownership_epoch`) | L | **ready** | 137 |
 | AG3-143 | Execution-Contract-Digest + Spec-Freeze | M | **ready** | 137 |
 | AG3-144 | Job-Muster + Ergebnisarten + Upsert-Fences | L | blocked | 141, 142, 143 |
@@ -392,11 +392,16 @@ Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
 | AG3-155 | Betriebs-Runbook FK-04 (concept) | S | blocked | 139, 149, 151, 154 |
 | AG3-156 | Verify-Evidenz-Ausführungsort: Request-DSL-Resolver + Evidence-Assembler vom Backend-Worktree-Zugriff lösen (Review-Fund, PO-Go 2026-07-02) | L | blocked | 144, 145 |
 
-**Sofort startbar (`ready`): AG3-138, AG3-140, AG3-142, AG3-143, AG3-146.**
-(AG3-137 ✅ **completed** 2026-07-02 — Ownership-Schema-Fundament gelandet:
-Codex-Review APPROVE + SonarQube 0 Issues overall + volle Gate-Suite grün;
-entblockt AG3-138/140/142/143. AG3-141 bleibt blocked (braucht 138),
-AG3-145 blocked (braucht 141/142/146).)
+**Sofort startbar (`ready`): AG3-139, AG3-140, AG3-141, AG3-142, AG3-143, AG3-146.**
+(AG3-137 ✅ **completed** 2026-07-02 — Ownership-Schema-Fundament.
+AG3-138 ✅ **completed** 2026-07-03 — Instanz-Identität + Startup-
+Rekonsiliierung + admin_abort gelandet (Best-of-Breed auf sonnet-Basis,
+Opus-AC10-Mutationssperre eingearbeitet): Codex-Review APPROVE (r3) +
+SonarQube 0 Issues overall + volle Gate-Suite grün (8354, 91.87 %);
+E1-Posture PO-bestätigt (Teil-Write fail-closed-sicher + auflösbar;
+Präzision folgt mit AG3-141). Entblockt AG3-139 + AG3-141 (beide jetzt
+`ready`); AG3-154 bleibt blocked (braucht 145/148). Nächster Schritt
+laut Sequenz: AG3-139.)
 
 **Sequenzieller Ausführungsplan (gültige topologische Reihenfolge):**
 Die IDs wurden topologisch vergeben; aufsteigende Abarbeitung ist

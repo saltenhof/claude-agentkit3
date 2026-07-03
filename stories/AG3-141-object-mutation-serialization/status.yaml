@@ -1,7 +1,7 @@
 story_id: AG3-141
 title: "Objekt-Serialisierung: durable Story-/Projekt-Claims vor Dispatch, Lock-Sets, Queue-Fairness, bounded Warte-Semantik (K4)"
 type: implementation
-status: blocked
+status: ready
 phase: setup
 created: "2026-07-02"
 size: L
