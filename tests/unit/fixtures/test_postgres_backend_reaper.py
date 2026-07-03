@@ -50,20 +50,6 @@ def test_explicit_postgres_url_accepts_non_standard_test_port() -> None:
     )
 
 
-def test_find_free_port_rerolls_reserved_production_port(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    ports = iter([5432, 15432])
-
-    monkeypatch.setattr(
-        postgres_backend,
-        "_find_socket_port",
-        lambda: next(ports),
-    )
-
-    assert postgres_backend._find_free_port() == 15432
-
-
 def test_non_reserved_test_postgres_port_is_accepted() -> None:
     assert postgres_backend._ensure_non_reserved_test_postgres_port(15432) == 15432
 
@@ -76,6 +62,7 @@ def test_non_reserved_test_postgres_port_is_accepted() -> None:
         ("ak3-postgres-012345abcdeg", None, 7200.1, False),
         ("agentkit-postgres-ci", None, 7200.1, False),
         ("agentkit-postgres-ci-55432", None, 7200.1, False),
+        ("ak3-postgres-local", None, 7200.1, False),
         ("seu-sonar-db", None, 7200.1, False),
         ("arbitrary-container", None, 7200.1, False),
         ("ak3-postgres-012345abcdef", "0", 7200.1, True),
@@ -88,6 +75,7 @@ def test_non_reserved_test_postgres_port_is_accepted() -> None:
         "legacy_name_requires_12_hex_chars",
         "agentkit_postgres_ci_is_not_reapable",
         "agentkit_postgres_ci_port_variant_is_not_reapable",
+        "shared_local_instance_is_not_reapable",
         "sonar_db_is_not_reapable",
         "arbitrary_unlabelled_name_is_not_reapable",
         "legacy_exact_name_does_not_need_label",

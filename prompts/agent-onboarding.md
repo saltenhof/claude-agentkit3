@@ -720,9 +720,15 @@ Vollstaendigkeit:
   generische Fassade — Komponenten haben eigene Repository-Vertraege
   (FK-07 §7.x; siehe Workbook A4).
 
-Local-Dev-DSN typisch:
-`postgresql://agentkit:agentkit@host.docker.internal:55432/<db>`
-(Postgres laeuft als Docker-Container).
+Local-Dev-DSN typisch (GETEILTE lokale Instanz — Container
+`ak3-postgres-local`, ein stabiler Container/Port, wird
+angelegt-oder-wiederverwendet, nicht pro Session entfernt):
+`postgresql://agentkit:agentkit@127.0.0.1:55442/<db>` (vom Host) bzw.
+`postgresql://agentkit:agentkit@host.docker.internal:55442/<db>` (aus
+einem Container heraus). Diese lokale Instanz ist strikt getrennt von
+der CI-Postgres-Instanz (`agentkit-postgres-ci`), die nur
+Docker-intern im gemeinsamen Netz liegt (kein veroeffentlichter
+Host-Port) und ausschliesslich von Jenkins genutzt wird.
 
 ---
 
@@ -1263,7 +1269,7 @@ git config core.hookspath .githooks
 | Jenkins | `http://127.0.0.1:9900` | `admin` / `admin` |
 | SonarQube | `http://192.168.0.20:9901` | `admin` / `meinSonarCube2026!` |
 | Weaviate (lokal) | `127.0.0.1:9903` (HTTP) / `50051` (gRPC) | — |
-| Postgres (lokal, Docker) | `host.docker.internal:55432` | `agentkit` / `agentkit` |
+| Postgres (lokal, Docker, geteilt: `ak3-postgres-local`) | `127.0.0.1:55442` (Host) / `host.docker.internal:55442` (Container) | `agentkit` / `agentkit` |
 
 Alle Services laufen in lokalen Docker-Containern. Nicht erreichbar?
 **Docker Desktop pruefen, Container hochfahren.** Erreichbarkeit ist

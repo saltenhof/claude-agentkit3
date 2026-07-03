@@ -15,6 +15,7 @@ dependencies = [
     "argon2-cffi>=23.1",
     "pydantic>=2.0",
     "psycopg[binary]>=3.2",
+    "psycopg-pool>=3.2",
     "pyyaml>=6.0",
     "psutil>=5.9",
 ]
@@ -47,10 +48,15 @@ packages = ["src/agentkit"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Parallelize across cores (pytest-xdist). ``loadfile`` keeps each test file on one
-# worker, so module-level fixtures and any not-fully-isolated tests stay safe while
-# files fan out across workers. Override with ``-n0`` for a serial run.
-addopts = "-n auto --dist loadfile"
+# Parallelize across a BOUNDED worker count (pytest-xdist). ``-n 4`` (never
+# ``-n auto``) caps the fan-out at 4 workers: each Postgres-backed worker holds ONE
+# pooled DB connection (see postgres_store pool, default max_size=1), so the total
+# concurrent DB footprint stays small and the Docker-Desktop userspace port proxy is
+# never driven into the multi-core burn that ``-n auto`` (up to 24 workers x
+# connect-churn) caused. ``loadfile`` keeps each test file on one worker, so
+# module-level fixtures and any not-fully-isolated tests stay safe while files fan
+# out across workers. Override with ``-n0`` for a serial run.
+addopts = "-n 4 --dist loadfile"
 markers = [
     "slow: marks tests as slow",
     "requires_git: marks tests requiring git",

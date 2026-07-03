@@ -16,7 +16,9 @@ single-sourced from the SAME canonical value as the record-boundary predicate
 
 from __future__ import annotations
 
+import atexit
 import json
+import os
 import threading
 from collections.abc import Mapping
 from contextlib import contextmanager
@@ -24,8 +26,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-import psycopg
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
 from agentkit.backend.boundary.filesystem import atomic_write_json, load_json_object
 from agentkit.backend.boundary.shared.time import now_iso
@@ -50,6 +52,8 @@ from agentkit.backend.state_backend.schema_bootstrap import ensure_versioned_sch
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
+
+    import psycopg
 
     from agentkit.backend.state_backend.scope import RuntimeStateScope
 
@@ -241,31 +245,144 @@ def _cast_optional_str(value: object) -> _OptionalString:
     return cast("_OptionalString", value)
 
 
+# ---------------------------------------------------------------------------
+# Process-bound connection pool (connection-churn elimination)
+# ---------------------------------------------------------------------------
+#
+# Before: ``_connect_global`` opened a fresh ``psycopg.connect`` on EVERY store
+# operation and closed it on block exit. Under the Postgres test suites (and any
+# concurrent control-plane request load) that connect-per-operation model drove
+# massive connection churn — every open/close crosses the Docker-Desktop userspace
+# port proxy (``com.docker.backend`` / gvisor / vpnkit), which is the ~19-core CPU
+# burn this hardening removes.
+#
+# Now: a single process-bound :class:`psycopg_pool.ConnectionPool` lends and
+# returns connections. Transaction / CAS semantics are IDENTICAL to the former
+# model — every ``with _connect_global()`` block still runs in its OWN transaction
+# (committed at block end, rolled back on exception) and there is no nesting (a
+# single acquisition per call stack; verified), so a size-1 pool cannot
+# self-deadlock. ``_reset_pooled_connection`` scrubs session state on return so no
+# ``search_path`` / GUC carries across borrows.
+#
+# Default ``max_size=1`` => at most ONE physical connection per process/worker. The
+# CAS / ownership machinery serializes concurrent callers via DURABLE claim rows +
+# row-level CAS (concept §10.5: "genau eine aktive Control-Plane-Writer-Instanz pro
+# Datenbank"; reads take no locks), NOT via connection state, so a single connection
+# yields identical outcomes — only serialized. The concurrent control-plane HTTP
+# server (thread-per-request) can lift the ceiling for throughput via
+# ``AGENTKIT_STATE_POOL_MAX_SIZE``; because no path acquires a second connection while
+# holding one, raising the ceiling never introduces a deadlock and never changes a
+# transaction boundary.
+_STATE_POOL_MAX_SIZE_ENV = "AGENTKIT_STATE_POOL_MAX_SIZE"
+_DEFAULT_STATE_POOL_MAX_SIZE = 1
+_POOL_LOCK = threading.Lock()
+_POOL: ConnectionPool[psycopg.Connection[Any]] | None = None
+_POOL_URL: str | None = None
+
+
+def _resolve_state_pool_max_size() -> int:
+    """Resolve the per-process pool ceiling (default 1 = one connection/worker)."""
+
+    raw = os.environ.get(_STATE_POOL_MAX_SIZE_ENV)
+    if raw is None or not raw.strip():
+        return _DEFAULT_STATE_POOL_MAX_SIZE
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Invalid {_STATE_POOL_MAX_SIZE_ENV}={raw!r}; expected a positive integer.",
+        ) from exc
+    if value < 1:
+        raise RuntimeError(
+            f"Invalid {_STATE_POOL_MAX_SIZE_ENV}={value}; the pool must allow at "
+            "least one connection.",
+        )
+    return value
+
+
+def _reset_pooled_connection(conn: psycopg.Connection[Any]) -> None:
+    """Scrub per-borrow session state before a connection re-enters the pool.
+
+    Discards any lingering transaction and resets every session GUC (notably
+    ``search_path``, which each borrow re-establishes via
+    :func:`ensure_versioned_schema`). Guarantees no session-state carry-over
+    (``search_path`` / GUC leakage) between pooled borrows.
+    """
+
+    if conn.closed:
+        return
+    conn.rollback()
+    conn.execute("RESET ALL")
+    conn.commit()
+
+
+def _build_state_pool(url: str) -> ConnectionPool[psycopg.Connection[Any]]:
+    pool: ConnectionPool[psycopg.Connection[Any]] = ConnectionPool(
+        conninfo=url,
+        min_size=1,
+        max_size=_resolve_state_pool_max_size(),
+        kwargs={"row_factory": dict_row},
+        reset=_reset_pooled_connection,
+        check=ConnectionPool.check_connection,
+        name="agentkit-state-backend",
+        open=False,
+    )
+    pool.open()
+    return pool
+
+
+def _get_pool() -> ConnectionPool[psycopg.Connection[Any]]:
+    """Return the process-bound connection pool for the active database URL.
+
+    The pool is rebuilt only when the resolved URL changes (test env switching);
+    within a process/worker bound to one URL it is reused, so exactly one physical
+    connection (at the default ``max_size=1``) is held for the worker's lifetime.
+    """
+
+    global _POOL, _POOL_URL
+    url = _database_url()
+    with _POOL_LOCK:
+        if _POOL is not None and url == _POOL_URL:
+            return _POOL
+        if _POOL is not None:
+            _POOL.close()
+        _POOL = _build_state_pool(url)
+        _POOL_URL = url
+        return _POOL
+
+
+def _dispose_pool() -> None:
+    """Close and forget the process-bound pool (atexit / test teardown)."""
+
+    global _POOL, _POOL_URL
+    with _POOL_LOCK:
+        if _POOL is not None:
+            _POOL.close()
+        _POOL = None
+        _POOL_URL = None
+
+
+atexit.register(_dispose_pool)
+
+
 @contextmanager
 def _connect_global() -> Iterator[_CompatConnection]:
-    conn = psycopg.connect(
-        _database_url(),
-        row_factory=dict_row,
-    )
-    # The schema bootstrap must live INSIDE the try so a failure during
-    # ``_ensure_versioned_schema`` / ``_ensure_schema_once`` (or the interleaved
-    # commits) closes the connection instead of leaking the open handle
-    # (fail-closed resource lifecycle). A leaked connection mid-bootstrap can
-    # retain table locks from a half-applied DDL transaction.
-    try:
+    # Borrow from the process-bound pool instead of opening a fresh connection per
+    # operation (connection-churn elimination). ``pool.connection()`` commits on a
+    # clean exit, rolls back on exception, and RETURNS the connection to the pool
+    # (never closes it); ``_reset_pooled_connection`` scrubs session state on return.
+    # The staged commits below are unchanged and load-bearing: they release the
+    # global DDL advisory lock before the heavy table/index bootstrap so parallel
+    # schemas do not serialize behind one worker.
+    pool = _get_pool()
+    with pool.connection() as conn:
         compat = _CompatConnection(conn)
         _ensure_versioned_schema(compat)
-        # ``ensure_versioned_schema`` creates/selects the target schema under a
-        # global advisory DDL lock. Release that lock before the heavy
-        # table/index bootstrap; otherwise parallel test schemas serialize
-        # behind one worker.
         conn.commit()
         _ensure_schema_once(compat)
         conn.commit()
         yield compat
         conn.commit()
-    finally:
-        conn.close()
 
 
 @contextmanager
@@ -273,6 +390,28 @@ def _connect(story_dir: Path) -> Iterator[_CompatConnection]:
     del story_dir
     with _connect_global() as compat:
         yield compat
+
+
+@contextmanager
+def _borrow_pooled_connection_raw() -> Iterator[psycopg.Connection[Any]]:
+    """Borrow the pooled raw connection WITHOUT running the schema bootstrap.
+
+    Sanctioned maintenance seam (e.g. the Postgres test fixture's per-test
+    TRUNCATE): it reuses the SAME pooled connection as store operations — so it adds
+    NO connection churn — but deliberately SKIPS ``_ensure_versioned_schema`` /
+    ``_ensure_schema_once``. Skipping the bootstrap is required, not merely an
+    optimisation: running it here would populate the process schema-bootstrap cache
+    (``_SCHEMA_ENSURED_NAMES``) BEFORE the caller mutates the schema (e.g. a TRUNCATE
+    that empties ``schema_versions``), which would then suppress the legitimate
+    re-bootstrap on the NEXT store operation. Callers must address objects by
+    QUALIFIED ``schema.table`` — this connection carries no guaranteed
+    ``search_path``. Commits on clean exit; ``pool.connection()`` rolls back on
+    exception.
+    """
+    pool = _get_pool()
+    with pool.connection() as conn:
+        yield conn
+        conn.commit()
 
 
 def _schema_create_script() -> str:

@@ -31,10 +31,8 @@ import json
 import os
 import re
 import shutil
-import socket
 import subprocess
 import time
-import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
@@ -71,6 +69,22 @@ _RESERVED_PRODUCTION_POSTGRES_PORT_ERROR = (
     "tests must not run against the reserved production standard port 5432; "
     f"point {STATE_DATABASE_URL_ENV} at a non-5432 ephemeral test instance"
 )
+# Connection-churn hardening: the SINGLE shared local Postgres instance. The docker
+# path create-or-REUSES this one stable container (fixed name + host port, no
+# ``--rm``, never removed on teardown) instead of spawning an ephemeral
+# ``ak3-postgres-<uuid>`` per pytest session — so a machine runs at most ONE local
+# test DB regardless of how many sessions/workers execute. It is strictly separate
+# from the CI instance (``agentkit-postgres-ci``, docker-internal only): a distinct
+# host port (55442, not the CI 55432) so the two never collide even while both run on
+# one machine. It carries NO reapable test label and its name is not the ephemeral
+# 12-hex form, so neither container reaper removes it (see _is_reapable_test_container).
+# Per-run/per-worker isolation stays schema-level (ak3test_<runtoken>_<worker>).
+_SHARED_LOCAL_POSTGRES_CONTAINER_NAME = "ak3-postgres-local"
+_SHARED_LOCAL_POSTGRES_HOST_PORT = 55442
+_SHARED_LOCAL_POSTGRES_USER = "agentkit"
+_SHARED_LOCAL_POSTGRES_PASSWORD = "agentkit"
+_SHARED_LOCAL_POSTGRES_DB = "agentkit_test"
+_SHARED_LOCAL_POSTGRES_IMAGE = "postgres:17-alpine"
 _EXPLICIT_BACKEND_AT_IMPORT = os.environ.get(STATE_BACKEND_ENV)
 _EXPLICIT_URL_AT_IMPORT = os.environ.get(STATE_DATABASE_URL_ENV)
 _DOCKER_TIMESTAMP_PATTERN = re.compile(
@@ -101,23 +115,6 @@ def _ensure_explicit_postgres_url_uses_test_port(url: str) -> None:
             f"Invalid {STATE_DATABASE_URL_ENV} port in explicit Postgres test URL.",
         ) from exc
     _ensure_non_reserved_test_postgres_port(port)
-
-
-def _find_socket_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
-
-
-def _find_free_port() -> int:
-    for _ in range(100):
-        port = _find_socket_port()
-        if port == _RESERVED_PRODUCTION_POSTGRES_PORT:
-            continue
-        return _ensure_non_reserved_test_postgres_port(port)
-    raise RuntimeError(
-        "Could not allocate a non-5432 ephemeral Postgres test port after 100 attempts.",
-    )
 
 
 def _is_explicit_postgres_env() -> bool:
@@ -326,27 +323,155 @@ def _sweep_stale_test_schemas(url: str) -> None:
 
 
 def _base_tables(conn: psycopg.Connection[Any], schema: str) -> list[str]:
-    """Return the BASE TABLE names of *schema* (registry lives in public)."""
+    """Return the BASE TABLE names of *schema* (registry lives in public).
+
+    Reads column ``table_name`` by NAME (not positional ``row[0]``): this runs on
+    the shared pooled connection, whose ``row_factory`` is ``dict_row``, so rows are
+    mappings keyed by column name.
+    """
     rows = conn.execute(
         "SELECT table_name FROM information_schema.tables "
         "WHERE table_schema = %s AND table_type = 'BASE TABLE'",
         (schema,),
     ).fetchall()
-    return [str(row[0]) for row in rows]
+    return [str(row["table_name"]) for row in rows]
 
 
-def _truncate_schema(url: str, schema: str) -> None:
-    """TRUNCATE every base table of *schema* (RESTART IDENTITY CASCADE)."""
-    with psycopg.connect(url, autocommit=True) as conn:
+def _truncate_schema(schema: str) -> None:
+    """TRUNCATE every base table of *schema* (RESTART IDENTITY CASCADE).
+
+    Runs on the SHARED pooled connection (the ``postgres_store`` process pool)
+    instead of opening a fresh connect-per-call connection, so per-test truncation
+    adds no connection churn and a worker holds exactly ONE physical DB connection.
+    Uses the bootstrap-SKIPPING borrow (``_borrow_pooled_connection_raw``): running
+    the schema bootstrap here would cache the schema as "bootstrapped" BEFORE this
+    TRUNCATE empties ``schema_versions`` / ``fact_*``, wrongly suppressing the
+    re-bootstrap the next store operation must perform. Tables are referenced by
+    qualified ``schema.table`` identifiers, so the result is independent of the
+    connection's ``search_path``.
+    """
+    from agentkit.backend.state_backend import postgres_store
+
+    with postgres_store._borrow_pooled_connection_raw() as conn:
         tables = _base_tables(conn, schema)
         if not tables:
             return
-        target = sql.SQL(", ").join(
-            sql.Identifier(schema, table) for table in tables
-        )
+        target = sql.SQL(", ").join(sql.Identifier(schema, table) for table in tables)
         conn.execute(
             sql.SQL("TRUNCATE TABLE {} RESTART IDENTITY CASCADE").format(target),
         )
+
+
+def _shared_local_postgres_url() -> str:
+    """Return the DSN of the single shared local Postgres instance (fail-closed port)."""
+    port = _ensure_non_reserved_test_postgres_port(_SHARED_LOCAL_POSTGRES_HOST_PORT)
+    return (
+        f"postgresql://{_SHARED_LOCAL_POSTGRES_USER}:{_SHARED_LOCAL_POSTGRES_PASSWORD}"
+        f"@127.0.0.1:{port}/{_SHARED_LOCAL_POSTGRES_DB}"
+    )
+
+
+def _container_state(docker: str, name: str) -> str | None:
+    """Return a container's ``.State.Status`` (e.g. ``running``), or None if absent."""
+    result = subprocess.run(
+        [docker, "inspect", "--format", "{{.State.Status}}", name],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _start_shared_local_container(docker: str) -> None:
+    """Create-or-reuse the single stable shared local Postgres container.
+
+    Fixed name + host port, no ``--rm``, NO reapable test label — so it survives
+    across pytest sessions and neither container reaper removes it. Race-safe for
+    concurrent xdist workers: a name collision on ``docker run`` means a concurrent
+    worker created it first, and the container is reused.
+    """
+    name = _SHARED_LOCAL_POSTGRES_CONTAINER_NAME
+    status = _container_state(docker, name)
+    if status == "running":
+        return
+    if status is not None:
+        subprocess.run([docker, "start", name], check=False, capture_output=True, text=True)
+        return
+    result = subprocess.run(
+        [
+            docker,
+            "run",
+            "-d",
+            "--name",
+            name,
+            "-e",
+            f"POSTGRES_USER={_SHARED_LOCAL_POSTGRES_USER}",
+            "-e",
+            f"POSTGRES_PASSWORD={_SHARED_LOCAL_POSTGRES_PASSWORD}",
+            "-e",
+            f"POSTGRES_DB={_SHARED_LOCAL_POSTGRES_DB}",
+            "-p",
+            f"{_SHARED_LOCAL_POSTGRES_HOST_PORT}:5432",
+            _SHARED_LOCAL_POSTGRES_IMAGE,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        return
+    # A concurrent worker may have won the name (create race) — reuse if now present.
+    status = _container_state(docker, name)
+    if status == "running":
+        return
+    if status is not None:
+        subprocess.run([docker, "start", name], check=False, capture_output=True, text=True)
+        return
+    raise RuntimeError(
+        f"failed to start shared local Postgres container {name!r}: "
+        f"{result.stderr.strip() or result.stdout.strip()}",
+    )
+
+
+def _wait_for_shared_local_postgres_ready(docker: str, url: str) -> None:
+    """Block until the shared local Postgres accepts connections (fail-closed)."""
+    for _ in range(60):
+        probe = subprocess.run(
+            [
+                docker,
+                "exec",
+                _SHARED_LOCAL_POSTGRES_CONTAINER_NAME,
+                "pg_isready",
+                "-U",
+                _SHARED_LOCAL_POSTGRES_USER,
+                "-d",
+                _SHARED_LOCAL_POSTGRES_DB,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if probe.returncode == 0:
+            try:
+                with psycopg.connect(url) as conn, conn.cursor() as cur:
+                    cur.execute("select 1")
+                    cur.fetchone()
+                return
+            except psycopg.Error:
+                pass
+        time.sleep(0.5)
+    raise RuntimeError(
+        "shared local postgres container did not become ready in time",
+    )
+
+
+def _ensure_shared_local_postgres(docker: str) -> str:
+    """Ensure the single shared local Postgres instance is up and return its DSN."""
+    url = _shared_local_postgres_url()
+    _start_shared_local_container(docker)
+    _wait_for_shared_local_postgres_ready(docker, url)
+    return url
 
 
 @pytest.fixture(scope="session")
@@ -366,82 +491,15 @@ def postgres_container_url() -> Iterator[str]:
             "or a local docker installation.",
         )
 
+    # Reap only pre-change ephemeral ``ak3-postgres-<uuid>`` leftovers; the shared
+    # local instance is protected (no reapable label, name is not the 12-hex form).
     _sweep_stale_test_postgres_containers(docker)
 
-    port = _find_free_port()
-    container_name = f"ak3-postgres-{uuid.uuid4().hex[:12]}"
-    user = "agentkit"
-    password = "agentkit"
-    database = "agentkit_test"
-    url = f"postgresql://{user}:{password}@127.0.0.1:{port}/{database}"
-
-    subprocess.run(
-        [
-            docker,
-            "run",
-            "-d",
-            "--rm",
-            "--name",
-            container_name,
-            "--label",
-            f"{_TEST_POSTGRES_CONTAINER_LABEL}={_TEST_POSTGRES_CONTAINER_LABEL_VALUE}",
-            "-e",
-            f"POSTGRES_USER={user}",
-            "-e",
-            f"POSTGRES_PASSWORD={password}",
-            "-e",
-            f"POSTGRES_DB={database}",
-            "-p",
-            f"{port}:5432",
-            "postgres:17-alpine",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    try:
-        ready = False
-        for _ in range(60):
-            probe = subprocess.run(
-                [
-                    docker,
-                    "exec",
-                    container_name,
-                    "pg_isready",
-                    "-U",
-                    user,
-                    "-d",
-                    database,
-                ],
-                capture_output=True,
-                text=True,
-            )
-            if probe.returncode == 0:
-                try:
-                    with psycopg.connect(url) as conn, conn.cursor() as cur:
-                        cur.execute("select 1")
-                        cur.fetchone()
-                    ready = True
-                    break
-                except psycopg.Error:
-                    pass
-            time.sleep(0.5)
-
-        if not ready:
-            raise RuntimeError(
-                "postgres test container did not become ready in time",
-            )
-
-        _sweep_stale_test_schemas(url)
-        yield url
-    finally:
-        subprocess.run(
-            [docker, "rm", "-f", "-v", container_name],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+    url = _ensure_shared_local_postgres(docker)
+    _sweep_stale_test_schemas(url)
+    # No teardown: the shared local instance is STABLE and reused across sessions —
+    # never removed here (that reuse is the whole point of AC2 / two-instance model).
+    yield url
 
 
 @pytest.fixture(scope="session")
@@ -547,11 +605,11 @@ def postgres_isolated_schema(
     monkeypatch.setenv(SCHEMA_OVERRIDE_ENV, schema)
     monkeypatch.setenv(SCHEMA_OVERRIDE_ALLOWED_ENV, "1")
     reset_backend_cache_for_tests()
-    _truncate_schema(url, schema)
+    _truncate_schema(schema)
     try:
         yield url
     finally:
-        _truncate_schema(url, schema)
+        _truncate_schema(schema)
         reset_backend_cache_for_tests()
 
 

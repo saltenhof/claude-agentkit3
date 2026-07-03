@@ -150,14 +150,17 @@ PY
                         set -eu
                         . .venv/bin/activate
                         DB_NAME="agentkit_test_${BUILD_NUMBER:-manual}"
-                        # Force IPv4: this is a local Windows network with no routable IPv6.
-                        # The dual-stack host.docker.internal name otherwise intermittently
-                        # resolves to an unreachable IPv6 ULA (psycopg "Network is unreachable").
-                        PG_HOST="$(getent ahostsv4 host.docker.internal | awk 'NR==1 {print $1}')"
-                        : "${PG_HOST:?could not resolve host.docker.internal to an IPv4 address}"
+                        # CI Postgres reachability is DOCKER-INTERNAL ONLY: the DB runs as the
+                        # single CI instance ``agentkit-postgres-ci`` on the shared Docker
+                        # network and is reached by CONTAINER NAME on the internal port 5432.
+                        # It publishes NO host port (no ``-p 55432``, no host.docker.internal),
+                        # so there is no host-network grenzuebertritt through the Docker-Desktop
+                        # userspace port proxy. Prerequisite (infra, not this repo): the Jenkins
+                        # build container is attached to the same user-defined Docker network as
+                        # ``agentkit-postgres-ci``.
                         export AGENTKIT_STATE_BACKEND=postgres
-                        export AGENTKIT_STATE_DATABASE_URL="postgresql://agentkit:agentkit@${PG_HOST}:55432/${DB_NAME}"
-                        export AGENTKIT_PG_ADMIN_DSN="postgresql://agentkit:agentkit@${PG_HOST}:55432/postgres"
+                        export AGENTKIT_STATE_DATABASE_URL="postgresql://agentkit:agentkit@agentkit-postgres-ci:5432/${DB_NAME}"
+                        export AGENTKIT_PG_ADMIN_DSN="postgresql://agentkit:agentkit@agentkit-postgres-ci:5432/postgres"
                         python - <<'PY'
 from __future__ import annotations
 
@@ -199,8 +202,8 @@ while time.time() < deadline:
         time.sleep(1)
 else:
     raise SystemExit(
-        "Postgres service at host.docker.internal:55432 not reachable "
-        f"within 60s: {last_error!r}"
+        "Postgres service at agentkit-postgres-ci:5432 (shared Docker network) "
+        f"not reachable within 60s: {last_error!r}"
     )
 PY
                         set +e
