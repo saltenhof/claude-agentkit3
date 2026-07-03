@@ -158,6 +158,7 @@ def test_project_edge_client_posts_and_publishes(tmp_path: Path) -> None:
             session_id="sess-001",
             principal_type="orchestrator",
             worktree_roots=[str(worktree)],
+            op_id="op-phase-start-client-001",
         ),
     )
 
@@ -179,6 +180,7 @@ def test_project_edge_client_supports_all_mutation_paths(tmp_path: Path) -> None
         session_id="sess-001",
         principal_type="orchestrator",
         worktree_roots=[str(tmp_path / "worktree")],
+        op_id="op-phase-multi-001",
     )
 
     client.complete_phase(run_id="run-100", phase="setup", request=phase_request)
@@ -189,9 +191,14 @@ def test_project_edge_client_supports_all_mutation_paths(tmp_path: Path) -> None
             project_key="tenant-a",
             story_id="AG3-100",
             session_id="sess-001",
+            op_id="op-closure-client-001",
         ),
     )
-    client.sync(ProjectEdgeSyncRequest(project_key="tenant-a", session_id="sess-001"))
+    client.sync(
+        ProjectEdgeSyncRequest(
+            project_key="tenant-a", session_id="sess-001", op_id="op-sync-client-001"
+        )
+    )
     client.reconcile_operation("op-client-001")
 
     assert transport.calls == [
@@ -219,6 +226,7 @@ def test_operator_run_phase_hits_project_scoped_route_without_publish(
         session_id="sess-001",
         principal_type="operator",
         worktree_roots=[str(tmp_path / "worktree")],
+        op_id="op-run-phase-op-001",
     )
 
     returned = client.run_phase(
@@ -253,6 +261,7 @@ def test_operator_resume_phase_hits_project_scoped_resume_route(
         principal_type="operator",
         worktree_roots=[str(tmp_path / "worktree")],
         detail={"resume_trigger": "approval_received"},
+        op_id="op-resume-phase-001",
     )
 
     client.resume_phase(
@@ -282,6 +291,7 @@ def test_operator_phase_route_url_encodes_project_key(tmp_path: Path) -> None:
         session_id="sess-001",
         principal_type="operator",
         worktree_roots=[str(tmp_path / "worktree")],
+        op_id="op-url-encode-001",
     )
 
     client.run_phase(
@@ -310,6 +320,7 @@ def test_operator_phase_route_url_encodes_run_id_and_phase(tmp_path: Path) -> No
         session_id="sess-001",
         principal_type="operator",
         worktree_roots=[str(tmp_path / "worktree")],
+        op_id="op-run-id-encode-001",
     )
 
     # A ``run_id="run/evil"`` must not break out of the run-id path segment and
@@ -445,6 +456,7 @@ def _setup_request(tmp_path: Path) -> PhaseMutationRequest:
         session_id="sess-001",
         principal_type="orchestrator",
         worktree_roots=[str(tmp_path / "worktree")],
+        op_id="op-phase-helper-001",
     )
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import ssl
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -309,6 +310,10 @@ class ProjectEdgeResolver:
                 ProjectEdgeSyncRequest(
                     project_key=project_config.project_key,
                     session_id=session_id,
+                    # FK-91 §91.1a Regel 5 (AG3-140): the bounded sync is a
+                    # client caller -- it mints its own op_id (the server no
+                    # longer supplies a default).
+                    op_id=f"op-{uuid.uuid4().hex}",
                     freshness_class=freshness_class,
                 ),
             )

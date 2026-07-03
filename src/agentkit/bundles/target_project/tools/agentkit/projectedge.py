@@ -146,7 +146,7 @@ def main(
                 project_key=args.project_key,
                 story_id=args.story_id,
                 session_id=args.session_id,
-                op_id=args.op_id,
+                op_id=_client_op_id(args.op_id),
             ),
         )
     else:
@@ -154,7 +154,7 @@ def main(
             ProjectEdgeSyncRequest(
                 project_key=args.project_key,
                 session_id=args.session_id,
-                op_id=args.op_id,
+                op_id=_client_op_id(args.op_id),
                 freshness_class=args.freshness_class,
             ),
         )
@@ -369,6 +369,17 @@ def _add_phase_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--op-id")
 
 
+def _client_op_id(op_id: str | None) -> str:
+    """Return the caller op_id, minting one client-side when omitted.
+
+    FK-91 §91.1a Regel 5 (AG3-140): op_id is the client-supplied idempotency key
+    and the server no longer supplies a default. ``--op-id`` stays optional on the
+    CLI, so a caller that omits it gets a fresh client-side mint here — no command
+    ever relies on a server default that no longer exists.
+    """
+    return op_id or f"op-{uuid.uuid4().hex}"
+
+
 def _phase_request(args: argparse.Namespace) -> PhaseMutationRequest:
     return PhaseMutationRequest(
         project_key=args.project_key,
@@ -376,7 +387,7 @@ def _phase_request(args: argparse.Namespace) -> PhaseMutationRequest:
         session_id=args.session_id,
         principal_type=args.principal_type,
         worktree_roots=args.worktree_roots or [str(Path.cwd())],
-        op_id=args.op_id,
+        op_id=_client_op_id(args.op_id),
     )
 
 

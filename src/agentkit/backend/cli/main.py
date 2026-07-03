@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import sys
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -33,6 +34,14 @@ _PROJECT_ROOT_HELP = "Project root directory"
 
 #: Shared ``--run`` help label, reused across the operator/recovery subcommands.
 _RUN_ID_HELP = "Run ID"
+
+#: Shared ``--op-id`` help label (FK-91 §91.1a Regel 5, AG3-140). Optional on the
+#: CLI: a client-supplied idempotency key; when omitted the operator CLI mints a
+#: fresh op_id client-side (the server no longer supplies a default).
+_OP_ID_HELP = (
+    "Client-supplied idempotency key (FK-91 Regel 5). Omit to mint one "
+    "client-side; reuse the SAME value to safely retry an ambiguous call."
+)
 
 #: Shared ``--project`` override help label, reused across the subcommands.
 _PROJECT_KEY_OVERRIDE_HELP = "Project key override"
@@ -1732,6 +1741,7 @@ def _setup_operator_recovery_subparsers(
     run_phase_parser.add_argument("--project", required=False, help=_PROJECT_KEY_OVERRIDE_HELP)
     run_phase_parser.add_argument("--config", required=False, help=_CONFIG_PATH_OVERRIDE_HELP)
     run_phase_parser.add_argument("--project-root", default=".", help=_PROJECT_ROOT_HELP)
+    run_phase_parser.add_argument("--op-id", required=False, help=_OP_ID_HELP)
     run_phase_parser.add_argument(
         "--base-url",
         required=False,
@@ -1761,6 +1771,7 @@ def _setup_operator_recovery_subparsers(
     resume_parser.add_argument("--project", required=False, help=_PROJECT_KEY_OVERRIDE_HELP)
     resume_parser.add_argument("--config", required=False, help=_CONFIG_PATH_OVERRIDE_HELP)
     resume_parser.add_argument("--project-root", default=".", help=_PROJECT_ROOT_HELP)
+    resume_parser.add_argument("--op-id", required=False, help=_OP_ID_HELP)
     resume_parser.add_argument(
         "--base-url",
         required=False,
@@ -2016,6 +2027,12 @@ def _prepare_phase_call(
             principal_type=args.principal,
             worktree_roots=worktree_roots,
             detail=detail or {},
+            # FK-91 §91.1a Regel 5 (AG3-140): op_id is the client-supplied
+            # idempotency key; the operator CLI mints one when --op-id is omitted
+            # (the server no longer supplies a default). A replay of the SAME
+            # op_id returns the stored result; a parallel same op_id is rejected
+            # in-flight.
+            op_id=getattr(args, "op_id", None) or f"op-{uuid.uuid4().hex}",
         )
     except Exception as exc:  # noqa: BLE001
         print(f"{verb} failed [InvalidRequest]: {exc}", file=sys.stderr)
