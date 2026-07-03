@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 from functools import lru_cache
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from agentkit.backend.exceptions import CorruptStateError
 from agentkit.backend.state_backend.config import (
@@ -1086,6 +1086,72 @@ def finalize_control_plane_operation_global(
             owner_token=owner_token,
             owner_claimed_at=owner_claimed_at,
             owner_operation_epoch=owner_operation_epoch,
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# Unified inflight-operation-record row API (AG3-140)
+#
+# The generic in-flight idempotency guard (``inflight_idempotency_guard``) is
+# story-agnostic: it consumes/produces plain row dicts in state-backend
+# vocabulary (no ``ControlPlaneOperationRecord``, whose ``story_id`` is a
+# control-plane-scoped non-null field). These thin wrappers forward a caller-
+# built row straight to the same physical ``control_plane_operations`` driver
+# functions the record-based control-plane path uses -- ONE record truth, one
+# claim/finalize mechanism, without coupling the generic guard to the control-
+# plane record type. Release reuses ``release_control_plane_operation_global``.
+# ---------------------------------------------------------------------------
+
+
+def claim_inflight_operation_row_global(row: dict[str, Any]) -> bool:
+    """Atomically claim an op_id from a caller-built row (AG3-140).
+
+    Returns ``True`` iff this caller inserted the ``claimed`` placeholder (won the
+    claim); ``False`` when the op_id already existed (a concurrent/earlier caller
+    owns it or it is terminal). Backed by ``INSERT ... ON CONFLICT DO NOTHING``.
+    """
+    backend = _backend_module()
+    if not hasattr(backend, "claim_control_plane_operation_global_row"):
+        raise RuntimeError(
+            "Atomic control-plane op claim is unsupported by the active backend",
+        )
+    return bool(backend.claim_control_plane_operation_global_row(row))
+
+
+def load_inflight_operation_row_global(op_id: str) -> dict[str, Any] | None:
+    """Load the raw inflight-operation-record row for ``op_id``, or ``None`` (AG3-140)."""
+    backend = _backend_module()
+    if not hasattr(backend, "load_control_plane_operation_global_row"):
+        raise RuntimeError(
+            "Global control-plane operations are unsupported by the active backend",
+        )
+    row = backend.load_control_plane_operation_global_row(op_id)
+    return dict(row) if row is not None else None
+
+
+def finalize_inflight_operation_row_global(
+    row: dict[str, Any],
+    *,
+    owner_token: str,
+    owner_claimed_at: str | None = None,
+) -> bool:
+    """Ownership-scoped terminal write from a caller-built row (AG3-140).
+
+    Writes the terminal ``status`` + ``response_json`` and clears ``claimed_by``
+    ONLY when the row is still ``claimed`` by ``owner_token`` (and, when given,
+    the same ``owner_claimed_at`` claim generation). Returns ``True`` iff applied.
+    """
+    backend = _backend_module()
+    if not hasattr(backend, "finalize_control_plane_operation_global_row"):
+        raise RuntimeError(
+            "Control-plane op finalize is unsupported by the active backend",
+        )
+    return bool(
+        backend.finalize_control_plane_operation_global_row(
+            row,
+            owner_token=owner_token,
+            owner_claimed_at=owner_claimed_at,
         )
     )
 

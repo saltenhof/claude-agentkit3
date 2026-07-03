@@ -350,3 +350,10 @@ class ControlPlaneOperationRecord:
     instance_incarnation: int | None = None
     declared_serialization_scope: str | None = None
     finalized_at: datetime | None = None
+    #: AG3-140 (unified idempotency contract): SHA-256 of the canonical request
+    #: body (op_id excluded). A claim stamps it; a claim-loser compares it to
+    #: decide replay (hash match) vs ``409 idempotency_mismatch`` (hash differs).
+    #: ``None`` on legacy / pre-AG3-140 rows and on control-plane operations that
+    #: do not carry a body-hash (the phase/closure/sync paths dedup on op_id
+    #: alone, unchanged).
+    request_body_hash: str | None = None

@@ -509,6 +509,42 @@ def _ensure_schema_core_tables_b(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (op_id)
         );
 
+        -- AG3-140 (unified idempotency contract): test-parallel mirror of the
+        -- control_plane_operations inflight-operation-record. Postgres is the
+        -- canonical truth (K5); this SQLite mirror exists ONLY so the
+        -- guard-counter's atomic single-transaction record (increment +
+        -- idempotency record in ONE connection) keeps its unit-test parity after
+        -- the record moves off the retired idempotency_keys table onto the one
+        -- consolidated record. Columns mirror postgres_schema.sql EXACTLY
+        -- (story_id nullable; request_body_hash additive). The control-plane
+        -- RUNTIME never uses SQLite (Postgres-only), so no runtime claim/finalize
+        -- global_row functions are mirrored here -- only the table shape the
+        -- co-transactional guard-counter writer needs.
+        CREATE TABLE IF NOT EXISTS control_plane_operations (
+            op_id TEXT PRIMARY KEY,
+            project_key TEXT NOT NULL,
+            story_id TEXT,
+            run_id TEXT,
+            session_id TEXT,
+            operation_kind TEXT NOT NULL,
+            phase TEXT,
+            status TEXT NOT NULL,
+            response_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            claimed_by TEXT,
+            claimed_at TEXT,
+            operation_epoch INTEGER,
+            backend_instance_id TEXT,
+            instance_incarnation INTEGER,
+            declared_serialization_scope TEXT,
+            finalized_at TEXT,
+            request_body_hash TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS control_plane_operations_run_idx
+            ON control_plane_operations (project_key, story_id, run_id);
+
         CREATE TABLE IF NOT EXISTS artifact_envelopes (
             story_id TEXT NOT NULL,
             run_id TEXT NOT NULL,

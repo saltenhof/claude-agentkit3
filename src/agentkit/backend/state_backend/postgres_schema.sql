@@ -249,10 +249,31 @@
         -- table's other instants) consulted only by the ownership-scoped
         -- finalize/release CAS exact-match (WARNING-4, no psycopg datetime
         -- drift). Both are NULL on a terminal row (finalize clears claimed_by).
+        -- AG3-140 (unified idempotency contract): this table IS the physical
+        -- materialization of the formal ``inflight-operation-record``
+        -- (identity_key: op_id; state-storage.entity). It is the SINGLE
+        -- idempotency truth for EVERY mutating BC operation that follows the
+        -- claim -> mutate -> finalize lifecycle (control-plane phases,
+        -- story_context_manager mutations, task_management mutations) as well as
+        -- the guard-counter's atomic single-transaction record. The legacy
+        -- ``idempotency_keys`` table is retired (AG3-140): there is one record,
+        -- one body-hash check, one in-flight fence.
+        --   * ``story_id`` is NULLABLE (AG3-140): the formal
+        --     inflight-operation-record is op_id-keyed and NOT story-scoped, and
+        --     the concept explicitly contemplates a "waiting project-scoped
+        --     claim" (state-storage.invariant, claim-acquisition ordering). A
+        --     project-scoped operation (e.g. a task-management mutation) carries
+        --     NO story_id. Relaxing NOT NULL is lossless on a pre-populated DB
+        --     (every existing row keeps its non-null story_id).
+        --   * ``request_body_hash`` is the SHA-256 of the canonical request body
+        --     (op_id excluded), consulted on a claim-loser to decide replay
+        --     (hash match) vs ``409 idempotency_mismatch`` (hash differs).
+        --     Nullable/additive so a pre-populated DB survives the bootstrap
+        --     losslessly (mirrors the AG3-137 additive-column style).
         CREATE TABLE IF NOT EXISTS control_plane_operations (
             op_id TEXT PRIMARY KEY,
             project_key TEXT NOT NULL,
-            story_id TEXT NOT NULL,
+            story_id TEXT,
             run_id TEXT,
             session_id TEXT,
             operation_kind TEXT NOT NULL,
@@ -272,7 +293,11 @@
             backend_instance_id TEXT,
             instance_incarnation INTEGER,
             declared_serialization_scope TEXT,
-            finalized_at TEXT
+            finalized_at TEXT,
+            -- AG3-140 (unified idempotency contract): body-hash of the request
+            -- (op_id excluded) for the replay-vs-mismatch decision. Additive /
+            -- nullable (lossless on a pre-populated DB).
+            request_body_hash TEXT
         );
 
         CREATE INDEX IF NOT EXISTS control_plane_operations_run_idx

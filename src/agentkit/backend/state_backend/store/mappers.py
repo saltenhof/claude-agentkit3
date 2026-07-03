@@ -1128,6 +1128,9 @@ def control_plane_op_to_row(record: ControlPlaneOperationRecord) -> dict[str, An
             if record.finalized_at is not None
             else None
         ),
+        # AG3-140 (unified idempotency contract): body-hash for the
+        # replay-vs-mismatch decision. ``None`` on op_id-only dedup paths.
+        "request_body_hash": record.request_body_hash,
     }
 
 
@@ -1166,6 +1169,8 @@ def control_plane_op_row_to_record(
             "_OptionalString", row.get("declared_serialization_scope")
         ),
         finalized_at=_optional_iso_datetime(row.get("finalized_at")),
+        # AG3-140: ``None`` on legacy / pre-AG3-140 rows (column absent or NULL).
+        request_body_hash=cast("_OptionalString", row.get("request_body_hash")),
     )
 
 

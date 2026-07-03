@@ -557,6 +557,13 @@ _AG3_137_ADDITIVE_COLUMNS: tuple[tuple[str, str], ...] = (
     ("control_plane_operations", "instance_incarnation"),
     ("control_plane_operations", "declared_serialization_scope"),
     ("control_plane_operations", "finalized_at"),
+    # AG3-140 (unified idempotency contract): the body-hash column on the
+    # inflight-operation-record. Listed here so a same-version DB that predates
+    # AG3-140 fails the bootstrap canary and re-runs the additive ALTERs -- which
+    # add ``request_body_hash`` AND relax ``story_id`` to nullable (both in
+    # _schema_alter_statements). Column existence is the canary; the co-located
+    # ``story_id`` DROP NOT NULL re-runs on the same forced bootstrap.
+    ("control_plane_operations", "request_body_hash"),
 )
 
 
@@ -827,6 +834,20 @@ def _schema_alter_statements() -> tuple[str, ...]:
         (
             "ALTER TABLE control_plane_operations "
             "ADD COLUMN IF NOT EXISTS finalized_at TEXT"
+        ),
+        # AG3-140 (unified idempotency contract): the ``request_body_hash`` column
+        # + the ``story_id`` NOT-NULL relaxation on the inflight-operation-record.
+        # A fresh schema gets both from postgres_schema.sql CREATE TABLE; an
+        # existing same-version schema gets them idempotently here. Additive /
+        # lossless on a pre-populated DB (every existing row keeps its non-null
+        # story_id; DROP NOT NULL on an already-nullable column is a no-op).
+        (
+            "ALTER TABLE control_plane_operations "
+            "ADD COLUMN IF NOT EXISTS request_body_hash TEXT"
+        ),
+        (
+            "ALTER TABLE control_plane_operations "
+            "ALTER COLUMN story_id DROP NOT NULL"
         ),
         # The legacy ``attempt_records`` table was removed with schema 3.5.0
         # (AG3-025 re-review finding 2). No more migration updates.
@@ -3110,8 +3131,8 @@ def save_control_plane_operation_global_row(row: dict[str, Any]) -> None:
                 operation_kind, phase, status, response_json,
                 created_at, updated_at, claimed_by, claimed_at,
                 operation_epoch, backend_instance_id, instance_incarnation,
-                declared_serialization_scope, finalized_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                declared_serialization_scope, finalized_at, request_body_hash
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (op_id) DO UPDATE SET
                 project_key = EXCLUDED.project_key,
                 story_id = EXCLUDED.story_id,
@@ -3129,7 +3150,8 @@ def save_control_plane_operation_global_row(row: dict[str, Any]) -> None:
                 instance_incarnation = EXCLUDED.instance_incarnation,
                 declared_serialization_scope =
                     EXCLUDED.declared_serialization_scope,
-                finalized_at = EXCLUDED.finalized_at
+                finalized_at = EXCLUDED.finalized_at,
+                request_body_hash = EXCLUDED.request_body_hash
             WHERE control_plane_operations.status <> 'claimed'
             """,
             (
@@ -3151,6 +3173,8 @@ def save_control_plane_operation_global_row(row: dict[str, Any]) -> None:
                 row.get("instance_incarnation"),
                 row.get("declared_serialization_scope"),
                 row.get("finalized_at"),
+                # AG3-140: carry the body-hash on the terminal upsert too.
+                row.get("request_body_hash"),
             ),
         )
         # rowcount == 1 on a fresh insert or a qualifying (non-claimed) update;
@@ -3199,8 +3223,8 @@ def claim_control_plane_operation_global_row(row: dict[str, Any]) -> bool:
                 operation_kind, phase, status, response_json,
                 created_at, updated_at, claimed_by, claimed_at,
                 operation_epoch, backend_instance_id, instance_incarnation,
-                declared_serialization_scope
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                declared_serialization_scope, request_body_hash
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (op_id) DO NOTHING
             """,
             (
@@ -3221,6 +3245,9 @@ def claim_control_plane_operation_global_row(row: dict[str, Any]) -> bool:
                 row.get("backend_instance_id"),
                 row.get("instance_incarnation"),
                 row.get("declared_serialization_scope"),
+                # AG3-140: stamp the request body-hash on the claim so a later
+                # claim-loser can decide replay vs idempotency_mismatch.
+                row.get("request_body_hash"),
             ),
         )
         return int(cursor.rowcount) == 1
