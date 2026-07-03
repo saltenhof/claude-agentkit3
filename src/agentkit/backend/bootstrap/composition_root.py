@@ -612,20 +612,23 @@ def build_project_read_model_routes(store_dir: Path | None = None) -> ReadModelR
         StateBackendStoryReadRepository,
     )
     from agentkit.backend.state_backend.store.story_repository import (
-        StateBackendIdempotencyKeyRepository,
         StateBackendStoryRepository,
     )
     from agentkit.backend.story_context_manager.service import StoryService as _StoryContextService
 
     # Thread store_dir into EVERY state-backend repository the story service uses
-    # for reads (story stammdaten, project, idempotency, dependency edges).
-    # _handle_flow reads story.get_story BEFORE the phase_state_loader; without
-    # store_dir-aware injection the default StoryService falls back to Path.cwd()
-    # and returns story_not_found for stories persisted only under store_dir.
+    # for reads (story stammdaten, project, dependency edges). _handle_flow reads
+    # story.get_story BEFORE the phase_state_loader; without store_dir-aware
+    # injection the default StoryService falls back to Path.cwd() and returns
+    # story_not_found for stories persisted only under store_dir.
+    #
+    # AG3-140: this is a read-model wiring; the unified in-flight idempotency guard
+    # (default StateBackendInflightIdempotencyGuard) is only exercised on the
+    # mutation surface, which this read-only route never drives, so no store_dir
+    # threading of the guard is required here.
     story_service = _StoryContextService(
         story_repository=StateBackendStoryRepository(store_dir),
         project_repository=StateBackendProjectRepository(store_dir),
-        idempotency_repository=StateBackendIdempotencyKeyRepository(store_dir),
         dependency_repository=StateBackendStoryDependencyRepository(store_dir),
     )
 

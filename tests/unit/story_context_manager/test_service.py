@@ -14,20 +14,27 @@ import pytest
 
 from agentkit.backend.governance.principal_capabilities.principals import Principal
 from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    FreshClaim,
+    IdempotencyRequest,
+    InMemoryInflightIdempotencyGuard,
+    compute_body_hash,
+)
 from agentkit.backend.story_context_manager.errors import (
     ForbiddenError,
     ForbiddenFieldError,
     IdempotencyMismatchError,
     InvalidStatusTransitionError,
+    OperationInFlightError,
     StoryNotFoundError,
     StoryProjectNotFoundError,
     StoryValidationError,
 )
-from agentkit.backend.story_context_manager.idempotency import InMemoryIdempotencyKeyRepository
 from agentkit.backend.story_context_manager.service import StoryService
 from agentkit.backend.story_context_manager.story_model import (
     CreateStoryInput,
     Story,
+    StorySpecification,
     StoryStatus,
     WireStoryType,
 )
@@ -95,7 +102,7 @@ def _make_service(
     return StoryService(
         story_repository=stories or InMemoryStoryRepository(),
         project_repository=project_repo or _InMemoryProjectRepository(),
-        idempotency_repository=InMemoryIdempotencyKeyRepository(),
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
         event_emitter=_emit,
     )
 
@@ -1088,3 +1095,140 @@ def test_resume_reset_transition_is_idempotent_on_resetting() -> None:
     again = svc.resume_reset_transition(story.story_display_id)
 
     assert again.status is StoryStatus.RESETTING
+
+
+# ---------------------------------------------------------------------------
+# AG3-140 (FK-91 §91.1a Regel 5): unified claim -> mutate -> finalize idempotency
+# ---------------------------------------------------------------------------
+
+
+class _CountingStoryRepository(InMemoryStoryRepository):
+    """InMemoryStoryRepository counting the atomic create (crash-window proof)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.create_calls = 0
+
+    def create_story_atomic(
+        self,
+        story: Story,
+        spec: StorySpecification,
+        *,
+        story_id_prefix: str,
+    ) -> None:
+        self.create_calls += 1
+        super().create_story_atomic(story, spec, story_id_prefix=story_id_prefix)
+
+
+class _CrashOnFinalizeGuard(InMemoryInflightIdempotencyGuard):
+    """A guard whose FIRST ``finalize`` raises AFTER the mutation committed.
+
+    Simulates a crash in the window between the committed mutation and the
+    ownership-scoped ``finalize``: the ``claimed`` row is left in place (never a
+    silently-missing record), exactly as the real Postgres guard behaves after a
+    process death (AG3-140 crash-window closure).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.finalize_attempts = 0
+
+    def finalize(
+        self,
+        request: IdempotencyRequest,
+        claim: FreshClaim,
+        result_payload: dict[str, object],
+    ) -> bool:
+        self.finalize_attempts += 1
+        if self.finalize_attempts == 1:
+            raise RuntimeError("simulated crash between mutate and finalize")
+        return super().finalize(request, claim, result_payload)
+
+
+def _make_service_with(
+    *,
+    story_repo: InMemoryStoryRepository,
+    guard: InMemoryInflightIdempotencyGuard,
+) -> StoryService:
+    return StoryService(
+        story_repository=story_repo,
+        project_repository=_InMemoryProjectRepository(),
+        idempotency_guard=guard,
+        event_emitter=lambda *_: None,
+    )
+
+
+def test_create_replay_after_success_returns_snapshot_without_second_mutation() -> None:
+    """AC: a replay returns the stored snapshot and never re-runs the mutation."""
+    repo = _CountingStoryRepository()
+    svc = _make_service_with(story_repo=repo, guard=InMemoryInflightIdempotencyGuard())
+
+    first = _create_story(svc, op_id="op-replay")
+    second = _create_story(svc, op_id="op-replay")  # same op_id + same body
+
+    assert first.story_uuid == second.story_uuid
+    assert first.story_display_id == second.story_display_id
+    assert repo.create_calls == 1, "replay must NOT create the story a second time"
+
+
+def test_update_fields_body_mismatch_raises_idempotency_mismatch() -> None:
+    """AC: the same op_id reused with a DIFFERENT body is a 409 idempotency_mismatch."""
+    svc = _make_service()
+    story = _create_story(svc, op_id="op-create")
+
+    svc.update_story_fields(
+        story.story_display_id, updates={"title": "First"}, op_id="op-clash"
+    )
+    with pytest.raises(IdempotencyMismatchError):
+        svc.update_story_fields(
+            story.story_display_id, updates={"title": "Second"}, op_id="op-clash"
+        )
+
+
+def test_parallel_in_flight_op_id_raises_operation_in_flight() -> None:
+    """AC: a live claim held by a concurrent caller rejects the second caller."""
+    guard = InMemoryInflightIdempotencyGuard()
+    svc = _make_service_with(story_repo=InMemoryStoryRepository(), guard=guard)
+    story = _create_story(svc, op_id="op-create")
+
+    # A concurrent caller holds a live (never-finalized) claim on this op_id.
+    held = guard.claim(
+        IdempotencyRequest(
+            op_id="op-inflight",
+            operation_kind="story_status_transition",
+            body_hash=compute_body_hash({"x": 1}),
+            project_key="ak3",
+            story_id=story.story_display_id,
+        )
+    )
+    assert isinstance(held, FreshClaim)
+
+    with pytest.raises(OperationInFlightError):
+        svc.approve_story(story.story_display_id, op_id="op-inflight")
+
+
+def test_crash_between_mutate_and_finalize_is_not_doubly_executable() -> None:
+    """AC3 crash-window: a committed mutation whose ``finalize`` never ran leaves
+    the claim in place, so a retry with the same op_id is rejected in-flight and
+    the mutation is NEVER executed a second time (no doubly-executable state)."""
+    repo = _CountingStoryRepository()
+    guard = _CrashOnFinalizeGuard()
+    svc = _make_service_with(story_repo=repo, guard=guard)
+
+    request = CreateStoryInput(
+        project_key="ak3",
+        title="Crash-window story",
+        story_type=WireStoryType.IMPLEMENTATION,
+        repos=["ak3"],
+    )
+
+    # First attempt: the story is created (committed) but ``finalize`` crashes.
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        svc.create_story(request, op_id="op-crash")
+    assert repo.create_calls == 1, "the mutation committed exactly once"
+
+    # Retry with the same op_id: the claim row is still 'claimed', so the retry is
+    # rejected in-flight and does NOT re-execute the create.
+    with pytest.raises(OperationInFlightError):
+        svc.create_story(request, op_id="op-crash")
+    assert repo.create_calls == 1, "the retry must NOT create the story a second time"

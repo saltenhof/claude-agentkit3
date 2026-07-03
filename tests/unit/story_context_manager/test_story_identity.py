@@ -25,6 +25,9 @@ from agentkit.backend.execution_planning.entities import (
 from agentkit.backend.project_management.entities import Project, ProjectConfiguration
 from agentkit.backend.project_management.lifecycle import archive_project, create_project
 from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    InMemoryInflightIdempotencyGuard,
+)
 from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
@@ -32,7 +35,6 @@ from agentkit.backend.state_backend.store.story_dependency_repository import (
     StateBackendStoryDependencyRepository,
 )
 from agentkit.backend.state_backend.store.story_repository import (
-    StateBackendIdempotencyKeyRepository,
     StateBackendStoryRepository,
 )
 from agentkit.backend.story_context_manager.display_id import (
@@ -90,21 +92,21 @@ def _service(
     in_memory: bool = False,
 ) -> StoryService:
     if in_memory:
-        from agentkit.backend.story_context_manager.idempotency import (
-            InMemoryIdempotencyKeyRepository,
-        )
-
         return StoryService(
             story_repository=InMemoryStoryRepository(),
             project_repository=project_repository,
-            idempotency_repository=InMemoryIdempotencyKeyRepository(),
+            idempotency_guard=InMemoryInflightIdempotencyGuard(),
             event_emitter=lambda *_: None,
         )
     assert store_dir is not None
+    # The unified guard's production impl is Postgres-only (K5); the SQLite
+    # state-backend path here exercises story-number allocation / persistence,
+    # not idempotency-record durability, so the first-class in-memory guard is
+    # the right unit-test guard (op_ids are unique, no cross-call replay needed).
     return StoryService(
         story_repository=StateBackendStoryRepository(store_dir),
         project_repository=project_repository,
-        idempotency_repository=StateBackendIdempotencyKeyRepository(store_dir),
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
         event_emitter=lambda *_: None,
     )
 
@@ -387,7 +389,7 @@ def test_state_backend_concurrent_allocation_is_gap_free(tmp_path: Path) -> None
         service = StoryService(
             story_repository=StateBackendStoryRepository(tmp_path),
             project_repository=project_repository,
-            idempotency_repository=StateBackendIdempotencyKeyRepository(tmp_path),
+            idempotency_guard=InMemoryInflightIdempotencyGuard(),
             event_emitter=lambda *_: None,
         )
         return service.create_story(

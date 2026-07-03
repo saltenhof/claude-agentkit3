@@ -27,8 +27,8 @@ from agentkit.backend.execution_planning.errors import (
 )
 from agentkit.backend.governance.principal_capabilities.principals import Principal
 from agentkit.backend.project_management.entities import Project, ProjectConfiguration
-from agentkit.backend.story_context_manager.idempotency import (
-    InMemoryIdempotencyKeyRepository,
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    InMemoryInflightIdempotencyGuard,
 )
 from agentkit.backend.story_context_manager.service import StoryService
 from agentkit.backend.story_context_manager.story_model import (
@@ -245,7 +245,7 @@ def _build_harness(
     story_service = StoryService(
         story_repository=story_repo,
         project_repository=project_repo,  # type: ignore[arg-type]
-        idempotency_repository=InMemoryIdempotencyKeyRepository(),
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
         event_emitter=lambda *a: None,
     )
     closure_calls: list[str] = []
@@ -1331,7 +1331,7 @@ def _build_real_export_harness(stories_root: Path) -> _RealExportHarness:
     story_service = StoryService(
         story_repository=story_repo,
         project_repository=project_repo,  # type: ignore[arg-type]
-        idempotency_repository=InMemoryIdempotencyKeyRepository(),
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
         event_emitter=lambda *a: None,
     )
     closure_calls: list[str] = []

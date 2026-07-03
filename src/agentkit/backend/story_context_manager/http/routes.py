@@ -30,6 +30,7 @@ from agentkit.backend.story_context_manager.errors import (
     ForbiddenFieldError,
     IdempotencyMismatchError,
     InvalidStatusTransitionError,
+    OperationInFlightError,
     ReconciliationEvidenceMissingError,
     StoryNotFoundError,
     StoryProjectNotFoundError,
@@ -306,7 +307,7 @@ class StoryContextRoutes:
             return _service_error_response(exc, correlation_id)
         except ForbiddenError as exc:
             return _service_error_response(exc, correlation_id)
-        except IdempotencyMismatchError as exc:
+        except (IdempotencyMismatchError, OperationInFlightError) as exc:
             return _service_error_response(exc, correlation_id)
         except Exception as exc:  # noqa: BLE001 — last-resort 500 wrapper
             return _error_response(
@@ -351,7 +352,7 @@ class StoryContextRoutes:
             return _service_error_response(exc, correlation_id)
         except ForbiddenError as exc:
             return _service_error_response(exc, correlation_id)
-        except IdempotencyMismatchError as exc:
+        except (IdempotencyMismatchError, OperationInFlightError) as exc:
             return _service_error_response(exc, correlation_id)
         except Exception as exc:
             return _error_response(
@@ -380,7 +381,7 @@ class StoryContextRoutes:
                 story_id, op_id=op_id, correlation_id=correlation_id
             )
         except (StoryNotFoundError, InvalidStatusTransitionError, ForbiddenError,
-                IdempotencyMismatchError) as exc:
+                IdempotencyMismatchError, OperationInFlightError) as exc:
             return _service_error_response(exc, correlation_id)
         except Exception as exc:
             return _error_response(
@@ -408,7 +409,7 @@ class StoryContextRoutes:
                 story_id, op_id=op_id, correlation_id=correlation_id
             )
         except (StoryNotFoundError, InvalidStatusTransitionError, ForbiddenError,
-                IdempotencyMismatchError) as exc:
+                IdempotencyMismatchError, OperationInFlightError) as exc:
             return _service_error_response(exc, correlation_id)
         except Exception as exc:
             return _error_response(
@@ -440,7 +441,7 @@ class StoryContextRoutes:
                 correlation_id=correlation_id,
             )
         except (StoryNotFoundError, InvalidStatusTransitionError, ForbiddenError,
-                IdempotencyMismatchError) as exc:
+                IdempotencyMismatchError, OperationInFlightError) as exc:
             return _service_error_response(exc, correlation_id)
         except Exception as exc:
             return _error_response(
@@ -483,7 +484,7 @@ class StoryContextRoutes:
             return _service_error_response(exc, correlation_id)
         except StoryValidationError as exc:
             return _service_error_response(exc, correlation_id)
-        except IdempotencyMismatchError as exc:
+        except (IdempotencyMismatchError, OperationInFlightError) as exc:
             return _service_error_response(exc, correlation_id)
         except Exception as exc:
             return _error_response(
@@ -509,6 +510,7 @@ _ERROR_CODE_MAP: dict[type[Exception], tuple[HTTPStatus, str]] = {
     ForbiddenFieldError: (HTTPStatus.UNPROCESSABLE_ENTITY, "forbidden_field"),
     InvalidStatusTransitionError: (HTTPStatus.UNPROCESSABLE_ENTITY, "invalid_transition"),
     IdempotencyMismatchError: (HTTPStatus.CONFLICT, "idempotency_mismatch"),
+    OperationInFlightError: (HTTPStatus.CONFLICT, "operation_in_flight"),
     ReconciliationEvidenceMissingError: (
         HTTPStatus.UNPROCESSABLE_ENTITY,
         "reconciliation_evidence_missing",

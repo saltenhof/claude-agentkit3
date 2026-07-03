@@ -33,14 +33,22 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from agentkit.backend.core_types import StorySize
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    IdempotencyRequest,
+    InFlightOutcome,
+    MismatchOutcome,
+    ReplayOutcome,
+    compute_body_hash,
+)
 from agentkit.backend.story_context_manager.errors import (
     ForbiddenError,
+    IdempotencyMismatchError,
     InvalidStatusTransitionError,
+    OperationInFlightError,
     StoryNotFoundError,
     StoryProjectNotFoundError,
     StoryValidationError,
 )
-from agentkit.backend.story_context_manager.idempotency import IdempotencyKeyStore
 from agentkit.backend.story_context_manager.patch_handlers import (
     _apply_updates,
     _get_project_repos,
@@ -74,7 +82,11 @@ if TYPE_CHECKING:
 
     from agentkit.backend.execution_planning.repository import StoryDependencyRepository
     from agentkit.backend.project_management.repository import ProjectRepository
-    from agentkit.backend.story_context_manager.idempotency import IdempotencyKeyRepository
+    from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+        ClaimOutcome,
+        FreshClaim,
+        InflightIdempotencyGuard,
+    )
     from agentkit.backend.story_context_manager.story_repository import StoryRepository
 
 
@@ -162,7 +174,12 @@ class StoryService(ResetTransitionMixin):
     Args:
         story_repository: Story stammdaten persistence.
         project_repository: Project entity access (for archived/repos check).
-        idempotency_repository: Idempotency key persistence.
+        idempotency_guard: Unified in-flight idempotency guard (AG3-140,
+            FK-91 §91.1a Regel 5). Enforces the ``claim -> mutate ->
+            finalize`` lifecycle so there is no crash window between the
+            mutation and the recorded result, and a parallel same ``op_id``
+            is rejected in-flight. Defaults to the Postgres-backed
+            ``StateBackendInflightIdempotencyGuard``.
         dependency_repository: Story dependency-edge read port (execution_planning
             ``StoryDependencyRepository``).  Used by
             ``list_stories_with_dependencies`` to materialize the
@@ -177,7 +194,7 @@ class StoryService(ResetTransitionMixin):
         *,
         story_repository: StoryRepository | None = None,
         project_repository: ProjectRepository | None = None,
-        idempotency_repository: IdempotencyKeyRepository | None = None,
+        idempotency_guard: InflightIdempotencyGuard | None = None,
         dependency_repository: StoryDependencyRepository | None = None,
         event_emitter: Callable[[str, str, dict[str, object]], None] | None = None,
     ) -> None:
@@ -186,11 +203,11 @@ class StoryService(ResetTransitionMixin):
                 StateBackendStoryRepository,
             )
             story_repository = StateBackendStoryRepository()
-        if idempotency_repository is None:
-            from agentkit.backend.state_backend.store.story_repository import (
-                StateBackendIdempotencyKeyRepository,
+        if idempotency_guard is None:
+            from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+                StateBackendInflightIdempotencyGuard,
             )
-            idempotency_repository = StateBackendIdempotencyKeyRepository()
+            idempotency_guard = StateBackendInflightIdempotencyGuard()
         if project_repository is None:
             from agentkit.backend.state_backend.store.project_management_repository import (
                 StateBackendProjectRepository,
@@ -205,8 +222,61 @@ class StoryService(ResetTransitionMixin):
         self._story_repo: StoryRepository = story_repository
         self._project_repo: ProjectRepository = project_repository
         self._dependency_repo: StoryDependencyRepository = dependency_repository
-        self._idempotency = IdempotencyKeyStore(idempotency_repository)
+        self._guard: InflightIdempotencyGuard = idempotency_guard
         self._emit = event_emitter if event_emitter is not None else _logging_emitter
+
+    # ------------------------------------------------------------------
+    # Idempotency helpers (AG3-140, FK-91 §91.1a Regel 5)
+    # ------------------------------------------------------------------
+
+    def _require_fresh_claim(
+        self, outcome: ClaimOutcome, op_id: str
+    ) -> FreshClaim:
+        """Return the :class:`FreshClaim` or raise the correct fail-closed 409.
+
+        A :class:`MismatchOutcome` (``op_id`` reused with a different body) is a
+        ``409 idempotency_mismatch``; an :class:`InFlightOutcome` (a live claim is
+        held by a concurrent caller mid-mutation) is a ``409 operation_in_flight``.
+        A :class:`ReplayOutcome` is handled by the caller before this helper.
+        """
+        if isinstance(outcome, MismatchOutcome):
+            raise IdempotencyMismatchError(
+                f"op_id {op_id!r} was previously used with a different "
+                "request body; use a new op_id for a different mutation",
+                detail={"op_id": op_id, "conflict": "body_hash_mismatch"},
+            )
+        if isinstance(outcome, InFlightOutcome):
+            raise OperationInFlightError(
+                f"op_id {op_id!r} is in flight: another caller holds an active "
+                "claim and is mid-mutation; retry to read the committed result",
+                detail={"op_id": op_id},
+            )
+        if isinstance(outcome, ReplayOutcome):
+            # Every caller handles ReplayOutcome BEFORE this helper; reaching here
+            # with one is a control-flow bug, so fail closed instead of proceeding.
+            raise RuntimeError(
+                "internal error: ReplayOutcome must be handled by the caller "
+                "before _require_fresh_claim"
+            )
+        return outcome
+
+    def _replay_story(
+        self, result_payload: dict[str, object], story_display_id: str
+    ) -> Story:
+        """Reconstruct the stored Story snapshot for an idempotent replay.
+
+        Mirrors the historical cached-branch reconstruction: rebuild from the
+        stored internal snapshot, falling back to a live read by the snapshot's
+        display id, and finally failing closed with ``StoryNotFoundError``.
+        """
+        cached_story = _story_from_cached_payload(result_payload)
+        if cached_story is not None:
+            return cached_story
+        cached_id = str(result_payload.get("story_id", story_display_id))
+        story = self._story_repo.get_by_display_id(cached_id)
+        if story is not None:
+            return story
+        raise StoryNotFoundError(f"Story {story_display_id!r} not found")
 
     # ------------------------------------------------------------------
     # Read operations
@@ -371,66 +441,77 @@ class StoryService(ResetTransitionMixin):
             ``IdempotencyMismatchError`` (409).
         """
         body = _create_story_body(request, op_id)
-        cached, cached_payload = self._idempotency.check(op_id, body)
-        if cached:
-            return _resolve_cached_create(self._story_repo, cached_payload)
-
-        project = self._project_repo.get(request.project_key)
-        if project is None:
-            raise StoryProjectNotFoundError(
-                f"Project {request.project_key!r} does not exist",
-                detail={"project_key": request.project_key},
-            )
-        if project.archived_at is not None:
-            raise ForbiddenError(
-                f"Project {request.project_key!r} is archived",
-                detail={"project_key": request.project_key},
-            )
-
-        validate_repos_not_empty(request.repos)
-        allowed_repos = _get_project_repos(project)
-        if allowed_repos:
-            validate_repos_against_project(request.repos, allowed_repos)
-
-        # story_number / story_display_id are placeholders patched by create_story_atomic.
-        story = Story(
+        # story_id is allocated DURING the mutation (create_story_atomic); it does
+        # not exist at claim time, so the claim is project-scoped (story_id=None).
+        req = IdempotencyRequest(
+            op_id=op_id,
+            operation_kind="story_create",
+            body_hash=compute_body_hash(body),
             project_key=request.project_key,
-            story_number=1,
-            story_display_id="",
-            title=request.title,
-            story_type=request.story_type,
-            status=StoryStatus.BACKLOG,
-            size=request.size,
-            mode=request.mode,
-            epic=request.epic,
-            module=request.module,
-            participating_repos=list(request.repos),
-            change_impact=request.change_impact,
-            concept_quality=request.concept_quality,
-            owner=request.owner,
-            risk=request.risk,
-            labels=list(request.labels),
-            # AG3-057 ERROR-2 fix: persist Trigger 3 input from CreateStoryInput.
-            new_structures=request.new_structures,
-            # AG3-068 (FK-21 §21.12): persist the VectorDB-conflict producer flag.
-            vectordb_conflict_resolved=request.vectordb_conflict_resolved,
-            created_at=datetime.now(UTC),
-        )
-        default_spec = StorySpecification(need=None, solution=None, acceptance=[])
-
-        self._story_repo.create_story_atomic(
-            story,
-            default_spec,
-            story_id_prefix=project.story_id_prefix,
-        )
-
-        wire_summary = story_to_wire_summary(story)
-        self._idempotency.record(
-            op_id,
-            body,
-            _story_to_internal_snapshot(story),
+            story_id=None,
             correlation_id=correlation_id,
         )
+        outcome = self._guard.claim(req)
+        if isinstance(outcome, ReplayOutcome):
+            return _resolve_cached_create(self._story_repo, outcome.result_payload)
+        claim = self._require_fresh_claim(outcome, op_id)
+
+        try:
+            project = self._project_repo.get(request.project_key)
+            if project is None:
+                raise StoryProjectNotFoundError(
+                    f"Project {request.project_key!r} does not exist",
+                    detail={"project_key": request.project_key},
+                )
+            if project.archived_at is not None:
+                raise ForbiddenError(
+                    f"Project {request.project_key!r} is archived",
+                    detail={"project_key": request.project_key},
+                )
+
+            validate_repos_not_empty(request.repos)
+            allowed_repos = _get_project_repos(project)
+            if allowed_repos:
+                validate_repos_against_project(request.repos, allowed_repos)
+
+            # story_number / story_display_id are placeholders patched by
+            # create_story_atomic.
+            story = Story(
+                project_key=request.project_key,
+                story_number=1,
+                story_display_id="",
+                title=request.title,
+                story_type=request.story_type,
+                status=StoryStatus.BACKLOG,
+                size=request.size,
+                mode=request.mode,
+                epic=request.epic,
+                module=request.module,
+                participating_repos=list(request.repos),
+                change_impact=request.change_impact,
+                concept_quality=request.concept_quality,
+                owner=request.owner,
+                risk=request.risk,
+                labels=list(request.labels),
+                # AG3-057 ERROR-2 fix: persist Trigger 3 input from CreateStoryInput.
+                new_structures=request.new_structures,
+                # AG3-068 (FK-21 §21.12): persist the VectorDB-conflict producer flag.
+                vectordb_conflict_resolved=request.vectordb_conflict_resolved,
+                created_at=datetime.now(UTC),
+            )
+            default_spec = StorySpecification(need=None, solution=None, acceptance=[])
+
+            self._story_repo.create_story_atomic(
+                story,
+                default_spec,
+                story_id_prefix=project.story_id_prefix,
+            )
+        except Exception:
+            self._guard.release(req, claim)
+            raise
+
+        self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
+        wire_summary = story_to_wire_summary(story)
         self._emit(request.project_key, story.story_display_id, wire_summary)
         return story
 
@@ -476,50 +557,54 @@ class StoryService(ResetTransitionMixin):
             **updates,
             "op_id": op_id,
         }
-        cached, cached_payload = self._idempotency.check(op_id, body)
-        if cached:
-            # Befund 5: return CACHED snapshot, not live DB read.
-            assert cached_payload is not None
-            cached_story = _story_from_cached_payload(cached_payload)
-            if cached_story is not None:
-                return cached_story
-            cached_id = str(cached_payload.get("story_id", story_display_id))
-            story = self._story_repo.get_by_display_id(cached_id)
-            if story is not None:
-                return story
-            raise StoryNotFoundError(f"Story {story_display_id!r} not found")
-
+        # project_key is not known until the story is loaded, so load first, then
+        # claim on the (project_key, story_id) scope.
         story = self.get_story_or_raise(story_display_id)
-
-        # Check project is not archived
-        project = self._project_repo.get(story.project_key)
-        if project is not None and project.archived_at is not None:
-            raise ForbiddenError(
-                f"Project {story.project_key!r} is archived",
-                detail={"project_key": story.project_key},
-            )
-
-        # Apply updates
-        story = _apply_updates(story, updates, project)
-        # FIX-1 (FK-24 §24.3.3, AC7): a PATCH that sets mode/type must not leave a
-        # fast story on a non-code-producing type. ``Story`` is mutated in place
-        # (frozen=False), so the model_validator does not re-run automatically;
-        # re-validate the post-patch combination fail-closed (wire boundary -> a
-        # typed 400, not a bare ValueError).
-        try:
-            check_fast_mode_story_type(story.mode, story.story_type)
-        except ValueError as exc:
-            raise StoryValidationError(
-                str(exc), detail={"field": "mode", "story_type": story.story_type.value}
-            ) from exc
-
-        self._story_repo.save(story)
-
-        wire_summary = story_to_wire_summary(story)
-        self._idempotency.record(
-            op_id, body, _story_to_internal_snapshot(story),
+        req = IdempotencyRequest(
+            op_id=op_id,
+            operation_kind="story_update_fields",
+            body_hash=compute_body_hash(body),
+            project_key=story.project_key,
+            story_id=story_display_id,
             correlation_id=correlation_id,
         )
+        outcome = self._guard.claim(req)
+        if isinstance(outcome, ReplayOutcome):
+            # Befund 5: return CACHED snapshot, not live DB read.
+            return self._replay_story(outcome.result_payload, story_display_id)
+        claim = self._require_fresh_claim(outcome, op_id)
+
+        try:
+            # Check project is not archived
+            project = self._project_repo.get(story.project_key)
+            if project is not None and project.archived_at is not None:
+                raise ForbiddenError(
+                    f"Project {story.project_key!r} is archived",
+                    detail={"project_key": story.project_key},
+                )
+
+            # Apply updates
+            story = _apply_updates(story, updates, project)
+            # FIX-1 (FK-24 §24.3.3, AC7): a PATCH that sets mode/type must not
+            # leave a fast story on a non-code-producing type. ``Story`` is mutated
+            # in place (frozen=False), so the model_validator does not re-run
+            # automatically; re-validate the post-patch combination fail-closed
+            # (wire boundary -> a typed 400, not a bare ValueError).
+            try:
+                check_fast_mode_story_type(story.mode, story.story_type)
+            except ValueError as exc:
+                raise StoryValidationError(
+                    str(exc),
+                    detail={"field": "mode", "story_type": story.story_type.value},
+                ) from exc
+
+            self._story_repo.save(story)
+        except Exception:
+            self._guard.release(req, claim)
+            raise
+
+        self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
+        wire_summary = story_to_wire_summary(story)
         self._emit(story.project_key, story_display_id, wire_summary)
 
         return story
@@ -628,39 +713,41 @@ class StoryService(ResetTransitionMixin):
             "reason": reason,
             "op_id": op_id,
         }
-        cached, cached_payload = self._idempotency.check(op_id, body)
-        if cached:
-            # Befund 5: return CACHED snapshot, not live DB read.
-            assert cached_payload is not None
-            cached_story = _story_from_cached_payload(cached_payload)
-            if cached_story is not None:
-                return cached_story
-            cached_id = str(cached_payload.get("story_id", story_display_id))
-            story = self._story_repo.get_by_display_id(cached_id)
-            if story is not None:
-                return story
-            raise StoryNotFoundError(f"Story {story_display_id!r} not found")
-
         story = self.get_story_or_raise(story_display_id)
-        _check_transition(story.status, StoryStatus.CANCELLED)
-
-        project = self._project_repo.get(story.project_key)
-        if project is not None and project.archived_at is not None:
-            raise ForbiddenError(
-                f"Project {story.project_key!r} is archived",
-                detail={"project_key": story.project_key},
-            )
-
-        story.status = StoryStatus.CANCELLED
-        if reason:
-            story.blocker = reason
-        self._story_repo.save(story)
-
-        wire_summary = story_to_wire_summary(story)
-        self._idempotency.record(
-            op_id, body, _story_to_internal_snapshot(story),
+        req = IdempotencyRequest(
+            op_id=op_id,
+            operation_kind="story_status_transition",
+            body_hash=compute_body_hash(body),
+            project_key=story.project_key,
+            story_id=story_display_id,
             correlation_id=correlation_id,
         )
+        outcome = self._guard.claim(req)
+        if isinstance(outcome, ReplayOutcome):
+            # Befund 5: return CACHED snapshot, not live DB read.
+            return self._replay_story(outcome.result_payload, story_display_id)
+        claim = self._require_fresh_claim(outcome, op_id)
+
+        try:
+            _check_transition(story.status, StoryStatus.CANCELLED)
+
+            project = self._project_repo.get(story.project_key)
+            if project is not None and project.archived_at is not None:
+                raise ForbiddenError(
+                    f"Project {story.project_key!r} is archived",
+                    detail={"project_key": story.project_key},
+                )
+
+            story.status = StoryStatus.CANCELLED
+            if reason:
+                story.blocker = reason
+            self._story_repo.save(story)
+        except Exception:
+            self._guard.release(req, claim)
+            raise
+
+        self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
+        wire_summary = story_to_wire_summary(story)
         self._emit(story.project_key, story_display_id, wire_summary)
         return story
 
@@ -806,46 +893,55 @@ class StoryService(ResetTransitionMixin):
             "exit_id": str(getattr(story_exit_record, "exit_id", "")),
             "operation": "story_exit_admin_cancel",
         }
-        cached, cached_payload = self._idempotency.check(op_id, body)
-        if cached:
-            assert cached_payload is not None
-            cached_story = _story_from_cached_payload(cached_payload)
-            if cached_story is not None:
-                return cached_story
-
         story = self.get_story_or_raise(story_display_id)
-        if story.status is StoryStatus.CANCELLED:
-            self._idempotency.record(
-                op_id,
-                body,
-                _story_to_internal_snapshot(story),
-                correlation_id=correlation_id,
-            )
-            return story
-        if story.status is not StoryStatus.IN_PROGRESS:
-            raise InvalidStatusTransitionError(
-                "Story-Exit administrative cancellation is only legal from "
-                "In Progress or as an idempotent no-op on Cancelled.",
-                detail={
-                    "current_status": story.status.value,
-                    "target_status": StoryStatus.CANCELLED.value,
-                },
-            )
-
-        project = self._project_repo.get(story.project_key)
-        if project is not None and project.archived_at is not None:
-            raise ForbiddenError(
-                f"Project {story.project_key!r} is archived",
-                detail={"project_key": story.project_key},
-            )
-
-        story.status = StoryStatus.CANCELLED
-        story.blocker = f"Story-Exit viability handoff ({op_id})"
-        self._story_repo.save(story)
-        wire_summary = story_to_wire_summary(story)
-        self._idempotency.record(
-            op_id, body, _story_to_internal_snapshot(story), correlation_id=correlation_id
+        req = IdempotencyRequest(
+            op_id=op_id,
+            operation_kind="story_exit_viability",
+            body_hash=compute_body_hash(body),
+            project_key=story.project_key,
+            story_id=story_display_id,
+            correlation_id=correlation_id,
         )
+        outcome = self._guard.claim(req)
+        if isinstance(outcome, ReplayOutcome):
+            replayed = _story_from_cached_payload(outcome.result_payload)
+            return replayed if replayed is not None else story
+        claim = self._require_fresh_claim(outcome, op_id)
+
+        # Idempotent no-op: the story is already Cancelled. Record the terminal
+        # snapshot under this claim (finalize) and return without a re-mutation or
+        # an emit — mirroring the historical early ``record`` branch.
+        if story.status is StoryStatus.CANCELLED:
+            self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
+            return story
+
+        try:
+            if story.status is not StoryStatus.IN_PROGRESS:
+                raise InvalidStatusTransitionError(
+                    "Story-Exit administrative cancellation is only legal from "
+                    "In Progress or as an idempotent no-op on Cancelled.",
+                    detail={
+                        "current_status": story.status.value,
+                        "target_status": StoryStatus.CANCELLED.value,
+                    },
+                )
+
+            project = self._project_repo.get(story.project_key)
+            if project is not None and project.archived_at is not None:
+                raise ForbiddenError(
+                    f"Project {story.project_key!r} is archived",
+                    detail={"project_key": story.project_key},
+                )
+
+            story.status = StoryStatus.CANCELLED
+            story.blocker = f"Story-Exit viability handoff ({op_id})"
+            self._story_repo.save(story)
+        except Exception:
+            self._guard.release(req, claim)
+            raise
+
+        self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
+        wire_summary = story_to_wire_summary(story)
         self._emit(story.project_key, story_display_id, wire_summary)
         return story
 
@@ -916,46 +1012,55 @@ class StoryService(ResetTransitionMixin):
             "split_id": str(getattr(story_split_record, "split_id", "")),
             "operation": "story_split_admin_cancel",
         }
-        cached, cached_payload = self._idempotency.check(op_id, body)
-        if cached:
-            assert cached_payload is not None
-            cached_story = _story_from_cached_payload(cached_payload)
-            if cached_story is not None:
-                return cached_story
-
         story = self.get_story_or_raise(story_display_id)
-        if story.status is StoryStatus.CANCELLED:
-            self._idempotency.record(
-                op_id,
-                body,
-                _story_to_internal_snapshot(story),
-                correlation_id=correlation_id,
-            )
-            return story
-        if story.status is not StoryStatus.IN_PROGRESS:
-            raise InvalidStatusTransitionError(
-                "Story-Split administrative cancellation is only legal from "
-                "In Progress or as an idempotent no-op on Cancelled.",
-                detail={
-                    "current_status": story.status.value,
-                    "target_status": StoryStatus.CANCELLED.value,
-                },
-            )
-
-        project = self._project_repo.get(story.project_key)
-        if project is not None and project.archived_at is not None:
-            raise ForbiddenError(
-                f"Project {story.project_key!r} is archived",
-                detail={"project_key": story.project_key},
-            )
-
-        story.status = StoryStatus.CANCELLED
-        story.blocker = f"Story-Split scope_split ({op_id})"
-        self._story_repo.save(story)
-        wire_summary = story_to_wire_summary(story)
-        self._idempotency.record(
-            op_id, body, _story_to_internal_snapshot(story), correlation_id=correlation_id
+        req = IdempotencyRequest(
+            op_id=op_id,
+            operation_kind="story_split",
+            body_hash=compute_body_hash(body),
+            project_key=story.project_key,
+            story_id=story_display_id,
+            correlation_id=correlation_id,
         )
+        outcome = self._guard.claim(req)
+        if isinstance(outcome, ReplayOutcome):
+            replayed = _story_from_cached_payload(outcome.result_payload)
+            return replayed if replayed is not None else story
+        claim = self._require_fresh_claim(outcome, op_id)
+
+        # Idempotent no-op: the story is already Cancelled. Record the terminal
+        # snapshot under this claim (finalize) and return without a re-mutation or
+        # an emit — mirroring the historical early ``record`` branch.
+        if story.status is StoryStatus.CANCELLED:
+            self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
+            return story
+
+        try:
+            if story.status is not StoryStatus.IN_PROGRESS:
+                raise InvalidStatusTransitionError(
+                    "Story-Split administrative cancellation is only legal from "
+                    "In Progress or as an idempotent no-op on Cancelled.",
+                    detail={
+                        "current_status": story.status.value,
+                        "target_status": StoryStatus.CANCELLED.value,
+                    },
+                )
+
+            project = self._project_repo.get(story.project_key)
+            if project is not None and project.archived_at is not None:
+                raise ForbiddenError(
+                    f"Project {story.project_key!r} is archived",
+                    detail={"project_key": story.project_key},
+                )
+
+            story.status = StoryStatus.CANCELLED
+            story.blocker = f"Story-Split scope_split ({op_id})"
+            self._story_repo.save(story)
+        except Exception:
+            self._guard.release(req, claim)
+            raise
+
+        self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
+        wire_summary = story_to_wire_summary(story)
         self._emit(story.project_key, story_display_id, wire_summary)
         return story
 
@@ -1015,43 +1120,45 @@ class StoryService(ResetTransitionMixin):
         op_id: str,
         correlation_id: str = "",
     ) -> Story:
-        """Generic status transition with idempotency check."""
+        """Generic status transition with idempotency claim/finalize."""
         body: dict[str, object] = {
             "story_id": story_display_id,
             "target_status": target.value,
             "op_id": op_id,
         }
-        cached, cached_payload = self._idempotency.check(op_id, body)
-        if cached:
-            # Befund 5: return CACHED snapshot, not live DB read.
-            assert cached_payload is not None
-            cached_story = _story_from_cached_payload(cached_payload)
-            if cached_story is not None:
-                return cached_story
-            cached_id = str(cached_payload.get("story_id", story_display_id))
-            story = self._story_repo.get_by_display_id(cached_id)
-            if story is not None:
-                return story
-            raise StoryNotFoundError(f"Story {story_display_id!r} not found")
-
         story = self.get_story_or_raise(story_display_id)
-        _check_transition(story.status, target)
-
-        project = self._project_repo.get(story.project_key)
-        if project is not None and project.archived_at is not None:
-            raise ForbiddenError(
-                f"Project {story.project_key!r} is archived",
-                detail={"project_key": story.project_key},
-            )
-
-        story.status = target
-        self._story_repo.save(story)
-
-        wire_summary = story_to_wire_summary(story)
-        self._idempotency.record(
-            op_id, body, _story_to_internal_snapshot(story),
+        req = IdempotencyRequest(
+            op_id=op_id,
+            operation_kind="story_status_transition",
+            body_hash=compute_body_hash(body),
+            project_key=story.project_key,
+            story_id=story_display_id,
             correlation_id=correlation_id,
         )
+        outcome = self._guard.claim(req)
+        if isinstance(outcome, ReplayOutcome):
+            # Befund 5: return CACHED snapshot, not live DB read.
+            return self._replay_story(outcome.result_payload, story_display_id)
+        claim = self._require_fresh_claim(outcome, op_id)
+
+        try:
+            _check_transition(story.status, target)
+
+            project = self._project_repo.get(story.project_key)
+            if project is not None and project.archived_at is not None:
+                raise ForbiddenError(
+                    f"Project {story.project_key!r} is archived",
+                    detail={"project_key": story.project_key},
+                )
+
+            story.status = target
+            self._story_repo.save(story)
+        except Exception:
+            self._guard.release(req, claim)
+            raise
+
+        self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
+        wire_summary = story_to_wire_summary(story)
         self._emit(story.project_key, story_display_id, wire_summary)
         return story
 

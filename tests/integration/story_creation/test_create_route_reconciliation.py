@@ -39,12 +39,12 @@ from agentkit.backend.config.models import (
     VectorDbConfig,
 )
 from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    InMemoryInflightIdempotencyGuard,
+)
 from agentkit.backend.story_context_manager.http.routes import (
     StoryContextRoutes,
     StoryRouteResponse,
-)
-from agentkit.backend.story_context_manager.idempotency import (
-    InMemoryIdempotencyKeyRepository,
 )
 from agentkit.backend.story_context_manager.service import StoryService
 from agentkit.backend.story_context_manager.story_repository import InMemoryStoryRepository
@@ -92,7 +92,7 @@ def _service() -> StoryService:
     return StoryService(
         story_repository=InMemoryStoryRepository(),
         project_repository=_InMemoryProjectRepository(),
-        idempotency_repository=InMemoryIdempotencyKeyRepository(),
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
         event_emitter=lambda *_: None,
     )
 

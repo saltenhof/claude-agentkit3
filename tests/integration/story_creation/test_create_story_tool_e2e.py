@@ -77,6 +77,9 @@ from agentkit.backend.control_plane_http.app import (
 from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
 from agentkit.backend.exceptions import ControlPlaneApiError
 from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    InMemoryInflightIdempotencyGuard,
+)
 from agentkit.backend.story_context_manager.errors import (
     ForbiddenError,
     IdempotencyMismatchError,
@@ -85,9 +88,6 @@ from agentkit.backend.story_context_manager.errors import (
     StoryValidationError,
 )
 from agentkit.backend.story_context_manager.http.routes import StoryContextRoutes
-from agentkit.backend.story_context_manager.idempotency import (
-    InMemoryIdempotencyKeyRepository,
-)
 from agentkit.backend.story_context_manager.service import StoryService
 from agentkit.backend.story_context_manager.story_repository import InMemoryStoryRepository
 from agentkit.backend.story_creation.create_flow import StoryCreationReconciler
@@ -254,7 +254,7 @@ def _service() -> StoryService:
     return StoryService(
         story_repository=InMemoryStoryRepository(),
         project_repository=_InMemoryProjectRepository(),
-        idempotency_repository=InMemoryIdempotencyKeyRepository(),
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
         event_emitter=lambda *_: None,
     )
 

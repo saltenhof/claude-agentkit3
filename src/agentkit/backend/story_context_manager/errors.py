@@ -45,6 +45,20 @@ class IdempotencyMismatchError(StoryError):
     """
 
 
+class OperationInFlightError(StoryError):
+    """Raised when an op_id is claimed by a concurrent caller mid-mutation.
+
+    FK-91 §91.1a Regel 5 in-flight protection (AG3-140): the unified idempotency
+    guard writes a ``claimed`` placeholder before the mutation and only replaces
+    it with the stored result on ``finalize``. A parallel request carrying the
+    same ``op_id`` therefore sees a live claim and is rejected fail-closed instead
+    of re-executing the mutation. A retry after the winner finalizes reads the
+    committed result as a normal replay.
+
+    ``error_code`` maps to ``operation_in_flight`` (HTTP 409).
+    """
+
+
 class ForbiddenFieldError(StoryError):
     """Raised when a forbidden field appears in a mutation.
 

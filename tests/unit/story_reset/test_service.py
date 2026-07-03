@@ -15,7 +15,9 @@ from datetime import UTC, datetime
 import pytest
 
 from agentkit.backend.project_management.entities import Project, ProjectConfiguration
-from agentkit.backend.story_context_manager.idempotency import InMemoryIdempotencyKeyRepository
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    InMemoryInflightIdempotencyGuard,
+)
 from agentkit.backend.story_context_manager.service import StoryService
 from agentkit.backend.story_context_manager.story_model import (
     CreateStoryInput,
@@ -70,7 +72,7 @@ def _make_story_service() -> StoryService:
     return StoryService(
         story_repository=InMemoryStoryRepository(),
         project_repository=_ProjectRepo(),
-        idempotency_repository=InMemoryIdempotencyKeyRepository(),
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
         event_emitter=lambda *_a: None,
     )
 

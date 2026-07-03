@@ -49,6 +49,9 @@ from agentkit.backend.state_backend.store.fact_repository import StateBackendFac
 from agentkit.backend.state_backend.store.governance_hook_repository import (
     StateBackendHookRegistrationRepository,
 )
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    InMemoryInflightIdempotencyGuard,
+)
 from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
 from agentkit.backend.state_backend.store.runtime_execution_purge import (
     RuntimeExecutionPurgePort,
@@ -57,7 +60,6 @@ from agentkit.backend.state_backend.store.runtime_execution_purge import (
 from agentkit.backend.state_backend.store.worktree_repository import (
     StateBackendWorktreeRepository,
 )
-from agentkit.backend.story_context_manager.idempotency import InMemoryIdempotencyKeyRepository
 from agentkit.backend.story_context_manager.service import StoryService
 from agentkit.backend.story_context_manager.story_model import (
     CreateStoryInput,
@@ -245,7 +247,7 @@ def _make_story_service() -> tuple[StoryService, str]:
     svc = StoryService(
         story_repository=InMemoryStoryRepository(),
         project_repository=_ProjectRepo(),
-        idempotency_repository=InMemoryIdempotencyKeyRepository(),
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
         event_emitter=lambda *_a: None,
     )
     created = svc.create_story(
