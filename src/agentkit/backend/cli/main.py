@@ -379,6 +379,7 @@ def _dispatch_command(
         # AG3-076: operator/recovery commands
         "run-phase": lambda: _cmd_run_phase(args),
         "resume": lambda: _cmd_resume(args),
+        "admin-abort": lambda: _cmd_admin_abort(args),
         "reset-escalation": lambda: _cmd_reset_escalation(args),
         "cleanup": lambda: _cmd_cleanup(args),
         "status": lambda: _cmd_status(args),
@@ -1766,6 +1767,26 @@ def _setup_operator_recovery_subparsers(
         help="Core control-plane base URL for the resume REST call (AG3-130).",
     )
 
+    # admin-abort (AG3-138: admin_abort_inflight_operation, admin_transition)
+    admin_abort_parser = subparsers.add_parser(
+        "admin-abort",
+        help="Administratively abort a hanging server-owned in-flight operation (AG3-138)",
+    )
+    admin_abort_parser.add_argument("op_id", help="Target in-flight operation id")
+    admin_abort_parser.add_argument("--session", required=True, help="Admin session ID (audited)")
+    admin_abort_parser.add_argument(
+        "--principal", required=True, help="Admin principal type (audited)"
+    )
+    admin_abort_parser.add_argument(
+        "--reason", required=True, help="Mandatory audited justification for the abort"
+    )
+    admin_abort_parser.add_argument("--project-root", default=".", help=_PROJECT_ROOT_HELP)
+    admin_abort_parser.add_argument(
+        "--base-url",
+        required=False,
+        help="Core control-plane base URL for the admin-abort REST call (AG3-138).",
+    )
+
     # reset-escalation (Class C — service gap)
     reset_esc_parser = subparsers.add_parser(
         "reset-escalation",
@@ -2133,6 +2154,71 @@ def _cmd_resume(args: argparse.Namespace) -> int:
     if dispatch is None:
         return 0
     return 0 if dispatch.status in ("phase_completed", "yielded") else 1
+
+
+# --- admin-abort (REST to the control plane, AG3-138) --------------------------
+
+
+def _cmd_admin_abort(args: argparse.Namespace) -> int:
+    """Handle ``agentkit admin-abort`` (AG3-138, FK-91 Regel 10, FK-55 §55.5).
+
+    A thin REST adapter onto ``POST /v1/project-edge/operations/{op_id}/
+    admin-abort`` (``admin_abort_inflight_operation``): it validates inputs
+    locally and delegates the abort EXECUTION (epoch-fence, Teil-Write->repair
+    routing, audit) to the core. It NEVER opens a DB connection and builds no
+    second semantics -- no own runtime/DB path (Regel 10; the delegation is
+    test-pinned).
+
+    Args:
+        args: Parsed CLI arguments.
+
+    Returns:
+        0 on a terminal ``aborted``/``repair`` result, 1 on error/unreachable.
+    """
+    from urllib.error import URLError
+
+    from agentkit.backend.control_plane.models import AdminAbortRequest
+    from agentkit.backend.exceptions import ControlPlaneApiError
+
+    base_url = getattr(args, "base_url", None)
+    if not base_url:
+        print(
+            "admin-abort failed [MissingBaseUrl]: --base-url is required to reach "
+            "the control plane over REST (the operator CLI never runs the core "
+            "in-process; FK-10 §10.1.0 I3).",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        request = AdminAbortRequest(
+            session_id=args.session,
+            principal_type=args.principal,
+            reason=args.reason,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"admin-abort failed [InvalidRequest]: {exc}", file=sys.stderr)
+        return 1
+
+    project_root = str(getattr(args, "project_root", ".") or ".")
+    try:
+        client = _build_control_plane_client(str(base_url), project_root)
+        result = client.admin_abort_operation(op_id=args.op_id, request=request)
+    except ControlPlaneApiError as exc:
+        print(f"admin-abort failed [{exc.error_code}]: {exc}", file=sys.stderr)
+        return 1
+    except URLError as exc:
+        print(f"admin-abort failed [BackendUnreachable]: {exc}", file=sys.stderr)
+        return 1
+    except (RuntimeError, json.JSONDecodeError) as exc:
+        print(f"admin-abort failed [TransportError]: {exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(f"admin-abort failed [InvalidBaseUrl]: {exc}", file=sys.stderr)
+        return 1
+
+    print(json.dumps(result.model_dump(mode="json"), sort_keys=True))
+    # Both 'aborted' and 'repair' are successful terminal outcomes of the abort.
+    return 0 if result.status in ("aborted", "repair") else 1
 
 
 # --- reset-escalation (Class C) ------------------------------------------------

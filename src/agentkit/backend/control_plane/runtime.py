@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 
 from agentkit.backend.control_plane.models import (
+    AdminAbortRequest,
     ClosureCompleteRequest,
     ControlPlaneMutationResult,
     EdgeBundle,
@@ -19,7 +20,10 @@ from agentkit.backend.control_plane.models import (
     SessionRunBindingView,
     StoryExecutionLockView,
 )
-from agentkit.backend.control_plane.ownership import MIN_BINDING_VERSION
+from agentkit.backend.control_plane.ownership import (
+    INITIAL_OPERATION_EPOCH,
+    MIN_BINDING_VERSION,
+)
 from agentkit.backend.control_plane.records import (
     BindingDeleteScope,
     ControlPlaneOperationRecord,
@@ -50,6 +54,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from agentkit.backend.control_plane.dispatch import PhaseDispatcher
+    from agentkit.backend.control_plane.records import BackendInstanceIdentityRecord
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +87,38 @@ _SYNC_AFTER_BY_CLASS = {
 #: Five minutes is well above the realistic dispatch wall-time and short enough
 #: that a crashed claim is reclaimable within one operator/retry cycle.
 _CLAIM_LEASE_TTL = timedelta(minutes=5)
+
+#: AG3-138: terminal statuses whose stored result ``GET operations/{op_id}``
+#: surfaces VERBATIM (not rewritten to ``replayed``) so a client reconciling an
+#: unclear mutation sees the true ``aborted`` / ``repair`` / ``failed`` outcome
+#: an admin-abort or startup reconciliation produced (FK-91 §91.1a Regel 17).
+_RECONCILE_PRESERVED_STATUSES = frozenset({"aborted", "repair", "failed"})
+
+
+class OperationNotFoundError(LookupError):
+    """Raised when an ``admin_abort`` target ``op_id`` does not exist (HTTP 404)."""
+
+    def __init__(self, op_id: str) -> None:
+        super().__init__(op_id)
+        self.op_id = op_id
+
+
+class OperationNotAbortableError(RuntimeError):
+    """Raised when an ``admin_abort`` target is not a live claim (HTTP 409).
+
+    The operation exists but is not currently ``claimed`` -- it is already
+    terminal (committed / rejected / aborted / repair / failed / replayed) or was
+    resolved concurrently between the load and the abort CAS. Fail-closed: an
+    already-resolved operation is not re-aborted (no second terminal write).
+    """
+
+    def __init__(self, op_id: str, current_status: str) -> None:
+        super().__init__(
+            f"operation {op_id!r} is not an abortable in-flight claim "
+            f"(current status: {current_status!r})",
+        )
+        self.op_id = op_id
+        self.current_status = current_status
 
 
 class _ModeResolutionKeys(Protocol):
@@ -149,11 +186,21 @@ class _ClaimOutcome:
     their ownership CAS matches BOTH ``claimed_by`` AND ``claimed_at`` -- a stale
     owner whose token is reused (DI/test) or after an expiry-takeover cannot match a
     NEWER lease generation.
+
+    AG3-138: ``operation_epoch`` is the fencing token stamped on the claim at
+    acquisition time (``_build_claim_placeholder``), threaded to finalize so its
+    CAS additionally requires the stored epoch to be unchanged
+    (``operation_finalize_requires_cas_on_operation_epoch``). A takeover of an
+    EXPIRED claim (:data:`_CLAIM_LEASE_TTL`) never changes the epoch (the SAME
+    instance reclaiming its own stuck lease, not a new fencing generation), so
+    this value is simply the placeholder's initial epoch on both a fresh claim
+    and a takeover.
     """
 
     won: bool
     result: ControlPlaneMutationResult | None
     claimed_at_raw: str | None = None
+    operation_epoch: int | None = None
 
     def result_or_raise(self) -> ControlPlaneMutationResult:
         """Return the loser's result; guard the won-but-no-result invariant."""
@@ -224,6 +271,7 @@ class _ControlPlaneRuntimeAdmissionBase:
         phase_dispatcher: PhaseDispatcher | None = None,
         now_fn: Callable[[], datetime] | None = None,
         token_factory: Callable[[], str] | None = None,
+        instance_identity: BackendInstanceIdentityRecord | None = None,
     ) -> None:
         #: ERROR-3 fix (#3): whether this service uses the PRODUCTIVE default
         #: control-plane store (Postgres-only by design). When ``True`` every
@@ -249,6 +297,84 @@ class _ControlPlaneRuntimeAdmissionBase:
         self._now_fn: Callable[[], datetime] = now_fn or (lambda: datetime.now(tz=UTC))
         self._token_factory: Callable[[], str] = token_factory or (
             lambda: f"owner-{uuid.uuid4().hex}"
+        )
+        #: AG3-138 (IMPL-003/IMPL-004): THIS boot's resolved instance identity.
+        #: For the PRODUCTIVE default store it stays ``None`` until the pre-serve
+        #: startup hook resolves and binds it (fail-closed via
+        #: :meth:`_current_instance_identity`): the listener never accepts a
+        #: claim-acquiring request before the hook has run
+        #: (``control_plane_http.app.serve_control_plane``). A DI-injected
+        #: repository is the test / alternative-wiring seam (it owns its own
+        #: backend, mirroring ``_uses_default_store``): when such a caller does
+        #: not inject an explicit identity, a deterministic default is bound so
+        #: the claim stamp stays well-formed -- this is NOT a production
+        #: fallback (production uses the default store and the startup hook).
+        self._instance_identity = instance_identity
+        if self._instance_identity is None and repository is not None:
+            self._instance_identity = _default_di_instance_identity()
+
+    @property
+    def repository(self) -> ControlPlaneRuntimeRepository:
+        """The control-plane runtime persistence port (AG3-138 startup hook wiring)."""
+        return self._repo
+
+    def bind_instance_identity(self, identity: BackendInstanceIdentityRecord) -> None:
+        """Bind THIS boot's resolved instance identity (AG3-138 startup hook).
+
+        Called exactly once by the pre-serve startup hook after
+        :func:`~agentkit.backend.control_plane.instance_identity.resolve_backend_instance_identity`
+        and :func:`~agentkit.backend.control_plane.startup_reconcile.run_startup_reconciliation`
+        both succeed -- before the listener accepts its first request.
+        """
+        self._instance_identity = identity
+
+    def _current_instance_identity(self) -> BackendInstanceIdentityRecord:
+        """Return THIS boot's instance identity, resolving it once when needed.
+
+        Every newly-acquired claim is stamped with the backend instance identity
+        (AG3-138 AC3, FK-91 §91.1a rule 16). The identity is never invented and
+        never a foreign one -- it is resolved from the authoritative persistent
+        store (``backend_instance_identity``, Postgres-only, K5):
+
+        * The **serving path** binds it up front: ``serve_control_plane`` runs the
+          pre-serve startup hook (identity resolution + orphan reconciliation)
+          BEFORE the listener accepts its first request (AC1/AC9), then
+          :meth:`bind_instance_identity` binds it onto the service the listener
+          uses -- so this method returns the already-bound value and the lazy
+          branch below is never reached on the serving path.
+        * A **DI-injected** repository binds a deterministic identity in
+          ``__init__`` (the test / alternative-wiring seam).
+        * For a **directly-constructed default-store** service the identity is
+          resolved here lazily on first claim and memoized -- mirroring
+          :meth:`_require_postgres_backend_on_first_use`, the default store is
+          self-sufficient to resolve its OWN identity from the store. It never
+          fabricates or guesses an identity (trap: own vs foreign); when the
+          Postgres store is unavailable it fails CLOSED (K5) rather than stamping
+          a fabricated identity onto a claim.
+        """
+        if self._instance_identity is not None:
+            return self._instance_identity
+        if self._uses_default_store:
+            from agentkit.backend.control_plane.instance_identity import (
+                resolve_backend_instance_identity,
+            )
+            from agentkit.backend.control_plane.repository import (
+                BackendInstanceIdentityRepository,
+            )
+
+            self._instance_identity = resolve_backend_instance_identity(
+                BackendInstanceIdentityRepository(),
+            )
+            return self._instance_identity
+        # A DI repository without an explicit identity has one bound in __init__;
+        # reaching here would be a wiring error -- fail closed rather than stamp
+        # an unresolved claim.
+        from agentkit.backend.exceptions import ConfigError
+
+        raise ConfigError(
+            "control-plane claim acquisition requires a resolved backend "
+            "instance identity (AG3-138 IMPL-003/IMPL-004, fail-closed): no "
+            "identity is bound and no default-store resolution seam is available.",
         )
 
     def _require_postgres_backend_on_first_use(self) -> None:
@@ -332,6 +458,16 @@ class _ControlPlaneRuntimeAdmissionBase:
         existing = self._load_existing_operation(request.op_id)
         if existing is not None:
             return existing
+        locked = self._repair_locked_rejection(
+            project_key=request.project_key,
+            story_id=request.story_id,
+            operation_kind="phase_start",
+            op_id=request.op_id,
+            run_id=run_id,
+            phase=phase,
+        )
+        if locked is not None:
+            return locked
 
         #: AG3-054 leased, owner-scoped claim. Mint a per-call owner token and
         #: atomically CLAIM the op_id BEFORE the dispatch side effects. Exactly ONE
@@ -353,6 +489,10 @@ class _ControlPlaneRuntimeAdmissionBase:
         #: lease epoch -- a stale generation (reused token / post-takeover) cannot
         #: match the newer lease. A won claim always carries it.
         owner_claimed_at = claim.claimed_at_raw
+        #: AG3-138: MY observed fencing epoch, threaded to finalize so its CAS
+        #: additionally requires it unchanged
+        #: (``operation_finalize_requires_cas_on_operation_epoch``).
+        owner_operation_epoch = claim.operation_epoch
 
         #: ERROR-1 fix (#1): the ENTIRE post-claim path is wrapped so MY claim (and
         #: only mine) is never stranded. A rejection path releases MY claim and
@@ -377,6 +517,7 @@ class _ControlPlaneRuntimeAdmissionBase:
                 request=request,
                 owner_token=owner_token,
                 owner_claimed_at=owner_claimed_at,
+                owner_operation_epoch=owner_operation_epoch,
                 phase_dispatch=outcome.dispatch_result,
             )
             finalized = True
@@ -576,15 +717,22 @@ class _ControlPlaneRuntimeAdmissionBase:
             owner_token=owner_token,
             now=now,
             operation_kind=operation_kind,
+            instance_identity=self._current_instance_identity(),
         )
         #: WARNING-4 fix (#4): the RAW lease epoch this caller stamps. The writer
         #: stores ``claimed_at`` as ``isoformat`` TEXT, so this is the exact raw
         #: column value the finalize/release CAS must match (alongside the owner
         #: token) to scope to THIS lease generation.
         claim_instant_raw = now.isoformat()
+        #: AG3-138: the fencing epoch THIS claim was stamped with (unchanged by a
+        #: same-instance TTL takeover below -- only an admin-abort bumps it).
+        claim_operation_epoch = placeholder.operation_epoch
         if self._repo.claim_operation(placeholder):
             return _ClaimOutcome(
-                won=True, result=None, claimed_at_raw=claim_instant_raw
+                won=True,
+                result=None,
+                claimed_at_raw=claim_instant_raw,
+                operation_epoch=claim_operation_epoch,
             )
         stored = self._repo.load_operation(request.op_id)
         if stored is None:
@@ -592,7 +740,10 @@ class _ControlPlaneRuntimeAdmissionBase:
             # (a concurrent release). Retry the atomic claim once.
             if self._repo.claim_operation(placeholder):
                 return _ClaimOutcome(
-                    won=True, result=None, claimed_at_raw=claim_instant_raw
+                    won=True,
+                    result=None,
+                    claimed_at_raw=claim_instant_raw,
+                    operation_epoch=claim_operation_epoch,
                 )
             return _ClaimOutcome(won=False, result=self._in_flight_rejection(request, operation_kind=operation_kind))
         if stored.status != "claimed":
@@ -622,8 +773,16 @@ class _ControlPlaneRuntimeAdmissionBase:
             #: WARNING-4: the takeover re-stamped the lease to MY ``now``, so MY
             #: lease epoch is the same ``claim_instant_raw`` -- threaded to
             #: finalize/release so their CAS scopes to THIS (new) generation.
+            #: AG3-138: ``takeover_operation`` (frozen, untouched by this story)
+            #: does NOT re-stamp ``operation_epoch`` -- it stays the claim's
+            #: original epoch (this is the SAME instance reclaiming its own
+            #: stuck lease, not a new fencing generation), so ``stored``'s epoch
+            #: is unchanged and equals the fresh placeholder's initial epoch.
             return _ClaimOutcome(
-                won=True, result=None, claimed_at_raw=claim_instant_raw
+                won=True,
+                result=None,
+                claimed_at_raw=claim_instant_raw,
+                operation_epoch=stored.operation_epoch,
             )
         return _ClaimOutcome(won=False, result=self._in_flight_rejection(request, operation_kind=operation_kind))
 
@@ -690,6 +849,7 @@ class _ControlPlaneRuntimeAdmissionBase:
         request: PhaseMutationRequest,
         owner_token: str,
         owner_claimed_at: str | None,
+        owner_operation_epoch: int | None = None,
         phase_dispatch: PhaseDispatchResult | None,
     ) -> ControlPlaneMutationResult:
         """Atomically CAS-finalize the claim AND materialize side effects (#1).
@@ -741,6 +901,8 @@ class _ControlPlaneRuntimeAdmissionBase:
             owner_token=owner_token,
             #: WARNING-4: the CAS scopes to BOTH owner token AND lease epoch.
             owner_claimed_at=owner_claimed_at,
+            #: AG3-138: additionally fences on the unchanged operation_epoch.
+            owner_operation_epoch=owner_operation_epoch,
             binding=plan.binding,
             locks=plan.locks,
             events=plan.events,
@@ -827,6 +989,49 @@ class _ControlPlaneRuntimeAdmissionBase:
                 "is re-raised; the claim lease will expire and become reclaimable)",
                 op_id,
             )
+
+    def _repair_locked_rejection(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        operation_kind: str,
+        op_id: str,
+        run_id: str | None,
+        phase: str,
+    ) -> ControlPlaneMutationResult | None:
+        """Fail-closed AC10 mutation lock: reject a mutation for a story in repair.
+
+        A story with an open Reconcile-/Repair-Zustand (an orphaned/aborted
+        operation whose engine writes were already partially persisted, IMPL-005)
+        is mutation-locked at this dispatch-/operations-layer entrypoint: no NEW
+        mutating operation is admitted until the state is resolved via
+        ``admin_abort``/repair (SEVERITY-SEMANTIK: a visible, auditable
+        handling requirement, never silent continued work on a Teil-Write-Stand).
+
+        Returns:
+            A fail-closed ``rejected`` result when the story is locked, else
+            ``None`` (no NEW operation/claim/side-effect is written in either
+            case -- a lock rejection stores nothing, mirroring every other
+            fail-closed rejection in this module).
+        """
+        if not self._repo.has_open_repair_for_story(project_key, story_id):
+            return None
+        return _rejection_result(
+            op_id=op_id,
+            operation_kind=operation_kind,
+            run_id=run_id,
+            phase=phase,
+            reason=(
+                f"{operation_kind} rejected: story {story_id!r} has an open "
+                "Reconcile-/Repair-Zustand (a prior in-flight operation left "
+                "partial engine writes -- phase_states/flow_executions -- after "
+                "an admin-abort or startup-reconciliation orphan finalize); no "
+                "new mutating operation is admitted until the state is resolved "
+                "via admin_abort/repair (fail-closed, AG3-138 AC10)."
+            ),
+            dispatch_phase=phase,
+        )
 
     def _fail_closed_setup_rejection(
         self,
@@ -964,6 +1169,16 @@ class _ControlPlaneRuntimeAdmissionBase:
         existing = self._load_existing_operation(request.op_id)
         if existing is not None:
             return existing
+        locked = self._repair_locked_rejection(
+            project_key=request.project_key,
+            story_id=request.story_id,
+            operation_kind=operation_kind,
+            op_id=request.op_id,
+            run_id=run_id,
+            phase=phase,
+        )
+        if locked is not None:
+            return locked
         if not self._run_was_admitted(request, run_id=run_id):
             return _rejection_result(
                 op_id=request.op_id,
@@ -1170,6 +1385,16 @@ class ControlPlaneRuntimeService(_ControlPlaneRuntimeAdmissionBase):
         existing = self._load_existing_operation(request.op_id)
         if existing is not None:
             return existing
+        locked = self._repair_locked_rejection(
+            project_key=request.project_key,
+            story_id=request.story_id,
+            operation_kind="closure_complete",
+            op_id=request.op_id,
+            run_id=run_id,
+            phase="closure",
+        )
+        if locked is not None:
+            return locked
 
         if not self._closure_run_was_admitted(request, run_id=run_id):
             #: ERROR-6 fix (#6): closure is consistent with complete/fail admission
@@ -1280,6 +1505,16 @@ class ControlPlaneRuntimeService(_ControlPlaneRuntimeAdmissionBase):
         existing = self._load_existing_operation(request.op_id)
         if existing is not None:
             return existing
+        locked = self._repair_locked_rejection(
+            project_key=request.project_key,
+            story_id=request.story_id,
+            operation_kind="phase_resume",
+            op_id=request.op_id,
+            run_id=run_id,
+            phase=phase,
+        )
+        if locked is not None:
+            return locked
         if not self._run_was_admitted(request, run_id=run_id):
             return _rejection_result(
                 op_id=request.op_id,
@@ -1312,6 +1547,7 @@ class ControlPlaneRuntimeService(_ControlPlaneRuntimeAdmissionBase):
         if not claim.won:
             return claim.result_or_raise()
         owner_claimed_at = claim.claimed_at_raw
+        owner_operation_epoch = claim.operation_epoch
         finalized = False
         try:
             #: Drive the deterministic dispatcher: with the persisted phase-state
@@ -1342,6 +1578,7 @@ class ControlPlaneRuntimeService(_ControlPlaneRuntimeAdmissionBase):
                 request=request,
                 owner_token=owner_token,
                 owner_claimed_at=owner_claimed_at,
+                owner_operation_epoch=owner_operation_epoch,
                 phase_dispatch=dispatch_result,
             )
             finalized = True
@@ -1427,6 +1664,7 @@ class ControlPlaneRuntimeService(_ControlPlaneRuntimeAdmissionBase):
         request: PhaseMutationRequest,
         owner_token: str,
         owner_claimed_at: str | None,
+        owner_operation_epoch: int | None = None,
         phase_dispatch: PhaseDispatchResult | None,
     ) -> ControlPlaneMutationResult:
         """Commit ONLY the ``phase_resume`` op record; never re-materialize a start.
@@ -1475,6 +1713,7 @@ class ControlPlaneRuntimeService(_ControlPlaneRuntimeAdmissionBase):
             record,
             owner_token=owner_token,
             owner_claimed_at=owner_claimed_at,
+            owner_operation_epoch=owner_operation_epoch,
             binding=None,
             locks=(),
             events=(),
@@ -1779,7 +2018,110 @@ class ControlPlaneRuntimeService(_ControlPlaneRuntimeAdmissionBase):
         if record.status == "claimed":
             #: ERROR-4: an in-flight claim placeholder is not a reconcilable op yet.
             return None
+        #: AG3-138 (AC5, FK-91 §91.1a Regel 17): ``_replayed_result`` surfaces an
+        #: ``aborted`` / ``repair`` / ``failed`` terminal state VERBATIM (a
+        #: visible, auditable Reconcile-/Repair-Zustand, SEVERITY-SEMANTIK) and
+        #: only echoes the ordinary success statuses as ``replayed``.
         return _replayed_result(record.response_payload)
+
+    def admin_abort_inflight_operation(
+        self,
+        op_id: str,
+        request: AdminAbortRequest,
+    ) -> ControlPlaneMutationResult:
+        """Administratively abort a hanging server-owned in-flight operation (AG3-138).
+
+        FK-91 §91.1a ``admin_abort_inflight_operation`` (FK-55 §55.5
+        ``admin_transition``): the ONE explicit manual end-way for an in-flight
+        claim beside the same-instance startup reconciliation (NO ERROR
+        BYPASSING -- no back door that just "frees" claims). Acts ONLY on a
+        currently-``claimed`` operation (a server-owned in-flight claim) and:
+
+        * bumps ``operation_epoch`` so a late, physically-still-running executor's
+          finalize fails the epoch fence deterministically -- at most a no-op
+          abort note, never a second result or a silent state change (AC4/AC6;
+          ``operation_finalize_requires_cas_on_operation_epoch``);
+        * routes a Teil-Write (already-persisted ``phase_states``/
+          ``flow_executions``) into the explicit, auditable ``repair`` state
+          instead of silently ``failed`` (IMPL-005), which then story-scoped
+          mutation-locks the run (AC10);
+        * is fully audited: the actor (``session_id`` / ``principal_type``) and
+          the mandatory ``reason`` are persisted on the terminal operation
+          record (visible via ``GET operations/{op_id}``).
+
+        Args:
+            op_id: The target in-flight operation id (URL path segment).
+            request: The audited admin-abort request (actor + reason).
+
+        Returns:
+            The terminal :class:`ControlPlaneMutationResult`: ``aborted`` (no
+            partial writes) or ``repair`` (partial writes detected). An already
+            resolved / unknown op is a fail-closed rejection the HTTP adapter
+            maps to 409 / 404.
+
+        Raises:
+            OperationNotFoundError: When ``op_id`` does not exist (HTTP 404).
+            OperationNotAbortableError: When the operation is not currently
+                ``claimed`` (already terminal, HTTP 409).
+        """
+        self._require_postgres_backend_on_first_use()
+        record = self._repo.load_operation(op_id)
+        if record is None:
+            raise OperationNotFoundError(op_id)
+        if record.status != "claimed":
+            raise OperationNotAbortableError(op_id, record.status)
+        status, admin_note = self._resolve_abort_terminal_status(record, request)
+        result = ControlPlaneMutationResult(
+            status=status,
+            op_id=op_id,
+            operation_kind=record.operation_kind,
+            run_id=record.run_id,
+            phase=record.phase,
+            edge_bundle=None,
+            phase_dispatch=None,
+            admin_note=admin_note,
+        )
+        applied = self._repo.admin_abort_operation(
+            op_id=op_id,
+            status=status,
+            response_payload=result.model_dump(mode="json"),
+            now=self._now_fn(),
+        )
+        if not applied:
+            #: The claim was concurrently resolved (finalized/aborted) between the
+            #: load and the CAS. Fail-closed: it is no longer an abortable
+            #: in-flight claim (AC6, 409). NO second/duplicate terminal write.
+            raise OperationNotAbortableError(op_id, "resolved_concurrently")
+        return result
+
+    def _resolve_abort_terminal_status(
+        self,
+        record: ControlPlaneOperationRecord,
+        request: AdminAbortRequest,
+    ) -> tuple[Literal["aborted", "repair"], str]:
+        """Decide ``aborted`` vs ``repair`` for an admin-abort target (IMPL-005)."""
+        since = record.claimed_at or record.created_at
+        has_writes = record.run_id is not None and self._repo.has_engine_writes_since(
+            record.story_id, record.run_id, since
+        )
+        actor = f"session={request.session_id!r} principal={request.principal_type!r}"
+        if has_writes:
+            return (
+                "repair",
+                f"admin_abort_inflight_operation by {actor}: reason="
+                f"{request.reason!r}. The aborted operation had already persisted "
+                "engine writes (phase_states/flow_executions); entering an "
+                "explicit, auditable Reconcile-/Repair-Zustand instead of silently "
+                "'failed' (IMPL-005). The story is mutation-locked until the state "
+                "is resolved via repair (AC10).",
+            )
+        return (
+            "aborted",
+            f"admin_abort_inflight_operation by {actor}: reason={request.reason!r}. "
+            "No persisted engine writes detected; the in-flight claim is aborted "
+            "and its operation_epoch bumped so a late executor's finalize fails "
+            "the fence deterministically (AC4).",
+        )
 
     def _mutate_phase(
         self,
@@ -2185,6 +2527,23 @@ def _require_postgres_control_plane_backend() -> None:
         )
 
 
+def _default_di_instance_identity() -> BackendInstanceIdentityRecord:
+    """Build the deterministic DI-seam backend instance identity (AG3-138).
+
+    Bound automatically when a repository is DI-injected without an explicit
+    identity (test / alternative wiring). A stable, well-formed value keeps the
+    claim stamp and the ownership fencing sound; it is NEVER used on the
+    productive default-store path (which requires the startup hook).
+    """
+    from agentkit.backend.control_plane.records import BackendInstanceIdentityRecord
+
+    return BackendInstanceIdentityRecord(
+        backend_instance_id="di-wiring-instance",
+        instance_incarnation=1,
+        updated_at=datetime.now(tz=UTC),
+    )
+
+
 def _build_claim_placeholder(
     request: PhaseMutationRequest,
     *,
@@ -2192,6 +2551,7 @@ def _build_claim_placeholder(
     phase: str,
     owner_token: str,
     now: datetime,
+    instance_identity: BackendInstanceIdentityRecord,
     operation_kind: str = "phase_start",
 ) -> ControlPlaneOperationRecord:
     """Build the in-flight leased ``claimed`` placeholder op record (AG3-054).
@@ -2206,6 +2566,13 @@ def _build_claim_placeholder(
     reserves its op_id under ``phase_resume`` through the SAME claim-before-dispatch
     protocol as ``start`` (no double-resume: the side-effecting engine resume runs
     only after the reservation).
+
+    AG3-138 (``inflight-operation-record``, FK-91 §91.1a rules 13/16): every
+    freshly-acquired claim is stamped with the CALLING instance's identity
+    (``backend_instance_id`` + ``instance_incarnation``), an initial fencing
+    ``operation_epoch`` (bumped only by an explicit admin-abort, never by wall
+    clock) and its ``declared_serialization_scope`` (the default
+    ``(project_key, story_id)`` object-serialization scope, Regel 13).
     """
     return ControlPlaneOperationRecord(
         op_id=request.op_id,
@@ -2221,6 +2588,10 @@ def _build_claim_placeholder(
         updated_at=now,
         claimed_by=owner_token,
         claimed_at=now,
+        operation_epoch=INITIAL_OPERATION_EPOCH,
+        backend_instance_id=instance_identity.backend_instance_id,
+        instance_incarnation=instance_identity.instance_incarnation,
+        declared_serialization_scope=f"{request.project_key}:{request.story_id}",
     )
 
 
@@ -2278,15 +2649,27 @@ def _replayed_result(
     ``model_validate`` over the stored payload with ``status`` overridden -- NOT
     via ``model_copy(update=...)`` (which pydantic does NOT re-validate). So the
     model's ``edge_bundle``-optionality invariant (``edge_bundle`` may be ``None``
-    only for ``rejected``) is re-enforced on every replay: a tampered stored
-    payload that violates it raises at the boundary instead of silently passing.
+    only for a non-materializing status) is re-enforced on every replay: a
+    tampered stored payload that violates it raises at the boundary instead of
+    silently passing.
+
+    AG3-138: an ``aborted`` / ``repair`` / ``failed`` terminal result (which
+    carries NO ``edge_bundle``) is surfaced VERBATIM -- rewriting its status to
+    ``replayed`` would both hide the true terminal state from an idempotent
+    retry AND violate the model invariant (``replayed`` requires an
+    ``edge_bundle``). Only the ordinary success statuses are echoed as
+    ``replayed``.
 
     Args:
         stored_payload: The JSON payload of the persisted operation.
 
     Returns:
-        A validated ``replayed`` :class:`ControlPlaneMutationResult`.
+        A validated :class:`ControlPlaneMutationResult`: verbatim for a
+        preserved terminal status, else a ``replayed`` echo.
     """
+    stored_status = stored_payload.get("status")
+    if stored_status in _RECONCILE_PRESERVED_STATUSES:
+        return ControlPlaneMutationResult.model_validate(stored_payload)
     return ControlPlaneMutationResult.model_validate(
         {**stored_payload, "status": "replayed"},
     )

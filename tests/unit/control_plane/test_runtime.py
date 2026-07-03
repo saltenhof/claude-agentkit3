@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from agentkit.backend.control_plane.models import (
+    AdminAbortRequest,
     ClosureCompleteRequest,
     ControlPlaneMutationResult,
     PhaseDispatchResult,
@@ -15,6 +16,7 @@ from agentkit.backend.control_plane.models import (
     ProjectEdgeSyncRequest,
 )
 from agentkit.backend.control_plane.records import (
+    BackendInstanceIdentityRecord,
     BindingDeleteScope,
     ControlPlaneOperationRecord,
     SessionRunBindingRecord,
@@ -22,6 +24,9 @@ from agentkit.backend.control_plane.records import (
 from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
 from agentkit.backend.control_plane.runtime import (
     ControlPlaneRuntimeService,
+    OperationNotAbortableError,
+    OperationNotFoundError,
+    _build_claim_placeholder,
     _next_binding_version,
 )
 from agentkit.backend.core_types import StoryMode
@@ -44,6 +49,11 @@ class _RepoState:
         #: Authoritative server-side StoryContext store keyed by
         #: ``(project_key, story_id)``. Empty => unresolvable (fail-closed).
         self.story_contexts: dict[tuple[str, str], StoryContext] = {}
+        #: AG3-138: (story_id, run_id) pairs for which the engine is treated as
+        #: having already persisted phase_states/flow_executions (Teil-Write).
+        #: Empty => no partial writes (an abort/orphan finalize -> aborted/failed
+        #: rather than repair). Populated by tests exercising the repair path.
+        self.engine_write_runs: set[tuple[str, str]] = set()
 
 
 class _FakeOps:
@@ -93,10 +103,14 @@ class _FakeOps:
         record: ControlPlaneOperationRecord,
         owner_token: str,
         owner_claimed_at: str | None = None,
+        owner_operation_epoch: int | None = None,
     ) -> bool:
         # WARNING-4 (#4): the CAS scopes to BOTH owner token AND lease epoch when
         # the epoch is given. The fake compares the observed raw epoch against the
         # stored record's raw text (mirroring the store's raw-column CAS).
+        # AG3-138: additionally fences on the unchanged operation_epoch when given
+        # (``operation_finalize_requires_cas_on_operation_epoch``): an admin-abort
+        # bumps the stored epoch, so a stale-epoch finalize matches nothing.
         existing = self._state.operations.get(record.op_id)
         if (
             existing is None
@@ -104,9 +118,15 @@ class _FakeOps:
             or existing.claimed_by != owner_token
         ):
             return False
-        if owner_claimed_at is not None:
-            return _stored_claimed_at_raw(existing) == owner_claimed_at
-        return True
+        if (
+            owner_claimed_at is not None
+            and _stored_claimed_at_raw(existing) != owner_claimed_at
+        ):
+            return False
+        return not (
+            owner_operation_epoch is not None
+            and existing.operation_epoch != owner_operation_epoch
+        )
 
     def finalize(
         self,
@@ -114,10 +134,13 @@ class _FakeOps:
         *,
         owner_token: str,
         owner_claimed_at: str | None = None,
+        owner_operation_epoch: int | None = None,
     ) -> bool:
         # Ownership-scoped terminal write: apply iff still claimed by owner_token
-        # (and lease epoch when given, #4).
-        if not self._still_owned(record, owner_token, owner_claimed_at):
+        # (and lease epoch when given, #4; and operation_epoch when given, AG3-138).
+        if not self._still_owned(
+            record, owner_token, owner_claimed_at, owner_operation_epoch
+        ):
             return False
         self._state.operations[record.op_id] = record
         return True
@@ -128,14 +151,18 @@ class _FakeOps:
         *,
         owner_token: str,
         owner_claimed_at: str | None = None,
+        owner_operation_epoch: int | None = None,
         binding: SessionRunBindingRecord | None,
         locks: tuple[StoryExecutionLockRecord, ...],
         events: tuple[ExecutionEventRecord, ...],
     ) -> bool:
         # ERROR-1 (#1): ownership CAS finalize + side-effect materialization in ONE
         # atomic step. Apply ONLY if still claimed by owner_token (and lease epoch
-        # when given, #4); otherwise write NOTHING.
-        if not self._still_owned(record, owner_token, owner_claimed_at):
+        # when given, #4; and operation_epoch when given, AG3-138); else write
+        # NOTHING.
+        if not self._still_owned(
+            record, owner_token, owner_claimed_at, owner_operation_epoch
+        ):
             return False
         # AG3-054 run-scoping: the binding INSERT is run-scoped at the real store
         # (raises if the session is bound to a DIFFERENT run). Mirror it so the
@@ -268,6 +295,99 @@ class _FakeOps:
     def delete(self, op_id: str) -> None:
         self._state.operations.pop(op_id, None)
 
+    # --- AG3-138 startup-reconcile / admin-abort / repair-lock ports -----------
+
+    def list_orphaned(
+        self, backend_instance_id: str, before_incarnation: int
+    ) -> tuple[ControlPlaneOperationRecord, ...]:
+        # In-memory mirror of the store's identity-fenced orphan scan: only
+        # claimed ops of the CALLING instance's own EARLIER incarnations.
+        return tuple(
+            sorted(
+                (
+                    op
+                    for op in self._state.operations.values()
+                    if op.status == "claimed"
+                    and op.backend_instance_id == backend_instance_id
+                    and op.instance_incarnation is not None
+                    and op.instance_incarnation < before_incarnation
+                ),
+                key=lambda op: op.op_id,
+            )
+        )
+
+    def finalize_orphaned(
+        self,
+        *,
+        op_id: str,
+        backend_instance_id: str,
+        status: str,
+        response_payload: dict[str, object],
+        now: datetime,
+    ) -> bool:
+        # Identity-fenced CAS: apply only when still claimed by the OWN identity.
+        from dataclasses import replace
+
+        existing = self._state.operations.get(op_id)
+        if (
+            existing is None
+            or existing.status != "claimed"
+            or existing.backend_instance_id != backend_instance_id
+        ):
+            return False
+        self._state.operations[op_id] = replace(
+            existing,
+            status=status,
+            response_payload=response_payload,
+            updated_at=now,
+            finalized_at=now,
+            operation_epoch=(existing.operation_epoch or 0) + 1,
+            claimed_by=None,
+            claimed_at=None,
+        )
+        return True
+
+    def admin_abort(
+        self,
+        *,
+        op_id: str,
+        status: str,
+        response_payload: dict[str, object],
+        now: datetime,
+    ) -> bool:
+        # CAS-abort ANY currently-claimed op (bumps the epoch fence).
+        from dataclasses import replace
+
+        existing = self._state.operations.get(op_id)
+        if existing is None or existing.status != "claimed":
+            return False
+        self._state.operations[op_id] = replace(
+            existing,
+            status=status,
+            response_payload=response_payload,
+            updated_at=now,
+            finalized_at=now,
+            operation_epoch=(existing.operation_epoch or 0) + 1,
+            claimed_by=None,
+            claimed_at=None,
+        )
+        return True
+
+    def has_engine_writes_since(
+        self, story_id: str, run_id: str, since: datetime
+    ) -> bool:
+        # Deterministic Teil-Write signal driven by a test-settable set on state
+        # (default empty => no partial writes). Keyed by (story_id, run_id).
+        return (story_id, run_id) in self._state.engine_write_runs
+
+    def has_open_repair_for_story(self, project_key: str, story_id: str) -> bool:
+        return any(
+            op.status == "repair"
+            and op.project_key == project_key
+            and op.story_id == story_id
+            for op in self._state.operations.values()
+        )
+
 
 def _fake_run_scoped_save_binding(
     state: _RepoState,
@@ -399,6 +519,11 @@ def _repository(state: _RepoState) -> ControlPlaneRuntimeRepository:
         load_story_context=lambda project_key, story_id: state.story_contexts.get(
             (project_key, story_id),
         ),
+        list_orphaned_claimed_operations=ops.list_orphaned,
+        finalize_orphaned_operation=ops.finalize_orphaned,
+        admin_abort_operation=ops.admin_abort,
+        has_engine_writes_since=ops.has_engine_writes_since,
+        has_open_repair_for_story=ops.has_open_repair_for_story,
     )
 
 
@@ -3125,3 +3250,258 @@ def test_distinct_claims_cannot_cross_match_on_ownership() -> None:
     assert state.operations["op-cross"].status == "claimed"
     assert state.bindings == {}
     assert state.events == []
+
+
+# ---------------------------------------------------------------------------
+# AG3-138 — admin_abort, operation_epoch fence, repair mutation-lock
+# ---------------------------------------------------------------------------
+
+
+def _admin_abort_request(reason: str = "hung operation") -> AdminAbortRequest:
+    return AdminAbortRequest(
+        session_id="admin-sess",
+        principal_type="admin_service",
+        reason=reason,
+    )
+
+
+def _seed_live_claim(
+    state: _RepoState,
+    *,
+    op_id: str,
+    story_id: str = "AG3-100",
+    run_id: str = "run-100",
+    operation_epoch: int = 1,
+    backend_instance_id: str = "inst-me",
+    instance_incarnation: int = 1,
+) -> None:
+    """Seed a live ``claimed`` in-flight operation (the admin-abort target)."""
+    now = datetime(2026, 7, 2, 11, 0, tzinfo=UTC)
+    state.operations[op_id] = ControlPlaneOperationRecord(
+        op_id=op_id,
+        project_key="tenant-a",
+        story_id=story_id,
+        run_id=run_id,
+        session_id="sess-001",
+        operation_kind="phase_start",
+        phase="implementation",
+        status="claimed",
+        response_payload={},
+        created_at=now,
+        updated_at=now,
+        claimed_by="owner-live",
+        claimed_at=now,
+        operation_epoch=operation_epoch,
+        backend_instance_id=backend_instance_id,
+        instance_incarnation=instance_incarnation,
+        declared_serialization_scope="tenant-a:AG3-100",
+    )
+
+
+def test_admin_abort_of_live_claim_returns_aborted_and_bumps_epoch() -> None:
+    """AC6: admin-abort of a server-owned live claim -> aborted, epoch bumped."""
+    state = _RepoState()
+    _seed_live_claim(state, op_id="op-abort-1", operation_epoch=1)
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    result = service.admin_abort_inflight_operation("op-abort-1", _admin_abort_request())
+
+    assert result.status == "aborted"
+    assert result.admin_note is not None
+    assert "admin_abort_inflight_operation" in result.admin_note
+    stored = state.operations["op-abort-1"]
+    assert stored.status == "aborted"
+    assert stored.operation_epoch == 2  # bumped for the epoch fence
+
+
+def test_admin_abort_unknown_op_raises_not_found() -> None:
+    """AC6: an unknown op_id -> OperationNotFoundError (HTTP 404)."""
+    state = _RepoState()
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+    with pytest.raises(OperationNotFoundError):
+        service.admin_abort_inflight_operation("op-missing", _admin_abort_request())
+
+
+def test_admin_abort_terminal_op_raises_not_abortable() -> None:
+    """AC6: a terminal (non-claimed) op -> OperationNotAbortableError (HTTP 409)."""
+    state = _RepoState()
+    now = datetime(2026, 7, 2, 11, 0, tzinfo=UTC)
+    state.operations["op-done"] = ControlPlaneOperationRecord(
+        op_id="op-done",
+        project_key="tenant-a",
+        story_id="AG3-100",
+        run_id="run-100",
+        session_id="sess-001",
+        operation_kind="phase_start",
+        phase="setup",
+        status="committed",
+        response_payload={},
+        created_at=now,
+        updated_at=now,
+    )
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+    with pytest.raises(OperationNotAbortableError):
+        service.admin_abort_inflight_operation("op-done", _admin_abort_request())
+
+
+def test_admin_abort_with_partial_writes_goes_to_repair() -> None:
+    """AC5/IMPL-005: an abort target with engine writes -> repair, not aborted."""
+    state = _RepoState()
+    _seed_live_claim(state, op_id="op-abort-repair", story_id="AG3-100", run_id="run-100")
+    state.engine_write_runs.add(("AG3-100", "run-100"))
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    result = service.admin_abort_inflight_operation(
+        "op-abort-repair", _admin_abort_request()
+    )
+
+    assert result.status == "repair"
+    assert state.operations["op-abort-repair"].status == "repair"
+
+
+def test_late_executor_finalize_after_abort_fails_epoch_fence() -> None:
+    """AC4: a finalize with a stale operation_epoch after an admin-abort is fenced."""
+    state = _RepoState()
+    _seed_live_claim(state, op_id="op-late", operation_epoch=1)
+    ops = _FakeOps(state)
+
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+    service.admin_abort_inflight_operation("op-late", _admin_abort_request())
+    assert state.operations["op-late"].status == "aborted"
+
+    # The abort cleared claimed_by/status, so a late finalize with the OLD epoch
+    # (1) and the old owner token matches nothing: the fence holds deterministically.
+    late_terminal = ControlPlaneOperationRecord(
+        op_id="op-late",
+        project_key="tenant-a",
+        story_id="AG3-100",
+        run_id="run-100",
+        session_id="sess-001",
+        operation_kind="phase_start",
+        phase="implementation",
+        status="committed",
+        response_payload={"forged": "late"},
+        created_at=state.operations["op-late"].created_at,
+        updated_at=datetime(2026, 7, 2, 12, 0, tzinfo=UTC),
+    )
+    applied = ops.finalize(
+        late_terminal,
+        owner_token="owner-live",
+        owner_claimed_at=None,
+        owner_operation_epoch=1,
+    )
+    assert applied is False
+    assert state.operations["op-late"].status == "aborted"
+    assert state.operations["op-late"].response_payload != {"forged": "late"}
+
+
+def test_get_operation_surfaces_repair_state_verbatim() -> None:
+    """AC5: GET operations/{op_id} shows the true repair state (not 'replayed')."""
+    state = _RepoState()
+    _seed_live_claim(state, op_id="op-visible-repair", run_id="run-100")
+    state.engine_write_runs.add(("AG3-100", "run-100"))
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+    service.admin_abort_inflight_operation("op-visible-repair", _admin_abort_request())
+
+    view = service.get_operation("op-visible-repair")
+
+    assert view is not None
+    assert view.status == "repair"  # NOT rewritten to 'replayed'
+    assert view.admin_note is not None
+
+
+def test_mutating_dispatch_against_story_in_repair_is_rejected() -> None:
+    """AC10 negative path: a mutating start against a repair-locked story -> 409."""
+    state = _RepoState()
+    _resolvable_standard_ctx(state)
+    now = datetime(2026, 7, 2, 11, 0, tzinfo=UTC)
+    state.operations["op-repair-open"] = ControlPlaneOperationRecord(
+        op_id="op-repair-open",
+        project_key="tenant-a",
+        story_id="AG3-100",
+        run_id="run-old",
+        session_id="sess-001",
+        operation_kind="phase_start",
+        phase="implementation",
+        status="repair",
+        response_payload={
+            "status": "repair",
+            "op_id": "op-repair-open",
+            "operation_kind": "phase_start",
+        },
+        created_at=now,
+        updated_at=now,
+    )
+    service = ControlPlaneRuntimeService(
+        repository=_repository(state),
+        phase_dispatcher=_StubDispatcher(_admitted_dispatch()),  # type: ignore[arg-type]
+    )
+
+    result = service.start_phase(
+        run_id="run-new", phase="setup", request=_setup_request("op-new-mut")
+    )
+
+    assert result.status == "rejected"
+    assert result.edge_bundle is None
+    assert result.phase_dispatch is not None
+    assert "Reconcile-/Repair-Zustand" in (result.phase_dispatch.rejection_reason or "")
+    assert "op-new-mut" not in state.operations
+
+
+def test_claim_stamps_instance_identity_and_operation_epoch() -> None:
+    """AC3: every newly-acquired claim carries the instance identity + epoch."""
+    identity = BackendInstanceIdentityRecord(
+        backend_instance_id="inst-explicit",
+        instance_incarnation=7,
+        updated_at=datetime(2026, 7, 2, 12, 0, tzinfo=UTC),
+    )
+    placeholder = _build_claim_placeholder(
+        _setup_request("op-probe"),
+        run_id="run-100",
+        phase="setup",
+        owner_token="owner-x",
+        now=datetime(2026, 7, 2, 12, 0, tzinfo=UTC),
+        instance_identity=identity,
+    )
+    assert placeholder.backend_instance_id == "inst-explicit"
+    assert placeholder.instance_incarnation == 7
+    assert placeholder.operation_epoch == 1
+    assert placeholder.declared_serialization_scope == "tenant-a:AG3-100"
+    assert placeholder.status == "claimed"
+
+
+def test_default_store_resolves_identity_from_store_never_invents_it() -> None:
+    """A default-store service resolves its identity from the authoritative store.
+
+    AG3-138 AC3 / trap (own vs foreign identity): the instance identity is never
+    invented and never foreign -- it is resolved from the Postgres session-
+    ownership store (``backend_instance_identity``), mirroring the class's
+    ``_require_postgres_backend_on_first_use`` lazy-first-use pattern. When that
+    store is unavailable (no Postgres backend configured) resolution fails CLOSED
+    rather than stamping a fabricated identity onto a claim (K5, Postgres-only).
+    The serving path never hits this lazily: ``serve_control_plane`` runs the
+    pre-serve startup hook (identity resolution + orphan reconciliation) before
+    the listener accepts any request (AC1/AC9), so the identity is bound there.
+    """
+    from agentkit.backend.exceptions import ConfigError
+
+    service = ControlPlaneRuntimeService()
+    # No Postgres backend configured here -> fail closed (K5), never a fabricated
+    # identity.
+    with pytest.raises(ConfigError, match="Postgres state backend"):
+        service._current_instance_identity()
+
+
+def test_di_service_binds_a_deterministic_identity_without_explicit_injection() -> None:
+    """A DI-injected repository binds a deterministic identity in __init__.
+
+    The test / alternative-wiring seam never needs Postgres to stamp claims: when
+    a caller injects a repository but no explicit identity, a deterministic
+    default identity is bound so the claim stamp stays well-formed (NOT a
+    production fallback -- production uses the default store + startup hook).
+    """
+    state = _RepoState()
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+    identity = service._current_instance_identity()
+    assert identity.backend_instance_id.strip()
+    assert identity.instance_incarnation >= 1

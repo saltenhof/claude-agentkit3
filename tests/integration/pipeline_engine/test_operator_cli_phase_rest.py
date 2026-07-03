@@ -44,6 +44,7 @@ from tests.fixtures.git_repo import ensure_git_repo
 from agentkit.backend.cli.main import main
 from agentkit.backend.control_plane.dispatch import PhaseDispatcher, PreStartGuard
 from agentkit.backend.control_plane.models import PhaseMutationRequest
+from agentkit.backend.control_plane.records import BackendInstanceIdentityRecord
 from agentkit.backend.control_plane.runtime import (
     ControlPlaneRuntimeService,
     _build_claim_placeholder,
@@ -432,13 +433,21 @@ class TestResumeClaimAndSideEffects:
             project_dir, story_id, "resume", detail={"resume_trigger": "design_approved"}
         )
         # Simulate a concurrent in-flight owner: reserve the op_id with a FRESH
-        # (non-expired) foreign claim before our resume runs.
+        # (non-expired) foreign claim before our resume runs. AG3-138 AC3: every
+        # claim placeholder is stamped with a backend instance identity; this
+        # foreign in-flight owner carries a distinct (foreign) identity.
+        foreign_identity = BackendInstanceIdentityRecord(
+            backend_instance_id="foreign-backend",
+            instance_incarnation=1,
+            updated_at=datetime.now(tz=UTC),
+        )
         placeholder = _build_claim_placeholder(
             req,
             run_id="run-1",
             phase="exploration",
             owner_token="owner-00000000000000000000000000000000",
             now=datetime.now(tz=UTC),
+            instance_identity=foreign_identity,
             operation_kind="phase_resume",
         )
         assert service._repo.claim_operation(placeholder) is True

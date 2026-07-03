@@ -38,6 +38,13 @@ def _build_public_api_names() -> tuple[str, ...]:
         "load_takeover_transfer_record_global",
         "save_backend_instance_identity_global",
         "load_backend_instance_identity_global",
+        # AG3-138 instance identity + startup reconciliation + admin-abort.
+        "boot_backend_instance_identity_global",
+        "list_orphaned_claimed_control_plane_operations_global",
+        "finalize_orphaned_control_plane_operation_global",
+        "admin_abort_control_plane_operation_global",
+        "has_engine_writes_since_control_plane_claim_global",
+        "has_open_repair_control_plane_operation_for_story_global",
         "count_runtime_execution_residue",
         "delete_control_plane_operation_global",
         "finalize_control_plane_operation_global",

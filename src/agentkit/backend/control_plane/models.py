@@ -257,6 +257,26 @@ class ClosureCompleteRequest(_ControlPlaneRequest):
     detail: dict[str, object] = Field(default_factory=dict)
 
 
+class AdminAbortRequest(BaseModel):
+    """Request payload for ``POST /v1/project-edge/operations/{op_id}/admin-abort``.
+
+    FK-91 §91.1a ``admin_abort_inflight_operation`` (FK-55 §55.5
+    ``admin_transition``): the target operation is identified by the URL path
+    ``op_id`` (idempotent by construction -- a second abort call against an
+    already-resolved op_id deterministically 409s, AC6). ``reason`` is a
+    mandatory, audited justification (mirrors the Begruendungspflicht of the
+    takeover-request endpoint); ``session_id``/``principal_type`` attribute the
+    administrative actor for the audit trail.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    session_id: str = Field(min_length=1)
+    principal_type: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    source_component: str = Field(min_length=1, default="project_edge_client")
+
+
 class ProjectEdgeSyncRequest(BaseModel):
     """Canonical request payload for a bounded project-edge sync."""
 
@@ -529,23 +549,37 @@ class PhaseDispatchResult(BaseModel):
     errors: tuple[str, ...] = ()
 
 
+#: Terminal statuses (AG3-138) that materialize NO story-scoped guard regime --
+#: an ``edge_bundle`` is therefore never carried for them, exactly like
+#: ``rejected``. ``aborted``: an explicit ``admin_abort_inflight_operation``
+#: with no partial engine writes detected. ``repair``: an orphaned/aborted
+#: operation whose engine writes (``phase_states``/``flow_executions``) were
+#: already partially persisted -- an explicit, auditable Reconcile-/Repair-
+#: Zustand (IMPL-005), never silently ``failed``. ``failed``: the deterministic
+#: startup-reconciliation outcome for an orphaned claim of the OWN instance's
+#: earlier incarnation with no partial writes (FK-91 §91.1a rule 16).
+_NO_EDGE_BUNDLE_STATUSES = frozenset({"rejected", "aborted", "repair", "failed"})
+
+
 class ControlPlaneMutationResult(BaseModel):
     """Shared response body for mutations, sync, and op reconciliation."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    status: Literal["committed", "replayed", "synced", "rejected"]
+    status: Literal[
+        "committed", "replayed", "synced", "rejected", "aborted", "repair", "failed"
+    ]
     op_id: str
     operation_kind: str
     run_id: str | None = None
     phase: str | None = None
-    #: ``None`` ONLY for a fail-closed REJECTED start (AG3-054; FK-20 §20.8.2).
-    #: A rejected start materializes NO story-scoped guard regime -- no session
-    #: binding, no lock-records, no ``phase_start`` edge bundle -- so there is no
-    #: bundle to carry and the rejection is NOT stored as a committed op (a later
-    #: retry re-evaluates once Approved+READY). Every committed / replayed /
-    #: synced result still carries an authoritative ``edge_bundle``; the rejection
-    #: travels on ``phase_dispatch``.
+    #: ``None`` ONLY for a status in :data:`_NO_EDGE_BUNDLE_STATUSES` (AG3-054;
+    #: FK-20 §20.8.2). A rejected/aborted/repair/failed outcome materializes NO
+    #: story-scoped guard regime -- no session binding, no lock-records, no
+    #: ``phase_start`` edge bundle -- so there is no bundle to carry. Every
+    #: committed / replayed / synced result still carries an authoritative
+    #: ``edge_bundle``; the rejection/abort detail travels on ``phase_dispatch``
+    #: / ``admin_note``.
     edge_bundle: EdgeBundle | None = None
     #: AG3-054: the normalized single-phase dispatch outcome (FK-45 §45.1.2).
     #: ``None`` for non-dispatch operations (closure-complete, edge-sync) and
@@ -553,28 +587,40 @@ class ControlPlaneMutationResult(BaseModel):
     #: dispatch so the one truth carries both the idempotent edge bundle and the
     #: phase result without a second response path.
     phase_dispatch: PhaseDispatchResult | None = None
+    #: AG3-138: the machine-readable, auditable reason for an ``aborted`` /
+    #: ``repair`` / ``failed`` terminal outcome (e.g. why an admin-abort target
+    #: went to ``repair`` instead of ``aborted``, or why startup reconciliation
+    #: finalized an orphaned claim). ``None`` for every other status. The
+    #: SEVERITY-SEMANTIK guardrail: a ``repair`` state is a visible, auditable
+    #: handling requirement, never a silently discarded fact.
+    admin_note: str | None = None
 
     @model_validator(mode="after")
     def _edge_bundle_optionality_is_bound_to_rejection(self) -> ControlPlaneMutationResult:
-        """Enforce: ``edge_bundle`` is ``None`` ONLY for a ``rejected`` result.
+        """Enforce: ``edge_bundle`` is ``None`` ONLY for a non-materializing result.
 
         The field was widened to optional solely so a fail-closed REJECTED start
-        (AG3-054; FK-20 §20.8.2) can travel without materializing a story-scoped
-        edge bundle. That optionality must NOT leak to success statuses: a
-        ``committed`` / ``replayed`` / ``synced`` result with ``edge_bundle=None``
-        would let the project-edge client silently skip publishing an
-        authoritative bundle (a fail-open activation gap). Conversely a
-        ``rejected`` result MUST carry no bundle (it materialized none). Enforced
-        at the model boundary (FAIL-CLOSED, fix the model).
+        (AG3-054; FK-20 §20.8.2) -- and, since AG3-138, an admin-abort/startup-
+        reconciliation ``aborted``/``repair``/``failed`` outcome -- can travel
+        without materializing a story-scoped edge bundle. That optionality must
+        NOT leak to success statuses: a ``committed`` / ``replayed`` / ``synced``
+        result with ``edge_bundle=None`` would let the project-edge client
+        silently skip publishing an authoritative bundle (a fail-open activation
+        gap). Conversely a non-materializing result MUST carry no bundle (it
+        materialized none). Enforced at the model boundary (FAIL-CLOSED, fix the
+        model).
         """
-        if self.status == "rejected":
+        if self.status in _NO_EDGE_BUNDLE_STATUSES:
             if self.edge_bundle is not None:
-                msg = "a 'rejected' ControlPlaneMutationResult must not carry an edge_bundle"
+                msg = (
+                    f"a {self.status!r} ControlPlaneMutationResult must not "
+                    "carry an edge_bundle"
+                )
                 raise ValueError(msg)
         elif self.edge_bundle is None:
             msg = (
                 f"a {self.status!r} ControlPlaneMutationResult must carry an "
-                "edge_bundle (None is allowed only for 'rejected')"
+                f"edge_bundle (None is allowed only for {sorted(_NO_EDGE_BUNDLE_STATUSES)})"
             )
             raise ValueError(msg)
         return self

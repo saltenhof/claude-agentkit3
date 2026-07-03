@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from agentkit.backend.control_plane.models import (
+    AdminAbortRequest,
     ApiErrorResponse,
     ClosureCompleteRequest,
     ControlPlaneMutationResult,
@@ -517,6 +518,41 @@ class ProjectEdgeClient:
             action="resume",
             request=request,
         )
+
+    def admin_abort_operation(
+        self,
+        *,
+        op_id: str,
+        request: AdminAbortRequest,
+    ) -> ControlPlaneMutationResult:
+        """Administratively abort a hanging server-owned in-flight operation (AG3-138).
+
+        The thin REST adapter for ``POST /v1/project-edge/operations/{op_id}/
+        admin-abort`` (FK-91 §91.1a ``admin_abort_inflight_operation``, FK-91
+        Regel 10). No local publish and NO second semantics: the core owns the
+        abort/epoch-fence/repair logic; this method only encodes the path
+        segment safely and validates the returned result. A 404 (unknown op) /
+        409 (not abortable) surfaces as a typed :class:`ControlPlaneApiError`.
+
+        Args:
+            op_id: The target in-flight operation id (URL path segment).
+            request: The audited admin-abort request (actor + mandatory reason).
+
+        Returns:
+            The terminal :class:`ControlPlaneMutationResult` the core returned
+            (``aborted`` or ``repair``).
+
+        Raises:
+            ControlPlaneApiError: On the stable 404/409 error contract.
+        """
+        op_segment = urllib.parse.quote(op_id, safe="")
+        data = self._transport.send(
+            method="POST",
+            path=f"/v1/project-edge/operations/{op_segment}/admin-abort",
+            payload=request.model_dump(mode="json"),
+        )
+        data.pop("correlation_id", None)
+        return ControlPlaneMutationResult.model_validate(data)
 
     def _post_project_phase(
         self,

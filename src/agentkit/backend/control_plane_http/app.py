@@ -21,6 +21,7 @@ from pydantic import ValidationError
 from agentkit.backend.auth.middleware import AuthMiddlewareResponse
 from agentkit.backend.control_plane.guard_counter import ControlPlaneGuardCounterService
 from agentkit.backend.control_plane.models import (
+    AdminAbortRequest,
     ApiErrorResponse,
     ClosureCompleteRequest,
     GuardCounterMutationRequest,
@@ -28,7 +29,11 @@ from agentkit.backend.control_plane.models import (
     ProjectEdgeSyncRequest,
     TelemetryEventIngestRequest,
 )
-from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
+from agentkit.backend.control_plane.runtime import (
+    ControlPlaneRuntimeService,
+    OperationNotAbortableError,
+    OperationNotFoundError,
+)
 from agentkit.backend.control_plane.telemetry import ControlPlaneTelemetryService
 from agentkit.backend.control_plane.worker_health import ControlPlaneWorkerHealthService
 from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
@@ -36,7 +41,7 @@ from agentkit.backend.control_plane_http.version_handshake import CompatWindow, 
 from agentkit.backend.exceptions import ConfigError
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
     from pathlib import Path
 
     from agentkit.backend.auth.http.routes import AuthRouteResponse, AuthRoutes
@@ -62,6 +67,12 @@ logger = logging.getLogger(__name__)
 # Legacy non-project paths (kept for non-project-scoped resources only):
 _OPERATION_PATH_PATTERN = re.compile(
     r"^/v1/project-edge/operations/(?P<op_id>[^/]+)$",
+)
+
+# AG3-138: administrative abort of a hanging server-owned in-flight operation
+# (FK-91 §91.1a ``admin_abort_inflight_operation``, FK-55 §55.5 admin_transition).
+_OPERATION_ADMIN_ABORT_PATTERN = re.compile(
+    r"^/v1/project-edge/operations/(?P<op_id>[^/]+)/admin-abort$",
 )
 
 # Project-scoped paths under /v1/projects/{project_key}/<bc>/...
@@ -652,6 +663,45 @@ class ControlPlaneApplication(_GovernanceMediationHandlers):
             self._version_handshake = VersionHandshakeMiddleware()
             self._compat_window = self._version_handshake.window
 
+    def run_pre_serve_startup_hook(self) -> None:
+        """Resolve THIS boot's instance identity + reconcile orphans (AG3-138 IMPL-003).
+
+        The single pre-serve startup hook, invoked by :func:`serve_control_plane`
+        BETWEEN app construction and ``serve_forever()`` -- so the listener
+        accepts its FIRST request only after it has run successfully (AC1). It:
+
+        1. resolves THIS boot's backend instance identity (stable id, monotone
+           incarnation; :mod:`instance_identity`);
+        2. finalizes every orphaned ``claimed`` operation of THIS instance's
+           OWN earlier incarnations (never a foreign identity), routing
+           Teil-Writes into the explicit ``repair`` state
+           (:mod:`startup_reconcile`);
+        3. binds the resolved identity into the runtime service so every
+           subsequently-accepted claim carries it.
+
+        Fail-closed (AC9): any failure propagates uncaught -- the process never
+        reaches ``serve_forever()`` with an unclear claim inventory.
+        """
+        from agentkit.backend.control_plane.instance_identity import (
+            resolve_backend_instance_identity,
+        )
+        from agentkit.backend.control_plane.repository import (
+            BackendInstanceIdentityRepository,
+        )
+        from agentkit.backend.control_plane.startup_reconcile import (
+            run_startup_reconciliation,
+        )
+
+        identity = resolve_backend_instance_identity(BackendInstanceIdentityRepository())
+        run_startup_reconciliation(self._runtime_service.repository, identity)
+        self._runtime_service.bind_instance_identity(identity)
+        logger.info(
+            "Startup reconciliation complete for backend instance %s "
+            "(incarnation %d); listener may accept requests.",
+            identity.backend_instance_id,
+            identity.instance_incarnation,
+        )
+
     def handle_request(
         self,
         *,
@@ -968,6 +1018,15 @@ class ControlPlaneApplication(_GovernanceMediationHandlers):
             return self._handle_post_worker_health(payload, correlation_id)
         if route_path == "/v1/project-edge/sync":
             return self._handle_post_project_edge_sync(payload, correlation_id)
+
+        # AG3-138 admin-abort (non-project-scoped, mirrors the operation GET path):
+        admin_abort_match = _OPERATION_ADMIN_ABORT_PATTERN.match(route_path)
+        if admin_abort_match is not None:
+            return self._handle_post_admin_abort(
+                op_id=admin_abort_match.group("op_id"),
+                payload=payload,
+                correlation_id=correlation_id,
+            )
 
         # Project-scoped story mutations:
         story_post = self._dispatch_project_story_post(
@@ -1311,6 +1370,71 @@ class ControlPlaneApplication(_GovernanceMediationHandlers):
             correlation_id=correlation_id,
         )
 
+    def _handle_post_admin_abort(
+        self,
+        *,
+        op_id: str,
+        payload: object,
+        correlation_id: str,
+    ) -> HttpResponse:
+        """POST /v1/project-edge/operations/{op_id}/admin-abort (AG3-138).
+
+        FK-91 §91.1a ``admin_abort_inflight_operation`` (op-class
+        ``admin_transition``, FK-55 §55.5). Deterministic, fail-closed error
+        contract (AC6): an unknown ``op_id`` -> 404 ``operation_not_found``; a
+        target that is not a live in-flight claim (already terminal / resolved
+        concurrently) -> 409 ``operation_not_abortable``. On success the terminal
+        ``aborted`` / ``repair`` result (200) carries the audited ``admin_note``;
+        a Teil-Write target goes to ``repair`` (IMPL-005) and mutation-locks its
+        story (AC10). Minimal authorization: the mandatory audited actor
+        (``session_id`` / ``principal_type``) and ``reason`` are recorded on the
+        terminal record; the full HTTP principal-attestation infrastructure
+        (IMPL-018) is explicitly a follow-up story (AG3-148/AG3-154).
+        """
+        try:
+            request = AdminAbortRequest.model_validate(payload)
+            result = self._runtime_service.admin_abort_inflight_operation(op_id, request)
+        except ValidationError as exc:
+            return _error_response(
+                HTTPStatus.BAD_REQUEST,
+                error_code="invalid_admin_abort_payload",
+                message="Invalid admin-abort payload",
+                correlation_id=correlation_id,
+                detail=exc.errors(),
+            )
+        except OperationNotFoundError:
+            return _error_response(
+                HTTPStatus.NOT_FOUND,
+                error_code="operation_not_found",
+                message=f"Operation {op_id!r} not found",
+                correlation_id=correlation_id,
+            )
+        except OperationNotAbortableError as exc:
+            return _error_response(
+                HTTPStatus.CONFLICT,
+                error_code="operation_not_abortable",
+                message=str(exc),
+                correlation_id=correlation_id,
+                detail={"current_status": exc.current_status},
+            )
+        except ConfigError as exc:
+            return _backend_requirement_response(
+                "admin_abort_unavailable", exc, correlation_id
+            )
+        except RuntimeError as exc:
+            logger.warning("Admin-abort unavailable: %s", exc)
+            return _error_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                error_code="admin_abort_unavailable",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+        return _json_response(
+            HTTPStatus.OK,
+            result.model_dump(mode="json"),
+            correlation_id=correlation_id,
+        )
+
     def _handle_get_stories(
         self,
         project_key: str,
@@ -1476,8 +1600,17 @@ def serve_control_plane(
     certfile: Path,
     keyfile: Path | None = None,
     app: ControlPlaneApplication | None = None,
+    startup_hook: Callable[[ControlPlaneApplication], None] | None = None,
 ) -> None:
-    """Run the control-plane HTTPS server until interrupted."""
+    """Run the control-plane HTTPS server until interrupted.
+
+    AG3-138 IMPL-003: ``startup_hook`` is the pre-serve hook run BETWEEN app
+    construction and ``serve_forever()``; it defaults to the productive
+    :meth:`ControlPlaneApplication.run_pre_serve_startup_hook` (instance-identity
+    resolution + orphan reconciliation, fail-closed). It is an injection seam so
+    a transport-wiring unit test can drive server start/close without a live
+    control-plane backend; the productive listener always runs the real hook.
+    """
 
     if app is None:
         from agentkit.backend.auth.middleware import AuthMiddleware
@@ -1494,6 +1627,13 @@ def serve_control_plane(
     # GUARANTEE the real listener is handshake-gated even when an app was injected
     # without a handshake middleware (close the fail-OPEN path; FK-91 Regel 11).
     application.ensure_version_handshake()
+    # AG3-138 IMPL-003: the pre-serve startup hook runs BEFORE the socket is bound
+    # and BEFORE ``serve_forever()`` -- so the listener accepts its first request
+    # only after instance-identity resolution + orphan reconciliation succeed. A
+    # failure here (fail-closed, AC9) propagates uncaught: the server never starts
+    # with an unclear claim inventory.
+    hook = startup_hook or (lambda a: a.run_pre_serve_startup_hook())
+    hook(application)
     server = ThreadingHTTPSServer(
         (host, port),
         _build_handler(application),

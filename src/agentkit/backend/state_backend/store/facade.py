@@ -24,6 +24,7 @@ from agentkit.backend.state_backend.scope import (
 from agentkit.backend.state_backend.store import mappers
 
 if TYPE_CHECKING:
+    from datetime import datetime
     from pathlib import Path
     from types import ModuleType
     from uuid import UUID
@@ -955,6 +956,26 @@ def load_backend_instance_identity_global(
     return mappers.backend_instance_identity_row_to_record(row)
 
 
+def boot_backend_instance_identity_global(
+    candidate_backend_instance_id: str,
+    now: datetime,
+) -> BackendInstanceIdentityRecord:
+    """Atomically resolve the boot-time backend instance identity (AG3-138).
+
+    First boot ever: persists ``candidate_backend_instance_id`` with
+    ``instance_incarnation = 1``. Every later boot: keeps the EXISTING
+    (stable) ``backend_instance_id`` and increments ``instance_incarnation`` by
+    exactly 1 -- deterministic, no wall-clock input. Fail-closed off-Postgres.
+    """
+    _require_control_plane_backend()
+    backend = _backend_module()
+    row = backend.boot_backend_instance_identity_global_row(
+        candidate_backend_instance_id=candidate_backend_instance_id,
+        now=now.isoformat(),
+    )
+    return mappers.backend_instance_identity_row_to_record(row)
+
+
 # ---------------------------------------------------------------------------
 # StoryExecutionLockRecord
 # ---------------------------------------------------------------------------
@@ -1068,6 +1089,7 @@ def finalize_control_plane_operation_global(
     *,
     owner_token: str,
     owner_claimed_at: str | None = None,
+    owner_operation_epoch: int | None = None,
 ) -> bool:
     """Ownership-scoped terminal write of a claimed op (AG3-054 leased claim).
 
@@ -1081,6 +1103,10 @@ def finalize_control_plane_operation_global(
     lease generation -- a stale owner whose token is reused or after an
     expiry-takeover cannot match a NEWER lease. ``None`` keeps the legacy
     owner-only CAS (direct administrative callers).
+
+    AG3-138: when ``owner_operation_epoch`` is given, the CAS additionally
+    requires the stored ``operation_epoch`` to be unchanged
+    (``operation_finalize_requires_cas_on_operation_epoch``).
     """
     backend = _backend_module()
     if not hasattr(backend, "finalize_control_plane_operation_global_row"):
@@ -1093,6 +1119,7 @@ def finalize_control_plane_operation_global(
             row,
             owner_token=owner_token,
             owner_claimed_at=owner_claimed_at,
+            owner_operation_epoch=owner_operation_epoch,
         )
     )
 
@@ -1102,6 +1129,7 @@ def finalize_control_plane_start_phase_global(
     *,
     owner_token: str,
     owner_claimed_at: str | None = None,
+    owner_operation_epoch: int | None = None,
     binding: SessionRunBindingRecord | None,
     locks: tuple[StoryExecutionLockRecord, ...],
     events: tuple[ExecutionEventRecord, ...],
@@ -1120,10 +1148,17 @@ def finalize_control_plane_start_phase_global(
     stamped) is given, the ownership CAS also matches ``claimed_at`` so it scopes
     to THIS lease generation. ``None`` keeps the legacy owner-only CAS.
 
+    AG3-138: when ``owner_operation_epoch`` is given, the CAS additionally
+    requires the stored ``operation_epoch`` to be unchanged
+    (``operation_finalize_requires_cas_on_operation_epoch`` -- an
+    ``admin_abort_inflight_operation`` bumps the epoch, fencing a late
+    executor's finalize even when its owner token/lease still matches).
+
     Args:
         record: The terminal control-plane operation record (committed result).
         owner_token: This caller's lease owner token (the CAS scope).
         owner_claimed_at: This caller's RAW lease epoch (CAS epoch scope, #4).
+        owner_operation_epoch: This caller's observed fencing epoch (AG3-138).
         binding: The session-run-binding to materialize, or ``None`` (fast story).
         locks: The story/QA lock records to materialize (empty for a fast story).
         events: The lifecycle event records to materialize (empty for fast).
@@ -1142,6 +1177,7 @@ def finalize_control_plane_start_phase_global(
             op_row=mappers.control_plane_op_to_row(record),
             owner_token=owner_token,
             owner_claimed_at=owner_claimed_at,
+            owner_operation_epoch=owner_operation_epoch,
             binding_row=(
                 mappers.session_binding_to_row(binding) if binding is not None else None
             ),
@@ -1246,6 +1282,122 @@ def release_control_plane_operation_global(
         )
     backend.release_control_plane_operation_global_row(
         op_id, owner_token=owner_token, owner_claimed_at=owner_claimed_at
+    )
+
+
+# ---------------------------------------------------------------------------
+# Startup reconciliation / admin-abort (AG3-138)
+# ---------------------------------------------------------------------------
+
+
+def list_orphaned_claimed_control_plane_operations_global(
+    backend_instance_id: str,
+    before_incarnation: int,
+) -> tuple[ControlPlaneOperationRecord, ...]:
+    """List claimed operations orphaned by EARLIER incarnations of THIS instance.
+
+    Startup reconciliation (AG3-138): only claims stamped with the CALLING
+    instance's own ``backend_instance_id`` from a strictly earlier
+    ``instance_incarnation`` are returned -- never a foreign identity.
+    """
+    _require_control_plane_backend()
+    backend = _backend_module()
+    rows = backend.list_orphaned_claimed_control_plane_operations_global_row(
+        backend_instance_id=backend_instance_id,
+        before_incarnation=before_incarnation,
+    )
+    return tuple(mappers.control_plane_op_row_to_record(row) for row in rows)
+
+
+def finalize_orphaned_control_plane_operation_global(
+    *,
+    op_id: str,
+    backend_instance_id: str,
+    status: str,
+    response_payload: dict[str, object],
+    now: datetime,
+) -> bool:
+    """CAS-finalize one orphaned claim during startup reconciliation (AG3-138).
+
+    Fail-closed identity fence at the store: the CAS additionally matches
+    ``backend_instance_id`` -- a claim whose identity is not the caller's own is
+    never touched by this call.
+    """
+    _require_control_plane_backend()
+    backend = _backend_module()
+    return bool(
+        backend.finalize_orphaned_control_plane_operation_global_row(
+            op_id=op_id,
+            backend_instance_id=backend_instance_id,
+            status=status,
+            response_json=mappers.dump_json(response_payload),
+            now=now.isoformat(),
+        )
+    )
+
+
+def admin_abort_control_plane_operation_global(
+    *,
+    op_id: str,
+    status: str,
+    response_payload: dict[str, object],
+    now: datetime,
+) -> bool:
+    """CAS-abort one in-flight claim via the admin-abort service path (AG3-138).
+
+    Acts on ANY currently-``claimed`` operation (an explicit administrative
+    override, FK-91 §91.1a ``admin_abort_inflight_operation``). Returns
+    ``False`` when the row is no longer ``claimed`` (already resolved).
+    """
+    _require_control_plane_backend()
+    backend = _backend_module()
+    return bool(
+        backend.admin_abort_control_plane_operation_global_row(
+            op_id=op_id,
+            status=status,
+            response_json=mappers.dump_json(response_payload),
+            now=now.isoformat(),
+        )
+    )
+
+
+def has_engine_writes_since_control_plane_claim_global(
+    story_id: str,
+    run_id: str,
+    since: datetime,
+) -> bool:
+    """Whether the engine already persisted ``phase_states``/``flow_executions``.
+
+    Deterministic Teil-Write detection (AG3-138, IMPL-005): compares ALREADY
+    RECORDED timestamps against ``since`` (the claim's own ``claimed_at``) --
+    never the current wall clock.
+    """
+    _require_control_plane_backend()
+    backend = _backend_module()
+    return bool(
+        backend.has_engine_writes_since_control_plane_claim_global_row(
+            story_id=story_id,
+            run_id=run_id,
+            since=since.isoformat(),
+        )
+    )
+
+
+def has_open_repair_control_plane_operation_for_story_global(
+    project_key: str,
+    story_id: str,
+) -> bool:
+    """Whether *story_id* has an open (unresolved) Reconcile-/Repair-Zustand.
+
+    Backs the AC10 fail-closed mutation lock at the dispatch-/operations-layer.
+    """
+    _require_control_plane_backend()
+    backend = _backend_module()
+    return bool(
+        backend.has_open_repair_control_plane_operation_for_story_global_row(
+            project_key=project_key,
+            story_id=story_id,
+        )
     )
 
 

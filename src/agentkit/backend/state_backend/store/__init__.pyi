@@ -1,4 +1,7 @@
 from agentkit.backend.state_backend.store.facade import (
+    admin_abort_control_plane_operation_global as admin_abort_control_plane_operation_global,
+)
+from agentkit.backend.state_backend.store.facade import (
     append_execution_event as append_execution_event,
 )
 from agentkit.backend.state_backend.store.facade import (
@@ -24,6 +27,9 @@ from agentkit.backend.state_backend.store.facade import (
 )
 from agentkit.backend.state_backend.store.facade import (
     backend_verify_decision_passed_for_scope as backend_verify_decision_passed_for_scope,
+)
+from agentkit.backend.state_backend.store.facade import (
+    boot_backend_instance_identity_global as boot_backend_instance_identity_global,
 )
 from agentkit.backend.state_backend.store.facade import (
     claim_control_plane_operation_global as claim_control_plane_operation_global,
@@ -59,16 +65,28 @@ from agentkit.backend.state_backend.store.facade import (
     finalize_control_plane_start_phase_global as finalize_control_plane_start_phase_global,
 )
 from agentkit.backend.state_backend.store.facade import (
+    finalize_orphaned_control_plane_operation_global as finalize_orphaned_control_plane_operation_global,
+)
+from agentkit.backend.state_backend.store.facade import (
     has_committed_control_plane_operation_for_run_global as has_committed_control_plane_operation_for_run_global,
 )
 from agentkit.backend.state_backend.store.facade import (
     has_committed_story_exit_operation_for_run_global as has_committed_story_exit_operation_for_run_global,
 )
 from agentkit.backend.state_backend.store.facade import (
+    has_engine_writes_since_control_plane_claim_global as has_engine_writes_since_control_plane_claim_global,
+)
+from agentkit.backend.state_backend.store.facade import (
+    has_open_repair_control_plane_operation_for_story_global as has_open_repair_control_plane_operation_for_story_global,
+)
+from agentkit.backend.state_backend.store.facade import (
     insert_object_mutation_claim_global as insert_object_mutation_claim_global,
 )
 from agentkit.backend.state_backend.store.facade import (
     insert_run_ownership_record_global as insert_run_ownership_record_global,
+)
+from agentkit.backend.state_backend.store.facade import (
+    list_orphaned_claimed_control_plane_operations_global as list_orphaned_claimed_control_plane_operations_global,
 )
 from agentkit.backend.state_backend.store.facade import (
     load_active_run_ownership_record_global as load_active_run_ownership_record_global,

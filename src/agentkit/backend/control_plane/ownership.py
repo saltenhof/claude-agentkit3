@@ -30,9 +30,11 @@ from typing import NewType
 __all__ = (
     "AT_MOST_ONE_ACTIVE_OWNERSHIP_PER_STORY",
     "BINDING_VERSION_SQL_CHECK",
+    "INITIAL_OPERATION_EPOCH",
     "INITIAL_OWNERSHIP_EPOCH",
     "MIN_BINDING_VERSION",
     "MIN_INSTANCE_INCARNATION",
+    "MIN_OPERATION_EPOCH",
     "MIN_OWNERSHIP_EPOCH",
     "MIN_QUEUE_POSITION",
     "OWNERSHIP_TRANSFERRED_REVOCATION_REASON",
@@ -166,3 +168,14 @@ MIN_INSTANCE_INCARNATION = 1
 
 #: ``queue_position`` lower bound for an object-mutation claim (0-based FIFO).
 MIN_QUEUE_POSITION = 0
+
+#: ``operation_epoch`` lower bound (AG3-138, ``formal.state-storage.invariants``
+#: ``operation_finalize_requires_cas_on_operation_epoch``): the fencing token
+#: stamped on a claim at acquisition time and bumped ONLY by an explicit
+#: ``admin_abort_inflight_operation``/startup-reconciliation finalize -- never by
+#: wall clock. The first (and, absent an abort, only) epoch of a claim's lifetime
+#: is 1; a takeover of an EXPIRED claim (``_CLAIM_LEASE_TTL``, AG3-054) preserves
+#: the epoch unchanged (it is the SAME instance/incarnation reclaiming its own
+#: stuck lease, not a new fencing generation).
+MIN_OPERATION_EPOCH = 1
+INITIAL_OPERATION_EPOCH = 1

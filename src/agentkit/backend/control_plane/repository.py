@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentkit.backend.state_backend.store import (
+    admin_abort_control_plane_operation_global,
     append_execution_event_global,
+    boot_backend_instance_identity_global,
     claim_control_plane_operation_global,
     commit_control_plane_operation_with_side_effects_global,
     delete_control_plane_operation_global,
@@ -14,10 +16,14 @@ from agentkit.backend.state_backend.store import (
     delete_session_run_binding_global,
     finalize_control_plane_operation_global,
     finalize_control_plane_start_phase_global,
+    finalize_orphaned_control_plane_operation_global,
     has_committed_control_plane_operation_for_run_global,
     has_committed_story_exit_operation_for_run_global,
+    has_engine_writes_since_control_plane_claim_global,
+    has_open_repair_control_plane_operation_for_story_global,
     insert_object_mutation_claim_global,
     insert_run_ownership_record_global,
+    list_orphaned_claimed_control_plane_operations_global,
     load_active_run_ownership_record_global,
     load_backend_instance_identity_global,
     load_control_plane_operation_global,
@@ -37,6 +43,7 @@ from agentkit.backend.state_backend.store import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from datetime import datetime
 
     from agentkit.backend.control_plane.records import (
         BackendInstanceIdentityRecord,
@@ -154,6 +161,31 @@ class ControlPlaneRuntimeRepository:
     load_story_context: Callable[[str, str], StoryContext | None] = (
         _load_story_context_via_story_surface
     )
+    #: AG3-138 startup reconciliation: claimed operations orphaned by EARLIER
+    #: incarnations of the CALLING instance's own identity (never a foreign
+    #: identity; FK-91 §91.1a rule 16).
+    list_orphaned_claimed_operations: Callable[
+        [str, int], tuple[ControlPlaneOperationRecord, ...]
+    ] = list_orphaned_claimed_control_plane_operations_global
+    #: AG3-138 startup reconciliation: identity-fenced CAS finalize of one
+    #: orphaned claim (``failed`` or ``repair``).
+    finalize_orphaned_operation: Callable[..., bool] = (
+        finalize_orphaned_control_plane_operation_global
+    )
+    #: AG3-138 ``admin_abort_inflight_operation`` (FK-91 §91.1a, FK-55 §55.5
+    #: ``admin_transition``): CAS-abort ANY currently-``claimed`` operation.
+    admin_abort_operation: Callable[..., bool] = admin_abort_control_plane_operation_global
+    #: AG3-138 (IMPL-005): deterministic Teil-Write detection -- have
+    #: ``phase_states``/``flow_executions`` already been written for this run at
+    #: or after the claim's own ``claimed_at`` (never the current wall clock)?
+    has_engine_writes_since: Callable[[str, str, datetime], bool] = (
+        has_engine_writes_since_control_plane_claim_global
+    )
+    #: AG3-138 (AC10): whether *story_id* carries an open Reconcile-/Repair-Zustand
+    #: -- backs the fail-closed dispatch-/operations-layer mutation lock.
+    has_open_repair_for_story: Callable[[str, str], bool] = (
+        has_open_repair_control_plane_operation_for_story_global
+    )
 
 
 @dataclass(frozen=True)
@@ -226,4 +258,11 @@ class BackendInstanceIdentityRepository:
     )
     load_identity: Callable[[str], BackendInstanceIdentityRecord | None] = (
         load_backend_instance_identity_global
+    )
+    #: AG3-138 (IMPL-003/IMPL-004): atomically resolve the boot-time identity.
+    #: First boot ever persists ``candidate_backend_instance_id`` with
+    #: incarnation 1; every later boot keeps the EXISTING stable id and
+    #: increments the incarnation by exactly 1.
+    boot_identity: Callable[[str, datetime], BackendInstanceIdentityRecord] = (
+        boot_backend_instance_identity_global
     )

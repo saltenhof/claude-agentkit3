@@ -308,7 +308,15 @@ def test_serve_control_plane_app_none_is_handshake_gated(
         "agentkit.backend.control_plane_http.app._build_handler", _spy_build_handler,
     )
 
-    serve_control_plane(certfile=Path("tls/control-plane.pem"), app=None)
+    # AG3-138: this E2E test verifies handshake gating, not the pre-serve startup
+    # hook (instance-identity + reconciliation, which needs a Postgres backend and
+    # has its own dedicated tests). Inject a no-op hook so the handshake-gating
+    # wiring is exercised without a live control-plane backend.
+    serve_control_plane(
+        certfile=Path("tls/control-plane.pem"),
+        app=None,
+        startup_hook=lambda _app: None,
+    )
 
     # The production builder must never serve an ungated app (FK-91 Regel 11).
     assert captured["app"]._version_handshake is not None
@@ -331,7 +339,12 @@ def test_serve_control_plane_gates_injected_ungated_app_over_socket(
         "agentkit.backend.control_plane_http.app.ThreadingHTTPSServer",
         _FakeHttpsServer,
     )
-    serve_control_plane(certfile=Path("tls/control-plane.pem"), app=ungated)
+    # AG3-138: no-op startup hook (handshake-gating concern only; see above).
+    serve_control_plane(
+        certfile=Path("tls/control-plane.pem"),
+        app=ungated,
+        startup_hook=lambda _app: None,
+    )
 
     # serve_control_plane must have injected the fail-closed handshake middleware.
     assert ungated._version_handshake is not None
@@ -363,7 +376,12 @@ def test_auth_login_without_handshake_works_through_production_wiring(
         "agentkit.backend.control_plane_http.app.ThreadingHTTPSServer",
         _FakeHttpsServer,
     )
-    serve_control_plane(certfile=Path("tls/control-plane.pem"), app=None)
+    # AG3-138: no-op startup hook (handshake-gating concern only; see above).
+    serve_control_plane(
+        certfile=Path("tls/control-plane.pem"),
+        app=None,
+        startup_hook=lambda _app: None,
+    )
 
     handler_cls = _FakeHttpsServer.last_handler_cls
     server = HTTPServer(("127.0.0.1", 0), handler_cls)  # type: ignore[arg-type]
