@@ -3645,9 +3645,11 @@ def has_open_repair_control_plane_operation_for_story_global_row(
     Backs the AC10 fail-closed mutation lock at the dispatch-/operations-layer.
     "Open" means a stored ``repair``-status control-plane operation exists for
     this story; the repair record itself is the single source of truth for the
-    lock (no second, driftable boolean flag). Resolving/clearing a repair state
-    is a follow-on story's scope (AG3-150 generalizes the lock family) -- this
-    story builds only the story-scoped lock.
+    lock (no second, driftable boolean flag). AG3-138 provides the productive
+    exit: an audited ``admin_abort`` repair-resolve transitions the operation to
+    ``resolved`` (see ``resolve_repair_control_plane_operation_global_row``),
+    which clears the lock. AG3-150 later generalizes the lock family
+    (``freeze_epoch``); this story builds the story-scoped lock and its resolver.
     """
 
     with _connect_global() as conn:
