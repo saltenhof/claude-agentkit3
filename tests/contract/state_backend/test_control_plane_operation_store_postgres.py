@@ -640,7 +640,7 @@ def test_late_finalize_after_admin_abort_writes_no_side_effects_real_store(
 # ---------------------------------------------------------------------------
 # AG3-054 adversarial edges: ERROR-2 (naive/legacy claimed_at never crashes and
 # is never a takeover trigger, AG3-139), ERROR-3 (legacy save refuses to clobber
-# a live claim), WARNING-4 (lease-epoch scoped finalize/release) against the
+# a live claim), WARNING-4 (claim-generation scoped finalize/release) against the
 # REAL Postgres store.
 # ---------------------------------------------------------------------------
 
@@ -777,10 +777,10 @@ def test_legacy_save_refuses_to_clobber_live_claim_real_store(
 
 
 @pytest.mark.contract
-def test_finalize_release_are_lease_epoch_scoped_real_store(
+def test_finalize_release_are_claim_generation_scoped_real_store(
     postgres_backend_env: object,
 ) -> None:
-    """WARNING-4 (#4): finalize/release CAS key on owner AND lease epoch.
+    """WARNING-4 (#4): finalize/release CAS key on owner AND claim generation.
 
     AG3-139: there is no more CAS-takeover to produce a "new generation, same
     token" scenario. Instead: owner-X's claim is released (the AG3-054 #1
