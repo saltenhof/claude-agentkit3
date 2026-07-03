@@ -127,8 +127,9 @@ class GuardCounterRecordOutcome:
     """Outcome of an atomic idempotent guard-counter record (AG3-129, FK-91 Regel 5).
 
     Attributes:
-        status: ``"recorded"`` (new ``op_id``: counter incremented AND idempotency
-            key written in ONE transaction), ``"replayed"`` (``op_id`` already seen
+        status: ``"recorded"`` (new ``op_id``: counter incremented AND the
+            consolidated ``control_plane_operations`` record written in ONE
+            transaction), ``"replayed"`` (``op_id`` already seen
             with the SAME body hash; the counter is NOT re-incremented), or
             ``"mismatch"`` (``op_id`` reused with a DIFFERENT body hash — the caller
             raises the canonical ``idempotency_mismatch`` conflict).
@@ -210,19 +211,21 @@ class StateBackendGuardCounterRepository:
     ) -> GuardCounterRecordOutcome:
         """Record one invocation EXACTLY ONCE per ``op_id`` (FK-91 §91.1a Regel 5).
 
-        AG3-129 (concurrency-safe): the ``op_id`` idempotency key is a real unique
-        gate. Inside ONE transaction the key is INSERTed FIRST (plain INSERT — NO
+        AG3-129 (concurrency-safe) + AG3-140 (unified idempotency contract): the
+        idempotency record is the ONE consolidated ``control_plane_operations`` row
+        whose ``op_id`` PRIMARY KEY is the real unique gate. Inside ONE transaction
+        that terminal row is INSERTed FIRST (plain INSERT — NO
         ``ON CONFLICT DO NOTHING``); only if the claim succeeds are the older-week
         buckets drained (Week-Rollover, FK-61 §61.4.3 Trigger 2) and the counter
         incremented — so all counter side effects commit/roll back atomically with
-        the key. A unique-constraint violation (a concurrent OR sequential
+        the record. A unique-constraint violation (a concurrent OR sequential
         duplicate ``op_id``) rolls the whole transaction back — the loser does NOT
         count and does NOT drain — and is then resolved by a re-SELECT: same body
         hash → ``"replayed"`` (return the stored result); different body hash →
         ``"mismatch"`` (the caller raises the canonical conflict). ``result_payload``
-        is the placeholder response stored with the key on the claim; the accurate
+        is the placeholder response stored on the record at claim time; the accurate
         drained count is returned in :attr:`GuardCounterRecordOutcome.drained` and
-        written back onto the key so a later replay returns it unchanged.
+        written back onto the record so a later replay returns it unchanged.
 
         Returns:
             A :class:`GuardCounterRecordOutcome`.
@@ -243,7 +246,6 @@ class StateBackendGuardCounterRepository:
                         blocked=blocked,
                         updated_at=updated_at,
                         created_at=created_at,
-                        correlation_id=correlation_id,
                     )
             else:
                 with _sqlite_connect(self._store_dir) as conn:
@@ -260,7 +262,6 @@ class StateBackendGuardCounterRepository:
                         blocked=blocked,
                         updated_at=updated_at,
                         created_at=created_at,
-                        correlation_id=correlation_id,
                     )
         except Exception:  # noqa: BLE001 -- unique-gate loser OR a genuine fault
             # The transaction rolled back (no count, no drain). If the op_id now
@@ -290,7 +291,6 @@ class StateBackendGuardCounterRepository:
         blocked: bool,
         updated_at: datetime,
         created_at: datetime,
-        correlation_id: str,
     ) -> int:
         """Claim ``op_id`` (unique gate) then drain+count in ONE transaction.
 
@@ -298,16 +298,18 @@ class StateBackendGuardCounterRepository:
         (the caller resolves it to replay/mismatch); on that raise the whole
         transaction — including any drain/count — rolls back.
         """
-        # 1. Claim the op_id FIRST (unique gate). A duplicate raises here, before
-        #    any counter side effect, and aborts the transaction.
+        # 1. Claim the op_id FIRST (unique gate) by inserting the terminal
+        #    control_plane_operations record. A duplicate raises here, before any
+        #    counter side effect, and aborts the transaction.
         self._insert_idempotency_row(
             conn,
             is_pg=is_pg,
             op_id=op_id,
+            project_key=project_key,
+            story_id=story_id,
             body_hash=body_hash,
             result_payload=result_payload,
             created_at=created_at,
-            correlation_id=correlation_id,
         )
         # 2. New accepted record ONLY: drain older-week buckets (Trigger 2) and
         #    increment the current week — atomic with the claim above.
@@ -341,13 +343,17 @@ class StateBackendGuardCounterRepository:
     def _read_idempotency_key(
         self, op_id: str
     ) -> tuple[str, dict[str, Any]] | None:
-        """Return ``(body_hash, result_payload)`` for ``op_id``, or ``None``."""
+        """Return ``(body_hash, result_payload)`` for ``op_id``, or ``None``.
+
+        Reads the ONE consolidated ``control_plane_operations`` record (AG3-140):
+        ``request_body_hash`` is the replay-vs-mismatch discriminator and
+        ``response_json`` (a JSON string on BOTH backends) is the stored result.
+        """
         is_pg = _is_postgres()
-        payload_col = "result_payload" if is_pg else "result_payload_json"
         placeholder = "%s" if is_pg else "?"
         query = (
-            f"SELECT body_hash, {payload_col} AS result_payload "
-            f"FROM idempotency_keys WHERE op_id = {placeholder}"
+            "SELECT request_body_hash, response_json "
+            f"FROM control_plane_operations WHERE op_id = {placeholder}"
         )
         if is_pg:
             with _postgres_connect() as conn:
@@ -357,10 +363,10 @@ class StateBackendGuardCounterRepository:
                 row = conn.execute(query, (op_id,)).fetchone()
         if row is None:
             return None
-        payload = row["result_payload"]
+        payload = row["response_json"]
         if isinstance(payload, str):
             payload = json.loads(payload)
-        return str(row["body_hash"]), dict(payload)
+        return str(row["request_body_hash"]), dict(payload)
 
     @staticmethod
     def _drain_older_weeks(
@@ -389,15 +395,18 @@ class StateBackendGuardCounterRepository:
         op_id: str,
         result_payload: dict[str, Any],
     ) -> None:
+        # Overwrite the one-record ``response_json`` with the accurate drained count
+        # so a later replay returns it unchanged. ``response_json`` is TEXT (a JSON
+        # string) on BOTH backends -- pass the json string, NOT ``::jsonb``.
         if is_pg:
             conn.execute(
-                "UPDATE idempotency_keys SET result_payload = %s::jsonb "
+                "UPDATE control_plane_operations SET response_json = %s "
                 "WHERE op_id = %s",
                 (json.dumps(result_payload), op_id),
             )
             return
         conn.execute(
-            "UPDATE idempotency_keys SET result_payload_json = ? WHERE op_id = ?",
+            "UPDATE control_plane_operations SET response_json = ? WHERE op_id = ?",
             (json.dumps(result_payload), op_id),
         )
 
@@ -454,39 +463,47 @@ class StateBackendGuardCounterRepository:
         *,
         is_pg: bool,
         op_id: str,
+        project_key: str,
+        story_id: str,
         body_hash: str,
         result_payload: dict[str, Any],
         created_at: datetime,
-        correlation_id: str,
     ) -> None:
-        # PLAIN INSERT (no ON CONFLICT / OR IGNORE): the op_id PRIMARY KEY is the
-        # concurrency gate — a duplicate MUST raise so the loser rolls back and is
-        # resolved to replay/mismatch (AG3-129 round-5 FUND 1).
+        # PLAIN INSERT (no ON CONFLICT / OR IGNORE): the op_id PRIMARY KEY of the ONE
+        # consolidated control_plane_operations record is the concurrency gate — a
+        # duplicate MUST raise so the loser rolls back and is resolved to
+        # replay/mismatch (AG3-129 round-5 FUND 1; AG3-140 one-record consolidation).
+        # The guard-counter op is instantaneous, so a TERMINAL 'committed' row is
+        # written in one shot (no claim→finalize window; claimed_by/claimed_at and
+        # the AG3-137 fencing columns stay NULL). response_json is TEXT (a JSON
+        # string) on BOTH backends — pass the json string, NOT ``::jsonb``.
+        created = created_at.isoformat()
+        columns = (
+            "op_id, project_key, story_id, operation_kind, status, "
+            "response_json, request_body_hash, created_at, updated_at"
+        )
+        params = (
+            op_id,
+            project_key,
+            story_id,
+            "guard_counter_record",
+            "committed",
+            json.dumps(result_payload),
+            body_hash,
+            created,
+            created,
+        )
         if is_pg:
             conn.execute(
-                "INSERT INTO idempotency_keys "
-                "(op_id, body_hash, result_payload, created_at, correlation_id) "
-                "VALUES (%s, %s, %s::jsonb, %s, %s)",
-                (
-                    op_id,
-                    body_hash,
-                    json.dumps(result_payload),
-                    created_at.isoformat(),
-                    correlation_id,
-                ),
+                f"INSERT INTO control_plane_operations ({columns}) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                params,
             )
             return
         conn.execute(
-            "INSERT INTO idempotency_keys "
-            "(op_id, body_hash, result_payload_json, created_at, correlation_id) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (
-                op_id,
-                body_hash,
-                json.dumps(result_payload),
-                created_at.isoformat(),
-                correlation_id,
-            ),
+            f"INSERT INTO control_plane_operations ({columns}) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params,
         )
 
     def read_counters_for_story(

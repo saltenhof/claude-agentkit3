@@ -416,7 +416,7 @@ def test_guard_counter_replayed_op_id_counts_once_via_rest(
     control_plane_base_url: str,
 ) -> None:
     # FK-91 §91.1a Regel 5: two POSTs with the SAME op_id over the real route +
-    # real idempotency_keys store increment the counter EXACTLY once.
+    # real control_plane_operations record store increment the counter EXACTLY once.
     write_control_plane_config(tmp_path, control_plane_base_url)
     client = build_governance_edge_client(tmp_path)
     request = GuardCounterMutationRequest(
@@ -564,12 +564,34 @@ def _has_week(repo: object, week: str) -> bool:
     return any(r.week_start == week for r in rows)
 
 
+def _control_plane_operation_row(op_id: str) -> dict[str, object] | None:
+    """Read the ONE consolidated control_plane_operations record for ``op_id``.
+
+    Uses the state backend's own Postgres connection path (real schema/search_path,
+    no direct-DB back door) to prove the guard-counter idempotency record now lives
+    in ``control_plane_operations`` (AG3-140) — not the retired ``idempotency_keys``.
+    """
+    from agentkit.backend.state_backend.store import (
+        guard_counter_repository as gcr,
+    )
+
+    with gcr._postgres_connect() as conn:  # noqa: SLF001 -- real backend read in test
+        row = conn.execute(
+            "SELECT operation_kind, status, request_body_hash, response_json "
+            "FROM control_plane_operations WHERE op_id = %s",
+            (op_id,),
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
 def test_guard_counter_duplicate_op_id_hits_unique_gate_and_replays(
     postgres_isolated_schema: str,
 ) -> None:
     # FUND 1 (c): a second record with the SAME op_id hits the real unique
     # constraint on op_id -> the transaction rolls back and resolves to a REPLAY,
     # NOT a silent DO-NOTHING that leaves the counter double-counted.
+    # AG3-140: the idempotency record is the ONE control_plane_operations row whose
+    # op_id PRIMARY KEY is that unique gate (not the retired idempotency_keys table).
     _ = postgres_isolated_schema
     repo = _gc_repo()
     now = datetime(2026, 6, 2, 12, 0, tzinfo=UTC)
@@ -581,6 +603,18 @@ def test_guard_counter_duplicate_op_id_hits_unique_gate_and_replays(
     assert first.status == "recorded"  # type: ignore[attr-defined]
     assert second.status == "replayed"  # type: ignore[attr-defined]
     assert _invocations_for_week(repo, week) == 1  # counted exactly once
+
+    # Consolidation made explicit: the terminal record is a committed
+    # guard_counter_record row in control_plane_operations, carrying the body-hash
+    # discriminator and the drained-count response the replay returns unchanged.
+    row = _control_plane_operation_row("op-dup-1")
+    assert row is not None
+    assert row["operation_kind"] == "guard_counter_record"
+    assert row["status"] == "committed"
+    assert row["request_body_hash"] == "hA"
+    import json as _json
+
+    assert _json.loads(str(row["response_json"]))["drained"] == 0
 
 
 def test_guard_counter_replay_has_no_drain_or_recount(
@@ -630,3 +664,53 @@ def test_guard_counter_mismatch_has_no_drain_or_count(
     assert mismatch.status == "mismatch"  # type: ignore[attr-defined]
     assert _invocations_for_week(repo, week) == 1  # no extra count
     assert _has_week(repo, old_week)  # older bucket NOT drained by the mismatch
+
+
+def test_guard_counter_concurrent_duplicate_op_id_counts_once_via_unique_gate(
+    postgres_isolated_schema: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # AC4 in-flight proof (AG3-140): two threads racing the SAME op_id record
+    # against the REAL Postgres store contend on the op_id PRIMARY KEY unique gate of
+    # the ONE consolidated control_plane_operations record. Exactly one wins
+    # ("recorded") and commits the increment; the loser's WHOLE transaction rolls
+    # back and resolves to "replayed" -- the counter is incremented EXACTLY once,
+    # never double-counted. The guard-counter op is atomic (a terminal committed row
+    # written in one shot), so the op_id PK gate IS the in-flight protection: there
+    # is no separate claim->finalize window to race.
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from agentkit.backend.state_backend import postgres_store
+
+    _ = postgres_isolated_schema
+    # The default pool ceiling is one connection/process; raise it so the two racing
+    # threads hold DISTINCT physical connections and genuinely contend at the DB.
+    monkeypatch.setenv("AGENTKIT_STATE_POOL_MAX_SIZE", "4")
+    postgres_store._dispose_pool()  # noqa: SLF001 -- force a rebuild at the ceiling
+    try:
+        repo = _gc_repo()
+        now = datetime(2026, 6, 2, 12, 0, tzinfo=UTC)
+        week = _current_week(now)
+        barrier = threading.Barrier(2)
+
+        def _race() -> str:
+            barrier.wait()  # maximise the overlap on the op_id insert
+            outcome = _gc_record(
+                repo, op_id="op-race-1", body_hash="hR", week_start=week, now=now
+            )
+            return outcome.status  # type: ignore[attr-defined]
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(_race), pool.submit(_race)]
+            statuses = sorted(f.result() for f in futures)
+
+        assert statuses == ["recorded", "replayed"]  # one wins, the loser replays
+        assert _invocations_for_week(repo, week) == 1  # counted EXACTLY once
+
+        row = _control_plane_operation_row("op-race-1")
+        assert row is not None
+        assert row["operation_kind"] == "guard_counter_record"
+        assert row["status"] == "committed"
+    finally:
+        postgres_store._dispose_pool()  # noqa: SLF001 -- restore the size-1 pool
