@@ -23,6 +23,9 @@ from agentkit.backend.governance.setup_preflight_gate.preflight import (
 from agentkit.backend.project_management.entities import ProjectConfiguration
 from agentkit.backend.project_management.lifecycle import create_project
 from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    InMemoryInflightIdempotencyGuard,
+)
 from agentkit.backend.state_backend.store.mode_lock_repository import ModeLockRepository
 from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
@@ -31,7 +34,6 @@ from agentkit.backend.state_backend.store.story_dependency_repository import (
     StateBackendStoryDependencyRepository,
 )
 from agentkit.backend.state_backend.store.story_repository import (
-    StateBackendIdempotencyKeyRepository,
     StateBackendStoryRepository,
 )
 from agentkit.backend.story_context_manager.service import StoryService
@@ -56,7 +58,7 @@ def _story_service(tmp_path: Path) -> StoryService:
     return StoryService(
         story_repository=StateBackendStoryRepository(tmp_path),
         project_repository=StateBackendProjectRepository(tmp_path),
-        idempotency_repository=StateBackendIdempotencyKeyRepository(tmp_path),
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
         dependency_repository=StateBackendStoryDependencyRepository(tmp_path),
         event_emitter=lambda *_: None,
     )

@@ -13,6 +13,9 @@ from agentkit.backend.execution_planning.lifecycle import add_dependency
 from agentkit.backend.project_management.entities import ProjectConfiguration
 from agentkit.backend.project_management.lifecycle import create_project
 from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    InMemoryInflightIdempotencyGuard,
+)
 from agentkit.backend.state_backend.store.parallelization_config_repository import (
     StateBackendParallelizationConfigRepository,
 )
@@ -26,7 +29,6 @@ from agentkit.backend.state_backend.store.story_dependency_repository import (
     StateBackendStoryDependencyRepository,
 )
 from agentkit.backend.state_backend.store.story_repository import (
-    StateBackendIdempotencyKeyRepository,
     StateBackendStoryRepository,
 )
 from agentkit.backend.story_context_manager.service import StoryService
@@ -79,7 +81,7 @@ def _seed_project_with_stories(tmp_path: Path) -> tuple[
     service = StoryService(
         story_repository=StateBackendStoryRepository(tmp_path),
         project_repository=project_repository,
-        idempotency_repository=StateBackendIdempotencyKeyRepository(tmp_path),
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
         event_emitter=lambda *_: None,
     )
     for idx, title in enumerate(("One", "Two"), start=1):

@@ -737,8 +737,10 @@ def test_sse_path_with_unknown_project_returns_404() -> None:
 def _make_story_routes() -> object:
     """Build a real StoryContextRoutes backed by in-memory repos."""
     from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+    from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+        InMemoryInflightIdempotencyGuard,
+    )
     from agentkit.backend.story_context_manager.http.routes import StoryContextRoutes
-    from agentkit.backend.story_context_manager.idempotency import InMemoryIdempotencyKeyRepository
     from agentkit.backend.story_context_manager.service import StoryService
     from agentkit.backend.story_context_manager.story_repository import InMemoryStoryRepository
 
@@ -770,7 +772,7 @@ def _make_story_routes() -> object:
     svc = StoryService(
         story_repository=InMemoryStoryRepository(),
         project_repository=_InMemProjectRepo(),  # type: ignore[arg-type]
-        idempotency_repository=InMemoryIdempotencyKeyRepository(),
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
     )
     return StoryContextRoutes(story_service=svc)
 

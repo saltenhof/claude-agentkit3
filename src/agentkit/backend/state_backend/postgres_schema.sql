@@ -909,14 +909,11 @@
             PRIMARY KEY (story_uuid)
         );
 
-        CREATE TABLE IF NOT EXISTS idempotency_keys (
-            op_id TEXT NOT NULL,
-            body_hash TEXT NOT NULL,
-            result_payload JSONB NOT NULL,
-            created_at TIMESTAMPTZ NOT NULL,
-            correlation_id TEXT NOT NULL,
-            PRIMARY KEY (op_id)
-        );
+        -- AG3-140: the legacy ``idempotency_keys`` table is retired. The unified
+        -- ``control_plane_operations`` inflight-operation-record above is now the
+        -- SINGLE idempotency truth (one record, one body-hash check, one in-flight
+        -- fence). No new DDL here; a pre-populated DB may still physically carry an
+        -- orphan ``idempotency_keys`` table (harmless — nothing reads or writes it).
 
         -- AG3-048 (FK-43 §43.4.1, bc-cut-decisions.md §BC 11): skill_bindings.
         -- Schema-Owner agent-skills (SkillBinding entity, AG3-027); DB-Owner

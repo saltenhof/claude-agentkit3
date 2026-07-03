@@ -351,8 +351,8 @@ class TestNewStructuresPersistenceRoundTrip:
     def test_create_story_persists_new_structures_true(self) -> None:
         """create_story with new_structures=True stores the flag on the Story record."""
         from agentkit.backend.project_management.entities import Project, ProjectConfiguration
-        from agentkit.backend.story_context_manager.idempotency import (
-            InMemoryIdempotencyKeyRepository,
+        from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+            InMemoryInflightIdempotencyGuard,
         )
         from agentkit.backend.story_context_manager.service import StoryService
         from agentkit.backend.story_context_manager.story_repository import (
@@ -378,7 +378,7 @@ class TestNewStructuresPersistenceRoundTrip:
         svc = StoryService(
             story_repository=InMemoryStoryRepository(),
             project_repository=_ProjRepo(),  # type: ignore[arg-type]
-            idempotency_repository=InMemoryIdempotencyKeyRepository(),
+            idempotency_guard=InMemoryInflightIdempotencyGuard(),
             event_emitter=lambda *a: None,
         )
         from agentkit.backend.story_context_manager.story_model import CreateStoryInput
@@ -398,10 +398,10 @@ class TestNewStructuresPersistenceRoundTrip:
     def test_create_story_idempotency_body_includes_new_structures(self) -> None:
         """new_structures is part of the idempotency body; a mismatch raises an error."""
         from agentkit.backend.project_management.entities import Project, ProjectConfiguration
-        from agentkit.backend.story_context_manager.errors import IdempotencyMismatchError
-        from agentkit.backend.story_context_manager.idempotency import (
-            InMemoryIdempotencyKeyRepository,
+        from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+            InMemoryInflightIdempotencyGuard,
         )
+        from agentkit.backend.story_context_manager.errors import IdempotencyMismatchError
         from agentkit.backend.story_context_manager.service import StoryService
         from agentkit.backend.story_context_manager.story_model import CreateStoryInput
         from agentkit.backend.story_context_manager.story_repository import (
@@ -427,7 +427,7 @@ class TestNewStructuresPersistenceRoundTrip:
         svc = StoryService(
             story_repository=InMemoryStoryRepository(),
             project_repository=_ProjRepo(),  # type: ignore[arg-type]
-            idempotency_repository=InMemoryIdempotencyKeyRepository(),
+            idempotency_guard=InMemoryInflightIdempotencyGuard(),
             event_emitter=lambda *a: None,
         )
 

@@ -32,6 +32,9 @@ from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
 from agentkit.backend.project_management.entities import ProjectConfiguration
 from agentkit.backend.project_management.lifecycle import create_project
 from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    InMemoryInflightIdempotencyGuard,
+)
 from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
@@ -42,7 +45,6 @@ from agentkit.backend.state_backend.store.story_read_repository import (
     StateBackendStoryReadRepository,
 )
 from agentkit.backend.state_backend.store.story_repository import (
-    StateBackendIdempotencyKeyRepository,
     StateBackendStoryRepository,
 )
 from agentkit.backend.story_context_manager.service import StoryService
@@ -106,7 +108,7 @@ def _store_scoped_story_service(store_dir: Path) -> StoryService:
     return StoryService(
         story_repository=StateBackendStoryRepository(store_dir),
         project_repository=StateBackendProjectRepository(store_dir),
-        idempotency_repository=StateBackendIdempotencyKeyRepository(store_dir),
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
         dependency_repository=StateBackendStoryDependencyRepository(store_dir),
         event_emitter=lambda *_: None,
     )

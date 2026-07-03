@@ -42,6 +42,9 @@ from agentkit.backend.state_backend.store import (
     facade,
     read_story_context_record,
 )
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    InMemoryInflightIdempotencyGuard,
+)
 from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
@@ -49,7 +52,6 @@ from agentkit.backend.state_backend.store.story_dependency_repository import (
     StateBackendStoryDependencyRepository,
 )
 from agentkit.backend.state_backend.store.story_repository import (
-    StateBackendIdempotencyKeyRepository,
     StateBackendStoryRepository,
 )
 from agentkit.backend.story_context_manager.models import StoryContext
@@ -93,7 +95,7 @@ def _story_service(project_root: Path) -> StoryService:
     return StoryService(
         story_repository=StateBackendStoryRepository(project_root),
         project_repository=StateBackendProjectRepository(project_root),
-        idempotency_repository=StateBackendIdempotencyKeyRepository(project_root),
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
         dependency_repository=StateBackendStoryDependencyRepository(project_root),
         event_emitter=lambda *_: None,
     )

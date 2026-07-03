@@ -347,6 +347,9 @@ def test_fix2_deliberate_absence_returns_no_runners(tmp_path: Path) -> None:
 
 def _real_story_service(project_root: Path) -> StoryService:
     """Build a REAL StoryService bound to ``project_root`` (no fake repo)."""
+    from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+        InMemoryInflightIdempotencyGuard,
+    )
     from agentkit.backend.state_backend.store.project_management_repository import (
         StateBackendProjectRepository,
     )
@@ -354,14 +357,13 @@ def _real_story_service(project_root: Path) -> StoryService:
         StateBackendStoryDependencyRepository,
     )
     from agentkit.backend.state_backend.store.story_repository import (
-        StateBackendIdempotencyKeyRepository,
         StateBackendStoryRepository,
     )
 
     return StoryService(
         story_repository=StateBackendStoryRepository(project_root),
         project_repository=StateBackendProjectRepository(project_root),
-        idempotency_repository=StateBackendIdempotencyKeyRepository(project_root),
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
         dependency_repository=StateBackendStoryDependencyRepository(project_root),
         event_emitter=lambda *_: None,
     )

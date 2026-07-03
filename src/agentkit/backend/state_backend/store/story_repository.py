@@ -7,8 +7,8 @@ Architecture Conformance AC003/AC004:
   - Does NOT import or use the generic ``state_backend.store.facade``.
   - Accesses the database directly via the sqlite_store / postgres_store
     drivers (raw connection pattern).
-  - The ``stories``, ``story_specifications``, and ``idempotency_keys``
-    tables were added in schema 3.3.0 (side-by-side, additive).
+  - The ``stories`` and ``story_specifications`` tables were added in
+    schema 3.3.0 (side-by-side, additive).
 
 Design:
   - SQLite: uses ``_sqlite_connect`` (versioned .sqlite file).
@@ -16,8 +16,8 @@ Design:
   - Column naming differs between backends:
     - SQLite: ``participating_repos_json``, ``labels_json``, etc. (TEXT)
     - Postgres: ``participating_repos``, ``labels``, etc. (JSONB)
-  - ``create_story_atomic`` wraps number allocation + story + spec +
-    idempotency save in a single database transaction (Befund 6).
+  - ``create_story_atomic`` wraps number allocation + story + spec save
+    in a single database transaction (Befund 6).
 
 Story stammdaten persistence is global (project-scoped), not per-story-dir.
 """
@@ -35,7 +35,6 @@ from uuid import UUID
 
 from agentkit.backend.core_types import StorySize
 from agentkit.backend.story_context_manager.display_id import format_story_display_id
-from agentkit.backend.story_context_manager.idempotency import IdempotencyRecord
 from agentkit.backend.story_context_manager.story_model import (
     ChangeImpact,
     ConceptQuality,
@@ -508,15 +507,6 @@ def _ensure_story_tables_sqlite(conn: sqlite3.Connection) -> None:
             external_sources_json TEXT,
             PRIMARY KEY (story_uuid)
         );
-
-        CREATE TABLE IF NOT EXISTS idempotency_keys (
-            op_id TEXT NOT NULL,
-            body_hash TEXT NOT NULL,
-            result_payload_json TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            correlation_id TEXT NOT NULL,
-            PRIMARY KEY (op_id)
-        );
         """
     )
 
@@ -772,9 +762,9 @@ class StateBackendStoryRepository:
         the ``story_number`` UNIQUE constraint serialises concurrent inserts.
 
         This guarantees that either both story + spec succeed or neither
-        does (Befund 6 — atomicity). Idempotency is persisted by the
-        caller after this call returns (INSERT-OR-IGNORE is inherently
-        race-safe and does not need to be in the same transaction).
+        does (Befund 6 — atomicity). Request-level idempotency is handled
+        by the caller's unified in-flight idempotency guard (AG3-140), not
+        by this persistence method.
 
         Args:
             story: The Story entity to persist. ``story_number`` and
@@ -1064,124 +1054,3 @@ def _pg_upsert_spec(conn: Any, row: dict[str, object]) -> None:
     )
 
 
-def _sqlite_insert_idempotency(
-    conn: sqlite3.Connection, record: IdempotencyRecord
-) -> None:
-    conn.execute(
-        """
-        INSERT OR IGNORE INTO idempotency_keys
-            (op_id, body_hash, result_payload_json, created_at, correlation_id)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (
-            record.op_id,
-            record.body_hash,
-            _dump(record.result_payload),
-            record.created_at.isoformat(),
-            record.correlation_id,
-        ),
-    )
-
-
-def _pg_insert_idempotency(conn: Any, record: IdempotencyRecord) -> None:
-    conn.execute(
-        """
-        INSERT INTO idempotency_keys
-            (op_id, body_hash, result_payload, created_at, correlation_id)
-        VALUES (%s, %s, %s::jsonb, %s, %s)
-        ON CONFLICT(op_id) DO NOTHING
-        """,
-        (
-            record.op_id,
-            record.body_hash,
-            json.dumps(record.result_payload),
-            record.created_at.isoformat(),
-            record.correlation_id,
-        ),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Idempotency key persistence (StateBackend)
-# ---------------------------------------------------------------------------
-
-
-class StateBackendIdempotencyKeyRepository:
-    """SQLite/Postgres-backed idempotency key repository (FK-91 §91.1a Rule 5).
-
-    Stores op_id -> body_hash + result_payload in the ``idempotency_keys``
-    table (schema 3.3.0).
-
-    Args:
-        store_dir: Base directory for the state store.
-            Used only for the SQLite backend. Defaults to cwd.
-    """
-
-    def __init__(self, store_dir: Path | None = None) -> None:
-        self._store_dir: Path = store_dir or Path.cwd()
-
-    def get(self, op_id: str) -> _IdempotencyRowRecord | None:
-        """Load an existing idempotency record by op_id."""
-        if _is_postgres():
-            return self._pg_get(op_id)
-        with _sqlite_connect(self._store_dir) as conn:
-            cursor = conn.execute(
-                "SELECT * FROM idempotency_keys WHERE op_id = ?",
-                (op_id,),
-            )
-            row = cursor.fetchone()
-            if row is None:
-                return None
-            return _IdempotencyRowRecord(
-                op_id=str(row["op_id"]),
-                body_hash=str(row["body_hash"]),
-                result_payload=json.loads(str(row["result_payload_json"])),
-                created_at=datetime.fromisoformat(str(row["created_at"])),
-                correlation_id=str(row["correlation_id"]),
-            )
-
-    def _pg_get(self, op_id: str) -> _IdempotencyRowRecord | None:
-        with _postgres_connect() as conn:
-            cursor = conn.execute(
-                "SELECT op_id, body_hash, result_payload, "
-                "created_at, correlation_id "
-                "FROM idempotency_keys WHERE op_id = %s",
-                (op_id,),
-            )
-            row = cursor.fetchone()
-            if row is None:
-                return None
-            payload = row["result_payload"]
-            if isinstance(payload, str):
-                payload = json.loads(payload)
-            created = row["created_at"]
-            if isinstance(created, str):
-                created = datetime.fromisoformat(created)
-            return _IdempotencyRowRecord(
-                op_id=str(row["op_id"]),
-                body_hash=str(row["body_hash"]),
-                result_payload=payload,
-                created_at=created,
-                correlation_id=str(row["correlation_id"]),
-            )
-
-    def save(self, record: IdempotencyRecord) -> None:
-        """Persist a new idempotency record (first write wins)."""
-        if _is_postgres():
-            self._pg_save(record)
-            return
-        with _sqlite_connect(self._store_dir) as conn:
-            _sqlite_insert_idempotency(conn, record)
-
-    def _pg_save(self, record: IdempotencyRecord) -> None:
-        with _postgres_connect() as conn:
-            _pg_insert_idempotency(conn, record)
-
-
-class _IdempotencyRowRecord(IdempotencyRecord):
-    """DB-row representation of an idempotency record.
-
-    Subclasses ``IdempotencyRecord`` from ``story_context_manager.idempotency``
-    so that ``StateBackendIdempotencyKeyRepository`` satisfies the
-    ``IdempotencyKeyRepository`` Protocol (nominal subtyping).
-    """

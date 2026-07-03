@@ -110,7 +110,7 @@ class ControlPlaneGuardCounterService:
         from agentkit.backend.kpi_analytics.fact_store.guard_counter import (
             week_start_for,
         )
-        from agentkit.backend.story_context_manager.idempotency import (
+        from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
             compute_body_hash,
         )
 

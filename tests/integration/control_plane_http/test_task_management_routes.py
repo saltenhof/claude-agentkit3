@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 import pytest
 
@@ -31,6 +32,9 @@ from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddlewa
 from agentkit.backend.project_management.entities import Project, ProjectConfiguration
 from agentkit.backend.project_management.lifecycle import create_project
 from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    InMemoryInflightIdempotencyGuard,
+)
 from agentkit.backend.state_backend.store.projection_repositories import (
     build_projection_repositories,
 )
@@ -105,7 +109,14 @@ def app(
 
     accessor = ProjectionAccessor(build_projection_repositories(tmp_path))
     service = TaskManagement(accessor)
-    task_routes = TaskManagementRoutes(task_management=service)
+    # Inject a shared first-class in-memory guard: this SQLite-backed test (the
+    # control_plane_http subtree is deliberately docker-free, AG3-051) exercises the
+    # task routes end-to-end, not idempotency durability, so it uses the guard's
+    # documented unit-test path (claim state persists across calls within one test).
+    task_routes = TaskManagementRoutes(
+        task_management=service,
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
+    )
     project_repo = _ProjectRepo()
     fake = _FakeRoute()
     return ControlPlaneApplication(
@@ -125,6 +136,9 @@ def app(
 
 
 def _post(app: ControlPlaneApplication, path: str, body: dict) -> dict:
+    # Every mutating POST now needs a client-minted op_id (AG3-140 / FK-91 §91.1a
+    # Regel 5). Inject a unique one unless the caller already supplied its own.
+    body = {"op_id": f"op-{uuid4().hex}", **body}
     resp = app.handle_request(
         method="POST",
         path=path,

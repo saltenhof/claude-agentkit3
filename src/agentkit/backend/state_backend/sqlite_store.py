@@ -500,15 +500,6 @@ def _ensure_schema_core_tables_b(conn: sqlite3.Connection) -> None:
             PRIMARY KEY (story_uuid)
         );
 
-        CREATE TABLE IF NOT EXISTS idempotency_keys (
-            op_id TEXT NOT NULL,
-            body_hash TEXT NOT NULL,
-            result_payload_json TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            correlation_id TEXT NOT NULL,
-            PRIMARY KEY (op_id)
-        );
-
         -- AG3-140 (unified idempotency contract): test-parallel mirror of the
         -- control_plane_operations inflight-operation-record. Postgres is the
         -- canonical truth (K5); this SQLite mirror exists ONLY so the
