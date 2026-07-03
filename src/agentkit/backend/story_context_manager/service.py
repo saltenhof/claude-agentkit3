@@ -80,6 +80,7 @@ from agentkit.backend.story_context_manager.wire_adapter import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from agentkit.backend.exceptions import StoryError
     from agentkit.backend.execution_planning.repository import StoryDependencyRepository
     from agentkit.backend.project_management.repository import ProjectRepository
     from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
@@ -158,6 +159,60 @@ def _check_transition(
                 "target_status": target.value,
             },
         )
+
+
+# ---------------------------------------------------------------------------
+# Replay-after-failure encoding (AG3-140 Befund 5 / AC8)
+# ---------------------------------------------------------------------------
+
+# The deterministic domain outcomes that are FINALIZED (stored) under the claim,
+# so a replay of the same op_id re-raises the identical error exactly once. These
+# are all <500 at the HTTP layer (404/403/400/422). A non-deterministic /
+# infrastructure failure is NOT in this tuple and RELEASES the claim (retry may
+# re-run), mirroring the task_management <500-finalize / >=500-release split.
+_FINALIZABLE_DOMAIN_ERRORS: tuple[type[StoryError], ...] = (
+    StoryProjectNotFoundError,
+    ForbiddenError,
+    StoryValidationError,
+    InvalidStatusTransitionError,
+)
+_DOMAIN_ERROR_REGISTRY: dict[str, type[StoryError]] = {
+    e.__name__: e for e in _FINALIZABLE_DOMAIN_ERRORS
+}
+#: Marker key under which a stored deterministic domain error is encoded in an
+#: idempotency ``result_payload`` (kept off the Story wire-key namespace).
+_IDEMPOTENT_ERROR_KEY = "__idempotent_domain_error__"
+
+
+def _domain_error_snapshot(exc: Exception) -> dict[str, object]:
+    """Encode a deterministic domain error as an idempotency result payload."""
+    return {
+        _IDEMPOTENT_ERROR_KEY: {
+            "error_type": type(exc).__name__,
+            "message": str(exc),
+            "detail": getattr(exc, "detail", {}) or {},
+        }
+    }
+
+
+def _raise_if_error_snapshot(payload: dict[str, object]) -> None:
+    """Re-raise the stored deterministic domain error, if this payload is one.
+
+    A success snapshot has no marker and returns silently (the caller then
+    reconstructs the Story). A stored error is re-raised as the SAME domain
+    exception (→ same 4xx). Fail-closed: an unrecognized stored error type is
+    never silently swallowed.
+    """
+    marker = payload.get(_IDEMPOTENT_ERROR_KEY)
+    if not isinstance(marker, dict):
+        return
+    error_type = str(marker.get("error_type", ""))
+    cls = _DOMAIN_ERROR_REGISTRY.get(error_type)
+    if cls is None:
+        raise RuntimeError(
+            f"replay of an unrecognized stored idempotent error: {error_type!r}"
+        )
+    raise cls(str(marker.get("message", "")), detail=dict(marker.get("detail") or {}))
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +332,30 @@ class StoryService(ResetTransitionMixin):
         if story is not None:
             return story
         raise StoryNotFoundError(f"Story {story_display_id!r} not found")
+
+    def _run_claimed(
+        self,
+        req: IdempotencyRequest,
+        claim: FreshClaim,
+        mutate: Callable[[], Story],
+    ) -> Story:
+        """Run the claimed mutation and finalize/release on the outcome (AC8).
+
+        A deterministic domain outcome (one of :data:`_FINALIZABLE_DOMAIN_ERRORS`,
+        all <500) is FINALIZED as an error snapshot so a replay of the same op_id
+        re-raises the identical error exactly once. A pre-outcome / infrastructure
+        failure RELEASES the claim so a retry may re-run. This mirrors the
+        task_management ``<500-finalize / >=500-release`` split at the
+        domain-exception level.
+        """
+        try:
+            return mutate()
+        except _FINALIZABLE_DOMAIN_ERRORS as exc:
+            self._guard.finalize(req, claim, _domain_error_snapshot(exc))
+            raise
+        except Exception:
+            self._guard.release(req, claim)
+            raise
 
     # ------------------------------------------------------------------
     # Read operations
@@ -453,10 +532,11 @@ class StoryService(ResetTransitionMixin):
         )
         outcome = self._guard.claim(req)
         if isinstance(outcome, ReplayOutcome):
+            _raise_if_error_snapshot(outcome.result_payload)
             return _resolve_cached_create(self._story_repo, outcome.result_payload)
         claim = self._require_fresh_claim(outcome, op_id)
 
-        try:
+        def _mutate() -> Story:
             project = self._project_repo.get(request.project_key)
             if project is None:
                 raise StoryProjectNotFoundError(
@@ -506,9 +586,9 @@ class StoryService(ResetTransitionMixin):
                 default_spec,
                 story_id_prefix=project.story_id_prefix,
             )
-        except Exception:
-            self._guard.release(req, claim)
-            raise
+            return story
+
+        story = self._run_claimed(req, claim, _mutate)
 
         self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
         wire_summary = story_to_wire_summary(story)
@@ -570,11 +650,12 @@ class StoryService(ResetTransitionMixin):
         )
         outcome = self._guard.claim(req)
         if isinstance(outcome, ReplayOutcome):
+            _raise_if_error_snapshot(outcome.result_payload)
             # Befund 5: return CACHED snapshot, not live DB read.
             return self._replay_story(outcome.result_payload, story_display_id)
         claim = self._require_fresh_claim(outcome, op_id)
 
-        try:
+        def _mutate() -> Story:
             # Check project is not archived
             project = self._project_repo.get(story.project_key)
             if project is not None and project.archived_at is not None:
@@ -584,24 +665,24 @@ class StoryService(ResetTransitionMixin):
                 )
 
             # Apply updates
-            story = _apply_updates(story, updates, project)
+            patched = _apply_updates(story, updates, project)
             # FIX-1 (FK-24 §24.3.3, AC7): a PATCH that sets mode/type must not
             # leave a fast story on a non-code-producing type. ``Story`` is mutated
             # in place (frozen=False), so the model_validator does not re-run
             # automatically; re-validate the post-patch combination fail-closed
             # (wire boundary -> a typed 400, not a bare ValueError).
             try:
-                check_fast_mode_story_type(story.mode, story.story_type)
+                check_fast_mode_story_type(patched.mode, patched.story_type)
             except ValueError as exc:
                 raise StoryValidationError(
                     str(exc),
-                    detail={"field": "mode", "story_type": story.story_type.value},
+                    detail={"field": "mode", "story_type": patched.story_type.value},
                 ) from exc
 
-            self._story_repo.save(story)
-        except Exception:
-            self._guard.release(req, claim)
-            raise
+            self._story_repo.save(patched)
+            return patched
+
+        story = self._run_claimed(req, claim, _mutate)
 
         self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
         wire_summary = story_to_wire_summary(story)
@@ -724,11 +805,12 @@ class StoryService(ResetTransitionMixin):
         )
         outcome = self._guard.claim(req)
         if isinstance(outcome, ReplayOutcome):
+            _raise_if_error_snapshot(outcome.result_payload)
             # Befund 5: return CACHED snapshot, not live DB read.
             return self._replay_story(outcome.result_payload, story_display_id)
         claim = self._require_fresh_claim(outcome, op_id)
 
-        try:
+        def _mutate() -> Story:
             _check_transition(story.status, StoryStatus.CANCELLED)
 
             project = self._project_repo.get(story.project_key)
@@ -742,9 +824,9 @@ class StoryService(ResetTransitionMixin):
             if reason:
                 story.blocker = reason
             self._story_repo.save(story)
-        except Exception:
-            self._guard.release(req, claim)
-            raise
+            return story
+
+        story = self._run_claimed(req, claim, _mutate)
 
         self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
         wire_summary = story_to_wire_summary(story)
@@ -904,6 +986,7 @@ class StoryService(ResetTransitionMixin):
         )
         outcome = self._guard.claim(req)
         if isinstance(outcome, ReplayOutcome):
+            _raise_if_error_snapshot(outcome.result_payload)
             replayed = _story_from_cached_payload(outcome.result_payload)
             return replayed if replayed is not None else story
         claim = self._require_fresh_claim(outcome, op_id)
@@ -915,7 +998,7 @@ class StoryService(ResetTransitionMixin):
             self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
             return story
 
-        try:
+        def _mutate() -> Story:
             if story.status is not StoryStatus.IN_PROGRESS:
                 raise InvalidStatusTransitionError(
                     "Story-Exit administrative cancellation is only legal from "
@@ -936,9 +1019,9 @@ class StoryService(ResetTransitionMixin):
             story.status = StoryStatus.CANCELLED
             story.blocker = f"Story-Exit viability handoff ({op_id})"
             self._story_repo.save(story)
-        except Exception:
-            self._guard.release(req, claim)
-            raise
+            return story
+
+        story = self._run_claimed(req, claim, _mutate)
 
         self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
         wire_summary = story_to_wire_summary(story)
@@ -1023,6 +1106,7 @@ class StoryService(ResetTransitionMixin):
         )
         outcome = self._guard.claim(req)
         if isinstance(outcome, ReplayOutcome):
+            _raise_if_error_snapshot(outcome.result_payload)
             replayed = _story_from_cached_payload(outcome.result_payload)
             return replayed if replayed is not None else story
         claim = self._require_fresh_claim(outcome, op_id)
@@ -1034,7 +1118,7 @@ class StoryService(ResetTransitionMixin):
             self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
             return story
 
-        try:
+        def _mutate() -> Story:
             if story.status is not StoryStatus.IN_PROGRESS:
                 raise InvalidStatusTransitionError(
                     "Story-Split administrative cancellation is only legal from "
@@ -1055,9 +1139,9 @@ class StoryService(ResetTransitionMixin):
             story.status = StoryStatus.CANCELLED
             story.blocker = f"Story-Split scope_split ({op_id})"
             self._story_repo.save(story)
-        except Exception:
-            self._guard.release(req, claim)
-            raise
+            return story
+
+        story = self._run_claimed(req, claim, _mutate)
 
         self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
         wire_summary = story_to_wire_summary(story)
@@ -1137,11 +1221,12 @@ class StoryService(ResetTransitionMixin):
         )
         outcome = self._guard.claim(req)
         if isinstance(outcome, ReplayOutcome):
+            _raise_if_error_snapshot(outcome.result_payload)
             # Befund 5: return CACHED snapshot, not live DB read.
             return self._replay_story(outcome.result_payload, story_display_id)
         claim = self._require_fresh_claim(outcome, op_id)
 
-        try:
+        def _mutate() -> Story:
             _check_transition(story.status, target)
 
             project = self._project_repo.get(story.project_key)
@@ -1153,9 +1238,9 @@ class StoryService(ResetTransitionMixin):
 
             story.status = target
             self._story_repo.save(story)
-        except Exception:
-            self._guard.release(req, claim)
-            raise
+            return story
+
+        story = self._run_claimed(req, claim, _mutate)
 
         self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
         wire_summary = story_to_wire_summary(story)

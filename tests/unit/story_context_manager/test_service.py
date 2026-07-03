@@ -10,6 +10,8 @@ Tests the authoritative story lifecycle service including:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from agentkit.backend.governance.principal_capabilities.principals import Principal
@@ -47,6 +49,9 @@ from agentkit.backend.story_exit import (
     StoryExitRecord,
     TerminalState,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -1232,3 +1237,188 @@ def test_crash_between_mutate_and_finalize_is_not_doubly_executable() -> None:
     with pytest.raises(OperationInFlightError):
         svc.create_story(request, op_id="op-crash")
     assert repo.create_calls == 1, "the retry must NOT create the story a second time"
+
+
+# ---------------------------------------------------------------------------
+# AG3-140 Befund 5 / AC8: replay-after-FAILURE
+#
+# A deterministic domain outcome (404/403/400/422) is FINALIZED (stored) under
+# the claim, so a retry with the SAME op_id replays the STORED error exactly once
+# and NEVER re-runs the mutation. Only a pre-outcome / infrastructure failure
+# releases the claim (so a retry may re-run).
+# ---------------------------------------------------------------------------
+
+
+class _MutationCountingStoryRepository(InMemoryStoryRepository):
+    """InMemoryStoryRepository counting the mutating persistence calls."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.create_calls = 0
+        self.save_calls = 0
+
+    def create_story_atomic(
+        self,
+        story: Story,
+        spec: StorySpecification,
+        *,
+        story_id_prefix: str,
+    ) -> None:
+        self.create_calls += 1
+        super().create_story_atomic(story, spec, story_id_prefix=story_id_prefix)
+
+    def save(self, story: Story) -> None:
+        self.save_calls += 1
+        super().save(story)
+
+
+class _RunClaimedCountingService(StoryService):
+    """StoryService that counts how often a claimed mutation is ENTERED.
+
+    Proves that a replay-after-failure re-raises the STORED error WITHOUT
+    re-running the mutation: the ``ReplayOutcome`` branch short-circuits BEFORE
+    ``_run_claimed`` is entered, so the counter stays put across the retry.
+    """
+
+    def __init__(
+        self,
+        *,
+        story_repository: InMemoryStoryRepository,
+        project_repository: _InMemoryProjectRepository,
+        idempotency_guard: InMemoryInflightIdempotencyGuard,
+    ) -> None:
+        super().__init__(
+            story_repository=story_repository,
+            project_repository=project_repository,
+            idempotency_guard=idempotency_guard,
+            event_emitter=lambda *_: None,
+        )
+        self.run_claimed_calls = 0
+
+    def _run_claimed(
+        self,
+        req: IdempotencyRequest,
+        claim: FreshClaim,
+        mutate: Callable[[], Story],
+    ) -> Story:
+        self.run_claimed_calls += 1
+        return super()._run_claimed(req, claim, mutate)
+
+
+def test_status_transition_replay_after_failure_reraises_and_runs_once() -> None:
+    """AC8: approving a non-Backlog story finalizes the InvalidStatusTransitionError,
+    so a retry with the SAME op_id re-raises the SAME error and the transition
+    logic runs exactly once (the replay does NOT re-execute the mutation)."""
+    repo = _MutationCountingStoryRepository()
+    svc = _RunClaimedCountingService(
+        story_repository=repo,
+        project_repository=_InMemoryProjectRepository(),
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
+    )
+    story = _create_story(svc, op_id="op-create")
+    svc.approve_story(story.story_display_id, op_id="op-approve")  # -> Approved
+
+    runs_before = svc.run_claimed_calls
+    saves_before = repo.save_calls
+
+    # Approve an already-Approved story: deterministic InvalidStatusTransitionError.
+    with pytest.raises(InvalidStatusTransitionError) as first:
+        svc.approve_story(story.story_display_id, op_id="op-approve-fail")
+
+    # Replay with the SAME op_id: re-raises the SAME error; mutation NOT re-run.
+    with pytest.raises(InvalidStatusTransitionError) as second:
+        svc.approve_story(story.story_display_id, op_id="op-approve-fail")
+
+    assert str(first.value) == str(second.value), "the stored error re-raises verbatim"
+    assert first.value.detail == second.value.detail
+    assert svc.run_claimed_calls == runs_before + 1, (
+        "the transition mutation must be ENTERED exactly once; the replay "
+        "re-raises the STORED error without re-running it"
+    )
+    assert repo.save_calls == saves_before, "the failed transition never persisted"
+
+
+def test_create_story_replay_after_forbidden_reraises_and_runs_once() -> None:
+    """AC8: creating against an archived project finalizes the ForbiddenError, so a
+    retry with the SAME op_id re-raises ForbiddenError and the create mutation is
+    entered exactly once (never re-executed, nothing persisted)."""
+    from datetime import UTC, datetime
+
+    from agentkit.backend.project_management.entities import Project, ProjectConfiguration
+
+    project_repo = _InMemoryProjectRepository()
+    project_repo._projects["arch"] = Project(
+        key="arch",
+        name="Archived",
+        story_id_prefix="ARCH",
+        configuration=ProjectConfiguration(
+            repo_url="",
+            default_branch="main",
+            default_worker_count=1,
+            repositories=["repo"],
+        ),
+        archived_at=datetime(2025, 1, 1, tzinfo=UTC),
+    )
+    repo = _MutationCountingStoryRepository()
+    svc = _RunClaimedCountingService(
+        story_repository=repo,
+        project_repository=project_repo,
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
+    )
+    request = CreateStoryInput(
+        project_key="arch",
+        title="Story on archived project",
+        story_type=WireStoryType.IMPLEMENTATION,
+        repos=["repo"],
+    )
+
+    with pytest.raises(ForbiddenError) as first:
+        svc.create_story(request, op_id="op-arch-fail")
+
+    # Replay with the SAME op_id + body: re-raises the SAME ForbiddenError.
+    with pytest.raises(ForbiddenError) as second:
+        svc.create_story(request, op_id="op-arch-fail")
+
+    assert str(first.value) == str(second.value), "the stored error re-raises verbatim"
+    assert svc.run_claimed_calls == 1, (
+        "the create mutation must be ENTERED exactly once; the replay re-raises "
+        "the STORED error without re-running the create"
+    )
+    # ForbiddenError precedes create_story_atomic (the final persistence step), so
+    # no story is ever persisted on either the first attempt or the replay.
+    assert repo.create_calls == 0, "the forbidden create never persisted a story"
+
+
+def test_replay_after_failure_is_not_reexecutable_and_not_mismatch() -> None:
+    """A deterministic-failure claim is NOT releasable-then-reexecutable: a retry
+    with the same op_id replays the STORED error (not a fresh 409 mismatch and not
+    a re-run). Validation failures (400) round-trip the same way as 422/403."""
+    repo = _MutationCountingStoryRepository()
+    svc = _RunClaimedCountingService(
+        story_repository=repo,
+        project_repository=_InMemoryProjectRepository(),
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
+    )
+    story = _create_story(svc, repos=["ak3"], op_id="op-create")
+
+    runs_before = svc.run_claimed_calls
+    saves_before = repo.save_calls
+
+    # Unknown repo -> deterministic StoryValidationError (400), finalized.
+    with pytest.raises(StoryValidationError) as first:
+        svc.update_story_fields(
+            story.story_display_id,
+            updates={"repos": ["ak3", "nicht-existent"]},
+            op_id="op-badrepo",
+        )
+    # Replay with the SAME op_id + body: replays the stored 400, does NOT re-run.
+    with pytest.raises(StoryValidationError) as second:
+        svc.update_story_fields(
+            story.story_display_id,
+            updates={"repos": ["ak3", "nicht-existent"]},
+            op_id="op-badrepo",
+        )
+
+    assert str(first.value) == str(second.value)
+    assert svc.run_claimed_calls == runs_before + 1, "mutation entered exactly once"
+    assert repo.save_calls == saves_before, "the failed update never persisted"
