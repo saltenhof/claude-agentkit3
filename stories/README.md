@@ -376,7 +376,7 @@ Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
 | AG3-139 | TTL-Entfall (Rückbau, NUR nach 138) | S | **completed** | 138 |
 | AG3-140 | Einheitlicher Idempotenz-Vertrag (BC-weit, Client-op_id) | L | **completed** | 137 |
 | AG3-141 | Objekt-Serialisierung (per-Story-Claims, 409/Retry-After) | L | **completed** | 137, 138 |
-| AG3-142 | Ownership-Fencing der Regime-Pfade (`ownership_epoch`) | L | **ready** | 137 |
+| AG3-142 | Ownership-Fencing der Regime-Pfade (`ownership_epoch`) | L | **completed** | 137 |
 | AG3-143 | Execution-Contract-Digest + Spec-Freeze | M | **ready** | 137 |
 | AG3-144 | Job-Muster + Ergebnisarten + Upsert-Fences | L | blocked | 141, 142, 143 |
 | AG3-145 | Edge-Command-Queue + Worktree-Ops-Umzug | L | blocked | 137, 141, 142, 146 |
@@ -392,8 +392,26 @@ Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
 | AG3-155 | Betriebs-Runbook FK-04 (concept) | S | blocked | 139, 149, 151, 154 |
 | AG3-156 | Verify-Evidenz-Ausführungsort: Request-DSL-Resolver + Evidence-Assembler vom Backend-Worktree-Zugriff lösen (Review-Fund, PO-Go 2026-07-02) | L | blocked | 144, 145 |
 
-**Sofort startbar (`ready`): AG3-142, AG3-143, AG3-146.**
-(AG3-141 ✅ **completed** 2026-07-04 — Objekt-Serialisierung, **nur per-Story**:
+**Sofort startbar (`ready`): AG3-143, AG3-146.**
+(AG3-142 ✅ **completed** 2026-07-04 — Ownership-Fencing der Regime-Pfade:
+der aktive `RunOwnershipRecord` (AG3-137) ist jetzt die EINZIGE Admissions-
+und Fencing-Wahrheit aller mutierenden Regime-Pfade (start/complete/fail/
+closure/resume + serverseitiger Executor). Fence = co-transaktionales
+`SELECT … FOR UPDATE` auf die aktive Zeile mit `(run_id, owner_session_id,
+ownership_epoch)`-Prädikat (kein TOCTOU-Fenster); der Record wird im Setup
+atomar mit der Start-CAS gemintet (CAS-Verlierer schreibt keinen Record).
+Die committed-op-Heuristik `_run_admission_evidence` wurde durch
+`_evaluate_run_admission` abgelöst (positive Heuristik entfernt, Exit-Fence
+behalten). Ex-Owner-Fehlerbild `ownership_transferred` → 403 (übrige
+Ownership-Ablehnungen 409) + `OwnershipTransferredDetail`-Payload; Reads
+bleiben sperrenfrei. Fail-closed: ein genuin neuer `run_id` für eine Story
+mit noch aktivem Record wird als RUN_MISMATCH gefenced (das Disown-/Reset-
+VERHALTEN liegt in AG3-149). Codex verifizierte die Fence-Substanz und
+adjudizierte den Single-Connection-PG-Fence-Test als adäquat für diesen
+Scope (echter 2-Connection-Takeover-Race → AG3-148); r1-REJECT betraf nur
+zwei ARCH-55-Docstrings (behoben), r2 APPROVE. Jenkins #984 grün, Sonar-Gate
+OK / 0 Issues (nach S3358-Ent-Schachtelung des Fence-Reason-Strings).
+AG3-141 ✅ **completed** 2026-07-04 — Objekt-Serialisierung, **nur per-Story**:
 durabler per-Story-Objekt-Claim vor Dispatch (Claim→Dispatch→Finalize/Abort),
 Crash→Reconcile/admin_abort-Freigabe, K4 `409 + Retry-After` (kein
 Thread-Blocking), Reads sperrenfrei, kein Wanduhr-Verfall. Das ursprünglich

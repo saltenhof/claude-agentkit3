@@ -1,8 +1,9 @@
 story_id: AG3-142
 title: "Ownership-Fencing der Regime-Pfade: Record-Schreiben im Setup, ownership_epoch-Fence in start/complete/fail/closure/Executor, Ablösung von _run_admission_evidence, Ex-Owner-Fehlerbild"
 type: implementation
-status: ready
-phase: setup
+status: completed
+phase: closure
+completed_at: "2026-07-04T16:56:52Z"
 created: "2026-07-02"
 size: L
 # Herkunft: GAP-ST-06 (gap-analyse-session-ownership.md v4, Codex-APPROVE).
