@@ -15,6 +15,7 @@ from agentkit.backend.control_plane.models import (
     ControlPlaneMutationResult,
     EdgeBundle,
     EdgePointer,
+    OwnershipTransferredDetail,
     PhaseDispatchResult,
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,
@@ -23,11 +24,21 @@ from agentkit.backend.control_plane.models import (
 )
 from agentkit.backend.control_plane.ownership import (
     INITIAL_OPERATION_EPOCH,
+    INITIAL_OWNERSHIP_EPOCH,
     MIN_BINDING_VERSION,
+    OwnershipAcquisition,
+    OwnershipStatus,
+)
+from agentkit.backend.control_plane.ownership_fence import (
+    ERROR_CODE_OWNERSHIP_TRANSFERRED,
+    OwnershipAdmission,
+    OwnershipRejectionReason,
+    evaluate_ownership_admission,
 )
 from agentkit.backend.control_plane.records import (
     BindingDeleteScope,
     ControlPlaneOperationRecord,
+    RunOwnershipRecord,
     SessionRunBindingRecord,
 )
 from agentkit.backend.control_plane.repository import (
@@ -45,6 +56,7 @@ from agentkit.backend.core_types.operating_mode import OperatingMode  # noqa: TC
 from agentkit.backend.exceptions import (
     ControlPlaneBindingCollisionError,
     ControlPlaneClaimCollisionError,
+    OwnershipFenceViolationError,
 )
 from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
 from agentkit.backend.governance.guard_system.story_scoped_guards import (
@@ -132,10 +144,26 @@ class _StartPhaseOutcome:
     returns it) OR the admitted ``dispatch_result`` for the caller to commit in
     ONE place. Exactly one is non-``None``; both ``None`` means "admitted with no
     dispatch outcome" (a non-setup fail-closed-to-standard materialization).
+
+    ``mints_ownership_record`` (AG3-142, SOLL-015): ``True`` ONLY for a
+    genuinely fresh setup start (no active ownership record existed for this
+    run) -- the caller's finalize then INSERTS the new active record
+    atomically in the SAME transaction instead of enforcing the (not-yet-
+    existing) fence.
+
+    ``observed_ownership_epoch`` (AG3-142, no TOCTOU): the ``ownership_epoch``
+    of the active record observed at THIS early admission check, when one
+    exists (``None`` when ``mints_ownership_record`` is ``True`` -- there is
+    nothing yet to observe). Threaded verbatim to the finalize's commit-time
+    re-check (mirrors ``owner_operation_epoch``): the fence re-verifies the
+    active record STILL carries this EXACT epoch, not merely "some" epoch,
+    closing the race window between this check and the commit.
     """
 
     rejection: ControlPlaneMutationResult | None
     dispatch_result: PhaseDispatchResult | None
+    mints_ownership_record: bool = False
+    observed_ownership_epoch: int | None = None
 
 
 @dataclass(frozen=True)
@@ -577,6 +605,14 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
             self._object_claim_repo = _default_di_object_claim_repository()
         else:
             self._object_claim_repo = ObjectMutationClaimRepository()
+        #: AG3-142 (K5 Postgres-only): the run-ownership persistence port the
+        #: admission fence reads (and the setup-start finalize inserts into) is
+        #: ``self._repo.load_active_ownership`` -- the SAME
+        #: ``ControlPlaneRuntimeRepository`` port every other regime mutation
+        #: uses (op/binding/lock CRUD). ONE repository, ONE DI seam: a test
+        #: injecting only ``repository=`` (the common case) gets ownership reads
+        #: wired to the SAME fake state as everything else, never a second,
+        #: silently-disconnected ownership store.
         #: AG3-054: the deterministic single-phase dispatcher (FK-45 §45.1.2). DI:
         #: the engine/registry + pre-start guard are injected, never self-built by
         #: this service. ``None`` is lazily resolved to the productive composition
@@ -814,6 +850,8 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
                 owner_claimed_at=owner_claimed_at,
                 owner_operation_epoch=owner_operation_epoch,
                 phase_dispatch=outcome.dispatch_result,
+                mints_ownership_record=outcome.mints_ownership_record,
+                observed_ownership_epoch=outcome.observed_ownership_epoch,
             )
             #: Finalize DONE (won or lost the ownership CAS): the op is terminal, so
             #: mark ``finalized`` BEFORE releasing the object claim -- a release
@@ -831,6 +869,27 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
                 op_id=request.op_id,
             )
             return result
+        except OwnershipFenceViolationError as exc:
+            #: AG3-142 (no TOCTOU): the ownership fence re-check at commit time
+            #: failed -- a takeover landed between the early admission check
+            #: (``_start_phase_after_claim``) and this commit. The whole finalize
+            #: rolled back (no side effect, no stored op). Release MY claims and
+            #: surface the rich ex-owner rejection.
+            self._release_my_claim_best_effort(
+                request.op_id, owner_token, owner_claimed_at
+            )
+            self._release_object_claim(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
+            return self._ownership_fence_violation_rejection(
+                exc,
+                op_id=request.op_id,
+                operation_kind="phase_start",
+                run_id=run_id,
+                phase=phase,
+            )
         except ControlPlaneBindingCollisionError as exc:
             #: AG3-054 run-scoping sweep: this fresh start would materialize a
             #: binding for THIS run, but the session is already bound to a DIFFERENT
@@ -912,14 +971,36 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         #: BEFORE/independent of the ctx-resolvability short-circuit. A fresh setup
         #: start is run-admitted only when there is run-matched evidence; a
         #: non-setup start requires the run to already have been admitted.
-        run_admitted = self._run_admission_evidence(
+        admission = self._evaluate_run_admission(
             project_key=request.project_key,
             story_id=request.story_id,
             session_id=request.session_id,
             run_id=run_id,
         )
+        #: AG3-142 (SOLL-015, FK-56 §56.8a): a run whose active ownership record
+        #: belongs to a DIFFERENT run or a DIFFERENT session is fenced OUT of
+        #: ``start_phase`` entirely -- it never reaches the pre-start guard or the
+        #: engine (unlike the ``NO_ACTIVE_RECORD``/``STORY_EXITED`` "not yet /
+        #: no longer admitted" cases below, whose existing dispatch-then-check
+        #: handling is unchanged). An ex-owner gets the rich
+        #: ``ownership_transferred`` rejection (FK-91 §91.1a Rule 18).
+        if admission.rejection_reason in (
+            OwnershipRejectionReason.RUN_MISMATCH,
+            OwnershipRejectionReason.OWNERSHIP_TRANSFERRED,
+        ):
+            return _StartPhaseOutcome(
+                rejection=self._ownership_admission_rejection(
+                    admission,
+                    op_id=request.op_id,
+                    operation_kind="phase_start",
+                    run_id=run_id,
+                    phase=phase,
+                ),
+                dispatch_result=None,
+            )
+        run_admitted = admission.admitted
         dispatch_result = self._dispatch_phase(
-            run_id=run_id, phase=phase, request=request
+            run_id=run_id, phase=phase, request=request, run_admitted=run_admitted
         )
         if dispatch_result is None and phase == PhaseName.SETUP.value and not run_admitted:
             #: Fail-closed run admission (FK-20 §20.8.2): a FRESH SETUP START whose
@@ -998,7 +1079,24 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         #: ERROR-2 fix (AC7 "same result, no second path"): admitted -- the caller
         #: builds and stores the FINAL result (incl. ``phase_dispatch``) in ONE
         #: place, so a replay of the same op_id returns an identical record.
-        return _StartPhaseOutcome(rejection=None, dispatch_result=dispatch_result)
+        #: AG3-142 (SOLL-015): a genuinely fresh setup start (no active record
+        #: existed for this run) MINTS the new active record atomically at
+        #: finalize; every other commit (a non-setup phase start, or a re-entry
+        #: into an already-owned setup) fences against the EXISTING record.
+        mints_ownership_record = (
+            phase == PhaseName.SETUP.value
+            and admission.rejection_reason is OwnershipRejectionReason.NO_ACTIVE_RECORD
+        )
+        return _StartPhaseOutcome(
+            rejection=None,
+            dispatch_result=dispatch_result,
+            mints_ownership_record=mints_ownership_record,
+            observed_ownership_epoch=(
+                admission.active_record.ownership_epoch
+                if admission.active_record is not None
+                else None
+            ),
+        )
 
     def _finalize_start_phase(
         self,
@@ -1010,6 +1108,8 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         owner_claimed_at: str | None,
         owner_operation_epoch: int | None = None,
         phase_dispatch: PhaseDispatchResult | None,
+        mints_ownership_record: bool = False,
+        observed_ownership_epoch: int | None = None,
     ) -> ControlPlaneMutationResult:
         """Atomically CAS-finalize the claim AND materialize side effects (#1).
 
@@ -1029,9 +1129,46 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
 
         The loser therefore never writes canonical side effects (the EXACT defect
         this fix closes).
+
+        AG3-142 (SOLL-015): ``mints_ownership_record`` -- a genuinely fresh setup
+        start -- atomically INSERTS the new active ``RunOwnershipRecord``
+        (``ownership_epoch=1``, ``acquired_via=setup``) in this SAME transaction;
+        every other commit (non-setup phase start, or a setup re-entry) instead
+        re-verifies the EXISTING active record at commit time (no TOCTOU) and
+        raises :class:`OwnershipFenceViolationError` on a mismatch.
+        ``observed_ownership_epoch`` is the epoch of that existing record as
+        observed at the early admission check (:class:`_StartPhaseOutcome`);
+        threaded verbatim so the commit-time re-check fences on THIS EXACT
+        epoch (mirrors ``owner_operation_epoch``), not merely "some" epoch.
         """
+        now = self._now_fn()
+        #: SOLL-017 accountability: the epoch this commit applies under. A fresh
+        #: setup mints epoch 1; every other commit stamps the EXISTING record's
+        #: observed epoch. Fail-closed (defensive): a non-minting commit MUST
+        #: have observed an active record's epoch at the early admission check
+        #: (the only way to reach here without one would be an un-admitted run,
+        #: which the dispatcher's own pre-start guard/transition graph already
+        #: rejects before a committing dispatch result exists) -- never silently
+        #: skip the fence.
+        if mints_ownership_record:
+            ownership_epoch_for_commit = INITIAL_OWNERSHIP_EPOCH
+        elif observed_ownership_epoch is not None:
+            ownership_epoch_for_commit = observed_ownership_epoch
+        else:
+            raise OwnershipFenceViolationError(
+                f"internal invariant violated: start_phase finalize for run "
+                f"{run_id!r} (project={request.project_key!r}, "
+                f"story={request.story_id!r}) is not minting a new ownership "
+                "record but observed no active-record epoch at admission time; "
+                "fail-closed (AG3-142, no silent fence skip).",
+                detail={},
+            )
         plan = self._plan_start_phase_materialization(
-            run_id=run_id, phase=phase, request=request
+            run_id=run_id,
+            phase=phase,
+            request=request,
+            now=now,
+            ownership_epoch=ownership_epoch_for_commit,
         )
         result = ControlPlaneMutationResult(
             status="committed",
@@ -1044,6 +1181,7 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
             #: result, so the persisted record == the returned result and a
             #: replay carries ``phase_dispatch`` too.
             phase_dispatch=phase_dispatch,
+            ownership_epoch=ownership_epoch_for_commit,
         )
         record = _operation_record(
             op_id=request.op_id,
@@ -1054,10 +1192,25 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
             operation_kind="phase_start",
             phase=phase,
             result=result,
-            now=self._now_fn(),
+            now=now,
             request_body_hash=_control_plane_request_body_hash(
                 request, operation_kind="phase_start", phase=phase
             ),
+        )
+        ownership_record_to_insert = (
+            RunOwnershipRecord(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                run_id=run_id,
+                owner_session_id=request.session_id,
+                ownership_epoch=INITIAL_OWNERSHIP_EPOCH,
+                status=OwnershipStatus.ACTIVE,
+                acquired_via=OwnershipAcquisition.SETUP,
+                acquired_at=now,
+                audit_ref=request.op_id,
+            )
+            if mints_ownership_record
+            else None
         )
         if self._repo.finalize_start_phase(
             record,
@@ -1069,6 +1222,10 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
             binding=plan.binding,
             locks=plan.locks,
             events=plan.events,
+            ownership_record_to_insert=ownership_record_to_insert,
+            expected_ownership_epoch=(
+                None if mints_ownership_record else ownership_epoch_for_commit
+            ),
         ):
             return result
         #: Lost the ownership CAS: a concurrent finalize/admin-abort already
@@ -1095,6 +1252,8 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         run_id: str,
         phase: str,
         request: PhaseMutationRequest,
+        now: datetime,
+        ownership_epoch: int,
     ) -> _StartPhaseMaterialization:
         """Build (NO writes) the start_phase side effects + bundle (ERROR-1, #1).
 
@@ -1102,7 +1261,6 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         authoritatively-resolved fast story plans the bundle only (no side effects).
         The plan is applied atomically under the ownership CAS by the caller.
         """
-        now = self._now_fn()
         if self._story_scoped_materialization_enabled(request):
             return _plan_story_scoped_materialization(
                 run_id=run_id,
@@ -1112,6 +1270,7 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
                 previous_binding_version=self._current_binding_version(
                     request.session_id
                 ),
+                ownership_epoch=ownership_epoch,
             )
         return _plan_fast_materialization(request=request, now=now)
 
@@ -1189,12 +1348,104 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
             reason=reason,
         )
 
+    def _ownership_admission_rejection(
+        self,
+        admission: OwnershipAdmission,
+        *,
+        op_id: str,
+        operation_kind: str,
+        run_id: str | None,
+        phase: str | None,
+    ) -> ControlPlaneMutationResult:
+        """Build the ex-owner rejection from a rejected :class:`OwnershipAdmission`.
+
+        AG3-142 (SOLL-042, IMPL-019, FK-91 §91.1a Rule 18): ONLY the
+        ``OWNERSHIP_TRANSFERRED`` reason carries the rich, structured
+        ``ownership_transferred`` payload (mandatory: reason, new owner, transfer
+        instant) -- ``admission.active_record`` is always present for THIS
+        reason (an active record for THIS run with a DIFFERENT owner). Every
+        other rejection reason (``NO_ACTIVE_RECORD`` / ``RUN_MISMATCH`` /
+        ``STORY_EXITED``) has no "new owner" to report and falls back to the
+        plain fail-closed rejection shape callers already use.
+        """
+        if admission.rejection_reason is not OwnershipRejectionReason.OWNERSHIP_TRANSFERRED:
+            return _rejection_result(
+                op_id=op_id,
+                operation_kind=operation_kind,
+                run_id=run_id,
+                phase=phase,
+                reason=(
+                    f"{operation_kind} rejected: the active run-ownership record "
+                    f"does not admit run {run_id!r} "
+                    f"({admission.rejection_reason}); fail-closed "
+                    "(FK-56 §56.8a)."
+                ),
+            )
+        record = admission.active_record
+        assert record is not None  # noqa: S101 -- OWNERSHIP_TRANSFERRED always carries one
+        return _ownership_transferred_rejection(
+            op_id=op_id,
+            operation_kind=operation_kind,
+            run_id=run_id,
+            phase=phase,
+            new_owner_session_id=record.owner_session_id,
+            new_ownership_epoch=record.ownership_epoch,
+            transferred_at=record.acquired_at,
+        )
+
+    def _ownership_fence_violation_rejection(
+        self,
+        exc: OwnershipFenceViolationError,
+        *,
+        op_id: str,
+        operation_kind: str,
+        run_id: str | None,
+        phase: str | None,
+    ) -> ControlPlaneMutationResult:
+        """Build the ex-owner rejection from a commit-time fence violation (AG3-142).
+
+        The row function's ``detail`` carries the CURRENT conflicting owner read
+        within the SAME rolled-back transaction (no TOCTOU): ``None`` values mean
+        the story has no active record at all (ended/reset/split/never admitted,
+        never a genuine transfer) -- a plain fail-closed rejection, not the rich
+        ``ownership_transferred`` payload.
+        """
+        new_owner = exc.detail.get("current_owner_session_id")
+        new_epoch = exc.detail.get("current_ownership_epoch")
+        transferred_at = exc.detail.get("transferred_at")
+        if (
+            not isinstance(new_owner, str)
+            or not isinstance(new_epoch, int)
+            or not isinstance(transferred_at, str)
+        ):
+            return _rejection_result(
+                op_id=op_id,
+                operation_kind=operation_kind,
+                run_id=run_id,
+                phase=phase,
+                reason=(
+                    f"{operation_kind} rejected: the ownership fence failed at "
+                    f"commit time for run {run_id!r} -- no active run-ownership "
+                    f"record exists; fail-closed (FK-56 §56.8a, no TOCTOU). {exc}"
+                ),
+            )
+        return _ownership_transferred_rejection(
+            op_id=op_id,
+            operation_kind=operation_kind,
+            run_id=run_id,
+            phase=phase,
+            new_owner_session_id=new_owner,
+            new_ownership_epoch=new_epoch,
+            transferred_at=datetime.fromisoformat(transferred_at),
+        )
+
     def _dispatch_phase(
         self,
         *,
         run_id: str,
         phase: str,
         request: PhaseMutationRequest,
+        run_admitted: bool,
     ) -> PhaseDispatchResult | None:
         """Run the deterministic single-phase dispatch for a fresh start_phase.
 
@@ -1205,13 +1456,15 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         dispatched (a missing context is surfaced by the dispatcher's own
         fail-closed path on the next resolvable call).
 
-        AG3-054 ERROR-1: the fresh-setup / first-call ADMISSION decision is computed
-        RUN-scoped HERE (``_run_admission_evidence`` for THIS exact ``(project,
-        story, run_id)``) and threaded into the dispatcher as ``run_admitted``. The
-        dispatcher no longer derives "fresh" from story-scoped phase-state, so an
-        OLD run's phase-state for the SAME story (after ``reset-escalation``, which
-        mints a new run id but reuses the per-story story_dir) can never make a NEW,
-        un-admitted run "not fresh" and SKIP the fail-closed pre-start guard.
+        AG3-054 ERROR-1 / AG3-142: the fresh-setup / first-call ADMISSION decision
+        is computed RUN-scoped by the CALLER (``_evaluate_run_admission`` for THIS
+        exact ``(project, story, run_id)`` -- since AG3-142, record-only) and
+        threaded in here as ``run_admitted`` (a single admission read per call,
+        never a second one). The dispatcher no longer derives "fresh" from
+        story-scoped phase-state, so an OLD run's phase-state for the SAME story
+        (after ``reset-escalation``, which mints a new run id but reuses the
+        per-story story_dir) can never make a NEW, un-admitted run "not fresh" and
+        SKIP the fail-closed pre-start guard.
 
         AG3-123: the Backend resolves the story-workspace filesystem anchor INSIDE
         the dispatcher via the injected ``StoryWorkspaceLocator`` (from canonical
@@ -1227,12 +1480,6 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         if ctx is None:
             return None
         dispatcher = self._resolve_dispatcher()
-        run_admitted = self._run_admission_evidence(
-            project_key=request.project_key,
-            story_id=request.story_id,
-            session_id=request.session_id,
-            run_id=run_id,
-        )
         return dispatcher.dispatch(
             ctx=ctx,
             phase=phase,
@@ -1320,7 +1567,16 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         )
         if locked is not None:
             return locked
-        if not self._run_was_admitted(request, run_id=run_id):
+        admission = self._run_was_admitted(request, run_id=run_id)
+        if not admission.admitted:
+            if admission.rejection_reason is OwnershipRejectionReason.OWNERSHIP_TRANSFERRED:
+                return self._ownership_admission_rejection(
+                    admission,
+                    op_id=request.op_id,
+                    operation_kind=operation_kind,
+                    run_id=run_id,
+                    phase=phase,
+                )
             return _rejection_result(
                 op_id=request.op_id,
                 operation_kind=operation_kind,
@@ -1334,12 +1590,29 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
                     "for an unadmitted run (FK-20 §20.8.2)."
                 ),
             )
+        #: ``admission.admitted`` is True here, so ``active_record`` is present
+        #: (``evaluate_ownership_admission``): its epoch is threaded verbatim to
+        #: the commit-time re-check (no TOCTOU) and to the accountability stamp.
+        assert admission.active_record is not None  # noqa: S101 -- admitted implies a record
         try:
             return self._mutate_phase(
                 run_id=run_id,
                 phase=phase,
                 request=request,
                 operation_kind=operation_kind,
+                expected_ownership_epoch=admission.active_record.ownership_epoch,
+            )
+        except OwnershipFenceViolationError as exc:
+            #: AG3-142 (no TOCTOU): the ownership fence re-check at commit time
+            #: (in the SAME transaction as the collision-gated commit) failed --
+            #: a takeover landed between the early admission check above and this
+            #: commit. Nothing committed; surface the rich ex-owner rejection.
+            return self._ownership_fence_violation_rejection(
+                exc,
+                op_id=request.op_id,
+                operation_kind=operation_kind,
+                run_id=run_id,
+                phase=phase,
             )
         except ControlPlaneClaimCollisionError:
             #: ERROR-3 fix (#3): the op_id is held by a LIVE ``claimed`` start
@@ -1378,27 +1651,17 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         request: PhaseMutationRequest,
         *,
         run_id: str,
-    ) -> bool:
-        """Whether a prior committed start admitted THIS exact run (E3 / #2).
-
-        Admission evidence (either is sufficient, both RUN-matched): a committed
-        setup ``phase_start`` for THIS exact ``(project_key, story_id, run_id)``,
-        or a session binding that EXACTLY matches this run on ``(project_key,
-        story_id, run_id)`` (a standard start materialized one). ERROR-2 fix (#2):
-        a binding is admission evidence ONLY when it belongs to the SAME
-        project/story/run -- a stale binding that merely reuses the same
-        ``session_id`` for a DIFFERENT project/story/run must NOT admit this
-        completion/failure. Fail-closed: when no run-matched evidence is present
-        the run was never admitted.
+    ) -> OwnershipAdmission:
+        """Whether the active ownership record admits THIS exact run (E3 / AG3-142).
 
         Args:
             request: The phase mutation request (lookup keys + session id).
             run_id: The authoritative path run id of the completion/failure.
 
         Returns:
-            Whether THIS run was admitted by a prior committed start.
+            The :class:`OwnershipAdmission` verdict for THIS run/session.
         """
-        return self._run_admission_evidence(
+        return self._evaluate_run_admission(
             project_key=request.project_key,
             story_id=request.story_id,
             session_id=request.session_id,
@@ -1410,62 +1673,60 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         request: ClosureCompleteRequest,
         *,
         run_id: str,
-    ) -> bool:
-        """Whether a prior committed start admitted THIS run for closure (#6).
+    ) -> OwnershipAdmission:
+        """Whether the active ownership record admits THIS run for closure (#6).
 
-        Same run-matched admission evidence as :meth:`_run_was_admitted`: a
-        committed setup ``phase_start`` for THIS run, or a session binding matching
-        ``(project_key, story_id, run_id)``. Closure shares the complete/fail
-        admission rule so the entrypoint is consistent (no unexplained asymmetry).
+        Same run-matched admission rule as :meth:`_run_was_admitted`. Closure
+        shares the complete/fail admission rule so the entrypoint is consistent
+        (no unexplained asymmetry).
         """
-        return self._run_admission_evidence(
+        return self._evaluate_run_admission(
             project_key=request.project_key,
             story_id=request.story_id,
             session_id=request.session_id,
             run_id=run_id,
         )
 
-    def _run_admission_evidence(
+    def _evaluate_run_admission(
         self,
         *,
         project_key: str,
         story_id: str,
         session_id: str,
         run_id: str,
-    ) -> bool:
-        """Shared RUN-scoped admission probe for complete/fail/closure (#2 / #3 / #6).
+    ) -> OwnershipAdmission:
+        """Shared RUN-scoped admission probe for ALL 5 regime paths (AG3-142).
 
-        ERROR-3 fix (#3): admission evidence is RUN-scoped, never story-scoped. The
-        prior implementation also accepted a persisted phase-state, but
-        ``PhaseState`` has NO ``run_id`` (it is keyed by story/phase), so a NEW run
-        was wrongly admitted by an OLD run's phase-state of the SAME story. That
-        story-scoped evidence is DROPPED. Admission now requires run-matched
-        evidence, either of:
+        IMPL-021 / SOLL-014: replaces the retired committed-op admission
+        heuristic (``_run_admission_evidence``) ENTIRELY -- there is no positive
+        committed-op evidence left. Admission evidence is EXCLUSIVELY the story's
+        active ``run_ownership_records`` row (the session binding is a
+        subordinate projection, never a second admission path;
+        ``historical_ownership_records_are_never_admission_evidence``,
+        ``story_execution_mutations_require_current_ownership_epoch``): a record
+        with any status other than ``active`` is never returned by
+        :attr:`~agentkit.backend.control_plane.repository.ControlPlaneRuntimeRepository.load_active_ownership`
+        and therefore never admits (SOLL-014 / AC3).
 
-        * a session binding that EXACTLY matches ``(project_key, story_id,
-          run_id)`` -- a standard start materialized one for THIS run (#2: a
-          binding reusing the same ``session_id`` for a DIFFERENT run does NOT
-          admit); or
-        * a prior COMMITTED control-plane operation carrying THIS exact
-          ``(project_key, story_id, run_id)`` -- a fast start (which materializes
-          no binding) leaves a committed start op for the run.
+        The exit-fence negative check (``has_committed_story_exit_operation_for_run``)
+        is kept as the transition-protection short-circuit (AC11) until AG3-149
+        maintains the record status on the exit path -- it is consulted FIRST,
+        unchanged from the retired heuristic.
 
-        Fail-closed: no run-matched evidence => the run was never admitted.
+        Fail-closed: no active record for THIS run, or an active record whose
+        ``owner_session_id`` differs, means the run was never admitted.
         """
         if self._repo.has_committed_story_exit_operation_for_run(
             project_key, story_id, run_id
         ):
-            return False
-        binding = self._repo.load_binding(session_id)
-        if (
-            binding is not None
-            and binding.project_key == project_key
-            and binding.story_id == story_id
-            and binding.run_id == run_id
-        ):
-            return True
-        return self._repo.has_committed_operation_for_run(
-            project_key, story_id, run_id
+            return OwnershipAdmission(
+                admitted=False,
+                active_record=None,
+                rejection_reason=OwnershipRejectionReason.STORY_EXITED,
+            )
+        active = self._repo.load_active_ownership(project_key, story_id)
+        return evaluate_ownership_admission(
+            active_record=active, run_id=run_id, session_id=session_id
         )
 
     def _load_existing_operation(
@@ -1492,9 +1753,10 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         phase: str,
         request: PhaseMutationRequest,
         operation_kind: str,
+        expected_ownership_epoch: int,
         phase_dispatch: PhaseDispatchResult | None = None,
     ) -> ControlPlaneMutationResult:
-        del run_id, phase, request, operation_kind, phase_dispatch
+        del run_id, phase, request, operation_kind, expected_ownership_epoch, phase_dispatch
         raise NotImplementedError
 
 
@@ -1731,25 +1993,36 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
         if locked is not None:
             return locked
 
-        if not self._closure_run_was_admitted(request, run_id=run_id):
+        closure_admission = self._closure_run_was_admitted(request, run_id=run_id)
+        if not closure_admission.admitted:
             #: ERROR-6 fix (#6): closure is consistent with complete/fail admission
-            #: -- a closure for a run with NO prior admitted start must NOT commit
-            #: (no committed setup phase_start, no run-matched session binding).
-            #: Fail-closed: an unadmitted closure never tears down (or fabricates)
-            #: a guard regime. The AG3-018 fast-story no-op is PRESERVED when there
-            #: WAS a prior admitted run (the fast story's admitted setup left a
-            #: committed setup phase_start), so a legitimate fast closure still
-            #: no-ops below.
+            #: -- a closure for a run with NO active ownership record must NOT
+            #: commit. Fail-closed: an unadmitted closure never tears down (or
+            #: fabricates) a guard regime. The AG3-018 fast-story no-op is
+            #: PRESERVED when there WAS a prior admitted run (the fast story's
+            #: admitted setup left an active record), so a legitimate fast
+            #: closure still no-ops below.
+            if (
+                closure_admission.rejection_reason
+                is OwnershipRejectionReason.OWNERSHIP_TRANSFERRED
+            ):
+                return self._ownership_admission_rejection(
+                    closure_admission,
+                    op_id=request.op_id,
+                    operation_kind="closure_complete",
+                    run_id=run_id,
+                    phase="closure",
+                )
             return _rejection_result(
                 op_id=request.op_id,
                 operation_kind="closure_complete",
                 run_id=run_id,
                 phase="closure",
                 reason=(
-                    "closure_complete rejected: the run has no prior admitted "
-                    "start (no committed setup phase_start and no session binding "
-                    "for THIS project/story/run); fail-closed -- closure must not "
-                    "commit for an unadmitted run (FK-20 §20.8.2)."
+                    "closure_complete rejected: the run has no active "
+                    "run-ownership record for THIS project/story/run; "
+                    "fail-closed -- closure must not commit for an unadmitted "
+                    "run (FK-56 §56.8a)."
                 ),
                 dispatch_phase="closure",
             )
@@ -1772,6 +2045,10 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                 conflict=object_conflict,
             )
         now = datetime.now(tz=UTC)
+        #: ``closure_admission.admitted`` is True, so ``active_record`` is
+        #: present (``evaluate_ownership_admission``).
+        assert closure_admission.active_record is not None  # noqa: S101
+        expected_ownership_epoch = closure_admission.active_record.ownership_epoch
         committed = False
         try:
             if not self._story_lock_records_apply(request):
@@ -1780,10 +2057,14 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                     run_id=run_id,
                     request=request,
                     now=now,
+                    expected_ownership_epoch=expected_ownership_epoch,
                 )
             else:
                 result = self._complete_standard_closure(
-                    run_id=run_id, request=request, now=now
+                    run_id=run_id,
+                    request=request,
+                    now=now,
+                    expected_ownership_epoch=expected_ownership_epoch,
                 )
             committed = True
             #: Codex-R1 (BLOCKER) fix: NON-best-effort release on the committed
@@ -1797,6 +2078,24 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                 op_id=request.op_id,
             )
             return result
+        except OwnershipFenceViolationError as exc:
+            #: AG3-142 (no TOCTOU): the ownership fence re-check at commit time
+            #: failed -- a takeover landed between the early admission check
+            #: above and this commit. The transaction rolled back (no side
+            #: effect, no stored op, claim still held): release NON-best-effort
+            #: before surfacing the rich ex-owner rejection.
+            self._release_object_claim(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
+            return self._ownership_fence_violation_rejection(
+                exc,
+                op_id=request.op_id,
+                operation_kind="closure_complete",
+                run_id=run_id,
+                phase="closure",
+            )
         except ControlPlaneClaimCollisionError:
             #: ERROR-3 fix (#3): the op_id is held by a LIVE ``claimed`` start
             #: claim; the store refused to clobber it. A closure reusing a live
@@ -1907,18 +2206,29 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
         )
         if locked is not None:
             return locked
-        if not self._run_was_admitted(request, run_id=run_id):
+        resume_admission = self._run_was_admitted(request, run_id=run_id)
+        if not resume_admission.admitted:
+            if (
+                resume_admission.rejection_reason
+                is OwnershipRejectionReason.OWNERSHIP_TRANSFERRED
+            ):
+                return self._ownership_admission_rejection(
+                    resume_admission,
+                    op_id=request.op_id,
+                    operation_kind="phase_resume",
+                    run_id=run_id,
+                    phase=phase,
+                )
             return _rejection_result(
                 op_id=request.op_id,
                 operation_kind="phase_resume",
                 run_id=run_id,
                 phase=phase,
                 reason=(
-                    "phase_resume rejected: the run has no prior admitted start "
-                    "(no committed setup phase_start and no session binding for "
-                    "THIS project/story/run); fail-closed -- a resume must not "
-                    "materialize story-scoped state for an unadmitted run "
-                    "(FK-20 §20.8.2)."
+                    "phase_resume rejected: the run has no active run-ownership "
+                    "record for THIS project/story/run; fail-closed -- a resume "
+                    "must not materialize story-scoped state for an unadmitted "
+                    "run (FK-56 §56.8a)."
                 ),
                 dispatch_phase=phase,
             )
@@ -1968,7 +2278,10 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
             #: runs ``PipelineEngine.resume_phase`` with the trigger from
             #: ``request.detail`` -- now protected by the claims.
             dispatch_result = self._dispatch_phase(
-                run_id=run_id, phase=phase, request=request
+                run_id=run_id,
+                phase=phase,
+                request=request,
+                run_admitted=resume_admission.admitted,
             )
             rejection = self._resume_rejection_if_unsuccessful(
                 dispatch_result, run_id=run_id, phase=phase, request=request
@@ -1990,6 +2303,9 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                     op_id=request.op_id,
                 )
                 return rejection
+            #: ``resume_admission.admitted`` is True, so ``active_record`` is
+            #: present (``evaluate_ownership_admission``).
+            assert resume_admission.active_record is not None  # noqa: S101
             result = self._finalize_resume_phase(
                 run_id=run_id,
                 phase=phase,
@@ -1998,6 +2314,7 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                 owner_claimed_at=owner_claimed_at,
                 owner_operation_epoch=owner_operation_epoch,
                 phase_dispatch=dispatch_result,
+                expected_ownership_epoch=resume_admission.active_record.ownership_epoch,
             )
             #: Codex-R1 (BLOCKER): mark ``finalized`` (op terminal) BEFORE releasing,
             #: then NON-best-effort release -- a release failure SURFACES (5xx),
@@ -2009,6 +2326,27 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                 op_id=request.op_id,
             )
             return result
+        except OwnershipFenceViolationError as exc:
+            #: AG3-142 (no TOCTOU): the ownership fence re-check at commit time
+            #: failed -- a takeover landed between the early admission check and
+            #: this commit. The whole finalize rolled back (no side effect, no
+            #: stored op). Release MY claims and surface the rich ex-owner
+            #: rejection.
+            self._release_my_claim_best_effort(
+                request.op_id, owner_token, owner_claimed_at
+            )
+            self._release_object_claim(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
+            return self._ownership_fence_violation_rejection(
+                exc,
+                op_id=request.op_id,
+                operation_kind="phase_resume",
+                run_id=run_id,
+                phase=phase,
+            )
         except ControlPlaneBindingCollisionError as exc:
             #: AG3-054 run-scoping: the binding SAVE would overwrite a live binding
             #: belonging to a DIFFERENT run that rebound the same session. The store
@@ -2107,6 +2445,7 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
         owner_claimed_at: str | None,
         owner_operation_epoch: int | None = None,
         phase_dispatch: PhaseDispatchResult | None,
+        expected_ownership_epoch: int,
     ) -> ControlPlaneMutationResult:
         """Commit ONLY the ``phase_resume`` op record; never re-materialize a start.
 
@@ -2135,6 +2474,9 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
             phase=phase,
             edge_bundle=bundle,
             phase_dispatch=phase_dispatch,
+            #: SOLL-017 accountability: a resume never mints -- always the
+            #: active record's epoch observed at admission.
+            ownership_epoch=expected_ownership_epoch,
         )
         record = _operation_record(
             op_id=request.op_id,
@@ -2161,6 +2503,9 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
             binding=None,
             locks=(),
             events=(),
+            #: AG3-142 (SOLL-015, no TOCTOU): a resume commits against the run's
+            #: EXISTING active record -- it never mints one.
+            expected_ownership_epoch=expected_ownership_epoch,
         ):
             return result
         #: LATE-OWNER resume finalize (ownership CAS lost): surface my own terminal
@@ -2223,6 +2568,7 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
         run_id: str,
         request: ClosureCompleteRequest,
         now: datetime,
+        expected_ownership_epoch: int,
     ) -> ControlPlaneMutationResult:
         """Tear down a standard/exploration run's guard regime at closure.
 
@@ -2292,7 +2638,10 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                 story_id=request.story_id,
                 run_id=run_id,
                 source_component=request.source_component,
-                payload={"session_id": request.session_id},
+                payload={
+                    "session_id": request.session_id,
+                    "ownership_epoch": expected_ownership_epoch,
+                },
                 now=now,
             ),
             _lifecycle_event_record(
@@ -2301,7 +2650,10 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                 story_id=request.story_id,
                 run_id=run_id,
                 source_component=request.source_component,
-                payload={"session_id": request.session_id},
+                payload={
+                    "session_id": request.session_id,
+                    "ownership_epoch": expected_ownership_epoch,
+                },
                 now=now,
             ),
         )
@@ -2312,6 +2664,7 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
             run_id=run_id,
             phase="closure",
             edge_bundle=bundle,
+            ownership_epoch=expected_ownership_epoch,
         )
         record = _operation_record(
             op_id=request.op_id,
@@ -2342,6 +2695,7 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
             ),
             locks=(lock, qa_lock),
             events=events,
+            expected_ownership_epoch=expected_ownership_epoch,
         )
         return result
 
@@ -2485,6 +2839,7 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
         phase: str,
         request: PhaseMutationRequest,
         operation_kind: str,
+        expected_ownership_epoch: int,
         phase_dispatch: PhaseDispatchResult | None = None,
     ) -> ControlPlaneMutationResult:
         existing = self._load_existing_operation(
@@ -2528,6 +2883,7 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                     previous_binding_version=self._current_binding_version(
                         request.session_id
                     ),
+                    ownership_epoch=expected_ownership_epoch,
                 )
             else:
                 plan = _plan_fast_materialization(request=request, now=now)
@@ -2542,6 +2898,9 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                 #: result, so the persisted record == the returned result and a
                 #: replay carries ``phase_dispatch`` too.
                 phase_dispatch=phase_dispatch,
+                #: SOLL-017 accountability: the epoch this complete/fail commits
+                #: under (the active record's epoch observed at admission).
+                ownership_epoch=expected_ownership_epoch,
             )
             record = _operation_record(
                 op_id=request.op_id,
@@ -2560,12 +2919,17 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
             #: Atomic: the conditional op-row upsert (collision gate) + side effects in
             #: ONE transaction. A collision raises ``ControlPlaneClaimCollisionError``
             #: (handled fail-closed by the caller) with NO orphan side effect written.
+            #: AG3-142 (no TOCTOU): ``expected_ownership_epoch`` re-verifies, in
+            #: THIS SAME transaction, that the active record still carries the
+            #: exact epoch observed at the early admission check -- a mismatch
+            #: raises ``OwnershipFenceViolationError`` (caught by the caller).
             self._repo.commit_operation_with_side_effects(
                 record,
                 binding_to_save=plan.binding,
                 binding_to_delete=None,
                 locks=plan.locks,
                 events=plan.events,
+                expected_ownership_epoch=expected_ownership_epoch,
             )
             committed = True
             #: Codex-R1 (BLOCKER) fix: the SUCCESS-path release is NON-best-effort.
@@ -2582,12 +2946,17 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                 op_id=request.op_id,
             )
             return result
-        except (ControlPlaneClaimCollisionError, ControlPlaneBindingCollisionError):
-            #: The whole commit transaction rolled back (collision gate FIRST): NO op
-            #: committed and the object claim is still held. Release it NON-best-effort
-            #: (a release failure SURFACES, never returns a normal rejection while the
-            #: claim stays held) before the caller maps the collision to its
-            #: fail-closed rejection.
+        except (
+            ControlPlaneClaimCollisionError,
+            ControlPlaneBindingCollisionError,
+            OwnershipFenceViolationError,
+        ):
+            #: The whole commit transaction rolled back (collision/fence gate
+            #: FIRST): NO op committed and the object claim is still held.
+            #: Release it NON-best-effort (a release failure SURFACES, never
+            #: returns a normal rejection while the claim stays held) before the
+            #: caller maps the collision/fence violation to its fail-closed
+            #: rejection (AG3-142: no TOCTOU).
             self._release_object_claim(
                 project_key=request.project_key,
                 story_id=request.story_id,
@@ -2699,6 +3068,7 @@ def _complete_fast_closure(
     run_id: str,
     request: ClosureCompleteRequest,
     now: datetime,
+    expected_ownership_epoch: int,
 ) -> ControlPlaneMutationResult:
     """No-op closure for a fast story (FK-24 §24.3.4; ``no_locks_active``).
 
@@ -2727,6 +3097,7 @@ def _complete_fast_closure(
         run_id=run_id,
         phase="closure",
         edge_bundle=bundle,
+        ownership_epoch=expected_ownership_epoch,
     )
     record = _operation_record(
         op_id=request.op_id,
@@ -2757,6 +3128,7 @@ def _complete_fast_closure(
         ),
         locks=(),
         events=(),
+        expected_ownership_epoch=expected_ownership_epoch,
     )
     return result
 
@@ -2768,6 +3140,7 @@ def _plan_story_scoped_materialization(
     request: PhaseMutationRequest,
     now: datetime,
     previous_binding_version: str | None,
+    ownership_epoch: int,
 ) -> _StartPhaseMaterialization:
     """Build (NO writes) the full story-scoped binding + locks + events (#1).
 
@@ -2782,6 +3155,10 @@ def _plan_story_scoped_materialization(
             ``binding_version`` (read at the persistence boundary by the caller),
             or ``None`` when the session has no binding yet. The next version is
             derived DB-monotone from it (``+ 1``), not from a wall clock.
+        ownership_epoch: (AG3-142, SOLL-017 accountability) The
+            ``ownership_epoch`` this commit applies under -- stamped onto the
+            lifecycle events (business continuity of artifacts/attempts/QA
+            stays keyed on ``run_id``; this is audit-only accountability).
     """
     binding_version = _next_binding_version(previous_binding_version)
     binding = SessionRunBindingRecord(
@@ -2834,6 +3211,7 @@ def _plan_story_scoped_materialization(
                 "session_id": request.session_id,
                 "principal_type": request.principal_type,
                 "worktree_roots": list(request.worktree_roots),
+                "ownership_epoch": ownership_epoch,
             },
             now=now,
             phase=phase,
@@ -2844,7 +3222,10 @@ def _plan_story_scoped_materialization(
             story_id=request.story_id,
             run_id=run_id,
             source_component=request.source_component,
-            payload={"session_id": request.session_id},
+            payload={
+                "session_id": request.session_id,
+                "ownership_epoch": ownership_epoch,
+            },
             now=now,
             phase=phase,
         ),
@@ -3291,6 +3672,55 @@ def _rejection_result(
     )
 
 
+def _ownership_transferred_rejection(
+    *,
+    op_id: str,
+    operation_kind: str,
+    run_id: str | None,
+    phase: str | None,
+    new_owner_session_id: str,
+    new_ownership_epoch: int,
+    transferred_at: datetime,
+) -> ControlPlaneMutationResult:
+    """Build the ex-owner ``ownership_transferred`` rejection (AG3-142).
+
+    FK-91 §91.1a Rule 18 / FK-56 §56.13c: a mutating call whose run-ownership no
+    longer matches the active record is deterministically rejected with the
+    structured ``ownership_transferred`` payload -- reason, new owner, transfer
+    instant -- embedded in the FK-91 Rule 8 error contract
+    (``error_code`` / ``error`` / ``correlation_id``, added by the HTTP layer).
+    No silent fallback to ``ai_augmented``: ``edge_bundle`` stays ``None``, like
+    every other ``rejected`` result.
+    """
+    return ControlPlaneMutationResult(
+        status="rejected",
+        op_id=op_id,
+        operation_kind=operation_kind,
+        run_id=run_id,
+        phase=phase,
+        edge_bundle=None,
+        phase_dispatch=PhaseDispatchResult(
+            phase=phase or "setup",
+            status="rejected",
+            reaction="rejected",
+            dispatched=False,
+            rejection_reason=(
+                f"{operation_kind} rejected: run-ownership was transferred to "
+                f"session {new_owner_session_id!r} at {transferred_at.isoformat()!r}; "
+                "this session is no longer the owner and this mutation is "
+                "fail-closed rejected (FK-56 §56.13c, FK-91 §91.1a Rule 18)."
+            ),
+        ),
+        error_code=ERROR_CODE_OWNERSHIP_TRANSFERRED,
+        ownership_conflict=OwnershipTransferredDetail(
+            reason=ERROR_CODE_OWNERSHIP_TRANSFERRED,
+            new_owner_session_id=new_owner_session_id,
+            new_ownership_epoch=new_ownership_epoch,
+            transferred_at=transferred_at,
+        ),
+    )
+
+
 def _object_claim_busy_rejection(
     *,
     op_id: str,
@@ -3439,6 +3869,13 @@ def _build_edge_bundle(
             worktree_roots=list(binding.worktree_roots),
             binding_version=binding.binding_version,
             operating_mode=operating_mode,
+            #: AG3-142 (SOLL-034 behavior part): a revoked binding's status +
+            #: machine-readable reason (e.g. ``ownership_transferred``) is
+            #: materialized into the bundle instead of vanishing, so the edge
+            #: resolve() can surface deterministic ``binding_invalid`` (FK-56
+            #: §56.7a) rather than silently falling back to ``ai_augmented``.
+            status=binding.status,
+            revocation_reason=binding.revocation_reason,
         )
         if binding is not None
         else None
@@ -3487,6 +3924,12 @@ def _resolve_operating_mode(
 ) -> OperatingMode:
     if binding is None:
         return "ai_augmented"
+    #: AG3-142 (SOLL-034 behavior, FK-56 §56.7a): the server-side binding
+    #: resolution mirrors the edge's own ``ProjectEdgeResolver.resolve()`` --
+    #: a revoked binding is deterministically ``binding_invalid`` regardless
+    #: of the lock's status, never re-classified as ``story_execution``.
+    if binding.status == "revoked":
+        return "binding_invalid"
     if lock.status == "ACTIVE":
         return "story_execution"
     return "binding_invalid"

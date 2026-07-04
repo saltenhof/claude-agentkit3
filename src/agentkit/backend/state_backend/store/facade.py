@@ -1231,6 +1231,8 @@ def finalize_control_plane_start_phase_global(
     binding: SessionRunBindingRecord | None,
     locks: tuple[StoryExecutionLockRecord, ...],
     events: tuple[ExecutionEventRecord, ...],
+    ownership_record_to_insert: RunOwnershipRecord | None = None,
+    expected_ownership_epoch: int | None = None,
 ) -> bool:
     """Atomically CAS-finalize a start_phase and materialize side effects (#1).
 
@@ -1261,10 +1263,26 @@ def finalize_control_plane_start_phase_global(
         binding: The session-run-binding to materialize, or ``None`` (fast story).
         locks: The story/QA lock records to materialize (empty for a fast story).
         events: The lifecycle event records to materialize (empty for fast).
+        ownership_record_to_insert: (AG3-142, SOLL-015) The NEW active
+            ``RunOwnershipRecord`` (``ownership_epoch=1``, ``acquired_via=setup``)
+            to INSERT atomically in this SAME transaction -- a genuinely fresh
+            setup start only. ``None`` for every other start/resume finalize.
+        expected_ownership_epoch: (AG3-142) When given, re-verify at commit
+            time, in this SAME transaction, that the story's active ownership
+            record still matches this exact ``(record.run_id,
+            record.session_id, expected_ownership_epoch)`` snapshot (no
+            TOCTOU). Mutually exclusive in practice with
+            ``ownership_record_to_insert`` (a fresh setup has nothing yet to
+            fence against).
 
     Returns:
         ``True`` iff this owner finalized and materialized atomically; ``False``
         when the claim was lost (nothing written).
+
+    Raises:
+        OwnershipFenceViolationError: (``expected_ownership_epoch`` given) When
+            the active ownership record no longer matches this run/session/epoch
+            snapshot at commit time; nothing committed (AG3-142).
     """
     backend = _backend_module()
     if not hasattr(backend, "finalize_control_plane_start_phase_global_row"):
@@ -1282,6 +1300,12 @@ def finalize_control_plane_start_phase_global(
             ),
             lock_rows=tuple(mappers.execution_lock_to_row(lock) for lock in locks),
             event_rows=tuple(mappers.execution_event_to_row(event) for event in events),
+            ownership_row_to_insert=(
+                mappers.run_ownership_to_row(ownership_record_to_insert)
+                if ownership_record_to_insert is not None
+                else None
+            ),
+            expected_ownership_epoch=expected_ownership_epoch,
         )
     )
 
@@ -1293,6 +1317,7 @@ def commit_control_plane_operation_with_side_effects_global(
     binding_to_delete: BindingDeleteScope | None,
     locks: tuple[StoryExecutionLockRecord, ...],
     events: tuple[ExecutionEventRecord, ...],
+    expected_ownership_epoch: int | None = None,
 ) -> None:
     """Atomically commit a terminal op AND its side effects (AG3-054 ERROR-2, #2).
 
@@ -1321,12 +1346,23 @@ def commit_control_plane_operation_with_side_effects_global(
             must be removed, or ``None`` (closure removes it; complete/fail never).
         locks: The story/QA lock records to upsert (empty when none apply).
         events: The lifecycle event records to append (empty for none).
+        expected_ownership_epoch: (AG3-142) When given, re-verify at commit
+            time, in this SAME transaction, that the story's active ownership
+            record still matches this exact ``(record.run_id,
+            record.session_id, expected_ownership_epoch)`` snapshot (no
+            TOCTOU) -- used by ``complete_phase`` / ``fail_phase`` / closure.
+            ``None`` (the default) skips the fence entirely -- preserved for
+            ``story_split``'s reuse of this same primitive (FK-54 §54.8),
+            which is fenced by its OWN entry-gate, not run-ownership.
 
     Raises:
         ControlPlaneClaimCollisionError: When ``record`` collides with a LIVE
             ``claimed`` row (nothing committed; the live claim is intact).
         ControlPlaneBindingCollisionError: When the binding save/delete would touch
             a FOREIGN run's live binding (nothing committed; the binding intact).
+        OwnershipFenceViolationError: (``expected_ownership_epoch`` given) When
+            the active ownership record no longer matches this run/session/epoch
+            snapshot at commit time; nothing committed (AG3-142).
     """
     backend = _backend_module()
     if not hasattr(
@@ -1352,6 +1388,7 @@ def commit_control_plane_operation_with_side_effects_global(
             if binding_to_delete is not None
             else None
         ),
+        expected_ownership_epoch=expected_ownership_epoch,
         lock_rows=tuple(mappers.execution_lock_to_row(lock) for lock in locks),
         event_rows=tuple(mappers.execution_event_to_row(event) for event in events),
     )

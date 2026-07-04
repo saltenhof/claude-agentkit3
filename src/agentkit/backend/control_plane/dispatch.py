@@ -270,17 +270,25 @@ class PhaseDispatcher:
                 Backend workspace and keeps the admission decision unambiguously
                 RUN-scoped (AG3-054 ERROR-1).
             run_admitted: Whether THIS exact run is already admitted, decided
-                RUN-scoped by the caller (control-plane ``_run_admission_evidence``:
-                a run-matched session binding OR a committed setup ``phase_start``
-                for ``(project, story, run_id)``). This is the ONLY input to the
-                fresh-setup / first-call ADMISSION gate -- story-scoped phase-state
-                (``existing``) is NOT consulted for admission, so an OLD run's
-                phase-state for the SAME story (e.g. after ``reset-escalation``,
-                which mints a new run id but reuses the per-story story_dir) can
-                never make a NEW, un-admitted run "not fresh" and thereby SKIP the
-                fail-closed pre-start guard (the fail-open this fix closes).
-                Story-scoped phase-state still drives the engine's transition /
-                resume MECHANICS below -- only the admission gate is run-scoped.
+                RUN-scoped by the caller. AG3-142 (IMPL-021, SOLL-014): the
+                admission source is EXCLUSIVELY the story's active
+                ``run_ownership_records`` row (``control_plane.ownership_fence.
+                evaluate_ownership_admission``, consumed via the runtime's
+                ``_evaluate_run_admission``) -- the retired committed-op
+                heuristic (``_run_admission_evidence``) and the session-binding
+                admission path are both gone; a historical record (any status
+                other than ``active``) is never admission evidence
+                (``historical_ownership_records_are_never_admission_evidence``).
+                This is the ONLY input to the fresh-setup / first-call ADMISSION
+                gate -- story-scoped phase-state (``existing``) is NOT consulted
+                for admission, so an OLD run's phase-state for the SAME story
+                (e.g. after a hypothetical future reset-escalation minting a new
+                run id for the same story -- not a live trigger today, AG3-149
+                territory) can never make a NEW, un-admitted run "not fresh" and
+                thereby SKIP the fail-closed pre-start guard (the fail-open this
+                fix closes). Story-scoped phase-state still drives the engine's
+                transition / resume MECHANICS below -- only the admission gate
+                is run-scoped.
             detail: Optional request detail (resume trigger resolution).
 
         Returns:

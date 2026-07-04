@@ -108,7 +108,13 @@ class ControlPlaneRuntimeRepository:
     #: the claimed op AND materializes its side effects (binding/locks/events) in
     #: ONE transaction, gated on still owning the claim. A loser (a stale claim
     #: generation whose CAS no longer matches) writes NOTHING (the transaction
-    #: rolls back). Returns ``True`` iff applied.
+    #: rolls back). Returns ``True`` iff applied. AG3-142: accepts
+    #: ``ownership_record_to_insert`` (a fresh setup atomically inserts the
+    #: run's NEW active ``RunOwnershipRecord`` in this SAME transaction) and
+    #: ``expected_ownership_epoch`` (every OTHER start/resume re-verifies the
+    #: caller's observed ``(run_id, owner_session_id, ownership_epoch)``
+    #: snapshot at commit time, no TOCTOU -- raises
+    #: ``OwnershipFenceViolationError`` on a lost fence).
     finalize_start_phase: Callable[..., bool] = (
         finalize_control_plane_start_phase_global
     )
@@ -118,6 +124,12 @@ class ControlPlaneRuntimeRepository:
     #: (binding create/delete, lock records, lifecycle events) commit in ONE
     #: transaction with the collision gate FIRST. A collision rolls back EVERYTHING,
     #: so a rejected complete/fail/closure leaves NO orphan side effect (ERROR-2).
+    #: AG3-142: ``expected_ownership_epoch``, when given, re-verifies the
+    #: caller's observed ownership snapshot at commit time in this SAME
+    #: transaction (raises ``OwnershipFenceViolationError`` on a lost fence);
+    #: ``None`` (the default) skips the fence -- preserved for ``story_split``'s
+    #: reuse of this same primitive (FK-54 §54.8), which is fenced by its OWN
+    #: entry-gate, not run-ownership.
     commit_operation_with_side_effects: Callable[..., None] = (
         commit_control_plane_operation_with_side_effects_global
     )
@@ -194,6 +206,17 @@ class ControlPlaneRuntimeRepository:
     #: -- backs the fail-closed dispatch-/operations-layer mutation lock.
     has_open_repair_for_story: Callable[[str, str], bool] = (
         has_open_repair_control_plane_operation_for_story_global
+    )
+    #: AG3-142 (SOLL-014/SOLL-015): the SOLE admission/fencing truth for every
+    #: regime mutation path -- the story's single active ``RunOwnershipRecord``
+    #: (``status='active'``), or ``None`` when none exists (fail-closed: no
+    #: active record admits nothing). Replaces the removed
+    #: ``has_committed_operation_for_run`` POSITIVE admission evidence; a
+    #: historical record (``status != 'active'``) is never returned here and is
+    #: therefore never admission evidence
+    #: (``historical_ownership_records_are_never_admission_evidence``).
+    load_active_ownership: Callable[[str, str], RunOwnershipRecord | None] = (
+        load_active_run_ownership_record_global
     )
 
 

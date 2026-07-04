@@ -208,6 +208,21 @@ class ProjectEdgeResolver:
                 synced=synced,
             )
 
+        if session.status == "revoked":
+            # AG3-142 (SOLL-034 behavior, FK-56 §56.7a/§56.13c): a revoked
+            # binding is deterministically ``binding_invalid`` -- NEVER a
+            # silent fall-back to ``ai_augmented``. The reason is an attribute
+            # of the revoked binding, not a status per cause: a known reason
+            # (e.g. ``ownership_transferred``) is surfaced verbatim; a missing
+            # (malformed/legacy) reason still fails closed to ``binding_invalid``
+            # with a generic reason, never treated as "not revoked".
+            return ResolvedEdgeState(
+                operating_mode="binding_invalid",
+                bundle=bundle,
+                block_reason=session.revocation_reason or "session_binding_mismatch",
+                synced=synced,
+            )
+
         if session_id is None or session.session_id != session_id:
             return ResolvedEdgeState(
                 operating_mode="binding_invalid",

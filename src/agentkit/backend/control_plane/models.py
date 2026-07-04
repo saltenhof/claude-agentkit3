@@ -476,7 +476,16 @@ class EdgePointer(BaseModel):
 
 
 class SessionRunBindingView(BaseModel):
-    """Serializable session binding materialized into the edge bundle."""
+    """Serializable session binding materialized into the edge bundle.
+
+    AG3-142 (SOLL-034 behaviour part): ``status`` / ``revocation_reason`` mirror
+    the AG3-137 schema addition on ``SessionRunBindingRecord`` so a REVOKED
+    binding (e.g. ``revocation_reason="ownership_transferred"``, FK-56 §56.7a)
+    is materialized into the local edge bundle instead of silently vanishing --
+    the local ``ProjectEdgeResolver.resolve()`` and the server-side binding
+    resolution both need this to surface deterministic ``binding_invalid``
+    rather than falling back to ``ai_augmented`` (no ``binding=None`` erasure).
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -488,6 +497,8 @@ class SessionRunBindingView(BaseModel):
     worktree_roots: list[str]
     binding_version: str
     operating_mode: OperatingMode
+    status: str = "active"
+    revocation_reason: str | None = None
 
 
 class StoryExecutionLockView(BaseModel):
@@ -580,6 +591,38 @@ _NO_EDGE_BUNDLE_STATUSES = frozenset(
 )
 
 
+class OwnershipTransferredDetail(BaseModel):
+    """Structured ex-owner rejection detail (FK-91 §91.1a Rule 18, AG3-142).
+
+    Carried on ``ControlPlaneMutationResult.ownership_conflict`` for a
+    ``rejected`` result whose ``error_code`` is ``"ownership_transferred"``
+    (mapped to HTTP 403 FORBIDDEN by
+    ``control_plane_http.app._mutation_result_response`` -- distinct from the
+    generic 409 CONFLICT every other rejection cause gets): a mutating call
+    whose caller no longer matches the story's active ``run_ownership_records``
+    row (wrong ``owner_session_id`` or a stale ``ownership_epoch``). Carries --
+    at minimum, per Rule 18 -- the reason, the new owner and the transfer
+    instant. This EXTENDS the FK-91 Rule 8 error contract
+    (``error_code`` on the SAME result body; ``correlation_id`` travels on the
+    ``X-Correlation-Id`` header of every response, Rule 7) rather than
+    replacing it -- mirrors the existing K4 busy-object-claim rejection shape
+    (``error_code`` + ``retry_after_seconds`` on the SAME
+    ``ControlPlaneMutationResult``). Built by
+    :func:`~agentkit.backend.control_plane.runtime._ownership_transferred_rejection`
+    from either the EARLY admission check
+    (:class:`~agentkit.backend.control_plane.ownership_fence.OwnershipAdmission`)
+    or a commit-time :class:`~agentkit.backend.exceptions.
+    OwnershipFenceViolationError` (no TOCTOU).
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    reason: str
+    new_owner_session_id: str
+    new_ownership_epoch: int
+    transferred_at: datetime
+
+
 class ControlPlaneMutationResult(BaseModel):
     """Shared response body for mutations, sync, and op reconciliation."""
 
@@ -633,6 +676,22 @@ class ControlPlaneMutationResult(BaseModel):
     #: for every other rejection cause -- there is no implication of a
     #: server-side wait; the caller retries the WHOLE request after the hint.
     retry_after_seconds: int | None = None
+    #: AG3-142 (SOLL-017 accountability): the ``ownership_epoch`` of the active
+    #: ``run_ownership_records`` row a COMMITTED regime operation (or its
+    #: replay) was admitted/committed under -- ``1`` for the setup start that
+    #: inserts the record, the active record's current epoch for every later
+    #: start/complete/fail/resume/closure on the SAME run. ``None`` for
+    #: non-regime operations (``project_edge_sync``, admin-abort/repair-resolve,
+    #: startup-reconciliation) and for ``rejected`` results (nothing committed).
+    #: Business continuity of artifacts/attempts/QA stays keyed on ``run_id``;
+    #: this field is audit-only accountability, never a second continuity key.
+    ownership_epoch: int | None = None
+    #: AG3-142 (FK-91 §91.1a Rule 18, FK-56 §56.13c): the structured ex-owner
+    #: detail for a ``rejected`` result whose ``error_code`` is
+    #: ``ownership_transferred`` -- a mutating call whose run-ownership no
+    #: longer matches the story's active record. ``None`` for every other
+    #: rejection cause and every non-``rejected`` status.
+    ownership_conflict: OwnershipTransferredDetail | None = None
 
     @model_validator(mode="after")
     def _edge_bundle_optionality_is_bound_to_rejection(self) -> ControlPlaneMutationResult:

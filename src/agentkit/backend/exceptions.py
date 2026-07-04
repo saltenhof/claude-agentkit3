@@ -126,6 +126,28 @@ class ControlPlaneBindingCollisionError(AgentKitError):
     """
 
 
+class OwnershipFenceViolationError(AgentKitError):
+    """A regime mutation's commit lost the ownership fence (FK-56 §56.8a).
+
+    AG3-142 (SOLL-015, no TOCTOU): raised by a transactional state-backend row
+    function when, AT COMMIT TIME and in the SAME transaction as the
+    claim-CAS finalize / collision-gated commit, the active
+    ``run_ownership_records`` row no longer matches the ``owner_session_id`` +
+    ``ownership_epoch`` observed when the caller was admitted (a takeover
+    landed between dispatch and commit). The whole transaction rolls back --
+    no side effect, no stored op (mirrors :class:`ControlPlaneClaimCollisionError`
+    / :class:`ControlPlaneBindingCollisionError`). The runtime catches this and
+    surfaces a fail-closed ``rejected`` mutation result carrying the
+    ``ownership_transferred`` structured detail (FK-91 §91.1a Rule 18); ``detail``
+    carries the CURRENT conflicting owner read within the same transaction (a
+    ``SELECT ... FOR UPDATE`` row-locked read, no TOCTOU):
+    ``current_owner_session_id`` (``str | None``), ``current_ownership_epoch``
+    (``int | None``) and ``transferred_at`` (ISO-8601 ``str | None``) -- all
+    ``None`` when the story has no active record at all (ended/reset/split/
+    never admitted) rather than a genuine transfer.
+    """
+
+
 class ControlPlaneApiError(AgentKitError):
     """A control-plane HTTP endpoint returned a stable error contract response.
 

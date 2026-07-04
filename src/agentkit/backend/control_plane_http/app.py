@@ -31,6 +31,7 @@ from agentkit.backend.control_plane.models import (
     TelemetryEventIngestRequest,
     op_id_validation_error,
 )
+from agentkit.backend.control_plane.ownership_fence import ERROR_CODE_OWNERSHIP_TRANSFERRED
 from agentkit.backend.control_plane.runtime import (
     ControlPlaneRuntimeService,
     OperationNotAbortableError,
@@ -1777,14 +1778,26 @@ def _mutation_result_response(
     the rejected->409 wiring identical across phase mutations and closure completion,
     so no mutating entrypoint can return 2xx for a fail-closed rejection.
 
+    AG3-142 (FK-91 §91.1a Rule 18): the ONE exception is the ex-owner
+    ``ownership_transferred`` rejection, which maps to 403 FORBIDDEN instead of
+    the generic 409 -- the caller is not merely conflicting with concurrent
+    state, it no longer holds run-ownership at all. The structured
+    ``ownership_conflict`` detail (reason, new owner, transfer instant) travels
+    on the SAME ``ControlPlaneMutationResult`` body, embedded per the FK-91
+    Rule 8 error contract (``error_code`` here; ``correlation_id`` via the
+    ``X-Correlation-Id`` header on every response, Rule 7).
+
     AG3-141 (K4, IMPL-016): a busy-object-claim rejection additionally carries
     ``retry_after_seconds`` -- surfaced here as a ``Retry-After`` header (the
     deterministic wait contract; never a blocking wait). Every other rejection
     cause carries no such header (unchanged behaviour).
     """
-    status = (
-        HTTPStatus.CONFLICT if result.status == "rejected" else HTTPStatus.CREATED
-    )
+    if result.status != "rejected":
+        status = HTTPStatus.CREATED
+    elif result.error_code == ERROR_CODE_OWNERSHIP_TRANSFERRED:
+        status = HTTPStatus.FORBIDDEN
+    else:
+        status = HTTPStatus.CONFLICT
     headers: tuple[tuple[str, str], ...] = ()
     if result.retry_after_seconds is not None:
         headers = (("Retry-After", str(result.retry_after_seconds)),)

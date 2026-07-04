@@ -37,6 +37,7 @@ from agentkit.backend.exceptions import (
     ControlPlaneBindingCollisionError,
     ControlPlaneClaimCollisionError,
     CorruptStateError,
+    OwnershipFenceViolationError,
 )
 from agentkit.backend.state_backend.config import (
     STATE_DATABASE_URL_ENV,
@@ -2665,8 +2666,8 @@ def delete_session_run_binding_global(session_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def insert_run_ownership_record_global_row(row: dict[str, Any]) -> None:
-    """Strictly INSERT one run-ownership row (AG3-137).
+def _insert_run_ownership_record_row(conn: _CompatConnection, row: dict[str, Any]) -> None:
+    """Strictly INSERT one run-ownership row on an EXISTING connection (AG3-142).
 
     A plain ``INSERT`` (no ``ON CONFLICT``): a duplicate identity
     ``(project_key, story_id, run_id)`` OR a second ``status='active'`` row for
@@ -2682,26 +2683,42 @@ def insert_run_ownership_record_global_row(row: dict[str, Any]) -> None:
             active ownership record for the same story (fail-closed).
     """
 
+    conn.execute(
+        """
+        INSERT INTO run_ownership_records (
+            project_key, story_id, run_id, owner_session_id,
+            ownership_epoch, status, acquired_via, acquired_at, audit_ref
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            row["project_key"],
+            row["story_id"],
+            row["run_id"],
+            row["owner_session_id"],
+            row["ownership_epoch"],
+            row["status"],
+            row["acquired_via"],
+            row["acquired_at"],
+            row["audit_ref"],
+        ),
+    )
+
+
+def insert_run_ownership_record_global_row(row: dict[str, Any]) -> None:
+    """Strictly INSERT one run-ownership row on a FRESH connection (AG3-137).
+
+    Standalone entrypoint (AG3-137 backfill / test seeding); the AG3-142
+    productive setup-start writer inserts atomically WITHIN the
+    ``finalize_control_plane_start_phase_global_row`` transaction instead (see
+    ``ownership_row_to_insert``), never via this standalone call.
+
+    Raises:
+        psycopg.errors.UniqueViolation: On a duplicate identity or a second
+            active ownership record for the same story (fail-closed).
+    """
+
     with _connect_global() as conn:
-        conn.execute(
-            """
-            INSERT INTO run_ownership_records (
-                project_key, story_id, run_id, owner_session_id,
-                ownership_epoch, status, acquired_via, acquired_at, audit_ref
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                row["project_key"],
-                row["story_id"],
-                row["run_id"],
-                row["owner_session_id"],
-                row["ownership_epoch"],
-                row["status"],
-                row["acquired_via"],
-                row["acquired_at"],
-                row["audit_ref"],
-            ),
-        )
+        _insert_run_ownership_record_row(conn, row)
 
 
 def load_run_ownership_record_global_row(
@@ -3559,6 +3576,109 @@ def _run_scoped_delete_session_binding_row(
         )
 
 
+def _enforce_ownership_fence_row(
+    conn: _CompatConnection,
+    *,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    session_id: str,
+    expected_ownership_epoch: int,
+) -> None:
+    """Re-verify the ownership fence AT COMMIT TIME, in THIS transaction (AG3-142).
+
+    FK-56 §56.8a (no TOCTOU): ``SELECT ... FOR UPDATE`` row-locks the story's
+    active ``run_ownership_records`` row on the SAME connection as the
+    caller's claim-CAS finalize / collision-gated commit -- serializing this
+    check against any concurrent CAS on that SAME row (a future AG3-148
+    takeover-confirm's ``UPDATE`` blocks until this transaction commits or
+    rolls back, and vice versa: two callers can never both observe a
+    since-superseded snapshot as current) -- and raises
+    :class:`OwnershipFenceViolationError` when the locked row no longer admits
+    THIS exact ``(run_id, owner_session_id, ownership_epoch)`` snapshot -- a
+    takeover (or the record ending/never having existed) landed between the
+    caller's early admission check and this commit. The whole enclosing
+    transaction then rolls back (mirrors :class:`ControlPlaneBindingCollisionError`
+    / :class:`ControlPlaneClaimCollisionError`): no side effect, no stored op.
+    System-principal executors go through this SAME predicate -- there is no
+    bypass (SOLL-016, NO ERROR BYPASSING).
+
+    Args:
+        expected_ownership_epoch: The ``ownership_epoch`` the caller observed
+            at its early admission check. Fences on BOTH ``owner_session_id``
+            AND ``ownership_epoch`` (FK-56 §56.8a,
+            ``story_execution_mutations_require_current_ownership_epoch``): a
+            recovery/takeover CAS that bumps the epoch WITHOUT necessarily
+            changing ``owner_session_id`` still fences a late executor whose
+            snapshot predates it.
+
+    Raises:
+        OwnershipFenceViolationError: When no active record exists for
+            ``(project_key, story_id)``, or the active record's ``run_id`` /
+            ``owner_session_id`` / ``ownership_epoch`` no longer matches this
+            exact snapshot. ``detail`` carries the freshly-read (under the
+            SAME row lock) ``current_owner_session_id`` /
+            ``current_ownership_epoch`` / ``transferred_at`` -- all ``None``
+            when no active record exists at all for the story.
+    """
+    # T-bloodtype boundary (module docstring): this driver MUST NOT import
+    # BC-Records / A-core modules (``control_plane.records``,
+    # ``control_plane.ownership_fence``). The admission PREDICATE is therefore
+    # re-localized here as a raw-row comparison (sanctioned duplication --
+    # "transaktionale Fence-/Record-Row-Funktionen im state_backend = AT/T,
+    # dort lokalisiert"); the ONE domain-level admission decision
+    # (``control_plane.ownership_fence.evaluate_ownership_admission``) stays
+    # the A-core truth consulted by the runtime's early admission check. Both
+    # encodings apply the SAME four predicates in lock-step: an active row
+    # exists, its ``run_id`` matches, its ``owner_session_id`` matches, its
+    # ``ownership_epoch`` matches.
+    active = conn.execute(
+        """
+        SELECT run_id, owner_session_id, ownership_epoch, acquired_at
+        FROM run_ownership_records
+        WHERE project_key = ? AND story_id = ? AND status = 'active'
+        FOR UPDATE
+        """,
+        (project_key, story_id),
+    ).fetchone()
+    if (
+        active is not None
+        and str(active["run_id"]) == run_id
+        and str(active["owner_session_id"]) == session_id
+        and int(active["ownership_epoch"]) == expected_ownership_epoch
+    ):
+        return
+    raise OwnershipFenceViolationError(
+        f"ownership fence violated for run {run_id!r} "
+        f"(project={project_key!r}, story={story_id!r}, session={session_id!r}, "
+        f"expected_ownership_epoch={expected_ownership_epoch!r}): "
+        + (
+            "no active run-ownership record for this story"
+            if active is None
+            else (
+                "active record belongs to a different run"
+                if str(active["run_id"]) != run_id
+                else (
+                    "active record's owner_session_id does not match the caller"
+                    if str(active["owner_session_id"]) != session_id
+                    else "active record's ownership_epoch has moved since admission"
+                )
+            )
+        ),
+        detail={
+            "current_owner_session_id": (
+                str(active["owner_session_id"]) if active is not None else None
+            ),
+            "current_ownership_epoch": (
+                int(active["ownership_epoch"]) if active is not None else None
+            ),
+            "transferred_at": (
+                str(active["acquired_at"]) if active is not None else None
+            ),
+        },
+    )
+
+
 def _insert_story_execution_lock_row(
     conn: _CompatConnection, row: dict[str, Any]
 ) -> None:
@@ -3603,6 +3723,8 @@ def finalize_control_plane_start_phase_global_row(
     binding_row: dict[str, Any] | None,
     lock_rows: Sequence[dict[str, Any]],
     event_rows: Sequence[dict[str, Any]],
+    ownership_row_to_insert: dict[str, Any] | None = None,
+    expected_ownership_epoch: int | None = None,
 ) -> bool:
     """Atomically CAS-finalize a start_phase AND materialize its side effects (#1).
 
@@ -3653,6 +3775,19 @@ def finalize_control_plane_start_phase_global_row(
     Raises:
         ControlPlaneBindingCollisionError: When the binding would overwrite a
             FOREIGN run's live binding (nothing committed; the binding intact).
+        OwnershipFenceViolationError: (AG3-142, ``expected_ownership_epoch`` given)
+            When the story's active run-ownership record no longer admits this
+            exact ``(run_id, session_id, ownership_epoch)`` snapshot at commit
+            time (no TOCTOU) -- nothing committed, the claim-CAS above is
+            rolled back too.
+
+    AG3-142 (SOLL-015): ``ownership_row_to_insert`` atomically materializes the
+    NEW active ``run_ownership_records`` row for a genuinely fresh setup start
+    (``ownership_epoch=1``) in this SAME transaction -- a claim-CAS loser writes
+    no record, mirroring the binding/lock/event side effects. Mutually exclusive
+    in practice with ``expected_ownership_epoch`` (a fresh setup has no existing
+    record to fence against; every OTHER start/resume finalize fences against
+    the existing record via ``expected_ownership_epoch`` and inserts none).
     """
 
     class _NotOwnerError(RuntimeError):
@@ -3688,6 +3823,19 @@ def finalize_control_plane_start_phase_global_row(
             if int(cursor.rowcount) != 1:
                 # Lost the ownership CAS: roll back so NO side effect is written.
                 raise _NotOwnerError
+            if expected_ownership_epoch is not None:
+                # AG3-142: re-verify AT COMMIT TIME, in THIS transaction (no
+                # TOCTOU) -- a failure raises and rolls back EVERYTHING above too.
+                _enforce_ownership_fence_row(
+                    conn,
+                    project_key=str(op_row["project_key"]),
+                    story_id=str(op_row["story_id"]),
+                    run_id=str(op_row["run_id"]),
+                    session_id=str(op_row["session_id"]),
+                    expected_ownership_epoch=expected_ownership_epoch,
+                )
+            if ownership_row_to_insert is not None:
+                _insert_run_ownership_record_row(conn, ownership_row_to_insert)
             if binding_row is not None:
                 _insert_session_binding_row(conn, binding_row)
             for lock_row in lock_rows:
@@ -4052,6 +4200,7 @@ def commit_control_plane_operation_with_side_effects_global_row(
     binding_to_delete: dict[str, Any] | None,
     lock_rows: Sequence[dict[str, Any]],
     event_rows: Sequence[dict[str, Any]],
+    expected_ownership_epoch: int | None = None,
 ) -> None:
     """Atomically commit a terminal op AND its side effects in ONE transaction (#2).
 
@@ -4088,11 +4237,27 @@ def commit_control_plane_operation_with_side_effects_global_row(
             ``claimed`` row (nothing is committed; the live claim is intact).
         ControlPlaneBindingCollisionError: When the binding save/delete would touch
             a FOREIGN run's live binding (nothing committed; the binding intact).
+        OwnershipFenceViolationError: (AG3-142, ``expected_ownership_epoch`` given)
+            When the story's active run-ownership record no longer admits this
+            exact ``(run_id, session_id, ownership_epoch)`` snapshot at commit
+            time (no TOCTOU) -- nothing committed, the collision-gated upsert
+            above is rolled back too.
     """
     with _connect_global() as conn:
         # Collision gate FIRST: a live-claim collision raises here, BEFORE any side
         # effect is durable, so the transaction rolls back with zero orphan state.
         _conditional_upsert_control_plane_op_row(conn, op_row)
+        if expected_ownership_epoch is not None:
+            # AG3-142: re-verify AT COMMIT TIME, in THIS transaction (no TOCTOU) --
+            # a failure raises and rolls back the op upsert above too.
+            _enforce_ownership_fence_row(
+                conn,
+                project_key=str(op_row["project_key"]),
+                story_id=str(op_row["story_id"]),
+                run_id=str(op_row["run_id"]),
+                session_id=str(op_row["session_id"]),
+                expected_ownership_epoch=expected_ownership_epoch,
+            )
         if binding_to_save is not None:
             _insert_session_binding_row(conn, binding_to_save)
         if binding_to_delete is not None:
