@@ -14,8 +14,20 @@ deterministic 4xx exists — replay-after-failure), not merely op_id validation.
 - **Replay** of the same `op_id` → the **stored result**, no second mutation.
 - Same `op_id`, **different body** (URL path keys folded into the body-hash) → `409 idempotency_mismatch`.
 - **Parallel** same `op_id` (a live claim) → `409 operation_in_flight`.
-- A deterministic domain **4xx is finalized** so a replay returns it verbatim (AC8);
-  only an unexpected **≥500** releases the claim.
+- **Every** deterministic domain **4xx is finalized** so a replay returns it
+  verbatim exactly once (AC8) — including the story-field `ForbiddenFieldError`
+  (422), which is validated INSIDE the claimed mutation path (Codex r2 #3). Only
+  an unexpected pre-commit **≥500** or a pre-outcome exception releases the claim.
+
+**The shared finalize/release window invariant** (Codex r2 #1/#2), centralized in
+`run_route_idempotent` (guard module) for the generic BC routes and mirrored by the
+control-plane runtime: the `claimed` placeholder is written BEFORE the mutation; a
+mutation exception BEFORE any committed side effect RELEASES the claim (a retry
+re-executes cleanly); a committed side effect followed by a crash before finalize
+leaves the `claimed` row (fail-closed in-flight on retry, AC3, never released); and
+a `finalize` CAS loss (the claim was taken over, e.g. an admin abort) NEVER returns
+the success response — the row is re-classified and a fail-closed replay/mismatch/
+conflict is returned.
 
 Wire strings: only `idempotency_mismatch` (409) is named verbatim in FK-91
 §91.1a. `missing_op_id`/`operation_in_flight` (and the per-BC `invalid_*_payload`
