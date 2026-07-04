@@ -4444,8 +4444,8 @@ def test_resume_phase_ex_owner_rejected_with_ownership_transferred_payload() -> 
 
 
 def test_get_operation_still_readable_for_ex_owner() -> None:
-    """AC7 (FK-91 §91.1a Rule 17/18): reads stay allowed for an entmuendigten
-    (dismissed) session -- ``GET operations/{op_id}`` reconciles a PRIOR
+    """AC7 (FK-91 §91.1a Rule 17/18): reads stay allowed for a dismissed
+    (ex-owner) session -- ``GET operations/{op_id}`` reconciles a PRIOR
     mutation regardless of the CURRENT ownership state.
     """
     state = _RepoState()

@@ -133,9 +133,9 @@ def _raw_update_ownership_row(
     """Directly mutate the story's active ownership row (test-only).
 
     AG3-148 (the productive transfer confirm CAS) does not exist yet; this
-    mirrors the story's own sanctioned pattern ("der Zustand transferred
-    entsteht nur in Tests ueber die sanktionierte AG3-137-Schreibflaeche")
-    by touching the table directly through the SAME global connection the
+    mirrors the story's own sanctioned pattern (the ``transferred`` state
+    arises only in tests, via the sanctioned AG3-137 write surface) by
+    touching the table directly through the SAME global connection the
     productive store uses -- never a second physical connection, never a new
     production write primitive.
     """
