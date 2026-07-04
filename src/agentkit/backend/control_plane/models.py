@@ -621,6 +621,18 @@ class ControlPlaneMutationResult(BaseModel):
     #: SEVERITY-SEMANTIK guardrail: a ``repair`` state is a visible, auditable
     #: handling requirement, never a silently discarded fact.
     admin_note: str | None = None
+    #: AG3-141 (FK-91 §91.1a Rule 8, K4/IMPL-016): a stable, machine-readable
+    #: error classification for a ``rejected`` result caused by a busy object
+    #: mutation claim (``object_claims.ERROR_CODE_OBJECT_CLAIM_CONFLICT``).
+    #: ``None`` for every other rejection cause and every non-``rejected``
+    #: status.
+    error_code: str | None = None
+    #: AG3-141 (K4): the pinned client retry-hint budget (seconds) for a
+    #: busy-object ``rejected`` result. Carried into the HTTP ``Retry-After``
+    #: header (``control_plane_http.app._mutation_result_response``). ``None``
+    #: for every other rejection cause -- there is no implication of a
+    #: server-side wait; the caller retries the WHOLE request after the hint.
+    retry_after_seconds: int | None = None
 
     @model_validator(mode="after")
     def _edge_bundle_optionality_is_bound_to_rejection(self) -> ControlPlaneMutationResult:

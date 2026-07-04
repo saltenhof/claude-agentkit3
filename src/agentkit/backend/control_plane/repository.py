@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentkit.backend.state_backend.store import (
+    acquire_object_mutation_claim_global,
     admin_abort_control_plane_operation_global,
     append_execution_event_global,
     boot_backend_instance_identity_global,
@@ -24,6 +25,7 @@ from agentkit.backend.state_backend.store import (
     insert_object_mutation_claim_global,
     insert_run_ownership_record_global,
     list_orphaned_claimed_control_plane_operations_global,
+    list_orphaned_object_mutation_claims_global,
     load_active_run_ownership_record_global,
     load_backend_instance_identity_global,
     load_control_plane_operation_global,
@@ -220,11 +222,16 @@ class RunOwnershipRepository:
 
 @dataclass(frozen=True)
 class ObjectMutationClaimRepository:
-    """Persistence port for instance-bound object-mutation claims (AG3-137).
+    """Persistence port for instance-bound object-mutation claims (AG3-137/AG3-141).
 
-    Provides the schema-level persistence surface only; the productive claim
-    acquisition, lock-sets, queue fairness and wait semantics are AG3-141. The
-    claim never expires by wall clock (no TTL). Postgres-only (K5).
+    The claim never expires by wall clock (no TTL) --
+    ``object_mutation_claims_are_instance_bound_and_never_expire_by_wall_clock``.
+    Postgres-only (K5). ``acquire_claim``/``release_claim`` are the AG3-141
+    productive protocol (atomic, cross-scope fairness-aware acquire; ownership
+    (op_id)-scoped release); ``object_claims.py`` orchestrates lock-sets over
+    this port. ``insert_claim``/``load_claim`` stay the raw schema-level
+    primitives (AG3-137; also used to seed a permanently-held competing claim
+    in tests).
     """
 
     insert_claim: Callable[[ObjectMutationClaimRecord], None] = (
@@ -233,7 +240,23 @@ class ObjectMutationClaimRepository:
     load_claim: Callable[[str, str, str], ObjectMutationClaimRecord | None] = (
         load_object_mutation_claim_global
     )
-    delete_claim: Callable[[str, str, str], None] = delete_object_mutation_claim_global
+    #: AG3-141: atomic, fairness-aware acquire (see ``object_claims.py`` for
+    #: the cross-scope conflict decision and lock-set orchestration this port
+    #: backs). Returns ``True`` iff THIS caller now holds the claim.
+    acquire_claim: Callable[..., bool] = acquire_object_mutation_claim_global
+    #: AG3-141: ownership-scoped (op_id-CAS) release; idempotent, returns
+    #: ``True`` iff a row matching ALL of (identity, op_id) was deleted.
+    release_claim: Callable[[str, str, str, str], bool] = (
+        delete_object_mutation_claim_global
+    )
+    #: AG3-141 (startup-reconcile hookup, Scope item 7): object claims orphaned
+    #: by EARLIER incarnations of the CALLING instance's own identity (never a
+    #: foreign identity) -- a DIRECT scan of ``object_mutation_claims``,
+    #: independent of the paired ``control_plane_operations`` row's own
+    #: lifecycle (mirrors ``ControlPlaneRuntimeRepository.list_orphaned_claimed_operations``).
+    list_orphaned: Callable[[str, int], tuple[ObjectMutationClaimRecord, ...]] = (
+        list_orphaned_object_mutation_claims_global
+    )
 
 
 @dataclass(frozen=True)
