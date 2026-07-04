@@ -512,15 +512,6 @@ def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
         "object_mutation_claims",
         "takeover_transfer_records",
         "backend_instance_identity",
-        # AG3-141 canary (Codex R2 MAJOR): the durable per-project queue-position
-        # counter table. A DB upgraded from a pre-AG3-141 schema HAS
-        # object_mutation_claims but LACKS object_claim_queue_positions; without
-        # this entry it would report "bootstrapped", skip the idempotent
-        # CREATE TABLE IF NOT EXISTS, and the first acquire's INSERT INTO
-        # object_claim_queue_positions would fail with a missing relation (5xx on
-        # every mutating control-plane call). Listing it forces the not-fully-
-        # bootstrapped path so the counter table is created on upgrade.
-        "object_claim_queue_positions",
     )
     table_rows = conn.execute(
         """
@@ -2816,119 +2807,41 @@ def load_object_mutation_claim_global_row(
 
 
 def acquire_object_mutation_claim_global_row(row: dict[str, Any]) -> bool:
-    """Atomically acquire ONE object-mutation claim (AG3-141).
+    """Atomically acquire the per-Story object-mutation claim (AG3-141).
 
-    Implements the FK-91 §91.1a Rule 13 cross-scope fairness contract
-    (``pending_project_claims_are_not_overtaken_by_younger_story_claims``): a
-    PROJECT-scope acquire fails while ANY story claim of the same project
-    HELD BY A DIFFERENT ``op_id`` is held, and a STORY-scope acquire fails
-    while a PROJECT claim of the same project HELD BY A DIFFERENT ``op_id`` is
-    held -- a project claim and a story claim have DIFFERENT ``scope_key``
-    values, so they never collide on the primary key; this cross-scope check
-    is the explicit conflict rule the PK alone cannot express. The exclusion
-    of THIS caller's OWN ``op_id`` is what makes a genuine multi-object
-    lock-set acquisition (``LockSet.for_project_and_stories``) possible: the
-    project claim acquired earlier in the SAME lock-set's canonical order must
-    not self-conflict with the story claim acquired next. Same-object
-    re-acquisition (identical ``(project_key, serialization_scope,
-    scope_key)``) already held by THIS caller's own ``op_id`` is an idempotent
-    success (``True``); held by a foreign ``op_id`` is busy (``False``).
+    Serialization is PER MUTATED OBJECT = the Story (FK-91 §91.1a Rule 13,
+    default ``(project_key, story_id)``): two mutations of the SAME Story
+    collide on the ``object_mutation_claims`` primary key
+    ``(project_key, serialization_scope, scope_key)``. A single
+    ``INSERT ... ON CONFLICT DO NOTHING`` on that PK IS the serialization --
+    exactly one caller inserts (wins); a conflict is the busy/409 case. The PK
+    collision is atomic, so no advisory lock and no read-then-write window is
+    needed.
 
-    A per-project ``pg_advisory_xact_lock`` (released automatically at this
-    short transaction's end) serialises the check-then-insert sequence so two
-    concurrent acquire attempts on the SAME project cannot both observe "no
-    conflict" and both insert (conflict-free under concurrent load, K5
-    Postgres-only). ``queue_position`` is assigned here as a project-scoped,
-    strictly increasing admission counter (audit trail of acquisition order;
-    never consulted for a time-based decision -- there is no TTL/expiry).
+    The project-scope / multi-object lock-set / cross-scope fairness /
+    ``queue_position`` apparatus was REMOVED as speculative (PO decision, two
+    independent reviews): it had no genuine requirement. Project-wide mutations
+    (mode-lock, story-number) are single-transaction and stay xact-locked
+    (FK-10 §10.5.4). ``queue_position`` is a vestigial
+    ``state-storage.entity.object-mutation-claim`` attribute (AG3-137 column)
+    with no ordering role here -- it is stamped as a constant ``0``.
 
     Returns:
-        ``True`` iff THIS call now holds the claim; ``False`` when the object
-        (or its project, for a cross-scope conflict) is currently claimed by
-        ANOTHER operation -- the caller surfaces the deterministic
-        409 + Retry-After (K4, IMPL-016), never a blocking wait.
+        ``True`` iff THIS call now holds the claim; ``False`` when the Story
+        object is already claimed by another in-flight mutation -- the caller
+        surfaces the deterministic 409 + Retry-After (K4, IMPL-016), never a
+        blocking wait.
     """
 
     with _connect_global() as conn:
-        conn.execute(
-            "SELECT pg_advisory_xact_lock(hashtext(?))",
-            (f"object_mutation_claim:{row['project_key']}",),
-        )
-        conflicting_scope = (
-            "story" if row["serialization_scope"] == "project" else "project"
-        )
-        #: Codex-R1 (Finding 3) scope note: this enforces the HELD cross-scope
-        #: exclusion (a HELD project claim conflicts with a story acquire of the
-        #: same project and vice versa). It does NOT model a PENDING project
-        #: reservation. The full
-        #: ``pending_project_claims_are_not_overtaken_by_younger_story_claims``
-        #: invariant additionally requires a project mutation that CANNOT acquire
-        #: immediately (story claims held) to persist a "waiting" reservation so
-        #: LATER-arriving younger story claims yield to it. That persisted
-        #: reservation is DEFERRED here: it is in genuine tension with AG3-141's
-        #: ratified non-blocking ``409 + Retry-After`` decision + the no-wall-clock
-        #: expiry invariant (a reservation that outlives a single non-blocking
-        #: request, anchored to no live ``claimed`` op after the busy return, could
-        #: not be freed by ``admin_abort`` or same-incarnation reconciliation and
-        #: would deadlock the project's stories until a restart if the waiting
-        #: client abandons -- reintroducing exactly the no-recovery failure mode
-        #: AC1/AC7 remove), and it has NO productive project-scope object-claim
-        #: caller in AG3-141 (project-wide mutations are single-transaction and stay
-        #: xact-locked, SOLL-053/055; the multi-object lock-set has no productive
-        #: caller yet). Resolving it requires a concept-level decision (revisit the
-        #: ratified decision or reconcile SOLL-050 with non-blocking 409) and is a
-        #: prerequisite for the first productive project-claim caller (AG3-144/148).
-        conflict = conn.execute(
-            """
-            SELECT 1 FROM object_mutation_claims
-            WHERE project_key = ? AND serialization_scope = ? AND op_id != ?
-            LIMIT 1
-            """,
-            (row["project_key"], conflicting_scope, row["op_id"]),
-        ).fetchone()
-        if conflict is not None:
-            return False
-        existing = conn.execute(
-            """
-            SELECT op_id FROM object_mutation_claims
-            WHERE project_key = ? AND serialization_scope = ? AND scope_key = ?
-            """,
-            (row["project_key"], row["serialization_scope"], row["scope_key"]),
-        ).fetchone()
-        if existing is not None:
-            # Already held: idempotent success for OUR OWN op_id (the second
-            # target of a multi-object lock-set acquisition can never collide
-            # with itself), busy for a foreign op_id.
-            return bool(existing["op_id"] == row["op_id"])
-        #: Codex-R1 (MAJOR) fix: allocate ``queue_position`` from a DURABLE
-        #: per-project counter, NOT ``MAX(queue_position) + 1`` over the currently
-        #: HELD rows (which resets to 0 after every release -> positions reused,
-        #: FIFO/fairness audit ambiguous). The counter row survives claim releases;
-        #: because this whole acquire runs under the per-project
-        #: ``pg_advisory_xact_lock`` above, the increment is serialised and the
-        #: assigned position is strictly increasing and conflict-free.
-        next_position_row = conn.execute(
-            """
-            INSERT INTO object_claim_queue_positions (project_key, next_queue_position)
-            VALUES (?, 0)
-            ON CONFLICT (project_key) DO UPDATE
-              SET next_queue_position = object_claim_queue_positions.next_queue_position + 1
-            RETURNING next_queue_position AS assigned_position
-            """,
-            (row["project_key"],),
-        ).fetchone()
-        if next_position_row is None:  # pragma: no cover -- INSERT ... RETURNING always yields a row
-            raise RuntimeError(
-                "object-claim queue-position counter INSERT ... RETURNING yielded no row",
-            )
-        queue_position = int(next_position_row["assigned_position"])
-        conn.execute(
+        cursor = conn.execute(
             """
             INSERT INTO object_mutation_claims (
                 project_key, serialization_scope, scope_key, op_id,
                 backend_instance_id, instance_incarnation, acquired_at,
                 queue_position
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+            ON CONFLICT (project_key, serialization_scope, scope_key) DO NOTHING
             """,
             (
                 row["project_key"],
@@ -2938,10 +2851,12 @@ def acquire_object_mutation_claim_global_row(row: dict[str, Any]) -> bool:
                 row["backend_instance_id"],
                 row["instance_incarnation"],
                 row["acquired_at"],
-                queue_position,
             ),
         )
-        return True
+        #: rowcount == 1 -> THIS caller inserted the claim row (won). rowcount
+        #: == 0 -> the object PK already exists (another mutation holds the
+        #: Story) -> busy/409. The PK collision IS the serialization.
+        return int(cursor.rowcount) == 1
 
 
 def delete_object_mutation_claim_global(

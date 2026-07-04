@@ -227,11 +227,13 @@ class ObjectMutationClaimRepository:
     The claim never expires by wall clock (no TTL) --
     ``object_mutation_claims_are_instance_bound_and_never_expire_by_wall_clock``.
     Postgres-only (K5). ``acquire_claim``/``release_claim`` are the AG3-141
-    productive protocol (atomic, cross-scope fairness-aware acquire; ownership
-    (op_id)-scoped release); ``object_claims.py`` orchestrates lock-sets over
-    this port. ``insert_claim``/``load_claim`` stay the raw schema-level
-    primitives (AG3-137; also used to seed a permanently-held competing claim
-    in tests).
+    productive per-Story protocol (an atomic ``INSERT ... ON CONFLICT DO
+    NOTHING`` on the object PK IS the serialization; ownership (op_id)-scoped
+    release); ``object_claims.py`` is the thin A-core over this port. The
+    project-scope / lock-set / cross-scope fairness apparatus was removed as
+    speculative (PO decision). ``insert_claim``/``load_claim`` stay the raw
+    schema-level primitives (AG3-137; also used to seed a permanently-held
+    competing claim in tests).
     """
 
     insert_claim: Callable[[ObjectMutationClaimRecord], None] = (
@@ -240,9 +242,10 @@ class ObjectMutationClaimRepository:
     load_claim: Callable[[str, str, str], ObjectMutationClaimRecord | None] = (
         load_object_mutation_claim_global
     )
-    #: AG3-141: atomic, fairness-aware acquire (see ``object_claims.py`` for
-    #: the cross-scope conflict decision and lock-set orchestration this port
-    #: backs). Returns ``True`` iff THIS caller now holds the claim.
+    #: AG3-141: atomic per-Story acquire -- an ``INSERT ... ON CONFLICT DO
+    #: NOTHING`` on the object PK (see ``object_claims.py``). Returns ``True``
+    #: iff THIS caller now holds the claim (won the PK insert), ``False`` when
+    #: the Story object is already claimed (busy/409).
     acquire_claim: Callable[..., bool] = acquire_object_mutation_claim_global
     #: AG3-141: ownership-scoped (op_id-CAS) release; idempotent, returns
     #: ``True`` iff a row matching ALL of (identity, op_id) was deleted.

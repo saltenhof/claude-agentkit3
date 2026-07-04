@@ -485,11 +485,11 @@ class _ClaimMixin:
             deterministic 409 + Retry-After (IMPL-016) and stores NO
             operation for this attempt (a retry re-evaluates from scratch).
         """
-        lock_set = object_claims.single_story_lock_set(project_key, story_id)
+        key = object_claims.story_claim_key(project_key, story_id)
         identity = self._current_instance_identity()
-        return object_claims.acquire_lock_set(
+        return object_claims.acquire_story_claim(
             self._object_claim_repo,
-            lock_set,
+            key,
             op_id=op_id,
             backend_instance_id=identity.backend_instance_id,
             instance_incarnation=identity.instance_incarnation,
@@ -3142,11 +3142,11 @@ def _default_di_object_claim_repository() -> ObjectMutationClaimRepository:
     ``object_claim_repository`` gets THIS in-memory claim store instead of the
     productive Postgres-backed default -- so a DI-injected unit test (a fake
     ``ControlPlaneRuntimeRepository``, no database) is never forced to also
-    wire Postgres for the object claim. It honors the SAME cross-scope
-    fairness contract as the productive acquire (a project claim conflicts
-    with any held story claim of the same project and vice versa; the exact
-    object cannot be re-acquired while held) and the SAME ownership-scoped
-    (op_id) release -- never used on the productive default-store path.
+    wire Postgres for the object claim. It honors the SAME per-Story semantics
+    as the productive acquire (an object PK collision IS the serialization: the
+    Story object cannot be acquired while already held) and the SAME
+    ownership-scoped (op_id) release -- never used on the productive
+    default-store path.
     """
     held: dict[tuple[str, str, str], tuple[str, str, int]] = {}
 
@@ -3161,23 +3161,13 @@ def _default_di_object_claim_repository() -> ObjectMutationClaimRepository:
         acquired_at: datetime,
     ) -> bool:
         del acquired_at
-        #: The exclusion of THIS caller's OWN op_id is what makes a genuine
-        #: multi-object lock-set acquisition possible: the project claim
-        #: acquired earlier in the SAME lock-set's canonical order must not
-        #: self-conflict with the next story claim (mirrors
-        #: ``postgres_store.acquire_object_mutation_claim_global_row``).
-        conflicting_scope = "story" if serialization_scope == "project" else "project"
-        if any(
-            key[0] == project_key and key[1] == conflicting_scope and value[0] != op_id
-            for key, value in held.items()
-        ):
-            return False
+        #: Mirror ``postgres_store.acquire_object_mutation_claim_global_row``:
+        #: INSERT-if-absent on the object PK. The Story object is free -> win;
+        #: already claimed (by ANY op) -> busy. That PK collision IS the
+        #: serialization -- no cross-scope/project fairness (removed).
         key = (project_key, serialization_scope, scope_key)
-        existing = held.get(key)
-        if existing is not None:
-            # Already held: idempotent success for OUR OWN op_id, busy for a
-            # foreign op_id.
-            return existing[0] == op_id
+        if key in held:
+            return False
         held[key] = (op_id, backend_instance_id, instance_incarnation)
         return True
 

@@ -893,11 +893,11 @@ def acquire_object_mutation_claim_global(
     instance_incarnation: int,
     acquired_at: datetime,
 ) -> bool:
-    """Atomically acquire ONE object-mutation claim (AG3-141).
+    """Atomically acquire the per-Story object-mutation claim (AG3-141).
 
-    Honors the cross-scope project/story fairness contract at the backend
-    (:func:`agentkit.backend.state_backend.postgres_store.acquire_object_mutation_claim_global_row`).
-    Fail-closed off-Postgres (K5).
+    An ``INSERT ... ON CONFLICT DO NOTHING`` on the object PK at the backend
+    (:func:`agentkit.backend.state_backend.postgres_store.acquire_object_mutation_claim_global_row`)
+    -- the PK collision IS the serialization. Fail-closed off-Postgres (K5).
     """
     _require_control_plane_backend()
     backend = _backend_module()

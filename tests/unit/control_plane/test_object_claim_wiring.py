@@ -40,8 +40,9 @@ class _ObjectClaimSpyRaisesOnUse:
 
 @dataclass
 class _FakeObjectClaimPort:
-    """In-memory object-claim port for wiring tests (mirrors the productive
-    cross-scope fairness contract; op_id-scoped release)."""
+    """In-memory per-Story object-claim port for wiring tests: an object PK
+    collision IS the serialization (the Story cannot be acquired while held);
+    ownership-scoped (op_id) release."""
 
     held: dict[tuple[str, str, str], str] = field(default_factory=dict)
     released: list[tuple[str, str, str, str]] = field(default_factory=list)
@@ -58,16 +59,9 @@ class _FakeObjectClaimPort:
         acquired_at: datetime,
     ) -> bool:
         del backend_instance_id, instance_incarnation, acquired_at
-        conflicting = "story" if serialization_scope == "project" else "project"
-        if any(
-            k[0] == project_key and k[1] == conflicting and v != op_id
-            for k, v in self.held.items()
-        ):
-            return False
         key = (project_key, serialization_scope, scope_key)
-        existing = self.held.get(key)
-        if existing is not None:
-            return existing == op_id
+        if key in self.held:
+            return False
         self.held[key] = op_id
         return True
 
