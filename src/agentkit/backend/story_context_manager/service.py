@@ -42,6 +42,7 @@ from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
 )
 from agentkit.backend.story_context_manager.errors import (
     ForbiddenError,
+    ForbiddenFieldError,
     IdempotencyMismatchError,
     InvalidStatusTransitionError,
     OperationInFlightError,
@@ -70,7 +71,6 @@ from agentkit.backend.story_context_manager.story_model import (
     check_fast_mode_story_type,
 )
 from agentkit.backend.story_context_manager.wire_adapter import (
-    FORBIDDEN_PATCH_FIELDS,
     check_forbidden_fields,
     story_to_wire_summary,
     validate_repos_against_project,
@@ -162,7 +162,7 @@ def _check_transition(
 
 
 # ---------------------------------------------------------------------------
-# Replay-after-failure encoding (AG3-140 Befund 5 / AC8)
+# Replay-after-failure encoding (AG3-140 finding 5 / AC8)
 # ---------------------------------------------------------------------------
 
 # The deterministic domain outcomes that are FINALIZED (stored) under the claim,
@@ -173,6 +173,7 @@ def _check_transition(
 _FINALIZABLE_DOMAIN_ERRORS: tuple[type[StoryError], ...] = (
     StoryProjectNotFoundError,
     ForbiddenError,
+    ForbiddenFieldError,
     StoryValidationError,
     InvalidStatusTransitionError,
 )
@@ -629,9 +630,6 @@ class StoryService(ResetTransitionMixin):
             ``StoryValidationError`` (400).
             ``IdempotencyMismatchError`` (409).
         """
-        # Check forbidden fields first (before idempotency)
-        check_forbidden_fields(updates)
-
         body: dict[str, object] = {
             "story_id": story_display_id,
             **updates,
@@ -651,11 +649,18 @@ class StoryService(ResetTransitionMixin):
         outcome = self._guard.claim(req)
         if isinstance(outcome, ReplayOutcome):
             _raise_if_error_snapshot(outcome.result_payload)
-            # Befund 5: return CACHED snapshot, not live DB read.
+            # finding 5: return CACHED snapshot, not live DB read.
             return self._replay_story(outcome.result_payload, story_display_id)
         claim = self._require_fresh_claim(outcome, op_id)
 
         def _mutate() -> Story:
+            # AG3-140 finding 3 (AC8): the forbidden-field check (422) is a
+            # deterministic domain outcome and must run UNDER the claim, so a
+            # replay of the same op_id re-raises the stored 422 exactly once
+            # instead of re-running the check. It still runs for EVERY forbidden
+            # PATCH — it is merely finalized by ``_run_claimed`` now.
+            check_forbidden_fields(updates)
+
             # Check project is not archived
             project = self._project_repo.get(story.project_key)
             if project is not None and project.archived_at is not None:
@@ -806,7 +811,7 @@ class StoryService(ResetTransitionMixin):
         outcome = self._guard.claim(req)
         if isinstance(outcome, ReplayOutcome):
             _raise_if_error_snapshot(outcome.result_payload)
-            # Befund 5: return CACHED snapshot, not live DB read.
+            # finding 5: return CACHED snapshot, not live DB read.
             return self._replay_story(outcome.result_payload, story_display_id)
         claim = self._require_fresh_claim(outcome, op_id)
 
@@ -866,13 +871,12 @@ class StoryService(ResetTransitionMixin):
             ``StoryValidationError`` (400).
             ``IdempotencyMismatchError`` (409).
         """
-        if field_key in FORBIDDEN_PATCH_FIELDS:
-            from agentkit.backend.story_context_manager.errors import ForbiddenFieldError
-            raise ForbiddenFieldError(
-                f"Field {field_key!r} is forbidden; "
-                "use dedicated approve/reject/cancel endpoints for status changes",
-                detail={"forbidden_field": field_key},
-            )
+        # AG3-140 finding 3 (AC8): the forbidden-field check is NOT performed here
+        # ahead of the claim. It is delegated to ``update_story_fields``, whose
+        # claimed mutation runs ``check_forbidden_fields`` and finalizes the 422 as
+        # a stored idempotent outcome. A forbidden ``field_key`` therefore claims →
+        # finalizes → replays exactly like every other forbidden PATCH, instead of
+        # being rejected non-claiming (which lost the replay-after-failure record).
         return self.update_story_fields(
             story_display_id,
             updates={field_key: value},
@@ -1222,7 +1226,7 @@ class StoryService(ResetTransitionMixin):
         outcome = self._guard.claim(req)
         if isinstance(outcome, ReplayOutcome):
             _raise_if_error_snapshot(outcome.result_payload)
-            # Befund 5: return CACHED snapshot, not live DB read.
+            # finding 5: return CACHED snapshot, not live DB read.
             return self._replay_story(outcome.result_payload, story_display_id)
         claim = self._require_fresh_claim(outcome, op_id)
 
@@ -1322,7 +1326,7 @@ def _story_to_internal_snapshot(story: Story) -> dict[str, object]:
 
     Unlike ``story_to_wire_summary``, this snapshot includes ``story_uuid``
     and ``story_number`` so that replay can reconstruct the exact Story
-    without a live DB read (Befund 5).
+    without a live DB read (finding 5).
 
     Args:
         story: The Story entity to snapshot.
@@ -1437,7 +1441,7 @@ def _resolve_cached_create(
     story_repo: StoryRepository,
     cached_payload: dict[str, object] | None,
 ) -> Story:
-    """Return the cached story for an idempotent create_story replay (Befund 5)."""
+    """Return the cached story for an idempotent create_story replay (finding 5)."""
     assert cached_payload is not None
     cached_story = _story_from_cached_payload(cached_payload)
     if cached_story is not None:

@@ -1422,3 +1422,85 @@ def test_replay_after_failure_is_not_reexecutable_and_not_mismatch() -> None:
     assert str(first.value) == str(second.value)
     assert svc.run_claimed_calls == runs_before + 1, "mutation entered exactly once"
     assert repo.save_calls == saves_before, "the failed update never persisted"
+
+
+def test_update_fields_replay_after_forbidden_field_reraises_and_runs_once() -> None:
+    """AG3-140 Befund 3 (AC8): a PATCH carrying a forbidden field (422) now claims
+    and finalizes the ForbiddenFieldError, so a retry with the SAME op_id + body
+    re-raises the SAME 422 and the forbidden-check/mutation path is ENTERED exactly
+    once (the replay short-circuits before ``_run_claimed`` and never re-runs)."""
+    repo = _MutationCountingStoryRepository()
+    svc = _RunClaimedCountingService(
+        story_repository=repo,
+        project_repository=_InMemoryProjectRepository(),
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
+    )
+    story = _create_story(svc, op_id="op-create")
+
+    runs_before = svc.run_claimed_calls
+    saves_before = repo.save_calls
+
+    # Forbidden field (status) in a PATCH -> deterministic ForbiddenFieldError (422).
+    with pytest.raises(ForbiddenFieldError) as first:
+        svc.update_story_fields(
+            story.story_display_id,
+            updates={"status": "Done"},
+            op_id="op-patch-forbidden-replay",
+        )
+    # Replay with the SAME op_id + body: replays the stored 422, does NOT re-run.
+    with pytest.raises(ForbiddenFieldError) as second:
+        svc.update_story_fields(
+            story.story_display_id,
+            updates={"status": "Done"},
+            op_id="op-patch-forbidden-replay",
+        )
+
+    assert str(first.value) == str(second.value), "the stored 422 re-raises verbatim"
+    assert first.value.detail == second.value.detail == {"forbidden_field": "status"}
+    assert svc.run_claimed_calls == runs_before + 1, (
+        "the forbidden-check/mutation path must be ENTERED exactly once; the replay "
+        "re-raises the STORED 422 without re-running the check"
+    )
+    assert repo.save_calls == saves_before, "the forbidden PATCH never persisted"
+
+
+def test_set_field_replay_after_forbidden_field_reraises_and_runs_once() -> None:
+    """AG3-140 Befund 3 (AC8): PUT /fields/{key} with a forbidden field_key delegates
+    to update_story_fields, so the 422 is claimed and finalized. A retry with the
+    SAME op_id re-raises the SAME ForbiddenFieldError and the mutation path is
+    entered exactly once (never re-run, nothing persisted)."""
+    repo = _MutationCountingStoryRepository()
+    svc = _RunClaimedCountingService(
+        story_repository=repo,
+        project_repository=_InMemoryProjectRepository(),
+        idempotency_guard=InMemoryInflightIdempotencyGuard(),
+    )
+    story = _create_story(svc, op_id="op-create")
+
+    runs_before = svc.run_claimed_calls
+    saves_before = repo.save_calls
+
+    # Forbidden field_key on the single-field PUT -> ForbiddenFieldError (422).
+    with pytest.raises(ForbiddenFieldError) as first:
+        svc.set_story_field(
+            story.story_display_id,
+            "status",
+            "Done",
+            op_id="op-put-forbidden-replay",
+        )
+    # Replay with the SAME op_id: replays the stored 422, does NOT re-run.
+    with pytest.raises(ForbiddenFieldError) as second:
+        svc.set_story_field(
+            story.story_display_id,
+            "status",
+            "Done",
+            op_id="op-put-forbidden-replay",
+        )
+
+    assert str(first.value) == str(second.value), "the stored 422 re-raises verbatim"
+    assert first.value.detail == second.value.detail == {"forbidden_field": "status"}
+    assert svc.run_claimed_calls == runs_before + 1, (
+        "the mutation path must be ENTERED exactly once; the replay re-raises the "
+        "STORED 422 without re-running the forbidden-field check"
+    )
+    assert repo.save_calls == saves_before, "the forbidden PUT never persisted"
