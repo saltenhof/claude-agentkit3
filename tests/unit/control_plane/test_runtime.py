@@ -15,10 +15,16 @@ from agentkit.backend.control_plane.models import (
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,
 )
+from agentkit.backend.control_plane.ownership import (
+    INITIAL_OWNERSHIP_EPOCH,
+    OwnershipAcquisition,
+    OwnershipStatus,
+)
 from agentkit.backend.control_plane.records import (
     BackendInstanceIdentityRecord,
     BindingDeleteScope,
     ControlPlaneOperationRecord,
+    RunOwnershipRecord,
     SessionRunBindingRecord,
 )
 from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
@@ -31,12 +37,13 @@ from agentkit.backend.control_plane.runtime import (
     _next_binding_version,
 )
 from agentkit.backend.core_types import StoryMode
+from agentkit.backend.exceptions import OwnershipFenceViolationError
+from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.story_model import WireStoryMode
 from agentkit.backend.story_context_manager.types import StoryType
 
 if TYPE_CHECKING:
-    from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
     from agentkit.backend.pipeline_engine.engine import PipelineEngine
     from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
@@ -57,6 +64,38 @@ class _RepoState:
         #: a ``run_id`` column (the engine's ``flow_executions.run_id`` is
         #: engine-internal, distinct from the control-plane operation ``run_id``).
         self.engine_writes: dict[str, datetime] = {}
+        #: AG3-142: the SOLE admission/fencing truth, keyed by
+        #: ``(project_key, story_id, run_id)`` -- mirrors
+        #: ``run_ownership_records`` (identity PK; at most one ``status=active``
+        #: per ``(project_key, story_id)`` enforced on insert, like the real
+        #: partial-unique index).
+        self.ownership_records: dict[tuple[str, str, str], RunOwnershipRecord] = {}
+
+    def load_active_ownership(
+        self, project_key: str, story_id: str
+    ) -> RunOwnershipRecord | None:
+        for record in self.ownership_records.values():
+            if (
+                record.project_key == project_key
+                and record.story_id == story_id
+                and record.status is OwnershipStatus.ACTIVE
+            ):
+                return record
+        return None
+
+    def insert_ownership(self, record: RunOwnershipRecord) -> None:
+        identity = (record.project_key, record.story_id, record.run_id)
+        if identity in self.ownership_records:
+            raise ValueError(f"duplicate run-ownership identity {identity!r}")
+        if record.status is OwnershipStatus.ACTIVE and self.load_active_ownership(
+            record.project_key, record.story_id
+        ):
+            raise ValueError(
+                "a second active run-ownership record for "
+                f"({record.project_key!r}, {record.story_id!r}) is not allowed "
+                "(at_most_one_active_ownership_per_story)",
+            )
+        self.ownership_records[identity] = record
 
 
 class _FakeOps:
@@ -135,6 +174,8 @@ class _FakeOps:
         binding: SessionRunBindingRecord | None,
         locks: tuple[StoryExecutionLockRecord, ...],
         events: tuple[ExecutionEventRecord, ...],
+        ownership_record_to_insert: RunOwnershipRecord | None = None,
+        expected_ownership_epoch: int | None = None,
     ) -> bool:
         # ERROR-1 (#1): ownership CAS finalize + side-effect materialization in ONE
         # atomic step. Apply ONLY if still claimed by owner_token (and claim instant
@@ -144,12 +185,26 @@ class _FakeOps:
             record, owner_token, owner_claimed_at, owner_operation_epoch
         ):
             return False
+        # AG3-142 (no TOCTOU): mirrors ``_enforce_ownership_fence_row`` -- raises
+        # BEFORE any state mutation so a lost fence writes nothing (the fake has
+        # no real transaction, so ordering IS the atomicity guarantee here).
+        if expected_ownership_epoch is not None:
+            _fake_enforce_ownership_fence(
+                self._state,
+                project_key=record.project_key,
+                story_id=record.story_id,
+                run_id=record.run_id or "",
+                session_id=record.session_id or "",
+                expected_ownership_epoch=expected_ownership_epoch,
+            )
         # AG3-054 run-scoping: the binding INSERT is run-scoped at the real store
         # (raises if the session is bound to a DIFFERENT run). Mirror it so the
         # fake catches a foreign-run overwrite and rolls back (raise BEFORE any
         # state mutation -> no orphan op/binding/lock/event).
         if binding is not None:
             _fake_run_scoped_save_binding(self._state, binding)
+        if ownership_record_to_insert is not None:
+            self._state.insert_ownership(ownership_record_to_insert)
         self._state.operations[record.op_id] = record
         if binding is not None:
             self._state.bindings[binding.session_id] = binding
@@ -168,6 +223,7 @@ class _FakeOps:
         binding_to_delete: BindingDeleteScope | None,
         locks: tuple[StoryExecutionLockRecord, ...],
         events: tuple[ExecutionEventRecord, ...],
+        expected_ownership_epoch: int | None = None,
     ) -> None:
         # ERROR-2 (#2): the conditional op-row upsert (collision gate FIRST) and the
         # mutation's side effects apply ATOMICALLY. Mirrors the real store: a LIVE
@@ -181,6 +237,16 @@ class _FakeOps:
             raise ControlPlaneClaimCollisionError(
                 f"op_id {record.op_id!r} is held by a live 'claimed' row "
                 "(fake store, AG3-054 ERROR-2 atomic commit)",
+            )
+        # AG3-142 (no TOCTOU): mirrors the real store's fence-FIRST ordering.
+        if expected_ownership_epoch is not None:
+            _fake_enforce_ownership_fence(
+                self._state,
+                project_key=record.project_key,
+                story_id=record.story_id,
+                run_id=record.run_id or "",
+                session_id=record.session_id or "",
+                expected_ownership_epoch=expected_ownership_epoch,
             )
         # AG3-054 run-scoping: the binding SAVE/DELETE are run-scoped at the real
         # store. Validate BEFORE any mutation so a foreign-run binding raises and the
@@ -453,6 +519,49 @@ def _fake_run_scoped_delete_binding(
     )
 
 
+def _fake_enforce_ownership_fence(
+    state: _RepoState,
+    *,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    session_id: str,
+    expected_ownership_epoch: int,
+) -> None:
+    """Mirror ``_enforce_ownership_fence_row`` in the fake (AG3-142, no TOCTOU).
+
+    Raises :class:`OwnershipFenceViolationError` with the SAME ``detail`` shape
+    as the real Postgres row function when the story's active ownership record
+    no longer matches this exact ``(run_id, session_id, ownership_epoch)``
+    snapshot -- ``None`` values in ``detail`` mean no active record exists at
+    all for the story (never a genuine transfer).
+    """
+    active = state.load_active_ownership(project_key, story_id)
+    if (
+        active is not None
+        and active.run_id == run_id
+        and active.owner_session_id == session_id
+        and active.ownership_epoch == expected_ownership_epoch
+    ):
+        return
+    raise OwnershipFenceViolationError(
+        f"ownership fence violated for run {run_id!r} "
+        f"(project={project_key!r}, story={story_id!r}, session={session_id!r}, "
+        f"expected_ownership_epoch={expected_ownership_epoch!r}) (fake store)",
+        detail={
+            "current_owner_session_id": (
+                active.owner_session_id if active is not None else None
+            ),
+            "current_ownership_epoch": (
+                active.ownership_epoch if active is not None else None
+            ),
+            "transferred_at": (
+                active.acquired_at.isoformat() if active is not None else None
+            ),
+        },
+    )
+
+
 def _claimed_at_text(record: ControlPlaneOperationRecord) -> str | None:
     """Mirror the store's ``claimed_at`` TEXT column for the ownership CAS (#4).
 
@@ -509,6 +618,7 @@ def _repository(state: _RepoState) -> ControlPlaneRuntimeRepository:
         resolve_repair_operation=ops.resolve_repair,
         has_engine_writes_since=ops.has_engine_writes_since,
         has_open_repair_for_story=ops.has_open_repair_for_story,
+        load_active_ownership=state.load_active_ownership,
     )
 
 
@@ -559,25 +669,49 @@ def _seed_admitted_run(
     session_id: str = "sess-001",
     project_key: str = "tenant-a",
     story_id: str = "AG3-100",
-) -> None:
-    """Seed run-matched admission evidence (#2/#6): a binding for THIS run.
+    ownership_epoch: int = INITIAL_OWNERSHIP_EPOCH,
+    owner_session_id: str | None = None,
+    seed_binding: bool = True,
+) -> RunOwnershipRecord:
+    """Seed run-ownership admission evidence (AG3-142): the active record.
 
-    A prior admitted start materialized a session binding for
-    ``(project_key, story_id, run_id)``. Closure / complete / fail consume it as
-    run-matched admission evidence. The binding's keys must match exactly -- a
-    binding for a different run does NOT admit (the #2 negative test relies on
-    this).
+    AG3-142 (SOLL-014): admission is EXCLUSIVELY the active
+    ``run_ownership_records`` row -- a committed op or a session binding is
+    NEVER sufficient by itself any more. ``owner_session_id`` defaults to
+    ``session_id`` (the common "this session owns its own run" case);
+    passing a DIFFERENT ``owner_session_id`` seeds the SOLL-019 contradiction
+    scenario (binding still points at ``session_id``, but the record's owner
+    is someone else) when ``seed_binding=True`` also materializes a binding
+    for ``session_id`` (the binding is a subordinate projection now, never a
+    second admission path -- the #9 contradiction test relies on this).
+
+    Returns the seeded :class:`RunOwnershipRecord` so callers can read back
+    its ``ownership_epoch`` for a commit-time fence assertion.
     """
-    state.bindings[session_id] = SessionRunBindingRecord(
-        session_id=session_id,
+    record = RunOwnershipRecord(
         project_key=project_key,
         story_id=story_id,
         run_id=run_id,
-        principal_type="orchestrator",
-        worktree_roots=("T:/worktrees/ag3-100",),
-        binding_version="1",
-        updated_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
+        owner_session_id=owner_session_id or session_id,
+        ownership_epoch=ownership_epoch,
+        status=OwnershipStatus.ACTIVE,
+        acquired_via=OwnershipAcquisition.SETUP,
+        acquired_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
+        audit_ref=f"op-seed-{run_id}",
     )
+    state.insert_ownership(record)
+    if seed_binding:
+        state.bindings[session_id] = SessionRunBindingRecord(
+            session_id=session_id,
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            principal_type="orchestrator",
+            worktree_roots=("T:/worktrees/ag3-100",),
+            binding_version="1",
+            updated_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
+        )
+    return record
 
 
 def test_start_phase_persists_binding_lock_and_operation() -> None:
@@ -899,17 +1033,10 @@ def test_get_operation_reconcile_returns_noncommitted_terminal_verbatim(
 
 def test_complete_closure_unbinds_and_returns_tombstone_roots() -> None:
     state = _RepoState()
-    now = datetime(2026, 4, 22, 10, 0, tzinfo=UTC)
-    state.bindings["sess-001"] = SessionRunBindingRecord(
-        session_id="sess-001",
-        project_key="tenant-a",
-        story_id="AG3-100",
-        run_id="run-100",
-        principal_type="orchestrator",
-        worktree_roots=("T:/worktrees/ag3-100",),
-        binding_version="1",
-        updated_at=now,
-    )
+    # AG3-142: closure now requires the active run-ownership record as
+    # admission evidence (a binding alone is a subordinate projection, never
+    # admission by itself).
+    _seed_admitted_run(state, run_id="run-100")
     service = ControlPlaneRuntimeService(repository=_repository(state))
 
     result = service.complete_closure(
@@ -1014,17 +1141,7 @@ def test_complete_closure_standard_story_still_deactivates_locks() -> None:
         story_id="AG3-100",
         mode=WireStoryMode.STANDARD,
     )
-    now = datetime(2026, 4, 22, 10, 0, tzinfo=UTC)
-    state.bindings["sess-001"] = SessionRunBindingRecord(
-        session_id="sess-001",
-        project_key="tenant-a",
-        story_id="AG3-100",
-        run_id="run-100",
-        principal_type="orchestrator",
-        worktree_roots=("T:/worktrees/ag3-100",),
-        binding_version="1",
-        updated_at=now,
-    )
+    _seed_admitted_run(state, run_id="run-100")
     service = ControlPlaneRuntimeService(repository=_repository(state))
 
     result = service.complete_closure(
@@ -1089,6 +1206,54 @@ def test_project_edge_sync_with_missing_lock_returns_binding_invalid() -> None:
     assert result.run_id == "run-100"
 
 
+def test_project_edge_sync_with_revoked_binding_returns_binding_invalid() -> None:
+    """AC8 (SOLL-034 behaviour, server-side part): the server-side binding
+    resolution (``_resolve_operating_mode``, mirrored by
+    ``ProjectEdgeResolver.resolve()`` on the edge) surfaces a REVOKED binding
+    as ``binding_invalid`` -- even when its lock is still ACTIVE, never
+    re-classified as ``story_execution``. The revocation reason is carried
+    verbatim on the synced ``session`` view (the local edge derives its own
+    ``block_reason`` from it).
+    """
+    state = _RepoState()
+    state.bindings["sess-001"] = SessionRunBindingRecord(
+        session_id="sess-001",
+        project_key="tenant-a",
+        story_id="AG3-100",
+        run_id="run-100",
+        principal_type="orchestrator",
+        worktree_roots=("T:/worktrees/ag3-100",),
+        binding_version="1",
+        updated_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
+        status="revoked",
+        revocation_reason="ownership_transferred",
+    )
+    state.locks[("tenant-a", "AG3-100", "run-100", "story_execution")] = StoryExecutionLockRecord(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        run_id="run-100",
+        lock_type="story_execution",
+        status="ACTIVE",
+        worktree_roots=("T:/worktrees/ag3-100",),
+        binding_version="1",
+        activated_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
+    )
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    result = service.sync_project_edge(
+        ProjectEdgeSyncRequest(
+            project_key="tenant-a", session_id="sess-001", op_id="op-sync-revoked-001"
+        ),
+    )
+
+    assert result.edge_bundle is not None
+    assert result.edge_bundle.current.operating_mode == "binding_invalid"
+    assert result.edge_bundle.session is not None
+    assert result.edge_bundle.session.status == "revoked"
+    assert result.edge_bundle.session.revocation_reason == "ownership_transferred"
+
+
 def test_get_operation_returns_replayed_result() -> None:
     state = _RepoState()
     _resolvable_standard_ctx(state)
@@ -1128,13 +1293,12 @@ def _fast_request() -> PhaseMutationRequest:
 def test_fast_story_skips_story_scoped_session_and_locks() -> None:
     """AG3-018 AC3/AC5: a fast story materializes no session/locks.
 
-    ERROR-1 (#1): a non-setup start requires the run to be ADMITTED (a prior
-    committed setup phase_start, or a run-matched binding); otherwise it is
-    fail-closed REJECTED. This AG3-018 mode-resolution test exercises the
-    legitimate ADMITTED non-setup path, so it seeds run-matched op-based admission
-    evidence (a committed setup phase_start for run-100) -- which does NOT add any
-    binding/lock/event, keeping the AC3/AC5 "no story-scoped state" assertions
-    exact.
+    ERROR-1 (#1) / AG3-142: a non-setup start requires the run to be ADMITTED
+    (the active run-ownership record); otherwise it is fail-closed REJECTED.
+    This AG3-018 mode-resolution test exercises the legitimate ADMITTED
+    non-setup path, so it seeds run-ownership admission evidence WITHOUT a
+    binding (a fast start materializes no binding), keeping the AC3/AC5 "no
+    story-scoped state" assertions exact.
     """
     state = _RepoState()
     state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
@@ -1142,9 +1306,7 @@ def test_fast_story_skips_story_scoped_session_and_locks() -> None:
         story_id="AG3-100",
         mode=WireStoryMode.FAST,
     )
-    state.operations["op-admit-setup"] = _committed_op_for_run(
-        op_id="op-admit-setup", run_id="run-100"
-    )
+    _seed_admitted_run(state, run_id="run-100", seed_binding=False)
     # AG3-123: the workspace is resolvable (admitted stub dispatch) so this test
     # isolates the mode-resolution materialization, not the workspace anchor.
     service = _admitting_service(state)
@@ -1172,9 +1334,9 @@ def test_fast_story_skips_story_scoped_session_and_locks() -> None:
 def test_standard_story_still_materializes_session_and_locks() -> None:
     """Standard stories are unchanged: full session + both locks materialized.
 
-    ERROR-1 (#1): the legitimate non-setup path requires an ADMITTED run, so seed
-    op-based admission evidence (a committed setup phase_start for run-100) before
-    the implementation start.
+    ERROR-1 (#1) / AG3-142: the legitimate non-setup path requires an ADMITTED
+    run, so seed the active run-ownership record before the implementation
+    start.
     """
     state = _RepoState()
     state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
@@ -1182,9 +1344,7 @@ def test_standard_story_still_materializes_session_and_locks() -> None:
         story_id="AG3-100",
         mode=WireStoryMode.STANDARD,
     )
-    state.operations["op-admit-setup"] = _committed_op_for_run(
-        op_id="op-admit-setup", run_id="run-100"
-    )
+    _seed_admitted_run(state, run_id="run-100", seed_binding=False)
     # AG3-123: the workspace is resolvable (admitted stub dispatch) so this test
     # isolates the mode-resolution materialization, not the workspace anchor.
     service = _admitting_service(state)
@@ -1213,8 +1373,8 @@ def test_agent_supplied_mode_cannot_override_authoritative_store() -> None:
     a caller smuggles ``mode=fast`` into the free-form ``detail`` map, the store
     record (standard) is authoritative and full materialization happens.
 
-    ERROR-1 (#1): the legitimate non-setup path requires an ADMITTED run, so seed
-    op-based admission evidence (a committed setup phase_start for run-100).
+    ERROR-1 (#1) / AG3-142: the legitimate non-setup path requires an ADMITTED
+    run, so seed the active run-ownership record.
     """
     state = _RepoState()
     state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
@@ -1222,9 +1382,7 @@ def test_agent_supplied_mode_cannot_override_authoritative_store() -> None:
         story_id="AG3-100",
         mode=WireStoryMode.STANDARD,
     )
-    state.operations["op-admit-setup"] = _committed_op_for_run(
-        op_id="op-admit-setup", run_id="run-100"
-    )
+    _seed_admitted_run(state, run_id="run-100", seed_binding=False)
     # AG3-123: the workspace is resolvable (admitted stub dispatch) so this test
     # isolates the mode-resolution materialization, not the workspace anchor.
     service = _admitting_service(state)
@@ -1258,19 +1416,16 @@ def test_unresolvable_mode_for_code_story_fails_closed() -> None:
     run is treated as standard (full materialization), so a code story can never
     lose its guards on a lookup gap.
 
-    ERROR-1 (#1): the unresolvable-MODE concern (fail-closed-to-standard) is
-    distinct from the unresolvable-CTX run-admission concern. This test isolates
-    the MODE concern on the legitimate ADMITTED non-setup path: it seeds op-based
-    run admission (a committed setup phase_start for run-100) so the run is
-    admitted, then proves that an unresolvable StoryContext still materializes the
-    FULL standard regime (guards active). The UN-admitted unresolvable-ctx
-    non-setup REJECT path is covered by
+    ERROR-1 (#1) / AG3-142: the unresolvable-MODE concern (fail-closed-to-standard)
+    is distinct from the unresolvable-CTX run-admission concern. This test isolates
+    the MODE concern on the legitimate ADMITTED non-setup path: it seeds the active
+    run-ownership record so the run is admitted, then proves that an unresolvable
+    StoryContext still materializes the FULL standard regime (guards active). The
+    UN-admitted unresolvable-ctx non-setup REJECT path is covered by
     ``test_non_setup_unresolvable_ctx_unadmitted_rejects_fail_closed``.
     """
     state = _RepoState()  # no story_contexts entry => unresolvable mode
-    state.operations["op-admit-setup"] = _committed_op_for_run(
-        op_id="op-admit-setup", run_id="run-100"
-    )
+    _seed_admitted_run(state, run_id="run-100", seed_binding=False)
     service = ControlPlaneRuntimeService(repository=_repository(state))
 
     result = service.start_phase(
@@ -1603,9 +1758,7 @@ def test_non_setup_unresolvable_ctx_admitted_run_still_materializes() -> None:
     rejected.
     """
     state = _RepoState()  # no story_contexts entry => unresolvable ctx/mode
-    state.operations["op-admit-setup"] = _committed_op_for_run(
-        op_id="op-admit-setup", run_id="run-100"
-    )
+    _seed_admitted_run(state, run_id="run-100", seed_binding=False)
     service = ControlPlaneRuntimeService(repository=_repository(state))
 
     result = service.start_phase(
@@ -1764,8 +1917,15 @@ def test_fail_phase_without_admitted_run_rejects() -> None:
     assert state.operations == {}
 
 
-def test_complete_phase_with_prior_binding_is_admitted() -> None:
-    """ERROR-3 positive: a prior session binding (admitted start) lets complete run."""
+def test_complete_phase_with_only_a_binding_is_not_admitted() -> None:
+    """AG3-142 (SOLL-014/SOLL-019): a session binding ALONE is NEVER admission.
+
+    The binding is a subordinate, session-side projection of the active
+    ownership record -- never a second admission path. A binding for THIS
+    run with NO active ``run_ownership_records`` row must fail-closed reject
+    (no committed op, no side effect), which is the exact opposite of the
+    pre-AG3-142 behaviour this test used to pin.
+    """
     state = _RepoState()
     state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
         project_key="tenant-a",
@@ -1783,6 +1943,27 @@ def test_complete_phase_with_prior_binding_is_admitted() -> None:
         binding_version="1",
         updated_at=now,
     )
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    result = service.complete_phase(
+        run_id="run-100",
+        phase="implementation",
+        request=_phase_request("op-complete-admitted"),
+    )
+
+    assert result.status == "rejected"
+    assert "op-complete-admitted" not in state.operations
+
+
+def test_complete_phase_with_prior_binding_and_record_is_admitted() -> None:
+    """The legitimate admitted path: binding + active record both present."""
+    state = _RepoState()
+    state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        mode=WireStoryMode.STANDARD,
+    )
+    _seed_admitted_run(state, run_id="run-100")
     service = ControlPlaneRuntimeService(repository=_repository(state))
 
     result = service.complete_phase(
@@ -2857,12 +3038,15 @@ def test_new_run_not_admitted_by_old_runs_evidence_for_same_story() -> None:
     assert "op-closure-new-run" not in state.operations
 
 
-def test_new_run_admitted_by_committed_op_for_that_run() -> None:
-    """PART C (#3): a committed op for THIS run admits complete/fail/closure.
+def test_committed_op_for_that_run_no_longer_admits() -> None:
+    """AG3-142 (IMPL-021, SOLL-014, AC2): the positive committed-op heuristic is GONE.
 
-    A fast start (which materializes no binding) leaves a committed start op for
-    the run; that run-matched committed op is sufficient run-scoped admission
-    evidence even with no session binding.
+    Pre-AG3-142, a committed start op for THIS run was (by itself) sufficient
+    run-scoped admission evidence for complete/fail/closure -- exactly the
+    ``has_committed_operation_for_run`` positive evidence this story retires
+    ENTIRELY. A committed op with NO active ``run_ownership_records`` row must
+    now fail-closed reject: no side effect, no stored op (the inverse of the
+    old assertion this test used to pin).
     """
     state = _RepoState()
     state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
@@ -2881,8 +3065,10 @@ def test_new_run_admitted_by_committed_op_for_that_run() -> None:
         request=_phase_request("op-complete-admitted-by-op"),
     )
 
-    assert completed.status == "committed"
-    assert "op-complete-admitted-by-op" in state.operations
+    assert completed.status == "rejected"
+    assert "op-complete-admitted-by-op" not in state.operations
+    assert state.locks == {}
+    assert state.events == []
 
 
 def test_committed_story_exit_preferentially_blocks_same_run_admission() -> None:
@@ -2984,8 +3170,14 @@ def test_committed_phase_complete_alone_does_not_admit_run() -> None:
     assert "op-complete-not-admitted" not in state.operations
 
 
-def test_committed_setup_phase_start_admits_run() -> None:
-    """ERROR-3 (#3) positive: a committed setup phase_start DOES admit the run."""
+def test_committed_setup_phase_start_alone_no_longer_admits_run() -> None:
+    """AG3-142 (IMPL-021, SOLL-014, AC2): a committed setup op alone is NOT admission.
+
+    A committed setup ``phase_start`` for the run with NO active
+    ``run_ownership_records`` row is retired admission evidence (the inverse
+    of the pre-AG3-142 assertion this test used to pin) -- only the active
+    ownership record admits.
+    """
     state = _RepoState()
     state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
         project_key="tenant-a",
@@ -3006,8 +3198,8 @@ def test_committed_setup_phase_start_admits_run() -> None:
         request=_phase_request("op-complete-admitted-by-setup"),
     )
 
-    assert completed.status == "committed"
-    assert "op-complete-admitted-by-setup" in state.operations
+    assert completed.status == "rejected"
+    assert "op-complete-admitted-by-setup" not in state.operations
 
 
 # ---------------------------------------------------------------------------
@@ -3100,6 +3292,13 @@ def test_late_finalize_after_admin_abort_materializes_no_side_effects() -> None:
         owner_claimed_at=a_claimed_at.isoformat(),
         owner_operation_epoch=1,
         phase_dispatch=_admitted_dispatch(),
+        # AG3-142: A's original dispatch was a genuinely fresh setup (no active
+        # ownership record exists for run-100 in this test) -- mints, mirroring
+        # what the real ``_start_phase_after_claim`` would have computed before
+        # the admin-abort raced it. The claim-CAS loss below (operation_epoch
+        # bumped by the abort) means the ownership INSERT is never reached
+        # either -- the fake's ``_still_owned`` gate runs first.
+        mints_ownership_record=True,
     )
 
     assert a_result.status == "aborted", (
@@ -3155,16 +3354,19 @@ def test_new_run_setup_with_only_old_run_evidence_is_fresh_and_rejected() -> Non
     assert state.bindings["sess-001"].run_id == "run-OLD"
 
 
-def test_runtime_threads_run_scoped_admission_into_dispatcher() -> None:
-    """ERROR-1: the runtime passes RUN-scoped ``run_admitted`` to the dispatcher.
+def test_run_mismatch_fences_out_before_the_dispatcher_is_ever_consulted() -> None:
+    """AG3-142 (SOLL-015): a RUN_MISMATCH is fenced OUT before dispatch runs at all.
 
     The reset-escalation hazard, exercised through the resolvable-ctx path (where
-    the real dispatcher runs): a story whose OLD run left run-matched evidence
-    (committed setup start + binding for run-OLD) gets a NEW run posting setup. The
-    runtime must compute admission RUN-scoped for run-NEW (no run-matched evidence
-    => NOT admitted) and thread ``run_admitted=False`` into the dispatcher, so the
-    dispatcher classifies the setup FRESH and fires the pre-start guard. An OLD
-    run's evidence must NOT flip run-NEW to admitted.
+    the real dispatcher would otherwise run): a story whose OLD run left an
+    ACTIVE run-ownership record gets a NEW run posting setup. AG3-142 raises the
+    ownership check ahead of the pre-start guard entirely: the story's active
+    record belongs to run-OLD, not run-NEW, so ``_evaluate_run_admission``
+    classifies this ``RUN_MISMATCH`` and the runtime rejects fail-closed WITHOUT
+    ever invoking the dispatcher (unlike the pre-AG3-142 wiring, which threaded
+    ``run_admitted=False`` into the dispatcher's own pre-start guard). Either way
+    the OLD run's record must NEVER flip run-NEW to admitted, and nothing is
+    materialized for run-NEW.
     """
     state = _RepoState()
     state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
@@ -3173,16 +3375,10 @@ def test_runtime_threads_run_scoped_admission_into_dispatcher() -> None:
         mode=WireStoryMode.STANDARD,
         project_root=Path("T:/projects/tenant-a"),
     )
-    # Only run-OLD evidence exists (committed setup start + binding for run-OLD).
-    state.operations["op-old-start"] = _committed_op(
-        op_id="op-old-start",
-        run_id="run-OLD",
-        operation_kind="phase_start",
-        phase="setup",
-    )
+    # Only run-OLD evidence exists: the story's ACTIVE ownership record.
     _seed_admitted_run(state, run_id="run-OLD")
-    # The stub records the ``run_admitted`` flag the runtime threaded in. It
-    # returns a rejection so the runtime materializes nothing (fail-closed).
+    # The stub would record ``run_admitted`` if ever consulted; AG3-142's early
+    # RUN_MISMATCH fence means it never is.
     dispatcher = _StubDispatcher(
         _rejected_dispatch("StoryStatus is not Approved (Tor 1)."),
     )
@@ -3197,10 +3393,8 @@ def test_runtime_threads_run_scoped_admission_into_dispatcher() -> None:
         request=_setup_request("op-new-run-resolvable"),
     )
 
-    # The runtime computed admission RUN-scoped for run-NEW => NOT admitted, and
-    # threaded that into the dispatcher (the fix: not the OLD run's evidence).
-    assert dispatcher.run_admitted_calls == [False]
-    # The fresh setup was guard-rejected -> fail-closed, nothing materialized.
+    # The ownership fence rejected BEFORE the dispatcher was ever consulted.
+    assert dispatcher.run_admitted_calls == []
     assert result.status == "rejected"
     assert "op-new-run-resolvable" not in state.operations
     assert state.bindings.get("sess-001") is not None  # the OLD run's binding only
@@ -3208,10 +3402,11 @@ def test_runtime_threads_run_scoped_admission_into_dispatcher() -> None:
 
 
 def test_runtime_threads_run_admitted_true_for_its_own_committed_start() -> None:
-    """ERROR-1: an admitted run gets ``run_admitted=True`` threaded to the dispatcher.
+    """ERROR-1 / AG3-142: an admitted run gets ``run_admitted=True`` threaded in.
 
-    When THIS run already has a committed setup start (run-matched evidence), the
-    runtime threads ``run_admitted=True`` so the dispatcher does NOT re-guard it.
+    When THIS run already has an active run-ownership record (record-based
+    admission, AG3-142), the runtime threads ``run_admitted=True`` so the
+    dispatcher does NOT re-guard it.
     """
     state = _RepoState()
     state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
@@ -3220,12 +3415,7 @@ def test_runtime_threads_run_admitted_true_for_its_own_committed_start() -> None
         mode=WireStoryMode.STANDARD,
         project_root=Path("T:/projects/tenant-a"),
     )
-    state.operations["op-this-run-start"] = _committed_op(
-        op_id="op-this-run-start",
-        run_id="run-100",
-        operation_kind="phase_start",
-        phase="setup",
-    )
+    _seed_admitted_run(state, run_id="run-100", seed_binding=False)
     dispatcher = _StubDispatcher(_admitted_dispatch())
     service = ControlPlaneRuntimeService(
         repository=_repository(state),
@@ -3243,20 +3433,15 @@ def test_runtime_threads_run_admitted_true_for_its_own_committed_start() -> None
 
 
 def test_new_run_setup_with_its_own_committed_start_is_not_fresh() -> None:
-    """ERROR-2 (#2): a run with its OWN prior committed setup start is not re-guarded.
+    """ERROR-2 (#2) / AG3-142: a run with its OWN active record is not re-guarded.
 
-    When THIS run already has a committed setup ``phase_start`` (run-matched
-    admission evidence), the setup start is NOT fresh, so even an unresolvable ctx
-    does NOT re-fire the fresh-setup rejection -- it keeps the AG3-018
+    When THIS run already has an active run-ownership record (record-based
+    admission), the setup start is NOT fresh, so even an unresolvable ctx does
+    NOT re-fire the fresh-setup rejection -- it keeps the AG3-018
     fail-closed-to-standard path (admitted run, no double guard).
     """
     state = _RepoState()  # unresolvable ctx => dispatch returns None
-    state.operations["op-this-run-start"] = _committed_op(
-        op_id="op-this-run-start",
-        run_id="run-100",
-        operation_kind="phase_start",
-        phase="setup",
-    )
+    _seed_admitted_run(state, run_id="run-100", seed_binding=False)
     service = ControlPlaneRuntimeService(repository=_repository(state))
 
     result = service.start_phase(
@@ -3984,3 +4169,583 @@ def test_closure_reused_op_id_with_identical_body_replays() -> None:
     assert first.status == "committed"
     assert second.status == "replayed"
     assert len(state.operations) == 1
+
+
+# ---------------------------------------------------------------------------
+# AG3-142: ownership-fencing of the regime paths (SOLL-014/015/016/017/018/019,
+# SOLL-042, IMPL-019, IMPL-021). Acceptance-criteria-targeted coverage.
+# ---------------------------------------------------------------------------
+
+
+def test_admission_never_calls_has_committed_operation_for_run() -> None:
+    """AC2 code-proof: the retired positive committed-op heuristic is NEVER
+    consulted by admission any more (IMPL-021, SOLL-014). Wraps the fake's
+    ``has_committed_for_run`` with a call-counting spy and drives every one of
+    the five regime paths through a real admitted flow; the spy must stay at
+    zero calls throughout.
+    """
+    state = _RepoState()
+    state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        mode=WireStoryMode.STANDARD,
+    )
+    calls: list[tuple[str, str, str]] = []
+    repo = _repository(state)
+    original = repo.has_committed_operation_for_run
+
+    def _spy(project_key: str, story_id: str, run_id: str) -> bool:
+        calls.append((project_key, story_id, run_id))
+        return original(project_key, story_id, run_id)
+
+    from dataclasses import replace
+
+    repo = replace(repo, has_committed_operation_for_run=_spy)
+    _seed_admitted_run(state, run_id="run-100")
+    service = ControlPlaneRuntimeService(repository=repo)
+
+    service.complete_phase(
+        run_id="run-100", phase="implementation", request=_phase_request("op-c1")
+    )
+    service.fail_phase(
+        run_id="run-100", phase="implementation", request=_phase_request("op-f1")
+    )
+    service.complete_closure(
+        run_id="run-100",
+        request=_closure_request(op_id="op-cl1", detail={}),
+    )
+
+    assert calls == [], (
+        "admission must never consult has_committed_operation_for_run "
+        "(IMPL-021: the positive committed-op heuristic is retired, AC2)"
+    )
+
+
+def _seed_historical_record(
+    state: _RepoState,
+    *,
+    run_id: str,
+    status: OwnershipStatus,
+    session_id: str = "sess-001",
+    project_key: str = "tenant-a",
+    story_id: str = "AG3-100",
+) -> None:
+    """Prepare a NON-active (historical) ownership record via the sanctioned
+    AG3-137 single-writer surface (a direct insert, exactly how AG3-137's own
+    tests / a real disown/reset writer would produce one) -- AC3: proves a
+    historical record is audit-only and NEVER admission evidence.
+    """
+    state.insert_ownership(
+        RunOwnershipRecord(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            owner_session_id=session_id,
+            ownership_epoch=1,
+            status=status,
+            acquired_via=OwnershipAcquisition.SETUP,
+            acquired_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
+            audit_ref=f"op-seed-{run_id}",
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "status",
+    [OwnershipStatus.ENDED, OwnershipStatus.RESET, OwnershipStatus.SPLIT, OwnershipStatus.CLOSED],
+)
+def test_historical_record_never_admits_complete_fail_closure_resume(
+    status: OwnershipStatus,
+) -> None:
+    """AC3 (SOLL-014, historical_ownership_records_are_never_admission_evidence):
+    a record with any status other than ``active`` is audit-only and never
+    admits complete/fail/closure/resume -- deterministically rejected with NO
+    side effects (no binding re-materialization, no locks, no events, no
+    stored op).
+    """
+    state = _RepoState()
+    state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        mode=WireStoryMode.STANDARD,
+    )
+    _seed_historical_record(state, run_id="run-100", status=status)
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    completed = service.complete_phase(
+        run_id="run-100", phase="implementation", request=_phase_request("op-c")
+    )
+    failed = service.fail_phase(
+        run_id="run-100", phase="implementation", request=_phase_request("op-f")
+    )
+    closed = service.complete_closure(
+        run_id="run-100", request=_closure_request(op_id="op-cl", detail={})
+    )
+
+    assert completed.status == "rejected"
+    assert failed.status == "rejected"
+    assert closed.status == "rejected"
+    assert "op-c" not in state.operations
+    assert "op-f" not in state.operations
+    assert "op-cl" not in state.operations
+    assert state.bindings == {}
+    assert state.locks == {}
+    assert state.events == []
+
+
+def test_start_phase_ex_owner_rejected_with_ownership_transferred_payload() -> None:
+    """AC4/AC6 path 1 (start_phase): a call from a session that is NOT the
+    active record's owner is rejected fail-closed with the structured
+    ``ownership_transferred`` payload, BEFORE the engine ever dispatches (no
+    state written).
+    """
+    state = _RepoState()
+    state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        mode=WireStoryMode.STANDARD,
+    )
+    # The active record's owner is sess-OWNER; the caller is sess-001.
+    _seed_admitted_run(
+        state, run_id="run-100", session_id="sess-001", owner_session_id="sess-OWNER",
+        seed_binding=False,
+    )
+    service = _admitting_service(state)
+
+    result = service.start_phase(
+        run_id="run-100",
+        phase="implementation",
+        request=_fast_request(),
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "ownership_transferred"
+    assert result.ownership_conflict is not None
+    assert result.ownership_conflict.new_owner_session_id == "sess-OWNER"
+    assert result.ownership_conflict.new_ownership_epoch == 1
+    assert "op-fast-001" not in state.operations
+    assert state.bindings == {}
+    assert state.locks == {}
+    assert state.events == []
+
+
+def test_complete_phase_ex_owner_rejected_with_ownership_transferred_payload() -> None:
+    """AC4/AC6 path 2 (complete_phase): wrong session -> ex-owner rejection."""
+    state = _RepoState()
+    state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        mode=WireStoryMode.STANDARD,
+    )
+    _seed_admitted_run(
+        state, run_id="run-100", session_id="sess-001", owner_session_id="sess-OWNER",
+    )
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    result = service.complete_phase(
+        run_id="run-100", phase="implementation", request=_phase_request("op-complete-exowner")
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "ownership_transferred"
+    assert result.ownership_conflict is not None
+    assert result.ownership_conflict.new_owner_session_id == "sess-OWNER"
+    assert "op-complete-exowner" not in state.operations
+    assert state.locks == {}
+    assert state.events == []
+
+
+def test_fail_phase_ex_owner_rejected_with_ownership_transferred_payload() -> None:
+    """AC4/AC6 path 3 (fail_phase): wrong session -> ex-owner rejection."""
+    state = _RepoState()
+    state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        mode=WireStoryMode.STANDARD,
+    )
+    _seed_admitted_run(
+        state, run_id="run-100", session_id="sess-001", owner_session_id="sess-OWNER",
+    )
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    result = service.fail_phase(
+        run_id="run-100", phase="implementation", request=_phase_request("op-fail-exowner")
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "ownership_transferred"
+    assert result.ownership_conflict is not None
+    assert result.ownership_conflict.new_owner_session_id == "sess-OWNER"
+    assert "op-fail-exowner" not in state.operations
+    assert state.locks == {}
+    assert state.events == []
+
+
+def test_complete_closure_ex_owner_rejected_with_ownership_transferred_payload() -> None:
+    """AC4/AC6 path 5 (complete_closure): wrong session -> ex-owner rejection."""
+    state = _RepoState()
+    state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        mode=WireStoryMode.STANDARD,
+    )
+    _seed_admitted_run(
+        state, run_id="run-100", session_id="sess-001", owner_session_id="sess-OWNER",
+    )
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    result = service.complete_closure(
+        run_id="run-100",
+        request=_closure_request(op_id="op-closure-exowner", detail={}),
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "ownership_transferred"
+    assert result.ownership_conflict is not None
+    assert result.ownership_conflict.new_owner_session_id == "sess-OWNER"
+    assert "op-closure-exowner" not in state.operations
+    assert state.locks == {}
+    assert state.events == []
+
+
+def test_resume_phase_ex_owner_rejected_with_ownership_transferred_payload() -> None:
+    """AC4/AC6 path 4 (resume_phase): wrong session -> ex-owner rejection, and
+    the engine's resume is NEVER invoked (no double resume, no state written).
+    """
+    state = _RepoState()
+    state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        mode=WireStoryMode.STANDARD,
+    )
+    _seed_admitted_run(
+        state, run_id="run-100", session_id="sess-001", owner_session_id="sess-OWNER",
+        seed_binding=False,
+    )
+    dispatcher = _StubDispatcher(_admitted_dispatch())
+    service = ControlPlaneRuntimeService(
+        repository=_repository(state),
+        phase_dispatcher=dispatcher,  # type: ignore[arg-type]
+    )
+
+    result = service.resume_phase(
+        run_id="run-100",
+        phase="implementation",
+        request=_phase_request("op-resume-exowner"),
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "ownership_transferred"
+    assert result.ownership_conflict is not None
+    assert result.ownership_conflict.new_owner_session_id == "sess-OWNER"
+    # The dispatcher (and hence PipelineEngine.resume_phase) was never reached.
+    assert dispatcher.calls == []
+    assert "op-resume-exowner" not in state.operations
+
+
+def test_get_operation_still_readable_for_ex_owner() -> None:
+    """AC7 (FK-91 §91.1a Rule 17/18): reads stay allowed for an entmuendigten
+    (dismissed) session -- ``GET operations/{op_id}`` reconciles a PRIOR
+    mutation regardless of the CURRENT ownership state.
+    """
+    state = _RepoState()
+    _resolvable_standard_ctx(state)
+    service = _admitting_service(state)
+    created = service.start_phase(
+        run_id="run-100",
+        phase="setup",
+        request=_setup_request("op-ex-owner-read"),
+    )
+    assert created.status == "committed"
+    # Ownership moves on (a transfer, simulated by directly overwriting the
+    # story's active record via a fresh insert after ending the old one --
+    # the sanctioned single-writer surface): the caller who started the run
+    # is no longer the owner.
+    del state.ownership_records[("tenant-a", "AG3-100", "run-100")]
+    state.insert_ownership(
+        RunOwnershipRecord(
+            project_key="tenant-a",
+            story_id="AG3-100",
+            run_id="run-100",
+            owner_session_id="sess-NEW-OWNER",
+            ownership_epoch=2,
+            status=OwnershipStatus.ACTIVE,
+            acquired_via=OwnershipAcquisition.TAKEOVER,
+            acquired_at=datetime(2026, 4, 22, 11, 0, tzinfo=UTC),
+            audit_ref="op-transfer",
+        ),
+    )
+
+    replayed = service.get_operation("op-ex-owner-read")
+
+    assert replayed is not None
+    assert replayed.status == "replayed"
+    assert replayed.op_id == "op-ex-owner-read"
+
+
+def test_binding_record_contradiction_the_record_decides() -> None:
+    """AC9 (SOLL-018/019): binding says session A owns run-100, the ACTIVE
+    record says session B owns it -- the record decides: A's mutation is
+    rejected, and the binding re-materialization path
+    (``_mutate_phase``/``_plan_story_scoped_materialization``) is never
+    reached for A.
+    """
+    state = _RepoState()
+    state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        mode=WireStoryMode.STANDARD,
+    )
+    # Binding: session A ("sess-001") is bound to run-100.
+    state.bindings["sess-001"] = SessionRunBindingRecord(
+        session_id="sess-001",
+        project_key="tenant-a",
+        story_id="AG3-100",
+        run_id="run-100",
+        principal_type="orchestrator",
+        worktree_roots=("T:/worktrees/ag3-100",),
+        binding_version="1",
+        updated_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
+    )
+    # Active record: session B ("sess-OWNER") owns run-100 (the contradiction).
+    state.insert_ownership(
+        RunOwnershipRecord(
+            project_key="tenant-a",
+            story_id="AG3-100",
+            run_id="run-100",
+            owner_session_id="sess-OWNER",
+            ownership_epoch=1,
+            status=OwnershipStatus.ACTIVE,
+            acquired_via=OwnershipAcquisition.SETUP,
+            acquired_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
+            audit_ref="op-seed",
+        ),
+    )
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    result = service.complete_phase(
+        run_id="run-100",
+        phase="implementation",
+        request=_phase_request("op-contradiction"),
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "ownership_transferred"
+    assert result.ownership_conflict is not None
+    assert result.ownership_conflict.new_owner_session_id == "sess-OWNER"
+    # A's binding was NEVER re-materialized/overwritten -- it is untouched.
+    assert state.bindings["sess-001"].binding_version == "1"
+    assert "op-contradiction" not in state.operations
+    assert state.locks == {}
+    assert state.events == []
+
+
+def test_committed_results_carry_the_accountability_ownership_epoch() -> None:
+    """AC10 (SOLL-017): every committed regime result carries the
+    ``ownership_epoch`` it was committed under -- ``1`` for the setup start
+    that mints the record; the SAME epoch for the subsequent complete on the
+    same run.
+    """
+    state = _RepoState()
+    _resolvable_standard_ctx(state)
+    service = _admitting_service(state)
+
+    started = service.start_phase(
+        run_id="run-100",
+        phase="setup",
+        request=_setup_request("op-acct-start"),
+    )
+    assert started.ownership_epoch == 1
+
+    completed = service.complete_phase(
+        run_id="run-100",
+        phase="implementation",
+        request=_phase_request("op-acct-complete"),
+    )
+    assert completed.ownership_epoch == 1
+
+    # The lifecycle events materialized along the way also carry it (both the
+    # setup start's AND the standard-story complete's re-materialization).
+    created_events = [
+        event for event in state.events if event.event_type == "session_run_binding_created"
+    ]
+    assert len(created_events) >= 1
+    assert all(event.payload["ownership_epoch"] == 1 for event in created_events)
+
+
+# ---------------------------------------------------------------------------
+# AG3-142 (AC5, no TOCTOU): the COMMIT-TIME fence handlers -- distinct from the
+# early-admission ex-owner path. These drive the exact race the fence closes:
+# admission PASSES (the caller was the owner at its early check), but the
+# co-transactional commit-time fence FAILS (a transfer landed in the window),
+# so the store raises ``OwnershipFenceViolationError`` and the runtime's
+# per-path ``except`` handler must surface the rich ex-owner rejection with NO
+# state written and MY claims released. The store's actual FOR-UPDATE fence SQL
+# is proven separately against real Postgres
+# (``tests/integration/state_backend/test_ownership_fence_postgres.py`` +
+# ``tests/integration/control_plane/test_ownership_fencing_pg.py``); these unit
+# tests pin the RUNTIME handler wiring deterministically.
+# ---------------------------------------------------------------------------
+
+
+def _fence_violation_at_commit(
+    project_key: str, story_id: str
+) -> OwnershipFenceViolationError:
+    """The exact error shape the real store's ``_enforce_ownership_fence_row``
+    raises when a transfer landed between admission and commit."""
+    del project_key, story_id
+    return OwnershipFenceViolationError(
+        "ownership fence violated at commit time (a takeover landed in the "
+        "dispatch->commit window)",
+        detail={
+            "current_owner_session_id": "sess-NEW-OWNER",
+            "current_ownership_epoch": 2,
+            "transferred_at": "2026-04-22T11:00:00+00:00",
+        },
+    )
+
+
+@pytest.mark.parametrize("operation_kind", ["phase_complete", "phase_fail"])
+def test_complete_fail_commit_time_fence_violation_surfaces_ex_owner_rejection(
+    operation_kind: str,
+) -> None:
+    """AC5 (commit-time, complete/fail): admission passes but the co-transactional
+    fence fails at commit -> the runtime catches ``OwnershipFenceViolationError``
+    and returns the rich ``ownership_transferred`` rejection with no state.
+    """
+    from dataclasses import replace
+
+    state = _RepoState()
+    state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
+        project_key="tenant-a", story_id="AG3-100", mode=WireStoryMode.STANDARD
+    )
+    _seed_admitted_run(state, run_id="run-100")
+
+    def _commit_raises_fence(record: object, **_kwargs: object) -> None:
+        raise _fence_violation_at_commit("tenant-a", "AG3-100")
+
+    repo = replace(
+        _repository(state), commit_operation_with_side_effects=_commit_raises_fence
+    )
+    service = ControlPlaneRuntimeService(repository=repo)
+
+    method = service.complete_phase if operation_kind == "phase_complete" else service.fail_phase
+    result = method(
+        run_id="run-100",
+        phase="implementation",
+        request=_phase_request("op-race-cf"),
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "ownership_transferred"
+    assert result.ownership_conflict is not None
+    assert result.ownership_conflict.new_owner_session_id == "sess-NEW-OWNER"
+    assert result.ownership_conflict.new_ownership_epoch == 2
+    assert "op-race-cf" not in state.operations
+
+
+def test_closure_commit_time_fence_violation_surfaces_ex_owner_rejection() -> None:
+    """AC5 (commit-time, closure): admission passes, the commit fence fails ->
+    the ex-owner rejection is surfaced and the object claim is released.
+    """
+    from dataclasses import replace
+
+    state = _RepoState()
+    state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
+        project_key="tenant-a", story_id="AG3-100", mode=WireStoryMode.STANDARD
+    )
+    _seed_admitted_run(state, run_id="run-100")
+
+    def _commit_raises_fence(record: object, **_kwargs: object) -> None:
+        raise _fence_violation_at_commit("tenant-a", "AG3-100")
+
+    repo = replace(
+        _repository(state), commit_operation_with_side_effects=_commit_raises_fence
+    )
+    service = ControlPlaneRuntimeService(repository=repo)
+
+    result = service.complete_closure(
+        run_id="run-100",
+        request=_closure_request(op_id="op-race-closure", detail={}),
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "ownership_transferred"
+    assert result.ownership_conflict is not None
+    assert result.ownership_conflict.new_owner_session_id == "sess-NEW-OWNER"
+    assert "op-race-closure" not in state.operations
+
+
+def test_resume_commit_time_fence_violation_surfaces_ex_owner_rejection() -> None:
+    """AC5 (commit-time, resume): admission passes, the ownership-CAS finalize's
+    fence fails at commit -> the ex-owner rejection is surfaced, MY claims are
+    released, and no op is stored.
+    """
+    from dataclasses import replace
+
+    state = _RepoState()
+    state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
+        project_key="tenant-a", story_id="AG3-100", mode=WireStoryMode.STANDARD
+    )
+    _seed_admitted_run(state, run_id="run-100", seed_binding=False)
+
+    def _finalize_raises_fence(record: object, **_kwargs: object) -> bool:
+        raise _fence_violation_at_commit("tenant-a", "AG3-100")
+
+    repo = replace(_repository(state), finalize_start_phase=_finalize_raises_fence)
+    service = ControlPlaneRuntimeService(
+        repository=repo,
+        phase_dispatcher=_StubDispatcher(_admitted_dispatch()),  # type: ignore[arg-type]
+    )
+
+    result = service.resume_phase(
+        run_id="run-100",
+        phase="implementation",
+        request=_phase_request("op-race-resume"),
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "ownership_transferred"
+    assert result.ownership_conflict is not None
+    assert result.ownership_conflict.new_owner_session_id == "sess-NEW-OWNER"
+    assert "op-race-resume" not in state.operations
+
+
+def test_commit_time_fence_with_no_active_record_is_plain_rejection_not_transfer() -> None:
+    """Fail-closed: a commit-time fence violation whose ``detail`` has no current
+    owner (the story's active record vanished entirely) is a PLAIN rejection,
+    NOT the ``ownership_transferred`` shape -- never a fabricated "new owner".
+    """
+    from dataclasses import replace
+
+    state = _RepoState()
+    state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
+        project_key="tenant-a", story_id="AG3-100", mode=WireStoryMode.STANDARD
+    )
+    _seed_admitted_run(state, run_id="run-100")
+
+    def _commit_raises_empty_fence(record: object, **_kwargs: object) -> None:
+        raise OwnershipFenceViolationError(
+            "ownership fence violated: no active record at all",
+            detail={
+                "current_owner_session_id": None,
+                "current_ownership_epoch": None,
+                "transferred_at": None,
+            },
+        )
+
+    repo = replace(
+        _repository(state), commit_operation_with_side_effects=_commit_raises_empty_fence
+    )
+    service = ControlPlaneRuntimeService(repository=repo)
+
+    result = service.complete_phase(
+        run_id="run-100",
+        phase="implementation",
+        request=_phase_request("op-race-norecord"),
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code is None
+    assert result.ownership_conflict is None
+    assert "op-race-norecord" not in state.operations

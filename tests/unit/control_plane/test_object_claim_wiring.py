@@ -106,6 +106,13 @@ class _MinimalControlPlaneRepo:
         del project_key, story_id, run_id
         return False
 
+    def load_active_ownership(self, project_key: str, story_id: str) -> None:
+        # AG3-142: no active run-ownership record seeded -- these tests exercise
+        # the object-claim seam, not the ownership fence (a fresh, un-admitted
+        # setup is the expected NO_ACTIVE_RECORD path here).
+        del project_key, story_id
+        return None
+
     def load_binding(self, session_id: str) -> None:
         del session_id
         return None
@@ -349,8 +356,9 @@ class _MutatePhaseRepo:
         binding_to_delete: object,
         locks: object,
         events: object,
+        expected_ownership_epoch: int | None = None,
     ) -> None:
-        del binding_to_save, binding_to_delete, locks, events
+        del binding_to_save, binding_to_delete, locks, events, expected_ownership_epoch
         self.committed.append(record.op_id)
 
 
@@ -374,6 +382,12 @@ def test_complete_or_fail_release_failure_surfaces_never_returns_committed(
             phase="implementation",
             request=_request(story_id="AG3-100", op_id="op-1"),
             operation_kind=operation_kind,
+            # AG3-142: the caller (``_mutate_admitted_phase``) always threads the
+            # admitted snapshot's observed epoch; this direct-call test drives
+            # ``_mutate_phase`` past its own admission gate (there is none --
+            # admission is the CALLER's job), so any epoch value exercises the
+            # release-failure lifecycle under test.
+            expected_ownership_epoch=1,
         )
 
     #: The op DID commit (the fix does not roll it back) -- but the service
@@ -414,6 +428,32 @@ class _ClosureRepo:
         del project_key, story_id, run_id
         return True
 
+    def load_active_ownership(self, project_key: str, story_id: str) -> object:
+        # AG3-142: admission is EXCLUSIVELY the active ownership record now --
+        # seed one matching this test's (run_id, session_id) so closure reaches
+        # the release-failure lifecycle under test (the OLD
+        # ``has_committed_operation_for_run=True`` above is retired evidence,
+        # kept only because it is still a valid port field, never consulted).
+        from datetime import UTC, datetime
+
+        from agentkit.backend.control_plane.ownership import (
+            OwnershipAcquisition,
+            OwnershipStatus,
+        )
+        from agentkit.backend.control_plane.records import RunOwnershipRecord
+
+        return RunOwnershipRecord(
+            project_key=project_key,
+            story_id=story_id,
+            run_id="run-1",
+            owner_session_id="sess-1",
+            ownership_epoch=1,
+            status=OwnershipStatus.ACTIVE,
+            acquired_via=OwnershipAcquisition.SETUP,
+            acquired_at=datetime(2026, 7, 4, 12, 0, tzinfo=UTC),
+            audit_ref="op-seed",
+        )
+
     def load_binding(self, session_id: str) -> None:
         del session_id
         return None
@@ -430,8 +470,9 @@ class _ClosureRepo:
         binding_to_delete: object,
         locks: object,
         events: object,
+        expected_ownership_epoch: int | None = None,
     ) -> None:
-        del binding_to_save, binding_to_delete, locks, events
+        del binding_to_save, binding_to_delete, locks, events, expected_ownership_epoch
         self.committed.append(record.op_id)
 
 

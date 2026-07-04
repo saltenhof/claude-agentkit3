@@ -37,6 +37,8 @@ def _bundle(
     sync_after: datetime | None = None,
     lock_status: Literal["ACTIVE", "INACTIVE", "INVALID"] = "ACTIVE",
     qa_lock_status: Literal["ACTIVE", "INACTIVE", "INVALID"] = "ACTIVE",
+    binding_status: str = "active",
+    revocation_reason: str | None = None,
 ) -> EdgeBundle:
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     return EdgeBundle(
@@ -58,6 +60,8 @@ def _bundle(
             worktree_roots=[worktree_root],
             binding_version="bind-001",
             operating_mode=operating_mode,
+            status=binding_status,
+            revocation_reason=revocation_reason,
         ),
         lock=StoryExecutionLockView(
             project_key="tenant-a",
@@ -123,6 +127,60 @@ def test_resolver_returns_binding_invalid_for_session_mismatch(tmp_path: Path) -
 
     assert resolved.operating_mode == "binding_invalid"
     assert resolved.block_reason == "session_binding_mismatch"
+
+
+def test_resolver_returns_binding_invalid_for_ownership_transferred(tmp_path: Path) -> None:
+    """AG3-142 (SOLL-034 behaviour, FK-56 §56.7a/§56.13c): a revoked binding with
+    reason ``ownership_transferred`` is deterministically ``binding_invalid`` --
+    even though the CALLING session_id still matches the bundle's own
+    ``session_id`` (the ex-owner asking about their OWN now-revoked binding).
+    No silent fall-back to ``ai_augmented``.
+    """
+    worktree = tmp_path / "worktree"
+    LocalEdgePublisher(project_root=tmp_path).publish(
+        _bundle(
+            worktree_root=str(worktree),
+            binding_status="revoked",
+            revocation_reason="ownership_transferred",
+        ),
+    )
+
+    resolved = ProjectEdgeResolver(project_root=tmp_path).resolve(
+        session_id="sess-001",
+        cwd=worktree,
+        freshness_class="guarded_read",
+    )
+
+    assert resolved.operating_mode == "binding_invalid"
+    assert resolved.block_reason == "ownership_transferred"
+
+
+def test_resolver_revoked_binding_with_missing_reason_stays_fail_closed(
+    tmp_path: Path,
+) -> None:
+    """AG3-142 (AC8): a revoked binding with a missing/unknown reason still
+    fails closed to ``binding_invalid`` -- NEVER silently treated as "not
+    revoked" and NEVER a fall-back to ``ai_augmented``, even though the
+    reason string itself is not the specific ``ownership_transferred`` value.
+    """
+    worktree = tmp_path / "worktree"
+    LocalEdgePublisher(project_root=tmp_path).publish(
+        _bundle(
+            worktree_root=str(worktree),
+            binding_status="revoked",
+            revocation_reason=None,
+        ),
+    )
+
+    resolved = ProjectEdgeResolver(project_root=tmp_path).resolve(
+        session_id="sess-001",
+        cwd=worktree,
+        freshness_class="guarded_read",
+    )
+
+    assert resolved.operating_mode == "binding_invalid"
+    assert resolved.block_reason is not None
+    assert resolved.block_reason != "ownership_transferred"
 
 
 def test_resolver_performs_bounded_sync_for_stale_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

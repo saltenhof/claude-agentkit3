@@ -409,8 +409,18 @@ def test_admin_abort_partial_write_goes_to_repair_and_locks_story(
        ``rejected`` at the operations layer (AC10).
     4. The open repair is productively resolved via the REAL admin-abort service path
        (repair -> ``resolved``), lifting the story-scoped mutation lock (AC10 exit).
-    5. A fresh mutating start against the story is re-admitted -- proving there is a
-       productive way out of repair (no permanent deadlock; E1/E2).
+    5. A mutating start for the SAME run/owner is re-admitted -- proving there is a
+       productive way out of repair (no permanent deadlock; E1/E2). AG3-142: the
+       rightful owner's SAME run_id/session_id is used deliberately (not a brand
+       new run_id) -- the story's active ``run_ownership_records`` row is still
+       ``run_id`` (from step 1) at this point, and AG3-142's fence now correctly
+       enforces ``at_most_one_active_ownership_per_story`` (FK-56 §56.8a): a
+       genuinely NEW run_id for the SAME story is fenced OUT (``RUN_MISMATCH``)
+       until AG3-149 wires the disown/reset behaviour that retires the old
+       active record. That is a NEW, correct, fail-closed guarantee AG3-142
+       adds, not a repair-lock concern -- proven separately in
+       ``test_run_mismatch_fences_out_before_the_dispatcher_is_ever_consulted``
+       (``tests/unit/control_plane/test_runtime.py``).
     """
     story_id = "AG3-350"
     run_id = "run-350"
@@ -491,16 +501,18 @@ def test_admin_abort_partial_write_goes_to_repair_and_locks_story(
     reloaded = load_control_plane_operation_global("op-350-crash")
     assert reloaded is not None and reloaded.status == "resolved"
 
-    # (5) the story is no longer repair-locked: the same fresh mutating start that was
-    #     rejected in step (3) is now re-admitted (fresh unbound session so the only
-    #     thing that changed is the lifted lock, not run/session binding).
+    # (5) the story is no longer repair-locked: the RIGHTFUL owner (the SAME
+    #     run_id/session_id whose active ownership record was minted in step 1)
+    #     is re-admitted -- proving the lifted lock, not ownership, was step
+    #     (3)'s blocker. AG3-142: a genuinely NEW run_id is deliberately NOT
+    #     used here (see the docstring forward-dependency note on AG3-149).
     unlocked = service.start_phase(
-        run_id="run-350-new",
+        run_id=run_id,
         phase="setup",
         request=PhaseMutationRequest(
             project_key="tenant-a",
             story_id=story_id,
-            session_id="sess-after-repair",
+            session_id="sess-1",
             principal_type="orchestrator",
             worktree_roots=["T:/worktrees/ag3-350"],
             op_id="op-350-after-repair",
