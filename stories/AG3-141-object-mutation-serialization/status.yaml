@@ -1,18 +1,19 @@
 story_id: AG3-141
-title: "Objekt-Serialisierung: durable Story-/Projekt-Claims vor Dispatch, Lock-Sets, Queue-Fairness, bounded Warte-Semantik (K4)"
+title: "Objekt-Serialisierung: durable Story-Claims vor Dispatch, bounded Warte-Semantik (K4)"
 type: implementation
-status: ready
-phase: setup
+status: in_progress
+phase: implementation
 created: "2026-07-02"
 size: L
 # Herkunft: GAP-ST-05 (gap-analyse-session-ownership.md v4, Codex-APPROVE).
 # Regel 4 des Strangs: die einzige technische Nebenlaeufigkeits-Garantie ist
 # In-Flight-Idempotenz + Serialisierung PRO MUTIERTEM OBJEKT (= Story; an das
 # Objekt gebunden, nicht an den Aufrufer). Reads bleiben frei parallel.
-# Baut: Objekt-Claim vor Dispatch (durable, object_mutation_claims aus
-# AG3-137), Lock-Sets + globale Erwerbsordnung, Queue-Fairness,
-# Warte-Semantik unter Constraint K4 (12s-Frontend-Timeout: 409+Retry-After
-# oder kurzes bounded Warten), story-scoped Concurrency-Testmuster.
+# Baut: per-Story-Objekt-Claim vor Dispatch (durable, object_mutation_claims
+# aus AG3-137), Warte-Semantik unter Constraint K4 (12s-Frontend-Timeout:
+# deterministisches 409+Retry-After, kein Thread-Blocking), story-scoped
+# Concurrency-Testmuster. KEIN projektweites Sperrobjekt / keine Lock-Sets /
+# keine Queue-Fairness (kein Aufrufer; verifiziert 2026-07-04, Codex + Fable).
 # Kanten: AG3-137 (Claim-Tabelle/Spalten), AG3-138 (Instanzbindung +
 # Verwaisungs-Handling — ohne Startup-Rekonsiliierung wuerden verwaiste
 # Objekt-Claims ewig blockieren).

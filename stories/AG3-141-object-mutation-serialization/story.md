@@ -1,4 +1,4 @@
-# AG3-141 — Objekt-Serialisierung: durable Story-/Projekt-Claims vor Dispatch, Lock-Sets, Queue-Fairness, bounded Warte-Semantik
+# AG3-141 — Objekt-Serialisierung: durable Story-Claims vor Dispatch, bounded Warte-Semantik (K4)
 
 - **Typ:** implementation
 - **Größe:** L
@@ -11,14 +11,14 @@
     würde ein verwaister Objekt-Claim die Story für immer blockieren — das
     Verwaisungs-Handling ist harte Vorbedingung (GAP §4: „ST-05 ← ST-01,
     ST-02").
-- **Quell-Konzept:** FK-91 §91.1a Regel 13 (Deklarationspflicht, Lock-Set,
-  Erwerbsordnung, Queue-Fairness, „Reads nehmen niemals Sperren");
-  FK-10 §10.5.4 + §10.1.3 (durable Objekt-Mutation-Claims vor Dispatch;
-  xact-Locks nur für Ein-Transaktions-Mutationen); FK-17 §17.5
-  (Objekt-Serialisierung neben Single-Writer);
-  `formal.state-storage.invariants`
-  (`pending_project_claims_are_not_overtaken_by_younger_story_claims`,
-  `object_mutation_claims_are_instance_bound_and_never_expire_by_wall_clock`);
+- **Quell-Konzept:** FK-91 §91.1a Regel 13 (Deklarationspflicht; das
+  serialisierte Objekt ist die Story `(project_key, story_id)`, durabler
+  Objekt-Claim vor Dispatch; „Reads nehmen niemals Sperren"; kein
+  projektweites Sperrobjekt/keine Lock-Sets); FK-10 §10.5.4 + §10.1.3
+  (durable Objekt-Mutation-Claims vor Dispatch; xact-Locks nur für
+  Ein-Transaktions-Mutationen); FK-17 §17.5 (Objekt-Serialisierung neben
+  Single-Writer); `formal.state-storage.invariants`
+  (`object_mutation_claims_are_instance_bound_and_never_expire_by_wall_clock`);
   `formal.story-workflow.commands` (run-phase/resume:
   „instance-bound, object-serialized" — Serialisierungs-Anteil)
 - **Herkunft:** GAP-Analyse Session-Ownership v4 (`_temp/gap-analyse-session-ownership.md`),
@@ -233,18 +233,19 @@ Der Ist-Zustand (am Code verifiziert 2026-07-02):
   keine Schatten-Sperrdateien.
 - **Tests (CLAUDE.md §Tests):** Concurrency-Verhalten wird an echten
   Phasengrenzen bewiesen (echter Dispatch-Pfad, Postgres-Fixture), nicht an
-  zusammengebautem Ersatz-State; gültige UND ungültige Übergänge
-  (Fairness-Verletzung, Ordnungs-Verletzung) sind verprobt.
+  zusammengebautem Ersatz-State; gültige UND ungültige Übergänge (besetzte
+  Story → deterministisches `409`; Crash nach Claim-Erwerb → Freigabe nur
+  über Reconcile/`admin_abort`) sind verprobt.
 
 ## Querschnitts-Auflagen
 
 - **K4 (Pflicht-Auflage dieser Story):** 12-s-Frontend-Timeout
   (`frontend/app/api.ts:156-186`, AbortController :157) + thread-per-request
   (`ThreadingHTTPSServer`, `control_plane_http/app.py:1458`) verbieten langes
-  blockierendes Warten. Umsetzungs-Constraint: `409 + Retry-After` oder
-  kurzes bounded Warten mit hartem Budget deutlich unter 12 s; das Budget ist
-  im Code als Konstante gepinnt und getestet.
-- **K5 Postgres-only:** Claim-Erwerb/Queue laufen ausschließlich gegen die
+  blockierendes Warten. Umsetzungs-Constraint: deterministisches
+  `409 + Retry-After`, **kein** Thread-Blocking; das Retry-After-Budget ist
+  im Code als Konstante (deutlich unter 12 s) gepinnt und getestet.
+- **K5 Postgres-only:** der per-Story-Claim-Erwerb/-Freigabe läuft ausschließlich gegen die
   Postgres-`object_mutation_claims`-Tabelle (fail-closed,
   `_require_postgres_control_plane_backend`, `control_plane/runtime.py:2119`);
   kein SQLite-Spiegel; Unit-Tests über Ports/Fakes,

@@ -918,9 +918,11 @@ schreibenden Owner.
 eine Entität schreiben darf; die Objekt-Serialisierung regelt,
 *wann*: Eine Mutation auf einem Objekt terminiert, bevor eine andere
 Mutation auf demselben Objekt beginnt. Jede mutierende Operation
-deklariert ihr Serialisierungsobjekt; Default für umsetzungs- und
-lifecyclebezogene Mutationen ist `(project_key, story_id)`,
-projektweite Mutationen serialisieren auf `(project_key)`. Lesende
+deklariert ihr Serialisierungsobjekt; das serialisierte Objekt ist die
+**Story** `(project_key, story_id)` (durabler Objekt-Claim vor Dispatch).
+Projektweit-atomare Vorgänge (Mode-Lock, Story-Nummernvergabe) sind
+vollständig in einer Transaktion serialisiert und nehmen keinen durablen
+Claim; ein projektweites Serialisierungs-Sperrobjekt gibt es nicht. Lesende
 Zugriffe sind sperrenfrei und laufen parallel. Die vollständige
 API-Semantik (Idempotenz, In-Flight-Verhalten, Job-Muster) normiert
 FK-91.

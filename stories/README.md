@@ -375,7 +375,7 @@ Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
 | AG3-138 | Instanz-Identität + Startup-Rekonsiliierung + admin_abort | L | **completed** | 137 |
 | AG3-139 | TTL-Entfall (Rückbau, NUR nach 138) | S | **completed** | 138 |
 | AG3-140 | Einheitlicher Idempotenz-Vertrag (BC-weit, Client-op_id) | L | **completed** | 137 |
-| AG3-141 | Objekt-Serialisierung (Story-Claims, Lock-Sets, 409/bounded-wait) | L | **ready** | 137, 138 |
+| AG3-141 | Objekt-Serialisierung (per-Story-Claims, 409/Retry-After) | L | **ready** | 137, 138 |
 | AG3-142 | Ownership-Fencing der Regime-Pfade (`ownership_epoch`) | L | **ready** | 137 |
 | AG3-143 | Execution-Contract-Digest + Spec-Freeze | M | **ready** | 137 |
 | AG3-144 | Job-Muster + Ergebnisarten + Upsert-Fences | L | blocked | 141, 142, 143 |

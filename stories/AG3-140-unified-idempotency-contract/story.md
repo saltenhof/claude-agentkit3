@@ -122,8 +122,8 @@ Aufrufer-Parameter (:562); das Bundle-Asset
 
 ### Out of Scope (mit Owner)
 
-- **Serialisierungs-Anteil von SOLL-056/057** — Objekt-Claims vor Dispatch,
-  Lock-Sets, Queue-Fairness, Warte-Semantik: **AG3-141**.
+- **Serialisierungs-Anteil von SOLL-056/057** — per-Story-Objekt-Claims vor
+  Dispatch, Warte-Semantik: **AG3-141**.
 - **Instanzbindung der Claims, Startup-Rekonsiliierung, `admin_abort`**:
   **AG3-138**.
 - **TTL-Rückbau**: **AG3-139**.

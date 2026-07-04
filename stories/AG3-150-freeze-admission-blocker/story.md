@@ -108,10 +108,10 @@ und der Split blockiert länger und breiter als fachlich nötig.
    wird auf einen fachlichen **Admin-Freeze über die gesamte Saga-Dauer**
    umgestellt (Mitglied der Familie: nie auto-ablaufend, auditiert,
    Admission-Blocker). Jeder Saga-Schritt wird eine **kurze, bounded,
-   gefencte Mutation** mit eigenem Claim-Erwerb und eigener Freigabe in
-   der globalen Erwerbsordnung (AG3-141-Claims: Projekt-Claim für
-   Anlage/Nummernvergabe, Story-Claims lexikographisch); die Saga als
-   Ganzes hält **keine** Serialisierungs-Claims über ihre Laufzeit. Die
+   gefencte Mutation** mit eigenem Claim-Erwerb und eigener Freigabe
+   (AG3-141: per-Story-Objekt-Claim; Nachfolger-Anlage/Nummernvergabe
+   vollständig in einer Transaktion); die Saga als Ganzes hält **keine**
+   Serialisierungs-Claims über ihre Laufzeit. Die
    bestehende Reentranz über die `op_id`-Abstammung wird **angedockt,
    nicht neu gebaut** (SOLL-087): Resume konvergiert ohne Doppelvollzug
    (keine doppelte Successor-Anlage, kein doppeltes Rebinding, kein
@@ -132,7 +132,7 @@ und der Split blockiert länger und breiter als fachlich nötig.
   Eigentumslage-Änderung**: **AG3-148**.
 - **Disown-Baustein, Record-Status-Pflege, Ping-Pong**: **AG3-149** (der
   Split-Disown-Anteil liegt dort; hier nur Saga-/Freeze-Modellierung).
-- **Objekt-Claim-Maschinerie, Erwerbsordnung, Queue-Fairness**: **AG3-141**
+- **Per-Story-Objekt-Claim-Maschinerie**: **AG3-141**
   (wird hier je Saga-Schritt konsumiert).
 - **Frontend-Anzeige der Freeze-/Contested-Zustände**: **AG3-153**.
 

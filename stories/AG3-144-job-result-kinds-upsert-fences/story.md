@@ -146,8 +146,8 @@ Heute existiert nichts davon (am Code verifiziert 2026-07-02; Grep
 - **Prädikat-DEFINITIONEN:** Ownership-Record/Epoch-Fence-Fläche
   **AG3-142**; `execution_contract_digest` **AG3-143** — hier nur deren
   Verwendung.
-- **Objekt-Serialisierung** (durable Objekt-Claims, Lock-Sets,
-  Erwerbsordnung, Queue-Fairness, Warte-Semantik/K4): **AG3-141**.
+- **Objekt-Serialisierung** (durable per-Story-Objekt-Claims,
+  Warte-Semantik/K4): **AG3-141**.
 - **Instanz-Identität, Startup-Rekonsiliierung, `operation_epoch`-
   CAS-Finalize, `admin_abort`**: **AG3-138** (das `operation_epoch`-Prädikat
   wird hier nur konsumiert, soweit vorhanden).

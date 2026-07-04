@@ -115,7 +115,7 @@ heute vollständig (am Code verifiziert 2026-07-02):
   `takeover_operation`): **AG3-139** — erst nachdem diese Story das
   Verwaisungs-Handling ersetzt hat (IMPL-006). Diese Story lässt die
   TTL-Mechanik bewusst unangetastet in Betrieb.
-- **Objekt-Claim-Erwerb/Queue-Fairness/Warte-Semantik** und der Anschluss der
+- **Per-Story-Objekt-Claim-Erwerb + Warte-Semantik** und der Anschluss der
   `object_mutation_claims` an die Rekonsiliierung: **AG3-141**.
 - **Ownership-Fencing der Regime-Pfade** (`ownership_epoch`-Fence,
   `_run_admission_evidence`-Ablösung): **AG3-142**.

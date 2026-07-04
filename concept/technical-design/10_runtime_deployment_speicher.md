@@ -880,20 +880,22 @@ Alle Pipeline-Schritte müssen idempotent sein:
 
 ### 10.5.4 Objekt-Serialisierung und Ein-Writer-Betriebsannahme
 
-Serialisierung erfolgt **pro deklariertem Objekt** (Deklarationspflicht
-und Lock-Set-Ordnung: FK-91 §91.1a Regel 13): Default für umsetzungs-
-und lifecyclebezogene Mutationen ist `(project_key, story_id)`,
-projektweite Mutationen serialisieren auf `(project_key)`. Der
-Mechanismus ist eine **durable Objekt-Mutation-Claim-Zeile**
-(`state-storage.entity.object-mutation-claim`), die **vor dem
-Dispatch** erworben und bis Finalize/Abort gehalten wird — denn
+Serialisierung erfolgt **pro deklariertem Objekt** (Deklarationspflicht:
+FK-91 §91.1a Regel 13): das serialisierte Objekt ist die **Story**
+`(project_key, story_id)`. Der Mechanismus ist eine **durable
+Objekt-Mutation-Claim-Zeile** (`state-storage.entity.object-mutation-claim`),
+die **vor dem Dispatch** erworben und bis Finalize/Abort gehalten wird — denn
 Engine-Writes und Control-Plane-Finalisierung laufen in getrennten
 DB-Transaktionen, die ein transaktionsgebundenes Lock nicht gemeinsam
 umschließen kann. **Transaktionsgebundene Locks** (`SELECT … FOR
-UPDATE`, `pg_advisory_xact_lock`) bleiben das Mittel der Wahl
-ausschließlich für Mutationen, die vollständig in **einer**
-Transaktion liegen (so nutzt sie das `project_mode_lock` heute schon).
-**Reads nehmen niemals Sperren.**
+UPDATE`, `pg_advisory_xact_lock`) bleiben das Mittel der Wahl für
+Mutationen, die vollständig in **einer** Transaktion liegen — das sind die
+einzigen projektweit-atomaren Vorgänge (Mode-Lock, Story-Nummernvergabe; so
+nutzt sie das `project_mode_lock` heute schon) und sie nehmen **keinen**
+durablen Claim. Ein projektweites Serialisierungs-Sperrobjekt und
+Mehr-Objekt-Lock-Sets gibt es nicht (keine Mutation braucht
+whole-project-Exklusivität über einen Dispatch). **Reads nehmen niemals
+Sperren.**
 
 Objekt-Mutation-Claims und In-Flight-Operation-Claims sind
 **instanzgebunden, nie wanduhrgebunden**: Jeder Claim trägt

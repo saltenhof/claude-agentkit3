@@ -252,11 +252,15 @@ Saga**:
    FK-56 §56.13f — sie blockieren zusaetzlich zum Ownership-Regime
    und invalidieren offene Takeover-Challenges.
 2. Jeder Saga-Schritt ist eine **kurze, bounded, gefencte Mutation**
-   mit eigenem Claim-Erwerb und eigener Freigabe. Die Claims
-   (Projekt-Claim fuer Anlage/Nummernvergabe, Story-Claims) werden je
-   Schritt in der globalen Erwerbsordnung genommen
-   (FK-91 §91.1a Regeln 13 und 14); die Saga als Ganzes haelt
-   **keine** Serialisierungs-Claims ueber ihre Laufzeit.
+   mit eigenem Claim-Erwerb und eigener Freigabe (FK-91 §91.1a
+   Regeln 13 und 14). Nachfolger-Anlage und Story-Nummernvergabe laufen
+   dabei vollstaendig **in einer Transaktion** (`FOR UPDATE`/xact-Lock,
+   FK-10 §10.5.4) und nehmen **keinen** durablen Claim; Mutationen der
+   Quell-/Nachfolger-Stories serialisieren je Schritt ueber ihren
+   per-Story-Objekt-Claim `(project_key, story_id)`. Ein projektweiter
+   Claim und eine globale Lock-Set-Erwerbsordnung sind nicht noetig; die
+   Saga als Ganzes haelt **keine** Serialisierungs-Claims ueber ihre
+   Laufzeit.
 3. Wiederaufnahme ist reentranzsicher ueber die
    **`op_id`-Abstammung** der Saga: verschachtelte Story-Anlagen
    innerhalb der Saga leiten ihre Idempotenzschluessel deterministisch

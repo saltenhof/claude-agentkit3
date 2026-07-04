@@ -145,8 +145,8 @@ gebaut werden.
   **AG3-139**.
 - **Einheitlicher Idempotenz-Vertrag** (Client-op_id-Pflicht, Konsolidierung
   `idempotency_keys`): **AG3-140**.
-- **Claim-Erwerbslogik, Lock-Sets, Queue-Fairness, Warte-Semantik**
-  (Objekt-Serialisierung zur Laufzeit): **AG3-141**.
+- **Per-Story-Claim-Erwerbslogik + Warte-Semantik** (Objekt-Serialisierung
+  zur Laufzeit): **AG3-141**.
 - **Transfer-Endpoints/Challenge/Approval/atomarer Vollzug** (befüllt
   `takeover_transfer_records` produktiv): **AG3-148**.
 - **Disown-Verhalten (Reset/Exit/Split)**: **AG3-149**.
