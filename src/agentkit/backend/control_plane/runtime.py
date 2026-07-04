@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import logging
-import re
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 
 from agentkit.backend.control_plane import object_claims
+from agentkit.backend.control_plane.execution_contract_assembly import (
+    ExecutionContractDigestOutcome,
+    build_execution_contract_digest,
+)
 from agentkit.backend.control_plane.models import (
     AdminAbortRequest,
     ClosureCompleteRequest,
@@ -170,34 +173,6 @@ class _StartPhaseOutcome:
     #: start (``mints_ownership_record=True``); ``None`` for every other
     #: commit (nothing to mint) and for a ``rejection`` outcome.
     execution_contract_digest: str | None = None
-
-
-#: AG3-143 (FK-44 §44.3a, AC2, Codex r1 CRITICAL fix): the shape a
-#: ``ProjectRegistration.config_digest`` must have to be admitted as a digest
-#: component -- a lowercase 64-char SHA-256 hex string, mirroring
-#: :data:`agentkit.backend.prompt_runtime.execution_contract._SHA256_HEX_LENGTH`'s
-#: validation. A blank or malformed ``config_digest``/``config_version`` must
-#: never be silently hashed into the execution-contract digest as a partial
-#: component -- it fails the fresh setup start closed instead (see
-#: :meth:`ControlPlaneRuntimeService._build_execution_contract_digest`).
-_PROJECT_CONFIG_DIGEST_HEX_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-
-
-@dataclass(frozen=True)
-class _ExecutionContractDigestOutcome:
-    """Outcome of resolving a fresh setup's ``execution_contract_digest`` inputs.
-
-    AG3-143 (FK-44 §44.3a, AC2): exactly one of ``digest`` /
-    ``rejection_reason`` is non-``None``. A ``rejection_reason`` means at
-    least one digest component (story spec, project registration/config,
-    run-prompt-pin) could not be resolved -- the fresh setup start is
-    rejected fail-closed BEFORE the engine dispatch runs, so no run ever
-    enters the execution regime without a persisted digest and no partial
-    engine write is produced by a digest failure.
-    """
-
-    digest: str | None
-    rejection_reason: str | None
 
 
 @dataclass(frozen=True)
@@ -614,7 +589,7 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         token_factory: Callable[[], str] | None = None,
         instance_identity: BackendInstanceIdentityRecord | None = None,
         execution_contract_digest_reader: (
-            Callable[[PhaseMutationRequest, str], _ExecutionContractDigestOutcome]
+            Callable[[PhaseMutationRequest, str], ExecutionContractDigestOutcome]
             | None
         ) = None,
     ) -> None:
@@ -660,7 +635,7 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         #: path (neither overridden) is lazily resolved to
         #: :meth:`_build_execution_contract_digest` on first use.
         self._execution_contract_digest_reader: (
-            Callable[[PhaseMutationRequest, str], _ExecutionContractDigestOutcome]
+            Callable[[PhaseMutationRequest, str], ExecutionContractDigestOutcome]
             | None
         )
         if execution_contract_digest_reader is not None:
@@ -1194,7 +1169,7 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
 
     def _resolve_execution_contract_digest_reader(
         self,
-    ) -> Callable[[PhaseMutationRequest, str], _ExecutionContractDigestOutcome]:
+    ) -> Callable[[PhaseMutationRequest, str], ExecutionContractDigestOutcome]:
         """Return the injected/DI-defaulted reader, lazily binding the productive one.
 
         Mirrors :meth:`_resolve_dispatcher`: ``None`` (the productive
@@ -1215,173 +1190,20 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         *,
         request: PhaseMutationRequest,
         run_id: str,
-    ) -> _ExecutionContractDigestOutcome:
+    ) -> ExecutionContractDigestOutcome:
         """Resolve + form the execution_contract_digest for a fresh setup (AG3-143).
 
-        FK-44 §44.3a (SOLL-095): gathers the digest's raw inputs -- the
-        story's ``StorySpecification`` (the load-bearing spec fields,
-        FK-59 §59.9a), the project's registered config version/digest (the
-        relevant project/QA/gate configuration; SINGLE SOURCE OF TRUTH, never
-        a second ``project.yaml`` canonicalization), the project's bound
-        skill versions, the installed AK3 capability (package) version, and
-        the run's run-prompt-pin (FK-44 §44.3, resolved/created HERE if this
-        is the run's first prompt-runtime touch -- the normative "at setup"
-        moment, AG3-143 closes the pre-existing gap where nothing called
-        ``ensure_run_prompt_pin_present`` productively at setup) -- then forms
-        the deterministic digest via the pure prompt-runtime assembler.
-
-        A component that cannot be resolved is reported as a rejection
-        reason (never raised): the caller rejects the fresh setup start
-        fail-closed (AC2) instead of letting an exception escape the atomic
-        claim machinery.
+        Thin delegation (Sonar build #988, ``PY_CLASS_MAX_LOC_800`` cleanup):
+        the actual gathering + fail-closed validation of the digest's raw
+        inputs (story spec, project registration/config, skill bindings,
+        run-prompt-pin, FK-44 §44.3a) lives in
+        :func:`~agentkit.backend.control_plane.execution_contract_assembly.build_execution_contract_digest`
+        -- this admission class keeps only its setup/finalize control flow.
+        Behavior is unchanged: same repository port, same fail-closed
+        rejection-before-dispatch semantics (AC2).
         """
-        from agentkit.backend.exceptions import ProjectError
-        from agentkit.backend.prompt_runtime.execution_contract import (
-            ExecutionContractInputs,
-            RunPromptPinComponent,
-            SkillVersionComponent,
-            StorySpecComponent,
-            compute_execution_contract_digest,
-        )
-        from agentkit.backend.prompt_runtime.pins import ensure_run_prompt_pin_present
-
-        ctx = self._repo.load_story_context(request.project_key, request.story_id)
-        if ctx is None:
-            return _ExecutionContractDigestOutcome(
-                digest=None,
-                rejection_reason=(
-                    "execution_contract_digest could not be formed: the run's "
-                    "StoryContext is unexpectedly unresolvable at setup "
-                    "(fail-closed, FK-44 §44.3a)."
-                ),
-            )
-
-        from agentkit.backend.state_backend.store.project_registration_repository import (
-            StateBackendProjectRegistrationRepository,
-        )
-
-        registration = StateBackendProjectRegistrationRepository().get(
-            request.project_key
-        )
-        if registration is None:
-            return _ExecutionContractDigestOutcome(
-                digest=None,
-                rejection_reason=(
-                    "execution_contract_digest could not be formed: no "
-                    f"project_registry entry for project_key={request.project_key!r} "
-                    "(fail-closed, FK-44 §44.3a component 'project/QA/gate "
-                    "configuration')."
-                ),
-            )
-        #: Codex r1 CRITICAL fix (AC2): a registered project with a blank
-        #: ``config_version`` or a malformed ``config_digest`` is an
-        #: UNRESOLVABLE 'project/QA/gate configuration' component -- reject
-        #: fail-closed here, the SAME way as the "no registration" branch
-        #: above, instead of hashing a partial/invalid component into the
-        #: digest. ``ProjectRegistration`` has no field-level validator for
-        #: these (installer/upgrade tests seed non-hex placeholder digests
-        #: that a model-level validator would break); this is the digest's
-        #: own admission gate for the shape it actually depends on.
-        if not registration.config_version.strip() or not (
-            _PROJECT_CONFIG_DIGEST_HEX_PATTERN.fullmatch(registration.config_digest)
-        ):
-            return _ExecutionContractDigestOutcome(
-                digest=None,
-                rejection_reason=(
-                    "execution_contract_digest could not be formed: "
-                    f"project_key={request.project_key!r} has a blank "
-                    "config_version or a config_digest that is not a 64-char "
-                    "lowercase SHA-256 hex string (fail-closed, FK-44 §44.3a "
-                    "component 'project/QA/gate configuration')."
-                ),
-            )
-
-        from agentkit.backend.state_backend.store.story_repository import (
-            StateBackendStoryRepository,
-        )
-
-        spec = StateBackendStoryRepository().get_specification(ctx.story_uuid)
-        if spec is None:
-            return _ExecutionContractDigestOutcome(
-                digest=None,
-                rejection_reason=(
-                    "execution_contract_digest could not be formed: no "
-                    f"StorySpecification for story_uuid={ctx.story_uuid} "
-                    "(fail-closed, FK-44 §44.3a component 'story-spec fields')."
-                ),
-            )
-
-        from agentkit.backend.state_backend.store.skill_binding_repository import (
-            StateBackendSkillBindingRepository,
-        )
-
-        skill_versions = tuple(
-            sorted(
-                (
-                    SkillVersionComponent(
-                        skill_name=binding.skill_name,
-                        bundle_id=binding.bundle_id,
-                        bundle_version=binding.bundle_version,
-                    )
-                    for binding in StateBackendSkillBindingRepository().list_for_project(
-                        request.project_key
-                    )
-                ),
-                key=lambda component: component.skill_name,
-            )
-        )
-
-        try:
-            pin = ensure_run_prompt_pin_present(registration.project_root, run_id=run_id)
-        except ProjectError as exc:
-            return _ExecutionContractDigestOutcome(
-                digest=None,
-                rejection_reason=(
-                    "execution_contract_digest could not be formed: the "
-                    f"run-prompt-pin could not be resolved ({exc}); fail-closed "
-                    "(FK-44 §44.3a component 'run-prompt-pin', FK-44 §44.3)."
-                ),
-            )
-
-        import agentkit
-
-        inputs = ExecutionContractInputs(
-            story_spec=StorySpecComponent(
-                need=spec.need,
-                solution=spec.solution,
-                acceptance=tuple(spec.acceptance),
-                definition_of_done=(
-                    tuple(spec.definition_of_done)
-                    if spec.definition_of_done is not None
-                    else None
-                ),
-                concept_refs=(
-                    tuple(spec.concept_refs) if spec.concept_refs is not None else None
-                ),
-                guardrail_refs=(
-                    tuple(spec.guardrail_refs)
-                    if spec.guardrail_refs is not None
-                    else None
-                ),
-                external_sources=(
-                    tuple(spec.external_sources)
-                    if spec.external_sources is not None
-                    else None
-                ),
-            ),
-            project_config_version=registration.config_version,
-            project_config_digest=registration.config_digest,
-            skill_versions=skill_versions,
-            capability_version=agentkit.__version__,
-            run_prompt_pin=RunPromptPinComponent(
-                prompt_bundle_id=pin.prompt_bundle_id,
-                prompt_bundle_version=pin.prompt_bundle_version,
-                prompt_manifest_sha256=pin.prompt_manifest_sha256,
-            ),
-        )
-        return _ExecutionContractDigestOutcome(
-            digest=compute_execution_contract_digest(inputs),
-            rejection_reason=None,
+        return build_execution_contract_digest(
+            repo=self._repo, request=request, run_id=run_id,
         )
 
     def _finalize_start_phase(
@@ -3890,7 +3712,7 @@ def _default_di_object_claim_repository() -> ObjectMutationClaimRepository:
 
 
 def _default_di_execution_contract_digest_reader() -> (
-    Callable[[PhaseMutationRequest, str], _ExecutionContractDigestOutcome]
+    Callable[[PhaseMutationRequest, str], ExecutionContractDigestOutcome]
 ):
     """Build a trivial, always-succeeding digest reader (DI seam, AG3-143).
 
@@ -3910,7 +3732,7 @@ def _default_di_execution_contract_digest_reader() -> (
 
     def _reader(
         request: PhaseMutationRequest, run_id: str,
-    ) -> _ExecutionContractDigestOutcome:
+    ) -> ExecutionContractDigestOutcome:
         del request, run_id
         from agentkit.backend.prompt_runtime.execution_contract import (
             ExecutionContractInputs,
@@ -3930,7 +3752,7 @@ def _default_di_execution_contract_digest_reader() -> (
                 prompt_manifest_sha256="0" * 64,
             ),
         )
-        return _ExecutionContractDigestOutcome(
+        return ExecutionContractDigestOutcome(
             digest=compute_execution_contract_digest(inputs),
             rejection_reason=None,
         )
