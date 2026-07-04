@@ -666,6 +666,86 @@ def test_guard_counter_mismatch_has_no_drain_or_count(
     assert _has_week(repo, old_week)  # older bucket NOT drained by the mismatch
 
 
+def _seed_foreign_committed_operation(
+    *, op_id: str, body_hash: str, operation_kind: str, now: datetime
+) -> None:
+    """Seed a committed FOREIGN operation row under ``op_id`` in the real store.
+
+    Emulates the worst-case collision the unified contract must survive: a
+    committed control_plane operation (a DIFFERENT operation_kind) already owns
+    ``op_id`` under the SAME request_body_hash. Uses the state backend's own
+    Postgres connection path (real schema/search_path), not a direct-DB backdoor.
+    """
+    from agentkit.backend.state_backend.store import (
+        guard_counter_repository as gcr,
+    )
+
+    with gcr._postgres_connect() as conn:  # noqa: SLF001 -- real backend write in test
+        conn.execute(
+            "INSERT INTO control_plane_operations "
+            "(op_id, project_key, story_id, operation_kind, status, "
+            "response_json, request_body_hash, created_at, updated_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (
+                op_id,
+                _PROJECT,
+                _STORY,
+                operation_kind,
+                "committed",
+                _json_dumps({"phase": "implementation", "status": "committed"}),
+                body_hash,
+                now.isoformat(),
+                now.isoformat(),
+            ),
+        )
+
+
+def _json_dumps(payload: dict[str, object]) -> str:
+    import json as _json
+
+    return _json.dumps(payload)
+
+
+def test_guard_counter_foreign_committed_op_id_is_mismatch_no_side_effect(
+    postgres_isolated_schema: str,
+) -> None:
+    # AG3-140 R5 MAJOR: a committed FOREIGN operation (different operation_kind)
+    # already owns op_id under the SAME request_body_hash. The guard-counter
+    # duplicate-op resolution must NOT treat this as a replay (cross-shape) nor as
+    # a payload-validation 400 -- it must return a stable idempotency MISMATCH
+    # (409) with ZERO counter side effect: no increment, no drain of older buckets.
+    # This is enforced through the ONE shared classify_terminal_row: only a
+    # committed row whose operation_kind == "guard_counter_record" is a replay.
+    _ = postgres_isolated_schema
+    repo = _gc_repo()
+    now = datetime(2026, 6, 2, 12, 0, tzinfo=UTC)
+    week = _current_week(now)
+    old_week = "2026-05-18"
+
+    # A foreign committed control_plane operation owns op_id under body-hash "hA".
+    _seed_foreign_committed_operation(
+        op_id="op-foreign-1", body_hash="hA", operation_kind="phase_start", now=now
+    )
+    # Seed an older-week bucket; a mismatch must NOT drain it.
+    repo.upsert_invocation(  # type: ignore[attr-defined]
+        project_key=_PROJECT, story_id=_STORY, guard_key="orchestrator_guard",
+        week_start=old_week, blocked=False, updated_at=now,
+    )
+
+    outcome = _gc_record(
+        repo, op_id="op-foreign-1", body_hash="hA", week_start=week, now=now
+    )
+
+    assert outcome.status == "mismatch"  # type: ignore[attr-defined]  # NOT replayed
+    assert _invocations_for_week(repo, week) == 0  # no increment for the foreign op
+    assert _has_week(repo, old_week)  # older bucket NOT drained by the mismatch
+    # The foreign row is untouched: still the committed phase_start, not overwritten.
+    row = _control_plane_operation_row("op-foreign-1")
+    assert row is not None
+    assert row["operation_kind"] == "phase_start"
+    assert row["status"] == "committed"
+
+
 def test_guard_counter_concurrent_duplicate_op_id_counts_once_via_unique_gate(
     postgres_isolated_schema: str,
     monkeypatch: pytest.MonkeyPatch,

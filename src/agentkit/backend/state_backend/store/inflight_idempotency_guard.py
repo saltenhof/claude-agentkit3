@@ -235,37 +235,76 @@ def _load_result_payload(raw: object) -> dict[str, object]:
     return {}
 
 
-def _classify_terminal(
-    request: IdempotencyRequest,
-    status: str,
-    payload: dict[str, object],
+# ---------------------------------------------------------------------------
+# The ONE idempotency classification (SINGLE SOURCE OF TRUTH, Codex r5 method
+# change). EVERY idempotency-resolution path in the AG3-140 surface -- the
+# generic guard, story_context_manager (via guard.claim/guard.classify) and the
+# guard-counter's co-transactional path -- resolves a duplicate/terminal
+# ``control_plane_operations`` row through THIS one decision, so no path can
+# diverge on the contract again.
+# ---------------------------------------------------------------------------
+
+#: ``op_id`` committed by THIS operation -> return the stored result.
+ROW_REPLAY = "replay"
+#: same ``op_id``, different body OR different operation -> 409 idempotency_mismatch.
+ROW_MISMATCH = "mismatch"
+#: a terminal state this contract did not commit (aborted/repair/failed) ->
+#: 409 operation_conflict, never a replay of the foreign payload.
+ROW_CONFLICT = "conflict"
+#: a live concurrent ``claimed`` row -> 409 operation_in_flight.
+ROW_IN_FLIGHT = "in_flight"
+
+
+def classify_terminal_row(
+    *,
+    incoming_body_hash: str,
+    incoming_operation_kind: str,
+    stored_status: str,
+    stored_body_hash: str | None,
     stored_operation_kind: str,
-) -> ClaimOutcome:
-    """Classify a terminal (non-``claimed``), same-body-hash row.
+) -> str:
+    """Classify a duplicate ``op_id`` row against the unified contract.
 
-    Operation identity is part of the discriminator (SINGLE SOURCE OF TRUTH: the
-    persisted ``operation_kind`` column). If the stored ``operation_kind`` differs
-    from the incoming request's, the op_id is already bound to a DIFFERENT
-    operation -- a different action whose body happens to hash equal (e.g.
-    ``task_resolve`` vs ``task_dismiss``, which share ``_ResolveRequest`` + the
-    target task_id), OR a foreign ``control_plane`` / guard-counter operation that
-    also writes ``status='committed'`` under a colliding op_id. Either way it is a
-    STABLE fail-closed ``409 idempotency_mismatch``: NEVER a cross-action or
-    cross-shape replay.
+    Fail-closed precedence, returning one of :data:`ROW_REPLAY` /
+    :data:`ROW_MISMATCH` / :data:`ROW_CONFLICT` / :data:`ROW_IN_FLIGHT`:
 
-    When the operation matches, only a row COMMITTED by the guard contract
-    (``status='committed'``) is a genuine :class:`ReplayOutcome` -- each consumer
-    reconstructs its own payload shape (an HTTP ``{status_code, body}`` for the
-    generic routes, or a story snapshot for ``story_context_manager``). Any OTHER
-    terminal state -- an ``admin_abort`` (``status='aborted'``), ``repair`` /
-    ``failed`` -- is a STABLE fail-closed :class:`AbortedOutcome`, never a replay
-    and never a corrupt-500 through the route replay builder.
+    1. ``stored_status == 'claimed'`` -> ``ROW_IN_FLIGHT`` (a live concurrent claim).
+    2. ``stored_body_hash != incoming_body_hash`` -> ``ROW_MISMATCH`` (same op_id,
+       different body).
+    3. ``stored_operation_kind != incoming_operation_kind`` -> ``ROW_MISMATCH`` (the
+       op_id is bound to a DIFFERENT operation -- a different action whose body
+       hashes equal, e.g. ``task_resolve`` vs ``task_dismiss``, OR a foreign
+       ``control_plane`` / guard-counter operation under a colliding op_id). NEVER
+       a cross-action / cross-shape replay.
+    4. ``stored_status != 'committed'`` -> ``ROW_CONFLICT`` (a terminal the contract
+       did not commit: admin-aborted / repair / failed).
+    5. otherwise -> ``ROW_REPLAY`` (committed by THIS operation; the consumer
+       reconstructs its own payload shape -- an HTTP ``{status_code, body}`` for the
+       generic routes, a story snapshot for ``story_context_manager``, a
+       ``GuardCounterMutationAccepted`` for the guard-counter).
     """
-    if stored_operation_kind != request.operation_kind:
-        return MismatchOutcome(op_id=request.op_id)
-    if status == _TERMINAL_STATUS:
-        return ReplayOutcome(result_payload=payload)
-    return AbortedOutcome(op_id=request.op_id)
+    if stored_status == _CLAIM_STATUS:
+        return ROW_IN_FLIGHT
+    if stored_body_hash != incoming_body_hash:
+        return ROW_MISMATCH
+    if stored_operation_kind != incoming_operation_kind:
+        return ROW_MISMATCH
+    if stored_status != _TERMINAL_STATUS:
+        return ROW_CONFLICT
+    return ROW_REPLAY
+
+
+def _outcome_for_decision(
+    op_id: str, decision: str, replay_payload: dict[str, object]
+) -> ClaimOutcome:
+    """Map a :func:`classify_terminal_row` decision to a guard ``ClaimOutcome``."""
+    if decision == ROW_REPLAY:
+        return ReplayOutcome(result_payload=replay_payload)
+    if decision == ROW_MISMATCH:
+        return MismatchOutcome(op_id=op_id)
+    if decision == ROW_CONFLICT:
+        return AbortedOutcome(op_id=op_id)
+    return InFlightOutcome(op_id=op_id)  # ROW_IN_FLIGHT
 
 
 class StateBackendInflightIdempotencyGuard:
@@ -312,23 +351,27 @@ class StateBackendInflightIdempotencyGuard:
         return self._resolve_loser(request)
 
     def _resolve_loser(self, request: IdempotencyRequest) -> ClaimOutcome:
-        """Classify a claim-loser: replay / mismatch / in-flight."""
+        """Classify a claim-loser through the shared :func:`classify_terminal_row`."""
         existing = facade.load_inflight_operation_row_global(request.op_id)
         if existing is None:
             # The row vanished between the failed claim and the load (a
             # concurrent release/abort). Fail-closed to in-flight: a retry
             # re-claims cleanly. Never silently re-run under a lost claim.
             return InFlightOutcome(op_id=request.op_id)
-        status = str(existing["status"])
-        if status == _CLAIM_STATUS:
-            return InFlightOutcome(op_id=request.op_id)
         stored_hash = existing.get("request_body_hash")
-        if stored_hash != request.body_hash:
-            return MismatchOutcome(op_id=request.op_id)
-        payload = _load_result_payload(existing["response_json"])
-        return _classify_terminal(
-            request, status, payload, str(existing["operation_kind"])
+        decision = classify_terminal_row(
+            incoming_body_hash=request.body_hash,
+            incoming_operation_kind=request.operation_kind,
+            stored_status=str(existing["status"]),
+            stored_body_hash=None if stored_hash is None else str(stored_hash),
+            stored_operation_kind=str(existing["operation_kind"]),
         )
+        replay_payload = (
+            _load_result_payload(existing["response_json"])
+            if decision == ROW_REPLAY
+            else {}
+        )
+        return _outcome_for_decision(request.op_id, decision, replay_payload)
 
     def finalize(
         self,
@@ -410,15 +453,21 @@ class InMemoryInflightIdempotencyGuard:
                 operation_kind=request.operation_kind,
             )
             return FreshClaim(owner_token=owner_token, claimed_at_iso=claimed_at_iso)
-        if existing.status == _CLAIM_STATUS:
-            return InFlightOutcome(op_id=request.op_id)
-        if existing.body_hash != request.body_hash:
-            return MismatchOutcome(op_id=request.op_id)
-        return _classify_terminal(
-            request,
-            existing.status,
-            dict(existing.result_payload),
-            existing.operation_kind,
+        return self._classify_existing(request, existing)
+
+    def _classify_existing(
+        self, request: IdempotencyRequest, existing: _MemRow
+    ) -> ClaimOutcome:
+        """Classify an existing row through the shared :func:`classify_terminal_row`."""
+        decision = classify_terminal_row(
+            incoming_body_hash=request.body_hash,
+            incoming_operation_kind=request.operation_kind,
+            stored_status=existing.status,
+            stored_body_hash=existing.body_hash,
+            stored_operation_kind=existing.operation_kind,
+        )
+        return _outcome_for_decision(
+            request.op_id, decision, dict(existing.result_payload)
         )
 
     def finalize(
@@ -456,16 +505,7 @@ class InMemoryInflightIdempotencyGuard:
         existing = self._rows.get(request.op_id)
         if existing is None:
             return InFlightOutcome(op_id=request.op_id)
-        if existing.status == _CLAIM_STATUS:
-            return InFlightOutcome(op_id=request.op_id)
-        if existing.body_hash != request.body_hash:
-            return MismatchOutcome(op_id=request.op_id)
-        return _classify_terminal(
-            request,
-            existing.status,
-            dict(existing.result_payload),
-            existing.operation_kind,
-        )
+        return self._classify_existing(request, existing)
 
 
 # ---------------------------------------------------------------------------
@@ -630,6 +670,7 @@ __all__ = [
     "MismatchOutcome",
     "ReplayOutcome",
     "StateBackendInflightIdempotencyGuard",
+    "classify_terminal_row",
     "compute_body_hash",
     "run_route_idempotent",
 ]

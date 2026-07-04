@@ -33,9 +33,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from agentkit.backend.kpi_analytics.fact_store.models import GuardInvocationCounter
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    ROW_REPLAY,
+    classify_terminal_row,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+# The single operation_kind this repository ever writes into the consolidated
+# ``control_plane_operations`` record. A duplicate op_id whose stored row carries
+# a DIFFERENT operation_kind is a foreign operation (unified-contract §91.1a
+# Rule 5) and must resolve to a stable idempotency mismatch, never a replay.
+_GUARD_COUNTER_OPERATION_KIND = "guard_counter_record"
 
 
 def _is_postgres() -> bool:
@@ -269,10 +279,25 @@ class StateBackendGuardCounterRepository:
             existing = self._read_idempotency_key(op_id)
             if existing is None:
                 raise
-            existing_hash, cached = existing
-            if existing_hash != body_hash:
-                return GuardCounterRecordOutcome(status="mismatch")
-            return GuardCounterRecordOutcome(status="replayed", cached_result=cached)
+            existing_hash, existing_status, existing_operation_kind, cached = existing
+            # Route the duplicate-op resolution through the ONE shared classifier
+            # (AG3-140 §91.1a Rule 5): only a committed row of THIS operation_kind
+            # is a replay; a foreign committed row under the same op_id/hash, a
+            # non-committed terminal, or an in-flight claim is a stable mismatch
+            # (409 idempotency_mismatch) with NO counter increment/drain -- never a
+            # cross-shape replay or a foreign-payload validation-400.
+            decision = classify_terminal_row(
+                incoming_body_hash=body_hash,
+                incoming_operation_kind=_GUARD_COUNTER_OPERATION_KIND,
+                stored_status=existing_status,
+                stored_body_hash=existing_hash,
+                stored_operation_kind=existing_operation_kind,
+            )
+            if decision == ROW_REPLAY:
+                return GuardCounterRecordOutcome(
+                    status="replayed", cached_result=cached
+                )
+            return GuardCounterRecordOutcome(status="mismatch")
         return GuardCounterRecordOutcome(status="recorded", drained=drained)
 
     def _claim_and_record(
@@ -341,17 +366,20 @@ class StateBackendGuardCounterRepository:
 
     def _read_idempotency_key(
         self, op_id: str
-    ) -> tuple[str, dict[str, Any]] | None:
-        """Return ``(body_hash, result_payload)`` for ``op_id``, or ``None``.
+    ) -> tuple[str, str, str, dict[str, Any]] | None:
+        """Return ``(body_hash, status, operation_kind, result_payload)`` or ``None``.
 
-        Reads the ONE consolidated ``control_plane_operations`` record (AG3-140):
-        ``request_body_hash`` is the replay-vs-mismatch discriminator and
-        ``response_json`` (a JSON string on BOTH backends) is the stored result.
+        Reads the ONE consolidated ``control_plane_operations`` record (AG3-140).
+        ``request_body_hash``, ``status`` and ``operation_kind`` are the full
+        discriminator set the shared classifier needs (§91.1a Rule 5); a duplicate
+        op_id may belong to a FOREIGN operation, so operation_kind and status must
+        travel with the hash. ``response_json`` (a JSON string on BOTH backends) is
+        the stored result.
         """
         is_pg = _is_postgres()
         placeholder = "%s" if is_pg else "?"
         query = (
-            "SELECT request_body_hash, response_json "
+            "SELECT request_body_hash, status, operation_kind, response_json "
             f"FROM control_plane_operations WHERE op_id = {placeholder}"
         )
         if is_pg:
@@ -365,7 +393,12 @@ class StateBackendGuardCounterRepository:
         payload = row["response_json"]
         if isinstance(payload, str):
             payload = json.loads(payload)
-        return str(row["request_body_hash"]), dict(payload)
+        return (
+            str(row["request_body_hash"]),
+            str(row["status"]),
+            str(row["operation_kind"]),
+            dict(payload),
+        )
 
     @staticmethod
     def _drain_older_weeks(
@@ -485,7 +518,7 @@ class StateBackendGuardCounterRepository:
             op_id,
             project_key,
             story_id,
-            "guard_counter_record",
+            _GUARD_COUNTER_OPERATION_KIND,
             "committed",
             json.dumps(result_payload),
             body_hash,

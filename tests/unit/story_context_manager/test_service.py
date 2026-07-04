@@ -1239,6 +1239,76 @@ def test_crash_between_mutate_and_finalize_is_not_doubly_executable() -> None:
     assert repo.create_calls == 1, "the retry must NOT create the story a second time"
 
 
+class _FlakyCreateStoryRepository(InMemoryStoryRepository):
+    """A repo whose FIRST ``create_story_atomic`` raises a non-domain (infra) error.
+
+    Models a transient infrastructure fault (NOT one of the finalizable domain
+    errors) inside the claimed mutation, so ``_run_claimed`` must RELEASE the claim
+    and a retry with the same op_id must re-claim and succeed cleanly.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.create_calls = 0
+
+    def create_story_atomic(
+        self,
+        story: Story,
+        spec: StorySpecification,
+        *,
+        story_id_prefix: str,
+    ) -> None:
+        self.create_calls += 1
+        if self.create_calls == 1:
+            raise RuntimeError("simulated transient store failure")
+        super().create_story_atomic(story, spec, story_id_prefix=story_id_prefix)
+
+
+def test_pre_outcome_infra_exception_releases_claim_and_retry_succeeds() -> None:
+    """PATH 2 / P9: a pre-outcome INFRA exception (not a finalizable domain error)
+    RELEASES the claim, so a retry with the SAME op_id re-claims and succeeds --
+    never a false in-flight lock-out of a mutation that never committed."""
+    repo = _FlakyCreateStoryRepository()
+    guard = InMemoryInflightIdempotencyGuard()
+    svc = _make_service_with(story_repo=repo, guard=guard)
+    request = CreateStoryInput(
+        project_key="ak3",
+        title="Retryable story",
+        story_type=WireStoryType.IMPLEMENTATION,
+        repos=["ak3"],
+    )
+
+    # First attempt: the store raises before any committed side effect. The claim
+    # is released (fail-open on a non-committed mutation), NOT left in-flight.
+    with pytest.raises(RuntimeError, match="transient store failure"):
+        svc.create_story(request, op_id="op-retry")
+
+    # Retry with the SAME op_id: the released claim allows a clean re-claim; the
+    # create runs again and succeeds (no OperationInFlightError, no mismatch).
+    story = svc.create_story(request, op_id="op-retry")
+    assert story.status is StoryStatus.BACKLOG
+    assert repo.create_calls == 2, "the released claim allowed the retry to re-run"
+
+
+def test_cross_operation_same_op_id_is_mismatch_not_cross_shape_replay() -> None:
+    """PATH 2 / P3: reusing one op_id across two DIFFERENT SCM operations (a create
+    then a status transition, distinct ``operation_kind``) is a stable 409
+    idempotency_mismatch -- NEVER a cross-shape replay of the create's snapshot as
+    if it were the transition's result. Enforced by the ONE shared
+    ``classify_terminal_row`` (operation_kind is part of the discriminator)."""
+    svc = _make_service()
+    story = _create_story(svc, op_id="op-shared")
+    assert story.status is StoryStatus.BACKLOG
+
+    # The same op_id now used for a status transition (operation_kind
+    # "story_status_transition" != the committed "story_create") must fail closed.
+    with pytest.raises(IdempotencyMismatchError):
+        svc.approve_story(story.story_display_id, op_id="op-shared")
+
+    # The story was NOT transitioned (the cross-shape "replay" never happened).
+    assert svc.get_story_or_raise(story.story_display_id).status is StoryStatus.BACKLOG
+
+
 # ---------------------------------------------------------------------------
 # AG3-140 finding 5 / AC8: replay-after-FAILURE
 #
