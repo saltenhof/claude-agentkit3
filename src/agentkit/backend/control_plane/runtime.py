@@ -815,16 +815,21 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
                 owner_operation_epoch=owner_operation_epoch,
                 phase_dispatch=outcome.dispatch_result,
             )
-            #: Finalize DONE (won or lost the ownership CAS) -- either way THIS
-            #: caller's object claim is no longer needed (a CAS loss to a
-            #: concurrent admin-abort already released it; this is then a safe
-            #: idempotent no-op).
+            #: Finalize DONE (won or lost the ownership CAS): the op is terminal, so
+            #: mark ``finalized`` BEFORE releasing the object claim -- a release
+            #: failure below then surfaces cleanly WITHOUT the ``except`` path also
+            #: trying to release MY (now terminal) op_id claim.
+            finalized = True
+            #: Codex-R1 (BLOCKER): NON-best-effort release on the success path -- a
+            #: release failure SURFACES (raises -> 5xx), never swallowed while the
+            #: API returns ``committed`` with a durably-held claim. (A CAS loss to a
+            #: concurrent admin-abort already released it; this is then an idempotent
+            #: no-op.)
             self._release_object_claim(
                 project_key=request.project_key,
                 story_id=request.story_id,
                 op_id=request.op_id,
             )
-            finalized = True
             return result
         except ControlPlaneBindingCollisionError as exc:
             #: AG3-054 run-scoping sweep: this fresh start would materialize a
@@ -838,7 +843,11 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
             self._release_my_claim_best_effort(
                 request.op_id, owner_token, owner_claimed_at
             )
-            self._release_object_claim_best_effort(
+            #: Codex-R1 (BLOCKER): the object-claim release on this handled-return
+            #: rejection is NON-best-effort -- a release failure SURFACES (raises ->
+            #: 5xx), never swallowed while a normal rejection is returned with the
+            #: object still held.
+            self._release_object_claim(
                 project_key=request.project_key,
                 story_id=request.story_id,
                 op_id=request.op_id,
@@ -1763,22 +1772,43 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                 conflict=object_conflict,
             )
         now = datetime.now(tz=UTC)
+        committed = False
         try:
             if not self._story_lock_records_apply(request):
-                return _complete_fast_closure(
+                result = _complete_fast_closure(
                     self._repo,
                     run_id=run_id,
                     request=request,
                     now=now,
                 )
-            return self._complete_standard_closure(
-                run_id=run_id, request=request, now=now
+            else:
+                result = self._complete_standard_closure(
+                    run_id=run_id, request=request, now=now
+                )
+            committed = True
+            #: Codex-R1 (BLOCKER) fix: NON-best-effort release on the committed
+            #: path -- a release failure SURFACES (raises -> 5xx), never swallowed
+            #: while the API returns ``committed`` with a durably-held claim (closure
+            #: leaves NO ``claimed`` op row, so admin_abort cannot target a swallowed
+            #: stuck claim -- only a same-instance restart reconciliation frees it).
+            self._release_object_claim(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
             )
+            return result
         except ControlPlaneClaimCollisionError:
             #: ERROR-3 fix (#3): the op_id is held by a LIVE ``claimed`` start
             #: claim; the store refused to clobber it. A closure reusing a live
             #: start's op_id is rejected fail-closed (consistent with
-            #: complete/fail), never stealing the start's ownership.
+            #: complete/fail), never stealing the start's ownership. The commit
+            #: transaction rolled back (no op committed, claim still held): release
+            #: NON-best-effort (surface failures) before the fail-closed rejection.
+            self._release_object_claim(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
             reason = _claimed_operation_rejection_reason(
                 "closure_complete", request.op_id, "closure"
             )
@@ -1797,7 +1827,13 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
             #: teardown rolled back -- the foreign run's binding is intact, NO
             #: INACTIVE locks were written and NO deactivation events were emitted. A
             #: stale closure for an old run must never tear down a foreign run's live
-            #: regime.
+            #: regime. The commit rolled back (claim still held): release
+            #: NON-best-effort (surface failures) before the fail-closed rejection.
+            self._release_object_claim(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
             reason = _closure_binding_collision_reason(exc)
             return _rejection_result(
                 op_id=request.op_id,
@@ -1807,15 +1843,17 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                 reason=reason,
                 dispatch_phase="closure",
             )
-        finally:
-            #: SOLL-054: release the object claim on EVERY exit path (success or
-            #: either handled collision above) -- best-effort so a release
-            #: failure never masks the real outcome/error.
-            self._release_object_claim_best_effort(
-                project_key=request.project_key,
-                story_id=request.story_id,
-                op_id=request.op_id,
-            )
+        except BaseException:
+            #: A pre-commit error (or a real process crash) BEFORE the op committed:
+            #: best-effort release so the ORIGINAL error is never masked; a true
+            #: crash leaves the claim held for reconcile/admin_abort only (AC1).
+            if not committed:
+                self._release_object_claim_best_effort(
+                    project_key=request.project_key,
+                    story_id=request.story_id,
+                    op_id=request.op_id,
+                )
+            raise
 
     def resume_phase(
         self,
@@ -1961,12 +1999,15 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                 owner_operation_epoch=owner_operation_epoch,
                 phase_dispatch=dispatch_result,
             )
+            #: Codex-R1 (BLOCKER): mark ``finalized`` (op terminal) BEFORE releasing,
+            #: then NON-best-effort release -- a release failure SURFACES (5xx),
+            #: never swallowed while the API returns ``committed`` with a held claim.
+            finalized = True
             self._release_object_claim(
                 project_key=request.project_key,
                 story_id=request.story_id,
                 op_id=request.op_id,
             )
-            finalized = True
             return result
         except ControlPlaneBindingCollisionError as exc:
             #: AG3-054 run-scoping: the binding SAVE would overwrite a live binding
@@ -1976,7 +2017,10 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
             self._release_my_claim_best_effort(
                 request.op_id, owner_token, owner_claimed_at
             )
-            self._release_object_claim_best_effort(
+            #: Codex-R1 (BLOCKER): NON-best-effort object-claim release on this
+            #: handled-return rejection (surface failures, never a swallowed held
+            #: claim behind a normal rejection).
+            self._release_object_claim(
                 project_key=request.project_key,
                 story_id=request.story_id,
                 op_id=request.op_id,
@@ -2467,6 +2511,7 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                 phase=phase,
                 conflict=object_conflict,
             )
+        committed = False
         try:
             now = self._now_fn()
             #: ERROR-2 fix (#2): PLAN the side effects (pure record construction, no
@@ -2522,17 +2567,45 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                 locks=plan.locks,
                 events=plan.events,
             )
-            return result
-        finally:
-            #: SOLL-054: release the object claim on EVERY exit path (success,
-            #: a ``ControlPlaneClaimCollisionError``/``ControlPlaneBindingCollisionError``
-            #: the caller handles, or any other exception) -- best-effort so a
-            #: release failure never masks the real outcome/error.
-            self._release_object_claim_best_effort(
+            committed = True
+            #: Codex-R1 (BLOCKER) fix: the SUCCESS-path release is NON-best-effort.
+            #: The op is committed; a release failure now SURFACES (raises -> 5xx)
+            #: and is NEVER swallowed while the API returns ``committed`` with a
+            #: durably-held claim (the prior fail-OPEN gap: complete/fail leaves NO
+            #: ``claimed`` op row, so admin_abort cannot target a swallowed stuck
+            #: claim -- only a same-instance restart reconciliation would free it).
+            #: A surfaced failure leaves the claim for the AG3-138 startup
+            #: reconciliation to free -- no wall-clock expiry.
+            self._release_object_claim(
                 project_key=request.project_key,
                 story_id=request.story_id,
                 op_id=request.op_id,
             )
+            return result
+        except (ControlPlaneClaimCollisionError, ControlPlaneBindingCollisionError):
+            #: The whole commit transaction rolled back (collision gate FIRST): NO op
+            #: committed and the object claim is still held. Release it NON-best-effort
+            #: (a release failure SURFACES, never returns a normal rejection while the
+            #: claim stays held) before the caller maps the collision to its
+            #: fail-closed rejection.
+            self._release_object_claim(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
+            raise
+        except BaseException:
+            #: A pre-commit error (or a real process crash) BEFORE the op committed:
+            #: best-effort release so the ORIGINAL error is never masked. A true
+            #: crash leaves the claim held for reconcile/admin_abort only (AC1) --
+            #: never a wall-clock release.
+            if not committed:
+                self._release_object_claim_best_effort(
+                    project_key=request.project_key,
+                    story_id=request.story_id,
+                    op_id=request.op_id,
+                )
+            raise
 
     def _story_scoped_materialization_enabled(
         self,

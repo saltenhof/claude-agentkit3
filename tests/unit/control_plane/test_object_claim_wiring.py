@@ -13,8 +13,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+import pytest
+
 from agentkit.backend.control_plane import object_claims as oc
-from agentkit.backend.control_plane.models import PhaseMutationRequest
+from agentkit.backend.control_plane.models import (
+    ClosureCompleteRequest,
+    PhaseMutationRequest,
+)
 from agentkit.backend.control_plane.records import ControlPlaneOperationRecord
 from agentkit.backend.control_plane.repository import ObjectMutationClaimRepository
 from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
@@ -272,3 +277,174 @@ def test_start_phase_free_object_is_acquired_before_dispatch_absent_context() ->
     #: The claim was acquired then released -- never left held.
     assert object_claim_port.held == {}
     assert ("tenant-a", "story", "AG3-100", "op-mine") in object_claim_port.released
+
+
+# ---------------------------------------------------------------------------
+# Codex-R1 (BLOCKER): the release lifecycle is fail-CLOSED on success/handled
+# paths -- a release failure on complete/fail/closure SURFACES (raises), never
+# swallowed while the API returns ``committed`` with the object still held.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _ReleaseRaisesPort:
+    """An object-claim port that ACQUIRES fine but whose RELEASE always raises.
+
+    Proves the runtime never swallows a release failure on a success/handled
+    return path (the fail-OPEN gap): a swallowed release on complete/fail/
+    closure would leave the story blocked with NO ``claimed`` op row for
+    ``admin_abort`` to target.
+    """
+
+    release_attempts: list[tuple[str, str, str, str]] = field(default_factory=list)
+
+    def acquire_claim(self, **_kwargs: object) -> bool:
+        return True
+
+    def release_claim(
+        self, project_key: str, serialization_scope: str, scope_key: str, op_id: str
+    ) -> bool:
+        self.release_attempts.append(
+            (project_key, serialization_scope, scope_key, op_id)
+        )
+        raise RuntimeError("simulated object-claim release failure (DB unavailable)")
+
+
+@dataclass
+class _MutatePhaseRepo:
+    """Minimal control-plane repo that lets ``_mutate_phase`` reach a SUCCESSFUL
+    commit (fresh op, fast story, commit succeeds)."""
+
+    committed: list[str] = field(default_factory=list)
+
+    def load_operation(self, op_id: str) -> None:
+        del op_id
+        return None
+
+    def load_story_context(self, project_key: str, story_id: str) -> None:
+        del project_key, story_id
+        return None
+
+    def load_binding(self, session_id: str) -> None:
+        del session_id
+        return None
+
+    def commit_operation_with_side_effects(
+        self,
+        record: ControlPlaneOperationRecord,
+        *,
+        binding_to_save: object,
+        binding_to_delete: object,
+        locks: object,
+        events: object,
+    ) -> None:
+        del binding_to_save, binding_to_delete, locks, events
+        self.committed.append(record.op_id)
+
+
+@pytest.mark.parametrize("operation_kind", ["phase_complete", "phase_fail"])
+def test_complete_or_fail_release_failure_surfaces_never_returns_committed(
+    operation_kind: str,
+) -> None:
+    repo = _MutatePhaseRepo()
+    port = _ReleaseRaisesPort()
+    service = ControlPlaneRuntimeService(
+        repository=repo,  # type: ignore[arg-type]
+        object_claim_repository=ObjectMutationClaimRepository(
+            acquire_claim=port.acquire_claim,
+            release_claim=port.release_claim,
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="release failure"):
+        service._mutate_phase(  # noqa: SLF001 -- exercising the release lifecycle
+            run_id="run-1",
+            phase="implementation",
+            request=_request(story_id="AG3-100", op_id="op-1"),
+            operation_kind=operation_kind,
+        )
+
+    #: The op DID commit (the fix does not roll it back) -- but the service
+    #: RAISED rather than returning ``committed`` while the release failed. The
+    #: fail-OPEN swallow is gone; the release WAS attempted (fail-closed), so the
+    #: stuck claim is surfaced to the operator (needs reconcile/admin_abort),
+    #: never silently blocking the story behind a ``committed`` response.
+    assert repo.committed == ["op-1"]
+    assert port.release_attempts == [("tenant-a", "story", "AG3-100", "op-1")]
+
+
+@dataclass
+class _ClosureRepo:
+    """Minimal control-plane repo that admits and lets ``complete_closure`` reach
+    a SUCCESSFUL commit."""
+
+    committed: list[str] = field(default_factory=list)
+
+    def load_operation(self, op_id: str) -> None:
+        del op_id
+        return None
+
+    def has_open_repair_for_story(self, project_key: str, story_id: str) -> bool:
+        del project_key, story_id
+        return False
+
+    def has_committed_story_exit_operation_for_run(
+        self, project_key: str, story_id: str, run_id: str
+    ) -> bool:
+        del project_key, story_id, run_id
+        return False
+
+    def has_committed_operation_for_run(
+        self, project_key: str, story_id: str, run_id: str
+    ) -> bool:
+        del project_key, story_id, run_id
+        return True
+
+    def load_binding(self, session_id: str) -> None:
+        del session_id
+        return None
+
+    def load_story_context(self, project_key: str, story_id: str) -> None:
+        del project_key, story_id
+        return None
+
+    def commit_operation_with_side_effects(
+        self,
+        record: ControlPlaneOperationRecord,
+        *,
+        binding_to_save: object,
+        binding_to_delete: object,
+        locks: object,
+        events: object,
+    ) -> None:
+        del binding_to_save, binding_to_delete, locks, events
+        self.committed.append(record.op_id)
+
+
+def test_closure_release_failure_surfaces_never_returns_committed() -> None:
+    repo = _ClosureRepo()
+    port = _ReleaseRaisesPort()
+    service = ControlPlaneRuntimeService(
+        repository=repo,  # type: ignore[arg-type]
+        object_claim_repository=ObjectMutationClaimRepository(
+            acquire_claim=port.acquire_claim,
+            release_claim=port.release_claim,
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="release failure"):
+        service.complete_closure(
+            run_id="run-1",
+            request=ClosureCompleteRequest(
+                project_key="tenant-a",
+                story_id="AG3-100",
+                session_id="sess-1",
+                op_id="op-1",
+            ),
+        )
+
+    #: Committed, then the release failed -- the service RAISED instead of
+    #: returning ``committed`` with a swallowed held claim (closure leaves no
+    #: ``claimed`` op row, so this is exactly the fail-OPEN gap the fix closes).
+    assert repo.committed == ["op-1"]
+    assert port.release_attempts == [("tenant-a", "story", "AG3-100", "op-1")]
