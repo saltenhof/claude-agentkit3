@@ -13,6 +13,11 @@ deterministic 4xx exists — replay-after-failure), not merely op_id validation.
 - **Missing `op_id`** → fail-closed `422` (op_id-specific, via `op_id_validation_error()`).
 - **Replay** of the same `op_id` → the **stored result**, no second mutation.
 - Same `op_id`, **different body** (URL path keys folded into the body-hash) → `409 idempotency_mismatch`.
+- Same `op_id`, **different operation** (`operation_kind`, the persisted discriminator) →
+  `409 idempotency_mismatch`, even when the body-hash happens to collide (Codex r4 #1:
+  resolve↔dismiss, link↔unlink, create↔delete-dependency, and route↔control_plane /
+  guard-counter committed-row collisions all fail closed — never a cross-action or
+  cross-shape replay).
 - **Parallel** same `op_id` (a live claim) → `409 operation_in_flight`.
 - **Every** deterministic domain **4xx is finalized** so a replay returns it
   verbatim exactly once (AC8) — including the story-field `ForbiddenFieldError`
