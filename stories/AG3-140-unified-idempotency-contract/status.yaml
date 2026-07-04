@@ -1,8 +1,9 @@
 story_id: AG3-140
 title: "Einheitlicher Idempotenz-Vertrag (BC-weit): Client-op_id-Pflicht + In-Flight-Schutz + Body-Hash überall"
 type: implementation
-status: ready
-phase: setup
+status: completed
+phase: closure
+completed_at: "2026-07-04T08:39:44Z"
 created: "2026-07-02"
 size: L
 # Herkunft: GAP-ST-04 (gap-analyse-session-ownership.md v4, Codex-APPROVE;

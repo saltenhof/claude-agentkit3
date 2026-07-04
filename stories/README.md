@@ -374,7 +374,7 @@ Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
 | AG3-137 | Ownership-Schema-Fundament (Records/Claims/Transfer, Backfill) | L | **completed** | — |
 | AG3-138 | Instanz-Identität + Startup-Rekonsiliierung + admin_abort | L | **completed** | 137 |
 | AG3-139 | TTL-Entfall (Rückbau, NUR nach 138) | S | **completed** | 138 |
-| AG3-140 | Einheitlicher Idempotenz-Vertrag (BC-weit, Client-op_id) | L | **ready** | 137 |
+| AG3-140 | Einheitlicher Idempotenz-Vertrag (BC-weit, Client-op_id) | L | **completed** | 137 |
 | AG3-141 | Objekt-Serialisierung (Story-Claims, Lock-Sets, 409/bounded-wait) | L | **ready** | 137, 138 |
 | AG3-142 | Ownership-Fencing der Regime-Pfade (`ownership_epoch`) | L | **ready** | 137 |
 | AG3-143 | Execution-Contract-Digest + Spec-Freeze | M | **ready** | 137 |
@@ -392,8 +392,14 @@ Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
 | AG3-155 | Betriebs-Runbook FK-04 (concept) | S | blocked | 139, 149, 151, 154 |
 | AG3-156 | Verify-Evidenz-Ausführungsort: Request-DSL-Resolver + Evidence-Assembler vom Backend-Worktree-Zugriff lösen (Review-Fund, PO-Go 2026-07-02) | L | blocked | 144, 145 |
 
-**Sofort startbar (`ready`): AG3-140, AG3-141, AG3-142, AG3-143, AG3-146.**
-(AG3-137 ✅ **completed** 2026-07-02 — Ownership-Schema-Fundament.
+**Sofort startbar (`ready`): AG3-141, AG3-142, AG3-143, AG3-146.**
+(AG3-140 ✅ **completed** 2026-07-04 — Einheitlicher Idempotenz-Vertrag
+(BC-weit): serverseitiges op_id-Minten entfernt, alle mutierenden Routen unter
+den Vertrag (claim→body-hash→finalize; replay/409-mismatch/in-flight),
+guard-counter + control-plane inkl. operation_kind-Diskriminator; 7 Codex-Runden
+(finale 2 Befunde = fehlende Regressionstests + Matrix-Ehrlichkeit, direkt
+nachgezogen), Jenkins #973 grün, Sonar-Gate OK / 0 Issues.
+AG3-137 ✅ **completed** 2026-07-02 — Ownership-Schema-Fundament.
 AG3-138 ✅ **completed** 2026-07-03 — Instanz-Identität + Startup-
 Rekonsiliierung + admin_abort abgeschlossen (Best-of-Breed auf sonnet-Basis,
 Opus-AC10-Mutationssperre eingearbeitet): Codex-Review APPROVE (r3) +
