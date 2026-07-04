@@ -2806,21 +2806,164 @@ def load_object_mutation_claim_global_row(
     return dict(row)
 
 
+def acquire_object_mutation_claim_global_row(row: dict[str, Any]) -> bool:
+    """Atomically acquire ONE object-mutation claim (AG3-141).
+
+    Implements the FK-91 §91.1a Rule 13 cross-scope fairness contract
+    (``pending_project_claims_are_not_overtaken_by_younger_story_claims``): a
+    PROJECT-scope acquire fails while ANY story claim of the same project
+    HELD BY A DIFFERENT ``op_id`` is held, and a STORY-scope acquire fails
+    while a PROJECT claim of the same project HELD BY A DIFFERENT ``op_id`` is
+    held -- a project claim and a story claim have DIFFERENT ``scope_key``
+    values, so they never collide on the primary key; this cross-scope check
+    is the explicit conflict rule the PK alone cannot express. The exclusion
+    of THIS caller's OWN ``op_id`` is what makes a genuine multi-object
+    lock-set acquisition (``LockSet.for_project_and_stories``) possible: the
+    project claim acquired earlier in the SAME lock-set's canonical order must
+    not self-conflict with the story claim acquired next. Same-object
+    re-acquisition (identical ``(project_key, serialization_scope,
+    scope_key)``) already held by THIS caller's own ``op_id`` is an idempotent
+    success (``True``); held by a foreign ``op_id`` is busy (``False``).
+
+    A per-project ``pg_advisory_xact_lock`` (released automatically at this
+    short transaction's end) serialises the check-then-insert sequence so two
+    concurrent acquire attempts on the SAME project cannot both observe "no
+    conflict" and both insert (conflict-free under concurrent load, K5
+    Postgres-only). ``queue_position`` is assigned here as a project-scoped,
+    strictly increasing admission counter (audit trail of acquisition order;
+    never consulted for a time-based decision -- there is no TTL/expiry).
+
+    Returns:
+        ``True`` iff THIS call now holds the claim; ``False`` when the object
+        (or its project, for a cross-scope conflict) is currently claimed by
+        ANOTHER operation -- the caller surfaces the deterministic
+        409 + Retry-After (K4, IMPL-016), never a blocking wait.
+    """
+
+    with _connect_global() as conn:
+        conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(?))",
+            (f"object_mutation_claim:{row['project_key']}",),
+        )
+        conflicting_scope = (
+            "story" if row["serialization_scope"] == "project" else "project"
+        )
+        conflict = conn.execute(
+            """
+            SELECT 1 FROM object_mutation_claims
+            WHERE project_key = ? AND serialization_scope = ? AND op_id != ?
+            LIMIT 1
+            """,
+            (row["project_key"], conflicting_scope, row["op_id"]),
+        ).fetchone()
+        if conflict is not None:
+            return False
+        existing = conn.execute(
+            """
+            SELECT op_id FROM object_mutation_claims
+            WHERE project_key = ? AND serialization_scope = ? AND scope_key = ?
+            """,
+            (row["project_key"], row["serialization_scope"], row["scope_key"]),
+        ).fetchone()
+        if existing is not None:
+            # Already held: idempotent success for OUR OWN op_id (the second
+            # target of a multi-object lock-set acquisition can never collide
+            # with itself), busy for a foreign op_id.
+            return bool(existing["op_id"] == row["op_id"])
+        next_position_row = conn.execute(
+            """
+            SELECT COALESCE(MAX(queue_position), -1) + 1 AS next_position
+            FROM object_mutation_claims WHERE project_key = ?
+            """,
+            (row["project_key"],),
+        ).fetchone()
+        queue_position = (
+            int(next_position_row["next_position"]) if next_position_row is not None else 0
+        )
+        conn.execute(
+            """
+            INSERT INTO object_mutation_claims (
+                project_key, serialization_scope, scope_key, op_id,
+                backend_instance_id, instance_incarnation, acquired_at,
+                queue_position
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["project_key"],
+                row["serialization_scope"],
+                row["scope_key"],
+                row["op_id"],
+                row["backend_instance_id"],
+                row["instance_incarnation"],
+                row["acquired_at"],
+                queue_position,
+            ),
+        )
+        return True
+
+
 def delete_object_mutation_claim_global(
     project_key: str,
     serialization_scope: str,
     scope_key: str,
-) -> None:
-    """Delete one object-mutation-claim row (idempotent)."""
+    op_id: str,
+) -> bool:
+    """Ownership-scoped (op_id-CAS) release of one object-mutation claim (AG3-141).
+
+    Deletes the row ONLY when it is still held by *op_id* -- never an
+    unconditional delete: a late/duplicate release call after a concurrent
+    admin-abort or startup reconciliation already freed the claim (or after a
+    DIFFERENT operation has since acquired the same object) is a safe no-op,
+    never touching a foreign holder's claim.
+
+    Returns:
+        ``True`` iff a row matching ALL of ``(project_key,
+        serialization_scope, scope_key, op_id)`` was deleted.
+    """
 
     with _connect_global() as conn:
-        conn.execute(
+        cursor = conn.execute(
             """
             DELETE FROM object_mutation_claims
             WHERE project_key = ? AND serialization_scope = ? AND scope_key = ?
+              AND op_id = ?
             """,
-            (project_key, serialization_scope, scope_key),
+            (project_key, serialization_scope, scope_key, op_id),
         )
+        return int(cursor.rowcount) == 1
+
+
+def list_orphaned_object_mutation_claims_global_row(
+    *,
+    backend_instance_id: str,
+    before_incarnation: int,
+) -> list[dict[str, Any]]:
+    """Return object-mutation claims orphaned by EARLIER incarnations of THIS instance.
+
+    Startup reconciliation (AG3-141 Scope item 7, extending the AG3-138
+    reconcile scan; ``orphaned_claims_are_finalized_only_by_same_instance_startup_reconciliation_or_admin_abort``):
+    a DIRECT scan of ``object_mutation_claims`` (mirrors
+    :func:`list_orphaned_claimed_control_plane_operations_global_row` exactly)
+    -- independent of whatever happened to the claim's owning
+    ``control_plane_operations`` row, so a crash between the durable
+    object-claim acquire and the owning operation's own finalize is caught
+    even in an edge case where the two rows' lifecycles have diverged (e.g. an
+    administrative unconditional delete of the operation row). Claims carrying
+    a FOREIGN ``backend_instance_id`` are never returned -- fail-closed, no
+    "generous" cleanup of un-attributable claims.
+    """
+
+    with _connect_global() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM object_mutation_claims
+            WHERE backend_instance_id = ?
+              AND instance_incarnation < ?
+            ORDER BY project_key, serialization_scope, scope_key
+            """,
+            (backend_instance_id, before_incarnation),
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 # ---------------------------------------------------------------------------

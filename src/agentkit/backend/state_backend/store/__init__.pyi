@@ -1,4 +1,7 @@
 from agentkit.backend.state_backend.store.facade import (
+    acquire_object_mutation_claim_global as acquire_object_mutation_claim_global,
+)
+from agentkit.backend.state_backend.store.facade import (
     admin_abort_control_plane_operation_global as admin_abort_control_plane_operation_global,
 )
 from agentkit.backend.state_backend.store.facade import (
@@ -87,6 +90,9 @@ from agentkit.backend.state_backend.store.facade import (
 )
 from agentkit.backend.state_backend.store.facade import (
     list_orphaned_claimed_control_plane_operations_global as list_orphaned_claimed_control_plane_operations_global,
+)
+from agentkit.backend.state_backend.store.facade import (
+    list_orphaned_object_mutation_claims_global as list_orphaned_object_mutation_claims_global,
 )
 from agentkit.backend.state_backend.store.facade import (
     load_active_run_ownership_record_global as load_active_run_ownership_record_global,

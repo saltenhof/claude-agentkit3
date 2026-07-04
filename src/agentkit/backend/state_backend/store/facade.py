@@ -883,17 +883,76 @@ def load_object_mutation_claim_global(
     return mappers.object_mutation_claim_row_to_record(row)
 
 
+def acquire_object_mutation_claim_global(
+    *,
+    project_key: str,
+    serialization_scope: str,
+    scope_key: str,
+    op_id: str,
+    backend_instance_id: str,
+    instance_incarnation: int,
+    acquired_at: datetime,
+) -> bool:
+    """Atomically acquire ONE object-mutation claim (AG3-141).
+
+    Honors the cross-scope project/story fairness contract at the backend
+    (:func:`agentkit.backend.state_backend.postgres_store.acquire_object_mutation_claim_global_row`).
+    Fail-closed off-Postgres (K5).
+    """
+    _require_control_plane_backend()
+    backend = _backend_module()
+    return bool(
+        backend.acquire_object_mutation_claim_global_row(
+            {
+                "project_key": project_key,
+                "serialization_scope": serialization_scope,
+                "scope_key": scope_key,
+                "op_id": op_id,
+                "backend_instance_id": backend_instance_id,
+                "instance_incarnation": instance_incarnation,
+                "acquired_at": acquired_at.isoformat(),
+            },
+        ),
+    )
+
+
 def delete_object_mutation_claim_global(
     project_key: str,
     serialization_scope: str,
     scope_key: str,
-) -> None:
-    """Delete one object-mutation claim (idempotent). Fail-closed off-Postgres."""
+    op_id: str,
+) -> bool:
+    """Ownership-scoped (op_id-CAS) release of one object-mutation claim (AG3-141).
+
+    Idempotent: a no-op (``False``) when the row is already gone or held by a
+    different ``op_id``. Fail-closed off-Postgres.
+    """
     _require_control_plane_backend()
     backend = _backend_module()
-    backend.delete_object_mutation_claim_global(
-        project_key, serialization_scope, scope_key,
+    return bool(
+        backend.delete_object_mutation_claim_global(
+            project_key, serialization_scope, scope_key, op_id,
+        ),
     )
+
+
+def list_orphaned_object_mutation_claims_global(
+    backend_instance_id: str,
+    before_incarnation: int,
+) -> tuple[ObjectMutationClaimRecord, ...]:
+    """List object-mutation claims orphaned by EARLIER incarnations of THIS instance.
+
+    Startup reconciliation (AG3-141 Scope item 7): only claims stamped with the
+    CALLING instance's own ``backend_instance_id`` from a strictly earlier
+    ``instance_incarnation`` are returned -- never a foreign identity.
+    """
+    _require_control_plane_backend()
+    backend = _backend_module()
+    rows = backend.list_orphaned_object_mutation_claims_global_row(
+        backend_instance_id=backend_instance_id,
+        before_incarnation=before_incarnation,
+    )
+    return tuple(mappers.object_mutation_claim_row_to_record(row) for row in rows)
 
 
 # ---------------------------------------------------------------------------

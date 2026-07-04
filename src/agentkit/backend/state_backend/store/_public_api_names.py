@@ -34,6 +34,10 @@ def _build_public_api_names() -> tuple[str, ...]:
         "insert_object_mutation_claim_global",
         "load_object_mutation_claim_global",
         "delete_object_mutation_claim_global",
+        # AG3-141: atomic, fairness-aware object-mutation-claim acquire.
+        "acquire_object_mutation_claim_global",
+        # AG3-141 (startup-reconcile hookup, Scope item 7): direct orphan scan.
+        "list_orphaned_object_mutation_claims_global",
         "save_takeover_transfer_record_global",
         "load_takeover_transfer_record_global",
         "save_backend_instance_identity_global",
