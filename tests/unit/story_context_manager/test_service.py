@@ -28,6 +28,7 @@ from agentkit.backend.story_context_manager.errors import (
     IdempotencyMismatchError,
     InvalidStatusTransitionError,
     OperationInFlightError,
+    SpecFrozenDuringActiveRunError,
     StoryNotFoundError,
     StoryProjectNotFoundError,
     StoryValidationError,
@@ -91,8 +92,16 @@ def _make_service(
     stories: InMemoryStoryRepository | None = None,
     project_repo: _InMemoryProjectRepository | None = None,
     emitted: list[tuple[str, str, dict[str, object]]] | None = None,
+    execution_regime_reader: Callable[[str, str], object | None] | None = None,
 ) -> StoryService:
-    """Create a StoryService backed by in-memory stores."""
+    """Create a StoryService backed by in-memory stores.
+
+    ``execution_regime_reader`` defaults to "no story ever has an active
+    execution regime" (AG3-143) -- a safe, Postgres-free unit-test default so
+    existing tests never accidentally hit the real
+    ``load_active_run_ownership_record_global`` default. Tests exercising the
+    Spec-Freeze gate inject an explicit fake.
+    """
     captured: list[tuple[str, str, dict[str, object]]] = (
         emitted if emitted is not None else []
     )
@@ -109,6 +118,7 @@ def _make_service(
         project_repository=project_repo or _InMemoryProjectRepository(),
         idempotency_guard=InMemoryInflightIdempotencyGuard(),
         event_emitter=_emit,
+        execution_regime_reader=execution_regime_reader or (lambda _pk, _sid: None),
     )
 
 
@@ -702,6 +712,144 @@ def test_update_story_fields_empty_repos_raises() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Spec-Freeze gate (AG3-143, FK-59 §59.9a)
+# ---------------------------------------------------------------------------
+
+
+def test_update_story_fields_load_bearing_field_without_active_regime_succeeds() -> None:
+    """Outside an active execution regime, no freeze applies (AC6)."""
+    svc = _make_service(execution_regime_reader=lambda _pk, _sid: None)
+    story = _create_story(svc, op_id="op-create")
+
+    updated = svc.update_story_fields(
+        story.story_display_id,
+        updates={"owner": "alice"},
+        op_id="op-patch-owner",
+    )
+
+    assert updated.owner == "alice"
+
+
+def test_update_story_fields_load_bearing_field_with_active_regime_raises_409() -> None:
+    svc = _make_service(execution_regime_reader=lambda _pk, _sid: object())
+    story = _create_story(svc, op_id="op-create")
+
+    with pytest.raises(SpecFrozenDuringActiveRunError) as exc_info:
+        svc.update_story_fields(
+            story.story_display_id,
+            updates={"acceptance": ["AC1", "AC2"]},
+            op_id="op-patch-frozen",
+        )
+
+    assert exc_info.value.detail["project_key"] == story.project_key
+    assert exc_info.value.detail["story_id"] == story.story_display_id
+
+
+def test_update_story_fields_administrative_field_with_active_regime_succeeds() -> None:
+    """Administrative metadata stays mutable even under an active regime."""
+    svc = _make_service(execution_regime_reader=lambda _pk, _sid: object())
+    story = _create_story(svc, op_id="op-create")
+
+    updated = svc.update_story_fields(
+        story.story_display_id,
+        updates={"labels": ["urgent"]},
+        op_id="op-patch-labels",
+    )
+
+    assert updated.labels == ["urgent"]
+
+
+def test_update_story_fields_mixed_fields_with_active_regime_rejects_whole_patch() -> None:
+    """A single load-bearing field anywhere in the PATCH rejects the WHOLE
+    request -- no partial write of the administrative field either.
+    """
+    svc = _make_service(execution_regime_reader=lambda _pk, _sid: object())
+    story = _create_story(svc, op_id="op-create", title="Original")
+
+    with pytest.raises(SpecFrozenDuringActiveRunError):
+        svc.update_story_fields(
+            story.story_display_id,
+            updates={"labels": ["urgent"], "acceptance": ["AC1"]},
+            op_id="op-patch-mixed",
+        )
+
+    unchanged = svc.get_story_or_raise(story.story_display_id)
+    assert unchanged.labels == []
+
+
+def test_update_story_fields_unknown_field_with_active_regime_raises_409() -> None:
+    """AC7: an unclassified/future field is treated fail-closed as load-bearing."""
+    svc = _make_service(execution_regime_reader=lambda _pk, _sid: object())
+    story = _create_story(svc, op_id="op-create")
+
+    with pytest.raises(SpecFrozenDuringActiveRunError):
+        svc.update_story_fields(
+            story.story_display_id,
+            updates={"some_future_spec_field": "value"},
+            op_id="op-patch-unknown",
+        )
+
+
+def test_set_story_field_load_bearing_with_active_regime_raises_409() -> None:
+    svc = _make_service(execution_regime_reader=lambda _pk, _sid: object())
+    story = _create_story(svc, op_id="op-create")
+
+    with pytest.raises(SpecFrozenDuringActiveRunError):
+        svc.set_story_field(
+            story.story_display_id,
+            "need",
+            "New need text",
+            op_id="op-put-frozen",
+        )
+
+
+def test_spec_freeze_rejection_leaves_no_idempotency_record_for_retry() -> None:
+    """AC6: the freeze check runs BEFORE the idempotency claim -- a rejected
+    PATCH leaves no stored outcome, so retrying the SAME op_id after the
+    regime ends re-evaluates fresh (never a cached 409, never a stale replay).
+    """
+    active = {"value": True}
+    svc = _make_service(
+        execution_regime_reader=lambda _pk, _sid: object() if active["value"] else None,
+    )
+    story = _create_story(svc, op_id="op-create")
+
+    with pytest.raises(SpecFrozenDuringActiveRunError):
+        svc.update_story_fields(
+            story.story_display_id,
+            updates={"acceptance": ["AC1"]},
+            op_id="op-patch-retry",
+        )
+
+    # The run ends; the SAME op_id is retried and now succeeds -- no replay of
+    # a cached rejection, and no idempotency record blocked the retry.
+    active["value"] = False
+    updated = svc.update_story_fields(
+        story.story_display_id,
+        updates={"acceptance": ["AC1"]},
+        op_id="op-patch-retry",
+    )
+
+    assert updated.story_display_id == story.story_display_id
+
+
+def test_create_story_never_consults_execution_regime_reader() -> None:
+    """The freeze gate is scoped to update_story_fields/set_story_field only --
+    create/approve/reject/cancel never even consult the predicate.
+    """
+
+    def _poison(_project_key: str, _story_id: str) -> object:
+        raise AssertionError("execution_regime_reader must not be called here")
+
+    svc = _make_service(execution_regime_reader=_poison)
+
+    story = _create_story(svc, op_id="op-create")
+    approved = svc.approve_story(story.story_display_id, op_id="op-approve")
+
+    assert approved.status == StoryStatus.APPROVED
+
+
+# ---------------------------------------------------------------------------
 # set_story_field (PUT)
 # ---------------------------------------------------------------------------
 
@@ -1160,6 +1308,7 @@ def _make_service_with(
         project_repository=_InMemoryProjectRepository(),
         idempotency_guard=guard,
         event_emitter=lambda *_: None,
+        execution_regime_reader=lambda _pk, _sid: None,
     )
 
 

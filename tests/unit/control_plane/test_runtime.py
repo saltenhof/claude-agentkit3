@@ -45,6 +45,9 @@ from agentkit.backend.story_context_manager.types import StoryType
 
 if TYPE_CHECKING:
     from agentkit.backend.pipeline_engine.engine import PipelineEngine
+    from agentkit.backend.prompt_runtime.execution_contract import (
+        ExecutionContractDigestRecord,
+    )
     from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 
@@ -70,6 +73,12 @@ class _RepoState:
         #: per ``(project_key, story_id)`` enforced on insert, like the real
         #: partial-unique index).
         self.ownership_records: dict[tuple[str, str, str], RunOwnershipRecord] = {}
+        #: AG3-143: the run-scoped execution_contract_digest rows, keyed by
+        #: ``(project_key, story_id, run_id)`` -- mirrors
+        #: ``execution_contract_digests`` (identity PK, read-only after insert).
+        self.execution_contract_digests: dict[
+            tuple[str, str, str], ExecutionContractDigestRecord
+        ] = {}
 
     def load_active_ownership(
         self, project_key: str, story_id: str
@@ -175,6 +184,7 @@ class _FakeOps:
         locks: tuple[StoryExecutionLockRecord, ...],
         events: tuple[ExecutionEventRecord, ...],
         ownership_record_to_insert: RunOwnershipRecord | None = None,
+        execution_contract_digest_to_insert: ExecutionContractDigestRecord | None = None,
         expected_ownership_epoch: int | None = None,
     ) -> bool:
         # ERROR-1 (#1): ownership CAS finalize + side-effect materialization in ONE
@@ -205,6 +215,23 @@ class _FakeOps:
             _fake_run_scoped_save_binding(self._state, binding)
         if ownership_record_to_insert is not None:
             self._state.insert_ownership(ownership_record_to_insert)
+        if execution_contract_digest_to_insert is not None:
+            # AG3-143: mirrors the real ``execution_contract_digests`` primary
+            # key (project_key, story_id, run_id) -- a duplicate identity is a
+            # fail-closed bug (read-only after insert), never a silent
+            # overwrite.
+            identity = (
+                execution_contract_digest_to_insert.project_key,
+                execution_contract_digest_to_insert.story_id,
+                execution_contract_digest_to_insert.run_id,
+            )
+            if identity in self._state.execution_contract_digests:
+                raise ValueError(
+                    f"duplicate execution_contract_digest identity {identity!r}"
+                )
+            self._state.execution_contract_digests[identity] = (
+                execution_contract_digest_to_insert
+            )
         self._state.operations[record.op_id] = record
         if binding is not None:
             self._state.bindings[binding.session_id] = binding
@@ -3299,6 +3326,11 @@ def test_late_finalize_after_admin_abort_materializes_no_side_effects() -> None:
         # bumped by the abort) means the ownership INSERT is never reached
         # either -- the fake's ``_still_owned`` gate runs first.
         mints_ownership_record=True,
+        # AG3-143: mirrors what ``_start_phase_after_claim`` would have formed
+        # for the same genuinely-fresh setup before the digest is even a
+        # candidate for insertion -- the claim-CAS loss below means this,
+        # like ``ownership_record_to_insert``, is never reached either.
+        execution_contract_digest="a" * 64,
     )
 
     assert a_result.status == "aborted", (

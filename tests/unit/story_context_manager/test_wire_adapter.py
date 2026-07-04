@@ -21,7 +21,10 @@ from agentkit.backend.story_context_manager.story_model import (
 )
 from agentkit.backend.story_context_manager.wire_adapter import (
     FORBIDDEN_PATCH_FIELDS,
+    StoryFieldSensitivity,
     check_forbidden_fields,
+    classify_story_patch_field,
+    contains_load_bearing_patch_field,
     parse_wire_change_impact,
     parse_wire_concept_quality,
     parse_wire_risk_level,
@@ -279,3 +282,87 @@ def test_forbidden_patch_fields_contains_expected() -> None:
     assert "created_at" in FORBIDDEN_PATCH_FIELDS
     assert "completed_at" in FORBIDDEN_PATCH_FIELDS
     assert "title" not in FORBIDDEN_PATCH_FIELDS
+
+
+# ---------------------------------------------------------------------------
+# Spec-Freeze field classification (AG3-143, FK-59 §59.9a)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "field_key",
+    ["title", "labels", "change_impact", "module", "repos"],
+)
+def test_classify_administrative_fields(field_key: str) -> None:
+    assert (
+        classify_story_patch_field(field_key) is StoryFieldSensitivity.ADMINISTRATIVE
+    )
+
+
+@pytest.mark.parametrize(
+    "field_key",
+    [
+        # Story-Spec content (FK-59 §59.9a: Scope/Akzeptanzkriterien/Story-Text).
+        "need",
+        "solution",
+        "acceptance",
+        "definition_of_done",
+        "concept_refs",
+        "guardrail_refs",
+        "external_sources",
+        # Story stammdaten fields NOT in the administrative allowlist.
+        "type",
+        "size",
+        "mode",
+        "epic",
+        "owner",
+        "concept_quality",
+        "risk",
+        "blocker",
+        "wave",
+        "critical_path",
+        "new_structures",
+        "vectordb_conflict_resolved",
+        # Fail-closed default (AC7): an unknown/future field is load-bearing.
+        "some_future_field_nobody_has_seen_yet",
+    ],
+)
+def test_classify_load_bearing_fields(field_key: str) -> None:
+    assert (
+        classify_story_patch_field(field_key) is StoryFieldSensitivity.LOAD_BEARING
+    )
+
+
+def test_contains_load_bearing_patch_field_true_for_acceptance() -> None:
+    assert contains_load_bearing_patch_field({"acceptance": ["AC1"]}) is True
+
+
+def test_contains_load_bearing_patch_field_false_for_administrative_only() -> None:
+    assert (
+        contains_load_bearing_patch_field({"title": "x", "labels": ["a"]}) is False
+    )
+
+
+def test_contains_load_bearing_patch_field_true_when_mixed_with_administrative() -> None:
+    """A single load-bearing field anywhere in the PATCH makes the WHOLE
+    request load-bearing -- there is no partial-freeze of just that field.
+    """
+    assert (
+        contains_load_bearing_patch_field({"title": "x", "acceptance": ["AC1"]})
+        is True
+    )
+
+
+def test_contains_load_bearing_patch_field_ignores_op_id() -> None:
+    assert contains_load_bearing_patch_field({"op_id": "op-1"}) is False
+
+
+def test_contains_load_bearing_patch_field_ignores_forbidden_fields() -> None:
+    """FORBIDDEN_PATCH_FIELDS are governed by their own absolute prohibition,
+    independent of execution-regime state -- never classified here.
+    """
+    assert contains_load_bearing_patch_field({"status": "Approved"}) is False
+
+
+def test_contains_load_bearing_patch_field_empty_updates_is_false() -> None:
+    assert contains_load_bearing_patch_field({}) is False
