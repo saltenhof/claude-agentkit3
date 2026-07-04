@@ -377,8 +377,8 @@ Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
 | AG3-140 | Einheitlicher Idempotenz-Vertrag (BC-weit, Client-op_id) | L | **completed** | 137 |
 | AG3-141 | Objekt-Serialisierung (per-Story-Claims, 409/Retry-After) | L | **completed** | 137, 138 |
 | AG3-142 | Ownership-Fencing der Regime-Pfade (`ownership_epoch`) | L | **completed** | 137 |
-| AG3-143 | Execution-Contract-Digest + Spec-Freeze | M | **ready** | 137 |
-| AG3-144 | Job-Muster + Ergebnisarten + Upsert-Fences | L | blocked | 141, 142, 143 |
+| AG3-143 | Execution-Contract-Digest + Spec-Freeze | M | **completed** | 137 |
+| AG3-144 | Job-Muster + Ergebnisarten + Upsert-Fences | L | **ready** | 141, 142, 143 |
 | AG3-145 | Edge-Command-Queue + Worktree-Ops-Umzug | L | blocked | 137, 141, 142, 146 |
 | AG3-146 | Provider-Adapter-Schnitt (ls-remote, gh nur im Adapter) | M | **ready** | — |
 | AG3-147 | Sync-Punkte + Push-Gate + Ref-Schutz (pushed-only) | L | blocked | 145, 146 |
@@ -392,8 +392,25 @@ Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
 | AG3-155 | Betriebs-Runbook FK-04 (concept) | S | blocked | 139, 149, 151, 154 |
 | AG3-156 | Verify-Evidenz-Ausführungsort: Request-DSL-Resolver + Evidence-Assembler vom Backend-Worktree-Zugriff lösen (Review-Fund, PO-Go 2026-07-02) | L | blocked | 144, 145 |
 
-**Sofort startbar (`ready`): AG3-143, AG3-146.**
-(AG3-142 ✅ **completed** 2026-07-04 — Ownership-Fencing der Regime-Pfade:
+**Sofort startbar (`ready`): AG3-144, AG3-146.**
+(AG3-143 ✅ **completed** 2026-07-04 — Execution-Contract-Digest + Spec-Freeze:
+deterministischer `execution_contract_digest` beim Setup-Commit, content-adressiert
+über tragende Spec-Felder (FK-59 §59.9a) + `ProjectRegistration.config_version`/
+`config_digest` (SSOT) + Skill-/Capability-Versionen + `run-prompt-pin` (FK-44 §44.3);
+atomar mit der Start-CAS persistiert, nach Commit read-only (kein UPDATE-Pfad),
+fail-closed abgewiesen bei unauflösbarer/malformter Komponente (AC2, u. a.
+64-Hex-`config_digest`-Prüfung). Drei Wirkungsklassen (Default `pinned_for_new_runs`).
+Spec-Freeze-Gate in `update_story_fields` VOR dem Idempotenz-Record: tragende Felder
+bei aktivem Execution-Regime → `409 spec_frozen_during_active_run`, typisierte
+Feldklassifikation (unbekannt ⇒ fail-closed tragend), administrative Felder frei; der
+Freeze ist bewusst präventiv (heute existiert kein Live-PATCH-Schreibpfad für
+StorySpecification-Felder — explizit getestet). Digest-Fence-Prädikat DEFINIERT
+(Verwendung in AG3-144). Codex r1 REJECT (skill_versions Total-Order, config-digest
+fail-closed, ARCH-55, ehrlicher Freeze-Beweis) → remediated → r2 APPROVE; Sonar-#988-
+Cleanup (S1110, Barrel entschlackt, Digest-Assembly aus der Admission-Klasse
+extrahiert 922→796 LOC — Sonar/Analyzer unverändert) → Jenkins #990 grün, Sonar-Gate
+OK / 0 Issues. Entblockt AG3-144.
+AG3-142 ✅ **completed** 2026-07-04 — Ownership-Fencing der Regime-Pfade:
 der aktive `RunOwnershipRecord` (AG3-137) ist jetzt die EINZIGE Admissions-
 und Fencing-Wahrheit aller mutierenden Regime-Pfade (start/complete/fail/
 closure/resume + serverseitiger Executor). Fence = co-transaktionales

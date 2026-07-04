@@ -1,8 +1,9 @@
 story_id: AG3-143
 title: "Execution-Contract-Digest + Spec-Freeze: Digest beim Setup, Wirkungsklassen, Freeze tragender Spec-Felder, Digest als Fence-Prädikat"
 type: implementation
-status: ready
-phase: setup
+status: completed
+phase: closure
+completed_at: "2026-07-04T21:22:12Z"
 created: "2026-07-02"
 size: M
 # Herkunft: GAP-ST-12 (gap-analyse-session-ownership.md v4, Codex-APPROVE).
