@@ -17,7 +17,8 @@
   `freeze_states_are_admission_blockers_and_invalidate_challenges`;
   FK-54 §54.8.2 (Fence) + §54.8.2a (Split als administrative Saga:
   Admin-Freeze über die Dauer, kurze bounded gefencte Sub-Commits mit
-  eigenem Claim-Erwerb in globaler Ordnung, Reentranz über
+  eigenem per-Story-Claim-Erwerb je Schritt (Nachfolger-Anlage/Nummern-
+  vergabe in einer Transaktion), Reentranz über
   `op_id`-Abstammung); FK-55 §55.8 (`conflict_freeze` als Vorbild)
 - **Herkunft:** GAP-Analyse Session-Ownership v4 (`_temp/gap-analyse-session-ownership.md`),
   Story-Kandidat GAP-ST-07c; normative Basis Commits 3ae011e4 / 1bb4ed8a / 58c190b7
@@ -182,8 +183,9 @@ und der Split blockiert länger und breiter als fachlich nötig.
 7. **Split als Saga:** während einer laufenden Split-Saga besteht ein
    auditierter Admin-Freeze (Admission-Blocker auf der Quelle); die
    exklusive committed-op-Fence-Haltung über die Saga-Dauer ist ersetzt
-   (Code-Beweis); jeder Saga-Schritt erwirbt seine Claims in globaler
-   Ordnung und gibt sie je Schritt frei — zwischen zwei Schritten hält
+   (Code-Beweis); jeder Saga-Schritt erwirbt seinen per-Story-Objekt-Claim
+   (Nachfolger-Nummernvergabe in einer Transaktion) und gibt ihn je Schritt
+   frei — zwischen zwei Schritten hält
    die Saga keinen Claim, eine unabhängige Story desselben Projekts
    bleibt währenddessen mutierbar (Concurrency-Integrationstest).
 8. **Reentranz angedockt:** ein Resume nach Abbruch mitten in der Saga
@@ -227,11 +229,12 @@ und der Split blockiert länger und breiter als fachlich nötig.
 - FK-54 §54.8.2 (Fence-Schritt) + §54.8.2a (Admin-Freeze über die
   Saga-Dauer, nie auto-ablaufend, auditiert, Admission-Blocker gemäß
   FK-56 §56.13f; jeder Saga-Schritt kurz/bounded/gefenct mit eigenem
-  Claim-Erwerb in globaler Ordnung; Saga hält keine Claims über die
-  Laufzeit; Reentranz über `op_id`-Abstammung)
+  per-Story-Claim-Erwerb je Sub-Commit (Nummernvergabe in einer
+  Transaktion); Saga hält keine Claims über die Laufzeit; Reentranz über
+  `op_id`-Abstammung)
 - FK-55 §55.8 (`conflict_freeze` als Vorbild der Entmündigungs-/
   Freeze-Mechanik; §55.8.1-Wirkung bleibt)
-- FK-91 §91.1a Regeln 13/14 (Claim-Erwerb in globaler Ordnung, bounded
+- FK-91 §91.1a Regeln 13/14 (per-Story-Objekt-Serialisierung, bounded
   Sub-Commits — Konsum der AG3-141-Fläche)
 
 ## Guardrail-Referenzen
