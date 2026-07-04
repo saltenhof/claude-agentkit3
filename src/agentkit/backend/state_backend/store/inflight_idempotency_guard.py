@@ -130,8 +130,24 @@ class InFlightOutcome:
     op_id: str
 
 
+@dataclass(frozen=True)
+class AbortedOutcome:
+    """A terminal row that was NOT committed by the ROUTE contract.
+
+    The op_id resolved to a terminal state that the guard contract did not commit
+    -- e.g. an ``admin_abort`` set ``status='aborted'`` (or ``repair`` /
+    ``failed``) and stored a control-plane payload. It is a STABLE fail-closed
+    conflict (409 ``operation_conflict``): NEVER a replay of that foreign result,
+    and never a corrupt-500 through the route replay builder.
+    """
+
+    op_id: str
+
+
 #: The result of :meth:`InflightIdempotencyGuard.claim`. Exactly one variant.
-ClaimOutcome = FreshClaim | ReplayOutcome | MismatchOutcome | InFlightOutcome
+ClaimOutcome = (
+    FreshClaim | ReplayOutcome | MismatchOutcome | InFlightOutcome | AbortedOutcome
+)
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +235,27 @@ def _load_result_payload(raw: object) -> dict[str, object]:
     return {}
 
 
+def _classify_terminal(
+    op_id: str, status: str, payload: dict[str, object]
+) -> ClaimOutcome:
+    """Classify a terminal (non-``claimed``), same-body-hash row.
+
+    Only a row COMMITTED by the guard contract (``status='committed'``) is a
+    genuine :class:`ReplayOutcome` -- the guard's ``finalize`` is the ONLY writer
+    of that status through this port, so the stored payload is always the
+    consuming contract's own result (an HTTP ``{status_code, body}`` for the
+    generic routes, or a story snapshot for ``story_context_manager``; each
+    consumer reconstructs its own shape). Any OTHER terminal state -- an
+    ``admin_abort`` (``status='aborted'``), ``repair`` / ``failed`` or any
+    control-plane terminal written under the same op_id -- is a STABLE fail-closed
+    :class:`AbortedOutcome`, never a replay of that foreign result and never a
+    corrupt-500 through the route replay builder.
+    """
+    if status == _TERMINAL_STATUS:
+        return ReplayOutcome(result_payload=payload)
+    return AbortedOutcome(op_id=op_id)
+
+
 class StateBackendInflightIdempotencyGuard:
     """Postgres-backed unified idempotency guard (K5 Postgres-only truth).
 
@@ -270,13 +307,14 @@ class StateBackendInflightIdempotencyGuard:
             # concurrent release/abort). Fail-closed to in-flight: a retry
             # re-claims cleanly. Never silently re-run under a lost claim.
             return InFlightOutcome(op_id=request.op_id)
-        if str(existing["status"]) == _CLAIM_STATUS:
+        status = str(existing["status"])
+        if status == _CLAIM_STATUS:
             return InFlightOutcome(op_id=request.op_id)
         stored_hash = existing.get("request_body_hash")
         if stored_hash != request.body_hash:
             return MismatchOutcome(op_id=request.op_id)
         payload = _load_result_payload(existing["response_json"])
-        return ReplayOutcome(result_payload=payload)
+        return _classify_terminal(request.op_id, status, payload)
 
     def finalize(
         self,
@@ -360,7 +398,9 @@ class InMemoryInflightIdempotencyGuard:
             return InFlightOutcome(op_id=request.op_id)
         if existing.body_hash != request.body_hash:
             return MismatchOutcome(op_id=request.op_id)
-        return ReplayOutcome(result_payload=dict(existing.result_payload))
+        return _classify_terminal(
+            request.op_id, existing.status, dict(existing.result_payload)
+        )
 
     def finalize(
         self,
@@ -401,7 +441,9 @@ class InMemoryInflightIdempotencyGuard:
             return InFlightOutcome(op_id=request.op_id)
         if existing.body_hash != request.body_hash:
             return MismatchOutcome(op_id=request.op_id)
-        return ReplayOutcome(result_payload=dict(existing.result_payload))
+        return _classify_terminal(
+            request.op_id, existing.status, dict(existing.result_payload)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -437,6 +479,14 @@ def _operation_in_flight_message(op_id: str) -> str:
     )
 
 
+def _operation_conflict_message(op_id: str) -> str:
+    return (
+        f"op_id {op_id!r} resolved to a terminal state that this route did not "
+        "commit (e.g. an administrative abort); it cannot be replayed as this "
+        "operation's result"
+    )
+
+
 def _route_loser_response[R: _RouteResponseLike](
     outcome: ClaimOutcome,
     request: IdempotencyRequest,
@@ -457,6 +507,12 @@ def _route_loser_response[R: _RouteResponseLike](
         return conflict(
             "operation_in_flight",
             _operation_in_flight_message(outcome.op_id),
+            {"op_id": outcome.op_id},
+        )
+    if isinstance(outcome, AbortedOutcome):
+        return conflict(
+            "operation_conflict",
+            _operation_conflict_message(outcome.op_id),
             {"op_id": outcome.op_id},
         )
     return None  # FreshClaim -> this caller must run the mutation
@@ -542,6 +598,7 @@ def run_route_idempotent[R: _RouteResponseLike](
 
 
 __all__ = [
+    "AbortedOutcome",
     "ClaimOutcome",
     "FreshClaim",
     "IdempotencyRequest",

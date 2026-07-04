@@ -156,3 +156,49 @@ def test_project_scoped_claim_with_null_story_id_real_store(
     replay = guard.claim(req)
     assert isinstance(replay, ReplayOutcome)
     assert replay.result_payload == payload
+
+
+@pytest.mark.contract
+def test_admin_aborted_row_is_stable_conflict_not_replay_real_store(
+    postgres_backend_env: object,
+) -> None:
+    """Codex r3 #2 (real store): an admin-aborted claim classifies as a stable
+    conflict, never a replay of the abort payload and never a corrupt-500.
+
+    A generic guard claim is resolved by the REAL admin-abort path
+    (``admin_abort_control_plane_operation_global``) to ``status='aborted'`` with a
+    control-plane result payload (NOT the route ``{status_code, body}`` shape).
+    ``classify`` must return :class:`AbortedOutcome` against the genuine store.
+    """
+    from datetime import UTC, datetime
+
+    from agentkit.backend.state_backend.store import (
+        admin_abort_control_plane_operation_global,
+    )
+    from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+        AbortedOutcome,
+    )
+
+    del postgres_backend_env
+    guard = StateBackendInflightIdempotencyGuard()
+    req = _req("op-real-admin-aborted", {"a": 1})
+
+    first = guard.claim(req)
+    assert isinstance(first, FreshClaim)
+
+    aborted = admin_abort_control_plane_operation_global(
+        op_id=req.op_id,
+        status="aborted",
+        response_payload={
+            "status": "aborted",
+            "op_id": req.op_id,
+            "operation_kind": "task_create",
+            "admin_note": "aborted by admin_abort_inflight_operation",
+        },
+        now=datetime.now(UTC),
+    )
+    assert aborted is True
+
+    # The row is now terminal 'aborted' with a non-route payload -> a stable
+    # conflict, NEVER a replay of the abort payload.
+    assert isinstance(guard.classify(req), AbortedOutcome)

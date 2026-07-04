@@ -255,3 +255,42 @@ def test_run_route_idempotent_post_commit_crash_stays_in_flight() -> None:
     # <-- mutation "commits" here; process crashes before finalize (no finalize call)
     retry = guard.claim(req)
     assert isinstance(retry, InFlightOutcome)
+
+
+def test_run_route_idempotent_admin_aborted_row_is_stable_conflict_not_replay() -> None:
+    """Codex r3 #2: an admin-aborted terminal row is a STABLE 409 conflict.
+
+    A real admin abort sets ``status='aborted'`` and stores a control-plane
+    payload (NOT the route ``{status_code, body}`` shape). The generic guard must
+    classify it as a fail-closed conflict -- never a replay of the foreign result,
+    and never the corrupt-500 the route replay builder would raise on a non-route
+    payload.
+    """
+    from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+        AbortedOutcome,
+    )
+
+    guard = InMemoryInflightIdempotencyGuard()
+    req = _req("op-admin-aborted", {"a": 1})
+
+    # Faithful fixture: win the claim, then an admin abort resolves the SAME row
+    # to a terminal 'aborted' state carrying a control-plane result payload.
+    claim = guard.claim(req)
+    assert isinstance(claim, FreshClaim)
+    row = guard._rows[req.op_id]  # noqa: SLF001 - faithful abort fixture
+    row.status = "aborted"
+    row.result_payload = {
+        "status": "aborted",
+        "op_id": req.op_id,
+        "operation_kind": "phase_start",
+        "admin_note": "aborted by admin_abort_inflight_operation",
+    }
+
+    # classify() re-reads the row -> AbortedOutcome (not ReplayOutcome).
+    assert isinstance(guard.classify(req), AbortedOutcome)
+
+    # Through the route helper: a stable 409 operation_conflict, never a replay of
+    # the aborted payload and never a corrupt-500.
+    resp = _run(guard, req, lambda: _ok(201, {"should": "not-run"}))
+    assert resp.status_code == 409
+    assert json.loads(resp.body)["error_code"] == "operation_conflict"
