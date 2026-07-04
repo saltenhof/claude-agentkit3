@@ -12,9 +12,16 @@ Translations:
 
 All translations are explicit and exhaustive; there is no generic
 string-passthrough. Unknown values raise ``StoryValidationError``.
+
+Also owns the Spec-Freeze field classification (AG3-143, FK-59 §59.9a):
+whether a PATCH wire field is fachlich tragend (frozen during an active
+execution regime) or administrative (always mutable). Blood-type A (pure,
+technology-free classification; no I/O).
 """
 
 from __future__ import annotations
+
+from enum import StrEnum
 
 from agentkit.backend.core_types import StorySize
 from agentkit.backend.story_context_manager.errors import StoryValidationError
@@ -272,3 +279,86 @@ def check_forbidden_fields(body: dict[str, object]) -> None:
             "use the dedicated approve/reject/cancel endpoints for status changes",
             detail={"forbidden_field": field},
         )
+
+
+# ---------------------------------------------------------------------------
+# Spec-Freeze field classification (AG3-143, FK-59 §59.9a)
+# ---------------------------------------------------------------------------
+
+
+class StoryFieldSensitivity(StrEnum):
+    """Whether a PATCH wire field is frozen during an active execution regime.
+
+    FK-59 §59.9a: fachlich tragende Story-Spec-Felder (Scope, Akzeptanz-
+    kriterien, Story-Text -- i.e. the ``StorySpecification`` content) are
+    frozen while the story has an active execution regime; administrative
+    metadata (Labels, Anzeigename, and comparable non-axis fields per §59.9)
+    stays free. Exactly two classes -- the concept draws no third "maybe".
+    """
+
+    LOAD_BEARING = "load_bearing"
+    ADMINISTRATIVE = "administrative"
+
+
+#: FK-59 §59.9a + §59.9: the CLOSED allowlist of wire fields explicitly named
+#: as administrative / non-axis metadata: ``labels`` ("Labels", §59.9a),
+#: ``title`` ("Anzeigename", §59.9a -- the Story wire model's display name),
+#: ``change_impact`` (explicitly listed non-axis, §59.9), ``module``
+#: ("Komponentenzuordnung", §59.9), ``repos`` ("Repo-Affinitaet", §59.9).
+#: This is a typed ALLOWLIST, not a growing denylist (FIX THE MODEL): every
+#: field NOT in this set -- including ``story_type`` (itself an explicit
+#: persistent Vertragsachse, §59.3.1/§59.4.1), every ``StorySpecification``
+#: content field (``need``, ``solution``, ``acceptance``,
+#: ``definition_of_done``, ``concept_refs``, ``guardrail_refs``,
+#: ``external_sources``) and any unclassified/future field -- is
+#: LOAD_BEARING by construction (fail-closed default, AC7). Forbidden fields
+#: (``FORBIDDEN_PATCH_FIELDS``) are governed by their own absolute, regime-
+#: independent prohibition and are never consulted here (see
+#: ``contains_load_bearing_patch_field``).
+_ADMINISTRATIVE_PATCH_FIELDS: frozenset[str] = frozenset(
+    {"title", "labels", "change_impact", "module", "repos"}
+)
+
+
+def classify_story_patch_field(field_key: str) -> StoryFieldSensitivity:
+    """Classify one wire field key per FK-59 §59.9a (fail-closed default).
+
+    Args:
+        field_key: The wire field name from a PATCH/PUT body.
+
+    Returns:
+        ``ADMINISTRATIVE`` iff *field_key* is in the closed allowlist;
+        ``LOAD_BEARING`` for every other field (including unknown/future
+        fields -- fail-closed, AC7).
+    """
+    if field_key in _ADMINISTRATIVE_PATCH_FIELDS:
+        return StoryFieldSensitivity.ADMINISTRATIVE
+    return StoryFieldSensitivity.LOAD_BEARING
+
+
+def contains_load_bearing_patch_field(updates: dict[str, object]) -> bool:
+    """Whether *updates* touches at least one load-bearing spec field.
+
+    Two keys are exempt from classification entirely (never "load-bearing",
+    never "administrative" -- simply not in scope of the Spec-Freeze
+    question): ``op_id`` is a transport-level idempotency key, never story
+    content (mirrors ``_apply_updates``'s own skip); and
+    ``FORBIDDEN_PATCH_FIELDS`` (``status``/``created_at``/``completed_at``)
+    are governed by their OWN absolute, regime-independent prohibition
+    (``check_forbidden_fields``) -- applying Spec-Freeze semantics to an
+    always-forbidden field would be meaningless and would needlessly widen
+    the Postgres-only execution-regime read to PATCHes that can never
+    succeed anyway.
+
+    Args:
+        updates: Wire field name -> new value (as passed to
+            ``update_story_fields``).
+
+    Returns:
+        ``True`` iff at least one key classifies as ``LOAD_BEARING``.
+    """
+    return any(
+        classify_story_patch_field(field_key) is StoryFieldSensitivity.LOAD_BEARING
+        for field_key in updates
+        if field_key != "op_id" and field_key not in FORBIDDEN_PATCH_FIELDS
+    )

@@ -31,6 +31,9 @@ def _build_public_api_names() -> tuple[str, ...]:
         "insert_run_ownership_record_global",
         "load_run_ownership_record_global",
         "load_active_run_ownership_record_global",
+        # AG3-143 Execution-Contract-Digest persistence (Postgres-only K5).
+        "insert_execution_contract_digest_global",
+        "load_execution_contract_digest_global",
         "insert_object_mutation_claim_global",
         "load_object_mutation_claim_global",
         "delete_object_mutation_claim_global",

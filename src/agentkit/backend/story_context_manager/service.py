@@ -47,6 +47,7 @@ from agentkit.backend.story_context_manager.errors import (
     IdempotencyMismatchError,
     InvalidStatusTransitionError,
     OperationInFlightError,
+    SpecFrozenDuringActiveRunError,
     StoryNotFoundError,
     StoryProjectNotFoundError,
     StoryValidationError,
@@ -73,6 +74,7 @@ from agentkit.backend.story_context_manager.story_model import (
 )
 from agentkit.backend.story_context_manager.wire_adapter import (
     check_forbidden_fields,
+    contains_load_bearing_patch_field,
     story_to_wire_summary,
     validate_repos_against_project,
     validate_repos_not_empty,
@@ -244,6 +246,15 @@ class StoryService(ResetTransitionMixin):
             ``StateBackendStoryDependencyRepository``.
         event_emitter: Callable that emits story_upserted events. Receives
             ``(project_key, story_display_id, wire_summary_dict)`` as args.
+        execution_regime_reader: AG3-143 (FK-59 §59.9a) Spec-Freeze predicate
+            port -- ``(project_key, story_id) -> RunOwnershipRecord | None``.
+            The SAME AG3-137/AG3-142 read path the control-plane runtime uses
+            for ownership admission (no second "is a run active" source of
+            truth). The return type is intentionally opaque (``object``):
+            this service only checks presence/absence, never a field of the
+            record, so it carries no compile-time dependency on
+            ``control_plane``. Defaults to the real
+            ``load_active_run_ownership_record_global`` (Postgres-only, K5).
     """
 
     def __init__(
@@ -254,6 +265,7 @@ class StoryService(ResetTransitionMixin):
         idempotency_guard: InflightIdempotencyGuard | None = None,
         dependency_repository: StoryDependencyRepository | None = None,
         event_emitter: Callable[[str, str, dict[str, object]], None] | None = None,
+        execution_regime_reader: Callable[[str, str], object | None] | None = None,
     ) -> None:
         if story_repository is None:
             from agentkit.backend.state_backend.store.story_repository import (
@@ -275,12 +287,20 @@ class StoryService(ResetTransitionMixin):
                 StateBackendStoryDependencyRepository,
             )
             dependency_repository = StateBackendStoryDependencyRepository()
+        if execution_regime_reader is None:
+            from agentkit.backend.state_backend.store import (
+                load_active_run_ownership_record_global,
+            )
+            execution_regime_reader = load_active_run_ownership_record_global
 
         self._story_repo: StoryRepository = story_repository
         self._project_repo: ProjectRepository = project_repository
         self._dependency_repo: StoryDependencyRepository = dependency_repository
         self._guard: InflightIdempotencyGuard = idempotency_guard
         self._emit = event_emitter if event_emitter is not None else _logging_emitter
+        self._execution_regime_reader: Callable[[str, str], object | None] = (
+            execution_regime_reader
+        )
 
     # ------------------------------------------------------------------
     # Idempotency helpers (AG3-140, FK-91 §91.1a Rule 5)
@@ -658,6 +678,46 @@ class StoryService(ResetTransitionMixin):
         return story
 
     # ------------------------------------------------------------------
+    # Spec-Freeze gate (AG3-143, FK-59 §59.9a)
+    # ------------------------------------------------------------------
+
+    def _reject_if_spec_frozen(
+        self, story: Story, updates: dict[str, object],
+    ) -> None:
+        """Fail closed on a load-bearing PATCH during an active execution regime.
+
+        The predicate "story has an active execution regime" is exactly
+        "an active ``RunOwnershipRecord`` exists for this story"
+        (``self._execution_regime_reader``, the SAME AG3-137/AG3-142 read path
+        the control-plane runtime uses for ownership admission) — no second,
+        divergent "is a run active" source of truth. Outside an active regime
+        this is a no-op (create/approve/field-care stay unchanged, AC6).
+
+        Args:
+            story: The current (pre-mutation) Story.
+            updates: The wire field updates about to be applied.
+
+        Raises:
+            SpecFrozenDuringActiveRunError: When ``updates`` touches a
+                load-bearing field AND an active execution regime exists.
+        """
+        if not contains_load_bearing_patch_field(updates):
+            return
+        if self._execution_regime_reader(story.project_key, story.story_display_id) is None:
+            return
+        raise SpecFrozenDuringActiveRunError(
+            "Load-bearing story-spec fields (scope, acceptance criteria, "
+            "story text) are frozen while the story has an active execution "
+            "regime (FK-59 §59.9a, FK-44 §44.3a); change them via an explicit "
+            "administrative intervention against the run owner, or retry "
+            "after the run ends.",
+            detail={
+                "project_key": story.project_key,
+                "story_id": story.story_display_id,
+            },
+        )
+
+    # ------------------------------------------------------------------
     # update_story_fields (PATCH /v1/stories/{id})
     # ------------------------------------------------------------------
 
@@ -699,6 +759,16 @@ class StoryService(ResetTransitionMixin):
         # project_key is not known until the story is loaded, so load first, then
         # claim on the (project_key, story_id) scope.
         story = self.get_story_or_raise(story_display_id)
+
+        # AG3-143 (FK-59 §59.9a, AC6): the Spec-Freeze gate runs BEFORE the
+        # idempotency claim/record -- unlike check_forbidden_fields (a
+        # deterministic 422 finalized UNDER the claim, AG3-140 finding 3), a
+        # Spec-Freeze rejection must NOT be cached as a replay: the regime
+        # state itself can change between retries (the run may have ended),
+        # so every attempt re-evaluates fresh. No write, no idempotency
+        # record survives a rejection here.
+        self._reject_if_spec_frozen(story, updates)
+
         req = IdempotencyRequest(
             op_id=op_id,
             operation_kind="story_update_fields",

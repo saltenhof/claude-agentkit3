@@ -513,6 +513,12 @@ def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
         "object_mutation_claims",
         "takeover_transfer_records",
         "backend_instance_identity",
+        # AG3-143 canary: a pre-AG3-143 schema lacks this table, so it reports
+        # "not bootstrapped" and re-runs the full _ensure_schema (which creates
+        # execution_contract_digests via the idempotent CREATE TABLE IF NOT
+        # EXISTS in postgres_schema.sql -- no additive ALTER/backfill needed,
+        # the table is brand-new and forward-only).
+        "execution_contract_digests",
     )
     table_rows = conn.execute(
         """
@@ -2765,6 +2771,83 @@ def load_active_run_ownership_record_global_row(
 
 
 # ---------------------------------------------------------------------------
+# ExecutionContractDigestRecord rows (AG3-143, Postgres-only K5)
+# ---------------------------------------------------------------------------
+
+
+def _insert_execution_contract_digest_row(
+    conn: _CompatConnection, row: dict[str, Any],
+) -> None:
+    """Strictly INSERT one execution-contract-digest row on an EXISTING connection.
+
+    A plain ``INSERT`` (no ``ON CONFLICT``): a duplicate identity
+    ``(project_key, story_id, run_id)`` fails deterministically with a
+    primary-key violation -- there is no silent overwrite and no
+    application-side check (FK-44 §44.3a: read-only after insert).
+
+    Raises:
+        psycopg.errors.UniqueViolation: On a duplicate identity (fail-closed).
+    """
+
+    conn.execute(
+        """
+        INSERT INTO execution_contract_digests (
+            project_key, story_id, run_id, execution_contract_digest,
+            digest_format_version, formed_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            row["project_key"],
+            row["story_id"],
+            row["run_id"],
+            row["execution_contract_digest"],
+            row["digest_format_version"],
+            row["formed_at"],
+        ),
+    )
+
+
+def insert_execution_contract_digest_global_row(row: dict[str, Any]) -> None:
+    """Strictly INSERT one execution-contract-digest row on a FRESH connection.
+
+    Standalone entrypoint (test seeding); the productive setup-start writer
+    inserts atomically WITHIN the
+    ``finalize_control_plane_start_phase_global_row`` transaction instead
+    (see ``execution_contract_digest_row_to_insert``), never via this
+    standalone call.
+
+    Raises:
+        psycopg.errors.UniqueViolation: On a duplicate identity (fail-closed).
+    """
+
+    with _connect_global() as conn:
+        _insert_execution_contract_digest_row(conn, row)
+
+
+def load_execution_contract_digest_global_row(
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> dict[str, Any] | None:
+    """Return the raw execution-contract-digest row for one run, or None.
+
+    Lock-free (FK-44 §44.3a: the digest fence predicate never takes a lock).
+    """
+
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM execution_contract_digests
+            WHERE project_key = ? AND story_id = ? AND run_id = ?
+            """,
+            (project_key, story_id, run_id),
+        ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+# ---------------------------------------------------------------------------
 # ObjectMutationClaimRecord rows (AG3-137, Postgres-only K5)
 # ---------------------------------------------------------------------------
 
@@ -3720,6 +3803,7 @@ def finalize_control_plane_start_phase_global_row(
     lock_rows: Sequence[dict[str, Any]],
     event_rows: Sequence[dict[str, Any]],
     ownership_row_to_insert: dict[str, Any] | None = None,
+    execution_contract_digest_row_to_insert: dict[str, Any] | None = None,
     expected_ownership_epoch: int | None = None,
 ) -> bool:
     """Atomically CAS-finalize a start_phase AND materialize its side effects (#1).
@@ -3784,6 +3868,11 @@ def finalize_control_plane_start_phase_global_row(
     in practice with ``expected_ownership_epoch`` (a fresh setup has no existing
     record to fence against; every OTHER start/resume finalize fences against
     the existing record via ``expected_ownership_epoch`` and inserts none).
+
+    AG3-143 (FK-44 §44.3a): ``execution_contract_digest_row_to_insert``
+    atomically materializes the run's NEW ``execution_contract_digests`` row
+    in this SAME transaction, mirroring ``ownership_row_to_insert`` exactly
+    -- present iff this is a genuinely fresh setup start, ``None`` otherwise.
     """
 
     class _NotOwnerError(RuntimeError):
@@ -3832,6 +3921,10 @@ def finalize_control_plane_start_phase_global_row(
                 )
             if ownership_row_to_insert is not None:
                 _insert_run_ownership_record_row(conn, ownership_row_to_insert)
+            if execution_contract_digest_row_to_insert is not None:
+                _insert_execution_contract_digest_row(
+                    conn, execution_contract_digest_row_to_insert,
+                )
             if binding_row is not None:
                 _insert_session_binding_row(conn, binding_row)
             for lock_row in lock_rows:

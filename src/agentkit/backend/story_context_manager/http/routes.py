@@ -32,6 +32,7 @@ from agentkit.backend.story_context_manager.errors import (
     InvalidStatusTransitionError,
     OperationInFlightError,
     ReconciliationEvidenceMissingError,
+    SpecFrozenDuringActiveRunError,
     StoryNotFoundError,
     StoryProjectNotFoundError,
     StoryValidationError,
@@ -352,6 +353,8 @@ class StoryContextRoutes:
             return _service_error_response(exc, correlation_id)
         except ForbiddenError as exc:
             return _service_error_response(exc, correlation_id)
+        except SpecFrozenDuringActiveRunError as exc:
+            return _service_error_response(exc, correlation_id)
         except (IdempotencyMismatchError, OperationInFlightError) as exc:
             return _service_error_response(exc, correlation_id)
         except Exception as exc:
@@ -484,6 +487,8 @@ class StoryContextRoutes:
             return _service_error_response(exc, correlation_id)
         except StoryValidationError as exc:
             return _service_error_response(exc, correlation_id)
+        except SpecFrozenDuringActiveRunError as exc:
+            return _service_error_response(exc, correlation_id)
         except (IdempotencyMismatchError, OperationInFlightError) as exc:
             return _service_error_response(exc, correlation_id)
         except Exception as exc:
@@ -514,6 +519,12 @@ _ERROR_CODE_MAP: dict[type[Exception], tuple[HTTPStatus, str]] = {
     ReconciliationEvidenceMissingError: (
         HTTPStatus.UNPROCESSABLE_ENTITY,
         "reconciliation_evidence_missing",
+    ),
+    # AG3-143 (FK-59 §59.9a): Spec-Freeze rejection during an active execution
+    # regime -- a stable, machine-readable error_code (AC10, ARCH-55).
+    SpecFrozenDuringActiveRunError: (
+        HTTPStatus.CONFLICT,
+        "spec_frozen_during_active_run",
     ),
 }
 

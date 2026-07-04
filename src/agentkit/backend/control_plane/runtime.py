@@ -164,6 +164,28 @@ class _StartPhaseOutcome:
     dispatch_result: PhaseDispatchResult | None
     mints_ownership_record: bool = False
     observed_ownership_epoch: int | None = None
+    #: AG3-143 (FK-44 §44.3a, SOLL-095): the freshly-formed
+    #: ``execution_contract_digest`` hex string for a genuinely fresh setup
+    #: start (``mints_ownership_record=True``); ``None`` for every other
+    #: commit (nothing to mint) and for a ``rejection`` outcome.
+    execution_contract_digest: str | None = None
+
+
+@dataclass(frozen=True)
+class _ExecutionContractDigestOutcome:
+    """Outcome of resolving a fresh setup's ``execution_contract_digest`` inputs.
+
+    AG3-143 (FK-44 §44.3a, AC2): exactly one of ``digest`` /
+    ``rejection_reason`` is non-``None``. A ``rejection_reason`` means at
+    least one digest component (story spec, project registration/config,
+    run-prompt-pin) could not be resolved -- the fresh setup start is
+    rejected fail-closed BEFORE the engine dispatch runs, so no run ever
+    enters the execution regime without a persisted digest and no partial
+    engine write is produced by a digest failure.
+    """
+
+    digest: str | None
+    rejection_reason: str | None
 
 
 @dataclass(frozen=True)
@@ -579,6 +601,10 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         now_fn: Callable[[], datetime] | None = None,
         token_factory: Callable[[], str] | None = None,
         instance_identity: BackendInstanceIdentityRecord | None = None,
+        execution_contract_digest_reader: (
+            Callable[[PhaseMutationRequest, str], _ExecutionContractDigestOutcome]
+            | None
+        ) = None,
     ) -> None:
         #: ERROR-3 fix (#3): whether this service uses the PRODUCTIVE default
         #: control-plane store (Postgres-only by design). When ``True`` every
@@ -605,6 +631,34 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
             self._object_claim_repo = _default_di_object_claim_repository()
         else:
             self._object_claim_repo = ObjectMutationClaimRepository()
+        #: AG3-143 (K5 Postgres-only, FK-44 §44.3a): the execution-contract-
+        #: digest reader for a genuinely fresh setup start. Mirrors
+        #: ``object_claim_repository``: a DI-injected ``repository`` OR an
+        #: injected ``phase_dispatcher`` (either one means this construction
+        #: is a test / alternative wiring, never the fully productive default
+        #: -- mirrors the existing pg-integration-test idiom of injecting a
+        #: fake dispatcher while keeping the REAL Postgres-backed
+        #: ``repository=None`` for the op/binding/ownership tables) that does
+        #: not ALSO inject an explicit reader gets a trivial, always-
+        #: succeeding in-memory reader (never the productive state-backend/
+        #: filesystem gathering) -- so a DB-free/dispatcher-faked test
+        #: exercising a fresh setup start is never forced to also wire a real
+        #: project registration / story specification / skill-binding /
+        #: prompt-bundle fixture. ``None`` on the FULLY productive default
+        #: path (neither overridden) is lazily resolved to
+        #: :meth:`_build_execution_contract_digest` on first use.
+        self._execution_contract_digest_reader: (
+            Callable[[PhaseMutationRequest, str], _ExecutionContractDigestOutcome]
+            | None
+        )
+        if execution_contract_digest_reader is not None:
+            self._execution_contract_digest_reader = execution_contract_digest_reader
+        elif repository is not None or phase_dispatcher is not None:
+            self._execution_contract_digest_reader = (
+                _default_di_execution_contract_digest_reader()
+            )
+        else:
+            self._execution_contract_digest_reader = None
         #: AG3-142 (K5 Postgres-only): the run-ownership persistence port the
         #: admission fence reads (and the setup-start finalize inserts into) is
         #: ``self._repo.load_active_ownership`` -- the SAME
@@ -852,6 +906,7 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
                 phase_dispatch=outcome.dispatch_result,
                 mints_ownership_record=outcome.mints_ownership_record,
                 observed_ownership_epoch=outcome.observed_ownership_epoch,
+                execution_contract_digest=outcome.execution_contract_digest,
             )
             #: Finalize DONE (won or lost the ownership CAS): the op is terminal, so
             #: mark ``finalized`` BEFORE releasing the object claim -- a release
@@ -999,6 +1054,40 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
                 dispatch_result=None,
             )
         run_admitted = admission.admitted
+        #: AG3-142 (SOLL-015): a genuinely fresh setup start (no active record
+        #: existed for this run) MINTS the new active record atomically at
+        #: finalize; every other commit (a non-setup phase start, or a
+        #: re-entry into an already-owned setup) fences against the EXISTING
+        #: record. Computed HERE (before dispatch) so the AG3-143 digest build
+        #: below runs -- and can reject -- BEFORE the engine ever dispatches.
+        mints_ownership_record = (
+            phase == PhaseName.SETUP.value
+            and admission.rejection_reason is OwnershipRejectionReason.NO_ACTIVE_RECORD
+        )
+        execution_contract_digest: str | None = None
+        if mints_ownership_record:
+            #: AG3-143 (FK-44 §44.3a, SOLL-095, AC2): form the run's
+            #: execution_contract_digest BEFORE the engine dispatch. A
+            #: component that cannot be resolved (missing project
+            #: registration/config, missing story specification, an
+            #: unresolvable run-prompt-pin) fails the fresh setup start
+            #: CLEANLY here -- no engine writes are produced, so a retry (once
+            #: the missing component is fixed) re-evaluates cleanly instead of
+            #: landing in the AG3-138 partial-write "repair" state.
+            digest_outcome = self._resolve_execution_contract_digest_reader()(
+                request, run_id,
+            )
+            if digest_outcome.rejection_reason is not None:
+                return _StartPhaseOutcome(
+                    rejection=self._fail_closed_setup_rejection(
+                        run_id=run_id,
+                        phase=phase,
+                        op_id=request.op_id,
+                        reason=digest_outcome.rejection_reason,
+                    ),
+                    dispatch_result=None,
+                )
+            execution_contract_digest = digest_outcome.digest
         dispatch_result = self._dispatch_phase(
             run_id=run_id, phase=phase, request=request, run_admitted=run_admitted
         )
@@ -1079,14 +1168,6 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         #: ERROR-2 fix (AC7 "same result, no second path"): admitted -- the caller
         #: builds and stores the FINAL result (incl. ``phase_dispatch``) in ONE
         #: place, so a replay of the same op_id returns an identical record.
-        #: AG3-142 (SOLL-015): a genuinely fresh setup start (no active record
-        #: existed for this run) MINTS the new active record atomically at
-        #: finalize; every other commit (a non-setup phase start, or a re-entry
-        #: into an already-owned setup) fences against the EXISTING record.
-        mints_ownership_record = (
-            phase == PhaseName.SETUP.value
-            and admission.rejection_reason is OwnershipRejectionReason.NO_ACTIVE_RECORD
-        )
         return _StartPhaseOutcome(
             rejection=None,
             dispatch_result=dispatch_result,
@@ -1096,6 +1177,177 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
                 if admission.active_record is not None
                 else None
             ),
+            execution_contract_digest=execution_contract_digest,
+        )
+
+    def _resolve_execution_contract_digest_reader(
+        self,
+    ) -> Callable[[PhaseMutationRequest, str], _ExecutionContractDigestOutcome]:
+        """Return the injected/DI-defaulted reader, lazily binding the productive one.
+
+        Mirrors :meth:`_resolve_dispatcher`: ``None`` (the productive
+        default-store path -- see ``__init__``) is resolved and memoized on
+        first use to :meth:`_build_execution_contract_digest`, never
+        self-built eagerly (non-setup flows pay no wiring cost).
+        """
+        if self._execution_contract_digest_reader is None:
+            self._execution_contract_digest_reader = (
+                lambda request, run_id: self._build_execution_contract_digest(
+                    request=request, run_id=run_id,
+                )
+            )
+        return self._execution_contract_digest_reader
+
+    def _build_execution_contract_digest(
+        self,
+        *,
+        request: PhaseMutationRequest,
+        run_id: str,
+    ) -> _ExecutionContractDigestOutcome:
+        """Resolve + form the execution_contract_digest for a fresh setup (AG3-143).
+
+        FK-44 §44.3a (SOLL-095): gathers the digest's raw inputs -- the
+        story's ``StorySpecification`` (the fachlich tragende Spec-Felder,
+        FK-59 §59.9a), the project's registered config version/digest (the
+        relevant project/QA/gate configuration; SINGLE SOURCE OF TRUTH, never
+        a second ``project.yaml`` canonicalization), the project's bound
+        skill versions, the installed AK3 capability (package) version, and
+        the run's run-prompt-pin (FK-44 §44.3, resolved/created HERE if this
+        is the run's first prompt-runtime touch -- the normative "at setup"
+        moment, AG3-143 closes the pre-existing gap where nothing called
+        ``ensure_run_prompt_pin_present`` productively at setup) -- then forms
+        the deterministic digest via the pure prompt-runtime assembler.
+
+        A component that cannot be resolved is reported as a rejection
+        reason (never raised): the caller rejects the fresh setup start
+        fail-closed (AC2) instead of letting an exception escape the atomic
+        claim machinery.
+        """
+        from agentkit.backend.exceptions import ProjectError
+        from agentkit.backend.prompt_runtime.execution_contract import (
+            ExecutionContractInputs,
+            RunPromptPinComponent,
+            SkillVersionComponent,
+            StorySpecComponent,
+            compute_execution_contract_digest,
+        )
+        from agentkit.backend.prompt_runtime.pins import ensure_run_prompt_pin_present
+
+        ctx = self._repo.load_story_context(request.project_key, request.story_id)
+        if ctx is None:
+            return _ExecutionContractDigestOutcome(
+                digest=None,
+                rejection_reason=(
+                    "execution_contract_digest could not be formed: the run's "
+                    "StoryContext is unexpectedly unresolvable at setup "
+                    "(fail-closed, FK-44 §44.3a)."
+                ),
+            )
+
+        from agentkit.backend.state_backend.store.project_registration_repository import (
+            StateBackendProjectRegistrationRepository,
+        )
+
+        registration = StateBackendProjectRegistrationRepository().get(
+            request.project_key
+        )
+        if registration is None:
+            return _ExecutionContractDigestOutcome(
+                digest=None,
+                rejection_reason=(
+                    "execution_contract_digest could not be formed: no "
+                    f"project_registry entry for project_key={request.project_key!r} "
+                    "(fail-closed, FK-44 §44.3a component 'project/QA/gate "
+                    "configuration')."
+                ),
+            )
+
+        from agentkit.backend.state_backend.store.story_repository import (
+            StateBackendStoryRepository,
+        )
+
+        spec = StateBackendStoryRepository().get_specification(ctx.story_uuid)
+        if spec is None:
+            return _ExecutionContractDigestOutcome(
+                digest=None,
+                rejection_reason=(
+                    "execution_contract_digest could not be formed: no "
+                    f"StorySpecification for story_uuid={ctx.story_uuid} "
+                    "(fail-closed, FK-44 §44.3a component 'story-spec fields')."
+                ),
+            )
+
+        from agentkit.backend.state_backend.store.skill_binding_repository import (
+            StateBackendSkillBindingRepository,
+        )
+
+        skill_versions = tuple(
+            sorted(
+                (
+                    SkillVersionComponent(
+                        skill_name=binding.skill_name,
+                        bundle_id=binding.bundle_id,
+                        bundle_version=binding.bundle_version,
+                    )
+                    for binding in StateBackendSkillBindingRepository().list_for_project(
+                        request.project_key
+                    )
+                ),
+                key=lambda component: component.skill_name,
+            )
+        )
+
+        try:
+            pin = ensure_run_prompt_pin_present(registration.project_root, run_id=run_id)
+        except ProjectError as exc:
+            return _ExecutionContractDigestOutcome(
+                digest=None,
+                rejection_reason=(
+                    "execution_contract_digest could not be formed: the "
+                    f"run-prompt-pin could not be resolved ({exc}); fail-closed "
+                    "(FK-44 §44.3a component 'run-prompt-pin', FK-44 §44.3)."
+                ),
+            )
+
+        import agentkit
+
+        inputs = ExecutionContractInputs(
+            story_spec=StorySpecComponent(
+                need=spec.need,
+                solution=spec.solution,
+                acceptance=tuple(spec.acceptance),
+                definition_of_done=(
+                    tuple(spec.definition_of_done)
+                    if spec.definition_of_done is not None
+                    else None
+                ),
+                concept_refs=(
+                    tuple(spec.concept_refs) if spec.concept_refs is not None else None
+                ),
+                guardrail_refs=(
+                    tuple(spec.guardrail_refs)
+                    if spec.guardrail_refs is not None
+                    else None
+                ),
+                external_sources=(
+                    tuple(spec.external_sources)
+                    if spec.external_sources is not None
+                    else None
+                ),
+            ),
+            project_config_version=registration.config_version,
+            project_config_digest=registration.config_digest,
+            skill_versions=skill_versions,
+            capability_version=agentkit.__version__,
+            run_prompt_pin=RunPromptPinComponent(
+                prompt_bundle_id=pin.prompt_bundle_id,
+                prompt_bundle_version=pin.prompt_bundle_version,
+                prompt_manifest_sha256=pin.prompt_manifest_sha256,
+            ),
+        )
+        return _ExecutionContractDigestOutcome(
+            digest=compute_execution_contract_digest(inputs),
+            rejection_reason=None,
         )
 
     def _finalize_start_phase(
@@ -1110,6 +1362,7 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         phase_dispatch: PhaseDispatchResult | None,
         mints_ownership_record: bool = False,
         observed_ownership_epoch: int | None = None,
+        execution_contract_digest: str | None = None,
     ) -> ControlPlaneMutationResult:
         """Atomically CAS-finalize the claim AND materialize side effects (#1).
 
@@ -1140,6 +1393,12 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         observed at the early admission check (:class:`_StartPhaseOutcome`);
         threaded verbatim so the commit-time re-check fences on THIS EXACT
         epoch (mirrors ``owner_operation_epoch``), not merely "some" epoch.
+
+        AG3-143 (FK-44 §44.3a, SOLL-095): ``execution_contract_digest`` -- the
+        digest :meth:`_build_execution_contract_digest` formed for a
+        genuinely fresh setup start -- is persisted (run-scoped, read-only
+        after insert) in this SAME transaction as ``ownership_record_to_insert``,
+        mirroring its atomicity exactly: a claim-CAS loser writes neither.
         """
         now = self._now_fn()
         #: SOLL-017 accountability: the epoch this commit applies under. A fresh
@@ -1212,6 +1471,36 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
             if mints_ownership_record
             else None
         )
+        execution_contract_digest_to_insert = None
+        if mints_ownership_record:
+            #: Fail-closed (defensive, mirrors the epoch invariant above): a
+            #: minting commit MUST have a digest -- the only way to reach here
+            #: without one would be ``_start_phase_after_claim`` skipping its
+            #: OWN digest-build gate, which never returns an admitted outcome
+            #: without either a digest or a rejection (AG3-143, no silent
+            #: fence skip).
+            if execution_contract_digest is None:
+                raise OwnershipFenceViolationError(
+                    f"internal invariant violated: start_phase finalize for run "
+                    f"{run_id!r} (project={request.project_key!r}, "
+                    f"story={request.story_id!r}) mints a new ownership record "
+                    "but carries no execution_contract_digest; fail-closed "
+                    "(AG3-143, no silent digest skip).",
+                    detail={},
+                )
+            from agentkit.backend.prompt_runtime.execution_contract import (
+                DIGEST_FORMAT_VERSION,
+                ExecutionContractDigestRecord,
+            )
+
+            execution_contract_digest_to_insert = ExecutionContractDigestRecord(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                run_id=run_id,
+                execution_contract_digest=execution_contract_digest,
+                digest_format_version=DIGEST_FORMAT_VERSION,
+                formed_at=now,
+            )
         if self._repo.finalize_start_phase(
             record,
             owner_token=owner_token,
@@ -1223,6 +1512,7 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
             locks=plan.locks,
             events=plan.events,
             ownership_record_to_insert=ownership_record_to_insert,
+            execution_contract_digest_to_insert=execution_contract_digest_to_insert,
             expected_ownership_epoch=(
                 None if mints_ownership_record else ownership_epoch_for_commit
             ),
@@ -3563,6 +3853,55 @@ def _default_di_object_claim_repository() -> ObjectMutationClaimRepository:
         return True
 
     return ObjectMutationClaimRepository(acquire_claim=_acquire, release_claim=_release)
+
+
+def _default_di_execution_contract_digest_reader() -> (
+    Callable[[PhaseMutationRequest, str], _ExecutionContractDigestOutcome]
+):
+    """Build a trivial, always-succeeding digest reader (DI seam, AG3-143).
+
+    Mirrors :func:`_default_di_object_claim_repository`: a directly
+    constructed service with an injected ``repository`` but no explicit
+    ``execution_contract_digest_reader`` gets THIS reader instead of the
+    productive state-backend/filesystem gathering (project registration,
+    story specification, skill bindings, run-prompt-pin) -- so a DI-injected
+    unit test (a fake ``ControlPlaneRuntimeRepository``, no database) is
+    never forced to also wire a real project/story-spec/skill-binding/
+    prompt-bundle fixture just to exercise a fresh setup start. It still
+    exercises the REAL digest FORMATION
+    (``compute_execution_contract_digest``) over fixed, deterministic
+    placeholder inputs -- never a hand-faked digest STRING -- so the
+    persisted-digest code path is genuinely exercised end to end.
+    """
+
+    def _reader(
+        request: PhaseMutationRequest, run_id: str,
+    ) -> _ExecutionContractDigestOutcome:
+        del request, run_id
+        from agentkit.backend.prompt_runtime.execution_contract import (
+            ExecutionContractInputs,
+            RunPromptPinComponent,
+            StorySpecComponent,
+            compute_execution_contract_digest,
+        )
+
+        inputs = ExecutionContractInputs(
+            story_spec=StorySpecComponent(),
+            project_config_version="di-fake-config-version",
+            project_config_digest="di-fake-config-digest",
+            capability_version="di-fake-capability-version",
+            run_prompt_pin=RunPromptPinComponent(
+                prompt_bundle_id="di-fake-bundle",
+                prompt_bundle_version="di-fake-bundle-version",
+                prompt_manifest_sha256="0" * 64,
+            ),
+        )
+        return _ExecutionContractDigestOutcome(
+            digest=compute_execution_contract_digest(inputs),
+            rejection_reason=None,
+        )
+
+    return _reader
 
 
 def _build_claim_placeholder(

@@ -83,6 +83,9 @@ from agentkit.backend.state_backend.store.facade import (
     has_open_repair_control_plane_operation_for_story_global as has_open_repair_control_plane_operation_for_story_global,
 )
 from agentkit.backend.state_backend.store.facade import (
+    insert_execution_contract_digest_global as insert_execution_contract_digest_global,
+)
+from agentkit.backend.state_backend.store.facade import (
     insert_object_mutation_claim_global as insert_object_mutation_claim_global,
 )
 from agentkit.backend.state_backend.store.facade import (
@@ -111,6 +114,9 @@ from agentkit.backend.state_backend.store.facade import (
 )
 from agentkit.backend.state_backend.store.facade import (
     load_control_plane_operation_global as load_control_plane_operation_global,
+)
+from agentkit.backend.state_backend.store.facade import (
+    load_execution_contract_digest_global as load_execution_contract_digest_global,
 )
 from agentkit.backend.state_backend.store.facade import (
     load_execution_events as load_execution_events,

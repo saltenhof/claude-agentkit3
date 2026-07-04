@@ -48,6 +48,9 @@ if TYPE_CHECKING:
     )
     from agentkit.backend.pipeline_engine.phase_executor.records import AttemptRecord
     from agentkit.backend.project_management.entities import Project
+    from agentkit.backend.prompt_runtime.execution_contract import (
+        ExecutionContractDigestRecord,
+    )
     from agentkit.backend.requirements_coverage.models import StoryAreLink
     from agentkit.backend.skills.binding import SkillBinding
     from agentkit.backend.story_context_manager.models import StoryContext
@@ -1285,6 +1288,47 @@ def run_ownership_row_to_record(row: dict[str, Any]) -> RunOwnershipRecord:
         acquired_via=OwnershipAcquisition(str(row["acquired_via"])),
         acquired_at=datetime.fromisoformat(str(row["acquired_at"])),
         audit_ref=str(row["audit_ref"]),
+    )
+
+
+# ---------------------------------------------------------------------------
+# ExecutionContractDigestRecord (AG3-143)
+# ---------------------------------------------------------------------------
+
+
+def execution_contract_digest_to_row(
+    record: ExecutionContractDigestRecord,
+) -> dict[str, Any]:
+    """Convert an ``ExecutionContractDigestRecord`` to a DB-insertable row dict."""
+
+    return {
+        "project_key": record.project_key,
+        "story_id": record.story_id,
+        "run_id": record.run_id,
+        "execution_contract_digest": record.execution_contract_digest,
+        "digest_format_version": record.digest_format_version,
+        "formed_at": record.formed_at.isoformat(),
+    }
+
+
+def execution_contract_digest_row_to_record(
+    row: dict[str, Any],
+) -> ExecutionContractDigestRecord:
+    """Convert a DB row dict to an ``ExecutionContractDigestRecord``."""
+
+    from datetime import datetime
+
+    from agentkit.backend.prompt_runtime.execution_contract import (
+        ExecutionContractDigestRecord as _ExecutionContractDigestRecord,
+    )
+
+    return _ExecutionContractDigestRecord(
+        project_key=str(row["project_key"]),
+        story_id=str(row["story_id"]),
+        run_id=str(row["run_id"]),
+        execution_contract_digest=str(row["execution_contract_digest"]),
+        digest_format_version=int(row["digest_format_version"]),
+        formed_at=datetime.fromisoformat(str(row["formed_at"])),
     )
 
 

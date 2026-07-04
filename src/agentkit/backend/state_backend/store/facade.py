@@ -58,6 +58,9 @@ if TYPE_CHECKING:
     )
     from agentkit.backend.pipeline_engine.phase_executor.records import AttemptRecord
     from agentkit.backend.project_management.entities import Project
+    from agentkit.backend.prompt_runtime.execution_contract import (
+        ExecutionContractDigestRecord,
+    )
     from agentkit.backend.requirements_coverage.models import (
         StoryAreLink,
         StoryAreLinkKind,
@@ -854,6 +857,52 @@ def load_active_run_ownership_record_global(
 
 
 # ---------------------------------------------------------------------------
+# ExecutionContractDigestRecord (AG3-143, Postgres-only K5)
+# ---------------------------------------------------------------------------
+
+
+def insert_execution_contract_digest_global(
+    record: ExecutionContractDigestRecord,
+) -> None:
+    """Strictly INSERT one execution-contract-digest row (AG3-143).
+
+    Standalone entrypoint (test seeding / backfill parity with
+    ``insert_run_ownership_record_global``); the productive setup-start
+    writer inserts atomically WITHIN the
+    ``finalize_control_plane_start_phase_global_row`` transaction instead
+    (see ``execution_contract_digest_row_to_insert``), never via this
+    standalone call. Fail-closed on a non-Postgres backend (``ConfigError``,
+    K5); a second row for the same ``(project_key, story_id, run_id)``
+    identity is rejected by the persistence layer's primary key (read-only
+    after insert, FK-44 §44.3a).
+    """
+    _require_control_plane_backend()
+    backend = _backend_module()
+    backend.insert_execution_contract_digest_global_row(
+        mappers.execution_contract_digest_to_row(record),
+    )
+
+
+def load_execution_contract_digest_global(
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> ExecutionContractDigestRecord | None:
+    """Load the run's persisted ``execution_contract_digest`` row, or ``None``.
+
+    Lock-free (FK-44 §44.3a: the digest fence predicate never takes a lock).
+    """
+    _require_control_plane_backend()
+    backend = _backend_module()
+    row = backend.load_execution_contract_digest_global_row(
+        project_key, story_id, run_id,
+    )
+    if row is None:
+        return None
+    return mappers.execution_contract_digest_row_to_record(row)
+
+
+# ---------------------------------------------------------------------------
 # ObjectMutationClaimRecord (AG3-137, Postgres-only K5)
 # ---------------------------------------------------------------------------
 
@@ -1232,6 +1281,7 @@ def finalize_control_plane_start_phase_global(
     locks: tuple[StoryExecutionLockRecord, ...],
     events: tuple[ExecutionEventRecord, ...],
     ownership_record_to_insert: RunOwnershipRecord | None = None,
+    execution_contract_digest_to_insert: ExecutionContractDigestRecord | None = None,
     expected_ownership_epoch: int | None = None,
 ) -> bool:
     """Atomically CAS-finalize a start_phase and materialize side effects (#1).
@@ -1267,6 +1317,12 @@ def finalize_control_plane_start_phase_global(
             ``RunOwnershipRecord`` (``ownership_epoch=1``, ``acquired_via=setup``)
             to INSERT atomically in this SAME transaction -- a genuinely fresh
             setup start only. ``None`` for every other start/resume finalize.
+        execution_contract_digest_to_insert: (AG3-143, FK-44 §44.3a) The run's
+            NEW ``ExecutionContractDigestRecord`` to INSERT atomically in this
+            SAME transaction -- mirrors ``ownership_record_to_insert`` exactly
+            (a genuinely fresh setup start only; ``None`` for every other
+            start/resume finalize). Read-only after insert: there is no
+            update path.
         expected_ownership_epoch: (AG3-142) When given, re-verify at commit
             time, in this SAME transaction, that the story's active ownership
             record still matches this exact ``(record.run_id,
@@ -1303,6 +1359,13 @@ def finalize_control_plane_start_phase_global(
             ownership_row_to_insert=(
                 mappers.run_ownership_to_row(ownership_record_to_insert)
                 if ownership_record_to_insert is not None
+                else None
+            ),
+            execution_contract_digest_row_to_insert=(
+                mappers.execution_contract_digest_to_row(
+                    execution_contract_digest_to_insert
+                )
+                if execution_contract_digest_to_insert is not None
                 else None
             ),
             expected_ownership_epoch=expected_ownership_epoch,

@@ -93,3 +93,25 @@ class ReconciliationEvidenceMissingError(StoryError):
 
     ``error_code`` maps to ``reconciliation_evidence_missing`` (HTTP 422).
     """
+
+
+class SpecFrozenDuringActiveRunError(StoryError):
+    """Raised when a PATCH targets a load-bearing spec field during an active
+    execution regime (AG3-143, FK-59 §59.9a, FK-44 §44.3a).
+
+    While a story has an active execution regime (an active
+    ``RunOwnershipRecord``, AG3-137/AG3-142), its fachlich tragende
+    Story-Spec-Felder (Scope, Akzeptanzkriterien, Story-Text —
+    ``StoryFieldSensitivity.LOAD_BEARING`` per ``wire_adapter``) are frozen: a
+    change must run as an explicit, audited administrative intervention
+    against the run owner or a run invalidation (FK-56 §56.13), never as
+    silent mid-run drift. Administrative metadata (labels, display name, and
+    other non-axis fields) is unaffected and stays mutable in the same state.
+
+    This check runs BEFORE the op_id idempotency claim/record: a rejected
+    PATCH leaves no stored idempotent outcome, so a retry re-evaluates the
+    (possibly since-changed) regime state rather than replaying a stale
+    rejection.
+
+    ``error_code`` maps to ``spec_frozen_during_active_run`` (HTTP 409).
+    """

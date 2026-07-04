@@ -335,6 +335,24 @@
             ON run_ownership_records (project_key, story_id)
             WHERE status = 'active';
 
+        -- AG3-143 (FK-44 §44.3a, SOLL-095): execution_contract_digests is the
+        -- run-scoped, additive persistence of the execution_contract_digest
+        -- formed at the committed setup-start. One row per run, inserted
+        -- exactly once atomically with the run's minted run_ownership_records
+        -- row (finalize_control_plane_start_phase_global_row); read-only after
+        -- insert -- there is deliberately no UPDATE statement anywhere against
+        -- this table (fail-closed: no silent digest drift for a running run).
+        -- Postgres-only (K5), no SQLite mirror.
+        CREATE TABLE IF NOT EXISTS execution_contract_digests (
+            project_key                TEXT NOT NULL,
+            story_id                   TEXT NOT NULL,
+            run_id                     TEXT NOT NULL,
+            execution_contract_digest  TEXT NOT NULL,
+            digest_format_version      INTEGER NOT NULL,
+            formed_at                  TEXT NOT NULL,
+            PRIMARY KEY (project_key, story_id, run_id)
+        );
+
         -- object_mutation_claims serialises mutations per mutated object
         -- (state-storage.entity.object-mutation-claim; FK-91 §91.1a rules 13/16).
         -- Instance-bound (backend_instance_id + instance_incarnation) and never
