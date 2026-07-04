@@ -854,7 +854,16 @@ def _sqlite_allocate_story_number(
 
 
 def _pg_allocate_story_number(conn: Any, project_key: str) -> int:
-    """Allocate the next story number within an already-open Postgres connection."""
+    """Allocate the next story number within an already-open Postgres connection.
+
+    AG3-141 / FK-10 §10.5.4 -- SINGLE-TRANSACTION EXCEPTION BOUNDARY: story-number
+    allocation serialises with ``SELECT ... FOR UPDATE`` INSIDE the caller's single
+    transaction and deliberately does NOT take a durable ``object_mutation_claims``
+    claim. The whole mutation is one transaction, so a transaction-bound row lock is
+    the correct, concept-sanctioned tool; the durable object claim is reserved for
+    mutations whose engine writes and finalize span separate transactions. Pinned by
+    the AG3-141 single-TX regression test.
+    """
     cursor = conn.execute(
         "SELECT next_story_number FROM story_number_counters "
         "WHERE project_key = %s FOR UPDATE",

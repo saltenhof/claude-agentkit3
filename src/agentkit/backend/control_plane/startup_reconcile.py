@@ -46,6 +46,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 
 from agentkit.backend.control_plane.models import ControlPlaneMutationResult
+from agentkit.backend.control_plane.repository import ObjectMutationClaimRepository
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -92,6 +93,7 @@ def run_startup_reconciliation(
     repo: ControlPlaneRuntimeRepository,
     identity: BackendInstanceIdentityRecord,
     *,
+    object_claim_repo: ObjectMutationClaimRepository | None = None,
     now_fn: Callable[[], datetime] = _default_now,
 ) -> ReconciliationOutcome:
     """Finalize every orphaned claim of THIS instance's earlier incarnations.
@@ -101,6 +103,13 @@ def run_startup_reconciliation(
             finalize and partial-write detection ports).
         identity: THIS boot's resolved backend instance identity (already
             incremented for this boot by :mod:`instance_identity`).
+        object_claim_repo: The object-mutation-claim persistence port (AG3-141
+            Scope item 7). ``None`` lazily resolves the productive Postgres-backed
+            default; DI-injected in tests (a fake honoring the same release
+            contract). Every finalized orphan's declared object-mutation claim is
+            released alongside it -- the OTHER explicit non-wall-clock end-way
+            besides an ``admin_abort_inflight_operation``
+            (``orphaned_claims_are_finalized_only_by_same_instance_startup_reconciliation_or_admin_abort``).
         now_fn: Injectable clock for the ``finalized_at``/``updated_at`` stamp.
 
     Returns:
@@ -111,7 +120,7 @@ def run_startup_reconciliation(
             sequence (fail-closed; the caller must not start serving).
     """
     try:
-        return _run(repo, identity, now_fn=now_fn)
+        return _run(repo, identity, object_claim_repo=object_claim_repo, now_fn=now_fn)
     except StartupReconciliationError:
         raise
     # Fail-closed wrap: the broad catch is intentional and never swallows -- every
@@ -130,8 +139,10 @@ def _run(
     repo: ControlPlaneRuntimeRepository,
     identity: BackendInstanceIdentityRecord,
     *,
+    object_claim_repo: ObjectMutationClaimRepository | None,
     now_fn: Callable[[], datetime],
 ) -> ReconciliationOutcome:
+    claim_repo = object_claim_repo or ObjectMutationClaimRepository()
     orphaned = repo.list_orphaned_claimed_operations(
         identity.backend_instance_id,
         identity.instance_incarnation,
@@ -170,6 +181,31 @@ def _run(
         finalized.append(op.op_id)
         if status == "repair":
             repaired.append(op.op_id)
+    #: AG3-141 Scope item 7 (SOLL-066 object-claims part): DIRECTLY scan the
+    #: ``object_mutation_claims`` table for every claim orphaned by THIS
+    #: instance's earlier incarnations and release it. A direct scan of the
+    #: claim table (not a cascade off the finalized in-flight operations above)
+    #: is REQUIRED for completeness: a crashed complete/fail/closure mutation
+    #: holds a durable object claim yet leaves NO ``claimed`` control-plane
+    #: operation row (it commits in a single transaction, or crashes before it
+    #: does), so an operation-keyed cascade would never reach it and its object
+    #: claim would block the story forever. The scan is the OTHER explicit
+    #: non-wall-clock end-way besides ``admin_abort_inflight_operation``
+    #: (``orphaned_claims_are_finalized_only_by_same_instance_startup_reconciliation_or_admin_abort``);
+    #: only claims stamped with THIS ``backend_instance_id`` from a strictly
+    #: earlier ``instance_incarnation`` are released -- never a foreign
+    #: identity, never a wall-clock/TTL expiry. Ownership-scoped release
+    #: (op_id-CAS) is idempotent, so a re-run or a concurrently freed claim is
+    #: a safe no-op.
+    for claim in claim_repo.list_orphaned(
+        identity.backend_instance_id, identity.instance_incarnation
+    ):
+        claim_repo.release_claim(
+            claim.project_key,
+            claim.serialization_scope,
+            claim.scope_key,
+            claim.op_id,
+        )
     return ReconciliationOutcome(
         finalized_op_ids=tuple(finalized),
         repair_op_ids=tuple(repaired),

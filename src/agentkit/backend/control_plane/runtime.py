@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 
+from agentkit.backend.control_plane import object_claims
 from agentkit.backend.control_plane.models import (
     AdminAbortRequest,
     ClosureCompleteRequest,
@@ -29,7 +30,10 @@ from agentkit.backend.control_plane.records import (
     ControlPlaneOperationRecord,
     SessionRunBindingRecord,
 )
-from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
+from agentkit.backend.control_plane.repository import (
+    ControlPlaneRuntimeRepository,
+    ObjectMutationClaimRepository,
+)
 
 # Deliberate RUNTIME re-import (not TYPE_CHECKING): this is the SSOT re-import of
 # the canonical FK-56 operating-mode literal from its SINGLE foundation definition
@@ -260,6 +264,7 @@ class _ClaimMixin:
         _repo: ControlPlaneRuntimeRepository
         _token_factory: Callable[[], str]
         _now_fn: Callable[[], datetime]
+        _object_claim_repo: ObjectMutationClaimRepository
 
         def _current_instance_identity(self) -> BackendInstanceIdentityRecord: ...
 
@@ -458,6 +463,81 @@ class _ClaimMixin:
                 op_id,
             )
 
+    def _acquire_object_claim(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        op_id: str,
+    ) -> object_claims.ObjectClaimConflict | None:
+        """Acquire the default per-story object-mutation claim BEFORE dispatch.
+
+        SOLL-054/SOLL-048 (FK-91 §91.1a Rule 13; FK-10 §10.5.4): every
+        mutating control-plane operation acquires a durable claim on its
+        declared serialization object -- default ``(project_key, story_id)``
+        -- BEFORE any dispatch/commit side effect and holds it until
+        finalize/abort. Bound to the OBJECT, never the caller.
+
+        Returns:
+            ``None`` on success (the claim is held); an
+            :class:`~agentkit.backend.control_plane.object_claims.ObjectClaimConflict`
+            when the object is busy -- the caller surfaces the K4
+            deterministic 409 + Retry-After (IMPL-016) and stores NO
+            operation for this attempt (a retry re-evaluates from scratch).
+        """
+        lock_set = object_claims.single_story_lock_set(project_key, story_id)
+        identity = self._current_instance_identity()
+        return object_claims.acquire_lock_set(
+            self._object_claim_repo,
+            lock_set,
+            op_id=op_id,
+            backend_instance_id=identity.backend_instance_id,
+            instance_incarnation=identity.instance_incarnation,
+            now=self._now_fn(),
+        )
+
+    def _release_claim_key(
+        self, key: object_claims.ObjectClaimKey, *, op_id: str
+    ) -> None:
+        """Release ONE object-mutation claim by its identity (ownership-scoped)."""
+        self._object_claim_repo.release_claim(
+            key.project_key, key.serialization_scope, key.scope_key, op_id
+        )
+
+    def _release_claim_key_best_effort(
+        self, key: object_claims.ObjectClaimKey, *, op_id: str
+    ) -> None:
+        """Release an object-mutation claim without masking an original error."""
+        try:
+            self._release_claim_key(key, op_id=op_id)
+        except Exception:  # noqa: BLE001 -- never mask the original error
+            logger.warning(
+                "control-plane object-claim release failed for op_id=%s "
+                "object=%s:%s (original error is re-raised; the orphaned "
+                "claim remains until the AG3-138 startup reconciliation or an "
+                "explicit admin_abort_inflight_operation ends it -- no "
+                "wall-clock expiry)",
+                op_id,
+                key.serialization_scope,
+                key.scope_key,
+            )
+
+    def _release_object_claim(
+        self, *, project_key: str, story_id: str, op_id: str
+    ) -> None:
+        """Release the default per-story object-mutation claim (finalize/abort)."""
+        self._release_claim_key(
+            object_claims.story_claim_key(project_key, story_id), op_id=op_id
+        )
+
+    def _release_object_claim_best_effort(
+        self, *, project_key: str, story_id: str, op_id: str
+    ) -> None:
+        """Release the per-story object claim without masking an original error."""
+        self._release_claim_key_best_effort(
+            object_claims.story_claim_key(project_key, story_id), op_id=op_id
+        )
+
 
 class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
     """Start-phase admission and dispatch support for the runtime service."""
@@ -466,6 +546,7 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         self,
         *,
         repository: ControlPlaneRuntimeRepository | None = None,
+        object_claim_repository: ObjectMutationClaimRepository | None = None,
         phase_dispatcher: PhaseDispatcher | None = None,
         now_fn: Callable[[], datetime] | None = None,
         token_factory: Callable[[], str] | None = None,
@@ -482,6 +563,20 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         self._uses_default_store = repository is None
         self._backend_checked = False
         self._repo = repository or ControlPlaneRuntimeRepository()
+        #: AG3-141 (K5 Postgres-only): the object-mutation-claim persistence
+        #: port ``object_claims.py`` orchestrates lock-sets over. Mirrors
+        #: ``_instance_identity`` below: a DI-injected ``repository`` (test /
+        #: alternative wiring, owns its own backend) that does not also inject
+        #: an explicit ``object_claim_repository`` gets a self-contained
+        #: in-memory fake (never the productive Postgres-backed default) --
+        #: honoring the SAME cross-scope fairness contract -- so a DB-free unit
+        #: test is never forced to also wire Postgres for the object claim.
+        if object_claim_repository is not None:
+            self._object_claim_repo = object_claim_repository
+        elif repository is not None:
+            self._object_claim_repo = _default_di_object_claim_repository()
+        else:
+            self._object_claim_repo = ObjectMutationClaimRepository()
         #: AG3-054: the deterministic single-phase dispatcher (FK-45 §45.1.2). DI:
         #: the engine/registry + pre-start guard are injected, never self-built by
         #: this service. ``None`` is lazily resolved to the productive composition
@@ -517,6 +612,11 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
     def repository(self) -> ControlPlaneRuntimeRepository:
         """The control-plane runtime persistence port (AG3-138 startup hook wiring)."""
         return self._repo
+
+    @property
+    def object_claim_repository(self) -> ObjectMutationClaimRepository:
+        """The object-mutation-claim persistence port (AG3-141 startup hook wiring)."""
+        return self._object_claim_repo
 
     def bind_instance_identity(self, identity: BackendInstanceIdentityRecord) -> None:
         """Bind THIS boot's resolved instance identity (AG3-138 startup hook).
@@ -669,14 +769,41 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         #: row ONLY by the ownership-scoped CAS finalize.
         finalized = False
         try:
+            #: SOLL-054 (FK-91 §91.1a Rule 13; FK-10 §10.5.4): acquire the
+            #: durable object-mutation claim BEFORE the dispatch side effects
+            #: (engine writes run in a SEPARATE transaction from the
+            #: control-plane finalize below). A busy object releases MY op_id
+            #: claim (never dispatched) and returns the K4 deterministic
+            #: 409 + Retry-After (IMPL-016) -- NO operation is stored.
+            object_conflict = self._acquire_object_claim(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
+            if object_conflict is not None:
+                self._release_my_claim(
+                    request.op_id, owner_token, owner_claimed_at
+                )
+                return _object_claim_busy_rejection(
+                    op_id=request.op_id,
+                    operation_kind="phase_start",
+                    run_id=run_id,
+                    phase=phase,
+                    conflict=object_conflict,
+                )
             outcome = self._start_phase_after_claim(
                 run_id=run_id, phase=phase, request=request
             )
             if outcome.rejection is not None:
-                # Fail-closed rejection: release MY claim so NO committed op
+                # Fail-closed rejection: release MY claims so NO committed op
                 # survives and a later retry (once admitted) re-evaluates.
                 self._release_my_claim(
                     request.op_id, owner_token, owner_claimed_at
+                )
+                self._release_object_claim(
+                    project_key=request.project_key,
+                    story_id=request.story_id,
+                    op_id=request.op_id,
                 )
                 return outcome.rejection
             result = self._finalize_start_phase(
@@ -688,6 +815,15 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
                 owner_operation_epoch=owner_operation_epoch,
                 phase_dispatch=outcome.dispatch_result,
             )
+            #: Finalize DONE (won or lost the ownership CAS) -- either way THIS
+            #: caller's object claim is no longer needed (a CAS loss to a
+            #: concurrent admin-abort already released it; this is then a safe
+            #: idempotent no-op).
+            self._release_object_claim(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
             finalized = True
             return result
         except ControlPlaneBindingCollisionError as exc:
@@ -695,12 +831,17 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
             #: binding for THIS run, but the session is already bound to a DIFFERENT
             #: run (it was rebound). The run-scoped store insert refused fail-closed
             #: and the WHOLE finalize rolled back -- the foreign run's binding is
-            #: intact and NO terminal op survives. Release MY claim and surface a
+            #: intact and NO terminal op survives. Release MY claims and surface a
             #: fail-closed rejection (a later retry, once the foreign run releases the
             #: session, re-evaluates). The claim is not yet a terminal row, so the
             #: release is ownership-scoped and safe.
             self._release_my_claim_best_effort(
                 request.op_id, owner_token, owner_claimed_at
+            )
+            self._release_object_claim_best_effort(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
             )
             reason = _start_binding_collision_reason(phase, exc)
             return _rejection_result(
@@ -713,12 +854,21 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
             )
         except BaseException:
             #: An exception after the claim and before the terminal finalize MUST
-            #: release MY claim (#1) -- ownership-scoped, so a foreign claim's row
-            #: is never touched. The release failure must not mask the original
-            #: error, so it is best-effort. Re-raise so NO ERROR BYPASSING holds.
+            #: release MY claims (#1; SOLL-054) -- ownership-scoped, so a foreign
+            #: claim's row is never touched. The release failure must not mask the
+            #: original error, so it is best-effort. Re-raise so NO ERROR BYPASSING
+            #: holds. A crash here (not merely a Python exception) leaves BOTH
+            #: claims durably held -- ended ONLY via the AG3-138 startup
+            #: reconciliation or an explicit admin_abort_inflight_operation
+            #: (AC1, Scope item 7).
             if not finalized:
                 self._release_my_claim_best_effort(
                     request.op_id, owner_token, owner_claimed_at
+                )
+                self._release_object_claim_best_effort(
+                    project_key=request.project_key,
+                    story_id=request.story_id,
+                    op_id=request.op_id,
                 )
             raise
 
@@ -1350,8 +1500,12 @@ class _AdminTransitionMixin:
     if TYPE_CHECKING:
         _repo: ControlPlaneRuntimeRepository
         _now_fn: Callable[[], datetime]
+        _object_claim_repo: ObjectMutationClaimRepository
 
         def _require_postgres_backend_on_first_use(self) -> None: ...
+        def _release_claim_key_best_effort(
+            self, key: object_claims.ObjectClaimKey, *, op_id: str
+        ) -> None: ...
 
     def admin_abort_inflight_operation(
         self,
@@ -1448,6 +1602,17 @@ class _AdminTransitionMixin:
             #: load and the CAS. Fail-closed: it is no longer an abortable
             #: in-flight claim (AC6, 409). NO second/duplicate terminal write.
             raise OperationNotAbortableError(record.op_id, "resolved_concurrently")
+        #: Scope item 7 (SOLL-066 object-claims part): admin_abort releases the
+        #: aborted operation's object-mutation claim -- the OTHER explicit
+        #: non-wall-clock end-way besides the AG3-138 startup reconciliation
+        #: (``orphaned_claims_are_finalized_only_by_same_instance_startup_reconciliation_or_admin_abort``).
+        #: Best-effort: a legacy/pre-AG3-141 row with no declared scope has
+        #: nothing to release (``parse_declared_scope`` returns ``None``).
+        claim_key = object_claims.parse_declared_scope(
+            record.project_key, record.declared_serialization_scope
+        )
+        if claim_key is not None:
+            self._release_claim_key_best_effort(claim_key, op_id=record.op_id)
         return result
 
     def _resolve_repair_operation(
@@ -1580,6 +1745,23 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                 dispatch_phase="closure",
             )
 
+        #: SOLL-054: closure competes for the SAME per-story object claim as
+        #: start/resume/complete/fail (FK-91 §91.1a Rule 13). A busy object
+        #: returns the K4 deterministic 409 + Retry-After (IMPL-016); NO
+        #: operation is stored for this attempt.
+        object_conflict = self._acquire_object_claim(
+            project_key=request.project_key,
+            story_id=request.story_id,
+            op_id=request.op_id,
+        )
+        if object_conflict is not None:
+            return _object_claim_busy_rejection(
+                op_id=request.op_id,
+                operation_kind="closure_complete",
+                run_id=run_id,
+                phase="closure",
+                conflict=object_conflict,
+            )
         now = datetime.now(tz=UTC)
         try:
             if not self._story_lock_records_apply(request):
@@ -1624,6 +1806,15 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                 phase="closure",
                 reason=reason,
                 dispatch_phase="closure",
+            )
+        finally:
+            #: SOLL-054: release the object claim on EVERY exit path (success or
+            #: either handled collision above) -- best-effort so a release
+            #: failure never masks the real outcome/error.
+            self._release_object_claim_best_effort(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
             )
 
     def resume_phase(
@@ -1713,10 +1904,31 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
         owner_operation_epoch = claim.operation_epoch
         finalized = False
         try:
+            #: SOLL-054: acquire the durable object-mutation claim BEFORE the
+            #: side-effecting engine resume (a separate transaction from the
+            #: control-plane finalize below, FK-10 §10.5.4). A busy object
+            #: releases MY op_id claim (never resumed) and returns the K4
+            #: deterministic 409 + Retry-After (IMPL-016).
+            object_conflict = self._acquire_object_claim(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
+            if object_conflict is not None:
+                self._release_my_claim(
+                    request.op_id, owner_token, owner_claimed_at
+                )
+                return _object_claim_busy_rejection(
+                    op_id=request.op_id,
+                    operation_kind="phase_resume",
+                    run_id=run_id,
+                    phase=phase,
+                    conflict=object_conflict,
+                )
             #: Drive the deterministic dispatcher: with the persisted phase-state
             #: PAUSED for this phase it derives a resume (not a fresh start) and
             #: runs ``PipelineEngine.resume_phase`` with the trigger from
-            #: ``request.detail`` -- now protected by the claim.
+            #: ``request.detail`` -- now protected by the claims.
             dispatch_result = self._dispatch_phase(
                 run_id=run_id, phase=phase, request=request
             )
@@ -1728,11 +1940,16 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                 #: phase (absent ctx, not-PAUSED, invalid trigger -> EngineResult
                 #: failed with ``dispatched=True``, or a failed/escalated resume)
                 #: must NOT commit an operation or materialize a binding/lock/
-                #: SESSION_RUN_BINDING_CREATED. Release MY claim and return the
+                #: SESSION_RUN_BINDING_CREATED. Release MY claims and return the
                 #: NON-stored rejection (the engine's own phase-state, if any,
                 #: stands). A retry then re-evaluates.
                 self._release_my_claim(
                     request.op_id, owner_token, owner_claimed_at
+                )
+                self._release_object_claim(
+                    project_key=request.project_key,
+                    story_id=request.story_id,
+                    op_id=request.op_id,
                 )
                 return rejection
             result = self._finalize_resume_phase(
@@ -1744,6 +1961,11 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                 owner_operation_epoch=owner_operation_epoch,
                 phase_dispatch=dispatch_result,
             )
+            self._release_object_claim(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
             finalized = True
             return result
         except ControlPlaneBindingCollisionError as exc:
@@ -1753,6 +1975,11 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
             #: for an old run must never clobber a foreign run's live binding.
             self._release_my_claim_best_effort(
                 request.op_id, owner_token, owner_claimed_at
+            )
+            self._release_object_claim_best_effort(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
             )
             reason = _phase_binding_collision_reason("phase_resume", exc)
             return _rejection_result(
@@ -1764,12 +1991,19 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
                 dispatch_phase=phase,
             )
         except BaseException:
-            #: Any error before the terminal finalize MUST release MY claim (best
-            #: effort, never masking the original error) so the op_id is not
-            #: stranded (NO ERROR BYPASSING).
+            #: Any error before the terminal finalize MUST release MY claims (best
+            #: effort, never masking the original error) so the op_id/object are
+            #: not stranded (NO ERROR BYPASSING). A crash here leaves BOTH claims
+            #: durably held -- ended ONLY via the AG3-138 startup reconciliation
+            #: or an explicit admin_abort_inflight_operation.
             if not finalized:
                 self._release_my_claim_best_effort(
                     request.op_id, owner_token, owner_claimed_at
+                )
+                self._release_object_claim_best_effort(
+                    project_key=request.project_key,
+                    story_id=request.story_id,
+                    op_id=request.op_id,
                 )
             raise
 
@@ -2215,61 +2449,90 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
         if existing is not None:
             return existing
 
-        now = self._now_fn()
-        #: ERROR-2 fix (#2): PLAN the side effects (pure record construction, no
-        #: writes) so the op-row commit AND the binding/locks/events apply in ONE
-        #: atomic transaction with the collision gate FIRST. The prior code wrote
-        #: the side effects through separate transactions and THEN stored the op,
-        #: so a live-claim collision left orphan side effects behind.
-        if self._story_scoped_materialization_enabled(request):
-            plan = _plan_story_scoped_materialization(
-                run_id=run_id,
-                phase=phase,
-                request=request,
-                now=now,
-                previous_binding_version=self._current_binding_version(
-                    request.session_id
-                ),
-            )
-        else:
-            plan = _plan_fast_materialization(request=request, now=now)
-        result = ControlPlaneMutationResult(
-            status="committed",
-            op_id=request.op_id,
-            operation_kind=operation_kind,
-            run_id=run_id,
-            phase=phase,
-            edge_bundle=plan.bundle,
-            #: ERROR-2 fix: the dispatch outcome is part of the SINGLE stored
-            #: result, so the persisted record == the returned result and a
-            #: replay carries ``phase_dispatch`` too.
-            phase_dispatch=phase_dispatch,
-        )
-        record = _operation_record(
-            op_id=request.op_id,
+        #: SOLL-054: complete/fail is a mutating control-plane operation like
+        #: any other and competes for the SAME per-story object claim as
+        #: start/resume/closure (FK-91 §91.1a Rule 13). A busy object returns
+        #: the K4 deterministic 409 + Retry-After (IMPL-016); NO operation is
+        #: stored for this attempt.
+        object_conflict = self._acquire_object_claim(
             project_key=request.project_key,
             story_id=request.story_id,
-            run_id=run_id,
-            session_id=request.session_id,
-            operation_kind=operation_kind,
-            phase=phase,
-            result=result,
-            now=now,
-            request_body_hash=_control_plane_request_body_hash(
-                request, operation_kind=operation_kind, phase=phase
-            ),
+            op_id=request.op_id,
         )
-        #: Atomic: the conditional op-row upsert (collision gate) + side effects in
-        #: ONE transaction. A collision raises ``ControlPlaneClaimCollisionError``
-        #: (handled fail-closed by the caller) with NO orphan side effect written.
-        self._repo.commit_operation_with_side_effects(
-            record,
-            binding_to_save=plan.binding,
-            binding_to_delete=None,
-            locks=plan.locks,
-            events=plan.events,
-        )
-        return result
+        if object_conflict is not None:
+            return _object_claim_busy_rejection(
+                op_id=request.op_id,
+                operation_kind=operation_kind,
+                run_id=run_id,
+                phase=phase,
+                conflict=object_conflict,
+            )
+        try:
+            now = self._now_fn()
+            #: ERROR-2 fix (#2): PLAN the side effects (pure record construction, no
+            #: writes) so the op-row commit AND the binding/locks/events apply in ONE
+            #: atomic transaction with the collision gate FIRST. The prior code wrote
+            #: the side effects through separate transactions and THEN stored the op,
+            #: so a live-claim collision left orphan side effects behind.
+            if self._story_scoped_materialization_enabled(request):
+                plan = _plan_story_scoped_materialization(
+                    run_id=run_id,
+                    phase=phase,
+                    request=request,
+                    now=now,
+                    previous_binding_version=self._current_binding_version(
+                        request.session_id
+                    ),
+                )
+            else:
+                plan = _plan_fast_materialization(request=request, now=now)
+            result = ControlPlaneMutationResult(
+                status="committed",
+                op_id=request.op_id,
+                operation_kind=operation_kind,
+                run_id=run_id,
+                phase=phase,
+                edge_bundle=plan.bundle,
+                #: ERROR-2 fix: the dispatch outcome is part of the SINGLE stored
+                #: result, so the persisted record == the returned result and a
+                #: replay carries ``phase_dispatch`` too.
+                phase_dispatch=phase_dispatch,
+            )
+            record = _operation_record(
+                op_id=request.op_id,
+                project_key=request.project_key,
+                story_id=request.story_id,
+                run_id=run_id,
+                session_id=request.session_id,
+                operation_kind=operation_kind,
+                phase=phase,
+                result=result,
+                now=now,
+                request_body_hash=_control_plane_request_body_hash(
+                    request, operation_kind=operation_kind, phase=phase
+                ),
+            )
+            #: Atomic: the conditional op-row upsert (collision gate) + side effects in
+            #: ONE transaction. A collision raises ``ControlPlaneClaimCollisionError``
+            #: (handled fail-closed by the caller) with NO orphan side effect written.
+            self._repo.commit_operation_with_side_effects(
+                record,
+                binding_to_save=plan.binding,
+                binding_to_delete=None,
+                locks=plan.locks,
+                events=plan.events,
+            )
+            return result
+        finally:
+            #: SOLL-054: release the object claim on EVERY exit path (success,
+            #: a ``ControlPlaneClaimCollisionError``/``ControlPlaneBindingCollisionError``
+            #: the caller handles, or any other exception) -- best-effort so a
+            #: release failure never masks the real outcome/error.
+            self._release_object_claim_best_effort(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
 
     def _story_scoped_materialization_enabled(
         self,
@@ -2798,6 +3061,66 @@ def _default_di_instance_identity() -> BackendInstanceIdentityRecord:
     )
 
 
+def _default_di_object_claim_repository() -> ObjectMutationClaimRepository:
+    """Build a self-contained in-memory object-claim repository (DI seam, AG3-141).
+
+    Mirrors :func:`_default_di_instance_identity`: a directly-constructed
+    service with an injected ``repository`` but no explicit
+    ``object_claim_repository`` gets THIS in-memory claim store instead of the
+    productive Postgres-backed default -- so a DI-injected unit test (a fake
+    ``ControlPlaneRuntimeRepository``, no database) is never forced to also
+    wire Postgres for the object claim. It honors the SAME cross-scope
+    fairness contract as the productive acquire (a project claim conflicts
+    with any held story claim of the same project and vice versa; the exact
+    object cannot be re-acquired while held) and the SAME ownership-scoped
+    (op_id) release -- never used on the productive default-store path.
+    """
+    held: dict[tuple[str, str, str], tuple[str, str, int]] = {}
+
+    def _acquire(
+        *,
+        project_key: str,
+        serialization_scope: str,
+        scope_key: str,
+        op_id: str,
+        backend_instance_id: str,
+        instance_incarnation: int,
+        acquired_at: datetime,
+    ) -> bool:
+        del acquired_at
+        #: The exclusion of THIS caller's OWN op_id is what makes a genuine
+        #: multi-object lock-set acquisition possible: the project claim
+        #: acquired earlier in the SAME lock-set's canonical order must not
+        #: self-conflict with the next story claim (mirrors
+        #: ``postgres_store.acquire_object_mutation_claim_global_row``).
+        conflicting_scope = "story" if serialization_scope == "project" else "project"
+        if any(
+            key[0] == project_key and key[1] == conflicting_scope and value[0] != op_id
+            for key, value in held.items()
+        ):
+            return False
+        key = (project_key, serialization_scope, scope_key)
+        existing = held.get(key)
+        if existing is not None:
+            # Already held: idempotent success for OUR OWN op_id, busy for a
+            # foreign op_id.
+            return existing[0] == op_id
+        held[key] = (op_id, backend_instance_id, instance_incarnation)
+        return True
+
+    def _release(
+        project_key: str, serialization_scope: str, scope_key: str, op_id: str
+    ) -> bool:
+        key = (project_key, serialization_scope, scope_key)
+        current = held.get(key)
+        if current is None or current[0] != op_id:
+            return False
+        del held[key]
+        return True
+
+    return ObjectMutationClaimRepository(acquire_claim=_acquire, release_claim=_release)
+
+
 def _build_claim_placeholder(
     request: PhaseMutationRequest,
     *,
@@ -2846,7 +3169,9 @@ def _build_claim_placeholder(
         operation_epoch=INITIAL_OPERATION_EPOCH,
         backend_instance_id=instance_identity.backend_instance_id,
         instance_incarnation=instance_identity.instance_incarnation,
-        declared_serialization_scope=f"{request.project_key}:{request.story_id}",
+        declared_serialization_scope=object_claims.format_declared_scope(
+            object_claims.story_claim_key(request.project_key, request.story_id)
+        ),
         #: AG3-140: stamp the canonical body-hash on the claim so a claim-loser
         #: (``_acquire_claim`` terminal-replay branch) can classify a reused op_id
         #: as a legitimate replay (hash match) vs ``409 idempotency_mismatch`` (hash
@@ -2900,6 +3225,49 @@ def _rejection_result(
             dispatched=False,
             rejection_reason=reason,
         ),
+    )
+
+
+def _object_claim_busy_rejection(
+    *,
+    op_id: str,
+    operation_kind: str,
+    run_id: str | None,
+    phase: str | None,
+    conflict: object_claims.ObjectClaimConflict,
+) -> ControlPlaneMutationResult:
+    """Build the K4 deterministic ``409 + Retry-After`` busy-object rejection.
+
+    SOLL-054/IMPL-016: the declared serialization object (default per-story,
+    FK-91 §91.1a Rule 13) is currently claimed by another in-flight mutation.
+    NO operation is stored for this attempt (unlike a terminal rejection, this
+    is never persisted) -- a retry with the SAME op_id re-evaluates from
+    scratch once the object is free.
+    """
+    return ControlPlaneMutationResult(
+        status="rejected",
+        op_id=op_id,
+        operation_kind=operation_kind,
+        run_id=run_id,
+        phase=phase,
+        edge_bundle=None,
+        phase_dispatch=PhaseDispatchResult(
+            phase=phase or "setup",
+            status="rejected",
+            reaction="rejected",
+            dispatched=False,
+            rejection_reason=(
+                f"{operation_kind} rejected: the story object "
+                f"{conflict.key.scope_key!r} is currently claimed by another "
+                "in-flight mutation (SOLL-054 durable object-mutation-claim, "
+                "FK-91 §91.1a Rule 13: serialization per mutated object, "
+                "bound to the object not the caller); retry after "
+                f"{conflict.retry_after_seconds}s (K4/IMPL-016: deterministic "
+                "409 + Retry-After, never a blocking wait)."
+            ),
+        ),
+        error_code=conflict.error_code,
+        retry_after_seconds=conflict.retry_after_seconds,
     )
 
 

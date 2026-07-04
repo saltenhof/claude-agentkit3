@@ -400,6 +400,17 @@ class ModeLockRepository:
             # project even when the row does not yet exist (it is held until the
             # tx commits/rolls back). The later ``FOR UPDATE`` then row-locks the
             # now-existing row for good measure.
+            #
+            # AG3-141 / FK-10 §10.5.4 -- SINGLE-TRANSACTION EXCEPTION BOUNDARY:
+            # this transaction-scoped ``pg_advisory_xact_lock`` is the sanctioned
+            # serialization tool here PRECISELY because the whole mode-lock
+            # mutation (read-decide-write) lives in ONE transaction. It
+            # deliberately does NOT take a durable ``object_mutation_claims``
+            # claim: durable object claims exist only for mutations whose engine
+            # writes and control-plane finalize run in SEPARATE transactions
+            # (phase start/resume/complete/fail/closure), which a transaction-
+            # bound lock cannot span. Do not migrate this path onto object
+            # claims (pinned by the AG3-141 single-TX regression test).
             conn.execute(
                 "SELECT pg_advisory_xact_lock(hashtext(%s))",
                 (f"project_mode_lock:{project_key}",),

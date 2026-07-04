@@ -827,7 +827,11 @@ class ControlPlaneApplication(
         )
 
         identity = resolve_backend_instance_identity(BackendInstanceIdentityRepository())
-        run_startup_reconciliation(self._runtime_service.repository, identity)
+        run_startup_reconciliation(
+            self._runtime_service.repository,
+            identity,
+            object_claim_repo=self._runtime_service.object_claim_repository,
+        )
         self._runtime_service.bind_instance_identity(identity)
         logger.info(
             "Startup reconciliation complete for backend instance %s "
@@ -1772,14 +1776,23 @@ def _mutation_result_response(
     (committed / replayed) result maps to 201 CREATED. Centralizing this here keeps
     the rejected->409 wiring identical across phase mutations and closure completion,
     so no mutating entrypoint can return 2xx for a fail-closed rejection.
+
+    AG3-141 (K4, IMPL-016): a busy-object-claim rejection additionally carries
+    ``retry_after_seconds`` -- surfaced here as a ``Retry-After`` header (the
+    deterministic wait contract; never a blocking wait). Every other rejection
+    cause carries no such header (unchanged behaviour).
     """
     status = (
         HTTPStatus.CONFLICT if result.status == "rejected" else HTTPStatus.CREATED
     )
+    headers: tuple[tuple[str, str], ...] = ()
+    if result.retry_after_seconds is not None:
+        headers = (("Retry-After", str(result.retry_after_seconds)),)
     return _json_response(
         status,
         result.model_dump(mode="json"),
         correlation_id=correlation_id,
+        headers=headers,
     )
 
 
