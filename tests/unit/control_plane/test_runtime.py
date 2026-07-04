@@ -828,6 +828,51 @@ def test_start_phase_retry_against_noncommitted_terminal_is_conflict(
     assert state.events == []
 
 
+def test_terminal_committed_start_op_id_reused_for_complete_is_mismatch() -> None:
+    """AG3-140 (Codex r7 PATH 3 P3): reusing a COMMITTED ``phase_start`` op_id for a
+    DIFFERENT mutating operation (``complete``) with an otherwise-identical body is a
+    stable 409 ``idempotency_mismatch`` -- NEVER a cross-operation replay.
+
+    The control-plane folds ``operation_kind``+``phase`` into the request-body hash
+    (``_control_plane_request_body_hash``), so a ``phase_complete`` retry against a
+    committed ``phase_start`` terminal row computes a different hash and is
+    classified as a mismatch in ``_load_existing_operation`` -- before any admission
+    or side effect. This isolates the operation_kind discriminator on a TERMINAL row
+    (distinct from the live-claimed-collision path, which the
+    ``*_reusing_live_claimed_start_op_id_*`` tests cover).
+    """
+    from agentkit.backend.story_context_manager.errors import IdempotencyMismatchError
+
+    state = _RepoState()
+    _resolvable_standard_ctx(state)
+    op_id = "op-kind-mismatch-complete"
+    request = _retry_request(op_id)
+    # A COMMITTED phase_start terminal row owns the op_id (its stored hash folds
+    # operation_kind="phase_start", phase="setup").
+    _seed_terminal_operation(
+        state,
+        op_id=op_id,
+        status="committed",
+        request=request,
+        operation_kind="phase_start",
+        phase="setup",
+    )
+    service = _admitting_service(state)
+
+    # Retry the SAME op_id as a DIFFERENT operation (complete) on the SAME phase and
+    # an otherwise-identical body: operation_kind differs -> folded hash differs ->
+    # stable 409 mismatch, never a cross-operation replay of the start result.
+    with pytest.raises(IdempotencyMismatchError):
+        service.complete_phase(run_id="run-100", phase="setup", request=request)
+
+    # The committed start row is untouched; no cross-shape side effect leaked.
+    stored = state.operations[op_id]
+    assert stored.operation_kind == "phase_start"
+    assert stored.status == "committed"
+    assert state.bindings == {}
+    assert state.events == []
+
+
 @pytest.mark.parametrize("terminal_status", ["aborted", "repair", "failed"])
 def test_get_operation_reconcile_returns_noncommitted_terminal_verbatim(
     terminal_status: str,

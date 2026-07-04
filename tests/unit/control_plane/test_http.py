@@ -1016,6 +1016,43 @@ def test_missing_op_id_closure_payload_returns_422() -> None:
     )
 
 
+def test_missing_op_id_guard_counter_payload_returns_422() -> None:
+    """AG3-140 (Codex r7 PATH 4 P1; FK-91 §91.1a Rule 5, AC1): a guard-counter
+    mutation without op_id is 422.
+
+    ``POST /v1/governance/guard-counters`` is a mutating HTTP route whose ``op_id``
+    is a required client-supplied idempotency key (``GuardCounterMutationRequest.
+    op_id = Field(min_length=1)``, no server default). A missing op_id fails closed
+    with an op_id-specific 422, distinct from an ordinary 400 payload-shape defect.
+    Validation precedes any guard-counter service call, so this holds at the wire.
+    """
+    app = ControlPlaneApplication(
+        telemetry_service=_FakeTelemetryService(),
+        runtime_service=_FakeRuntimeService(),
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
+    )
+
+    # A body valid in every respect EXCEPT the missing op_id (``housekeeping`` needs
+    # no record-scope fields), so the only validation failure is the op_id -> 422.
+    response = app.handle_request(
+        method="POST",
+        path="/v1/governance/guard-counters",
+        body=json.dumps(
+            {
+                "operation": "housekeeping",
+                "occurred_at": "2026-07-02T11:00:00+00:00",
+            },
+        ).encode("utf-8"),
+    )
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    _assert_error(
+        response,
+        error_code="invalid_guard_counter_payload",
+        message="Invalid guard-counter mutation payload",
+    )
+
+
 def test_invalid_project_edge_sync_payload_returns_bad_request() -> None:
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
