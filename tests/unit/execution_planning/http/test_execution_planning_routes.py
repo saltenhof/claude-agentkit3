@@ -482,3 +482,27 @@ def test_put_config_same_op_id_different_body_returns_409_mismatch() -> None:
 
 
 _CFG_PATH = "/v1/projects/tenant-a/planning/config"
+
+
+def test_create_then_delete_dependency_same_op_id_returns_409_not_replay() -> None:
+    """Codex r4 #1: create-vs-delete dependency share the same body-hash (path
+    tuple), so op_id reuse across the two actions is a 409 mismatch, not a replay;
+    the delete never runs."""
+    dep_repo = _DepRepo()
+    app = _app(dep_repo=dep_repo)
+    created = app.handle_request(
+        method="POST", path=_DEP_PATH, body=_create_body("op-cross-cd")
+    )
+    assert created.status_code == HTTPStatus.CREATED
+    assert len(dep_repo.edges) == 1
+
+    # SAME op_id, DIFFERENT action (delete the same dependency target).
+    deleted = app.handle_request(
+        method="DELETE",
+        path=_DETAIL,
+        body=json.dumps({"op_id": "op-cross-cd"}).encode("utf-8"),
+    )
+    assert deleted.status_code == HTTPStatus.CONFLICT
+    assert _json(deleted.body)["error_code"] == "idempotency_mismatch"
+    # The delete did NOT run -- the dependency still exists.
+    assert len(dep_repo.edges) == 1

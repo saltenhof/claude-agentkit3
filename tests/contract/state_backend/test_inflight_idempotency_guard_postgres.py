@@ -202,3 +202,50 @@ def test_admin_aborted_row_is_stable_conflict_not_replay_real_store(
     # The row is now terminal 'aborted' with a non-route payload -> a stable
     # conflict, NEVER a replay of the abort payload.
     assert isinstance(guard.classify(req), AbortedOutcome)
+
+
+@pytest.mark.contract
+def test_route_op_id_colliding_with_control_plane_committed_row_is_mismatch_real_store(
+    postgres_backend_env: object,
+) -> None:
+    """Codex r4 #1 (cross-namespace): a route op_id that collides with a committed
+    control_plane operation (even at the SAME body-hash) classifies as a 409
+    mismatch on the real store -- never a cross-shape replay of the control-plane
+    payload.
+    """
+    from datetime import UTC, datetime
+
+    from agentkit.backend.control_plane.records import ControlPlaneOperationRecord
+    from agentkit.backend.state_backend.store import save_control_plane_operation_global
+    from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+        MismatchOutcome,
+    )
+
+    del postgres_backend_env
+    guard = StateBackendInflightIdempotencyGuard()
+    req = _req("op-route-cp-collision", {"a": 1})
+
+    # A control_plane operation committed a terminal row under the SAME op_id and
+    # (worst case) the SAME body-hash, but a control-plane operation_kind + a
+    # ControlPlaneMutationResult-shaped payload.
+    now = datetime.now(UTC)
+    save_control_plane_operation_global(
+        ControlPlaneOperationRecord(
+            op_id=req.op_id,
+            project_key="tenant-a",
+            story_id="AG3-140",
+            run_id="run-1",
+            session_id="sess-1",
+            operation_kind="phase_start",
+            phase="setup",
+            status="committed",
+            response_payload={"status": "committed", "operation_kind": "phase_start"},
+            created_at=now,
+            updated_at=now,
+            request_body_hash=req.body_hash,
+        )
+    )
+
+    # The generic route classifies the foreign committed row by operation_kind ->
+    # a stable 409 mismatch, NOT a replay of the control-plane payload.
+    assert isinstance(guard.classify(req), MismatchOutcome)

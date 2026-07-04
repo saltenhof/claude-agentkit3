@@ -1,4 +1,4 @@
-"""Unified in-flight idempotency guard (AG3-140, FK-91 §91.1a Regel 5).
+"""Unified in-flight idempotency guard (AG3-140, FK-91 §91.1a Rule 5).
 
 This is the SINGLE idempotency mechanism for every mutating BC operation that
 follows the ``claim -> mutate -> finalize`` lifecycle -- today
@@ -8,7 +8,7 @@ and the guard-counter keeps its atomic single-transaction record; all three now
 share the ONE physical record truth: ``control_plane_operations``, the physical
 materialization of the formal ``inflight-operation-record`` entity).
 
-FK-91 §91.1a Regel 5 (the one unified contract):
+FK-91 §91.1a Rule 5 (the one unified contract):
   * ``op_id`` is client-supplied and required (server minting is removed).
   * A replay of the same ``op_id`` returns the STORED result without a second
     mutation.
@@ -156,7 +156,7 @@ ClaimOutcome = (
 
 
 class InflightIdempotencyGuard(Protocol):
-    """The unified idempotency port (FK-91 §91.1a Regel 5)."""
+    """The unified idempotency port (FK-91 §91.1a Rule 5)."""
 
     def claim(self, request: IdempotencyRequest) -> ClaimOutcome:
         """Atomically claim ``op_id`` before the mutation.
@@ -236,24 +236,36 @@ def _load_result_payload(raw: object) -> dict[str, object]:
 
 
 def _classify_terminal(
-    op_id: str, status: str, payload: dict[str, object]
+    request: IdempotencyRequest,
+    status: str,
+    payload: dict[str, object],
+    stored_operation_kind: str,
 ) -> ClaimOutcome:
     """Classify a terminal (non-``claimed``), same-body-hash row.
 
-    Only a row COMMITTED by the guard contract (``status='committed'``) is a
-    genuine :class:`ReplayOutcome` -- the guard's ``finalize`` is the ONLY writer
-    of that status through this port, so the stored payload is always the
-    consuming contract's own result (an HTTP ``{status_code, body}`` for the
-    generic routes, or a story snapshot for ``story_context_manager``; each
-    consumer reconstructs its own shape). Any OTHER terminal state -- an
-    ``admin_abort`` (``status='aborted'``), ``repair`` / ``failed`` or any
-    control-plane terminal written under the same op_id -- is a STABLE fail-closed
-    :class:`AbortedOutcome`, never a replay of that foreign result and never a
-    corrupt-500 through the route replay builder.
+    Operation identity is part of the discriminator (SINGLE SOURCE OF TRUTH: the
+    persisted ``operation_kind`` column). If the stored ``operation_kind`` differs
+    from the incoming request's, the op_id is already bound to a DIFFERENT
+    operation -- a different action whose body happens to hash equal (e.g.
+    ``task_resolve`` vs ``task_dismiss``, which share ``_ResolveRequest`` + the
+    target task_id), OR a foreign ``control_plane`` / guard-counter operation that
+    also writes ``status='committed'`` under a colliding op_id. Either way it is a
+    STABLE fail-closed ``409 idempotency_mismatch``: NEVER a cross-action or
+    cross-shape replay.
+
+    When the operation matches, only a row COMMITTED by the guard contract
+    (``status='committed'``) is a genuine :class:`ReplayOutcome` -- each consumer
+    reconstructs its own payload shape (an HTTP ``{status_code, body}`` for the
+    generic routes, or a story snapshot for ``story_context_manager``). Any OTHER
+    terminal state -- an ``admin_abort`` (``status='aborted'``), ``repair`` /
+    ``failed`` -- is a STABLE fail-closed :class:`AbortedOutcome`, never a replay
+    and never a corrupt-500 through the route replay builder.
     """
+    if stored_operation_kind != request.operation_kind:
+        return MismatchOutcome(op_id=request.op_id)
     if status == _TERMINAL_STATUS:
         return ReplayOutcome(result_payload=payload)
-    return AbortedOutcome(op_id=op_id)
+    return AbortedOutcome(op_id=request.op_id)
 
 
 class StateBackendInflightIdempotencyGuard:
@@ -314,7 +326,9 @@ class StateBackendInflightIdempotencyGuard:
         if stored_hash != request.body_hash:
             return MismatchOutcome(op_id=request.op_id)
         payload = _load_result_payload(existing["response_json"])
-        return _classify_terminal(request.op_id, status, payload)
+        return _classify_terminal(
+            request, status, payload, str(existing["operation_kind"])
+        )
 
     def finalize(
         self,
@@ -364,6 +378,7 @@ class _MemRow:
     result_payload: dict[str, object]
     owner_token: str
     claimed_at_iso: str
+    operation_kind: str
 
 
 @dataclass
@@ -392,6 +407,7 @@ class InMemoryInflightIdempotencyGuard:
                 result_payload=dict(_CLAIM_PLACEHOLDER),
                 owner_token=owner_token,
                 claimed_at_iso=claimed_at_iso,
+                operation_kind=request.operation_kind,
             )
             return FreshClaim(owner_token=owner_token, claimed_at_iso=claimed_at_iso)
         if existing.status == _CLAIM_STATUS:
@@ -399,7 +415,10 @@ class InMemoryInflightIdempotencyGuard:
         if existing.body_hash != request.body_hash:
             return MismatchOutcome(op_id=request.op_id)
         return _classify_terminal(
-            request.op_id, existing.status, dict(existing.result_payload)
+            request,
+            existing.status,
+            dict(existing.result_payload),
+            existing.operation_kind,
         )
 
     def finalize(
@@ -442,12 +461,15 @@ class InMemoryInflightIdempotencyGuard:
         if existing.body_hash != request.body_hash:
             return MismatchOutcome(op_id=request.op_id)
         return _classify_terminal(
-            request.op_id, existing.status, dict(existing.result_payload)
+            request,
+            existing.status,
+            dict(existing.result_payload),
+            existing.operation_kind,
         )
 
 
 # ---------------------------------------------------------------------------
-# Shared route window-logic (FK-91 §91.1a Regel 5; the claim/mutate/finalize
+# Shared route window-logic (FK-91 §91.1a Rule 5; the claim/mutate/finalize
 # invariant, centralized so every BC HTTP wrapper enforces it identically).
 # ---------------------------------------------------------------------------
 
@@ -528,7 +550,7 @@ def run_route_idempotent[R: _RouteResponseLike](
 ) -> R:
     """Run one mutating HTTP route under the unified idempotency contract.
 
-    The single, centralized window invariant (FK-91 §91.1a Regel 5) every BC
+    The single, centralized window invariant (FK-91 §91.1a Rule 5) every BC
     wrapper shares:
 
     * The ``claimed`` placeholder is written by ``claim`` BEFORE ``mutate``.

@@ -1,7 +1,7 @@
 """Unit contract for the unified in-flight idempotency guard (AG3-140).
 
 Drives the first-class in-memory guard (NOT a mock) through the full FK-91
-§91.1a Regel 5 contract: fresh claim, in-flight rejection of a parallel same
+§91.1a Rule 5 contract: fresh claim, in-flight rejection of a parallel same
 op_id, replay of a terminal record, body-hash mismatch, and the ownership-scoped
 release/finalize CAS. The Postgres-backed guard is proven against the real store
 in ``tests/contract/state_backend/test_inflight_idempotency_guard_postgres.py``.
@@ -294,3 +294,37 @@ def test_run_route_idempotent_admin_aborted_row_is_stable_conflict_not_replay() 
     resp = _run(guard, req, lambda: _ok(201, {"should": "not-run"}))
     assert resp.status_code == 409
     assert json.loads(resp.body)["error_code"] == "operation_conflict"
+
+
+def test_run_route_idempotent_same_op_id_different_operation_kind_is_mismatch() -> None:
+    """Codex r4 #1: op_id reuse across a DIFFERENT operation_kind (even with an
+    identical body-hash) is a stable 409 mismatch, never a cross-action replay."""
+    from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+        MismatchOutcome,
+    )
+
+    guard = InMemoryInflightIdempotencyGuard()
+    shared_hash = compute_body_hash({"resolved_by": "human"})
+    resolve = IdempotencyRequest(
+        op_id="op-xk", operation_kind="task_resolve", body_hash=shared_hash, project_key="P"
+    )
+    dismiss = IdempotencyRequest(
+        op_id="op-xk", operation_kind="task_dismiss", body_hash=shared_hash, project_key="P"
+    )
+
+    first = _run(guard, resolve, lambda: _ok(200, {"action": "resolve"}))
+    assert first.status_code == 200
+
+    # The op_id is now committed as task_resolve. The SAME op_id + SAME body-hash
+    # for a DIFFERENT action classifies as a mismatch, not a replay of the resolve.
+    assert isinstance(guard.classify(dismiss), MismatchOutcome)
+    ran: list[int] = []
+    second = _run(guard, dismiss, lambda: (ran.append(1), _ok(200, {"action": "dismiss"}))[1])
+    assert ran == []  # the dismiss mutation NEVER ran
+    assert second.status_code == 409
+    assert json.loads(second.body)["error_code"] == "idempotency_mismatch"
+
+    # A legit SAME-action same-body replay still works.
+    replay = _run(guard, resolve, lambda: _ok(200, {"action": "SHOULD-NOT-RUN"}))
+    assert replay.status_code == 200
+    assert json.loads(replay.body) == {"action": "resolve"}

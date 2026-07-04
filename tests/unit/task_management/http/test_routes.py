@@ -60,7 +60,7 @@ def routes(
     """Real TaskManagementRoutes backed by SQLite in tmp_path.
 
     An in-memory unified idempotency guard is injected (AG3-140 / FK-91 §91.1a
-    Regel 5) so the mutating routes exercise the real claim/replay/mismatch/
+    Rule 5) so the mutating routes exercise the real claim/replay/mismatch/
     in-flight contract without a database.
     """
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
@@ -587,7 +587,7 @@ class TestInternalError500VsUnavailable503:
 
 
 # ---------------------------------------------------------------------------
-# AG3-140 / FK-91 §91.1a Regel 5 — unified idempotency contract on the 5
+# AG3-140 / FK-91 §91.1a Rule 5 — unified idempotency contract on the 5
 # mutating POST routes (create, resolve, dismiss, link, unlink).
 # ---------------------------------------------------------------------------
 
@@ -1036,3 +1036,56 @@ class TestUnlinkIdempotency:
         assert resp is not None
         assert resp.status_code == 409
         assert json.loads(resp.body)["error_code"] == "operation_in_flight"
+
+
+class TestCrossActionRejection:
+    """Codex r4 #1: op_id reuse across a DIFFERENT action (identical body-hash) is
+    a fail-closed 409, never a cross-action replay; the second action never runs."""
+
+    def test_resolve_then_dismiss_same_op_id_returns_409_not_replay(
+        self, routes: TaskManagementRoutes
+    ) -> None:
+        task_id = _create_task(routes, title="Cross Resolve/Dismiss")
+        body = _resolve_body(resolved_by="human", op_id="op-cross-rd")
+        resolved = routes.handle_post(
+            f"/v1/projects/{_PROJ}/tasks/{task_id}/resolve", body, _CORR
+        )
+        assert resolved is not None and resolved.status_code == 200
+
+        # SAME op_id + structurally-identical body, DIFFERENT action.
+        dismissed = routes.handle_post(
+            f"/v1/projects/{_PROJ}/tasks/{task_id}/dismiss", dict(body), _CORR
+        )
+        assert dismissed is not None
+        assert dismissed.status_code == 409
+        assert json.loads(dismissed.body)["error_code"] == "idempotency_mismatch"
+
+        # The dismiss did NOT run -- the task is still resolved ('done'), never
+        # a replay of the stored resolve response as a dismiss.
+        state = routes.handle_get(f"/v1/projects/{_PROJ}/tasks/{task_id}", {}, _CORR)
+        assert state is not None
+        assert json.loads(state.body)["task"]["status"] == "done"
+
+    def test_link_then_unlink_same_op_id_returns_409_not_replay(
+        self, routes: TaskManagementRoutes
+    ) -> None:
+        src = _create_task(routes, title="Cross Link/Unlink Src")
+        tgt = _create_task(routes, title="Cross Link/Unlink Tgt")
+        body = _link_body(target_kind="task", target_id=tgt, op_id="op-cross-lu")
+        linked = routes.handle_post(
+            f"/v1/projects/{_PROJ}/tasks/{src}/links", body, _CORR
+        )
+        assert linked is not None and linked.status_code == 201
+
+        # SAME op_id + identical body, DIFFERENT action (unlink).
+        unlinked = routes.handle_post(
+            f"/v1/projects/{_PROJ}/tasks/{src}/links/delete", dict(body), _CORR
+        )
+        assert unlinked is not None
+        assert unlinked.status_code == 409
+        assert json.loads(unlinked.body)["error_code"] == "idempotency_mismatch"
+
+        # The unlink did NOT run -- the link still exists.
+        links = routes.handle_get(f"/v1/projects/{_PROJ}/task-links", {}, _CORR)
+        assert links is not None
+        assert len(json.loads(links.body)["links"]) == 1
