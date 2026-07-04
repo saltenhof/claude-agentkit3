@@ -1240,7 +1240,7 @@ def test_crash_between_mutate_and_finalize_is_not_doubly_executable() -> None:
 
 
 # ---------------------------------------------------------------------------
-# AG3-140 Befund 5 / AC8: replay-after-FAILURE
+# AG3-140 finding 5 / AC8: replay-after-FAILURE
 #
 # A deterministic domain outcome (404/403/400/422) is FINALIZED (stored) under
 # the claim, so a retry with the SAME op_id replays the STORED error exactly once
@@ -1425,7 +1425,7 @@ def test_replay_after_failure_is_not_reexecutable_and_not_mismatch() -> None:
 
 
 def test_update_fields_replay_after_forbidden_field_reraises_and_runs_once() -> None:
-    """AG3-140 Befund 3 (AC8): a PATCH carrying a forbidden field (422) now claims
+    """AG3-140 finding 3 (AC8): a PATCH carrying a forbidden field (422) now claims
     and finalizes the ForbiddenFieldError, so a retry with the SAME op_id + body
     re-raises the SAME 422 and the forbidden-check/mutation path is ENTERED exactly
     once (the replay short-circuits before ``_run_claimed`` and never re-runs)."""
@@ -1465,7 +1465,7 @@ def test_update_fields_replay_after_forbidden_field_reraises_and_runs_once() -> 
 
 
 def test_set_field_replay_after_forbidden_field_reraises_and_runs_once() -> None:
-    """AG3-140 Befund 3 (AC8): PUT /fields/{key} with a forbidden field_key delegates
+    """AG3-140 finding 3 (AC8): PUT /fields/{key} with a forbidden field_key delegates
     to update_story_fields, so the 422 is claimed and finalized. A retry with the
     SAME op_id re-raises the SAME ForbiddenFieldError and the mutation path is
     entered exactly once (never re-run, nothing persisted)."""
@@ -1504,3 +1504,73 @@ def test_set_field_replay_after_forbidden_field_reraises_and_runs_once() -> None
         "STORED 422 without re-running the forbidden-field check"
     )
     assert repo.save_calls == saves_before, "the forbidden PUT never persisted"
+
+
+class _AbortOnFinalizeGuard(InMemoryInflightIdempotencyGuard):
+    """An admin abort resolves the claimed row to 'aborted' just before finalize.
+
+    Models Codex r3 #1: the winning claim is taken over (status -> 'aborted' with a
+    control-plane payload) between the committed mutation and the ownership CAS
+    finalize, so finalize() returns False. The service MUST NOT return the mutation
+    as success.
+    """
+
+    def __init__(self, abort_op_id: str) -> None:
+        super().__init__()
+        self._abort_op_id = abort_op_id
+
+    def finalize(
+        self,
+        request: IdempotencyRequest,
+        claim: FreshClaim,
+        result_payload: dict[str, object],
+    ) -> bool:
+        row = self._rows.get(request.op_id)
+        if request.op_id == self._abort_op_id and row is not None and row.status == "claimed":
+            row.status = "aborted"
+            row.result_payload = {
+                "status": "aborted",
+                "op_id": request.op_id,
+                "admin_note": "aborted by admin_abort_inflight_operation",
+            }
+            return False
+        return super().finalize(request, claim, result_payload)
+
+
+def test_create_finalize_lost_does_not_return_success() -> None:
+    """Codex r3 #1: a finalize CAS loss must NOT return the created story.
+
+    The mutation runs (the story is created), but an admin abort takes over the
+    claim before finalize -> finalize() returns False -> the service re-classifies
+    the aborted row and fails closed with OperationInFlightError, NEVER returning a
+    success that is not durably recorded under this op_id.
+    """
+    repo = _CountingStoryRepository()
+    guard = _AbortOnFinalizeGuard(abort_op_id="op-lost")
+    svc = _make_service_with(story_repo=repo, guard=guard)
+
+    with pytest.raises(OperationInFlightError):
+        _create_story(svc, op_id="op-lost")
+
+    # The mutation ran exactly once (the create was attempted), but the caller was
+    # NOT told a false success.
+    assert repo.create_calls == 1
+
+
+def test_update_fields_finalize_lost_does_not_return_success() -> None:
+    """Codex r3 #1 (mutation path): update_story_fields refuses success on a lost claim."""
+    repo = _CountingStoryRepository()
+    guard = InMemoryInflightIdempotencyGuard()
+    svc = _make_service_with(story_repo=repo, guard=guard)
+    story = _create_story(svc, op_id="op-seed")
+
+    # Swap in the abort guard for the update op_id (the created story stays).
+    abort_guard = _AbortOnFinalizeGuard(abort_op_id="op-upd-lost")
+    # copy the seeded story into the abort guard is unnecessary: update reads the
+    # story from the repo, and claims a fresh op_id on the abort guard.
+    svc_abort = _make_service_with(story_repo=repo, guard=abort_guard)
+
+    with pytest.raises(OperationInFlightError):
+        svc_abort.update_story_fields(
+            story.story_display_id, updates={"title": "Renamed"}, op_id="op-upd-lost"
+        )

@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING
 
 from agentkit.backend.core_types import StorySize
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    AbortedOutcome,
     IdempotencyRequest,
     InFlightOutcome,
     MismatchOutcome,
@@ -301,10 +302,13 @@ class StoryService(ResetTransitionMixin):
                 "request body; use a new op_id for a different mutation",
                 detail={"op_id": op_id, "conflict": "body_hash_mismatch"},
             )
-        if isinstance(outcome, InFlightOutcome):
+        if isinstance(outcome, (InFlightOutcome, AbortedOutcome)):
+            # A live concurrent claim, or a terminal state this contract did not
+            # commit (e.g. an admin abort) -> fail-closed 409, never a fresh claim.
             raise OperationInFlightError(
-                f"op_id {op_id!r} is in flight: another caller holds an active "
-                "claim and is mid-mutation; retry to read the committed result",
+                f"op_id {op_id!r} is in flight or was resolved to a terminal state "
+                "this mutation did not commit (e.g. an administrative abort); retry "
+                "to read the committed result or use a new op_id",
                 detail={"op_id": op_id},
             )
         if isinstance(outcome, ReplayOutcome):
@@ -352,11 +356,66 @@ class StoryService(ResetTransitionMixin):
         try:
             return mutate()
         except _FINALIZABLE_DOMAIN_ERRORS as exc:
-            self._guard.finalize(req, claim, _domain_error_snapshot(exc))
-            raise
+            # Finalize the deterministic error snapshot. If the CAS is LOST (the
+            # claim was taken over, e.g. an admin abort), the stored error is not
+            # durable under our op_id -- do NOT re-raise our error as if recorded;
+            # re-classify the row and return the fail-closed outcome instead.
+            if self._guard.finalize(req, claim, _domain_error_snapshot(exc)):
+                raise
+            return self._reclassify_lost_claim(req)
         except Exception:
             self._guard.release(req, claim)
             raise
+
+    def _reclassify_lost_claim(self, req: IdempotencyRequest) -> Story:
+        """A ``finalize`` CAS loss: re-read the row, return a fail-closed outcome.
+
+        The winning claim was taken over (e.g. an ``admin_abort`` resolved the
+        ``control_plane_operations`` row) between claim and finalize, so this
+        caller's mutation is NOT durably recorded under its ``op_id``. It must NOT
+        be returned as a success. ``classify`` re-reads the row:
+        a concurrent identical route commit -> replay its stored story (or re-raise
+        its stored domain error); a divergent body -> ``IdempotencyMismatchError``
+        (409); an admin-aborted / in-flight / any other terminal -> fail-closed
+        ``OperationInFlightError`` (409), never a false success.
+        """
+        outcome = self._guard.classify(req)
+        if isinstance(outcome, ReplayOutcome):
+            _raise_if_error_snapshot(outcome.result_payload)
+            replayed = _story_from_cached_payload(outcome.result_payload)
+            if replayed is not None:
+                return replayed
+        if isinstance(outcome, MismatchOutcome):
+            raise IdempotencyMismatchError(
+                f"op_id {req.op_id!r} was previously used with a different request "
+                "body; use a new op_id for a different mutation",
+                detail={"op_id": req.op_id, "conflict": "body_hash_mismatch"},
+            )
+        raise OperationInFlightError(
+            f"op_id {req.op_id!r} was lost or taken over (e.g. an administrative "
+            "abort) before this mutation was durably recorded; the mutation was "
+            "not committed under this op_id -- reconcile via "
+            "GET /v1/project-edge/operations/{op_id} and retry with a new op_id",
+            detail={"op_id": req.op_id},
+        )
+
+    def _finalize_success(
+        self,
+        req: IdempotencyRequest,
+        claim: FreshClaim,
+        story: Story,
+    ) -> Story | None:
+        """Finalize a successful story mutation; ``None`` iff the caller may emit.
+
+        Returns ``None`` when this owner's terminal write applied (the caller then
+        emits its event and returns ``story``). Returns a re-classified Story (or
+        raises a fail-closed 409) when the claim was lost/taken over before
+        finalize -- in which case the caller must NOT emit and must return this
+        value instead of its own ``story``.
+        """
+        if self._guard.finalize(req, claim, _story_to_internal_snapshot(story)):
+            return None
+        return self._reclassify_lost_claim(req)
 
     # ------------------------------------------------------------------
     # Read operations
@@ -591,7 +650,9 @@ class StoryService(ResetTransitionMixin):
 
         story = self._run_claimed(req, claim, _mutate)
 
-        self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
+        lost = self._finalize_success(req, claim, story)
+        if lost is not None:
+            return lost
         wire_summary = story_to_wire_summary(story)
         self._emit(request.project_key, story.story_display_id, wire_summary)
         return story
@@ -689,7 +750,9 @@ class StoryService(ResetTransitionMixin):
 
         story = self._run_claimed(req, claim, _mutate)
 
-        self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
+        lost = self._finalize_success(req, claim, story)
+        if lost is not None:
+            return lost
         wire_summary = story_to_wire_summary(story)
         self._emit(story.project_key, story_display_id, wire_summary)
 
@@ -833,7 +896,9 @@ class StoryService(ResetTransitionMixin):
 
         story = self._run_claimed(req, claim, _mutate)
 
-        self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
+        lost = self._finalize_success(req, claim, story)
+        if lost is not None:
+            return lost
         wire_summary = story_to_wire_summary(story)
         self._emit(story.project_key, story_display_id, wire_summary)
         return story
@@ -999,8 +1064,8 @@ class StoryService(ResetTransitionMixin):
         # snapshot under this claim (finalize) and return without a re-mutation or
         # an emit — mirroring the historical early ``record`` branch.
         if story.status is StoryStatus.CANCELLED:
-            self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
-            return story
+            lost = self._finalize_success(req, claim, story)
+            return lost if lost is not None else story
 
         def _mutate() -> Story:
             if story.status is not StoryStatus.IN_PROGRESS:
@@ -1027,7 +1092,9 @@ class StoryService(ResetTransitionMixin):
 
         story = self._run_claimed(req, claim, _mutate)
 
-        self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
+        lost = self._finalize_success(req, claim, story)
+        if lost is not None:
+            return lost
         wire_summary = story_to_wire_summary(story)
         self._emit(story.project_key, story_display_id, wire_summary)
         return story
@@ -1119,8 +1186,8 @@ class StoryService(ResetTransitionMixin):
         # snapshot under this claim (finalize) and return without a re-mutation or
         # an emit — mirroring the historical early ``record`` branch.
         if story.status is StoryStatus.CANCELLED:
-            self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
-            return story
+            lost = self._finalize_success(req, claim, story)
+            return lost if lost is not None else story
 
         def _mutate() -> Story:
             if story.status is not StoryStatus.IN_PROGRESS:
@@ -1147,7 +1214,9 @@ class StoryService(ResetTransitionMixin):
 
         story = self._run_claimed(req, claim, _mutate)
 
-        self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
+        lost = self._finalize_success(req, claim, story)
+        if lost is not None:
+            return lost
         wire_summary = story_to_wire_summary(story)
         self._emit(story.project_key, story_display_id, wire_summary)
         return story
@@ -1246,7 +1315,9 @@ class StoryService(ResetTransitionMixin):
 
         story = self._run_claimed(req, claim, _mutate)
 
-        self._guard.finalize(req, claim, _story_to_internal_snapshot(story))
+        lost = self._finalize_success(req, claim, story)
+        if lost is not None:
+            return lost
         wire_summary = story_to_wire_summary(story)
         self._emit(story.project_key, story_display_id, wire_summary)
         return story

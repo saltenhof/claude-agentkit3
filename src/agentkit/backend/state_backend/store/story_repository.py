@@ -1052,5 +1052,3 @@ def _pg_upsert_spec(conn: Any, row: dict[str, object]) -> None:
             else None,
         },
     )
-
-
