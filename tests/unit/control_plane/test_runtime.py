@@ -27,6 +27,7 @@ from agentkit.backend.control_plane.runtime import (
     OperationNotAbortableError,
     OperationNotFoundError,
     _build_claim_placeholder,
+    _control_plane_request_body_hash,
     _next_binding_version,
 )
 from agentkit.backend.core_types import StoryMode
@@ -682,6 +683,173 @@ def test_repeated_op_id_replays_without_second_mutation() -> None:
     assert second.status == "replayed"
     assert len(state.operations) == 1
     assert len(state.events) == 2
+
+
+# ---------------------------------------------------------------------------
+# AG3-140 (Codex r6): terminal-status discrimination on the MUTATING retry path.
+# A non-committed terminal row (aborted / repair / failed) must fail a mutating
+# retry of the SAME op_id closed as a STABLE 409 conflict (``rejected``), NEVER a
+# 201 replay of the terminal payload. The verbatim terminal payload is preserved
+# ONLY on the reconcile READ surface (``get_operation``) and the late-owner
+# finalize path (``test_late_finalize_after_admin_abort_materializes_no_side_effects``).
+# ---------------------------------------------------------------------------
+
+
+def _retry_request(op_id: str) -> PhaseMutationRequest:
+    return PhaseMutationRequest(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        session_id="sess-001",
+        principal_type="orchestrator",
+        worktree_roots=["T:/worktrees/ag3-100"],
+        op_id=op_id,
+    )
+
+
+def _seed_terminal_operation(
+    state: _RepoState,
+    *,
+    op_id: str,
+    status: str,
+    request: PhaseMutationRequest,
+    phase: str = "setup",
+    operation_kind: str = "phase_start",
+) -> None:
+    """Seed a TERMINAL control_plane_operations row (status + MATCHING body-hash).
+
+    The stamped ``request_body_hash`` equals what a ``start_phase`` retry with
+    ``request`` computes, so the retry hits the hash-MATCH branch and the outcome
+    is decided purely by the terminal STATUS (AG3-140 r6 status discrimination) --
+    isolating the status rule from a body-hash mismatch.
+    """
+    now = datetime(2026, 7, 2, 11, 0, tzinfo=UTC)
+    state.operations[op_id] = ControlPlaneOperationRecord(
+        op_id=op_id,
+        project_key="tenant-a",
+        story_id="AG3-100",
+        run_id="run-100",
+        session_id="sess-001",
+        operation_kind=operation_kind,
+        phase=phase,
+        status=status,
+        response_payload={
+            "status": status,
+            "op_id": op_id,
+            "operation_kind": operation_kind,
+            "run_id": "run-100",
+            "phase": phase,
+        },
+        created_at=now,
+        updated_at=now,
+        request_body_hash=_control_plane_request_body_hash(
+            request, operation_kind=operation_kind, phase=phase
+        ),
+    )
+
+
+def test_start_phase_retry_against_admin_aborted_terminal_is_conflict_not_replay() -> None:
+    """AG3-140 r6 MAJOR: a MUTATING retry of the same op_id against an
+    admin-aborted terminal row is a STABLE 409 conflict (``rejected``), NEVER a 201
+    replay of ``{status: aborted}``. Reproduces the reported scenario exactly: a
+    phase-start claim is admin-aborted (real abort path, original hash preserved),
+    then the client retries the same start with the same op_id."""
+    state = _RepoState()
+    _resolvable_standard_ctx(state)
+    request = _retry_request("op-abort-retry")
+    now = datetime(2026, 7, 2, 11, 0, tzinfo=UTC)
+    # A live claim carrying the SAME body-hash the retry computes (phase=setup),
+    # with the AG3-138 fencing identity so the real admin-abort path applies.
+    state.operations["op-abort-retry"] = ControlPlaneOperationRecord(
+        op_id="op-abort-retry",
+        project_key="tenant-a",
+        story_id="AG3-100",
+        run_id="run-100",
+        session_id="sess-001",
+        operation_kind="phase_start",
+        phase="setup",
+        status="claimed",
+        response_payload={},
+        created_at=now,
+        updated_at=now,
+        claimed_by="owner-live",
+        claimed_at=now,
+        operation_epoch=1,
+        backend_instance_id="inst-me",
+        instance_incarnation=1,
+        declared_serialization_scope="tenant-a:AG3-100",
+        request_body_hash=_control_plane_request_body_hash(
+            request, operation_kind="phase_start", phase="setup"
+        ),
+    )
+    service = _admitting_service(state)
+
+    aborted = service.admin_abort_inflight_operation(
+        "op-abort-retry", _admin_abort_request()
+    )
+    assert aborted.status == "aborted"
+    assert state.operations["op-abort-retry"].status == "aborted"
+
+    retry = service.start_phase(run_id="run-100", phase="setup", request=request)
+
+    assert retry.status == "rejected", (
+        "a mutating retry against an aborted terminal must be a 409 conflict, "
+        "never a 201 replay of the aborted payload"
+    )
+    assert retry.edge_bundle is None
+    # No second mutation / side effect; the aborted terminal row is untouched.
+    assert state.operations["op-abort-retry"].status == "aborted"
+    assert state.bindings == {}
+    assert state.events == []
+
+
+@pytest.mark.parametrize("terminal_status", ["aborted", "repair", "failed"])
+def test_start_phase_retry_against_noncommitted_terminal_is_conflict(
+    terminal_status: str,
+) -> None:
+    """AG3-140 r6: every non-committed terminal (aborted / repair / failed) rejects
+    a matching-hash mutating retry as a stable conflict, never a cross-status
+    replay."""
+    state = _RepoState()
+    _resolvable_standard_ctx(state)
+    op_id = f"op-{terminal_status}-retry"
+    request = _retry_request(op_id)
+    _seed_terminal_operation(
+        state, op_id=op_id, status=terminal_status, request=request
+    )
+    service = _admitting_service(state)
+
+    retry = service.start_phase(run_id="run-100", phase="setup", request=request)
+
+    assert retry.status == "rejected"
+    assert retry.edge_bundle is None
+    # The terminal row is neither replayed-as-success nor overwritten.
+    assert state.operations[op_id].status == terminal_status
+    assert state.bindings == {}
+    assert state.events == []
+
+
+@pytest.mark.parametrize("terminal_status", ["aborted", "repair", "failed"])
+def test_get_operation_reconcile_returns_noncommitted_terminal_verbatim(
+    terminal_status: str,
+) -> None:
+    """AG3-140 r6 (preservation): the reconcile READ surface (``get_operation`` /
+    GET /operations/{op_id}, FK-91 Rule 17) STILL returns a non-committed terminal
+    VERBATIM -- the mutating-retry conflict fix must not change the read path."""
+    state = _RepoState()
+    op_id = f"op-{terminal_status}-read"
+    request = _retry_request(op_id)
+    _seed_terminal_operation(
+        state, op_id=op_id, status=terminal_status, request=request
+    )
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    result = service.get_operation(op_id)
+
+    assert result is not None
+    assert result.status == terminal_status, (
+        "the reconcile read surface must surface the terminal status verbatim, "
+        "never rewritten to 'replayed' or 'rejected'"
+    )
 
 
 def test_complete_closure_unbinds_and_returns_tombstone_roots() -> None:

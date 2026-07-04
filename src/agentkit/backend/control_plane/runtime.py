@@ -916,9 +916,15 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         #: applied AND the side effects were rolled back (NO loser double-write).
         #: Replay the winner's terminal row; NEVER overwrite it (or, in the narrow
         #: window where it is not yet readable, surface the in-flight retry
-        #: rejection).
+        #: rejection). This is the LATE-OWNER path: I originally held the claim, so
+        #: I see my own now-aborted/committed row VERBATIM (legitimate late-owner
+        #: visibility, ``mutating_retry=False``) -- NOT the fresh-retry conflict
+        #: classification that a DIFFERENT caller reusing this op_id would get.
         existing = self._load_existing_operation(
-            request, operation_kind="phase_start", phase=phase
+            request,
+            operation_kind="phase_start",
+            phase=phase,
+            mutating_retry=False,
         )
         if existing is not None:
             return existing
@@ -1309,8 +1315,9 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         *,
         operation_kind: str,
         phase: str | None,
+        mutating_retry: bool = True,
     ) -> ControlPlaneMutationResult | None:
-        del request, operation_kind, phase
+        del request, operation_kind, phase, mutating_retry
         raise NotImplementedError
 
     def _story_scoped_materialization_enabled(
@@ -1878,8 +1885,13 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
             events=(),
         ):
             return result
+        #: LATE-OWNER resume finalize (ownership CAS lost): surface my own terminal
+        #: row VERBATIM (``mutating_retry=False``), not the fresh-retry conflict.
         existing = self._load_existing_operation(
-            request, operation_kind="phase_resume", phase=phase
+            request,
+            operation_kind="phase_resume",
+            phase=phase,
+            mutating_retry=False,
         )
         if existing is not None:
             return existing
@@ -2320,6 +2332,7 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
         *,
         operation_kind: str,
         phase: str | None,
+        mutating_retry: bool = True,
     ) -> ControlPlaneMutationResult | None:
         existing = self._repo.load_operation(request.op_id)
         if existing is None:
@@ -2336,7 +2349,11 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
         #: never false-mismatches (a legacy null stored hash falls back to op_id-only
         #: replay, fail-open only on the pre-AG3-140 gap).
         return _replay_or_mismatch(
-            request, existing, operation_kind=operation_kind, phase=phase
+            request,
+            existing,
+            operation_kind=operation_kind,
+            phase=phase,
+            mutating_retry=mutating_retry,
         )
 
 
@@ -2577,17 +2594,23 @@ def _replay_or_mismatch(
     *,
     operation_kind: str,
     phase: str | None,
+    mutating_retry: bool = True,
 ) -> ControlPlaneMutationResult:
     """Replay a terminal row, or fail closed with ``409 idempotency_mismatch`` (AG3-140).
 
     A claim-loser / replay classifies a stored TERMINAL row by comparing the
-    incoming request's body-hash against the one stamped on the row:
+    incoming request's body-hash against the one stamped on the row, THEN by the
+    stored terminal status:
 
-    * hash MATCHES -> a legitimate replay of the SAME mutation: return the stored
-      result (``_replayed_result``).
     * hash DIFFERS -> the ``op_id`` is being reused for a DIFFERENT phase/action/
       body: fail closed with :class:`IdempotencyMismatchError` (mapped to HTTP
       ``409 idempotency_mismatch`` at the adapter, FK-91 §91.1a Rule 5).
+    * hash MATCHES + a NON-COMMITTED terminal (``aborted`` / ``repair`` /
+      ``failed``) -> fail closed with a ``rejected`` result (mapped to HTTP
+      ``409 conflict``): a mutating retry against a terminal this mutation did not
+      commit is NEVER replayed as a 201 success (AG3-140 Codex r6).
+    * hash MATCHES + a committed-success terminal -> a legitimate replay of the
+      SAME mutation: return the stored result (``_replayed_result``).
 
     Fail-closed note: a ``None`` stored hash is a legacy / pre-AG3-140 row that was
     written before the body-hash was populated on this path -- it falls back to
@@ -2623,6 +2646,43 @@ def _replay_or_mismatch(
                 "request body; use a new op_id for a different mutation",
                 detail={"op_id": request.op_id, "conflict": "body_hash_mismatch"},
             )
+    #: AG3-140 (Codex r6): terminal-status discrimination on the MUTATING retry
+    #: path. A non-committed terminal row (``aborted`` / ``repair`` / ``failed``)
+    #: must fail closed as a STABLE 409 conflict -- it is NEVER replayed as a 201
+    #: success, even when the body-hash matches (e.g. a phase-start whose claim was
+    #: admin-aborted, retried with the same op_id). Only a committed-success
+    #: terminal replays its stored result. This applies the SAME status rule as the
+    #: shared ``classify_terminal_row`` (non-committed terminal -> conflict). It is
+    #: keyed on control-plane's own ``_RECONCILE_PRESERVED_STATUSES`` rather than
+    #: reusing ``classify_terminal_row`` directly, because control-plane's terminal
+    #: vocabulary has MULTIPLE success statuses (``committed`` / ``synced`` /
+    #: ``replayed`` / ``resolved``) that all legitimately replay, whereas the
+    #: generic classifier treats every status other than the single ``committed``
+    #: as a conflict -- feeding control-plane status into it verbatim would
+    #: false-conflict ``synced`` / ``resolved`` replays. ``_RECONCILE_PRESERVED_STATUSES``
+    #: is the ONE control-plane definition of "non-committed terminal" and is
+    #: already the set ``_replayed_result`` special-cases, so this is not a second
+    #: source of truth. The verbatim ``aborted`` / ``repair`` / ``failed`` payload
+    #: is preserved ONLY on the reconcile READ surface (``get_operation`` /
+    #: ``GET /operations/{op_id}``, FK-91 Rule 17) and on the ``mutating_retry=False``
+    #: LATE-OWNER finalize path (the original owner whose ownership CAS lost to a
+    #: concurrent admin-abort surfaces its own aborted row verbatim -- legitimate
+    #: late-owner visibility, NOT a duplicate retry), neither of which sets
+    #: ``mutating_retry=True``.
+    if mutating_retry and stored.status in _RECONCILE_PRESERVED_STATUSES:
+        return _rejection_result(
+            op_id=request.op_id,
+            operation_kind=stored.operation_kind,
+            run_id=stored.run_id,
+            phase=stored.phase,
+            reason=(
+                f"op_id {request.op_id!r} resolved to a non-committed terminal "
+                f"state ({stored.status!r}, e.g. an administrative abort or an "
+                "unrepaired partial write) that this mutation did not commit; a "
+                "retry cannot replay it as success. Reconcile via the operations "
+                "read endpoint for this op_id and use a new op_id for a new mutation."
+            ),
+        )
     return _replayed_result(stored.response_payload)
 
 

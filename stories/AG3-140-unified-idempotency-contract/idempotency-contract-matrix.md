@@ -1,10 +1,20 @@
 # AG3-140 — Idempotency-Contract Completeness Matrix (path × property)
 
 Story: **AG3-140 — Einheitlicher Idempotenz-Vertrag (BC-weit)**. This artifact is
-the Codex-round-5 deliverable (STEP 2d): every idempotency-resolution PATH proved
-against every contract PROPERTY, so no sibling path can silently diverge again.
-It is the companion to `route-inventory.md` (the per-route ledger); this file is
-the per-mechanism proof grid.
+the Codex-round-5 deliverable (STEP 2d), re-audited and corrected in round 6: every
+idempotency-resolution PATH proved against every contract PROPERTY, so no sibling
+path can silently diverge again. It is the companion to `route-inventory.md` (the
+per-route ledger); this file is the per-mechanism proof grid.
+
+**Codex r6 correction:** the control-plane path was previously described here as a
+"strict superset" that enforced the same observable contract — it was NOT: on the
+mutating retry path it replayed a non-committed terminal (`aborted`/`repair`/
+`failed`) as a 201 success instead of a stable 409 conflict, and the PATH 3 P4 cell
+cited repair-LOCK tests that did not prove duplicate-op_id classification. Both are
+fixed below: the runtime now returns a 409 conflict for a non-committed terminal on
+the mutating retry (`_replay_or_mismatch(mutating_retry=True)`), the read/reconcile
+and late-owner surfaces still return it verbatim, and the P4 citations are replaced
+with tests that seed the terminal row and retry the same op_id.
 
 ## Method change (Codex r5): ONE shared classifier
 
@@ -28,7 +38,7 @@ non-`committed` terminal (aborted/repair/failed) → conflict; else → replay.
 | Generic `run_route_idempotent` guard (`StateBackend`/`InMemory`, `claim`+`classify`) | YES — `_resolve_loser` / `_classify_existing` → `classify_terminal_row` |
 | `story_context_manager` service | YES — has NO bespoke classifier; calls the guard's `claim`/`classify` |
 | Guard-counter co-transactional record | YES — the atomic PK-gate INSERT stays (atomicity), but its duplicate resolution now calls `classify_terminal_row` with `incoming_operation_kind="guard_counter_record"` |
-| control-plane phase/closure runtime | **NO — documented divergence.** It folds `operation_kind`+`phase` INTO its request-body-hash (`_control_plane_request_body_hash`) and additionally enforces AG3-137/138 instance-epoch fencing + verbatim aborted/repair/failed reconciliation (E6). Its richer, phase-aware, epoch-fenced semantics are a strict superset of the generic 5-input decision, so it cannot collapse onto the generic classifier without losing the fence. It enforces the SAME observable contract (see PATH 3 below) via its own runtime, proven cell-by-cell. |
+| control-plane phase/closure runtime | **NO (function reuse) — but enforces the IDENTICAL observable contract, applying the same status rule.** It folds `operation_kind`+`phase` INTO its request-body-hash (`_control_plane_request_body_hash`, covering the classifier's body-hash + operation_kind checks) and adds AG3-137/138 instance-epoch fencing. It cannot feed its status column into `classify_terminal_row` verbatim because its terminal vocabulary has MULTIPLE success statuses (`committed` / `synced` / `replayed` / `resolved`) that all legitimately replay, whereas the generic classifier treats every status other than the single `committed` as a conflict — so a verbatim reuse would false-conflict `synced`/`resolved`. It therefore applies the SAME status RULE ("a non-committed terminal → stable conflict; only a committed-success terminal replays") keyed on its own single-source set `_RECONCILE_PRESERVED_STATUSES = {aborted, repair, failed}` (the set `_replayed_result` already special-cases). **Codex r6 fix:** `_replay_or_mismatch` now returns a `rejected` (409-conflict) result for a non-committed terminal on the MUTATING retry path (`mutating_retry=True`), instead of replaying `{status: aborted}` as 201. The verbatim aborted/repair/failed payload is preserved ONLY on the reconcile READ surface (`get_operation` / `GET /operations/{op_id}`) and the late-owner finalize path (`mutating_retry=False`). Proven cell-by-cell in PATH 3 below. |
 
 ## Legend
 
@@ -90,10 +100,10 @@ Guard mechanics: `tests/unit/state_backend/test_inflight_idempotency_guard.py`
 | P1 | `cph::test_missing_op_id_phase_payload_returns_422` (+ closure / project-edge-sync siblings) |
 | P2 | `cpr::test_phase_start_reused_op_id_with_different_body_raises_mismatch` (+ complete/closure; HTTP `cph::test_phase_mutation_body_hash_mismatch_maps_to_409`) |
 | P3 | `cpr::test_complete_phase_reusing_live_claimed_start_op_id_does_not_clobber` (+ atomic `::test_complete_closure_reusing_live_claimed_start_op_id_is_atomic`) — a different operation_kind under a live op_id never clobbers/cross-shape-replays |
-| P4 | repair/aborted→409 `cph::test_phase_mutation_repair_lock_rejection_maps_to_409`, `cpr::test_mutating_dispatch_against_story_in_repair_is_rejected`; committed→replay `cpr::test_repeated_op_id_replays_without_second_mutation` |
+| P4 | **non-committed terminal duplicate retry → 409 conflict (Codex r6 fix):** `cpr::test_start_phase_retry_against_admin_aborted_terminal_is_conflict_not_replay` (real admin-abort path → aborted terminal row, same-op_id start retry → `rejected`), `cpr::test_start_phase_retry_against_noncommitted_terminal_is_conflict` (parametrized aborted/repair/failed terminal row, matching-hash retry → `rejected`, row untouched), and HTTP-route `cph::test_phase_start_retry_against_aborted_terminal_row_maps_to_409` (real runtime + seeded aborted row through `/start` → HTTP 409). **committed→replay:** `cpr::test_repeated_op_id_replays_without_second_mutation`. **reconcile READ preserved verbatim (not changed by the fix):** `cpr::test_get_operation_reconcile_returns_noncommitted_terminal_verbatim`; late-owner verbatim `cpr::test_late_finalize_after_admin_abort_materializes_no_side_effects`. (The r5 citations `test_phase_mutation_repair_lock_rejection_maps_to_409` / `test_mutating_dispatch_against_story_in_repair_is_rejected` were DROPPED — they prove a fresh story-level repair-LOCK block, NOT duplicate-op_id classification of an existing terminal row.) |
 | P5 | `cpr::test_late_executor_finalize_after_abort_fails_epoch_fence` (+ `::test_late_finalize_after_admin_abort_materializes_no_side_effects`) |
 | P6 | `cpr::test_repeated_op_id_replays_without_second_mutation` (+ `::test_replay_returns_same_phase_dispatch_and_dispatches_once`, `::test_get_operation_returns_replayed_result`) |
-| P7 | **N/A** — the control-plane runtime does NOT store a deterministic-domain-error snapshot for verbatim replay (that pattern is a REST-route concern, PATH 1/2). A `fail_phase` / aborted / repair terminal is NOT replayed as a stored 4xx; it is a **stable 409 conflict** — which is exactly property **P4** (proven above). There is no fourth "stored-error-replay" outcome to prove for this path. |
+| P7 | **N/A** — the control-plane runtime does NOT store a deterministic-domain-error snapshot for verbatim replay (that pattern is a REST-route concern, PATH 1/2). A `fail_phase` / aborted / repair terminal is NOT replayed as a stored 4xx; a mutating retry against it is a **stable 409 conflict** — which is exactly property **P4** (now genuinely proven above by the r6 fix + its regression tests, not by a repair-lock test). There is no fourth "stored-error-replay" outcome to prove for this path. |
 | P8 | `cpr::test_same_op_id_concurrent_starts_dispatch_once` (+ `::test_concurrent_claims_one_wins_loser_gets_in_flight_rejection_mid_dispatch`); real store `cp_pg::test_two_concurrent_same_op_id_starts_dispatch_once_real_store` |
 | P9 | `cpr::test_exception_after_claim_releases_claim_and_leaves_op_reclaimable`; real store `cp_pg::test_exception_after_claim_releases_real_store_claim` |
 | P10 | `cpr::test_stale_claim_placeholder_with_no_claimed_at_is_rejected_not_reclaimed` (+ `::test_foreign_claim_of_any_age_is_never_taken_over`) |
@@ -119,11 +129,19 @@ REST/real Postgres `tests/integration/governance_hooks/test_hook_rest_mediation.
 
 ## Completeness statement
 
-Every `(path, property)` cell is either a named proving test or a documented N/A
-with reason. All four mechanisms enforce the ONE unified contract; three route
-their duplicate-`op_id` decision through the single `classify_terminal_row`, and
-the fourth (control-plane) enforces the identical observable contract through its
-epoch-fenced, phase-aware runtime (documented divergence, superset semantics). The
-r5 gaps (SCM P3/P9, guard-counter P3) are closed by three added tests; the r5
-NONE-FOUND control-plane P7 is a documented N/A (it collapses into P4 for this
-path). No cell required a concept change.
+Every `(path, property)` cell is either a named proving test (whose body seeds the
+cell's exact precondition and asserts its exact outcome) or a documented N/A with
+reason. All four mechanisms enforce the ONE unified contract; three route their
+duplicate-`op_id` decision through the single `classify_terminal_row`, and the
+fourth (control-plane) enforces the IDENTICAL observable contract through its
+epoch-fenced, phase-aware runtime — applying the same status rule keyed on its own
+`_RECONCILE_PRESERVED_STATUSES` set (it cannot reuse the classifier verbatim only
+because its success vocabulary is broader than the single `committed`; documented
+above). The r5 gaps (SCM P3/P9, guard-counter P3) are closed by three added tests.
+The r6 MAJOR (control-plane non-committed-terminal mutating retry replayed as 201
+instead of 409) is fixed in `_replay_or_mismatch` and proven by three added
+regression tests (real admin-abort retry, parametrized aborted/repair/failed
+retry, and an HTTP-route 409), while the reconcile READ and late-owner surfaces are
+regression-guarded to still return the terminal verbatim. The r5 control-plane P7
+is a documented N/A (it collapses into the now-genuine P4). No cell required a
+concept change.

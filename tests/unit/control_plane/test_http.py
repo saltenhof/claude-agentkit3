@@ -1594,6 +1594,53 @@ def test_phase_mutation_repair_lock_rejection_maps_to_409() -> None:
     assert "repair" in str(body["phase_dispatch"]["rejection_reason"])
 
 
+def test_phase_start_retry_against_aborted_terminal_row_maps_to_409() -> None:
+    """AG3-140 r6 MAJOR (HTTP): a mutating retry of the same op_id against an
+    ABORTED terminal ``control_plane_operations`` row, driven through the REAL
+    phase-start route over the REAL runtime classification (only the in-memory
+    store is seeded), maps to HTTP 409 conflict (``status='rejected'``) -- NOT a
+    201 ``{status: aborted}`` replay. This is the duplicate-op_id classification of
+    an existing non-committed terminal, not a fresh repair-lock rejection. The
+    verbatim aborted payload is preserved only on the reconcile GET path.
+    """
+    from tests.unit.control_plane.test_runtime import (
+        _admitting_service,
+        _RepoState,
+        _resolvable_standard_ctx,
+        _retry_request,
+        _seed_terminal_operation,
+    )
+
+    state = _RepoState()
+    _resolvable_standard_ctx(state)
+    request = _retry_request("op-abort-http")
+    _seed_terminal_operation(
+        state, op_id="op-abort-http", status="aborted", request=request
+    )
+    app = _abort_app(_admitting_service(state))
+
+    response = app.handle_request(
+        method="POST",
+        path="/v1/projects/tenant-a/story-runs/run-100/phases/setup/start",
+        body=json.dumps(
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "session_id": "sess-001",
+                "principal_type": "orchestrator",
+                "worktree_roots": ["T:/worktrees/ag3-100"],
+                "op_id": "op-abort-http",
+            },
+        ).encode("utf-8"),
+    )
+
+    assert response.status_code == HTTPStatus.CONFLICT
+    body = _json_body(response)
+    assert body["status"] == "rejected"
+    # The aborted terminal row was neither replayed-as-success nor overwritten.
+    assert state.operations["op-abort-http"].status == "aborted"
+
+
 def test_phase_mutation_body_hash_mismatch_maps_to_409() -> None:
     """AG3-140 finding 3: a reused op_id with a different body -> 409 idempotency_mismatch.
 
