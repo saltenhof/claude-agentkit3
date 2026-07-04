@@ -1018,13 +1018,20 @@ def load_story_execution_lock_global(
 # ---------------------------------------------------------------------------
 
 
+#: Raised when a backend does not implement the global control-plane operation
+#: row surface (shared by every ``*_control_plane_operation_global`` facade).
+_GLOBAL_CP_OP_UNSUPPORTED = (
+    "Global control-plane operations are unsupported by the active backend"
+)
+
+
 def save_control_plane_operation_global(
     record: ControlPlaneOperationRecord,
 ) -> None:
     backend = _backend_module()
     if not hasattr(backend, "save_control_plane_operation_global_row"):
         raise RuntimeError(
-            "Global control-plane operations are unsupported by the active backend",
+            _GLOBAL_CP_OP_UNSUPPORTED,
         )
     row = mappers.control_plane_op_to_row(record)
     backend.save_control_plane_operation_global_row(row)
@@ -1124,7 +1131,7 @@ def load_inflight_operation_row_global(op_id: str) -> dict[str, Any] | None:
     backend = _backend_module()
     if not hasattr(backend, "load_control_plane_operation_global_row"):
         raise RuntimeError(
-            "Global control-plane operations are unsupported by the active backend",
+            _GLOBAL_CP_OP_UNSUPPORTED,
         )
     row = backend.load_control_plane_operation_global_row(op_id)
     return dict(row) if row is not None else None
@@ -1538,7 +1545,7 @@ def load_control_plane_operation_global(
     backend = _backend_module()
     if not hasattr(backend, "load_control_plane_operation_global_row"):
         raise RuntimeError(
-            "Global control-plane operations are unsupported by the active backend",
+            _GLOBAL_CP_OP_UNSUPPORTED,
         )
     row = backend.load_control_plane_operation_global_row(op_id)
     if row is None:

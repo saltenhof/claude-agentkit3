@@ -551,7 +551,6 @@ def _operation_conflict_message(op_id: str) -> str:
 
 def _route_loser_response[R: _RouteResponseLike](
     outcome: ClaimOutcome,
-    request: IdempotencyRequest,
     *,
     replay: Callable[[dict[str, object]], R],
     conflict: Callable[[str, str, dict[str, object]], R],
@@ -620,7 +619,7 @@ def run_route_idempotent[R: _RouteResponseLike](
         The BC route response (the mutation's, a replay, or a fail-closed 409).
     """
     outcome = guard.claim(request)
-    loser = _route_loser_response(outcome, request, replay=replay, conflict=conflict)
+    loser = _route_loser_response(outcome, replay=replay, conflict=conflict)
     if loser is not None:
         return loser
     if not isinstance(outcome, FreshClaim):  # pragma: no cover - exhaustive union
@@ -647,7 +646,7 @@ def run_route_idempotent[R: _RouteResponseLike](
         # fail-closed outcome (a concurrent identical finalize -> replay; a
         # divergent body -> mismatch; otherwise an in-flight/lost conflict).
         lost = _route_loser_response(
-            guard.classify(request), request, replay=replay, conflict=conflict
+            guard.classify(request), replay=replay, conflict=conflict
         )
         if lost is not None:
             return lost

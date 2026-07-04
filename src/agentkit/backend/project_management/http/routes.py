@@ -488,11 +488,7 @@ class ProjectManagementRoutes:
         try:
             patch = ConfigurationOnlyPatchRequest.model_validate(payload)
         except ValidationError as exc:
-            status = (
-                HTTPStatus.UNPROCESSABLE_ENTITY
-                if op_id_validation_error(exc)
-                else HTTPStatus.BAD_REQUEST
-            )
+            status = HTTPStatus.UNPROCESSABLE_ENTITY if op_id_validation_error(exc) else HTTPStatus.BAD_REQUEST
             return _validation_error_response(
                 "invalid_project_configuration_patch",
                 "Invalid project configuration patch",

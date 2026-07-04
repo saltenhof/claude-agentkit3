@@ -295,7 +295,7 @@ PY
                 dir('agentkit-src') {
                     sh '''
                         . .venv/bin/activate
-                        python scripts/python/py_loc_to_sonar.py \
+                        python "$CI_SCANNERS_DIR/py_loc_to_sonar.py" \
                             --output var/reports/sonar/python-loc-issues.json \
                             --base-dir . \
                             src
@@ -329,7 +329,7 @@ PY
                                 returnStatus: true,
                                 script: '''
                                     . .venv/bin/activate
-                                    python scripts/python/wait_for_sonar_quality_gate.py \
+                                    python "$CI_SCANNERS_DIR/wait_for_sonar_quality_gate.py" \
                                         --host "$SONAR_HOST_URL" \
                                         --project-key "claude-agentkit3" \
                                         --timeout-seconds 600
