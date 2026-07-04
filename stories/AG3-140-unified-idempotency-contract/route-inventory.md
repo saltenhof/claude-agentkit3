@@ -19,15 +19,21 @@ deterministic 4xx exists — replay-after-failure), not merely op_id validation.
   (422), which is validated INSIDE the claimed mutation path (Codex r2 #3). Only
   an unexpected pre-commit **≥500** or a pre-outcome exception releases the claim.
 
-**The shared finalize/release window invariant** (Codex r2 #1/#2), centralized in
-`run_route_idempotent` (guard module) for the generic BC routes and mirrored by the
-control-plane runtime: the `claimed` placeholder is written BEFORE the mutation; a
-mutation exception BEFORE any committed side effect RELEASES the claim (a retry
-re-executes cleanly); a committed side effect followed by a crash before finalize
-leaves the `claimed` row (fail-closed in-flight on retry, AC3, never released); and
-a `finalize` CAS loss (the claim was taken over, e.g. an admin abort) NEVER returns
-the success response — the row is re-classified and a fail-closed replay/mismatch/
-conflict is returned.
+**The shared finalize/release window invariant** (Codex r2 #1/#2, r3 #1/#2),
+centralized in `run_route_idempotent` (guard module) for the generic BC routes,
+mirrored by the control-plane runtime, and — since r3 — applied uniformly in
+`story_context_manager` too (via the same `guard.classify` re-classification, in
+`_finalize_success`/`_reclassify_lost_claim`; the guard-counter's co-transactional
+unique-gate insert has no finalize boolean): the `claimed` placeholder is written
+BEFORE the mutation; a mutation exception BEFORE any committed side effect RELEASES
+the claim (a retry re-executes cleanly); a committed side effect followed by a
+crash before finalize leaves the `claimed` row (fail-closed in-flight on retry,
+AC3, never released); and a `finalize` CAS loss (the claim was taken over) NEVER
+returns the success response — the row is re-classified: a route-committed row
+(`status='committed'`) replays; a divergent body → `409 idempotency_mismatch`; an
+**admin-aborted / repair / failed** terminal (`status='aborted'` etc., a
+control-plane payload) → a stable `409 operation_conflict` (never a replay of that
+foreign result and never a corrupt-500).
 
 Wire strings: only `idempotency_mismatch` (409) is named verbatim in FK-91
 §91.1a. `missing_op_id`/`operation_in_flight` (and the per-BC `invalid_*_payload`
