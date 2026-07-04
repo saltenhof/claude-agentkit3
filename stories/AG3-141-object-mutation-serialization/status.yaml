@@ -1,8 +1,9 @@
 story_id: AG3-141
 title: "Objekt-Serialisierung: durable Story-Claims vor Dispatch, bounded Warte-Semantik (K4)"
 type: implementation
-status: in_progress
-phase: implementation
+status: completed
+phase: closure
+completed_at: "2026-07-04T13:44:47Z"
 created: "2026-07-02"
 size: L
 # Herkunft: GAP-ST-05 (gap-analyse-session-ownership.md v4, Codex-APPROVE).
