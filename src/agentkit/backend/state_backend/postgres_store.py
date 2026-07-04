@@ -3648,23 +3648,19 @@ def _enforce_ownership_fence_row(
         and int(active["ownership_epoch"]) == expected_ownership_epoch
     ):
         return
+    if active is None:
+        reason = "no active run-ownership record for this story"
+    elif str(active["run_id"]) != run_id:
+        reason = "active record belongs to a different run"
+    elif str(active["owner_session_id"]) != session_id:
+        reason = "active record's owner_session_id does not match the caller"
+    else:
+        reason = "active record's ownership_epoch has moved since admission"
     raise OwnershipFenceViolationError(
         f"ownership fence violated for run {run_id!r} "
         f"(project={project_key!r}, story={story_id!r}, session={session_id!r}, "
         f"expected_ownership_epoch={expected_ownership_epoch!r}): "
-        + (
-            "no active run-ownership record for this story"
-            if active is None
-            else (
-                "active record belongs to a different run"
-                if str(active["run_id"]) != run_id
-                else (
-                    "active record's owner_session_id does not match the caller"
-                    if str(active["owner_session_id"]) != session_id
-                    else "active record's ownership_epoch has moved since admission"
-                )
-            )
-        ),
+        + reason,
         detail={
             "current_owner_session_id": (
                 str(active["owner_session_id"]) if active is not None else None
