@@ -302,7 +302,7 @@ def test_classify_administrative_fields(field_key: str) -> None:
 @pytest.mark.parametrize(
     "field_key",
     [
-        # Story-Spec content (FK-59 §59.9a: Scope/Akzeptanzkriterien/Story-Text).
+        # Story-spec content (FK-59 §59.9a: scope / acceptance criteria / story text).
         "need",
         "solution",
         "acceptance",
@@ -310,7 +310,7 @@ def test_classify_administrative_fields(field_key: str) -> None:
         "concept_refs",
         "guardrail_refs",
         "external_sources",
-        # Story stammdaten fields NOT in the administrative allowlist.
+        # Story master-data fields NOT in the administrative allowlist.
         "type",
         "size",
         "mode",

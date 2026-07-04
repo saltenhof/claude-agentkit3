@@ -14,7 +14,7 @@ All translations are explicit and exhaustive; there is no generic
 string-passthrough. Unknown values raise ``StoryValidationError``.
 
 Also owns the Spec-Freeze field classification (AG3-143, FK-59 §59.9a):
-whether a PATCH wire field is fachlich tragend (frozen during an active
+whether a PATCH wire field is load-bearing (frozen during an active
 execution regime) or administrative (always mutable). Blood-type A (pure,
 technology-free classification; no I/O).
 """
@@ -289,10 +289,10 @@ def check_forbidden_fields(body: dict[str, object]) -> None:
 class StoryFieldSensitivity(StrEnum):
     """Whether a PATCH wire field is frozen during an active execution regime.
 
-    FK-59 §59.9a: fachlich tragende Story-Spec-Felder (Scope, Akzeptanz-
-    kriterien, Story-Text -- i.e. the ``StorySpecification`` content) are
+    FK-59 §59.9a: load-bearing story-spec fields (Scope, acceptance
+    criteria, story text -- i.e. the ``StorySpecification`` content) are
     frozen while the story has an active execution regime; administrative
-    metadata (Labels, Anzeigename, and comparable non-axis fields per §59.9)
+    metadata (labels, display name, and comparable non-axis fields per §59.9)
     stays free. Exactly two classes -- the concept draws no third "maybe".
     """
 
@@ -301,13 +301,13 @@ class StoryFieldSensitivity(StrEnum):
 
 
 #: FK-59 §59.9a + §59.9: the CLOSED allowlist of wire fields explicitly named
-#: as administrative / non-axis metadata: ``labels`` ("Labels", §59.9a),
-#: ``title`` ("Anzeigename", §59.9a -- the Story wire model's display name),
+#: as administrative / non-axis metadata: ``labels`` ("labels", §59.9a),
+#: ``title`` ("display name", §59.9a -- the Story wire model's display name),
 #: ``change_impact`` (explicitly listed non-axis, §59.9), ``module``
-#: ("Komponentenzuordnung", §59.9), ``repos`` ("Repo-Affinitaet", §59.9).
+#: ("component assignment", §59.9), ``repos`` ("repo affinity", §59.9).
 #: This is a typed ALLOWLIST, not a growing denylist (FIX THE MODEL): every
 #: field NOT in this set -- including ``story_type`` (itself an explicit
-#: persistent Vertragsachse, §59.3.1/§59.4.1), every ``StorySpecification``
+#: persistent contract axis, §59.3.1/§59.4.1), every ``StorySpecification``
 #: content field (``need``, ``solution``, ``acceptance``,
 #: ``definition_of_done``, ``concept_refs``, ``guardrail_refs``,
 #: ``external_sources``) and any unclassified/future field -- is

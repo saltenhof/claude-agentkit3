@@ -12,8 +12,8 @@ FK-44 §44.3a generalizes the existing run-prompt-pin (§44.3) into a broader
 execution contract: an active run works against a FROZEN business execution
 contract, whose digest is formed at setup from
 
-  (a) the story-spec version / fachlich tragende Spec-Felder (FK-59 §59.9a:
-      Scope, Akzeptanzkriterien, Story-Text);
+  (a) the story-spec version / load-bearing spec fields (FK-59 §59.9a:
+      Scope, acceptance criteria, story text);
   (b) the relevant project/QA/gate configuration;
   (c) the skill-, prompt- and capability-versions.
 
@@ -23,7 +23,7 @@ unchanged -- this module never reads or writes the pin file itself.
 
 Also carries the three effect classes for a contract-component change during
 an active run (SOLL-096) and the digest-as-fence-PREDICATE DEFINITION
-(SOLL-097, FK-91 §91.1a Regel 15). The predicate's USE in job-completion
+(SOLL-097, FK-91 §91.1a Rule 15). The predicate's USE in job-completion
 fencing (``stale_observation`` classification) is AG3-144 -- this module only
 DEFINES the predicate.
 """
@@ -46,11 +46,11 @@ _SHA256_HEX_LENGTH = 64
 
 
 class StorySpecComponent(BaseModel):
-    """The story's fachlich tragende Spec-Felder (FK-59 §59.9a).
+    """The story's load-bearing spec fields (FK-59 §59.9a).
 
     Mirrors ``story_context_manager.story_model.StorySpecification`` -- the
-    story-lifecycle BC's authoritative spec content (Scope / Akzeptanz-
-    kriterien / Story-Text as currently modelled: ``need``/``solution``
+    story-lifecycle BC's authoritative spec content (Scope / acceptance
+    criteria / story text as currently modelled: ``need``/``solution``
     carry the problem/solution narrative, ``acceptance`` the acceptance
     criteria, the remaining fields the scope-defining references). There is
     no separate persisted "spec version" counter in the domain model; the
@@ -134,6 +134,16 @@ def canonicalize_execution_contract(inputs: ExecutionContractInputs) -> str:
     bumps :data:`DIGEST_FORMAT_VERSION`, which changes the digest for every
     subsequent run rather than silently reinterpreting the existing format.
 
+    ``skill_versions`` is sorted by the TOTAL key ``(skill_name, bundle_id,
+    bundle_version)`` -- not merely ``skill_name`` (Codex r1 CRITICAL finding):
+    a single-field key is not a total order over the component multiset, so
+    two callers enumerating the SAME components in a different order could
+    produce different canonical JSON whenever ``skill_name`` repeats (e.g. two
+    bundle coordinates bound under the same skill name). This pure
+    canonicalizer is the contract boundary (FK-44 `authority_over`) and must
+    be self-sufficiently deterministic; it must never rely on an upstream
+    caller's de-duplication or ordering discipline to get a stable byte shape.
+
     Args:
         inputs: The fully-resolved digest inputs.
 
@@ -147,7 +157,10 @@ def canonicalize_execution_contract(inputs: ExecutionContractInputs) -> str:
         "project_config_digest": inputs.project_config_digest,
         "skill_versions": [
             component.model_dump(mode="json")
-            for component in sorted(inputs.skill_versions, key=lambda c: c.skill_name)
+            for component in sorted(
+                inputs.skill_versions,
+                key=lambda c: (c.skill_name, c.bundle_id, c.bundle_version),
+            )
         ],
         "capability_version": inputs.capability_version,
         "run_prompt_pin": inputs.run_prompt_pin.model_dump(mode="json"),
@@ -222,7 +235,7 @@ class ExecutionContractDigestRecord(BaseModel):
 
 
 class ExecutionContractEffectClass(StrEnum):
-    """The three admissible Wirkungsklassen for a contract-component change
+    """The three admissible effect classes for a contract-component change
     during an active execution regime (FK-44 §44.3a). Never a fourth, never
     a silent mid-run drift.
 
@@ -243,7 +256,7 @@ class ExecutionContractEffectClass(StrEnum):
     DELIBERATE_ADMINISTRATIVE_INTERVENTION = "deliberate_administrative_intervention"
 
 
-#: The default Wirkungsklasse for any contract-component change made during
+#: The default effect class for any contract-component change made during
 #: an active run, absent an explicit administrative decision otherwise
 #: (FK-44 §44.3a).
 DEFAULT_EXECUTION_CONTRACT_EFFECT_CLASS = (
@@ -252,7 +265,7 @@ DEFAULT_EXECUTION_CONTRACT_EFFECT_CLASS = (
 
 
 # ---------------------------------------------------------------------------
-# Digest-as-fence-PREDICATE definition (SOLL-097, FK-91 §91.1a Regel 15)
+# Digest-as-fence-PREDICATE definition (SOLL-097, FK-91 §91.1a Rule 15)
 # ---------------------------------------------------------------------------
 
 
@@ -270,7 +283,7 @@ def evaluate_execution_contract_fence(
 ) -> ExecutionContractFenceOutcome:
     """Compare a run's PERSISTED digest against a freshly formed current one.
 
-    Pure equality, no I/O, no lock (FK-44 §44.3a / FK-91 §91.1a Regel 15):
+    Pure equality, no I/O, no lock (FK-44 §44.3a / FK-91 §91.1a Rule 15):
     deterministic MATCH/MISMATCH for the same two digest strings, every
     time. A MISMATCH means the execution-contract basis diverged
     (administratively) after the run started. The USE of this predicate in

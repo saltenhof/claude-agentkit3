@@ -115,9 +115,10 @@ def test_changing_run_prompt_pin_changes_the_digest() -> None:
 
 
 def test_skill_version_order_does_not_change_the_digest() -> None:
-    """Skill-version ORDER is not fachlich meaningful -- the assembler sorts by
-    ``skill_name`` before canonicalizing, so two callers enumerating the same
-    bound skills in a different order still produce the identical digest.
+    """Skill-version ORDER is not semantically meaningful -- the assembler sorts
+    by ``(skill_name, bundle_id, bundle_version)`` before canonicalizing, so two
+    callers enumerating the same bound skills in a different order still
+    produce the identical digest.
     """
     a = SkillVersionComponent(skill_name="a-skill", bundle_id="core", bundle_version="1")
     b = SkillVersionComponent(skill_name="b-skill", bundle_id="core", bundle_version="1")
@@ -248,7 +249,7 @@ def test_default_effect_class_is_pinned_for_new_runs() -> None:
 
 
 # ---------------------------------------------------------------------------
-# SOLL-097 / FK-91 §91.1a Regel 15: digest-as-fence-PREDICATE definition
+# SOLL-097 / FK-91 §91.1a Rule 15: digest-as-fence-PREDICATE definition
 # ---------------------------------------------------------------------------
 
 

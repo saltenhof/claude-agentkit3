@@ -155,7 +155,9 @@ def _seed_story(tmp_path: Path, story_id: str) -> Path:
     return project_root
 
 
-def _seed_project_registration(project_root: Path, *, config_digest: str) -> None:
+def _seed_project_registration(
+    project_root: Path, *, config_digest: str, config_version: str = "1",
+) -> None:
     StateBackendProjectRegistrationRepository().save(
         ProjectRegistration(
             project_key=_PROJECT,
@@ -163,7 +165,7 @@ def _seed_project_registration(project_root: Path, *, config_digest: str) -> Non
             github_owner="acme",
             github_repo=_PROJECT,
             runtime_profile=RuntimeProfile.CORE,
-            config_version="1",
+            config_version=config_version,
             config_digest=config_digest,
             registered_at=_T0,
         ),
@@ -309,6 +311,60 @@ def test_setup_rejected_when_prompt_binding_unresolvable(
     assert load_execution_contract_digest_global(_PROJECT, story_id, run_id) is None
 
 
+def test_setup_rejected_when_project_config_digest_malformed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC2 (Codex r1 CRITICAL fix): a registered project whose ``config_digest``
+    is NOT a valid 64-char lowercase SHA-256 hex string is an unresolvable
+    'project/QA/gate configuration' component -- reject fail-closed instead
+    of hashing a malformed component into the digest.
+    """
+    story_id = "AG3-707"
+    run_id = "run-707"
+    project_root = _seed_story(tmp_path, story_id)
+    _seed_project_registration(project_root, config_digest="deadbeef")
+    _seed_prompt_binding(project_root, monkeypatch)
+    service = _real_digest_service(now=_T0, instance_id="inst-digest-ac2c")
+
+    result = service.start_phase(
+        run_id=run_id,
+        phase="setup",
+        request=_request(story_id=story_id, op_id="op-digest-7", session_id="sess-1"),
+    )
+
+    assert result.status == "rejected"
+    assert load_active_run_ownership_record_global(_PROJECT, story_id) is None
+    assert load_execution_contract_digest_global(_PROJECT, story_id, run_id) is None
+
+
+def test_setup_rejected_when_project_config_version_blank(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC2 (Codex r1 CRITICAL fix): a registered project whose ``config_version``
+    is blank is likewise an unresolvable component -- reject fail-closed.
+    """
+    story_id = "AG3-708"
+    run_id = "run-708"
+    project_root = _seed_story(tmp_path, story_id)
+    _seed_project_registration(
+        project_root, config_digest="c" * 64, config_version="   ",
+    )
+    _seed_prompt_binding(project_root, monkeypatch)
+    service = _real_digest_service(now=_T0, instance_id="inst-digest-ac2d")
+
+    result = service.start_phase(
+        run_id=run_id,
+        phase="setup",
+        request=_request(story_id=story_id, op_id="op-digest-8", session_id="sess-1"),
+    )
+
+    assert result.status == "rejected"
+    assert load_active_run_ownership_record_global(_PROJECT, story_id) is None
+    assert load_execution_contract_digest_global(_PROJECT, story_id, run_id) is None
+
+
 # ---------------------------------------------------------------------------
 # AC4: "pinned-for-new-runs" (default effect class) over two real runs
 # ---------------------------------------------------------------------------
@@ -322,7 +378,7 @@ def test_config_change_after_run_start_pins_the_running_run_new_run_diverges(
     story_b = "AG3-705"
     project_root = _seed_story(tmp_path, story_a)
     _seed_prompt_binding(project_root, monkeypatch)
-    _seed_project_registration(project_root, config_digest="config-v1" + "0" * 55)
+    _seed_project_registration(project_root, config_digest="1" * 64)
     service = _real_digest_service(now=_T0, instance_id="inst-digest-ac4")
 
     first = service.start_phase(
@@ -336,7 +392,7 @@ def test_config_change_after_run_start_pins_the_running_run_new_run_diverges(
 
     # An administrative config change lands AFTER the run started.
     StateBackendProjectRegistrationRepository().update_upgraded(
-        _PROJECT, upgraded_at=_T0, new_digest="config-v2" + "0" * 55,
+        _PROJECT, upgraded_at=_T0, new_digest="2" * 64,
     )
 
     # The RUNNING run's persisted digest is unchanged (pinned-for-new-runs).

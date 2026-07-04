@@ -124,6 +124,57 @@ def test_digest_format_version_is_pinned() -> None:
 
 
 # ---------------------------------------------------------------------------
+# CRITICAL fix (Codex r1): skill_versions total-order determinism
+# ---------------------------------------------------------------------------
+
+
+def test_skill_versions_reordering_is_digest_invariant_with_duplicate_skill_name() -> None:
+    """The canonicalizer sorts ``skill_versions`` by the TOTAL key
+    ``(skill_name, bundle_id, bundle_version)`` -- not merely ``skill_name``.
+
+    A single-field sort key is not a total order over the component
+    multiset: Python's stable sort preserves the CALLER's original relative
+    order for equal keys, so two callers passing the SAME multiset with
+    duplicate ``skill_name`` values in a different order could canonicalize
+    to different byte shapes (and therefore different digests) under a
+    skill_name-only sort. This pure canonicalizer is the digest's contract
+    boundary and must be self-sufficiently deterministic -- it must not rely
+    on an upstream caller's de-duplication or ordering discipline.
+    """
+    duplicate_name_a = SkillVersionComponent(
+        skill_name="same", bundle_id="a", bundle_version="1",
+    )
+    duplicate_name_b = SkillVersionComponent(
+        skill_name="same", bundle_id="b", bundle_version="1",
+    )
+
+    def _inputs(skill_versions: tuple[SkillVersionComponent, ...]) -> ExecutionContractInputs:
+        return ExecutionContractInputs(
+            story_spec=StorySpecComponent(need="n", solution="s", acceptance=()),
+            project_config_version="1",
+            project_config_digest="a" * 64,
+            skill_versions=skill_versions,
+            capability_version="0.1.0",
+            run_prompt_pin=RunPromptPinComponent(
+                prompt_bundle_id="core",
+                prompt_bundle_version="1",
+                prompt_manifest_sha256="f" * 64,
+            ),
+        )
+
+    ordered_ab = _inputs((duplicate_name_a, duplicate_name_b))
+    ordered_ba = _inputs((duplicate_name_b, duplicate_name_a))
+
+    canonical_ab = canonicalize_execution_contract(ordered_ab)
+    canonical_ba = canonicalize_execution_contract(ordered_ba)
+
+    assert canonical_ab == canonical_ba
+    assert compute_execution_contract_digest(ordered_ab) == compute_execution_contract_digest(
+        ordered_ba,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Component + persisted-record field sets (schema stability)
 # ---------------------------------------------------------------------------
 

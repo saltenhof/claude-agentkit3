@@ -730,7 +730,46 @@ def test_update_story_fields_load_bearing_field_without_active_regime_succeeds()
     assert updated.owner == "alice"
 
 
+def test_load_bearing_spec_field_patch_has_no_write_path_freeze_is_preemptive() -> None:
+    """Honesty check (Codex r1): unlike ``owner`` above (a real, dispatched
+    PATCH field), none of the ``StorySpecification`` content fields
+    (``need``/``solution``/``acceptance``/``definition_of_done``/
+    ``concept_refs``/``guardrail_refs``/``external_sources``) has a handler in
+    ``patch_handlers._apply_updates`` today -- naming one in a PATCH is a no-op
+    (silently ignored, REST PATCH semantics for an unknown field), even
+    OUTSIDE an active execution regime, i.e. with no freeze involved at all.
+
+    This proves the Spec-Freeze rejection exercised by
+    ``test_update_story_fields_load_bearing_field_with_active_regime_raises_409``
+    below is DELIBERATELY PREEMPTIVE, not evidence that an active-regime PATCH
+    would otherwise have mutated the persisted spec: the freeze classifies and
+    rejects these fields fail-closed BEFORE any write path for them exists, so
+    that the day one of them becomes PATCH-writable it is frozen from day
+    one -- never a silent gap between "field becomes writable" and "freeze
+    gate notices it" (FIX THE MODEL / FAIL-CLOSED).
+    """
+    stories = InMemoryStoryRepository()
+    svc = _make_service(stories=stories, execution_regime_reader=lambda _pk, _sid: None)
+    story = _create_story(svc, op_id="op-create")
+    before = stories.get_specification(story.story_uuid)
+    assert before is not None
+
+    updated = svc.update_story_fields(
+        story.story_display_id,
+        updates={"acceptance": ["AC1", "AC2"]},
+        op_id="op-patch-inert-spec-field",
+    )
+
+    after = stories.get_specification(story.story_uuid)
+    assert after == before, "acceptance PATCH must not silently mutate the spec"
+    assert updated.story_display_id == story.story_display_id
+
+
 def test_update_story_fields_load_bearing_field_with_active_regime_raises_409() -> None:
+    """Preemptive fail-closed rejection (see the inertness proof above): the
+    freeze fires regardless of whether ``acceptance`` has a live write path
+    today.
+    """
     svc = _make_service(execution_regime_reader=lambda _pk, _sid: object())
     story = _create_story(svc, op_id="op-create")
 

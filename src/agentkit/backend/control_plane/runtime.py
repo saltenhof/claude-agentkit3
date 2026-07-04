@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -169,6 +170,17 @@ class _StartPhaseOutcome:
     #: start (``mints_ownership_record=True``); ``None`` for every other
     #: commit (nothing to mint) and for a ``rejection`` outcome.
     execution_contract_digest: str | None = None
+
+
+#: AG3-143 (FK-44 §44.3a, AC2, Codex r1 CRITICAL fix): the shape a
+#: ``ProjectRegistration.config_digest`` must have to be admitted as a digest
+#: component -- a lowercase 64-char SHA-256 hex string, mirroring
+#: :data:`agentkit.backend.prompt_runtime.execution_contract._SHA256_HEX_LENGTH`'s
+#: validation. A blank or malformed ``config_digest``/``config_version`` must
+#: never be silently hashed into the execution-contract digest as a partial
+#: component -- it fails the fresh setup start closed instead (see
+#: :meth:`ControlPlaneRuntimeService._build_execution_contract_digest`).
+_PROJECT_CONFIG_DIGEST_HEX_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True)
@@ -1207,7 +1219,7 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         """Resolve + form the execution_contract_digest for a fresh setup (AG3-143).
 
         FK-44 §44.3a (SOLL-095): gathers the digest's raw inputs -- the
-        story's ``StorySpecification`` (the fachlich tragende Spec-Felder,
+        story's ``StorySpecification`` (the load-bearing spec fields,
         FK-59 §59.9a), the project's registered config version/digest (the
         relevant project/QA/gate configuration; SINGLE SOURCE OF TRUTH, never
         a second ``project.yaml`` canonicalization), the project's bound
@@ -1259,6 +1271,28 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
                     f"project_registry entry for project_key={request.project_key!r} "
                     "(fail-closed, FK-44 §44.3a component 'project/QA/gate "
                     "configuration')."
+                ),
+            )
+        #: Codex r1 CRITICAL fix (AC2): a registered project with a blank
+        #: ``config_version`` or a malformed ``config_digest`` is an
+        #: UNRESOLVABLE 'project/QA/gate configuration' component -- reject
+        #: fail-closed here, the SAME way as the "no registration" branch
+        #: above, instead of hashing a partial/invalid component into the
+        #: digest. ``ProjectRegistration`` has no field-level validator for
+        #: these (installer/upgrade tests seed non-hex placeholder digests
+        #: that a model-level validator would break); this is the digest's
+        #: own admission gate for the shape it actually depends on.
+        if not registration.config_version.strip() or not (
+            _PROJECT_CONFIG_DIGEST_HEX_PATTERN.fullmatch(registration.config_digest)
+        ):
+            return _ExecutionContractDigestOutcome(
+                digest=None,
+                rejection_reason=(
+                    "execution_contract_digest could not be formed: "
+                    f"project_key={request.project_key!r} has a blank "
+                    "config_version or a config_digest that is not a 64-char "
+                    "lowercase SHA-256 hex string (fail-closed, FK-44 §44.3a "
+                    "component 'project/QA/gate configuration')."
                 ),
             )
 

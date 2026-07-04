@@ -100,8 +100,8 @@ class SpecFrozenDuringActiveRunError(StoryError):
     execution regime (AG3-143, FK-59 §59.9a, FK-44 §44.3a).
 
     While a story has an active execution regime (an active
-    ``RunOwnershipRecord``, AG3-137/AG3-142), its fachlich tragende
-    Story-Spec-Felder (Scope, Akzeptanzkriterien, Story-Text —
+    ``RunOwnershipRecord``, AG3-137/AG3-142), its load-bearing story-spec
+    fields (Scope, acceptance criteria, story text —
     ``StoryFieldSensitivity.LOAD_BEARING`` per ``wire_adapter``) are frozen: a
     change must run as an explicit, audited administrative intervention
     against the run owner or a run invalidation (FK-56 §56.13), never as

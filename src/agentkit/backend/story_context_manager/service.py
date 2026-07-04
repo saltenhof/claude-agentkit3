@@ -693,6 +693,19 @@ class StoryService(ResetTransitionMixin):
         divergent "is a run active" source of truth. Outside an active regime
         this is a no-op (create/approve/field-care stay unchanged, AC6).
 
+        DELIBERATELY PREEMPTIVE (Codex r1 honesty finding): as of AG3-143,
+        ``patch_handlers._apply_updates`` has NO write handler for any
+        ``StorySpecification`` content field (``need``/``solution``/
+        ``acceptance``/``definition_of_done``/``concept_refs``/
+        ``guardrail_refs``/``external_sources``) -- naming one in a PATCH is
+        today a no-op regardless of regime state (see
+        ``test_load_bearing_spec_field_patch_has_no_write_path_freeze_is_preemptive``).
+        This gate still classifies and rejects them fail-closed during an
+        active regime so that the day one of these fields becomes
+        PATCH-writable it is frozen from day one -- never a silent fail-open
+        gap between "field becomes writable" and "freeze gate notices it"
+        (FIX THE MODEL / FAIL-CLOSED, AC7).
+
         Args:
             story: The current (pre-mutation) Story.
             updates: The wire field updates about to be applied.

@@ -62,6 +62,17 @@ def _apply_updates(
     Unknown fields are silently ignored per REST PATCH semantics; fields
     in ``FORBIDDEN_PATCH_FIELDS`` raise :class:`ForbiddenFieldError`.
 
+    AG3-143 (FK-59 §59.9a) note: none of the ``StorySpecification`` content
+    fields (``need``, ``solution``, ``acceptance``, ``definition_of_done``,
+    ``concept_refs``, ``guardrail_refs``, ``external_sources``) has a handler
+    in ``_PATCH_HANDLERS`` today -- naming one here is a silent no-op (the
+    "unknown field" branch below), independent of any execution-regime state.
+    ``StoryService._reject_if_spec_frozen`` still classifies and rejects these
+    fields fail-closed during an active execution regime BEFORE this dispatch
+    ever runs; that rejection is deliberately preemptive (protects a field
+    that has no live write path yet) rather than proof that a write would
+    otherwise have happened.
+
     Args:
         story: Current Story instance (mutated in place).
         updates: Wire field name -> new value.
