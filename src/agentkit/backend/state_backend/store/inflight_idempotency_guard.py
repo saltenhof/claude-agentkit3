@@ -40,9 +40,12 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from agentkit.backend.state_backend.store import facade
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # ---------------------------------------------------------------------------
 # Body-hash computation (canonical, op_id-excluded)
@@ -173,6 +176,17 @@ class InflightIdempotencyGuard(Protocol):
         """
         ...
 
+    def classify(self, request: IdempotencyRequest) -> ClaimOutcome:
+        """Classify the EXISTING row for ``op_id`` WITHOUT attempting a claim.
+
+        Loads the current row and returns the same loser classification as a
+        claim-loser (:class:`ReplayOutcome` / :class:`MismatchOutcome` /
+        :class:`InFlightOutcome`). Used on a ``finalize`` CAS loss to decide the
+        fail-closed outcome (the caller must NOT return its success response when
+        the claim was lost/taken-over). Never returns :class:`FreshClaim`.
+        """
+        ...
+
 
 # ---------------------------------------------------------------------------
 # Production implementation (state-backend facade)
@@ -295,6 +309,10 @@ class StateBackendInflightIdempotencyGuard:
             owner_claimed_at=claim.claimed_at_iso,
         )
 
+    def classify(self, request: IdempotencyRequest) -> ClaimOutcome:
+        """See :meth:`InflightIdempotencyGuard.classify`."""
+        return self._resolve_loser(request)
+
 
 # ---------------------------------------------------------------------------
 # In-memory implementation (first-class unit-test impl -- NOT a mock)
@@ -374,6 +392,154 @@ class InMemoryInflightIdempotencyGuard:
         ):
             del self._rows[request.op_id]
 
+    def classify(self, request: IdempotencyRequest) -> ClaimOutcome:
+        """See :meth:`InflightIdempotencyGuard.classify`."""
+        existing = self._rows.get(request.op_id)
+        if existing is None:
+            return InFlightOutcome(op_id=request.op_id)
+        if existing.status == _CLAIM_STATUS:
+            return InFlightOutcome(op_id=request.op_id)
+        if existing.body_hash != request.body_hash:
+            return MismatchOutcome(op_id=request.op_id)
+        return ReplayOutcome(result_payload=dict(existing.result_payload))
+
+
+# ---------------------------------------------------------------------------
+# Shared route window-logic (FK-91 §91.1a Regel 5; the claim/mutate/finalize
+# invariant, centralized so every BC HTTP wrapper enforces it identically).
+# ---------------------------------------------------------------------------
+
+
+class _RouteResponseLike(Protocol):
+    """A BC HTTP route response: an int status code + a JSON body (bytes)."""
+
+    @property
+    def status_code(self) -> int: ...
+
+    @property
+    def body(self) -> bytes: ...
+
+
+_SERVER_ERROR = 500
+
+
+def _idempotency_mismatch_message(op_id: str) -> str:
+    return (
+        f"op_id {op_id!r} was previously used with a different request body; "
+        "use a new op_id for a different mutation"
+    )
+
+
+def _operation_in_flight_message(op_id: str) -> str:
+    return (
+        f"op_id {op_id!r} is already in flight; retry after the concurrent "
+        "operation settles"
+    )
+
+
+def _route_loser_response[R: _RouteResponseLike](
+    outcome: ClaimOutcome,
+    request: IdempotencyRequest,
+    *,
+    replay: Callable[[dict[str, object]], R],
+    conflict: Callable[[str, str, dict[str, object]], R],
+) -> R | None:
+    """Map a non-winning claim outcome to a fail-closed route response (else None)."""
+    if isinstance(outcome, ReplayOutcome):
+        return replay(outcome.result_payload)
+    if isinstance(outcome, MismatchOutcome):
+        return conflict(
+            "idempotency_mismatch",
+            _idempotency_mismatch_message(outcome.op_id),
+            {"op_id": outcome.op_id, "conflict": "body_hash_mismatch"},
+        )
+    if isinstance(outcome, InFlightOutcome):
+        return conflict(
+            "operation_in_flight",
+            _operation_in_flight_message(outcome.op_id),
+            {"op_id": outcome.op_id},
+        )
+    return None  # FreshClaim -> this caller must run the mutation
+
+
+def run_route_idempotent[R: _RouteResponseLike](
+    guard: InflightIdempotencyGuard,
+    request: IdempotencyRequest,
+    *,
+    mutate: Callable[[], R],
+    replay: Callable[[dict[str, object]], R],
+    conflict: Callable[[str, str, dict[str, object]], R],
+) -> R:
+    """Run one mutating HTTP route under the unified idempotency contract.
+
+    The single, centralized window invariant (FK-91 §91.1a Regel 5) every BC
+    wrapper shares:
+
+    * The ``claimed`` placeholder is written by ``claim`` BEFORE ``mutate``.
+    * A loser (replay / mismatch / in-flight) short-circuits before mutating.
+    * If ``mutate`` RAISES, the durable side effect is atomic-and-last, so the
+      raise means NO committed side effect: the owner-scoped claim is RELEASED
+      and the exception re-raised (a retry re-executes cleanly). A post-commit
+      failure is a PROCESS crash, not a catchable exception here, and leaves the
+      ``claimed`` row -> fail-closed in-flight on retry (AC3), never released.
+    * A ``>= 500`` route response (the BC mapped an unexpected fault to 500) also
+      releases the claim (pre-commit, retry-able).
+    * If ``finalize`` returns ``False`` the claim was lost/taken-over (e.g. an
+      admin abort) between claim and finalize: the mutation is NOT durably
+      recorded under this op_id, so the SUCCESS response is NOT returned;
+      ``classify`` re-reads the row and the fail-closed outcome is returned.
+
+    Args:
+        guard: The idempotency guard.
+        request: The idempotency request (op_id + scope + body-hash).
+        mutate: Runs the mutation; returns the BC route response.
+        replay: Builds a replay response from a stored result payload (the BC
+            validates ``{status_code, body}`` and fails closed on a malformed
+            record).
+        conflict: Builds a ``409`` response from ``(error_code, message, detail)``.
+
+    Returns:
+        The BC route response (the mutation's, a replay, or a fail-closed 409).
+    """
+    outcome = guard.claim(request)
+    loser = _route_loser_response(outcome, request, replay=replay, conflict=conflict)
+    if loser is not None:
+        return loser
+    if not isinstance(outcome, FreshClaim):  # pragma: no cover - exhaustive union
+        raise TypeError(f"unexpected claim outcome: {outcome!r}")
+    claim = outcome
+    try:
+        response = mutate()
+    except Exception:
+        # Pre-outcome exception (durable write is atomic-and-last -> nothing
+        # committed): release the claim so a retry re-executes cleanly.
+        guard.release(request, claim)
+        raise
+    if response.status_code >= _SERVER_ERROR:
+        guard.release(request, claim)
+        return response
+    finalized = guard.finalize(
+        request,
+        claim,
+        {"status_code": response.status_code, "body": json.loads(response.body)},
+    )
+    if not finalized:
+        # The claim was lost/taken-over between claim and finalize: do NOT return
+        # the success response. Classify the existing row and return the
+        # fail-closed outcome (a concurrent identical finalize -> replay; a
+        # divergent body -> mismatch; otherwise an in-flight/lost conflict).
+        lost = _route_loser_response(
+            guard.classify(request), request, replay=replay, conflict=conflict
+        )
+        if lost is not None:
+            return lost
+        return conflict(
+            "operation_in_flight",
+            _operation_in_flight_message(request.op_id),
+            {"op_id": request.op_id},
+        )
+    return response
+
 
 __all__ = [
     "ClaimOutcome",
@@ -386,4 +552,5 @@ __all__ = [
     "ReplayOutcome",
     "StateBackendInflightIdempotencyGuard",
     "compute_body_hash",
+    "run_route_idempotent",
 ]

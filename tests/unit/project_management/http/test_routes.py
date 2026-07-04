@@ -986,3 +986,73 @@ class TestPatchConfigurationIdempotency:
         )
         assert resp.status_code == HTTPStatus.CONFLICT
         assert _json_body(resp.body)["error_code"] == "operation_in_flight"
+
+
+# ---------------------------------------------------------------------------
+# AG3-140 Codex r2: the finalize-CAS-loss (#1) and pre-outcome-exception (#2)
+# window invariants, proven at the ROUTE level.
+# ---------------------------------------------------------------------------
+
+
+class _FinalizeAlwaysFalseGuard(InMemoryInflightIdempotencyGuard):
+    """A guard whose finalize CAS always loses (models an admin-abort takeover)."""
+
+    def finalize(self, request, claim, result_payload) -> bool:  # type: ignore[override]
+        return False
+
+
+class _RaiseOnceSaveRepo(_InMemoryProjectRepository):
+    """A repo whose FIRST ``save`` raises a transient infra error (pre-commit)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._raised = False
+
+    def save(self, project: Project) -> None:
+        if not self._raised:
+            self._raised = True
+            raise RuntimeError("transient database error before commit")
+        super().save(project)
+
+
+class TestCreateWindowInvariants:
+    def test_create_finalize_lost_does_not_return_success(self) -> None:
+        """Codex r2 #1: a finalize CAS loss must NOT surface a 201 committed."""
+        repository = _InMemoryProjectRepository()
+        app = _app_with_guard(repository, _FinalizeAlwaysFalseGuard())
+        with patch.object(repository, "save", wraps=repository.save) as save_spy:
+            resp = _request(
+                app,
+                method="POST",
+                path="/v1/projects",
+                payload=_create_payload(op_id="op-finalize-lost"),
+            )
+        assert save_spy.call_count == 1  # the mutation ran
+        # ... but the record does NOT hold our result (claim lost) -> fail-closed
+        # 409, never a 201 committed success.
+        assert resp.status_code != HTTPStatus.CREATED
+        assert resp.status_code == HTTPStatus.CONFLICT
+
+    def test_create_pre_outcome_exception_releases_claim_and_retry_succeeds(self) -> None:
+        """Codex r2 #2: a pre-outcome exception releases the claim; a retry re-runs."""
+        guard = InMemoryInflightIdempotencyGuard()
+        routes = ProjectManagementRoutes(
+            repository=_RaiseOnceSaveRepo(),
+            repos_in_use_checker=_no_repos_in_use,
+            idempotency_guard=guard,
+        )
+        payload = _create_payload(op_id="op-pre-outcome-boom")
+
+        # First attempt: the durable save raises before commit -> the owner-scoped
+        # claim is RELEASED and the exception propagates (transport-level fault).
+        try:
+            routes._handle_create(payload, _IDEM_CORR)  # noqa: SLF001
+        except RuntimeError:
+            pass
+        else:  # pragma: no cover
+            raise AssertionError("expected the transient save exception to propagate")
+
+        # Retry with the SAME op_id: the released claim is re-claimable, so the
+        # mutation re-executes and succeeds -- NOT stuck operation_in_flight.
+        retry = routes._handle_create(payload, _IDEM_CORR)  # noqa: SLF001
+        assert retry.status_code == HTTPStatus.CREATED

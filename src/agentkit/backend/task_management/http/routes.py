@@ -32,7 +32,6 @@ Requests with any other value are rejected with 422 (Pydantic validation).
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from dataclasses import dataclass
@@ -52,11 +51,9 @@ from agentkit.backend.control_plane.models import (
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     IdempotencyRequest,
     InflightIdempotencyGuard,
-    InFlightOutcome,
-    MismatchOutcome,
-    ReplayOutcome,
     StateBackendInflightIdempotencyGuard,
     compute_body_hash,
+    run_route_idempotent,
 )
 from agentkit.backend.task_management.errors import (
     InvalidTaskLinkTargetError,
@@ -454,54 +451,24 @@ class TaskManagementRoutes:
     ) -> BcRouteResponse:
         """Run one mutation under the unified idempotency contract.
 
-        claim -> mutate -> finalize/release:
-          * ``ReplayOutcome`` -> rebuild and return the stored response.
-          * ``MismatchOutcome`` -> ``409 idempotency_mismatch``.
-          * ``InFlightOutcome`` -> ``409 operation_in_flight``.
-          * ``FreshClaim`` -> run ``mutate``; a deterministic business outcome
-            (2xx or domain 4xx) is finalized so a replay returns it verbatim; a
-            truly unexpected ``500`` releases the claim so a retry may re-run.
+        Delegates the claim -> mutate -> finalize/release window invariant to the
+        shared :func:`run_route_idempotent` (including the finalize-CAS-loss and
+        pre-outcome-exception-release handling); this wrapper only supplies the
+        BC's replay/conflict response builders.
         """
-        guard = self._guard()
-        outcome = guard.claim(request)
-        if isinstance(outcome, ReplayOutcome):
-            return self._replay_response(outcome.result_payload, correlation_id)
-        if isinstance(outcome, MismatchOutcome):
-            return bc_error_response(
-                HTTPStatus.CONFLICT,
-                error_code="idempotency_mismatch",
-                message=(
-                    f"op_id {outcome.op_id!r} was previously used with a different "
-                    "request body; use a new op_id for a different mutation"
-                ),
-                correlation_id=correlation_id,
-                detail={"op_id": outcome.op_id, "conflict": "body_hash_mismatch"},
-            )
-        if isinstance(outcome, InFlightOutcome):
-            return bc_error_response(
-                HTTPStatus.CONFLICT,
-                error_code="operation_in_flight",
-                message=(
-                    f"op_id {outcome.op_id!r} is already in flight; retry after the "
-                    "concurrent operation settles"
-                ),
-                correlation_id=correlation_id,
-                detail={"op_id": outcome.op_id},
-            )
-        # FreshClaim — this caller won and must run the mutation.
-        response = mutate()
-        if response.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
-            # Unexpected/infrastructure failure — release so a retry may re-run.
-            guard.release(request, outcome)
-            return response
-        # Deterministic business outcome (2xx or domain 4xx) — record it so a
-        # replay of the same op_id returns the identical stored response.
-        guard.finalize(
+        return run_route_idempotent(
+            self._guard(),
             request,
-            outcome,
-            {"status_code": response.status_code, "body": json.loads(response.body)},
+            mutate=mutate,
+            replay=lambda payload: self._replay_response(payload, correlation_id),
+            conflict=lambda error_code, message, detail: bc_error_response(
+                HTTPStatus.CONFLICT,
+                error_code=error_code,
+                message=message,
+                correlation_id=correlation_id,
+                detail=detail,
+            ),
         )
-        return response
 
     def _replay_response(
         self,

@@ -35,11 +35,9 @@ from agentkit.backend.execution_planning.scheduling import (
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     IdempotencyRequest,
     InflightIdempotencyGuard,
-    InFlightOutcome,
-    MismatchOutcome,
-    ReplayOutcome,
     StateBackendInflightIdempotencyGuard,
     compute_body_hash,
+    run_route_idempotent,
 )
 
 if TYPE_CHECKING:
@@ -197,42 +195,19 @@ class ExecutionPlanningRoutes:
         returns it verbatim (AC8); only an unexpected ``>= 500`` failure releases
         the claim so a retry may re-run.
         """
-        guard = self._guard()
-        outcome = guard.claim(request)
-        if isinstance(outcome, ReplayOutcome):
-            return self._replay_response(outcome.result_payload, correlation_id)
-        if isinstance(outcome, MismatchOutcome):
-            return _error_response(
-                HTTPStatus.CONFLICT,
-                error_code="idempotency_mismatch",
-                message=(
-                    f"op_id {outcome.op_id!r} was previously used with a different "
-                    "request body; use a new op_id for a different mutation"
-                ),
-                correlation_id=correlation_id,
-                detail={"op_id": outcome.op_id, "conflict": "body_hash_mismatch"},
-            )
-        if isinstance(outcome, InFlightOutcome):
-            return _error_response(
-                HTTPStatus.CONFLICT,
-                error_code="operation_in_flight",
-                message=(
-                    f"op_id {outcome.op_id!r} is already in flight; retry after "
-                    "the concurrent operation settles"
-                ),
-                correlation_id=correlation_id,
-                detail={"op_id": outcome.op_id},
-            )
-        response = mutate()
-        if response.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
-            guard.release(request, outcome)
-            return response
-        guard.finalize(
+        return run_route_idempotent(
+            self._guard(),
             request,
-            outcome,
-            {"status_code": response.status_code, "body": json.loads(response.body)},
+            mutate=mutate,
+            replay=lambda payload: self._replay_response(payload, correlation_id),
+            conflict=lambda error_code, message, detail: _error_response(
+                HTTPStatus.CONFLICT,
+                error_code=error_code,
+                message=message,
+                correlation_id=correlation_id,
+                detail=detail,
+            ),
         )
-        return response
 
     def _replay_response(
         self,

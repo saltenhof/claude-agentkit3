@@ -131,3 +131,127 @@ def test_project_scoped_claim_carries_no_story_id() -> None:
     req = _req("op-7", {"title": "T"}, story_id=None)
     assert req.story_id is None
     assert isinstance(guard.claim(req), FreshClaim)
+
+
+# ---------------------------------------------------------------------------
+# Shared window-logic (run_route_idempotent) — the centralized claim/mutate/
+# finalize invariant (Codex r2 Part-B #1 finalize-CAS-loss, #2 pre-outcome
+# release). A tiny response value object stands in for a BC route response.
+# ---------------------------------------------------------------------------
+import json  # noqa: E402
+from dataclasses import dataclass  # noqa: E402
+
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (  # noqa: E402
+    run_route_idempotent,
+)
+
+
+@dataclass(frozen=True)
+class _Resp:
+    status_code: int
+    body: bytes
+
+
+def _ok(status_code: int, body: dict[str, object]) -> _Resp:
+    return _Resp(status_code, json.dumps(body, sort_keys=True).encode("utf-8"))
+
+
+def _replay(payload: dict[str, object]) -> _Resp:
+    sc = payload.get("status_code")
+    body = payload.get("body")
+    assert isinstance(sc, int) and isinstance(body, dict)
+    return _Resp(sc, json.dumps(body, sort_keys=True).encode("utf-8"))
+
+
+def _conflict(error_code: str, message: str, detail: dict[str, object]) -> _Resp:
+    return _Resp(
+        409, json.dumps({"error_code": error_code, "detail": detail}, sort_keys=True).encode()
+    )
+
+
+def _run(guard, req, mutate) -> _Resp:
+    return run_route_idempotent(guard, req, mutate=mutate, replay=_replay, conflict=_conflict)
+
+
+class _FinalizeAlwaysFalseGuard(InMemoryInflightIdempotencyGuard):
+    """A guard whose finalize CAS always loses (models an admin-abort takeover)."""
+
+    def finalize(self, request, claim, result_payload) -> bool:  # type: ignore[override]
+        return False
+
+
+def test_run_route_idempotent_success_then_replay_returns_stored_result() -> None:
+    guard = InMemoryInflightIdempotencyGuard()
+    req = _req("op-w1", {"a": 1})
+    first = _run(guard, req, lambda: _ok(201, {"created": True}))
+    second = _run(guard, req, lambda: _ok(201, {"created": "SHOULD-NOT-RUN"}))
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.body == second.body  # replay returns the STORED result verbatim
+
+
+def test_run_route_idempotent_finalize_false_does_not_return_success() -> None:
+    """Codex r2 #1: a finalize CAS loss must NOT surface the success response."""
+    guard = _FinalizeAlwaysFalseGuard()
+    req = _req("op-ff", {"a": 1})
+    ran: list[int] = []
+
+    def mutate() -> _Resp:
+        ran.append(1)
+        return _ok(201, {"created": True})
+
+    resp = _run(guard, req, mutate)
+    assert ran == [1]  # the mutation ran once
+    # finalize lost -> the row stayed 'claimed' -> classify returns in-flight ->
+    # a fail-closed 409, NEVER a 201/committed success.
+    assert resp.status_code == 409
+    assert resp.status_code != 201
+
+
+def test_run_route_idempotent_pre_outcome_exception_releases_claim_and_retry_succeeds() -> None:
+    """Codex r2 #2: a pre-outcome exception releases the claim; a retry re-runs."""
+    guard = InMemoryInflightIdempotencyGuard()
+    req = _req("op-boom", {"a": 1})
+
+    def boom() -> _Resp:
+        raise RuntimeError("transient infrastructure error before any side effect")
+
+    try:
+        _run(guard, req, boom)
+    except RuntimeError:
+        pass
+    else:  # pragma: no cover
+        raise AssertionError("expected the transient exception to propagate")
+
+    # The claim was released (not stuck operation_in_flight): a retry re-executes
+    # cleanly and succeeds.
+    retry = _run(guard, req, lambda: _ok(201, {"created": True}))
+    assert retry.status_code == 201
+
+
+def test_run_route_idempotent_server_error_response_releases_claim() -> None:
+    """A >=500 route response is pre-commit; the claim is released for a retry."""
+    guard = InMemoryInflightIdempotencyGuard()
+    req = _req("op-500", {"a": 1})
+    first = _run(guard, req, lambda: _ok(500, {"error_code": "internal_error"}))
+    assert first.status_code == 500
+    retry = _run(guard, req, lambda: _ok(201, {"created": True}))
+    assert retry.status_code == 201  # released -> retry re-runs
+
+
+def test_run_route_idempotent_post_commit_crash_stays_in_flight() -> None:
+    """AC3: a claim + committed mutation with NO finalize (crash) stays in-flight.
+
+    Modelled directly against the guard: after a winning claim and a 'committed'
+    side effect, if finalize never runs (a process crash between mutate and
+    finalize), the row stays 'claimed' and a retry is rejected in-flight (never
+    re-executes). run_route_idempotent always calls finalize, so the crash is
+    simulated at the guard boundary.
+    """
+    guard = InMemoryInflightIdempotencyGuard()
+    req = _req("op-crash", {"a": 1})
+    claim = guard.claim(req)
+    assert isinstance(claim, FreshClaim)
+    # <-- mutation "commits" here; process crashes before finalize (no finalize call)
+    retry = guard.claim(req)
+    assert isinstance(retry, InFlightOutcome)
