@@ -15,6 +15,7 @@ import pytest
 from agentkit.backend.control_plane.records import (
     BackendInstanceIdentityRecord,
     ControlPlaneOperationRecord,
+    ObjectMutationClaimRecord,
 )
 from agentkit.backend.control_plane.startup_reconcile import (
     StartupReconciliationError,
@@ -127,6 +128,64 @@ class _FakeReconcileRepo:
         return write_at is not None and write_at >= since
 
 
+@dataclass
+class _FakeObjectClaimRepo:
+    """In-memory object-mutation-claim port (AG3-141 Scope item 7).
+
+    A DIRECT, identity-fenced scan of the claim table itself -- independent of
+    whatever happened to the claim's paired ``control_plane_operations`` row
+    (a crashed single-transaction complete/fail/closure mutation holds a
+    durable object claim yet leaves NO ``claimed`` operation row at all, so an
+    operation-keyed cascade would never reach it).
+    """
+
+    claims: dict[tuple[str, str, str], ObjectMutationClaimRecord] = field(
+        default_factory=dict
+    )
+    released: list[tuple[str, str, str, str]] = field(default_factory=list)
+
+    def seed(self, claim: ObjectMutationClaimRecord) -> None:
+        self.claims[
+            (claim.project_key, claim.serialization_scope, claim.scope_key)
+        ] = claim
+
+    def list_orphaned(
+        self, backend_instance_id: str, before_incarnation: int
+    ) -> tuple[ObjectMutationClaimRecord, ...]:
+        return tuple(
+            claim
+            for claim in self.claims.values()
+            if claim.backend_instance_id == backend_instance_id
+            and claim.instance_incarnation < before_incarnation
+        )
+
+    def release_claim(
+        self, project_key: str, serialization_scope: str, scope_key: str, op_id: str
+    ) -> bool:
+        self.released.append((project_key, serialization_scope, scope_key, op_id))
+        self.claims.pop((project_key, serialization_scope, scope_key), None)
+        return True
+
+
+def _object_claim(
+    *,
+    op_id: str,
+    backend_instance_id: str,
+    incarnation: int,
+    story_id: str = "AG3-300",
+) -> ObjectMutationClaimRecord:
+    return ObjectMutationClaimRecord(
+        project_key="tenant-a",
+        serialization_scope="story",
+        scope_key=story_id,
+        op_id=op_id,
+        backend_instance_id=backend_instance_id,
+        instance_incarnation=incarnation,
+        acquired_at=_CLAIMED_AT,
+        queue_position=0,
+    )
+
+
 def test_only_own_earlier_incarnation_claims_finalized_foreign_untouched() -> None:
     """AC1/AC2: own earlier-incarnation orphans -> failed; foreign untouched."""
     repo = _FakeReconcileRepo()
@@ -143,9 +202,30 @@ def test_only_own_earlier_incarnation_claims_finalized_foreign_untouched() -> No
         op_id="op-current", backend_instance_id="inst-me", incarnation=3
     )
 
+    object_claim_repo = _FakeObjectClaimRepo()
+    object_claim_repo.seed(
+        _object_claim(op_id="op-own", backend_instance_id="inst-me", incarnation=2)
+    )
+    object_claim_repo.seed(
+        _object_claim(
+            op_id="op-foreign",
+            backend_instance_id="inst-other",
+            incarnation=1,
+            story_id="AG3-301",
+        )
+    )
+    object_claim_repo.seed(
+        _object_claim(
+            op_id="op-current",
+            backend_instance_id="inst-me",
+            incarnation=3,
+            story_id="AG3-302",
+        )
+    )
     outcome = run_startup_reconciliation(
         repo,  # type: ignore[arg-type]
         _identity("inst-me", 3),
+        object_claim_repo=object_claim_repo,  # type: ignore[arg-type]
         now_fn=lambda: _NOW,
     )
 
@@ -154,6 +234,10 @@ def test_only_own_earlier_incarnation_claims_finalized_foreign_untouched() -> No
     assert repo.operations["op-own"].status == "failed"
     assert repo.operations["op-foreign"].status == "claimed"
     assert repo.operations["op-current"].status == "claimed"
+    #: Scope item 7: the DIRECT object-claim scan releases only the caller's
+    #: own earlier-incarnation orphan -- the foreign identity and the
+    #: own-but-current-incarnation claim are left untouched.
+    assert object_claim_repo.released == [("tenant-a", "story", "AG3-300", "op-own")]
 
 
 def test_orphan_with_engine_writes_goes_to_repair_not_failed() -> None:
@@ -165,9 +249,14 @@ def test_orphan_with_engine_writes_goes_to_repair_not_failed() -> None:
     #: An engine write persisted AT the claim's own claimed_at (>= since) -> detected.
     repo.engine_writes["AG3-300"] = _CLAIMED_AT
 
+    object_claim_repo = _FakeObjectClaimRepo()
+    object_claim_repo.seed(
+        _object_claim(op_id="op-partial", backend_instance_id="inst-me", incarnation=1)
+    )
     outcome = run_startup_reconciliation(
         repo,  # type: ignore[arg-type]
         _identity("inst-me", 2),
+        object_claim_repo=object_claim_repo,  # type: ignore[arg-type]
         now_fn=lambda: _NOW,
     )
 
@@ -176,6 +265,41 @@ def test_orphan_with_engine_writes_goes_to_repair_not_failed() -> None:
     result = repo.operations["op-partial"]
     assert result.status == "repair"
     assert "reconcile/repair state" in str(result.response_payload["admin_note"])
+    #: A repair-routed orphan's object claim is released too (Scope item 7) --
+    #: repair mutation-locks NEW mutations at the operations layer, not via a
+    #: held object claim.
+    assert object_claim_repo.released == [("tenant-a", "story", "AG3-300", "op-partial")]
+
+
+def test_object_claim_with_no_paired_operation_row_is_still_reconciled() -> None:
+    """Scope item 7 crux: a crashed single-transaction mutation (complete/fail/
+    closure) holds a durable object claim but leaves NO ``control_plane_operations``
+    row at all (it commits atomically, or crashes before it does) -- an
+    operation-keyed cascade could never find it. The DIRECT claim-table scan
+    reconciles it anyway.
+    """
+    repo = _FakeReconcileRepo()  # no operations seeded at all
+    object_claim_repo = _FakeObjectClaimRepo()
+    object_claim_repo.seed(
+        _object_claim(
+            op_id="op-orphan-claim-only",
+            backend_instance_id="inst-me",
+            incarnation=1,
+            story_id="AG3-400",
+        )
+    )
+
+    outcome = run_startup_reconciliation(
+        repo,  # type: ignore[arg-type]
+        _identity("inst-me", 2),
+        object_claim_repo=object_claim_repo,  # type: ignore[arg-type]
+        now_fn=lambda: _NOW,
+    )
+
+    assert outcome.finalized_op_ids == ()
+    assert object_claim_repo.released == [
+        ("tenant-a", "story", "AG3-400", "op-orphan-claim-only")
+    ]
 
 
 def test_older_foreign_write_before_claim_does_not_trigger_repair() -> None:
@@ -198,6 +322,7 @@ def test_older_foreign_write_before_claim_does_not_trigger_repair() -> None:
     outcome = run_startup_reconciliation(
         repo,  # type: ignore[arg-type]
         _identity("inst-me", 2),
+        object_claim_repo=_FakeObjectClaimRepo(),  # type: ignore[arg-type]
         now_fn=lambda: _NOW,
     )
 
@@ -213,6 +338,7 @@ def test_store_failure_is_fail_closed_start() -> None:
         run_startup_reconciliation(
             repo,  # type: ignore[arg-type]
             _identity("inst-me", 2),
+            object_claim_repo=_FakeObjectClaimRepo(),  # type: ignore[arg-type]
             now_fn=lambda: _NOW,
         )
 
@@ -235,6 +361,7 @@ def test_null_epoch_own_orphan_is_fail_closed_not_unfenced_finalize() -> None:
         run_startup_reconciliation(
             repo,  # type: ignore[arg-type]
             _identity("inst-me", 3),
+            object_claim_repo=_FakeObjectClaimRepo(),  # type: ignore[arg-type]
             now_fn=lambda: _NOW,
         )
     #: The row was NEVER finalized without a fence -- it stays claimed.
