@@ -512,6 +512,15 @@ def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
         "object_mutation_claims",
         "takeover_transfer_records",
         "backend_instance_identity",
+        # AG3-141 canary (Codex R2 MAJOR): the durable per-project queue-position
+        # counter table. A DB upgraded from a pre-AG3-141 schema HAS
+        # object_mutation_claims but LACKS object_claim_queue_positions; without
+        # this entry it would report "bootstrapped", skip the idempotent
+        # CREATE TABLE IF NOT EXISTS, and the first acquire's INSERT INTO
+        # object_claim_queue_positions would fail with a missing relation (5xx on
+        # every mutating control-plane call). Listing it forces the not-fully-
+        # bootstrapped path so the counter table is created on upgrade.
+        "object_claim_queue_positions",
     )
     table_rows = conn.execute(
         """

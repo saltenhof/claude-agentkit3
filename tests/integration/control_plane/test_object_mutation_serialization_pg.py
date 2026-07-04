@@ -671,3 +671,63 @@ def test_queue_position_is_strictly_increasing_across_release_and_reacquire() ->
     third = load_object_mutation_claim_global(_PROJECT, "story", "AG3-701")
     assert third is not None
     assert third.queue_position > second.queue_position
+
+
+# ---------------------------------------------------------------------------
+# Codex-R2 (MAJOR): the queue-position counter table is in the bootstrap canary,
+# so a DB upgraded from a pre-AG3-141 schema gets it created (no missing-relation
+# 5xx on the first acquire).
+# ---------------------------------------------------------------------------
+
+
+def test_pre_ag3_141_schema_upgrade_recreates_the_queue_position_counter() -> None:
+    """A DB upgraded from a pre-AG3-141 schema has ``object_mutation_claims`` but
+    NOT ``object_claim_queue_positions``. The bootstrap canary must detect the
+    schema as not-fully-bootstrapped so the idempotent CREATE adds the counter --
+    else the first acquire's ``INSERT INTO object_claim_queue_positions`` fails
+    with a missing relation (5xx on every mutating control-plane call).
+    """
+    from agentkit.backend.state_backend.postgres_store import (
+        _connect_global,
+        _reset_schema_bootstrap_cache_for_tests,
+        _schema_is_bootstrapped,
+    )
+    from agentkit.backend.state_backend.store import acquire_object_mutation_claim_global
+
+    identity = boot_backend_instance_identity_global("inst-migrate", _T0)
+
+    #: Simulate the pre-AG3-141 schema: drop ONLY the counter table
+    #: (object_mutation_claims and every other AG3-137 table stay).
+    with _connect_global() as conn:
+        conn.execute("DROP TABLE IF EXISTS object_claim_queue_positions")
+        #: The canary MUST now report the schema as not-fully-bootstrapped so the
+        #: idempotent CREATE re-runs on upgrade (this is the Codex-R2 fix -- before
+        #: it, ``object_claim_queue_positions`` was absent from ``required_tables``
+        #: and this assertion would be False).
+        assert not _schema_is_bootstrapped(conn)
+
+    #: Re-bootstrap (cache cleared) -- the not-fully-bootstrapped schema re-runs
+    #: the canonical DDL, which re-creates the counter table.
+    _reset_schema_bootstrap_cache_for_tests()
+    with _connect_global():
+        pass
+
+    with _connect_global() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = current_schema() "
+            "AND table_name = 'object_claim_queue_positions'"
+        ).fetchone()
+    assert exists is not None, "upgrade must create object_claim_queue_positions"
+
+    #: The first acquire (which INSERTs into the counter) now succeeds -- no
+    #: missing-relation 5xx.
+    assert acquire_object_mutation_claim_global(
+        project_key=_PROJECT,
+        serialization_scope=oc.STORY_SCOPE,
+        scope_key="AG3-800",
+        op_id="op-migrate",
+        backend_instance_id=identity.backend_instance_id,
+        instance_incarnation=identity.instance_incarnation,
+        acquired_at=_T0,
+    )
