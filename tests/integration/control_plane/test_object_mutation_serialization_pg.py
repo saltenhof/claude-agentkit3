@@ -603,3 +603,71 @@ def test_crash_after_claim_acquisition_is_released_only_by_reconciliation(
     #: Whatever else, the fresh attempt was NOT turned away by a lingering
     #: object claim -- the serialization deadlock is gone.
     assert fresh.error_code != oc.ERROR_CODE_OBJECT_CLAIM_CONFLICT
+
+
+# ---------------------------------------------------------------------------
+# Codex-R1 (MAJOR): queue_position is strictly increasing (durable per-project
+# counter), NOT reused after a release.
+# ---------------------------------------------------------------------------
+
+
+def test_queue_position_is_strictly_increasing_across_release_and_reacquire() -> None:
+    """A durable per-project counter allocates ``queue_position``, so it is
+    strictly increasing even after a release frees the claim row -- positions
+    are never reused (the ``MAX(queue_position)+1`` over currently-HELD rows bug
+    reset to 0 after every release, making FIFO/fairness audit ambiguous).
+    """
+    identity = boot_backend_instance_identity_global("inst-qpos", _T0)
+    from agentkit.backend.state_backend.store import (
+        acquire_object_mutation_claim_global,
+        delete_object_mutation_claim_global,
+    )
+
+    assert acquire_object_mutation_claim_global(
+        project_key=_PROJECT,
+        serialization_scope=oc.STORY_SCOPE,
+        scope_key="AG3-700",
+        op_id="op-1",
+        backend_instance_id=identity.backend_instance_id,
+        instance_incarnation=identity.instance_incarnation,
+        acquired_at=_T0,
+    )
+    first = load_object_mutation_claim_global(_PROJECT, "story", "AG3-700")
+    assert first is not None
+    first_position = first.queue_position
+
+    #: Release it -- the CLAIM row is gone, but the durable counter is NOT reset.
+    assert delete_object_mutation_claim_global(
+        _PROJECT, oc.STORY_SCOPE, "AG3-700", "op-1"
+    )
+
+    assert acquire_object_mutation_claim_global(
+        project_key=_PROJECT,
+        serialization_scope=oc.STORY_SCOPE,
+        scope_key="AG3-700",
+        op_id="op-2",
+        backend_instance_id=identity.backend_instance_id,
+        instance_incarnation=identity.instance_incarnation,
+        acquired_at=_T0,
+    )
+    second = load_object_mutation_claim_global(_PROJECT, "story", "AG3-700")
+    assert second is not None
+
+    #: The MAX-over-held-rows bug would have REUSED position 0 here; the durable
+    #: counter guarantees a strictly greater position.
+    assert second.queue_position > first_position
+
+    #: A DIFFERENT object in the same project also advances past both (one shared
+    #: strictly-increasing per-project admission order).
+    assert acquire_object_mutation_claim_global(
+        project_key=_PROJECT,
+        serialization_scope=oc.STORY_SCOPE,
+        scope_key="AG3-701",
+        op_id="op-3",
+        backend_instance_id=identity.backend_instance_id,
+        instance_incarnation=identity.instance_incarnation,
+        acquired_at=_T0,
+    )
+    third = load_object_mutation_claim_global(_PROJECT, "story", "AG3-701")
+    assert third is not None
+    assert third.queue_position > second.queue_position

@@ -2848,6 +2848,27 @@ def acquire_object_mutation_claim_global_row(row: dict[str, Any]) -> bool:
         conflicting_scope = (
             "story" if row["serialization_scope"] == "project" else "project"
         )
+        #: Codex-R1 (Finding 3) scope note: this enforces the HELD cross-scope
+        #: exclusion (a HELD project claim conflicts with a story acquire of the
+        #: same project and vice versa). It does NOT model a PENDING project
+        #: reservation. The full
+        #: ``pending_project_claims_are_not_overtaken_by_younger_story_claims``
+        #: invariant additionally requires a project mutation that CANNOT acquire
+        #: immediately (story claims held) to persist a "waiting" reservation so
+        #: LATER-arriving younger story claims yield to it. That persisted
+        #: reservation is DEFERRED here: it is in genuine tension with AG3-141's
+        #: ratified non-blocking ``409 + Retry-After`` decision + the no-wall-clock
+        #: expiry invariant (a reservation that outlives a single non-blocking
+        #: request, anchored to no live ``claimed`` op after the busy return, could
+        #: not be freed by ``admin_abort`` or same-incarnation reconciliation and
+        #: would deadlock the project's stories until a restart if the waiting
+        #: client abandons -- reintroducing exactly the no-recovery failure mode
+        #: AC1/AC7 remove), and it has NO productive project-scope object-claim
+        #: caller in AG3-141 (project-wide mutations are single-transaction and stay
+        #: xact-locked, SOLL-053/055; the multi-object lock-set has no productive
+        #: caller yet). Resolving it requires a concept-level decision (revisit the
+        #: ratified decision or reconcile SOLL-050 with non-blocking 409) and is a
+        #: prerequisite for the first productive project-claim caller (AG3-144/148).
         conflict = conn.execute(
             """
             SELECT 1 FROM object_mutation_claims
@@ -2870,16 +2891,28 @@ def acquire_object_mutation_claim_global_row(row: dict[str, Any]) -> bool:
             # target of a multi-object lock-set acquisition can never collide
             # with itself), busy for a foreign op_id.
             return bool(existing["op_id"] == row["op_id"])
+        #: Codex-R1 (MAJOR) fix: allocate ``queue_position`` from a DURABLE
+        #: per-project counter, NOT ``MAX(queue_position) + 1`` over the currently
+        #: HELD rows (which resets to 0 after every release -> positions reused,
+        #: FIFO/fairness audit ambiguous). The counter row survives claim releases;
+        #: because this whole acquire runs under the per-project
+        #: ``pg_advisory_xact_lock`` above, the increment is serialised and the
+        #: assigned position is strictly increasing and conflict-free.
         next_position_row = conn.execute(
             """
-            SELECT COALESCE(MAX(queue_position), -1) + 1 AS next_position
-            FROM object_mutation_claims WHERE project_key = ?
+            INSERT INTO object_claim_queue_positions (project_key, next_queue_position)
+            VALUES (?, 0)
+            ON CONFLICT (project_key) DO UPDATE
+              SET next_queue_position = object_claim_queue_positions.next_queue_position + 1
+            RETURNING next_queue_position AS assigned_position
             """,
             (row["project_key"],),
         ).fetchone()
-        queue_position = (
-            int(next_position_row["next_position"]) if next_position_row is not None else 0
-        )
+        if next_position_row is None:  # pragma: no cover -- INSERT ... RETURNING always yields a row
+            raise RuntimeError(
+                "object-claim queue-position counter INSERT ... RETURNING yielded no row",
+            )
+        queue_position = int(next_position_row["assigned_position"])
         conn.execute(
             """
             INSERT INTO object_mutation_claims (

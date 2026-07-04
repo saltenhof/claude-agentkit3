@@ -352,6 +352,21 @@
             PRIMARY KEY (project_key, serialization_scope, scope_key)
         );
 
+        -- object_claim_queue_positions: a DURABLE, strictly-increasing per-project
+        -- admission counter for object-mutation-claim acquisition order (AG3-141,
+        -- Codex-R1 fix). The queue_position stamped on object_mutation_claims must be
+        -- monotone for FIFO/fairness audit; deriving it from MAX(queue_position) over
+        -- the currently-HELD rows resets to 0 after releases (positions get reused).
+        -- This counter row SURVIVES claim releases and is advanced under the SAME
+        -- per-project pg_advisory_xact_lock that guards the acquire, so the assigned
+        -- position is strictly increasing and conflict-free under concurrent load.
+        -- There is deliberately NO wall-clock column (no TTL/expiry).
+        CREATE TABLE IF NOT EXISTS object_claim_queue_positions (
+            project_key TEXT NOT NULL,
+            next_queue_position BIGINT NOT NULL CHECK (next_queue_position >= 0),
+            PRIMARY KEY (project_key)
+        );
+
         -- takeover_transfer_records: ONE row per participating repo
         -- (state-storage.entity.takeover-transfer-record, state-storage v5). The
         -- transfer record REPLACES the former takeover-worktree-snapshot
