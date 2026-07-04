@@ -20,8 +20,8 @@ queue-position bookkeeping, conflict-free under concurrent load) live in
 module owns the declaration model, the canonical global acquisition order and
 the K4 wait-decision only -- it never touches a database.
 
-K4 (Pflicht-Auflage, IMPL-016, ratified): the wait-semantics for a busy object
-is a deterministic ``409 + Retry-After``, NEVER a thread-blocking wait. The
+K4 (mandatory requirement, IMPL-016, ratified): the wait-semantics for a busy
+object is a deterministic ``409 + Retry-After``, NEVER a thread-blocking wait. The
 server is thread-per-request (``ThreadingHTTPSServer``,
 ``control_plane_http/app.py``) and the frontend aborts every request after
 12s (``AbortController``, ``frontend/app/api.ts``); holding a request thread
@@ -66,7 +66,7 @@ STORY_SCOPE = "story"
 OBJECT_CLAIM_RETRY_AFTER_SECONDS = 2
 
 #: Reuses the frontend's already-known generic concurrency-conflict error
-#: code (``formal.frontend-contracts.commands`` Fehler-Vertrag: ``conflict``,
+#: code (``formal.frontend-contracts.commands`` error contract: ``conflict``,
 #: 409) so no frontend change is required (AG3-153 out of scope) -- the
 #: existing generic 409 handling already covers this response shape.
 ERROR_CODE_OBJECT_CLAIM_CONFLICT = "conflict"
@@ -103,7 +103,7 @@ class ObjectClaimKey:
 
 
 def project_claim_key(project_key: str) -> ObjectClaimKey:
-    """The project-wide claim key (Rule 13: projektweite Mutationen)."""
+    """The project-wide claim key (Rule 13: project-wide mutations)."""
     return ObjectClaimKey(
         project_key=project_key,
         serialization_scope=PROJECT_SCOPE,

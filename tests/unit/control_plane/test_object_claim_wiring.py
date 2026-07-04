@@ -293,12 +293,27 @@ class _ReleaseRaisesPort:
     Proves the runtime never swallows a release failure on a success/handled
     return path (the fail-OPEN gap): a swallowed release on complete/fail/
     closure would leave the story blocked with NO ``claimed`` op row for
-    ``admin_abort`` to target.
+    ``admin_abort`` to target. It tracks the HELD claim set so a test can assert
+    directly that after the surfaced release failure the claim IS still held --
+    a failing release genuinely does NOT free the row.
     """
 
+    held: dict[tuple[str, str, str], str] = field(default_factory=dict)
     release_attempts: list[tuple[str, str, str, str]] = field(default_factory=list)
 
-    def acquire_claim(self, **_kwargs: object) -> bool:
+    def acquire_claim(
+        self,
+        *,
+        project_key: str,
+        serialization_scope: str,
+        scope_key: str,
+        op_id: str,
+        backend_instance_id: str,
+        instance_incarnation: int,
+        acquired_at: datetime,
+    ) -> bool:
+        del backend_instance_id, instance_incarnation, acquired_at
+        self.held[(project_key, serialization_scope, scope_key)] = op_id
         return True
 
     def release_claim(
@@ -307,6 +322,9 @@ class _ReleaseRaisesPort:
         self.release_attempts.append(
             (project_key, serialization_scope, scope_key, op_id)
         )
+        #: The release FAILS -- and crucially it does NOT remove the held row, so
+        #: the claim genuinely REMAINS held after the surfaced failure (the story
+        #: stays blocked until reconcile/admin_abort, never silently freed).
         raise RuntimeError("simulated object-claim release failure (DB unavailable)")
 
 
@@ -371,6 +389,8 @@ def test_complete_or_fail_release_failure_surfaces_never_returns_committed(
     #: never silently blocking the story behind a ``committed`` response.
     assert repo.committed == ["op-1"]
     assert port.release_attempts == [("tenant-a", "story", "AG3-100", "op-1")]
+    #: The claim IS still held after the surfaced failure (never silently freed).
+    assert port.held == {("tenant-a", "story", "AG3-100"): "op-1"}
 
 
 @dataclass
@@ -448,3 +468,5 @@ def test_closure_release_failure_surfaces_never_returns_committed() -> None:
     #: ``claimed`` op row, so this is exactly the fail-OPEN gap the fix closes).
     assert repo.committed == ["op-1"]
     assert port.release_attempts == [("tenant-a", "story", "AG3-100", "op-1")]
+    #: The claim IS still held after the surfaced failure (never silently freed).
+    assert port.held == {("tenant-a", "story", "AG3-100"): "op-1"}

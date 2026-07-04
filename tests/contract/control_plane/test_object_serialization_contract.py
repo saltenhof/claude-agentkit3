@@ -19,6 +19,7 @@ Four contract concerns are pinned here (no database; pure wire-form / spec-text
 from __future__ import annotations
 
 import json
+import re
 from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -139,3 +140,49 @@ def test_story_number_allocation_stays_for_update_based() -> None:
     assert "FOR UPDATE" in text
     assert "acquire_object_mutation_claim" not in text
     assert "import object_claims" not in text
+
+
+# ---------------------------------------------------------------------------
+# ARCH-55 regression pin (Codex R2 MAJOR): the AG3-141 NEW .py files are
+# English-only. ARCH-55 is as binding as the Sonar rules -- source
+# comments/identifiers/wire-keys must be English. This greps the AG3-141 new
+# source/tests for a German blocklist so German cannot silently re-enter.
+# ---------------------------------------------------------------------------
+
+_AG3_141_NEW_FILES = (
+    "src/agentkit/backend/control_plane/object_claims.py",
+    "tests/unit/control_plane/test_object_claims.py",
+    "tests/unit/control_plane/test_object_claim_wiring.py",
+    "tests/integration/control_plane/test_object_mutation_serialization_pg.py",
+    "tests/contract/control_plane/test_object_serialization_contract.py",
+)
+
+#: German blocklist for the AG3-141 new files. Discrete German nouns use word
+#: boundaries; lowercase participles/adjectives and any umlaut match directly.
+_AG3_141_GERMAN_BLOCKLIST = re.compile(
+    r"\b(?:Regel|Befund|Fehler|Vertrag|Auflage|Pflicht|Abweichung|Sperre"
+    r"|Nachweis|Mutationen|Wahrheit|Serialisierung|Deklaration|Erwerbsordnung)\b"
+    r"|projektweit|gemintet|beigestellt|[äöüß]"
+)
+
+
+def test_no_german_in_ag3141_new_source_and_tests() -> None:
+    """ARCH-55: zero German blocklist words in the AG3-141 new .py files."""
+    root = Path(__file__).resolve().parents[3]
+    this_file = Path(__file__).resolve()
+    offenders: list[str] = []
+    for rel in _AG3_141_NEW_FILES:
+        path = root / rel
+        if path.resolve() == this_file:
+            #: This pin file legitimately DEFINES the German blocklist -- skip it.
+            continue
+        for lineno, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            if _AG3_141_GERMAN_BLOCKLIST.search(line):
+                offenders.append(f"{rel}:{lineno}: {line.strip()[:80]}")
+
+    assert not offenders, (
+        "German re-entered an AG3-141 new file (ARCH-55, English-only source):\n"
+        + "\n".join(offenders)
+    )
