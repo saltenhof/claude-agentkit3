@@ -114,7 +114,7 @@ _PROMPT_BUNDLE_LOCK_RELPATH = Path(".agentkit") / "config" / "prompt-bundle.lock
 def _read_bound_skill_bundle_version(project_root: Path) -> str | None:
     """Read the bound skill-bundle version from the project prompt-bundle lock.
 
-    The version is the ``X-AK3-Skill-Bundle`` handshake value (FK-91 §91.1a Regel
+    The version is the ``X-AK3-Skill-Bundle`` handshake value (FK-91 §91.1a Rule
     11). The lock owned by ``prompt_runtime`` is the SINGLE source of truth; this
     only mirrors it onto the wire. Returns ``None`` when no readable lock is
     present so the core can fail the request closed at mutating endpoints rather
@@ -140,7 +140,7 @@ def read_bound_skill_bundle_version(project_root: Path) -> str | None:
 
     The operator CLI (``run-phase`` / ``resume``) is a Dev->Core mutation surface
     and must carry the ``X-AK3-Skill-Bundle`` version handshake header (FK-91
-    §91.1a Regel 11). It resolves the value from the SAME authoritative
+    §91.1a Rule 11). It resolves the value from the SAME authoritative
     prompt-bundle lock as the worker edge, never inventing a version; ``None`` when
     no readable lock is present (the core then fails the mutation closed).
     """
@@ -310,7 +310,7 @@ class ProjectEdgeResolver:
                 ProjectEdgeSyncRequest(
                     project_key=project_config.project_key,
                     session_id=session_id,
-                    # FK-91 §91.1a Regel 5 (AG3-140): the bounded sync is a
+                    # FK-91 §91.1a Rule 5 (AG3-140): the bounded sync is a
                     # client caller -- it mints its own op_id (the server no
                     # longer supplies a default).
                     op_id=f"op-{uuid.uuid4().hex}",

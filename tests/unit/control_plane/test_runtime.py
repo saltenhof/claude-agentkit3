@@ -2133,7 +2133,7 @@ def test_stale_claim_placeholder_with_no_claimed_at_is_rejected_not_reclaimed() 
     ``claimed_at`` at all (a legacy/malformed placeholder). Previously such a row
     was treated as fail-closed EXPIRED and auto-reclaimed via CAS takeover.
     AG3-139 removed that entirely: ownership never ends by wall clock / TTL /
-    lease (FK-91 §91.1a Regel 16), so this is just an ordinary foreign in-flight
+    lease (FK-91 §91.1a Rule 16), so this is just an ordinary foreign in-flight
     claim -- it is rejected, never dispatched into, and remains until ended via
     the AG3-138 startup reconciliation or an explicit
     ``admin_abort_inflight_operation``.
@@ -2468,7 +2468,7 @@ def test_owner_release_is_ownership_scoped_and_does_not_delete_foreign_claim() -
 def test_foreign_claim_of_any_age_is_never_taken_over() -> None:
     """AG3-139: a foreign in-flight claim is rejected regardless of its age.
 
-    Ownership never ends by wall clock / TTL / lease (FK-91 §91.1a Regel 16). A
+    Ownership never ends by wall clock / TTL / lease (FK-91 §91.1a Rule 16). A
     foreign ``claimed`` row -- whether 1 minute old or well past the FORMER
     5-minute TTL -- is ALWAYS a fail-closed in-flight rejection; there is no CAS
     takeover path left to exercise. An orphaned claim ends only via the AG3-138
@@ -2813,7 +2813,7 @@ def test_late_finalize_after_admin_abort_materializes_no_side_effects() -> None:
     (bumping the fencing epoch, AC4), A's late finalize CAS affects ZERO rows
     (status is no longer ``claimed`` AND the epoch changed), so A materializes NO
     binding, NO locks and NO events. A's late return surfaces the aborted
-    terminal row verbatim (AG3-138 AC5, FK-91 §91.1a Regel 17: an ``aborted``
+    terminal row verbatim (AG3-138 AC5, FK-91 §91.1a Rule 17: an ``aborted``
     result is never rewritten to ``replayed``).
     """
     state = _RepoState()

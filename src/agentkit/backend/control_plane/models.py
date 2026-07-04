@@ -28,7 +28,7 @@ _bc_route_logger = logging.getLogger(__name__ + ".bc_route_response")
 def op_id_validation_error(exc: ValidationError) -> bool:
     """Return whether a wire-model ``ValidationError`` is (also) an ``op_id`` failure.
 
-    FK-91 §91.1a Regel 5: ``op_id`` is a client-supplied, required idempotency key
+    FK-91 §91.1a Rule 5: ``op_id`` is a client-supplied, required idempotency key
     (AG3-140 -- no server-side ``default_factory`` mint remains). A mutating
     request that omits ``op_id`` (or sends an empty string) must fail closed with
     ``422`` specifically, distinct from the route's ordinary ``400`` payload-shape
@@ -80,7 +80,7 @@ class GuardCounterMutationRequest(BaseModel):
 
     operation: Literal["record", "housekeeping"]
     occurred_at: datetime
-    #: Idempotency key (FK-91 §91.1a Regel 5): a replayed ``op_id`` is
+    #: Idempotency key (FK-91 §91.1a Rule 5): a replayed ``op_id`` is
     #: processed exactly once, so a retried record never double-counts the pure
     #: volume KPI. AG3-140: client-supplied (hook-side mint); no server default.
     op_id: str = Field(min_length=1)
@@ -248,7 +248,7 @@ class _ControlPlaneRequest(BaseModel):
     project_key: str = Field(min_length=1)
     story_id: str = Field(min_length=1)
     session_id: str = Field(min_length=1)
-    #: FK-91 §91.1a Regel 5: client-supplied idempotency key. AG3-140: no server
+    #: FK-91 §91.1a Rule 5: client-supplied idempotency key. AG3-140: no server
     #: default remains -- an omitted op_id fails closed at validation (422).
     op_id: str = Field(min_length=1)
     source_component: str = Field(min_length=1, default="project_edge_client")
@@ -295,7 +295,7 @@ class ProjectEdgeSyncRequest(BaseModel):
 
     project_key: str = Field(min_length=1)
     session_id: str = Field(min_length=1)
-    #: FK-91 §91.1a Regel 5: client-supplied idempotency key (AG3-140: no server
+    #: FK-91 §91.1a Rule 5: client-supplied idempotency key (AG3-140: no server
     #: default).
     op_id: str = Field(min_length=1)
     freshness_class: Literal["baseline_read", "guarded_read", "mutation"] = (
@@ -337,7 +337,7 @@ class CreateStoryRequest(BaseModel):
     """Canonical request payload for the agent-facing story create (FK-91 §91.1a).
 
     Carries the story master data (``CreateStoryInputs`` content via the wire
-    ``type`` alias), the idempotency ``op_id`` (Regel #5) and the typed
+    ``type`` alias), the idempotency ``op_id`` (Rule #5) and the typed
     ``reconciliation`` evidence (FK-21 §21.4/§21.12) that the non-bypassable
     create boundary (``POST /v1/stories``) requires. The model serializes to the
     exact wire body the route consumes: the story content keys at top level, plus
@@ -354,7 +354,7 @@ class CreateStoryRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
 
-    #: FK-91 §91.1a Regel 5: client-supplied idempotency key (AG3-140: no server
+    #: FK-91 §91.1a Rule 5: client-supplied idempotency key (AG3-140: no server
     #: default remains).
     op_id: str = Field(min_length=1)
     project_key: str = Field(min_length=1)
@@ -393,7 +393,7 @@ class CreateStoryRequest(BaseModel):
         Args:
             inputs: The typed story master data (no evidence).
             evidence: The self-validating reconciliation evidence (real runtime).
-            op_id: The idempotency key (Regel #5).
+            op_id: The idempotency key (Rule #5).
             participating_repos: The authoritative repo set from the outcome; when
                 ``None`` the caller-proposed ``inputs.repos`` is used.
 
@@ -448,7 +448,7 @@ class CreatedStorySummary(BaseModel):
     ``story_to_wire_summary``). ``story_id`` is the backend-allocated canonical
     display id (FK-91 §91.1a: the Control Plane is the single story truth — the
     id is never client-assigned). ``correlation_id`` carries the stable
-    correlation propagated for the call (Regel #7).
+    correlation propagated for the call (Rule #7).
     """
 
     model_config = ConfigDict(extra="ignore", frozen=True)

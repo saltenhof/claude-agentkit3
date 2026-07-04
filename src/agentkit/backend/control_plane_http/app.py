@@ -395,7 +395,7 @@ class _GovernanceMediationHandlers:
             request = GuardCounterMutationRequest.model_validate(payload)
             accepted = self._guard_counter_service.apply(request)
         except ValidationError as exc:
-            # AG3-140 (FK-91 §91.1a Regel 5, AC1): a missing/empty op_id fails
+            # AG3-140 (FK-91 §91.1a Rule 5, AC1): a missing/empty op_id fails
             # closed with 422, distinct from an ordinary 400 payload-shape defect.
             return _error_response(
                 HTTPStatus.UNPROCESSABLE_ENTITY
@@ -407,7 +407,7 @@ class _GovernanceMediationHandlers:
                 detail=exc.errors(),
             )
         except IdempotencyMismatchError as exc:
-            # FK-91 §91.1a Regel 5: same op_id + different body -> fail-closed 409.
+            # FK-91 §91.1a Rule 5: same op_id + different body -> fail-closed 409.
             return _error_response(
                 HTTPStatus.CONFLICT,
                 error_code="idempotency_mismatch",
@@ -734,7 +734,7 @@ class ControlPlaneApplication(
         self._init_default_routes(r, auth_middleware)
         self._tenant_scope = tenant_scope_middleware or TenantScopeMiddleware()
         # Opt-in like ``auth_middleware``; production wires it ON in
-        # ``serve_control_plane`` (FK-91 §91.1a Regel 11). The announced
+        # ``serve_control_plane`` (FK-91 §91.1a Rule 11). The announced
         # ``/v1/compat`` window is the middleware's, else the central default.
         self._version_handshake = version_handshake_middleware
         self._compat_window: CompatWindow = (
@@ -790,7 +790,7 @@ class ControlPlaneApplication(
 
         The constructor keeps the handshake opt-in (direct-construction tests stay
         ungated), but the real listener must never serve an ungated app (FK-91
-        §91.1a Regel 11 / FK-10 §10.2.8: no fail-open default). This injects the
+        §91.1a Rule 11 / FK-10 §10.2.8: no fail-open default). This injects the
         central default when none was wired, closing the fail-open path.
         """
         if self._version_handshake is None:
@@ -862,7 +862,7 @@ class ControlPlaneApplication(
         def _dispatch() -> HttpResponse:
             return self._dispatch_method(method, route_path, query, body, correlation_id, request_headers)
 
-        # Version handshake (FK-91 §91.1a Regel 11): after auth/tenant, before
+        # Version handshake (FK-91 §91.1a Rule 11): after auth/tenant, before
         # routing. The middleware fails closed (426) for incompatible /
         # handshake-less mutations and otherwise carries the announce/WARNING
         # headers onto the dispatched response (owner: VersionHandshakeMiddleware).
@@ -1299,7 +1299,7 @@ class ControlPlaneApplication(
         if rm_delete is not None:
             return _bc_response_to_http_response(rm_delete)
 
-        # AG3-140 (FK-91 §91.1a Regel 5): the token-revoke DELETE carries the
+        # AG3-140 (FK-91 §91.1a Rule 5): the token-revoke DELETE carries the
         # client-supplied op_id in its (optional) JSON body -- an empty body
         # decodes to {} so a route that needs no payload is unaffected, but the
         # auth revoke route can now see a real op_id instead of a hardcoded {}.
@@ -1416,7 +1416,7 @@ class ControlPlaneApplication(
                     request=request,
                 )
         except ValidationError as exc:
-            # AG3-140 (FK-91 §91.1a Regel 5, AC1): a missing/empty op_id fails
+            # AG3-140 (FK-91 §91.1a Rule 5, AC1): a missing/empty op_id fails
             # closed with 422, distinct from an ordinary 400 payload-shape defect.
             return _error_response(
                 HTTPStatus.UNPROCESSABLE_ENTITY
@@ -1428,7 +1428,7 @@ class ControlPlaneApplication(
                 detail=exc.errors(),
             )
         except IdempotencyMismatchError as exc:
-            # AG3-140 finding 3 (FK-91 §91.1a Regel 5): a terminal op_id replayed
+            # AG3-140 finding 3 (FK-91 §91.1a Rule 5): a terminal op_id replayed
             # with a DIFFERENT phase/action/body is fail-closed 409, not a wrong
             # replay of the stored result.
             return _error_response(
@@ -1470,7 +1470,7 @@ class ControlPlaneApplication(
                 request=request,
             )
         except ValidationError as exc:
-            # AG3-140 (FK-91 §91.1a Regel 5, AC1): a missing/empty op_id fails
+            # AG3-140 (FK-91 §91.1a Rule 5, AC1): a missing/empty op_id fails
             # closed with 422, distinct from an ordinary 400 payload-shape defect.
             return _error_response(
                 HTTPStatus.UNPROCESSABLE_ENTITY
@@ -1518,7 +1518,7 @@ class ControlPlaneApplication(
             request = ProjectEdgeSyncRequest.model_validate(payload)
             result = self._runtime_service.sync_project_edge(request)
         except ValidationError as exc:
-            # AG3-140 (FK-91 §91.1a Regel 5, AC1): a missing/empty op_id fails
+            # AG3-140 (FK-91 §91.1a Rule 5, AC1): a missing/empty op_id fails
             # closed with 422, distinct from an ordinary 400 payload-shape defect.
             return _error_response(
                 HTTPStatus.UNPROCESSABLE_ENTITY
@@ -1641,7 +1641,7 @@ def serve_control_plane(
         from agentkit.backend.auth.middleware import AuthMiddleware
 
         # Production wires the handshake middleware ON (fail-closed by default,
-        # FK-91 §91.1a Regel 11 / FK-10 §10.2.8): no fail-open default on the
+        # FK-91 §91.1a Rule 11 / FK-10 §10.2.8): no fail-open default on the
         # real listener, mirroring the always-on auth middleware here.
         application = ControlPlaneApplication(
             auth_middleware=AuthMiddleware(),
@@ -1650,7 +1650,7 @@ def serve_control_plane(
     else:
         application = app
     # GUARANTEE the real listener is handshake-gated even when an app was injected
-    # without a handshake middleware (close the fail-OPEN path; FK-91 Regel 11).
+    # without a handshake middleware (close the fail-OPEN path; FK-91 Rule 11).
     application.ensure_version_handshake()
     # AG3-138 IMPL-003: the pre-serve startup hook runs BEFORE the socket is bound
     # and BEFORE ``serve_forever()`` -- so the listener accepts its first request
@@ -1922,7 +1922,7 @@ def _decode_optional_json_body(
     An empty body decodes to ``{}`` so a route needing no payload is unaffected;
     a non-empty body must still be valid JSON (fail-closed ``invalid_json`` on a
     malformed one). AG3-140: the token-revoke DELETE carries its client-supplied
-    ``op_id`` (FK-91 §91.1a Regel 5) in this optional body.
+    ``op_id`` (FK-91 §91.1a Rule 5) in this optional body.
     """
     if not body or not body.strip():
         return {}
@@ -1943,7 +1943,7 @@ def _resolve_correlation_id(request_headers: Mapping[str, str] | None) -> str:
     # sends ``X-Correlation-Id`` but ``urllib`` (and intermediaries) may normalize
     # the casing on the wire, so an EXACT-case lookup would miss the client's id
     # and the control plane would mint a divergent ``req-<uuid>`` (FK-91 §91.1a
-    # Regel #7 violation). Resolve the header case-insensitively so the client's
+    # Rule #7 violation). Resolve the header case-insensitively so the client's
     # correlation id is adopted regardless of the transmitted casing.
     if request_headers is not None:
         provided = _lookup_header_ci(request_headers, _CORRELATION_HEADER)

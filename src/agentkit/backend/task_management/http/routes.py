@@ -130,7 +130,7 @@ class _CreateTaskRequest(BaseModel):
     the next available sequence for that year.
 
     ``op_id`` is the client-supplied, required idempotency key (AG3-140 / FK-91
-    §91.1a Regel 5). It is excluded from the body-hash so a replay of the same
+    §91.1a Rule 5). It is excluded from the body-hash so a replay of the same
     mutation under the same ``op_id`` hashes equal.
     """
 
@@ -150,7 +150,7 @@ class _ResolveRequest(BaseModel):
     """Wire body for POST /tasks/{id}/resolve and /dismiss.
 
     ``op_id`` is the client-supplied, required idempotency key (AG3-140 / FK-91
-    §91.1a Regel 5).
+    §91.1a Rule 5).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -166,7 +166,7 @@ class _LinkRequest(BaseModel):
     Any other value is rejected at validation time with ValidationError -> 422.
 
     ``op_id`` is the client-supplied, required idempotency key (AG3-140 / FK-91
-    §91.1a Regel 5).
+    §91.1a Rule 5).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -243,7 +243,7 @@ class TaskManagementRoutes:
       - Truly unexpected exceptions (programming bugs, unexpected DB errors): 500
         ``internal_error`` — loud failure, NOT masked as 503.
 
-    Idempotency (AG3-140 / FK-91 §91.1a Regel 5): every mutating POST carries a
+    Idempotency (AG3-140 / FK-91 §91.1a Rule 5): every mutating POST carries a
     required client-supplied ``op_id`` and runs through the unified
     ``InflightIdempotencyGuard`` (claim -> mutate -> finalize). A replay of the
     same ``op_id`` returns the stored result without re-mutating; the same
@@ -402,7 +402,7 @@ class TaskManagementRoutes:
         )
 
     # ------------------------------------------------------------------
-    # Private helpers — unified idempotency guard (AG3-140 / FK-91 §91.1a Regel 5)
+    # Private helpers — unified idempotency guard (AG3-140 / FK-91 §91.1a Rule 5)
     # ------------------------------------------------------------------
 
     def _guard(self) -> InflightIdempotencyGuard:
@@ -424,7 +424,7 @@ class TaskManagementRoutes:
         """Map a wire ``ValidationError`` to the correct fail-closed 422.
 
         A missing/empty ``op_id`` fails closed with error_code ``missing_op_id``
-        (AG3-140 / FK-91 §91.1a Regel 5, distinct from the ordinary malformed-body
+        (AG3-140 / FK-91 §91.1a Rule 5, distinct from the ordinary malformed-body
         rejection). Any other validation failure keeps the route's existing
         ``invalid_*_payload`` error_code.
         """
@@ -432,7 +432,7 @@ class TaskManagementRoutes:
             return bc_error_response(
                 HTTPStatus.UNPROCESSABLE_ENTITY,
                 error_code="missing_op_id",
-                message="op_id is required and must be non-empty (FK-91 §91.1a Regel 5)",
+                message="op_id is required and must be non-empty (FK-91 §91.1a Rule 5)",
                 correlation_id=correlation_id,
                 detail=exc.errors(),
             )

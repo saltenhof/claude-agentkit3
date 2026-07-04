@@ -35,11 +35,11 @@ _PROJECT_ROOT_HELP = "Project root directory"
 #: Shared ``--run`` help label, reused across the operator/recovery subcommands.
 _RUN_ID_HELP = "Run ID"
 
-#: Shared ``--op-id`` help label (FK-91 §91.1a Regel 5, AG3-140). Optional on the
+#: Shared ``--op-id`` help label (FK-91 §91.1a Rule 5, AG3-140). Optional on the
 #: CLI: a client-supplied idempotency key; when omitted the operator CLI mints a
 #: fresh op_id client-side (the server no longer supplies a default).
 _OP_ID_HELP = (
-    "Client-supplied idempotency key (FK-91 Regel 5). Omit to mint one "
+    "Client-supplied idempotency key (FK-91 Rule 5). Omit to mint one "
     "client-side; reuse the SAME value to safely retry an ambiguous call."
 )
 
@@ -1901,7 +1901,7 @@ def _build_control_plane_client(base_url: str, project_root: str) -> ProjectEdge
     The operator CLI is a thin Dev-Edge REST requester (FK-10 §10.1.0 I3): it
     reaches the core over the ``ProjectEdgeClient`` transport (urllib, structured
     ``ApiError``) -- no second HTTP stack and no in-process runtime build. The
-    transport carries the FK-91 §91.1a Regel 11 version handshake: ``X-AK3-Client``
+    transport carries the FK-91 §91.1a Rule 11 version handshake: ``X-AK3-Client``
     (the installed package version, resolved inside the transport) plus
     ``X-AK3-Skill-Bundle`` from the project's authoritative prompt-bundle lock, so
     the production listener does not fail the mutation closed with HTTP 426
@@ -2027,7 +2027,7 @@ def _prepare_phase_call(
             principal_type=args.principal,
             worktree_roots=worktree_roots,
             detail=detail or {},
-            # FK-91 §91.1a Regel 5 (AG3-140): op_id is the client-supplied
+            # FK-91 §91.1a Rule 5 (AG3-140): op_id is the client-supplied
             # idempotency key; the operator CLI mints one when --op-id is omitted
             # (the server no longer supplies a default). A replay of the SAME
             # op_id returns the stored result; a parallel same op_id is rejected
@@ -2177,13 +2177,13 @@ def _cmd_resume(args: argparse.Namespace) -> int:
 
 
 def _cmd_admin_abort(args: argparse.Namespace) -> int:
-    """Handle ``agentkit admin-abort`` (AG3-138, FK-91 Regel 10, FK-55 §55.5).
+    """Handle ``agentkit admin-abort`` (AG3-138, FK-91 Rule 10, FK-55 §55.5).
 
     A thin REST adapter onto ``POST /v1/project-edge/operations/{op_id}/
     admin-abort`` (``admin_abort_inflight_operation``): it validates inputs
     locally and delegates the abort EXECUTION (epoch-fence, partial write->repair
     routing, audit) to the core. It NEVER opens a DB connection and builds no
-    second semantics -- no own runtime/DB path (Regel 10; the delegation is
+    second semantics -- no own runtime/DB path (Rule 10; the delegation is
     test-pinned).
 
     Args:

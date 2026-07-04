@@ -5,7 +5,7 @@ canonical ``guard_invocation_counters`` scratchpad (FK-61 §61.4.3) is written
 ONLY here, inside the core. The core process may open its database directly (I1
 constrains the Dev side, not the backend); the hook never does.
 
-Idempotency (FK-91 §91.1a Regel 5): the ``record`` mutation carries an ``op_id``.
+Idempotency (FK-91 §91.1a Rule 5): the ``record`` mutation carries an ``op_id``.
 The counter increment AND the ``op_id`` idempotency key are written in ONE
 transaction (``StateBackendGuardCounterRepository.record_invocation_idempotent``),
 so a replayed ``op_id`` never double-counts and a crash between the two writes
@@ -97,7 +97,7 @@ class ControlPlaneGuardCounterService:
 
         Raises:
             IdempotencyMismatchError: When ``op_id`` was reused with a different
-                request body (FK-91 §91.1a Regel 5).
+                request body (FK-91 §91.1a Rule 5).
         """
         if request.operation == "housekeeping":
             return self._apply_housekeeping(request)

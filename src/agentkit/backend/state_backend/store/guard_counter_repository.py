@@ -124,7 +124,7 @@ def _row_to_counter(row: dict[str, Any]) -> GuardInvocationCounter:
 
 @dataclass(frozen=True)
 class GuardCounterRecordOutcome:
-    """Outcome of an atomic idempotent guard-counter record (AG3-129, FK-91 Regel 5).
+    """Outcome of an atomic idempotent guard-counter record (AG3-129, FK-91 Rule 5).
 
     Attributes:
         status: ``"recorded"`` (new ``op_id``: counter incremented AND the
@@ -208,7 +208,7 @@ class StateBackendGuardCounterRepository:
         updated_at: datetime,
         created_at: datetime,
     ) -> GuardCounterRecordOutcome:
-        """Record one invocation EXACTLY ONCE per ``op_id`` (FK-91 §91.1a Regel 5).
+        """Record one invocation EXACTLY ONCE per ``op_id`` (FK-91 §91.1a Rule 5).
 
         AG3-129 (concurrency-safe) + AG3-140 (unified idempotency contract): the
         idempotency record is the ONE consolidated ``control_plane_operations`` row

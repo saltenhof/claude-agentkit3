@@ -174,7 +174,7 @@ def test_project_api_token_lifecycle_routes(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# AG3-140 / FK-91 §91.1a Regel 5 — unified idempotency contract on auth mutations
+# AG3-140 / FK-91 §91.1a Rule 5 — unified idempotency contract on auth mutations
 # ---------------------------------------------------------------------------
 
 

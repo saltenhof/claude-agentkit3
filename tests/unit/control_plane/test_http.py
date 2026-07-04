@@ -936,7 +936,7 @@ def test_invalid_phase_payload_returns_bad_request() -> None:
 
 
 def test_missing_op_id_phase_payload_returns_422() -> None:
-    """AG3-140 (FK-91 §91.1a Regel 5, AC1): a phase mutation without op_id is 422."""
+    """AG3-140 (FK-91 §91.1a Rule 5, AC1): a phase mutation without op_id is 422."""
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
@@ -989,7 +989,7 @@ def test_invalid_closure_payload_returns_bad_request() -> None:
 
 
 def test_missing_op_id_closure_payload_returns_422() -> None:
-    """AG3-140 (FK-91 §91.1a Regel 5, AC1): a closure completion without op_id is 422."""
+    """AG3-140 (FK-91 §91.1a Rule 5, AC1): a closure completion without op_id is 422."""
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),
@@ -1039,7 +1039,7 @@ def test_invalid_project_edge_sync_payload_returns_bad_request() -> None:
 
 
 def test_missing_op_id_project_edge_sync_payload_returns_422() -> None:
-    """AG3-140 (FK-91 §91.1a Regel 5, AC1): a project-edge sync without op_id is 422."""
+    """AG3-140 (FK-91 §91.1a Rule 5, AC1): a project-edge sync without op_id is 422."""
     app = ControlPlaneApplication(
         telemetry_service=_FakeTelemetryService(),
         runtime_service=_FakeRuntimeService(),

@@ -1,4 +1,4 @@
-"""Unit tests for the /v1 version handshake (AG3-121, FK-91 §91.1a Regel 11).
+"""Unit tests for the /v1 version handshake (AG3-121, FK-91 §91.1a Rule 11).
 
 Covers, exercised through the REAL ``ControlPlaneApplication.handle_request``
 dispatch (no mock of the middleware under test):
@@ -532,7 +532,7 @@ def test_route_classifier_governance_is_method_aware() -> None:
         # agent header -> a GET must NOT be handshake-gated (no 426 on the UI read).
         assert not classifier.requires_handshake(governance, "GET"), governance
         assert not classifier.requires_handshake(governance, "HEAD"), governance
-        # FK-91 §91.1a Regel 11: a Dev-agent->Core governance COMMAND stays gated.
+        # FK-91 §91.1a Rule 11: a Dev-agent->Core governance COMMAND stays gated.
         for mutation in ("POST", "PUT", "PATCH", "DELETE"):
             assert classifier.requires_handshake(governance, mutation), governance
 

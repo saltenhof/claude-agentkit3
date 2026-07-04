@@ -703,7 +703,7 @@ def _require_str(
 ) -> str | StoryRouteResponse:
     value = body.get(field)
     if not isinstance(value, str) or not value:
-        # AG3-140 (FK-91 §91.1a Regel 5, AC1): a missing/empty op_id fails closed
+        # AG3-140 (FK-91 §91.1a Rule 5, AC1): a missing/empty op_id fails closed
         # with 422 specifically -- distinct from an ordinary 400 payload defect.
         status = (
             HTTPStatus.UNPROCESSABLE_ENTITY if field == "op_id" else HTTPStatus.BAD_REQUEST

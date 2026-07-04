@@ -137,7 +137,7 @@ def app(
 
 def _post(app: ControlPlaneApplication, path: str, body: dict) -> dict:
     # Every mutating POST now needs a client-minted op_id (AG3-140 / FK-91 §91.1a
-    # Regel 5). Inject a unique one unless the caller already supplied its own.
+    # Rule 5). Inject a unique one unless the caller already supplied its own.
     body = {"op_id": f"op-{uuid4().hex}", **body}
     resp = app.handle_request(
         method="POST",

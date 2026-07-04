@@ -415,7 +415,7 @@ def test_guard_counter_replayed_op_id_counts_once_via_rest(
     tmp_path: Path,
     control_plane_base_url: str,
 ) -> None:
-    # FK-91 §91.1a Regel 5: two POSTs with the SAME op_id over the real route +
+    # FK-91 §91.1a Rule 5: two POSTs with the SAME op_id over the real route +
     # real control_plane_operations record store increment the counter EXACTLY once.
     write_control_plane_config(tmp_path, control_plane_base_url)
     client = build_governance_edge_client(tmp_path)

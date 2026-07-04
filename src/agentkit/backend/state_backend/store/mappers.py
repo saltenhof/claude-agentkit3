@@ -1197,7 +1197,7 @@ def _parse_aware_claimed_at(claimed_at_raw: object) -> datetime | None:
 
     ``claimed_at`` is a pure AUDIT instant (AG3-139: no code path compares it
     against a wall clock to decide a claim has "expired" -- ownership never ends
-    by wall clock, FK-91 §91.1a Regel 16). It IS still consulted verbatim by the
+    by wall clock, FK-91 §91.1a Rule 16). It IS still consulted verbatim by the
     ownership-scoped finalize/release CAS (WARNING-4) and as the ``since`` bound
     for the AG3-138 admin-abort partial-write probe, both of which require an
     aware UTC value. A NAIVE (tz-unaware) ``claimed_at`` is therefore normalized

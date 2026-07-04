@@ -315,7 +315,7 @@ class ControlPlaneOperationRecord:
     (ISO-8601 TEXT, matching the table's other instants). AG3-139: ``claimed_at``
     is a pure AUDIT instant -- no code path compares it against a wall clock or a
     TTL to decide whether the claim has "expired"; ownership never ends by wall
-    clock (FK-91 §91.1a Regel 16). It IS still consulted, verbatim, by the
+    clock (FK-91 §91.1a Rule 16). It IS still consulted, verbatim, by the
     ownership-scoped finalize/release CAS (WARNING-4, ``owner_claimed_at``) and
     as the ``since`` bound for the AG3-138 admin-abort partial-write probe. Both
     ``claimed_by`` / ``claimed_at`` are ``None`` on a TERMINAL row (the finalize

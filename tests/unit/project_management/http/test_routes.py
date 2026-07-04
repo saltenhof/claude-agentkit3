@@ -322,7 +322,7 @@ def test_post_project_without_repositories_returns_400_validation_failed() -> No
     """AG3-020 AC3: POST /v1/projects without repositories MUST return 400 validation_failed.
 
     Replaces the earlier permissive ``backfill``-test that hid the missing
-    field behind a model-validator default.  The strict schema (Befund 1
+    field behind a model-validator default.  The strict schema (finding 1
     fix from the second review) requires ``repositories`` explicitly.
     """
     repository = _InMemoryProjectRepository()
@@ -547,7 +547,7 @@ def test_patch_project_updates_repositories_via_body_configuration() -> None:
 
 
 # ---------------------------------------------------------------------------
-# AG3-140 / FK-91 §91.1a Regel 5 — unified idempotency contract on the four
+# AG3-140 / FK-91 §91.1a Rule 5 — unified idempotency contract on the four
 # mutating project routes (create, archive, PATCH detail, PATCH configuration).
 # ---------------------------------------------------------------------------
 

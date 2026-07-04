@@ -143,7 +143,7 @@ def test_guard_counter_service_housekeeping() -> None:
 
 
 def test_guard_counter_replayed_op_id_does_not_double_count() -> None:
-    # FK-91 §91.1a Regel 5 (FUND 2): a replayed op_id is processed exactly once --
+    # FK-91 §91.1a Rule 5 (FUND 2): a replayed op_id is processed exactly once --
     # the counter is NOT incremented a second time.
     repo = _FakeGuardCounterRepo()
     service = _guard_counter_service(repo)

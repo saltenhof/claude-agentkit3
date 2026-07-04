@@ -82,7 +82,7 @@ class ConfigurationOnlyPatchRequest(ProjectConfigurationPatch):
     """Wire body for the standalone ``PATCH /v1/projects/{key}/configuration``.
 
     Extends :class:`ProjectConfigurationPatch` with the top-level ``op_id``
-    (FK-91 §91.1a Regel 5, AG3-140: no server default remains).
+    (FK-91 §91.1a Rule 5, AG3-140: no server default remains).
     """
 
     op_id: str = Field(min_length=1)
@@ -97,7 +97,7 @@ class CreateProjectRequest(BaseModel):
     name: str
     story_id_prefix: str
     configuration: ProjectConfiguration
-    #: FK-91 §91.1a Regel 5: client-supplied idempotency key (AG3-140: no server
+    #: FK-91 §91.1a Rule 5: client-supplied idempotency key (AG3-140: no server
     #: default remains).
     op_id: str = Field(min_length=1)
 
@@ -149,12 +149,12 @@ class ProjectManagementRoutes:
             pass ``_no_repos_in_use`` explicitly to opt out — but the opt-out
             is visible in the call site, not hidden in a default.
         idempotency_guard: Optional unified idempotency guard (AG3-140 / FK-91
-            §91.1a Regel 5).  When ``None`` the production Postgres-backed guard
+            §91.1a Rule 5).  When ``None`` the production Postgres-backed guard
             is resolved lazily per call (it is stateless).  Unit tests inject a
             shared ``InMemoryInflightIdempotencyGuard`` so the claim ->
             mutate -> finalize lifecycle persists across calls within one test.
 
-    Idempotency (AG3-140 / FK-91 §91.1a Regel 5): every mutating route carries a
+    Idempotency (AG3-140 / FK-91 §91.1a Rule 5): every mutating route carries a
     required client-supplied ``op_id`` and runs through the unified
     ``InflightIdempotencyGuard`` (claim -> mutate -> finalize).  A replay of the
     same ``op_id`` returns the stored result without re-mutating; the same
@@ -280,7 +280,7 @@ class ProjectManagementRoutes:
         )
 
     # ------------------------------------------------------------------
-    # Unified idempotency guard (AG3-140 / FK-91 §91.1a Regel 5)
+    # Unified idempotency guard (AG3-140 / FK-91 §91.1a Rule 5)
     # ------------------------------------------------------------------
 
     def _guard(self) -> InflightIdempotencyGuard:

@@ -153,7 +153,7 @@ def test_post_stories_creates_story() -> None:
 
 
 def test_post_stories_missing_op_id_returns_422() -> None:
-    """AG3-140 (FK-91 §91.1a Regel 5, AC1): missing op_id fails closed with 422."""
+    """AG3-140 (FK-91 §91.1a Rule 5, AC1): missing op_id fails closed with 422."""
     routes = _make_routes()
     resp = routes.handle_post(
         "/v1/stories",
@@ -232,7 +232,7 @@ def test_get_story_detail_returns_200() -> None:
     assert resp.status_code == HTTPStatus.OK
     body = _body(resp)
     assert body["summary"]["story_id"] == "AK3-001"  # type: ignore[index]
-    # Befund 2: create_story always persists a default StorySpecification.
+    # finding 2: create_story always persists a default StorySpecification.
     assert body["spec"] is not None
 
 

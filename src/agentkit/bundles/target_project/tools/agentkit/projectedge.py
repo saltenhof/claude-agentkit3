@@ -209,11 +209,11 @@ def _run_create_story(
 ) -> int:
     """Run the agent-facing native create: reconcile -> evidence -> POST.
 
-    Fail-closed (FK-21 §21.4.3 / FK-91 §91.1a Regel #3): the REAL reconciliation
+    Fail-closed (FK-21 §21.4.3 / FK-91 §91.1a Rule #3): the REAL reconciliation
     runtime produces the self-validating evidence; a Weaviate outage / a rejected
     boundary response blocks creation and prints a stable error contract on
     stderr with a non-zero exit. There is NO ``gh issue create`` here -- the
-    Control Plane is the single story truth (Regel #9).
+    Control Plane is the single story truth (Rule #9).
 
     Args:
         project_root: The target-project root.
@@ -317,7 +317,7 @@ def _run_create_story(
         # ``transport_error``.
         return _emit_create_error("transport_error", str(exc), correlation_id, op_id)
 
-    # SUCCESS output carries op_id (Regel #5: the caller can GET
+    # SUCCESS output carries op_id (Rule #5: the caller can GET
     # /v1/project-edge/operations/{op_id} after an ambiguous failure) and the full
     # §21.4.2 reconciliation counters the create surface owns (Codex R2 residual #3
     # / AG3-115): the persisted-story projection of these counters into the Story
@@ -346,7 +346,7 @@ def _emit_create_error(
     """Print the stable §91.1a error contract on stderr and fail closed.
 
     The ``op_id`` is included so the caller can reconcile an ambiguous failure via
-    ``GET /v1/project-edge/operations/{op_id}`` (Regel #5).
+    ``GET /v1/project-edge/operations/{op_id}`` (Rule #5).
     """
     payload = {
         "error_code": error_code,
@@ -372,7 +372,7 @@ def _add_phase_args(parser: argparse.ArgumentParser) -> None:
 def _client_op_id(op_id: str | None) -> str:
     """Return the caller op_id, minting one client-side when omitted.
 
-    FK-91 §91.1a Regel 5 (AG3-140): op_id is the client-supplied idempotency key
+    FK-91 §91.1a Rule 5 (AG3-140): op_id is the client-supplied idempotency key
     and the server no longer supplies a default. ``--op-id`` stays optional on the
     CLI, so a caller that omits it gets a fresh client-side mint here — no command
     ever relies on a server default that no longer exists.

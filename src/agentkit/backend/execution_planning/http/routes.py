@@ -96,7 +96,7 @@ class CreateDependencyRequest(BaseModel):
     story_id: str
     depends_on_story_id: str
     kind: StoryDependencyKind
-    #: FK-91 §91.1a Regel 5: client-supplied idempotency key (AG3-140: no server
+    #: FK-91 §91.1a Rule 5: client-supplied idempotency key (AG3-140: no server
     #: default remains).
     op_id: str = Field(min_length=1)
 
@@ -115,7 +115,7 @@ class DeleteDependencyRequest(BaseModel):
     """Request body for deleting a story dependency (AG3-140).
 
     The dependency DELETE is a mutating route and therefore carries a required
-    client-supplied ``op_id`` in the DELETE body (FK-91 §91.1a Regel 5). The
+    client-supplied ``op_id`` in the DELETE body (FK-91 §91.1a Rule 5). The
     target is the URL path tuple; folding it into the body-hash makes op_id reuse
     against a different target a fail-closed ``409 idempotency_mismatch``.
     """
@@ -173,7 +173,7 @@ class ExecutionPlanningRoutes:
         self._idempotency_guard = idempotency_guard
 
     # ------------------------------------------------------------------
-    # AG3-140 unified idempotency contract (FK-91 §91.1a Regel 5)
+    # AG3-140 unified idempotency contract (FK-91 §91.1a Rule 5)
     # ------------------------------------------------------------------
 
     def _guard(self) -> InflightIdempotencyGuard:

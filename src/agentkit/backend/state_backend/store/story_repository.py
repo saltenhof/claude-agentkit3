@@ -17,7 +17,7 @@ Design:
     - SQLite: ``participating_repos_json``, ``labels_json``, etc. (TEXT)
     - Postgres: ``participating_repos``, ``labels``, etc. (JSONB)
   - ``create_story_atomic`` wraps number allocation + story + spec save
-    in a single database transaction (Befund 6).
+    in a single database transaction (finding 6).
 
 Story stammdaten persistence is global (project-scoped), not per-story-dir.
 """
@@ -738,7 +738,7 @@ class StateBackendStoryRepository:
             _pg_upsert_spec(conn, row)
 
     # ------------------------------------------------------------------
-    # Atomic story creation (Befund 6)
+    # Atomic story creation (finding 6)
     # ------------------------------------------------------------------
 
     def create_story_atomic(
@@ -762,7 +762,7 @@ class StateBackendStoryRepository:
         the ``story_number`` UNIQUE constraint serialises concurrent inserts.
 
         This guarantees that either both story + spec succeed or neither
-        does (Befund 6 — atomicity). Request-level idempotency is handled
+        does (finding 6 — atomicity). Request-level idempotency is handled
         by the caller's unified in-flight idempotency guard (AG3-140), not
         by this persistence method.
 

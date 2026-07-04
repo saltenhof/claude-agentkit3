@@ -41,7 +41,7 @@ _TOKEN_DETAIL_PATH = re.compile(
 def _op_id_validation_error(exc: ValidationError) -> bool:
     """Return whether a wire-model ``ValidationError`` is (also) an ``op_id`` failure.
 
-    FK-91 §91.1a Regel 5 (AG3-140): a mutating request that omits ``op_id`` fails
+    FK-91 §91.1a Rule 5 (AG3-140): a mutating request that omits ``op_id`` fails
     closed with ``422`` specifically (distinct from the route's ordinary ``400``
     payload-shape rejection for unrelated fields). Auth is a deliberately minimal
     adapter boundary (architecture-conformance: it may not import
@@ -76,7 +76,7 @@ class CreateProjectApiTokenRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     label: str = "thin-client"
-    #: FK-91 §91.1a Regel 5: client-supplied idempotency key (AG3-140: no server
+    #: FK-91 §91.1a Rule 5: client-supplied idempotency key (AG3-140: no server
     #: default remains).
     op_id: str = Field(min_length=1)
 
@@ -109,7 +109,7 @@ class AuthRoutes:
         self._credential_store = credential_store or StrategistCredentialStore()
         self._session_store = session_store or InMemorySessionStore()
         self._token_repository = token_repository
-        #: FK-91 §91.1a Regel 5 (AG3-140): the unified in-flight idempotency guard.
+        #: FK-91 §91.1a Rule 5 (AG3-140): the unified in-flight idempotency guard.
         #: ``None`` resolves the stateless Postgres-backed production guard lazily
         #: per call; unit tests inject a shared in-memory guard so claim state
         #: persists across calls within one test.
@@ -223,7 +223,7 @@ class AuthRoutes:
         )
 
     # ------------------------------------------------------------------
-    # Unified in-flight idempotency guard (AG3-140 / FK-91 §91.1a Regel 5)
+    # Unified in-flight idempotency guard (AG3-140 / FK-91 §91.1a Rule 5)
     # ------------------------------------------------------------------
 
     def _guard(self) -> InflightIdempotencyGuard:

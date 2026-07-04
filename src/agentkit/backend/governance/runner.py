@@ -738,7 +738,7 @@ def _record_guard_invocation(
         # never by opening PostgreSQL from the hook. The core-side ``record``
         # operation also drains older weekly buckets (Week-Rollover, FK-61
         # §61.4.3 Trigger 2) before recording into the current week.
-        # AG3-140 (FK-91 §91.1a Regel 5): op_id is client-minted here (hook-side) —
+        # AG3-140 (FK-91 §91.1a Rule 5): op_id is client-minted here (hook-side) —
         # the server no longer supplies a default.
         _governance_edge_client(project_root).mutate_guard_counter(
             GuardCounterMutationRequest(

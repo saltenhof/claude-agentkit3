@@ -36,9 +36,9 @@ Covered:
 * AC3/AC4 positive: a real create-story run creates a story (backend-allocated
   id, canonical truth) THROUGH the real router with NO GitHub call.
 * AC4 idempotency: a repeat with the same op_id returns the SAME story (no
-  duplicate) — the service-side Regel #5 replay over the real router.
+  duplicate) — the service-side Rule #5 replay over the real router.
 * A real CONFLICT candidate adjudicated: PASS proceeds / FAIL blocks-and-records.
-* Regel #7: the SAME correlation id is adopted+echoed on success AND on error.
+* Rule #7: the SAME correlation id is adopted+echoed on success AND on error.
 * AC2/AC4 negative: a Weaviate outage during reconciliation fails closed (stable
   error contract on stderr, non-zero exit) and persists NOTHING.
 * Missing-evidence route negative (a forged body without the reconciliation
@@ -283,7 +283,7 @@ class _RecordingTransport:
 
     This is NOT a stub of the transport: every ``send`` is forwarded to the real
     :class:`HttpsJsonTransport` over the real socket; the wrapper only OBSERVES the
-    sent header and the echoed ``correlation_id`` so the test can assert Regel #7
+    sent header and the echoed ``correlation_id`` so the test can assert Rule #7
     (the SAME id is adopted+echoed on success AND error).
     """
 
@@ -322,7 +322,7 @@ def booted_app(
 
     Returns the base URL, the shared in-memory ``StoryService`` (so the test can
     assert the canonical truth) and a sink collecting the recording transports
-    the client factory builds (for the Regel #7 correlation assertions).
+    the client factory builds (for the Rule #7 correlation assertions).
     """
     svc = _service()
     app = _build_app(svc)
@@ -438,7 +438,7 @@ def test_create_story_tool_creates_story_via_real_router_no_github(
     assert summary["project_key"] == "ak3"
     assert summary["correlation_id"].startswith("corr-")
     assert summary["op_id"] == "op-e2e-1"
-    # Regel #7: the real router ADOPTED and ECHOED the same X-Correlation-Id the
+    # Rule #7: the real router ADOPTED and ECHOED the same X-Correlation-Id the
     # client sent on success (no divergent server-minted req-<uuid>).
     sent, echoed = transports[0].correlation_exchange[0]
     assert sent == summary["correlation_id"]
@@ -651,7 +651,7 @@ def test_create_story_tool_op_id_idempotent_no_duplicate(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """AC4: a repeat with the SAME op_id returns the SAME story (Regel #5)."""
+    """AC4: a repeat with the SAME op_id returns the SAME story (Rule #5)."""
     base_url, svc, transports = booted_app
     tool = _load_tool()
     _write_project_config(tmp_path)
@@ -718,7 +718,7 @@ def test_create_story_tool_unknown_project_rejected_through_router(
 
     The tenant-scope middleware (project does not exist) returns a 404
     ``project_not_found`` BEFORE the story route, so NOTHING is persisted and the
-    SAME correlation id is echoed on the error response (Regel #7).
+    SAME correlation id is echoed on the error response (Rule #7).
     """
     base_url, svc, transports = booted_app
     tool = _load_tool()
@@ -738,7 +738,7 @@ def test_create_story_tool_unknown_project_rejected_through_router(
     err = json.loads(capsys.readouterr().err)
     assert err["error_code"] == "project_not_found"
     assert err["op_id"] == "op-unknown-project"
-    # Regel #7: the router echoed the SAME X-Correlation-Id on the ERROR response.
+    # Rule #7: the router echoed the SAME X-Correlation-Id on the ERROR response.
     sent, echoed = transports[0].correlation_exchange[0]
     assert echoed == sent
     assert err["correlation_id"] == sent

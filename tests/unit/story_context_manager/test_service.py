@@ -826,14 +826,14 @@ def test_get_story_fields_returns_wire_dict() -> None:
 
 
 # ---------------------------------------------------------------------------
-# AG3-020/AG3-014 Integration: repo validation now live (Befund 3 fixed)
+# AG3-020/AG3-014 Integration: repo validation now live (finding 3 fixed)
 # ---------------------------------------------------------------------------
 
 
 def test_create_story_unknown_repo_is_blocked() -> None:
     """AG3-014 AC6: creating a story with a repo not in project config is rejected.
 
-    This test verifies that the AG3-014 Befund 3 fix is complete:
+    This test verifies that the AG3-014 finding 3 fix is complete:
     _get_project_repos now returns project.configuration.repositories,
     so validate_repos_against_project blocks unknown repos.
     """
@@ -1007,7 +1007,7 @@ def test_vectordb_conflict_resolved_defaults_false() -> None:
 
 
 def test_get_story_detail_returns_story_and_spec() -> None:
-    """create_story must persist a default StorySpecification (Befund 2).
+    """create_story must persist a default StorySpecification (finding 2).
 
     story.md §2.1.3 AC5: spec is never None after creation.
     """
@@ -1019,7 +1019,7 @@ def test_get_story_detail_returns_story_and_spec() -> None:
     assert result is not None
     story_out, spec = result
     assert story_out.story_display_id == story.story_display_id
-    # Befund 2: spec must be present (default created by create_story)
+    # finding 2: spec must be present (default created by create_story)
     assert spec is not None
 
 
@@ -1103,7 +1103,7 @@ def test_resume_reset_transition_is_idempotent_on_resetting() -> None:
 
 
 # ---------------------------------------------------------------------------
-# AG3-140 (FK-91 §91.1a Regel 5): unified claim -> mutate -> finalize idempotency
+# AG3-140 (FK-91 §91.1a Rule 5): unified claim -> mutate -> finalize idempotency
 # ---------------------------------------------------------------------------
 
 

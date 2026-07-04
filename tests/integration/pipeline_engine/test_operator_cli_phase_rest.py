@@ -12,7 +12,7 @@ the external boundary (they would otherwise spawn workers / touch git), exactly
 as the AG3-054 dispatch contract test does.
 
 The served app is wired handshake-gated (``VersionHandshakeMiddleware``) exactly
-like the production listener (FK-91 §91.1a Regel 11), so the CLI must carry the
+like the production listener (FK-91 §91.1a Rule 11), so the CLI must carry the
 version handshake (``X-AK3-Client`` + ``X-AK3-Skill-Bundle``) or the mutation is
 refused with HTTP 426 (Codex B2c).
 
@@ -214,7 +214,7 @@ def _serve(service: ControlPlaneRuntimeService) -> tuple[HTTPServer, str]:
     app = ControlPlaneApplication(
         runtime_service=service,
         # Production-accurate: the real listener is handshake-gated (FK-91 §91.1a
-        # Regel 11). run-phase/resume must carry the version handshake or 426.
+        # Rule 11). run-phase/resume must carry the version handshake or 426.
         version_handshake_middleware=VersionHandshakeMiddleware(),
     )
     app.ensure_version_handshake()

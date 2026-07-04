@@ -74,7 +74,7 @@ _SYNC_AFTER_BY_CLASS = {
 #: AG3-138: terminal statuses whose stored result ``GET operations/{op_id}``
 #: surfaces VERBATIM (not rewritten to ``replayed``) so a client reconciling an
 #: unclear mutation sees the true ``aborted`` / ``repair`` / ``failed`` outcome
-#: an admin-abort or startup reconciliation produced (FK-91 §91.1a Regel 17).
+#: an admin-abort or startup reconciliation produced (FK-91 §91.1a Rule 17).
 _RECONCILE_PRESERVED_STATUSES = frozenset({"aborted", "repair", "failed"})
 
 
@@ -165,7 +165,7 @@ class _ClaimOutcome:
       a foreign claim of ANY age); ``claimed_at_raw`` is ``None``.
 
     AG3-139: there is no wall-clock expiry and no CAS takeover of a foreign claim
-    -- ownership never ends by wall clock / TTL / lease (FK-91 §91.1a Regel 16).
+    -- ownership never ends by wall clock / TTL / lease (FK-91 §91.1a Rule 16).
     An orphaned claim is ended ONLY via the AG3-138 startup reconciliation or an
     explicit ``admin_abort_inflight_operation``.
 
@@ -323,7 +323,7 @@ class _ClaimMixin:
              NOT dispatch. AG3-139: there is no wall-clock expiry and no CAS
              takeover -- an orphaned claim ends ONLY via the AG3-138 startup
              reconciliation (same-instance restart) or an explicit
-             ``admin_abort_inflight_operation`` (FK-91 §91.1a Regel 16:
+             ``admin_abort_inflight_operation`` (FK-91 §91.1a Rule 16:
              ownership never ends by wall clock / TTL / lease).
 
         Args:
@@ -388,7 +388,7 @@ class _ClaimMixin:
             )
         # AG3-139: a foreign ``claimed`` row -- of ANY age -- is a LOSER. There is
         # no wall-clock expiry and no CAS takeover; an in-flight claim never ends
-        # by wall clock / TTL / lease (FK-91 §91.1a Regel 16). An orphaned claim
+        # by wall clock / TTL / lease (FK-91 §91.1a Rule 16). An orphaned claim
         # is ended ONLY via the AG3-138 startup reconciliation (same-instance
         # restart) or an explicit ``admin_abort_inflight_operation``.
         return _ClaimOutcome(won=False, result=self._in_flight_rejection(request, operation_kind=operation_kind))
@@ -2182,7 +2182,7 @@ class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmi
         if record.status == "claimed":
             #: ERROR-4: an in-flight claim placeholder is not a reconcilable op yet.
             return None
-        #: AG3-138 (AC5, FK-91 §91.1a Regel 17): ``_replayed_result`` surfaces an
+        #: AG3-138 (AC5, FK-91 §91.1a Rule 17): ``_replayed_result`` surfaces an
         #: ``aborted`` / ``repair`` / ``failed`` terminal state VERBATIM (a
         #: visible, auditable reconcile/repair state, SEVERITY-SEMANTIK) and
         #: only echoes the ordinary success statuses as ``replayed``.
@@ -2532,7 +2532,7 @@ def _control_plane_request_body_hash(
     operation_kind: str,
     phase: str | None,
 ) -> str:
-    """Canonical body-hash of a phase/closure request (AG3-140, FK-91 §91.1a Regel 5).
+    """Canonical body-hash of a phase/closure request (AG3-140, FK-91 §91.1a Rule 5).
 
     SHA-256 of the canonical request body (``op_id`` excluded by
     :func:`compute_body_hash`). ``operation_kind`` and ``phase`` are folded in so a
@@ -2587,7 +2587,7 @@ def _replay_or_mismatch(
       result (``_replayed_result``).
     * hash DIFFERS -> the ``op_id`` is being reused for a DIFFERENT phase/action/
       body: fail closed with :class:`IdempotencyMismatchError` (mapped to HTTP
-      ``409 idempotency_mismatch`` at the adapter, FK-91 §91.1a Regel 5).
+      ``409 idempotency_mismatch`` at the adapter, FK-91 §91.1a Rule 5).
 
     Fail-closed note: a ``None`` stored hash is a legacy / pre-AG3-140 row that was
     written before the body-hash was populated on this path -- it falls back to
@@ -2767,7 +2767,7 @@ def _build_claim_placeholder(
     (``backend_instance_id`` + ``instance_incarnation``), an initial fencing
     ``operation_epoch`` (bumped only by an explicit admin-abort, never by wall
     clock) and its ``declared_serialization_scope`` (the default
-    ``(project_key, story_id)`` object-serialization scope, Regel 13).
+    ``(project_key, story_id)`` object-serialization scope, Rule 13).
     """
     return ControlPlaneOperationRecord(
         op_id=request.op_id,

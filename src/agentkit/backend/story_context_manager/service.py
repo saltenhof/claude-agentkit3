@@ -232,7 +232,7 @@ class StoryService(ResetTransitionMixin):
         story_repository: Story stammdaten persistence.
         project_repository: Project entity access (for archived/repos check).
         idempotency_guard: Unified in-flight idempotency guard (AG3-140,
-            FK-91 §91.1a Regel 5). Enforces the ``claim -> mutate ->
+            FK-91 §91.1a Rule 5). Enforces the ``claim -> mutate ->
             finalize`` lifecycle so there is no crash window between the
             mutation and the recorded result, and a parallel same ``op_id``
             is rejected in-flight. Defaults to the Postgres-backed
@@ -283,7 +283,7 @@ class StoryService(ResetTransitionMixin):
         self._emit = event_emitter if event_emitter is not None else _logging_emitter
 
     # ------------------------------------------------------------------
-    # Idempotency helpers (AG3-140, FK-91 §91.1a Regel 5)
+    # Idempotency helpers (AG3-140, FK-91 §91.1a Rule 5)
     # ------------------------------------------------------------------
 
     def _require_fresh_claim(

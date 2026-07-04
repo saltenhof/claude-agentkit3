@@ -442,7 +442,7 @@ def test_foreign_claim_of_any_age_cannot_be_reclaimed_real_store(
     claim-acquisition entrypoint, and it never consults the row's age. This pins
     that a claim seeded with a ``claimed_at`` well past the FORMER 5-minute TTL
     still blocks a second claim attempt (ownership never ends by wall clock, FK-91
-    §91.1a Regel 16).
+    §91.1a Rule 16).
     """
     del postgres_backend_env
     start = datetime(2026, 6, 7, 10, 0, tzinfo=UTC)
