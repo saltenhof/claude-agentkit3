@@ -49,8 +49,12 @@ Der Ist-Zustand (am Code verifiziert 2026-07-02):
   SQLite-Zweig `BEGIN IMMEDIATE` :380) und die Story-Nummernvergabe per
   `FOR UPDATE` (`store/story_repository.py:889`) — beides vollständig in
   einer Transaktion, konzeptkonform (FK-10 §10.5.4).
-- Es fehlen vollständig: durable per-Objekt-Claim vor Dispatch, Lock-Sets mit
-  globaler Erwerbsordnung, Queue-Fairness, eine deklarierte Warte-Semantik.
+- Es fehlt: der durable per-**Story**-Objekt-Claim vor Dispatch mit einer
+  deklarierten Warte-Semantik. (Ein projektweites Sperrobjekt, Lock-Sets und
+  Queue-Fairness sind **nicht** nötig — keine Mutation braucht
+  whole-project-Exklusivität über einen Dispatch; verifiziert 2026-07-04,
+  Codex- + Fable-Analyse. Projektweit-atomare Vorgänge — Mode-Lock,
+  Story-Nummernvergabe — bleiben Ein-Transaktion.)
 - **Constraint K4 (verifiziert):** das Frontend bricht jeden Request nach
   **12 s** ab (`AbortController` + 12000-ms-Timeout,
   `src/agentkit/frontend/app/api.ts:156-186`, Timeout :157) und der Server ist
@@ -71,49 +75,46 @@ Der Ist-Zustand (am Code verifiziert 2026-07-02):
    `project_key + serialization_scope + scope_key`), nicht an den Aufrufer —
    welcher Client/Principal die Mutation trägt, ist für die Serialisierung
    irrelevant.
-2. **Deklarationspflicht (SOLL-048, Regel 13):** jede Mutation deklariert ihr
-   Serialisierungsobjekt; Default für umsetzungs-/lifecyclebezogene
-   Mutationen ist `(project_key, story_id)`, projektweite Mutationen
-   deklarieren `(project_key)`. Die Deklaration wird am
+2. **Deklarationspflicht (SOLL-048, Regel 13):** jede mutierende Story-Operation
+   deklariert die **Story** `(project_key, story_id)` als Serialisierungsobjekt
+   (an das Objekt gebunden, nicht an den Aufrufer). Die Deklaration wird am
    `inflight-operation-record` (`declared_serialization_scope`, AG3-137)
    persistiert. Reads deklarieren nichts und nehmen nie Sperren.
-3. **Lock-Sets + globale Erwerbsordnung (SOLL-049):** Mehr-Objekt-Mutationen
-   deklarieren ein Lock-Set; Erwerb strikt in globaler Ordnung — erst der
-   Projekt-Claim, dann Story-Claims in lexikographischer
-   `story_id`-Reihenfolge; niemals einen Story-Claim halten und danach den
-   Projekt-Claim anfordern (strukturell erzwungen, nicht Konvention).
-4. **Queue-Fairness (SOLL-050):** ein wartender Projekt-Claim konfligiert
-   auch mit später eintreffenden Story-Claims desselben Projekts (jüngere
-   Story-Claims überholen ihn nicht); administrative Übergänge haben
-   definierte FIFO-Fairness (`queue_position`-Attribut aus AG3-137;
-   Invariante `pending_project_claims_are_not_overtaken_by_younger_story_claims`).
-5. **Warte-Semantik unter K4 (IMPL-016):** bei besetztem Objekt entweder
-   deterministisches `409` mit `Retry-After` oder kurzes bounded Warten mit
-   hartem Budget deutlich unter 12 s (konkreter Wert = Designentscheidung der
-   Story, testbar gepinnt). Niemals unbegrenztes Blocking; die Antwortform ist
-   Teil des Fehlervertrags (Regel 8: `error_code`, strukturierte `detail`).
-6. **Reads sperrenfrei (SOLL-048/053/055):** Verifikation, dass kein Read-Pfad
+   **Kein projektweites Sperrobjekt, keine Lock-Sets:** es gibt kein
+   `(project_key)`-Serialisierungsobjekt und keine Mehr-Objekt-Lock-Sets — keine
+   Mutation braucht Exklusivität über das ganze Projekt hinweg über einen
+   Dispatch (verifiziert 2026-07-04, Codex- + Fable-Analyse). Die früher hier
+   geforderten SOLL-049 (Lock-Sets/globale Erwerbsordnung) und SOLL-050
+   (Queue-Fairness) sind **entfallen**, ebenso die Invariante
+   `pending_project_claims_are_not_overtaken_by_younger_story_claims` (FK-91
+   Regel 13 und `formal.state-storage.invariants` entsprechend entschlackt).
+3. **Warte-Semantik unter K4 (IMPL-016):** bei besetzter Story deterministisches
+   `409` mit `Retry-After` — **kein Thread-Blocking** (thread-per-request +
+   12-s-Frontend-Timeout). Die Antwortform ist Teil des Fehlervertrags (Regel 8:
+   `error_code`, strukturierte `detail`); das Budget ist als Konstante gepinnt.
+4. **Reads sperrenfrei (SOLL-048/053/055):** Verifikation, dass kein Read-Pfad
    einen Claim erwirbt oder auf einen wartet (inkl.
    `GET /v1/project-edge/operations/{op_id}`).
-7. **Instanzbindung + Verwaisungs-Anschluss (SOLL-066, object-claims-Anteil):**
+5. **Instanzbindung + Verwaisungs-Anschluss (SOLL-066, object-claims-Anteil):**
    Objekt-Claims tragen `backend_instance_id`/`instance_incarnation` und
    werden von der AG3-138-Start-Rekonsiliierung mit finalisiert (Erweiterung
    des Reconcile-Scans um `object_mutation_claims`); `admin_abort` gibt den
    Objekt-Claim der abgebrochenen Operation frei. **Kein** TTL, **kein**
    Wanduhr-Verfall.
-8. **Abgrenzung Ein-Transaktions-Muster (SOLL-053/055):** `mode_lock`- und
+6. **Abgrenzung Ein-Transaktions-Muster (SOLL-053/055):** `mode_lock`- und
    Story-Nummern-Pfade bleiben xact-basiert (dokumentierte, konzeptkonforme
-   Ausnahme: Mutation vollständig in einer Transaktion); die Abgrenzung wird
-   im Code dokumentiert und per Regressionstest gepinnt.
-9. **Story-scoped Concurrency-Testmuster (IMPL-017):** wiederverwendbares
+   Ausnahme: Mutation vollständig in einer Transaktion — das sind die einzigen
+   projektweit-atomaren Vorgänge und sie brauchen keinen durablen Claim); die
+   Abgrenzung wird im Code dokumentiert und per Regressionstest gepinnt.
+7. **Story-scoped Concurrency-Testmuster (IMPL-017):** wiederverwendbares
    Testmuster „zwei parallele Clients, eine Story" auf der Postgres-Fixture
    (injizierbare Seams analog `now_fn`/`token_factory` in
    `control_plane/runtime.py:243-250`): deterministisch gewinnt genau einer;
    der zweite erhält die deklarierte Warte-Antwort.
-10. **`formal.story-workflow`-Serialisierungs-Anteil (SOLL-056/057):**
-    run-phase-/resume-Mutationen serialisieren zusätzlich zur
-    op_id-Idempotenz pro deklariertem Objekt („instance-bound,
-    object-serialized") — Contract-Test gegen den formalen Wortlaut.
+8. **`formal.story-workflow`-Serialisierungs-Anteil (SOLL-056/057):**
+   run-phase-/resume-Mutationen serialisieren zusätzlich zur
+   op_id-Idempotenz pro deklariertem Objekt („instance-bound,
+   object-serialized") — Contract-Test gegen den formalen Wortlaut.
 
 ### Out of Scope (mit Owner)
 
@@ -135,16 +136,16 @@ Der Ist-Zustand (am Code verifiziert 2026-07-02):
 
 | Datei | Änderungsart | Zweck |
 |---|---|---|
-| `src/agentkit/backend/control_plane/object_claims.py` | neu | A-Kern: Deklarationsmodell, Lock-Set-Bildung, globale Erwerbsordnung, Fairness-Regeln, Warte-Entscheidung |
+| `src/agentkit/backend/control_plane/object_claims.py` | neu | A-Kern: Story-Serialisierungsobjekt-Deklaration + K4-Warte-Entscheidung (409/Retry-After) |
 | `src/agentkit/backend/control_plane/runtime.py` | ändern | Claim-Erwerb vor dem Dispatch (`start_phase` :304, `_mutate_phase` :1107, `complete_closure` :1123; Dispatch-Aufruf :864-871); Freigabe bei Finalize/Abort |
 | `src/agentkit/backend/control_plane/models.py` | ändern | serverseitige Scope-Deklaration je Operationsart (kein neues Wire-Feld für Clients) |
-| `src/agentkit/backend/control_plane/repository.py` | ändern | Ports: acquire/release/queue-Position/Fairness-Query |
-| `src/agentkit/backend/state_backend/postgres_store.py` + `store/facade.py` (+ `_public_api_names.py`, `__init__.pyi`) | ändern | Row-Funktionen für atomaren Claim-Erwerb/Queue/Freigabe (konfliktfrei unter Parallellast) |
+| `src/agentkit/backend/control_plane/repository.py` | ändern | Ports: per-Story-Claim acquire/release |
+| `src/agentkit/backend/state_backend/postgres_store.py` + `store/facade.py` (+ `_public_api_names.py`, `__init__.pyi`) | ändern | Row-Funktionen für atomaren per-Story-Claim-Erwerb/Freigabe (INSERT … ON CONFLICT auf dem Objekt-PK, konfliktfrei unter Parallellast) |
 | `src/agentkit/backend/control_plane/startup_reconcile.py` (aus AG3-138) | ändern | Reconcile-Scan um `object_mutation_claims` erweitern; `admin_abort` gibt Objekt-Claims frei |
-| `src/agentkit/backend/control_plane_http/app.py` | ändern | Antwortform `409 + Retry-After` bzw. bounded-Wait-Ergebnis im Fehlervertrag |
+| `src/agentkit/backend/control_plane_http/app.py` | ändern | Antwortform `409 + Retry-After` im Fehlervertrag (kein Thread-Blocking) |
 | `src/agentkit/backend/state_backend/store/mode_lock_repository.py`, `store/story_repository.py` | nicht ändern (pinnen) | Ein-TX-Ausnahmen bleiben; Regressionstest dokumentiert die Abgrenzung |
-| `tests/unit/control_plane/**` | neu | Ordnungs-/Fairness-/Deklarationslogik über Fakes (deterministisch, ohne DB) |
-| `tests/integration/**` | neu | Story-scoped Concurrency-Muster (IMPL-017) auf Postgres: 2 Clients / 1 Story; Projekt- vs. Story-Claim-Fairness; Crash → Reconcile gibt Claim frei |
+| `tests/unit/control_plane/**` | neu | Deklarations-/Warte-Entscheidungslogik über Fakes (deterministisch, ohne DB) |
+| `tests/integration/**` | neu | Story-scoped Concurrency-Muster (IMPL-017) auf Postgres: 2 Clients / 1 Story; verschiedene Stories parallel; Crash → Reconcile gibt Claim frei |
 | `tests/contract/**` | neu/ändern | Fehlervertrag der Warte-Semantik (409/Retry-After-Form); formal-Wortlaut-Pins run-phase/resume |
 
 ## Akzeptanzkriterien
@@ -163,32 +164,22 @@ Der Ist-Zustand (am Code verifiziert 2026-07-02):
    Projekts laufen parallel (kein globales Lock; Test), und Reads laufen
    uneingeschränkt parallel zu einer laufenden Mutation (Reads nehmen nie
    Sperren — Test + Code-Verifikation).
-4. **Erwerbsordnung strukturell erzwungen:** die Lock-Set-Mechanik kann die
-   Ordnung Projekt → Stories (lexikographisch) nicht verletzen; der Versuch
-   „Story-Claim halten, dann Projekt-Claim anfordern" ist als API nicht
-   ausdrückbar bzw. wird fail-closed abgewiesen (Unit-Test; SOLL-049).
-5. **Queue-Fairness:** ein wartender Projekt-Claim wird nicht von später
-   eintreffenden Story-Claims desselben Projekts überholt
-   (Integrationstest gegen
-   `pending_project_claims_are_not_overtaken_by_younger_story_claims`);
-   administrative Übergänge folgen FIFO (SOLL-050).
-6. **K4 eingehalten:** kein mutierender Handler blockiert länger als das
-   gewählte bounded-Wait-Budget (hart < 12 s, konkreter Wert gepinnt); bei
-   besetztem Objekt kommt die deterministische `409 + Retry-After`-Antwort
-   bzw. das bounded Ergebnis — Test mit dauerhaft gehaltenem Claim
-   (IMPL-016).
-7. **Kein Wanduhr-Verfall:** Objekt-Claims haben kein Expiry-Feld und keinen
+4. **K4 eingehalten:** kein mutierender Handler blockiert (kein Thread-Blocking);
+   bei besetzter Story kommt die deterministische `409 + Retry-After`-Antwort —
+   Test mit dauerhaft gehaltenem Claim (IMPL-016); das Retry-After-Budget ist als
+   Konstante deutlich < 12 s gepinnt.
+5. **Kein Wanduhr-Verfall:** Objekt-Claims haben kein Expiry-Feld und keinen
    zeitbasierten Freigabepfad; der einzige nicht-administrative Endweg ist
    Finalize/Abort der eigenen Operation (SOLL-066, object-claims-Anteil;
    Negativtest: gehaltener Claim bleibt über beliebige Testzeit bestehen).
-8. **Ein-TX-Ausnahmen unverändert:** `mode_lock`- und
+6. **Ein-TX-Ausnahmen unverändert:** `mode_lock`- und
    Story-Nummern-Serialisierung verhalten sich unverändert (bestehende Tests
    grün); die Abgrenzung (xact-Lock nur bei Ein-Transaktions-Mutation) ist im
    Code dokumentiert (SOLL-053/055).
-9. **formal-Wortlaut:** run-phase/resume sind „object-serialized" im Sinne
+7. **formal-Wortlaut:** run-phase/resume sind „object-serialized" im Sinne
    der `formal.story-workflow.commands` (Contract-Pin; SOLL-056/057
    Serialisierungs-Anteil).
-10. Coverage ≥ 85 %, `mypy` strict (+ `--platform linux`), `ruff`, ARCH-55.
+8. Coverage ≥ 85 %, `mypy` strict (+ `--platform linux`), `ruff`, ARCH-55.
 
 ## Definition of Done
 
@@ -201,13 +192,17 @@ Der Ist-Zustand (am Code verifiziert 2026-07-02):
 
 ## Abdeckung (Traceability)
 
-**Deckt ab:** SOLL-048–050, SOLL-053–055, SOLL-056 (Serialisierungs-Anteil), SOLL-057 (Serialisierungs-Anteil), SOLL-066 (object-claims); IMPL-016, IMPL-017.
+**Deckt ab:** SOLL-048 (Story-Scope), SOLL-053–055, SOLL-056 (Serialisierungs-Anteil), SOLL-057 (Serialisierungs-Anteil), SOLL-066 (object-claims); IMPL-016, IMPL-017.
+
+**Entfallen (verifiziert 2026-07-04, Codex- + Fable-Analyse — kein realer Aufrufer für ein projektweites Sperrobjekt):** SOLL-049 (Lock-Sets/globale Erwerbsordnung), SOLL-050 (Queue-Fairness). Projektweit-atomare Vorgänge (Mode-Lock, Story-Nummernvergabe) bleiben Ein-Transaktion (xact-Lock, SOLL-053/055) und brauchen keinen durablen Projekt-Claim. FK-91 Regel 13 und `formal.state-storage.invariants` (Invariante `pending_project_claims_are_not_overtaken_by_younger_story_claims`) wurden entsprechend entschlackt.
 
 ## Konzept-Referenzen
 
-- FK-91 §91.1a Regel 13 (Serialisierungsobjekt-Deklarationspflicht; Default
-  `(project_key, story_id)`; Lock-Set mit globaler Erwerbsordnung;
-  Queue-Fairness; „Reads nehmen niemals Sperren")
+- FK-91 §91.1a Regel 13 (Serialisierungsobjekt-Deklarationspflicht; das
+  serialisierte Objekt ist die Story `(project_key, story_id)`, durabler
+  Objekt-Claim vor Dispatch; „Reads nehmen niemals Sperren"; kein projektweites
+  Sperrobjekt / keine Lock-Sets — projektweit-atomare Vorgänge sind
+  Ein-Transaktion)
 - FK-10 §10.5.4 (durable Objekt-Mutation-Claim-Zeile VOR dem Dispatch, weil
   Engine-Writes und Finalize in getrennten Transaktionen laufen; xact-Locks
   nur für Ein-Transaktions-Mutationen; Instanzbindung), §10.1.3
@@ -217,8 +212,9 @@ Der Ist-Zustand (am Code verifiziert 2026-07-02):
   regelt *wer*, Objekt-Serialisierung *wann*)
 - `formal.state-storage.entities` → `state-storage.entity.object-mutation-claim`;
   `formal.state-storage.invariants` →
-  `object_mutation_claims_are_instance_bound_and_never_expire_by_wall_clock`,
-  `pending_project_claims_are_not_overtaken_by_younger_story_claims`
+  `object_mutation_claims_are_instance_bound_and_never_expire_by_wall_clock`
+  (die Invariante `pending_project_claims_are_not_overtaken_by_younger_story_claims`
+  ist mit dem projektweiten Sperrobjekt entfallen)
 - `formal.story-workflow.commands` → run-phase/resume („in-flight operation
   claim — instance-bound, object-serialized; mutations additionally serialize
   per declared serialization object, default (project_key, story_id)") —
@@ -254,9 +250,9 @@ Der Ist-Zustand (am Code verifiziert 2026-07-02):
   kein SQLite-Spiegel; Unit-Tests über Ports/Fakes,
   Integration/Contract über die Postgres-Fixture.
 - **Blutgruppen-Klassifikation:** `object_claims.py`
-  (Deklaration/Ordnung/Fairness-Entscheidungslogik) = **A** (rein, ohne DB
-  testbar); Scope-Ableitung je Operationsart = **R**; atomare
-  Claim-Row-Funktionen inkl. Queue-Mechanik = **AT** (konstitutive Mediation,
+  (Story-Serialisierungsobjekt-Deklaration + K4-Warte-Entscheidung) = **A** (rein,
+  ohne DB testbar); Scope-Ableitung je Operationsart = **R**; atomare per-Story
+  Claim-Row-Funktionen (INSERT … ON CONFLICT) = **AT** (konstitutive Mediation,
   lokalisiert in `state_backend`).
 - **Bundle-Assets:** Keine betroffen (verifiziert: die Serialisierung ist
   serverseitig transparent; Clients sehen nur die dokumentierte

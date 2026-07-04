@@ -67,9 +67,6 @@ invariants:
   - id: state-storage.invariant.operation_finalize_requires_cas_on_operation_epoch
     scope: locking
     rule: an operation finalize commits only by compare and swap while the operation is still inflight with unchanged operation_epoch so a late executor after an admin abort can at most register a no-op abort note and an aborted operation with partial writes enters an audited reconcile repair state instead of silently becoming failed
-  - id: state-storage.invariant.pending_project_claims_are_not_overtaken_by_younger_story_claims
-    scope: locking
-    rule: claim acquisition follows the global order of project before stories with story_ids in lexicographic order and a waiting project-scoped claim also conflicts with story claims of the same project arriving later so younger story claims never overtake it
   - id: state-storage.invariant.stale_results_never_overwrite_current_projections
     scope: canonicality
     rule: a job result whose fencing predicates are no longer valid at commit time must be stored as a separate immutable stale_observation history record and must never update a current pointer latest view projection or steering state

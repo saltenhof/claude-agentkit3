@@ -234,18 +234,21 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
     ohne In-Flight-Schutz ist kein zulaessiger Sondermechanismus. Der
     Worker-Health-Write ist ein idempotenter Upsert.
 13. **Serialisierungsobjekt-Deklaration.** Jede mutierende Operation
-    deklariert ihr Serialisierungsobjekt. Default fuer umsetzungs- und
-    lifecyclebezogene Mutationen ist `(project_key, story_id)`;
-    projektweite Mutationen (z. B. Mode-Lock, Story-Nummernvergabe,
-    Projekt-/Planning-Konfiguration) serialisieren auf `(project_key)`.
-    Mehr-Objekt-Mutationen deklarieren ein **Lock-Set mit globaler
-    Erwerbsordnung**: erst der Projekt-Claim, dann Story-Claims in
-    lexikographischer `story_id`-Reihenfolge; niemals einen Story-Claim
-    halten und danach den Projekt-Claim anfordern. Gegen Starvation gilt
-    **Queue-Fairness**: ein wartender Projekt-Claim konfligiert auch mit
-    spaeter eintreffenden Story-Claims desselben Projekts — juengere
-    Story-Claims ueberholen ihn nicht; administrative Uebergaenge haben
-    definierte FIFO-Fairness. **Reads nehmen niemals Sperren.**
+    deklariert ihr Serialisierungsobjekt. Objekt-serialisierte Mutationen
+    laufen sequenziell pro mutiertem Objekt, an das Objekt gebunden (nicht
+    an den Aufrufer); das serialisierte Objekt ist die **Story**
+    `(project_key, story_id)` — dafuer wird ein durabler Objekt-Claim vor
+    dem Dispatch erworben und bis Finalize/Abort gehalten (FK-10 §10.5.4).
+    **Reads nehmen niemals Sperren.** Rein projektweit-atomare Vorgaenge
+    (Mode-Lock, Story-Nummernvergabe) werden vollstaendig in EINER
+    Transaktion serialisiert (transaktionsgebundenes `pg_advisory_xact_lock`
+    bzw. `FOR UPDATE`, FK-10 §10.5.4) und nehmen **keinen** durablen
+    Objekt-Claim. Ein **projektweites Serialisierungs-Sperrobjekt** und
+    **Mehr-Objekt-Lock-Sets** existieren nicht: keine Mutation benoetigt
+    Exklusivitaet ueber das gesamte Projekt hinweg ueber einen Dispatch
+    (verifiziert 2026-07-04; die frueher hier normierte
+    `(project_key)`-Serialisierung, Lock-Set-Erwerbsordnung und
+    Queue-Fairness waren mechanik ohne Aufrufer und sind entfallen).
 14. **Bounded-Pflicht und Job-Muster.** Objekt-serialisierte Mutationen
     muessen kurz, transaktional und technisch bounded sein. Was nicht
     bounded ist, ist per Definition ein Job: die Annahme ist eine kurze
