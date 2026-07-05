@@ -1,8 +1,9 @@
 story_id: AG3-144
 title: "Reconnect-Rekonsiliierung + No-Lease-no-Write-Vollstaendigkeit (synchrones Sollbild): Lease-Fence auf alle mutierenden Projektions-Writes, op_id-Reconnect-Verifikation"
 type: implementation
-status: in_progress
-phase: implementation
+status: completed
+phase: closure
+completed_at: "2026-07-05T10:43:33Z"
 created: "2026-07-02"
 size: S
 # NEUSCHNITT 2026-07-05 nach PO-Architekturentscheidung (bindend): synchrones

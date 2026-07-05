@@ -1,0 +1,50 @@
+## Summary
+
+The three round-1 CRITICALs are closed: `artifact_envelopes`, `qa_check_outcomes`, and `closure_report` now re-check `_enforce_ownership_fence_row` before their write in the same Postgres transaction/connection, and the closure file write is inside the locked transaction.
+
+The remediation is still not complete. A real closure-phase projection write to `story_metrics` remains reachable and commits through `ProjectionAccessor.write_projection(...)` / `upsert_story_metrics_row(...)` without any AG3-142 ownership-lease fence. That is a fail-open production mutating story-projection write outside the remediated surfaces.
+
+I did not run Postgres tests per instruction. Review was static source/diff inspection only.
+
+## Per-Surface Completeness Map
+
+| Surface | Fenced? | Evidence |
+|---|---:|---|
+| `artifact_envelopes` via `StateBackendArtifactRepository._pg_write` | Yes | Scope is required before opening SQL write path at `src/agentkit/backend/state_backend/store/artifact_repository.py:492`; the same `with _postgres_connect()` transaction then calls `_enforce_ownership_fence_row` at `src/agentkit/backend/state_backend/store/artifact_repository.py:494` and `src/agentkit/backend/state_backend/store/artifact_repository.py:500`; the `INSERT ... ON CONFLICT` starts only after that at `src/agentkit/backend/state_backend/store/artifact_repository.py:508` and `src/agentkit/backend/state_backend/store/artifact_repository.py:524`. |
+| `qa_check_outcomes` via `FacadeQACheckOutcomesRepository._pg_write` | Yes | Scope is required at `src/agentkit/backend/state_backend/store/projection_repositories.py:1339`; the same `_postgres_connect()` block calls `_enforce_ownership_fence_row` at `src/agentkit/backend/state_backend/store/projection_repositories.py:1340` and `src/agentkit/backend/state_backend/store/projection_repositories.py:1344`; the upsert starts after that at `src/agentkit/backend/state_backend/store/projection_repositories.py:1352` and `src/agentkit/backend/state_backend/store/projection_repositories.py:1362`. |
+| `qa_stage_results` / `qa_findings` batch | Yes | Implementation passes the captured snapshot into the accessor at `src/agentkit/backend/implementation/phase.py:325`; facade forwards it at `src/agentkit/backend/state_backend/store/facade.py:2376`; Postgres driver holds one `_connect` transaction at `src/agentkit/backend/state_backend/postgres_store.py:5062`, fences first at `src/agentkit/backend/state_backend/postgres_store.py:5065`, then writes projection/stage/findings at `src/agentkit/backend/state_backend/postgres_store.py:5078`, `src/agentkit/backend/state_backend/postgres_store.py:5096`, and `src/agentkit/backend/state_backend/postgres_store.py:5100`. |
+| `decision_records` | Yes | Implementation passes the same snapshot at `src/agentkit/backend/implementation/phase.py:360`; Postgres driver opens one transaction at `src/agentkit/backend/state_backend/postgres_store.py:5145`, fences first at `src/agentkit/backend/state_backend/postgres_store.py:5148`, then writes the projection file and `decision_records` upsert at `src/agentkit/backend/state_backend/postgres_store.py:5156` and `src/agentkit/backend/state_backend/postgres_store.py:5160`. |
+| `closure_report` / `closure.json` | Yes | Closure captures a lease snapshot at `src/agentkit/backend/closure/phase.py:1097` and passes it through `write_execution_report` at `src/agentkit/backend/closure/phase.py:1101`; facade calls the driver at `src/agentkit/backend/state_backend/store/facade.py:2607`; Postgres driver opens one `_connect` block at `src/agentkit/backend/state_backend/postgres_store.py:5417`, fences at `src/agentkit/backend/state_backend/postgres_store.py:5421`, and writes `closure.json` inside that same block at `src/agentkit/backend/state_backend/postgres_store.py:5429` and `src/agentkit/backend/state_backend/postgres_store.py:5432`. |
+| `story_metrics` | No | Closure writes metrics before the closure report at `src/agentkit/backend/closure/phase.py:421` and `src/agentkit/backend/closure/phase.py:424`; `_resolve_metrics` calls `accessor.write_projection(ProjectionKind.STORY_METRICS, metrics)` at `src/agentkit/backend/closure/phase.py:1177`; `ProjectionAccessor` routes `STORY_METRICS` to the repository at `src/agentkit/backend/telemetry/projection_accessor.py:335`; the repository calls `facade.upsert_story_metrics` at `src/agentkit/backend/state_backend/store/projection_repositories.py:975`; facade directly calls `upsert_story_metrics_row` at `src/agentkit/backend/state_backend/store/facade.py:2242`; Postgres performs an unfenced `INSERT ... ON CONFLICT` at `src/agentkit/backend/state_backend/postgres_store.py:4657` and `src/agentkit/backend/state_backend/postgres_store.py:4660`. |
+
+## ContextVar Probe
+
+`OwnershipFenceScope` is fail-closed for missing or mismatched context: no scope raises `CorruptStateError` at `src/agentkit/backend/state_backend/store/facade.py:1041`, and cross-story reuse raises at `src/agentkit/backend/state_backend/store/facade.py:1052`. The bind/reset uses a `ContextVar` token in `finally`, so normal scope exit does not leak at `src/agentkit/backend/state_backend/store/facade.py:1013` and `src/agentkit/backend/state_backend/store/facade.py:1017`.
+
+Postgres-with-no-active-lease does not receive the SQLite placeholder: `resolve_ownership_fence_snapshot` returns `None` only for non-Postgres at `src/agentkit/backend/state_backend/store/facade.py:898`; on Postgres, no active row raises at `src/agentkit/backend/state_backend/store/facade.py:900` and `src/agentkit/backend/state_backend/store/facade.py:902`. The `("sqlite-unfenced", 0)` fallback is created only after a `None` result, e.g. `src/agentkit/backend/implementation/phase.py:184` and `src/agentkit/backend/implementation/phase.py:186`.
+
+There is a raw `ThreadPoolExecutor` boundary in Layer 2: `ParallelEvalRunner` submits evaluator calls at `src/agentkit/backend/verify_system/llm_evaluator/parallel_runner.py:149` and `src/agentkit/backend/verify_system/llm_evaluator/parallel_runner.py:154`. That means ContextVar state does not propagate into the worker thread. The resulting prompt materialization/audit `ArtifactManager.write` path fails closed, not open: prompt runtime writes through `persist_prompt_audit` at `src/agentkit/backend/prompt_runtime/runtime.py:501`, which reaches `ArtifactManager.write` at `src/agentkit/backend/prompt_runtime/audit.py:194`; without context, the repository raises before SQL at `src/agentkit/backend/state_backend/store/artifact_repository.py:492`. The Layer-2 wrapper converts any runner failure into BLOCKING results at `src/agentkit/backend/verify_system/llm_evaluator/layer2_integration.py:168` and `src/agentkit/backend/verify_system/llm_evaluator/layer2_integration.py:182`. No unfenced commit is available on that path.
+
+I found no relevant `run_in_executor` call. Other subprocess/thread hits in the sweep are structural evidence, secret scan, worker-health, or fine-design subprocess code and do not re-enter `ArtifactManager.write`.
+
+## Findings
+
+### CRITICAL: `story_metrics` projection upsert is reachable and unfenced
+
+Closure writes `story_metrics` in the real completed closure path before it writes the now-fenced closure report: `src/agentkit/backend/closure/phase.py:421`, `src/agentkit/backend/closure/phase.py:424`, and `src/agentkit/backend/closure/phase.py:464`. The write path is `accessor.write_projection(ProjectionKind.STORY_METRICS, metrics)` at `src/agentkit/backend/closure/phase.py:1177`, routed through `ProjectionAccessor` at `src/agentkit/backend/telemetry/projection_accessor.py:335`, `FacadeStoryMetricsRepository.write` at `src/agentkit/backend/state_backend/store/projection_repositories.py:969`, facade at `src/agentkit/backend/state_backend/store/facade.py:2242`, and the Postgres `INSERT ... ON CONFLICT` at `src/agentkit/backend/state_backend/postgres_store.py:4657` and `src/agentkit/backend/state_backend/postgres_store.py:4667`.
+
+There is no `_enforce_ownership_fence_row` call on that path. Concrete failure scenario: closure run A passes earlier closure gates and loses the active `run_ownership_records` lease before Step 5 metrics materialization. The ex-owner still executes `_resolve_metrics`, and `upsert_story_metrics_row` commits `story_metrics` for the story/run without taking the AG3-142 row lock or comparing `owner_session_id` / `ownership_epoch`. That violates the story requirement that no reachable production mutating story-projection write may commit without the same-transaction AG3-142 fence.
+
+### MINOR: Added code comment is not English-only
+
+The remediation added a code comment containing the German term `ENTWURF` at `src/agentkit/backend/exploration/phase.py:283`. ARCH-55 requires source comments/docstrings to be English-only.
+
+## Completeness Notes
+
+The worker claim that `HandoverPackager` has no production caller is consistent with the source sweep: the class is re-exported at `src/agentkit/backend/implementation/handover/__init__.py:16`, producer metadata mentions it at `src/agentkit/backend/implementation/register.py:31`, and the actual write is in `HandoverPackager.package` at `src/agentkit/backend/implementation/handover/packager.py:136` and `src/agentkit/backend/implementation/handover/packager.py:211`; I found only tests instantiating it.
+
+The legacy `verify_system.artifacts` helper writes still exist at `src/agentkit/backend/verify_system/artifacts.py:98`, `src/agentkit/backend/verify_system/artifacts.py:147`, `src/agentkit/backend/verify_system/artifacts.py:152`, and `src/agentkit/backend/verify_system/artifacts.py:186`, but the production `run_qa_subflow` writes through `VerifySystem._write_layer_envelope` / `_write_policy_artifact` instead at `src/agentkit/backend/verify_system/system.py:826` and `src/agentkit/backend/verify_system/system.py:873`.
+
+AC6 diff grep over `da019ff2..7b68f2fc` did not show added `stale_observation`, result-kind registry/classification, async-202 job machinery, materialized fence view, digest predicate machinery, or artifact-version predicate machinery.
+
+VERDICT: REJECT
