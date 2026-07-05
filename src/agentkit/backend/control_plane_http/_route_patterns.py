@@ -30,6 +30,13 @@ _EDGE_COMMAND_RESULT_PATTERN = re.compile(
     r"^/v1/project-edge/commands/(?P<command_id>[^/]+)/result$",
 )
 
+# AG3-147: push-freshness / push-backlog read surface (FK-10 §10.2.4b, AC5) --
+# the read-model data basis for the ownership-lage display / takeover challenge
+# (consumers AG3-148/AG3-153). Non-project-scoped like the sibling edge routes.
+_EDGE_PUSH_FRESHNESS_PATTERN = re.compile(
+    r"^/v1/project-edge/story-runs/(?P<run_id>[^/]+)/push-freshness$",
+)
+
 # Project-scoped paths under /v1/projects/{project_key}/<bc>/...
 _PROJECT_SCOPED_PREFIX = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/(?P<rest>.+)$",

@@ -44,6 +44,7 @@ from agentkit.backend.control_plane.worker_health import ControlPlaneWorkerHealt
 from agentkit.backend.control_plane_http._route_patterns import (
     _EDGE_COMMAND_RESULT_PATTERN,
     _EDGE_COMMANDS_COLLECTION_PATTERN,
+    _EDGE_PUSH_FRESHNESS_PATTERN,
     _OPERATION_ADMIN_ABORT_PATTERN,
     _OPERATION_PATH_PATTERN,
     _PROJECT_CLOSURE_PATH_PATTERN,
@@ -989,6 +990,13 @@ class ControlPlaneApplication(
                 commands_match.group("run_id"), query, correlation_id,
             )
 
+        # AG3-147 push-freshness / push-backlog read surface (FK-10 §10.2.4b, AC5):
+        freshness_match = _EDGE_PUSH_FRESHNESS_PATTERN.match(route_path)
+        if freshness_match is not None:
+            return self._handle_get_push_freshness(
+                freshness_match.group("run_id"), query, correlation_id,
+            )
+
         # Auth routes (non-project-scoped):
         auth_response = self._auth_routes.handle_get(route_path, correlation_id)
         if auth_response is not None:
@@ -1608,6 +1616,50 @@ class ControlPlaneApplication(
             return _error_response(
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 error_code="edge_commands_unavailable",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+        return _json_response(
+            HTTPStatus.OK,
+            result.model_dump(mode="json"),
+            correlation_id=correlation_id,
+        )
+
+    def _handle_get_push_freshness(
+        self,
+        run_id: str,
+        query: dict[str, list[str]],
+        correlation_id: str,
+    ) -> HttpResponse:
+        """``GET .../story-runs/{run_id}/push-freshness`` (FK-10 §10.2.4b, AG3-147 AC5).
+
+        ``project_key``/``story_id`` are mandatory query parameters (a GET
+        carries no body). Read-only, no lock/claim. The read surface is
+        Postgres-only (K5): a non-Postgres backend fails closed with a stable
+        ``push_freshness_unavailable`` 503.
+        """
+        project_key = _single_query_value(query, "project_key")
+        story_id = _single_query_value(query, "story_id")
+        if not project_key or not story_id:
+            return _error_response(
+                HTTPStatus.BAD_REQUEST,
+                error_code="invalid_push_freshness_query",
+                message="project_key and story_id query parameters are required",
+                correlation_id=correlation_id,
+            )
+        try:
+            result = self._runtime_service.list_push_freshness(
+                run_id, project_key=project_key, story_id=story_id,
+            )
+        except ConfigError as exc:
+            return _backend_requirement_response(
+                "push_freshness_unavailable", exc, correlation_id
+            )
+        except RuntimeError as exc:
+            logger.warning("Push-freshness read unavailable: %s", exc)
+            return _error_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                error_code="push_freshness_unavailable",
                 message=str(exc),
                 correlation_id=correlation_id,
             )

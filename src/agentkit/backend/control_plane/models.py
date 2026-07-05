@@ -950,6 +950,38 @@ class EdgeCommandResultRequest(BaseModel):
     result: EdgeCommandResultPayload
 
 
+class PushFreshnessView(BaseModel):
+    """One repo's push-freshness / backlog read row (AG3-147, FK-10 §10.2.4b).
+
+    The read-model projection of a ``push_freshness_records`` row (In-Scope #3,
+    AC5). It is INFORMATION only -- a consumer (AG3-148/AG3-153) never derives
+    an ownership transition from silence/staleness (no automatic silence ->
+    transfer). ARCH-55: English wire keys.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    repo_id: str = Field(min_length=1)
+    last_reported_head_sha: str | None = None
+    last_pushed_head_sha: str | None = None
+    last_reported_at: datetime
+    backlog: bool
+    backlog_detail: str | None = None
+
+
+class PushFreshnessListResponse(BaseModel):
+    """Response body for the push-freshness read surface (AG3-147, AC5).
+
+    ``GET .../story-runs/{run_id}/push-freshness`` returns one
+    :class:`PushFreshnessView` per participating repo (the data basis for the
+    ownership-lage display and takeover challenge; consumers AG3-148/AG3-153).
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    freshness: list[PushFreshnessView] = Field(default_factory=list)
+
+
 class EdgeCommandMutationResult(BaseModel):
     """Response body for ``POST .../commands/{command_id}/result`` (AG3-145).
 

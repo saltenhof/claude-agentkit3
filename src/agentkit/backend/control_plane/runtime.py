@@ -28,6 +28,8 @@ from agentkit.backend.control_plane.models import (
     PhaseDispatchResult,
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,
+    PushFreshnessListResponse,
+    PushFreshnessView,
     SessionRunBindingView,
     StoryExecutionLockView,
 )
@@ -1985,6 +1987,40 @@ class _EdgeCommandMixin:
                     payload=record.payload,
                     status=cast("Literal['created', 'delivered']", record.status),
                     created_at=record.created_at,
+                )
+                for record in records
+            ]
+        )
+
+    def list_push_freshness(
+        self,
+        run_id: str,
+        *,
+        project_key: str,
+        story_id: str,
+    ) -> PushFreshnessListResponse:
+        """``GET .../story-runs/{run_id}/push-freshness`` (FK-10 §10.2.4b, AG3-147 AC5).
+
+        Read-only projection of the Postgres-only ``push_freshness_records``
+        read surface (one row per participating repo). Freshness / silence is
+        INFORMATION only: reading it never triggers an ownership transition
+        (AC5). Fail-closed on a non-Postgres backend (``ConfigError``, K5).
+        """
+        self._require_postgres_backend_on_first_use()
+        from agentkit.backend.state_backend.store import (
+            list_push_freshness_records_global,
+        )
+
+        records = list_push_freshness_records_global(project_key, story_id, run_id)
+        return PushFreshnessListResponse(
+            freshness=[
+                PushFreshnessView(
+                    repo_id=record.repo_id,
+                    last_reported_head_sha=record.last_reported_head_sha,
+                    last_pushed_head_sha=record.last_pushed_head_sha,
+                    last_reported_at=record.last_reported_at,
+                    backlog=record.backlog,
+                    backlog_detail=record.backlog_detail,
                 )
                 for record in records
             ]
