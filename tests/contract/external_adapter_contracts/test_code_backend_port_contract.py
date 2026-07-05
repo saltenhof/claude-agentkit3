@@ -28,6 +28,7 @@ import pytest
 from agentkit.backend.code_backend.provider_port import (
     CodeBackendCapability,
     CodeBackendPort,
+    StoryRefWriteCredentialClass,
 )
 from agentkit.integration_clients.github.adapter import GitHubCodeBackendAdapter
 
@@ -126,3 +127,30 @@ class TestCodeBackendPortContract:
         assert result.available is False
         assert result.base_ref == "main"
         assert result.head_ref == "story/AG3-146"
+
+    def test_story_ref_write_credential_is_never_the_personal_token(
+        self, code_backend_port: tuple[CodeBackendPort, str]
+    ) -> None:
+        """AG3-147 AC8: the story/* write credential is never the personal token.
+
+        Neither adapter has a backend-managed service identity configured in
+        this suite, so both fail closed (``resolved=False``) -- but crucially,
+        NEITHER substitutes the personal developer token class.
+        """
+        port, _ = code_backend_port
+        credential = port.resolve_story_ref_write_credential()
+        assert (
+            credential.credential_class
+            is not StoryRefWriteCredentialClass.PERSONAL_DEVELOPER_TOKEN
+        )
+        if not credential.resolved:
+            assert credential.credential_class is None
+
+    def test_administer_ref_protection_never_raises_and_returns_result(
+        self, code_backend_port: tuple[CodeBackendPort, str]
+    ) -> None:
+        """AG3-147 AC7/AC9: administration is fail-closed, never raises."""
+        port, _ = code_backend_port
+        result = port.administer_ref_protection("story/*")
+        assert result.ref_pattern == "story/*"
+        assert isinstance(result.administered, bool)

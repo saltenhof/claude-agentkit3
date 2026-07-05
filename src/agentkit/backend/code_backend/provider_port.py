@@ -58,8 +58,11 @@ __all__ = [
     "CodeBackendCapability",
     "CodeBackendPort",
     "CompareEvidenceResult",
+    "RefProtectionResult",
     "RefReadResult",
     "RepoProbeResult",
+    "StoryRefWriteCredentialClass",
+    "StoryRefWriteCredentialResult",
 ]
 
 
@@ -138,6 +141,67 @@ class CompareEvidenceResult:
     detail: str = ""
 
 
+class StoryRefWriteCredentialClass(StrEnum):
+    """Credential class released for a ``story/*`` ref write (FK-15 §15.5.1).
+
+    The service identity is a DISTINCT credential class from the personal
+    developer token: backend-managed, never in the repository/worktree, and the
+    only class the official push path may use for ``story/*`` (AG3-147 AC8).
+    """
+
+    SERVICE_IDENTITY = "service_identity"
+    PERSONAL_DEVELOPER_TOKEN = "personal_developer_token"
+
+
+@dataclass(frozen=True)
+class StoryRefWriteCredentialResult:
+    """Outcome of resolving the ``story/*`` write credential (FK-15 §15.5.1, AC8).
+
+    ``credential_ref`` is an OPAQUE source handle (e.g. an env-var NAME or a
+    backend key id), NEVER the secret value -- the secret never crosses this
+    contract and never appears in the repo/worktree (ARCH-55: no secret in a
+    return/wire field). A provider that has no backend-managed service identity
+    fails closed (``resolved=False``) and NEVER falls back to the personal
+    developer token for a ``story/*`` write (AC8 negative path).
+
+    Attributes:
+        resolved: Whether a usable service-identity credential was resolved.
+        credential_class: The class of the resolved credential (always
+            ``SERVICE_IDENTITY`` for a resolved ``story/*`` write; ``None`` when
+            unresolved).
+        credential_ref: An opaque, non-secret handle to the credential source
+            (``None`` when unresolved).
+        detail: Human-readable resolution / failure evidence.
+    """
+
+    resolved: bool
+    credential_class: StoryRefWriteCredentialClass | None
+    credential_ref: str | None
+    detail: str
+
+
+@dataclass(frozen=True)
+class RefProtectionResult:
+    """Outcome of administering ``story/*`` ref protection (FK-12 §12.1.3, AC7).
+
+    Attributes:
+        ref_pattern: The ref pattern the protection was administered for.
+        administered: Whether the protection rule was successfully applied.
+        blocks_direct_developer_push: Whether direct developer pushes are
+            blocked by the administered rule.
+        blocks_fast_forward: Whether even a fast-forward direct push is blocked
+            (FK-12 §12.1.3 explicitly forbids fast-forward developer pushes).
+        detail: Human-readable evidence (the failure reason when
+            ``administered`` is ``False``).
+    """
+
+    ref_pattern: str
+    administered: bool
+    blocks_direct_developer_push: bool
+    blocks_fast_forward: bool
+    detail: str
+
+
 @runtime_checkable
 class CodeBackendPort(Protocol):
     """Provider-neutral code-backend capability port (FK-12 §12.1, blood A).
@@ -185,6 +249,40 @@ class CodeBackendPort(Protocol):
 
         Returns:
             A :class:`CompareEvidenceResult`.
+        """
+        ...
+
+    def resolve_story_ref_write_credential(self) -> StoryRefWriteCredentialResult:
+        """Resolve the backend-managed service credential for a ``story/*`` write.
+
+        FK-15 §15.5.1 (AG3-147 AC8): ``story/*`` is written ONLY through the
+        AK3/Edge service identity -- a distinct credential class from the
+        personal developer token, backend-managed and never in the
+        repo/worktree. A provider with no service identity fails closed
+        (``resolved=False``); it NEVER substitutes the personal developer token
+        for a ``story/*`` write.
+
+        Returns:
+            A :class:`StoryRefWriteCredentialResult`; the returned
+            ``credential_ref`` is an opaque handle, never the secret value.
+        """
+        ...
+
+    def administer_ref_protection(self, ref_pattern: str) -> RefProtectionResult:
+        """Administer ref protection for ``ref_pattern`` (FK-12 §12.1.3, AC7).
+
+        Applies the provider's ref-protection rule so direct developer pushes to
+        ``story/*`` are blocked -- explicitly including fast-forward pushes. A
+        provider that cannot back this capability (``capability_supported(
+        REF_PROTECTION_ADMINISTRATION)`` is ``False``) returns
+        ``administered=False`` deterministically; the caller then raises the
+        FK-12 §12.1.3 degradation WARNING (never a silent pass, AC9).
+
+        Args:
+            ref_pattern: The ref pattern to protect (e.g. ``story/*``).
+
+        Returns:
+            A :class:`RefProtectionResult` (fail-closed, never raises).
         """
         ...
 

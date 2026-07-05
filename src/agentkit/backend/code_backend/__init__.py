@@ -13,14 +13,20 @@ from agentkit.backend.code_backend.provider_port import (
     CodeBackendCapability,
     CodeBackendPort,
     CompareEvidenceResult,
+    RefProtectionResult,
     RefReadResult,
     RepoProbeResult,
+    StoryRefWriteCredentialClass,
+    StoryRefWriteCredentialResult,
 )
 
 __all__ = [
     "CodeBackendCapability",
     "CodeBackendPort",
     "CompareEvidenceResult",
+    "RefProtectionResult",
     "RefReadResult",
     "RepoProbeResult",
+    "StoryRefWriteCredentialClass",
+    "StoryRefWriteCredentialResult",
 ]

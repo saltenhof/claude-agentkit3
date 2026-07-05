@@ -12,8 +12,10 @@ from agentkit.backend.code_backend.provider_port import (
     CodeBackendCapability,
     CodeBackendPort,
     CompareEvidenceResult,
+    RefProtectionResult,
     RefReadResult,
     RepoProbeResult,
+    StoryRefWriteCredentialResult,
 )
 
 
@@ -92,6 +94,20 @@ class _FakeCodeBackendPort:
         self, base_ref: str, head_ref: str
     ) -> CompareEvidenceResult:
         return CompareEvidenceResult(base_ref=base_ref, head_ref=head_ref, available=False)
+
+    def resolve_story_ref_write_credential(self) -> StoryRefWriteCredentialResult:
+        return StoryRefWriteCredentialResult(
+            resolved=False, credential_class=None, credential_ref=None, detail="fake"
+        )
+
+    def administer_ref_protection(self, ref_pattern: str) -> RefProtectionResult:
+        return RefProtectionResult(
+            ref_pattern=ref_pattern,
+            administered=False,
+            blocks_direct_developer_push=False,
+            blocks_fast_forward=False,
+            detail="fake",
+        )
 
     def capability_supported(self, capability: CodeBackendCapability) -> bool:
         return capability in self.supported

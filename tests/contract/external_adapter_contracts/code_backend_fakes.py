@@ -24,8 +24,10 @@ from agentkit.backend.code_backend.git_protocol import GitLsRemoteReader
 from agentkit.backend.code_backend.provider_port import (
     CodeBackendCapability,
     CompareEvidenceResult,
+    RefProtectionResult,
     RefReadResult,
     RepoProbeResult,
+    StoryRefWriteCredentialResult,
 )
 
 __all__ = ["FakeAzureDevOpsCodeBackendAdapter"]
@@ -99,8 +101,40 @@ class FakeAzureDevOpsCodeBackendAdapter:
             detail="compare-evidence not backed by this test-double adapter.",
         )
 
+    def resolve_story_ref_write_credential(self) -> StoryRefWriteCredentialResult:
+        """This fictitious provider has no backend-managed service identity.
+
+        Fail-closed (``resolved=False``) -- and, like every ``CodeBackendPort``,
+        it NEVER substitutes a personal developer token for a ``story/*`` write.
+        """
+        return StoryRefWriteCredentialResult(
+            resolved=False,
+            credential_class=None,
+            credential_ref=None,
+            detail="no service identity backed by this test-double adapter.",
+        )
+
+    def administer_ref_protection(self, ref_pattern: str) -> RefProtectionResult:
+        """This provider cannot administer ref protection (AG3-147 AC9 case).
+
+        Deterministic ``administered=False`` -- a genuine provider-capability
+        divergence the contract suite exercises: the caller must raise the
+        FK-12 §12.1.3 degradation WARNING, never silently continue.
+        """
+        return RefProtectionResult(
+            ref_pattern=ref_pattern,
+            administered=False,
+            blocks_direct_developer_push=False,
+            blocks_fast_forward=False,
+            detail="ref-protection administration not backed by this test-double.",
+        )
+
     def capability_supported(self, capability: CodeBackendCapability) -> bool:
-        """``repo_probe``/``ref_read`` are wired; the rest are declared-only."""
+        """``repo_probe``/``ref_read`` are wired; the rest are declared-only.
+
+        In particular ``ref_protection_administration`` is unbacked -- this fake
+        is AG3-147's "provider without ref protection" degradation-WARNING case.
+        """
         return capability in (
             CodeBackendCapability.REPO_PROBE,
             CodeBackendCapability.REF_READ,

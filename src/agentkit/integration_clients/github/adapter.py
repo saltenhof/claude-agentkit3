@@ -31,8 +31,16 @@ from agentkit.backend.code_backend.git_protocol import GitLsRemoteReader, RefRea
 from agentkit.backend.code_backend.provider_port import (
     CodeBackendCapability,
     CompareEvidenceResult,
+    RefProtectionResult,
     RefReadResult,
     RepoProbeResult,
+    StoryRefWriteCredentialResult,
+)
+from agentkit.integration_clients.github.service_identity import (
+    EnvVarServiceIdentitySource,
+    GhRulesetRefProtectionAdministrator,
+    RefProtectionAdministrator,
+    ServiceIdentitySource,
 )
 
 __all__ = ["GitHubCodeBackendAdapter"]
@@ -69,6 +77,16 @@ class GitHubCodeBackendAdapter:
     ref_reader: RefReader = field(default_factory=GitLsRemoteReader)
     gh_timeout_seconds: int = _DEFAULT_GH_TIMEOUT_SECONDS
     remote_url_override: str | None = None
+    #: The backend-managed service identity used for ``story/*`` writes (AC8).
+    #: The personal developer token (``gh auth token`` / credential file) is
+    #: never used here -- it is a distinct credential class (FK-15 §15.5.1).
+    service_identity_source: ServiceIdentitySource = field(
+        default_factory=EnvVarServiceIdentitySource
+    )
+    #: Injectable ref-protection administration seam (AG3-147 AC7/AC9). ``None``
+    #: builds the default ``gh api`` ruleset administrator bound to owner/repo;
+    #: a unit test injects a scripted double (the isolated-unit-test seam).
+    ref_protection_administrator: RefProtectionAdministrator | None = None
 
     def repo_probe(self) -> RepoProbeResult:
         """Probe repo existence/reachability via ``gh repo view``.
@@ -138,18 +156,47 @@ class GitHubCodeBackendAdapter:
             ),
         )
 
+    def resolve_story_ref_write_credential(self) -> StoryRefWriteCredentialResult:
+        """Resolve the backend-managed service credential for ``story/*`` (AC8).
+
+        Delegates to the service-identity source; NEVER the personal developer
+        token (``gh auth token`` / credential file). The returned
+        ``credential_ref`` is an opaque handle, never the secret value.
+        """
+        return self.service_identity_source.resolve_write_credential()
+
+    def administer_ref_protection(self, ref_pattern: str) -> RefProtectionResult:
+        """Administer ``story/*`` ref protection via the administrator seam (AC7)."""
+        return self._ref_protection_administrator().administer(ref_pattern)
+
     def capability_supported(self, capability: CodeBackendCapability) -> bool:
         """Whether *capability* is actually wired and usable on this adapter.
 
         ``repo_probe`` depends on ``gh`` being installed (AG3-146 AC4:
         missing ``gh`` is a named, deterministic capability finding, never a
         crash). ``ref_read`` never needs ``gh`` (SOLL-184). The declared
-        ``compare_evidence``/``ref_protection_administration`` capabilities
-        are not yet backed by this adapter (AG3-147+).
+        ``compare_evidence`` capability is not yet backed by this adapter.
+        ``ref_protection_administration`` is backed only when the administrator
+        seam reports real work is possible (``gh`` + a backend service
+        identity); otherwise it is ``False`` and the caller raises the FK-12
+        §12.1.3 degradation WARNING (never a fabricated ``True``, ZERO DEBT).
         """
         if capability is CodeBackendCapability.REPO_PROBE:
             return _gh_available()
+        if capability is CodeBackendCapability.REF_PROTECTION_ADMINISTRATION:
+            return self._ref_protection_administrator().is_available()
         return capability is CodeBackendCapability.REF_READ
+
+    def _ref_protection_administrator(self) -> RefProtectionAdministrator:
+        """Return the injected administrator, or the default ``gh`` ruleset one."""
+        if self.ref_protection_administrator is not None:
+            return self.ref_protection_administrator
+        return GhRulesetRefProtectionAdministrator(
+            owner=self.owner,
+            repo=self.repo,
+            service_source=self.service_identity_source,
+            gh_timeout_seconds=self.gh_timeout_seconds,
+        )
 
     def _remote_url(self) -> str:
         """Resolve the git remote URL used by ``ref_read``."""
