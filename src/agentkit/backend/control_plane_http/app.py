@@ -273,6 +273,99 @@ def _handle_get_operation(
     )
 
 
+def _handle_get_push_freshness(
+    runtime_service: ControlPlaneRuntimeService,
+    run_id: str,
+    query: dict[str, list[str]],
+    correlation_id: str,
+) -> HttpResponse:
+    """``GET .../story-runs/{run_id}/push-freshness`` (FK-10 §10.2.4b, AG3-147 AC5).
+
+    Module-level helper (AG3-147 LOC split, PY_CLASS_MAX_LOC_800): keeps the
+    read-model route out of ``ControlPlaneApplication``'s class body.
+    ``project_key``/``story_id`` are mandatory query parameters (a GET carries no
+    body). Read-only, no lock/claim. The read surface is Postgres-only (K5): a
+    non-Postgres backend fails closed with a stable
+    ``push_freshness_unavailable`` 503.
+    """
+    project_key = _single_query_value(query, "project_key")
+    story_id = _single_query_value(query, "story_id")
+    if not project_key or not story_id:
+        return _error_response(
+            HTTPStatus.BAD_REQUEST,
+            error_code="invalid_push_freshness_query",
+            message="project_key and story_id query parameters are required",
+            correlation_id=correlation_id,
+        )
+    try:
+        result = runtime_service.list_push_freshness(
+            run_id, project_key=project_key, story_id=story_id,
+        )
+    except ConfigError as exc:
+        return _backend_requirement_response(
+            "push_freshness_unavailable", exc, correlation_id
+        )
+    except RuntimeError as exc:
+        logger.warning("Push-freshness read unavailable: %s", exc)
+        return _error_response(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            error_code="push_freshness_unavailable",
+            message=str(exc),
+            correlation_id=correlation_id,
+        )
+    return _json_response(
+        HTTPStatus.OK,
+        result.model_dump(mode="json"),
+        correlation_id=correlation_id,
+    )
+
+
+def _handle_get_open_commands(
+    runtime_service: ControlPlaneRuntimeService,
+    run_id: str,
+    query: dict[str, list[str]],
+    correlation_id: str,
+) -> HttpResponse:
+    """``GET .../story-runs/{run_id}/commands`` (FK-91 §91.1b, AG3-145 AC1).
+
+    Module-level helper (AG3-147 LOC split, PY_CLASS_MAX_LOC_800): keeps the
+    Edge-Command-Queue GET out of ``ControlPlaneApplication``'s class body.
+    ``project_key``/``session_id`` are mandatory query parameters (a GET carries
+    no body); the fail-closed session scoping happens at the store query, never
+    at this validation.
+    """
+    project_key = _single_query_value(query, "project_key")
+    session_id = _single_query_value(query, "session_id")
+    if not project_key or not session_id:
+        return _error_response(
+            HTTPStatus.BAD_REQUEST,
+            error_code="invalid_edge_commands_query",
+            message="project_key and session_id query parameters are required",
+            correlation_id=correlation_id,
+        )
+    try:
+        result = runtime_service.list_and_ack_open_commands(
+            run_id, project_key=project_key, session_id=session_id,
+        )
+    except ConfigError as exc:
+        return _backend_requirement_response(
+            "edge_commands_unavailable", exc, correlation_id
+        )
+    except RuntimeError as exc:
+        logger.warning("Edge-command list unavailable: %s", exc)
+        return _error_response(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            error_code="edge_commands_unavailable",
+            message=str(exc),
+            correlation_id=correlation_id,
+        )
+    return _json_response(
+        HTTPStatus.OK,
+        result.model_dump(mode="json"),
+        correlation_id=correlation_id,
+    )
+
+
 def _read_only_method_not_allowed(
     read_model_routes: ReadModelRoutes,
     route_path: str,
@@ -986,15 +1079,21 @@ class ControlPlaneApplication(
         # project-edge operation/sync/ownership routes):
         commands_match = _EDGE_COMMANDS_COLLECTION_PATTERN.match(route_path)
         if commands_match is not None:
-            return self._handle_get_open_commands(
-                commands_match.group("run_id"), query, correlation_id,
+            return _handle_get_open_commands(
+                self._runtime_service,
+                commands_match.group("run_id"),
+                query,
+                correlation_id,
             )
 
         # AG3-147 push-freshness / push-backlog read surface (FK-10 §10.2.4b, AC5):
         freshness_match = _EDGE_PUSH_FRESHNESS_PATTERN.match(route_path)
         if freshness_match is not None:
-            return self._handle_get_push_freshness(
-                freshness_match.group("run_id"), query, correlation_id,
+            return _handle_get_push_freshness(
+                self._runtime_service,
+                freshness_match.group("run_id"),
+                query,
+                correlation_id,
             )
 
         # Auth routes (non-project-scoped):
@@ -1572,94 +1671,6 @@ class ControlPlaneApplication(
             return _error_response(
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 error_code="project_edge_sync_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _json_response(
-            HTTPStatus.OK,
-            result.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
-
-    def _handle_get_open_commands(
-        self,
-        run_id: str,
-        query: dict[str, list[str]],
-        correlation_id: str,
-    ) -> HttpResponse:
-        """``GET .../story-runs/{run_id}/commands`` (FK-91 §91.1b, AG3-145 AC1).
-
-        ``project_key``/``session_id`` are mandatory query parameters (a GET
-        carries no body) -- self-declared like every other project-edge
-        caller field; the fail-closed session scoping happens at the store
-        query, never at this validation.
-        """
-        project_key = _single_query_value(query, "project_key")
-        session_id = _single_query_value(query, "session_id")
-        if not project_key or not session_id:
-            return _error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="invalid_edge_commands_query",
-                message="project_key and session_id query parameters are required",
-                correlation_id=correlation_id,
-            )
-        try:
-            result = self._runtime_service.list_and_ack_open_commands(
-                run_id, project_key=project_key, session_id=session_id,
-            )
-        except ConfigError as exc:
-            return _backend_requirement_response(
-                "edge_commands_unavailable", exc, correlation_id
-            )
-        except RuntimeError as exc:
-            logger.warning("Edge-command list unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="edge_commands_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _json_response(
-            HTTPStatus.OK,
-            result.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
-
-    def _handle_get_push_freshness(
-        self,
-        run_id: str,
-        query: dict[str, list[str]],
-        correlation_id: str,
-    ) -> HttpResponse:
-        """``GET .../story-runs/{run_id}/push-freshness`` (FK-10 §10.2.4b, AG3-147 AC5).
-
-        ``project_key``/``story_id`` are mandatory query parameters (a GET
-        carries no body). Read-only, no lock/claim. The read surface is
-        Postgres-only (K5): a non-Postgres backend fails closed with a stable
-        ``push_freshness_unavailable`` 503.
-        """
-        project_key = _single_query_value(query, "project_key")
-        story_id = _single_query_value(query, "story_id")
-        if not project_key or not story_id:
-            return _error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="invalid_push_freshness_query",
-                message="project_key and story_id query parameters are required",
-                correlation_id=correlation_id,
-            )
-        try:
-            result = self._runtime_service.list_push_freshness(
-                run_id, project_key=project_key, story_id=story_id,
-            )
-        except ConfigError as exc:
-            return _backend_requirement_response(
-                "push_freshness_unavailable", exc, correlation_id
-            )
-        except RuntimeError as exc:
-            logger.warning("Push-freshness read unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="push_freshness_unavailable",
                 message=str(exc),
                 correlation_id=correlation_id,
             )
