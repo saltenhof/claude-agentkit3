@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import subprocess
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -102,3 +103,58 @@ class TestGitLsRemoteReader:
         assert result.resolved is True
         assert result.head_sha == head_sha
         assert not (neutral_cwd / ".git").exists()
+
+
+@pytest.mark.unit
+class TestGitLsRemoteReaderMockedEdgeCases:
+    """Mocked-subprocess branches too awkward to reproduce with real git.
+
+    Ambiguous multi-ref matches, unparsable ``ls-remote`` output and raw
+    subprocess failures are all deterministic typed errors (AC2), but real
+    git rarely/never emits them naturally (e.g. a same-named branch+tag pair,
+    or a malformed output line). Mocking ``subprocess.run`` here is the
+    permitted external-system-dependency exception.
+    """
+
+    def test_subprocess_error_is_typed_failure(self) -> None:
+        with patch(
+            "agentkit.backend.code_backend.git_protocol.subprocess.run",
+            side_effect=OSError("boom"),
+        ):
+            result = GitLsRemoteReader().read_head_sha("remote", "main")
+        assert result.resolved is False
+        assert result.head_sha is None
+        assert "boom" in result.detail
+
+    def test_empty_stdout_with_zero_exit_is_typed_failure(self) -> None:
+        with patch(
+            "agentkit.backend.code_backend.git_protocol.subprocess.run"
+        ) as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            result = GitLsRemoteReader().read_head_sha("remote", "main")
+        assert result.resolved is False
+        assert "no matching ref" in result.detail
+
+    def test_ambiguous_match_is_typed_failure(self) -> None:
+        with patch(
+            "agentkit.backend.code_backend.git_protocol.subprocess.run"
+        ) as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="sha1\trefs/heads/main\nsha2\trefs/tags/main\n",
+                stderr="",
+            )
+            result = GitLsRemoteReader().read_head_sha("remote", "main")
+        assert result.resolved is False
+        assert "ambiguous" in result.detail
+
+    def test_unparsable_line_is_typed_failure(self) -> None:
+        with patch(
+            "agentkit.backend.code_backend.git_protocol.subprocess.run"
+        ) as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout="\tno-sha-here\n", stderr=""
+            )
+            result = GitLsRemoteReader().read_head_sha("remote", "main")
+        assert result.resolved is False
+        assert "unparsable" in result.detail
