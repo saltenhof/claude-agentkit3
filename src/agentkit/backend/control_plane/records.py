@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from agentkit.backend.control_plane.edge_commands import ALL_COMMAND_KINDS, ALL_COMMAND_STATUSES
 from agentkit.backend.control_plane.ownership import (
     MIN_INSTANCE_INCARNATION,
     MIN_OWNERSHIP_EPOCH,
@@ -35,6 +36,7 @@ __all__ = (
     "BackendInstanceIdentityRecord",
     "BindingDeleteScope",
     "ControlPlaneOperationRecord",
+    "EdgeCommandRecord",
     "ObjectMutationClaimRecord",
     "RunOwnershipRecord",
     "SessionRunBindingRecord",
@@ -357,3 +359,68 @@ class ControlPlaneOperationRecord:
     #: do not carry a body-hash (the phase/closure/sync paths dedup on op_id
     #: alone, unchanged).
     request_body_hash: str | None = None
+
+
+@dataclass(frozen=True)
+class EdgeCommandRecord:
+    """One Edge-Command-Queue record (``state-storage.entity.edge-command-record``).
+
+    FK-91 §91.1b: identity is ``command_id``; ``(project_key, story_id, run_id,
+    session_id)`` scopes the command to the ONE owning session. ``ownership_epoch``
+    is stamped at CREATION time (the active record's epoch the commissioning
+    mutation observed) -- pure audit accountability, never a second fencing key:
+    the Rule-15 fence at result-commit time re-reads the CURRENT active record,
+    exactly like every other regime mutation (``_enforce_ownership_fence_row``).
+
+    No wall-clock TTL/expiry field exists by design (SOLL-165, FK-91 §91.1a Rule
+    16): an open command (``status`` in ``created``/``delivered``) stays open
+    until a result terminates it -- there is no expiry codepath.
+
+    Raises:
+        ValueError: On an unknown ``command_kind``/``status``, an
+            ``ownership_epoch`` below the minimum, or an empty identity
+            component.
+    """
+
+    command_id: str
+    project_key: str
+    story_id: str
+    run_id: str
+    session_id: str
+    command_kind: str
+    payload: dict[str, object]
+    status: str
+    ownership_epoch: int
+    created_at: datetime
+    delivered_at: datetime | None = None
+    completed_at: datetime | None = None
+    result_op_id: str | None = None
+    result_type: str | None = None
+    result_payload: dict[str, object] | None = None
+
+    def __post_init__(self) -> None:
+        if not self.command_id.strip():
+            raise ValueError("command_id must not be empty")
+        if (
+            not self.project_key.strip()
+            or not self.story_id.strip()
+            or not self.run_id.strip()
+        ):
+            raise ValueError("project_key, story_id and run_id must not be empty")
+        if not self.session_id.strip():
+            raise ValueError("session_id must not be empty (the owning session)")
+        if self.command_kind not in ALL_COMMAND_KINDS:
+            raise ValueError(
+                f"command_kind must be one of {sorted(ALL_COMMAND_KINDS)}, "
+                f"got {self.command_kind!r}",
+            )
+        if self.status not in ALL_COMMAND_STATUSES:
+            raise ValueError(
+                f"status must be one of {sorted(ALL_COMMAND_STATUSES)}, "
+                f"got {self.status!r}",
+            )
+        if self.ownership_epoch < MIN_OWNERSHIP_EPOCH:
+            raise ValueError(
+                f"ownership_epoch must be >= {MIN_OWNERSHIP_EPOCH}, "
+                f"got {self.ownership_epoch!r}",
+            )

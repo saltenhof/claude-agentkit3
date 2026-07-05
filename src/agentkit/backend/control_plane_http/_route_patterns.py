@@ -21,6 +21,15 @@ _OPERATION_ADMIN_ABORT_PATTERN = re.compile(
     r"^/v1/project-edge/operations/(?P<op_id>[^/]+)/admin-abort$",
 )
 
+# AG3-145: Edge-Command-Queue (Auftrag/Meldung, FK-91 §91.1b) -- non-project-
+# scoped like the sibling project-edge operation/sync/ownership routes above.
+_EDGE_COMMANDS_COLLECTION_PATTERN = re.compile(
+    r"^/v1/project-edge/story-runs/(?P<run_id>[^/]+)/commands$",
+)
+_EDGE_COMMAND_RESULT_PATTERN = re.compile(
+    r"^/v1/project-edge/commands/(?P<command_id>[^/]+)/result$",
+)
+
 # Project-scoped paths under /v1/projects/{project_key}/<bc>/...
 _PROJECT_SCOPED_PREFIX = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/(?P<rest>.+)$",

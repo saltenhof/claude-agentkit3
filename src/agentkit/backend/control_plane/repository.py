@@ -12,6 +12,7 @@ from agentkit.backend.state_backend.store import (
     boot_backend_instance_identity_global,
     claim_control_plane_operation_global,
     commit_control_plane_operation_with_side_effects_global,
+    commit_edge_command_result_global,
     delete_control_plane_operation_global,
     delete_object_mutation_claim_global,
     delete_session_run_binding_global,
@@ -22,13 +23,16 @@ from agentkit.backend.state_backend.store import (
     has_committed_story_exit_operation_for_run_global,
     has_engine_writes_since_control_plane_claim_global,
     has_open_repair_control_plane_operation_for_story_global,
+    insert_edge_command_record_global,
     insert_object_mutation_claim_global,
     insert_run_ownership_record_global,
+    list_and_ack_open_edge_command_records_global,
     list_orphaned_claimed_control_plane_operations_global,
     list_orphaned_object_mutation_claims_global,
     load_active_run_ownership_record_global,
     load_backend_instance_identity_global,
     load_control_plane_operation_global,
+    load_edge_command_record_global,
     load_object_mutation_claim_global,
     load_run_ownership_record_global,
     load_session_run_binding_global,
@@ -50,6 +54,7 @@ if TYPE_CHECKING:
     from agentkit.backend.control_plane.records import (
         BackendInstanceIdentityRecord,
         ControlPlaneOperationRecord,
+        EdgeCommandRecord,
         ObjectMutationClaimRecord,
         RunOwnershipRecord,
         SessionRunBindingRecord,
@@ -322,3 +327,29 @@ class BackendInstanceIdentityRepository:
     boot_identity: Callable[[str, datetime], BackendInstanceIdentityRecord] = (
         boot_backend_instance_identity_global
     )
+
+
+@dataclass(frozen=True)
+class EdgeCommandRepository:
+    """Persistence port for the Edge-Command-Queue (FK-91 §91.1b, AG3-145).
+
+    Postgres-only (K5): every method fails closed with ``ConfigError`` off
+    Postgres (``_require_control_plane_backend``, mirrors
+    :class:`RunOwnershipRepository` / :class:`ObjectMutationClaimRepository`).
+    ``insert_command`` is the commissioning write (setup / reset adapters,
+    Teilschritt C/D); ``list_and_ack_open_commands`` is the GET Ack-read (Rule
+    13, no lock); ``load_command`` is a raw identity lookup (idempotency-replay
+    / test support); ``commit_result`` is the atomic op-ledger + Rule-15-fenced
+    command-result commit (Teilschritt A).
+    """
+
+    insert_command: Callable[[EdgeCommandRecord], None] = (
+        insert_edge_command_record_global
+    )
+    load_command: Callable[[str], EdgeCommandRecord | None] = (
+        load_edge_command_record_global
+    )
+    list_and_ack_open_commands: Callable[..., tuple[EdgeCommandRecord, ...]] = (
+        list_and_ack_open_edge_command_records_global
+    )
+    commit_result: Callable[..., None] = commit_edge_command_result_global

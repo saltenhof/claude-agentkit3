@@ -400,6 +400,43 @@
             updated_at TEXT NOT NULL
         );
 
+        -- edge_command_records: the Edge-Command-Queue persistence (Auftrag/
+        -- Meldung, FK-91 §91.1b, AG3-145). Replaces backend-side physical
+        -- worktree operations (FK-10 §10.2.4a): the backend commissions a
+        -- command here, the Project Edge fetches/acks it (GET, delivered_at),
+        -- executes it dev-locally and reports a result (POST .../result). Brand
+        -- new / forward-only table (mirrors the AG3-143 execution_contract_digests
+        -- precedent -- no additive ALTER/backfill needed). No TTL/expiry column
+        -- by design (SOLL-165, FK-91 §91.1a Rule 16): an open command never ends
+        -- by wall clock -- it stays visibly open until a result terminates it.
+        CREATE TABLE IF NOT EXISTS edge_command_records (
+            command_id TEXT PRIMARY KEY,
+            project_key TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            command_kind TEXT NOT NULL CHECK (
+                command_kind IN (
+                    'provision_worktree', 'teardown_worktree', 'preflight_probe',
+                    'sync_push', 'takeover_reconcile', 'merge_local'
+                )
+            ),
+            payload_json TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (
+                status IN ('created', 'delivered', 'completed', 'failed')
+            ),
+            ownership_epoch INTEGER NOT NULL CHECK (ownership_epoch >= 1),
+            created_at TEXT NOT NULL,
+            delivered_at TEXT,
+            completed_at TEXT,
+            result_op_id TEXT,
+            result_type TEXT,
+            result_payload_json TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS edge_command_records_session_open_idx
+            ON edge_command_records (run_id, session_id, status);
+
         CREATE TABLE IF NOT EXISTS story_metrics (
             project_key TEXT NOT NULL,
             story_id TEXT NOT NULL,

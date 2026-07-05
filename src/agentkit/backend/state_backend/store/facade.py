@@ -36,6 +36,7 @@ if TYPE_CHECKING:
         BackendInstanceIdentityRecord,
         BindingDeleteScope,
         ControlPlaneOperationRecord,
+        EdgeCommandRecord,
         ObjectMutationClaimRecord,
         RunOwnershipRecord,
         SessionRunBindingRecord,
@@ -158,11 +159,13 @@ def _require_control_plane_backend() -> None:
 
     AG3-137 (AK7, K5): the session-ownership tables (``run_ownership_records``,
     ``object_mutation_claims``, ``takeover_transfer_records``,
-    ``backend_instance_identity``) are Postgres-only by design. Access through a
-    non-Postgres backend is a configuration error, surfaced explicitly at the
-    sanctioned ``state_backend.store`` surface (the same fail-closed contract as
-    ``control_plane.runtime._require_postgres_control_plane_backend``), never a
-    silent no-op or a SQLite fallback.
+    ``backend_instance_identity``) are Postgres-only by design. AG3-145 reuses
+    this SAME gate for the Edge-Command-Queue table (``edge_command_records``)
+    -- one more Postgres-only table, the identical fail-closed contract. Access
+    through a non-Postgres backend is a configuration error, surfaced explicitly
+    at the sanctioned ``state_backend.store`` surface (the same fail-closed
+    contract as ``control_plane.runtime._require_postgres_control_plane_backend``),
+    never a silent no-op or a SQLite fallback.
 
     Raises:
         ConfigError: When the active backend does not provide the control-plane
@@ -174,9 +177,10 @@ def _require_control_plane_backend() -> None:
         raise ConfigError(
             "The session-ownership store (run_ownership_records, "
             "object_mutation_claims, takeover_transfer_records, "
-            "backend_instance_identity) requires the Postgres state backend: "
-            "these tables are Postgres-only (AG3-137 K5) and have no SQLite "
-            "implementation. Set AGENTKIT_STATE_BACKEND=postgres; fail-closed.",
+            "backend_instance_identity, edge_command_records) requires the "
+            "Postgres state backend: these tables are Postgres-only (AG3-137 / "
+            "AG3-145 K5) and have no SQLite implementation. Set "
+            "AGENTKIT_STATE_BACKEND=postgres; fail-closed.",
         )
 
 
@@ -854,6 +858,91 @@ def load_active_run_ownership_record_global(
     if row is None:
         return None
     return mappers.run_ownership_row_to_record(row)
+
+
+# ---------------------------------------------------------------------------
+# EdgeCommandRecord (AG3-145, Postgres-only K5)
+# ---------------------------------------------------------------------------
+
+
+def insert_edge_command_record_global(record: EdgeCommandRecord) -> None:
+    """Strictly INSERT one edge-command row (AG3-145 command creation).
+
+    Fail-closed on a non-Postgres backend (``ConfigError``, K5).
+    """
+    _require_control_plane_backend()
+    backend = _backend_module()
+    backend.insert_edge_command_record_global_row(
+        mappers.edge_command_record_to_row(record)
+    )
+
+
+def load_edge_command_record_global(command_id: str) -> EdgeCommandRecord | None:
+    """Load one edge-command record by ``command_id``, or ``None`` (K5)."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    row = backend.load_edge_command_record_global_row(command_id)
+    if row is None:
+        return None
+    return mappers.edge_command_row_to_record(row)
+
+
+def list_and_ack_open_edge_command_records_global(
+    *,
+    project_key: str,
+    run_id: str,
+    session_id: str,
+    delivered_at: datetime,
+) -> tuple[EdgeCommandRecord, ...]:
+    """Return + ack the session's open commands (K5, FK-91 §91.1a Rule 13: no lock)."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    rows = backend.list_and_ack_open_edge_command_records_global_row(
+        project_key=project_key,
+        run_id=run_id,
+        session_id=session_id,
+        delivered_at=delivered_at.isoformat(),
+    )
+    return tuple(mappers.edge_command_row_to_record(row) for row in rows)
+
+
+def commit_edge_command_result_global(
+    op_record: ControlPlaneOperationRecord,
+    *,
+    command_id: str,
+    result_status: str,
+    completed_at: datetime,
+    result_op_id: str,
+    result_type: str,
+    result_payload: dict[str, object],
+    expected_ownership_epoch: int,
+) -> None:
+    """Atomically commit the op-ledger row AND the command-result CAS (K5, AG3-145).
+
+    Fail-closed on a non-Postgres backend (``ConfigError``, K5).
+
+    Raises:
+        ControlPlaneClaimCollisionError: On an op_id collision with a LIVE
+            claimed row.
+        OwnershipFenceViolationError: (AG3-142 reuse) When the story's active
+            ownership record no longer admits this exact snapshot.
+        EdgeCommandNotOpenError: When ``command_id`` is unknown or already
+            terminal (double-completion) -- nothing committed.
+    """
+    _require_control_plane_backend()
+    backend = _backend_module()
+    backend.commit_edge_command_result_global_row(
+        op_row=mappers.control_plane_op_to_row(op_record),
+        command_id=command_id,
+        result_row={
+            "status": result_status,
+            "completed_at": completed_at.isoformat(),
+            "result_op_id": result_op_id,
+            "result_type": result_type,
+            "result_payload_json": mappers.dump_json(result_payload),
+        },
+        expected_ownership_epoch=expected_ownership_epoch,
+    )
 
 
 # ---------------------------------------------------------------------------

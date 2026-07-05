@@ -37,6 +37,7 @@ from agentkit.backend.exceptions import (
     ControlPlaneBindingCollisionError,
     ControlPlaneClaimCollisionError,
     CorruptStateError,
+    EdgeCommandNotOpenError,
     OwnershipFenceViolationError,
 )
 from agentkit.backend.state_backend.config import (
@@ -519,6 +520,10 @@ def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
         # EXISTS in postgres_schema.sql -- no additive ALTER/backfill needed,
         # the table is brand-new and forward-only).
         "execution_contract_digests",
+        # AG3-145 canary: a pre-AG3-145 schema lacks the Edge-Command-Queue
+        # table; brand-new and forward-only (mirrors the AG3-143 precedent
+        # above -- no additive ALTER/backfill needed).
+        "edge_command_records",
     )
     table_rows = conn.execute(
         """
@@ -2845,6 +2850,165 @@ def load_execution_contract_digest_global_row(
     if row is None:
         return None
     return dict(row)
+
+
+# ---------------------------------------------------------------------------
+# EdgeCommandRecord rows (AG3-145, Postgres-only K5)
+# ---------------------------------------------------------------------------
+
+
+def insert_edge_command_record_global_row(row: dict[str, Any]) -> None:
+    """Strictly INSERT one edge-command row (AG3-145 command creation).
+
+    A plain ``INSERT``: a duplicate ``command_id`` fails deterministically
+    with a primary-key violation (fail-closed, no silent overwrite).
+
+    Raises:
+        psycopg.errors.UniqueViolation: On a duplicate ``command_id``.
+    """
+
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            INSERT INTO edge_command_records (
+                command_id, project_key, story_id, run_id, session_id,
+                command_kind, payload_json, status, ownership_epoch,
+                created_at, delivered_at, completed_at, result_op_id,
+                result_type, result_payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["command_id"],
+                row["project_key"],
+                row["story_id"],
+                row["run_id"],
+                row["session_id"],
+                row["command_kind"],
+                row["payload_json"],
+                row["status"],
+                row["ownership_epoch"],
+                row["created_at"],
+                row["delivered_at"],
+                row["completed_at"],
+                row["result_op_id"],
+                row["result_type"],
+                row["result_payload_json"],
+            ),
+        )
+
+
+def load_edge_command_record_global_row(command_id: str) -> dict[str, Any] | None:
+    """Return the raw edge-command row for one ``command_id``, or ``None``."""
+
+    with _connect_global() as conn:
+        row = conn.execute(
+            "SELECT * FROM edge_command_records WHERE command_id = ?",
+            (command_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def list_and_ack_open_edge_command_records_global_row(
+    *,
+    project_key: str,
+    run_id: str,
+    session_id: str,
+    delivered_at: str,
+) -> list[dict[str, Any]]:
+    """Return the session's open commands and ack delivery, atomically (AG3-145).
+
+    FK-91 §91.1a Rule 13 ("Reads nehmen niemals Sperren"): this stamps
+    ``status='delivered'``/``delivered_at`` on a FIRST-time (``created``) row
+    as part of the SAME read -- an audit ack, not an object-mutation claim; it
+    takes no durable lock and never blocks a concurrent caller. An
+    already-delivered row is left untouched (its FIRST ``delivered_at`` is
+    preserved, never overwritten by a later re-fetch). Scoped by
+    ``(project_key, run_id, session_id)`` -- a foreign session (or a mismatched
+    ``project_key``) matches zero rows, fail-closed by construction (AC1).
+    """
+
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            UPDATE edge_command_records
+            SET status = 'delivered', delivered_at = ?
+            WHERE project_key = ? AND run_id = ? AND session_id = ?
+              AND status = 'created'
+            """,
+            (delivered_at, project_key, run_id, session_id),
+        )
+        rows = conn.execute(
+            """
+            SELECT * FROM edge_command_records
+            WHERE project_key = ? AND run_id = ? AND session_id = ?
+              AND status IN ('created', 'delivered')
+            ORDER BY created_at, command_id
+            """,
+            (project_key, run_id, session_id),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def commit_edge_command_result_global_row(
+    *,
+    op_row: dict[str, Any],
+    command_id: str,
+    result_row: dict[str, Any],
+    expected_ownership_epoch: int,
+) -> None:
+    """Atomically commit the op-ledger row AND the command-result CAS (AG3-145).
+
+    Mirrors ``commit_control_plane_operation_with_side_effects_global_row``:
+    the SAME collision-gated op-row upsert (idempotency ledger, Rule 5) plus
+    the Rule-15 ownership fence (``_enforce_ownership_fence_row``, reused
+    verbatim -- the AG3-142 fence surface) in ONE transaction, followed by the
+    actual side effect -- a conditional UPDATE of the command row from an
+    OPEN status to its terminal result. The UPDATE is a CAS on
+    ``status IN ('created', 'delivered')``: a caller targeting an unknown
+    ``command_id`` or one that is ALREADY terminal affects zero rows, which
+    raises :class:`EdgeCommandNotOpenError` and rolls back the WHOLE
+    transaction (including the op-row insert) -- no orphan idempotency-ledger
+    entry for a rejected command-result attempt.
+
+    Raises:
+        ControlPlaneClaimCollisionError: On an op_id collision with a LIVE
+            claimed row (never expected on this one-shot commit shape).
+        OwnershipFenceViolationError: (AG3-142 reuse) When the story's active
+            ownership record no longer admits this exact snapshot.
+        EdgeCommandNotOpenError: When ``command_id`` is unknown or already
+            terminal (double-completion) -- nothing committed.
+    """
+
+    with _connect_global() as conn:
+        _conditional_upsert_control_plane_op_row(conn, op_row)
+        _enforce_ownership_fence_row(
+            conn,
+            project_key=str(op_row["project_key"]),
+            story_id=str(op_row["story_id"]),
+            run_id=str(op_row["run_id"]),
+            session_id=str(op_row["session_id"]),
+            expected_ownership_epoch=expected_ownership_epoch,
+        )
+        cursor = conn.execute(
+            """
+            UPDATE edge_command_records
+            SET status = ?, completed_at = ?, result_op_id = ?,
+                result_type = ?, result_payload_json = ?
+            WHERE command_id = ? AND status IN ('created', 'delivered')
+            """,
+            (
+                result_row["status"],
+                result_row["completed_at"],
+                result_row["result_op_id"],
+                result_row["result_type"],
+                result_row["result_payload_json"],
+                command_id,
+            ),
+        )
+        if cursor.rowcount == 0:
+            raise EdgeCommandNotOpenError(command_id)
 
 
 # ---------------------------------------------------------------------------

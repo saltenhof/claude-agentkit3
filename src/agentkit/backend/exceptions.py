@@ -148,6 +148,29 @@ class OwnershipFenceViolationError(AgentKitError):
     """
 
 
+class EdgeCommandNotOpenError(AgentKitError):
+    """A command-result commit targeted a ``command_id`` that is not open (AG3-145).
+
+    FK-91 §91.1b: raised by the transactional
+    ``commit_edge_command_result_global_row`` when the conditional CAS UPDATE
+    (``status IN ('created', 'delivered')``) affects zero rows -- either
+    ``command_id`` is unknown, or the command already carries a terminal
+    result (a double-completion under a DIFFERENT ``op_id`` than the one that
+    terminated it; the SAME ``op_id`` replays earlier, before this row
+    function is ever reached). The whole enclosing transaction rolls back --
+    no orphan idempotency-ledger entry for a rejected command-result attempt.
+    The runtime surfaces this as a fail-closed ``rejected`` mutation result.
+    """
+
+    def __init__(self, command_id: str) -> None:
+        super().__init__(
+            f"edge command {command_id!r} is unknown or already resolved "
+            "(not in an open status)",
+            detail={"command_id": command_id},
+        )
+        self.command_id = command_id
+
+
 class ControlPlaneApiError(AgentKitError):
     """A control-plane HTTP endpoint returned a stable error contract response.
 

@@ -23,6 +23,8 @@ from agentkit.backend.control_plane.ownership import (
 )
 from agentkit.backend.control_plane.records import (
     BackendInstanceIdentityRecord,
+    ControlPlaneOperationRecord,
+    EdgeCommandRecord,
     ObjectMutationClaimRecord,
     RunOwnershipRecord,
     TakeoverTransferRecord,
@@ -30,10 +32,14 @@ from agentkit.backend.control_plane.records import (
 from agentkit.backend.exceptions import ConfigError
 from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.backend.state_backend.store import (
+    commit_edge_command_result_global,
+    insert_edge_command_record_global,
     insert_object_mutation_claim_global,
     insert_run_ownership_record_global,
+    list_and_ack_open_edge_command_records_global,
     load_active_run_ownership_record_global,
     load_backend_instance_identity_global,
+    load_edge_command_record_global,
     load_object_mutation_claim_global,
     load_run_ownership_record_global,
     load_takeover_transfer_record_global,
@@ -274,3 +280,62 @@ def test_every_new_repository_entrypoint_fails_closed_on_sqlite(
         save_backend_instance_identity_global(identity)
     with pytest.raises(ConfigError):
         load_backend_instance_identity_global("inst-1")
+
+
+@pytest.mark.contract
+def test_edge_command_entrypoints_fail_closed_on_sqlite(
+    sqlite_backend_env: None,
+) -> None:
+    """AG3-145 AC10: the Edge-Command-Queue store is Postgres-only (K5).
+
+    Every ``edge_command_records`` entrypoint fails closed with an explicit
+    ``ConfigError`` on a non-Postgres backend (``_require_control_plane_backend``,
+    the SAME gate AG3-137 already established) -- no SQLite implementation, no
+    silent fallback.
+    """
+    del sqlite_backend_env
+    command = EdgeCommandRecord(
+        command_id="cmd-1",
+        project_key="tenant-a",
+        story_id="AG3-100",
+        run_id="run-1",
+        session_id="sess-1",
+        command_kind="provision_worktree",
+        payload={},
+        status="created",
+        ownership_epoch=1,
+        created_at=_NOW,
+    )
+    op_record = ControlPlaneOperationRecord(
+        op_id="op-1",
+        project_key="tenant-a",
+        story_id="AG3-100",
+        run_id="run-1",
+        session_id="sess-1",
+        operation_kind="edge_command_result",
+        phase=None,
+        status="committed",
+        response_payload={},
+        created_at=_NOW,
+        updated_at=_NOW,
+    )
+
+    with pytest.raises(ConfigError, match="Postgres"):
+        insert_edge_command_record_global(command)
+    with pytest.raises(ConfigError, match="Postgres"):
+        load_edge_command_record_global("cmd-1")
+    with pytest.raises(ConfigError, match="Postgres"):
+        list_and_ack_open_edge_command_records_global(
+            project_key="tenant-a", run_id="run-1", session_id="sess-1", delivered_at=_NOW,
+        )
+    with pytest.raises(ConfigError, match="Postgres"):
+        commit_edge_command_result_global(
+            op_record,
+            command_id="cmd-1",
+            result_status="completed",
+            completed_at=_NOW,
+            result_op_id="op-1",
+            result_type="worktree_report",
+            result_payload={},
+            expected_ownership_epoch=1,
+        )

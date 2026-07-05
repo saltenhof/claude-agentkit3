@@ -25,6 +25,8 @@ from agentkit.backend.control_plane.models import (
     ApiErrorResponse,
     ClosureCompleteRequest,
     ControlPlaneMutationResult,
+    EdgeCommandMutationResult,
+    EdgeCommandResultRequest,
     GuardCounterMutationRequest,
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,
@@ -40,6 +42,8 @@ from agentkit.backend.control_plane.runtime import (
 from agentkit.backend.control_plane.telemetry import ControlPlaneTelemetryService
 from agentkit.backend.control_plane.worker_health import ControlPlaneWorkerHealthService
 from agentkit.backend.control_plane_http._route_patterns import (
+    _EDGE_COMMAND_RESULT_PATTERN,
+    _EDGE_COMMANDS_COLLECTION_PATTERN,
     _OPERATION_ADMIN_ABORT_PATTERN,
     _OPERATION_PATH_PATTERN,
     _PROJECT_CLOSURE_PATH_PATTERN,
@@ -977,6 +981,14 @@ class ControlPlaneApplication(
         if route_path == "/v1/governance/worker-health":
             return self._handle_get_worker_health(query, correlation_id)
 
+        # AG3-145 Edge-Command-Queue (non-project-scoped, mirrors the sibling
+        # project-edge operation/sync/ownership routes):
+        commands_match = _EDGE_COMMANDS_COLLECTION_PATTERN.match(route_path)
+        if commands_match is not None:
+            return self._handle_get_open_commands(
+                commands_match.group("run_id"), query, correlation_id,
+            )
+
         # Auth routes (non-project-scoped):
         auth_response = self._auth_routes.handle_get(route_path, correlation_id)
         if auth_response is not None:
@@ -1157,6 +1169,15 @@ class ControlPlaneApplication(
             return self._handle_post_worker_health(payload, correlation_id)
         if route_path == "/v1/project-edge/sync":
             return self._handle_post_project_edge_sync(payload, correlation_id)
+
+        # AG3-145 Edge-Command-Queue result (non-project-scoped, FK-91 §91.1b):
+        command_result_match = _EDGE_COMMAND_RESULT_PATTERN.match(route_path)
+        if command_result_match is not None:
+            return self._handle_post_command_result(
+                command_id=command_result_match.group("command_id"),
+                payload=payload,
+                correlation_id=correlation_id,
+            )
 
         # AG3-138 admin-abort (non-project-scoped, mirrors the operation GET path):
         admin_abort_match = _OPERATION_ADMIN_ABORT_PATTERN.match(route_path)
@@ -1552,6 +1573,87 @@ class ControlPlaneApplication(
             correlation_id=correlation_id,
         )
 
+    def _handle_get_open_commands(
+        self,
+        run_id: str,
+        query: dict[str, list[str]],
+        correlation_id: str,
+    ) -> HttpResponse:
+        """``GET .../story-runs/{run_id}/commands`` (FK-91 §91.1b, AG3-145 AC1).
+
+        ``project_key``/``session_id`` are mandatory query parameters (a GET
+        carries no body) -- self-declared like every other project-edge
+        caller field; the fail-closed session scoping happens at the store
+        query, never at this validation.
+        """
+        project_key = _single_query_value(query, "project_key")
+        session_id = _single_query_value(query, "session_id")
+        if not project_key or not session_id:
+            return _error_response(
+                HTTPStatus.BAD_REQUEST,
+                error_code="invalid_edge_commands_query",
+                message="project_key and session_id query parameters are required",
+                correlation_id=correlation_id,
+            )
+        try:
+            result = self._runtime_service.list_and_ack_open_commands(
+                run_id, project_key=project_key, session_id=session_id,
+            )
+        except ConfigError as exc:
+            return _backend_requirement_response(
+                "edge_commands_unavailable", exc, correlation_id
+            )
+        except RuntimeError as exc:
+            logger.warning("Edge-command list unavailable: %s", exc)
+            return _error_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                error_code="edge_commands_unavailable",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+        return _json_response(
+            HTTPStatus.OK,
+            result.model_dump(mode="json"),
+            correlation_id=correlation_id,
+        )
+
+    def _handle_post_command_result(
+        self,
+        *,
+        command_id: str,
+        payload: object,
+        correlation_id: str,
+    ) -> HttpResponse:
+        """``POST .../commands/{command_id}/result`` (FK-91 §91.1b, AG3-145 AC2/AC3)."""
+        try:
+            request = EdgeCommandResultRequest.model_validate(payload)
+            result = self._runtime_service.submit_command_result(command_id, request)
+        except ValidationError as exc:
+            # AG3-140-style contract (FK-91 §91.1a Rule 5): a missing/empty op_id
+            # fails closed with 422, distinct from an ordinary 400 shape defect.
+            return _error_response(
+                HTTPStatus.UNPROCESSABLE_ENTITY
+                if op_id_validation_error(exc)
+                else HTTPStatus.BAD_REQUEST,
+                error_code="invalid_edge_command_result_payload",
+                message="Invalid edge-command result payload",
+                correlation_id=correlation_id,
+                detail=exc.errors(),
+            )
+        except ConfigError as exc:
+            return _backend_requirement_response(
+                "edge_command_result_unavailable", exc, correlation_id
+            )
+        except RuntimeError as exc:
+            logger.warning("Edge-command result unavailable: %s", exc)
+            return _error_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                error_code="edge_command_result_unavailable",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+        return _edge_command_result_response(result, correlation_id=correlation_id)
+
     def _handle_post_admin_abort(
         self,
         *,
@@ -1794,6 +1896,40 @@ def _mutation_result_response(
     """
     if result.status != "rejected":
         status = HTTPStatus.CREATED
+    elif result.error_code == ERROR_CODE_OWNERSHIP_TRANSFERRED:
+        status = HTTPStatus.FORBIDDEN
+    else:
+        status = HTTPStatus.CONFLICT
+    headers: tuple[tuple[str, str], ...] = ()
+    if result.retry_after_seconds is not None:
+        headers = (("Retry-After", str(result.retry_after_seconds)),)
+    return _json_response(
+        status,
+        result.model_dump(mode="json"),
+        correlation_id=correlation_id,
+        headers=headers,
+    )
+
+
+def _edge_command_result_response(
+    result: EdgeCommandMutationResult,
+    *,
+    correlation_id: str,
+) -> HttpResponse:
+    """Map an Edge-Command-Queue result to its fail-closed HTTP status (AG3-145).
+
+    Mirrors ``_mutation_result_response`` for the DEDICATED
+    :class:`EdgeCommandMutationResult` shape: ``completed``/``replayed`` map to
+    201 CREATED; a ``rejected`` result maps to 404 for an unknown/foreign
+    ``command_id`` (``edge_command_not_found``), 403 for the ex-owner
+    ``ownership_transferred`` payload (Rule 18), and 409 CONFLICT for every
+    other fail-closed cause (double-completion, non-admitted, busy object --
+    the busy-object cause additionally carries the K4 ``Retry-After`` header).
+    """
+    if result.status != "rejected":
+        status = HTTPStatus.CREATED
+    elif result.error_code == "edge_command_not_found":
+        status = HTTPStatus.NOT_FOUND
     elif result.error_code == ERROR_CODE_OWNERSHIP_TRANSFERRED:
         status = HTTPStatus.FORBIDDEN
     else:

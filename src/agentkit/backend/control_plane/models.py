@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from http import HTTPStatus
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -722,3 +722,186 @@ class ControlPlaneMutationResult(BaseModel):
             )
             raise ValueError(msg)
         return self
+
+
+# ---------------------------------------------------------------------------
+# Edge-Command-Queue wire models (FK-91 §91.1b, AG3-145)
+# ---------------------------------------------------------------------------
+
+
+class EdgeCommandView(BaseModel):
+    """One open command as materialized to the GET response (AG3-145)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    command_id: str = Field(min_length=1)
+    command_kind: str = Field(min_length=1)
+    payload: dict[str, object] = Field(default_factory=dict)
+    status: Literal["created", "delivered"]
+    created_at: datetime
+
+
+class OpenEdgeCommandsResponse(BaseModel):
+    """Response body for ``GET .../story-runs/{run_id}/commands`` (AG3-145).
+
+    FK-91 §91.1a Rule 13: this is a pure read -- it takes no lock/claim. The
+    GET call itself acks delivery server-side (``status`` moves ``created`` ->
+    ``delivered``); this response body carries no separate ack field.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    commands: list[EdgeCommandView] = Field(default_factory=list)
+
+
+class BranchRefReport(BaseModel):
+    """``branch_ref_report`` (FK-91 §91.1b / FK-10 §10.2.4b): per-repo branch
+    class + head SHA, reported after every sync point."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    result_type: Literal["branch_ref_report"] = "branch_ref_report"
+    repo_id: str = Field(min_length=1)
+    branch_class: Literal["no_branch", "branch_present"]
+    head_sha: str | None = None
+
+
+class PushStatusReport(BaseModel):
+    """``push_status_report`` (FK-91 §91.1b): push success vs. backlog per repo.
+
+    Foundation shape only -- ``sync_push`` execution is AG3-147.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    result_type: Literal["push_status_report"] = "push_status_report"
+    repo_id: str = Field(min_length=1)
+    push_outcome: Literal["pushed", "behind_remote"]
+
+
+class WorktreeReport(BaseModel):
+    """``worktree_report`` (FK-91 §91.1b): provisioning/teardown outcome per repo.
+
+    ``worktree_root`` is the physical path the Edge provisioned/tore down --
+    the SINGLE SOURCE OF TRUTH for the session's ``worktree_roots`` (FK-56
+    §56.8, FK-10 §10.2.4a): the backend never derives this path itself.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    result_type: Literal["worktree_report"] = "worktree_report"
+    repo_id: str = Field(min_length=1)
+    outcome: Literal["provisioned", "torn_down", "no_op"]
+    worktree_root: str | None = None
+    branch: str | None = None
+    head_sha: str | None = None
+    marker_present: bool = False
+
+
+class TakeoverQuarantineDetail(BaseModel):
+    """Quarantine detail on a ``takeover_reconcile`` result (FK-56 §56.13e).
+
+    Foundation shape only -- ``takeover_reconcile`` execution (the quarantine
+    mechanics) is AG3-151.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    result_type: Literal["takeover_quarantine_detail"] = "takeover_quarantine_detail"
+    repo_id: str = Field(min_length=1)
+    quarantine_path: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+
+
+class TakeoverErrorResult(BaseModel):
+    """Named takeover-family error result (FK-30 §30.6.3), never a collective FAIL.
+
+    Foundation shape only -- ``takeover_reconcile`` execution is AG3-151.
+    ``local_stale_or_dirty_takeover_target`` doubles as a named Check-8
+    preflight finding (AG3-145 Teilschritt C, FK-22 §22.3.1).
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    result_type: Literal[
+        "remote_branch_diverged_after_takeover",
+        "local_stale_or_dirty_takeover_target",
+        "contested_local_writes",
+    ]
+    repo_id: str = Field(min_length=1)
+    detail: str = ""
+
+
+class CommandErrorResult(BaseModel):
+    """Deterministic error result for a failed/unsupported command (Scope item 4).
+
+    An Edge that receives a command kind outside its executable set (or whose
+    executor raises) reports this instead of a silent no-op.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    result_type: Literal["command_error"] = "command_error"
+    error_code: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+
+
+#: The closed, discriminated wire union of every Edge-Command-Queue result
+#: shape (FK-91 §91.1b, AG3-145 AC9): the three named result types, the
+#: takeover quarantine detail and the named takeover error states, plus the
+#: generic command-error fallback.
+EdgeCommandResultPayload = Annotated[
+    BranchRefReport
+    | PushStatusReport
+    | WorktreeReport
+    | TakeoverQuarantineDetail
+    | TakeoverErrorResult
+    | CommandErrorResult,
+    Field(discriminator="result_type"),
+]
+
+
+class EdgeCommandResultRequest(BaseModel):
+    """Canonical request payload for ``POST .../commands/{command_id}/result`` (AG3-145).
+
+    FK-91 §91.1b: client-``op_id`` is MANDATORY (Rule 5 -- no server minting,
+    ``min_length=1``, no ``default_factory``, independent of the BC-wide
+    retrofit AG3-140 owns for pre-existing routes); the completion commit is
+    story-serialized (Rule 13, via the AG3-141 object-claim helper) and
+    Rule-15 ownership-fenced against the active record (AG3-142 reuse).
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    project_key: str = Field(min_length=1)
+    story_id: str = Field(min_length=1)
+    session_id: str = Field(min_length=1)
+    #: FK-91 §91.1a Rule 5: client-supplied idempotency key. No server default
+    #: remains -- an omitted op_id fails closed at validation (422).
+    op_id: str = Field(min_length=1)
+    result: EdgeCommandResultPayload
+
+
+class EdgeCommandMutationResult(BaseModel):
+    """Response body for ``POST .../commands/{command_id}/result`` (AG3-145).
+
+    Deliberately NOT :class:`ControlPlaneMutationResult`: a command-result
+    commit never materializes a story-scoped ``edge_bundle`` (that model's
+    edge-bundle-optionality invariant would force one on every ``committed``
+    status) -- this endpoint owns its own small, dedicated result shape.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: Literal["completed", "replayed", "rejected"]
+    command_id: str
+    op_id: str
+    #: AG3-141 (K4): a busy-object-claim rejection's stable error code (mirrors
+    #: ``ControlPlaneMutationResult.error_code``). ``None`` otherwise.
+    error_code: str | None = None
+    #: AG3-141 (K4): the retry-hint budget (seconds) for a busy-object
+    #: rejection. ``None`` for every other outcome.
+    retry_after_seconds: int | None = None
+    #: AG3-142 (FK-91 §91.1a Rule 18): the structured ex-owner detail for a
+    #: ``rejected`` result whose ``error_code`` is ``ownership_transferred``.
+    ownership_conflict: OwnershipTransferredDetail | None = None

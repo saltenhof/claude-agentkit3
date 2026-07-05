@@ -34,6 +34,11 @@ def _build_public_api_names() -> tuple[str, ...]:
         # AG3-143 Execution-Contract-Digest persistence (Postgres-only K5).
         "insert_execution_contract_digest_global",
         "load_execution_contract_digest_global",
+        # AG3-145 Edge-Command-Queue persistence (Postgres-only K5).
+        "insert_edge_command_record_global",
+        "load_edge_command_record_global",
+        "list_and_ack_open_edge_command_records_global",
+        "commit_edge_command_result_global",
         "insert_object_mutation_claim_global",
         "load_object_mutation_claim_global",
         "delete_object_mutation_claim_global",

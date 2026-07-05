@@ -41,6 +41,9 @@ from agentkit.backend.state_backend.store.facade import (
     commit_control_plane_operation_with_side_effects_global as commit_control_plane_operation_with_side_effects_global,
 )
 from agentkit.backend.state_backend.store.facade import (
+    commit_edge_command_result_global as commit_edge_command_result_global,
+)
+from agentkit.backend.state_backend.store.facade import (
     control_plane_backend_available as control_plane_backend_available,
 )
 from agentkit.backend.state_backend.store.facade import (
@@ -83,6 +86,9 @@ from agentkit.backend.state_backend.store.facade import (
     has_open_repair_control_plane_operation_for_story_global as has_open_repair_control_plane_operation_for_story_global,
 )
 from agentkit.backend.state_backend.store.facade import (
+    insert_edge_command_record_global as insert_edge_command_record_global,
+)
+from agentkit.backend.state_backend.store.facade import (
     insert_execution_contract_digest_global as insert_execution_contract_digest_global,
 )
 from agentkit.backend.state_backend.store.facade import (
@@ -90,6 +96,9 @@ from agentkit.backend.state_backend.store.facade import (
 )
 from agentkit.backend.state_backend.store.facade import (
     insert_run_ownership_record_global as insert_run_ownership_record_global,
+)
+from agentkit.backend.state_backend.store.facade import (
+    list_and_ack_open_edge_command_records_global as list_and_ack_open_edge_command_records_global,
 )
 from agentkit.backend.state_backend.store.facade import (
     list_orphaned_claimed_control_plane_operations_global as list_orphaned_claimed_control_plane_operations_global,
@@ -114,6 +123,9 @@ from agentkit.backend.state_backend.store.facade import (
 )
 from agentkit.backend.state_backend.store.facade import (
     load_control_plane_operation_global as load_control_plane_operation_global,
+)
+from agentkit.backend.state_backend.store.facade import (
+    load_edge_command_record_global as load_edge_command_record_global,
 )
 from agentkit.backend.state_backend.store.facade import (
     load_execution_contract_digest_global as load_execution_contract_digest_global,

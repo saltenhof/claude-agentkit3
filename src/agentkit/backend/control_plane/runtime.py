@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 
 from agentkit.backend.control_plane import object_claims
+from agentkit.backend.control_plane.edge_commands import TAKEOVER_ERROR_RESULT_TYPES
 from agentkit.backend.control_plane.execution_contract_assembly import (
     ExecutionContractDigestOutcome,
     build_execution_contract_digest,
@@ -18,7 +19,11 @@ from agentkit.backend.control_plane.models import (
     ClosureCompleteRequest,
     ControlPlaneMutationResult,
     EdgeBundle,
+    EdgeCommandMutationResult,
+    EdgeCommandResultRequest,
+    EdgeCommandView,
     EdgePointer,
+    OpenEdgeCommandsResponse,
     OwnershipTransferredDetail,
     PhaseDispatchResult,
     PhaseMutationRequest,
@@ -47,6 +52,7 @@ from agentkit.backend.control_plane.records import (
 )
 from agentkit.backend.control_plane.repository import (
     ControlPlaneRuntimeRepository,
+    EdgeCommandRepository,
     ObjectMutationClaimRepository,
 )
 
@@ -60,6 +66,7 @@ from agentkit.backend.core_types.operating_mode import OperatingMode  # noqa: TC
 from agentkit.backend.exceptions import (
     ControlPlaneBindingCollisionError,
     ControlPlaneClaimCollisionError,
+    EdgeCommandNotOpenError,
     OwnershipFenceViolationError,
 )
 from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
@@ -74,7 +81,10 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from agentkit.backend.control_plane.dispatch import PhaseDispatcher
-    from agentkit.backend.control_plane.records import BackendInstanceIdentityRecord
+    from agentkit.backend.control_plane.records import (
+        BackendInstanceIdentityRecord,
+        EdgeCommandRecord,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +106,14 @@ _SYNC_AFTER_BY_CLASS = {
 #: unclear mutation sees the true ``aborted`` / ``repair`` / ``failed`` outcome
 #: an admin-abort or startup reconciliation produced (FK-91 §91.1a Rule 17).
 _RECONCILE_PRESERVED_STATUSES = frozenset({"aborted", "repair", "failed"})
+
+#: AG3-145 (FK-91 §91.1b): the ``EdgeCommandResultPayload.result_type`` values
+#: that terminate a command as ``failed`` rather than ``completed`` -- the
+#: named takeover-family error states plus the generic command-error
+#: fallback (Scope item 4). Every other registered result type is a success.
+_EDGE_COMMAND_FAILURE_RESULT_TYPES = TAKEOVER_ERROR_RESULT_TYPES | frozenset(
+    {"command_error"}
+)
 
 
 class OperationNotFoundError(LookupError):
@@ -584,6 +602,7 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         *,
         repository: ControlPlaneRuntimeRepository | None = None,
         object_claim_repository: ObjectMutationClaimRepository | None = None,
+        edge_command_repository: EdgeCommandRepository | None = None,
         phase_dispatcher: PhaseDispatcher | None = None,
         now_fn: Callable[[], datetime] | None = None,
         token_factory: Callable[[], str] | None = None,
@@ -618,6 +637,11 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
             self._object_claim_repo = _default_di_object_claim_repository()
         else:
             self._object_claim_repo = ObjectMutationClaimRepository()
+        #: AG3-145 (K5 Postgres-only, FK-91 §91.1b): the Edge-Command-Queue DI
+        #: seam -- see ``_resolve_edge_command_repository`` (mirrors
+        #: ``object_claim_repository`` above; extracted to a module-level
+        #: helper to keep this constructor's LOC budget, PY_CLASS_MAX_LOC_800).
+        self._edge_command_repo = _resolve_edge_command_repository(edge_command_repository, repository)
         #: AG3-143 (K5 Postgres-only, FK-44 §44.3a): the execution-contract-
         #: digest reader for a genuinely fresh setup start. Mirrors
         #: ``object_claim_repository``: a DI-injected ``repository`` OR an
@@ -1906,6 +1930,305 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         raise NotImplementedError
 
 
+class _EdgeCommandMixin:
+    """Edge-Command-Queue GET/POST service methods (FK-91 §91.1b, AG3-145 mixin).
+
+    Cohesive command-list-and-ack + command-result-commit logic, split out of
+    :class:`ControlPlaneRuntimeService` for cohesion (PY_CLASS_MAX_LOC_800; no
+    behaviour change). The concrete runtime supplies the shared dependencies
+    below.
+    """
+
+    if TYPE_CHECKING:
+        _repo: ControlPlaneRuntimeRepository
+        _edge_command_repo: EdgeCommandRepository
+        _now_fn: Callable[[], datetime]
+
+        def _require_postgres_backend_on_first_use(self) -> None: ...
+        def _acquire_object_claim(
+            self, *, project_key: str, story_id: str, op_id: str
+        ) -> object_claims.ObjectClaimConflict | None: ...
+        def _release_object_claim(
+            self, *, project_key: str, story_id: str, op_id: str
+        ) -> None: ...
+        def _release_object_claim_best_effort(
+            self, *, project_key: str, story_id: str, op_id: str
+        ) -> None: ...
+
+    def list_and_ack_open_commands(
+        self,
+        run_id: str,
+        *,
+        project_key: str,
+        session_id: str,
+    ) -> OpenEdgeCommandsResponse:
+        """``GET .../story-runs/{run_id}/commands`` (FK-91 §91.1b, AG3-145 AC1).
+
+        Read-only Ack (Rule 13: "Reads nehmen niemals Sperren") -- the fetch
+        stamps delivery (``created`` -> ``delivered``) but acquires no
+        lock/claim. Scoped to ``(project_key, run_id, session_id)`` at the
+        store: a foreign session's query matches zero rows -- fail-closed by
+        construction, never a session-identity check that could be bypassed.
+        """
+        self._require_postgres_backend_on_first_use()
+        records = self._edge_command_repo.list_and_ack_open_commands(
+            project_key=project_key,
+            run_id=run_id,
+            session_id=session_id,
+            delivered_at=self._now_fn(),
+        )
+        return OpenEdgeCommandsResponse(
+            commands=[
+                EdgeCommandView(
+                    command_id=record.command_id,
+                    command_kind=record.command_kind,
+                    payload=record.payload,
+                    status=cast("Literal['created', 'delivered']", record.status),
+                    created_at=record.created_at,
+                )
+                for record in records
+            ]
+        )
+
+    def submit_command_result(
+        self,
+        command_id: str,
+        request: EdgeCommandResultRequest,
+    ) -> EdgeCommandMutationResult:
+        """``POST .../commands/{command_id}/result`` (FK-91 §91.1b, AG3-145 AC2/AC3).
+
+        Story-serialized (Rule 13, the AG3-141 object-claim helper acquired
+        BEFORE apply) and Rule-15 ownership-fenced against the ACTIVE
+        ownership record at commit time (AG3-142 fence surface reused
+        verbatim, no TOCTOU): an ex-owner / epoch-drift result is rejected
+        409/403 with the ``ownership_transferred`` payload -- WITHOUT any
+        state write. An unknown ``command_id`` or a double-completion under a
+        DIFFERENT ``op_id`` is deterministically rejected; a replay of the
+        SAME ``op_id`` that already terminated the command is idempotent.
+        """
+        self._require_postgres_backend_on_first_use()
+        existing = self._edge_command_repo.load_command(command_id)
+        not_found = existing is None or (
+            existing.project_key != request.project_key
+            or existing.story_id != request.story_id
+        )
+        if not_found:
+            return EdgeCommandMutationResult(
+                status="rejected",
+                command_id=command_id,
+                op_id=request.op_id,
+                error_code="edge_command_not_found",
+            )
+        assert existing is not None  # noqa: S101 -- `not_found` excluded None above
+        if existing.result_op_id is not None:
+            if existing.result_op_id == request.op_id:
+                return EdgeCommandMutationResult(
+                    status="replayed", command_id=command_id, op_id=request.op_id,
+                )
+            return EdgeCommandMutationResult(
+                status="rejected",
+                command_id=command_id,
+                op_id=request.op_id,
+                error_code="edge_command_already_resolved",
+            )
+
+        admission = evaluate_ownership_admission(
+            active_record=self._repo.load_active_ownership(
+                request.project_key, request.story_id
+            ),
+            run_id=existing.run_id,
+            session_id=request.session_id,
+        )
+        if not admission.admitted:
+            return self._edge_command_ownership_admission_rejection(
+                admission, command_id=command_id, op_id=request.op_id,
+            )
+        assert admission.active_record is not None  # noqa: S101 -- admitted implies a record
+        expected_ownership_epoch = admission.active_record.ownership_epoch
+
+        object_conflict = self._acquire_object_claim(
+            project_key=request.project_key,
+            story_id=request.story_id,
+            op_id=request.op_id,
+        )
+        if object_conflict is not None:
+            return EdgeCommandMutationResult(
+                status="rejected",
+                command_id=command_id,
+                op_id=request.op_id,
+                error_code=object_conflict.error_code,
+                retry_after_seconds=object_conflict.retry_after_seconds,
+            )
+        return self._commit_command_result(
+            existing,
+            request=request,
+            command_id=command_id,
+            expected_ownership_epoch=expected_ownership_epoch,
+        )
+
+    def _commit_command_result(
+        self,
+        existing: EdgeCommandRecord,
+        *,
+        request: EdgeCommandResultRequest,
+        command_id: str,
+        expected_ownership_epoch: int,
+    ) -> EdgeCommandMutationResult:
+        """Commit the fenced command-result after the object claim is held.
+
+        Extracted from :meth:`submit_command_result` for cohesion: owns the
+        claim-release discipline (non-best-effort on a handled outcome,
+        best-effort on an unexpected exception -- mirrors ``_mutate_phase``).
+        """
+        now = self._now_fn()
+        result_status: Literal["completed", "failed"] = (
+            "failed"
+            if request.result.result_type in _EDGE_COMMAND_FAILURE_RESULT_TYPES
+            else "completed"
+        )
+        op_record = ControlPlaneOperationRecord(
+            op_id=request.op_id,
+            project_key=request.project_key,
+            story_id=request.story_id,
+            run_id=existing.run_id,
+            session_id=request.session_id,
+            operation_kind="edge_command_result",
+            phase=None,
+            status="committed",
+            response_payload={
+                "status": result_status,
+                "command_id": command_id,
+                "op_id": request.op_id,
+            },
+            created_at=now,
+            updated_at=now,
+        )
+        try:
+            self._edge_command_repo.commit_result(
+                op_record,
+                command_id=command_id,
+                result_status=result_status,
+                completed_at=now,
+                result_op_id=request.op_id,
+                result_type=request.result.result_type,
+                result_payload=request.result.model_dump(mode="json"),
+                expected_ownership_epoch=expected_ownership_epoch,
+            )
+        except OwnershipFenceViolationError as exc:
+            self._release_object_claim(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
+            return self._edge_command_fence_violation_rejection(
+                exc, command_id=command_id, op_id=request.op_id,
+            )
+        except (ControlPlaneClaimCollisionError, EdgeCommandNotOpenError):
+            self._release_object_claim(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
+            return EdgeCommandMutationResult(
+                status="rejected",
+                command_id=command_id,
+                op_id=request.op_id,
+                error_code="edge_command_already_resolved",
+            )
+        except BaseException:
+            self._release_object_claim_best_effort(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
+            raise
+        self._release_object_claim(
+            project_key=request.project_key,
+            story_id=request.story_id,
+            op_id=request.op_id,
+        )
+        return EdgeCommandMutationResult(
+            status="completed", command_id=command_id, op_id=request.op_id,
+        )
+
+    def _edge_command_ownership_admission_rejection(
+        self,
+        admission: OwnershipAdmission,
+        *,
+        command_id: str,
+        op_id: str,
+    ) -> EdgeCommandMutationResult:
+        """Build the ex-owner rejection from a rejected :class:`OwnershipAdmission`.
+
+        Mirrors ``_ownership_admission_rejection`` (phase mutations) but
+        returns :class:`EdgeCommandMutationResult`: ONLY the
+        ``OWNERSHIP_TRANSFERRED`` reason carries the rich structured payload.
+        """
+        if admission.rejection_reason is not OwnershipRejectionReason.OWNERSHIP_TRANSFERRED:
+            return EdgeCommandMutationResult(
+                status="rejected",
+                command_id=command_id,
+                op_id=op_id,
+                error_code="edge_command_not_admitted",
+            )
+        record = admission.active_record
+        assert record is not None  # noqa: S101 -- OWNERSHIP_TRANSFERRED always carries one
+        return EdgeCommandMutationResult(
+            status="rejected",
+            command_id=command_id,
+            op_id=op_id,
+            error_code=ERROR_CODE_OWNERSHIP_TRANSFERRED,
+            ownership_conflict=OwnershipTransferredDetail(
+                reason="ownership_transferred",
+                new_owner_session_id=record.owner_session_id,
+                new_ownership_epoch=record.ownership_epoch,
+                transferred_at=record.acquired_at,
+            ),
+        )
+
+    def _edge_command_fence_violation_rejection(
+        self,
+        exc: OwnershipFenceViolationError,
+        *,
+        command_id: str,
+        op_id: str,
+    ) -> EdgeCommandMutationResult:
+        """Build the ex-owner rejection from a commit-time fence violation (AG3-142).
+
+        Mirrors ``_ownership_fence_violation_rejection`` but returns
+        :class:`EdgeCommandMutationResult`. ``detail`` carries the CURRENT
+        conflicting owner read within the SAME rolled-back transaction (no
+        TOCTOU); ``None`` values mean no active record exists at all (never a
+        genuine transfer) -- a plain fail-closed rejection.
+        """
+        new_owner = exc.detail.get("current_owner_session_id")
+        new_epoch = exc.detail.get("current_ownership_epoch")
+        transferred_at = exc.detail.get("transferred_at")
+        if (
+            not isinstance(new_owner, str)
+            or not isinstance(new_epoch, int)
+            or not isinstance(transferred_at, str)
+        ):
+            return EdgeCommandMutationResult(
+                status="rejected",
+                command_id=command_id,
+                op_id=op_id,
+                error_code="edge_command_not_admitted",
+            )
+        return EdgeCommandMutationResult(
+            status="rejected",
+            command_id=command_id,
+            op_id=op_id,
+            error_code=ERROR_CODE_OWNERSHIP_TRANSFERRED,
+            ownership_conflict=OwnershipTransferredDetail(
+                reason="ownership_transferred",
+                new_owner_session_id=new_owner,
+                new_ownership_epoch=new_epoch,
+                transferred_at=datetime.fromisoformat(transferred_at),
+            ),
+        )
+
+
 class _AdminTransitionMixin:
     """AG3-138 ``admin_transition`` abort + repair-resolve service methods (mixin).
 
@@ -2094,7 +2417,9 @@ class _AdminTransitionMixin:
         )
 
 
-class ControlPlaneRuntimeService(_AdminTransitionMixin, _ControlPlaneRuntimeAdmissionBase):
+class ControlPlaneRuntimeService(
+    _AdminTransitionMixin, _EdgeCommandMixin, _ControlPlaneRuntimeAdmissionBase
+):
     """Implement control-plane mutations with idempotent op replay."""
 
     def complete_closure(
@@ -3709,6 +4034,104 @@ def _default_di_object_claim_repository() -> ObjectMutationClaimRepository:
         return True
 
     return ObjectMutationClaimRepository(acquire_claim=_acquire, release_claim=_release)
+
+
+def _resolve_edge_command_repository(
+    edge_command_repository: EdgeCommandRepository | None,
+    repository: ControlPlaneRuntimeRepository | None,
+) -> EdgeCommandRepository:
+    """Resolve the Edge-Command-Queue DI seam (AG3-145).
+
+    Mirrors the ``object_claim_repository`` resolution: a DI-injected
+    ``repository`` (test / alternative wiring) that does not ALSO inject an
+    explicit ``edge_command_repository`` gets a self-contained in-memory fake
+    (:func:`_default_di_edge_command_repository`) -- never the productive
+    Postgres-backed default -- so a DB-free unit test is never forced to also
+    wire Postgres for the command queue.
+    """
+    if edge_command_repository is not None:
+        return edge_command_repository
+    if repository is not None:
+        return _default_di_edge_command_repository()
+    return EdgeCommandRepository()
+
+
+def _default_di_edge_command_repository() -> EdgeCommandRepository:
+    """Build a self-contained in-memory Edge-Command repository (DI seam, AG3-145).
+
+    Mirrors :func:`_default_di_object_claim_repository`: a directly-constructed
+    service with an injected ``repository`` but no explicit
+    ``edge_command_repository`` gets THIS in-memory store instead of the
+    productive Postgres-backed default. ``commit_result`` replicates the
+    productive CAS (open -> terminal, raising :class:`EdgeCommandNotOpenError`
+    on a double-completion) so the runtime's fail-closed handling is genuinely
+    exercised without a database; the Rule-15 no-TOCTOU RACE window itself is
+    proven only against real Postgres (``tests/integration/state_backend``),
+    never faked here.
+    """
+    commands: dict[str, EdgeCommandRecord] = {}
+
+    def _insert(record: EdgeCommandRecord) -> None:
+        if record.command_id in commands:
+            raise ValueError(f"duplicate command_id {record.command_id!r}")
+        commands[record.command_id] = record
+
+    def _load(command_id: str) -> EdgeCommandRecord | None:
+        return commands.get(command_id)
+
+    def _list_and_ack(
+        *, project_key: str, run_id: str, session_id: str, delivered_at: datetime,
+    ) -> tuple[EdgeCommandRecord, ...]:
+        from dataclasses import replace
+
+        matching = [
+            record
+            for record in commands.values()
+            if record.project_key == project_key
+            and record.run_id == run_id
+            and record.session_id == session_id
+            and record.status in {"created", "delivered"}
+        ]
+        acked: list[EdgeCommandRecord] = []
+        for record in matching:
+            if record.status == "created":
+                record = replace(record, status="delivered", delivered_at=delivered_at)
+                commands[record.command_id] = record
+            acked.append(record)
+        return tuple(sorted(acked, key=lambda r: (r.created_at, r.command_id)))
+
+    def _commit_result(
+        op_record: ControlPlaneOperationRecord,
+        *,
+        command_id: str,
+        result_status: str,
+        completed_at: datetime,
+        result_op_id: str,
+        result_type: str,
+        result_payload: dict[str, object],
+        expected_ownership_epoch: int,
+    ) -> None:
+        from dataclasses import replace
+
+        del op_record, expected_ownership_epoch
+        current = commands.get(command_id)
+        if current is None or current.status not in {"created", "delivered"}:
+            raise EdgeCommandNotOpenError(command_id)
+        commands[command_id] = replace(
+            current,
+            status=result_status,
+            completed_at=completed_at,
+            result_op_id=result_op_id,
+            result_type=result_type,
+            result_payload=result_payload,
+        )
+
+    return EdgeCommandRepository(
+        insert_command=_insert,
+        load_command=_load,
+        list_and_ack_open_commands=_list_and_ack,
+        commit_result=_commit_result,
+    )
 
 
 def _default_di_execution_contract_digest_reader() -> (
