@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from agentkit.backend.config.loader import load_project_config
@@ -769,7 +769,17 @@ class SetupPhaseHandler:
         cleanup_error = self._commission_failure_teardown(enriched, plan, run_id=run_id)
         if cleanup_error is None:
             return failure
-        return replace(failure, errors=(*failure.errors, cleanup_error))
+        # Explicit reconstruction (not ``dataclasses.replace``) so the surfaced
+        # cleanup error rides on a typed :class:`HandlerResult`.
+        return HandlerResult(
+            status=failure.status,
+            yield_status=failure.yield_status,
+            artifacts_produced=failure.artifacts_produced,
+            errors=(*failure.errors, cleanup_error),
+            updated_context=failure.updated_context,
+            updated_state=failure.updated_state,
+            suggested_reaction=failure.suggested_reaction,
+        )
 
     def _commission_failure_teardown(
         self, enriched: StoryContext, plan: _WorktreePlan, *, run_id: str
@@ -795,19 +805,21 @@ class SetupPhaseHandler:
                 repos=repos,
                 branch=branch,
             )
-        except Exception as exc:  # noqa: BLE001 -- surfaced, not swallowed
+        except Exception as exc:  # noqa: BLE001
+            # Fail-closed: an edge/DB commission fault is SURFACED, not swallowed.
             logger.error(
                 "setup-failure teardown commission FAILED for story=%s: %s",
                 enriched.story_id,
                 exc,
             )
-            return (
+            cleanup_message = (
                 "worktree_teardown_cleanup_failed: setup failed after the edge "
                 f"provisioned worktree(s) for repos {sorted(repos)}, and "
                 f"commissioning their teardown_worktree cleanup ALSO failed "
                 f"({exc}); the worktree may be leaked -- reconcile it manually "
                 "(FK-10 §10.4.2)."
             )
+            return cleanup_message
         return None
 
     @staticmethod
