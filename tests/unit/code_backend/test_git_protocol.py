@@ -91,14 +91,18 @@ class TestGitLsRemoteReader:
         assert result.detail
 
     def test_no_worktree_or_physical_repo_access_required(
-        self, bare_repo_with_commit: tuple[Path, str], tmp_path: Path
+        self,
+        bare_repo_with_commit: tuple[Path, str],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """AC2: the read works from an arbitrary cwd with no local checkout at all."""
         bare, head_sha = bare_repo_with_commit
-        # Reading from a location with NO git repository of its own proves the
-        # capability needs no worktree/physical repo -- only network protocol.
+        # Run from a directory that has NO git repository of its own: this proves
+        # the capability needs no worktree/physical repo -- only network protocol.
         neutral_cwd = tmp_path / "no-repo-here"
         neutral_cwd.mkdir()
+        monkeypatch.chdir(neutral_cwd)
         result = GitLsRemoteReader().read_head_sha(str(bare), "main")
         assert result.resolved is True
         assert result.head_sha == head_sha

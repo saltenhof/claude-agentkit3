@@ -3,7 +3,7 @@
 Runs the SAME assertions, unchanged, against the GitHub adapter
 (:class:`GitHubCodeBackendAdapter`) and a Non-GitHub test-double adapter
 (:class:`FakeAzureDevOpsCodeBackendAdapter`) -- proving substitutability
-(PO-Direktive III, Azure-DevOps-Tauglichkeit, FK-12 §12.1). Both adapters are
+(PO Directive III, Azure DevOps readiness, FK-12 §12.1). Both adapters are
 pointed at the SAME local bare-repo fixture via each adapter's own
 (adapter-internal) remote-binding seam, so the suite never touches a live
 provider or the network.

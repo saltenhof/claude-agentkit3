@@ -3467,8 +3467,8 @@ def build_github_code_backend_port(
     GitHub reference-provider adapter (``gh`` CLI mechanics for the
     capabilities that need them, ``git ls-remote`` for the provider-neutral
     read capabilities) to a single ``owner/repo`` coordinate. GitHub is the
-    reference provider (FK-12 §12.1.1); PO-Direktive III (Azure-DevOps-
-    Tauglichkeit) is honored by every consumer depending only on
+    reference provider (FK-12 §12.1.1); PO Directive III (Azure DevOps
+    readiness) is honored by every consumer depending only on
     :class:`CodeBackendPort` -- swapping the productive provider later means
     adding an analogous builder here, never touching a consumer.
 

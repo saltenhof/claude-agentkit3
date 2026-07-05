@@ -1,6 +1,6 @@
 """Provider-neutral code-backend capability port (FK-12 §12.1, AG3-146).
 
-PO-Direktive III (`concept/_meta/decisions/2026-07-02-k1-worktree-topologie.md`):
+PO Directive III (`concept/_meta/decisions/2026-07-02-k1-worktree-topologie.md`):
 AgentKit must not be welded to GitHub specifics -- an Azure DevOps deployment is
 planned. This module is the single, minimal capability-set Protocol every
 code-backend provider adapter implements. It is the ONLY contract a consumer
@@ -146,7 +146,7 @@ class CodeBackendPort(Protocol):
     construction time (opaque to this Protocol -- see the module docstring)
     and implements every method below. Consumers depend on this Protocol
     only; swapping GitHub for Azure DevOps means swapping the adapter that
-    satisfies it, never touching a consumer (PO-Direktive III).
+    satisfies it, never touching a consumer (PO Directive III).
     """
 
     def repo_probe(self) -> RepoProbeResult:

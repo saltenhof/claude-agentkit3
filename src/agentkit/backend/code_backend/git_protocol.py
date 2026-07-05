@@ -1,10 +1,10 @@
 """Provider-neutral ``git ls-remote`` read capability (FK-12 §12.1, blood T).
 
-FK-10 §10.2.4a draws a hard line between "backend-seitige Subprocess-Git-
-Zugriffe" (a malfunction -- physical worktree/repo access the backend must
-never have) and the explicitly carved-out exception: Ref-Reads/Push-
-Verifikation "bevorzugt via provider-neutralem git-Protokoll (`git
-ls-remote`, kein Worktree noetig)". ``git ls-remote`` is a NETWORK-PROTOCOL
+FK-10 §10.2.4a draws a hard line between "backend-side subprocess git
+access" (a malfunction -- physical worktree/repo access the backend must
+never have) and the explicitly carved-out exception: ref-reads/push-
+verification "preferably via the provider-neutral git protocol (`git
+ls-remote`, no worktree needed)". ``git ls-remote`` is a NETWORK-PROTOCOL
 read against a remote URL -- it needs no local checkout, no working tree and
 no physical repository on the backend host; it is invoked from an arbitrary
 working directory. That is exactly the capability this module implements.
