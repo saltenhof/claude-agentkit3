@@ -66,6 +66,11 @@ if TYPE_CHECKING:
 _RUN = "run-integrity-001"
 _CODE_PHASES = ("setup", "implementation", "closure")
 _NONCODE_PHASES = ("setup", "closure")
+# AG3-144: this module runs on the narrow SQLite unit-test path (K5
+# Postgres-only; no fence mirroring there) -- the fence params are required
+# by the signature but ignored by the driver.
+_UNFENCED_SQLITE_OWNER = "sqlite-unfenced"
+_UNFENCED_SQLITE_EPOCH = 0
 
 
 @pytest.fixture(autouse=True)
@@ -283,8 +288,20 @@ def _create_decision(story_dir: Path, decision: str = "PASS") -> None:
         decision=decision_obj,
         attempt_nr=1,
     )
-    record_layer_artifacts(story_dir, layer_results=layers, attempt_nr=1)
-    record_verify_decision(story_dir, decision=decision_obj, attempt_nr=1)
+    record_layer_artifacts(
+        story_dir,
+        layer_results=layers,
+        attempt_nr=1,
+        owner_session_id=_UNFENCED_SQLITE_OWNER,
+        expected_ownership_epoch=_UNFENCED_SQLITE_EPOCH,
+    )
+    record_verify_decision(
+        story_dir,
+        decision=decision_obj,
+        attempt_nr=1,
+        owner_session_id=_UNFENCED_SQLITE_OWNER,
+        expected_ownership_epoch=_UNFENCED_SQLITE_EPOCH,
+    )
 
 
 def _populate_implementation_story(story_dir: Path) -> None:
@@ -341,7 +358,11 @@ class TestIntegrityGateAllPassing:
             layer_results=(_structural_result(),), attempt_nr=1,
         )
         record_layer_artifacts(
-            story_dir, layer_results=(_structural_result(),), attempt_nr=1
+            story_dir,
+            layer_results=(_structural_result(),),
+            attempt_nr=1,
+            owner_session_id=_UNFENCED_SQLITE_OWNER,
+            expected_ownership_epoch=_UNFENCED_SQLITE_EPOCH,
         )
         result = _noncode_gate().evaluate(story_dir, StoryType.CONCEPT)
         assert result.passed is True
@@ -357,7 +378,11 @@ class TestIntegrityGateAllPassing:
             layer_results=(_structural_result(),), attempt_nr=1,
         )
         record_layer_artifacts(
-            story_dir, layer_results=(_structural_result(),), attempt_nr=1
+            story_dir,
+            layer_results=(_structural_result(),),
+            attempt_nr=1,
+            owner_session_id=_UNFENCED_SQLITE_OWNER,
+            expected_ownership_epoch=_UNFENCED_SQLITE_EPOCH,
         )
         result = _noncode_gate().evaluate(story_dir, StoryType.RESEARCH)
         assert result.passed is True
@@ -606,7 +631,11 @@ class TestIntegrityGateResearchFewerDimensions:
             layer_results=(_structural_result(),), attempt_nr=1,
         )
         record_layer_artifacts(
-            story_dir, layer_results=(_structural_result(),), attempt_nr=1
+            story_dir,
+            layer_results=(_structural_result(),),
+            attempt_nr=1,
+            owner_session_id=_UNFENCED_SQLITE_OWNER,
+            expected_ownership_epoch=_UNFENCED_SQLITE_EPOCH,
         )
         result = _noncode_gate().evaluate(story_dir, StoryType.RESEARCH)
         assert result.passed is True

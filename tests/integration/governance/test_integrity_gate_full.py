@@ -69,6 +69,11 @@ _STORY = "AG3-700"
 _RUN = "run-ig-full-001"
 _CODE_PHASES = ("setup", "implementation", "closure")
 _NONCODE_PHASES = ("setup", "closure")
+# AG3-144: this module runs on the narrow SQLite unit-test path (K5
+# Postgres-only; no fence mirroring there, see ``_sqlite_backend`` below) --
+# the fence params are required by the signature but ignored by the driver.
+_UNFENCED_SQLITE_OWNER = "sqlite-unfenced"
+_UNFENCED_SQLITE_EPOCH = 0
 
 
 @pytest.fixture(autouse=True)
@@ -305,8 +310,20 @@ def _write_full_qa(story_dir: Path) -> None:
         manager=manager, story_id=_STORY, run_id=_RUN,
         decision=decision, attempt_nr=1,
     )
-    record_layer_artifacts(story_dir, layer_results=layers, attempt_nr=1)
-    record_verify_decision(story_dir, decision=decision, attempt_nr=1)
+    record_layer_artifacts(
+        story_dir,
+        layer_results=layers,
+        attempt_nr=1,
+        owner_session_id=_UNFENCED_SQLITE_OWNER,
+        expected_ownership_epoch=_UNFENCED_SQLITE_EPOCH,
+    )
+    record_verify_decision(
+        story_dir,
+        decision=decision,
+        attempt_nr=1,
+        owner_session_id=_UNFENCED_SQLITE_OWNER,
+        expected_ownership_epoch=_UNFENCED_SQLITE_EPOCH,
+    )
 
 
 def _create_structural_only(story_dir: Path) -> None:
@@ -317,7 +334,13 @@ def _create_structural_only(story_dir: Path) -> None:
         manager=manager, story_id=_STORY, run_id=_RUN,
         layer_results=(structural,), attempt_nr=1,
     )
-    record_layer_artifacts(story_dir, layer_results=(structural,), attempt_nr=1)
+    record_layer_artifacts(
+        story_dir,
+        layer_results=(structural,),
+        attempt_nr=1,
+        owner_session_id=_UNFENCED_SQLITE_OWNER,
+        expected_ownership_epoch=_UNFENCED_SQLITE_EPOCH,
+    )
 
 
 def test_implementation_sonar_unavailable_is_deliberate_absence_skip(

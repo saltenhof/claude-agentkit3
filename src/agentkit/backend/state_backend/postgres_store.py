@@ -5014,6 +5014,8 @@ def persist_layer_artifact_rows(
     flow_row: dict[str, Any] | None,
     layer_payload_rows: list[dict[str, object]],
     attempt_nr: int,
+    owner_session_id: str,
+    expected_ownership_epoch: int,
     projection_dir: Path | None = None,
 ) -> tuple[str, ...]:
     """Persist QA layer artifact rows, FK-69 read models, and projection files.
@@ -5030,6 +5032,20 @@ def persist_layer_artifact_rows(
     (boundary.state_backend_repository) delegate their Postgres write path
     to the same functions -- the SQL lives exactly once in the driver (SSOT;
     AC010: the driver imports no repository).
+
+    AG3-144 (FK-91 §91.1a Rule 15, no-lease-no-write): ``owner_session_id`` /
+    ``expected_ownership_epoch`` are the caller's early-captured
+    ``run_ownership_records`` snapshot (mirrors the AG3-142 regime-commit
+    pattern). The AG3-142 fence (``_enforce_ownership_fence_row``) is
+    re-verified AT COMMIT TIME, in THIS SAME transaction, under
+    ``SELECT ... FOR UPDATE``, BEFORE any row or projection file is written --
+    a lost lease rejects with :class:`OwnershipFenceViolationError` and writes
+    NOTHING (no projection file, no ``qa_stage_results``/``qa_findings`` row).
+
+    Raises:
+        OwnershipFenceViolationError: When the story's active ownership record
+            no longer admits this exact ``(flow_row.run_id, owner_session_id,
+            expected_ownership_epoch)`` snapshot at commit time.
     """
     story_id = _story_id_for(story_dir)
     if story_id is None:
@@ -5044,6 +5060,16 @@ def persist_layer_artifact_rows(
         )
     produced: list[str] = []
     with _connect(story_dir) as conn:
+        # AG3-144: fence FIRST, before any file/row write -- a stale lease
+        # rolls back before touching the filesystem or the DB.
+        _enforce_ownership_fence_row(
+            conn,
+            project_key=str(flow_row["project_key"]),
+            story_id=story_id,
+            run_id=str(flow_row["run_id"]),
+            session_id=owner_session_id,
+            expected_ownership_epoch=expected_ownership_epoch,
+        )
         for item in layer_payload_rows:
             layer = str(item["layer"])
             artifact_name = str(item["artifact_name"])
@@ -5083,9 +5109,26 @@ def persist_verify_decision_row(
     decision_row: dict[str, Any],
     canonical_payload: dict[str, object],
     attempt_nr: int,
+    owner_session_id: str,
+    expected_ownership_epoch: int,
     projection_dir: Path | None = None,
 ) -> tuple[str, ...]:
-    """Persist a verify-decision row and write the projection file."""
+    """Persist a verify-decision row and write the projection file.
+
+    AG3-144 (FK-91 §91.1a Rule 15, no-lease-no-write): the AG3-142 fence
+    (``_enforce_ownership_fence_row``) is re-verified AT COMMIT TIME, in the
+    SAME transaction as the ``decision_records`` upsert, under
+    ``SELECT ... FOR UPDATE``, BEFORE the projection file or the row is
+    written. The projection-file write is therefore moved INSIDE the fenced
+    transaction (it used to precede the connection): a lost lease raises
+    :class:`OwnershipFenceViolationError` and writes NEITHER the file NOR the
+    row.
+
+    Raises:
+        OwnershipFenceViolationError: When the story's active ownership record
+            no longer admits this exact ``(flow_row.run_id, owner_session_id,
+            expected_ownership_epoch)`` snapshot at commit time.
+    """
 
     story_id = _story_id_for(story_dir)
     if story_id is None:
@@ -5098,9 +5141,19 @@ def persist_verify_decision_row(
             "scope in canonical Postgres backend",
         )
     target_dir = projection_dir or story_dir
-    _write_projection(target_dir / VERIFY_DECISION_FILE, canonical_payload)
     written = (VERIFY_DECISION_FILE,)
     with _connect(story_dir) as conn:
+        # AG3-144: fence FIRST, before the projection file or the row is
+        # written -- a stale lease rolls back before any state write.
+        _enforce_ownership_fence_row(
+            conn,
+            project_key=str(flow_row["project_key"]),
+            story_id=story_id,
+            run_id=str(flow_row["run_id"]),
+            session_id=owner_session_id,
+            expected_ownership_epoch=expected_ownership_epoch,
+        )
+        _write_projection(target_dir / VERIFY_DECISION_FILE, canonical_payload)
         recorded_at = datetime.fromisoformat(now_iso())
         conn.execute(
             """
@@ -5316,14 +5369,47 @@ def persist_closure_report_row(
     *,
     flow_row: dict[str, Any] | None,
     report_row: dict[str, Any],
+    owner_session_id: str,
+    expected_ownership_epoch: int,
     projection_dir: Path | None = None,
 ) -> Path:
-    """Persist a closure-report and write the projection file."""
+    """Persist a closure-report and write the projection file.
+
+    AG3-144 (FK-91 §91.1a Rule 15, no-lease-no-write): the closure report has
+    no dedicated DB row (the projection file IS the persisted artifact), so
+    the AG3-142 fence (``_enforce_ownership_fence_row``) is re-verified AT
+    COMMIT TIME in a dedicated transaction, under ``SELECT ... FOR UPDATE``,
+    BEFORE the projection file is written -- a lost lease raises
+    :class:`OwnershipFenceViolationError` and writes NOTHING.
+
+    Raises:
+        OwnershipFenceViolationError: When the story's active ownership record
+            no longer admits this exact ``(flow_row.run_id, owner_session_id,
+            expected_ownership_epoch)`` snapshot at commit time.
+    """
 
     if flow_row is None:
         raise CorruptStateError(
             "Cannot persist closure artifact without flow execution scope "
             "in canonical Postgres backend",
+        )
+    story_id = _story_id_for(story_dir)
+    if story_id is None:
+        raise CorruptStateError(
+            "Cannot persist closure artifact without story context "
+            "in canonical backend",
+        )
+    with _connect(story_dir) as conn:
+        # AG3-144: fence FIRST -- no DB row is written for the closure report
+        # (the projection file IS the artifact), so the fence transaction's
+        # sole purpose is to reject a lost lease BEFORE the file write below.
+        _enforce_ownership_fence_row(
+            conn,
+            project_key=str(flow_row["project_key"]),
+            story_id=story_id,
+            run_id=str(flow_row["run_id"]),
+            session_id=owner_session_id,
+            expected_ownership_epoch=expected_ownership_epoch,
         )
     target_dir = projection_dir or story_dir
     path = target_dir / CLOSURE_REPORT_FILE

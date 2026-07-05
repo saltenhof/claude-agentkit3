@@ -3059,6 +3059,8 @@ def persist_layer_artifact_rows(
     flow_row: dict[str, Any] | None,
     layer_payload_rows: list[dict[str, object]],
     attempt_nr: int,
+    owner_session_id: str,
+    expected_ownership_epoch: int,
     projection_dir: Path | None = None,
 ) -> tuple[str, ...]:
     """Persist QA layer artifact rows and write projection files.
@@ -3069,9 +3071,15 @@ def persist_layer_artifact_rows(
     ``flow_row`` and FK-69 fields (``stage_row``, ``finding_rows``) are
     ignored on SQLite (FK-69 read models are Postgres-only).
     artifact_records removed in 3.4.0 — projection file is the only SQLite output.
+
+    AG3-144 (K5 Postgres-only): the narrow SQLite unit-test path receives BUT
+    does not mirror the AG3-142 ownership-lease fence -- explicit, not a
+    silent skip (the fence lives only in ``postgres_store.py``).
     """
     del flow_row
     del attempt_nr
+    del owner_session_id
+    del expected_ownership_epoch
     story_id = _story_id_for(story_dir)
     if story_id is None:
         raise CorruptStateError(
@@ -3094,11 +3102,20 @@ def persist_verify_decision_row(
     decision_row: dict[str, Any],
     canonical_payload: dict[str, object],
     attempt_nr: int,
+    owner_session_id: str,
+    expected_ownership_epoch: int,
     projection_dir: Path | None = None,
 ) -> tuple[str, ...]:
-    """Persist a verify-decision row and write the projection file."""
+    """Persist a verify-decision row and write the projection file.
+
+    AG3-144 (K5 Postgres-only): the narrow SQLite unit-test path receives BUT
+    does not mirror the AG3-142 ownership-lease fence -- explicit, not a
+    silent skip (the fence lives only in ``postgres_store.py``).
+    """
 
     del flow_row
+    del owner_session_id
+    del expected_ownership_epoch
     story_id = _story_id_for(story_dir)
     if story_id is None:
         raise CorruptStateError(
@@ -3223,11 +3240,20 @@ def persist_closure_report_row(
     *,
     flow_row: dict[str, Any] | None,
     report_row: dict[str, Any],
+    owner_session_id: str,
+    expected_ownership_epoch: int,
     projection_dir: Path | None = None,
 ) -> Path:
-    """Persist a closure-report and write the projection file."""
+    """Persist a closure-report and write the projection file.
+
+    AG3-144 (K5 Postgres-only): the narrow SQLite unit-test path receives BUT
+    does not mirror the AG3-142 ownership-lease fence -- explicit, not a
+    silent skip (the fence lives only in ``postgres_store.py``).
+    """
 
     del flow_row
+    del owner_session_id
+    del expected_ownership_epoch
     target_dir = projection_dir or story_dir
     path = target_dir / CLOSURE_REPORT_FILE
     payload = cast("_JsonRecord", report_row["payload"])

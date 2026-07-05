@@ -1965,7 +1965,15 @@ class TestExecutionReport:
             status="completed",
             phases_executed=("setup", "implementation", "closure"),
         )
-        path = write_execution_report(tmp_path, report)
+        path = write_execution_report(
+            tmp_path,
+            report,
+            # AG3-144: this module runs on the narrow SQLite unit-test path
+            # (tests/unit/conftest.py forces sqlite) -- no fence mirroring
+            # there, so these values are accepted but ignored by the driver.
+            owner_session_id="sqlite-unfenced",
+            expected_ownership_epoch=0,
+        )
         assert path == tmp_path / "closure.json"
         data = json.loads(path.read_text(encoding="utf-8"))
         assert data["story_id"] == "TEST-002"

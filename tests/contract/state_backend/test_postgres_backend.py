@@ -59,6 +59,55 @@ if TYPE_CHECKING:
 
 pytest_plugins = ("tests.fixtures.postgres_backend",)
 
+_TEST_OWNER_SESSION_ID = "test-owner"
+_TEST_OWNERSHIP_EPOCH = 1
+
+
+def _seed_active_ownership(*, project_key: str, story_id: str, run_id: str) -> None:
+    """Seed/refresh the active run-ownership record for these tests (AG3-144).
+
+    This contract test does not exercise ownership semantics itself -- it
+    only needs SOME matching active record so the AG3-142/144 lease fence
+    (now mandatory on ``record_layer_artifacts``/``record_verify_decision``)
+    admits the write. Uses the sanctioned AG3-137 write surfaces: a plain
+    INSERT for the story's first record, a direct ``run_id`` refresh
+    thereafter (this test's flow executions toggle between two run ids under
+    the SAME session, never a real ownership transfer).
+    """
+    from agentkit.backend.control_plane.ownership import (
+        OwnershipAcquisition,
+        OwnershipStatus,
+    )
+    from agentkit.backend.control_plane.records import RunOwnershipRecord
+    from agentkit.backend.state_backend import postgres_store
+    from agentkit.backend.state_backend.store import (
+        insert_run_ownership_record_global,
+        load_active_run_ownership_record_global,
+    )
+
+    existing = load_active_run_ownership_record_global(project_key, story_id)
+    if existing is None:
+        insert_run_ownership_record_global(
+            RunOwnershipRecord(
+                project_key=project_key,
+                story_id=story_id,
+                run_id=run_id,
+                owner_session_id=_TEST_OWNER_SESSION_ID,
+                ownership_epoch=_TEST_OWNERSHIP_EPOCH,
+                status=OwnershipStatus.ACTIVE,
+                acquired_via=OwnershipAcquisition.SETUP,
+                acquired_at=datetime.now(tz=UTC),
+                audit_ref="audit:test-postgres-backend",
+            )
+        )
+    elif existing.run_id != run_id:
+        with postgres_store._connect_global() as conn:  # noqa: SLF001 -- sanctioned test-only direct touch
+            conn.execute(
+                "UPDATE run_ownership_records SET run_id = ? "
+                "WHERE project_key = ? AND story_id = ? AND status = 'active'",
+                (run_id, project_key, story_id),
+            )
+
 
 @pytest.mark.contract
 def test_public_state_backend_contract_works_on_postgres(
@@ -168,7 +217,16 @@ def test_public_state_backend_contract_works_on_postgres(
         layer_results=run1_layers,
         attempt_nr=1,
     )
-    record_layer_artifacts(story_dir, layer_results=run1_layers, attempt_nr=1)
+    _seed_active_ownership(
+        project_key="demo-project", story_id="AG3-901", run_id="run-contract-001"
+    )
+    record_layer_artifacts(
+        story_dir,
+        layer_results=run1_layers,
+        attempt_nr=1,
+        owner_session_id=_TEST_OWNER_SESSION_ID,
+        expected_ownership_epoch=_TEST_OWNERSHIP_EPOCH,
+    )
     assert produced == ("structural.json",)
     structural_record = load_artifact_record(story_dir, "structural")
     assert structural_record is not None
@@ -224,7 +282,16 @@ def test_public_state_backend_contract_works_on_postgres(
         layer_results=run2_layers,
         attempt_nr=1,
     )
-    record_layer_artifacts(story_dir, layer_results=run2_layers, attempt_nr=1)
+    _seed_active_ownership(
+        project_key="demo-project", story_id="AG3-901", run_id="run-contract-002"
+    )
+    record_layer_artifacts(
+        story_dir,
+        layer_results=run2_layers,
+        attempt_nr=1,
+        owner_session_id=_TEST_OWNER_SESSION_ID,
+        expected_ownership_epoch=_TEST_OWNERSHIP_EPOCH,
+    )
     run2_record = load_artifact_record(story_dir, "structural")
     assert run2_record is not None
     assert run2_record["passed"] is True
@@ -246,7 +313,16 @@ def test_public_state_backend_contract_works_on_postgres(
         decision=run2_decision_obj,
         attempt_nr=1,
     )
-    record_verify_decision(story_dir, decision=run2_decision_obj, attempt_nr=1)
+    _seed_active_ownership(
+        project_key="demo-project", story_id="AG3-901", run_id="run-contract-002"
+    )
+    record_verify_decision(
+        story_dir,
+        decision=run2_decision_obj,
+        attempt_nr=1,
+        owner_session_id=_TEST_OWNER_SESSION_ID,
+        expected_ownership_epoch=_TEST_OWNERSHIP_EPOCH,
+    )
     run2_decision = load_latest_verify_decision(story_dir)
     assert run2_decision is not None
     assert run2_decision["status"] == "FAIL"
@@ -297,7 +373,16 @@ def test_public_state_backend_contract_works_on_postgres(
         layer_results=rerun_layers,
         attempt_nr=1,
     )
-    record_layer_artifacts(story_dir, layer_results=rerun_layers, attempt_nr=1)
+    _seed_active_ownership(
+        project_key="demo-project", story_id="AG3-901", run_id="run-contract-001"
+    )
+    record_layer_artifacts(
+        story_dir,
+        layer_results=rerun_layers,
+        attempt_nr=1,
+        owner_session_id=_TEST_OWNER_SESSION_ID,
+        expected_ownership_epoch=_TEST_OWNERSHIP_EPOCH,
+    )
     rematerialized_findings = load_qa_findings(
         story_dir,
         project_key="demo-project",
@@ -329,7 +414,16 @@ def test_public_state_backend_contract_works_on_postgres(
         decision=decision,
         attempt_nr=1,
     )
-    record_verify_decision(story_dir, decision=decision, attempt_nr=1)
+    _seed_active_ownership(
+        project_key="demo-project", story_id="AG3-901", run_id="run-contract-001"
+    )
+    record_verify_decision(
+        story_dir,
+        decision=decision,
+        attempt_nr=1,
+        owner_session_id=_TEST_OWNER_SESSION_ID,
+        expected_ownership_epoch=_TEST_OWNERSHIP_EPOCH,
+    )
     assert written == ("decision.json",)
     verify_record = load_latest_verify_decision(story_dir)
     assert verify_record is not None

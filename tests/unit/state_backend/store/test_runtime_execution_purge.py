@@ -242,12 +242,59 @@ def _seed_phase_snapshot(story_dir: Path) -> None:
     )
 
 
+def _ownership_fence_for_test() -> tuple[str, int]:
+    """AG3-144: fence values for ``facade.record_verify_decision`` in this module.
+
+    On the ``postgres`` branch, seeds (or reuses) the active run-ownership
+    record for ``(_PROJECT, _STORY, _RUN)`` via the sanctioned AG3-137 write
+    surface -- this module does not test ownership semantics, it just needs
+    SOME matching active record so the AG3-142/144 lease fence admits the
+    write. On the ``sqlite`` branch (K5 Postgres-only; no fence mirroring
+    there) the values are accepted but ignored by the driver.
+    """
+    from agentkit.backend.state_backend.config import (
+        StateBackendKind,
+        load_state_backend_config,
+    )
+
+    if load_state_backend_config().backend is not StateBackendKind.POSTGRES:
+        return ("sqlite-unfenced", 0)
+    from agentkit.backend.control_plane.ownership import (
+        OwnershipAcquisition,
+        OwnershipStatus,
+    )
+    from agentkit.backend.control_plane.records import RunOwnershipRecord
+    from agentkit.backend.state_backend.store import (
+        insert_run_ownership_record_global,
+        load_active_run_ownership_record_global,
+    )
+
+    existing = load_active_run_ownership_record_global(_PROJECT, _STORY)
+    if existing is not None:
+        return (existing.owner_session_id, existing.ownership_epoch)
+    insert_run_ownership_record_global(
+        RunOwnershipRecord(
+            project_key=_PROJECT,
+            story_id=_STORY,
+            run_id=_RUN,
+            owner_session_id="test-owner",
+            ownership_epoch=1,
+            status=OwnershipStatus.ACTIVE,
+            acquired_via=OwnershipAcquisition.SETUP,
+            acquired_at=_NOW,
+            audit_ref="audit:test-runtime-purge",
+        )
+    )
+    return ("test-owner", 1)
+
+
 def _seed_verify_decision(story_dir: Path, attempt_nr: int = 3) -> None:
     # NOTE: the Postgres driver requires an existing flow_executions row to
     # resolve the decision scope — seed the flow execution first (as the real
     # verify path does). attempt_nr defaults to 3 to model a LATE attempt of a
     # corrupted run (attempt numbering restarts at 1 in the next run, so a
     # leftover row would shadow the new run's decision via MAX(attempt_nr)).
+    owner_session_id, expected_ownership_epoch = _ownership_fence_for_test()
     facade.record_verify_decision(
         story_dir,
         decision=VerifyDecision(
@@ -259,6 +306,8 @@ def _seed_verify_decision(story_dir: Path, attempt_nr: int = 3) -> None:
             summary="seeded stale verify decision (second-QA §53.7.5 probe)",
         ),
         attempt_nr=attempt_nr,
+        owner_session_id=owner_session_id,
+        expected_ownership_epoch=expected_ownership_epoch,
     )
 
 

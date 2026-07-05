@@ -325,9 +325,17 @@ class QALayerBatchWriter(Protocol):
         *,
         layer_results: tuple[LayerResult, ...],
         attempt_nr: int,
+        owner_session_id: str,
+        expected_ownership_epoch: int,
         projection_dir: Path | None = None,
     ) -> tuple[str, ...]:
-        """Persist QA-layer results atomically; returns the artifact IDs."""
+        """Persist QA-layer results atomically; returns the artifact IDs.
+
+        ``owner_session_id`` / ``expected_ownership_epoch`` (AG3-144, FK-91
+        §91.1a Rule 15) are the caller's early-captured active
+        ``run_ownership_records`` snapshot, re-verified at commit time (the
+        AG3-142 fence, no-lease-no-write).
+        """
         ...
 
 
@@ -1208,6 +1216,8 @@ class FacadeQALayerBatchWriter:
         *,
         layer_results: tuple[LayerResult, ...],
         attempt_nr: int,
+        owner_session_id: str,
+        expected_ownership_epoch: int,
         projection_dir: Path | None = None,
     ) -> tuple[str, ...]:
         """Delegate to the atomic facade/driver batch and return the artifact IDs."""
@@ -1217,6 +1227,8 @@ class FacadeQALayerBatchWriter:
             story_dir,
             layer_results=layer_results,
             attempt_nr=attempt_nr,
+            owner_session_id=owner_session_id,
+            expected_ownership_epoch=expected_ownership_epoch,
             projection_dir=projection_dir,
         )
 

@@ -64,6 +64,7 @@ from agentkit.backend.state_backend.store import (
     load_flow_execution,
     load_override_records,
     record_verify_decision,
+    resolve_ownership_fence_snapshot,
     save_story_context,
 )
 from agentkit.backend.verify_system.contract import PhaseEnvelopeView, VerifyContextBundle
@@ -170,6 +171,19 @@ class ImplementationPhaseHandler:
                 "the pipeline_engine must persist it before invoking the QA-subflow.",
                 detail={"story_id": ctx.story_id, "story_dir": str(s_dir)},
             )
+        # AG3-144 (FK-91 §91.1a Rule 15, no-lease-no-write): capture the
+        # ownership-lease snapshot as early as feasible in this (possibly
+        # long) QA-subflow execution -- mirrors the control-plane's own
+        # admission snapshot (AG3-142). Threaded into the QA-layer/decision
+        # persistence calls below, which re-verify it AT COMMIT TIME, in the
+        # SAME transaction, under SELECT ... FOR UPDATE (no TOCTOU). ``None``
+        # on the narrow SQLite unit-test path (K5 Postgres-only; no fence
+        # mirroring there) -- the placeholder values are explicitly ignored
+        # by the sqlite_store driver functions.
+        ownership_fence = resolve_ownership_fence_snapshot(ctx.project_key, ctx.story_id)
+        owner_session_id, expected_ownership_epoch = (
+            ownership_fence if ownership_fence is not None else ("sqlite-unfenced", 0)
+        )
         # AG3-026 Re-Review: VerifySystem.create_default() requires an
         # ArtifactManager (mandatory arg, fail-closed). Build via the
         # Composition-Root which already wires the manager to the story DB.
@@ -295,6 +309,8 @@ class ImplementationPhaseHandler:
             s_dir,
             layer_results=decision.layer_results,
             attempt_nr=attempt_nr,
+            owner_session_id=owner_session_id,
+            expected_ownership_epoch=expected_ownership_epoch,
             projection_dir=projection_dir,
         )
         # AG3-108 AC2/AC4: wire CheckOutcomeEmitter into the real QA persistence path.
@@ -328,6 +344,8 @@ class ImplementationPhaseHandler:
             s_dir,
             decision=decision,
             attempt_nr=attempt_nr,
+            owner_session_id=owner_session_id,
+            expected_ownership_epoch=expected_ownership_epoch,
             projection_dir=projection_dir,
         )
 

@@ -51,6 +51,7 @@ from agentkit.backend.pipeline_engine.phase_executor import (
 )
 from agentkit.backend.state_backend.store import (
     load_phase_snapshot,
+    resolve_ownership_fence_snapshot,
     save_story_context,
 )
 from agentkit.backend.story_context_manager.types import get_profile
@@ -1088,9 +1089,20 @@ def _write_report(
         warnings=warnings,
         metrics=metrics.to_metrics_payload(),
     )
+    # AG3-144 (FK-91 §91.1a Rule 15, no-lease-no-write): capture the
+    # ownership-lease snapshot right before persisting the closure report --
+    # re-verified at commit time, in the SAME transaction, under
+    # SELECT ... FOR UPDATE (no TOCTOU). ``None`` on the narrow SQLite
+    # unit-test path (K5 Postgres-only; no fence mirroring there).
+    ownership_fence = resolve_ownership_fence_snapshot(ctx.project_key, ctx.story_id)
+    owner_session_id, expected_ownership_epoch = (
+        ownership_fence if ownership_fence is not None else ("sqlite-unfenced", 0)
+    )
     return write_execution_report(
         s_dir,
         report,
+        owner_session_id=owner_session_id,
+        expected_ownership_epoch=expected_ownership_epoch,
         projection_dir=resolve_qa_story_dir(
             s_dir, story_id=ctx.story_id, project_root=ctx.project_root
         ),

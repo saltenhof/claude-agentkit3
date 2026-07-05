@@ -860,6 +860,49 @@ def load_active_run_ownership_record_global(
     return mappers.run_ownership_row_to_record(row)
 
 
+def resolve_ownership_fence_snapshot(
+    project_key: str,
+    story_id: str,
+) -> tuple[str, int] | None:
+    """Resolve the caller's early ownership-lease snapshot (AG3-144, FK-91 §91.1a Rule 15).
+
+    Business-logic write paths (the implementation/closure phase handlers)
+    call this ONCE, as early as feasible in their own execution, to capture
+    the active ``run_ownership_records`` row's ``(owner_session_id,
+    ownership_epoch)`` -- mirroring the control-plane's own admission
+    snapshot (AG3-142). The snapshot is threaded into the later
+    ``record_layer_artifacts`` / ``record_verify_decision`` /
+    ``record_closure_report`` calls, which re-verify it AT COMMIT TIME, in
+    the SAME transaction, under ``SELECT ... FOR UPDATE`` (no TOCTOU).
+
+    K5 Postgres-only (Querschnitts-Auflagen): on a non-Postgres backend (the
+    narrow SQLite unit-test path) this returns ``None`` -- explicit, not a
+    silent skip -- so the caller falls back to inert placeholder values that
+    the ``sqlite_store`` driver functions explicitly ignore. There is no
+    fence mirroring on SQLite.
+
+    Returns:
+        ``(owner_session_id, ownership_epoch)`` on Postgres, or ``None`` on a
+        non-Postgres backend.
+
+    Raises:
+        CorruptStateError: On Postgres, when no active ``run_ownership_records``
+            row exists for ``(project_key, story_id)`` -- an in-flight phase
+            execution without an active lease is a state-integrity fault, not
+            a scenario to silently tolerate.
+    """
+    if load_state_backend_config().backend is not StateBackendKind.POSTGRES:
+        return None
+    active = load_active_run_ownership_record_global(project_key, story_id)
+    if active is None:
+        raise CorruptStateError(
+            "No active run-ownership record found for an in-flight phase "
+            "execution (AG3-142/AG3-144 no-lease-no-write precondition)",
+            detail={"project_key": project_key, "story_id": story_id},
+        )
+    return (active.owner_session_id, active.ownership_epoch)
+
+
 # ---------------------------------------------------------------------------
 # EdgeCommandRecord (AG3-145, Postgres-only K5)
 # ---------------------------------------------------------------------------
@@ -2098,6 +2141,8 @@ def record_layer_artifacts(
     *,
     layer_results: tuple[LayerResult, ...],
     attempt_nr: int,
+    owner_session_id: str,
+    expected_ownership_epoch: int,
     projection_dir: Path | None = None,
 ) -> tuple[str, ...]:
     """Serialize QA layer results and persist projection + FK-69 rows.
@@ -2107,6 +2152,19 @@ def record_layer_artifacts(
     writes are owned by ``verify_system.artifacts`` — this facade does
     not know about ArtifactManager (no state_backend -> verify_system
     import).
+
+    Args:
+        owner_session_id: (AG3-144, FK-91 §91.1a Rule 15) The caller's
+            early-captured active ``run_ownership_records.owner_session_id``
+            (mirrors the AG3-142 regime-commit pattern). Re-verified at commit
+            time, in the SAME transaction, under ``SELECT ... FOR UPDATE``.
+        expected_ownership_epoch: The caller's early-captured
+            ``ownership_epoch`` snapshot, re-verified the same way.
+
+    Raises:
+        OwnershipFenceViolationError: (AG3-142 reuse) When the story's active
+            ownership record no longer admits this exact snapshot at commit
+            time -- nothing written (no projection file, no QA rows).
     """
     from datetime import datetime
 
@@ -2166,6 +2224,8 @@ def record_layer_artifacts(
             flow_row=flow_row,
             layer_payload_rows=layer_payload_rows,
             attempt_nr=attempt_nr,
+            owner_session_id=owner_session_id,
+            expected_ownership_epoch=expected_ownership_epoch,
             projection_dir=projection_dir,
         ),
     )
@@ -2176,9 +2236,24 @@ def record_verify_decision(
     *,
     decision: VerifyDecision,
     attempt_nr: int,
+    owner_session_id: str,
+    expected_ownership_epoch: int,
     projection_dir: Path | None = None,
 ) -> tuple[str, ...]:
-    """Serialize a verify decision and persist via driver."""
+    """Serialize a verify decision and persist via driver.
+
+    Args:
+        owner_session_id: (AG3-144, FK-91 §91.1a Rule 15) The caller's
+            early-captured active ``run_ownership_records.owner_session_id``.
+            Re-verified at commit time under ``SELECT ... FOR UPDATE``.
+        expected_ownership_epoch: The caller's early-captured
+            ``ownership_epoch`` snapshot, re-verified the same way.
+
+    Raises:
+        OwnershipFenceViolationError: (AG3-142 reuse) When the story's active
+            ownership record no longer admits this exact snapshot at commit
+            time -- nothing written.
+    """
 
     canonical_payload = mappers.build_verify_decision_dict(
         decision,
@@ -2197,6 +2272,8 @@ def record_verify_decision(
             },
             canonical_payload=canonical_payload,
             attempt_nr=attempt_nr,
+            owner_session_id=owner_session_id,
+            expected_ownership_epoch=expected_ownership_epoch,
             projection_dir=projection_dir,
         ),
     )
@@ -2349,8 +2426,24 @@ def record_closure_report(
     story_dir: Path,
     report: ExecutionReport,
     *,
+    owner_session_id: str,
+    expected_ownership_epoch: int,
     projection_dir: Path | None = None,
 ) -> Path:
+    """Persist the closure report and its export projection.
+
+    Args:
+        owner_session_id: (AG3-144, FK-91 §91.1a Rule 15) The caller's
+            early-captured active ``run_ownership_records.owner_session_id``.
+            Re-verified at commit time under ``SELECT ... FOR UPDATE``.
+        expected_ownership_epoch: The caller's early-captured
+            ``ownership_epoch`` snapshot, re-verified the same way.
+
+    Raises:
+        OwnershipFenceViolationError: (AG3-142 reuse) When the story's active
+            ownership record no longer admits this exact snapshot at commit
+            time -- nothing written.
+    """
     flow_row = _backend_module().load_flow_execution_row(story_dir)
     payload = report.to_dict()
     return cast(
@@ -2363,6 +2456,8 @@ def record_closure_report(
                 "status": report.status,
                 "payload": payload,
             },
+            owner_session_id=owner_session_id,
+            expected_ownership_epoch=expected_ownership_epoch,
             projection_dir=projection_dir,
         ),
     )

@@ -673,6 +673,8 @@ class ProjectionAccessor:
         *,
         layer_results: tuple[LayerResult, ...],
         attempt_nr: int,
+        owner_session_id: str,
+        expected_ownership_epoch: int,
         projection_dir: Path | None = None,
     ) -> tuple[str, ...]:
         """Business write entry point for the QA-layer batch (FK-69 §69.4, AK4).
@@ -696,15 +698,28 @@ class ProjectionAccessor:
             story_dir: Story working directory.
             layer_results: QA-layer results of this attempt.
             attempt_nr: Attempt number.
+            owner_session_id: (AG3-144, FK-91 §91.1a Rule 15) The caller's
+                early-captured active ``run_ownership_records.owner_session_id``
+                snapshot (mirrors the AG3-142 regime-commit pattern);
+                re-verified at commit time under ``SELECT ... FOR UPDATE``.
+            expected_ownership_epoch: The caller's early-captured
+                ``ownership_epoch`` snapshot, re-verified the same way.
             projection_dir: Optional projection directory (export).
 
         Returns:
             Tuple of the written artifact IDs (from the driver batch).
+
+        Raises:
+            OwnershipFenceViolationError: (AG3-142 reuse) When the story's
+                active ownership record no longer admits this exact snapshot
+                at commit time -- nothing written.
         """
         return self._repos.qa_layer_batch.persist_layer_artifacts(
             story_dir,
             layer_results=layer_results,
             attempt_nr=attempt_nr,
+            owner_session_id=owner_session_id,
+            expected_ownership_epoch=expected_ownership_epoch,
             projection_dir=projection_dir,
         )
 

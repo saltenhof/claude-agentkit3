@@ -125,6 +125,7 @@ def _build_public_api_names() -> tuple[str, ...]:
         "record_layer_artifacts",
         "record_verify_decision",
         "reset_backend_cache_for_tests",
+        "resolve_ownership_fence_snapshot",
         "resolve_runtime_scope",
         "save_attempt",
         "save_control_plane_operation_global",

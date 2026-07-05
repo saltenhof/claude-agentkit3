@@ -308,7 +308,7 @@ class _SpyBatchWriter:
     """Spy-Implementierung des QALayerBatchWriter-Ports (AG3-035 #5)."""
 
     def __init__(self) -> None:
-        self.calls: list[tuple[object, object, int, object]] = []
+        self.calls: list[tuple[object, object, int, str, int, object]] = []
 
     def persist_layer_artifacts(
         self,
@@ -316,9 +316,20 @@ class _SpyBatchWriter:
         *,
         layer_results: object,
         attempt_nr: int,
+        owner_session_id: str,
+        expected_ownership_epoch: int,
         projection_dir: object = None,
     ) -> tuple[str, ...]:
-        self.calls.append((story_dir, layer_results, attempt_nr, projection_dir))
+        self.calls.append(
+            (
+                story_dir,
+                layer_results,
+                attempt_nr,
+                owner_session_id,
+                expected_ownership_epoch,
+                projection_dir,
+            )
+        )
         return ("art-spy-001",)
 
 
@@ -342,15 +353,26 @@ def test_record_qa_layer_artifacts_delegates_to_batch_port(tmp_path: Path) -> No
         tmp_path,
         layer_results=(),
         attempt_nr=2,
+        owner_session_id="sess-spy",
+        expected_ownership_epoch=1,
         projection_dir=proj_dir,
     )
 
     assert result == ("art-spy-001",)
     assert len(spy.calls) == 1
-    story_dir, layer_results, attempt_nr, projection_dir = spy.calls[0]
+    (
+        story_dir,
+        layer_results,
+        attempt_nr,
+        owner_session_id,
+        expected_ownership_epoch,
+        projection_dir,
+    ) = spy.calls[0]
     assert story_dir == tmp_path
     assert layer_results == ()
     assert attempt_nr == 2
+    assert owner_session_id == "sess-spy"
+    assert expected_ownership_epoch == 1
     assert projection_dir == proj_dir
 
 
@@ -442,6 +464,10 @@ def test_record_qa_layer_artifacts_runs_real_batch_chain(
             story_dir,
             layer_results=layers,
             attempt_nr=1,
+            # AG3-144: sqlite backend (forced above) -- no fence mirroring
+            # there, so these values are accepted but ignored by the driver.
+            owner_session_id="sqlite-unfenced",
+            expected_ownership_epoch=0,
             projection_dir=None,
         )
 

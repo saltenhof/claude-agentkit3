@@ -194,6 +194,11 @@ class TestCheckArtifactsPresent:
             story_dir,
             layer_results=(LayerResult(layer="structural", passed=True),),
             attempt_nr=1,
+            # AG3-144: this module runs on the narrow SQLite unit-test path
+            # (tests/unit/conftest.py forces sqlite) -- no fence mirroring
+            # there, so these values are accepted but ignored by the driver.
+            owner_session_id="sqlite-unfenced",
+            expected_ownership_epoch=0,
             projection_dir=story_dir,
         )
         (story_dir / "structural.json").unlink()
