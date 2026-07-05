@@ -16,5 +16,5 @@ class InvalidPauseReasonError(PipelineError):
 
     Fail-closed: unrecognised yield_status strings are never silently
     coerced to a default. The handler contract (FK-39 §39.2.2) allows
-    exactly three PauseReason values; anything else is an error.
+    only the PauseReason values defined there; anything else is an error.
     """

@@ -602,7 +602,7 @@ Bei jeder **ESCALATED**-Eskalation (nicht PAUSED — `GOVERNANCE_INCIDENT` führ
 PauseReason) sind vorübergehend — Resume nach Klärung via
 `agentkit resume`. ESCALATED ist dauerhafter Stopp der aktuellen
 Iteration — Ursache muss behoben werden, bevor ein neuer Run
-gestartet wird. Definition der drei PauseReason-Werte und
+gestartet wird. Definition der vier PauseReason-Werte und
 der Resume-Trigger in **FK-39 §39.2.2**.
 
 | Status | PauseReason / Ausloeser | Phase | Bedeutung | Resume |
@@ -610,6 +610,7 @@ der Resume-Trigger in **FK-39 §39.2.2**.
 | `PAUSED` | `AWAITING_DESIGN_REVIEW` | exploration | Entwurfsartefakt wartet auf Design-Review. Pipeline pausiert, bis Review-Ergebnis vorliegt. | `agentkit resume --story {id}` (nach Review-Abschluss) |
 | `PAUSED` | `AWAITING_DESIGN_CHALLENGE` | exploration | Design-Review hat Einwaende erhoben. Pipeline pausiert, bis Challenge-Prozess abgeschlossen. | `agentkit resume --story {id}` (nach Challenge-Klaerung) |
 | `PAUSED` | `GOVERNANCE_INCIDENT` | jede | Governance-Observer hat kritischen Incident erkannt. Pipeline pausiert sofort, Mensch muss intervenieren. | `agentkit resume --story {id}` (nach Incident-Klaerung) |
+| `PAUSED` | `AWAITING_EDGE_PROVISIONING` | setup | Setup hat den Project Edge mit `provision_worktree`/`preflight_probe` beauftragt und pausiert fail-closed bis zur Meldung (FK-10 §10.2.4a, FK-91 §91.1b). Kein Mensch — der Agent treibt sein Edge-Tool. | Service-Resume (`POST /phases/setup/start`) nach der Edge-Meldung |
 | `ESCALATED` | Preflight FAIL, Worker BLOCKED, Integrity-Gate FAIL, Max Runden im QA-Subflow, Merge-Konflikt, Gate-FAIL nach max Runden | setup, implementation, closure | Pipeline ist dauerhaft gestoppt fuer diese Iteration. Mensch muss Ursache klaeren und ggf. neuen Run starten. | `agentkit reset-escalation --story {id}` -> neuer Run |
 
 **Technisch:** Der Phase-State mit `status: ESCALATED` oder `PAUSED`

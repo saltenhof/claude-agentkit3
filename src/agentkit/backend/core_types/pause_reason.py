@@ -3,8 +3,9 @@
 Source of truth: FK-39 §39.2.2 — concept/technical-design/39_phase_state_persistenz.md
 (glossary entry lines 62-69 and description in §39.2.2).
 
-Exactly three normalized values; any other string is invalid and is
-rejected fail-closed by the phase runner (see `from_yield_status`).
+The normalized values are pinned in FK-39 §39.2.2; any other string is
+invalid and is rejected fail-closed by the phase runner (see
+`from_yield_status`).
 
 Concept-drift note (AG3-021 Codex review): FK-39 §39.2.2 contains
 lowercase wire strings in the code example, the FK-39 glossary (lines
@@ -25,7 +26,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 # Synonym table from AG3-021 §2.1.4 — maps historically observed
-# free-string values onto the three normalized PauseReason members.
+# free-string values onto the normalized PauseReason members.
 # Comparison is case-insensitive (on the input side); keys are already
 # lowercase.
 _YIELD_STATUS_SYNONYMS: Final[Mapping[str, str]] = MappingProxyType(

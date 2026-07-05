@@ -12,7 +12,7 @@ Die Pflichtliste folgt der Story-Tabelle in AG3-021 §2.1.9.2:
 | QaContext             | 4      | bc-cut Z. 84-95              |
 | PolicyVerdict         | 2      | FK-27 §27.7.2                |
 | ExplorationGateStatus | 3      | FK-23 §23.5.0                |
-| PauseReason           | 3      | FK-39 §39.2.2                |
+| PauseReason           | 4      | FK-39 §39.2.2                |
 | AttemptOutcome        | 6      | FK-39 §39.4.2                |
 | FailureCause          | 16     | FK-39 §39.4.3                |
 | ArtifactClass         | 9      | FK-71 §71.1.1 + FK-44 §44.6  |

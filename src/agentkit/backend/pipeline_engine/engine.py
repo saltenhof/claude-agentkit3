@@ -75,8 +75,8 @@ def _coerce_pause_reason(
     ``PauseReason`` directly or a free string that is mapped onto the
     normalised enum via ``PauseReason.from_yield_status`` (Story §2.1.4).
     Unknown strings are fail-closed: they raise ``PipelineError``, so the
-    handler contract upholds the contract from FK-39 §39.2.2 (only three
-    permitted pause reasons).
+    handler contract upholds the contract from FK-39 §39.2.2 (the
+    permitted pause reasons defined there).
 
     Args:
         raw: The yield-status datum supplied by the handler (optional).

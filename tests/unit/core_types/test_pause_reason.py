@@ -17,6 +17,10 @@ def test_each_value_constructable() -> None:
         is PauseReason.AWAITING_DESIGN_CHALLENGE
     )
     assert PauseReason("GOVERNANCE_INCIDENT") is PauseReason.GOVERNANCE_INCIDENT
+    assert (
+        PauseReason("AWAITING_EDGE_PROVISIONING")
+        is PauseReason.AWAITING_EDGE_PROVISIONING
+    )
 
 
 def test_iteration_is_deterministic() -> None:
@@ -57,6 +61,9 @@ def test_unknown_value_rejected() -> None:
         ("governance_incident", PauseReason.GOVERNANCE_INCIDENT),
         ("governance_pause", PauseReason.GOVERNANCE_INCIDENT),
         ("governance_intervention", PauseReason.GOVERNANCE_INCIDENT),
+        ("awaiting_edge_provisioning", PauseReason.AWAITING_EDGE_PROVISIONING),
+        ("edge_provisioning", PauseReason.AWAITING_EDGE_PROVISIONING),
+        ("edge_provisioning_pending", PauseReason.AWAITING_EDGE_PROVISIONING),
     ],
 )
 def test_from_yield_status_synonyms(raw: str, expected: PauseReason) -> None:
@@ -71,6 +78,8 @@ def test_from_yield_status_synonyms(raw: str, expected: PauseReason) -> None:
         ("Awaiting_Design_Review", PauseReason.AWAITING_DESIGN_REVIEW),
         ("AWAITING_DESIGN_CHALLENGE", PauseReason.AWAITING_DESIGN_CHALLENGE),
         ("GOVERNANCE_INCIDENT", PauseReason.GOVERNANCE_INCIDENT),
+        ("AWAITING_EDGE_PROVISIONING", PauseReason.AWAITING_EDGE_PROVISIONING),
+        ("Awaiting_Edge_Provisioning", PauseReason.AWAITING_EDGE_PROVISIONING),
     ],
 )
 def test_from_yield_status_canonical_wire_value(

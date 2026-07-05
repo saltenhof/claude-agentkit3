@@ -319,9 +319,9 @@ jedoch Orchestrator-vermittelt.
 Die LLM-Ergebnisse (Layer 2) werden als parsebares JSON persistiert
 (`qa_review.json`, `semantic_review.json`, `doc_fidelity.json`). Es gibt keinen
 PAUSED-Zwischenstatus, kein `agents_to_spawn` fuer Layer 2 und kein
-`RUN_SEMANTIC`-Ergebnis fuer Layer 2. Der PauseReason-Enum hat nur
-drei Werte (AWAITING_DESIGN_REVIEW, AWAITING_DESIGN_CHALLENGE,
-GOVERNANCE_INCIDENT) — keiner davon gilt fuer Layer 2.
+`RUN_SEMANTIC`-Ergebnis fuer Layer 2. Kein PauseReason-Wert
+(AWAITING_DESIGN_REVIEW, AWAITING_DESIGN_CHALLENGE, GOVERNANCE_INCIDENT,
+AWAITING_EDGE_PROVISIONING) gilt fuer Layer 2.
 
 ### 37.1.6 Fehlende LLM-Reviews sind ein HARD BLOCKER
 
