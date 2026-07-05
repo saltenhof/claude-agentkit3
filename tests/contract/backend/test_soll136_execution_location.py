@@ -290,10 +290,14 @@ def test_every_backend_git_subprocess_site_is_assigned_in_the_inventory() -> Non
 
 
 #: The load-bearing SOLL-136 regression guard: ``git worktree add`` (worktree
-#: PROVISIONING) must never creep back into the backend, in ANY invocation form.
-#: Catches the argv adjacency ``"worktree", "add"`` (list OR tuple argv) AND the
-#: shell-string / ``os.system`` literal ``"git worktree add ..."`` (incl. an
-#: f-string). A prose ``git worktree add`` in a ``#`` comment or a
+#: PROVISIONING) must never creep back into the backend. Catches every
+#: CONTIGUOUS-LITERAL invocation form: the argv adjacency ``"worktree", "add"``
+#: (list OR tuple argv) AND the shell-string / ``os.system`` literal
+#: ``"git worktree add ..."`` (incl. an f-string). Out of scope for this static
+#: source scan (same boundary as the inventory scan scope note): a SPLIT string
+#: literal (``"git " "worktree add"``) or an argv assembled from
+#: variables/concatenation -- undecidable for a regex and not a realistic
+#: accidental regression. A prose ``git worktree add`` in a ``#`` comment or a
 #: ```` ``git worktree add`` ```` docstring is not quote-prefixed and is excluded
 #: (it is not an execution).
 _GIT_WORKTREE_ADD = re.compile(
@@ -302,14 +306,16 @@ _GIT_WORKTREE_ADD = re.compile(
 
 
 def test_no_backend_site_runs_git_worktree_add() -> None:
-    """No backend git call-site provisions a worktree (``git worktree add``), any form.
+    """No backend git call-site provisions a worktree (``git worktree add``).
 
     Worktree provisioning moved to the edge (``create_worktree`` deleted). This
-    is the guard that must forever keep backend worktree PROVISIONING out, so it
-    is form-comprehensive: argv-list, tuple argv, shell-string
-    (``subprocess.run("git worktree add ...", shell=True)``) and
+    is the guard that must forever keep backend worktree PROVISIONING out. It
+    covers every contiguous-literal invocation form -- argv-list, tuple argv,
+    shell-string (``subprocess.run("git worktree add ...", shell=True)``) and
     ``os.system("git worktree add ...")`` are all caught (see
-    :data:`_GIT_WORKTREE_ADD`). Zero offenders today; this keeps it that way.
+    :data:`_GIT_WORKTREE_ADD`); a split string literal or an argv assembled from
+    variables is out of scope for a static source scan (undecidable), consistent
+    with the inventory scan scope note. Zero offenders today; this keeps it that way.
     """
     offenders = [
         _rel(p)

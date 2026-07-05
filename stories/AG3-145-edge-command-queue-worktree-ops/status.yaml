@@ -1,10 +1,19 @@
 story_id: AG3-145
 title: "Edge-Command-Queue + Worktree-Ops-Umzug: Auftrags-Endpoints (Ack/Result), provision/teardown/preflight_probe, Marker-Materialisierung dev-lokal, workspace_locator als reiner State-Anker"
 type: implementation
-status: blocked
-phase: setup
+status: completed
+phase: closure
+completed_at: "2026-07-05T18:42:30Z"
 created: "2026-07-02"
 size: L
+# 2026-07-05: interner Schnitt A-E vollstaendig gelandet. A+B (Command-Queue +
+# Edge-Executor), C (Setup-Umzug: edge-commissioned provisioning + differenzierte
+# Preflight 7/8), D (Teardown-als-Edge-Kommando + Path-Autoritaets-Rueckbau:
+# StateBackendWorktreeRepository geloescht, workspace_locator reiner State-Anker),
+# E (SOLL-136-Ausfuehrungsort-Konformanz, exhaustiver Grep-Proof). Green on main
+# (Jenkins #1023 SUCCESS, Sonar 0). Codex+GLM-Doppel-Review konvergiert (r1..r4);
+# GLM APPROVE, Codex-Restbefund (worktree-add-Guard "ANY form"-Ueberbehauptung)
+# adjudiziert + gefixt (Claim an Check angeglichen, split/dynamisch out-of-scope).
 # Herkunft: GAP-ST-14a (gap-analyse-session-ownership.md v4, Codex-APPROVE;
 # K1-Verankerung 58c190b7). Grosses Fundament der K1-Familie: baut die
 # Edge-Command-Queue (FK-91 §91.1b) und zieht die physischen Worktree-
