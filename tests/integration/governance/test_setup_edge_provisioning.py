@@ -52,6 +52,7 @@ from agentkit.backend.control_plane.repository import (
     RunOwnershipRepository,
     TakeoverTransferRepository,
 )
+from agentkit.backend.core_types import PauseReason
 from agentkit.backend.governance.setup_preflight_gate.phase import (
     SetupConfig,
     SetupPhaseHandler,
@@ -65,6 +66,7 @@ from agentkit.backend.state_backend.store import (
     load_edge_command_record_global,
 )
 from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import WireStoryType
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 from agentkit.harness_client.projectedge.command_executor import execute_command
 
@@ -122,14 +124,26 @@ class _RecordingRepo:
 
 
 class _StubService:
-    def __init__(self) -> None:
+    """Authoritative StoryService stub: records the real story type + repos.
+
+    ``get_story`` is the SAME authoritative source ``_resolve_worktree_plan``
+    consults to classify the story (Codex r1 fix). ``story_type`` defaults to
+    IMPLEMENTATION (a worktree story) with a real participating repo.
+    """
+
+    def __init__(
+        self, story_type: WireStoryType = WireStoryType.IMPLEMENTATION
+    ) -> None:
         self.begin_calls: list[str] = []
+        self._story_type = story_type
 
     def get_story(self, story_display_id: str) -> object:
         del story_display_id
+        wire_type = self._story_type
 
         class _Story:
             participating_repos = [_REPO]
+            story_type = wire_type
 
         return _Story()
 
@@ -230,6 +244,25 @@ def _ctx(project_root: Path) -> StoryContext:
     )
 
 
+def _sparse_ctx(project_root: Path) -> StoryContext:
+    """A stale/sparse incoming context: misclassified CONCEPT, no repos.
+
+    Mirrors the Codex r1 dispatch scenario -- the incoming ``StoryContext`` is
+    sparse/stale (``story_type=CONCEPT``, no participating repos) while the
+    AUTHORITATIVE StoryService record for the SAME story is IMPLEMENTATION with
+    participating repos.
+    """
+    return StoryContext(
+        project_key=_PROJECT,
+        story_id=_STORY,
+        story_type=StoryType.CONCEPT,
+        execution_route=None,
+        title="Stale sparse context",
+        project_root=project_root,
+        participating_repos=[],
+    )
+
+
 def test_setup_is_edge_commissioned_end_to_end(
     tmp_path: Path,
     postgres_isolated_schema: str,
@@ -307,6 +340,151 @@ def test_setup_is_edge_commissioned_end_to_end(
     assert reported.result_payload["marker_present"] is True
     assert reported.result_payload["worktree_root"] == str(expected_root)
     # begin_progress ran only on completion.
+    assert service.begin_calls == [_STORY]
+
+
+def test_sparse_concept_ctx_does_not_bypass_edge_for_authoritative_worktree_story(
+    tmp_path: Path,
+    postgres_isolated_schema: str,
+) -> None:
+    """Codex r1 CRITICAL (fail-open): a sparse/misclassified incoming context must
+    NOT let an authoritatively-worktree story complete setup with no edge report.
+
+    The incoming ``StoryContext`` is stale/sparse (``story_type=CONCEPT``, no
+    participating repos) while the AUTHORITATIVE StoryService record is
+    IMPLEMENTATION with participating repos. Setup must derive the worktree
+    classification from the authoritative record (``_resolve_worktree_plan``):
+    it commissions the ``preflight_probe`` and PAUSES fail-closed
+    (``AWAITING_EDGE_PROVISIONING``); it must NOT optimistically COMPLETE and
+    Checks 7/8 never optimistically PASS (they only run AFTER the probe reports).
+    Driven through the REAL edge-command dispatch (no hand-assembled state).
+
+    Pre-fix, the plan was classified from ``ctx.story_type=CONCEPT`` -> the edge
+    was skipped entirely and the first ``on_enter`` returned COMPLETED with no
+    probe command, which this test's PAUSED + probe-commissioned assertions
+    catch.
+    """
+    del postgres_isolated_schema
+    repo = _init_repo(tmp_path)
+    project_config = _project_config(tmp_path)
+    _seed_active_ownership()
+    # Authoritative record = IMPLEMENTATION + [_REPO]; the incoming ctx is sparse.
+    service = _StubService(story_type=WireStoryType.IMPLEMENTATION)
+    handler = _handler(tmp_path, service)
+    sparse_ctx = _sparse_ctx(tmp_path)
+    enriched = _ctx(tmp_path)  # the authoritative enriched context
+
+    from tests.phase_state_factory import make_phase_state
+
+    state = make_phase_state(story_id=_STORY, run_id=_RUN, status="pending")
+    envelope = PhaseEnvelopeStore.make_fresh_envelope(state)
+
+    with (
+        patch(
+            "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
+            return_value=_pass(),
+        ),
+        patch(
+            "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
+            return_value=enriched,
+        ),
+        patch(
+            "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
+            return_value=project_config,
+        ),
+    ):
+        # 1. Fail-closed: the sparse CONCEPT ctx must NOT bypass the edge. The
+        #    authoritative IMPLEMENTATION record commissions the probe + PAUSES.
+        r1 = handler.on_enter(sparse_ctx, envelope)
+        assert r1.status is PhaseStatus.PAUSED, r1
+        assert r1.yield_status == PauseReason.AWAITING_EDGE_PROVISIONING.value
+        probe_id = edge_command_id(_RUN, "preflight_probe", _REPO)
+        assert load_edge_command_record_global(probe_id) is not None
+        # Setup did NOT complete: begin_progress never ran, no provision yet.
+        assert service.begin_calls == []
+        assert (
+            load_edge_command_record_global(
+                edge_command_id(_RUN, "provision_worktree", _REPO)
+            )
+            is None
+        )
+
+        # 2. Drive the rest to prove the authoritatively-worktree story still
+        #    provisions correctly even from a sparse incoming context.
+        assert _play_edge(project_config, tmp_path) == 1
+        r2 = handler.on_resume(sparse_ctx, envelope, "edge_report_received")
+        assert r2.status is PhaseStatus.PAUSED
+        assert (
+            load_edge_command_record_global(
+                edge_command_id(_RUN, "provision_worktree", _REPO)
+            )
+            is not None
+        )
+        assert _play_edge(project_config, tmp_path) == 1
+        r3 = handler.on_resume(sparse_ctx, envelope, "edge_report_received")
+
+    assert r3.status is PhaseStatus.COMPLETED, r3.errors
+    assert r3.updated_context is not None
+    assert r3.updated_context.worktree_map == {_REPO: repo / "worktrees" / _STORY}
+    assert service.begin_calls == [_STORY]
+
+
+def test_authoritative_concept_story_skips_edge_stages(
+    tmp_path: Path,
+    postgres_isolated_schema: str,
+) -> None:
+    """Positive non-worktree case: an authoritatively CONCEPT story skips the edge.
+
+    Guards the other direction of the Codex r1 fix -- when the AUTHORITATIVE
+    StoryService record is genuinely non-worktree (CONCEPT), setup commissions NO
+    edge command (probe/provision), Checks 7/8 correctly no-op, and it COMPLETES.
+    Driven through the same real dispatch harness.
+    """
+    del postgres_isolated_schema
+    _init_repo(tmp_path)
+    project_config = _project_config(tmp_path)
+    _seed_active_ownership()
+    # Authoritative record = CONCEPT (non-worktree), even though create_worktree=True.
+    service = _StubService(story_type=WireStoryType.CONCEPT)
+    handler = _handler(tmp_path, service)
+    ctx = _sparse_ctx(tmp_path)
+    enriched = _sparse_ctx(tmp_path)  # authoritative CONCEPT context
+
+    from tests.phase_state_factory import make_phase_state
+
+    state = make_phase_state(story_id=_STORY, run_id=_RUN, status="pending")
+    envelope = PhaseEnvelopeStore.make_fresh_envelope(state)
+
+    with (
+        patch(
+            "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
+            return_value=_pass(),
+        ),
+        patch(
+            "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
+            return_value=enriched,
+        ),
+        patch(
+            "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
+            return_value=project_config,
+        ),
+    ):
+        result = handler.on_enter(ctx, envelope)
+
+    assert result.status is PhaseStatus.COMPLETED, result.errors
+    # No edge command was commissioned for the non-worktree story.
+    assert (
+        load_edge_command_record_global(
+            edge_command_id(_RUN, "preflight_probe", _REPO)
+        )
+        is None
+    )
+    assert (
+        load_edge_command_record_global(
+            edge_command_id(_RUN, "provision_worktree", _REPO)
+        )
+        is None
+    )
     assert service.begin_calls == [_STORY]
 
 

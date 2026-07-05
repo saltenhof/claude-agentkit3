@@ -46,7 +46,7 @@ from agentkit.backend.pipeline_engine.phase_executor import (
     evolve_phase_state,
 )
 from agentkit.backend.state_backend.paths import CONTEXT_EXPORT_FILE
-from agentkit.backend.story_context_manager.types import get_profile
+from agentkit.backend.story_context_manager.types import StoryType, get_profile
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -76,9 +76,13 @@ logger = logging.getLogger(__name__)
 
 #: The typed edge-provisioning plan resolved once per ``on_enter`` (idempotent
 #: on every re-entry): whether the story provisions worktrees, its participating
-#: repos, and the story branch. ``uses_worktree`` is ``False`` for a config with
-#: ``create_worktree=False`` or a non-worktree profile -- then no edge command is
-#: commissioned and Checks 7/8 PASS (no edge consultation).
+#: repos, and the story branch. ``uses_worktree`` is derived from the
+#: AUTHORITATIVE StoryService record (the SAME source ``build_story_context``
+#: reads), NEVER from the sparse/possibly-stale incoming ``StoryContext`` -- a
+#: stale incoming ``story_type`` must not gate the edge probe/provision. It is
+#: ``False`` for a config with ``create_worktree=False`` or an authoritatively
+#: non-worktree profile -- then no edge command is commissioned and Checks 7/8
+#: PASS (no edge consultation).
 _WorktreePlan = tuple[bool, tuple[str, ...], str]
 
 
@@ -245,7 +249,7 @@ class SetupPhaseHandler:
         story_service = _resolve_story_service(cfg)
         run_id = envelope.state.run_id
         story_display_id = cfg.story_id or ctx.story_id
-        plan = self._resolve_worktree_plan(cfg, ctx, story_display_id, story_service)
+        plan = self._resolve_worktree_plan(cfg, story_display_id, story_service)
 
         # AG3-145 Teilschritt C (FK-22 §22.3.1, FK-91 §91.1b): Checks 7/8 decide
         # on the edge ``preflight_probe`` evidence + the backend ownership
@@ -570,25 +574,39 @@ class SetupPhaseHandler:
     def _resolve_worktree_plan(
         self,
         cfg: SetupConfig,
-        ctx: StoryContext,
         story_display_id: str,
         story_service: StoryService,
     ) -> _WorktreePlan:
         """Resolve the edge-provisioning plan (uses_worktree, repos, branch).
 
-        A ``create_worktree=False`` config or a non-worktree story profile
-        provisions nothing (``uses_worktree=False``); Checks 7/8 then run without
-        edge consultation. The participating repos come from the AUTHORITATIVE
-        story-service record; an unresolvable story yields no repos so the staged
-        edge flow is skipped and preflight (Check 1) reports the missing story.
+        The worktree classification (``uses_worktree``) AND the participating
+        repos are derived from the AUTHORITATIVE StoryService record -- the SAME
+        source :func:`build_story_context` reads (``story.story_type`` +
+        ``story.participating_repos``) -- NEVER from the sparse/possibly-stale
+        incoming ``StoryContext`` (Codex r1 CRITICAL, fail-open fix): a stale
+        incoming ``story_type=CONCEPT`` must not cause an authoritatively
+        IMPLEMENTATION story with participating repos to skip the edge probe /
+        provision and complete setup with no edge report. Because the classifier
+        reads the authoritative record on EVERY entry, an idempotent resume
+        re-derives the SAME plan.
+
+        A ``create_worktree=False`` config (an authoritative SetupConfig flag,
+        not a sparse context field) or an authoritatively non-worktree story
+        profile provisions nothing (``uses_worktree=False``); Checks 7/8 then run
+        without edge consultation. An unresolvable story yields no repos so the
+        staged edge flow is skipped and preflight (Check 1) reports the missing
+        story.
         """
-        profile = get_profile(ctx.story_type)
         branch = f"story/{story_display_id}"
-        if not (cfg.create_worktree and profile.uses_worktree):
+        if not cfg.create_worktree:
             return (False, (), branch)
         story = story_service.get_story(story_display_id)
-        repos = tuple(story.participating_repos) if story is not None else ()
-        return (bool(repos), repos, branch)
+        if story is None:
+            return (False, (), branch)
+        profile = get_profile(StoryType(story.story_type.value))
+        if not profile.uses_worktree:
+            return (False, (), branch)
+        return (bool(story.participating_repos), tuple(story.participating_repos), branch)
 
     def _require_coordinator(self) -> EdgeProvisioningCoordinator | HandlerResult:
         """Return the wired coordinator or a fail-closed FAILED result.

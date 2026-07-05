@@ -46,6 +46,7 @@ from agentkit.backend.requirements_coverage.contract import (
     ContextLoadResult,
 )
 from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.story_model import WireStoryType
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 if TYPE_CHECKING:
@@ -178,13 +179,21 @@ def _make_project_config(repo_path: Path) -> ProjectConfig:
 class _NoOpStoryService:
     """No-op stub for tests that don't test begin_progress; resolves a repo.
 
-    ``get_story`` returns a minimal object carrying ``participating_repos`` so the
-    setup phase can resolve the edge-provisioning plan for a worktree story
-    (AG3-145 ``_resolve_worktree_plan``).
+    ``get_story`` returns a minimal AUTHORITATIVE story record carrying
+    ``story_type`` + ``participating_repos`` so the setup phase can derive the
+    edge-provisioning plan from the authoritative record (AG3-145
+    ``_resolve_worktree_plan``, Codex r1 fail-open fix) -- NOT from the sparse
+    incoming context. ``story_type`` defaults to IMPLEMENTATION (a worktree
+    story); pass ``WireStoryType.CONCEPT`` for a genuinely non-worktree story.
     """
 
-    def __init__(self, repos: tuple[str, ...] = ("repo",)) -> None:
+    def __init__(
+        self,
+        repos: tuple[str, ...] = ("repo",),
+        story_type: WireStoryType = WireStoryType.IMPLEMENTATION,
+    ) -> None:
         self._repos = list(repos)
+        self._story_type = story_type
 
     def begin_progress(self, story_id: str, *, correlation_id: str = "") -> object:
         return object()
@@ -192,9 +201,11 @@ class _NoOpStoryService:
     def get_story(self, story_display_id: str) -> object:
         del story_display_id
         repos = self._repos
+        wire_type = self._story_type
 
         class _Story:
             participating_repos = repos
+            story_type = wire_type
 
         return _Story()
 
@@ -379,13 +390,22 @@ class TestSetupPhaseHandlerWorktree:
     def test_create_worktree_not_called_for_concept(
         self, tmp_path: Path
     ) -> None:
-        """on_enter commissions no edge worktree for a concept story."""
+        """on_enter commissions no edge worktree for an authoritative concept story.
+
+        Positive non-worktree case (Codex r1 fix): the AUTHORITATIVE StoryService
+        record is CONCEPT, so ``_resolve_worktree_plan`` classifies it non-worktree
+        and the edge stages / Checks 7/8 correctly no-op -- setup completes without
+        any edge command. This must keep working after the fail-open fix that now
+        derives the classification from the authoritative record.
+        """
         coordinator = _FakeEdgeCoordinator()
         cfg = SetupConfig(
             project_root=tmp_path,
             story_id="AG3-002",
             create_worktree=True,
-            story_service=_NoOpStoryService(),  # type: ignore[arg-type]
+            story_service=_NoOpStoryService(  # type: ignore[arg-type]
+                story_type=WireStoryType.CONCEPT
+            ),
         )
         handler = SetupPhaseHandler(
             cfg,
