@@ -221,7 +221,7 @@ class Governance:
         project_root: Root directory used by harness settings writers
             (Fix E2).  Defaults to ``Path.cwd()``.  Tests pass ``tmp_path``.
 
-    AG3-145 Teilschritt D (FK-10 §10.2.4a): the ``worktree_repo`` dependency was
+    AG3-145 sub-step D (FK-10 §10.2.4a): the ``worktree_repo`` dependency was
     removed. ``deactivate_locks`` no longer writes physically into worktrees; the
     dev-local ``.agent-guard`` projection (lock-export removal + mode marker) runs
     entirely over the edge bundle-publication + ``tombstone_worktree_roots``
@@ -364,7 +364,7 @@ class Governance:
         removed_exports, export_errors = self._purge_qa_lock_export(story_id)
         errors.extend(export_errors)
 
-        # AG3-145 Teilschritt D (FK-10 §10.2.4a): the mode restoration no longer
+        # AG3-145 sub-step D (FK-10 §10.2.4a): the mode restoration no longer
         # touches worktrees (see ``_restore_ai_augmented_mode``). The dev-local
         # ``.agent-guard/lock.json`` removal is carried by the edge tombstone
         # projection, not the backend.
@@ -444,7 +444,7 @@ class Governance:
     ) -> tuple[bool, list[str]]:
         """Write the ``ai_augmented`` mode tombstone for the story (FK-30 §30.6.0 Z.683).
 
-        AG3-145 Teilschritt D (FK-10 §10.2.4a): the governance deactivation no
+        AG3-145 sub-step D (FK-10 §10.2.4a): the governance deactivation no
         longer writes PHYSICALLY into worktrees. The former per-worktree
         ``.agent-guard/lock.json`` removal and ``.agent-guard/mode.json`` write
         are gone from the backend -- the dev-local ``.agent-guard`` projection

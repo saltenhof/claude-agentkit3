@@ -1076,6 +1076,26 @@ def insert_edge_command_record_global(record: EdgeCommandRecord) -> None:
     )
 
 
+def commission_edge_command_record_global(record: EdgeCommandRecord) -> bool:
+    """Atomically INSERT one edge-command row if absent (AG3-145 commissioning).
+
+    Idempotent by the deterministic ``command_id`` (``ON CONFLICT DO NOTHING``):
+    a concurrent double commissioning is a no-op, never a ``UniqueViolation``
+    (FK-10 §10.5.3). Fail-closed on a non-Postgres backend (``ConfigError``, K5).
+
+    Returns:
+        ``True`` iff THIS call inserted the row; ``False`` when the command
+        already exists.
+    """
+    _require_control_plane_backend()
+    backend = _backend_module()
+    return bool(
+        backend.commission_edge_command_record_global_row(
+            mappers.edge_command_record_to_row(record)
+        )
+    )
+
+
 def load_edge_command_record_global(command_id: str) -> EdgeCommandRecord | None:
     """Load one edge-command record by ``command_id``, or ``None`` (K5)."""
     _require_control_plane_backend()

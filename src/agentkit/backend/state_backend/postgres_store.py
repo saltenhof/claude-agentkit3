@@ -2897,6 +2897,53 @@ def insert_edge_command_record_global_row(row: dict[str, Any]) -> None:
         )
 
 
+def commission_edge_command_record_global_row(row: dict[str, Any]) -> bool:
+    """Atomically INSERT one edge-command row if absent (AG3-145 commissioning).
+
+    ``INSERT ... ON CONFLICT (command_id) DO NOTHING`` (mirrors
+    :func:`acquire_object_mutation_claim_global_row`): a CONCURRENT double
+    commissioning of the SAME deterministic ``command_id`` collides on the
+    primary key and is a NO-OP, never a ``UniqueViolation``. Exactly one caller
+    inserts (``True``); a duplicate returns ``False`` (the command already
+    exists, one visible command / no error -- FK-10 §10.5.3 idempotency).
+
+    Returns:
+        ``True`` iff THIS call inserted the row; ``False`` when the deterministic
+        ``command_id`` already exists.
+    """
+
+    with _connect_global() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO edge_command_records (
+                command_id, project_key, story_id, run_id, session_id,
+                command_kind, payload_json, status, ownership_epoch,
+                created_at, delivered_at, completed_at, result_op_id,
+                result_type, result_payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (command_id) DO NOTHING
+            """,
+            (
+                row["command_id"],
+                row["project_key"],
+                row["story_id"],
+                row["run_id"],
+                row["session_id"],
+                row["command_kind"],
+                row["payload_json"],
+                row["status"],
+                row["ownership_epoch"],
+                row["created_at"],
+                row["delivered_at"],
+                row["completed_at"],
+                row["result_op_id"],
+                row["result_type"],
+                row["result_payload_json"],
+            ),
+        )
+        return int(cursor.rowcount) == 1
+
+
 def load_edge_command_record_global_row(command_id: str) -> dict[str, Any] | None:
     """Return the raw edge-command row for one ``command_id``, or ``None``."""
 

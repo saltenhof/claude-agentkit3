@@ -3,7 +3,7 @@
 Thin wrappers around ``git`` sub-commands. All operations are deterministic:
 no LLM involvement, no side effects beyond the git repository state.
 
-AG3-145 Teilschritt E (SOLL-136, FK-10 §10.2.4a): the setup-side worktree
+AG3-145 sub-step E (SOLL-136, FK-10 §10.2.4a): the setup-side worktree
 provisioning primitives (``create_worktree`` / ``branch_exists``) were removed
 -- physical worktree provisioning is an edge command now
 (``harness_client.projectedge.command_executor``). This module retains ONLY the

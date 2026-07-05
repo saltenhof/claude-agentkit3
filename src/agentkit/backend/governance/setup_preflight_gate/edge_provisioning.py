@@ -1,4 +1,4 @@
-"""Edge-provisioning coordinator port for the setup phase (AG3-145 Teilschritt C).
+"""Edge-provisioning coordinator port for the setup phase (AG3-145 sub-step C).
 
 FK-10 §10.2.4a moves physical worktree operations off the backend run onto the
 Project Edge (commissioned, reporting). The setup phase no longer calls

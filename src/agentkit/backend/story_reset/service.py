@@ -196,7 +196,7 @@ class WorkspacePort(Protocol):
 
 
 class WorktreePort(Protocol):
-    """Schritt 8 tainted-worktree teardown owner (edge-commissioned, AG3-145 D)."""
+    """Step 8 tainted-worktree teardown owner (edge-commissioned, AG3-145 D)."""
 
     def detach_worktrees(
         self, project_key: str, story_id: str, run_id: str | None
@@ -537,7 +537,7 @@ class StoryResetService:
 
             # Schritt 7: ephemeral work surfaces.
             self._workspace.purge_workspace(record.project_key, record.story_id)
-            # Schritt 8: tainted worktree -- commission the edge teardown (the
+            # Step 8: tainted worktree -- commission the edge teardown (the
             # reset does not block on the physical removal; AG3-145 D).
             self._worktree.detach_worktrees(record.project_key, record.story_id, run_id)
 

@@ -11,6 +11,7 @@ from agentkit.backend.state_backend.store import (
     append_execution_event_global,
     boot_backend_instance_identity_global,
     claim_control_plane_operation_global,
+    commission_edge_command_record_global,
     commit_control_plane_operation_with_side_effects_global,
     commit_edge_command_result_global,
     delete_control_plane_operation_global,
@@ -336,15 +337,21 @@ class EdgeCommandRepository:
     Postgres-only (K5): every method fails closed with ``ConfigError`` off
     Postgres (``_require_control_plane_backend``, mirrors
     :class:`RunOwnershipRepository` / :class:`ObjectMutationClaimRepository`).
-    ``insert_command`` is the commissioning write (setup / reset adapters,
-    Teilschritt C/D); ``list_and_ack_open_commands`` is the GET Ack-read (Rule
-    13, no lock); ``load_command`` is a raw identity lookup (idempotency-replay
-    / test support); ``commit_result`` is the atomic op-ledger + Rule-15-fenced
-    command-result commit (Teilschritt A).
+    ``insert_command`` is the strict commissioning write (setup provisioning,
+    sub-step C); ``commission_command`` is the ATOMICALLY IDEMPOTENT commissioning
+    write (``INSERT ... ON CONFLICT DO NOTHING``) used by the teardown path
+    (sub-step D) so a concurrent double-detach is one visible command / no error
+    (FK-10 §10.5.3); ``list_and_ack_open_commands`` is the GET Ack-read (Rule 13,
+    no lock); ``load_command`` is a raw identity lookup (idempotency-replay / test
+    support); ``commit_result`` is the atomic op-ledger + Rule-15-fenced
+    command-result commit (sub-step A).
     """
 
     insert_command: Callable[[EdgeCommandRecord], None] = (
         insert_edge_command_record_global
+    )
+    commission_command: Callable[[EdgeCommandRecord], bool] = (
+        commission_edge_command_record_global
     )
     load_command: Callable[[str], EdgeCommandRecord | None] = (
         load_edge_command_record_global

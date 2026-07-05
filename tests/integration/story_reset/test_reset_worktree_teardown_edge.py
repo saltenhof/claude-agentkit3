@@ -1,6 +1,6 @@
 """Integration: the Story-Reset worktree teardown is edge-commissioned (AG3-145 D).
 
-Drives the REAL ``StoryResetService`` Schritt-8 worktree owner (the REAL
+Drives the REAL ``StoryResetService`` Step-8 worktree owner (the REAL
 ``WorktreePurgeAdapter``) against a REAL Postgres Edge-Command-Queue + run
 ownership record + persisted ``StoryContext``. Asserts AC7 for the reset path:
 
@@ -135,33 +135,33 @@ class _FakePorts:
     def release(self, op_id: str) -> None:
         self._fence.pop(op_id, None)
 
-    # RuntimePurgePort (Schritt 5)
+    # RuntimePurgePort (Step 5)
     def purge_run(self, project_key: str, story_id: str, run_id: str) -> dict[str, int]:
         return {}
 
     def residue(self, project_key: str, story_id: str, run_id: str) -> dict[str, int]:
         return {}
 
-    # LockPurgePort (Schritt 5)
+    # LockPurgePort (Step 5)
     def deactivate_locks(self, story_id: str) -> None:
         return None
 
     def has_active_locks(self, story_id: str) -> bool:
         return False
 
-    # ReadModelPurgePort (Schritt 6)
+    # ReadModelPurgePort (Step 6)
     def purge_run_read_model(
         self, project_key: str, story_id: str, run_id: str
     ) -> dict[str, int]:
         return {}
 
-    # AnalyticsPurgePort (Schritt 6)
+    # AnalyticsPurgePort (Step 6)
     def purge_story_analytics(
         self, project_key: str, story_id: str, run_id: str
     ) -> None:
         return None
 
-    # WorkspacePort (Schritt 7)
+    # WorkspacePort (Step 7)
     def purge_workspace(self, project_key: str, story_id: str) -> None:
         return None
 

@@ -10,7 +10,7 @@ dev-supplied path; it is resolved Backend-side from canonical level-1 state
 (the ``project_registry``), never from ``ctx.project_root``, ``cwd`` or a
 dev-process request field.
 
-AG3-145 Teilschritt D (SOLL-137, FK-10 §10.2.4a): ``project_root`` is a PURE
+AG3-145 sub-step D (SOLL-137, FK-10 §10.2.4a): ``project_root`` is a PURE
 backend-local state anchor (run-store / ``story_dir`` persistence). Its former
 worktree-anchor role is removed entirely -- physical worktree paths have exactly
 ONE truth, the edge-reported ``worktree_roots`` (FK-56 §56.8); no consumer
@@ -45,7 +45,7 @@ class StoryWorkspace(BaseModel):
     canonical backend-local state anchor (run store, resolved from level-1 state)
     and ``story_dir`` is the engine persistence root derived from it; both replace
     any interpretation of a dev-supplied ``StoryContext.project_root``. It is NOT
-    a worktree anchor (AG3-145 Teilschritt D, SOLL-137): physical worktree paths
+    a worktree anchor (AG3-145 sub-step D, SOLL-137): physical worktree paths
     live only in the edge-reported ``worktree_roots`` (FK-56 §56.8).
 
     Attributes:
@@ -112,7 +112,7 @@ class StateBackendStoryWorkspaceLocator:
     The story working directory is then the canonical
     ``<project_root>/stories/<story_id>`` layout. This is a pure backend-local
     STATE anchor (run-store / ``story_dir`` persistence); it never anchors a
-    physical worktree (AG3-145 Teilschritt D, SOLL-137 / FK-10 §10.2.4a -- the
+    physical worktree (AG3-145 sub-step D, SOLL-137 / FK-10 §10.2.4a -- the
     worktree topology lives dev-locally and is edge-reported).
 
     Attributes:

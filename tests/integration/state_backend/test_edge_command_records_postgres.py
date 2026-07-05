@@ -20,7 +20,9 @@ The ``postgres_isolated_schema`` fixture is auto-attached to every
 
 from __future__ import annotations
 
+import threading
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -28,6 +30,7 @@ from agentkit.backend.control_plane.ownership import OwnershipAcquisition, Owner
 from agentkit.backend.control_plane.records import ControlPlaneOperationRecord, EdgeCommandRecord, RunOwnershipRecord
 from agentkit.backend.exceptions import EdgeCommandNotOpenError, OwnershipFenceViolationError
 from agentkit.backend.state_backend.store import (
+    commission_edge_command_record_global,
     commit_edge_command_result_global,
     insert_edge_command_record_global,
     insert_run_ownership_record_global,
@@ -35,6 +38,9 @@ from agentkit.backend.state_backend.store import (
     load_control_plane_operation_global,
     load_edge_command_record_global,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 pytestmark = pytest.mark.integration
 
@@ -123,6 +129,67 @@ def test_insert_and_load_round_trips_a_command_record() -> None:
     assert loaded.status == "created"
     assert loaded.delivered_at is None
     assert loaded.completed_at is None
+
+
+# ---------------------------------------------------------------------------
+# AG3-145 D: atomically idempotent commissioning (ON CONFLICT DO NOTHING)
+# ---------------------------------------------------------------------------
+
+
+def _run_concurrently(calls: list[Callable[[], object]]) -> list[object]:
+    """Run *calls* on separate threads, released at THE SAME instant."""
+    barrier = threading.Barrier(len(calls))
+    results: list[object] = [None] * len(calls)
+    errors: list[BaseException] = []
+
+    def _wrapped(index: int, call: Callable[[], object]) -> None:
+        barrier.wait()
+        try:
+            results[index] = call()
+        except BaseException as exc:  # noqa: BLE001 -- surfaced to the test thread
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=_wrapped, args=(i, call))
+        for i, call in enumerate(calls)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    if errors:
+        raise errors[0]
+    return results
+
+
+def test_commission_is_idempotent_on_duplicate_command_id() -> None:
+    """AG3-145 D: ``commission_command`` is ON CONFLICT DO NOTHING, not a PK error."""
+    rec = _command("cmd-commission-1", command_kind="teardown_worktree")
+    # First commission inserts (wins); a SECOND commission of the SAME
+    # deterministic id is a no-op (``False``), NOT a UniqueViolation.
+    assert commission_edge_command_record_global(rec) is True
+    assert commission_edge_command_record_global(rec) is False
+    loaded = load_edge_command_record_global("cmd-commission-1")
+    assert loaded is not None
+    assert loaded.status == "created"
+    assert loaded.command_kind == "teardown_worktree"
+
+
+def test_concurrent_commission_of_same_id_never_raises() -> None:
+    """AG3-145 D: a CONCURRENT double-detach is one visible command / no error.
+
+    Six threads commission the SAME deterministic ``command_id`` at the same
+    instant; the DB-level ``INSERT ... ON CONFLICT DO NOTHING`` makes exactly one
+    win (``True``) and the rest no-ops (``False``) -- NONE raises a primary-key
+    violation (FK-10 §10.5.3).
+    """
+    rec = _command("cmd-commission-conc", command_kind="teardown_worktree")
+    results = _run_concurrently(
+        [lambda: commission_edge_command_record_global(rec) for _ in range(6)]
+    )
+    assert results.count(True) == 1
+    assert results.count(False) == 5
+    assert load_edge_command_record_global("cmd-commission-conc") is not None
 
 
 # ---------------------------------------------------------------------------

@@ -41,6 +41,9 @@ from agentkit.backend.state_backend.store.facade import (
     claim_control_plane_operation_global as claim_control_plane_operation_global,
 )
 from agentkit.backend.state_backend.store.facade import (
+    commission_edge_command_record_global as commission_edge_command_record_global,
+)
+from agentkit.backend.state_backend.store.facade import (
     commit_control_plane_operation_with_side_effects_global as commit_control_plane_operation_with_side_effects_global,
 )
 from agentkit.backend.state_backend.store.facade import (

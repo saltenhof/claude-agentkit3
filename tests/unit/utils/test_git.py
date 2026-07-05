@@ -21,7 +21,7 @@ from agentkit.backend.utils.git import (
 def _add_worktree(repo_root: Path, worktree_path: Path, branch: str) -> None:
     """Create a worktree via a raw ``git worktree add`` (test setup helper).
 
-    AG3-145 Teilschritt E: ``utils.git.create_worktree`` was removed (worktree
+    AG3-145 sub-step E: ``utils.git.create_worktree`` was removed (worktree
     provisioning is an edge command now), so ``remove_worktree`` tests seed their
     fixture worktree with a bare git subprocess instead of the deleted helper.
     """

@@ -4076,6 +4076,13 @@ def _default_di_edge_command_repository() -> EdgeCommandRepository:
             raise ValueError(f"duplicate command_id {record.command_id!r}")
         commands[record.command_id] = record
 
+    def _commission(record: EdgeCommandRecord) -> bool:
+        # Atomic ON CONFLICT DO NOTHING analogue: insert only if absent.
+        if record.command_id in commands:
+            return False
+        commands[record.command_id] = record
+        return True
+
     def _load(command_id: str) -> EdgeCommandRecord | None:
         return commands.get(command_id)
 
@@ -4128,6 +4135,7 @@ def _default_di_edge_command_repository() -> EdgeCommandRepository:
 
     return EdgeCommandRepository(
         insert_command=_insert,
+        commission_command=_commission,
         load_command=_load,
         list_and_ack_open_commands=_list_and_ack,
         commit_result=_commit_result,

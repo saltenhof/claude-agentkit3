@@ -1,4 +1,4 @@
-"""SOLL-136 execution-location conformance proof (AG3-145 Teilschritt E / AC11).
+"""SOLL-136 execution-location conformance proof (AG3-145 sub-step E / AC11).
 
 The grep-proof "review artifact" the story requires: after AG3-145 the backend is
 no longer the physical worktree actor (FK-10 §10.2.4a). This test proves, over the
@@ -89,7 +89,7 @@ def test_state_backend_worktree_repository_is_deleted() -> None:
 
 
 def test_backend_setup_worktree_module_is_deleted() -> None:
-    """The backend setup ``worktree.py`` (create/marker) is gone (Teilschritt C)."""
+    """The backend setup ``worktree.py`` (create/marker) is gone (sub-step C)."""
     assert not (
         _BACKEND_ROOT / "governance" / "setup_preflight_gate" / "worktree.py"
     ).exists()

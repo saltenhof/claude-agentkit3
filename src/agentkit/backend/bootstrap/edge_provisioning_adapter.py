@@ -1,4 +1,4 @@
-"""Concrete edge-provisioning coordinator adapter (AG3-145 Teilschritt C).
+"""Concrete edge-provisioning coordinator adapter (AG3-145 sub-step C).
 
 FK-10 §10.2.4a moves physical worktree operations onto the Project Edge. This
 adapter is the composition-root wiring of
@@ -73,13 +73,14 @@ def commission_teardown_worktree(
 ) -> None:
     """Commission a ``teardown_worktree`` edge command per repo (FK-91 §91.1b).
 
-    The single truth for physical worktree teardown after AG3-145 Teilschritt D:
+    The single truth for physical worktree teardown after AG3-145 sub-step D:
     the backend commissions, the Project Edge tears down dev-locally and reports
-    (FK-10 §10.4.2). Idempotent by the deterministic ``command_id`` -- an
-    already-commissioned teardown (a re-entered setup-failure cleanup or a double
-    reset) is skipped, never duplicated (FK-10 §10.5.3). Fire-and-forget: the
-    caller does NOT block on the physical removal; the open command stays
-    auditably visible (SOLL-165 / Rule 16).
+    (FK-10 §10.4.2). ATOMICALLY idempotent by the deterministic ``command_id``:
+    the commission is an ``INSERT ... ON CONFLICT DO NOTHING`` (``commission_command``),
+    so a CONCURRENT double-detach (a re-entered setup-failure cleanup or a double
+    reset) is one visible command / no error, never a primary-key violation
+    (FK-10 §10.5.3). Fire-and-forget: the caller does NOT block on the physical
+    removal; the open command stays auditably visible (SOLL-165 / Rule 16).
 
     Args:
         edge_commands: The Edge-Command-Queue persistence port (commission).
@@ -93,12 +94,9 @@ def commission_teardown_worktree(
     """
     now = datetime.now(tz=UTC)
     for repo in repos:
-        command_id = edge_command_id(run_id, "teardown_worktree", repo)
-        if edge_commands.load_command(command_id) is not None:
-            continue
-        edge_commands.insert_command(
+        edge_commands.commission_command(
             EdgeCommandRecord(
-                command_id=command_id,
+                command_id=edge_command_id(run_id, "teardown_worktree", repo),
                 project_key=project_key,
                 story_id=story_id,
                 run_id=run_id,

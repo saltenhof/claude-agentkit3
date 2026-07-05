@@ -225,7 +225,7 @@ class WorkspacePurgeAdapter:
 
 @dataclass(frozen=True)
 class WorktreePurgeAdapter:
-    """Schritt 8 tainted-worktree teardown owner (edge-commissioned, AG3-145 D).
+    """Step 8 tainted-worktree teardown owner (edge-commissioned, AG3-145 D).
 
     FK-10 §10.4.2 / §10.5.3: the reset no longer removes the worktree with a
     backend git subprocess. It COMMISSIONS a ``teardown_worktree`` edge command

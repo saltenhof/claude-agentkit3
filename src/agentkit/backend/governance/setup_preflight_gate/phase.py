@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Protocol
 
 from agentkit.backend.config.loader import load_project_config
@@ -210,7 +210,7 @@ class SetupPhaseHandler:
         self._are_bundle_loader = are_bundle_loader
         self._residue_probe = residue_probe
         self._fence_scope_binder = fence_scope_binder
-        # AG3-145 Teilschritt C: the edge-provisioning coordinator commissions
+        # AG3-145 sub-step C: the edge-provisioning coordinator commissions
         # ``preflight_probe`` / ``provision_worktree`` commands and reads the
         # reported results (FK-10 §10.2.4a). ``None`` on the non-worktree path
         # (create_worktree=False) where no edge command is ever commissioned; a
@@ -251,7 +251,7 @@ class SetupPhaseHandler:
         story_display_id = cfg.story_id or ctx.story_id
         plan = self._resolve_worktree_plan(cfg, story_display_id, story_service)
 
-        # AG3-145 Teilschritt C (FK-22 §22.3.1, FK-91 §91.1b): Checks 7/8 decide
+        # AG3-145 sub-step C (FK-22 §22.3.1, FK-91 §91.1b): Checks 7/8 decide
         # on the edge ``preflight_probe`` evidence + the backend ownership
         # context. Commission the probe per participating repo and PAUSE
         # fail-closed (``AWAITING_EDGE_PROVISIONING``) until the edge reports --
@@ -323,7 +323,7 @@ class SetupPhaseHandler:
         if green_main_error is not None:
             return green_main_error
 
-        # AG3-145 Teilschritt C (FK-91 §91.1b, FK-56 §56.8): commission the edge
+        # AG3-145 sub-step C (FK-91 §91.1b, FK-56 §56.8): commission the edge
         # ``provision_worktree`` per participating repo and PAUSE fail-closed
         # until the ``worktree_report`` arrives; ``worktree_map`` is populated
         # from the REPORTED physical paths (the backend derives none). Without a
@@ -336,7 +336,9 @@ class SetupPhaseHandler:
             # worktree the edge already created for another repo (AG3-145 D,
             # C->D teardown gap); a PAUSE keeps waiting and commissions nothing.
             if worktree_outcome.status is PhaseStatus.FAILED:
-                self._commission_failure_teardown(enriched, plan, run_id=run_id)
+                worktree_outcome = self._with_failure_teardown(
+                    worktree_outcome, enriched, plan, run_id=run_id
+                )
             return worktree_outcome
         enriched = worktree_outcome
 
@@ -351,8 +353,9 @@ class SetupPhaseHandler:
         if lock_error is not None:
             # The worktree was already provisioned by the edge above; a lock /
             # begin-progress failure here must not leak it (AG3-145 D).
-            self._commission_failure_teardown(enriched, plan, run_id=run_id)
-            return lock_error
+            return self._with_failure_teardown(
+                lock_error, enriched, plan, run_id=run_id
+            )
 
         return HandlerResult(
             status=PhaseStatus.COMPLETED,
@@ -744,21 +747,46 @@ class SetupPhaseHandler:
         )
         return enriched
 
+    def _with_failure_teardown(
+        self,
+        failure: HandlerResult,
+        enriched: StoryContext,
+        plan: _WorktreePlan,
+        *,
+        run_id: str,
+    ) -> HandlerResult:
+        """Commission the post-provisioning teardown cleanup; surface any failure.
+
+        AG3-145 D (FK-10 §10.4.2): a setup that provisioned a worktree but then
+        FAILED must not leak it (the C->D teardown gap). This commissions one
+        atomically-idempotent ``teardown_worktree`` per participating repo
+        (fire-and-forget; the open command stays auditably visible). FAIL-CLOSED
+        / SEVERITY-SEMANTIK: a teardown-commission failure (an edge/DB error) is
+        NOT swallowed -- it is surfaced as an ADDITIONAL error on the returned
+        FAILED result so it is auditable, never a silent worktree leak. The
+        original setup failure is preserved as the first error.
+        """
+        cleanup_error = self._commission_failure_teardown(enriched, plan, run_id=run_id)
+        if cleanup_error is None:
+            return failure
+        return replace(failure, errors=(*failure.errors, cleanup_error))
+
     def _commission_failure_teardown(
         self, enriched: StoryContext, plan: _WorktreePlan, *, run_id: str
-    ) -> None:
-        """Commission ``teardown_worktree`` cleanup after a post-provisioning failure.
+    ) -> str | None:
+        """Commission ``teardown_worktree`` cleanup; return a failure message or ``None``.
 
-        AG3-145 Teilschritt D (FK-10 §10.4.2): a setup that provisioned a
-        worktree but then FAILED must not leak it (the C->D teardown gap). This
-        commissions one idempotent ``teardown_worktree`` per participating repo
-        (fire-and-forget; the open command stays auditably visible). Best-effort:
-        a cleanup issue is logged, never re-raised over the original setup
-        failure (mirrors :meth:`_compensate_mode_lock`).
+        Returns ``None`` when the cleanup was commissioned (or when nothing was
+        provisioned / no coordinator was wired, so no worktree could leak).
+        Returns a NAMED cleanup-failure message when commissioning itself failed
+        (an edge/DB error) -- the caller surfaces it so the failure is auditable
+        (fail-closed, not swallowed). With the atomically-idempotent commission
+        (``ON CONFLICT DO NOTHING``) a concurrent duplicate is NOT an error here;
+        the residual failure modes are genuine edge/DB faults, which must surface.
         """
         uses_worktree, repos, branch = plan
         if not uses_worktree or not repos or self._edge_provisioning is None:
-            return
+            return None
         try:
             self._edge_provisioning.ensure_teardown(
                 project_key=enriched.project_key,
@@ -767,12 +795,20 @@ class SetupPhaseHandler:
                 repos=repos,
                 branch=branch,
             )
-        except Exception as exc:  # noqa: BLE001 -- best-effort cleanup
-            logger.warning(
-                "setup-failure teardown commission failed for story=%s: %s",
+        except Exception as exc:  # noqa: BLE001 -- surfaced, not swallowed
+            logger.error(
+                "setup-failure teardown commission FAILED for story=%s: %s",
                 enriched.story_id,
                 exc,
             )
+            return (
+                "worktree_teardown_cleanup_failed: setup failed after the edge "
+                f"provisioned worktree(s) for repos {sorted(repos)}, and "
+                f"commissioning their teardown_worktree cleanup ALSO failed "
+                f"({exc}); the worktree may be leaked -- reconcile it manually "
+                "(FK-10 §10.4.2)."
+            )
+        return None
 
     @staticmethod
     def _edge_pause(
@@ -843,7 +879,7 @@ def _run_preflight_check(
             feeds Preflight Check 10 (``no_competing_story_mode_active``,
             Check-10 wiring).  When ``None`` the mode-lock is treated as idle.
         edge_probe_reports: Per-repo edge ``preflight_probe`` evidence for
-            Checks 7/8 (AG3-145 Teilschritt C). ``None`` for a non-worktree
+            Checks 7/8 (AG3-145 sub-step C). ``None`` for a non-worktree
             story (Checks 7/8 PASS trivially).
         edge_ownership: The backend ownership decision context for Checks 7/8.
         participating_repos: The repos Checks 7/8 iterate.

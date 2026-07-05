@@ -7,7 +7,7 @@ AG3-031 Pass-3 FK-30-Korrektur 2026-05-24 (Fix E6):
   surfaces it as errors[0] rather than silently returning empty result.
   Story AK5 corrected to fail-closed semantics.
 
-AG3-145 Teilschritt D (FK-10 §10.2.4a):
+AG3-145 sub-step D (FK-10 §10.2.4a):
   The WorktreeRepository dependency was removed. deactivate_locks no longer
   writes physically into worktrees; the dev-local .agent-guard projection runs
   over the edge bundle-publication + tombstone_worktree_roots mechanism. The

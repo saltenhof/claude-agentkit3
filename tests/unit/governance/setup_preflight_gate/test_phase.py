@@ -7,7 +7,7 @@ Mocks only the external system boundaries:
 
 AG3-031 Pass-4 Fix E9: save_story_context is no longer a module-level name.
 Tests use a _RecordingContextRepo test-double for the persist-failure path.
-AG3-145 Teilschritt C: the backend worktree-git path is removed; worktree
+AG3-145 sub-step C: the backend worktree-git path is removed; worktree
 provisioning is edge-commissioned via the ``EdgeProvisioningCoordinator`` port
 (``preflight_probe`` / ``provision_worktree`` commands) with a fail-closed PAUSE.
 """
@@ -211,7 +211,7 @@ class _NoOpStoryService:
 
 
 class _FakeEdgeCoordinator:
-    """Test-double :class:`EdgeProvisioningCoordinator` (AG3-145 Teilschritt C).
+    """Test-double :class:`EdgeProvisioningCoordinator` (AG3-145 sub-step C).
 
     Records commission calls and returns scripted probe/provision outcomes so the
     staged setup flow (probe PAUSE -> preflight -> provision PAUSE -> populate) can
@@ -224,10 +224,12 @@ class _FakeEdgeCoordinator:
         probe: ProbeOutcome | None = None,
         provision: ProvisioningOutcome | None = None,
         on_provision: object | None = None,
+        teardown_error: Exception | None = None,
     ) -> None:
         self._probe = probe or ProbeOutcome(pending=False, evidence={}, ownership=None)
         self._provision = provision or ProvisioningOutcome(pending=False)
         self._on_provision = on_provision
+        self._teardown_error = teardown_error
         self.probe_calls = 0
         self.provision_calls = 0
         #: AG3-145 D: records the repos passed to each ``ensure_teardown`` call
@@ -258,6 +260,8 @@ class _FakeEdgeCoordinator:
     ) -> None:
         del project_key, story_id, run_id, branch
         self.teardown_calls.append(repos)
+        if self._teardown_error is not None:
+            raise self._teardown_error
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +427,60 @@ class TestSetupPhaseHandlerWorktree:
         assert "edge_provisioning_failed" in result.errors[0]
         # The teardown cleanup was commissioned for the participating repo.
         assert coordinator.teardown_calls == [("repo",)]
+
+    def test_teardown_commission_failure_is_surfaced_not_silent(
+        self, tmp_path: Path
+    ) -> None:
+        """AG3-145 D (AC7): a teardown-commission failure is SURFACED, not swallowed.
+
+        When commissioning the setup-failure teardown itself fails (an edge/DB
+        error), the FAILED result must carry an ADDITIONAL, auditable cleanup
+        error -- never end silent (a swallowed cleanup failure is an ignored
+        finding = ZERO DEBT / SEVERITY-SEMANTIK breach). The original setup
+        failure is preserved as the first error.
+        """
+        coordinator = _FakeEdgeCoordinator(
+            provision=ProvisioningOutcome(pending=False, failed_repos=("repo",)),
+            teardown_error=RuntimeError("edge command queue insert failed"),
+        )
+        cfg = SetupConfig(
+            project_root=tmp_path,
+            story_id="AG3-001",
+            create_worktree=True,
+            story_service=_NoOpStoryService(),  # type: ignore[arg-type]
+        )
+        handler = SetupPhaseHandler(
+            cfg,
+            context_repository=_RecordingContextRepo(),  # type: ignore[arg-type]
+            edge_provisioning_coordinator=coordinator,
+        )
+        enriched = _make_story_context(project_root=tmp_path)
+        with (
+            patch(
+                "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
+                return_value=_make_preflight_pass(),
+            ),
+            patch(
+                "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
+                return_value=enriched,
+            ),
+            patch(
+                "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
+                return_value=_make_project_config(tmp_path),
+            ),
+        ):
+            result = handler.on_enter(
+                _make_story_context(project_root=tmp_path),
+                PhaseEnvelopeStore.make_fresh_envelope(_make_phase_state()),
+            )
+        assert result.status is PhaseStatus.FAILED
+        assert coordinator.teardown_calls == [("repo",)]
+        # The teardown-commission failure is surfaced as an auditable error.
+        assert any(
+            "worktree_teardown_cleanup_failed" in e for e in result.errors
+        ), result.errors
+        # The original setup failure is preserved as the first error.
+        assert "edge_provisioning_failed" in result.errors[0]
 
     def test_worktree_story_without_coordinator_fails_closed(
         self, tmp_path: Path

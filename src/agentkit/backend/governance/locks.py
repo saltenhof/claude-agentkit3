@@ -34,7 +34,7 @@ class DeactivationResult(BaseModel):
             removed_lock_exports).
         removed_lock_exports: Filesystem paths of lock-export files deleted.
             Covers the backend-local ``_temp/governance/locks/{story_id}/
-            qa-lock.json`` (FK-30 §30.6.0). AG3-145 Teilschritt D (FK-10
+            qa-lock.json`` (FK-30 §30.6.0). AG3-145 sub-step D (FK-10
             §10.2.4a): the dev-local ``.agent-guard/lock.json`` worktree exports
             are NO LONGER removed by the backend -- the edge tombstone projection
             (``tombstone_worktree_roots``) carries that removal.
