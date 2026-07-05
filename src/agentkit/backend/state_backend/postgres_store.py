@@ -3059,6 +3059,84 @@ def commit_edge_command_result_global_row(
 
 
 # ---------------------------------------------------------------------------
+# PushFreshnessRecord rows (AG3-147, Postgres-only K5)
+# ---------------------------------------------------------------------------
+
+
+def upsert_push_freshness_record_global_row(row: dict[str, Any]) -> None:
+    """Upsert one push-freshness row per ``(project, story, run, repo)`` (AG3-147).
+
+    Last-writer-wins per repo: the caller (control-plane runtime) computes the
+    next projected record from the loaded previous row (``project_push_freshness``,
+    the A-core) and persists it here. Freshness / silence is INFORMATION only --
+    this write never triggers an ownership transition (AC5).
+    """
+
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            INSERT INTO push_freshness_records (
+                project_key, story_id, run_id, repo_id,
+                last_reported_head_sha, last_pushed_head_sha, last_reported_at,
+                backlog, backlog_detail
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (project_key, story_id, run_id, repo_id) DO UPDATE SET
+                last_reported_head_sha = EXCLUDED.last_reported_head_sha,
+                last_pushed_head_sha = EXCLUDED.last_pushed_head_sha,
+                last_reported_at = EXCLUDED.last_reported_at,
+                backlog = EXCLUDED.backlog,
+                backlog_detail = EXCLUDED.backlog_detail
+            """,
+            (
+                row["project_key"],
+                row["story_id"],
+                row["run_id"],
+                row["repo_id"],
+                row["last_reported_head_sha"],
+                row["last_pushed_head_sha"],
+                row["last_reported_at"],
+                row["backlog"],
+                row["backlog_detail"],
+            ),
+        )
+
+
+def load_push_freshness_record_global_row(
+    project_key: str, story_id: str, run_id: str, repo_id: str
+) -> dict[str, Any] | None:
+    """Return the raw push-freshness row for one repo, or ``None`` (AG3-147)."""
+
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM push_freshness_records
+            WHERE project_key = ? AND story_id = ? AND run_id = ? AND repo_id = ?
+            """,
+            (project_key, story_id, run_id, repo_id),
+        ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def list_push_freshness_records_global_row(
+    project_key: str, story_id: str, run_id: str
+) -> list[dict[str, Any]]:
+    """Return the run's push-freshness rows, one per repo, ordered (AG3-147)."""
+
+    with _connect_global() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM push_freshness_records
+            WHERE project_key = ? AND story_id = ? AND run_id = ?
+            ORDER BY repo_id
+            """,
+            (project_key, story_id, run_id),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
 # ObjectMutationClaimRecord rows (AG3-137, Postgres-only K5)
 # ---------------------------------------------------------------------------
 

@@ -37,16 +37,19 @@ from agentkit.backend.state_backend.store import (
     insert_object_mutation_claim_global,
     insert_run_ownership_record_global,
     list_and_ack_open_edge_command_records_global,
+    list_push_freshness_records_global,
     load_active_run_ownership_record_global,
     load_backend_instance_identity_global,
     load_edge_command_record_global,
     load_object_mutation_claim_global,
+    load_push_freshness_record_global,
     load_run_ownership_record_global,
     load_takeover_transfer_record_global,
     mappers,
     reset_backend_cache_for_tests,
     save_backend_instance_identity_global,
     save_takeover_transfer_record_global,
+    upsert_push_freshness_record_global,
 )
 
 if TYPE_CHECKING:
@@ -280,6 +283,42 @@ def test_every_new_repository_entrypoint_fails_closed_on_sqlite(
         save_backend_instance_identity_global(identity)
     with pytest.raises(ConfigError):
         load_backend_instance_identity_global("inst-1")
+
+
+@pytest.mark.contract
+def test_push_freshness_entrypoints_fail_closed_on_sqlite(
+    sqlite_backend_env: None,
+) -> None:
+    """AG3-147 AC13: the push-freshness / push-backlog store is Postgres-only (K5).
+
+    Every ``push_freshness_records`` facade entrypoint fails closed with an
+    explicit ``ConfigError`` on a non-Postgres backend
+    (``_require_control_plane_backend``, the SAME gate AG3-137/AG3-145 use) --
+    there is NO SQLite mirror and no silent fallback (negative test).
+    """
+    del sqlite_backend_env
+    from datetime import UTC, datetime
+
+    from agentkit.backend.control_plane.push_sync import PushFreshnessRecord
+
+    record = PushFreshnessRecord(
+        project_key="tenant-a",
+        story_id="AG3-147",
+        run_id="run-1",
+        repo_id="repo-a",
+        last_reported_head_sha="a" * 40,
+        last_pushed_head_sha="a" * 40,
+        last_reported_at=datetime(2026, 7, 6, tzinfo=UTC),
+        backlog=False,
+        backlog_detail=None,
+    )
+
+    with pytest.raises(ConfigError, match="Postgres"):
+        upsert_push_freshness_record_global(record)
+    with pytest.raises(ConfigError):
+        load_push_freshness_record_global("tenant-a", "AG3-147", "run-1", "repo-a")
+    with pytest.raises(ConfigError):
+        list_push_freshness_records_global("tenant-a", "AG3-147", "run-1")
 
 
 @pytest.mark.contract

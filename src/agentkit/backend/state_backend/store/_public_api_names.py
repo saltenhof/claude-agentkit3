@@ -40,6 +40,10 @@ def _build_public_api_names() -> tuple[str, ...]:
         "load_edge_command_record_global",
         "list_and_ack_open_edge_command_records_global",
         "commit_edge_command_result_global",
+        # AG3-147 Push-freshness / push-backlog read surface (Postgres-only K5).
+        "upsert_push_freshness_record_global",
+        "load_push_freshness_record_global",
+        "list_push_freshness_records_global",
         "insert_object_mutation_claim_global",
         "load_object_mutation_claim_global",
         "delete_object_mutation_claim_global",

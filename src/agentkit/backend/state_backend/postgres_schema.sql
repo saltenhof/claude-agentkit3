@@ -437,6 +437,33 @@
         CREATE INDEX IF NOT EXISTS edge_command_records_session_open_idx
             ON edge_command_records (run_id, session_id, status);
 
+        -- push_freshness_records: the persisted push-freshness / push-backlog
+        -- read surface per (project, story, run, repo) (FK-10 §10.2.4b, AG3-147
+        -- In-Scope #3, AC5/AC13). One row per participating repo: the last
+        -- Edge-reported branch head SHA, the last head SHA confirmed as pushed,
+        -- the instant of the most recent sync-point report and a visible push
+        -- backlog hint. It is the DATA BASIS for the ownership-lage display and
+        -- the takeover challenge (consumers AG3-148/AG3-153) -- but freshness /
+        -- silence is INFORMATION ONLY: there is no writer anywhere that derives
+        -- an ownership transition from this table (no automatic silence ->
+        -- transfer). Postgres-only (K5), no SQLite mirror; brand new /
+        -- forward-only (mirrors the AG3-145 edge_command_records precedent).
+        CREATE TABLE IF NOT EXISTS push_freshness_records (
+            project_key TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            repo_id TEXT NOT NULL,
+            last_reported_head_sha TEXT,
+            last_pushed_head_sha TEXT,
+            last_reported_at TEXT NOT NULL,
+            backlog INTEGER NOT NULL CHECK (backlog IN (0, 1)),
+            backlog_detail TEXT,
+            PRIMARY KEY (project_key, story_id, run_id, repo_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS push_freshness_records_run_backlog_idx
+            ON push_freshness_records (project_key, story_id, run_id, backlog);
+
         CREATE TABLE IF NOT EXISTS story_metrics (
             project_key TEXT NOT NULL,
             story_id TEXT NOT NULL,

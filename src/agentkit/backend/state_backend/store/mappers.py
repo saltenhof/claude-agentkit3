@@ -24,6 +24,7 @@ _log = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from agentkit.backend.auth.entities import ProjectApiToken
     from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
+    from agentkit.backend.control_plane.push_sync import PushFreshnessRecord
     from agentkit.backend.control_plane.records import (
         BackendInstanceIdentityRecord,
         ControlPlaneOperationRecord,
@@ -1396,6 +1397,49 @@ def edge_command_row_to_record(row: dict[str, Any]) -> EdgeCommandRecord:
             if result_payload_json is not None
             else None
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# PushFreshnessRecord (AG3-147)
+# ---------------------------------------------------------------------------
+
+
+def push_freshness_record_to_row(record: PushFreshnessRecord) -> dict[str, Any]:
+    """Convert a ``PushFreshnessRecord`` to a DB-insertable row dict."""
+
+    return {
+        "project_key": record.project_key,
+        "story_id": record.story_id,
+        "run_id": record.run_id,
+        "repo_id": record.repo_id,
+        "last_reported_head_sha": record.last_reported_head_sha,
+        "last_pushed_head_sha": record.last_pushed_head_sha,
+        "last_reported_at": record.last_reported_at.isoformat(),
+        "backlog": 1 if record.backlog else 0,
+        "backlog_detail": record.backlog_detail,
+    }
+
+
+def push_freshness_row_to_record(row: dict[str, Any]) -> PushFreshnessRecord:
+    """Convert a DB row dict to a ``PushFreshnessRecord``."""
+
+    from typing import cast
+
+    from agentkit.backend.control_plane.push_sync import (
+        PushFreshnessRecord as _PushFreshnessRecord,
+    )
+
+    return _PushFreshnessRecord(
+        project_key=str(row["project_key"]),
+        story_id=str(row["story_id"]),
+        run_id=str(row["run_id"]),
+        repo_id=str(row["repo_id"]),
+        last_reported_head_sha=cast("_OptionalString", row.get("last_reported_head_sha")),
+        last_pushed_head_sha=cast("_OptionalString", row.get("last_pushed_head_sha")),
+        last_reported_at=datetime.fromisoformat(str(row["last_reported_at"])),
+        backlog=bool(int(row["backlog"])),
+        backlog_detail=cast("_OptionalString", row.get("backlog_detail")),
     )
 
 

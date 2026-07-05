@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from agentkit.backend.auth.entities import ProjectApiToken
     from agentkit.backend.closure.execution_report.records import ExecutionReport
     from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
+    from agentkit.backend.control_plane.push_sync import PushFreshnessRecord
     from agentkit.backend.control_plane.records import (
         BackendInstanceIdentityRecord,
         BindingDeleteScope,
@@ -1162,6 +1163,50 @@ def commit_edge_command_result_global(
         },
         expected_ownership_epoch=expected_ownership_epoch,
     )
+
+
+# ---------------------------------------------------------------------------
+# PushFreshnessRecord (AG3-147, Postgres-only K5)
+# ---------------------------------------------------------------------------
+
+
+def upsert_push_freshness_record_global(record: PushFreshnessRecord) -> None:
+    """Upsert one push-freshness row per ``(project, story, run, repo)`` (AG3-147).
+
+    Fail-closed on a non-Postgres backend (``ConfigError``, K5): the push
+    freshness / backlog read surface is Postgres-only, no SQLite mirror (AC13).
+    """
+    _require_control_plane_backend()
+    backend = _backend_module()
+    backend.upsert_push_freshness_record_global_row(
+        mappers.push_freshness_record_to_row(record)
+    )
+
+
+def load_push_freshness_record_global(
+    project_key: str, story_id: str, run_id: str, repo_id: str
+) -> PushFreshnessRecord | None:
+    """Load one push-freshness record for a repo, or ``None`` (AG3-147, K5)."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    row = backend.load_push_freshness_record_global_row(
+        project_key, story_id, run_id, repo_id
+    )
+    if row is None:
+        return None
+    return mappers.push_freshness_row_to_record(row)
+
+
+def list_push_freshness_records_global(
+    project_key: str, story_id: str, run_id: str
+) -> tuple[PushFreshnessRecord, ...]:
+    """List the run's push-freshness records, one per repo (AG3-147, K5)."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    rows = backend.list_push_freshness_records_global_row(
+        project_key, story_id, run_id
+    )
+    return tuple(mappers.push_freshness_row_to_record(row) for row in rows)
 
 
 # ---------------------------------------------------------------------------
