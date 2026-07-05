@@ -754,6 +754,53 @@ class OpenEdgeCommandsResponse(BaseModel):
     commands: list[EdgeCommandView] = Field(default_factory=list)
 
 
+# --- Command payloads (the backend -> edge commission body, per repo) ---------
+
+
+class ProvisionWorktreeCommandPayload(BaseModel):
+    """Typed ``provision_worktree`` command payload (FK-91 §91.1b, FK-12 §12.5.1).
+
+    The backend commissions ONE per participating repo. It carries only what the
+    edge cannot derive itself -- the repo NAME (not path; FK-10 §10.2.4a: the
+    backend derives NO physical path), the story branch and the base ref. The
+    edge resolves the physical repo path from its LOCAL project config.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    story_id: str = Field(min_length=1)
+    project_key: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    repo_id: str = Field(min_length=1)
+    branch: str = Field(min_length=1)
+    base_ref: str = Field(min_length=1, default="main")
+
+
+class TeardownWorktreeCommandPayload(BaseModel):
+    """Typed ``teardown_worktree`` command payload (FK-91 §91.1b, FK-12 §12.5.3)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    story_id: str = Field(min_length=1)
+    repo_id: str = Field(min_length=1)
+    branch: str = Field(min_length=1)
+
+
+class PreflightProbeCommandPayload(BaseModel):
+    """Typed ``preflight_probe`` command payload (FK-91 §91.1b, FK-22 §22.3.1).
+
+    A pure-collection probe of ONE participating repo: the edge reports the
+    branch class + head SHA and the local worktree state (marker + path); it
+    makes NO decision (the backend decides in the preflight checks 7/8).
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    story_id: str = Field(min_length=1)
+    repo_id: str = Field(min_length=1)
+    branch: str = Field(min_length=1)
+
+
 class BranchRefReport(BaseModel):
     """``branch_ref_report`` (FK-91 §91.1b / FK-10 §10.2.4b): per-repo branch
     class + head SHA, reported after every sync point."""
@@ -832,6 +879,26 @@ class TakeoverErrorResult(BaseModel):
     detail: str = ""
 
 
+class PreflightProbeReport(BaseModel):
+    """``preflight_probe_report`` (FK-91 §91.1b, FK-22 §22.3.1): a PURE per-repo
+    collection -- branch class + head SHA plus the local worktree state (marker
+    content + path). The edge makes NO decision; the backend's preflight checks
+    7/8 decide on this evidence (AG3-145 Teilschritt C).
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    result_type: Literal["preflight_probe_report"] = "preflight_probe_report"
+    repo_id: str = Field(min_length=1)
+    branch_present: bool
+    head_sha: str | None = None
+    worktree_present: bool = False
+    worktree_path: str | None = None
+    marker_present: bool = False
+    marker_story_id: str | None = None
+    marker_run_id: str | None = None
+
+
 class CommandErrorResult(BaseModel):
     """Deterministic error result for a failed/unsupported command (Scope item 4).
 
@@ -848,12 +915,13 @@ class CommandErrorResult(BaseModel):
 
 #: The closed, discriminated wire union of every Edge-Command-Queue result
 #: shape (FK-91 §91.1b, AG3-145 AC9): the three named result types, the
-#: takeover quarantine detail and the named takeover error states, plus the
-#: generic command-error fallback.
+#: preflight-probe collection, the takeover quarantine detail and the named
+#: takeover error states, plus the generic command-error fallback.
 EdgeCommandResultPayload = Annotated[
     BranchRefReport
     | PushStatusReport
     | WorktreeReport
+    | PreflightProbeReport
     | TakeoverQuarantineDetail
     | TakeoverErrorResult
     | CommandErrorResult,

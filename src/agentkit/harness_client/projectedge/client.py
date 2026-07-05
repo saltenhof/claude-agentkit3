@@ -20,6 +20,9 @@ from agentkit.backend.control_plane.models import (
     CreateStoryInputs,
     CreateStoryRequest,
     EdgeBundle,
+    EdgeCommandMutationResult,
+    EdgeCommandResultRequest,
+    OpenEdgeCommandsResponse,
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,
 )
@@ -227,6 +230,23 @@ class HttpsJsonTransport:
             rejected = _parse_rejected_conflict_body(detail)
             if rejected is not None:
                 return rejected
+        # AG3-145 (FK-91 §91.1b): the Edge-Command-Queue result endpoint returns a
+        # structured ``EdgeCommandMutationResult`` with ``status == "rejected"`` on
+        # its deterministic 403 (ownership_transferred) / 404 (unknown command) /
+        # 409 (already resolved / busy object) rejections. Mirrors the
+        # ControlPlaneMutationResult 409 handling above: the rejection is a
+        # legitimate, structured outcome, not a transport failure -- parse it and
+        # RETURN the body so the edge command loop reads the terminal rejection
+        # (ownership payload / error_code / Retry-After) instead of an opaque
+        # RuntimeError. A non-conforming body still falls through and raises.
+        if exc.code in (
+            HTTPStatus.FORBIDDEN,
+            HTTPStatus.NOT_FOUND,
+            HTTPStatus.CONFLICT,
+        ):
+            rejected_command = _parse_rejected_command_result_body(detail)
+            if rejected_command is not None:
+                return rejected_command
         # FK-91 §91.1a Regel #8: an error body that conforms to the stable error
         # contract (error_code/error/correlation_id) is surfaced as a typed
         # ControlPlaneApiError so the official client carries the structured
@@ -273,6 +293,35 @@ def _parse_rejected_conflict_body(detail: str) -> dict[str, object] | None:
     except ValidationError:
         return None
     if parsed.status != "rejected" or parsed.edge_bundle is not None:
+        return None
+    return body
+
+
+def _parse_rejected_command_result_body(detail: str) -> dict[str, object] | None:
+    """Validate a 4xx body as a conforming rejected command result (AG3-145).
+
+    The Edge-Command-Queue result endpoint returns a structured
+    :class:`EdgeCommandMutationResult` with ``status == "rejected"`` on its
+    deterministic 403/404/409 rejections (ownership_transferred, unknown
+    command, already resolved, busy object). The body is STRICTLY validated
+    against the model before being trusted: it must parse, ``model_validate``
+    to an :class:`EdgeCommandMutationResult` AND carry ``status == "rejected"``.
+    A malformed / non-conforming body returns ``None`` so the caller falls
+    through (no bogus result is ever returned as if it were a real rejection).
+    """
+    from pydantic import ValidationError
+
+    try:
+        body = json.loads(detail)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(body, dict):
+        return None
+    try:
+        parsed = EdgeCommandMutationResult.model_validate(body)
+    except ValidationError:
+        return None
+    if parsed.status != "rejected":
         return None
     return body
 
@@ -728,6 +777,57 @@ class ProjectEdgeClient:
         if result.edge_bundle is not None:
             self._publisher.publish(result.edge_bundle)
         return result
+
+    def fetch_open_commands(
+        self,
+        *,
+        run_id: str,
+        project_key: str,
+        session_id: str,
+    ) -> OpenEdgeCommandsResponse:
+        """Fetch this session's open Edge-Command-Queue commands (FK-91 §91.1b, AG3-145).
+
+        The GET acks delivery server-side (Rule 13: a pure read, no
+        lock/claim). ``project_key``/``session_id`` are query parameters (a GET
+        carries no body); every path/query value is URL-encoded so a value with
+        reserved characters cannot break out of its segment. No local publish
+        (this is a read, not a mutation).
+        """
+        run_segment = urllib.parse.quote(run_id, safe="")
+        query = urllib.parse.urlencode(
+            {"project_key": project_key, "session_id": session_id}
+        )
+        data = self._transport.send(
+            method="GET",
+            path=f"/v1/project-edge/story-runs/{run_segment}/commands?{query}",
+        )
+        data.pop("correlation_id", None)
+        return OpenEdgeCommandsResponse.model_validate(data)
+
+    def report_command_result(
+        self,
+        *,
+        command_id: str,
+        request: EdgeCommandResultRequest,
+    ) -> EdgeCommandMutationResult:
+        """Report one command's result with the edge's own op_id (FK-91 §91.1b, AG3-145).
+
+        The mutating half of the command loop: the edge mints its OWN client
+        ``op_id`` (Rule 5) so it can reconcile an ambiguous POST. No local
+        publish (a command result carries no edge bundle). A busy-object 409 or
+        an ex-owner 403/409 surfaces as the structured
+        :class:`EdgeCommandMutationResult` (the transport returns the rejected
+        body); an unknown-command 404 raises a typed
+        :class:`~agentkit.backend.exceptions.ControlPlaneApiError`.
+        """
+        command_segment = urllib.parse.quote(command_id, safe="")
+        data = self._transport.send(
+            method="POST",
+            path=f"/v1/project-edge/commands/{command_segment}/result",
+            payload=request.model_dump(mode="json"),
+        )
+        data.pop("correlation_id", None)
+        return EdgeCommandMutationResult.model_validate(data)
 
     def _post_and_publish(
         self,

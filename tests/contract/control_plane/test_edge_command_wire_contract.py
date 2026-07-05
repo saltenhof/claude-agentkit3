@@ -19,9 +19,13 @@ from agentkit.backend.control_plane.models import (
     BranchRefReport,
     CommandErrorResult,
     EdgeCommandResultRequest,
+    PreflightProbeCommandPayload,
+    PreflightProbeReport,
+    ProvisionWorktreeCommandPayload,
     PushStatusReport,
     TakeoverErrorResult,
     TakeoverQuarantineDetail,
+    TeardownWorktreeCommandPayload,
     WorktreeReport,
 )
 from agentkit.backend.control_plane.records import EdgeCommandRecord
@@ -129,7 +133,7 @@ def test_takeover_quarantine_detail_pins_its_field_shape() -> None:
 )
 def test_named_takeover_error_states_are_pinned(result_type: str) -> None:
     """FK-30 §30.6.3: benannte Result-Zustaende, kein Sammel-FAIL."""
-    result = TakeoverErrorResult(result_type=result_type, repo_id="repo-a")  # type: ignore[arg-type]
+    result = TakeoverErrorResult(result_type=result_type, repo_id="repo-a")
     assert result.result_type == result_type
     assert result_type in ec.TAKEOVER_ERROR_RESULT_TYPES
 
@@ -137,7 +141,7 @@ def test_named_takeover_error_states_are_pinned(result_type: str) -> None:
 @pytest.mark.contract
 def test_takeover_error_result_rejects_an_unregistered_state() -> None:
     with pytest.raises(ValidationError):
-        TakeoverErrorResult(result_type="made_up_state", repo_id="repo-a")  # type: ignore[arg-type]
+        TakeoverErrorResult(result_type="made_up_state", repo_id="repo-a")
 
 
 @pytest.mark.contract
@@ -145,6 +149,54 @@ def test_command_error_result_pins_its_field_shape() -> None:
     """Scope item 4: an edge's deterministic error result for an unsupported command."""
     result = CommandErrorResult(error_code="unsupported_command_kind", message="sync_push is not executable by this edge")
     assert result.result_type == "command_error"
+
+
+@pytest.mark.contract
+def test_preflight_probe_report_pins_its_field_shape() -> None:
+    """FK-22 §22.3.1: the pure per-repo probe collection (branch + worktree state)."""
+    report = PreflightProbeReport(
+        repo_id="api",
+        branch_present=True,
+        head_sha="deadbeef",
+        worktree_present=True,
+        worktree_path="/wt/AG3-100",
+        marker_present=True,
+        marker_story_id="AG3-100",
+        marker_run_id="run-1",
+    )
+    assert report.result_type == "preflight_probe_report"
+    assert set(report.model_dump(mode="json")) == {
+        "result_type",
+        "repo_id",
+        "branch_present",
+        "head_sha",
+        "worktree_present",
+        "worktree_path",
+        "marker_present",
+        "marker_story_id",
+        "marker_run_id",
+    }
+
+
+@pytest.mark.contract
+def test_command_payload_shapes_are_pinned() -> None:
+    """FK-91 §91.1b: the typed backend->edge command payloads (per repo)."""
+    provision = ProvisionWorktreeCommandPayload(
+        story_id="AG3-100", project_key="tenant-a", run_id="run-1",
+        repo_id="api", branch="story/AG3-100",
+    )
+    assert provision.base_ref == "main"  # default
+    assert set(provision.model_dump(mode="json")) == {
+        "story_id", "project_key", "run_id", "repo_id", "branch", "base_ref",
+    }
+    teardown = TeardownWorktreeCommandPayload(
+        story_id="AG3-100", repo_id="api", branch="story/AG3-100"
+    )
+    assert set(teardown.model_dump(mode="json")) == {"story_id", "repo_id", "branch"}
+    probe = PreflightProbeCommandPayload(
+        story_id="AG3-100", repo_id="api", branch="story/AG3-100"
+    )
+    assert set(probe.model_dump(mode="json")) == {"story_id", "repo_id", "branch"}
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +219,10 @@ def test_command_error_result_pins_its_field_shape() -> None:
         (
             {"result_type": "worktree_report", "repo_id": "repo-a", "outcome": "no_op"},
             WorktreeReport,
+        ),
+        (
+            {"result_type": "preflight_probe_report", "repo_id": "repo-a", "branch_present": False},
+            PreflightProbeReport,
         ),
         (
             {
@@ -195,7 +251,7 @@ def test_request_result_discriminator_dispatches_to_the_pinned_model(
         story_id="AG3-100",
         session_id="sess-A",
         op_id="op-1",
-        result=payload,  # type: ignore[arg-type]
+        result=payload,
     )
     assert isinstance(request.result, expected_type)
 

@@ -31,6 +31,7 @@ from agentkit.backend.story_creation.runtime_factory import build_story_creation
 from agentkit.harness_client.projectedge import (
     ProjectEdgeClient,
     build_project_edge_client,
+    process_open_commands,
 )
 from agentkit.integration_clients.vectordb import VectorDbError
 
@@ -105,6 +106,15 @@ def main(
     sync_parser.add_argument("--freshness-class", default="guarded_read")
     sync_parser.add_argument("--op-id")
 
+    # AG3-145: the Edge-Command-Queue loop -- fetch this session's open commands
+    # (FK-91 §91.1b), execute them dev-locally (provision/teardown/preflight_probe)
+    # and report each result with the edge's own op_id.
+    commands_parser = subparsers.add_parser("run-commands")
+    commands_parser.add_argument("--project-key", required=True)
+    commands_parser.add_argument("--story-id", required=True)
+    commands_parser.add_argument("--run-id", required=True)
+    commands_parser.add_argument("--session-id", required=True)
+
     create_parser = subparsers.add_parser("create-story")
     _add_create_story_args(create_parser)
 
@@ -118,6 +128,9 @@ def main(
             client_factory=client_factory,
             reconciler_factory=reconciler_factory,
         )
+
+    if args.command == "run-commands":
+        return _run_commands(project_root, args, client_factory=client_factory)
 
     client = _build_client(project_root, client_factory)
 
@@ -329,6 +342,51 @@ def _run_create_story(
         "reconciliation": result.reconciliation_counters,
     }
     print(json.dumps(output, indent=2, sort_keys=True))
+    return 0
+
+
+def _run_commands(
+    project_root: Path,
+    args: argparse.Namespace,
+    *,
+    client_factory: ClientFactory | None = None,
+) -> int:
+    """Run the Edge-Command-Queue loop for this session (AG3-145, FK-91 §91.1b).
+
+    Fetches this session's open commands, executes provision/teardown/
+    preflight_probe dev-locally and reports each result with the edge's own
+    ``op_id``. A missing / invalid project.yaml or control-plane.json is a
+    stable ``configuration_error``. The per-command terminal outcomes are
+    printed as JSON (completed / replayed / rejected).
+    """
+    try:
+        project_config = load_project_config(project_root)
+        client = _build_client(project_root, client_factory)
+    except ConfigError as exc:
+        return _emit_create_error(
+            "configuration_error", str(exc), f"corr-{uuid.uuid4().hex}", ""
+        )
+    except (OSError, ValueError, KeyError) as exc:
+        return _emit_create_error(
+            "configuration_error", str(exc), f"corr-{uuid.uuid4().hex}", ""
+        )
+
+    outcomes = process_open_commands(
+        client,
+        project_config=project_config,
+        project_root=project_root,
+        run_id=args.run_id,
+        project_key=args.project_key,
+        session_id=args.session_id,
+        story_id=args.story_id,
+    )
+    print(
+        json.dumps(
+            [outcome.model_dump(mode="json") for outcome in outcomes],
+            indent=2,
+            sort_keys=True,
+        )
+    )
     return 0
 
 
