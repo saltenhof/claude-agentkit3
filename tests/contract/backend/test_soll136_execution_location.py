@@ -8,11 +8,22 @@ ACTUAL backend sources, that
    GONE (``create_worktree`` / ``branch_exists`` primitives removed from
    ``utils.git``; the ``StateBackendWorktreeRepository`` path authority and the
    backend setup ``worktree.py`` deleted; the reset-detach + governance
-   deactivation no longer call ``remove_worktree`` / write into worktrees), and
-2. the REMAINING backend git call-sites are EXACTLY the ones the story's
-   "Ausführungsort-Inventar" assigns to the neighbour stories -- the AG3-152
-   closure/merge block (``remove_worktree`` / ``tree_hash_of_commit`` primitives)
-   and the AG3-147 push/QA-evidence block. There is NO unassigned finding.
+   deactivation no longer call ``remove_worktree`` / write into worktrees; NO
+   backend site runs ``git worktree add``), and
+2. EVERY remaining backend git-subprocess call-site is EXPLICITLY ENUMERATED and
+   ASSIGNED to an owner in :data:`_GIT_SUBPROCESS_INVENTORY` -- so AC11's "no
+   unassigned finding" is VERIFIED, not merely asserted. The scan covers the
+   GENERAL backend git-subprocess surface (an argv list whose first element is
+   ``git`` -- i.e. ``subprocess.run(["git", ...])`` incl. ``git -C`` /
+   ``ls-remote`` / ``show-ref`` / ``diff`` / ``rev-parse`` sub-commands -- plus
+   any GitPython import), not only the worktree primitives. The residual sites
+   are the story's execution-location inventory (SOLL-136) neighbour blocks
+   (AG3-152 closure/merge, AG3-147 push/QA-evidence), the AG3-146
+   provider-neutral network-protocol reads (``git ls-remote`` / ``git remote
+   get-url`` -- no local checkout, expressly permitted by FK-10 §10.2.4a(b)), and
+   the non-worktree, dev-local (Level 2/3) subsystems that legitimately shell git
+   (governance secret-scan, installer bootstrap). NONE is a worktree
+   provisioning/teardown/path op.
 
 This is a pure source-scan (no imports of the scanned modules), so it stays a
 deterministic conformance gate independent of runtime wiring.
@@ -20,6 +31,7 @@ deterministic conformance gate independent of runtime wiring.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import agentkit.backend as _backend_pkg
@@ -36,10 +48,52 @@ def _rel(path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Ausführungsort-Inventar (SOLL-136): the remaining backend git call-sites and
-# the neighbour story that OWNS each. Encoded verbatim from the story table so
-# the mapping is the reviewable artifact.
+# Execution-location inventory (SOLL-136): the remaining backend git call-sites
+# and the neighbour story / subsystem that OWNS each. The mapping is the
+# reviewable artifact; AC11's "no unassigned finding" is asserted against it.
 # ---------------------------------------------------------------------------
+
+#: Detects a git SUBPROCESS invocation: an argv list whose first element is the
+#: literal ``git`` (``subprocess.run(["git", ...])``, incl. multiline argv and
+#: every ``git -C`` / ``ls-remote`` / ``show-ref`` / ``diff`` / ``rev-parse``
+#: sub-command). Precise on purpose -- a bare prose ``git ls-remote`` mention or
+#: a ``tokens[0] == "git"`` command-classification check (no argv list) is NOT a
+#: call-site and is correctly excluded.
+_GIT_ARGV_INVOCATION = re.compile(r"""\[\s*["']git["']""")
+#: Detects GitPython usage (none today; keeps the surface honest if introduced).
+_GITPYTHON = re.compile(
+    r"^\s*(?:import\s+git\b|from\s+git\s+import\b)|(?<![\w.])git\.Repo\s*\(", re.M
+)
+
+#: EVERY backend file that shells ``git`` (argv subprocess) or uses GitPython,
+#: mapped to its owner. AC11 "no unassigned finding" == this set equals the
+#: scanned set (:func:`_git_subprocess_sites`), each with an explicit owner.
+_GIT_SUBPROCESS_INVENTORY: dict[str, str] = {
+    # The utils.git primitives (remove_worktree + tree_hash_of_commit) the
+    # AG3-152 closure/merge block still consumes; create_worktree/branch_exists
+    # were removed.
+    "utils/git.py": "AG3-152 (remove_worktree + tree_hash_of_commit primitives)",
+    # AG3-152 closure/merge git block (push / merge / teardown / diff / HEAD reads).
+    "closure/multi_repo_saga.py": "AG3-152 (SubprocessGitBackend closure saga)",
+    "closure/runtime_ports.py": "AG3-152 (closure git diff reads)",
+    "verify_system/sonarqube_gate/runtime_wiring.py": "AG3-152 (worktree-HEAD attestation reads)",
+    # AG3-147 push / QA-evidence git reads (diff / merge-base).
+    "verify_system/evidence/request_resolver.py": "AG3-147 (QA/review diff evidence)",
+    "verify_system/qa_cycle/fingerprint.py": "AG3-147 (QA diff fingerprint)",
+    # composition_root wires BOTH the AG3-147 subprocess push-evidence provider
+    # (``_git`` merge-base) AND the AG3-152 SubprocessGitBackend.
+    "bootstrap/composition_root.py": "AG3-147/AG3-152 (subprocess-provider + SubprocessGitBackend wiring)",
+    # AG3-146 provider-neutral NETWORK-PROTOCOL reads -- no local checkout,
+    # expressly permitted by FK-10 §10.2.4a(b); NOT a physical worktree op.
+    "code_backend/git_protocol.py": "AG3-146 (git ls-remote ref-read)",
+    "installer/github_coordinates.py": "AG3-146 (git remote get-url origin metadata read)",
+    # Non-worktree, dev-local (Level 2/3) subsystems that legitimately shell git
+    # on the dev machine -- NOT the Level-1 backend-process physical git FK-10
+    # §10.2.4a forbids, and NOT worktree provisioning/teardown/path ops.
+    "governance/guard_system/secret_scan.py": "governance-secret-scan (guard git-history scan)",
+    "installer/runner.py": "installer-bootstrap (git clone at project registration)",
+    "installer/bootstrap_checkpoints/cp11_to_12.py": "installer-bootstrap (git config core.hooksPath checkpoint)",
+}
 
 #: The utils.git worktree/tree-hash primitives the AG3-152 closure/merge block
 #: still consumes on the backend -- the ONLY sanctioned backend importers of
@@ -156,3 +210,58 @@ def test_inventory_neighbour_sites_still_exist() -> None:
     """The neighbour-owned git call-sites are intact (moved-not-deleted proof)."""
     for rel_path in _UTILS_GIT_REMAINING_CONSUMERS:
         assert (_BACKEND_ROOT / rel_path).exists(), rel_path
+
+
+# ---------------------------------------------------------------------------
+# (3) EXHAUSTIVE: every backend git-subprocess call-site is enumerated + assigned
+# ---------------------------------------------------------------------------
+
+
+def _git_subprocess_sites() -> set[str]:
+    """Return every backend file that shells ``git`` (argv subprocess) or GitPython."""
+    return {
+        _rel(p)
+        for p in _backend_py_files()
+        if _GIT_ARGV_INVOCATION.search(text := p.read_text(encoding="utf-8"))
+        or _GITPYTHON.search(text)
+    }
+
+
+def test_every_backend_git_subprocess_site_is_assigned_in_the_inventory() -> None:
+    """AC11 'no unassigned finding': EVERY backend git call-site has an owner.
+
+    The general git-subprocess surface (argv-list ``git`` invocation + GitPython)
+    is scanned across ``src/agentkit/backend`` and must equal the explicitly
+    ASSIGNED :data:`_GIT_SUBPROCESS_INVENTORY` -- a NEW, unassigned git call-site
+    fails this test (drift proof), and a stale inventory entry fails it too.
+    """
+    sites = _git_subprocess_sites()
+    unassigned = sorted(sites - set(_GIT_SUBPROCESS_INVENTORY))
+    stale = sorted(set(_GIT_SUBPROCESS_INVENTORY) - sites)
+    assert sites == set(_GIT_SUBPROCESS_INVENTORY), (
+        "backend git-subprocess call-sites drifted from the SOLL-136 inventory: "
+        f"UNASSIGNED (new, no owner)={unassigned}; STALE (assigned, gone)={stale}. "
+        "Every backend git call-site must be assigned an owner (a neighbour "
+        "story, AG3-146 network read, or a non-worktree dev-local subsystem)."
+    )
+    # Every entry carries a non-empty owner rationale.
+    assert all(owner.strip() for owner in _GIT_SUBPROCESS_INVENTORY.values())
+
+
+def test_no_backend_site_runs_git_worktree_add() -> None:
+    """No backend git call-site provisions a worktree (``git worktree add``).
+
+    Worktree provisioning moved to the edge (``create_worktree`` deleted); the
+    residual backend git sites are reads / scans / clone / config only. Matches
+    the argv INVOCATION form (``[..., "worktree", "add", ...]``) -- not a prose
+    mention in a comment/docstring, which is not an execution.
+    """
+    worktree_add = re.compile(r"""["']worktree["']\s*,\s*["']add["']""")
+    offenders = [
+        _rel(p)
+        for p in _backend_py_files()
+        if worktree_add.search(p.read_text(encoding="utf-8"))
+    ]
+    assert offenders == [], (
+        f"backend still provisions a worktree via git worktree add in {offenders}"
+    )

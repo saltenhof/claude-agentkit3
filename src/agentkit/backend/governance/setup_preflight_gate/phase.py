@@ -226,8 +226,11 @@ class SetupPhaseHandler:
                return ``FAILED``.
             2. Build ``StoryContext`` from the AK3 Story-Service record.
             3. Save ``context.json`` to the story directory.
-            4. Create a git worktree via ``git worktree add`` if the story
-               type requires one; on failure return ``FAILED``.
+            4. Commission the Project Edge to provision the worktree
+               (``provision_worktree``, FK-10 §10.2.4a) if the story type
+               requires one, PAUSING fail-closed until the edge reports; on a
+               reported failure commission the teardown cleanup and return
+               ``FAILED``. The backend runs no ``git worktree add`` itself.
             5. If a ``story_service`` is configured, call
                ``begin_progress`` on the story to transition it to
                ``In Progress`` (FK-22 §22.4.3).

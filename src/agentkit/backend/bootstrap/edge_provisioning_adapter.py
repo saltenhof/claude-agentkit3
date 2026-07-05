@@ -288,7 +288,20 @@ class SetupEdgeProvisioningCoordinator:
         repos: tuple[str, ...],
         payloads: dict[str, dict[str, object]],
     ) -> tuple[bool, dict[str, EdgeCommandRecord]]:
-        """Commission missing commands + load terminal ones. Idempotent by id."""
+        """Commission missing commands + load terminal ones. Idempotent by id.
+
+        Design note (deliberate strict insert, NOT the atomic ``commission_command``):
+        this ``provision_worktree`` / ``preflight_probe`` path uses strict
+        load-then-``insert_command`` on purpose. The setup phase executes serially
+        PER RUN (a single owning session, re-entered only via the PAUSE/resume
+        loop), so it is NOT a concurrent-replay surface -- idempotent re-entry is
+        already handled by the ``load_command`` guard. FK-10 §10.5.3 scopes
+        idempotent (``ON CONFLICT DO NOTHING``) commissioning to the TEARDOWN
+        path (``commission_teardown_worktree``), where a concurrent double-detach
+        is legitimate. Here a genuine duplicate ``command_id`` is a real fault
+        (two provisioners for one run) and MUST fail loudly (the strict insert's
+        primary-key violation), never a silent no-op.
+        """
         pending = False
         records: dict[str, EdgeCommandRecord] = {}
         for repo in repos:
