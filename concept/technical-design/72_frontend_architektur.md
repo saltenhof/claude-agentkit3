@@ -690,9 +690,9 @@ offene Anfrage verfallen und entzieht niemals Eigentum
 (FK-55 §55.9a). Die Shell hostet nur die Overlay-Region (§72.4);
 Daten und Aktion kommen aus dem Owner-BC.
 
-**(3) Job-, Snapshot- und Contested-Anzeige.** Die Sicht zeigt
-laufende Jobs als solche an (`202` + `op_id`, beobachtbar ueber
-`GET operations/{op_id}`, FK-91 §91.1a Regel 14), nach einem
+**(3) Operations-, Snapshot- und Contested-Anzeige.** Die Sicht zeigt
+laufende (synchrone) Operationen als solche an (beobachtbar ueber
+`GET operations/{op_id}`, FK-91 §91.1a Regel 17), nach einem
 Transfer den `takeover_base_sha` des Transfer-Records als
 Verantwortungsgrenze (FK-56 §56.13c) sowie die Edge-Zustaende
 `takeover_reconcile_required`, `contested_local_writes`,

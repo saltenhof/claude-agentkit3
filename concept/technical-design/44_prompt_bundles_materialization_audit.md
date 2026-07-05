@@ -258,12 +258,17 @@ Runs gibt es genau drei zulaessige Wirkungsklassen:
    Run-Owner bzw. als explizite Run-Invalidierung, nie als stiller
    Mid-run-Drift.
 
-Der Digest ist zugleich **Fencing-Praedikat**: Gefencte
-Abschluss-Commits pruefen ihn, wo einschlaegig, zum Commit-Zeitpunkt
-(FK-91 §91.1a Regel 15). Ein Job-Ergebnis, dessen Contract-Grundlage
-sich administrativ geaendert hat, wird damit deterministisch als
-`stale_observation` behandelt statt still auf einer veralteten
-Grundlage steuernd zu wirken.
+Der Digest ist ein **Run-Pinning-/Audit-Artefakt**: er haelt den
+eingefrorenen fachlichen Contract eines Runs reproduzierbar und
+auditierbar fest. Er ist **kein Fencing-Praedikat**. Die operative
+Abschottung eines Runs gegen fremde/veraltete Mutationen leistet allein
+der aktive Ownership-Record (Lease, FK-91 §91.1a Regel 15): wer den
+Lease nicht (mehr) haelt, kann ohnehin nichts Mutierbares durchsetzen,
+und ein laufender Run behaelt seinen gepinnten Digest (Klasse 2), ist
+also nicht "veraltet". Ein "bewusster administrativer Eingriff"
+(Klasse 3) laeuft weiterhin sichtbar gegen den Run-Owner bzw. als
+explizite Run-Invalidierung — nie als stiller Mid-run-Drift und nie als
+automatisch abgeleiteter Stale-Verwurf.
 
 ## 44.4 Materialisierung
 

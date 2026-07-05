@@ -249,37 +249,42 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
     (verifiziert 2026-07-04; die frueher hier normierte
     `(project_key)`-Serialisierung, Lock-Set-Erwerbsordnung und
     Queue-Fairness waren mechanik ohne Aufrufer und sind entfallen).
-14. **Bounded-Pflicht und Job-Muster.** Objekt-serialisierte Mutationen
-    muessen kurz, transaktional und technisch bounded sein. Was nicht
-    bounded ist, ist per Definition ein Job: die Annahme ist eine kurze
-    Mutation (Job-Record, Antwort `202` mit `op_id`), der Fortschritt
-    ist ueber `GET /v1/project-edge/operations/{op_id}` beobachtbar,
-    der Abschluss ist eine interne, gefencte Mutation (Regel 15).
-    Zwischen Annahme und Abschluss haelt der Job **keine**
-    Serialisierung.
-15. **Drei Ergebnisarten fuer Job-Abschluesse.** Jeder Job deklariert
-    seine Ergebnisart; der Abschluss-Commit ist danach gefenct:
-    (a) **Reine append-only Observationen** (immutable Evidenzen,
-    Historieneintraege) duerfen auch nach einem Owner-Wechsel abgelegt
-    werden — dem Run zugeordnet und mit dem `ownership_epoch` ihres
-    Starts markiert; sie aktualisieren **niemals** eine
-    „latest"-Sicht, einen Current-Pointer oder eine Projektion.
-    (b) **Projektions-/Upsert-Ergebnisse**: das Artefakt selbst darf
-    abgelegt werden, aber die aktuelle Projektion bzw. der
-    Current-Pointer wird **nur bei gueltigen Fences** aktualisiert;
-    bei ungueltigen Fences wird das Ergebnis als separater, immutabler
-    `stale_observation`-Historieneintrag abgelegt und ueberschreibt
-    die aktuelle Projektion **nicht**. (c) **Steuernde Ergebnisse**
-    (Gate-Entscheidungen, Phasenfortschritt, Run-/Story-Zustand)
-    werden nur wirksam, wenn die Fencing-Praedikate zum
-    Commit-Zeitpunkt passen; andernfalls deterministisch
-    `stale_observation`, nachrichtlich, ohne Steuerwirkung. Die
-    Fencing-Praedikate: aktiver Ownership-Record der Story,
-    `ownership_epoch`/`binding_version` wie erwartet,
-    `operation_epoch` des eigenen Claims unveraendert,
-    Reset-Fence/`compaction_epoch` wo einschlaegig,
-    `execution_contract_digest` wo einschlaegig, Zielversion des
-    adressierten Artefakts wo einschlaegig.
+14. **Synchrone Umsetzung, Rekonsiliierung bei Verbindungsabbruch.**
+    Objekt-serialisierte Mutationen sind wo moeglich kurz und
+    transaktional. Laenger laufende Umsetzungsarbeit (z. B. LLM-Phasen
+    inkl. QA-Subflow) laeuft **synchron** im Request und haelt fuer ihre
+    Dauer die Objekt-Serialisierung. Es gibt **keine** asynchrone
+    `202`-Auftragsannahme und **keine** vom Request entkoppelte
+    Hintergrund-Ausfuehrung mutierender Story-Umsetzung (aktuelle
+    Sollbild-Entscheidung: Verbindungs-Robustheit ist der einzige echte
+    Vorteil eines Async-Musters, kostet aber Client-seitiges Pollen, weil
+    das Backend einen ruhenden Agent nicht von sich aus wecken kann — das
+    ist der schlechtere Tausch). Einziger Sonderfall ist ein
+    Verbindungsabbruch: ein Client, dessen Leitung riss, verliert weder
+    Ownership noch Arbeit — er rekonsiliiert den Ausgang ueber den
+    Status-Read (Story-Run-Status bzw.
+    `GET /v1/project-edge/operations/{op_id}`, Regel 17) und holt das
+    Ergebnis nach; die User-Story ist dabei der stabile Wiederaufsetz-
+    Anker.
+15. **Fencing des Abschluss-Commits gegen den aktiven Ownership-Record
+    (Lease).** Der Abschluss-Commit einer mutierenden Story-Operation ist
+    gegen den **aktiven Ownership-Record der Story** gefenct: haelt die
+    committende Session den Lease nicht (mehr) — Owner /
+    `ownership_epoch` weichen vom aktiven Record ab —, wird der Commit
+    deterministisch abgewiesen (Ex-Owner-Fehlerbild, Regel 18) **ohne**
+    jeden State-Write. Wer den Lease verloren hat, kann fuer die Story
+    **nichts Mutierbares** mehr durchsetzen; ein verspaetetes Ergebnis
+    eines Ex-Owners wird schlicht abgewiesen, **nicht** als Historie
+    abgelegt. Eine Klassifikation von Ergebnisarten, ein
+    `stale_observation`-Historienstore oder ein darueber hinausgehender
+    Stale-Praedikat-Katalog (Reset-`compaction_epoch`,
+    `execution_contract_digest`, Artefakt-Zielversion) sind **nicht**
+    erforderlich: der Lease-Verlust verhindert bereits jede mutierende
+    Wirkung. Unberuehrt davon bleiben die eigenstaendigen Mechanismen der
+    **In-Flight-Idempotenz** (`operation_epoch`-CAS des eigenen Claims,
+    Regel 16 / Idempotenz-Vertrag) und die run-scoped Persistenz des
+    `execution_contract_digest` (FK-44 §44.3a; Run-Pinning-/Audit-
+    Artefakt, kein Fence-Praedikat mehr).
 16. **In-Flight-Claims sind instanzgebunden, nie wanduhrgebunden.**
     Jeder In-Flight-Claim traegt eine stabile Instanz-Identitaet
     (`backend_instance_id` + Boot-Inkarnation) und endet nur auf zwei

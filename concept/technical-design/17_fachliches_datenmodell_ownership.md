@@ -924,8 +924,8 @@ Projektweit-atomare Vorgänge (Mode-Lock, Story-Nummernvergabe) sind
 vollständig in einer Transaktion serialisiert und nehmen keinen durablen
 Claim; ein projektweites Serialisierungs-Sperrobjekt gibt es nicht. Lesende
 Zugriffe sind sperrenfrei und laufen parallel. Die vollständige
-API-Semantik (Idempotenz, In-Flight-Verhalten, Job-Muster) normiert
-FK-91.
+API-Semantik (Idempotenz, In-Flight-Verhalten, synchrone Umsetzung +
+Ownership-Fencing) normiert FK-91.
 
 **Cross-Aggregate-Regel:** Konsistenz über Aggregatgrenzen hinweg wird
 nicht über eine gemeinsame Wahrheit erzwungen, sondern über

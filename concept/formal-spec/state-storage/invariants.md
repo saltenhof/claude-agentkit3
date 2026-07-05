@@ -69,6 +69,6 @@ invariants:
     rule: an operation finalize commits only by compare and swap while the operation is still inflight with unchanged operation_epoch so a late executor after an admin abort can at most register a no-op abort note and an aborted operation with partial writes enters an audited reconcile repair state instead of silently becoming failed
   - id: state-storage.invariant.stale_results_never_overwrite_current_projections
     scope: canonicality
-    rule: a job result whose fencing predicates are no longer valid at commit time must be stored as a separate immutable stale_observation history record and must never update a current pointer latest view projection or steering state
+    rule: a mutating story completion whose committing session no longer holds the active ownership record lease at commit time is rejected deterministically with no state write and never updates a current pointer latest view projection or steering state because a session that has lost the lease cannot enact any mutable effect for the story and no stale observation history is required
 ```
 <!-- FORMAL-SPEC:END -->
