@@ -466,8 +466,8 @@ Der Transfer ist ein zweistufiges Challenge-Confirm-Protokoll:
   Entscheidungsgrundlage versioniert**: mindestens
   `owner_session_id`, `ownership_epoch`, `binding_version`,
   Phasenstand sowie die Anzeigedaten (Principal, gebunden seit,
-  letzter API-Kontakt mit Nicht-Diagnose-Hinweis, offene
-  Jobs/`op_id`s, bisherige Takeover-Historie). Diese Daten stammen
+  letzter API-Kontakt mit Nicht-Diagnose-Hinweis, laufende synchrone
+  Operationen (`op_id`s), bisherige Takeover-Historie). Diese Daten stammen
   aus dem Owner-BC selbst, nicht aus einem moeglicherweise
   nachlaufenden Read-Model.
 - Jede Anfrage traegt eine **Begruendungspflicht** (freies,

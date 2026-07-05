@@ -82,9 +82,11 @@ glossary:
         eines Runs: Story-Spec-Version und fachlich tragende Spec-Felder,
         einschlaegige Projekt-/QA-/Gate-Konfiguration sowie
         Skill-/Prompt-/Capability-Versionen. Der run-prompt-pin ist eine
-        Komponente davon. Dient als Fencing-Praedikat fuer gefencte
-        Abschluss-Commits und macht Contract-Aenderungen waehrend eines
-        aktiven Runs explizit statt still wirksam.
+        Komponente davon. Dient als Run-Pinning-/Audit-Artefakt
+        (reproduzierbare, auditierbare Festhaltung des eingefrorenen
+        Contracts eines Runs); **kein** Fencing-Praedikat. Macht
+        Contract-Aenderungen waehrend eines aktiven Runs ueber die drei
+        Wirkungsklassen (§44.3a) explizit statt still wirksam.
       see_also:
         - term: run-prompt-pin
           domain: prompt-runtime

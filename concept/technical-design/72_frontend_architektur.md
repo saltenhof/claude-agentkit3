@@ -657,7 +657,7 @@ Eigentumslage als Entscheidungsgrundlage:
 - „zuletzt aktiv" (letzter API-Kontakt) — **mit explizitem Hinweis,
   dass Inaktivitaet keine Diagnose ist** (FK-56 §56.13a); die Anzeige
   ist Information, nie Ausloeser
-- offene Jobs mit ihren `op_id`s und der Phasenstand
+- laufende synchrone Operationen mit ihren `op_id`s und der Phasenstand
 - letzter gemeldeter gepushter Head-SHA und die Push-Frische je
   teilnehmendem Repo (Branch-Ref-Meldung, FK-10 §10.2.4b,
   FK-91 §91.1b) — einen Dirty-/Lokalstand der Worktrees kennt das
