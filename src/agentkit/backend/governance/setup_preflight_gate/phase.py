@@ -812,13 +812,12 @@ class SetupPhaseHandler:
                 enriched.story_id,
                 exc,
             )
-            cleanup_message = (
-                "worktree_teardown_cleanup_failed: setup failed after the edge "
-                f"provisioned worktree(s) for repos {sorted(repos)}, and "
-                f"commissioning their teardown_worktree cleanup ALSO failed "
-                f"({exc}); the worktree may be leaked -- reconcile it manually "
-                "(FK-10 §10.4.2)."
-            )
+            cleanup_message = "worktree_teardown_cleanup_failed: setup failed "
+            cleanup_message += "after the edge provisioned worktree(s) for repos "
+            cleanup_message += f"{sorted(repos)}, and commissioning their "
+            cleanup_message += f"teardown_worktree cleanup ALSO failed ({exc}); "
+            cleanup_message += "the worktree may be leaked -- reconcile it "
+            cleanup_message += "manually (FK-10 §10.4.2)."
             return cleanup_message
         return None
 
