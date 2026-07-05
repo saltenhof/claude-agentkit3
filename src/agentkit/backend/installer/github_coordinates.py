@@ -10,6 +10,14 @@ project's ``origin`` git remote — but only when that remote can be parsed
 UNAMBIGUOUSLY into a GitHub owner/repo. Anything unparseable yields ``None`` so
 the caller fails closed (it never fabricates a coordinate; ZERO DEBT /
 FAIL-CLOSED).
+
+AG3-146 coupling note (FK-12 §12.1 provider-neutrality): the ``github.com``-only
+acceptance below is a deliberate GitHub-ADAPTER binding detail, not a
+provider-neutral rule -- it is intentionally as narrow as the registration
+wire-contract itself (``--gh-owner``/``--gh-repo``, unchanged by AG3-146; a
+provider-neutral registration generalization is a separate strand needing
+concept changes). Behavior is UNCHANGED by AG3-146: still fail-closed,
+still github.com-only.
 """
 
 from __future__ import annotations

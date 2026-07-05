@@ -78,9 +78,13 @@ def cp02_repo_check(context: CheckpointContext) -> CheckpointResult:
     """CP 2 — verify the GitHub repo exists and ``gh`` is authenticated.
 
     Fail-closed (FK-50 §50.6, story AC4): a missing/unreachable repo or an
-    unauthenticated ``gh`` is ``FAILED``, never a silent skip. The live ``gh``
-    invocation is an operational boundary, injected as a
-    :class:`RepoExistenceProbe` on the config:
+    unauthenticated ``gh`` is ``FAILED``, never a silent skip. The live check
+    is an operational boundary, injected as a :class:`RepoExistenceProbe` on
+    the config. AG3-146: the productive probe
+    (:class:`~agentkit.backend.installer.repo_probe.GhCliRepoExistenceProbe`)
+    routes through the code-backend port's ``repo_probe`` capability instead
+    of invoking ``gh`` directly here or in the probe itself -- CP 2 stays
+    ``gh``-mechanic-free (AC3):
 
     * a malformed/missing coordinate is always FAILED (fail-closed; never
       fabricated);

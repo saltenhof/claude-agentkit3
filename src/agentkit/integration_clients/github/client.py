@@ -5,6 +5,14 @@ All GitHub communication goes through the ``gh`` CLI tool
 provides the thin wrapper that every higher-level module
 (issues, projects) builds on.
 
+AG3-146 (SOLL-182): these functions are ADAPTER-INTERNAL mechanics. They are
+no longer re-exported as a generic "run any gh command" public surface
+(:mod:`agentkit.integration_clients.github` exports only
+:class:`agentkit.integration_clients.github.adapter.GitHubCodeBackendAdapter`,
+the :class:`agentkit.backend.code_backend.provider_port.CodeBackendPort`
+implementation). The ``gh``-error images of FK-12 §12.1.2 (rate-limit retry,
+token expiry) stay adapter internals, together with the token routing below.
+
 Token routing
 -------------
 When an ``owner`` is provided to :func:`run_gh`, the wrapper

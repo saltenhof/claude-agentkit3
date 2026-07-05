@@ -35,6 +35,7 @@ if TYPE_CHECKING:
         GuardDeactivationPort,
         VectorDbSyncPort,
     )
+    from agentkit.backend.code_backend.provider_port import CodeBackendPort
     from agentkit.backend.config.models import ConformanceConfig
     from agentkit.backend.execution_planning.persistence.accessor import (
         PlanningProjectionAccessor,
@@ -3457,5 +3458,37 @@ def build_compat_window_reader(
     return _read
 
 
+def build_github_code_backend_port(
+    owner: str, repo: str, *, gh_timeout_seconds: int = 30
+) -> CodeBackendPort:
+    """Wire the productive GitHub adapter onto the AG3-146 code-backend port.
+
+    Composition root for :class:`CodeBackendPort` (FK-12 §12.1): binds the
+    GitHub reference-provider adapter (``gh`` CLI mechanics for the
+    capabilities that need them, ``git ls-remote`` for the provider-neutral
+    read capabilities) to a single ``owner/repo`` coordinate. GitHub is the
+    reference provider (FK-12 §12.1.1); PO-Direktive III (Azure-DevOps-
+    Tauglichkeit) is honored by every consumer depending only on
+    :class:`CodeBackendPort` -- swapping the productive provider later means
+    adding an analogous builder here, never touching a consumer.
+
+    Args:
+        owner: The GitHub owner/organisation login (opaque outside this
+            builder -- ``CodeBackendPort`` itself carries no owner/repo
+            semantics, FK-12 §12.1 provider-neutrality).
+        repo: The GitHub repository name.
+        gh_timeout_seconds: Per-invocation timeout for the adapter's ``gh``
+            subprocess (``repo_probe``).
+
+    Returns:
+        A :class:`CodeBackendPort` bound to ``owner/repo``.
+    """
+    from agentkit.integration_clients.github.adapter import GitHubCodeBackendAdapter
+
+    return GitHubCodeBackendAdapter(
+        owner=owner, repo=repo, gh_timeout_seconds=gh_timeout_seconds
+    )
+
+
 # Keep export metadata compact so module-level LOC stays under the project gate.
-__all__ = ["ClosureConfigUnavailableError", "build_compat_window_reader", "build_artifact_invalidation_sink", "build_review_completion_sink", "build_artifact_manager", "build_closure_phase_handler", "build_exploration_drafting", "build_exploration_phase_handler", "build_exploration_review", "build_failure_corpus", "build_integrity_gate", "build_phase_state_residue_probe", "build_pipeline_engine", "build_pipeline_handler_registry", "build_planning_projection_accessor", "build_planning_story_dependency_repository", "build_producer_registry", "build_projection_accessor", "build_runtime_execution_purge_port", "build_runtime_execution_residue_probe", "build_setup_config_for_run", "build_setup_phase_handler", "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_structural_are_provider", "build_structural_build_test_port", "build_verify_system", "cli_load_story_context", "cli_load_execution_events_for_project_global", "cli_read_phase_state_record"]  # noqa: E501
+__all__ = ["ClosureConfigUnavailableError", "build_compat_window_reader", "build_artifact_invalidation_sink", "build_review_completion_sink", "build_artifact_manager", "build_closure_phase_handler", "build_exploration_drafting", "build_exploration_phase_handler", "build_exploration_review", "build_failure_corpus", "build_github_code_backend_port", "build_integrity_gate", "build_phase_state_residue_probe", "build_pipeline_engine", "build_pipeline_handler_registry", "build_planning_projection_accessor", "build_planning_story_dependency_repository", "build_producer_registry", "build_projection_accessor", "build_runtime_execution_purge_port", "build_runtime_execution_residue_probe", "build_setup_config_for_run", "build_setup_phase_handler", "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_structural_are_provider", "build_structural_build_test_port", "build_verify_system", "cli_load_story_context", "cli_load_execution_events_for_project_global", "cli_read_phase_state_record"]  # noqa: E501
