@@ -62,6 +62,7 @@ from agentkit.backend.verify_system.structural.system_evidence import (
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from contextlib import AbstractContextManager
     from datetime import datetime
 
     from agentkit.backend.artifacts import ArtifactManager
@@ -421,30 +422,11 @@ class ClosurePhaseHandler:
 
         # Step 5: metrics (FIX-5: idempotent). If already written, LOAD the
         # existing metrics record instead of rebuilding + rewriting it.
-        # AG3-144 (Codex round-3 finding): the story_metrics upsert
-        # (FacadeStoryMetricsRepository._pg_write) is a fenced Postgres write
-        # boundary that requires a bound OwnershipFenceScope (FK-91 §91.1a
-        # Rule 15) -- capture the early lease snapshot and bind it for the
-        # duration of the metrics write, mirroring the implementation/
-        # exploration phase handlers' early-capture + bind pattern. ``None``
-        # on the narrow SQLite unit-test path (K5 Postgres-only) falls back
-        # to the SAME inert placeholder used elsewhere; when the run_id
-        # cannot be resolved the placeholder empty string is never actually
-        # exercised by the fence (``build_story_metrics_record`` fails closed
-        # on a missing run_id BEFORE the projection write is attempted).
+        # AG3-144 (FK-91 §91.1a Rule 15): the story_metrics upsert is a fenced
+        # Postgres write boundary; _bind_story_metrics_fence_scope binds the
+        # early lease snapshot around it (behaviour-preserving extraction).
         status = "completed"
-        metrics_run_id = _resolve_run_id_fail_closed(s_dir) or ""
-        ownership_fence = resolve_ownership_fence_snapshot(ctx.project_key, ctx.story_id)
-        owner_session_id, expected_ownership_epoch = (
-            ownership_fence if ownership_fence is not None else ("sqlite-unfenced", 0)
-        )
-        with bind_ownership_fence_scope(
-            project_key=ctx.project_key,
-            story_id=ctx.story_id,
-            run_id=metrics_run_id,
-            owner_session_id=owner_session_id,
-            expected_ownership_epoch=expected_ownership_epoch,
-        ):
+        with _bind_story_metrics_fence_scope(s_dir, ctx):
             metrics_or_error = _resolve_metrics(s_dir, ctx, status, progress.metrics_written)
         if isinstance(metrics_or_error, HandlerResult):
             return metrics_or_error
@@ -1031,6 +1013,34 @@ def _resolve_run_id_fail_closed(s_dir: Path) -> str | None:
     except Exception:  # noqa: BLE001 -- a missing/corrupt scope => fail-closed (None)
         return None
     return run_id or None
+
+
+def _bind_story_metrics_fence_scope(
+    s_dir: Path, ctx: StoryContext,
+) -> AbstractContextManager[None]:
+    """Acquire the AG3-144 ownership-lease fence scope for the closure Step-5
+    ``story_metrics`` write (FK-91 §91.1a Rule 15).
+
+    Extracted from ``_run_sequence`` so the fence-scope acquisition (run-id
+    resolution + early lease-snapshot capture + bind) is one named unit instead
+    of inflating the closure sequence's cognitive complexity. Behaviour is
+    unchanged: on Postgres the active ``run_ownership_records`` snapshot is
+    bound and re-verified at the metrics upsert's commit; ``None`` on the narrow
+    SQLite unit-test path (K5 Postgres-only, no fence mirror) binds the same
+    inert placeholder the driver ignores.
+    """
+    run_id = _resolve_run_id_fail_closed(s_dir) or ""
+    ownership_fence = resolve_ownership_fence_snapshot(ctx.project_key, ctx.story_id)
+    owner_session_id, expected_ownership_epoch = (
+        ownership_fence if ownership_fence is not None else ("sqlite-unfenced", 0)
+    )
+    return bind_ownership_fence_scope(
+        project_key=ctx.project_key,
+        story_id=ctx.story_id,
+        run_id=run_id,
+        owner_session_id=owner_session_id,
+        expected_ownership_epoch=expected_ownership_epoch,
+    )
 
 
 def _require_merge_locals(
