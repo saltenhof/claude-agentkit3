@@ -378,9 +378,9 @@ Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
 | AG3-141 | Objekt-Serialisierung (per-Story-Claims, 409/Retry-After) | L | **completed** | 137, 138 |
 | AG3-142 | Ownership-Fencing der Regime-Pfade (`ownership_epoch`) | L | **completed** | 137 |
 | AG3-143 | Execution-Contract-Digest + Spec-Freeze | M | **completed** | 137 |
-| AG3-144 | Job-Muster + Ergebnisarten + Upsert-Fences | L | **ready** | 141, 142, 143 |
-| AG3-145 | Edge-Command-Queue + Worktree-Ops-Umzug | L | blocked | 137, 141, 142, 146 |
-| AG3-146 | Provider-Adapter-Schnitt (ls-remote, gh nur im Adapter) | M | **ready** | — |
+| AG3-144 | Job-Muster + Ergebnisarten + Upsert-Fences | L | **in_progress ⛔ arch-blocked (W2)** | 141, 142, 143 |
+| AG3-145 | Edge-Command-Queue + Worktree-Ops-Umzug | L | **ready** | 137, 141, 142, 146 |
+| AG3-146 | Provider-Adapter-Schnitt (ls-remote, gh nur im Adapter) | M | **completed** | — |
 | AG3-147 | Sync-Punkte + Push-Gate + Ref-Schutz (pushed-only) | L | blocked | 145, 146 |
 | AG3-148 | Transfer-Kern (Challenge-Confirm-CAS, Approval-Queue) | L | blocked | 141, 142, 147 |
 | AG3-149 | Disown-Baustein + Ex-Owner + Ping-Pong-Schranke | M | blocked | 148 |
@@ -392,7 +392,32 @@ Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
 | AG3-155 | Betriebs-Runbook FK-04 (concept) | S | blocked | 139, 149, 151, 154 |
 | AG3-156 | Verify-Evidenz-Ausführungsort: Request-DSL-Resolver + Evidence-Assembler vom Backend-Worktree-Zugriff lösen (Review-Fund, PO-Go 2026-07-02) | L | blocked | 144, 145 |
 
-**Sofort startbar (`ready`): AG3-144, AG3-146.**
+**Sofort startbar (`ready`): AG3-145.**
+(AG3-146 ✅ **completed** 2026-07-05 — Provider-Adapter-Schnitt: neues Backend-BC
+`code_backend/` mit schmalem Capability-Port `provider_port.py` (Blutgruppe A,
+GitHub-frei/Azure-DevOps-tauglich: keine gh-Argumente/URL-Formen/owner-repo-Slugs im
+Port; opake Provider-Koordinaten) + `git_protocol.py` (Blutgruppe T, `git ls-remote`
+ohne Worktree für `ref_read`, fail-closed bei nicht auflösbarem Ref/Remote). `gh`
+läuft ausschließlich im GitHub-Adapter; `repo_probe`/CP2 gehen über den Port (kein
+direkter gh-Subprozess mehr außerhalb des Adapters); fehlendes `gh` = benannter
+Capability-Befund, kein Crash. Port-Contract-Suite läuft unverändert gegen den
+GitHub-Adapter UND ein Nicht-GitHub-Test-Double (Austauschbarkeit bewiesen). Codex
+AC1–AC6 + A-Core-AT-Freiheit APPROVE; einziger REJECT-Grund war ARCH-55-Deutsch in
+neuen Docstrings → direkt übersetzt + breiter German-Sweep clean; Jenkins #998 grün,
+Sonar-Gate OK / 0 Issues. Entblockt AG3-145. WARNING: das neue BC ist noch nicht in
+`concept/formal-spec/architecture-conformance/entities.md` registriert → der
+Conformance-Gate erzwingt die A-Core-AT-Freiheit nicht mechanisch fort (manuell + per
+AST-Grep-Test belegt); Registrierung ist eine `concept/`-Änderung (PO) — kleiner
+Follow-up.
+AG3-144 ⛔ **in_progress / arch-blocked** 2026-07-05 — nach 4 Codex-Runden zeigte
+sich: vollständiges fail-closed Fencing verlangt Fence-Context-Capture in JEDER Phase
+(Exploration/Requirements/Prompt-Audit/Handover, nicht nur Implementation) — eine
+system-weite Architekturänderung — UND das 202-Job-Muster braucht einen undefinierten
+server-seitigen Execution-Driver. Beides sind Architekturentscheidungen (PO).
+Implementation-Phase-Fences sind korrekt; die Fence-Arbeit (5 Commits, Suite 8727
+passed/92,56 %) ist auf Branch `ag3-144-fence-half-wip` geparkt, `main` sauber auf
+`6446aa8f` zurückgesetzt, nichts gepusht. Details + Optionen: `scratchpad/
+deferred-decisions.md` W2.
 (AG3-143 ✅ **completed** 2026-07-04 — Execution-Contract-Digest + Spec-Freeze:
 deterministischer `execution_contract_digest` beim Setup-Commit, content-adressiert
 über tragende Spec-Felder (FK-59 §59.9a) + `ProjectRegistration.config_version`/
