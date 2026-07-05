@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -1940,6 +1941,52 @@ def build_are_client_from_project_config(project_config: object) -> object | Non
     )
 
 
+def build_setup_fence_scope_binder() -> Callable[..., contextlib.AbstractContextManager[None]]:
+    """Build the REAL ownership-fence-scope binder for ``SetupPhaseHandler``.
+
+    AG3-144 (Codex round-3, architecture-conformance fix): ``setup_preflight_gate.phase``
+    must have ZERO ``state_backend.store`` imports -- module-level OR lazy
+    (``tests/unit/governance/test_architecture_conformance_imports.py``). This
+    composition-root helper owns the ``resolve_ownership_fence_snapshot`` +
+    ``bind_ownership_fence_scope`` calls (the sanctioned ``state_backend.store``
+    import boundary) and is injected into ``SetupPhaseHandler`` as a plain
+    callable DI seam -- mirrors ``build_phase_state_residue_probe`` (TB003:
+    governance may not call the state-backend loader directly).
+
+    Returns:
+        ``binder(*, project_key, story_id, run_id) -> ContextManager[None]``:
+        on the narrow SQLite unit-test path (``resolve_ownership_fence_snapshot``
+        returns ``None``) this yields ``contextlib.nullcontext()`` (no fence
+        mirroring there, K5 Postgres-only); on Postgres it resolves the active
+        ``run_ownership_records`` snapshot and binds it for the caller's
+        mutating call.
+    """
+    from agentkit.backend.state_backend.store import (
+        bind_ownership_fence_scope,
+        resolve_ownership_fence_snapshot,
+    )
+
+    def _bind(
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+    ) -> contextlib.AbstractContextManager[None]:
+        snapshot = resolve_ownership_fence_snapshot(project_key, story_id)
+        if snapshot is None:
+            return contextlib.nullcontext()
+        owner_session_id, expected_ownership_epoch = snapshot
+        return bind_ownership_fence_scope(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            owner_session_id=owner_session_id,
+            expected_ownership_epoch=expected_ownership_epoch,
+        )
+
+    return _bind
+
+
 def build_setup_phase_handler(
     config: object,
     *,
@@ -2000,6 +2047,7 @@ def build_setup_phase_handler(
         residue_probe=build_phase_state_residue_probe(
             store_dir or config.project_root
         ),
+        fence_scope_binder=build_setup_fence_scope_binder(),
     )
 
 

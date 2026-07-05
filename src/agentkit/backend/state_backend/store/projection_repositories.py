@@ -970,11 +970,98 @@ class FacadeStoryMetricsRepository:
         """Persist (upsert) a StoryMetricsRecord.
 
         FK-29 §29.6: PostMergeFinalization is schema owner + writer via
-        write_projection.
+        write_projection. AG3-144 (Codex round-3, FK-91 §91.1a Rule 15): the
+        Postgres path is fenced -- see :meth:`_pg_write` -- so this is no
+        longer a bare delegation to ``facade.upsert_story_metrics`` (which
+        stays unfenced and is retained only as a low-level seeding helper for
+        tests; the production write boundary is HERE).
         """
-        from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.state_backend.store import mappers
 
-        facade.upsert_story_metrics(self._story_dir, record)
+        row = mappers.story_metrics_to_row(record)
+        if _is_postgres():
+            self._pg_write(row)
+        else:
+            self._sqlite_write(row)
+
+    def _sqlite_write(self, row: dict[str, object]) -> None:
+        from agentkit.backend.state_backend import sqlite_store
+
+        sqlite_store.upsert_story_metrics_row(self._story_dir, row)
+
+    def _pg_write(self, row: dict[str, object]) -> None:
+        """Fence-first (AG3-144 Codex round-3), then upsert in ONE transaction.
+
+        Mirrors ``FacadeQACheckOutcomesRepository._pg_write`` /
+        ``StateBackendArtifactRepository._pg_write``: the caller's ambient
+        ``OwnershipFenceScope`` (bound by the owning phase handler, FK-91
+        §91.1a Rule 15) is re-verified AT COMMIT TIME, in THIS SAME
+        transaction, under ``SELECT ... FOR UPDATE``, BEFORE the
+        ``story_metrics`` upsert. No scope bound at all is a hard,
+        fail-closed error -- never a silent unfenced write. Closure Step 5
+        (``closure.phase._resolve_metrics``) is the sole production writer
+        and binds its early-captured lease snapshot around this call
+        (Codex r2 finding: this write was previously reachable unfenced).
+
+        Raises:
+            CorruptStateError: When no ``OwnershipFenceScope`` is bound for
+                this call, or it belongs to a different story.
+            OwnershipFenceViolationError: When the story's active ownership
+                record no longer admits the bound scope's snapshot at commit
+                time -- nothing written.
+        """
+        from agentkit.backend.state_backend import postgres_store
+        from agentkit.backend.state_backend.store.facade import require_ownership_fence_scope
+
+        scope = require_ownership_fence_scope(story_id=str(row["story_id"]))
+        with _postgres_connect() as conn:
+            # Sanctioned StateBackendRepository -> StateBackendDrivers edge
+            # (same BC): the AG3-142 fence predicate is re-localized in
+            # postgres_store.py and reused verbatim here.
+            postgres_store._enforce_ownership_fence_row(
+                postgres_store._CompatConnection(conn),
+                project_key=scope.project_key,
+                story_id=str(row["story_id"]),
+                run_id=scope.run_id,
+                session_id=scope.owner_session_id,
+                expected_ownership_epoch=scope.expected_ownership_epoch,
+            )
+            conn.execute(
+                """
+                INSERT INTO story_metrics (
+                    project_key, story_id, run_id, story_type, story_size, mode,
+                    processing_time_min, qa_rounds, increments, final_status,
+                    completed_at, adversarial_findings, adversarial_tests_created,
+                    files_changed, agentkit_version, agentkit_commit,
+                    config_version, llm_roles_json
+                ) VALUES (
+                    %(project_key)s, %(story_id)s, %(run_id)s, %(story_type)s,
+                    %(story_size)s, %(mode)s, %(processing_time_min)s, %(qa_rounds)s,
+                    %(increments)s, %(final_status)s, %(completed_at)s,
+                    %(adversarial_findings)s, %(adversarial_tests_created)s,
+                    %(files_changed)s, %(agentkit_version)s, %(agentkit_commit)s,
+                    %(config_version)s, %(llm_roles_json)s
+                )
+                ON CONFLICT (project_key, run_id) DO UPDATE SET
+                    story_id=excluded.story_id,
+                    story_type=excluded.story_type,
+                    story_size=excluded.story_size,
+                    mode=excluded.mode,
+                    processing_time_min=excluded.processing_time_min,
+                    qa_rounds=excluded.qa_rounds,
+                    increments=excluded.increments,
+                    final_status=excluded.final_status,
+                    completed_at=excluded.completed_at,
+                    adversarial_findings=excluded.adversarial_findings,
+                    adversarial_tests_created=excluded.adversarial_tests_created,
+                    files_changed=excluded.files_changed,
+                    agentkit_version=excluded.agentkit_version,
+                    agentkit_commit=excluded.agentkit_commit,
+                    config_version=excluded.config_version,
+                    llm_roles_json=excluded.llm_roles_json
+                """,
+                row,
+            )
 
     def read(
         self,

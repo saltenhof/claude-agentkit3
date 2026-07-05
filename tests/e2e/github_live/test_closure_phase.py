@@ -77,13 +77,14 @@ def _save_flow(
     *,
     project_key: str,
     story_id: str,
+    run_id: str,
 ) -> None:
     save_flow_execution(
         s_dir,
         FlowExecution(
             project_key=project_key,
             story_id=story_id,
-            run_id=f"run-{story_id.lower()}",
+            run_id=run_id,
             flow_id="implementation",
             level="story",
             owner="pipeline_engine",
@@ -98,13 +99,14 @@ def _append_agent_start(
     *,
     project_key: str,
     story_id: str,
+    run_id: str,
 ) -> None:
     append_execution_event(
         s_dir,
         ExecutionEventRecord(
             project_key=project_key,
             story_id=story_id,
-            run_id=f"run-{story_id.lower()}",
+            run_id=run_id,
             event_id=f"evt-agent-start-{story_id.lower()}",
             event_type=EventType.AGENT_START.value,
             occurred_at=datetime(2026, 1, 1, 9, 45, 0, tzinfo=UTC),
@@ -175,6 +177,25 @@ class TestClosurePhaseE2E:
             title="E2E full pipeline: setup to closure",
         )
 
+        # AG3-144 (Codex round-3): seed the active ownership record a real
+        # control-plane setup start would mint BEFORE running setup -- setup's
+        # ARE-bundle-load write is now fenced too (7b68f2fc), and this handler
+        # is driven directly (no control-plane), so the lease must already be
+        # active when ``setup_handler.on_enter`` runs. ``run_id`` is pinned to
+        # ONE value shared by the ``PhaseState`` below, the flow execution
+        # seeded after setup, and the AGENT_START event -- matching the real
+        # invariant that setup start, the phase envelope, and the flow
+        # execution all share ONE run id (AG3-142). ``PhaseState.run_id`` is
+        # pydantic-validated as a UUID string, so this must be UUID-shaped
+        # (unlike ``FlowExecution.run_id`` / ``RunOwnershipRecord.run_id``,
+        # which are plain strings).
+        run_id = "11111111-1111-4111-8111-e2e070020000"
+        seed_active_run_ownership(
+            project_key="e2e-closure-test",
+            story_id="E2E-7002",
+            run_id=run_id,
+        )
+
         ctx = StoryContext(
             project_key="e2e-closure-test",
             story_id="E2E-7002",
@@ -186,6 +207,7 @@ class TestClosurePhaseE2E:
             phase="setup",
             status=PhaseStatus.IN_PROGRESS,
             story_type=StoryType.CONCEPT,
+            run_id=run_id,
         )
 
         setup_result = setup_handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
@@ -205,19 +227,13 @@ class TestClosurePhaseE2E:
             s_dir,
             project_key="e2e-closure-test",
             story_id="E2E-7002",
-        )
-        # AG3-144: seed the active ownership record a real control-plane setup
-        # start would mint (run_id matches the flow execution's run id above),
-        # so the closure projection write passes the no-lease-no-write fence.
-        seed_active_run_ownership(
-            project_key="e2e-closure-test",
-            story_id="E2E-7002",
-            run_id="run-e2e-7002",
+            run_id=run_id,
         )
         _append_agent_start(
             s_dir,
             project_key="e2e-closure-test",
             story_id="E2E-7002",
+            run_id=run_id,
         )
 
         # 4. Closure: closes the story via the AK3 Story-Service (no GitHub).

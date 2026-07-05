@@ -50,6 +50,7 @@ from agentkit.backend.pipeline_engine.phase_executor import (
     evolve_phase_state,
 )
 from agentkit.backend.state_backend.store import (
+    bind_ownership_fence_scope,
     load_phase_snapshot,
     resolve_ownership_fence_snapshot,
     save_story_context,
@@ -420,8 +421,31 @@ class ClosurePhaseHandler:
 
         # Step 5: metrics (FIX-5: idempotent). If already written, LOAD the
         # existing metrics record instead of rebuilding + rewriting it.
+        # AG3-144 (Codex round-3 finding): the story_metrics upsert
+        # (FacadeStoryMetricsRepository._pg_write) is a fenced Postgres write
+        # boundary that requires a bound OwnershipFenceScope (FK-91 §91.1a
+        # Rule 15) -- capture the early lease snapshot and bind it for the
+        # duration of the metrics write, mirroring the implementation/
+        # exploration phase handlers' early-capture + bind pattern. ``None``
+        # on the narrow SQLite unit-test path (K5 Postgres-only) falls back
+        # to the SAME inert placeholder used elsewhere; when the run_id
+        # cannot be resolved the placeholder empty string is never actually
+        # exercised by the fence (``build_story_metrics_record`` fails closed
+        # on a missing run_id BEFORE the projection write is attempted).
         status = "completed"
-        metrics_or_error = _resolve_metrics(s_dir, ctx, status, progress.metrics_written)
+        metrics_run_id = _resolve_run_id_fail_closed(s_dir) or ""
+        ownership_fence = resolve_ownership_fence_snapshot(ctx.project_key, ctx.story_id)
+        owner_session_id, expected_ownership_epoch = (
+            ownership_fence if ownership_fence is not None else ("sqlite-unfenced", 0)
+        )
+        with bind_ownership_fence_scope(
+            project_key=ctx.project_key,
+            story_id=ctx.story_id,
+            run_id=metrics_run_id,
+            owner_session_id=owner_session_id,
+            expected_ownership_epoch=expected_ownership_epoch,
+        ):
+            metrics_or_error = _resolve_metrics(s_dir, ctx, status, progress.metrics_written)
         if isinstance(metrics_or_error, HandlerResult):
             return metrics_or_error
         metrics = metrics_or_error

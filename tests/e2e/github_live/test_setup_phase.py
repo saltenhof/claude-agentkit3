@@ -11,7 +11,7 @@ import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
-from tests.e2e._helpers import seed_approved_story
+from tests.e2e._helpers import seed_active_run_ownership, seed_approved_story
 from tests.phase_state_factory import make_phase_state
 
 from agentkit.backend.bootstrap.composition_root import build_setup_phase_handler
@@ -82,6 +82,19 @@ class TestSetupPhaseE2E:
             title="E2E setup: builds context from Story-Service",
         )
 
+        # AG3-144 (Codex round-3): seed the active ownership record a real
+        # control-plane setup start would mint. Setup's ARE-bundle-load write
+        # is fenced (7b68f2fc); this handler is driven directly (no
+        # control-plane), so the lease must already be active when
+        # ``handler.on_enter`` runs. ``run_id`` matches the ``PhaseState``
+        # below (the fence's run_id predicate input).
+        run_id = "11111111-1111-4111-8111-111111111111"
+        seed_active_run_ownership(
+            project_key="test",
+            story_id="TEST-001",
+            run_id=run_id,
+        )
+
         # Minimal initial context
         ctx = StoryContext(
             project_key="test",
@@ -93,6 +106,7 @@ class TestSetupPhaseE2E:
             story_id="TEST-001",
             phase="setup",
             status=PhaseStatus.IN_PROGRESS,
+            run_id=run_id,
         )
 
         result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))

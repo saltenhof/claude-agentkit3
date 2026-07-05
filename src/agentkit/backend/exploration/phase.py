@@ -280,12 +280,12 @@ class ExplorationPhaseHandler:
         run_id = self._run_scope.resolve_run_id(story_dir, story_id=ctx.story_id)
         # AG3-144 (Codex round-2, FK-91 §91.1a Rule 15): bind the early-captured
         # lease snapshot for the ENTIRE mutating exploration execution -- every
-        # artifact_envelopes write reachable from here (the AG3-055 ENTWURF
-        # envelope, the AG3-046 per-stage review-result envelopes) is fenced
-        # against THIS bound scope at its own Postgres commit. ``None`` on the
-        # narrow SQLite unit-test path (K5 Postgres-only) falls back to the
-        # inert placeholder the driver functions explicitly ignore -- mirrors
-        # ``ImplementationPhaseHandler.on_enter``.
+        # artifact_envelopes write reachable from here (the AG3-055 draft
+        # change-frame envelope, the AG3-046 per-stage review-result envelopes)
+        # is fenced against THIS bound scope at its own Postgres commit.
+        # ``None`` on the narrow SQLite unit-test path (K5 Postgres-only) falls
+        # back to the inert placeholder the driver functions explicitly ignore
+        # -- mirrors ``ImplementationPhaseHandler.on_enter``.
         ownership_fence = resolve_ownership_fence_snapshot(ctx.project_key, ctx.story_id)
         owner_session_id, expected_ownership_epoch = (
             ownership_fence if ownership_fence is not None else ("sqlite-unfenced", 0)

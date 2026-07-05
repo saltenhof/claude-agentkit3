@@ -18,6 +18,7 @@ import json
 from typing import TYPE_CHECKING
 
 import pytest
+from tests.e2e._helpers import seed_active_run_ownership
 from tests.fixtures.git_repo import ensure_git_repo
 
 from agentkit.backend.bootstrap.composition_root import build_exploration_phase_handler
@@ -143,13 +144,64 @@ def _exploration_registry_for_workflow(
     NOT fake an APPROVED). The engine persists the run-bound ``FlowExecution``
     (status IN_PROGRESS) BEFORE calling ``on_enter``, which is exactly how the
     handler resolves its run id in production; this test relies on that real
-    ordering, not a seeded run id.
+    ordering (AG3-144: see ``_seed_exploration_run_ownership`` for why the run
+    id itself must now be PINNED via a pre-seeded ``FlowExecution``, not left
+    to the engine's own fresh ``uuid4()`` fallback).
     """
     registry = _registry_for_workflow(workflow_def)
     registry.register(
         "exploration", build_exploration_phase_handler(story_dir_path)
     )
     return registry
+
+
+def _seed_exploration_run_ownership(
+    s_dir: Path,
+    *,
+    project_key: str,
+    story_id: str,
+    workflow_def: object,
+    run_id: str,
+) -> None:
+    """Pin the run id + seed the active ownership lease (AG3-144 Codex round-3).
+
+    These smoke tests use ``NoOpHandler`` for setup (see ``_registry_for_workflow``),
+    so the real control-plane setup start that -- in production -- atomically
+    mints the story's active ``run_ownership_records`` row (AG3-142) never runs.
+    ``ExplorationPhaseHandler.on_enter`` (7b68f2fc) now binds an
+    ``OwnershipFenceScope`` for its whole mutating execution and requires that
+    active lease to exist (no-lease-no-write, FK-91 §91.1a Rule 15), so it
+    would otherwise fail closed with ``CorruptStateError``.
+
+    ``EngineRuntimeState.resolve_run_id`` REUSES an existing ``FlowExecution``
+    row that matches ``(flow_id, story_id, project_key)`` instead of generating
+    a fresh ``uuid4()`` (see ``runtime_state.py``); pre-seeding one here PINS
+    the run id the engine (and therefore the exploration handler's fence bind)
+    will use, so the ownership record seeded with the SAME run id is the one
+    the fence actually re-verifies at commit time. Mirrors
+    ``tests/e2e/smoke/test_real_pipeline.py``'s ``_seed_pipeline_run_ownership``.
+    """
+    from agentkit.backend.phase_state_store.models import FlowExecution
+    from agentkit.backend.process.language.model import WorkflowDefinition
+    from agentkit.backend.state_backend.store import save_flow_execution
+
+    assert isinstance(workflow_def, WorkflowDefinition)
+    save_flow_execution(
+        s_dir,
+        FlowExecution(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            flow_id=workflow_def.flow_id,
+            level=workflow_def.level.value,
+            owner=workflow_def.owner,
+        ),
+    )
+    seed_active_run_ownership(
+        project_key=project_key,
+        story_id=story_id,
+        run_id=run_id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -349,6 +401,20 @@ class TestSmokeExplorationMode:
 
         workflow = IMPLEMENTATION_WORKFLOW
         registry = _exploration_registry_for_workflow(workflow, s_dir)
+        # AG3-144 (Codex round-3): pin the run id + seed the active ownership
+        # lease that a real control-plane setup start would have minted
+        # (NoOpHandler drives setup here, so nothing else does). The engine
+        # reuses this seeded FlowExecution's run id verbatim for the fresh
+        # PhaseState it builds (``EngineRuntimeState.resolve_run_id``), and
+        # ``PhaseState.run_id`` is pydantic-validated as a UUID string, so
+        # this must be UUID-shaped.
+        _seed_exploration_run_ownership(
+            s_dir,
+            project_key=ctx.project_key,
+            story_id="EXPL-001",
+            workflow_def=workflow,
+            run_id="11111111-1111-4111-8111-000000000001",
+        )
 
         result = run_pipeline(ctx, s_dir, registry, workflow)
 
@@ -381,6 +447,20 @@ class TestSmokeExplorationMode:
 
         workflow = IMPLEMENTATION_WORKFLOW
         registry = _exploration_registry_for_workflow(workflow, s_dir)
+        # AG3-144 (Codex round-3): pin the run id + seed the active ownership
+        # lease that a real control-plane setup start would have minted
+        # (NoOpHandler drives setup here, so nothing else does). The engine
+        # reuses this seeded FlowExecution's run id verbatim for the fresh
+        # PhaseState it builds (``EngineRuntimeState.resolve_run_id``), and
+        # ``PhaseState.run_id`` is pydantic-validated as a UUID string, so
+        # this must be UUID-shaped.
+        _seed_exploration_run_ownership(
+            s_dir,
+            project_key=ctx.project_key,
+            story_id="EXPL-002",
+            workflow_def=workflow,
+            run_id="11111111-1111-4111-8111-000000000002",
+        )
         result = run_pipeline(ctx, s_dir, registry, workflow)
 
         assert result.final_status == "yielded"

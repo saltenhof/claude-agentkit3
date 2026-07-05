@@ -46,10 +46,6 @@ from agentkit.backend.pipeline_engine.phase_executor import (
     evolve_phase_state,
 )
 from agentkit.backend.state_backend.paths import CONTEXT_EXPORT_FILE
-from agentkit.backend.state_backend.store import (
-    bind_ownership_fence_scope,
-    resolve_ownership_fence_snapshot,
-)
 from agentkit.backend.story_context_manager.types import get_profile
 from agentkit.backend.utils.git import remove_worktree
 
@@ -71,6 +67,37 @@ if TYPE_CHECKING:
     from agentkit.backend.story_context_manager.service import StoryService
 
 logger = logging.getLogger(__name__)
+
+
+def _default_fence_scope_binder(
+    *,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> contextlib.AbstractContextManager[None]:
+    """No-op fence-scope binder (unwired default -- fail-closed by omission).
+
+    AG3-144 (Codex round-3, architecture-conformance fix): ``setup_preflight_gate.phase``
+    must have ZERO ``state_backend.store`` imports -- module-level OR lazy
+    (``tests/unit/governance/test_architecture_conformance_imports.py``). The
+    REAL binder -- which resolves the active ownership-lease snapshot
+    (``resolve_ownership_fence_snapshot``) and binds it
+    (``bind_ownership_fence_scope``) -- lives in the composition root (the
+    sanctioned ``state_backend.store`` import boundary,
+    ``agentkit.backend.bootstrap.composition_root``) and is injected into
+    :class:`SetupPhaseHandler` via ``fence_scope_binder`` (DI, not a lazy
+    fallback import).
+
+    This default is used only by callers that construct
+    :class:`SetupPhaseHandler` WITHOUT wiring a real binder (legacy/unit-test
+    constructions on the narrow SQLite path, where the Postgres fenced write
+    boundary is never reached). On Postgres, an unwired binder yields an
+    EMPTY scope here -- the ARE-bundle ``ArtifactEnvelope`` write then fails
+    CLOSED with ``CorruptStateError`` (no bound ``OwnershipFenceScope``),
+    never fail-open.
+    """
+    del project_key, story_id, run_id
+    return contextlib.nullcontext()
 
 
 class AreBundleLoaderPort(Protocol):
@@ -127,6 +154,20 @@ class SetupPhaseHandler:
             inside ``run_preflight`` (no lazy import).  Provide a test
             double or real repository to enable the dependency check
             (AG3-031 Pass-6 Fix E9).
+        fence_scope_binder: AG3-144 (Codex round-3) DI seam for the
+            ownership-lease fence (FK-91 §91.1a Rule 15). Called as
+            ``fence_scope_binder(project_key=..., story_id=..., run_id=...)``
+            around the ARE-bundle load; must return a context manager. This
+            module has ZERO ``state_backend.store`` imports (architecture
+            conformance) -- the REAL binder (resolves
+            ``resolve_ownership_fence_snapshot`` and binds it via
+            ``bind_ownership_fence_scope``) is built and injected by
+            ``agentkit.backend.bootstrap.composition_root``. Defaults to a
+            no-op binder (``contextlib.nullcontext``) so existing/sqlite unit
+            tests that construct this handler without wiring a binder keep
+            working; on Postgres an unwired binder yields no bound scope, so
+            the fenced write fails CLOSED (``CorruptStateError``), never
+            fail-open.
     """
 
     def __init__(
@@ -139,6 +180,9 @@ class SetupPhaseHandler:
         green_main_port: MainGreenPort | None = None,
         are_bundle_loader: AreBundleLoaderPort | None = None,
         residue_probe: Callable[[Path, str], bool] | None = None,
+        fence_scope_binder: Callable[
+            ..., contextlib.AbstractContextManager[None]
+        ] = _default_fence_scope_binder,
     ) -> None:
         self._config = config
         self._context_repo: SetupContextRepository = context_repository
@@ -147,6 +191,7 @@ class SetupPhaseHandler:
         self._green_main_port = green_main_port
         self._are_bundle_loader = are_bundle_loader
         self._residue_probe = residue_probe
+        self._fence_scope_binder = fence_scope_binder
 
     def on_enter(self, ctx: StoryContext, envelope: PhaseEnvelope) -> HandlerResult:
         """Execute the setup phase.
@@ -199,25 +244,21 @@ class SetupPhaseHandler:
         artifacts: list[str] = [str(s_dir / CONTEXT_EXPORT_FILE)]
 
         updated_state: PhaseState | None = None
-        # AG3-144 (Codex round-2, FK-91 §91.1a Rule 15): the ARE dock-point-2
+        # AG3-144 (Codex round-3, FK-91 §91.1a Rule 15): the ARE dock-point-2
         # ``load_context`` call below writes an ``are_bundle.json``
         # ArtifactEnvelope (FK-40) through the SAME ``ArtifactManager`` write
         # boundary the QA-subflow uses; bind this run's early-captured lease
         # snapshot for its duration (the control-plane's setup-start commit has
         # already materialized the active ``run_ownership_records`` row by the
-        # time this phase handler runs, AG3-142 SOLL-015).
-        ownership_fence = resolve_ownership_fence_snapshot(
-            enriched.project_key, enriched.story_id
-        )
-        owner_session_id, expected_ownership_epoch = (
-            ownership_fence if ownership_fence is not None else ("sqlite-unfenced", 0)
-        )
-        with bind_ownership_fence_scope(
+        # time this phase handler runs, AG3-142 SOLL-015). The binder is
+        # injected (DI via the composition root, architecture-conformance fix):
+        # this module has ZERO ``state_backend.store`` imports -- resolving the
+        # snapshot and calling ``bind_ownership_fence_scope`` happens INSIDE the
+        # injected ``self._fence_scope_binder`` callable.
+        with self._fence_scope_binder(
             project_key=enriched.project_key,
             story_id=enriched.story_id,
             run_id=envelope.state.run_id,
-            owner_session_id=owner_session_id,
-            expected_ownership_epoch=expected_ownership_epoch,
         ):
             bundle_step = self._load_are_bundle(enriched, envelope.state)
         if bundle_step is not None:

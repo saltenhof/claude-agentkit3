@@ -23,6 +23,11 @@ mutating story PROJECTION writes AG3-144 targets:
   produced the envelope.
 * ``qa_check_outcomes`` (Codex round-2 CRITICAL 3) -- the
   ``FacadeQACheckOutcomesRepository`` Postgres write, fenced the same way.
+* ``story_metrics`` (Codex round-3 CRITICAL finding) -- the
+  ``FacadeStoryMetricsRepository`` Postgres write (closure Step 5,
+  ``ProjectionAccessor.write_projection(ProjectionKind.STORY_METRICS)``),
+  fenced the same way -- this was the ONE remaining reachable-unfenced
+  production story-projection write after round 2.
 
 Each surface gets:
 
@@ -51,6 +56,7 @@ import pytest
 from agentkit.backend.artifacts.envelope import ArtifactEnvelope
 from agentkit.backend.artifacts.producer import Producer, ProducerId, ProducerType
 from agentkit.backend.closure.execution_report.records import ExecutionReport
+from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.backend.control_plane.ownership import (
     OwnershipAcquisition,
     OwnershipStatus,
@@ -79,6 +85,7 @@ from agentkit.backend.state_backend.store.artifact_repository import (
 )
 from agentkit.backend.state_backend.store.projection_repositories import (
     FacadeQACheckOutcomesRepository,
+    FacadeStoryMetricsRepository,
 )
 from agentkit.backend.verify_system.policy_engine.engine import VerifyDecision
 from agentkit.backend.verify_system.protocols import LayerResult
@@ -774,3 +781,106 @@ def test_qa_check_outcomes_transfer_before_emitter_loop_rejects_and_writes_nothi
     assert excinfo.value.detail["current_owner_session_id"] == "sess-HIJACK"
     rows = repo.read(project_key=_PROJECT, story_id=story_id, run_id=run_id)
     assert rows == [], "qa_check_outcomes must have NOTHING written after the rejection"
+
+
+# ---------------------------------------------------------------------------
+# story_metrics (AG3-144 Codex round-3 CRITICAL finding) -- OwnershipFenceScope
+# ContextVar binding (same mechanism as artifact_envelopes / qa_check_outcomes).
+# closure Step 5 (``closure.phase._resolve_metrics``) is the sole production
+# writer and binds its early-captured lease snapshot around the write; this
+# was the ONE remaining reachable-unfenced production story-projection write
+# after round 2 (``FacadeStoryMetricsRepository.write`` delegated straight to
+# the unfenced ``facade.upsert_story_metrics`` -> ``upsert_story_metrics_row``).
+# ---------------------------------------------------------------------------
+
+
+def _story_metrics_record(*, story_id: str, run_id: str) -> StoryMetricsRecord:
+    return StoryMetricsRecord(
+        project_key=_PROJECT,
+        story_id=story_id,
+        run_id=run_id,
+        story_type="implementation",
+        story_size="M",
+        mode="standard",
+        processing_time_min=12.5,
+        qa_rounds=1,
+        increments=1,
+        final_status="completed",
+        completed_at=_NOW.isoformat(),
+    )
+
+
+def test_story_metrics_valid_lease_writes_as_specified(tmp_path: Path) -> None:
+    """AC3 positive: a bound, matching lease scope writes the story_metrics row."""
+    story_id = "AG3-926"
+    run_id = "run-926"
+    story_dir = tmp_path / story_id
+    story_dir.mkdir(parents=True)
+    _seed_active_ownership(story_id=story_id, run_id=run_id, owner_session_id="sess-A", epoch=1)
+    repo = FacadeStoryMetricsRepository(story_dir)
+
+    with bind_ownership_fence_scope(
+        project_key=_PROJECT,
+        story_id=story_id,
+        run_id=run_id,
+        owner_session_id="sess-A",
+        expected_ownership_epoch=1,
+    ):
+        repo.write(_story_metrics_record(story_id=story_id, run_id=run_id))
+
+    rows = repo.read(project_key=_PROJECT, story_id=story_id, run_id=run_id)
+    assert len(rows) == 1
+    assert rows[0].final_status == "completed"
+
+
+def test_story_metrics_no_bound_scope_rejects_hard(tmp_path: Path) -> None:
+    """A write reaching the Postgres boundary with NO bound scope hard-fails.
+
+    FIX THE MODEL: the write boundary REQUIRES the fence -- a caller that
+    passes nothing is a hard runtime error (``CorruptStateError``), never a
+    silent skip.
+    """
+    story_id = "AG3-927"
+    run_id = "run-927"
+    story_dir = tmp_path / story_id
+    story_dir.mkdir(parents=True)
+    _seed_active_ownership(story_id=story_id, run_id=run_id, owner_session_id="sess-A", epoch=1)
+    repo = FacadeStoryMetricsRepository(story_dir)
+
+    with pytest.raises(CorruptStateError, match="No OwnershipFenceScope is bound"):
+        repo.write(_story_metrics_record(story_id=story_id, run_id=run_id))
+
+    rows = repo.read(project_key=_PROJECT, story_id=story_id, run_id=run_id)
+    assert rows == [], "story_metrics must have NOTHING written after the rejection"
+
+
+def test_story_metrics_lost_lease_rejects_and_writes_nothing(tmp_path: Path) -> None:
+    """AC2/AC4 (no TOCTOU): a stale bound scope rejects; nothing is written.
+
+    Mirrors the closure Step-5 scenario: the story's active ownership record
+    moves on (a takeover) AFTER the closure handler's own early-captured
+    snapshot -- the metrics upsert must NOT land under the ex-owner's stale
+    lease.
+    """
+    story_id = "AG3-928"
+    run_id = "run-928"
+    story_dir = tmp_path / story_id
+    story_dir.mkdir(parents=True)
+    _seed_active_ownership(story_id=story_id, run_id=run_id, owner_session_id="sess-A", epoch=1)
+    repo = FacadeStoryMetricsRepository(story_dir)
+
+    # The race: ownership moves on AFTER this caller's own early snapshot.
+    _hijack_ownership(story_id=story_id, new_owner="sess-HIJACK", new_epoch=2)
+
+    with pytest.raises(OwnershipFenceViolationError) as excinfo, bind_ownership_fence_scope(
+        project_key=_PROJECT,
+        story_id=story_id,
+        run_id=run_id,
+        owner_session_id="sess-A",
+        expected_ownership_epoch=1,
+    ):
+        repo.write(_story_metrics_record(story_id=story_id, run_id=run_id))
+
+    assert excinfo.value.detail["current_owner_session_id"] == "sess-HIJACK"
+    rows = repo.read(project_key=_PROJECT, story_id=story_id, run_id=run_id)
+    assert rows == [], "story_metrics must have NOTHING written after the rejection"
