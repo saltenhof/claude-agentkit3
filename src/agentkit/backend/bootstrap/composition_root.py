@@ -38,9 +38,7 @@ if TYPE_CHECKING:
     )
     from agentkit.backend.code_backend.provider_port import CodeBackendPort
     from agentkit.backend.config.models import ConformanceConfig
-    from agentkit.backend.execution_planning.persistence.accessor import (
-        PlanningProjectionAccessor,
-    )
+    from agentkit.backend.execution_planning.persistence.accessor import PlanningProjectionAccessor
     from agentkit.backend.exploration.change_frame import ChangeFrame
     from agentkit.backend.exploration.drafting import ExplorationDrafting
     from agentkit.backend.exploration.mandate.fine_design import FineDesignEvaluator, FineDesignRoundOutcome
@@ -50,9 +48,7 @@ if TYPE_CHECKING:
     from agentkit.backend.governance.integrity_gate import IntegrityGate
     from agentkit.backend.governance.integrity_gate.dim9_sonar import SonarDimensionPort
     from agentkit.backend.governance.repository import SetupContextRepository
-    from agentkit.backend.governance.setup_preflight_gate.edge_provisioning import (
-        EdgeProvisioningCoordinator,
-    )
+    from agentkit.backend.governance.setup_preflight_gate.edge_provisioning import EdgeProvisioningCoordinator
     from agentkit.backend.governance.setup_preflight_gate.phase import SetupPhaseHandler
     from agentkit.backend.kpi_analytics import KpiAnalytics
     from agentkit.backend.kpi_analytics.dashboard import DashboardService

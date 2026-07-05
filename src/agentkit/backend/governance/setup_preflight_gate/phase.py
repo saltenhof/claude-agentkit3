@@ -335,14 +335,48 @@ class SetupPhaseHandler:
             return worktree_outcome
         enriched = worktree_outcome
 
-        # FK-24 §24.3.3 (AG3-018, FIX-3): atomically ACQUIRE the project mode-lock
-        # BEFORE the status transition — the enforcement half of the Fast/Standard
-        # between-modes mutex (Preflight Check 10 was the early read; this is the
-        # last-writer CAS). Acquiring FIRST is required so that on a mode conflict
-        # the story stays in Approved (FK-24 §24.3.3 "Story bleibt in Approved"):
-        # if it had transitioned first, an acquire-fail would leave it In Progress.
-        # Runs for ALL modes (standard + fast); idempotent per story via a durable
-        # marker so a re-run does not double-increment the holder count.
+        # FK-24 §24.3.3 (AG3-018, FIX-3): acquire the project mode-lock BEFORE the
+        # status transition, then transition to In Progress. Extracted into
+        # _acquire_lock_and_begin_progress to keep on_enter's cognitive complexity
+        # within bounds; the acquire-first ordering and fresh-acquire compensation
+        # semantics are documented on that helper.
+        lock_error = self._acquire_lock_and_begin_progress(
+            enriched, s_dir, story_service
+        )
+        if lock_error is not None:
+            return lock_error
+
+        return HandlerResult(
+            status=PhaseStatus.COMPLETED,
+            artifacts_produced=tuple(artifacts),
+            updated_context=enriched,
+            updated_state=updated_state,
+        )
+
+    def _acquire_lock_and_begin_progress(
+        self,
+        enriched: StoryContext,
+        s_dir: Path,
+        story_service: StoryService,
+    ) -> HandlerResult | None:
+        """Acquire the project mode-lock, then transition the story to In Progress.
+
+        FK-24 §24.3.3 (AG3-018, FIX-3): atomically ACQUIRE the Fast/Standard
+        between-modes mutex BEFORE the status transition (the enforcement half;
+        Preflight Check 10 was the early read, this is the last-writer CAS).
+        Acquiring FIRST keeps the story in Approved on a mode conflict ("Story
+        bleibt in Approved") -- a transition-first order would leave a rejected
+        story In Progress. Runs for ALL modes; idempotent per story via a durable
+        marker (a re-run does not double-increment the holder count). If
+        ``_begin_progress`` fails AND this run FRESHLY acquired the holder,
+        compensate (release + clear the marker) so the mutex does not leak a
+        holder for a story that never went In Progress; a re-run that did not
+        freshly acquire leaves the prior holder intact (no double-release).
+
+        Returns:
+            A terminal :class:`HandlerResult` on acquire/begin failure, or
+            ``None`` on success (the caller proceeds to COMPLETED).
+        """
         from agentkit.backend.governance.setup_preflight_gate.mode_lock_marker import (
             mode_lock_acquired,
         )
@@ -353,24 +387,12 @@ class SetupPhaseHandler:
         acquire_error = self._acquire_mode_lock(enriched, s_dir)
         if acquire_error is not None:
             return acquire_error
-
-        # Status transition AFTER a successful acquire. If begin_progress fails AND
-        # this run freshly acquired the holder, COMPENSATE (release the holder we
-        # just took + clear the marker) so the mutex does not leak a holder for a
-        # story that never went In Progress. A re-run that did NOT freshly acquire
-        # leaves the prior holder intact (no double-release).
         begin_error = _begin_progress(story_service, enriched.story_id)
         if begin_error is not None:
             if freshly_acquired:
                 self._compensate_mode_lock(enriched, s_dir)
             return begin_error
-
-        return HandlerResult(
-            status=PhaseStatus.COMPLETED,
-            artifacts_produced=tuple(artifacts),
-            updated_context=enriched,
-            updated_state=updated_state,
-        )
+        return None
 
     def _build_enriched_context(
         self,
