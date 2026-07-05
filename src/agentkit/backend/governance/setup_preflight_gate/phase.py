@@ -46,6 +46,10 @@ from agentkit.backend.pipeline_engine.phase_executor import (
     evolve_phase_state,
 )
 from agentkit.backend.state_backend.paths import CONTEXT_EXPORT_FILE
+from agentkit.backend.state_backend.store import (
+    bind_ownership_fence_scope,
+    resolve_ownership_fence_snapshot,
+)
 from agentkit.backend.story_context_manager.types import get_profile
 from agentkit.backend.utils.git import remove_worktree
 
@@ -195,7 +199,27 @@ class SetupPhaseHandler:
         artifacts: list[str] = [str(s_dir / CONTEXT_EXPORT_FILE)]
 
         updated_state: PhaseState | None = None
-        bundle_step = self._load_are_bundle(enriched, envelope.state)
+        # AG3-144 (Codex round-2, FK-91 §91.1a Rule 15): the ARE dock-point-2
+        # ``load_context`` call below writes an ``are_bundle.json``
+        # ArtifactEnvelope (FK-40) through the SAME ``ArtifactManager`` write
+        # boundary the QA-subflow uses; bind this run's early-captured lease
+        # snapshot for its duration (the control-plane's setup-start commit has
+        # already materialized the active ``run_ownership_records`` row by the
+        # time this phase handler runs, AG3-142 SOLL-015).
+        ownership_fence = resolve_ownership_fence_snapshot(
+            enriched.project_key, enriched.story_id
+        )
+        owner_session_id, expected_ownership_epoch = (
+            ownership_fence if ownership_fence is not None else ("sqlite-unfenced", 0)
+        )
+        with bind_ownership_fence_scope(
+            project_key=enriched.project_key,
+            story_id=enriched.story_id,
+            run_id=envelope.state.run_id,
+            owner_session_id=owner_session_id,
+            expected_ownership_epoch=expected_ownership_epoch,
+        ):
+            bundle_step = self._load_are_bundle(enriched, envelope.state)
         if bundle_step is not None:
             bundle_result, updated_state = bundle_step
             if bundle_result.are_bundle_ref is not None:

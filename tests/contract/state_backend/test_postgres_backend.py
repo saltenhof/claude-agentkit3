@@ -17,6 +17,7 @@ from agentkit.backend.pipeline_engine.phase_executor import (
 from agentkit.backend.state_backend.store import (
     append_execution_event,
     append_execution_event_global,
+    bind_ownership_fence_scope,
     load_artifact_record,
     load_artifact_record_for_scope,
     load_execution_events,
@@ -210,16 +211,23 @@ def test_public_state_backend_contract_works_on_postgres(
             metadata={"source": "contract", "total_checks": 7},
         ),
     )
-    produced = write_layer_artifacts(
-        manager=manager,
-        story_id="AG3-901",
-        run_id="run-contract-001",
-        layer_results=run1_layers,
-        attempt_nr=1,
-    )
     _seed_active_ownership(
         project_key="demo-project", story_id="AG3-901", run_id="run-contract-001"
     )
+    with bind_ownership_fence_scope(
+        project_key="demo-project",
+        story_id="AG3-901",
+        run_id="run-contract-001",
+        owner_session_id=_TEST_OWNER_SESSION_ID,
+        expected_ownership_epoch=_TEST_OWNERSHIP_EPOCH,
+    ):
+        produced = write_layer_artifacts(
+            manager=manager,
+            story_id="AG3-901",
+            run_id="run-contract-001",
+            layer_results=run1_layers,
+            attempt_nr=1,
+        )
     record_layer_artifacts(
         story_dir,
         layer_results=run1_layers,
@@ -275,16 +283,23 @@ def test_public_state_backend_contract_works_on_postgres(
     run2_layers = (
         LayerResult(layer="structural", passed=True, findings=()),
     )
-    write_layer_artifacts(
-        manager=manager,
-        story_id="AG3-901",
-        run_id="run-contract-002",
-        layer_results=run2_layers,
-        attempt_nr=1,
-    )
     _seed_active_ownership(
         project_key="demo-project", story_id="AG3-901", run_id="run-contract-002"
     )
+    with bind_ownership_fence_scope(
+        project_key="demo-project",
+        story_id="AG3-901",
+        run_id="run-contract-002",
+        owner_session_id=_TEST_OWNER_SESSION_ID,
+        expected_ownership_epoch=_TEST_OWNERSHIP_EPOCH,
+    ):
+        write_layer_artifacts(
+            manager=manager,
+            story_id="AG3-901",
+            run_id="run-contract-002",
+            layer_results=run2_layers,
+            attempt_nr=1,
+        )
     record_layer_artifacts(
         story_dir,
         layer_results=run2_layers,
@@ -306,16 +321,23 @@ def test_public_state_backend_contract_works_on_postgres(
         blocking_findings=(),
         summary="run2 failed",
     )
-    write_verify_decision_artifacts(
-        manager=manager,
-        story_id="AG3-901",
-        run_id="run-contract-002",
-        decision=run2_decision_obj,
-        attempt_nr=1,
-    )
     _seed_active_ownership(
         project_key="demo-project", story_id="AG3-901", run_id="run-contract-002"
     )
+    with bind_ownership_fence_scope(
+        project_key="demo-project",
+        story_id="AG3-901",
+        run_id="run-contract-002",
+        owner_session_id=_TEST_OWNER_SESSION_ID,
+        expected_ownership_epoch=_TEST_OWNERSHIP_EPOCH,
+    ):
+        write_verify_decision_artifacts(
+            manager=manager,
+            story_id="AG3-901",
+            run_id="run-contract-002",
+            decision=run2_decision_obj,
+            attempt_nr=1,
+        )
     record_verify_decision(
         story_dir,
         decision=run2_decision_obj,
@@ -366,16 +388,23 @@ def test_public_state_backend_contract_works_on_postgres(
             ),
         ),
     )
-    write_layer_artifacts(
-        manager=manager,
-        story_id="AG3-901",
-        run_id="run-contract-001",
-        layer_results=rerun_layers,
-        attempt_nr=1,
-    )
     _seed_active_ownership(
         project_key="demo-project", story_id="AG3-901", run_id="run-contract-001"
     )
+    with bind_ownership_fence_scope(
+        project_key="demo-project",
+        story_id="AG3-901",
+        run_id="run-contract-001",
+        owner_session_id=_TEST_OWNER_SESSION_ID,
+        expected_ownership_epoch=_TEST_OWNERSHIP_EPOCH,
+    ):
+        write_layer_artifacts(
+            manager=manager,
+            story_id="AG3-901",
+            run_id="run-contract-001",
+            layer_results=rerun_layers,
+            attempt_nr=1,
+        )
     record_layer_artifacts(
         story_dir,
         layer_results=rerun_layers,
@@ -407,16 +436,23 @@ def test_public_state_backend_contract_works_on_postgres(
         blocking_findings=(),
         summary="postgres ok",
     )
-    written = write_verify_decision_artifacts(
-        manager=manager,
-        story_id="AG3-901",
-        run_id="run-contract-001",
-        decision=decision,
-        attempt_nr=1,
-    )
     _seed_active_ownership(
         project_key="demo-project", story_id="AG3-901", run_id="run-contract-001"
     )
+    with bind_ownership_fence_scope(
+        project_key="demo-project",
+        story_id="AG3-901",
+        run_id="run-contract-001",
+        owner_session_id=_TEST_OWNER_SESSION_ID,
+        expected_ownership_epoch=_TEST_OWNERSHIP_EPOCH,
+    ):
+        written = write_verify_decision_artifacts(
+            manager=manager,
+            story_id="AG3-901",
+            run_id="run-contract-001",
+            decision=decision,
+            attempt_nr=1,
+        )
     record_verify_decision(
         story_dir,
         decision=decision,

@@ -242,15 +242,21 @@ def _seed_phase_snapshot(story_dir: Path) -> None:
     )
 
 
-def _ownership_fence_for_test() -> tuple[str, int]:
-    """AG3-144: fence values for ``facade.record_verify_decision`` in this module.
+def _ownership_fence_for_test(run_id: str = _RUN) -> tuple[str, int]:
+    """AG3-144: fence values for the fenced facade/repository writes in this module.
 
-    On the ``postgres`` branch, seeds (or reuses) the active run-ownership
-    record for ``(_PROJECT, _STORY, _RUN)`` via the sanctioned AG3-137 write
-    surface -- this module does not test ownership semantics, it just needs
-    SOME matching active record so the AG3-142/144 lease fence admits the
-    write. On the ``sqlite`` branch (K5 Postgres-only; no fence mirroring
-    there) the values are accepted but ignored by the driver.
+    On the ``postgres`` branch, seeds (or reuses/repoints) the active
+    run-ownership record for ``(_PROJECT, _STORY, run_id)`` via the sanctioned
+    AG3-137 write surface -- this module does not test ownership semantics, it
+    just needs SOME matching active record so the AG3-142/144 lease fence
+    admits the write. When an active record already exists for a DIFFERENT
+    ``run_id`` (e.g. the AK6 "other-run artifact" seed, which legitimately
+    writes a historical/foreign run's row), it is repointed in place (same
+    sanctioned surface as ``test_ownership_fence_postgres.py``'s
+    ``_raw_update_ownership_row``) -- never a second physical ownership record
+    (the partial-unique index only ever admits ONE active row per story). On
+    the ``sqlite`` branch (K5 Postgres-only; no fence mirroring there) the
+    values are accepted but ignored by the driver.
     """
     from agentkit.backend.state_backend.config import (
         StateBackendKind,
@@ -264,6 +270,7 @@ def _ownership_fence_for_test() -> tuple[str, int]:
         OwnershipStatus,
     )
     from agentkit.backend.control_plane.records import RunOwnershipRecord
+    from agentkit.backend.state_backend import postgres_store
     from agentkit.backend.state_backend.store import (
         insert_run_ownership_record_global,
         load_active_run_ownership_record_global,
@@ -271,12 +278,27 @@ def _ownership_fence_for_test() -> tuple[str, int]:
 
     existing = load_active_run_ownership_record_global(_PROJECT, _STORY)
     if existing is not None:
+        if existing.run_id == run_id:
+            return (existing.owner_session_id, existing.ownership_epoch)
+        # Repoint the SAME active row to the requested run_id (sanctioned
+        # direct touch): this module seeds artifacts for more than one run_id
+        # under the SAME (project_key, story_id) scope, but only one row may
+        # ever be active.
+        with postgres_store._connect_global() as conn:  # noqa: SLF001 -- sanctioned test-only direct touch
+            conn.execute(
+                """
+                UPDATE run_ownership_records
+                SET run_id = ?
+                WHERE project_key = ? AND story_id = ? AND status = 'active'
+                """,
+                (run_id, _PROJECT, _STORY),
+            )
         return (existing.owner_session_id, existing.ownership_epoch)
     insert_run_ownership_record_global(
         RunOwnershipRecord(
             project_key=_PROJECT,
             story_id=_STORY,
-            run_id=_RUN,
+            run_id=run_id,
             owner_session_id="test-owner",
             ownership_epoch=1,
             status=OwnershipStatus.ACTIVE,
@@ -329,24 +351,32 @@ def _seed_execution_event(story_dir: Path, run_id: str = _RUN) -> None:
 
 
 def _seed_artifact_envelope(story_dir: Path, run_id: str = _RUN) -> None:
-    StateBackendArtifactRepository(story_dir).write_envelope(
-        ArtifactEnvelope(
-            schema_version="3.0",
-            story_id=_STORY,
-            run_id=run_id,
-            stage="implementation",
-            attempt=1,
-            producer=Producer(
-                type=ProducerType.WORKER,
-                name="worker-agent",
-                id=ProducerId("w-1"),
-            ),
-            started_at=_NOW,
-            finished_at=_NOW,
-            status=EnvelopeStatus.PASS,
-            artifact_class=ArtifactClass.HANDOVER,
+    owner_session_id, expected_ownership_epoch = _ownership_fence_for_test(run_id)
+    with facade.bind_ownership_fence_scope(
+        project_key=_PROJECT,
+        story_id=_STORY,
+        run_id=run_id,
+        owner_session_id=owner_session_id,
+        expected_ownership_epoch=expected_ownership_epoch,
+    ):
+        StateBackendArtifactRepository(story_dir).write_envelope(
+            ArtifactEnvelope(
+                schema_version="3.0",
+                story_id=_STORY,
+                run_id=run_id,
+                stage="implementation",
+                attempt=1,
+                producer=Producer(
+                    type=ProducerType.WORKER,
+                    name="worker-agent",
+                    id=ProducerId("w-1"),
+                ),
+                started_at=_NOW,
+                finished_at=_NOW,
+                status=EnvelopeStatus.PASS,
+                artifact_class=ArtifactClass.HANDOVER,
+            )
         )
-    )
 
 
 def _seed_all(story_dir: Path, run_id: str = _RUN) -> None:

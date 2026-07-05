@@ -61,6 +61,7 @@ from agentkit.backend.pipeline_engine.phase_executor import (
     evolve_phase_state,
 )
 from agentkit.backend.state_backend.store import (
+    bind_ownership_fence_scope,
     load_flow_execution,
     load_override_records,
     record_verify_decision,
@@ -267,87 +268,103 @@ class ImplementationPhaseHandler:
             run_id=flow.run_id,
             record_key=f"envelopes/worker/{ctx.story_id}/{attempt_nr}",
         )
-        outcome: _QaSubflowOutcome = verify_system.run_qa_subflow(
-            ctx_bundle,
-            ctx.story_id,
-            current_context,
-            target,
-            previous_findings=previous_findings,
-        )
-        # E1: Artifact names come from FK-27 §27.7 (deterministic).
-        artifacts = list(ALL_QA_ARTIFACT_FILES)
-
-        # E1: persist ALL FOUR QA-cycle identities resolved by the subflow into
-        # the PhaseState payload (FK-27 §27.2.1 "persisted in the story state").
-        awaiting_state = _state_with_payload(
-            state,
-            QaCycleStatus.AWAITING_QA,
-            current_context,
-            qa_feedback_rounds=qa_rounds,
-            qa_cycle_round=outcome.qa_cycle_round,
-            qa_cycle_id=outcome.qa_cycle_id,
-            evidence_epoch=outcome.evidence_epoch,
-            evidence_fingerprint=outcome.evidence_fingerprint,
-        )
-
-        # FK-69 path: feed decision from outcome (no second layer run).
-        decision = outcome.decision
-        projection_dir = resolve_qa_story_dir(
-            s_dir,
+        # AG3-144 (Codex round-2): bind the SAME early-captured lease snapshot
+        # for the ENTIRE mutating QA-subflow execution -- every artifact_envelopes
+        # write reachable from run_qa_subflow (verify_system's layer/policy
+        # envelopes, prompt-runtime materialization, the adversarial sandbox +
+        # adversarial.json, the ARE-gate audit) and the qa_check_outcomes writes
+        # below are fenced against THIS bound scope at their own Postgres commit,
+        # regardless of how many BC-internal layers separate them from this
+        # handler (no per-call parameter threading through those unrelated
+        # public contracts -- FIX THE MODEL, ONE fence mechanism).
+        with bind_ownership_fence_scope(
+            project_key=ctx.project_key,
             story_id=ctx.story_id,
-            project_root=ctx.project_root,
-        )
-        # FK-69 §69.4 / AG3-035 #5: QA-Read-Models are persisted via the
-        # ProjectionAccessor as the domain write boundary (not directly via the
-        # state_backend facade). The atomic driver transaction stays encapsulated
-        # in the injected batch port (finding D option i).
-        from agentkit.backend.bootstrap.composition_root import build_projection_accessor
-        from agentkit.backend.verify_system.check_outcome_emitter import CheckOutcomeEmitter
-
-        accessor = build_projection_accessor(s_dir)
-        accessor.record_qa_layer_artifacts(
-            s_dir,
-            layer_results=decision.layer_results,
-            attempt_nr=attempt_nr,
+            run_id=flow.run_id,
             owner_session_id=owner_session_id,
             expected_ownership_epoch=expected_ownership_epoch,
-            projection_dir=projection_dir,
-        )
-        # AG3-108 AC2/AC4: wire CheckOutcomeEmitter into the real QA persistence path.
-        # Emits one qa_check_outcomes row per executed check per layer (triggered /
-        # clean / overridden). The emitter is a verify-system BC producer; the
-        # accessor is the DB owner (FK-69 §69.15).
-        # AC4: load persisted OverrideRecords once (fail-closed: load_override_records
-        # raises on backend errors — no silent swallow) and pass them into every
-        # per-layer emit call so the emitter can mark `overridden` for any check_id
-        # that matches an active override (FK-69 §69.11 rule 3 / §69.15.6 rule 5).
-        # AG3-078 ERROR 1: build per-check check_id -> origin_check_ref mapping from
-        # the stage registry (FK-33 §33.2.1). FC-derived stages carry CHK-NNNN in
-        # StageDefinition.origin_check_ref; native stages carry None. A single layer
-        # may mix both, so the mapping must be per-check_id (not per-layer).
-        _stage_origin_map: dict[str, str | None] = {
-            stage.stage_id: stage.origin_check_ref
-            for stage in verify_system.stage_registry.stages
-        }
-        _override_records = load_override_records(s_dir)
-        _emitter = CheckOutcomeEmitter()
-        for layer_result in decision.layer_results:
-            _emitter.emit(
-                flow,
-                layer_result,
-                attempt_no=attempt_nr,
-                override_records=_override_records,
-                projection_accessor=accessor,
-                check_origin_refs=_stage_origin_map,
+        ):
+            outcome: _QaSubflowOutcome = verify_system.run_qa_subflow(
+                ctx_bundle,
+                ctx.story_id,
+                current_context,
+                target,
+                previous_findings=previous_findings,
             )
-        record_verify_decision(
-            s_dir,
-            decision=decision,
-            attempt_nr=attempt_nr,
-            owner_session_id=owner_session_id,
-            expected_ownership_epoch=expected_ownership_epoch,
-            projection_dir=projection_dir,
-        )
+            # E1: Artifact names come from FK-27 §27.7 (deterministic).
+            artifacts = list(ALL_QA_ARTIFACT_FILES)
+
+            # E1: persist ALL FOUR QA-cycle identities resolved by the subflow into
+            # the PhaseState payload (FK-27 §27.2.1 "persisted in the story state").
+            awaiting_state = _state_with_payload(
+                state,
+                QaCycleStatus.AWAITING_QA,
+                current_context,
+                qa_feedback_rounds=qa_rounds,
+                qa_cycle_round=outcome.qa_cycle_round,
+                qa_cycle_id=outcome.qa_cycle_id,
+                evidence_epoch=outcome.evidence_epoch,
+                evidence_fingerprint=outcome.evidence_fingerprint,
+            )
+
+            # FK-69 path: feed decision from outcome (no second layer run).
+            decision = outcome.decision
+            projection_dir = resolve_qa_story_dir(
+                s_dir,
+                story_id=ctx.story_id,
+                project_root=ctx.project_root,
+            )
+            # FK-69 §69.4 / AG3-035 #5: QA-Read-Models are persisted via the
+            # ProjectionAccessor as the domain write boundary (not directly via the
+            # state_backend facade). The atomic driver transaction stays encapsulated
+            # in the injected batch port (finding D option i).
+            from agentkit.backend.bootstrap.composition_root import build_projection_accessor
+            from agentkit.backend.verify_system.check_outcome_emitter import CheckOutcomeEmitter
+
+            accessor = build_projection_accessor(s_dir)
+            accessor.record_qa_layer_artifacts(
+                s_dir,
+                layer_results=decision.layer_results,
+                attempt_nr=attempt_nr,
+                owner_session_id=owner_session_id,
+                expected_ownership_epoch=expected_ownership_epoch,
+                projection_dir=projection_dir,
+            )
+            # AG3-108 AC2/AC4: wire CheckOutcomeEmitter into the real QA persistence path.
+            # Emits one qa_check_outcomes row per executed check per layer (triggered /
+            # clean / overridden). The emitter is a verify-system BC producer; the
+            # accessor is the DB owner (FK-69 §69.15).
+            # AC4: load persisted OverrideRecords once (fail-closed: load_override_records
+            # raises on backend errors — no silent swallow) and pass them into every
+            # per-layer emit call so the emitter can mark `overridden` for any check_id
+            # that matches an active override (FK-69 §69.11 rule 3 / §69.15.6 rule 5).
+            # AG3-078 ERROR 1: build per-check check_id -> origin_check_ref mapping from
+            # the stage registry (FK-33 §33.2.1). FC-derived stages carry CHK-NNNN in
+            # StageDefinition.origin_check_ref; native stages carry None. A single layer
+            # may mix both, so the mapping must be per-check_id (not per-layer).
+            _stage_origin_map: dict[str, str | None] = {
+                stage.stage_id: stage.origin_check_ref
+                for stage in verify_system.stage_registry.stages
+            }
+            _override_records = load_override_records(s_dir)
+            _emitter = CheckOutcomeEmitter()
+            for layer_result in decision.layer_results:
+                _emitter.emit(
+                    flow,
+                    layer_result,
+                    attempt_no=attempt_nr,
+                    override_records=_override_records,
+                    projection_accessor=accessor,
+                    check_origin_refs=_stage_origin_map,
+                )
+            record_verify_decision(
+                s_dir,
+                decision=decision,
+                attempt_nr=attempt_nr,
+                owner_session_id=owner_session_id,
+                expected_ownership_epoch=expected_ownership_epoch,
+                projection_dir=projection_dir,
+            )
 
         if decision.passed:
             logger.info("QA-subflow passed for %s", ctx.story_id)

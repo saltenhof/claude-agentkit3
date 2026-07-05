@@ -126,6 +126,10 @@ def _build_public_api_names() -> tuple[str, ...]:
         "record_verify_decision",
         "reset_backend_cache_for_tests",
         "resolve_ownership_fence_snapshot",
+        # AG3-144 (Codex round-2): ContextVar-scoped ownership-fence binding for
+        # the artifact_envelopes / qa_check_outcomes write boundary.
+        "bind_ownership_fence_scope",
+        "require_ownership_fence_scope",
         "resolve_runtime_scope",
         "save_attempt",
         "save_control_plane_operation_global",

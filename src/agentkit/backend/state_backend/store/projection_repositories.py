@@ -1317,7 +1317,38 @@ class FacadeQACheckOutcomesRepository:
             )
 
     def _pg_write(self, row: dict[str, object]) -> None:
+        """Fence-first (AG3-144 Codex round-2), then upsert in ONE transaction.
+
+        Mirrors ``StateBackendArtifactRepository._pg_write``: the caller's
+        ambient ``OwnershipFenceScope`` (bound by the owning phase handler,
+        FK-91 §91.1a Rule 15) is re-verified AT COMMIT TIME, in THIS SAME
+        transaction, under ``SELECT ... FOR UPDATE``, BEFORE the
+        ``qa_check_outcomes`` upsert. No scope bound at all is a hard,
+        fail-closed error -- never a silent unfenced write.
+
+        Raises:
+            CorruptStateError: When no ``OwnershipFenceScope`` is bound for
+                this call, or it belongs to a different story.
+            OwnershipFenceViolationError: When the story's active ownership
+                record no longer admits the bound scope's snapshot at commit
+                time -- nothing written.
+        """
+        from agentkit.backend.state_backend import postgres_store
+        from agentkit.backend.state_backend.store.facade import require_ownership_fence_scope
+
+        scope = require_ownership_fence_scope(story_id=str(row["story_id"]))
         with _postgres_connect() as conn:
+            # Sanctioned StateBackendRepository -> StateBackendDrivers edge
+            # (same BC): the AG3-142 fence predicate is re-localized in
+            # postgres_store.py and reused verbatim here.
+            postgres_store._enforce_ownership_fence_row(
+                postgres_store._CompatConnection(conn),
+                project_key=scope.project_key,
+                story_id=str(row["story_id"]),
+                run_id=scope.run_id,
+                session_id=scope.owner_session_id,
+                expected_ownership_epoch=scope.expected_ownership_epoch,
+            )
             conn.execute(
                 """
                 INSERT INTO qa_check_outcomes (

@@ -5378,9 +5378,21 @@ def persist_closure_report_row(
     AG3-144 (FK-91 §91.1a Rule 15, no-lease-no-write): the closure report has
     no dedicated DB row (the projection file IS the persisted artifact), so
     the AG3-142 fence (``_enforce_ownership_fence_row``) is re-verified AT
-    COMMIT TIME in a dedicated transaction, under ``SELECT ... FOR UPDATE``,
-    BEFORE the projection file is written -- a lost lease raises
-    :class:`OwnershipFenceViolationError` and writes NOTHING.
+    COMMIT TIME, under ``SELECT ... FOR UPDATE``, BEFORE the projection file
+    is written -- a lost lease raises :class:`OwnershipFenceViolationError`
+    and writes NOTHING.
+
+    Codex round-2 TOCTOU fix: the row lock MUST span the file write, not just
+    the fence check. The prior shape opened a SEPARATE ``with _connect(...)``
+    block for the fence, exited it (releasing the row lock and committing),
+    and only THEN wrote the projection file -- a takeover landing in the
+    window between the lock release and the file write let the ex-owner still
+    write the closure report. The file write now happens INSIDE the SAME
+    ``with _connect(...)`` block, after the fence call, so the
+    ``run_ownership_records`` row lock is held (via ``SELECT ... FOR UPDATE``)
+    for the file write's entire duration and is only released when this
+    function's transaction commits -- there is no window between "fence
+    passed" and "file written" for a takeover to land in.
 
     Raises:
         OwnershipFenceViolationError: When the story's active ownership record
@@ -5399,6 +5411,9 @@ def persist_closure_report_row(
             "Cannot persist closure artifact without story context "
             "in canonical backend",
         )
+    target_dir = projection_dir or story_dir
+    path = target_dir / CLOSURE_REPORT_FILE
+    payload = cast("_JsonRecord", report_row["payload"])
     with _connect(story_dir) as conn:
         # AG3-144: fence FIRST -- no DB row is written for the closure report
         # (the projection file IS the artifact), so the fence transaction's
@@ -5411,10 +5426,10 @@ def persist_closure_report_row(
             session_id=owner_session_id,
             expected_ownership_epoch=expected_ownership_epoch,
         )
-    target_dir = projection_dir or story_dir
-    path = target_dir / CLOSURE_REPORT_FILE
-    payload = cast("_JsonRecord", report_row["payload"])
-    _write_projection(path, payload)
+        # Codex round-2: the file write stays INSIDE the fenced transaction so
+        # the row lock spans it -- no TOCTOU window between the fence and the
+        # write (see the docstring above).
+        _write_projection(path, payload)
     return path
 
 

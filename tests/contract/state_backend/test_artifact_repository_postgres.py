@@ -12,15 +12,61 @@ from typing import TYPE_CHECKING
 import pytest
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
 from agentkit.backend.artifacts.envelope import ArtifactEnvelope
 from agentkit.backend.artifacts.producer import Producer, ProducerId, ProducerType
 from agentkit.backend.artifacts.reference import ArtifactReference
+from agentkit.backend.control_plane.ownership import OwnershipAcquisition, OwnershipStatus
+from agentkit.backend.control_plane.records import RunOwnershipRecord
 from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus
+from agentkit.backend.state_backend.store import (
+    bind_ownership_fence_scope,
+    insert_run_ownership_record_global,
+)
 from agentkit.backend.state_backend.store.artifact_repository import StateBackendArtifactRepository
 
 pytest_plugins = ("tests.fixtures.postgres_backend",)
+
+#: Fixed fence identity for this module (AG3-144 Codex round-2): these are
+#: pure write/read roundtrip contract tests, not lease-fence tests, so ONE
+#: matching active ``run_ownership_records`` row is seeded and its scope bound
+#: for every test -- the fence's ``run_id`` check is against this bound scope,
+#: independent of whatever ``run_id`` an individual envelope under test
+#: carries (mirrors the production ARE-gate audit's decoupled identity).
+_FENCE_PROJECT = "tenant-artifact-repo-pg"
+_FENCE_STORY_ID = "AG3-023"
+_FENCE_RUN_ID = "run-pg-fence"
+_FENCE_OWNER_SESSION_ID = "contract-test-owner"
+_FENCE_OWNERSHIP_EPOCH = 1
+
+
+@pytest.fixture(autouse=True)
+def _ownership_fence(postgres_backend_env: object) -> Iterator[None]:
+    """Seed the active ownership record and bind its scope for every test."""
+    del postgres_backend_env
+    insert_run_ownership_record_global(
+        RunOwnershipRecord(
+            project_key=_FENCE_PROJECT,
+            story_id=_FENCE_STORY_ID,
+            run_id=_FENCE_RUN_ID,
+            owner_session_id=_FENCE_OWNER_SESSION_ID,
+            ownership_epoch=_FENCE_OWNERSHIP_EPOCH,
+            status=OwnershipStatus.ACTIVE,
+            acquired_via=OwnershipAcquisition.SETUP,
+            acquired_at=datetime(2026, 7, 5, tzinfo=UTC),
+            audit_ref="audit:test-artifact-repository-postgres",
+        )
+    )
+    with bind_ownership_fence_scope(
+        project_key=_FENCE_PROJECT,
+        story_id=_FENCE_STORY_ID,
+        run_id=_FENCE_RUN_ID,
+        owner_session_id=_FENCE_OWNER_SESSION_ID,
+        expected_ownership_epoch=_FENCE_OWNERSHIP_EPOCH,
+    ):
+        yield
 
 
 # ---------------------------------------------------------------------------

@@ -20,7 +20,11 @@ from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseStatus,
     evolve_phase_state,
 )
-from agentkit.backend.state_backend.store import save_story_context
+from agentkit.backend.state_backend.store import (
+    bind_ownership_fence_scope,
+    resolve_ownership_fence_snapshot,
+    save_story_context,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -274,50 +278,69 @@ class ExplorationPhaseHandler:
             )
 
         run_id = self._run_scope.resolve_run_id(story_dir, story_id=ctx.story_id)
-        change_frame = self._reader.load_change_frame(
-            story_id=ctx.story_id, run_id=run_id
+        # AG3-144 (Codex round-2, FK-91 §91.1a Rule 15): bind the early-captured
+        # lease snapshot for the ENTIRE mutating exploration execution -- every
+        # artifact_envelopes write reachable from here (the AG3-055 ENTWURF
+        # envelope, the AG3-046 per-stage review-result envelopes) is fenced
+        # against THIS bound scope at its own Postgres commit. ``None`` on the
+        # narrow SQLite unit-test path (K5 Postgres-only) falls back to the
+        # inert placeholder the driver functions explicitly ignore -- mirrors
+        # ``ImplementationPhaseHandler.on_enter``.
+        ownership_fence = resolve_ownership_fence_snapshot(ctx.project_key, ctx.story_id)
+        owner_session_id, expected_ownership_epoch = (
+            ownership_fence if ownership_fence is not None else ("sqlite-unfenced", 0)
         )
-        if change_frame is None:
-            # AG3-055 produce->consume loop: no validated change-frame yet ->
-            # CONSUME a present worker draft, else EMIT a typed spawn order and
-            # await (NOT a dead-end escalation). Closes AG3-045's "requires
-            # AG3-055" gap. Returns a HandlerResult to await / a re-read frame.
-            loop = self._drive_drafting_loop(
-                ctx, state, story_dir=story_dir, run_id=run_id
+        with bind_ownership_fence_scope(
+            project_key=ctx.project_key,
+            story_id=ctx.story_id,
+            run_id=run_id,
+            owner_session_id=owner_session_id,
+            expected_ownership_epoch=expected_ownership_epoch,
+        ):
+            change_frame = self._reader.load_change_frame(
+                story_id=ctx.story_id, run_id=run_id
             )
-            if loop.terminal is not None:
-                return loop.terminal
-            change_frame = loop.change_frame
             if change_frame is None:
-                # Defensive: a consumed draft must yield a re-readable frame; if
-                # not, fail closed rather than proceed without an artifact.
+                # AG3-055 produce->consume loop: no validated change-frame yet ->
+                # CONSUME a present worker draft, else EMIT a typed spawn order and
+                # await (NOT a dead-end escalation). Closes AG3-045's "requires
+                # AG3-055" gap. Returns a HandlerResult to await / a re-read frame.
+                loop = self._drive_drafting_loop(
+                    ctx, state, story_dir=story_dir, run_id=run_id
+                )
+                if loop.terminal is not None:
+                    return loop.terminal
+                change_frame = loop.change_frame
+                if change_frame is None:
+                    # Defensive: a consumed draft must yield a re-readable frame; if
+                    # not, fail closed rather than proceed without an artifact.
+                    return HandlerResult(
+                        status=PhaseStatus.ESCALATED,
+                        errors=(_NO_CHANGE_FRAME_MESSAGE,),
+                        updated_state=self._exploration_state(
+                            state, PhaseStatus.ESCALATED, ExplorationGateStatus.PENDING
+                        ),
+                    )
+
+            if self._review is None:
+                # Fail-closed: a valid frame but no gate wired -> never auto-APPROVE.
                 return HandlerResult(
-                    status=PhaseStatus.ESCALATED,
-                    errors=(_NO_CHANGE_FRAME_MESSAGE,),
+                    status=PhaseStatus.FAILED,
+                    errors=(_NO_REVIEW_MESSAGE,),
                     updated_state=self._exploration_state(
-                        state, PhaseStatus.ESCALATED, ExplorationGateStatus.PENDING
+                        state, PhaseStatus.FAILED, ExplorationGateStatus.PENDING
                     ),
                 )
 
-        if self._review is None:
-            # Fail-closed: a valid frame but no gate wired -> never auto-APPROVE.
-            return HandlerResult(
-                status=PhaseStatus.FAILED,
-                errors=(_NO_REVIEW_MESSAGE,),
-                updated_state=self._exploration_state(
-                    state, PhaseStatus.FAILED, ExplorationGateStatus.PENDING
-                ),
+            # A valid change-frame is present (the reader validated it fail-closed).
+            # AG3-047: classify the mandate BEFORE the review (FK-25 §25.4.1) and
+            # route the escalating classes fail-closed; the surviving classes
+            # (trivial / converged fine-design) flow into the three-stage exit-gate
+            # with the mandate-gated Stage-2b decision; an APPROVED gate freezes the
+            # change-frame (FK-23 §23.4.3) before COMPLETED.
+            return self._run_mandate_flow(
+                ctx, state, change_frame, story_dir=story_dir, run_id=run_id
             )
-
-        # A valid change-frame is present (the reader validated it fail-closed).
-        # AG3-047: classify the mandate BEFORE the review (FK-25 §25.4.1) and
-        # route the escalating classes fail-closed; the surviving classes
-        # (trivial / converged fine-design) flow into the three-stage exit-gate
-        # with the mandate-gated Stage-2b decision; an APPROVED gate freezes the
-        # change-frame (FK-23 §23.4.3) before COMPLETED.
-        return self._run_mandate_flow(
-            ctx, state, change_frame, story_dir=story_dir, run_id=run_id
-        )
 
     def _run_mandate_flow(
         self,

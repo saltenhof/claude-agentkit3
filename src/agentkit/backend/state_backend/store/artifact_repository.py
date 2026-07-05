@@ -467,9 +467,44 @@ class StateBackendArtifactRepository:
             )
 
     def _pg_write(self, envelope: ArtifactEnvelope) -> None:
+        """Fence-first (AG3-144 Codex round-2), then upsert in ONE transaction.
+
+        The caller's ambient :class:`~agentkit.backend.state_backend.store.facade.OwnershipFenceScope`
+        (bound by the owning phase handler via ``bind_ownership_fence_scope``,
+        FK-91 §91.1a Rule 15) is re-verified AT COMMIT TIME, in THIS SAME
+        Postgres transaction, under ``SELECT ... FOR UPDATE`` -- a lost lease
+        raises :class:`OwnershipFenceViolationError` and rolls back BEFORE the
+        ``artifact_envelopes`` row is touched (no partial write). No scope
+        bound at all is a hard, fail-closed error (``CorruptStateError``) --
+        never a silent unfenced write.
+
+        Raises:
+            CorruptStateError: When no ``OwnershipFenceScope`` is bound for
+                this call, or it belongs to a different story.
+            OwnershipFenceViolationError: When the story's active ownership
+                record no longer admits the bound scope's
+                ``(run_id, owner_session_id, expected_ownership_epoch)``
+                snapshot at commit time -- nothing written.
+        """
+        from agentkit.backend.state_backend import postgres_store
+        from agentkit.backend.state_backend.store.facade import require_ownership_fence_scope
+
+        scope = require_ownership_fence_scope(story_id=envelope.story_id)
         row = _envelope_to_pg_row(envelope)
         with _postgres_connect() as conn:
             _ensure_artifact_table_postgres(conn)
+            # Sanctioned StateBackendRepository -> StateBackendDrivers edge (same
+            # BC, mirrors borrow_repository_connection's own docstring): the
+            # AG3-142 fence predicate is re-localized in postgres_store.py and
+            # reused verbatim here (never a second fence mechanism).
+            postgres_store._enforce_ownership_fence_row(
+                postgres_store._CompatConnection(conn),
+                project_key=scope.project_key,
+                story_id=envelope.story_id,
+                run_id=scope.run_id,
+                session_id=scope.owner_session_id,
+                expected_ownership_epoch=scope.expected_ownership_epoch,
+            )
             conn.execute(
                 """
                 INSERT INTO artifact_envelopes (

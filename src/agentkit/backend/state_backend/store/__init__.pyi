@@ -32,6 +32,9 @@ from agentkit.backend.state_backend.store.facade import (
     backend_verify_decision_passed_for_scope as backend_verify_decision_passed_for_scope,
 )
 from agentkit.backend.state_backend.store.facade import (
+    bind_ownership_fence_scope as bind_ownership_fence_scope,
+)
+from agentkit.backend.state_backend.store.facade import (
     boot_backend_instance_identity_global as boot_backend_instance_identity_global,
 )
 from agentkit.backend.state_backend.store.facade import (
@@ -297,6 +300,9 @@ from agentkit.backend.state_backend.store.facade import (
 )
 from agentkit.backend.state_backend.store.facade import (
     release_control_plane_operation_global as release_control_plane_operation_global,
+)
+from agentkit.backend.state_backend.store.facade import (
+    require_ownership_fence_scope as require_ownership_fence_scope,
 )
 from agentkit.backend.state_backend.store.facade import (
     reset_backend_cache_for_tests as reset_backend_cache_for_tests,
