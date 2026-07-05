@@ -332,6 +332,11 @@ class SetupPhaseHandler:
             enriched, plan, s_dir, run_id=run_id
         )
         if isinstance(worktree_outcome, HandlerResult):
+            # A FAILED provisioning (e.g. partial edge failure) must not leak a
+            # worktree the edge already created for another repo (AG3-145 D,
+            # C->D teardown gap); a PAUSE keeps waiting and commissions nothing.
+            if worktree_outcome.status is PhaseStatus.FAILED:
+                self._commission_failure_teardown(enriched, plan, run_id=run_id)
             return worktree_outcome
         enriched = worktree_outcome
 
@@ -344,6 +349,9 @@ class SetupPhaseHandler:
             enriched, s_dir, story_service
         )
         if lock_error is not None:
+            # The worktree was already provisioned by the edge above; a lock /
+            # begin-progress failure here must not leak it (AG3-145 D).
+            self._commission_failure_teardown(enriched, plan, run_id=run_id)
             return lock_error
 
         return HandlerResult(
@@ -735,6 +743,36 @@ class SetupPhaseHandler:
             ", ".join(f"{repo}={path}" for repo, path in worktree_map.items()),
         )
         return enriched
+
+    def _commission_failure_teardown(
+        self, enriched: StoryContext, plan: _WorktreePlan, *, run_id: str
+    ) -> None:
+        """Commission ``teardown_worktree`` cleanup after a post-provisioning failure.
+
+        AG3-145 Teilschritt D (FK-10 §10.4.2): a setup that provisioned a
+        worktree but then FAILED must not leak it (the C->D teardown gap). This
+        commissions one idempotent ``teardown_worktree`` per participating repo
+        (fire-and-forget; the open command stays auditably visible). Best-effort:
+        a cleanup issue is logged, never re-raised over the original setup
+        failure (mirrors :meth:`_compensate_mode_lock`).
+        """
+        uses_worktree, repos, branch = plan
+        if not uses_worktree or not repos or self._edge_provisioning is None:
+            return
+        try:
+            self._edge_provisioning.ensure_teardown(
+                project_key=enriched.project_key,
+                story_id=enriched.story_id,
+                run_id=run_id,
+                repos=repos,
+                branch=branch,
+            )
+        except Exception as exc:  # noqa: BLE001 -- best-effort cleanup
+            logger.warning(
+                "setup-failure teardown commission failed for story=%s: %s",
+                enriched.story_id,
+                exc,
+            )
 
     @staticmethod
     def _edge_pause(

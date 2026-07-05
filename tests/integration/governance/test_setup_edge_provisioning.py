@@ -132,10 +132,14 @@ class _StubService:
     """
 
     def __init__(
-        self, story_type: WireStoryType = WireStoryType.IMPLEMENTATION
+        self,
+        story_type: WireStoryType = WireStoryType.IMPLEMENTATION,
+        *,
+        begin_should_fail: bool = False,
     ) -> None:
         self.begin_calls: list[str] = []
         self._story_type = story_type
+        self._begin_should_fail = begin_should_fail
 
     def get_story(self, story_display_id: str) -> object:
         del story_display_id
@@ -150,6 +154,8 @@ class _StubService:
     def begin_progress(self, story_id: str, *, correlation_id: str = "") -> object:
         del correlation_id
         self.begin_calls.append(story_id)
+        if self._begin_should_fail:
+            raise RuntimeError("injected begin_progress failure")
         return object()
 
 
@@ -427,6 +433,92 @@ def test_sparse_concept_ctx_does_not_bypass_edge_for_authoritative_worktree_stor
     assert r3.updated_context is not None
     assert r3.updated_context.worktree_map == {_REPO: repo / "worktrees" / _STORY}
     assert service.begin_calls == [_STORY]
+
+
+def test_setup_failure_after_provision_commissions_teardown(
+    tmp_path: Path,
+    postgres_isolated_schema: str,
+) -> None:
+    """AG3-145 D (AC7): a setup failure AFTER provisioning commissions teardown.
+
+    Drives the REAL setup dispatch to a post-provisioning failure
+    (``begin_progress`` raises) and asserts a ``teardown_worktree`` edge command
+    was commissioned in the REAL Postgres queue -- the worktree the edge already
+    created is NOT silently leaked (the C->D teardown gap). No hand-assembled
+    state: the command is produced through the real phase dispatch + real edge.
+    """
+    del postgres_isolated_schema
+    repo = _init_repo(tmp_path)
+    project_config = _project_config(tmp_path)
+    _seed_active_ownership()
+    service = _StubService(begin_should_fail=True)
+    handler = _handler(tmp_path, service)
+    ctx = _ctx(tmp_path)
+    enriched = _ctx(tmp_path)
+
+    from tests.phase_state_factory import make_phase_state
+
+    state = make_phase_state(story_id=_STORY, run_id=_RUN, status="pending")
+    envelope = PhaseEnvelopeStore.make_fresh_envelope(state)
+    teardown_id = edge_command_id(_RUN, "teardown_worktree", _REPO)
+
+    with (
+        patch(
+            "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
+            return_value=_pass(),
+        ),
+        patch(
+            "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
+            return_value=enriched,
+        ),
+        patch(
+            "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
+            return_value=project_config,
+        ),
+    ):
+        handler.on_enter(ctx, envelope)  # probe pause
+        assert _play_edge(project_config, tmp_path) == 1
+        handler.on_resume(ctx, envelope, "edge_report_received")  # provision pause
+        assert _play_edge(project_config, tmp_path) == 1  # edge provisions worktree
+        # No teardown yet -- only the failing resume commissions it.
+        assert load_edge_command_record_global(teardown_id) is None
+        r3 = handler.on_resume(ctx, envelope, "edge_report_received")
+
+    # The provisioned worktree exists; the failed setup commissioned its teardown.
+    assert r3.status is PhaseStatus.FAILED, r3
+    assert "begin_progress failed" in r3.errors[0]
+    assert (repo / "worktrees" / _STORY / ".agentkit-story.json").is_file()
+    teardown = load_edge_command_record_global(teardown_id)
+    assert teardown is not None
+    assert teardown.command_kind == "teardown_worktree"
+    assert teardown.status == "created"
+    assert teardown.payload["repo_id"] == _REPO
+    assert teardown.payload["branch"] == f"story/{_STORY}"
+
+    # Idempotent: a re-entered failing resume does not duplicate the command.
+    with (
+        patch(
+            "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
+            return_value=_pass(),
+        ),
+        patch(
+            "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
+            return_value=enriched,
+        ),
+        patch(
+            "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
+            return_value=project_config,
+        ),
+    ):
+        handler.on_resume(ctx, envelope, "edge_report_received")
+    assert load_edge_command_record_global(teardown_id) is not None
+    # The edge executes the teardown idempotently (worktree removed => torn_down).
+    assert _play_edge(project_config, tmp_path) == 1
+    done = load_edge_command_record_global(teardown_id)
+    assert done is not None
+    assert done.result_type == "worktree_report"
+    assert done.result_payload is not None
+    assert done.result_payload["outcome"] == "torn_down"
 
 
 def test_authoritative_concept_story_skips_edge_stages(

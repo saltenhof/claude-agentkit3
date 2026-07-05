@@ -8,7 +8,6 @@ Protocols defined here:
 - ``HookRegistrationRepository``: hook-definition registration (pre-existing).
 - ``IntegrityGateStatePort``: read-only state access for IntegrityGate (Fix E9).
 - ``SetupContextRepository``: story-context write access for SetupPhaseHandler (Fix E9).
-- ``WorktreeRepository``: worktree path resolution for Governance.deactivate_locks (Fix E4).
 
 Concrete implementations live in ``state_backend.store.*_repository``.
 """
@@ -363,40 +362,8 @@ class SetupContextRepository(Protocol):
         ...
 
 
-@runtime_checkable
-class WorktreeRepository(Protocol):
-    """Worktree-path resolution protocol for ``Governance.deactivate_locks`` (Fix E4).
-
-    ``Governance._restore_ai_augmented_mode`` must iterate over all
-    worktree paths associated with a story so it can clear
-    ``.agent-guard/lock.json`` and write the ``ai_augmented`` mode marker
-    in each worktree (FK-30 §30.6.0 + FK-22 §22.7).
-
-    Implementations may source worktree paths from the ``StoryContext``
-    stored in the state backend (``worktree_map`` field), the
-    ``story_execution_locks`` table (``worktree_roots_json``), or any
-    equivalent authoritative source.
-    """
-
-    def list_worktree_paths(
-        self,
-        story_id: str,
-    ) -> list[Path]:
-        """Return all filesystem paths of active worktrees for ``story_id``.
-
-        Args:
-            story_id: Canonical story identifier.
-
-        Returns:
-            List of ``Path`` objects pointing to worktree root directories.
-            Empty list when the story has no worktrees (e.g. CONCEPT type).
-        """
-        ...
-
-
 __all__ = [
     "HookRegistrationRepository",
     "IntegrityGateStatePort",
     "SetupContextRepository",
-    "WorktreeRepository",
 ]

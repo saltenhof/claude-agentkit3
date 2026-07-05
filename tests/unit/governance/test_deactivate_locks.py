@@ -7,10 +7,11 @@ AG3-031 Pass-3 FK-30-Korrektur 2026-05-24 (Fix E6):
   surfaces it as errors[0] rather than silently returning empty result.
   Story AK5 corrected to fail-closed semantics.
 
-AG3-031 Pass-4 (Fix E4):
-  WorktreeRepository injected into Governance; _restore_ai_augmented_mode
-  iterates over all worktree paths, removing .agent-guard/lock.json and
-  writing .agent-guard/mode.json in each.
+AG3-145 Teilschritt D (FK-10 §10.2.4a):
+  The WorktreeRepository dependency was removed. deactivate_locks no longer
+  writes physically into worktrees; the dev-local .agent-guard projection runs
+  over the edge bundle-publication + tombstone_worktree_roots mechanism. The
+  former Fix-E4 worktree-loop tests were deleted with the removed behavior.
 """
 
 from __future__ import annotations
@@ -81,35 +82,6 @@ class _RecordingHookRepo:
         pass
 
 
-class _RecordingWorktreeRepo:
-    """Recording test-double for WorktreeRepository (Fix E4).
-
-    Returns a configurable list of worktree paths.  Records calls.
-    """
-
-    def __init__(self, worktree_paths: list[Path] | None = None) -> None:
-        self._paths: list[Path] = list(worktree_paths or [])
-        self.calls: list[str] = []
-
-    def list_worktree_paths(self, story_id: str) -> list[Path]:
-        self.calls.append(story_id)
-        return self._paths
-
-
-class _FailingWorktreeRepo:
-    """Test-double that raises on list_worktree_paths (Fix E4 fail-closed).
-
-    AG3-031 Pass-5: WorktreeRepository exceptions must be surfaced in errors[],
-    not silently swallowed.
-    """
-
-    def __init__(self, exc: Exception) -> None:
-        self._exc = exc
-
-    def list_worktree_paths(self, story_id: str) -> list[Path]:
-        raise self._exc
-
-
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
@@ -118,7 +90,6 @@ class _FailingWorktreeRepo:
 def _make_governance(
     lock_repo: _RecordingLockRepo | None = None,
     project_key: str = "test-project",
-    worktree_repo: _RecordingWorktreeRepo | None = None,
 ) -> object:
     from agentkit.backend.governance.runner import Governance
 
@@ -126,7 +97,6 @@ def _make_governance(
         hook_repo=_RecordingHookRepo(),  # type: ignore[arg-type]
         lock_repo=lock_repo or _RecordingLockRepo(),  # type: ignore[arg-type]
         project_key=project_key,
-        worktree_repo=worktree_repo or _RecordingWorktreeRepo(),  # type: ignore[arg-type]
     )
 
 
@@ -315,210 +285,45 @@ class TestDeactivationResultModel:
 
 
 # ---------------------------------------------------------------------------
-# Tests: Worktree loop (Fix E4 — FK-30 §30.6.0 + FK-22 §22.7)
+# Tests: AC8 — governance deactivation no longer writes into worktrees (AG3-145 D)
 # ---------------------------------------------------------------------------
 
 
-class TestDeactivateLocksWorktreeLoop:
-    """_restore_ai_augmented_mode iterates over all worktree paths.
+class TestDeactivateLocksDoesNotTouchWorktrees:
+    """AG3-145 D (AC8, FK-10 §10.2.4a): deactivate_locks never writes worktrees.
 
-    Each worktree's .agent-guard/lock.json is deleted and
-    .agent-guard/mode.json receives the ai_augmented marker.
+    The physical ``.agent-guard`` projection (lock-export removal + mode marker)
+    moved off the backend entirely onto the edge bundle-publication + tombstone
+    mechanism (proven edge-side in
+    ``tests/unit/projectedge/test_client.py::test_local_edge_publisher_removes_tombstoned_lock_export``).
+    Governance therefore must leave a worktree's ``.agent-guard`` files untouched.
     """
 
-    def _setup_worktree(self, base: Path, name: str) -> Path:
-        """Create a worktree dir with .agent-guard/lock.json present."""
-        wt = base / name
-        guard = wt / ".agent-guard"
-        guard.mkdir(parents=True, exist_ok=True)
-        (guard / "lock.json").write_text('{"status": "active"}', encoding="utf-8")
-        return wt
+    def test_worktree_agent_guard_files_are_untouched(self, tmp_path: Path) -> None:
+        import os
 
-    def test_lock_json_removed_in_each_worktree(self, tmp_path: Path) -> None:
-        """After deactivate_locks, all .agent-guard/lock.json files are gone."""
-        wt1 = self._setup_worktree(tmp_path, "wt-alpha")
-        wt2 = self._setup_worktree(tmp_path, "wt-beta")
-
-        wt_repo = _RecordingWorktreeRepo(worktree_paths=[wt1, wt2])
-        lock_repo = _RecordingLockRepo()
-        lock_repo.mark_known("story-wt-001")
-        gov = _make_governance(lock_repo, worktree_repo=wt_repo)
-
-        gov.deactivate_locks("story-wt-001")  # type: ignore[union-attr]
-
-        assert not (wt1 / ".agent-guard" / "lock.json").exists(), (
-            "lock.json must be deleted from wt-alpha"
-        )
-        assert not (wt2 / ".agent-guard" / "lock.json").exists(), (
-            "lock.json must be deleted from wt-beta"
-        )
-
-    def test_mode_json_written_in_each_worktree(self, tmp_path: Path) -> None:
-        """After deactivate_locks, .agent-guard/mode.json has ai_augmented marker."""
-        import json
-
-        wt1 = self._setup_worktree(tmp_path, "wt-one")
-        wt2 = self._setup_worktree(tmp_path, "wt-two")
-
-        wt_repo = _RecordingWorktreeRepo(worktree_paths=[wt1, wt2])
-        lock_repo = _RecordingLockRepo()
-        lock_repo.mark_known("story-mode-001")
-        gov = _make_governance(lock_repo, worktree_repo=wt_repo)
-
-        gov.deactivate_locks("story-mode-001")  # type: ignore[union-attr]
-
-        for wt, name in [(wt1, "wt-one"), (wt2, "wt-two")]:
-            mode_file = wt / ".agent-guard" / "mode.json"
-            assert mode_file.exists(), f"mode.json must exist in {name}"
-            data = json.loads(mode_file.read_text(encoding="utf-8"))
-            assert data["operating_mode"] == "ai_augmented", (
-                f"mode.json in {name} must have operating_mode=ai_augmented"
-            )
-            assert data["story_id"] == "story-mode-001"
-
-    def test_removed_lock_exports_collects_worktree_lock_paths(
-        self, tmp_path: Path
-    ) -> None:
-        """removed_lock_exports includes .agent-guard/lock.json paths from worktrees."""
-        wt1 = self._setup_worktree(tmp_path, "wt-x")
-        wt2 = self._setup_worktree(tmp_path, "wt-y")
-
-        wt_repo = _RecordingWorktreeRepo(worktree_paths=[wt1, wt2])
-        lock_repo = _RecordingLockRepo()
-        lock_repo.mark_known("story-collect-001")
-        gov = _make_governance(lock_repo, worktree_repo=wt_repo)
-
-        result = gov.deactivate_locks("story-collect-001")  # type: ignore[union-attr]
-
-        lock_paths = result.removed_lock_exports  # type: ignore[union-attr]
-        assert len(lock_paths) == 2
-        names = {p.name for p in lock_paths}
-        assert "lock.json" in names
-
-    def test_worktree_without_agent_guard_skipped(self, tmp_path: Path) -> None:
-        """Worktrees without .agent-guard directory are skipped without error."""
-        # Worktree exists but has no .agent-guard dir
-        wt_no_guard = tmp_path / "wt-no-guard"
-        wt_no_guard.mkdir()
-
-        wt_repo = _RecordingWorktreeRepo(worktree_paths=[wt_no_guard])
-        lock_repo = _RecordingLockRepo()
-        lock_repo.mark_known("story-no-guard")
-        gov = _make_governance(lock_repo, worktree_repo=wt_repo)
-
-        result = gov.deactivate_locks("story-no-guard")  # type: ignore[union-attr]
-
-        # No errors; no removed exports; restored may be False (nothing written)
-        assert result.errors == []  # type: ignore[union-attr]
-        assert result.removed_lock_exports == []  # type: ignore[union-attr]
-
-    def test_restored_true_when_at_least_one_worktree_written(
-        self, tmp_path: Path
-    ) -> None:
-        """restored_to_ai_augmented is True when at least one mode.json is written."""
-        wt = self._setup_worktree(tmp_path, "wt-restore")
-
-        wt_repo = _RecordingWorktreeRepo(worktree_paths=[wt])
-        lock_repo = _RecordingLockRepo()
-        lock_repo.mark_known("story-restore-001")
-        gov = _make_governance(lock_repo, worktree_repo=wt_repo)
-
-        result = gov.deactivate_locks("story-restore-001")  # type: ignore[union-attr]
-
-        assert result.restored_to_ai_augmented is True  # type: ignore[union-attr]
-
-    def test_worktree_repo_called_with_story_id(self, tmp_path: Path) -> None:
-        """list_worktree_paths is called with the correct story_id."""
-        wt_repo = _RecordingWorktreeRepo(worktree_paths=[])
-        lock_repo = _RecordingLockRepo()
-        lock_repo.mark_known("story-track-001")
-        gov = _make_governance(lock_repo, worktree_repo=wt_repo)
-
-        gov.deactivate_locks("story-track-001")  # type: ignore[union-attr]
-
-        assert "story-track-001" in wt_repo.calls
-
-
-# ---------------------------------------------------------------------------
-# Tests: Fail-closed E4 (AG3-031 Pass-5)
-# ---------------------------------------------------------------------------
-
-
-class TestDeactivateLocksFailClosed:
-    """AG3-031 Pass-5 Fix E4: fail-closed worktree-loop error handling.
-
-    WorktreeRepository exceptions and per-file OSErrors must be collected
-    in errors[], not silently swallowed.
-    """
-
-    def test_worktree_repo_exception_surfaced_in_errors(self) -> None:
-        """list_worktree_paths exception is recorded in errors[], not swallowed."""
-        lock_repo = _RecordingLockRepo()
-        lock_repo.mark_known("story-wt-exc")
-        wt_repo = _FailingWorktreeRepo(RuntimeError("repo unavailable"))
-
-        gov = _make_governance(lock_repo, worktree_repo=wt_repo)  # type: ignore[arg-type]
-        result = gov.deactivate_locks("story-wt-exc")  # type: ignore[union-attr]
-
-        assert any("repo unavailable" in e or "list_worktree_paths" in e for e in result.errors)  # type: ignore[union-attr]
-        assert result.restored_to_ai_augmented is False  # type: ignore[union-attr]
-
-    def test_lock_file_unlink_oserror_collected(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """OSError on lock.json unlink is appended to errors[], not ignored."""
-        wt = tmp_path / "wt-unlink-fail"
-        guard = wt / ".agent-guard"
+        # A worktree with a live dev-local lock export + no mode marker.
+        worktree = tmp_path / "worktrees" / "story-wt"
+        guard = worktree / ".agent-guard"
         guard.mkdir(parents=True)
         lock_file = guard / "lock.json"
         lock_file.write_text('{"status": "active"}', encoding="utf-8")
 
-        original_unlink = Path.unlink
+        repo = _RecordingLockRepo()
+        repo.mark_known("story-untouched")
+        gov = _make_governance(repo)
 
-        def _fail_unlink(self: Path, missing_ok: bool = False) -> None:
-            if self.name == "lock.json" and ".agent-guard" in str(self):
-                raise OSError("Permission denied (simulated unlink)")
-            original_unlink(self, missing_ok=missing_ok)  # type: ignore[call-arg]
+        old_cwd = Path.cwd()
+        os.chdir(tmp_path)
+        try:
+            result = gov.deactivate_locks("story-untouched")  # type: ignore[union-attr]
+        finally:
+            os.chdir(old_cwd)
 
-        monkeypatch.setattr(Path, "unlink", _fail_unlink)
-
-        wt_repo = _RecordingWorktreeRepo(worktree_paths=[wt])
-        lock_repo = _RecordingLockRepo()
-        lock_repo.mark_known("story-unlink-fail")
-
-        gov = _make_governance(lock_repo, worktree_repo=wt_repo)
-        result = gov.deactivate_locks("story-unlink-fail")  # type: ignore[union-attr]
-
-        assert any(
-            "lock.json" in e or "Permission denied" in e for e in result.errors  # type: ignore[union-attr]
-        ), f"Expected error mentioning lock.json, got: {result.errors}"  # type: ignore[union-attr]
-
-    def test_mode_file_write_oserror_collected(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """OSError on mode.json write_text is appended to errors[], not ignored."""
-        wt = tmp_path / "wt-write-fail"
-        guard = wt / ".agent-guard"
-        guard.mkdir(parents=True)
-
-        original_write_text = Path.write_text
-
-        def _fail_write_text(
-            self: Path, data: str, encoding: str | None = None, errors: str | None = None
-        ) -> int:
-            if self.name == "mode.json" and ".agent-guard" in str(self):
-                raise OSError("Read-only filesystem (simulated write)")
-            return original_write_text(self, data, encoding=encoding, errors=errors)  # type: ignore[call-arg]
-
-        monkeypatch.setattr(Path, "write_text", _fail_write_text)
-
-        wt_repo = _RecordingWorktreeRepo(worktree_paths=[wt])
-        lock_repo = _RecordingLockRepo()
-        lock_repo.mark_known("story-write-fail")
-
-        gov = _make_governance(lock_repo, worktree_repo=wt_repo)
-        result = gov.deactivate_locks("story-write-fail")  # type: ignore[union-attr]
-
-        assert any(
-            "mode.json" in e or "Read-only" in e for e in result.errors  # type: ignore[union-attr]
-        ), f"Expected error mentioning mode.json, got: {result.errors}"  # type: ignore[union-attr]
+        # Governance did NOT reach into the worktree: the lock export survives and
+        # no mode.json was written there (that is the edge's job now).
+        assert lock_file.exists()
+        assert not (guard / "mode.json").exists()
+        # No worktree lock-export path is reported as removed by the backend.
+        assert result.removed_lock_exports == []  # type: ignore[union-attr]
+        assert result.errors == []  # type: ignore[union-attr]

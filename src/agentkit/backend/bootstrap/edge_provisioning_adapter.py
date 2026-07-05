@@ -34,6 +34,7 @@ from agentkit.backend.control_plane.models import (
     PreflightProbeCommandPayload,
     PreflightProbeReport,
     ProvisionWorktreeCommandPayload,
+    TeardownWorktreeCommandPayload,
     WorktreeReport,
 )
 from agentkit.backend.control_plane.records import EdgeCommandRecord
@@ -55,7 +56,62 @@ if TYPE_CHECKING:
 __all__ = [
     "SetupEdgeProvisioningCoordinator",
     "build_setup_edge_provisioning_coordinator",
+    "commission_teardown_worktree",
 ]
+
+
+def commission_teardown_worktree(
+    edge_commands: EdgeCommandRepository,
+    *,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    session_id: str,
+    ownership_epoch: int,
+    repos: tuple[str, ...],
+    branch: str,
+) -> None:
+    """Commission a ``teardown_worktree`` edge command per repo (FK-91 §91.1b).
+
+    The single truth for physical worktree teardown after AG3-145 Teilschritt D:
+    the backend commissions, the Project Edge tears down dev-locally and reports
+    (FK-10 §10.4.2). Idempotent by the deterministic ``command_id`` -- an
+    already-commissioned teardown (a re-entered setup-failure cleanup or a double
+    reset) is skipped, never duplicated (FK-10 §10.5.3). Fire-and-forget: the
+    caller does NOT block on the physical removal; the open command stays
+    auditably visible (SOLL-165 / Rule 16).
+
+    Args:
+        edge_commands: The Edge-Command-Queue persistence port (commission).
+        project_key: Owning project key.
+        story_id: The story whose worktree(s) are torn down.
+        run_id: The authoritative run id (scopes the deterministic command id).
+        session_id: The owning session the command is scoped to.
+        ownership_epoch: The active record's epoch stamped at commission time.
+        repos: The participating repos to tear down (one command each).
+        branch: The story branch name (``story/{id}``, deleted best-effort).
+    """
+    now = datetime.now(tz=UTC)
+    for repo in repos:
+        command_id = edge_command_id(run_id, "teardown_worktree", repo)
+        if edge_commands.load_command(command_id) is not None:
+            continue
+        edge_commands.insert_command(
+            EdgeCommandRecord(
+                command_id=command_id,
+                project_key=project_key,
+                story_id=story_id,
+                run_id=run_id,
+                session_id=session_id,
+                command_kind="teardown_worktree",
+                payload=TeardownWorktreeCommandPayload(
+                    story_id=story_id, repo_id=repo, branch=branch
+                ).model_dump(mode="json"),
+                status="created",
+                ownership_epoch=ownership_epoch,
+                created_at=now,
+            )
+        )
 
 
 @dataclass(frozen=True)
@@ -172,6 +228,34 @@ class SetupEdgeProvisioningCoordinator:
             worktree_map[repo] = Path(report.worktree_root)
         return ProvisioningOutcome(
             pending=False, worktree_map=worktree_map, failed_repos=tuple(failed)
+        )
+
+    def ensure_teardown(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+        repos: tuple[str, ...],
+        branch: str,
+    ) -> None:
+        """Commission ``teardown_worktree`` per repo (setup-failure cleanup, D).
+
+        Fire-and-forget cleanup: commissions one idempotent ``teardown_worktree``
+        command per participating repo so a setup that fails AFTER provisioning
+        never silently leaks a worktree (closes the C->D teardown gap). The
+        commissioning is scoped to the run's OWN active ownership record.
+        """
+        session_id, epoch = self._active_session_epoch(project_key, story_id, run_id)
+        commission_teardown_worktree(
+            self.edge_commands,
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            session_id=session_id,
+            ownership_epoch=epoch,
+            repos=repos,
+            branch=branch,
         )
 
     def _active_session_epoch(

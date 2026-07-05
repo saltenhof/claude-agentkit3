@@ -76,9 +76,6 @@ def run_checkpoint_upgrade(
     from agentkit.backend.state_backend.store.project_registration_repository import (
         StateBackendProjectRegistrationRepository,
     )
-    from agentkit.backend.state_backend.store.worktree_repository import (
-        StateBackendWorktreeRepository,
-    )
 
     registration_repo = StateBackendProjectRegistrationRepository(project_root)
     governance: Governance | None = None
@@ -89,7 +86,6 @@ def run_checkpoint_upgrade(
             lock_repo=LockRecordRepository(project_root),
             project_key=project_key,
             project_root=project_root,
-            worktree_repo=StateBackendWorktreeRepository(project_root),
         )
     return run_upgrade(
         project_root,

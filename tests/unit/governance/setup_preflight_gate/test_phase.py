@@ -230,6 +230,9 @@ class _FakeEdgeCoordinator:
         self._on_provision = on_provision
         self.probe_calls = 0
         self.provision_calls = 0
+        #: AG3-145 D: records the repos passed to each ``ensure_teardown`` call
+        #: (the setup-failure cleanup path).
+        self.teardown_calls: list[tuple[str, ...]] = []
 
     def ensure_preflight_probes(
         self, *, project_key: str, story_id: str, run_id: str,
@@ -248,6 +251,13 @@ class _FakeEdgeCoordinator:
         if callable(self._on_provision):
             self._on_provision()
         return self._provision
+
+    def ensure_teardown(
+        self, *, project_key: str, story_id: str, run_id: str,
+        repos: tuple[str, ...], branch: str,
+    ) -> None:
+        del project_key, story_id, run_id, branch
+        self.teardown_calls.append(repos)
 
 
 # ---------------------------------------------------------------------------
@@ -368,6 +378,51 @@ class TestSetupPhaseHandlerWorktree:
             )
         assert result.status is PhaseStatus.PAUSED
         assert result.yield_status == PauseReason.AWAITING_EDGE_PROVISIONING.value
+
+    def test_provision_failure_commissions_teardown(self, tmp_path: Path) -> None:
+        """AG3-145 D (AC7): a provisioning FAILURE commissions teardown cleanup.
+
+        A setup that failed after the edge already provisioned another repo must
+        not silently leak a worktree (the C->D teardown gap). ``on_enter`` returns
+        FAILED and commissions one ``teardown_worktree`` per participating repo.
+        """
+        coordinator = _FakeEdgeCoordinator(
+            provision=ProvisioningOutcome(pending=False, failed_repos=("repo",)),
+        )
+        cfg = SetupConfig(
+            project_root=tmp_path,
+            story_id="AG3-001",
+            create_worktree=True,
+            story_service=_NoOpStoryService(),  # type: ignore[arg-type]
+        )
+        handler = SetupPhaseHandler(
+            cfg,
+            context_repository=_RecordingContextRepo(),  # type: ignore[arg-type]
+            edge_provisioning_coordinator=coordinator,
+        )
+        enriched = _make_story_context(project_root=tmp_path)
+        with (
+            patch(
+                "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
+                return_value=_make_preflight_pass(),
+            ),
+            patch(
+                "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
+                return_value=enriched,
+            ),
+            patch(
+                "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
+                return_value=_make_project_config(tmp_path),
+            ),
+        ):
+            result = handler.on_enter(
+                _make_story_context(project_root=tmp_path),
+                PhaseEnvelopeStore.make_fresh_envelope(_make_phase_state()),
+            )
+        assert result.status is PhaseStatus.FAILED
+        assert "edge_provisioning_failed" in result.errors[0]
+        # The teardown cleanup was commissioned for the participating repo.
+        assert coordinator.teardown_calls == [("repo",)]
 
     def test_worktree_story_without_coordinator_fails_closed(
         self, tmp_path: Path

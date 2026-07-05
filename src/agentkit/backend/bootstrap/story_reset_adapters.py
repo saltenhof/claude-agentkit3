@@ -16,7 +16,11 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.backend.control_plane.records import ControlPlaneOperationRecord
-    from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
+    from agentkit.backend.control_plane.repository import (
+        ControlPlaneRuntimeRepository,
+        EdgeCommandRepository,
+        RunOwnershipRepository,
+    )
     from agentkit.backend.governance.runner import Governance
     from agentkit.backend.kpi_analytics.aggregation import RefreshWorker
     from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
@@ -24,15 +28,16 @@ if TYPE_CHECKING:
         RuntimeExecutionPurgePort,
         RuntimeExecutionResidueProbe,
     )
-    from agentkit.backend.state_backend.store.worktree_repository import (
-        StateBackendWorktreeRepository,
-    )
     from agentkit.backend.story.repository import StoryReadPort
     from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
 
 
 class StoryResetLockError(RuntimeError):
     """Real lock-owner infra failure surfaced during a Story-Reset purge."""
+
+
+class StoryResetWorktreeError(RuntimeError):
+    """Fail-closed: a reset cannot commission the worktree teardown edge command."""
 
 
 #: FK-25 / FK-53 §53.4 escalation/exception event signals (a FINDING from
@@ -220,32 +225,99 @@ class WorkspacePurgeAdapter:
 
 @dataclass(frozen=True)
 class WorktreePurgeAdapter:
-    """Schritt 8 tainted-worktree teardown owner."""
+    """Schritt 8 tainted-worktree teardown owner (edge-commissioned, AG3-145 D).
 
-    worktree_repo: StateBackendWorktreeRepository
+    FK-10 §10.4.2 / §10.5.3: the reset no longer removes the worktree with a
+    backend git subprocess. It COMMISSIONS a ``teardown_worktree`` edge command
+    per worktree (idempotent, fire-and-forget) and does NOT block on the physical
+    removal -- the open command stays auditably visible (FK-53 quiesce semantics
+    untouched). The §53.8 worktree end-state is the commissioned command, not the
+    physical absence.
 
-    def detach_worktrees(self, story_id: str) -> None:
-        """Remove/detach the tainted story worktree(s) (convergent, §53.9.1)."""
-        from agentkit.backend.exceptions import WorktreeError
-        from agentkit.backend.utils.git import remove_worktree
+    Attributes:
+        edge_commands: The Edge-Command-Queue persistence port (commission).
+        ownership_repo: The run-ownership port (owning session/epoch scope).
+        project_root: The backend-local state anchor used to resolve the story
+            directory when reading the participating-repo NAMES (never a path).
+    """
 
-        for wt_path in self.worktree_repo.list_worktree_paths(story_id):
-            repo_root = wt_path.parent
-            try:
-                remove_worktree(repo_root, wt_path)
-            except WorktreeError:
-                # A worktree that cannot be removed via its inferred repo root is
-                # detached on a best-effort basis; the directory removal makes the
-                # probe converge.
-                if wt_path.exists():
-                    shutil.rmtree(wt_path, ignore_errors=True)
+    edge_commands: EdgeCommandRepository
+    ownership_repo: RunOwnershipRepository
+    project_root: Path
 
-    def has_live_worktree(self, story_id: str) -> bool:
-        """Return whether a live (non-detached) story worktree remains."""
-        return any(
-            wt_path.exists()
-            for wt_path in self.worktree_repo.list_worktree_paths(story_id)
+    def detach_worktrees(
+        self, project_key: str, story_id: str, run_id: str | None
+    ) -> None:
+        """Commission a ``teardown_worktree`` edge command per worktree (§53.9.1).
+
+        A worktree-less story (or a run-less reset) is a convergent no-op. When a
+        worktree exists but no OWN active ownership record scopes it, the reset
+        fails closed (:class:`StoryResetWorktreeError`) -- never a silent skip.
+        """
+        if run_id is None:
+            return
+        repos = self._worktree_repos(story_id)
+        if not repos:
+            return
+        record = self.ownership_repo.load_active_ownership(project_key, story_id)
+        if record is None or record.run_id != run_id:
+            raise StoryResetWorktreeError(
+                "story-reset worktree teardown cannot be commissioned: no active "
+                f"run-ownership record for (project={project_key!r}, "
+                f"story={story_id!r}, run={run_id!r}); the owning session that "
+                "scopes the teardown command is required (FK-56 §56.8a)."
+            )
+        from agentkit.backend.bootstrap.edge_provisioning_adapter import (
+            commission_teardown_worktree,
         )
+
+        commission_teardown_worktree(
+            self.edge_commands,
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            session_id=record.owner_session_id,
+            ownership_epoch=record.ownership_epoch,
+            repos=tuple(repos),
+            branch=f"story/{story_id}",
+        )
+
+    def has_live_worktree(
+        self, project_key: str, story_id: str, run_id: str | None
+    ) -> bool:
+        """Return whether a worktree still lacks a commissioned teardown command.
+
+        The §53.8 worktree end-state is satisfied once a teardown command is
+        commissioned for every worktree (the auditable open command IS the proof,
+        FK-10 §10.4.2); the reset never blocks on the physical removal.
+        """
+        del project_key
+        if run_id is None:
+            return False
+        from agentkit.backend.control_plane.edge_commands import edge_command_id
+
+        return any(
+            self.edge_commands.load_command(
+                edge_command_id(run_id, "teardown_worktree", repo)
+            )
+            is None
+            for repo in self._worktree_repos(story_id)
+        )
+
+    def _worktree_repos(self, story_id: str) -> list[str]:
+        """Return the participating repos holding a worktree (map keys, NOT paths).
+
+        Reads the repo NAMES from ``StoryContext.worktree_map`` -- the backend
+        derives no physical worktree PATH (FK-10 §10.2.4a); the teardown command
+        carries only ``repo_id`` + branch and the edge resolves the path.
+        """
+        from agentkit.backend.installer.paths import story_dir as resolve_story_dir
+        from agentkit.backend.state_backend.store import facade
+
+        ctx = facade.load_story_context(resolve_story_dir(self.project_root, story_id))
+        if ctx is None:
+            return []
+        return list(ctx.worktree_map.keys())
 
 
 __all__ = [

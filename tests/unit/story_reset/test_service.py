@@ -202,12 +202,16 @@ class _Ports:
     def purge_workspace(self, project_key: str, story_id: str) -> None:
         self.events.append("workspace_purge")
 
-    # WorktreePort (Schritt 8)
-    def detach_worktrees(self, story_id: str) -> None:
+    # WorktreePort (Schritt 8) — AG3-145 D: edge-commissioned teardown signature.
+    def detach_worktrees(
+        self, project_key: str, story_id: str, run_id: str | None
+    ) -> None:
         self.events.append("worktree_detach")
         self.live_worktree = False
 
-    def has_live_worktree(self, story_id: str) -> bool:
+    def has_live_worktree(
+        self, project_key: str, story_id: str, run_id: str | None
+    ) -> bool:
         return self.live_worktree
 
 

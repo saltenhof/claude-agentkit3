@@ -5,10 +5,16 @@ Decouples the canonical phase dispatch (``PhaseDispatcher`` /
 
 FK-10 §10.2.3 / I3: AK3 has NO canonical project-local runtime -- the
 deterministic core runs in the backend, which may be co-located with OR remote
-from the dev process. The worktree / filesystem anchor therefore must NOT be a
+from the dev process. The backend-local STATE anchor therefore must NOT be a
 dev-supplied path; it is resolved Backend-side from canonical level-1 state
 (the ``project_registry``), never from ``ctx.project_root``, ``cwd`` or a
 dev-process request field.
+
+AG3-145 Teilschritt D (SOLL-137, FK-10 §10.2.4a): ``project_root`` is a PURE
+backend-local state anchor (run-store / ``story_dir`` persistence). Its former
+worktree-anchor role is removed entirely -- physical worktree paths have exactly
+ONE truth, the edge-reported ``worktree_roots`` (FK-56 §56.8); no consumer
+derives a physical worktree path from this locator.
 
 The locator is the SINGLE source for the workspace location (FIX THE MODEL):
 ``story_dir`` / store-root / setup-coordinate anchor all derive from the one
@@ -36,17 +42,18 @@ class StoryWorkspace(BaseModel):
     """The Backend-resolved filesystem anchor for a story run (AG3-123).
 
     The single typed carrier of the workspace location. ``project_root`` is the
-    canonical run store / worktree anchor (resolved from level-1 state) and
-    ``story_dir`` is the engine persistence root derived from it; both replace any
-    interpretation of a dev-supplied ``StoryContext.project_root``.
+    canonical backend-local state anchor (run store, resolved from level-1 state)
+    and ``story_dir`` is the engine persistence root derived from it; both replace
+    any interpretation of a dev-supplied ``StoryContext.project_root``. It is NOT
+    a worktree anchor (AG3-145 Teilschritt D, SOLL-137): physical worktree paths
+    live only in the edge-reported ``worktree_roots`` (FK-56 §56.8).
 
     Attributes:
         project_key: Owning project key the workspace was resolved for.
         story_id: The story whose working directory ``story_dir`` addresses.
-        run_id: The run the workspace was resolved for (carried for diagnostics
-            and future per-run worktree binding; the FS anchor itself is
-            project-scoped today).
-        project_root: The canonical run store / worktree filesystem anchor.
+        run_id: The run the workspace was resolved for (carried for diagnostics;
+            the state anchor itself is project-scoped).
+        project_root: The canonical backend-local state anchor (run store).
         story_dir: The story working directory (engine persistence root),
             ``<project_root>/stories/<story_id>``.
     """
@@ -103,9 +110,10 @@ class StateBackendStoryWorkspaceLocator:
     (FK-10 §10.2.0 "kanonischer Zustand lebt nur auf Ebene 1"), keyed by
     ``project_key`` -- never from ``ctx.project_root``, ``cwd`` or request data.
     The story working directory is then the canonical
-    ``<project_root>/stories/<story_id>`` layout (FK-01 §1.1a: git/worktree
-    mechanic stays filesystem-bound on the Backend side -- the locator moves the
-    anchor, it does not abolish it).
+    ``<project_root>/stories/<story_id>`` layout. This is a pure backend-local
+    STATE anchor (run-store / ``story_dir`` persistence); it never anchors a
+    physical worktree (AG3-145 Teilschritt D, SOLL-137 / FK-10 §10.2.4a -- the
+    worktree topology lives dev-locally and is edge-reported).
 
     Attributes:
         registration_lookup: The level-1 ``project_registry`` read port.

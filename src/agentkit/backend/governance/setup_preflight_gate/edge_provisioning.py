@@ -136,3 +136,28 @@ class EdgeProvisioningCoordinator(Protocol):
             A :class:`ProvisioningOutcome` (pending, worktree map, failed repos).
         """
         ...
+
+    def ensure_teardown(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+        repos: tuple[str, ...],
+        branch: str,
+    ) -> None:
+        """Commission ``teardown_worktree`` per repo (setup-failure cleanup, D).
+
+        Fire-and-forget: commissions one idempotent ``teardown_worktree`` command
+        per participating repo so a setup that fails AFTER provisioning does not
+        silently leak a worktree (FK-10 §10.4.2/§10.5.3). The caller does not
+        block on the physical removal; the open command stays auditably visible.
+
+        Args:
+            project_key: Owning project key.
+            story_id: The story being torn down.
+            run_id: The authoritative run id (scopes the deterministic id).
+            repos: The participating repos to tear down.
+            branch: The story branch name (``story/{id}``).
+        """
+        ...

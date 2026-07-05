@@ -33,9 +33,11 @@ class DeactivationResult(BaseModel):
             (legacy / compat path; FK-30 §30.6.0 primary paths are in
             removed_lock_exports).
         removed_lock_exports: Filesystem paths of lock-export files deleted.
-            Covers ``_temp/governance/locks/{story_id}/qa-lock.json`` and
-            ``.agent-guard/lock.json`` files from affected worktrees
-            (FK-30 §30.6.0 + FK-22 §22.7).
+            Covers the backend-local ``_temp/governance/locks/{story_id}/
+            qa-lock.json`` (FK-30 §30.6.0). AG3-145 Teilschritt D (FK-10
+            §10.2.4a): the dev-local ``.agent-guard/lock.json`` worktree exports
+            are NO LONGER removed by the backend -- the edge tombstone projection
+            (``tombstone_worktree_roots``) carries that removal.
         restored_to_ai_augmented: True when the story's operating mode was
             successfully reverted to ``ai_augmented`` (FK-30 §30.6.0 Z.683).
         errors: Non-fatal IO errors encountered during deactivation (including

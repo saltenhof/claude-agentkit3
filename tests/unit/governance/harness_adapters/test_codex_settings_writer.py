@@ -537,16 +537,11 @@ class TestRegisterHooksWritesCodex:
             def deactivate_locks_for_story(self, story_id: str) -> list:
                 return []
 
-        class _StubWorktreeRepo:
-            def list_worktree_paths(self, story_id: str) -> list:
-                return []
-
         return Governance(
             hook_repo=_RecordingHookRepo(),  # type: ignore[arg-type]
             lock_repo=_RecordingLockRepo(),  # type: ignore[arg-type]
             project_key="test-project",
             project_root=tmp_path,
-            worktree_repo=_StubWorktreeRepo(),  # type: ignore[arg-type]
         )
 
     def test_register_hooks_writes_codex_shape_and_commands(

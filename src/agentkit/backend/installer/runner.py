@@ -1688,9 +1688,6 @@ def _register_default_governance_hooks(
         StateBackendHookRegistrationRepository,
     )
     from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
-    from agentkit.backend.state_backend.store.worktree_repository import (
-        StateBackendWorktreeRepository,
-    )
 
     watched_paths = _default_governance_hook_settings_paths(root)
     before_digests = before or _file_digests(watched_paths)
@@ -1699,7 +1696,6 @@ def _register_default_governance_hooks(
         lock_repo=LockRecordRepository(root),
         project_key=config.project_key,
         project_root=root,
-        worktree_repo=StateBackendWorktreeRepository(root),
     )
     result = governance.register_hooks(build_default_hook_definitions())
     if result.errors:

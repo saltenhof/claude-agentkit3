@@ -165,9 +165,6 @@ def build_story_exit_service(*, project_key: str) -> object:
         StateBackendHookRegistrationRepository,
     )
     from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
-    from agentkit.backend.state_backend.store.worktree_repository import (
-        StateBackendWorktreeRepository,
-    )
     from agentkit.backend.story_context_manager.service import StoryService
     from agentkit.backend.story_exit.service import StoryExitService
 
@@ -175,7 +172,6 @@ def build_story_exit_service(*, project_key: str) -> object:
         hook_repo=StateBackendHookRegistrationRepository(),
         lock_repo=LockRecordRepository(),
         project_key=project_key,
-        worktree_repo=StateBackendWorktreeRepository(),
     )
     return StoryExitService(
         control_plane_repository=ControlPlaneRuntimeRepository(),
@@ -270,9 +266,6 @@ def build_story_split_service(
     from agentkit.backend.state_backend.store.story_dependency_repository import (
         StateBackendStoryDependencyRepository,
     )
-    from agentkit.backend.state_backend.store.worktree_repository import (
-        StateBackendWorktreeRepository,
-    )
     from agentkit.backend.story_context_manager.service import StoryService
     from agentkit.backend.story_creation.story_md_export import export_story_md
     from agentkit.backend.story_creation.weaviate_index import WeaviateStoryIndex
@@ -284,7 +277,6 @@ def build_story_split_service(
         hook_repo=StateBackendHookRegistrationRepository(),
         lock_repo=LockRecordRepository(),
         project_key=project_key,
-        worktree_repo=StateBackendWorktreeRepository(),
     )
     story_attributes = StoryService()
     host, port = _resolve_host_port(project_root)
@@ -394,7 +386,11 @@ def build_story_reset_service(
         WorkspacePurgeAdapter,
         WorktreePurgeAdapter,
     )
-    from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
+    from agentkit.backend.control_plane.repository import (
+        ControlPlaneRuntimeRepository,
+        EdgeCommandRepository,
+        RunOwnershipRepository,
+    )
     from agentkit.backend.governance.runner import Governance
     from agentkit.backend.kpi_analytics.aggregation import RefreshWorker
     from agentkit.backend.kpi_analytics.fact_store import FactStore
@@ -411,9 +407,6 @@ def build_story_reset_service(
     from agentkit.backend.state_backend.store.story_read_repository import (
         StateBackendStoryReadRepository,
     )
-    from agentkit.backend.state_backend.store.worktree_repository import (
-        StateBackendWorktreeRepository,
-    )
     from agentkit.backend.story_context_manager.service import StoryService
     from agentkit.backend.story_reset import FileResetRecordStore, StoryResetService
 
@@ -424,7 +417,6 @@ def build_story_reset_service(
         lock_repo=lock_repo,
         project_key=project_key,
         project_root=resolved_root,
-        worktree_repo=StateBackendWorktreeRepository(resolved_root),
     )
     cp_repo = ControlPlaneRuntimeRepository()
     story_repo = StateBackendStoryReadRepository(store_dir=store_dir)
@@ -433,7 +425,6 @@ def build_story_reset_service(
         FactStore(StateBackendFactRepository(store_dir)),
         StateBackendAnalyticsSource(accessor, project_key=project_key),
     )
-    worktree_repo = StateBackendWorktreeRepository(resolved_root)
 
     return StoryResetService(
         story_status=StoryService(),
@@ -450,7 +441,11 @@ def build_story_reset_service(
         read_model_purge=ReadModelPurgeAdapter(accessor),
         analytics_purge=AnalyticsPurgeAdapter(refresh_worker),
         workspace=WorkspacePurgeAdapter(resolved_root),
-        worktree=WorktreePurgeAdapter(worktree_repo),
+        worktree=WorktreePurgeAdapter(
+            edge_commands=EdgeCommandRepository(),
+            ownership_repo=RunOwnershipRepository(),
+            project_root=resolved_root,
+        ),
     )
 
 
@@ -3070,16 +3065,12 @@ def _build_guard_deactivation_port(
         StateBackendHookRegistrationRepository,
     )
     from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
-    from agentkit.backend.state_backend.store.worktree_repository import (
-        StateBackendWorktreeRepository,
-    )
 
     governance = Governance(
         hook_repo=StateBackendHookRegistrationRepository(store_dir),
         lock_repo=LockRecordRepository(store_dir),
         project_key=project_key,
         project_root=store_dir,
-        worktree_repo=StateBackendWorktreeRepository(store_dir),
     )
     return ProductiveGuardDeactivationPort(governance)
 

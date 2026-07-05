@@ -96,16 +96,6 @@ class _RecordingLockRepo:
         return []
 
 
-class _StubWorktreeRepo:
-    """Stub worktree repo (unused in register_hooks tests — E9 AG3-031 Pass-5).
-
-    Required because Governance.worktree_repo is now mandatory.
-    """
-
-    def list_worktree_paths(self, story_id: str) -> list:
-        return []
-
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -162,7 +152,6 @@ def _make_governance(
         lock_repo=_RecordingLockRepo(),  # type: ignore[arg-type]
         project_key="test-project",
         project_root=project_root or Path("."),
-        worktree_repo=_StubWorktreeRepo(),  # type: ignore[arg-type]
     )
 
 

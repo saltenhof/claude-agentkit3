@@ -1,8 +1,15 @@
-"""Git utility helpers -- worktree creation and removal.
+"""Git utility helpers -- worktree removal + commit tree-hash reads.
 
-Thin wrappers around ``git worktree`` sub-commands.  All operations are
-deterministic: no LLM involvement, no side effects beyond the git
-repository state.
+Thin wrappers around ``git`` sub-commands. All operations are deterministic:
+no LLM involvement, no side effects beyond the git repository state.
+
+AG3-145 Teilschritt E (SOLL-136, FK-10 §10.2.4a): the setup-side worktree
+provisioning primitives (``create_worktree`` / ``branch_exists``) were removed
+-- physical worktree provisioning is an edge command now
+(``harness_client.projectedge.command_executor``). This module retains ONLY the
+primitives the AG3-152 closure/merge block still consumes on the backend:
+``remove_worktree`` (``closure.multi_repo_saga``) and ``tree_hash_of_commit``
+(``verify_system.pre_merge_runner.scan_runner``).
 """
 
 from __future__ import annotations
@@ -53,106 +60,6 @@ def _ensure_repo_root(repo_root: Path) -> None:
                 "git_top_level": str(Path(top_level).resolve()),
             },
         )
-
-
-def create_worktree(
-    repo_root: Path,
-    worktree_path: Path,
-    branch: str,
-    base_ref: str | None = None,
-) -> None:
-    """Create a git worktree at *worktree_path* on a new *branch*.
-
-    Runs ``git -C <repo_root> worktree add <worktree_path> -b <branch>``
-    and appends ``base_ref`` when supplied.
-
-    Args:
-        repo_root: Root directory of the git repository.
-        worktree_path: Absolute path where the worktree will be created.
-        branch: Name of the new branch to create inside the worktree.
-        base_ref: Optional base reference for the new branch.
-
-    Raises:
-        WorktreeError: If *worktree_path* already exists on disk.
-        WorktreeError: If the ``git worktree add`` command exits non-zero.
-    """
-    if worktree_path.exists():
-        raise WorktreeError(
-            f"Worktree path already exists: {worktree_path}",
-            detail={"worktree_path": str(worktree_path)},
-        )
-    _ensure_repo_root(repo_root)
-
-    command = [
-        "git",
-        "-C",
-        str(repo_root),
-        "worktree",
-        "add",
-        str(worktree_path),
-        "-b",
-        branch,
-    ]
-    if base_ref is not None:
-        command.append(base_ref)
-
-    result = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        raise WorktreeError(
-            f"git worktree add failed (exit {result.returncode}): {stderr}",
-            detail={
-                "repo_root": str(repo_root),
-                "worktree_path": str(worktree_path),
-                "branch": branch,
-                "base_ref": base_ref,
-                "stderr": result.stderr,
-                "stdout": result.stdout,
-            },
-        )
-
-
-def branch_exists(repo_root: Path, branch: str) -> bool:
-    """Return whether a local branch exists in a repository.
-
-    Args:
-        repo_root: Root directory of the git repository.
-        branch: Branch name to check.
-
-    Raises:
-        WorktreeError: If ``repo_root`` is not a git repository root.
-    """
-    _ensure_repo_root(repo_root)
-    result = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(repo_root),
-            "show-ref",
-            "--verify",
-            "--quiet",
-            f"refs/heads/{branch}",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode == 0:
-        return True
-    if result.returncode == 1:
-        return False
-    raise WorktreeError(
-        f"git branch existence check failed (exit {result.returncode})",
-        detail={
-            "repo_root": str(repo_root),
-            "branch": branch,
-            "stderr": result.stderr,
-            "stdout": result.stdout,
-        },
-    )
 
 
 def tree_hash_of_commit(repo_root: Path, commit_sha: str) -> str:

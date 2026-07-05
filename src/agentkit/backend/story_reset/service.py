@@ -196,13 +196,17 @@ class WorkspacePort(Protocol):
 
 
 class WorktreePort(Protocol):
-    """Schritt 8 tainted-worktree teardown owner."""
+    """Schritt 8 tainted-worktree teardown owner (edge-commissioned, AG3-145 D)."""
 
-    def detach_worktrees(self, story_id: str) -> None:
-        """Remove/detach the tainted story worktree(s)."""
+    def detach_worktrees(
+        self, project_key: str, story_id: str, run_id: str | None
+    ) -> None:
+        """Commission the tainted story worktree teardown (FK-10 §10.4.2)."""
 
-    def has_live_worktree(self, story_id: str) -> bool:
-        """Return whether a live (non-detached) story worktree remains."""
+    def has_live_worktree(
+        self, project_key: str, story_id: str, run_id: str | None
+    ) -> bool:
+        """Return whether a worktree still lacks a commissioned teardown command."""
 
 
 # ---------------------------------------------------------------------------
@@ -456,7 +460,9 @@ class StoryResetService:
             )
 
         locks_released = not self._lock_purge.has_active_locks(record.story_id)
-        worktree_clean = not self._worktree.has_live_worktree(record.story_id)
+        worktree_clean = not self._worktree.has_live_worktree(
+            record.project_key, record.story_id, run_id
+        )
 
         story = self._story_status.get_story(record.story_id)
         story_preserved = story is not None and str(getattr(story, "status", "")) not in (
@@ -531,8 +537,9 @@ class StoryResetService:
 
             # Schritt 7: ephemeral work surfaces.
             self._workspace.purge_workspace(record.project_key, record.story_id)
-            # Schritt 8: tainted worktree.
-            self._worktree.detach_worktrees(record.story_id)
+            # Schritt 8: tainted worktree -- commission the edge teardown (the
+            # reset does not block on the physical removal; AG3-145 D).
+            self._worktree.detach_worktrees(record.project_key, record.story_id, run_id)
 
             # Verify the §53.8 end state BEFORE releasing the lock / completing.
             clean = self.verify_reset_clean_state(reset_id)

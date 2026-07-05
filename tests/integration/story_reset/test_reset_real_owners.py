@@ -32,6 +32,10 @@ from agentkit.backend.bootstrap.story_reset_adapters import (
     WorkspacePurgeAdapter,
     WorktreePurgeAdapter,
 )
+from agentkit.backend.control_plane.repository import (
+    EdgeCommandRepository,
+    RunOwnershipRepository,
+)
 from agentkit.backend.core_types.attempt import AttemptOutcome
 from agentkit.backend.governance.runner import Governance
 from agentkit.backend.kpi_analytics.aggregation import RefreshWorker
@@ -56,9 +60,6 @@ from agentkit.backend.state_backend.store.lock_record_repository import LockReco
 from agentkit.backend.state_backend.store.runtime_execution_purge import (
     RuntimeExecutionPurgePort,
     RuntimeExecutionResidueProbe,
-)
-from agentkit.backend.state_backend.store.worktree_repository import (
-    StateBackendWorktreeRepository,
 )
 from agentkit.backend.story_context_manager.service import StoryService
 from agentkit.backend.story_context_manager.story_model import (
@@ -214,7 +215,6 @@ def _build_service(store_dir: Path, story_service: StoryService) -> StoryResetSe
         lock_repo=LockRecordRepository(store_dir),
         project_key=_PROJECT,
         project_root=store_dir,
-        worktree_repo=StateBackendWorktreeRepository(store_dir),
     )
     from agentkit.backend.bootstrap.composition_root import build_projection_accessor
 
@@ -238,7 +238,16 @@ def _build_service(store_dir: Path, story_service: StoryService) -> StoryResetSe
         read_model_purge=ReadModelPurgeAdapter(accessor),
         analytics_purge=AnalyticsPurgeAdapter(refresh_worker),
         workspace=WorkspacePurgeAdapter(store_dir),
-        worktree=WorktreePurgeAdapter(StateBackendWorktreeRepository(store_dir)),
+        # AG3-145 D: the worktree teardown is edge-commissioned; this SQLite
+        # reset seeds no StoryContext worktree_map, so detach is a convergent
+        # no-op (the edge command port is never touched). The Postgres proof of
+        # the commissioned teardown lives in
+        # test_reset_worktree_teardown_edge.py.
+        worktree=WorktreePurgeAdapter(
+            edge_commands=EdgeCommandRepository(),
+            ownership_repo=RunOwnershipRepository(),
+            project_root=store_dir,
+        ),
         now_fn=lambda: _NOW,
     )
 
