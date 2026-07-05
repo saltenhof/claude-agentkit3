@@ -24,6 +24,7 @@ def test_iteration_is_deterministic() -> None:
         PauseReason.AWAITING_DESIGN_REVIEW,
         PauseReason.AWAITING_DESIGN_CHALLENGE,
         PauseReason.GOVERNANCE_INCIDENT,
+        PauseReason.AWAITING_EDGE_PROVISIONING,
     ]
 
 

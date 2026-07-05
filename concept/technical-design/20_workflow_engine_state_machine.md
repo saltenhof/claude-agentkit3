@@ -583,6 +583,7 @@ Die folgende Tabelle listet alle Auslöser, die die Pipeline stoppen. Spalte „
 | Merge-Konflikt | closure | ESCALATED (`escalation_reason: "merge_fail"`) | Pipeline stoppt. Worker muss rebasen oder Mensch löst Konflikt. |
 | Scope-Explosion (Klasse 3) | exploration | PAUSED (`pause_reason` durch H2-Routing) | Mensch prueft Split-Befund. Standardpfad: `agentkit split-story` statt Weiterarbeit im selben Story-Vertrag. |
 | Governance-Beobachtung: kritischer Incident | jede | **PAUSED** (`pause_reason: GOVERNANCE_INCIDENT`) | Pipeline pausiert sofort — kein ESCALATED. Mensch muss intervenieren, dann Resume via `agentkit resume`. Siehe FK-39 §39.2.2. |
+| Edge-Provisionierung/Preflight beauftragt | setup | **PAUSED** (`pause_reason: AWAITING_EDGE_PROVISIONING`) | Setup hat den Project Edge mit `provision_worktree`/`preflight_probe` beauftragt und pausiert **fail-closed** bis zur Meldung (kein Timeout-Weiter; FK-10 §10.2.4a, FK-91 §91.1b). Kein Mensch — der Agent treibt sein eigenes Edge-Tool; Resume nach der Meldung. Siehe FK-39 §39.2.2. |
 | Governance-Beobachtung: harter Verstoß (Secrets, Governance-Manipulation) | jede | ESCALATED (`escalation_reason: "governance_violation"`) | Sofortiger dauerhafter Stopp, kein LLM-Adjudication nötig. |
 
 ### 20.6.2 Eskalationsverhalten (einheitlich)

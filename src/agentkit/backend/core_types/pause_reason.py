@@ -39,12 +39,15 @@ _YIELD_STATUS_SYNONYMS: Final[Mapping[str, str]] = MappingProxyType(
         "governance_incident": "GOVERNANCE_INCIDENT",
         "governance_pause": "GOVERNANCE_INCIDENT",
         "governance_intervention": "GOVERNANCE_INCIDENT",
+        "awaiting_edge_provisioning": "AWAITING_EDGE_PROVISIONING",
+        "edge_provisioning": "AWAITING_EDGE_PROVISIONING",
+        "edge_provisioning_pending": "AWAITING_EDGE_PROVISIONING",
     },
 )
 
 
 class PauseReason(StrEnum):
-    """Three normalized values for `phase_state.paused_reason`.
+    """Four normalized values for `phase_state.paused_reason`.
 
     Attributes:
         AWAITING_DESIGN_REVIEW: Draft artifact waits for the design review
@@ -53,11 +56,17 @@ class PauseReason(StrEnum):
             pipeline pauses until the challenge process is complete.
         GOVERNANCE_INCIDENT: Governance observer detected a critical
             incident; a human must intervene.
+        AWAITING_EDGE_PROVISIONING: Setup commissioned the Project Edge to
+            provision worktrees / run the preflight probe and pauses
+            fail-closed until the edge reports (FK-10 §10.2.4a, FK-91
+            §91.1b). No human needed; the agent drives its own edge tool
+            and the orchestrator resumes after the report.
     """
 
     AWAITING_DESIGN_REVIEW = "AWAITING_DESIGN_REVIEW"
     AWAITING_DESIGN_CHALLENGE = "AWAITING_DESIGN_CHALLENGE"
     GOVERNANCE_INCIDENT = "GOVERNANCE_INCIDENT"
+    AWAITING_EDGE_PROVISIONING = "AWAITING_EDGE_PROVISIONING"
 
     @classmethod
     def from_yield_status(cls, raw: str) -> PauseReason:

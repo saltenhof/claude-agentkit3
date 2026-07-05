@@ -90,6 +90,7 @@ _PAUSE_REASON_EXPECTED: Final[Mapping[str, str]] = {
     "AWAITING_DESIGN_REVIEW": "AWAITING_DESIGN_REVIEW",
     "AWAITING_DESIGN_CHALLENGE": "AWAITING_DESIGN_CHALLENGE",
     "GOVERNANCE_INCIDENT": "GOVERNANCE_INCIDENT",
+    "AWAITING_EDGE_PROVISIONING": "AWAITING_EDGE_PROVISIONING",
 }
 
 _ATTEMPT_OUTCOME_EXPECTED: Final[Mapping[str, str]] = {
@@ -272,9 +273,9 @@ def test_exploration_gate_wire_values() -> None:
 
 
 def test_pause_reason_wire_values() -> None:
-    """FK-39 §39.2.2 — drei upper-case PauseReason-Werte."""
+    """FK-39 §39.2.2 — vier upper-case PauseReason-Werte."""
     _assert_wire_contract(
-        PauseReason, _PAUSE_REASON_EXPECTED, expected_count=3,
+        PauseReason, _PAUSE_REASON_EXPECTED, expected_count=4,
     )
 
 

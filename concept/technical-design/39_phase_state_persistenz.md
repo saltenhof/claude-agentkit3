@@ -61,12 +61,15 @@ glossary:
         Post-Mortem-Analyse.
     - id: pause-reason
       definition: >
-        StrEnum mit drei Werten, das den Grund eines PAUSED-Zustands
+        StrEnum mit vier Werten, das den Grund eines PAUSED-Zustands
         beschreibt. AWAITING_DESIGN_REVIEW: Entwurfsartefakt wartet auf
         Design-Review. AWAITING_DESIGN_CHALLENGE: Design-Challenge-
         Prozess laeuft. GOVERNANCE_INCIDENT: Governance-Observer hat
-        kritischen Incident erkannt. Jeder andere Wert ist ungueltig.
-      values: [AWAITING_DESIGN_REVIEW, AWAITING_DESIGN_CHALLENGE, GOVERNANCE_INCIDENT]
+        kritischen Incident erkannt. AWAITING_EDGE_PROVISIONING: Setup hat
+        den Project Edge mit der Worktree-Provisionierung beauftragt und
+        wartet auf dessen Meldung (FK-10 §10.2.4a, FK-91 §91.1b). Jeder
+        andere Wert ist ungueltig.
+      values: [AWAITING_DESIGN_REVIEW, AWAITING_DESIGN_CHALLENGE, GOVERNANCE_INCIDENT, AWAITING_EDGE_PROVISIONING]
     - id: phase-envelope
       definition: >
         Frozen Dataclass als Laufzeit-Container fuer eine Phase-
@@ -202,7 +205,7 @@ auf `phase-state.json` meinen den Export der kanonischen
 | `attempt` | Integer | Aktueller Durchlauf (beginnt bei 1) |
 | `started_at` | ISO-8601 | Zeitstempel des Pipeline-Starts |
 | `phase_entered_at` | ISO-8601 | Zeitstempel des Eintritts in die aktuelle Phase |
-| `pause_reason` | PauseReason \| null | Grund bei `status: PAUSED`. Erlaubte Werte: siehe PauseReason-StrEnum unten. Wire-Format (in `phase-state.json`): serialisierter StrEnum-Wert in Lowercase (`"awaiting_design_review"`, `"awaiting_design_challenge"`, `"governance_incident"`). Enum-Member-Namen (`AWAITING_DESIGN_REVIEW` etc.) sind nur in Python-Code zu verwenden. |
+| `pause_reason` | PauseReason \| null | Grund bei `status: PAUSED`. Erlaubte Werte: siehe PauseReason-StrEnum unten. Wire-Format (in `phase-state.json`): serialisierter StrEnum-Wert in Lowercase (`"awaiting_design_review"`, `"awaiting_design_challenge"`, `"governance_incident"`, `"awaiting_edge_provisioning"`). Enum-Member-Namen (`AWAITING_DESIGN_REVIEW` etc.) sind nur in Python-Code zu verwenden. |
 | `escalation_reason` | String \| null | Grund bei `status: ESCALATED`. Werte: `"worker_blocked"`, `"max_rounds_exceeded"`, `"preflight_fail"`, `"integrity_fail"`, `"merge_fail"`, `"doc_fidelity_fail"`, `"impact_violation"`, `"design_review_rejected"`, `"governance_violation"`. |
 | `agents_to_spawn` | Array | Agents, die der Orchestrator als nächstes spawnen soll |
 | `errors` | Array | Fehlerliste des aktuellen Durchlaufs |
@@ -213,7 +216,7 @@ auf `phase-state.json` meinen den Export der kanonischen
 
 ### 39.2.2 PauseReason (StrEnum)
 
-Das Feld `pause_reason` akzeptiert ausschließlich einen der drei
+Das Feld `pause_reason` akzeptiert ausschließlich einen der vier
 definierten Werte. Jeder andere String ist ungültig und wird vom
 Phase Runner mit einem Validierungsfehler abgewiesen.
 
@@ -222,6 +225,7 @@ class PauseReason(StrEnum):
     AWAITING_DESIGN_REVIEW = "awaiting_design_review"
     AWAITING_DESIGN_CHALLENGE = "awaiting_design_challenge"
     GOVERNANCE_INCIDENT = "governance_incident"
+    AWAITING_EDGE_PROVISIONING = "awaiting_edge_provisioning"
 ```
 
 | Wert | Wann gesetzt | Beschreibung |
@@ -229,6 +233,7 @@ class PauseReason(StrEnum):
 | `AWAITING_DESIGN_REVIEW` | Exploration-Phase | Entwurfsartefakt liegt vor und wartet auf Design-Review (Mensch oder Review-Agent). Pipeline pausiert, bis Review-Ergebnis vorliegt. |
 | `AWAITING_DESIGN_CHALLENGE` | Exploration-Phase | Design-Review hat Einwände erhoben (Design-Challenge). Pipeline pausiert, bis der Challenge-Prozess abgeschlossen ist. |
 | `GOVERNANCE_INCIDENT` | Jede Phase | Governance-Observer hat einen kritischen Incident erkannt (kein harter Verstoß). Pipeline pausiert sofort, Mensch muss intervenieren und den Incident klären. |
+| `AWAITING_EDGE_PROVISIONING` | Setup-Phase | Setup hat den Project Edge mit der Worktree-Provisionierung (bzw. dem Preflight-Probe) beauftragt und pausiert fail-closed, bis die Meldung vorliegt (FK-10 §10.2.4a: der Edge ist der physische Akteur; FK-91 §91.1b). Kein Mensch nötig — der Agent treibt sein eigenes Edge-Tool und der Orchestrator resumiert nach der Meldung. |
 
 **Abgrenzung:** `PAUSED` ist **kein Fehlerzustand** und **nicht
 inhärent ein Wartet-auf-Mensch-Zustand**, sondern ein
