@@ -13,6 +13,10 @@ from pathlib import Path
 
 import pytest
 
+from agentkit.backend.control_plane.edge_commands import (
+    PreflightOwnershipContext,
+    PreflightProbeEvidence,
+)
 from agentkit.backend.governance.setup_preflight_gate.preflight import (
     PreflightCheckId,
     PreflightContext,
@@ -247,17 +251,48 @@ class TestNoActiveRuntimeResidue:
 
 
 class TestNoStoryBranch:
-    def test_pass(self) -> None:
-        ctx = _ctx(_approved_service(), branch_exists=lambda _root, _sid: False)
+    """AG3-145 Teilschritt C: Check 7 = edge-probe + backend decision."""
+
+    def test_pass_no_leftover_branch(self) -> None:
+        ctx = _ctx(
+            _approved_service(participating_repos=["repo-a"]),
+            participating_repos=("repo-a",),
+            edge_probe_reports={
+                "repo-a": PreflightProbeEvidence(repo_id="repo-a", branch_present=False)
+            },
+        )
         chk = _result_of(PreflightCheckId.NO_STORY_BRANCH, ctx)
         assert chk.status is PreflightStatus.PASS
 
-    def test_fail(self) -> None:
-        ctx = _ctx(_approved_service(), branch_exists=lambda _root, _sid: True)
+    def test_pass_when_no_edge_consultation(self) -> None:
+        # A non-worktree story never consults the edge -> Check 7 PASSes.
+        chk = _result_of(PreflightCheckId.NO_STORY_BRANCH, _ctx(_approved_service()))
+        assert chk.status is PreflightStatus.PASS
+
+    def test_fail_stale_foreign_branch(self) -> None:
+        ctx = _ctx(
+            _approved_service(participating_repos=["repo-a"]),
+            participating_repos=("repo-a",),
+            edge_probe_reports={
+                "repo-a": PreflightProbeEvidence(
+                    repo_id="repo-a", branch_present=True, head_sha="deadbeef"
+                )
+            },
+        )
         chk = _result_of(PreflightCheckId.NO_STORY_BRANCH, ctx)
         assert chk.status is PreflightStatus.FAIL
         assert chk.cleanup_hint is not None
-        assert "story/AK3-1" in (chk.detail or "")
+        assert "stale_foreign_branch" in (chk.detail or "")
+
+    def test_missing_probe_fails_closed(self) -> None:
+        ctx = _ctx(
+            _approved_service(participating_repos=["repo-a"]),
+            participating_repos=("repo-a",),
+            edge_probe_reports={"repo-a": None},  # command terminated unreadable
+        )
+        chk = _result_of(PreflightCheckId.NO_STORY_BRANCH, ctx)
+        assert chk.status is PreflightStatus.FAIL
+        assert "edge_probe_missing" in (chk.detail or "")
 
 
 # ---------------------------------------------------------------------------
@@ -266,17 +301,56 @@ class TestNoStoryBranch:
 
 
 class TestNoStaleWorktree:
-    def test_pass_clean(self, tmp_path: Path) -> None:
-        ctx = _ctx(_approved_service(), project_root=tmp_path)
+    """AG3-145 Teilschritt C: Check 8 = edge-probe + backend decision."""
+
+    def test_pass_clean(self) -> None:
+        ctx = _ctx(
+            _approved_service(participating_repos=["repo-a"]),
+            participating_repos=("repo-a",),
+            edge_probe_reports={
+                "repo-a": PreflightProbeEvidence(
+                    repo_id="repo-a", branch_present=False, worktree_present=False
+                )
+            },
+        )
         chk = _result_of(PreflightCheckId.NO_STALE_WORKTREE, ctx)
         assert chk.status is PreflightStatus.PASS
 
-    def test_fail_stale(self, tmp_path: Path) -> None:
-        (tmp_path / "_worktrees" / "AK3-1").mkdir(parents=True)
-        ctx = _ctx(_approved_service(), project_root=tmp_path)
+    def test_fail_foreign_worktree(self) -> None:
+        ctx = _ctx(
+            _approved_service(participating_repos=["repo-a"]),
+            participating_repos=("repo-a",),
+            edge_probe_reports={
+                "repo-a": PreflightProbeEvidence(
+                    repo_id="repo-a", branch_present=False, worktree_present=True
+                )
+            },
+        )
         chk = _result_of(PreflightCheckId.NO_STALE_WORKTREE, ctx)
         assert chk.status is PreflightStatus.FAIL
         assert chk.cleanup_hint is not None
+        assert "foreign_worktree" in (chk.detail or "")
+
+    def test_local_stale_or_dirty_takeover_target_is_a_named_finding(self) -> None:
+        # A legitimate takeover (active own ownership + base) whose worktree marker
+        # is missing/mismatched -> the named Check-8 finding.
+        ctx = _ctx(
+            _approved_service(participating_repos=["repo-a"]),
+            participating_repos=("repo-a",),
+            edge_ownership=PreflightOwnershipContext(own_session_active_ownership=True),
+            edge_probe_reports={
+                "repo-a": PreflightProbeEvidence(
+                    repo_id="repo-a",
+                    branch_present=True,
+                    worktree_present=True,
+                    marker_present=False,
+                    takeover_base_sha="base-sha",
+                )
+            },
+        )
+        chk = _result_of(PreflightCheckId.NO_STALE_WORKTREE, ctx)
+        assert chk.status is PreflightStatus.FAIL
+        assert "local_stale_or_dirty_takeover_target" in (chk.detail or "")
 
 
 # ---------------------------------------------------------------------------
@@ -380,7 +454,6 @@ class TestPreflightResultAggregate:
         ctx = _ctx(
             _approved_service(),
             project_root=tmp_path,
-            branch_exists=lambda _root, _sid: False,
             active_runtime_residue=lambda _root, _sid: False,
         )
         result = run_preflight("AK3-1", _approved_service(), context=ctx)  # type: ignore[arg-type]
@@ -389,31 +462,11 @@ class TestPreflightResultAggregate:
         assert result.passed is True
         assert {c.check_id for c in result.checks} == set(PreflightCheckId)
 
-    def test_branch_default_probe_fails_closed_on_non_repo(
-        self, tmp_path: Path
-    ) -> None:
-        # Finding B: with NO injected branch probe the real git default runs;
-        # on a non-repo tmp_path it raises and the check fails closed (AK4),
-        # never silently passing.
-        result = run_preflight(
-            "AK3-1",
-            _approved_service(),  # type: ignore[arg-type]
-            project_key="proj",
-            project_root=tmp_path,
-        )
-        branch = next(
-            c for c in result.checks if c.check_id is PreflightCheckId.NO_STORY_BRANCH
-        )
-        assert branch.status is PreflightStatus.FAIL
-        assert branch.cleanup_hint is not None
-        assert result.overall is PreflightStatus.FAIL
-
     def test_all_ten_run_even_when_story_missing(self, tmp_path: Path) -> None:
         ctx = _ctx(
             _StubService({}),
             story_id="AK3-99",
             project_root=tmp_path,
-            branch_exists=lambda _root, _sid: False,
             active_runtime_residue=lambda _root, _sid: False,
         )
         result = run_preflight("AK3-99", _StubService({}), context=ctx)  # type: ignore[arg-type]
@@ -426,7 +479,6 @@ class TestPreflightResultAggregate:
         ctx = _ctx(
             _approved_service(status=StoryStatus.BACKLOG),
             project_root=tmp_path,
-            branch_exists=lambda _root, _sid: False,
             active_runtime_residue=lambda _root, _sid: False,
         )
         result = run_preflight("AK3-1", _approved_service(), context=ctx)  # type: ignore[arg-type]

@@ -50,6 +50,9 @@ if TYPE_CHECKING:
     from agentkit.backend.governance.integrity_gate import IntegrityGate
     from agentkit.backend.governance.integrity_gate.dim9_sonar import SonarDimensionPort
     from agentkit.backend.governance.repository import SetupContextRepository
+    from agentkit.backend.governance.setup_preflight_gate.edge_provisioning import (
+        EdgeProvisioningCoordinator,
+    )
     from agentkit.backend.governance.setup_preflight_gate.phase import SetupPhaseHandler
     from agentkit.backend.kpi_analytics import KpiAnalytics
     from agentkit.backend.kpi_analytics.dashboard import DashboardService
@@ -1987,6 +1990,24 @@ def build_setup_fence_scope_binder() -> Callable[..., contextlib.AbstractContext
     return _bind
 
 
+def build_setup_edge_provisioning_coordinator(
+    project_root: Path,
+) -> EdgeProvisioningCoordinator:
+    """Build the productive edge-provisioning coordinator (AG3-145 Teilschritt C).
+
+    Delegates to the ``bootstrap.edge_provisioning_adapter`` module which owns the
+    concrete Postgres-backed :class:`SetupEdgeProvisioningCoordinator` (commission
+    + read of ``preflight_probe`` / ``provision_worktree`` commands, ownership /
+    takeover / ``ls-remote`` decision context). Kept here as the canonical setup
+    wiring entry point (FK-10 §10.2.4a, FK-91 §91.1b).
+    """
+    from agentkit.backend.bootstrap.edge_provisioning_adapter import (
+        build_setup_edge_provisioning_coordinator as _build,
+    )
+
+    return _build(project_root)
+
+
 def build_setup_phase_handler(
     config: object,
     *,
@@ -2048,6 +2069,9 @@ def build_setup_phase_handler(
             store_dir or config.project_root
         ),
         fence_scope_binder=build_setup_fence_scope_binder(),
+        edge_provisioning_coordinator=build_setup_edge_provisioning_coordinator(
+            config.project_root
+        ),
     )
 
 

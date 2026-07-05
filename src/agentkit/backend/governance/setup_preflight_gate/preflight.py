@@ -18,7 +18,7 @@ the deterministic aggregation (``run_preflight``).
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -28,6 +28,10 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+    from agentkit.backend.control_plane.edge_commands import (
+        PreflightOwnershipContext,
+        PreflightProbeEvidence,
+    )
     from agentkit.backend.execution_planning.repository import StoryDependencyRepository
     from agentkit.backend.state_backend.store.mode_lock_repository import ModeLockRecord
     from agentkit.backend.story_context_manager.service import StoryService
@@ -101,28 +105,6 @@ class PreflightResult(BaseModel):
         return self.overall is PreflightStatus.PASS
 
 
-def _default_branch_exists(project_root: Path, story_display_id: str) -> bool:
-    """Default branch probe used by Check 7 (``no_story_branch``).
-
-    FAIL-CLOSED real read (Finding B fix): performs a read-only
-    ``git show-ref`` on the project repo for ``story/{story_display_id}``
-    instead of optimistically returning "no branch".  A non-repo / git error
-    propagates and ``run_preflight`` converts it into a fail-closed ``FAIL``
-    (AK4) — the check never silently passes when it cannot consult git.
-    Branch-cleanup CLI logic stays out of scope (story.md §2.2).
-
-    Args:
-        project_root: Project repository root.
-        story_display_id: Story display ID.
-
-    Returns:
-        ``True`` when a ``story/{story_display_id}`` branch exists.
-    """
-    from agentkit.backend.utils.git import branch_exists
-
-    return branch_exists(project_root, f"story/{story_display_id}")
-
-
 @dataclass(frozen=True)
 class PreflightContext:
     """Input bundle for the ten preflight checks (story.md §2.1.1, AK2).
@@ -147,11 +129,19 @@ class PreflightContext:
             orchestrator injects a run-id-aware state-backend probe (Finding B);
             when ``None`` the standalone default reads the canonical phase-state
             for the story (any incomplete prior phase-state == residue).
-        branch_exists: Probe for Check 7 — ``True`` when a ``story/{id}`` branch
-            exists.  Defaults to a real ``git show-ref`` read (Finding B); a
-            git error fails the check closed (AK4).
-        stale_worktree_present: Probe for Check 8 — ``True`` when a stale
-            worktree directory exists.
+        edge_probe_reports: Per-repo edge ``preflight_probe`` evidence keyed by
+            ``repo_id`` (Checks 7/8, AG3-145 Teilschritt C, FK-22 §22.3.1).
+            ``None`` means the edge was NOT consulted for this dispatch (a
+            non-worktree story) -> Checks 7/8 PASS trivially. A dict means the
+            worktree edge was consulted: for every participating repo a
+            missing/``None`` entry FAILs the check fail-closed
+            (``edge_probe_missing``), never an optimistic PASS.
+        edge_ownership: The backend ownership decision context for Checks 7/8
+            (active ``run_ownership_records`` row + ``takeover_base_sha``); used
+            to distinguish ``stale foreign`` (FAIL) from ``legitimate takeover``
+            (PASS). Defaults to the no-active-ownership, no-takeover context.
+        participating_repos: The repos Checks 7/8 iterate when
+            ``edge_probe_reports`` is set.
         mode_lock: A pre-resolved project mode-lock record (Check 10, decoupled
             fast/standard axis), or ``None`` when idle / unset.  Used only when
             ``mode_lock_reader`` is ``None`` (e.g. tests that seed a record
@@ -172,10 +162,9 @@ class PreflightContext:
     dependency_repository: StoryDependencyRepository | None = None
     execution_artifacts_present: Callable[[Path, str], bool] | None = None
     active_runtime_residue: Callable[[Path, str], bool] | None = None
-    branch_exists: Callable[[Path, str], bool] = field(
-        default=_default_branch_exists
-    )
-    stale_worktree_present: Callable[[Path, str], bool] | None = None
+    edge_probe_reports: dict[str, PreflightProbeEvidence | None] | None = None
+    edge_ownership: PreflightOwnershipContext | None = None
+    participating_repos: tuple[str, ...] = ()
     mode_lock: ModeLockRecord | None = None
     mode_lock_reader: Callable[[str], ModeLockRecord | None] | None = None
 
@@ -195,6 +184,9 @@ def run_preflight(
     mode_lock: ModeLockRecord | None = None,
     mode_lock_reader: Callable[[str], ModeLockRecord | None] | None = None,
     active_runtime_residue: Callable[[Path, str], bool] | None = None,
+    edge_probe_reports: dict[str, PreflightProbeEvidence | None] | None = None,
+    edge_ownership: PreflightOwnershipContext | None = None,
+    participating_repos: tuple[str, ...] = (),
     context: PreflightContext | None = None,
 ) -> PreflightResult:
     """Run the applicable preflight checks (FK-22 §22.3.1), fail-closed.
@@ -243,6 +235,9 @@ def run_preflight(
             mode_lock=mode_lock,
             mode_lock_reader=mode_lock_reader,
             active_runtime_residue=active_runtime_residue,
+            edge_probe_reports=edge_probe_reports,
+            edge_ownership=edge_ownership,
+            participating_repos=participating_repos,
         )
     elif context.story is None:
         context = _with_resolved_story(context)

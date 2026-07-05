@@ -1,12 +1,15 @@
 """Unit tests for SetupPhaseHandler.
 
-Mocks only the three external system boundaries:
+Mocks only the external system boundaries:
   - run_preflight  (StoryService-based, mocked)
   - build_story_context  (AK3 Story-Service record read)
-  - create_worktree  (git subprocess call)
+  - the edge-provisioning coordinator (AG3-145: edge-commissioned worktrees)
 
 AG3-031 Pass-4 Fix E9: save_story_context is no longer a module-level name.
 Tests use a _RecordingContextRepo test-double for the persist-failure path.
+AG3-145 Teilschritt C: the backend worktree-git path is removed; worktree
+provisioning is edge-commissioned via the ``EdgeProvisioningCoordinator`` port
+(``preflight_probe`` / ``provision_worktree`` commands) with a fail-closed PAUSE.
 """
 
 from __future__ import annotations
@@ -25,9 +28,12 @@ from agentkit.backend.config.models import (
     RepositoryConfig,
     SonarQubeConfig,
 )
-from agentkit.backend.exceptions import WorktreeError
+from agentkit.backend.core_types import PauseReason
+from agentkit.backend.governance.setup_preflight_gate.edge_provisioning import (
+    ProbeOutcome,
+    ProvisioningOutcome,
+)
 from agentkit.backend.governance.setup_preflight_gate.phase import SetupConfig, SetupPhaseHandler
-from agentkit.backend.governance.setup_preflight_gate.worktree import WorktreeResult
 from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
 from agentkit.backend.pipeline_engine.phase_executor import (
     AreBundleStatus,
@@ -164,25 +170,73 @@ def _make_project_config(repo_path: Path) -> ProjectConfig:
     )
 
 
-def _make_worktree_result(tmp_path: Path, story_id: str = "AG3-001") -> WorktreeResult:
-    return WorktreeResult(
-        success=True,
-        worktree_path=tmp_path / "worktrees" / story_id,
-        repo_name="repo",
-        branch=f"story/{story_id}",
-    )
-
-
 # ---------------------------------------------------------------------------
 # Helpers (continued)
 # ---------------------------------------------------------------------------
 
 
 class _NoOpStoryService:
-    """Minimal no-op stub for SetupPhaseHandler tests that don't test begin_progress."""
+    """No-op stub for tests that don't test begin_progress; resolves a repo.
+
+    ``get_story`` returns a minimal object carrying ``participating_repos`` so the
+    setup phase can resolve the edge-provisioning plan for a worktree story
+    (AG3-145 ``_resolve_worktree_plan``).
+    """
+
+    def __init__(self, repos: tuple[str, ...] = ("repo",)) -> None:
+        self._repos = list(repos)
 
     def begin_progress(self, story_id: str, *, correlation_id: str = "") -> object:
         return object()
+
+    def get_story(self, story_display_id: str) -> object:
+        del story_display_id
+        repos = self._repos
+
+        class _Story:
+            participating_repos = repos
+
+        return _Story()
+
+
+class _FakeEdgeCoordinator:
+    """Test-double :class:`EdgeProvisioningCoordinator` (AG3-145 Teilschritt C).
+
+    Records commission calls and returns scripted probe/provision outcomes so the
+    staged setup flow (probe PAUSE -> preflight -> provision PAUSE -> populate) can
+    be driven without a real Postgres command queue or an edge process.
+    """
+
+    def __init__(
+        self,
+        *,
+        probe: ProbeOutcome | None = None,
+        provision: ProvisioningOutcome | None = None,
+        on_provision: object | None = None,
+    ) -> None:
+        self._probe = probe or ProbeOutcome(pending=False, evidence={}, ownership=None)
+        self._provision = provision or ProvisioningOutcome(pending=False)
+        self._on_provision = on_provision
+        self.probe_calls = 0
+        self.provision_calls = 0
+
+    def ensure_preflight_probes(
+        self, *, project_key: str, story_id: str, run_id: str,
+        repos: tuple[str, ...], branch: str,
+    ) -> ProbeOutcome:
+        del project_key, story_id, run_id, repos, branch
+        self.probe_calls += 1
+        return self._probe
+
+    def ensure_provisioning(
+        self, *, project_key: str, story_id: str, run_id: str,
+        repos: tuple[str, ...], branch: str, base_ref: str,
+    ) -> ProvisioningOutcome:
+        del project_key, story_id, run_id, repos, branch, base_ref
+        self.provision_calls += 1
+        if callable(self._on_provision):
+            self._on_provision()
+        return self._provision
 
 
 # ---------------------------------------------------------------------------
@@ -191,19 +245,29 @@ class _NoOpStoryService:
 
 
 class TestSetupPhaseHandlerWorktree:
-    """Tests for worktree creation in SetupPhaseHandler.on_enter."""
+    """Tests for edge-commissioned worktree provisioning in on_enter (AG3-145)."""
 
-    def test_create_worktree_called_for_implementation(
+    def test_worktree_map_populated_from_edge_report(
         self, tmp_path: Path
     ) -> None:
-        """on_enter creates a worktree for an implementation story."""
+        """on_enter populates worktree_map from the edge worktree_report."""
+        coordinator = _FakeEdgeCoordinator(
+            provision=ProvisioningOutcome(
+                pending=False,
+                worktree_map={"repo": tmp_path / "worktrees" / "AG3-001"},
+            ),
+        )
         cfg = SetupConfig(
             project_root=tmp_path,
             story_id="AG3-001",
             create_worktree=True,
             story_service=_NoOpStoryService(),  # type: ignore[arg-type]
         )
-        handler = SetupPhaseHandler(cfg, context_repository=_RecordingContextRepo())  # type: ignore[arg-type]
+        handler = SetupPhaseHandler(
+            cfg,
+            context_repository=_RecordingContextRepo(),  # type: ignore[arg-type]
+            edge_provisioning_coordinator=coordinator,
+        )
         ctx = _make_story_context(project_root=tmp_path)
         state = _make_phase_state()
         enriched = _make_story_context(project_root=tmp_path)
@@ -221,32 +285,113 @@ class TestSetupPhaseHandlerWorktree:
                 "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
                 return_value=_make_project_config(tmp_path),
             ),
-            patch(
-                "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees",
-                return_value=[_make_worktree_result(tmp_path)],
-            ) as mock_setup,
         ):
             result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.COMPLETED
-        mock_setup.assert_called_once()
-        assert mock_setup.call_args.args[0] == "AG3-001"
+        assert coordinator.probe_calls == 1
+        assert coordinator.provision_calls == 1
         assert result.updated_context is not None
+        # The path is the EDGE-REPORTED one -- the backend derived none.
         assert result.updated_context.worktree_map == {
             "repo": tmp_path / "worktrees" / "AG3-001",
         }
 
+    def test_probe_pending_pauses_fail_closed(self, tmp_path: Path) -> None:
+        """A not-yet-reported probe PAUSES with AWAITING_EDGE_PROVISIONING."""
+        coordinator = _FakeEdgeCoordinator(probe=ProbeOutcome(pending=True))
+        cfg = SetupConfig(
+            project_root=tmp_path,
+            story_id="AG3-001",
+            create_worktree=True,
+            story_service=_NoOpStoryService(),  # type: ignore[arg-type]
+        )
+        handler = SetupPhaseHandler(
+            cfg,
+            context_repository=_RecordingContextRepo(),  # type: ignore[arg-type]
+            edge_provisioning_coordinator=coordinator,
+        )
+        result = handler.on_enter(
+            _make_story_context(project_root=tmp_path),
+            PhaseEnvelopeStore.make_fresh_envelope(_make_phase_state()),
+        )
+        assert result.status is PhaseStatus.PAUSED
+        assert result.yield_status == PauseReason.AWAITING_EDGE_PROVISIONING.value
+        # Fail-closed: no provisioning is commissioned before the probe decides.
+        assert coordinator.provision_calls == 0
+
+    def test_provision_pending_pauses_fail_closed(self, tmp_path: Path) -> None:
+        """A reported probe but a not-yet-reported worktree PAUSES fail-closed."""
+        coordinator = _FakeEdgeCoordinator(
+            provision=ProvisioningOutcome(pending=True),
+        )
+        cfg = SetupConfig(
+            project_root=tmp_path,
+            story_id="AG3-001",
+            create_worktree=True,
+            story_service=_NoOpStoryService(),  # type: ignore[arg-type]
+        )
+        handler = SetupPhaseHandler(
+            cfg,
+            context_repository=_RecordingContextRepo(),  # type: ignore[arg-type]
+            edge_provisioning_coordinator=coordinator,
+        )
+        enriched = _make_story_context(project_root=tmp_path)
+        with (
+            patch(
+                "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
+                return_value=_make_preflight_pass(),
+            ),
+            patch(
+                "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
+                return_value=enriched,
+            ),
+            patch(
+                "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
+                return_value=_make_project_config(tmp_path),
+            ),
+        ):
+            result = handler.on_enter(
+                _make_story_context(project_root=tmp_path),
+                PhaseEnvelopeStore.make_fresh_envelope(_make_phase_state()),
+            )
+        assert result.status is PhaseStatus.PAUSED
+        assert result.yield_status == PauseReason.AWAITING_EDGE_PROVISIONING.value
+
+    def test_worktree_story_without_coordinator_fails_closed(
+        self, tmp_path: Path
+    ) -> None:
+        """A worktree story with NO wired coordinator fails closed (no fallback)."""
+        cfg = SetupConfig(
+            project_root=tmp_path,
+            story_id="AG3-001",
+            create_worktree=True,
+            story_service=_NoOpStoryService(),  # type: ignore[arg-type]
+        )
+        handler = SetupPhaseHandler(cfg, context_repository=_RecordingContextRepo())  # type: ignore[arg-type]
+        result = handler.on_enter(
+            _make_story_context(project_root=tmp_path),
+            PhaseEnvelopeStore.make_fresh_envelope(_make_phase_state()),
+        )
+        assert result.status is PhaseStatus.FAILED
+        assert "edge_provisioning_unavailable" in result.errors[0]
+
     def test_create_worktree_not_called_for_concept(
         self, tmp_path: Path
     ) -> None:
-        """on_enter does not create a worktree for a concept story."""
+        """on_enter commissions no edge worktree for a concept story."""
+        coordinator = _FakeEdgeCoordinator()
         cfg = SetupConfig(
             project_root=tmp_path,
             story_id="AG3-002",
             create_worktree=True,
             story_service=_NoOpStoryService(),  # type: ignore[arg-type]
         )
-        handler = SetupPhaseHandler(cfg, context_repository=_RecordingContextRepo())  # type: ignore[arg-type]
+        handler = SetupPhaseHandler(
+            cfg,
+            context_repository=_RecordingContextRepo(),  # type: ignore[arg-type]
+            edge_provisioning_coordinator=coordinator,
+        )
         ctx = _make_story_context(
             story_id="AG3-002",
             story_type=StoryType.CONCEPT,
@@ -266,19 +411,18 @@ class TestSetupPhaseHandlerWorktree:
             ),
             # AG3-120: EVERY story type builds its context from the AK3
             # Story-Service record via the single ``build_story_context`` (NO
-            # GitHub). A CONCEPT story simply creates no worktree.
+            # GitHub). A CONCEPT story simply provisions no worktree.
             patch(
                 "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
             ) as mock_build_ctx,
-            patch(
-                "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees"
-            ) as mock_setup,
         ):
             result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.COMPLETED
-        mock_setup.assert_not_called()
+        # No edge command commissioned for a non-worktree story.
+        assert coordinator.probe_calls == 0
+        assert coordinator.provision_calls == 0
         # The record-based builder was used; no worktree for a concept story.
         mock_build_ctx.assert_called_once()
 
@@ -329,9 +473,6 @@ class TestSetupPhaseHandlerWorktree:
                 "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
             ) as mock_build_ctx,
-            patch(
-                "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees"
-            ) as mock_setup,
         ):
             result = handler.on_enter(
                 ctx, PhaseEnvelopeStore.make_fresh_envelope(state)
@@ -339,7 +480,6 @@ class TestSetupPhaseHandlerWorktree:
 
         assert result.status == PhaseStatus.COMPLETED
         mock_build_ctx.assert_called_once()
-        mock_setup.assert_not_called()
 
     def test_code_producing_story_setup_builds_context_from_record(
         self, tmp_path: Path
@@ -385,9 +525,6 @@ class TestSetupPhaseHandlerWorktree:
                 "check_main_green_precondition",
                 return_value=MainGreenResult(status=MainGreenStatus.GREEN),
             ),
-            patch(
-                "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees"
-            ),
         ):
             result = handler.on_enter(
                 ctx, PhaseEnvelopeStore.make_fresh_envelope(state)
@@ -397,16 +534,24 @@ class TestSetupPhaseHandlerWorktree:
         # Every story type uses the single record-based builder.
         mock_build_ctx.assert_called_once()
 
-    def test_create_worktree_failure_returns_failed(
+    def test_edge_provisioning_failure_report_returns_failed(
         self, tmp_path: Path
     ) -> None:
-        """on_enter returns FAILED when create_worktree raises WorktreeError."""
+        """on_enter returns FAILED when the edge reports a provisioning failure."""
+        coordinator = _FakeEdgeCoordinator(
+            provision=ProvisioningOutcome(pending=False, failed_repos=("repo",)),
+        )
         cfg = SetupConfig(
             project_root=tmp_path,
             story_id="AG3-003",
             create_worktree=True,
+            story_service=_NoOpStoryService(),  # type: ignore[arg-type]
         )
-        handler = SetupPhaseHandler(cfg, context_repository=_RecordingContextRepo())  # type: ignore[arg-type]
+        handler = SetupPhaseHandler(
+            cfg,
+            context_repository=_RecordingContextRepo(),  # type: ignore[arg-type]
+            edge_provisioning_coordinator=coordinator,
+        )
         ctx = _make_story_context(story_id="AG3-003", project_root=tmp_path)
         state = _make_phase_state(story_id="AG3-003")
         enriched = _make_story_context(story_id="AG3-003", project_root=tmp_path)
@@ -424,74 +569,18 @@ class TestSetupPhaseHandlerWorktree:
                 "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
                 return_value=_make_project_config(tmp_path),
             ),
-            patch(
-                "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees",
-                side_effect=WorktreeError(
-                    "Worktree path already exists: /some/path"
-                ),
-            ),
         ):
             result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.FAILED
-        assert len(result.errors) == 1
-        assert "Worktree path already exists" in result.errors[0]
-
-    def test_worktree_created_but_persist_fails_cleans_up(
-        self, tmp_path: Path
-    ) -> None:
-        """on_enter removes the worktree and returns FAILED when the second
-        context_repo.save call (which persists the worktree path) raises.
-
-        AG3-031 Pass-4 Fix E9: uses _RecordingContextRepo test-double instead
-        of patching the now-removed module-level save_story_context name.
-        """
-        # Second call (with worktree path) raises to simulate disk-full.
-        ctx_repo = _RecordingContextRepo(raises_on_call=2, exc=OSError("disk full"))
-
-        cfg = SetupConfig(
-            project_root=tmp_path,
-            story_id="AG3-005",
-            create_worktree=True,
-        )
-        handler = SetupPhaseHandler(cfg, context_repository=ctx_repo)  # type: ignore[arg-type]
-        ctx = _make_story_context(story_id="AG3-005", project_root=tmp_path)
-        state = _make_phase_state(story_id="AG3-005")
-        enriched = _make_story_context(story_id="AG3-005", project_root=tmp_path)
-
-        with (
-            patch(
-                "agentkit.backend.governance.setup_preflight_gate.phase.run_preflight",
-                return_value=_make_preflight_pass(),
-            ),
-            patch(
-                "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
-                return_value=enriched,
-            ),
-            patch(
-                "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
-                return_value=_make_project_config(tmp_path),
-            ),
-            patch(
-                "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees",
-                return_value=[_make_worktree_result(tmp_path, "AG3-005")],
-            ),
-            patch(
-                "agentkit.backend.governance.setup_preflight_gate.phase.remove_worktree",
-            ) as mock_remove,
-        ):
-            result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
-
-        assert result.status == PhaseStatus.FAILED
-        assert "disk full" in result.errors[0]
-        # Cleanup must have been attempted to avoid a leaked worktree.
-        mock_remove.assert_called_once()
+        assert "edge_provisioning_failed" in result.errors[0]
 
     def test_preflight_failure_returns_failed(self, tmp_path: Path) -> None:
         """on_enter returns FAILED immediately when preflight fails."""
         cfg = SetupConfig(
             project_root=tmp_path,
             story_id="AG3-004",
+            create_worktree=False,
         )
         handler = SetupPhaseHandler(cfg, context_repository=_RecordingContextRepo())
         ctx = _make_story_context(story_id="AG3-004", project_root=tmp_path)
@@ -505,16 +594,12 @@ class TestSetupPhaseHandlerWorktree:
             patch(
                 "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context"
             ) as mock_build,
-            patch(
-                "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees"
-            ) as mock_setup,
         ):
             result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status == PhaseStatus.FAILED
         assert "issue is closed" in result.errors[0]
         mock_build.assert_not_called()
-        mock_setup.assert_not_called()
 
 
 class TestSetupPhaseBeginProgress:
@@ -839,19 +924,22 @@ class TestSetupPhaseAreBundle:
             create_worktree=True,
             story_service=_NoOpStoryService(),  # type: ignore[arg-type]
         )
+        coordinator = _FakeEdgeCoordinator(
+            provision=ProvisioningOutcome(
+                pending=False,
+                worktree_map={"repo": tmp_path / "worktrees" / "AG3-001"},
+            ),
+            on_provision=lambda: events.append("worktree"),
+        )
         handler = SetupPhaseHandler(
             cfg,
             context_repository=_ContextRepo(),  # type: ignore[arg-type]
             are_bundle_loader=_Loader(),
+            edge_provisioning_coordinator=coordinator,
         )
         ctx = _make_story_context(project_root=tmp_path)
         state = _make_phase_state()
         enriched = _make_story_context(project_root=tmp_path)
-
-        def _worktrees(*args: object, **kwargs: object) -> list[WorktreeResult]:
-            del args, kwargs
-            events.append("worktree")
-            return [_make_worktree_result(tmp_path)]
 
         with (
             patch(
@@ -866,14 +954,12 @@ class TestSetupPhaseAreBundle:
                 "agentkit.backend.governance.setup_preflight_gate.phase.load_project_config",
                 return_value=_make_project_config(tmp_path),
             ),
-            patch(
-                "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees",
-                _worktrees,
-            ),
         ):
             result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status is PhaseStatus.COMPLETED
+        # AG3-145: the ARE bundle loads after the initial context save and BEFORE
+        # the edge-commissioned provisioning; the reported worktree is persisted last.
         assert events == ["context_saved", "are_bundle", "worktree", "context_saved"]
         assert "are_bundle_ref" in result.artifacts_produced
         assert result.updated_state is not None
@@ -937,7 +1023,7 @@ class TestSetupPhaseAreBundle:
     def test_failed_signal_aborts_before_worker_paths(self, tmp_path: Path) -> None:
         begin_calls: list[str] = []
 
-        class _StoryService:
+        class _StoryService(_NoOpStoryService):
             def begin_progress(self, story_id: str, *, correlation_id: str = "") -> object:
                 del correlation_id
                 begin_calls.append(story_id)
@@ -955,6 +1041,7 @@ class TestSetupPhaseAreBundle:
                     reason="are_gate_unavailable",
                 )
 
+        coordinator = _FakeEdgeCoordinator()
         cfg = SetupConfig(
             project_root=tmp_path,
             story_id="AG3-003",
@@ -965,6 +1052,7 @@ class TestSetupPhaseAreBundle:
             cfg,
             context_repository=_RecordingContextRepo(),  # type: ignore[arg-type]
             are_bundle_loader=_Loader(),
+            edge_provisioning_coordinator=coordinator,
         )
         ctx = _make_story_context(story_id="AG3-003", project_root=tmp_path)
         state = _make_phase_state(story_id="AG3-003")
@@ -979,16 +1067,14 @@ class TestSetupPhaseAreBundle:
                 "agentkit.backend.governance.setup_preflight_gate.phase.build_story_context",
                 return_value=enriched,
             ),
-            patch(
-                "agentkit.backend.governance.setup_preflight_gate.phase.setup_worktrees",
-            ) as mock_worktrees,
         ):
             result = handler.on_enter(ctx, PhaseEnvelopeStore.make_fresh_envelope(state))
 
         assert result.status is PhaseStatus.FAILED
         assert result.errors == ("are_gate_unavailable",)
         assert begin_calls == []
-        mock_worktrees.assert_not_called()
+        # The ARE-bundle FAIL aborts BEFORE the edge worktree is commissioned.
+        assert coordinator.provision_calls == 0
         assert result.updated_state is not None
         payload = result.updated_state.payload
         assert isinstance(payload, SetupPayload)

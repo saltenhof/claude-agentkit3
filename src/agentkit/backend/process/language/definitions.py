@@ -167,6 +167,15 @@ def _build_implementation_workflow() -> WorkflowDefinition:
         Workflow("implementation")
         .phase("setup")
         .guard(preflight_passed)
+        # AG3-145 Teilschritt C (FK-91 §91.1b, FK-10 §10.2.4a): setup PAUSES
+        # fail-closed while it awaits the edge preflight_probe / worktree_report
+        # (edge-commissioned provisioning). Mirrors the exploration design-review
+        # yield so the engine can resume the PAUSED setup phase.
+        .yield_to(
+            "edge_provisioning",
+            on="awaiting_edge_provisioning",
+            resume_triggers=["edge_report_received"],
+        )
         .phase("exploration")
         .yield_to(
             "design_review",
@@ -235,6 +244,15 @@ def _build_bugfix_workflow() -> WorkflowDefinition:
         Workflow("bugfix")
         .phase("setup")
         .guard(preflight_passed)
+        # AG3-145 Teilschritt C (FK-91 §91.1b, FK-10 §10.2.4a): setup PAUSES
+        # fail-closed while it awaits the edge preflight_probe / worktree_report
+        # (edge-commissioned provisioning). Mirrors the exploration design-review
+        # yield so the engine can resume the PAUSED setup phase.
+        .yield_to(
+            "edge_provisioning",
+            on="awaiting_edge_provisioning",
+            resume_triggers=["edge_report_received"],
+        )
         .phase("exploration")
         .yield_to(
             "design_review",
@@ -284,6 +302,13 @@ def _build_concept_workflow() -> WorkflowDefinition:
         Workflow("concept")
         .phase("setup")
         .guard(preflight_passed)
+        # AG3-145 Teilschritt C: setup PAUSES fail-closed awaiting the edge
+        # preflight_probe / worktree_report (edge-commissioned provisioning).
+        .yield_to(
+            "edge_provisioning",
+            on="awaiting_edge_provisioning",
+            resume_triggers=["edge_report_received"],
+        )
         .phase("implementation")
         .phase("closure")
         .transition("setup", "implementation")
@@ -301,6 +326,13 @@ def _build_research_workflow() -> WorkflowDefinition:
         Workflow("research")
         .phase("setup")
         .guard(preflight_passed)
+        # AG3-145 Teilschritt C: setup PAUSES fail-closed awaiting the edge
+        # preflight_probe / worktree_report (edge-commissioned provisioning).
+        .yield_to(
+            "edge_provisioning",
+            on="awaiting_edge_provisioning",
+            resume_triggers=["edge_report_received"],
+        )
         .phase("implementation")
         .phase("closure")
         .transition("setup", "implementation")

@@ -29,12 +29,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from agentkit.backend.config.loader import load_project_config
-from agentkit.backend.exceptions import ConfigError, WorktreeError
+from agentkit.backend.core_types import PauseReason
+from agentkit.backend.exceptions import ConfigError
 from agentkit.backend.governance.setup_preflight_gate.context_builder import (
     build_story_context,
 )
 from agentkit.backend.governance.setup_preflight_gate.preflight import run_preflight
-from agentkit.backend.governance.setup_preflight_gate.worktree import setup_worktrees
 from agentkit.backend.installer.paths import story_dir
 from agentkit.backend.pipeline_engine.lifecycle import HandlerResult
 from agentkit.backend.pipeline_engine.phase_executor import (
@@ -47,14 +47,20 @@ from agentkit.backend.pipeline_engine.phase_executor import (
 )
 from agentkit.backend.state_backend.paths import CONTEXT_EXPORT_FILE
 from agentkit.backend.story_context_manager.types import get_profile
-from agentkit.backend.utils.git import remove_worktree
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+    from agentkit.backend.control_plane.edge_commands import (
+        PreflightOwnershipContext,
+        PreflightProbeEvidence,
+    )
     from agentkit.backend.execution_planning.repository import StoryDependencyRepository
     from agentkit.backend.governance.repository import SetupContextRepository
+    from agentkit.backend.governance.setup_preflight_gate.edge_provisioning import (
+        EdgeProvisioningCoordinator,
+    )
     from agentkit.backend.governance.setup_preflight_gate.green_main import MainGreenPort
     from agentkit.backend.governance.setup_preflight_gate.preflight import PreflightCheckResult
     from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
@@ -67,6 +73,13 @@ if TYPE_CHECKING:
     from agentkit.backend.story_context_manager.service import StoryService
 
 logger = logging.getLogger(__name__)
+
+#: The typed edge-provisioning plan resolved once per ``on_enter`` (idempotent
+#: on every re-entry): whether the story provisions worktrees, its participating
+#: repos, and the story branch. ``uses_worktree`` is ``False`` for a config with
+#: ``create_worktree=False`` or a non-worktree profile -- then no edge command is
+#: commissioned and Checks 7/8 PASS (no edge consultation).
+_WorktreePlan = tuple[bool, tuple[str, ...], str]
 
 
 def _default_fence_scope_binder(
@@ -183,6 +196,7 @@ class SetupPhaseHandler:
         fence_scope_binder: Callable[
             ..., contextlib.AbstractContextManager[None]
         ] = _default_fence_scope_binder,
+        edge_provisioning_coordinator: EdgeProvisioningCoordinator | None = None,
     ) -> None:
         self._config = config
         self._context_repo: SetupContextRepository = context_repository
@@ -192,6 +206,13 @@ class SetupPhaseHandler:
         self._are_bundle_loader = are_bundle_loader
         self._residue_probe = residue_probe
         self._fence_scope_binder = fence_scope_binder
+        # AG3-145 Teilschritt C: the edge-provisioning coordinator commissions
+        # ``preflight_probe`` / ``provision_worktree`` commands and reads the
+        # reported results (FK-10 §10.2.4a). ``None`` on the non-worktree path
+        # (create_worktree=False) where no edge command is ever commissioned; a
+        # worktree story WITHOUT a wired coordinator fails closed in the staged
+        # flow (no silent backend provisioning fallback -- that path is removed).
+        self._edge_provisioning = edge_provisioning_coordinator
 
     def on_enter(self, ctx: StoryContext, envelope: PhaseEnvelope) -> HandlerResult:
         """Execute the setup phase.
@@ -220,9 +241,24 @@ class SetupPhaseHandler:
         Returns:
             A ``HandlerResult`` describing the outcome.
         """
-        _ = envelope
         cfg = self._config
         story_service = _resolve_story_service(cfg)
+        run_id = envelope.state.run_id
+        story_display_id = cfg.story_id or ctx.story_id
+        plan = self._resolve_worktree_plan(cfg, ctx, story_display_id, story_service)
+
+        # AG3-145 Teilschritt C (FK-22 §22.3.1, FK-91 §91.1b): Checks 7/8 decide
+        # on the edge ``preflight_probe`` evidence + the backend ownership
+        # context. Commission the probe per participating repo and PAUSE
+        # fail-closed (``AWAITING_EDGE_PROVISIONING``) until the edge reports --
+        # no optimistic PASS, no wall-clock timeout. A non-worktree story skips
+        # this and Checks 7/8 PASS (no edge consultation).
+        probe_stage = self._edge_probe_stage(
+            ctx, plan, run_id=run_id, story_display_id=story_display_id
+        )
+        if isinstance(probe_stage, HandlerResult):
+            return probe_stage
+        edge_probe_reports, edge_ownership = probe_stage
 
         preflight_error = _run_preflight_check(
             cfg,
@@ -231,6 +267,9 @@ class SetupPhaseHandler:
             self._dependency_repo,
             self._mode_lock_repo,
             self._residue_probe,
+            edge_probe_reports=edge_probe_reports,
+            edge_ownership=edge_ownership,
+            participating_repos=plan[1],
         )
         if preflight_error is not None:
             return preflight_error
@@ -258,7 +297,7 @@ class SetupPhaseHandler:
         with self._fence_scope_binder(
             project_key=enriched.project_key,
             story_id=enriched.story_id,
-            run_id=envelope.state.run_id,
+            run_id=run_id,
         ):
             bundle_step = self._load_are_bundle(enriched, envelope.state)
         if bundle_step is not None:
@@ -280,8 +319,13 @@ class SetupPhaseHandler:
         if green_main_error is not None:
             return green_main_error
 
-        worktree_outcome = _setup_worktrees_if_needed(
-            cfg, enriched, s_dir, self._context_repo
+        # AG3-145 Teilschritt C (FK-91 §91.1b, FK-56 §56.8): commission the edge
+        # ``provision_worktree`` per participating repo and PAUSE fail-closed
+        # until the ``worktree_report`` arrives; ``worktree_map`` is populated
+        # from the REPORTED physical paths (the backend derives none). Without a
+        # reported result the setup phase does not complete.
+        worktree_outcome = self._edge_provision_stage(
+            enriched, plan, s_dir, run_id=run_id
         )
         if isinstance(worktree_outcome, HandlerResult):
             return worktree_outcome
@@ -426,25 +470,32 @@ class SetupPhaseHandler:
 
     def on_resume(
         self,
-        _ctx: StoryContext,
-        _envelope: PhaseEnvelope,
-        _trigger: str,
+        ctx: StoryContext,
+        envelope: PhaseEnvelope,
+        trigger: str,
     ) -> HandlerResult:
-        """Setup phase does not support resume -- return FAILED.
+        """Resume the setup phase after an edge-provisioning PAUSE (AG3-145).
+
+        Setup PAUSES fail-closed with ``AWAITING_EDGE_PROVISIONING`` while it
+        awaits the edge ``preflight_probe`` / ``worktree_report`` results
+        (FK-10 §10.2.4a, FK-91 §91.1b). Resume re-runs ``on_enter``, which is
+        idempotent by construction: the coordinator commissions a command only
+        when it does not already exist and reads back the reported result. When
+        the edge has not reported yet the same staged flow PAUSES again (no
+        wall-clock timeout, no optimistic continue). Mirrors the exploration
+        design-review PAUSE/resume flow.
 
         Args:
-            ctx: The story context (unused).
-            envelope: The current phase envelope (unused).
-            trigger: The resume trigger (unused).
+            ctx: The story context for this run.
+            envelope: The current (PAUSED) phase envelope.
+            trigger: The resume trigger (unused: the staged flow re-derives its
+                position from the commissioned commands' reported state).
 
         Returns:
-            A ``HandlerResult`` with ``FAILED`` status.
+            The :class:`HandlerResult` from ``on_enter``.
         """
-        _ = _ctx, _envelope, _trigger
-        return HandlerResult(
-            status=PhaseStatus.FAILED,
-            errors=("Setup phase does not support resume",),
-        )
+        del trigger
+        return self.on_enter(ctx, envelope)
 
     def _check_green_main(
         self, cfg: SetupConfig, enriched: StoryContext
@@ -516,6 +567,151 @@ class SetupPhaseHandler:
         updated_state = evolve_phase_state(state, payload=updated_payload)
         return result, updated_state
 
+    def _resolve_worktree_plan(
+        self,
+        cfg: SetupConfig,
+        ctx: StoryContext,
+        story_display_id: str,
+        story_service: StoryService,
+    ) -> _WorktreePlan:
+        """Resolve the edge-provisioning plan (uses_worktree, repos, branch).
+
+        A ``create_worktree=False`` config or a non-worktree story profile
+        provisions nothing (``uses_worktree=False``); Checks 7/8 then run without
+        edge consultation. The participating repos come from the AUTHORITATIVE
+        story-service record; an unresolvable story yields no repos so the staged
+        edge flow is skipped and preflight (Check 1) reports the missing story.
+        """
+        profile = get_profile(ctx.story_type)
+        branch = f"story/{story_display_id}"
+        if not (cfg.create_worktree and profile.uses_worktree):
+            return (False, (), branch)
+        story = story_service.get_story(story_display_id)
+        repos = tuple(story.participating_repos) if story is not None else ()
+        return (bool(repos), repos, branch)
+
+    def _require_coordinator(self) -> EdgeProvisioningCoordinator | HandlerResult:
+        """Return the wired coordinator or a fail-closed FAILED result.
+
+        A worktree story with NO wired coordinator fails closed: the backend
+        provisioning path was removed in this sub-step (FK-10 §10.2.4a), so
+        there is no silent fallback -- provisioning MUST run through the edge.
+        """
+        if self._edge_provisioning is None:
+            return HandlerResult(
+                status=PhaseStatus.FAILED,
+                errors=(
+                    "edge_provisioning_unavailable: no EdgeProvisioningCoordinator "
+                    "is wired; a worktree story cannot provision (FK-10 §10.2.4a: "
+                    "backend worktree provisioning was removed, AG3-145).",
+                ),
+            )
+        return self._edge_provisioning
+
+    def _edge_probe_stage(
+        self,
+        ctx: StoryContext,
+        plan: _WorktreePlan,
+        *,
+        run_id: str,
+        story_display_id: str,
+    ) -> tuple[
+        dict[str, PreflightProbeEvidence | None] | None,
+        PreflightOwnershipContext | None,
+    ] | HandlerResult:
+        """Commission + read the ``preflight_probe`` commands (Checks 7/8 evidence).
+
+        Returns the per-repo probe evidence + ownership context for preflight, a
+        PAUSED result while the edge has not reported, or a FAILED result when no
+        coordinator is wired. A non-worktree story returns ``(None, None)`` (no
+        edge consultation -> Checks 7/8 PASS).
+        """
+        uses_worktree, repos, branch = plan
+        if not uses_worktree:
+            return (None, None)
+        coordinator = self._require_coordinator()
+        if isinstance(coordinator, HandlerResult):
+            return coordinator
+        outcome = coordinator.ensure_preflight_probes(
+            project_key=ctx.project_key,
+            story_id=story_display_id,
+            run_id=run_id,
+            repos=repos,
+            branch=branch,
+        )
+        if outcome.pending:
+            return self._edge_pause()
+        return (outcome.evidence, outcome.ownership)
+
+    def _edge_provision_stage(
+        self,
+        enriched: StoryContext,
+        plan: _WorktreePlan,
+        s_dir: Path,
+        *,
+        run_id: str,
+    ) -> StoryContext | HandlerResult:
+        """Commission + read the ``provision_worktree`` commands (FK-91 §91.1b).
+
+        On a reported result populates ``worktree_map``/``worktree_path`` from the
+        REPORTED physical paths (the SINGLE truth, FK-56 §56.8) and persists the
+        enriched context. Returns a PAUSED result while the edge has not
+        reported, or a FAILED result on a coordinator absence / a provisioning
+        error report. A non-worktree story returns the context unchanged.
+        """
+        uses_worktree, repos, branch = plan
+        if not uses_worktree:
+            return enriched
+        coordinator = self._require_coordinator()
+        if isinstance(coordinator, HandlerResult):
+            return coordinator
+        outcome = coordinator.ensure_provisioning(
+            project_key=enriched.project_key,
+            story_id=enriched.story_id,
+            run_id=run_id,
+            repos=repos,
+            branch=branch,
+            base_ref="main",
+        )
+        if outcome.pending:
+            return self._edge_pause(updated_context=enriched)
+        if outcome.failed_repos:
+            return HandlerResult(
+                status=PhaseStatus.FAILED,
+                errors=(
+                    "edge_provisioning_failed: the edge reported a failure for "
+                    f"repos {sorted(outcome.failed_repos)}",
+                ),
+                updated_context=enriched,
+            )
+        worktree_map = dict(outcome.worktree_map)
+        worktree_path = next(iter(worktree_map.values())) if worktree_map else None
+        enriched = enriched.model_copy(
+            update={"worktree_path": worktree_path, "worktree_map": worktree_map},
+        )
+        self._context_repo.save(s_dir, enriched)
+        logger.info(
+            "Worktrees provisioned by edge: %s",
+            ", ".join(f"{repo}={path}" for repo, path in worktree_map.items()),
+        )
+        return enriched
+
+    @staticmethod
+    def _edge_pause(
+        *, updated_context: StoryContext | None = None
+    ) -> HandlerResult:
+        """Build the fail-closed ``AWAITING_EDGE_PROVISIONING`` PAUSE result.
+
+        FK-91 §91.1a Rule 16 / FK-10 §10.2.4a: the open edge command stays
+        visibly open (no wall-clock TTL); the phase resumes only after the edge
+        reports. Mirrors the exploration design-review PAUSE.
+        """
+        return HandlerResult(
+            status=PhaseStatus.PAUSED,
+            yield_status=PauseReason.AWAITING_EDGE_PROVISIONING.value,
+            updated_context=updated_context,
+        )
+
 
 def _sonar_available(project_root: Path) -> bool:
     """Return the project's ``sonarqube.available`` flag (fail-closed default).
@@ -551,6 +747,10 @@ def _run_preflight_check(
     dependency_repository: StoryDependencyRepository | None = None,
     mode_lock_repository: ModeLockRepository | None = None,
     residue_probe: Callable[[Path, str], bool] | None = None,
+    *,
+    edge_probe_reports: dict[str, PreflightProbeEvidence | None] | None = None,
+    edge_ownership: PreflightOwnershipContext | None = None,
+    participating_repos: tuple[str, ...] = (),
 ) -> HandlerResult | None:
     """Run preflight; return None on pass or a FAILED HandlerResult on failure.
 
@@ -564,6 +764,11 @@ def _run_preflight_check(
         mode_lock_repository: Optional ``ModeLockRepository`` whose read path
             feeds Preflight Check 10 (``no_competing_story_mode_active``,
             Check-10 wiring).  When ``None`` the mode-lock is treated as idle.
+        edge_probe_reports: Per-repo edge ``preflight_probe`` evidence for
+            Checks 7/8 (AG3-145 Teilschritt C). ``None`` for a non-worktree
+            story (Checks 7/8 PASS trivially).
+        edge_ownership: The backend ownership decision context for Checks 7/8.
+        participating_repos: The repos Checks 7/8 iterate.
     """
     from agentkit.backend.governance.setup_preflight_gate.preflight import PreflightStatus
 
@@ -577,6 +782,9 @@ def _run_preflight_check(
         dependency_repository=dependency_repository,
         mode_lock_reader=mode_lock_reader,
         active_runtime_residue=residue_probe,
+        edge_probe_reports=edge_probe_reports,
+        edge_ownership=edge_ownership,
+        participating_repos=participating_repos,
     )
     if preflight.passed:
         return None
@@ -622,66 +830,6 @@ def _preflight_error_message(check: PreflightCheckResult) -> str:
     if check.cleanup_hint:
         line = f"{line} -> {check.cleanup_hint}"
     return line
-
-
-def _setup_worktrees_if_needed(
-    cfg: SetupConfig,
-    enriched: StoryContext,
-    s_dir: Path,
-    context_repo: SetupContextRepository,
-) -> StoryContext | HandlerResult:
-    """Create worktrees and persist enriched context — returns updated ctx or FAILED."""
-    profile = get_profile(enriched.story_type)
-    if not (cfg.create_worktree and profile.uses_worktree):
-        return enriched
-
-    try:
-        project_config = load_project_config(cfg.project_root)
-        worktree_results = setup_worktrees(
-            enriched.story_id,
-            enriched,
-            project_config,
-            project_root=cfg.project_root,
-        )
-    except (ConfigError, WorktreeError) as e:
-        return HandlerResult(status=PhaseStatus.FAILED, errors=(str(e),))
-
-    worktree_path = (
-        worktree_results[0].worktree_path if worktree_results else None
-    )
-    worktree_map = {
-        result.repo_name: result.worktree_path
-        for result in worktree_results
-    }
-    enriched = enriched.model_copy(
-        update={
-            "worktree_path": worktree_path,
-            "worktree_map": worktree_map,
-        },
-    )
-
-    try:
-        context_repo.save(s_dir, enriched)
-    except Exception as persist_err:
-        # Worktree was created but context persistence failed.
-        # Clean up the worktree so it does not leak.
-        for result in worktree_results:
-            repo_root = result.worktree_path.parent.parent
-            with contextlib.suppress(WorktreeError):
-                remove_worktree(repo_root, result.worktree_path)
-        return HandlerResult(
-            status=PhaseStatus.FAILED,
-            errors=(f"Failed to persist worktree context: {persist_err}",),
-        )
-
-    logger.info(
-        "Worktrees created: %s",
-        ", ".join(
-            f"{result.repo_name}={result.worktree_path}"
-            for result in worktree_results
-        ),
-    )
-    return enriched
 
 
 def _begin_progress(
