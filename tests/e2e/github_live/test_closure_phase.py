@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
-from tests.e2e._helpers import seed_approved_story
+from tests.e2e._helpers import seed_active_run_ownership, seed_approved_story
 from tests.phase_state_factory import make_phase_state
 
 from agentkit.backend.bootstrap.composition_root import (
@@ -205,6 +205,14 @@ class TestClosurePhaseE2E:
             s_dir,
             project_key="e2e-closure-test",
             story_id="E2E-7002",
+        )
+        # AG3-144: seed the active ownership record a real control-plane setup
+        # start would mint (run_id matches the flow execution's run id above),
+        # so the closure projection write passes the no-lease-no-write fence.
+        seed_active_run_ownership(
+            project_key="e2e-closure-test",
+            story_id="E2E-7002",
+            run_id="run-e2e-7002",
         )
         _append_agent_start(
             s_dir,

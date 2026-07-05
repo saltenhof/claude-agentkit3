@@ -15,6 +15,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import NAMESPACE_URL, uuid5
 
+from agentkit.backend.state_backend.config import (
+    StateBackendKind,
+    load_state_backend_config,
+)
 from agentkit.backend.state_backend.store.story_repository import StateBackendStoryRepository
 from agentkit.backend.story_context_manager.story_model import (
     Story,
@@ -75,3 +79,60 @@ def seed_approved_story(
     )
     StateBackendStoryRepository().save(story)
     return story
+
+
+def seed_active_run_ownership(
+    *,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    owner_session_id: str = "e2e-owner-session",
+    ownership_epoch: int = 1,
+) -> None:
+    """Seed the active ``RunOwnershipRecord`` a real setup start would mint (AG3-144).
+
+    The e2e pipeline harnesses drive the pipeline engine directly
+    (``run_pipeline`` / the phase handlers), bypassing the control-plane that,
+    in a real run, atomically mints the story's active
+    ``run_ownership_records`` row at setup start (AG3-142
+    ``finalize_control_plane_start_phase_global``). AG3-144 extends the
+    ownership-lease fence to the mutating projection writes
+    (``qa_stage_results`` / ``decision_records`` / closure-report file), which
+    now require that active record to exist (no-lease-no-write, FK-91 §91.1a
+    Rule 15). This helper re-establishes exactly that predecessor state via the
+    sanctioned AG3-137 single-writer surface (``insert_run_ownership_record_global``,
+    the SAME surface the landed AG3-142 tests use) so the harness faithfully
+    reflects a real control-plane-admitted run rather than fabricating a
+    lease-free one. ``run_id`` MUST equal the run's flow-execution ``run_id``
+    (the control-plane creates both with one shared run id).
+
+    K5 Postgres-only: a no-op on a non-Postgres backend (the ownership tables
+    are Postgres-only; the SQLite path receives no fence mirroring).
+    """
+    if load_state_backend_config().backend is not StateBackendKind.POSTGRES:
+        return
+    from agentkit.backend.control_plane.ownership import (
+        OwnershipAcquisition,
+        OwnershipStatus,
+    )
+    from agentkit.backend.control_plane.records import RunOwnershipRecord
+    from agentkit.backend.state_backend.store import (
+        insert_run_ownership_record_global,
+        load_active_run_ownership_record_global,
+    )
+
+    if load_active_run_ownership_record_global(project_key, story_id) is not None:
+        return
+    insert_run_ownership_record_global(
+        RunOwnershipRecord(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            owner_session_id=owner_session_id,
+            ownership_epoch=ownership_epoch,
+            status=OwnershipStatus.ACTIVE,
+            acquired_via=OwnershipAcquisition.SETUP,
+            acquired_at=datetime.now(UTC),
+            audit_ref="audit:e2e-seed",
+        )
+    )

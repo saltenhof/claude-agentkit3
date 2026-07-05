@@ -17,10 +17,11 @@ construction.
 from __future__ import annotations
 
 import subprocess
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
-from tests.e2e._helpers import seed_approved_story
+from tests.e2e._helpers import seed_active_run_ownership, seed_approved_story
 
 from agentkit.backend.bootstrap.composition_root import (
     build_closure_phase_handler,
@@ -30,16 +31,85 @@ from agentkit.backend.closure.phase import ClosureConfig
 from agentkit.backend.governance.setup_preflight_gate.phase import SetupConfig
 from agentkit.backend.installer import InstallConfig, install_agentkit
 from agentkit.backend.installer.paths import qa_story_dir, story_dir
+from agentkit.backend.phase_state_store.models import FlowExecution
 from agentkit.backend.pipeline_engine.lifecycle import NoOpHandler, PhaseHandlerRegistry
 from agentkit.backend.pipeline_engine.runner import run_pipeline
 from agentkit.backend.process.language.definitions import resolve_workflow
-from agentkit.backend.state_backend.store import read_story_context_record, save_story_context
+from agentkit.backend.state_backend.store import (
+    append_execution_event,
+    read_story_context_record,
+    save_flow_execution,
+    save_story_context,
+)
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.story_model import WireStoryType
 from agentkit.backend.story_context_manager.types import StoryType
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.telemetry.events import EventType
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from agentkit.backend.process.language.model import WorkflowDefinition
+
+_AGENT_START_AT = datetime(2026, 7, 5, 9, 0, 0, tzinfo=UTC)
+
+
+def _seed_pipeline_run_ownership(
+    s_dir: Path,
+    *,
+    project_key: str,
+    story_id: str,
+    workflow: WorkflowDefinition,
+    run_id: str,
+) -> None:
+    """Reproduce the real control-plane setup-start invariant (AG3-144).
+
+    A real run's control-plane setup start atomically mints the story's active
+    ``run_ownership_records`` row AND the flow execution (with its ``AGENT_START``
+    lifecycle event), all sharing ONE run id. These smoke tests drive
+    ``run_pipeline`` directly (no control-plane), so we pre-seed:
+
+    * the flow execution -- pins the run id the engine reuses (see
+      ``EngineRuntimeState.resolve_run_id``);
+    * the ``AGENT_START`` execution event for that run id -- because a
+      pre-existing matching-``flow_id`` flow makes the engine treat the flow as
+      NOT new and skip emitting ``AGENT_START`` itself, which the closure
+      story-metrics build requires (``build_story_metrics_record``);
+    * the active ownership record -- so the closure projection write passes the
+      no-lease-no-write fence (FK-91 §91.1a Rule 15) exactly as a real admitted
+      run would.
+    """
+    save_flow_execution(
+        s_dir,
+        FlowExecution(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            flow_id=workflow.flow_id,
+            level=workflow.level.value,
+            owner=workflow.owner,
+        ),
+    )
+    append_execution_event(
+        s_dir,
+        ExecutionEventRecord(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            event_id=f"evt-agent-start-{run_id}",
+            event_type=EventType.AGENT_START.value,
+            occurred_at=_AGENT_START_AT,
+            source_component="e2e-seed",
+            severity="info",
+            payload={"agent_type": "pipeline_engine"},
+        ),
+    )
+    seed_active_run_ownership(
+        project_key=project_key,
+        story_id=story_id,
+        run_id=run_id,
+    )
 
 
 def _init_project_repo(project_dir: Path) -> None:
@@ -137,6 +207,17 @@ class TestRealPipelineE2E:
             ),
         )
 
+        # AG3-144: seed the setup-minted active ownership record (+ pinned flow
+        # execution) a real control-plane run would have, so the closure
+        # projection write passes the no-lease-no-write fence.
+        _seed_pipeline_run_ownership(
+            s_dir,
+            project_key="e2e-test",
+            story_id=story_id,
+            workflow=workflow,
+            run_id="5aaa4bd3-70f0-5132-9f94-9dbaf1a6b026",
+        )
+
         # 4. Run the full pipeline
         result = run_pipeline(initial_ctx, s_dir, registry, workflow)
 
@@ -216,6 +297,17 @@ class TestRealPipelineE2E:
                 store_dir=s_dir,
                 project_key="e2e-test",
             ),
+        )
+
+        # AG3-144: seed the setup-minted active ownership record (+ pinned flow
+        # execution) a real control-plane run would have, so the closure
+        # projection write passes the no-lease-no-write fence.
+        _seed_pipeline_run_ownership(
+            s_dir,
+            project_key="e2e-test",
+            story_id=story_id,
+            workflow=workflow,
+            run_id="767b4d32-0e1d-53ab-9d55-2dd36b3dafa8",
         )
 
         result = run_pipeline(initial_ctx, s_dir, registry, workflow)
