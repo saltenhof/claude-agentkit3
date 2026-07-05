@@ -13,17 +13,28 @@ ACTUAL backend sources, that
 2. EVERY remaining backend git-subprocess call-site is EXPLICITLY ENUMERATED and
    ASSIGNED to an owner in :data:`_GIT_SUBPROCESS_INVENTORY` -- so AC11's "no
    unassigned finding" is VERIFIED, not merely asserted. The scan covers the
-   GENERAL backend git-subprocess surface (an argv list whose first element is
-   ``git`` -- i.e. ``subprocess.run(["git", ...])`` incl. ``git -C`` /
-   ``ls-remote`` / ``show-ref`` / ``diff`` / ``rev-parse`` sub-commands -- plus
-   any GitPython import), not only the worktree primitives. The residual sites
-   are the story's execution-location inventory (SOLL-136) neighbour blocks
-   (AG3-152 closure/merge, AG3-147 push/QA-evidence), the AG3-146
-   provider-neutral network-protocol reads (``git ls-remote`` / ``git remote
-   get-url`` -- no local checkout, expressly permitted by FK-10 §10.2.4a(b)), and
-   the non-worktree, dev-local (Level 2/3) subsystems that legitimately shell git
-   (governance secret-scan, installer bootstrap). NONE is a worktree
-   provisioning/teardown/path op.
+   backend git-subprocess surface in the concrete literal invocation forms it
+   detects (see :func:`_git_subprocess_sites` for the exact scope): a list or
+   tuple argv whose first element is ``git``
+   (``subprocess.run(["git", ...])`` / ``(("git", ...))``, incl. ``git -C`` /
+   ``ls-remote`` / ``show-ref`` / ``diff`` / ``rev-parse`` sub-commands), an
+   ``os.system`` / shell-string call whose command literal starts with ``git``,
+   and any GitPython import (incl. submodules) -- not only the worktree
+   primitives. The residual sites are:
+     * the AG3-152 closure/merge block, which INCLUDES the RETAINED backend
+       worktree-teardown primitives (``utils/git.py`` ``remove_worktree`` =
+       ``git worktree remove`` / ``prune``, consumed by
+       ``closure/multi_repo_saga.py``) -- retained by design and correctly
+       assigned to AG3-152;
+     * the AG3-147 push/QA-evidence block;
+     * the AG3-146 provider-neutral network-protocol reads (``git ls-remote`` /
+       ``git remote get-url`` -- no local checkout, expressly permitted by
+       FK-10 §10.2.4a(b));
+     * the non-worktree, dev-local (Level 2/3) subsystems that legitimately
+       shell git (governance secret-scan, installer bootstrap).
+   The accurate claim (matching exactly what the test verifies): NO backend git
+   call-site is UNASSIGNED, and NO AG3-145-scope worktree-PROVISIONING op
+   (``git worktree add``) remains anywhere in the backend.
 
 This is a pure source-scan (no imports of the scanned modules), so it stays a
 deterministic conformance gate independent of runtime wiring.
@@ -53,16 +64,39 @@ def _rel(path: Path) -> str:
 # reviewable artifact; AC11's "no unassigned finding" is asserted against it.
 # ---------------------------------------------------------------------------
 
-#: Detects a git SUBPROCESS invocation: an argv list whose first element is the
-#: literal ``git`` (``subprocess.run(["git", ...])``, incl. multiline argv and
-#: every ``git -C`` / ``ls-remote`` / ``show-ref`` / ``diff`` / ``rev-parse``
-#: sub-command). Precise on purpose -- a bare prose ``git ls-remote`` mention or
-#: a ``tokens[0] == "git"`` command-classification check (no argv list) is NOT a
-#: call-site and is correctly excluded.
-_GIT_ARGV_INVOCATION = re.compile(r"""\[\s*["']git["']""")
-#: Detects GitPython usage (none today; keeps the surface honest if introduced).
+#: A LIST argv whose first element is ``git`` (``subprocess.run(["git", ...])``,
+#: incl. multiline argv and every ``git -C`` / ``ls-remote`` / ``show-ref`` /
+#: ``diff`` / ``rev-parse`` sub-command).
+_GIT_ARGV_LIST = re.compile(r"""\[\s*["']git["']""")
+#: A TUPLE argv whose first element is ``git`` (``subprocess.run(("git", ...))``).
+#: Comma-guarded so a single-arg call like ``shutil.which("git")`` is NOT matched
+#: (that is a PATH lookup, not a git invocation).
+_GIT_ARGV_TUPLE = re.compile(r"""\(\s*["']git["']\s*,""")
+#: An ``os.system`` / ``subprocess.*`` call whose COMMAND LITERAL starts with
+#: ``git`` (shell-string / ``shell=True`` form, e.g. ``os.system("git ...")`` or
+#: ``subprocess.run("git ...", shell=True)``). A prose ``git ...`` mention in a
+#: ``#`` comment or a ```` ``git ...`` ```` docstring is NOT quote-prefixed and is
+#: correctly excluded.
+_GIT_SHELL_STRING = re.compile(
+    r"""(?:os\.system|subprocess\.\w+)\(\s*f?["']git[\s"']"""
+)
+#: GitPython usage, incl. submodule imports (``import git`` / ``import git.x`` /
+#: ``from git[.x] import ...`` / ``git.Repo(...)``). None today; keeps the surface
+#: honest if introduced.
 _GITPYTHON = re.compile(
-    r"^\s*(?:import\s+git\b|from\s+git\s+import\b)|(?<![\w.])git\.Repo\s*\(", re.M
+    r"^\s*(?:import\s+git\b|from\s+git(?:\.[\w.]+)?\s+import\b)"
+    r"|(?<![\w.])git\.Repo\s*\(",
+    re.M,
+)
+#: The complete set of invocation forms the scan detects. Deliberately scoped to
+#: these CONCRETE LITERAL forms; a git argv held in a variable and built
+#: dynamically elsewhere is out of scope (an undecidable chase), and the docstring
+#: claims nothing beyond what these patterns verify.
+_GIT_INVOCATION_FORMS = (
+    _GIT_ARGV_LIST,
+    _GIT_ARGV_TUPLE,
+    _GIT_SHELL_STRING,
+    _GITPYTHON,
 )
 
 #: EVERY backend file that shells ``git`` (argv subprocess) or uses GitPython,
@@ -218,13 +252,20 @@ def test_inventory_neighbour_sites_still_exist() -> None:
 
 
 def _git_subprocess_sites() -> set[str]:
-    """Return every backend file that shells ``git`` (argv subprocess) or GitPython."""
-    return {
-        _rel(p)
-        for p in _backend_py_files()
-        if _GIT_ARGV_INVOCATION.search(text := p.read_text(encoding="utf-8"))
-        or _GITPYTHON.search(text)
-    }
+    """Return every backend file that invokes ``git`` in a detected literal form.
+
+    Scans for the concrete invocation forms in :data:`_GIT_INVOCATION_FORMS`:
+    a list or tuple argv starting with ``git``, an ``os.system`` / shell-string
+    ``subprocess`` call whose literal starts with ``git``, and any GitPython
+    import. A dynamically-constructed argv held in a variable is intentionally
+    out of scope (undecidable) -- the proof claims only what these forms verify.
+    """
+    sites: set[str] = set()
+    for p in _backend_py_files():
+        source = p.read_text(encoding="utf-8")
+        if any(form.search(source) for form in _GIT_INVOCATION_FORMS):
+            sites.add(_rel(p))
+    return sites
 
 
 def test_every_backend_git_subprocess_site_is_assigned_in_the_inventory() -> None:
@@ -248,19 +289,32 @@ def test_every_backend_git_subprocess_site_is_assigned_in_the_inventory() -> Non
     assert all(owner.strip() for owner in _GIT_SUBPROCESS_INVENTORY.values())
 
 
-def test_no_backend_site_runs_git_worktree_add() -> None:
-    """No backend git call-site provisions a worktree (``git worktree add``).
+#: The load-bearing SOLL-136 regression guard: ``git worktree add`` (worktree
+#: PROVISIONING) must never creep back into the backend, in ANY invocation form.
+#: Catches the argv adjacency ``"worktree", "add"`` (list OR tuple argv) AND the
+#: shell-string / ``os.system`` literal ``"git worktree add ..."`` (incl. an
+#: f-string). A prose ``git worktree add`` in a ``#`` comment or a
+#: ```` ``git worktree add`` ```` docstring is not quote-prefixed and is excluded
+#: (it is not an execution).
+_GIT_WORKTREE_ADD = re.compile(
+    r"""["']worktree["']\s*,\s*["']add["']|["']git\s+worktree\s+add"""
+)
 
-    Worktree provisioning moved to the edge (``create_worktree`` deleted); the
-    residual backend git sites are reads / scans / clone / config only. Matches
-    the argv INVOCATION form (``[..., "worktree", "add", ...]``) -- not a prose
-    mention in a comment/docstring, which is not an execution.
+
+def test_no_backend_site_runs_git_worktree_add() -> None:
+    """No backend git call-site provisions a worktree (``git worktree add``), any form.
+
+    Worktree provisioning moved to the edge (``create_worktree`` deleted). This
+    is the guard that must forever keep backend worktree PROVISIONING out, so it
+    is form-comprehensive: argv-list, tuple argv, shell-string
+    (``subprocess.run("git worktree add ...", shell=True)``) and
+    ``os.system("git worktree add ...")`` are all caught (see
+    :data:`_GIT_WORKTREE_ADD`). Zero offenders today; this keeps it that way.
     """
-    worktree_add = re.compile(r"""["']worktree["']\s*,\s*["']add["']""")
     offenders = [
         _rel(p)
         for p in _backend_py_files()
-        if worktree_add.search(p.read_text(encoding="utf-8"))
+        if _GIT_WORKTREE_ADD.search(p.read_text(encoding="utf-8"))
     ]
     assert offenders == [], (
         f"backend still provisions a worktree via git worktree add in {offenders}"
