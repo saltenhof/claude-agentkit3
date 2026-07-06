@@ -81,6 +81,21 @@ class _AdmittedDispatcher:
         )
 
 
+class _YieldingDispatcher:
+    """A dispatcher whose resume RE-PAUSES the phase (yields to the worker)."""
+
+    def dispatch(
+        self, *, ctx: object, phase: str, run_id: str, run_admitted: bool,
+        detail: dict[str, object] | None = None,
+    ) -> object:
+        from agentkit.backend.control_plane.models import PhaseDispatchResult
+
+        del ctx, run_id, run_admitted, detail
+        return PhaseDispatchResult(
+            phase=phase, status="yielded", reaction="run_worker", dispatched=True,
+        )
+
+
 def _verified(repo_id: str) -> RepoPushVerificationInput:
     return RepoPushVerificationInput(
         repo_id=repo_id,
@@ -296,6 +311,67 @@ def test_closure_entry_barrier_passes_when_verified(tmp_path: Path) -> None:
 
     result = service.complete_closure(
         run_id=run_id, request=_closure_request(story_id=story_id, op_id="op-closure-907"),
+    )
+
+    assert result.status == "committed"
+
+
+# ---------------------------------------------------------------------------
+# AC2 yield-point barrier (a phase that RE-PAUSES/yields to the worker)
+# ---------------------------------------------------------------------------
+
+
+def test_yield_point_barrier_blocks_unverified_push(tmp_path: Path) -> None:
+    """AC2: a resume that yields (re-pauses) is fail-closed-blocked until the
+    current state is server-verified-pushed -- a takeover during the yield can
+    never lose unpushed work."""
+    story_id, run_id = "AG3-908", "run-908"
+    _seed_story_context(tmp_path, story_id)
+    identity = boot_backend_instance_identity_global("inst-908", _T0)
+    setup = ControlPlaneRuntimeService(
+        phase_dispatcher=_AdmittedDispatcher(),  # type: ignore[arg-type]
+        now_fn=lambda: _T0,
+        instance_identity=identity,
+    )
+    _admit_run(setup, story_id=story_id, run_id=run_id)
+    resume_svc = ControlPlaneRuntimeService(
+        phase_dispatcher=_YieldingDispatcher(),  # type: ignore[arg-type]
+        now_fn=lambda: _T0,
+        instance_identity=identity,
+        push_barrier_evidence=_FakeBarrierPort((_server_mismatch("api"),)),  # type: ignore[arg-type]
+    )
+
+    result = resume_svc.resume_phase(
+        run_id=run_id, phase="implementation",
+        request=_request(story_id=story_id, op_id="op-resume-908"),
+    )
+
+    assert result.status == "rejected"
+    assert result.phase_dispatch is not None
+    assert "push_barrier_unverified" in (result.phase_dispatch.rejection_reason or "")
+
+
+def test_yield_point_barrier_passes_when_verified(tmp_path: Path) -> None:
+    """A verified push lets the phase yield (re-pause) normally."""
+    story_id, run_id = "AG3-909", "run-909"
+    _seed_story_context(tmp_path, story_id)
+    identity = boot_backend_instance_identity_global("inst-909", _T0)
+    setup = ControlPlaneRuntimeService(
+        phase_dispatcher=_AdmittedDispatcher(),  # type: ignore[arg-type]
+        now_fn=lambda: _T0,
+        instance_identity=identity,
+    )
+    _admit_run(setup, story_id=story_id, run_id=run_id)
+    resume_svc = ControlPlaneRuntimeService(
+        phase_dispatcher=_YieldingDispatcher(),  # type: ignore[arg-type]
+        now_fn=lambda: _T0,
+        instance_identity=identity,
+        push_barrier_evidence=_FakeBarrierPort((_verified("api"),)),  # type: ignore[arg-type]
+    )
+
+    result = resume_svc.resume_phase(
+        run_id=run_id, phase="implementation",
+        request=_request(story_id=story_id, op_id="op-resume-909"),
     )
 
     assert result.status == "committed"
