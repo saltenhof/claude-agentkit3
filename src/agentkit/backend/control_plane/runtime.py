@@ -5,11 +5,10 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 
-from agentkit.backend.control_plane import object_claims
-from agentkit.backend.control_plane.edge_commands import TAKEOVER_ERROR_RESULT_TYPES
+from agentkit.backend.control_plane import object_claims, runtime_constants
 from agentkit.backend.control_plane.execution_contract_assembly import (
     ExecutionContractDigestOutcome,
     build_execution_contract_digest,
@@ -20,6 +19,7 @@ from agentkit.backend.control_plane.models import (
     ControlPlaneMutationResult,
     EdgeBundle,
     EdgeCommandMutationResult,
+    EdgeCommandResultPayload,
     EdgeCommandResultRequest,
     EdgeCommandView,
     EdgePointer,
@@ -104,44 +104,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# OperatingMode (FK-56 §56.5 / §56.7a) is RE-IMPORTED from its canonical SSOT
-# foundation definition ``core_types.operating_mode``: this runtime CLASSIFIES
-# the mode (``_resolve_operating_mode``) but does NOT redeclare the type, so there
-# is exactly one definition and no drift (AK2 SSOT). The named
-# ``operating_mode_resolver`` A-core remains the SSOT accessor seam.
-FreshnessClass = Literal["baseline_read", "guarded_read", "mutation"]
-
-_SYNC_AFTER_BY_CLASS = {
-    "baseline_read": timedelta(minutes=5),
-    "guarded_read": timedelta(minutes=2),
-    "mutation": timedelta(seconds=45),
-}
-
-#: AG3-138: terminal statuses whose stored result ``GET operations/{op_id}``
-#: surfaces VERBATIM (not rewritten to ``replayed``) so a client reconciling an
-#: unclear mutation sees the true ``aborted`` / ``repair`` / ``failed`` outcome
-#: an admin-abort or startup reconciliation produced (FK-91 §91.1a Rule 17).
 _RECONCILE_PRESERVED_STATUSES = frozenset({"aborted", "repair", "failed"})
-
-#: AG3-145 (FK-91 §91.1b): the ``EdgeCommandResultPayload.result_type`` values
-#: that terminate a command as ``failed`` rather than ``completed`` -- the
-#: named takeover-family error states plus the generic command-error
-#: fallback (Scope item 4). Every other registered result type is a success.
-_EDGE_COMMAND_FAILURE_RESULT_TYPES = TAKEOVER_ERROR_RESULT_TYPES | frozenset({"command_error"})
-
-#: AG3-147 (FK-10 §10.2.4b): the phase completions that are HARD push barriers.
-#: Only the code-bearing implementation phase's completion requires a verified
-#: push -- setup/exploration produce no takeover-eligible code state, and closure
-#: has its OWN closure-entry barrier (:meth:`complete_closure`). Gating every
-#: completion would fail-closed-block setup (nothing pushed yet), so the gate is
-#: scoped to the phase where the pushed-only rule bites.
-_PUSH_GATED_COMPLETION_PHASES: frozenset[str] = frozenset({PhaseName.IMPLEMENTATION.value})
-
-#: AG3-147 (Rule-8 error contract, ARCH-55): the stable error code a fail-closed
-#: push-barrier block carries so a consumer recognises "unverified push", never a
-#: generic rejection. The blocking repos + named block codes ride the reason.
-_PUSH_BARRIER_BLOCKED_CODE = "push_barrier_unverified"
-_KEEP_FIELD: object = object()
 
 
 class OperationNotFoundError(LookupError):
@@ -2313,7 +2276,10 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
         #: barrier. A code-bearing phase's completion is fail-closed BLOCKED until
         #: EVERY participating repo is server-verified-pushed -- checked AFTER
         #: admission, BEFORE the commit, so a blocked barrier writes NO state.
-        if operation_kind == "phase_complete" and phase in _PUSH_GATED_COMPLETION_PHASES:
+        if (
+            operation_kind == "phase_complete"
+            and phase in runtime_constants.PUSH_GATED_COMPLETION_PHASES
+        ):
             blocked = self._push_barrier_block(
                 SyncPointBarrierType.PHASE_COMPLETION,
                 project_key=request.project_key,
@@ -2680,7 +2646,8 @@ class _EdgeCommandMixin:
         now = self._now_fn()
         result_status: Literal["completed", "failed"] = (
             "failed"
-            if request.result.result_type in _EDGE_COMMAND_FAILURE_RESULT_TYPES
+            if request.result.result_type
+            in runtime_constants.EDGE_COMMAND_FAILURE_RESULT_TYPES
             else "completed"
         )
         op_record = ControlPlaneOperationRecord(
@@ -2814,80 +2781,65 @@ class _EdgeCommandMixin:
         now: datetime,
     ) -> None:
         """Resolve a pending boundary verdict from a confirming ``sync_push`` return."""
-        if existing.command_kind != "sync_push":
+        binding = _push_barrier_result_binding(existing, request.result)
+        if binding is None:
             return
-        repo_id = _sync_push_result_repo_id(existing, request.result)
-        if repo_id is None:
-            return
-        payload_boundary_type = existing.payload.get("boundary_type")
-        payload_boundary_id = existing.payload.get("boundary_id")
-        payload_boundary_epoch = existing.payload.get("boundary_epoch")
-        if not (
-            isinstance(payload_boundary_type, str)
-            and isinstance(payload_boundary_id, str)
-            and isinstance(payload_boundary_epoch, int)
-        ):
-            return
-        try:
-            boundary_type = SyncPointBarrierType(payload_boundary_type)
-        except ValueError:
-            return
+        repo_id, boundary_type, boundary_id, boundary_epoch = binding
         current = self._load_boundary_verdict(
             project_key=request.project_key,
             story_id=request.story_id,
             run_id=existing.run_id,
             boundary_type=boundary_type,
-            boundary_id=payload_boundary_id,
+            boundary_id=boundary_id,
             repo_id=repo_id,
         )
-        if current is None:
-            return
-        if (
-            current.status is not PushBarrierVerdictStatus.PENDING
-            or current.boundary_epoch != payload_boundary_epoch
-            or current.ownership_epoch != existing.ownership_epoch
+        if current is None or _push_barrier_result_is_fenced(
+            current, existing, request.result, command_boundary_epoch=boundary_epoch
         ):
             return
         result = request.result
         if result.result_type != "push_status_report":
             self._upsert_boundary_verdict(
-                _replace_push_barrier_verdict(
-                    current,
-                    expected_head_sha=None,
-                    server_head_sha=None,
-                    status=PushBarrierVerdictStatus.BLOCKED_BACKLOG,
-                    updated_at=now,
-                    resolved_at=now,
-                    status_detail="sync_push_command_failed",
-                )
+                _sync_push_failed_barrier_verdict(current, updated_at=now)
             )
             return
-        result_epoch = result.boundary_epoch
-        result_ownership_epoch = result.ownership_epoch
-        if (
-            result_epoch is not None
-            and result_epoch != current.boundary_epoch
-        ) or (
-            result_ownership_epoch is not None
-            and result_ownership_epoch != current.ownership_epoch
-        ):
-            return
         sync_point_id = _boundary_sync_point_id(
-            boundary_type, payload_boundary_id, current.boundary_epoch
+            boundary_type, boundary_id, current.boundary_epoch
         )
-        server_input = self._server_input_for_push_result(
-            project_key=request.project_key,
-            story_id=request.story_id,
-            run_id=existing.run_id,
+        self._upsert_boundary_verdict(
+            self._push_status_barrier_verdict(
+                current,
+                result,
+                repo_id=repo_id,
+                project_key=request.project_key,
+                story_id=request.story_id,
+                run_id=existing.run_id,
+                sync_point_id=sync_point_id,
+                updated_at=now,
+            )
+        )
+
+    def _push_status_barrier_verdict(
+        self,
+        current: PushBarrierVerdict,
+        result: EdgeCommandResultPayload,
+        *,
+        repo_id: str,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+        sync_point_id: str,
+        updated_at: datetime,
+    ) -> PushBarrierVerdict:
+        """Resolve one pending verdict from a fenced ``push_status_report``."""
+        assert result.result_type == "push_status_report"  # noqa: S101
+        server_resolved, server_head = self._server_read_for_push_result(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
             repo_id=repo_id,
             required_sync_point_id=sync_point_id,
         )
-        if server_input is None:
-            server_resolved = False
-            server_head = None
-        else:
-            server_resolved = server_input.server_ref_resolved
-            server_head = server_input.server_head_sha
         repo_verdict = evaluate_repo_push(
             RepoPushVerificationInput(
                 repo_id=repo_id,
@@ -2900,21 +2852,40 @@ class _EdgeCommandMixin:
                 required_sync_point_id=sync_point_id,
             )
         )
-        self._upsert_boundary_verdict(
-            _replace_push_barrier_verdict(
-                current,
-                expected_head_sha=result.head_sha,
-                server_head_sha=server_head,
-                status=(
-                    PushBarrierVerdictStatus.PASSED
-                    if repo_verdict.verified
-                    else PushBarrierVerdictStatus.BLOCKED_BACKLOG
-                ),
-                updated_at=now,
-                resolved_at=now,
-                status_detail=repo_verdict.detail,
-            )
+        return _replace_push_barrier_verdict(
+            current,
+            expected_head_sha=result.head_sha,
+            server_head_sha=server_head,
+            status=(
+                PushBarrierVerdictStatus.PASSED
+                if repo_verdict.verified
+                else PushBarrierVerdictStatus.BLOCKED_BACKLOG
+            ),
+            updated_at=updated_at,
+            resolved_at=updated_at,
+            status_detail=repo_verdict.detail,
         )
+
+    def _server_read_for_push_result(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+        repo_id: str,
+        required_sync_point_id: str,
+    ) -> tuple[bool, str | None]:
+        """Return the backend-owned server read used for result resolution."""
+        server_input = self._server_input_for_push_result(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            repo_id=repo_id,
+            required_sync_point_id=required_sync_point_id,
+        )
+        if server_input is None:
+            return False, None
+        return server_input.server_ref_resolved, server_input.server_head_sha
 
     def _server_input_for_push_result(
         self,
@@ -3402,7 +3373,8 @@ class ControlPlaneRuntimeService(
                 run_id=run_id,
                 phase="closure",
                 reason=(
-                    f"{_PUSH_BARRIER_BLOCKED_CODE}: closure_complete blocked -- the "
+                    f"{runtime_constants.PUSH_BARRIER_BLOCKED_CODE}: "
+                    "closure_complete blocked -- the "
                     "story branch is not server-verified-pushed in every "
                     f"participating repo (FK-12 §12.4.3 / SOLL-190, fail-closed). "
                     f"{merge_block.detail}"
@@ -4876,6 +4848,73 @@ def _boundary_sync_point_id(
     return f"{boundary_type.value}:{boundary_id}:epoch-{boundary_epoch}"
 
 
+def _push_barrier_result_binding(
+    existing: EdgeCommandRecord,
+    result: EdgeCommandResultPayload,
+) -> tuple[str, SyncPointBarrierType, str, int] | None:
+    """Extract a typed boundary binding from an epoch-tagged ``sync_push`` result."""
+
+    if existing.command_kind != "sync_push":
+        return None
+    repo_id = _sync_push_result_repo_id(existing, result)
+    boundary_type = existing.payload.get("boundary_type")
+    boundary_id = existing.payload.get("boundary_id")
+    boundary_epoch = existing.payload.get("boundary_epoch")
+    if not (
+        repo_id
+        and isinstance(boundary_type, str)
+        and isinstance(boundary_id, str)
+        and isinstance(boundary_epoch, int)
+    ):
+        return None
+    try:
+        return repo_id, SyncPointBarrierType(boundary_type), boundary_id, boundary_epoch
+    except ValueError:
+        return None
+
+
+def _push_barrier_result_is_fenced(
+    current: PushBarrierVerdict,
+    existing: EdgeCommandRecord,
+    result: EdgeCommandResultPayload,
+    *,
+    command_boundary_epoch: int,
+) -> bool:
+    """Return true when a late/stale result must not resolve this verdict."""
+
+    if current.status is not PushBarrierVerdictStatus.PENDING:
+        return True
+    if current.boundary_epoch != command_boundary_epoch:
+        return True
+    if current.ownership_epoch != existing.ownership_epoch:
+        return True
+    if result.result_type != "push_status_report":
+        return False
+    return (
+        (result.boundary_epoch is not None and result.boundary_epoch != current.boundary_epoch)
+        or (
+            result.ownership_epoch is not None
+            and result.ownership_epoch != current.ownership_epoch
+        )
+    )
+
+
+def _sync_push_failed_barrier_verdict(
+    current: PushBarrierVerdict, *, updated_at: datetime
+) -> PushBarrierVerdict:
+    """Project a failed ``sync_push`` command into a fail-closed backlog verdict."""
+
+    return _replace_push_barrier_verdict(
+        current,
+        expected_head_sha=None,
+        server_head_sha=None,
+        status=PushBarrierVerdictStatus.BLOCKED_BACKLOG,
+        updated_at=updated_at,
+        resolved_at=updated_at,
+        status_detail="sync_push_command_failed",
+    )
+
+
 def _next_boundary_binding(
     current: PushBarrierVerdict | None,
     *,
@@ -4943,8 +4982,8 @@ def _replace_push_barrier_verdict(
     resolved_at: datetime | None,
     status_detail: str | None,
     boundary_epoch: int | None = None,
-    expected_head_sha: str | None | object = _KEEP_FIELD,
-    server_head_sha: str | None | object = _KEEP_FIELD,
+    expected_head_sha: str | None | object = runtime_constants.KEEP_FIELD,
+    server_head_sha: str | None | object = runtime_constants.KEEP_FIELD,
     ownership_epoch: int | None = None,
     status: PushBarrierVerdictStatus | None = None,
 ) -> PushBarrierVerdict:
@@ -4963,12 +5002,12 @@ def _replace_push_barrier_verdict(
         ),
         expected_head_sha=(
             verdict.expected_head_sha
-            if expected_head_sha is _KEEP_FIELD
+            if expected_head_sha is runtime_constants.KEEP_FIELD
             else cast("str | None", expected_head_sha)
         ),
         server_head_sha=(
             verdict.server_head_sha
-            if server_head_sha is _KEEP_FIELD
+            if server_head_sha is runtime_constants.KEEP_FIELD
             else cast("str | None", server_head_sha)
         ),
         ownership_epoch=(
@@ -5383,7 +5422,8 @@ def _push_barrier_rejection(
         run_id=run_id,
         phase=phase,
         reason=(
-            f"{_PUSH_BARRIER_BLOCKED_CODE}: {operation_kind} blocked -- the "
+            f"{runtime_constants.PUSH_BARRIER_BLOCKED_CODE}: "
+            f"{operation_kind} blocked -- the "
             f"{verdict.barrier_type.value} push barrier is not satisfied "
             f"(FK-10 §10.2.4b, fail-closed; the Edge report alone is never "
             f"sufficient). Unverified repos: {verdict.blocking_summary()}"
@@ -5522,7 +5562,7 @@ def _replayed_result(
 def _build_fast_edge_bundle(
     *,
     project_key: str,
-    sync_class: FreshnessClass,
+    sync_class: runtime_constants.FreshnessClass,
     now: datetime,
 ) -> EdgeBundle:
     """Build an ``ai_augmented`` bundle for a fast story (AG3-018 AC3/AC5).
@@ -5546,7 +5586,7 @@ def _build_fast_edge_bundle(
         export_version=export_version,
         operating_mode="ai_augmented",
         bundle_dir=f"_temp/governance/bundles/{export_version}",
-        sync_after=now + _SYNC_AFTER_BY_CLASS[sync_class],
+        sync_after=now + runtime_constants.SYNC_AFTER_BY_CLASS[sync_class],
         freshness_class=sync_class,
         generated_at=now,
     )
@@ -5564,7 +5604,7 @@ def _build_edge_bundle(
     binding: SessionRunBindingRecord | None,
     lock: StoryExecutionLockRecord,
     qa_lock: StoryExecutionLockRecord | None = None,
-    sync_class: FreshnessClass,
+    sync_class: runtime_constants.FreshnessClass,
     now: datetime,
     tombstone_worktree_roots: tuple[str, ...] = (),
 ) -> EdgeBundle:
@@ -5575,7 +5615,7 @@ def _build_edge_bundle(
         export_version=export_version,
         operating_mode=operating_mode,
         bundle_dir=f"_temp/governance/bundles/{export_version}",
-        sync_after=now + _SYNC_AFTER_BY_CLASS[sync_class],
+        sync_after=now + runtime_constants.SYNC_AFTER_BY_CLASS[sync_class],
         freshness_class=sync_class,
         generated_at=now,
     )

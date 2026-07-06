@@ -17,6 +17,7 @@ from agentkit.backend.verify_system.register import register_verify_producers
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from datetime import datetime
 
     from agentkit.backend.closure.gates import TelemetryEvidencePort
     from agentkit.backend.closure.merge_sequence import MergeApplicability, PreMergeScanPort, RepoRunners, SanityGatePort
@@ -1371,6 +1372,60 @@ def _boundary_id_from_sync_point(
     if ":epoch-" in body:
         body = body.rsplit(":epoch-", 1)[0]
     return body or None
+
+
+def _qa_boundary_epoch(current: Any | None) -> int:
+    """Return the active QA boundary epoch, bumping retries after backlog."""
+
+    if current is None:
+        return 1
+    if current.status.value == "blocked_backlog":
+        return int(current.boundary_epoch) + 1
+    return int(current.boundary_epoch)
+
+
+def _block_qa_boundary_open_command(
+    boundary: _QaBoundaryBinding, *, repo: str, updated_at: datetime
+) -> None:
+    """Mark a QA-boundary verdict blocked when an earlier command is still open."""
+
+    from agentkit.backend.control_plane.push_sync import (
+        PushBarrierVerdict,
+        PushBarrierVerdictStatus,
+        SyncPointBarrierType,
+    )
+    from agentkit.backend.state_backend.store import facade
+
+    latest = facade.load_push_barrier_verdict_global(
+        project_key=boundary.scope.project_key,
+        story_id=boundary.scope.story_id,
+        run_id=boundary.scope.run_id,
+        boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
+        boundary_id=boundary.boundary_id,
+        repo_id=repo,
+    )
+    if latest is None or latest.status is not PushBarrierVerdictStatus.PENDING:
+        return
+    facade.upsert_push_barrier_verdict_global(
+        PushBarrierVerdict(
+            project_key=latest.project_key,
+            story_id=latest.story_id,
+            run_id=latest.run_id,
+            boundary_type=latest.boundary_type,
+            boundary_id=latest.boundary_id,
+            repo_id=latest.repo_id,
+            producer=latest.producer,
+            boundary_epoch=latest.boundary_epoch,
+            expected_head_sha=latest.expected_head_sha,
+            server_head_sha=latest.server_head_sha,
+            ownership_epoch=latest.ownership_epoch,
+            status=PushBarrierVerdictStatus.BLOCKED_BACKLOG,
+            created_at=latest.created_at,
+            updated_at=updated_at,
+            resolved_at=updated_at,
+            status_detail="sync_push_command_still_open",
+        )
+    )
 
 
 def _default_push_verification_port() -> PushVerificationPort:
@@ -3726,6 +3781,16 @@ def _build_repo_code_backend_port(
 
 
 @dataclass(frozen=True)
+class _QaBoundaryBinding:
+    """Resolved QA boundary scope for sync-push commissioning."""
+
+    scope: Any
+    ctx: Any
+    active: Any
+    boundary_id: str
+
+
+@dataclass(frozen=True)
 class _ControlPlaneQaCyclePushBarrierGate:
     """Productive QA-cycle-boundary gate delegating to the control-plane barrier.
 
@@ -3753,129 +3818,25 @@ class _ControlPlaneQaCyclePushBarrierGate:
         """Queue QA-boundary ``sync_push`` commands before evaluating evidence."""
         from datetime import UTC, datetime
 
-        from agentkit.backend.control_plane.models import SyncPushCommandPayload
-        from agentkit.backend.control_plane.push_sync import (
-            PushBarrierVerdict,
-            PushBarrierVerdictStatus,
-            SyncPointBarrierType,
-            next_sync_push_command_id,
-            official_story_ref,
-        )
-        from agentkit.backend.control_plane.records import EdgeCommandRecord
-        from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.control_plane.push_sync import official_story_ref
 
         try:
-            scope = facade.resolve_runtime_scope(story_dir)
-            ctx = facade.load_story_context(story_dir)
-            active = facade.load_active_run_ownership_record_global(
-                scope.project_key, scope.story_id
-            )
-            if ctx is None or active is None or active.run_id != scope.run_id:
-                return
-            boundary_id = _boundary_id_from_sync_point(
-                sync_point_id,
-                expected_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
-            )
-            if boundary_id is None:
+            boundary = self._qa_boundary_binding(story_dir, sync_point_id)
+            if boundary is None:
                 return
             now = datetime.now(tz=UTC)
-            branch = official_story_ref(scope.story_id)
-            for repo in tuple(ctx.participating_repos):
-                current = facade.load_push_barrier_verdict_global(
-                    project_key=scope.project_key,
-                    story_id=scope.story_id,
-                    run_id=scope.run_id,
-                    boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
-                    boundary_id=boundary_id,
-                    repo_id=repo,
+            branch = official_story_ref(boundary.scope.story_id)
+            for repo in tuple(boundary.ctx.participating_repos):
+                epoch = self._ensure_qa_boundary_verdict(
+                    boundary, repo=repo, updated_at=now
                 )
-                epoch = 1 if current is None else current.boundary_epoch
-                if current is None or current.status.value != "pending":
-                    if current is not None and current.status.value == "blocked_backlog":
-                        epoch += 1
-                    facade.upsert_push_barrier_verdict_global(
-                        PushBarrierVerdict(
-                            project_key=scope.project_key,
-                            story_id=scope.story_id,
-                            run_id=scope.run_id,
-                            boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
-                            boundary_id=boundary_id,
-                            repo_id=repo,
-                            producer="control_plane.push_barrier",
-                            boundary_epoch=epoch,
-                            expected_head_sha=(
-                                current.expected_head_sha if current else None
-                            ),
-                            server_head_sha=None,
-                            ownership_epoch=active.ownership_epoch,
-                            status=PushBarrierVerdictStatus.PENDING,
-                            created_at=current.created_at if current else now,
-                            updated_at=now,
-                            resolved_at=None,
-                            status_detail="qa_boundary_bound",
-                        )
-                    )
-                boundary_sync_point_id = f"{sync_point_id}:epoch-{epoch}"
-                command_id = next_sync_push_command_id(
-                    run_id=scope.run_id,
-                    sync_point_id=boundary_sync_point_id,
-                    repo_id=repo,
-                    load_command=facade.load_edge_command_record_global,
-                )
-                if command_id is None:
-                    latest = facade.load_push_barrier_verdict_global(
-                        project_key=scope.project_key,
-                        story_id=scope.story_id,
-                        run_id=scope.run_id,
-                        boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
-                        boundary_id=boundary_id,
-                        repo_id=repo,
-                    )
-                    if latest is not None and latest.status.value == "pending":
-                        facade.upsert_push_barrier_verdict_global(
-                            PushBarrierVerdict(
-                                project_key=latest.project_key,
-                                story_id=latest.story_id,
-                                run_id=latest.run_id,
-                                boundary_type=latest.boundary_type,
-                                boundary_id=latest.boundary_id,
-                                repo_id=latest.repo_id,
-                                producer=latest.producer,
-                                boundary_epoch=latest.boundary_epoch,
-                                expected_head_sha=latest.expected_head_sha,
-                                server_head_sha=latest.server_head_sha,
-                                ownership_epoch=latest.ownership_epoch,
-                                status=PushBarrierVerdictStatus.BLOCKED_BACKLOG,
-                                created_at=latest.created_at,
-                                updated_at=now,
-                                resolved_at=now,
-                                status_detail="sync_push_command_still_open",
-                            )
-                        )
-                    continue
-                facade.commission_edge_command_record_global(
-                    EdgeCommandRecord(
-                        command_id=command_id,
-                        project_key=scope.project_key,
-                        story_id=scope.story_id,
-                        run_id=scope.run_id,
-                        session_id=active.owner_session_id,
-                        command_kind="sync_push",
-                        payload=SyncPushCommandPayload(
-                            story_id=scope.story_id,
-                            project_key=scope.project_key,
-                            run_id=scope.run_id,
-                            repo_id=repo,
-                            branch=branch,
-                            boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY.value,
-                            boundary_id=boundary_id,
-                            boundary_epoch=epoch,
-                            ownership_epoch=active.ownership_epoch,
-                        ).model_dump(mode="json"),
-                        status="created",
-                        ownership_epoch=active.ownership_epoch,
-                        created_at=now,
-                    )
+                self._commission_qa_repo_sync_push(
+                    boundary,
+                    repo=repo,
+                    branch=branch,
+                    sync_point_id=sync_point_id,
+                    boundary_epoch=epoch,
+                    created_at=now,
                 )
         except Exception as exc:  # noqa: BLE001 -- queue failure cannot open barrier
             import logging
@@ -3883,6 +3844,130 @@ class _ControlPlaneQaCyclePushBarrierGate:
             logging.getLogger(__name__).warning(
                 "sync_push commissioning failed before QA-cycle barrier: %s", exc
             )
+
+    @staticmethod
+    def _qa_boundary_binding(
+        story_dir: Path, sync_point_id: str
+    ) -> _QaBoundaryBinding | None:
+        """Resolve QA boundary identity, story context, and active ownership."""
+        from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
+        from agentkit.backend.state_backend.store import facade
+
+        scope = facade.resolve_runtime_scope(story_dir)
+        ctx = facade.load_story_context(story_dir)
+        active = facade.load_active_run_ownership_record_global(
+            scope.project_key, scope.story_id
+        )
+        boundary_id = _boundary_id_from_sync_point(
+            sync_point_id,
+            expected_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
+        )
+        if ctx is None or active is None or active.run_id != scope.run_id:
+            return None
+        if boundary_id is None:
+            return None
+        return _QaBoundaryBinding(
+            scope=scope, ctx=ctx, active=active, boundary_id=boundary_id
+        )
+
+    @staticmethod
+    def _ensure_qa_boundary_verdict(
+        boundary: _QaBoundaryBinding, *, repo: str, updated_at: datetime
+    ) -> int:
+        """Ensure a pending QA-boundary verdict row exists and return its epoch."""
+        from agentkit.backend.control_plane.push_sync import (
+            PushBarrierVerdict,
+            PushBarrierVerdictStatus,
+            SyncPointBarrierType,
+        )
+        from agentkit.backend.state_backend.store import facade
+
+        current = facade.load_push_barrier_verdict_global(
+            project_key=boundary.scope.project_key,
+            story_id=boundary.scope.story_id,
+            run_id=boundary.scope.run_id,
+            boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
+            boundary_id=boundary.boundary_id,
+            repo_id=repo,
+        )
+        epoch = _qa_boundary_epoch(current)
+        if current is not None and current.status is PushBarrierVerdictStatus.PENDING:
+            return epoch
+        facade.upsert_push_barrier_verdict_global(
+            PushBarrierVerdict(
+                project_key=boundary.scope.project_key,
+                story_id=boundary.scope.story_id,
+                run_id=boundary.scope.run_id,
+                boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
+                boundary_id=boundary.boundary_id,
+                repo_id=repo,
+                producer="control_plane.push_barrier",
+                boundary_epoch=epoch,
+                expected_head_sha=current.expected_head_sha if current else None,
+                server_head_sha=None,
+                ownership_epoch=boundary.active.ownership_epoch,
+                status=PushBarrierVerdictStatus.PENDING,
+                created_at=current.created_at if current else updated_at,
+                updated_at=updated_at,
+                resolved_at=None,
+                status_detail="qa_boundary_bound",
+            )
+        )
+        return epoch
+
+    @staticmethod
+    def _commission_qa_repo_sync_push(
+        boundary: _QaBoundaryBinding,
+        *,
+        repo: str,
+        branch: str,
+        sync_point_id: str,
+        boundary_epoch: int,
+        created_at: datetime,
+    ) -> None:
+        """Queue one QA-boundary ``sync_push`` or mark backlog when still open."""
+        from agentkit.backend.control_plane.models import SyncPushCommandPayload
+        from agentkit.backend.control_plane.push_sync import (
+            SyncPointBarrierType,
+            next_sync_push_command_id,
+        )
+        from agentkit.backend.control_plane.records import EdgeCommandRecord
+        from agentkit.backend.state_backend.store import facade
+
+        boundary_sync_point_id = f"{sync_point_id}:epoch-{boundary_epoch}"
+        command_id = next_sync_push_command_id(
+            run_id=boundary.scope.run_id,
+            sync_point_id=boundary_sync_point_id,
+            repo_id=repo,
+            load_command=facade.load_edge_command_record_global,
+        )
+        if command_id is None:
+            _block_qa_boundary_open_command(boundary, repo=repo, updated_at=created_at)
+            return
+        facade.commission_edge_command_record_global(
+            EdgeCommandRecord(
+                command_id=command_id,
+                project_key=boundary.scope.project_key,
+                story_id=boundary.scope.story_id,
+                run_id=boundary.scope.run_id,
+                session_id=boundary.active.owner_session_id,
+                command_kind="sync_push",
+                payload=SyncPushCommandPayload(
+                    story_id=boundary.scope.story_id,
+                    project_key=boundary.scope.project_key,
+                    run_id=boundary.scope.run_id,
+                    repo_id=repo,
+                    branch=branch,
+                    boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY.value,
+                    boundary_id=boundary.boundary_id,
+                    boundary_epoch=boundary_epoch,
+                    ownership_epoch=boundary.active.ownership_epoch,
+                ).model_dump(mode="json"),
+                status="created",
+                ownership_epoch=boundary.active.ownership_epoch,
+                created_at=created_at,
+            )
+        )
 
     def enforce(self, story_dir: Path, current: Any) -> None:
         """Raise when the QA_CYCLE_BOUNDARY barrier is not satisfied (fail-closed)."""
