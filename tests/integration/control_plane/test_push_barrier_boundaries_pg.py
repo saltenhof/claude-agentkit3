@@ -30,9 +30,15 @@ import pytest
 
 from agentkit.backend.control_plane.models import (
     ClosureCompleteRequest,
+    CommandErrorResult,
+    EdgeCommandResultRequest,
     PhaseMutationRequest,
+    PushStatusReport,
 )
-from agentkit.backend.control_plane.push_sync import RepoPushVerificationInput
+from agentkit.backend.control_plane.push_sync import (
+    RepoPushVerificationInput,
+    next_sync_push_command_id,
+)
 from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.backend.state_backend.store import (
     boot_backend_instance_identity_global,
@@ -118,6 +124,26 @@ class _FailingCommissionRepo:
         raise RuntimeError("commission boom")
 
 
+@dataclass
+class _MutableBarrierPort:
+    inputs: tuple[RepoPushVerificationInput, ...]
+
+    def collect_repo_inputs(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+        required_sync_point_id: str | None = None,
+    ) -> tuple[RepoPushVerificationInput, ...]:
+        return _FakeBarrierPort(self.inputs).collect_repo_inputs(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            required_sync_point_id=required_sync_point_id,
+        )
+
+
 def _verified(repo_id: str) -> RepoPushVerificationInput:
     return RepoPushVerificationInput(
         repo_id=repo_id,
@@ -196,6 +222,18 @@ def _service(
     )
 
 
+def _service_with_mutable_barrier(
+    barrier: _MutableBarrierPort, *, ident: str
+) -> ControlPlaneRuntimeService:
+    identity = boot_backend_instance_identity_global(ident, _T0)
+    return ControlPlaneRuntimeService(
+        phase_dispatcher=_AdmittedDispatcher(),  # type: ignore[arg-type]
+        now_fn=lambda: _T0,
+        instance_identity=identity,
+        push_barrier_evidence=barrier,  # type: ignore[arg-type]
+    )
+
+
 def _admit_run(service: ControlPlaneRuntimeService, *, story_id: str, run_id: str) -> None:
     """Mint the active ownership via a REAL setup start (not hand-assembled)."""
     result = service.start_phase(
@@ -203,6 +241,33 @@ def _admit_run(service: ControlPlaneRuntimeService, *, story_id: str, run_id: st
         request=_request(story_id=story_id, op_id=f"op-setup-{story_id}"),
     )
     assert result.status == "committed"
+
+
+def _command_error_request(*, story_id: str, op_id: str) -> EdgeCommandResultRequest:
+    return EdgeCommandResultRequest(
+        project_key=_PROJECT,
+        story_id=story_id,
+        session_id="sess-A",
+        op_id=op_id,
+        result=CommandErrorResult(
+            error_code="sync_push_failed",
+            message="sync_push failed: transient remote error",
+        ),
+    )
+
+
+def _push_result_request(*, story_id: str, op_id: str) -> EdgeCommandResultRequest:
+    return EdgeCommandResultRequest(
+        project_key=_PROJECT,
+        story_id=story_id,
+        session_id="sess-A",
+        op_id=op_id,
+        result=PushStatusReport(
+            repo_id="api",
+            push_outcome="pushed",
+            head_sha=_SHA_X,
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +372,57 @@ def test_phase_completion_commission_failure_warns_and_still_blocks(
     assert result.status == "rejected"
     assert "push_barrier_unverified" in (result.phase_dispatch.rejection_reason or "")
     assert "sync_push commissioning failed before barrier" in caplog.text
+
+
+def test_phase_completion_retry_after_failed_sync_push_eventually_passes(
+    tmp_path: Path,
+) -> None:
+    """R4: a terminal failed ``sync_push`` does not deadlock the same boundary."""
+    story_id, run_id = "AG3-914", "run-914"
+    _seed_story_context(tmp_path, story_id, participating_repos=["api"])
+    barrier = _MutableBarrierPort((_no_edge_report("api"),))
+    service = _service_with_mutable_barrier(barrier, ident="inst-914")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    request = _request(story_id=story_id, op_id="op-complete-914")
+    base_command_id = "run-914::sync_push::phase_completion:op-complete-914::api"
+
+    first = service.complete_phase(
+        run_id=run_id, phase="implementation", request=request
+    )
+    assert first.status == "rejected"
+    assert load_edge_command_record_global(base_command_id) is not None
+
+    failed = service.submit_command_result(
+        base_command_id,
+        _command_error_request(story_id=story_id, op_id="edge-op-failed-914"),
+    )
+    assert failed.status == "completed"
+    retry_command_id = next_sync_push_command_id(
+        run_id=run_id,
+        sync_point_id="phase_completion:op-complete-914",
+        repo_id="api",
+        load_command=load_edge_command_record_global,
+    )
+    assert retry_command_id is not None
+    assert retry_command_id != base_command_id
+
+    second = service.complete_phase(
+        run_id=run_id, phase="implementation", request=request
+    )
+    assert second.status == "rejected"
+    assert load_edge_command_record_global(retry_command_id) is not None
+
+    pushed = service.submit_command_result(
+        retry_command_id,
+        _push_result_request(story_id=story_id, op_id="edge-op-pushed-914"),
+    )
+    assert pushed.status == "completed"
+    barrier.inputs = (_verified("api"),)
+
+    third = service.complete_phase(
+        run_id=run_id, phase="implementation", request=request
+    )
+    assert third.status == "committed"
 
 
 def test_phase_completion_barrier_passes_when_verified(tmp_path: Path) -> None:

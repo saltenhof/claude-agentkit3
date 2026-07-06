@@ -7,6 +7,7 @@ the runtime, the HTTP read model and the Edge push gate.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import pytest
@@ -25,8 +26,11 @@ from agentkit.backend.control_plane.push_sync import (
     evaluate_push_barrier,
     evaluate_repo_push,
     is_official_story_ref,
+    next_sync_push_command_id,
     official_story_ref,
     project_push_freshness,
+    sync_point_id_from_sync_push_command_id,
+    sync_push_command_id,
     verify_pushed_across_repos,
 )
 
@@ -379,6 +383,56 @@ def test_ac4_backlog_preserves_prior_pushed_sha() -> None:
     assert later.last_pushed_head_sha == _SHA_A
     assert later.last_reported_head_sha == _SHA_B
     assert later.last_sync_point_id == "phase_completion:op-2"
+
+
+@dataclass(frozen=True)
+class _Command:
+    status: str
+    result_op_id: str | None = None
+    completed_at: datetime | None = None
+
+
+def test_sync_push_retry_id_preserves_boundary_sync_point() -> None:
+    """A retry command is fresh while still correlating to the same boundary."""
+    base = sync_push_command_id(
+        run_id="run-1", sync_point_id=_SYNC_POINT_ID, repo_id="repo-a"
+    )
+    commands: dict[str, _Command] = {
+        base: _Command(status="failed", result_op_id="edge-op-1", completed_at=_NOW)
+    }
+
+    retry = next_sync_push_command_id(
+        run_id="run-1",
+        sync_point_id=_SYNC_POINT_ID,
+        repo_id="repo-a",
+        load_command=commands.get,
+    )
+
+    assert retry is not None
+    assert retry != base
+    assert (
+        sync_point_id_from_sync_push_command_id(
+            retry, run_id="run-1", repo_id="repo-a"
+        )
+        == _SYNC_POINT_ID
+    )
+
+
+def test_sync_push_retry_waits_while_prior_command_is_open() -> None:
+    base = sync_push_command_id(
+        run_id="run-1", sync_point_id=_SYNC_POINT_ID, repo_id="repo-a"
+    )
+    commands = {base: _Command(status="delivered")}
+
+    assert (
+        next_sync_push_command_id(
+            run_id="run-1",
+            sync_point_id=_SYNC_POINT_ID,
+            repo_id="repo-a",
+            load_command=commands.get,
+        )
+        is None
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -39,10 +39,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from hashlib import sha256
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
     from datetime import datetime
 
 __all__ = [
@@ -65,8 +66,11 @@ __all__ = [
     "evaluate_push_barrier",
     "evaluate_repo_push",
     "is_official_story_ref",
+    "next_sync_push_command_id",
     "official_story_ref",
     "project_push_freshness",
+    "sync_point_id_from_sync_push_command_id",
+    "sync_push_command_id",
     "verify_pushed_across_repos",
 ]
 
@@ -86,6 +90,11 @@ class SyncPointBarrierType(StrEnum):
     QA_CYCLE_BOUNDARY = "qa_cycle_boundary"
     YIELD_POINT = "yield_point"
     CLOSURE_ENTRY = "closure_entry"
+
+
+SYNC_PUSH_COMMAND_KIND = "sync_push"
+_SYNC_PUSH_RETRY_MARKER = "::retry:"
+_MAX_SYNC_PUSH_RETRY_CHAIN = 64
 
 
 class PushBarrierBlockCode(StrEnum):
@@ -257,6 +266,85 @@ def evaluate_repo_push(inp: RepoPushVerificationInput) -> RepoPushVerdict:
         block_code=None,
         detail=f"push verified: edge and server agree on head {inp.server_head_sha}",
     )
+
+
+def sync_push_command_id(
+    *, run_id: str, sync_point_id: str, repo_id: str, retry_token: str | None = None
+) -> str:
+    """Build a ``sync_push`` command id while preserving boundary correlation.
+
+    The first attempt keeps the legacy deterministic identity. Retry attempts add
+    an attempt token before the repo suffix, but the sync-point id parsed from the
+    command remains the original hard-boundary id. That lets a failed terminal
+    command be superseded without letting stale evidence from another boundary
+    satisfy the barrier.
+    """
+    if retry_token is None:
+        return f"{run_id}::{SYNC_PUSH_COMMAND_KIND}::{sync_point_id}::{repo_id}"
+    return (
+        f"{run_id}::{SYNC_PUSH_COMMAND_KIND}::{sync_point_id}"
+        f"{_SYNC_PUSH_RETRY_MARKER}{retry_token}::{repo_id}"
+    )
+
+
+def sync_point_id_from_sync_push_command_id(
+    command_id: str, *, run_id: str, repo_id: str
+) -> str | None:
+    """Extract the hard-boundary sync-point id from a ``sync_push`` command id."""
+    prefix = f"{run_id}::{SYNC_PUSH_COMMAND_KIND}::"
+    suffix = f"::{repo_id}"
+    if not command_id.startswith(prefix) or not command_id.endswith(suffix):
+        return None
+    body = command_id[len(prefix) : -len(suffix)]
+    if not body:
+        return None
+    if _SYNC_PUSH_RETRY_MARKER in body:
+        body = body.split(_SYNC_PUSH_RETRY_MARKER, 1)[0]
+    return body or None
+
+
+def next_sync_push_command_id(
+    *,
+    run_id: str,
+    sync_point_id: str,
+    repo_id: str,
+    load_command: Callable[[str], object | None],
+) -> str | None:
+    """Return the command id to commission for this boundary attempt.
+
+    ``None`` means an open command for the same boundary/repo already exists, so
+    commissioning must wait for that command to terminate. When the prior command
+    is terminal, a fresh retry id is derived from that terminal record's identity
+    and result op, keeping retries deterministic without server-minting a new
+    correlation.
+    """
+    command_id = sync_push_command_id(
+        run_id=run_id, sync_point_id=sync_point_id, repo_id=repo_id
+    )
+    for _ in range(_MAX_SYNC_PUSH_RETRY_CHAIN):
+        existing = load_command(command_id)
+        if existing is None:
+            return command_id
+        status = getattr(existing, "status", None)
+        if status in {"created", "delivered"}:
+            return None
+        token = _sync_push_retry_token(existing, fallback=command_id)
+        command_id = sync_push_command_id(
+            run_id=run_id,
+            sync_point_id=sync_point_id,
+            repo_id=repo_id,
+            retry_token=token,
+        )
+    return None
+
+
+def _sync_push_retry_token(existing: object, *, fallback: str) -> str:
+    """Derive a compact deterministic retry token from a terminal command."""
+    result_op_id = getattr(existing, "result_op_id", None)
+    completed_at = getattr(existing, "completed_at", None)
+    source = result_op_id or completed_at or fallback
+    raw = f"{fallback}\0{source}".encode()
+    return sha256(raw).hexdigest()[:16]
 
 
 def _repo_block(

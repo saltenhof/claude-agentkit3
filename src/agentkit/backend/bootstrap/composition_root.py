@@ -1128,6 +1128,7 @@ def build_verify_system(
     structural_are_provider: AreGateProvider | None = None,
     conformance_config: ConformanceConfig | None = None,
     layer2_bundle_token_limit: int = 32_000,
+    structural_completion_sync_point_id: str | None = None,
 ) -> VerifySystem:
     """Create a fully wired ``VerifySystem``.
 
@@ -1181,6 +1182,9 @@ def build_verify_system(
             AG3-063 remediation 2).
         layer2_bundle_token_limit: Per-field section-aware Layer-2 packing
             limit from ``ProjectConfig.pipeline.layer2.bundle_token_limit``.
+        structural_completion_sync_point_id: Current phase-completion push
+            boundary correlation used by the structural ``completion.push``
+            evidence source. ``None`` stays fail-closed.
 
     Returns:
         ``VerifySystem`` with all five sub-components and a fully wired
@@ -1228,7 +1232,9 @@ def build_verify_system(
         # subprocess; the import lives in this composition root). NEVER the
         # worker manifest.
         structural_change_evidence_port=_SubprocessGitChangeEvidenceProvider(
-            push_verification_port=build_push_verification_port()
+            push_verification_port=build_push_verification_port(
+                required_sync_point_id=structural_completion_sync_point_id
+            )
         ),
         # AG3-147 (FK-10 §10.2.4b boundary type 2): the QA-cycle-boundary push
         # barrier gate, delegating to the control-plane two-stage barrier.
@@ -1369,8 +1375,12 @@ class _BarrierPushVerification:
     then FAILs -- NO ERROR BYPASSING).
     """
 
+    required_sync_point_id: str | None = None
+
     def confirm_story_pushed(self, story_dir: Path) -> bool:
         """Whether the story branch is server-verified-pushed in every repo."""
+        if self.required_sync_point_id is None:
+            return False
         from agentkit.backend.control_plane.push_sync import (
             SyncPointBarrierType,
             evaluate_push_barrier,
@@ -1390,9 +1400,18 @@ class _BarrierPushVerification:
         run_id = getattr(scope, "run_id", None)
         if not project_key or not story_id or not run_id:
             return False
+        self._commission_sync_push_best_effort(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            sync_point_id=self.required_sync_point_id,
+        )
         try:
             inputs = build_push_barrier_evidence().collect_repo_inputs(
-                project_key=project_key, story_id=story_id, run_id=run_id
+                project_key=project_key,
+                story_id=story_id,
+                run_id=run_id,
+                required_sync_point_id=self.required_sync_point_id,
             )
         except (StoryWorkspaceUnresolvedError, ConfigError):
             # An unresolvable participating-repo set -- no canonical
@@ -1407,10 +1426,72 @@ class _BarrierPushVerification:
             SyncPointBarrierType.PHASE_COMPLETION, inputs
         ).passed
 
+    def _commission_sync_push_best_effort(
+        self, *, project_key: str, story_id: str, run_id: str, sync_point_id: str
+    ) -> None:
+        """Queue structural phase-completion ``sync_push`` evidence."""
+        import logging
+        from datetime import UTC, datetime
 
-def build_push_verification_port() -> PushVerificationPort:
+        from agentkit.backend.control_plane.models import SyncPushCommandPayload
+        from agentkit.backend.control_plane.push_sync import (
+            next_sync_push_command_id,
+            official_story_ref,
+        )
+        from agentkit.backend.control_plane.records import EdgeCommandRecord
+        from agentkit.backend.state_backend.store import facade
+
+        try:
+            ctx = facade.load_story_context_global(project_key, story_id)
+            active = facade.load_active_run_ownership_record_global(
+                project_key, story_id
+            )
+            if ctx is None or active is None or active.run_id != run_id:
+                return
+            now = datetime.now(tz=UTC)
+            branch = official_story_ref(story_id)
+            for repo in tuple(ctx.participating_repos):
+                command_id = next_sync_push_command_id(
+                    run_id=run_id,
+                    sync_point_id=sync_point_id,
+                    repo_id=repo,
+                    load_command=facade.load_edge_command_record_global,
+                )
+                if command_id is None:
+                    continue
+                facade.commission_edge_command_record_global(
+                    EdgeCommandRecord(
+                        command_id=command_id,
+                        project_key=project_key,
+                        story_id=story_id,
+                        run_id=run_id,
+                        session_id=active.owner_session_id,
+                        command_kind="sync_push",
+                        payload=SyncPushCommandPayload(
+                            story_id=story_id,
+                            project_key=project_key,
+                            run_id=run_id,
+                            repo_id=repo,
+                            branch=branch,
+                        ).model_dump(mode="json"),
+                        status="created",
+                        ownership_epoch=active.ownership_epoch,
+                        created_at=now,
+                    )
+                )
+        except Exception as exc:  # noqa: BLE001 -- queue failure cannot open barrier
+            logging.getLogger(__name__).warning(
+                "sync_push commissioning failed before structural completion.push "
+                "barrier: %s",
+                exc,
+            )
+
+
+def build_push_verification_port(
+    required_sync_point_id: str | None = None,
+) -> PushVerificationPort:
     """Wire the productive two-stage push-verification port (AG3-147 AC11)."""
-    return _BarrierPushVerification()
+    return _BarrierPushVerification(required_sync_point_id=required_sync_point_id)
 
 
 @dataclass(frozen=True)
@@ -3676,6 +3757,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
 
         from agentkit.backend.control_plane.models import SyncPushCommandPayload
         from agentkit.backend.control_plane.push_sync import (
+            next_sync_push_command_id,
             official_story_ref,
         )
         from agentkit.backend.control_plane.records import EdgeCommandRecord
@@ -3692,9 +3774,14 @@ class _ControlPlaneQaCyclePushBarrierGate:
             now = datetime.now(tz=UTC)
             branch = official_story_ref(scope.story_id)
             for repo in tuple(ctx.participating_repos):
-                command_id = (
-                    f"{scope.run_id}::sync_push::{sync_point_id}::{repo}"
+                command_id = next_sync_push_command_id(
+                    run_id=scope.run_id,
+                    sync_point_id=sync_point_id,
+                    repo_id=repo,
+                    load_command=facade.load_edge_command_record_global,
                 )
+                if command_id is None:
+                    continue
                 facade.commission_edge_command_record_global(
                     EdgeCommandRecord(
                         command_id=command_id,

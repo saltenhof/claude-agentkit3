@@ -222,6 +222,11 @@ class ImplementationPhaseHandler:
         # _resolve_sonar_gate_port / _resolve_structural_evidence_ports above.
         conformance_config = _resolve_conformance_config(ctx)
         layer2_bundle_token_limit = _resolve_layer2_bundle_token_limit(ctx)
+        qa_rounds = state.memory.implementation.qa_feedback_rounds
+        attempt_nr = qa_rounds + 1
+        structural_completion_sync_point_id = (
+            f"phase_completion:{flow.run_id}:attempt-{attempt_nr}"
+        )
         verify_system = self._config.verify_system or build_verify_system(
             s_dir,
             sonar_gate_port=sonar_gate_port,
@@ -231,6 +236,7 @@ class ImplementationPhaseHandler:
             structural_are_provider=are_provider,
             conformance_config=conformance_config,
             layer2_bundle_token_limit=layer2_bundle_token_limit,
+            structural_completion_sync_point_id=structural_completion_sync_point_id,
             # AG3-067 AC7: thread the composition-root-injected Layer-2 transport
             # so the productive QA-subflow Layer-2 reviewers use the SAME client
             # the closure level-4 feedback port receives (single source of truth;
@@ -242,10 +248,8 @@ class ImplementationPhaseHandler:
         # identities; refreshed from the persisted identities each round).
         phase_envelope_view = _build_phase_envelope_view(envelope)
 
-        qa_rounds = state.memory.implementation.qa_feedback_rounds
         current_context = _verify_context_for(qa_rounds)
         previous_findings: tuple[Finding, ...] = ()
-        attempt_nr = qa_rounds + 1
 
         # AG3-044 Orchestrator-Trennlinie (FK-20 §20.5.1): NO inline while-True.
         # The QA-subflow runs ONCE per on_enter. The subflow-internal remediation

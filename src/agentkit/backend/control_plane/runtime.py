@@ -51,8 +51,10 @@ from agentkit.backend.control_plane.push_sync import (
     SyncPointBarrierType,
     authorize_story_ref_write,
     evaluate_push_barrier,
+    next_sync_push_command_id,
     official_story_ref,
     project_push_freshness,
+    sync_point_id_from_sync_push_command_id,
     verify_pushed_across_repos,
 )
 from agentkit.backend.control_plane.records import (
@@ -783,7 +785,14 @@ class _RunGateMixin:
             now = self._now_fn()
             branch = official_story_ref(story_id)
             for repo in tuple(ctx.participating_repos):
-                command_id = f"{run_id}::sync_push::{sync_point_id}::{repo}"
+                command_id = next_sync_push_command_id(
+                    run_id=run_id,
+                    sync_point_id=sync_point_id,
+                    repo_id=repo,
+                    load_command=self._edge_command_repo.load_command,
+                )
+                if command_id is None:
+                    continue
                 self._edge_command_repo.commission_command(
                     EdgeCommandRecord(
                         command_id=command_id,
@@ -4504,12 +4513,9 @@ def _sync_point_id_from_sync_push_command(
     command_id: str, *, run_id: str, repo_id: str
 ) -> str | None:
     """Extract the boundary sync-point id from the deterministic command id."""
-    prefix = f"{run_id}::sync_push::"
-    suffix = f"::{repo_id}"
-    if not command_id.startswith(prefix) or not command_id.endswith(suffix):
-        return None
-    sync_point_id = command_id[len(prefix) : -len(suffix)]
-    return sync_point_id or None
+    return sync_point_id_from_sync_push_command_id(
+        command_id, run_id=run_id, repo_id=repo_id
+    )
 
 
 def _default_di_instance_identity() -> BackendInstanceIdentityRecord:
