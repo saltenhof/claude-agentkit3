@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from agentkit.backend.artifacts import ArtifactManager, EnvelopeValidator, ProducerRegistry
-from agentkit.backend.bootstrap.qa_boundary import QaBoundaryBinding
+from agentkit.backend.bootstrap.qa_boundary import (
+    QaBoundaryBinding,
+)
+from agentkit.backend.bootstrap.qa_boundary import (
+    boundary_id_from_sync_point as _boundary_id_from_sync_point,
+)
 from agentkit.backend.exploration.register import register_exploration_producers
 from agentkit.backend.implementation.register import register_implementation_producers
 from agentkit.backend.prompt_runtime.register import register_prompt_runtime_producers
@@ -1354,25 +1359,6 @@ class _StateBackendTelemetryEventCountPort:
 #: Test-file path markers used to count test files in a changeset (FK-27
 #: ``test.count``): a changed path is a test file when its name matches.
 _TEST_FILE_MARKERS: tuple[str, ...] = ("test_", "_test.", "/tests/", "tests/")
-
-
-def _boundary_id_from_sync_point(
-    sync_point_id: str,
-    *,
-    expected_type: object,
-) -> str | None:
-    """Extract a boundary id from ``<type>:<id>[:epoch-n]`` correlations."""
-
-    expected_value = getattr(expected_type, "value", str(expected_type))
-    prefix = f"{expected_value}:"
-    if not sync_point_id.startswith(prefix):
-        return None
-    body = sync_point_id[len(prefix) :]
-    if not body:
-        return None
-    if ":epoch-" in body:
-        body = body.rsplit(":epoch-", 1)[0]
-    return body or None
 
 
 def _default_push_verification_port() -> PushVerificationPort:
