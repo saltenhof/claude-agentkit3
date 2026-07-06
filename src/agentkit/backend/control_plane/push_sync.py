@@ -27,7 +27,7 @@ The pieces (each pure):
   finding, never a silent pass.
 * The **official-ref rule** (In-Scope #7, AC10): the only push target is
   ``story/{story_id}``; there is no WIP-ref push path.
-* The **push-gate decision** (In-Scope #4, AC6): online-pflichtig, bounded; a
+* The **push-gate decision** (In-Scope #4, AC6): online-required, bounded; a
   stale ACTIVE bundle grants no push (the FK-56 §56.9a re-sync fallback does
   not apply to the push path, FK-15 §15.5.4).
 * The **merge precondition** (In-Scope #9, AC12, SOLL-190): the reusable
@@ -524,7 +524,7 @@ def is_official_story_ref(ref: str, *, story_id: str) -> bool:
 
 @dataclass(frozen=True)
 class PushGateDecision:
-    """The online-pflichtig Edge-push-gate decision (FK-15 §15.5.4, AC6)."""
+    """The online-required Edge-push-gate decision (FK-15 §15.5.4, AC6)."""
 
     allowed: bool
     refusal_code: PushGateRefusalCode | None
@@ -538,7 +538,7 @@ def decide_push_gate(
     target_ref: str,
     story_id: str,
 ) -> PushGateDecision:
-    """Decide the official Edge push gate (online-pflichtig, bounded, no fallback).
+    """Decide the official Edge push gate (online-required, bounded, no fallback).
 
     The gate is the single sanctioned push mechanic for ``story/*`` (FK-55
     §55.9). It verifies ownership online IMMEDIATELY before the push; without a

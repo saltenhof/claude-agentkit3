@@ -49,13 +49,16 @@ from agentkit.backend.control_plane.ownership_fence import (
 )
 from agentkit.backend.control_plane.push_sync import (
     SyncPointBarrierType,
+    authorize_story_ref_write,
     evaluate_push_barrier,
+    official_story_ref,
     project_push_freshness,
     verify_pushed_across_repos,
 )
 from agentkit.backend.control_plane.records import (
     BindingDeleteScope,
     ControlPlaneOperationRecord,
+    EdgeCommandRecord,
     RunOwnershipRecord,
     SessionRunBindingRecord,
 )
@@ -96,7 +99,6 @@ if TYPE_CHECKING:
     from agentkit.backend.control_plane.push_verification import PushBarrierEvidencePort
     from agentkit.backend.control_plane.records import (
         BackendInstanceIdentityRecord,
-        EdgeCommandRecord,
     )
 
 logger = logging.getLogger(__name__)
@@ -633,6 +635,8 @@ class _RunGateMixin:
         _repo: ControlPlaneRuntimeRepository
         _push_barrier_evidence: PushBarrierEvidencePort | None
         _uses_default_store: bool
+        _edge_command_repo: EdgeCommandRepository
+        _now_fn: Callable[[], datetime]
 
         def _ownership_admission_rejection(
             self,
@@ -644,15 +648,17 @@ class _RunGateMixin:
             phase: str | None,
         ) -> ControlPlaneMutationResult: ...
 
-    def _resolve_push_barrier_evidence(self) -> PushBarrierEvidencePort | None:
-        """Return the wired two-stage push-barrier evidence port, or ``None``.
+    def _resolve_push_barrier_evidence(
+        self, *, require_wired: bool
+    ) -> PushBarrierEvidencePort | None:
+        """Return the wired two-stage push-barrier evidence port.
 
         Mirrors :meth:`_require_postgres_backend_on_first_use`: an explicitly
         injected port wins; the PRODUCTIVE default store lazily builds the real
-        Postgres+code-backend port on first use (barrier fail-closed enforced); a
-        DI-injected repository WITHOUT an explicit port leaves the barrier UNWIRED
-        (``None`` -> the gate no-ops), so a DB-free unit test of an unrelated
-        phase completion is never forced to also wire push evidence.
+        Postgres+code-backend port on first use (barrier fail-closed enforced).
+        A DI-injected repository WITHOUT an explicit port is a wiring error at a
+        push-gated boundary. Legacy custom-repository unit fixtures with no
+        participating repos are not push-gated boundaries.
         """
         if self._push_barrier_evidence is not None:
             return self._push_barrier_evidence
@@ -663,7 +669,13 @@ class _RunGateMixin:
 
             self._push_barrier_evidence = build_push_barrier_evidence()
             return self._push_barrier_evidence
-        return None
+        if not require_wired:
+            return None
+        raise AssertionError(
+            "push_barrier_evidence must be injected with a custom control-plane "
+            "repository; otherwise push-gated boundaries would silently skip the "
+            "AG3-147 barrier"
+        )
 
     def _push_barrier_block(
         self,
@@ -672,6 +684,7 @@ class _RunGateMixin:
         project_key: str,
         story_id: str,
         run_id: str,
+        sync_point_id: str,
     ) -> BarrierVerdict | None:
         """Evaluate a hard push barrier; return the blocking verdict, or ``None``.
 
@@ -682,6 +695,12 @@ class _RunGateMixin:
         never sufficient -- the A-core requires the server ref-read to confirm the
         same head SHA (FK-91 §91.1b).
         """
+        self._commission_sync_push_best_effort(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            sync_point_id=f"{barrier_type.value}:{sync_point_id}",
+        )
         inputs = self._collect_push_barrier_inputs(
             project_key=project_key, story_id=story_id, run_id=run_id
         )
@@ -694,7 +713,11 @@ class _RunGateMixin:
         self, *, project_key: str, story_id: str, run_id: str
     ) -> tuple[RepoPushVerificationInput, ...] | None:
         """Collect the two-stage barrier inputs, or ``None`` when unwired (DI test)."""
-        port = self._resolve_push_barrier_evidence()
+        ctx = self._repo.load_story_context(project_key, story_id)
+        has_participating_repos = bool(ctx is not None and ctx.participating_repos)
+        port = self._resolve_push_barrier_evidence(
+            require_wired=has_participating_repos
+        )
         if port is None:
             return None
         return port.collect_repo_inputs(
@@ -702,7 +725,7 @@ class _RunGateMixin:
         )
 
     def _closure_push_precondition_block(
-        self, *, project_key: str, story_id: str, run_id: str
+        self, *, project_key: str, story_id: str, run_id: str, sync_point_id: str
     ) -> MergePrecondition | None:
         """Closure-entry barrier via the SOLL-190 merge precondition (AC12).
 
@@ -711,6 +734,12 @@ class _RunGateMixin:
         and merge can never diverge. Returns the failing precondition (a
         fail-closed BLOCK) or ``None`` (satisfied, or the barrier is unwired).
         """
+        self._commission_sync_push_best_effort(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            sync_point_id=f"{SyncPointBarrierType.CLOSURE_ENTRY.value}:{sync_point_id}",
+        )
         inputs = self._collect_push_barrier_inputs(
             project_key=project_key, story_id=story_id, run_id=run_id
         )
@@ -718,6 +747,49 @@ class _RunGateMixin:
             return None
         precondition = verify_pushed_across_repos(inputs)
         return None if precondition.satisfied else precondition
+
+    def _commission_sync_push_best_effort(
+        self, *, project_key: str, story_id: str, run_id: str, sync_point_id: str
+    ) -> None:
+        """Queue ``sync_push`` for participating repos before a hard boundary.
+
+        The command is an evidence producer for the barrier. Commissioning is
+        opportunistic: failures do not open the boundary; the following barrier
+        evaluation remains fail-closed on missing/old evidence.
+        """
+        from agentkit.backend.control_plane.models import SyncPushCommandPayload
+
+        try:
+            ctx = self._repo.load_story_context(project_key, story_id)
+            active = self._repo.load_active_ownership(project_key, story_id)
+            if ctx is None or active is None or active.run_id != run_id:
+                return
+            now = self._now_fn()
+            branch = official_story_ref(story_id)
+            for repo in tuple(ctx.participating_repos):
+                command_id = f"{run_id}::sync_push::{sync_point_id}::{repo}"
+                self._edge_command_repo.commission_command(
+                    EdgeCommandRecord(
+                        command_id=command_id,
+                        project_key=project_key,
+                        story_id=story_id,
+                        run_id=run_id,
+                        session_id=active.owner_session_id,
+                        command_kind="sync_push",
+                        payload=SyncPushCommandPayload(
+                            story_id=story_id,
+                            project_key=project_key,
+                            run_id=run_id,
+                            repo_id=repo,
+                            branch=branch,
+                        ).model_dump(mode="json"),
+                        status="created",
+                        ownership_epoch=active.ownership_epoch,
+                        created_at=now,
+                    )
+                )
+        except Exception as exc:  # noqa: BLE001 -- queue failure cannot open barrier
+            logger.warning("sync_push commissioning failed before barrier: %s", exc)
 
     def _run_was_admitted(
         self,
@@ -814,11 +886,11 @@ class _RunGateMixin:
     ) -> ControlPlaneMutationResult:
         """Fail-closed rejection for a run the active ownership record does not admit.
 
-        Shared by complete/closure/resume (identical structure, only the reason
-        prose differs): a transferred-ownership admission yields the rich ex-owner
-        rejection (:meth:`_ownership_admission_rejection`); every other unadmitted
-        reason yields the generic fail-closed rejection carrying ``reason``. The
-        caller guards on ``not admission.admitted``.
+        Shared by closure/resume and available to other run-boundary callers:
+        a transferred-ownership admission yields the rich ex-owner rejection
+        (:meth:`_ownership_admission_rejection`); every other unadmitted reason
+        yields the generic fail-closed rejection carrying ``reason``. The caller
+        guards on ``not admission.admitted``.
         """
         if (
             admission.rejection_reason
@@ -2031,6 +2103,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
                 project_key=request.project_key,
                 story_id=request.story_id,
                 run_id=run_id,
+                sync_point_id=request.op_id,
             )
             if blocked is not None:
                 return _push_barrier_rejection(
@@ -2237,22 +2310,39 @@ class _EdgeCommandMixin:
         Fail-closed on a non-Postgres backend (``ConfigError``, K5).
         """
         self._require_postgres_backend_on_first_use()
+        active_record = self._repo.load_active_ownership(project_key, story_id)
         admission = evaluate_ownership_admission(
-            active_record=self._repo.load_active_ownership(project_key, story_id),
+            active_record=active_record,
             run_id=run_id,
             session_id=session_id,
+        )
+        write_auth = authorize_story_ref_write(
+            active_owner_session_id=(
+                active_record.owner_session_id if active_record is not None else None
+            ),
+            active_ownership_epoch=(
+                active_record.ownership_epoch if active_record is not None else None
+            ),
+            requesting_session_id=session_id,
+            requesting_ownership_epoch=(
+                active_record.ownership_epoch
+                if active_record is not None
+                and active_record.owner_session_id == session_id
+                else 0
+            ),
         )
         rejection_detail = (
             admission.rejection_reason.value
             if admission.rejection_reason
-            else "not admitted"
+            else write_auth.detail
         )
         return PushOwnershipConfirmation(
             run_id=run_id,
-            owner_confirmed=admission.admitted,
+            owner_confirmed=admission.admitted and write_auth.granted,
             detail=(
-                "the server confirms this session as the current run owner"
-                if admission.admitted
+                "the server confirms this session as the current run owner and "
+                "story/* service-identity write is released"
+                if admission.admitted and write_auth.granted
                 else (
                     "the server does not confirm this session as the current run "
                     f"owner ({rejection_detail})"
@@ -2916,6 +3006,7 @@ class ControlPlaneRuntimeService(
             project_key=request.project_key,
             story_id=request.story_id,
             run_id=run_id,
+            sync_point_id=request.op_id,
         )
         if merge_block is not None:
             return _rejection_result(
@@ -3325,6 +3416,7 @@ class ControlPlaneRuntimeService(
             project_key=request.project_key,
             story_id=request.story_id,
             run_id=run_id,
+            sync_point_id=request.op_id,
         )
         if yield_block is None:
             return None

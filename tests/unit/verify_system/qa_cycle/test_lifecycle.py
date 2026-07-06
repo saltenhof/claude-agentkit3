@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -10,6 +9,7 @@ import pytest
 
 from agentkit.backend.verify_system.contract import PhaseEnvelopeView
 from agentkit.backend.verify_system.errors import VerifySystemError
+from agentkit.backend.verify_system.qa_cycle.fingerprint import ReportedHeadEvidence
 from agentkit.backend.verify_system.qa_cycle.invalidation import (
     CYCLE_BOUND_QA_ARTIFACTS,
     RecordingArtifactInvalidationSink,
@@ -23,30 +23,58 @@ if TYPE_CHECKING:
 _QA_CYCLE_ID_LEN = 12
 _SHA256_HEX_LEN = 64
 _STORY_ID = "AG3-041"
+_SHA_A = "a" * 40
+_SHA_B = "b" * 40
 
 
-def _git(args: list[str], cwd: Path) -> None:
-    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+class _HeadSource:
+    def __init__(self) -> None:
+        self.head = _SHA_A
+
+    def collect(self, story_dir: Path) -> tuple[ReportedHeadEvidence, ...]:
+        del story_dir
+        return (ReportedHeadEvidence(repo_id="api", head_sha=self.head),)
 
 
-def _init_repo(root: Path) -> None:
-    _git(["init", "-b", "main"], root)
-    _git(["config", "user.email", "t@example.com"], root)
-    _git(["config", "user.name", "Test"], root)
-    (root / "base.py").write_text("x = 1\n", encoding="utf-8")
-    _git(["add", "."], root)
-    _git(["commit", "-m", "base"], root)
-    _git(["update-ref", "refs/remotes/origin/main", "HEAD"], root)
-    _git(["checkout", "-b", "story-branch"], root)
-    (root / "feature.py").write_text("y = 2\n", encoding="utf-8")
-    _git(["add", "."], root)
-    _git(["commit", "-m", "feature"], root)
+class _EvaluatingBlockingGate:
+    def __init__(self) -> None:
+        self.seen: Path | None = None
+
+    def enforce(self, story_dir: Path) -> None:
+        from agentkit.backend.control_plane.push_sync import (
+            RepoPushVerificationInput,
+            SyncPointBarrierType,
+            evaluate_push_barrier,
+        )
+        from agentkit.backend.verify_system.qa_cycle.lifecycle import (
+            QaCycleBarrierBlockedError,
+        )
+
+        self.seen = story_dir
+        verdict = evaluate_push_barrier(
+            SyncPointBarrierType.QA_CYCLE_BOUNDARY,
+            (
+                RepoPushVerificationInput(
+                    repo_id="api",
+                    edge_report_present=False,
+                    edge_reported_pushed=False,
+                    edge_reported_head_sha=None,
+                    server_ref_resolved=True,
+                    server_head_sha=_SHA_A,
+                ),
+            ),
+        )
+        if not verdict.passed:
+            raise QaCycleBarrierBlockedError(verdict.blocking_summary())
+
+
+def _lifecycle(source: _HeadSource | None = None, **kwargs: object) -> QaCycleLifecycle:
+    return QaCycleLifecycle(fingerprint_source=source or _HeadSource(), **kwargs)
 
 
 class TestStartCycle:
     def test_start_cycle_sets_round1_epoch1(self, tmp_path: Path) -> None:
-        _init_repo(tmp_path)
-        lifecycle = QaCycleLifecycle()
+        lifecycle = _lifecycle()
 
         state = lifecycle.start_cycle(tmp_path)
 
@@ -58,8 +86,7 @@ class TestStartCycle:
         assert state.evidence_epoch.tzinfo is not None
 
     def test_start_cycle_to_view_roundtrips(self, tmp_path: Path) -> None:
-        _init_repo(tmp_path)
-        state = QaCycleLifecycle().start_cycle(tmp_path)
+        state = _lifecycle().start_cycle(tmp_path)
         view = state.to_view()
         assert view.qa_cycle_id == state.qa_cycle_id
         assert view.qa_cycle_round == 1
@@ -67,9 +94,10 @@ class TestStartCycle:
 
 class TestAdvanceCycle:
     def test_advance_increments_round_and_epoch(self, tmp_path: Path) -> None:
-        _init_repo(tmp_path)
-        lifecycle = QaCycleLifecycle()
+        source = _HeadSource()
+        lifecycle = _lifecycle(source)
         first = lifecycle.start_cycle(tmp_path)
+        source.head = _SHA_B
 
         next_state, _events = lifecycle.advance_qa_cycle(
             first.to_view(), tmp_path, _STORY_ID
@@ -89,37 +117,22 @@ class TestAdvanceCycle:
             QaCycleBarrierBlockedError,
         )
 
-        class _BlockingGate:
-            def __init__(self) -> None:
-                self.seen: Path | None = None
-
-            def enforce(self, story_dir: Path) -> None:
-                self.seen = story_dir
-                msg = "story branch not server-verified-pushed"
-                raise QaCycleBarrierBlockedError(msg)
-
-        gate = _BlockingGate()
-        lifecycle = QaCycleLifecycle(push_barrier_gate=gate)  # type: ignore[arg-type]
-        current = PhaseEnvelopeView(
-            qa_cycle_id="abc123def456",
-            qa_cycle_round=1,
-            evidence_epoch=datetime(2026, 7, 6, tzinfo=UTC),
-            evidence_fingerprint="a" * 64,
-        )
+        gate = _EvaluatingBlockingGate()
+        lifecycle = _lifecycle(push_barrier_gate=gate)  # type: ignore[arg-type]
+        current = lifecycle.start_cycle(tmp_path).to_view()
 
         with pytest.raises(QaCycleBarrierBlockedError):
             lifecycle.advance_qa_cycle(current, tmp_path, _STORY_ID)
         assert gate.seen == tmp_path
 
     def test_advance_invalidates_cycle_artifacts(self, tmp_path: Path) -> None:
-        _init_repo(tmp_path)
         base = qa_artifact_dir(tmp_path, _STORY_ID, project_root=tmp_path)
         base.mkdir(parents=True, exist_ok=True)
         for name in CYCLE_BOUND_QA_ARTIFACTS:
             (base / name).write_text("{}", encoding="utf-8")
 
         sink = RecordingArtifactInvalidationSink.empty()
-        lifecycle = QaCycleLifecycle(invalidation_sink=sink)
+        lifecycle = _lifecycle(invalidation_sink=sink)
         first = lifecycle.start_cycle(tmp_path)
 
         _next_state, events = lifecycle.advance_qa_cycle(
@@ -135,7 +148,7 @@ class TestAdvanceCycle:
     def test_advance_without_active_cycle_fails_closed(self, tmp_path: Path) -> None:
         view = PhaseEnvelopeView()  # no qa_cycle_id
         with pytest.raises(VerifySystemError, match="active cycle"):
-            QaCycleLifecycle().advance_qa_cycle(view, tmp_path, _STORY_ID)
+            _lifecycle().advance_qa_cycle(view, tmp_path, _STORY_ID)
 
 
 class TestGetCurrentState:

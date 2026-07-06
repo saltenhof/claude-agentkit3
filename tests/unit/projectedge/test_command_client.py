@@ -22,6 +22,7 @@ from agentkit.backend.control_plane.models import (
     PushOwnershipConfirmation,
     WorktreeReport,
 )
+from agentkit.backend.exceptions import ControlPlaneApiError
 from agentkit.harness_client.projectedge import (
     HttpsJsonTransport,
     LocalEdgePublisher,
@@ -182,6 +183,32 @@ def test_confirm_push_ownership_offline_is_never_a_confirmation(
 
     assert probe.server_reachable is False
     assert probe.owner_confirmed is False
+
+
+def test_confirm_push_ownership_5xx_is_backlog_probe(tmp_path: Path) -> None:
+    """M3: a reachable 5xx ownership endpoint does not crash ``sync_push``."""
+
+    class _RaisingTransport:
+        def send(self, **_kwargs: object) -> dict[str, object]:
+            raise ControlPlaneApiError(
+                "push ownership unavailable",
+                error_code="push_ownership_unavailable",
+                correlation_id="corr-1",
+                http_status=503,
+            )
+
+    client = _client(_RaisingTransport(), tmp_path)
+
+    probe = client.confirm_push_ownership(
+        run_id="run-1",
+        project_key="tenant-a",
+        story_id="AG3-100",
+        session_id="sess-A",
+    )
+
+    assert probe.server_reachable is True
+    assert probe.owner_confirmed is False
+    assert "push_ownership_unavailable" in probe.detail
 
 
 @pytest.mark.parametrize("http_code", [403, 404, 409])

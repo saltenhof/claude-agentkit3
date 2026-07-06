@@ -357,7 +357,7 @@ def test_ac10_non_official_refs_rejected(bad_ref: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# AC6/AC7: push gate -- online-pflichtig, bounded, no bundle fallback
+# AC6/AC7: push gate -- online-required, bounded, no bundle fallback
 # ---------------------------------------------------------------------------
 
 

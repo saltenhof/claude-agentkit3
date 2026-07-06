@@ -38,6 +38,8 @@ from agentkit.backend.verify_system.contract import PhaseEnvelopeView
 from agentkit.backend.verify_system.errors import VerifySystemError
 from agentkit.backend.verify_system.qa_cycle.fingerprint import (
     DEFAULT_DIFF_BASE,
+    QaCycleFingerprintSource,
+    SyntheticFingerprintEvidenceSource,
     compute_evidence_fingerprint,
 )
 from agentkit.backend.verify_system.qa_cycle.invalidation import (
@@ -141,8 +143,8 @@ class QaCycleLifecycle:
     Attributes:
         invalidation_sink: Sink receiving ``artifact_invalidated`` facts on
             :meth:`advance_qa_cycle`. Defaults to the no-op sink.
-        diff_base: Git revision the fingerprint delta is taken against
-            (default ``origin/main``, FK-27 §27.2.1).
+        diff_base: Logical compare base label included in the fingerprint
+            document (default ``origin/main``, FK-27 §27.2.1).
     """
 
     invalidation_sink: ArtifactInvalidationSink = NullArtifactInvalidationSink()
@@ -152,6 +154,10 @@ class QaCycleLifecycle:
     #: round begins. Defaults to the no-op gate (unwired / test path); the
     #: composition root wires the productive control-plane-delegating gate.
     push_barrier_gate: QaCyclePushBarrierGate = NULL_QA_CYCLE_PUSH_BARRIER_GATE
+    #: Source of pushed-head evidence for the QA-cycle fingerprint. Productive
+    #: composition injects the state-backed reported-head source; the default is
+    #: a deterministic non-git fallback for direct unit/unwired lifecycle users.
+    fingerprint_source: QaCycleFingerprintSource = SyntheticFingerprintEvidenceSource()
 
     def start_cycle(self, story_dir: Path) -> QaCycleState:
         """Begin the first QA cycle for a story (FK-27 §27.2.1).
@@ -173,7 +179,9 @@ class QaCycleLifecycle:
             epoch=1,
             evidence_epoch=_now_utc(),
             evidence_fingerprint=compute_evidence_fingerprint(
-                story_dir, diff_base=self.diff_base
+                story_dir,
+                reported_heads=self.fingerprint_source.collect(story_dir),
+                diff_base=self.diff_base,
             ),
         )
 
@@ -245,7 +253,9 @@ class QaCycleLifecycle:
             epoch=old_epoch + 1,
             evidence_epoch=_now_utc(),
             evidence_fingerprint=compute_evidence_fingerprint(
-                story_dir, diff_base=self.diff_base
+                story_dir,
+                reported_heads=self.fingerprint_source.collect(story_dir),
+                diff_base=self.diff_base,
             ),
         )
         return next_state, events

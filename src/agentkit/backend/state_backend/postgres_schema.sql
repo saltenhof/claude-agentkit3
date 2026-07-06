@@ -442,7 +442,7 @@
         -- In-Scope #3, AC5/AC13). One row per participating repo: the last
         -- Edge-reported branch head SHA, the last head SHA confirmed as pushed,
         -- the instant of the most recent sync-point report and a visible push
-        -- backlog hint. It is the DATA BASIS for the ownership-lage display and
+        -- backlog hint. It is the DATA BASIS for the ownership-position display and
         -- the takeover challenge (consumers AG3-148/AG3-153) -- but freshness /
         -- silence is INFORMATION ONLY: there is no writer anywhere that derives
         -- an ownership transition from this table (no automatic silence ->
@@ -463,6 +463,22 @@
 
         CREATE INDEX IF NOT EXISTS push_freshness_records_run_backlog_idx
             ON push_freshness_records (project_key, story_id, run_id, backlog);
+
+        -- ref_protection_degradation_findings: project-visible operational
+        -- WARNINGs emitted when a provider cannot administer story/* ref
+        -- protection (AG3-147 AC9). The Edge push gate remains active; this row
+        -- makes the provider degradation visible instead of silently continuing.
+        CREATE TABLE IF NOT EXISTS ref_protection_degradation_findings (
+            project_key TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            repo_id TEXT NOT NULL,
+            finding_code TEXT NOT NULL,
+            severity TEXT NOT NULL CHECK (severity = 'warning'),
+            provider_label TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            recorded_at TEXT NOT NULL,
+            PRIMARY KEY (project_key, story_id, repo_id, finding_code)
+        );
 
         CREATE TABLE IF NOT EXISTS story_metrics (
             project_key TEXT NOT NULL,

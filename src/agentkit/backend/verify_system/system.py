@@ -1316,9 +1316,23 @@ def _build_qa_cycle_lifecycle(
     )
 
     gate = defaults.qa_cycle_push_barrier_gate or NULL_QA_CYCLE_PUSH_BARRIER_GATE
-    if defaults.invalidation_sink is not None:
+    invalidation_sink = defaults.invalidation_sink
+    fingerprint_source = defaults.qa_cycle_fingerprint_source
+    if invalidation_sink is not None and fingerprint_source is not None:
         return _qa.QaCycleLifecycle(
-            invalidation_sink=defaults.invalidation_sink, push_barrier_gate=gate
+            invalidation_sink=invalidation_sink,
+            push_barrier_gate=gate,
+            fingerprint_source=fingerprint_source,
+        )
+    if invalidation_sink is not None:
+        return _qa.QaCycleLifecycle(
+            invalidation_sink=invalidation_sink,
+            push_barrier_gate=gate,
+        )
+    if fingerprint_source is not None:
+        return _qa.QaCycleLifecycle(
+            push_barrier_gate=gate,
+            fingerprint_source=fingerprint_source,
         )
     return _qa.QaCycleLifecycle(push_barrier_gate=gate)
 

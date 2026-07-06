@@ -35,6 +35,7 @@ from agentkit.backend.control_plane.push_sync import RepoPushVerificationInput
 from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.backend.state_backend.store import (
     boot_backend_instance_identity_global,
+    load_edge_command_record_global,
     save_story_context_global,
 )
 from agentkit.backend.story_context_manager.models import StoryContext
@@ -129,7 +130,9 @@ def _no_edge_report(repo_id: str) -> RepoPushVerificationInput:
     )
 
 
-def _seed_story_context(tmp_path: Path, story_id: str) -> None:
+def _seed_story_context(
+    tmp_path: Path, story_id: str, *, participating_repos: list[str] | None = None
+) -> None:
     project_root = tmp_path / _PROJECT
     (project_root / "stories" / story_id).mkdir(parents=True, exist_ok=True)
     save_story_context_global(
@@ -140,6 +143,7 @@ def _seed_story_context(tmp_path: Path, story_id: str) -> None:
             story_type=StoryType.IMPLEMENTATION,
             execution_route=StoryMode.EXECUTION,
             project_root=project_root,
+            participating_repos=participating_repos or [],
         ),
     )
 
@@ -212,6 +216,28 @@ def test_phase_completion_barrier_blocks_when_no_edge_report(tmp_path: Path) -> 
 
     assert result.status == "rejected"
     assert "push_barrier_unverified" in (result.phase_dispatch.rejection_reason or "")
+
+
+def test_phase_completion_commissions_sync_push_before_block(tmp_path: Path) -> None:
+    """M1: the hard boundary queues ``sync_push`` so the barrier has a producer."""
+    story_id, run_id = "AG3-912", "run-912"
+    _seed_story_context(tmp_path, story_id, participating_repos=["api"])
+    service = _service((_no_edge_report("api"),), ident="inst-912")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+
+    result = service.complete_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(story_id=story_id, op_id="op-complete-912"),
+    )
+
+    assert result.status == "rejected"
+    command = load_edge_command_record_global(
+        "run-912::sync_push::phase_completion:op-complete-912::api"
+    )
+    assert command is not None
+    assert command.command_kind == "sync_push"
+    assert command.payload["repo_id"] == "api"
 
 
 def test_phase_completion_barrier_passes_when_verified(tmp_path: Path) -> None:
@@ -302,6 +328,24 @@ def test_closure_entry_barrier_blocks_unverified_push(tmp_path: Path) -> None:
     assert "push_barrier_unverified" in (result.phase_dispatch.rejection_reason or "")
 
 
+def test_closure_entry_barrier_blocks_when_no_edge_report(tmp_path: Path) -> None:
+    """AC1(b)/AC2: closure entry blocks when only the server ref-read is present."""
+    story_id, run_id = "AG3-916", "run-916"
+    _seed_story_context(tmp_path, story_id)
+    service = _service((_no_edge_report("api"),), ident="inst-916")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+
+    result = service.complete_closure(
+        run_id=run_id,
+        request=_closure_request(story_id=story_id, op_id="op-closure-916"),
+    )
+
+    assert result.status == "rejected"
+    reason = result.phase_dispatch.rejection_reason or ""
+    assert "push_barrier_unverified" in reason
+    assert "no_edge_push_report" in reason
+
+
 def test_closure_entry_barrier_passes_when_verified(tmp_path: Path) -> None:
     """Closure proceeds past the barrier when every repo is server-verified-pushed."""
     story_id, run_id = "AG3-907", "run-907"
@@ -349,6 +393,36 @@ def test_yield_point_barrier_blocks_unverified_push(tmp_path: Path) -> None:
     assert result.status == "rejected"
     assert result.phase_dispatch is not None
     assert "push_barrier_unverified" in (result.phase_dispatch.rejection_reason or "")
+
+
+def test_yield_point_barrier_blocks_when_no_edge_report(tmp_path: Path) -> None:
+    """AC1(b)/AC2: yield-point blocks when the Edge report is absent."""
+    story_id, run_id = "AG3-918", "run-918"
+    _seed_story_context(tmp_path, story_id)
+    identity = boot_backend_instance_identity_global("inst-918", _T0)
+    setup = ControlPlaneRuntimeService(
+        phase_dispatcher=_AdmittedDispatcher(),  # type: ignore[arg-type]
+        now_fn=lambda: _T0,
+        instance_identity=identity,
+    )
+    _admit_run(setup, story_id=story_id, run_id=run_id)
+    resume_svc = ControlPlaneRuntimeService(
+        phase_dispatcher=_YieldingDispatcher(),  # type: ignore[arg-type]
+        now_fn=lambda: _T0,
+        instance_identity=identity,
+        push_barrier_evidence=_FakeBarrierPort((_no_edge_report("api"),)),  # type: ignore[arg-type]
+    )
+
+    result = resume_svc.resume_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(story_id=story_id, op_id="op-resume-918"),
+    )
+
+    assert result.status == "rejected"
+    reason = result.phase_dispatch.rejection_reason or ""
+    assert "push_barrier_unverified" in reason
+    assert "no_edge_push_report" in reason
 
 
 def test_yield_point_barrier_passes_when_verified(tmp_path: Path) -> None:

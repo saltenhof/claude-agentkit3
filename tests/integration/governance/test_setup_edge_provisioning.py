@@ -31,6 +31,15 @@ import pytest
 from agentkit.backend.bootstrap.edge_provisioning_adapter import (
     SetupEdgeProvisioningCoordinator,
 )
+from agentkit.backend.code_backend.provider_port import (
+    CodeBackendCapability,
+    CompareEvidenceResult,
+    RefProtectionResult,
+    RefReadResult,
+    RepoProbeResult,
+    StoryRefWriteCredentialClass,
+    StoryRefWriteCredentialResult,
+)
 from agentkit.backend.config.models import (
     SUPPORTED_CONFIG_VERSION,
     Features,
@@ -63,6 +72,7 @@ from agentkit.backend.state_backend.store import (
     commit_edge_command_result_global,
     insert_run_ownership_record_global,
     list_and_ack_open_edge_command_records_global,
+    list_ref_protection_degradation_findings_global,
     load_edge_command_record_global,
 )
 from agentkit.backend.story_context_manager.models import StoryContext
@@ -81,6 +91,54 @@ _RUN = "11111111-1111-4111-8111-111111111111"
 _SESSION = "sess-owner"
 _REPO = "repo"
 _NOW = datetime(2026, 7, 5, tzinfo=UTC)
+
+
+class _CapableCodeBackend:
+    def repo_probe(self) -> RepoProbeResult:
+        return RepoProbeResult(reachable=True, detail="ok")
+
+    def ref_read(self, ref: str) -> RefReadResult:
+        return RefReadResult(ref=ref, resolved=False, head_sha=None, detail="none")
+
+    def read_compare_evidence(
+        self, base_ref: str, head_ref: str
+    ) -> CompareEvidenceResult:
+        return CompareEvidenceResult(base_ref=base_ref, head_ref=head_ref, available=False)
+
+    def resolve_story_ref_write_credential(self) -> StoryRefWriteCredentialResult:
+        return StoryRefWriteCredentialResult(
+            resolved=True,
+            credential_class=StoryRefWriteCredentialClass.SERVICE_IDENTITY,
+            credential_ref="env:AGENTKIT_GITHUB_SERVICE_TOKEN",
+            detail="service",
+        )
+
+    def administer_ref_protection(self, ref_pattern: str) -> RefProtectionResult:
+        return RefProtectionResult(
+            ref_pattern=ref_pattern,
+            administered=True,
+            blocks_direct_developer_push=True,
+            blocks_fast_forward=True,
+            detail="protected",
+        )
+
+    def capability_supported(self, capability: CodeBackendCapability) -> bool:
+        return capability is CodeBackendCapability.REF_PROTECTION_ADMINISTRATION
+
+
+class _CapabilityLessCodeBackend(_CapableCodeBackend):
+    def capability_supported(self, capability: CodeBackendCapability) -> bool:
+        del capability
+        return False
+
+    def administer_ref_protection(self, ref_pattern: str) -> RefProtectionResult:
+        return RefProtectionResult(
+            ref_pattern=ref_pattern,
+            administered=False,
+            blocks_direct_developer_push=False,
+            blocks_fast_forward=False,
+            detail="not backed",
+        )
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -223,6 +281,7 @@ def _handler(project_root: Path, service: _StubService) -> SetupPhaseHandler:
         ownership_repo=RunOwnershipRepository(),
         transfer_repo=TakeoverTransferRepository(),
         remote_head_reader=lambda _repo, _branch: None,
+        code_backend_port=lambda _repo: _CapableCodeBackend(),
     )
     cfg = SetupConfig(
         project_root=project_root,
@@ -236,6 +295,37 @@ def _handler(project_root: Path, service: _StubService) -> SetupPhaseHandler:
         residue_probe=lambda _root, _sid: False,
         edge_provisioning_coordinator=coordinator,
     )
+
+
+def test_ref_protection_degradation_warning_is_persisted(
+    postgres_isolated_schema: str,
+) -> None:
+    del postgres_isolated_schema
+    _seed_active_ownership()
+    store = EdgeCommandRepository()
+    coordinator = SetupEdgeProvisioningCoordinator(
+        edge_commands=store,
+        ownership_repo=RunOwnershipRepository(),
+        transfer_repo=TakeoverTransferRepository(),
+        remote_head_reader=lambda _repo, _branch: None,
+        code_backend_port=lambda _repo: _CapabilityLessCodeBackend(),
+    )
+
+    outcome = coordinator.ensure_preflight_probes(
+        project_key=_PROJECT,
+        story_id=_STORY,
+        run_id=_RUN,
+        repos=(_REPO,),
+        branch=f"story/{_STORY}",
+    )
+
+    assert outcome.pending is True
+    rows = list_ref_protection_degradation_findings_global(_PROJECT, _STORY)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["repo_id"] == _REPO
+    assert row["severity"] == "warning"
+    assert row["finding_code"] == "ref_protection_capability_unavailable"
 
 
 def _ctx(project_root: Path) -> StoryContext:

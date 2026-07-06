@@ -130,7 +130,7 @@ def _context(
 
 
 # ---------------------------------------------------------------------------
-# AC6: online-pflichtig -- offline => no push, visible backlog (git-free)
+# AC6: online-required -- offline => no push, visible backlog (git-free)
 # ---------------------------------------------------------------------------
 
 

@@ -24,6 +24,10 @@ from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
+from agentkit.backend.code_backend.provider_port import (
+    CodeBackendCapability,
+    StoryRefWriteCredentialClass,
+)
 from agentkit.backend.control_plane.edge_commands import (
     OPEN_COMMAND_STATUSES,
     PreflightOwnershipContext,
@@ -37,6 +41,10 @@ from agentkit.backend.control_plane.models import (
     TeardownWorktreeCommandPayload,
     WorktreeReport,
 )
+from agentkit.backend.control_plane.push_sync import (
+    assess_ref_protection_capability,
+    authorize_story_ref_write,
+)
 from agentkit.backend.control_plane.records import EdgeCommandRecord
 from agentkit.backend.exceptions import ConfigError
 from agentkit.backend.governance.setup_preflight_gate.edge_provisioning import (
@@ -47,6 +55,7 @@ from agentkit.backend.governance.setup_preflight_gate.edge_provisioning import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from agentkit.backend.code_backend.provider_port import CodeBackendPort
     from agentkit.backend.control_plane.repository import (
         EdgeCommandRepository,
         RunOwnershipRepository,
@@ -129,6 +138,7 @@ class SetupEdgeProvisioningCoordinator:
     ownership_repo: RunOwnershipRepository
     transfer_repo: TakeoverTransferRepository
     remote_head_reader: Callable[[str, str], str | None]
+    code_backend_port: Callable[[str], CodeBackendPort]
 
     def ensure_preflight_probes(
         self,
@@ -141,6 +151,14 @@ class SetupEdgeProvisioningCoordinator:
     ) -> ProbeOutcome:
         """Commission (if absent) and read the ``preflight_probe`` commands."""
         session_id, epoch = self._active_session_epoch(project_key, story_id, run_id)
+        self._ensure_ref_protection(
+            project_key=project_key,
+            story_id=story_id,
+            session_id=session_id,
+            ownership_epoch=epoch,
+            repos=repos,
+            ref_pattern=branch,
+        )
         payloads = {
             repo: PreflightProbeCommandPayload(
                 story_id=story_id, repo_id=repo, branch=branch
@@ -330,6 +348,68 @@ class SetupEdgeProvisioningCoordinator:
             records[repo] = existing
         return pending, records
 
+    def _ensure_ref_protection(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        session_id: str,
+        ownership_epoch: int,
+        repos: tuple[str, ...],
+        ref_pattern: str,
+    ) -> None:
+        """Administer or visibly degrade ``story/*`` ref protection (AC9)."""
+        from agentkit.backend.state_backend.store import (
+            upsert_ref_protection_degradation_finding_global,
+        )
+
+        for repo in repos:
+            port = self.code_backend_port(repo)
+            supported = port.capability_supported(
+                CodeBackendCapability.REF_PROTECTION_ADMINISTRATION
+            )
+            finding = assess_ref_protection_capability(
+                capability_supported=supported, provider_label=repo
+            )
+            if finding is not None:
+                upsert_ref_protection_degradation_finding_global(
+                    project_key=project_key,
+                    story_id=story_id,
+                    repo_id=repo,
+                    finding=finding,
+                    recorded_at=datetime.now(tz=UTC),
+                )
+                continue
+            auth = authorize_story_ref_write(
+                active_owner_session_id=session_id,
+                active_ownership_epoch=ownership_epoch,
+                requesting_session_id=session_id,
+                requesting_ownership_epoch=ownership_epoch,
+            )
+            if not auth.granted:
+                raise ConfigError(f"story ref write authorization refused: {auth.detail}")
+            credential = port.resolve_story_ref_write_credential()
+            if (
+                not credential.resolved
+                or credential.credential_class
+                is not StoryRefWriteCredentialClass.SERVICE_IDENTITY
+            ):
+                raise ConfigError(
+                    "story/* ref protection requires the backend-managed "
+                    "service identity; personal developer tokens are never "
+                    "accepted"
+                )
+            result = port.administer_ref_protection(ref_pattern)
+            if (
+                not result.administered
+                or not result.blocks_direct_developer_push
+                or not result.blocks_fast_forward
+            ):
+                raise ConfigError(
+                    "ref protection administration failed for "
+                    f"{repo!r}/{ref_pattern!r}: {result.detail}"
+                )
+
     def _probe_evidence(
         self,
         record: EdgeCommandRecord,
@@ -413,8 +493,10 @@ def build_setup_edge_provisioning_coordinator(
             )
             for repo in project_config.repositories
         }
+        repositories = {repo.name: repo for repo in project_config.repositories}
     except (ConfigError, OSError):
         remotes = {}
+        repositories = {}
 
     ls_remote = GitLsRemoteReader()
 
@@ -425,9 +507,30 @@ def build_setup_edge_provisioning_coordinator(
         result = ls_remote.read_head_sha(remote, f"refs/heads/{branch}")
         return result.head_sha if result.resolved else None
 
+    def _code_backend(repo_id: str) -> CodeBackendPort:
+        from agentkit.backend.installer.github_coordinates import (
+            parse_github_remote_url,
+        )
+        from agentkit.integration_clients.github.adapter import (
+            GitHubCodeBackendAdapter,
+        )
+
+        repo = repositories.get(repo_id)
+        if repo is None:
+            raise ConfigError(f"repository {repo_id!r} is not configured")
+        remote = repo.remote_url or str(
+            repo.path if repo.path.is_absolute() else project_root / repo.path
+        )
+        coordinates = parse_github_remote_url(repo.remote_url) if repo.remote_url else None
+        owner, name = coordinates or (repo.name, repo.name)
+        return GitHubCodeBackendAdapter(
+            owner=owner, repo=name, remote_url_override=remote
+        )
+
     return SetupEdgeProvisioningCoordinator(
         edge_commands=EdgeCommandRepository(),
         ownership_repo=RunOwnershipRepository(),
         transfer_repo=TakeoverTransferRepository(),
         remote_head_reader=_remote_head,
+        code_backend_port=_code_backend,
     )

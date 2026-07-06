@@ -35,6 +35,7 @@ from agentkit.backend.verify_system import VerifyContextBundle, VerifySystem
 from agentkit.backend.verify_system.contract import PhaseEnvelopeView
 from agentkit.backend.verify_system.policy_engine.engine import PolicyEngine
 from agentkit.backend.verify_system.protocols import Finding, LayerResult, Severity, TrustClass
+from agentkit.backend.verify_system.qa_cycle.fingerprint import ReportedHeadEvidence
 from agentkit.backend.verify_system.qa_cycle.invalidation import (
     RecordingArtifactInvalidationSink,
     qa_artifact_dir,
@@ -200,6 +201,14 @@ class _RecordingArtifactManager(ArtifactManager):
         raise ArtifactNotFoundError("no artifact recorded by the test double")
 
 
+class _HeadSource:
+    """Stable reported-head source for QA-cycle fingerprinting in this test."""
+
+    def collect(self, story_dir: Path) -> tuple[ReportedHeadEvidence, ...]:
+        del story_dir
+        return (ReportedHeadEvidence(repo_id="api", head_sha="a" * 40),)
+
+
 def _build_system(*, fail: bool, sink: RecordingArtifactInvalidationSink) -> VerifySystem:
     manager = _RecordingArtifactManager()
     layer = _ConfigurableLayer("structural", fail=fail)
@@ -211,7 +220,10 @@ def _build_system(*, fail: bool, sink: RecordingArtifactInvalidationSink) -> Ver
         layer_3=_ConfigurableLayer("adversarial", fail=False),
         policy_engine=PolicyEngine(max_major_findings=0),
         artifact_manager=manager,
-        qa_cycle_lifecycle=QaCycleLifecycle(invalidation_sink=sink),
+        qa_cycle_lifecycle=QaCycleLifecycle(
+            invalidation_sink=sink,
+            fingerprint_source=_HeadSource(),
+        ),
         remediation_loop_controller=RemediationLoopController(
             max_feedback_rounds=_MAX_ROUNDS
         ),
@@ -233,7 +245,10 @@ def _build_system_with_layer1(
         layer_3=_ConfigurableLayer("adversarial", fail=False),
         policy_engine=PolicyEngine(max_major_findings=0),
         artifact_manager=manager,
-        qa_cycle_lifecycle=QaCycleLifecycle(invalidation_sink=sink),
+        qa_cycle_lifecycle=QaCycleLifecycle(
+            invalidation_sink=sink,
+            fingerprint_source=_HeadSource(),
+        ),
         remediation_loop_controller=RemediationLoopController(
             max_feedback_rounds=_MAX_ROUNDS
         ),

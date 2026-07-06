@@ -18,6 +18,15 @@ import pytest
 from agentkit.backend.bootstrap.edge_provisioning_adapter import (
     SetupEdgeProvisioningCoordinator,
 )
+from agentkit.backend.code_backend.provider_port import (
+    CodeBackendCapability,
+    CompareEvidenceResult,
+    RefProtectionResult,
+    RefReadResult,
+    RepoProbeResult,
+    StoryRefWriteCredentialClass,
+    StoryRefWriteCredentialResult,
+)
 from agentkit.backend.control_plane.ownership import OwnershipAcquisition, OwnershipStatus
 from agentkit.backend.control_plane.records import (
     EdgeCommandRecord,
@@ -36,6 +45,56 @@ _PROJECT = "proj"
 _STORY = "AG3-900"
 _RUN = "run-900"
 _SESSION = "sess-owner"
+
+
+class _CapableCodeBackend:
+    def __init__(
+        self,
+        credential_class: StoryRefWriteCredentialClass | None = (
+            StoryRefWriteCredentialClass.SERVICE_IDENTITY
+        ),
+    ) -> None:
+        self.administered: list[str] = []
+        self.credential_class = credential_class
+
+    def repo_probe(self) -> RepoProbeResult:
+        return RepoProbeResult(reachable=True, detail="ok")
+
+    def ref_read(self, ref: str) -> RefReadResult:
+        return RefReadResult(ref=ref, resolved=False, head_sha=None, detail="none")
+
+    def read_compare_evidence(
+        self, base_ref: str, head_ref: str
+    ) -> CompareEvidenceResult:
+        return CompareEvidenceResult(base_ref=base_ref, head_ref=head_ref, available=False)
+
+    def resolve_story_ref_write_credential(self) -> StoryRefWriteCredentialResult:
+        if self.credential_class is None:
+            return StoryRefWriteCredentialResult(
+                resolved=False,
+                credential_class=None,
+                credential_ref=None,
+                detail="absent",
+            )
+        return StoryRefWriteCredentialResult(
+            resolved=True,
+            credential_class=self.credential_class,
+            credential_ref="env:AGENTKIT_GITHUB_SERVICE_TOKEN",
+            detail="service",
+        )
+
+    def administer_ref_protection(self, ref_pattern: str) -> RefProtectionResult:
+        self.administered.append(ref_pattern)
+        return RefProtectionResult(
+            ref_pattern=ref_pattern,
+            administered=True,
+            blocks_direct_developer_push=True,
+            blocks_fast_forward=True,
+            detail="protected",
+        )
+
+    def capability_supported(self, capability: CodeBackendCapability) -> bool:
+        return capability is CodeBackendCapability.REF_PROTECTION_ADMINISTRATION
 
 
 def _ownership_repo(*, run_id: str = _RUN) -> RunOwnershipRepository:
@@ -88,7 +147,9 @@ def _coordinator(
     transfer: TakeoverTransferRecord | None = None,
     remote_head: str | None = None,
     run_id: str = _RUN,
+    code_backend: _CapableCodeBackend | None = None,
 ) -> SetupEdgeProvisioningCoordinator:
+    backend = code_backend or _CapableCodeBackend()
     return SetupEdgeProvisioningCoordinator(
         edge_commands=store.repo(),
         ownership_repo=_ownership_repo(run_id=run_id),
@@ -96,6 +157,7 @@ def _coordinator(
             load_transfer=lambda *_a: transfer,
         ),
         remote_head_reader=lambda _repo, _branch: remote_head,
+        code_backend_port=lambda _repo: backend,
     )
 
 
@@ -266,4 +328,37 @@ def test_missing_own_active_ownership_fails_closed() -> None:
         coordinator.ensure_preflight_probes(
             project_key=_PROJECT, story_id=_STORY, run_id=_RUN,
             repos=("repo-a",), branch="story/AG3-900",
+        )
+
+
+def test_ref_protection_administered_with_service_identity() -> None:
+    store = _CommandStore()
+    backend = _CapableCodeBackend()
+    coordinator = _coordinator(store, code_backend=backend)
+
+    coordinator.ensure_preflight_probes(
+        project_key=_PROJECT,
+        story_id=_STORY,
+        run_id=_RUN,
+        repos=("repo-a",),
+        branch="story/AG3-900",
+    )
+
+    assert backend.administered == ["story/AG3-900"]
+
+
+def test_personal_token_is_rejected_before_ref_protection_admin() -> None:
+    store = _CommandStore()
+    backend = _CapableCodeBackend(
+        credential_class=StoryRefWriteCredentialClass.PERSONAL_DEVELOPER_TOKEN
+    )
+    coordinator = _coordinator(store, code_backend=backend)
+
+    with pytest.raises(ConfigError, match="service identity"):
+        coordinator.ensure_preflight_probes(
+            project_key=_PROJECT,
+            story_id=_STORY,
+            run_id=_RUN,
+            repos=("repo-a",),
+            branch="story/AG3-900",
         )

@@ -811,7 +811,7 @@ class SyncPushCommandPayload(BaseModel):
     In-Scope #7 / AC10); the edge derives it from ``story_id`` and rejects any
     other ref at the push gate. The edge resolves the physical repo path from its
     LOCAL project config and runs the bounded online-ownership check itself
-    (FK-15 §15.5.4: online-pflichtig, no ACTIVE-bundle re-sync fallback).
+    (FK-15 §15.5.4: online-required, no ACTIVE-bundle re-sync fallback).
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -1003,7 +1003,7 @@ class PushFreshnessListResponse(BaseModel):
 
     ``GET .../story-runs/{run_id}/push-freshness`` returns one
     :class:`PushFreshnessView` per participating repo (the data basis for the
-    ownership-lage display and takeover challenge; consumers AG3-148/AG3-153).
+    ownership-position display and takeover challenge; consumers AG3-148/AG3-153).
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -1016,7 +1016,7 @@ class PushOwnershipConfirmation(BaseModel):
 
     ``GET .../story-runs/{run_id}/push-ownership`` -- the fresh online check the
     official Edge-Push-Gate runs IMMEDIATELY before a ``story/*`` push (FK-15
-    §15.5.4: online-pflichtig, bounded). Read-only, no lock/claim. ``owner_confirmed``
+    §15.5.4: online-required, bounded). Read-only, no lock/claim. ``owner_confirmed``
     is ``True`` iff the story's ACTIVE ``run_ownership_records`` row admits THIS
     run/session (the exact :func:`evaluate_ownership_admission` rule the mutating
     fences reuse) -- it deliberately consults NO ACTIVE bundle, so a stale bundle

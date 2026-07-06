@@ -111,11 +111,9 @@ _GIT_SUBPROCESS_INVENTORY: dict[str, str] = {
     "closure/multi_repo_saga.py": "AG3-152 (SubprocessGitBackend closure saga)",
     "closure/runtime_ports.py": "AG3-152 (closure git diff reads)",
     "verify_system/sonarqube_gate/runtime_wiring.py": "AG3-152 (worktree-HEAD attestation reads)",
-    # AG3-147 QA-cycle content fingerprint (diff vs base). The
-    # evidence/request_resolver diff-expansion was RETARGETED off backend git in
-    # AG3-147 (AC11) -- it now reads the file/adapter-compare surface, so its
-    # former entry here is intentionally GONE (no git subprocess remains there).
-    "verify_system/qa_cycle/fingerprint.py": "AG3-147 (QA diff fingerprint)",
+    # AG3-147 retargeted QA-cycle fingerprinting off backend-local git; it now
+    # hashes reported pushed heads / compare evidence, so no inventory entry
+    # remains for verify_system/qa_cycle/fingerprint.py.
     # composition_root wires the AG3-152 SubprocessGitBackend AND the FK-33 §33.5
     # change-evidence subprocess-provider (branch/commit/diff reads). AG3-147
     # moved the push-evidence (``pushed``) OFF backend git onto the two-stage

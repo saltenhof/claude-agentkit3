@@ -44,6 +44,8 @@ def _build_public_api_names() -> tuple[str, ...]:
         "upsert_push_freshness_record_global",
         "load_push_freshness_record_global",
         "list_push_freshness_records_global",
+        "upsert_ref_protection_degradation_finding_global",
+        "list_ref_protection_degradation_findings_global",
         "insert_object_mutation_claim_global",
         "load_object_mutation_claim_global",
         "delete_object_mutation_claim_global",

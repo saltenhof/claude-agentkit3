@@ -880,7 +880,7 @@ class ProjectEdgeClient:
         """Run the bounded online-ownership check before a ``story/*`` push (AC6).
 
         The official Edge-Push-Gate's fresh online verification (FK-15 §15.5.4:
-        online-pflichtig, bounded). Returns a :class:`PushOwnershipProbe`: a
+        online-required, bounded). Returns a :class:`PushOwnershipProbe`: a
         connection/timeout failure is ``server_reachable=False`` (offline ->
         local work yes, push no; NEVER a confirmation), a reachable server
         surfaces its ``owner_confirmed`` verdict. Read-only (no local publish).
@@ -913,6 +913,20 @@ class ProjectEdgeClient:
                 server_reachable=False,
                 owner_confirmed=False,
                 detail=f"control plane unreachable within the bound: {exc}",
+            )
+        except ControlPlaneApiError as exc:
+            detail = "control plane rejected push-ownership confirmation "
+            detail += f"({exc.error_code}, HTTP {exc.http_status}): {exc}"
+            return PushOwnershipProbe(
+                server_reachable=True,
+                owner_confirmed=False,
+                detail=detail,
+            )
+        except RuntimeError as exc:
+            return PushOwnershipProbe(
+                server_reachable=True,
+                owner_confirmed=False,
+                detail=f"control plane push-ownership response was unusable: {exc}",
             )
         data.pop("correlation_id", None)
         confirmation = PushOwnershipConfirmation.model_validate(data)

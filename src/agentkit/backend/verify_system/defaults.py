@@ -19,6 +19,9 @@ if TYPE_CHECKING:
         StoryContextQueryPort,
         TelemetryEventQueryPort,
     )
+    from agentkit.backend.verify_system.qa_cycle.fingerprint import (
+        QaCycleFingerprintSource,
+    )
     from agentkit.backend.verify_system.qa_cycle.invalidation import ArtifactInvalidationSink
     from agentkit.backend.verify_system.qa_cycle.lifecycle import QaCyclePushBarrierGate
     from agentkit.backend.verify_system.review_completion import ReviewCompletionSink
@@ -65,6 +68,10 @@ class VerifySystemDefaultOptions:
     #: ``None`` => the no-op gate (test / unwired path); the composition root wires
     #: the productive control-plane-delegating gate.
     qa_cycle_push_barrier_gate: QaCyclePushBarrierGate | None = None
+    #: AG3-147 AC11: source of reported pushed heads / compare evidence used for
+    #: QA-cycle fingerprints. ``None`` leaves the lifecycle fail-closed unless a
+    #: caller injects an explicit source.
+    qa_cycle_fingerprint_source: QaCycleFingerprintSource | None = None
 
 
 def resolve_default_options(
@@ -178,6 +185,12 @@ def resolve_default_options(
             "QaCyclePushBarrierGate | None",
             overrides.get(
                 "qa_cycle_push_barrier_gate", config.qa_cycle_push_barrier_gate
+            ),
+        ),
+        qa_cycle_fingerprint_source=cast(
+            "QaCycleFingerprintSource | None",
+            overrides.get(
+                "qa_cycle_fingerprint_source", config.qa_cycle_fingerprint_source
             ),
         ),
     )

@@ -116,6 +116,9 @@ from agentkit.backend.state_backend.store.facade import (
     list_push_freshness_records_global as list_push_freshness_records_global,
 )
 from agentkit.backend.state_backend.store.facade import (
+    list_ref_protection_degradation_findings_global as list_ref_protection_degradation_findings_global,
+)
+from agentkit.backend.state_backend.store.facade import (
     load_active_run_ownership_record_global as load_active_run_ownership_record_global,
 )
 from agentkit.backend.state_backend.store.facade import (
@@ -381,6 +384,9 @@ from agentkit.backend.state_backend.store.facade import (
 )
 from agentkit.backend.state_backend.store.facade import (
     upsert_push_freshness_record_global as upsert_push_freshness_record_global,
+)
+from agentkit.backend.state_backend.store.facade import (
+    upsert_ref_protection_degradation_finding_global as upsert_ref_protection_degradation_finding_global,
 )
 from agentkit.backend.state_backend.store.facade import (
     upsert_story_metrics as upsert_story_metrics,

@@ -1,251 +1,148 @@
-"""Deterministic evidence-fingerprint computation (FK-27 §27.2.1).
+"""Deterministic QA-cycle evidence fingerprint from reported pushed heads.
 
-The ``evidence_fingerprint`` is a SHA-256 hex digest over the canonicalised
-content of the story branch's code delta against ``origin/main``. It is the
-*content* integrity signal of an atomic QA cycle (FK-27 §27.2.1, decision
-2026-04-08 Element 19): the same code-state ALWAYS yields the same fingerprint,
-a changed code-state yields a different one. ``evidence_epoch`` (a timestamp)
-is a separate field and is NOT computed here.
-
-Canonicalisation rules (deterministic by construction):
-
-* The ``git diff origin/main..HEAD --stat`` output is rendered with a PINNED
-  git config (``-c color.ui=false -c core.quotepath=false``), ``--no-color`` and
-  a FIXED stat width (``--stat=9999,9999``) so the summary is independent of
-  terminal width, locale colouring or unicode path quoting; it is then
-  normalised to LF line endings with trailing whitespace stripped.
-* The change-set is the UNION of (a) the committed delta vs ``origin/main``,
-  (b) the working-tree delta vs ``HEAD`` (uncommitted modifications/deletions)
-  and (c) untracked, non-ignored files. This captures the FULL current code
-  state, not just what is committed (E8). Each present path contributes a
-  ``"<posix_path>\\n<sha256-of-bytes>"`` line; a path in the change-set with no
-  readable bytes (a working-tree DELETION) contributes a fixed tombstone line
-  ``"<posix_path>\\n<deleted>"`` so the deletion reliably changes the
-  fingerprint (fail-closed; a deletion is never silently ignored). The lines
-  are sorted by path so the ordering is independent of the git/OS enumeration
-  order.
-* ``handover.json`` (relative to the story dir), when present, contributes its
-  content hash under the fixed key ``handover.json``.
-
-All segments are joined with ``\\n`` under a fixed section order and hashed once.
-Subprocess failures (no git, detached tree, missing ref) FAIL CLOSED: they
-raise :class:`FingerprintComputationError` rather than silently degrading to a
-weaker signal (NO ERROR BYPASSING).
-
-Source:
-  - FK-27 §27.2.1 -- evidence_fingerprint (SHA-256, content integrity)
-  - AG3-041 §2.1.2 -- compute_evidence_fingerprint
+The QA-cycle fingerprint is anchored in the pushed-only model (FK-10 §10.2.4b):
+the backend no longer inspects a physical worktree with ``git diff`` or
+untracked-file scans. Its input is the boundary evidence AgentKit can own in a
+remote topology: Edge-reported/server-verified story-branch heads, optionally
+augmented by provider compare evidence when that surface is wired.
 """
 
 from __future__ import annotations
 
 import hashlib
-import subprocess
-from typing import TYPE_CHECKING
+import uuid
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from agentkit.backend.core_types import HANDOVER_FILE
 from agentkit.backend.verify_system.errors import VerifySystemError
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
 
-#: Default git revision range for the story-branch delta (FK-27 §27.2.1).
 DEFAULT_DIFF_BASE = "origin/main"
 
-#: Pinned git config flags for deterministic, locale-/terminal-independent
-#: output (E8): no ANSI colour, no octal-quoting of non-ASCII paths. Applied to
-#: EVERY git invocation so the captured strings never drift with the
-#: environment.
-_PINNED_GIT_CONFIG = ("-c", "color.ui=false", "-c", "core.quotepath=false")
-
-#: Fixed ``--stat`` width so the diffstat rendering never depends on terminal
-#: width (``COLUMNS``/tty). Large enough that no path/graph column is truncated.
-_STAT_WIDTH = "--stat=9999,9999"
-
-#: Fixed section markers keep the hashed document stable across refactors.
-_SECTION_DIFFSTAT = "## diffstat"
-_SECTION_FILES = "## files"
-_SECTION_HANDOVER = "## handover"
-
-#: Story-relative handover artefact contributing to the fingerprint.
-_HANDOVER_FILENAME = HANDOVER_FILE
-
-#: Fixed marker emitted in place of a content hash for a path that is in the
-#: change-set but has no readable bytes (a working-tree deletion). Using a
-#: distinct, fixed token — rather than dropping the line — makes a deletion
-#: change the fingerprint deterministically (fail-closed toward closure). The
-#: token cannot collide with a real SHA-256 digest (it is not 64 hex chars).
-_DELETION_TOMBSTONE = "<deleted>"
+_SECTION_HEADS = "## reported_heads"
+_SECTION_COMPARE = "## compare_evidence"
 
 
 class FingerprintComputationError(VerifySystemError):
     """Raised when the evidence fingerprint cannot be computed (fail-closed)."""
 
 
+@dataclass(frozen=True)
+class ReportedHeadEvidence:
+    """One repo's pushed-head evidence for the QA-cycle fingerprint.
+
+    Attributes:
+        repo_id: Participating repository id.
+        head_sha: The Edge-reported head SHA that the hard push barrier verifies
+            server-side before a QA-cycle boundary opens.
+        compare_paths: Optional provider compare/change-evidence paths for the
+            base..head range. Empty until a provider-backed compare surface is
+            wired.
+    """
+
+    repo_id: str
+    head_sha: str
+    compare_paths: tuple[str, ...] = ()
+
+
+@runtime_checkable
+class QaCycleFingerprintSource(Protocol):
+    """Source of pushed-head evidence for QA-cycle fingerprinting."""
+
+    def collect(self, story_dir: Path) -> Sequence[ReportedHeadEvidence]:
+        """Return reported pushed heads for the story run resolved by ``story_dir``."""
+        ...
+
+
+class MissingFingerprintEvidenceSource:
+    """Fail-closed default used when no productive fingerprint source is wired."""
+
+    def collect(self, story_dir: Path) -> Sequence[ReportedHeadEvidence]:
+        msg = (
+            "QA-cycle evidence fingerprint source is not wired; backend-local "
+            f"git/worktree fingerprinting is forbidden (story_dir={story_dir})"
+        )
+        raise FingerprintComputationError(msg)
+
+
+class SyntheticFingerprintEvidenceSource:
+    """Deterministic non-git fallback for legacy unit/unwired lifecycle users.
+
+    This source never inspects a backend-local worktree. It produces a stable
+    pseudo head from the story identity so direct ``QaCycleLifecycle`` tests and
+    old lightweight constructors can still exercise QA-cycle transitions without
+    regressing to forbidden local-git evidence.
+    """
+
+    def collect(self, story_dir: Path) -> Sequence[ReportedHeadEvidence]:
+        digest = f"{uuid.uuid5(uuid.NAMESPACE_URL, str(story_dir)).int:040x}"[-40:]
+        return (ReportedHeadEvidence(repo_id="unwired", head_sha=digest),)
+
+
 def compute_evidence_fingerprint(
     story_dir: Path,
     *,
+    reported_heads: Sequence[ReportedHeadEvidence],
     diff_base: str = DEFAULT_DIFF_BASE,
 ) -> str:
-    """Compute the deterministic SHA-256 evidence fingerprint for a story.
-
-    The fingerprint covers the story branch's code delta against
-    ``diff_base`` plus the optional ``handover.json``. It is stable: the same
-    code-state yields the same digest on repeated invocation (FK-27 §27.2.1).
+    """Compute the deterministic SHA-256 fingerprint from reported pushed heads.
 
     Args:
-        story_dir: Story working directory. Used both as the git working
-            directory and as the root for resolving ``handover.json``.
-        diff_base: Git revision the delta is taken against. Defaults to
-            ``origin/main`` (the story-branch base, FK-27 §27.2.1).
+        story_dir: Story runtime directory, used only for diagnostics. It is not
+            treated as a git/worktree root.
+        reported_heads: One pushed-head evidence record per participating repo.
+        diff_base: The logical compare base label included in the hash document.
 
     Returns:
         A 64-char lowercase hex SHA-256 digest.
 
     Raises:
-        FingerprintComputationError: If git is unavailable or the diff/stat
-            cannot be produced (fail-closed; no weak-signal fallback).
+        FingerprintComputationError: If no valid reported head is supplied.
     """
-    diffstat = _run_git(
-        ["diff", f"{diff_base}..HEAD", "--no-color", _STAT_WIDTH], story_dir
+    del story_dir
+    if not reported_heads:
+        raise FingerprintComputationError(
+            "cannot compute QA-cycle evidence fingerprint without reported "
+            "pushed heads"
+        )
+    lines: list[str] = []
+    compare_lines: list[str] = []
+    for evidence in sorted(reported_heads, key=lambda item: item.repo_id):
+        repo_id = evidence.repo_id.strip()
+        head_sha = evidence.head_sha.strip().lower()
+        if not repo_id or not _is_sha_like(head_sha):
+            raise FingerprintComputationError(
+                "invalid reported pushed head for QA-cycle fingerprint: "
+                f"repo_id={evidence.repo_id!r}, head_sha={evidence.head_sha!r}"
+            )
+        lines.append(f"{repo_id}\n{head_sha}")
+        for path in sorted({p.strip().replace('\\', '/') for p in evidence.compare_paths if p.strip()}):
+            compare_lines.append(f"{repo_id}\n{path}")
+    document = "\n".join(
+        (
+            f"base={diff_base}",
+            _SECTION_HEADS,
+            "\n".join(lines),
+            _SECTION_COMPARE,
+            "\n".join(compare_lines),
+        )
     )
-    changed_paths = _changed_paths(diff_base, story_dir)
-
-    file_lines: list[str] = []
-    for rel_path in sorted(changed_paths):
-        content_hash = _hash_file(story_dir / rel_path)
-        if content_hash is not None:
-            file_lines.append(f"{rel_path}\n{content_hash}")
-        else:
-            # A path that is in the change-set but has no readable bytes is a
-            # working-tree DELETION (or an unreadable entry). It MUST still
-            # contribute deterministically: drop a tombstone marker instead of
-            # silently omitting the line. Otherwise a `git rm`/working-tree
-            # deletion would leave the fingerprint unchanged — old QA evidence
-            # would falsely appear valid (fail-open toward closure). The marker
-            # is fixed text, so the same deletion always yields the same
-            # fingerprint (determinism preserved).
-            file_lines.append(f"{rel_path}\n{_DELETION_TOMBSTONE}")
-
-    segments: list[str] = [
-        _SECTION_DIFFSTAT,
-        _canonical_text(diffstat),
-        _SECTION_FILES,
-        "\n".join(file_lines),
-    ]
-
-    handover = story_dir / _HANDOVER_FILENAME
-    handover_hash = _hash_file(handover)
-    if handover_hash is not None:
-        segments.extend((_SECTION_HANDOVER, f"{_HANDOVER_FILENAME}\n{handover_hash}"))
-
-    document = "\n".join(segments)
     return hashlib.sha256(document.encode("utf-8")).hexdigest()
 
 
-def _changed_paths(diff_base: str, story_dir: Path) -> tuple[str, ...]:
-    """Return the POSIX paths making up the FULL current code state (E8).
-
-    The change-set is the UNION of three enumerations, so the fingerprint
-    reflects the actual working tree, not just the committed delta:
-
-    * committed delta vs ``diff_base`` (``diff {base}..HEAD --name-only``),
-    * working-tree delta vs ``HEAD`` (``diff HEAD --name-only`` — uncommitted
-      modifications and deletions),
-    * untracked, non-ignored files (``ls-files --others --exclude-standard``).
-
-    ``--name-only`` enumeration is independent of the ``--stat`` rendering.
-    Paths are returned unsorted (the caller sorts); a deleted path stays in the
-    set and the caller emits a tombstone line for it (its bytes hash to
-    ``None``), so the deletion changes the fingerprint (fail-closed).
-
-    Args:
-        diff_base: Git revision the committed delta is taken against.
-        story_dir: Story git working directory.
-
-    Returns:
-        Tuple of repository-relative POSIX path strings (de-duplicated).
-    """
-    committed = _run_git(
-        ["diff", f"{diff_base}..HEAD", "--name-only"], story_dir
-    )
-    worktree = _run_git(["diff", "HEAD", "--name-only"], story_dir)
-    untracked = _run_git(
-        ["ls-files", "--others", "--exclude-standard"], story_dir
-    )
-    paths: set[str] = set()
-    for raw in (committed, worktree, untracked):
-        paths.update(line.strip() for line in raw.splitlines() if line.strip())
-    return tuple(paths)
-
-
-def _hash_file(path: Path) -> str | None:
-    """Return the SHA-256 hex of a file's bytes, or ``None`` if absent.
-
-    ``None`` signals "no readable bytes" — the caller turns that into a fixed
-    deletion tombstone line so the absence still changes the fingerprint
-    deterministically (it is NOT silently dropped). Directories and unreadable
-    entries are treated as absent.
-
-    Args:
-        path: Absolute path to hash.
-
-    Returns:
-        64-char lowercase hex digest, or ``None`` when the file does not exist.
-    """
-    if not path.is_file():
-        return None
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _canonical_text(text: str) -> str:
-    """Normalise text to LF line endings with stripped trailing whitespace.
-
-    Args:
-        text: Raw subprocess output.
-
-    Returns:
-        Canonicalised text (LF endings, no trailing blank lines).
-    """
-    normalised = text.replace("\r\n", "\n").replace("\r", "\n")
-    return "\n".join(line.rstrip() for line in normalised.split("\n")).strip()
-
-
-def _run_git(args: list[str], cwd: Path) -> str:
-    """Run a read-only git command and return stdout (fail-closed).
-
-    Args:
-        args: Git arguments after the ``git`` executable.
-        cwd: Working directory for the git invocation.
-
-    Returns:
-        Captured stdout (UTF-8 decoded).
-
-    Raises:
-        FingerprintComputationError: If git is missing or returns non-zero.
-    """
-    try:
-        # Fixed git argv (no shell, no user-controlled input); S603 reviewed as safe.
-        completed = subprocess.run(  # noqa: S603
-            ["git", *_PINNED_GIT_CONFIG, *args],
-            cwd=cwd,
-            capture_output=True,
-            check=True,
-            text=True,
-            encoding="utf-8",
-        )
-    except FileNotFoundError as exc:
-        msg = "git executable not found; cannot compute evidence fingerprint"
-        raise FingerprintComputationError(msg) from exc
-    except subprocess.CalledProcessError as exc:
-        detail = exc.stderr.strip()
-        msg = f"git {' '.join(args)} failed in {cwd} (exit {exc.returncode}): {detail}"
-        raise FingerprintComputationError(msg) from exc
-    return completed.stdout
+def _is_sha_like(value: str) -> bool:
+    return len(value) == 40 and all(c in "0123456789abcdef" for c in value)
 
 
 __all__ = [
     "DEFAULT_DIFF_BASE",
     "FingerprintComputationError",
+    "MissingFingerprintEvidenceSource",
+    "QaCycleFingerprintSource",
+    "ReportedHeadEvidence",
+    "SyntheticFingerprintEvidenceSource",
     "compute_evidence_fingerprint",
 ]

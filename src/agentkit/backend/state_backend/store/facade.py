@@ -36,7 +36,10 @@ if TYPE_CHECKING:
     from agentkit.backend.auth.entities import ProjectApiToken
     from agentkit.backend.closure.execution_report.records import ExecutionReport
     from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
-    from agentkit.backend.control_plane.push_sync import PushFreshnessRecord
+    from agentkit.backend.control_plane.push_sync import (
+        PushFreshnessRecord,
+        RefProtectionDegradationFinding,
+    )
     from agentkit.backend.control_plane.records import (
         BackendInstanceIdentityRecord,
         BindingDeleteScope,
@@ -182,9 +185,11 @@ def _require_control_plane_backend() -> None:
         raise ConfigError(
             "The session-ownership store (run_ownership_records, "
             "object_mutation_claims, takeover_transfer_records, "
-            "backend_instance_identity, edge_command_records) requires the "
+            "backend_instance_identity, edge_command_records, "
+            "push_freshness_records, ref_protection_degradation_findings) "
+            "requires the "
             "Postgres state backend: these tables are Postgres-only (AG3-137 / "
-            "AG3-145 K5) and have no SQLite implementation. Set "
+            "AG3-145 / AG3-147 K5) and have no SQLite implementation. Set "
             "AGENTKIT_STATE_BACKEND=postgres; fail-closed.",
         )
 
@@ -1207,6 +1212,43 @@ def list_push_freshness_records_global(
         project_key, story_id, run_id
     )
     return tuple(mappers.push_freshness_row_to_record(row) for row in rows)
+
+
+def upsert_ref_protection_degradation_finding_global(
+    *,
+    project_key: str,
+    story_id: str,
+    repo_id: str,
+    finding: RefProtectionDegradationFinding,
+    recorded_at: datetime,
+) -> None:
+    """Persist a project-visible ref-protection degradation WARNING (AG3-147)."""
+    backend = _backend_module()
+    _require_control_plane_backend()
+    backend.upsert_ref_protection_degradation_finding_global_row(
+        {
+            "project_key": project_key,
+            "story_id": story_id,
+            "repo_id": repo_id,
+            "finding_code": finding.finding_code,
+            "severity": finding.severity,
+            "provider_label": finding.provider_label,
+            "detail": finding.detail,
+            "recorded_at": recorded_at.isoformat(),
+        }
+    )
+
+
+def list_ref_protection_degradation_findings_global(
+    project_key: str, story_id: str
+) -> tuple[dict[str, object], ...]:
+    """List project-visible ref-protection degradation WARNING rows."""
+    backend = _backend_module()
+    _require_control_plane_backend()
+    rows = backend.list_ref_protection_degradation_finding_global_rows(
+        project_key, story_id
+    )
+    return tuple(dict(row) for row in rows)
 
 
 # ---------------------------------------------------------------------------

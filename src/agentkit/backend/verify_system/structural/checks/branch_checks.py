@@ -3,11 +3,12 @@
 These are BLOCKING checks, so per the FK-33 §33.5.2 core rule ("class C may
 never be blocking", FK-07-008) they MUST decide on INDEPENDENT system evidence,
 NOT on the worker's ``worker-manifest.json`` (a Trust-C self-report). They
-therefore consult the :class:`ChangeEvidence` collected by the system git
-provider (real ``git`` in production): the actual checked-out branch, the real
-commit history since the base ref, and the real push state. ``git``
-branch/commit data is Trust B (FK-33 §33.5.1 "system-emitted data ...
-commit history"); the findings are ``SYSTEM`` (blocking-eligible).
+therefore consult the :class:`ChangeEvidence` collected by the system evidence
+provider: the actual checked-out branch, the real commit history since the base
+ref, and the AG3-147 two-stage push verification result. Branch/commit data is
+Trust B (FK-33 §33.5.1 "system-emitted data ... commit history"); the push
+state is the Edge report plus server ref-read, never a backend-local upstream
+guess. The findings are ``SYSTEM`` (blocking-eligible).
 
 The expected branch ``story/{story_id}`` comes from the authoritative
 ``StoryContext.story_id`` (single source of truth). The worker manifest is NOT
@@ -177,10 +178,11 @@ def check_completion_push(
     severity: Severity,
     evidence: ChangeEvidence,
 ) -> Finding | None:
-    """FK-33 §33.3.2 ``completion.push``: branch pushed to remote.
+    """FK-33 §33.3.2 ``completion.push``: branch server-verified as pushed.
 
-    Decides on the SYSTEM git upstream state (``evidence.pushed``), not a worker
-    ``pushed`` claim.
+    Decides on ``evidence.pushed`` sourced from the two-stage AG3-147 barrier
+    (Edge push report plus server ref-read), not a worker ``pushed`` claim and
+    not a backend-local upstream check.
 
     Args:
         ctx: Story context (unused; uniform signature).
@@ -189,8 +191,8 @@ def check_completion_push(
         evidence: Independent system change evidence.
 
     Returns:
-        ``None`` on PASS; a finding when git does not confirm the branch is
-        pushed.
+        ``None`` on PASS; a finding when the two-stage push verification does
+        not confirm the branch is pushed.
     """
     del ctx, story_dir
     if not evidence.available:
@@ -198,6 +200,6 @@ def check_completion_push(
     if not evidence.pushed:
         return _finding(
             "completion.push", severity,
-            "story branch is not pushed to its remote upstream (FK-33 §33.3.2)",
+            "story branch is not server-verified-pushed (FK-33 §33.3.2)",
         )
     return None

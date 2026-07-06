@@ -3136,6 +3136,54 @@ def list_push_freshness_records_global_row(
     return [dict(row) for row in rows]
 
 
+# Ref-protection degradation findings (AG3-147, Postgres-only K5)
+
+
+def upsert_ref_protection_degradation_finding_global_row(row: dict[str, Any]) -> None:
+    """Upsert a project-visible ref-protection degradation WARNING (AG3-147)."""
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            INSERT INTO ref_protection_degradation_findings (
+                project_key, story_id, repo_id, finding_code, severity,
+                provider_label, detail, recorded_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (project_key, story_id, repo_id, finding_code)
+            DO UPDATE SET
+                severity = EXCLUDED.severity,
+                provider_label = EXCLUDED.provider_label,
+                detail = EXCLUDED.detail,
+                recorded_at = EXCLUDED.recorded_at
+            """,
+            (
+                row["project_key"],
+                row["story_id"],
+                row["repo_id"],
+                row["finding_code"],
+                row["severity"],
+                row["provider_label"],
+                row["detail"],
+                row["recorded_at"],
+            ),
+        )
+
+
+def list_ref_protection_degradation_finding_global_rows(
+    project_key: str, story_id: str
+) -> list[dict[str, Any]]:
+    """Return project-visible ref-protection degradation WARNING rows."""
+    with _connect_global() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM ref_protection_degradation_findings
+            WHERE project_key = ? AND story_id = ?
+            ORDER BY repo_id, finding_code
+            """,
+            (project_key, story_id),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 # ---------------------------------------------------------------------------
 # ObjectMutationClaimRecord rows (AG3-137, Postgres-only K5)
 # ---------------------------------------------------------------------------

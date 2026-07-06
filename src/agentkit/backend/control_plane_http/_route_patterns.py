@@ -31,14 +31,14 @@ _EDGE_COMMAND_RESULT_PATTERN = re.compile(
 )
 
 # AG3-147: push-freshness / push-backlog read surface (FK-10 §10.2.4b, AC5) --
-# the read-model data basis for the ownership-lage display / takeover challenge
+# the read-model data basis for the ownership-position display / takeover challenge
 # (consumers AG3-148/AG3-153). Non-project-scoped like the sibling edge routes.
 _EDGE_PUSH_FRESHNESS_PATTERN = re.compile(
     r"^/v1/project-edge/story-runs/(?P<run_id>[^/]+)/push-freshness$",
 )
 
 # AG3-147: bounded online-ownership check for the official Edge-Push-Gate
-# (FK-15 §15.5.4 online-pflichtig, AC6). Read-only; the fresh confirmation the
+# (FK-15 §15.5.4 online-required, AC6). Read-only; the fresh confirmation the
 # edge runs immediately before a ``story/*`` push. Non-project-scoped sibling.
 _EDGE_PUSH_OWNERSHIP_PATTERN = re.compile(
     r"^/v1/project-edge/story-runs/(?P<run_id>[^/]+)/push-ownership$",

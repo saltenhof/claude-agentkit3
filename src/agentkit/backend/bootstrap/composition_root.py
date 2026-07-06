@@ -78,6 +78,7 @@ if TYPE_CHECKING:
     from agentkit.backend.telemetry.repository import ProjectTelemetryEventSource
     from agentkit.backend.verify_system.llm_evaluator.llm_client import LlmClient
     from agentkit.backend.verify_system.pre_merge_runner.contract import BuildTestPort
+    from agentkit.backend.verify_system.qa_cycle.fingerprint import ReportedHeadEvidence
     from agentkit.backend.verify_system.qa_cycle.invalidation import (
         ArtifactInvalidationEvent,
         ArtifactInvalidationSink,
@@ -1232,6 +1233,7 @@ def build_verify_system(
         # AG3-147 (FK-10 §10.2.4b boundary type 2): the QA-cycle-boundary push
         # barrier gate, delegating to the control-plane two-stage barrier.
         qa_cycle_push_barrier_gate=build_qa_cycle_push_barrier_gate(),
+        qa_cycle_fingerprint_source=_StateBackedQaCycleFingerprintSource(),
         # FIX-1: the REAL build/test evidence port + the real ARE provider need
         # per-run config (the project ``ci`` stanza / ``features.are``) the
         # builder does not have, so the per-run caller (ImplementationPhaseHandler)
@@ -3653,6 +3655,60 @@ class _ControlPlaneQaCyclePushBarrierGate:
     is a fail-closed BLOCK (raises) -- NO ERROR BYPASSING.
     """
 
+    def _commission_sync_push_best_effort(self, story_dir: Path) -> None:
+        """Queue QA-boundary ``sync_push`` commands before evaluating evidence."""
+        from datetime import UTC, datetime
+
+        from agentkit.backend.control_plane.models import SyncPushCommandPayload
+        from agentkit.backend.control_plane.push_sync import (
+            SyncPointBarrierType,
+            official_story_ref,
+        )
+        from agentkit.backend.control_plane.records import EdgeCommandRecord
+        from agentkit.backend.state_backend.store import facade
+
+        try:
+            scope = facade.resolve_runtime_scope(story_dir)
+            ctx = facade.load_story_context(story_dir)
+            active = facade.load_active_run_ownership_record_global(
+                scope.project_key, scope.story_id
+            )
+            if ctx is None or active is None or active.run_id != scope.run_id:
+                return
+            now = datetime.now(tz=UTC)
+            branch = official_story_ref(scope.story_id)
+            for repo in tuple(ctx.participating_repos):
+                command_id = (
+                    f"{scope.run_id}::sync_push::"
+                    f"{SyncPointBarrierType.QA_CYCLE_BOUNDARY.value}::{repo}"
+                )
+                facade.commission_edge_command_record_global(
+                    EdgeCommandRecord(
+                        command_id=command_id,
+                        project_key=scope.project_key,
+                        story_id=scope.story_id,
+                        run_id=scope.run_id,
+                        session_id=active.owner_session_id,
+                        command_kind="sync_push",
+                        payload=SyncPushCommandPayload(
+                            story_id=scope.story_id,
+                            project_key=scope.project_key,
+                            run_id=scope.run_id,
+                            repo_id=repo,
+                            branch=branch,
+                        ).model_dump(mode="json"),
+                        status="created",
+                        ownership_epoch=active.ownership_epoch,
+                        created_at=now,
+                    )
+                )
+        except Exception as exc:  # noqa: BLE001 -- queue failure cannot open barrier
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "sync_push commissioning failed before QA-cycle barrier: %s", exc
+            )
+
     def enforce(self, story_dir: Path) -> None:
         """Raise when the QA_CYCLE_BOUNDARY barrier is not satisfied (fail-closed)."""
         from agentkit.backend.control_plane.push_sync import (
@@ -3668,6 +3724,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
             QaCycleBarrierBlockedError,
         )
 
+        self._commission_sync_push_best_effort(story_dir)
         try:
             scope = facade.resolve_runtime_scope(story_dir)
         except Exception as exc:  # noqa: BLE001 -- unresolvable scope -> fail-closed block
@@ -3701,6 +3758,44 @@ class _ControlPlaneQaCyclePushBarrierGate:
                 f"§10.2.4b). Unverified repos: {verdict.blocking_summary()}"
             )
             raise QaCycleBarrierBlockedError(msg)
+
+
+@dataclass(frozen=True)
+class _StateBackedQaCycleFingerprintSource:
+    """Resolve QA-cycle fingerprint heads from push-freshness records (AC11)."""
+
+    def collect(self, story_dir: Path) -> tuple[ReportedHeadEvidence, ...]:
+        from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.verify_system.qa_cycle.fingerprint import (
+            FingerprintComputationError,
+            ReportedHeadEvidence,
+        )
+
+        try:
+            scope = facade.resolve_runtime_scope(story_dir)
+            if scope.run_id is None:
+                raise FingerprintComputationError(
+                    "QA-cycle fingerprint evidence has incomplete run scope"
+                )
+            records = facade.list_push_freshness_records_global(
+                scope.project_key, scope.story_id, scope.run_id
+            )
+        except Exception as exc:  # noqa: BLE001 -- fingerprinting is fail-closed
+            msg = f"QA-cycle fingerprint evidence is unavailable: {exc}"
+            raise FingerprintComputationError(msg) from exc
+        heads = tuple(
+            ReportedHeadEvidence(
+                repo_id=record.repo_id,
+                head_sha=record.last_pushed_head_sha or "",
+            )
+            for record in records
+            if record.last_pushed_head_sha is not None and not record.backlog
+        )
+        if not heads:
+            raise FingerprintComputationError(
+                "QA-cycle fingerprint evidence has no pushed head records"
+            )
+        return heads
 
 
 def build_qa_cycle_push_barrier_gate() -> QaCyclePushBarrierGate:
