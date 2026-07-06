@@ -47,6 +47,7 @@ from agentkit.backend.control_plane.ownership_fence import (
     OwnershipRejectionReason,
     evaluate_ownership_admission,
 )
+from agentkit.backend.control_plane.push_sync import project_push_freshness
 from agentkit.backend.control_plane.records import (
     BindingDeleteScope,
     ControlPlaneOperationRecord,
@@ -2189,6 +2190,7 @@ class _EdgeCommandMixin:
                 result_payload=request.result.model_dump(mode="json"),
                 expected_ownership_epoch=expected_ownership_epoch,
             )
+            self._project_push_freshness_from_result(existing, request=request, now=now)
         except OwnershipFenceViolationError as exc:
             self._release_object_claim(
                 project_key=request.project_key,
@@ -2225,6 +2227,46 @@ class _EdgeCommandMixin:
         return EdgeCommandMutationResult(
             status="completed", command_id=command_id, op_id=request.op_id,
         )
+
+    def _project_push_freshness_from_result(
+        self,
+        existing: EdgeCommandRecord,
+        *,
+        request: EdgeCommandResultRequest,
+        now: datetime,
+    ) -> None:
+        """Project a ``sync_push`` result into the push-freshness read model (AC3/AC4).
+
+        The LOAD-BEARING writer of the push-freshness / backlog table
+        (In-Scope #3): a ``push_status_report`` advances the pushed head SHA (or
+        raises a visible backlog on ``behind_remote``) per ``(story, run, repo)``.
+        Runs INSIDE the fenced command-result commit (behind the Postgres guard,
+        K5), so it inherits the Rule-15 ownership fence -- an ex-owner's result
+        never updates the freshness. Freshness is INFORMATION only; it triggers
+        NO ownership wirkung (AC5). A non-``push_status_report`` result is a no-op.
+        """
+        result = request.result
+        if result.result_type != "push_status_report":
+            return
+        from agentkit.backend.state_backend.store import (
+            load_push_freshness_record_global,
+            upsert_push_freshness_record_global,
+        )
+
+        previous = load_push_freshness_record_global(
+            request.project_key, request.story_id, existing.run_id, result.repo_id
+        )
+        record = project_push_freshness(
+            previous,
+            project_key=request.project_key,
+            story_id=request.story_id,
+            run_id=existing.run_id,
+            repo_id=result.repo_id,
+            reported_head_sha=result.head_sha,
+            push_outcome=result.push_outcome,
+            reported_at=now,
+        )
+        upsert_push_freshness_record_global(record)
 
     def _edge_command_ownership_admission_rejection(
         self,
