@@ -51,10 +51,8 @@ from agentkit.backend.control_plane.push_sync import (
     SyncPointBarrierType,
     authorize_story_ref_write,
     evaluate_push_barrier,
-    next_sync_push_command_id,
     official_story_ref,
     project_push_freshness,
-    sync_point_id_from_sync_push_command_id,
     verify_pushed_across_repos,
 )
 from agentkit.backend.control_plane.records import (
@@ -776,6 +774,7 @@ class _RunGateMixin:
         evaluation remains fail-closed on missing/old evidence.
         """
         from agentkit.backend.control_plane.models import SyncPushCommandPayload
+        from agentkit.backend.control_plane.push_sync import next_sync_push_command_id
 
         try:
             ctx = self._repo.load_story_context(project_key, story_id)
@@ -4513,6 +4512,10 @@ def _sync_point_id_from_sync_push_command(
     command_id: str, *, run_id: str, repo_id: str
 ) -> str | None:
     """Extract the boundary sync-point id from the deterministic command id."""
+    from agentkit.backend.control_plane.push_sync import (
+        sync_point_id_from_sync_push_command_id,
+    )
+
     return sync_point_id_from_sync_push_command_id(
         command_id, run_id=run_id, repo_id=repo_id
     )
