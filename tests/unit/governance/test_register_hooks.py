@@ -396,21 +396,29 @@ class TestRegisterHooksSettingsMaterialisation:
             entry["command"]
             for entry in claude["hooks"]["PostToolUse"]
             if entry["matcher"] == "Bash"
-        } == {"agentkit-hook-claude post health_monitor"}
+        } == {
+            "agentkit-hook-claude post health_monitor",
+            "agentkit-hook-claude post commit_hook",
+        }
         assert {
             entry["command"]
             for entry in claude["hooks"]["PostToolUseFailure"]
             if entry["matcher"] == "Bash"
-        } == {"agentkit-hook-claude post health_monitor"}
+        } == {
+            "agentkit-hook-claude post health_monitor",
+            "agentkit-hook-claude post commit_hook",
+        }
 
-        codex_post = codex["hooks"]["PostToolUse"][0]
-        assert codex_post["matcher"] == "Bash"
-        assert codex_post["hooks"] == [
-            {
-                "type": "command",
-                "command": "agentkit-hook-codex post health_monitor",
-            }
-        ]
+        codex_post = next(
+            entry for entry in codex["hooks"]["PostToolUse"] if entry["matcher"] == "Bash"
+        )
+        assert {
+            hook["command"]
+            for hook in codex_post["hooks"]
+        } == {
+            "agentkit-hook-codex post health_monitor",
+            "agentkit-hook-codex post commit_hook",
+        }
         assert "PostToolUseFailure" not in codex["hooks"]
 
     def test_default_definitions_bind_ag3_086_guards(self) -> None:
@@ -447,6 +455,23 @@ class TestRegisterHooksSettingsMaterialisation:
             "Agent",
             "agentkit-hook-claude pre prompt_integrity",
         ) in defns, "PreToolUse prompt_integrity guard must be bound on Agent spawns"
+        assert (
+            HookEventName.PRE_TOOL_USE,
+            "Bash",
+            "agentkit-hook-claude pre commit_hook",
+        ) in defns, "PreToolUse commit_hook snapshot must be bound on Bash"
+        assert (
+            HookEventName.POST_TOOL_USE,
+            "Bash",
+            "agentkit-hook-claude post commit_hook",
+        ) in defns, "PostToolUse commit_hook HEAD-delta emitter must be bound on Bash"
+        assert (
+            HookEventName.POST_TOOL_USE_FAILURE,
+            "Bash",
+            "agentkit-hook-claude post commit_hook",
+        ) in defns, (
+            "PostToolUseFailure commit_hook HEAD-delta emitter must be bound on Bash"
+        )
 
     def test_default_definitions_materialize_ag3_086_guards_into_settings(
         self,
@@ -472,8 +497,10 @@ class TestRegisterHooksSettingsMaterialisation:
         }
         assert ("WebFetch|WebSearch", "agentkit-hook-claude pre budget") in pre
         assert ("Bash", "agentkit-hook-claude pre skill_usage_check") in pre
+        assert ("Bash", "agentkit-hook-claude pre commit_hook") in pre
         assert ("Agent", "agentkit-hook-claude pre prompt_integrity") in pre
         assert ("WebFetch|WebSearch", "agentkit-hook-claude post budget") in post
+        assert ("Bash", "agentkit-hook-claude post commit_hook") in post
 
     def test_broken_settings_json_raises(self, tmp_path: Path) -> None:
         """Broken existing .claude/settings.json raises (fail-closed FK-30 §30.3.1 Z.339)."""

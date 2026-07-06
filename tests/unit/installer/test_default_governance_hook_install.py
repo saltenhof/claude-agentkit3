@@ -13,7 +13,9 @@ FK-31 §31.7 / FK-30 §30.5.1a / FK-43 §43.6.2: the four AG3-086 hooks are
 - PreToolUse ``budget`` (WebCallBudgetGuard) on ``WebFetch|WebSearch``,
 - PostToolUse ``budget`` (observational web_call emitter) on ``WebFetch|WebSearch``,
 - PreToolUse ``skill_usage_check`` on ``Bash``,
-- PreToolUse ``prompt_integrity`` on every ``Agent`` sub-agent spawn.
+- PreToolUse ``prompt_integrity`` on every ``Agent`` sub-agent spawn,
+- PreToolUse/PostToolUse/PostToolUseFailure ``commit_hook`` on ``Bash`` for
+  mechanical HEAD-delta commit telemetry.
 """
 
 from __future__ import annotations
@@ -75,6 +77,9 @@ def test_default_install_lands_ag3_086_hooks_in_settings(tmp_path: Path) -> None
     assert ("WebFetch|WebSearch", "agentkit-hook-claude post budget") in post
     # FK-43 §43.6.2: the ad-hoc methodology guard (PreToolUse on Bash).
     assert ("Bash", "agentkit-hook-claude pre skill_usage_check") in pre
+    # AG3-147: mechanical commit invalidation observes HEAD across Bash commands.
+    assert ("Bash", "agentkit-hook-claude pre commit_hook") in pre
+    assert ("Bash", "agentkit-hook-claude post commit_hook") in post
     # FK-31 §31.7: the permanently-active prompt-integrity guard (PreToolUse Agent).
     assert ("Agent", "agentkit-hook-claude pre prompt_integrity") in pre
 
@@ -100,4 +105,5 @@ def test_default_install_is_idempotent_on_second_run(tmp_path: Path) -> None:
     assert ("Agent", "agentkit-hook-claude pre prompt_integrity") in _pre(
         first_content
     )
+    assert ("Bash", "agentkit-hook-claude pre commit_hook") in _pre(first_content)
     assert _pre(first_content) == _pre(second_content)

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
+from typing import TYPE_CHECKING
+
 import pytest
 
 from agentkit.backend.telemetry.emitters import MemoryEmitter
@@ -11,6 +14,10 @@ from agentkit.backend.telemetry.hooks.commit_hook import (
     CommitHook,
     command_may_create_commit,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
 
 
 def _context(**overrides: object) -> HookContext:
@@ -25,6 +32,34 @@ def _context(**overrides: object) -> HookContext:
     }
     base.update(overrides)
     return HookContext(**base)  # type: ignore[arg-type]
+
+
+def _git(repo: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def _write_commit(repo: Path, filename: str, content: str, message: str) -> str:
+    (repo / filename).write_text(content, encoding="utf-8")
+    _git(repo, "add", filename)
+    _git(repo, "commit", "-m", message)
+    return _git(repo, "rev-parse", "HEAD")
+
+
+@pytest.fixture()
+def git_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "-C", str(repo), "init", "-b", "main"], check=True)
+    _git(repo, "config", "user.email", "worker@example.test")
+    _git(repo, "config", "user.name", "Worker")
+    _write_commit(repo, "base.txt", "base\n", "base")
+    return repo
 
 
 def test_increment_commit_emitted_on_git_commit() -> None:
@@ -100,6 +135,90 @@ def test_increment_commit_emitted_on_mechanical_head_delta_without_git_regex() -
     assert result.triggered is True
     assert result.events[0].payload["commit_sha"] == "b" * 40
     assert result.events[0].payload["repo_name"] == "demo-repo"
+
+
+@pytest.mark.parametrize(
+    ("command", "prepare"),
+    [
+        (
+            "git commit -m work",
+            lambda repo: _write_commit(repo, "plain.txt", "plain\n", "plain"),
+        ),
+        (
+            "git cherry-pick side",
+            lambda repo: _prepare_cherry_pick(repo),
+        ),
+        (
+            "git am change.patch",
+            lambda repo: _prepare_am(repo),
+        ),
+        (
+            "git merge --no-ff side",
+            lambda repo: _prepare_merge(repo),
+        ),
+    ],
+)
+def test_increment_commit_emitted_from_durable_head_delta_for_commit_paths(
+    git_repo: Path,
+    tmp_path: Path,
+    command: str,
+    prepare: Callable[[Path], str],
+) -> None:
+    """PRE/POST HEAD deltas catch commit-producing paths without regex reliance."""
+
+    snapshot_dir = tmp_path / "snapshots"
+    emitter = MemoryEmitter()
+    pre_hook = CommitHook(emitter, snapshot_dir=snapshot_dir)
+    post_hook = CommitHook(emitter, snapshot_dir=snapshot_dir)
+    pre_hook.evaluate(
+        _context(
+            trigger=HookTrigger.PRE_TOOL_USE,
+            command=command,
+            payload={"cwd": str(git_repo)},
+        )
+    )
+
+    prepare(git_repo)
+
+    result = post_hook.evaluate(
+        _context(
+            command=command,
+            payload={"cwd": str(git_repo)},
+        )
+    )
+    post_hook.emit(result)
+
+    assert result.triggered is True
+    assert result.events[0].event_type is EventType.INCREMENT_COMMIT
+    assert result.events[0].payload["commit_sha"] == _git(git_repo, "rev-parse", "HEAD")
+    assert result.events[0].payload["repo_name"] == "repo"
+
+
+def _prepare_cherry_pick(repo: Path) -> str:
+    _git(repo, "checkout", "-b", "side")
+    side_sha = _write_commit(repo, "cherry.txt", "cherry\n", "cherry")
+    _git(repo, "checkout", "main")
+    _git(repo, "cherry-pick", side_sha)
+    return side_sha
+
+
+def _prepare_am(repo: Path) -> str:
+    _git(repo, "checkout", "-b", "patch-source")
+    patch_sha = _write_commit(repo, "patch.txt", "patch\n", "patch")
+    patch = _git(repo, "format-patch", "-1", patch_sha, "--stdout")
+    _git(repo, "checkout", "main")
+    patch_path = repo / "change.patch"
+    patch_path.write_text(patch, encoding="utf-8")
+    _git(repo, "am", str(patch_path))
+    return patch_sha
+
+
+def _prepare_merge(repo: Path) -> str:
+    _git(repo, "checkout", "-b", "side")
+    side_sha = _write_commit(repo, "merge.txt", "merge\n", "merge")
+    _git(repo, "checkout", "main")
+    _git(repo, "merge", "--no-ff", "side", "-m", "merge side")
+    return side_sha
 
 
 def test_increment_commit_skips_unchanged_mechanical_head() -> None:

@@ -12,6 +12,8 @@ commit event.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -60,14 +62,19 @@ class CommitHook(EmittingHook):
 
     name = "commit_hook"
 
-    def __init__(self, emitter: EventEmitter) -> None:
+    def __init__(self, emitter: EventEmitter, *, snapshot_dir: Path | None = None) -> None:
         """Initialise with the canonical event emitter.
 
         Args:
             emitter: Telemetry emitter for persistence (FK-68 §68.3.4).
+            snapshot_dir: Optional local runtime directory for PRE/POST HEAD
+                snapshots. Real harness hooks execute PRE and POST in separate
+                processes, so the productive path must not rely on instance
+                memory only.
         """
         super().__init__(emitter)
         self._pre_tool_heads: dict[tuple[str, str, str], _HeadSnapshot] = {}
+        self._snapshot_dir = snapshot_dir
 
     def evaluate(self, context: HookContext) -> HookResult:
         """Emit ``increment_commit`` when a Bash tool call advanced repository HEAD.
@@ -89,7 +96,9 @@ class CommitHook(EmittingHook):
         if context.trigger is HookTrigger.PRE_TOOL_USE:
             snapshot = _head_snapshot_from_context(context)
             if snapshot is not None:
-                self._pre_tool_heads[_snapshot_key(context, snapshot.repo_root)] = snapshot
+                key = _snapshot_key(context, snapshot.repo_root)
+                self._pre_tool_heads[key] = snapshot
+                self._persist_snapshot(key, snapshot)
             return HookResult.skipped()
         if context.trigger is not HookTrigger.POST_TOOL_USE:
             return HookResult.skipped()
@@ -122,10 +131,72 @@ class CommitHook(EmittingHook):
         current = _head_snapshot_from_context(context)
         if current is None:
             return "", ""
-        before = self._pre_tool_heads.pop(_snapshot_key(context, current.repo_root), None)
+        key = _snapshot_key(context, current.repo_root)
+        before = self._pre_tool_heads.pop(key, None) or self._load_snapshot(key)
+        self._remove_snapshot(key)
         if before is None or before.head_sha == current.head_sha:
             return "", ""
         return current.head_sha, current.repo_name
+
+    def _persist_snapshot(
+        self,
+        key: tuple[str, str, str],
+        snapshot: _HeadSnapshot,
+    ) -> None:
+        if self._snapshot_dir is None:
+            return
+        from agentkit.backend.utils.io import atomic_write_text
+
+        payload = {
+            "repo_root": str(snapshot.repo_root),
+            "repo_name": snapshot.repo_name,
+            "head_sha": snapshot.head_sha,
+        }
+        atomic_write_text(
+            self._snapshot_path(key),
+            json.dumps(payload, sort_keys=True),
+            newline="",
+        )
+
+    def _load_snapshot(self, key: tuple[str, str, str]) -> _HeadSnapshot | None:
+        if self._snapshot_dir is None:
+            return None
+        path = self._snapshot_path(key)
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        repo_root = payload.get("repo_root")
+        repo_name = payload.get("repo_name")
+        head_sha = payload.get("head_sha")
+        if not (
+            isinstance(repo_root, str)
+            and isinstance(repo_name, str)
+            and isinstance(head_sha, str)
+            and repo_root
+            and head_sha
+        ):
+            return None
+        return _HeadSnapshot(
+            repo_root=Path(repo_root),
+            repo_name=repo_name,
+            head_sha=head_sha,
+        )
+
+    def _remove_snapshot(self, key: tuple[str, str, str]) -> None:
+        if self._snapshot_dir is None:
+            return
+        try:
+            self._snapshot_path(key).unlink(missing_ok=True)
+        except OSError:
+            return
+
+    def _snapshot_path(self, key: tuple[str, str, str]) -> Path:
+        assert self._snapshot_dir is not None  # noqa: S101 -- guarded by callers.
+        digest = hashlib.sha256("\0".join(key).encode("utf-8")).hexdigest()
+        return self._snapshot_dir / f"{digest}.json"
 
 
 def _coerce_files_changed(value: object) -> int:
@@ -227,8 +298,14 @@ def _head_snapshot_from_context(context: HookContext) -> _HeadSnapshot | None:
     head = _git_output(root, "rev-parse", "HEAD")
     if not head:
         return None
-    repo_name = _first_payload_str(context, "repo_name", "repo_id") or root.name
+    repo_name = _first_payload_str(context, "repo_name", "repo_id")
+    if not repo_name and not _payload_carries_repo_identity(context):
+        repo_name = root.name
     return _HeadSnapshot(repo_root=root, repo_name=repo_name, head_sha=head)
+
+
+def _payload_carries_repo_identity(context: HookContext) -> bool:
+    return "repo_name" in context.payload or "repo_id" in context.payload
 
 
 def _repo_hint_from_context(context: HookContext) -> Path | None:

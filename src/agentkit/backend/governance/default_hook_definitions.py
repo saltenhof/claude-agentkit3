@@ -43,6 +43,11 @@ _AGENT_SPAWN_MATCHER = "Agent"
 #: (FK-43 §43.6.2 / F-43-030 — the recognised ad-hoc signals are ``Bash``-shaped).
 _BASH_MATCHER = "Bash"
 
+#: Observational commit telemetry hook. It is bound on PRE and both terminal
+#: Bash outcomes so the productive hook path can compare repository HEAD across
+#: the command execution instead of relying on git command-name matching.
+_COMMIT_HOOK_ID = "commit_hook"
+
 
 def build_default_hook_definitions() -> list[HookDefinition]:
     """Return the default hook registrations installed for a project.
@@ -55,6 +60,21 @@ def build_default_hook_definitions() -> list[HookDefinition]:
     """
 
     return [
+        HookDefinition(
+            hook_event_name=HookEventName.PRE_TOOL_USE,
+            matcher=_BASH_MATCHER,
+            command=f"agentkit-hook-claude pre {_COMMIT_HOOK_ID}",
+        ),
+        HookDefinition(
+            hook_event_name=HookEventName.POST_TOOL_USE,
+            matcher=_BASH_MATCHER,
+            command=f"agentkit-hook-claude post {_COMMIT_HOOK_ID}",
+        ),
+        HookDefinition(
+            hook_event_name=HookEventName.POST_TOOL_USE_FAILURE,
+            matcher=_BASH_MATCHER,
+            command=f"agentkit-hook-claude post {_COMMIT_HOOK_ID}",
+        ),
         HookDefinition(
             hook_event_name=HookEventName.POST_TOOL_USE,
             matcher="Bash",

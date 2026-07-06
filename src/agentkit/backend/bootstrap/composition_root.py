@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from agentkit.backend.artifacts import ArtifactManager, EnvelopeValidator, ProducerRegistry
-from agentkit.backend.bootstrap import push_barrier_freshness, qa_boundary
+from agentkit.backend.bootstrap import qa_boundary
 from agentkit.backend.control_plane import push_barrier_lifecycle
 from agentkit.backend.exploration.register import register_exploration_producers
 from agentkit.backend.implementation.register import register_implementation_producers
@@ -18,8 +18,6 @@ from agentkit.backend.state_backend.store.artifact_repository import StateBacken
 from agentkit.backend.verify_system.register import register_verify_producers
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from agentkit.backend.bootstrap.composition_types import (
         AreGateProvider,
         ArtifactInvalidationEvent,
@@ -1310,6 +1308,35 @@ class _StateBackendTelemetryEventCountPort:
 _TEST_FILE_MARKERS: tuple[str, ...] = ("test_", "_test.", "/tests/", "tests/")
 
 
+def _server_head_for_push_barrier_verdict(
+    verdict: Any,
+    *,
+    project_key: str | None = None,
+    story_id: str | None = None,
+    run_id: str | None = None,
+    boundary_type: Any = None,
+    boundary_id: str | None = None,
+) -> str | None:
+    """Read the current server head for one persisted push-barrier verdict."""
+
+    resolved_boundary_type = boundary_type or verdict.boundary_type
+    resolved_boundary_id = boundary_id or verdict.boundary_id
+    inputs = build_push_barrier_evidence().collect_repo_inputs(
+        project_key=project_key or verdict.project_key,
+        story_id=story_id or verdict.story_id,
+        run_id=run_id or verdict.run_id,
+        required_sync_point_id=push_barrier_lifecycle.boundary_sync_point_id(
+            resolved_boundary_type,
+            resolved_boundary_id,
+            verdict.boundary_epoch,
+        ),
+    )
+    for inp in inputs:
+        if inp.repo_id == verdict.repo_id:
+            return inp.server_head_sha if inp.server_ref_resolved else None
+    return None
+
+
 @dataclass(frozen=True)
 class _BarrierPushVerification:
     """Productive ``PushVerificationPort`` over persisted barrier verdicts.
@@ -1325,6 +1352,8 @@ class _BarrierPushVerification:
         """Whether the story branch is server-verified-pushed in every repo."""
         if self.required_sync_point_id is None:
             return False
+        from datetime import UTC, datetime
+
         from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
         from agentkit.backend.state_backend.store import facade
 
@@ -1359,16 +1388,28 @@ class _BarrierPushVerification:
             )
         except Exception:  # noqa: BLE001 -- unavailable verdict SSOT -> not pushed
             return False
-        return push_barrier_freshness.verdicts_server_fresh(
-            project_key=project_key,
-            story_id=story_id,
-            run_id=run_id,
-            boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
-            boundary_id=boundary_id,
-            verdicts=tuple(verdicts),
+        def _server_head_for_verdict(verdict: Any) -> str | None:
+            return _server_head_for_push_barrier_verdict(
+                verdict,
+                project_key=project_key,
+                story_id=story_id,
+                run_id=run_id,
+                boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
+                boundary_id=boundary_id,
+            )
+
+        return push_barrier_lifecycle.aggregate_persisted_push_barrier(
+            SyncPointBarrierType.PHASE_COMPLETION,
+            tuple(verdicts),
             expected_repo_ids=self._participating_repos(project_key, story_id),
-            evidence_factory=build_push_barrier_evidence,
-        )
+            server_head_for_verdict=_server_head_for_verdict,
+            persist_blocked_verdict=facade.upsert_push_barrier_verdict_global,
+            now=datetime.now(tz=UTC),
+        ).passed
+
+    @staticmethod
+    def _server_head_for_verdict(verdict: Any) -> str | None:
+        return _server_head_for_push_barrier_verdict(verdict)
 
     @staticmethod
     def _participating_repos(project_key: str, story_id: str) -> tuple[str, ...]:
@@ -1384,14 +1425,7 @@ class _BarrierPushVerification:
         import logging
         from datetime import UTC, datetime
 
-        from agentkit.backend.control_plane.models import SyncPushCommandPayload
-        from agentkit.backend.control_plane.push_sync import (
-            SyncPointBarrierType,
-            next_sync_push_command_id,
-            official_story_ref,
-            open_sync_push_command,
-        )
-        from agentkit.backend.control_plane.records import EdgeCommandRecord
+        from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
         from agentkit.backend.state_backend.store import facade
 
         try:
@@ -1400,82 +1434,33 @@ class _BarrierPushVerification:
             if ctx is None or active is None or active.run_id != run_id:
                 return
             now = datetime.now(tz=UTC)
-            branch = official_story_ref(story_id)
-            for repo in tuple(ctx.participating_repos):
-                current = facade.load_push_barrier_verdict_global(
-                    project_key=project_key,
-                    story_id=story_id,
-                    run_id=run_id,
-                    boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
-                    boundary_id=boundary_id,
-                    repo_id=repo,
-                )
-                verdict = push_barrier_lifecycle.next_boundary_binding(
-                    current,
-                    project_key=project_key,
-                    story_id=story_id,
-                    run_id=run_id,
-                    boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
-                    boundary_id=boundary_id,
-                    repo_id=repo,
-                    ownership_epoch=active.ownership_epoch,
-                    now=now,
-                )
-                if verdict != current:
-                    facade.upsert_push_barrier_verdict_global(verdict)
-                if verdict.status.value == "passed":
-                    continue
-                sync_point_id = push_barrier_lifecycle.boundary_sync_point_id(
-                    SyncPointBarrierType.PHASE_COMPLETION,
-                    boundary_id,
-                    verdict.boundary_epoch,
-                )
-                command_id = next_sync_push_command_id(
-                    run_id=run_id,
-                    sync_point_id=sync_point_id,
-                    repo_id=repo,
-                    load_command=facade.load_edge_command_record_global,
-                )
-                if command_id is None:
-                    open_command = open_sync_push_command(
-                        run_id=run_id,
-                        sync_point_id=sync_point_id,
-                        repo_id=repo,
-                        load_command=facade.load_edge_command_record_global,
-                    )
-                    if open_command is not None:
-                        push_barrier_lifecycle.block_timed_out_open_command(
-                            command=open_command,
-                            verdict=verdict,
-                            now=now,
-                            persist_blocked_verdict=facade.upsert_push_barrier_verdict_global,
-                            supersede_open_command=facade.supersede_open_edge_command_global,
-                        )
-                    continue
-                facade.commission_edge_command_record_global(
-                    EdgeCommandRecord(
-                        command_id=command_id,
-                        project_key=project_key,
-                        story_id=story_id,
-                        run_id=run_id,
-                        session_id=active.owner_session_id,
-                        command_kind="sync_push",
-                        payload=SyncPushCommandPayload(
-                            story_id=story_id,
-                            project_key=project_key,
-                            run_id=run_id,
-                            repo_id=repo,
-                            branch=branch,
-                            boundary_type=SyncPointBarrierType.PHASE_COMPLETION.value,
-                            boundary_id=boundary_id,
-                            boundary_epoch=verdict.boundary_epoch,
-                            ownership_epoch=active.ownership_epoch,
-                        ).model_dump(mode="json"),
-                        status="created",
-                        ownership_epoch=active.ownership_epoch,
-                        created_at=now,
-                    )
-                )
+            verdicts = push_barrier_lifecycle.bind_push_boundary(
+                project_key=project_key,
+                story_id=story_id,
+                run_id=run_id,
+                boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
+                boundary_id=boundary_id,
+                repo_ids=tuple(ctx.participating_repos),
+                ownership_epoch=active.ownership_epoch,
+                load_verdict=facade.load_push_barrier_verdict_global,
+                persist_verdict=facade.upsert_push_barrier_verdict_global,
+                now=now,
+            )
+            push_barrier_lifecycle.commission_sync_push_commands(
+                project_key=project_key,
+                story_id=story_id,
+                run_id=run_id,
+                owner_session_id=active.owner_session_id,
+                ownership_epoch=active.ownership_epoch,
+                boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
+                boundary_id=boundary_id,
+                verdicts=verdicts,
+                load_command=facade.load_edge_command_record_global,
+                commission_command=facade.commission_edge_command_record_global,
+                persist_blocked_verdict=facade.upsert_push_barrier_verdict_global,
+                supersede_open_command=facade.supersede_open_edge_command_global,
+                now=now,
+            )
         except Exception as exc:  # noqa: BLE001 -- queue failure cannot open barrier
             logging.getLogger(__name__).warning(
                 "sync_push commissioning failed before structural completion.push barrier: %s",
@@ -3685,25 +3670,41 @@ class _ControlPlaneQaCyclePushBarrierGate:
         """Queue QA-boundary ``sync_push`` commands before evaluating evidence."""
         from datetime import UTC, datetime
 
-        from agentkit.backend.control_plane.push_sync import official_story_ref
+        from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
+        from agentkit.backend.state_backend.store import facade
 
         try:
             boundary = self._qa_boundary_binding(story_dir, sync_point_id)
             if boundary is None:
                 return
             now = datetime.now(tz=UTC)
-            branch = official_story_ref(boundary.scope.story_id)
-            for repo in tuple(boundary.ctx.participating_repos):
-                verdict = self._ensure_qa_boundary_verdict(boundary, repo=repo, updated_at=now)
-                if verdict is None:
-                    continue
-                self._commission_qa_repo_sync_push(
-                    boundary,
-                    repo=repo,
-                    branch=branch,
-                    verdict=verdict,
-                    created_at=now,
-                )
+            verdicts = push_barrier_lifecycle.bind_push_boundary(
+                project_key=boundary.scope.project_key,
+                story_id=boundary.scope.story_id,
+                run_id=boundary.scope.run_id,
+                boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
+                boundary_id=boundary.boundary_id,
+                repo_ids=tuple(boundary.ctx.participating_repos),
+                ownership_epoch=boundary.active.ownership_epoch,
+                load_verdict=facade.load_push_barrier_verdict_global,
+                persist_verdict=facade.upsert_push_barrier_verdict_global,
+                now=now,
+            )
+            push_barrier_lifecycle.commission_sync_push_commands(
+                project_key=boundary.scope.project_key,
+                story_id=boundary.scope.story_id,
+                run_id=boundary.scope.run_id,
+                owner_session_id=boundary.active.owner_session_id,
+                ownership_epoch=boundary.active.ownership_epoch,
+                boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
+                boundary_id=boundary.boundary_id,
+                verdicts=verdicts,
+                load_command=facade.load_edge_command_record_global,
+                commission_command=facade.commission_edge_command_record_global,
+                persist_blocked_verdict=facade.upsert_push_barrier_verdict_global,
+                supersede_open_command=facade.supersede_open_edge_command_global,
+                now=now,
+            )
         except Exception as exc:  # noqa: BLE001 -- queue failure cannot open barrier
             import logging
 
@@ -3728,108 +3729,10 @@ class _ControlPlaneQaCyclePushBarrierGate:
             return None
         return qa_boundary.QaBoundaryBinding(scope=scope, ctx=ctx, active=active, boundary_id=boundary_id)
 
-    @staticmethod
-    def _ensure_qa_boundary_verdict(boundary: qa_boundary.QaBoundaryBinding, *, repo: str, updated_at: datetime) -> Any | None:
-        """Ensure a QA-boundary verdict row exists and return the active row."""
-        from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
-        from agentkit.backend.state_backend.store import facade
-
-        current = facade.load_push_barrier_verdict_global(
-            project_key=boundary.scope.project_key,
-            story_id=boundary.scope.story_id,
-            run_id=boundary.scope.run_id,
-            boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
-            boundary_id=boundary.boundary_id,
-            repo_id=repo,
-        )
-        verdict = push_barrier_lifecycle.next_boundary_binding(
-            current,
-            project_key=boundary.scope.project_key,
-            story_id=boundary.scope.story_id,
-            run_id=boundary.scope.run_id,
-            boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
-            boundary_id=boundary.boundary_id,
-            repo_id=repo,
-            ownership_epoch=boundary.active.ownership_epoch,
-            now=updated_at,
-        )
-        if current != verdict:
-            facade.upsert_push_barrier_verdict_global(verdict)
-        return None if verdict.status.value == "passed" else verdict
-
-    @staticmethod
-    def _commission_qa_repo_sync_push(
-        boundary: qa_boundary.QaBoundaryBinding,
-        *,
-        repo: str,
-        branch: str,
-        verdict: Any,
-        created_at: datetime,
-    ) -> None:
-        """Queue one QA-boundary ``sync_push`` or mark backlog when still open."""
-        from agentkit.backend.control_plane.models import SyncPushCommandPayload
-        from agentkit.backend.control_plane.push_sync import (
-            SyncPointBarrierType,
-            next_sync_push_command_id,
-            open_sync_push_command,
-        )
-        from agentkit.backend.control_plane.records import EdgeCommandRecord
-        from agentkit.backend.state_backend.store import facade
-
-        boundary_sync_point_id = push_barrier_lifecycle.boundary_sync_point_id(
-            SyncPointBarrierType.QA_CYCLE_BOUNDARY,
-            boundary.boundary_id,
-            verdict.boundary_epoch,
-        )
-        command_id = next_sync_push_command_id(
-            run_id=boundary.scope.run_id,
-            sync_point_id=boundary_sync_point_id,
-            repo_id=repo,
-            load_command=facade.load_edge_command_record_global,
-        )
-        if command_id is None:
-            open_command = open_sync_push_command(
-                run_id=boundary.scope.run_id,
-                sync_point_id=boundary_sync_point_id,
-                repo_id=repo,
-                load_command=facade.load_edge_command_record_global,
-            )
-            if open_command is not None:
-                push_barrier_lifecycle.block_timed_out_open_command(
-                    command=open_command,
-                    verdict=verdict,
-                    now=created_at,
-                    persist_blocked_verdict=facade.upsert_push_barrier_verdict_global,
-                    supersede_open_command=facade.supersede_open_edge_command_global,
-                )
-            return
-        facade.commission_edge_command_record_global(
-            EdgeCommandRecord(
-                command_id=command_id,
-                project_key=boundary.scope.project_key,
-                story_id=boundary.scope.story_id,
-                run_id=boundary.scope.run_id,
-                session_id=boundary.active.owner_session_id,
-                command_kind="sync_push",
-                payload=SyncPushCommandPayload(
-                    story_id=boundary.scope.story_id,
-                    project_key=boundary.scope.project_key,
-                    run_id=boundary.scope.run_id,
-                    repo_id=repo,
-                    branch=branch,
-                    boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY.value,
-                    boundary_id=boundary.boundary_id,
-                    boundary_epoch=verdict.boundary_epoch,
-                    ownership_epoch=boundary.active.ownership_epoch,
-                ).model_dump(mode="json"),
-                status="created",
-                ownership_epoch=boundary.active.ownership_epoch,
-                created_at=created_at,
-            )
-        )
-
     def enforce(self, story_dir: Path, current: Any) -> None:
         """Raise when the QA_CYCLE_BOUNDARY barrier is not satisfied (fail-closed)."""
+        from datetime import UTC, datetime
+
         from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
         from agentkit.backend.state_backend.store import facade
         from agentkit.backend.verify_system.qa_cycle.lifecycle import (
@@ -3872,17 +3775,20 @@ class _ControlPlaneQaCyclePushBarrierGate:
             raise QaCycleBarrierBlockedError(msg) from exc
         ctx = facade.load_story_context(story_dir)
         expected_repo_ids = tuple(ctx.participating_repos) if ctx is not None else ()
-        if not push_barrier_freshness.verdicts_server_fresh(
-            project_key=project_key,
-            story_id=story_id,
-            run_id=run_id,
-            boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
-            boundary_id=boundary_id,
-            verdicts=tuple(verdicts),
+        aggregate = push_barrier_lifecycle.aggregate_persisted_push_barrier(
+            SyncPointBarrierType.QA_CYCLE_BOUNDARY,
+            tuple(verdicts),
             expected_repo_ids=expected_repo_ids,
-            evidence_factory=build_push_barrier_evidence,
-        ):
-            blocking = ", ".join(f"{v.repo_id}:{v.status.value}" for v in verdicts) or "no verdict rows"
+            server_head_for_verdict=_server_head_for_push_barrier_verdict,
+            persist_blocked_verdict=facade.upsert_push_barrier_verdict_global,
+            now=datetime.now(tz=UTC),
+        )
+        if not aggregate.passed:
+            blocking = ", ".join(
+                f"{v.repo_id}:{v.block_code.value if v.block_code else 'unverified'}"
+                for v in aggregate.repo_verdicts
+                if not v.verified
+            ) or "no verdict rows"
             msg = (
                 "push_barrier_unverified: QA-cycle boundary blocked -- the story "
                 "branch is not server-verified-pushed in every repo (FK-10 "

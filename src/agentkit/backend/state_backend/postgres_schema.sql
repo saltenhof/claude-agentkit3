@@ -222,9 +222,9 @@
             PRIMARY KEY (project_key, story_id, run_id, lock_type)
         );
 
-        -- AG3-031 Pass-2 FK-30-Korrektur 2026-05-24: schema corrected to
+        -- AG3-031 Pass-2 FK-30 correction 2026-05-24: schema corrected to
         -- (project_key, hook_event_name, matcher, command) per FK-30 §30.3.1.
-        -- AG3-031 Hotfix 2026-05-25 (Governance-Loch): command added to PK/UNIQUE.
+        -- AG3-031 Hotfix 2026-05-25 (governance gap): command added to PK/UNIQUE.
         -- FK-30 §30.3.1 registers multiple hooks under one matcher (e.g. "Bash"
         -- hosts branch_guard AND story_creation_guard); a 3-tuple key collapsed
         -- them and silently dropped guards.
@@ -400,8 +400,8 @@
             updated_at TEXT NOT NULL
         );
 
-        -- edge_command_records: the Edge-Command-Queue persistence (Auftrag/
-        -- Meldung, FK-91 §91.1b, AG3-145). Replaces backend-side physical
+        -- edge_command_records: edge-command queue persistence (command/
+        -- notification, FK-91 §91.1b, AG3-145). Replaces backend-side physical
         -- worktree operations (FK-10 §10.2.4a): the backend commissions a
         -- command here, the Project Edge fetches/acks it (GET, delivered_at),
         -- executes it dev-locally and reports a result (POST .../result). Brand
@@ -569,8 +569,8 @@
             check_id TEXT
         );
 
-        -- artifact_envelopes: typed Envelope-Persistenz via ArtifactManager (AG3-023 §2.1.4)
-        -- artifact_records wurde in 3.4.0 entfernt (AG3-023 ReCut).
+        -- artifact_envelopes: typed envelope persistence via ArtifactManager (AG3-023 §2.1.4)
+        -- artifact_records was removed in 3.4.0 (AG3-023 ReCut).
         CREATE TABLE IF NOT EXISTS artifact_envelopes (
             story_id TEXT NOT NULL,
             run_id TEXT NOT NULL,
@@ -638,8 +638,8 @@
             PRIMARY KEY (project_key, run_id, attempt_no, stage_id, finding_id)
         );
 
-        -- AG3-108 (FK-69 §69.15): qa_check_outcomes. Schema-Owner verify-system,
-        -- DB-Owner telemetry-and-events via ProjectionAccessor / FacadeQACheckOutcomesRepository.
+        -- AG3-108 (FK-69 §69.15): qa_check_outcomes. Schema owner verify-system,
+        -- DB owner telemetry-and-events via ProjectionAccessor / FacadeQACheckOutcomesRepository.
         -- Records EVERY executed QA check: triggered (finding produced), clean (PASS),
         -- or overridden (suppressed). Composite PK enforces uniqueness per
         -- (project, run, stage, attempt, check).
@@ -657,8 +657,8 @@
             PRIMARY KEY (project_key, run_id, stage_id, attempt_no, check_id)
         );
 
-        -- AG3-037 (FK-68 §68.8): governance risk window. Schema-Owner +
-        -- DB-Owner telemetry-and-events via
+        -- AG3-037 (FK-68 §68.8): governance risk window. Schema owner +
+        -- DB owner telemetry-and-events via
         -- ProjectionAccessor.record_risk_window_event. Append-only rolling
         -- window of NormalizedEvents; event_id unique within a run.
         CREATE TABLE IF NOT EXISTS risk_window (
@@ -674,14 +674,14 @@
             PRIMARY KEY (project_key, run_id, event_id)
         );
 
-        -- AG3-028 (FK-41 §41.3.1, FK-69): fc_incidents. Schema-Owner
-        -- failure-corpus, DB-Owner telemetry-and-events via ProjectionAccessor.
-        -- Append-only (genau ein Datensatz pro incident_id). Schreibpfad
-        -- ausschliesslich ueber Telemetry.write_projection(FC_INCIDENTS, record).
-        -- Schema exakt nach FK-41 §41.3.1 (Codex-r1 Remediation 2026-06-01):
-        -- project_key NOT NULL, incident_id PK im Format FC-YYYY-NNNN, run_id
+        -- AG3-028 (FK-41 §41.3.1, FK-69): fc_incidents. Schema owner
+        -- failure-corpus, DB owner telemetry-and-events via ProjectionAccessor.
+        -- Append-only (exactly one row per incident_id). The write path is
+        -- exclusively Telemetry.write_projection(FC_INCIDENTS, record).
+        -- Schema exactly as FK-41 §41.3.1 (Codex-r1 Remediation 2026-06-01):
+        -- project_key NOT NULL, incident_id PK in FC-YYYY-NNNN format, run_id
         -- NOT NULL, role CHECK (worker|qa|governance), phase/model/symptom
-        -- NOT NULL, evidence_json = Liste von Strings.
+        -- NOT NULL, evidence_json = list of strings.
         CREATE TABLE IF NOT EXISTS fc_incidents (
             project_key TEXT NOT NULL,
             incident_id TEXT NOT NULL,
@@ -710,25 +710,25 @@
             tags JSON,
             impact TEXT,
             pattern_ref TEXT,
-            -- Codex-r2 (User-Entscheidung 2026-06-01): incident_id ist GLOBAL
-            -- eindeutig (kein Projekt-Segment, keine per-project-Nummerierung).
-            -- PK = incident_id allein; project_key bleibt NOT-NULL-Spalte und
-            -- read/purge filtern weiterhin zwingend nach project_key (r1-Fix).
-            -- Die FC-YYYY-NNNN-Nummern stammen aus einem globalen Per-Jahr-
-            -- Zaehler (fc_incident_counters, gekeyt auf year allein).
+            -- Codex-r2 (user decision 2026-06-01): incident_id is globally
+            -- unique (no project segment, no per-project numbering).
+            -- PK = incident_id only; project_key remains a NOT NULL column and
+            -- read/purge still must filter by project_key (r1 fix).
+            -- FC-YYYY-NNNN numbers come from a global per-year counter
+            -- (fc_incident_counters, keyed on year only).
             PRIMARY KEY (incident_id),
-            -- incident_id muss exakt FC-YYYY-NNNN sein (NNNN >= 4 Stellen,
-            -- spiegelt den Pydantic-Validator ^FC-\d{4}-\d{4,}$; FAIL-CLOSED).
+            -- incident_id must be exactly FC-YYYY-NNNN (NNNN >= 4 digits,
+            -- mirroring the Pydantic validator ^FC-\d{4}-\d{4,}$; FAIL-CLOSED).
             CONSTRAINT fc_incidents_id_format
                 CHECK (incident_id ~ '^FC-[0-9]{4}-[0-9]{4,}$'),
-            -- evidence_json muss ein JSON-Array AUS STRINGS sein (FK-41 §41.4.1
-            -- evidence=list[str]). Der jsonpath-Filter trifft jedes Element, das
-            -- KEIN String ist; existiert ein solches, schlaegt der CHECK fehl.
+            -- evidence_json must be a JSON array OF STRINGS (FK-41 §41.4.1
+            -- evidence=list[str]). The jsonpath filter matches every element
+            -- that is NOT a string; if one exists, the CHECK fails.
             CONSTRAINT fc_incidents_evidence_is_string_array
                 CHECK (jsonb_typeof(evidence_json::jsonb) = 'array'
                        AND NOT (evidence_json::jsonb @? '$[*] ? (@.type() != "string")')),
-            -- tags ist optional; wenn gesetzt ebenfalls ein JSON-Array AUS
-            -- STRINGS (FK-41 §41.4.1). NULL erlaubt.
+            -- tags is optional; when set it must also be a JSON array OF
+            -- STRINGS (FK-41 §41.4.1). NULL is allowed.
             CONSTRAINT fc_incidents_tags_is_string_array
                 CHECK (tags IS NULL
                        OR (jsonb_typeof(tags::jsonb) = 'array'
@@ -741,12 +741,12 @@
         CREATE INDEX IF NOT EXISTS idx_fc_incidents_incident_status
             ON fc_incidents (incident_status);
 
-        -- AG3-028 (Codex-r2): GLOBALER Per-Jahr-Zaehler fuer die global
-        -- eindeutige FC-YYYY-NNNN-Allokation (PK = year allein, KEIN
-        -- project_key). Race-sicher in EINEM atomaren Statement:
+        -- AG3-028 (Codex-r2): global per-year counter for globally unique
+        -- FC-YYYY-NNNN allocation (PK = year only, NO project_key).
+        -- Race-safe in ONE atomic statement:
         -- INSERT ... ON CONFLICT(year) DO UPDATE SET next_seq = next_seq + 1
-        -- RETURNING next_seq - 1 (deckt Initial-Row + Folge-Allokation ab;
-        -- kein SELECT-dann-INSERT-TOCTOU).
+        -- RETURNING next_seq - 1 (covers initial row + subsequent allocation;
+        -- no SELECT-then-INSERT TOCTOU).
         CREATE TABLE IF NOT EXISTS fc_incident_counters (
             year INTEGER NOT NULL,
             next_seq INTEGER NOT NULL,
@@ -754,14 +754,14 @@
         );
 
         -- AG3-040 Sub-Block (b) (FK-41 §41.3.2, FK-69 §69.3): fc_patterns.
-        -- Schema-Owner failure-corpus, DB-Owner telemetry-and-events. Schema
-        -- exakt nach FK-41 §41.3.2 (Pflicht-/Optional-Attribute). status =
-        -- pattern-status (4 Werte: candidate|accepted|rejected|retired),
-        -- category = FailureCategory (12 Werte), promotion_rule/risk_level mit
-        -- den FK-41-Enums. incident_refs = JSON-Array von incident_id-Strings
-        -- (FK-41: "JSON-Array der zugehoerigen incident_id-Werte"). Diese Story
-        -- liefert NUR Tabelle + Repository-Skelett; der Writer (PatternPromotion)
-        -- folgt in einer Folge-Story (FK-41 §41.5, Out of Scope).
+        -- Schema owner failure-corpus, DB owner telemetry-and-events. Schema
+        -- exactly as FK-41 §41.3.2 (required/optional attributes). status =
+        -- pattern-status (4 values: candidate|accepted|rejected|retired),
+        -- category = FailureCategory (12 values), promotion_rule/risk_level with
+        -- the FK-41 enums. incident_refs = JSON array of incident_id strings
+        -- (FK-41: "JSON array of related incident_id values"). This story
+        -- delivers ONLY the table + repository skeleton; the writer
+        -- (PatternPromotion) follows in a later story (FK-41 §41.5, Out of Scope).
         CREATE TABLE IF NOT EXISTS fc_patterns (
             pattern_id TEXT NOT NULL,
             project_key TEXT NOT NULL,
@@ -786,27 +786,27 @@
             confirmed_at TIMESTAMPTZ,
             confirmed_by TEXT CHECK (confirmed_by IS NULL OR confirmed_by = 'human'),
             owner TEXT,
-            -- check_ref ist FK auf fc_check_proposals(check_id) (FK-41 §41.3.2:234).
-            -- Die FK-Constraint selbst wird idempotent NACH dem Anlegen beider
-            -- Tabellen ergaenzt (zirkulaere FK mit fc_check_proposals.pattern_ref;
-            -- siehe postgres_store._ensure_failure_corpus_constraints). Beide Refs
-            -- sind nullable.
+            -- check_ref is an FK to fc_check_proposals(check_id) (FK-41 §41.3.2:234).
+            -- The FK constraint itself is added idempotently AFTER both tables
+            -- exist (circular FK with fc_check_proposals.pattern_ref; see
+            -- postgres_store._ensure_failure_corpus_constraints). Both refs
+            -- are nullable.
             check_ref TEXT,
             retired_at TIMESTAMPTZ,
             PRIMARY KEY (pattern_id),
-            -- pattern_id == FP-NNNN (NNNN >= 4 Stellen, NUR Ziffern; spiegelt den
-            -- FK-41-§41.3.2-Vertrag und den Pydantic-Validator, FAIL-CLOSED).
+            -- pattern_id == FP-NNNN (NNNN >= 4 digits, ONLY digits; mirrors the
+            -- FK-41 §41.3.2 contract and the Pydantic validator, FAIL-CLOSED).
             CONSTRAINT fc_patterns_id_format
                 CHECK (pattern_id ~ '^FP-[0-9]{4,}$'),
-            -- incident_refs ist ein JSON-Array AUS STRINGS (FK-41 §41.3.2). Der
-            -- jsonpath-Filter trifft jedes Nicht-String-Element; existiert eines,
-            -- schlaegt der CHECK fehl (symmetrisch zum fc_incidents-evidence-CHECK).
+            -- incident_refs is a JSON array OF STRINGS (FK-41 §41.3.2). The
+            -- jsonpath filter matches every non-string element; if one exists,
+            -- the CHECK fails (symmetric with the fc_incidents evidence CHECK).
             CONSTRAINT fc_patterns_incident_refs_is_string_array
                 CHECK (jsonb_typeof(incident_refs::jsonb) = 'array'
                        AND NOT (incident_refs::jsonb @? '$[*] ? (@.type() != "string")')),
-            -- FK-41 §41.3.2:239: kein Pattern wechselt in 'accepted' ohne
-            -- confirmed_by = 'human'. Konditionaler CHECK (FAIL-CLOSED,
-            -- Lifecycle-Invariante, spiegelt den Pydantic-model_validator).
+            -- FK-41 §41.3.2:239: no pattern changes to 'accepted' without
+            -- confirmed_by = 'human'. Conditional CHECK (FAIL-CLOSED,
+            -- lifecycle invariant, mirrors the Pydantic model_validator).
             CONSTRAINT fc_patterns_accepted_human
                 CHECK (status <> 'accepted'
                        OR confirmed_by IS NOT DISTINCT FROM 'human')
@@ -819,13 +819,13 @@
             ON fc_patterns (status);
 
         -- AG3-040 Sub-Block (b) (FK-41 §41.3.3, FK-69 §69.3): fc_check_proposals.
-        -- Schema-Owner failure-corpus, DB-Owner telemetry-and-events. Schema
-        -- exakt nach FK-41 §41.3.3. status = check-status (5 Werte: draft|approved|
-        -- active|rejected|retired), check_type = 6 FK-41-Werte, false_positive_risk
-        -- = niedrig|mittel|hoch. pattern_ref ist FK auf fc_patterns(pattern_id)
-        -- (FK-41 §41.3.3: "Verweis auf fc_patterns.pattern_id"). positive_/
-        -- negative_fixtures = JSON-Arrays. Diese Story liefert NUR Tabelle +
-        -- Repository-Skelett; der Writer (CheckFactory) folgt in einer Folge-Story
+        -- Schema owner failure-corpus, DB owner telemetry-and-events. Schema
+        -- exactly as FK-41 §41.3.3. status = check-status (5 values: draft|approved|
+        -- active|rejected|retired), check_type = 6 FK-41 values, false_positive_risk
+        -- = low|medium|high. pattern_ref is an FK to fc_patterns(pattern_id)
+        -- (FK-41 §41.3.3: "reference to fc_patterns.pattern_id"). positive_/
+        -- negative_fixtures = JSON arrays. This story delivers ONLY the table +
+        -- repository skeleton; the writer (CheckFactory) follows in a later story
         -- (FK-41 §41.6, Out of Scope).
         CREATE TABLE IF NOT EXISTS fc_check_proposals (
             check_id TEXT NOT NULL,
@@ -856,16 +856,16 @@
             false_positives_90d INTEGER,
             no_findings_90d INTEGER,
             PRIMARY KEY (check_id),
-            -- check_id == CHK-NNNN (NNNN >= 4 Stellen, NUR Ziffern; FK-41
+            -- check_id == CHK-NNNN (NNNN >= 4 digits, ONLY digits; FK-41
             -- §41.3.3, FAIL-CLOSED).
             CONSTRAINT fc_check_proposals_id_format
                 CHECK (check_id ~ '^CHK-[0-9]{4,}$'),
-            -- positive_/negative_fixtures sind JSON-Arrays von {description,
-            -- expected}-Objekten (FK-41 §41.3.3:265-266). Der jsonpath-Filter
-            -- trifft jedes Element, das KEIN Objekt mit BEIDEN Pflicht-Keys ist;
-            -- existiert ein solches, schlaegt der CHECK fehl. Damit kann die DB
-            -- keinen fixtures-Wert halten, den der Repo-Decoder ablehnt
-            -- (FAIL-CLOSED, kein DB-state-the-repo-rejects-Loch).
+            -- positive_/negative_fixtures are JSON arrays of {description,
+            -- expected} objects (FK-41 §41.3.3:265-266). The jsonpath filter
+            -- matches every element that is NOT an object with BOTH required keys;
+            -- if one exists, the CHECK fails. This prevents the DB from holding
+            -- a fixtures value rejected by the repository decoder
+            -- (FAIL-CLOSED, no DB-state-the-repo-rejects gap).
             CONSTRAINT fc_check_proposals_positive_fixtures_shape
                 CHECK (jsonb_typeof(positive_fixtures::jsonb) = 'array'
                        AND NOT (positive_fixtures::jsonb @? '$[*] ? (@.type() != "object"
@@ -874,10 +874,10 @@
                 CHECK (jsonb_typeof(negative_fixtures::jsonb) = 'array'
                        AND NOT (negative_fixtures::jsonb @? '$[*] ? (@.type() != "object"
                                 || !exists(@.description) || !exists(@.expected))')),
-            -- FK-41 §41.3.3:282: approved_by muss 'human' sein; 'active' ist ein
-            -- Vorwaerts-Uebergang aus 'approved' (FK-41 §41.6.7) und erbt die
-            -- Pflicht. Konditionaler CHECK (FAIL-CLOSED, Lifecycle-Invariante,
-            -- spiegelt den Pydantic-model_validator).
+            -- FK-41 §41.3.3:282: approved_by must be 'human'; 'active' is a
+            -- forward transition from 'approved' (FK-41 §41.6.7) and inherits
+            -- the obligation. Conditional CHECK (FAIL-CLOSED, lifecycle invariant,
+            -- mirrors the Pydantic model_validator).
             CONSTRAINT fc_check_proposals_approved_human
                 CHECK (status NOT IN ('approved', 'active')
                        OR approved_by IS NOT DISTINCT FROM 'human')
@@ -1057,13 +1057,12 @@
         -- orphan ``idempotency_keys`` table (harmless — nothing reads or writes it).
 
         -- AG3-048 (FK-43 §43.4.1, bc-cut-decisions.md §BC 11): skill_bindings.
-        -- Schema-Owner agent-skills (SkillBinding entity, AG3-027); DB-Owner
-        -- state_backend. Kanonische Wahrheit (concept/domain-design
-        -- /05-telemetrie-und-metriken.md §5: Postgres). Spalten spiegeln EXAKT
-        -- das SkillBinding-Modell (kein manifest_digest — das Modell ist Owner
-        -- der Shape). Upsert auf (project_key, skill_name). status deckt ALLE
-        -- SECHS SkillLifecycleStatus-Werte ab (FAIL-CLOSED CHECK). Identisches
-        -- Parallel-Schema in sqlite_store.py fuer Unit-Tests.
+        -- Schema owner agent-skills (SkillBinding entity, AG3-027); DB owner
+        -- state_backend. Canonical truth is Postgres. Columns mirror EXACTLY
+        -- the SkillBinding model (no manifest_digest because the model owns
+        -- the shape). Upsert on (project_key, skill_name). status covers ALL
+        -- SIX SkillLifecycleStatus values (FAIL-CLOSED CHECK). Identical
+        -- parallel schema in sqlite_store.py for unit tests.
         CREATE TABLE IF NOT EXISTS skill_bindings (
             binding_id      VARCHAR NOT NULL,
             project_key     VARCHAR NOT NULL,
@@ -1085,11 +1084,11 @@
             ON skill_bindings (project_key, skill_name);
 
         -- AG3-032 (FK-55 §55.8 / §55.10.5, FK-31 §31.2.7): governance_freeze_records.
-        -- Kanonische (Wahrheits-)Seite der dualen Conflict-Freeze-Materialisierung;
-        -- die lokale .agentkit/governance/freeze.json ist der hook-schnelle Export
-        -- mit identischem freeze_version. Schema-/DB-Owner governance-and-guards.
-        -- Genau ein aktiver Freeze pro Story (PK story_id). Identisches Parallel-
-        -- Schema in sqlite_store.py fuer Unit-Tests.
+        -- Canonical truth side of dual conflict-freeze materialization;
+        -- local .agentkit/governance/freeze.json is the hook-fast export
+        -- with identical freeze_version. Schema/DB owner governance-and-guards.
+        -- Exactly one active freeze per story (PK story_id). Identical parallel
+        -- schema in sqlite_store.py for unit tests.
         CREATE TABLE IF NOT EXISTS governance_freeze_records (
             story_id        TEXT NOT NULL,
             frozen_at       TEXT NOT NULL,
@@ -1171,16 +1170,16 @@
         );
 
         -- AG3-034 (FK-24 §24.3.3, FK-22 §22.3.1 Check 10): project_mode_lock.
-        -- Projektweiter Control-Plane Mode-Lock fuer die Fast/Standard-Mutual-
-        -- Exclusion. AG3-034 stellt NUR den Read-Pfad fuer Preflight-Check 10
-        -- (no_competing_story_mode_active) her; die atomare Setzung beim
-        -- Story-Start ist AG3-018-Folge (story.md §2.1.2 / §2.2). active_mode ist
-        -- NULL (idle) oder einer der WireStoryMode-Werte; holder_count >= 0.
-        -- active_mode liegt auf der ENTKOPPELTEN fast/standard-mode-Achse
-        -- (WireStoryMode, FK-24 §24.3.3), NICHT auf der execution_route-Achse
-        -- (execution/exploration war Achsen-Drift, hier korrigiert).
-        -- Schema-/DB-Owner governance-and-guards. Identisches Parallel-Schema in
-        -- sqlite_store.py fuer Unit-Tests.
+        -- Project-wide control-plane mode lock for Fast/Standard mutual
+        -- exclusion. AG3-034 provides ONLY the read path for Preflight Check 10
+        -- (no_competing_story_mode_active); atomic setting at story start is an
+        -- AG3-018 follow-up (story.md §2.1.2 / §2.2). active_mode is NULL (idle)
+        -- or one of the WireStoryMode values; holder_count >= 0.
+        -- active_mode is on the DECOUPLED fast/standard-mode axis
+        -- (WireStoryMode, FK-24 §24.3.3), NOT on the execution_route axis
+        -- (execution/exploration was axis drift, corrected here).
+        -- Schema/DB owner governance-and-guards. Identical parallel schema in
+        -- sqlite_store.py for unit tests.
         CREATE TABLE IF NOT EXISTS project_mode_lock (
             project_key    TEXT NOT NULL,
             active_mode    TEXT CHECK (active_mode IS NULL OR active_mode IN (
@@ -1193,9 +1192,9 @@
 
         -- AG3-039 (FK-50 §50.3 CP 7, formal.installer.entities
         -- §project-registration): project_registry. Canonical State-Backend
-        -- registration written by Installer-Checkpoint 7. Schema-/DB-Owner
-        -- installation-and-bootstrap. IDENTISCHES Parallel-Schema in
-        -- sqlite_store.py (Postgres ist kanonisch). project_root is UNIQUE so a
+        -- registration written by Installer Checkpoint 7. Schema/DB owner
+        -- installation-and-bootstrap. Identical parallel schema in
+        -- sqlite_store.py (Postgres is canonical). project_root is UNIQUE so a
         -- single filesystem root maps to exactly one registration; runtime_profile
         -- is constrained to the RuntimeProfile wire values (core | are).
         -- last_verified_at / last_upgraded_at are NULL until verify-project /
@@ -1222,7 +1221,7 @@
         );
 
         -- AG3-038 (FK-62 §62.2.1-62.2.7, FK-60 §60.3.4): analytics fact tables
-        -- + sync_state + guard_invocation_counters scratchpad. Schema-/DB-Owner
+        -- + sync_state + guard_invocation_counters scratchpad. Schema/DB owner
         -- kpi-and-dashboard; canonical Postgres + SQLite test-parallel schema
         -- with IDENTICAL semantics (sqlite_store._ensure_analytics_tables).
         --

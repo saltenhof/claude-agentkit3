@@ -452,9 +452,10 @@ class TestSupportedHookIdsCompleteness:
             "health_monitor",
             "ccag_gatekeeper",
             "review_guard",
+            "commit_hook",
         }
         assert expected == PRE_HOOK_IDS
 
     def test_post_hook_ids_are_known(self) -> None:
-        expected = {"telemetry", "budget", "health_monitor"}
+        expected = {"telemetry", "budget", "health_monitor", "commit_hook"}
         assert expected == POST_HOOK_IDS

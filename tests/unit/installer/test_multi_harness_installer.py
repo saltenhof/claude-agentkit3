@@ -97,23 +97,28 @@ def test_install_creates_claude_and_codex_settings(tmp_path: Path) -> None:
         entry["command"]
         for entry in claude_settings["hooks"]["PostToolUse"]
         if entry["matcher"] == "Bash"
-    } == {"agentkit-hook-claude post health_monitor"}
+    } == {
+        "agentkit-hook-claude post health_monitor",
+        "agentkit-hook-claude post commit_hook",
+    }
     assert {
         entry["command"]
         for entry in claude_settings["hooks"]["PostToolUseFailure"]
         if entry["matcher"] == "Bash"
-    } == {"agentkit-hook-claude post health_monitor"}
-    assert codex_hooks["hooks"]["PostToolUse"] == [
-        {
-            "matcher": "Bash",
-            "hooks": [
-                {
-                    "type": "command",
-                    "command": "agentkit-hook-codex post health_monitor",
-                }
-            ],
-        }
-    ]
+    } == {
+        "agentkit-hook-claude post health_monitor",
+        "agentkit-hook-claude post commit_hook",
+    }
+    codex_post_bash = next(
+        entry for entry in codex_hooks["hooks"]["PostToolUse"] if entry["matcher"] == "Bash"
+    )
+    assert {
+        hook["command"]
+        for hook in codex_post_bash["hooks"]
+    } == {
+        "agentkit-hook-codex post health_monitor",
+        "agentkit-hook-codex post commit_hook",
+    }
     assert "agentkit-hook-codex" in (
         tmp_path / ".codex" / "config.toml"
     ).read_text(encoding="utf-8")

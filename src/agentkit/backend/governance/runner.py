@@ -80,6 +80,8 @@ PRE_HOOK_IDS = frozenset(
         # hook enforces at PreToolUse so a DENY blocks BEFORE the commit runs
         # (§2.1.5). A PostToolUse DENY cannot stop an action that already ran.
         "review_guard",
+        # AG3-147: observational PRE snapshot for mechanical commit invalidation.
+        "commit_hook",
     }
 )
 POST_HOOK_IDS = frozenset(
@@ -90,6 +92,8 @@ POST_HOOK_IDS = frozenset(
         # the PreToolUse ``budget`` guard's (WebCallBudgetGuard).
         "budget",
         "health_monitor",
+        # AG3-147: observational POST delta check and ``increment_commit`` emit.
+        "commit_hook",
     }
 )
 SUPPORTED_PHASES = frozenset({"pre", "post"})
@@ -575,6 +579,8 @@ def run_hook(
     if invalid is not None:
         return invalid
     resolved_root = project_root or Path.cwd()
+    if hook_id == "commit_hook":
+        return _run_commit_hook(event, phase=phase, project_root=resolved_root)
     if phase == "post":
         # AG3-036 FIX-1: ReviewGuard moved to PreToolUse. AG3-086: the ``budget``
         # PostToolUse path is the OBSERVATIONAL ``web_call`` emitter (FK-30
@@ -600,6 +606,84 @@ def run_hook(
     verdict = _dispatch_pre_hook(hook_id, event, project_root=resolved_root)
     _record_guard_invocation(hook_id, event, verdict, project_root=resolved_root)
     return verdict
+
+
+def _run_commit_hook(
+    event: HookEvent,
+    *,
+    phase: str,
+    project_root: Path,
+) -> HookDecision:
+    """Run the observational commit telemetry hook.
+
+    The hook is intentionally outside the guard/capability chain: it never
+    authorizes a Bash command. Other PreToolUse hooks still decide whether the
+    command may run. This path only captures PRE HEAD and emits POST
+    ``increment_commit`` when HEAD moved.
+    """
+
+    from agentkit.backend.telemetry.hooks.base import HookContext, HookTrigger
+    from agentkit.backend.telemetry.hooks.commit_hook import CommitHook
+
+    scope = _commit_hook_scope(event, project_root=project_root)
+    if scope is None:
+        return GuardVerdict.allow("commit_hook")
+    project_key, story_id, run_id = scope
+    trigger = (
+        HookTrigger.PRE_TOOL_USE
+        if phase == "pre"
+        else HookTrigger.POST_TOOL_USE
+    )
+    hook = CommitHook(
+        _rest_event_emitter(
+            project_root,
+            project_key=project_key,
+            run_id=run_id,
+            default_source_component="commit_hook",
+        ),
+        snapshot_dir=project_root / ".agentkit" / "hooks" / "commit-heads",
+    )
+    command = event.operation_args.get("command")
+    payload: dict[str, object] = {"cwd": event.cwd, "repo_name": ""}
+    result = hook.evaluate(
+        HookContext(
+            trigger=trigger,
+            story_id=story_id,
+            run_id=run_id,
+            project_key=project_key,
+            worker_id=event.session_id or "",
+            tool="Bash" if event.operation == "bash_command" else _event_tool(event),
+            command=command if isinstance(command, str) else "",
+            payload=payload,
+        )
+    )
+    hook.emit(result)
+    return GuardVerdict.allow("commit_hook")
+
+
+def _commit_hook_scope(
+    event: HookEvent,
+    *,
+    project_root: Path,
+) -> tuple[str, str, str] | None:
+    """Resolve the active story/run scope from the local edge bundle."""
+
+    try:
+        from agentkit.harness_client.projectedge.runtime import ProjectEdgeResolver
+
+        resolved = ProjectEdgeResolver(project_root=project_root).resolve(
+            session_id=event.session_id,
+            cwd=event.cwd,
+            freshness_class=event.freshness_class,
+        )
+    except Exception:  # noqa: BLE001 -- telemetry hook is non-blocking.
+        return None
+    if resolved.operating_mode != "story_execution":
+        return None
+    if resolved.bundle is None or resolved.bundle.session is None:
+        return None
+    session = resolved.bundle.session
+    return session.project_key, session.story_id, session.run_id
 
 
 def _governance_edge_client(project_root: Path) -> GovernanceEdgeClient:

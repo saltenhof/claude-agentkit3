@@ -22,6 +22,7 @@ fixture, so this module requests it explicitly.
 from __future__ import annotations
 
 import logging
+import subprocess
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -31,9 +32,13 @@ import pytest
 from agentkit.backend.control_plane.models import (
     ClosureCompleteRequest,
     CommandErrorResult,
+    EdgeBundle,
     EdgeCommandResultRequest,
+    EdgePointer,
     PhaseMutationRequest,
     PushStatusReport,
+    SessionRunBindingView,
+    StoryExecutionLockView,
 )
 from agentkit.backend.control_plane.push_sync import (
     PushBarrierVerdict,
@@ -42,6 +47,8 @@ from agentkit.backend.control_plane.push_sync import (
     SyncPointBarrierType,
 )
 from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
+from agentkit.backend.governance.guard_evaluation import HookEvent
+from agentkit.backend.governance.runner import run_hook
 from agentkit.backend.state_backend.store import (
     append_execution_event_global,
     boot_backend_instance_identity_global,
@@ -53,9 +60,12 @@ from agentkit.backend.state_backend.store import (
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+from agentkit.harness_client.projectedge.client import LocalEdgePublisher
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from agentkit.backend.telemetry.events import Event, EventType
 
 pytestmark = pytest.mark.integration
 
@@ -164,6 +174,27 @@ class _MutableBarrierPort:
         )
 
 
+class _AppendingEmitter:
+    def emit(self, event: Event) -> None:
+        append_execution_event_global(
+            ExecutionEventRecord(
+                project_key=event.project_key or _PROJECT,
+                story_id=event.story_id,
+                run_id=event.run_id or "",
+                event_id=event.event_id or f"hook-{event.event_type.value}",
+                event_type=event.event_type.value,
+                occurred_at=event.timestamp,
+                source_component=event.source_component,
+                severity=event.severity,
+                phase=event.phase or "implementation",
+                payload=dict(event.payload),
+            )
+        )
+
+    def query(self, _story_id: str, _event_type: EventType | None = None) -> list[Event]:
+        return []
+
+
 def _verified(repo_id: str) -> RepoPushVerificationInput:
     return RepoPushVerificationInput(
         repo_id=repo_id,
@@ -258,6 +289,70 @@ def _admit_run(service: ControlPlaneRuntimeService, *, story_id: str, run_id: st
         request=_request(story_id=story_id, op_id=f"op-setup-{story_id}"),
     )
     assert result.status == "committed"
+
+
+def _git(repo: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def _init_repo(repo: Path) -> None:
+    repo.mkdir(parents=True)
+    subprocess.run(["git", "-C", str(repo), "init", "-b", "main"], check=True)
+    _git(repo, "config", "user.email", "worker@example.test")
+    _git(repo, "config", "user.name", "Worker")
+    (repo / "base.txt").write_text("base\n", encoding="utf-8")
+    _git(repo, "add", "base.txt")
+    _git(repo, "commit", "-m", "base")
+
+
+def _commit_local_change(repo: Path) -> str:
+    (repo / "local.txt").write_text("local\n", encoding="utf-8")
+    _git(repo, "add", "local.txt")
+    _git(repo, "commit", "-m", "local")
+    return _git(repo, "rev-parse", "HEAD")
+
+
+def _publish_story_edge_bundle(project_root: Path, repo: Path, *, story_id: str, run_id: str) -> None:
+    LocalEdgePublisher(project_root=project_root).publish(
+        EdgeBundle(
+            current=EdgePointer(
+                project_key=_PROJECT,
+                export_version="v1",
+                operating_mode="story_execution",
+                bundle_dir="_temp/governance/current-run",
+                sync_after=_T0 + timedelta(days=1),
+                freshness_class="mutation",
+                generated_at=_T0,
+            ),
+            session=SessionRunBindingView(
+                session_id="sess-A",
+                project_key=_PROJECT,
+                story_id=story_id,
+                run_id=run_id,
+                principal_type="worker",
+                worktree_roots=[str(repo)],
+                binding_version="v1",
+                operating_mode="story_execution",
+            ),
+            lock=StoryExecutionLockView(
+                project_key=_PROJECT,
+                story_id=story_id,
+                run_id=run_id,
+                lock_type="story_execution",
+                status="ACTIVE",
+                worktree_roots=[str(repo)],
+                binding_version="v1",
+                activated_at=_T0,
+                updated_at=_T0,
+            ),
+        )
+    )
 
 
 def _command_error_request(*, story_id: str, op_id: str) -> EdgeCommandResultRequest:
@@ -639,6 +734,78 @@ def test_registered_commit_invalidates_passed_boundary_epoch(tmp_path: Path) -> 
     assert superseded.status is PushBarrierVerdictStatus.SUPERSEDED
     assert superseded.boundary_epoch == 2
     assert superseded.expected_head_sha == _SHA_Y
+
+
+def test_productive_commit_hook_invalidates_passed_boundary_and_blocks_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: local HEAD B after pushed A cannot satisfy final aggregation."""
+
+    story_id, run_id = "AG3-928", "run-928"
+    project_root = tmp_path / _PROJECT
+    repo = project_root / "worktree-api"
+    _seed_story_context(tmp_path, story_id, participating_repos=["api"])
+    _init_repo(repo)
+    barrier = _MutableBarrierPort((_verified("api"),))
+    service = _service_with_mutable_barrier(barrier, ident="inst-928")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    _publish_story_edge_bundle(project_root, repo, story_id=story_id, run_id=run_id)
+    request = _request(story_id=story_id, op_id="op-complete-928")
+    command_id = "run-928::sync_push::phase_completion:run-928:epoch-1::api"
+
+    first = service.complete_phase(run_id=run_id, phase="implementation", request=request)
+    assert first.status == "rejected"
+    pushed = service.submit_command_result(
+        command_id,
+        _push_result_request(story_id=story_id, op_id="edge-op-pushed-928"),
+    )
+    assert pushed.status == "completed"
+    passed = load_push_barrier_verdict_global(
+        project_key=_PROJECT,
+        story_id=story_id,
+        run_id=run_id,
+        boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
+        boundary_id=run_id,
+        repo_id="api",
+    )
+    assert passed is not None
+    assert passed.status is PushBarrierVerdictStatus.PASSED
+
+    monkeypatch.setattr(
+        "agentkit.backend.governance.rest_edge.build_rest_event_emitter",
+        lambda *_args, **_kwargs: _AppendingEmitter(),
+    )
+    event = HookEvent(
+        operation="bash_command",
+        operation_args={"command": "git commit -m local"},
+        freshness_class="mutation",
+        cwd=str(repo),
+        session_id="sess-A",
+    )
+    assert run_hook("commit_hook", event, phase="pre", project_root=project_root).allowed
+    head_b = _commit_local_change(repo)
+    assert run_hook("commit_hook", event, phase="post", project_root=project_root).allowed
+
+    superseded = load_push_barrier_verdict_global(
+        project_key=_PROJECT,
+        story_id=story_id,
+        run_id=run_id,
+        boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
+        boundary_id=run_id,
+        repo_id="api",
+    )
+    assert superseded is not None
+    assert superseded.status is PushBarrierVerdictStatus.SUPERSEDED
+    assert superseded.expected_head_sha == head_b
+
+    retry = service.complete_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(story_id=story_id, op_id="op-complete-928-retry"),
+    )
+    assert retry.status == "rejected"
+    assert "push_barrier_unverified" in (retry.phase_dispatch.rejection_reason or "")
 
 
 def test_registered_commit_with_missing_metadata_invalidates_all_live_boundaries(

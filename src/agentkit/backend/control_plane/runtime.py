@@ -61,7 +61,6 @@ from agentkit.backend.control_plane.push_sync import (
     SyncPointBarrierType,
     authorize_story_ref_write,
     evaluate_repo_push,
-    official_story_ref,
     project_push_freshness,
 )
 from agentkit.backend.control_plane.records import (
@@ -703,31 +702,18 @@ class _RunGateMixin:
         if active is None or active.run_id != run_id:
             return ()
         now = self._now_fn()
-        bound: list[PushBarrierVerdict] = []
-        for repo_id in tuple(ctx.participating_repos):
-            current = self._load_boundary_verdict(
-                project_key=project_key,
-                story_id=story_id,
-                run_id=run_id,
-                boundary_type=barrier_type,
-                boundary_id=boundary_id,
-                repo_id=repo_id,
-            )
-            next_record = push_barrier_lifecycle.next_boundary_binding(
-                current,
-                project_key=project_key,
-                story_id=story_id,
-                run_id=run_id,
-                boundary_type=barrier_type,
-                boundary_id=boundary_id,
-                repo_id=repo_id,
-                ownership_epoch=active.ownership_epoch,
-                now=now,
-            )
-            if next_record != current:
-                self._upsert_boundary_verdict(next_record)
-            bound.append(next_record)
-        return tuple(bound)
+        return push_barrier_lifecycle.bind_push_boundary(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            boundary_type=barrier_type,
+            boundary_id=boundary_id,
+            repo_ids=tuple(ctx.participating_repos),
+            ownership_epoch=active.ownership_epoch,
+            load_verdict=self._load_boundary_verdict,
+            persist_verdict=self._upsert_boundary_verdict,
+            now=now,
+        )
 
     def _aggregate_persisted_push_barrier(
         self,
@@ -870,69 +856,27 @@ class _RunGateMixin:
         opportunistic: failures do not open the boundary; the following barrier
         evaluation remains fail-closed on missing/old evidence.
         """
-        from agentkit.backend.control_plane.models import SyncPushCommandPayload
-        from agentkit.backend.control_plane.push_sync import (
-            next_sync_push_command_id,
-            open_sync_push_command,
-        )
-
         try:
             ctx = self._repo.load_story_context(project_key, story_id)
             active = self._repo.load_active_ownership(project_key, story_id)
             if ctx is None or active is None or active.run_id != run_id:
                 return
             now = self._now_fn()
-            branch = official_story_ref(story_id)
-            for verdict in verdicts:
-                if verdict.status is PushBarrierVerdictStatus.PASSED:
-                    continue
-                sync_point_id = push_barrier_lifecycle.boundary_sync_point_id(barrier_type, boundary_id, verdict.boundary_epoch)
-                command_id = next_sync_push_command_id(
-                    run_id=run_id,
-                    sync_point_id=sync_point_id,
-                    repo_id=verdict.repo_id,
-                    load_command=self._edge_command_repo.load_command,
-                )
-                if command_id is None:
-                    open_command = open_sync_push_command(
-                        run_id=run_id,
-                        sync_point_id=sync_point_id,
-                        repo_id=verdict.repo_id,
-                        load_command=self._edge_command_repo.load_command,
-                    )
-                    if open_command is not None:
-                        push_barrier_lifecycle.block_timed_out_open_command(
-                            command=open_command,
-                            verdict=verdict,
-                            now=now,
-                            persist_blocked_verdict=self._upsert_boundary_verdict,
-                            supersede_open_command=self._edge_command_repo.supersede_command,
-                        )
-                    continue
-                self._edge_command_repo.commission_command(
-                    EdgeCommandRecord(
-                        command_id=command_id,
-                        project_key=project_key,
-                        story_id=story_id,
-                        run_id=run_id,
-                        session_id=active.owner_session_id,
-                        command_kind="sync_push",
-                        payload=SyncPushCommandPayload(
-                            story_id=story_id,
-                            project_key=project_key,
-                            run_id=run_id,
-                            repo_id=verdict.repo_id,
-                            branch=branch,
-                            boundary_type=barrier_type.value,
-                            boundary_id=boundary_id,
-                            boundary_epoch=verdict.boundary_epoch,
-                            ownership_epoch=active.ownership_epoch,
-                        ).model_dump(mode="json"),
-                        status="created",
-                        ownership_epoch=active.ownership_epoch,
-                        created_at=now,
-                    )
-                )
+            push_barrier_lifecycle.commission_sync_push_commands(
+                project_key=project_key,
+                story_id=story_id,
+                run_id=run_id,
+                owner_session_id=active.owner_session_id,
+                ownership_epoch=active.ownership_epoch,
+                boundary_type=barrier_type,
+                boundary_id=boundary_id,
+                verdicts=verdicts,
+                load_command=self._edge_command_repo.load_command,
+                commission_command=self._edge_command_repo.commission_command,
+                persist_blocked_verdict=self._upsert_boundary_verdict,
+                supersede_open_command=self._edge_command_repo.supersede_command,
+                now=now,
+            )
         except Exception as exc:  # noqa: BLE001 -- queue failure cannot open barrier
             logger.warning("sync_push commissioning failed before barrier: %s", exc)
 

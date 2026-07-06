@@ -6,10 +6,11 @@ runtime consumers and bootstrap adapters do not grow divergent state machines.
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import is_dataclass, replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
+from agentkit.backend.control_plane.models import SyncPushCommandPayload
 from agentkit.backend.control_plane.push_sync import (
     BarrierVerdict,
     PushBarrierBlockCode,
@@ -17,7 +18,11 @@ from agentkit.backend.control_plane.push_sync import (
     PushBarrierVerdictStatus,
     RepoPushVerdict,
     SyncPointBarrierType,
+    next_sync_push_command_id,
+    official_story_ref,
+    open_sync_push_command,
 )
+from agentkit.backend.control_plane.records import EdgeCommandRecord
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -97,6 +102,123 @@ def next_boundary_binding(
     )
 
 
+def bind_push_boundary(
+    *,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    boundary_type: SyncPointBarrierType,
+    boundary_id: str,
+    repo_ids: Iterable[str],
+    ownership_epoch: int,
+    load_verdict: Any,
+    persist_verdict: Any,
+    now: datetime,
+) -> tuple[PushBarrierVerdict, ...]:
+    """Bind one boundary instance and return its current per-repo verdict rows."""
+
+    bound: list[PushBarrierVerdict] = []
+    for repo_id in tuple(repo_ids):
+        current = load_verdict(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            boundary_type=boundary_type,
+            boundary_id=boundary_id,
+            repo_id=repo_id,
+        )
+        next_record = next_boundary_binding(
+            current,
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            boundary_type=boundary_type,
+            boundary_id=boundary_id,
+            repo_id=repo_id,
+            ownership_epoch=ownership_epoch,
+            now=now,
+        )
+        if next_record != current:
+            persist_verdict(next_record)
+        bound.append(next_record)
+    return tuple(bound)
+
+
+def commission_sync_push_commands(
+    *,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    owner_session_id: str,
+    ownership_epoch: int,
+    boundary_type: SyncPointBarrierType,
+    boundary_id: str,
+    verdicts: Iterable[PushBarrierVerdict],
+    load_command: Any,
+    commission_command: Any,
+    persist_blocked_verdict: Any,
+    supersede_open_command: Any,
+    now: datetime,
+) -> None:
+    """Commission ``sync_push`` commands for all non-passed boundary verdicts."""
+
+    branch = official_story_ref(story_id)
+    for verdict in tuple(verdicts):
+        if _status_value(verdict) == PushBarrierVerdictStatus.PASSED.value:
+            continue
+        sync_point_id = boundary_sync_point_id(
+            boundary_type,
+            boundary_id,
+            verdict.boundary_epoch,
+        )
+        command_id = next_sync_push_command_id(
+            run_id=run_id,
+            sync_point_id=sync_point_id,
+            repo_id=verdict.repo_id,
+            load_command=load_command,
+        )
+        if command_id is None:
+            open_command = open_sync_push_command(
+                run_id=run_id,
+                sync_point_id=sync_point_id,
+                repo_id=verdict.repo_id,
+                load_command=load_command,
+            )
+            if open_command is not None:
+                block_timed_out_open_command(
+                    command=open_command,
+                    verdict=verdict,
+                    now=now,
+                    persist_blocked_verdict=persist_blocked_verdict,
+                    supersede_open_command=supersede_open_command,
+                )
+            continue
+        commission_command(
+            EdgeCommandRecord(
+                command_id=command_id,
+                project_key=project_key,
+                story_id=story_id,
+                run_id=run_id,
+                session_id=owner_session_id,
+                command_kind="sync_push",
+                payload=SyncPushCommandPayload(
+                    story_id=story_id,
+                    project_key=project_key,
+                    run_id=run_id,
+                    repo_id=verdict.repo_id,
+                    branch=branch,
+                    boundary_type=boundary_type.value,
+                    boundary_id=boundary_id,
+                    boundary_epoch=verdict.boundary_epoch,
+                    ownership_epoch=ownership_epoch,
+                ).model_dump(mode="json"),
+                status="created",
+                ownership_epoch=ownership_epoch,
+                created_at=now,
+            )
+        )
+
+
 def timed_out_open_command_verdict(verdict: PushBarrierVerdict, *, updated_at: datetime) -> PushBarrierVerdict:
     """Mark a pending verdict blocked when its commissioned command timed out."""
 
@@ -170,10 +292,18 @@ def aggregate_persisted_push_barrier(
         if verdict is None:
             repo_verdicts.append(_missing_repo_verdict(repo_id))
             continue
-        if verdict.status is not PushBarrierVerdictStatus.PASSED:
+        if _status_value(verdict) != PushBarrierVerdictStatus.PASSED.value:
             repo_verdicts.append(repo_verdict_from_persisted(verdict))
             continue
         if not _non_empty_sha(verdict.expected_head_sha):
+            if not is_dataclass(verdict):
+                repo_verdicts.append(
+                    _blocked_repo_verdict(
+                        verdict.repo_id,
+                        detail="passed_verdict_missing_expected_head",
+                    )
+                )
+                continue
             blocked = replace_push_barrier_verdict(
                 verdict,
                 status=PushBarrierVerdictStatus.BLOCKED_BACKLOG,
@@ -193,6 +323,14 @@ def aggregate_persisted_push_barrier(
                     verified=True,
                     block_code=None,
                     detail=(f"persisted push-barrier verdict passed and server still confirms {server_head}"),
+                )
+            )
+            continue
+        if not is_dataclass(verdict):
+            repo_verdicts.append(
+                _blocked_repo_verdict(
+                    verdict.repo_id,
+                    detail="server_head_moved_after_pass",
                 )
             )
             continue
@@ -225,10 +363,11 @@ def aggregate_persisted_push_barrier(
 def repo_verdict_from_persisted(verdict: PushBarrierVerdict) -> RepoPushVerdict:
     """Map a persisted non-passing verdict to the public repo verdict shape."""
 
-    detail = verdict.status_detail or f"push barrier status {verdict.status.value}"
+    status_value = _status_value(verdict) or "unknown"
+    detail = getattr(verdict, "status_detail", None) or f"push barrier status {status_value}"
     code = (
         PushBarrierBlockCode.EDGE_REPORTS_BACKLOG
-        if verdict.status is PushBarrierVerdictStatus.BLOCKED_BACKLOG
+        if status_value == PushBarrierVerdictStatus.BLOCKED_BACKLOG.value
         else PushBarrierBlockCode.NO_EDGE_PUSH_REPORT
     )
     return RepoPushVerdict(
@@ -277,8 +416,23 @@ def _missing_repo_verdict(repo_id: str) -> RepoPushVerdict:
     )
 
 
+def _blocked_repo_verdict(repo_id: str, *, detail: str) -> RepoPushVerdict:
+    return RepoPushVerdict(
+        repo_id=repo_id,
+        verified=False,
+        block_code=PushBarrierBlockCode.EDGE_REPORTS_BACKLOG,
+        detail=detail,
+    )
+
+
 def _non_empty_sha(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def _status_value(verdict: object) -> str | None:
+    status = getattr(verdict, "status", None)
+    value = getattr(status, "value", status)
+    return value if isinstance(value, str) else None
 
 
 def _superseded_command_payload(verdict: PushBarrierVerdict) -> dict[str, object]:
