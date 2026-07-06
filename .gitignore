@@ -62,3 +62,13 @@ Thumbs.db
 
 # Local launcher helpers
 start-claude-*.cmd
+start-claude-*.ps1
+
+# Local agent/tool scratch output
+.qwen/
+_diagram_images/
+agent-tools/
+mcps/
+terminals/
+story/
+tools/cloc-*.exe

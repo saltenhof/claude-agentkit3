@@ -2469,7 +2469,7 @@ def _invalidate_push_barriers_for_registered_commit(
     conn: _CompatConnection,
     row: dict[str, Any],
 ) -> None:
-    """Supersede pending push barriers for an AK3-registered commit event."""
+    """Supersede live push barriers for an AK3-registered commit event."""
 
     if row["event_type"] != "increment_commit":
         return
@@ -2496,7 +2496,7 @@ def _invalidate_push_barriers_for_registered_commit(
           AND story_id = ?
           AND run_id = ?
           AND repo_id = ?
-          AND status = 'pending'
+          AND status IN ('pending', 'passed')
         """,
         (
             commit_sha,
@@ -3321,7 +3321,7 @@ def supersede_pending_push_barriers_for_commit_global_row(
     expected_head_sha: str,
     updated_at: str,
 ) -> int:
-    """Invalidate every pending boundary for a repo after a registered commit.
+    """Invalidate every live boundary for a repo after a registered commit.
 
     This is the mechanical mutation-invalidation hook required by AG3-147 Rev. 2:
     any AK3-registered productive commit after boundary entry bumps the boundary
@@ -3343,7 +3343,7 @@ def supersede_pending_push_barriers_for_commit_global_row(
               AND story_id = ?
               AND run_id = ?
               AND repo_id = ?
-              AND status = 'pending'
+              AND status IN ('pending', 'passed')
             """,
             (
                 expected_head_sha,

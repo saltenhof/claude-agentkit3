@@ -8,12 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from agentkit.backend.artifacts import ArtifactManager, EnvelopeValidator, ProducerRegistry
-from agentkit.backend.bootstrap.qa_boundary import (
-    QaBoundaryBinding,
-)
-from agentkit.backend.bootstrap.qa_boundary import (
-    boundary_id_from_sync_point as _boundary_id_from_sync_point,
-)
+from agentkit.backend.bootstrap import push_barrier_freshness, qa_boundary
 from agentkit.backend.exploration.register import register_exploration_producers
 from agentkit.backend.implementation.register import register_implementation_producers
 from agentkit.backend.prompt_runtime.register import register_prompt_runtime_producers
@@ -22,91 +17,7 @@ from agentkit.backend.state_backend.store.artifact_repository import StateBacken
 from agentkit.backend.verify_system.register import register_verify_producers
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-    from datetime import datetime
-
-    from agentkit.backend.closure.gates import TelemetryEvidencePort
-    from agentkit.backend.closure.merge_sequence import MergeApplicability, PreMergeScanPort, RepoRunners, SanityGatePort
-    from agentkit.backend.closure.multi_repo_saga import GitBackend as RepoGitBackend
-    from agentkit.backend.closure.phase import (
-        ClosurePhaseHandler,
-        ClosureProgressStore,
-        GuardCounterFlushPort,
-        ModeLockReleasePort,
-    )
-    from agentkit.backend.closure.post_merge_finalization.finalization import (
-        DocFidelityFeedbackPort,
-        GuardDeactivationPort,
-        VectorDbSyncPort,
-    )
-    from agentkit.backend.code_backend.provider_port import CodeBackendPort
-    from agentkit.backend.config.models import ConformanceConfig, RepositoryConfig
-    from agentkit.backend.control_plane.push_verification import PushBarrierEvidencePort
-    from agentkit.backend.execution_planning.persistence.accessor import PlanningProjectionAccessor
-    from agentkit.backend.exploration.change_frame import ChangeFrame
-    from agentkit.backend.exploration.drafting import ExplorationDrafting
-    from agentkit.backend.exploration.mandate.fine_design import FineDesignEvaluator, FineDesignRoundOutcome
-    from agentkit.backend.exploration.phase import ExplorationPhaseHandler
-    from agentkit.backend.exploration.review import ExplorationReview
-    from agentkit.backend.failure_corpus import FailureCorpus
-    from agentkit.backend.governance.integrity_gate import IntegrityGate
-    from agentkit.backend.governance.integrity_gate.dim9_sonar import SonarDimensionPort
-    from agentkit.backend.governance.repository import SetupContextRepository
-    from agentkit.backend.governance.setup_preflight_gate.edge_provisioning import EdgeProvisioningCoordinator
-    from agentkit.backend.governance.setup_preflight_gate.phase import SetupPhaseHandler
-    from agentkit.backend.kpi_analytics import KpiAnalytics
-    from agentkit.backend.kpi_analytics.dashboard import DashboardService
-    from agentkit.backend.pipeline_engine.engine import PipelineEngine
-    from agentkit.backend.pipeline_engine.lifecycle import HandlerResult, PhaseHandlerRegistry
-    from agentkit.backend.pipeline_engine.phase_envelope.envelope import PhaseEnvelope
-    from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-    from agentkit.backend.project_management.read_model_routes import ReadModelRoutes
-    from agentkit.backend.project_management.repository import ProjectRepository
-    from agentkit.backend.requirements_coverage.contract import CoverageVerdict
-    from agentkit.backend.requirements_coverage.top import (
-        RequirementsCoverage as RequirementsCoverageProto,
-    )
-    from agentkit.backend.skills import Skills
-    from agentkit.backend.state_backend.store.planning_story_dependency_repository import (
-        PlanningWritePathStoryDependencyRepository,
-    )
-    from agentkit.backend.state_backend.store.runtime_execution_purge import (
-        RuntimeExecutionPurgePort,
-        RuntimeExecutionResidueProbe,
-    )
-    from agentkit.backend.story import StoryService
-    from agentkit.backend.story_context_manager.models import StoryContext
-    from agentkit.backend.story_context_manager.story_model import ChangeImpact
-    from agentkit.backend.story_context_manager.types import StoryType
-    from agentkit.backend.story_split.service import SplitSourceState, StorySplitRequest
-    from agentkit.backend.task_management.http.routes import TaskManagementRoutes
-    from agentkit.backend.telemetry.emitters import EventEmitter
-    from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
-    from agentkit.backend.telemetry.repository import ProjectTelemetryEventSource
-    from agentkit.backend.verify_system.llm_evaluator.llm_client import LlmClient
-    from agentkit.backend.verify_system.pre_merge_runner.contract import BuildTestPort
-    from agentkit.backend.verify_system.qa_cycle.fingerprint import ReportedHeadEvidence
-    from agentkit.backend.verify_system.qa_cycle.invalidation import (
-        ArtifactInvalidationEvent,
-        ArtifactInvalidationSink,
-    )
-    from agentkit.backend.verify_system.qa_cycle.lifecycle import QaCyclePushBarrierGate
-    from agentkit.backend.verify_system.review_completion import (
-        ReviewCompletionEvent,
-        ReviewCompletionSink,
-    )
-    from agentkit.backend.verify_system.sonarqube_gate.port import SonarGateInputPort
-    from agentkit.backend.verify_system.structural.checker import AreGateProvider
-    from agentkit.backend.verify_system.structural.checks import (
-        BuildTestEvidence,
-        BuildTestEvidencePort,
-    )
-    from agentkit.backend.verify_system.structural.system_evidence import (
-        ChangeEvidence,
-        PushVerificationPort,
-    )
-    from agentkit.backend.verify_system.system import VerifySystem
-    from agentkit.integration_clients.multi_llm_hub.client import HubClientProtocol
+    from agentkit.backend.bootstrap.composition_types import AreGateProvider, ArtifactInvalidationEvent, ArtifactInvalidationSink, BuildTestEvidence, BuildTestEvidencePort, BuildTestPort, Callable, ChangeEvidence, ChangeFrame, ChangeImpact, ClosurePhaseHandler, ClosureProgressStore, CodeBackendPort, ConformanceConfig, CoverageVerdict, DashboardService, DocFidelityFeedbackPort, EdgeProvisioningCoordinator, EventEmitter, ExplorationDrafting, ExplorationPhaseHandler, ExplorationReview, FailureCorpus, FineDesignEvaluator, FineDesignRoundOutcome, GuardCounterFlushPort, GuardDeactivationPort, HandlerResult, HubClientProtocol, IntegrityGate, KpiAnalytics, LlmClient, MergeApplicability, ModeLockReleasePort, PhaseEnvelope, PhaseEnvelopeStore, PhaseHandlerRegistry, PipelineEngine, PlanningProjectionAccessor, PlanningWritePathStoryDependencyRepository, PreMergeScanPort, ProjectRepository, ProjectTelemetryEventSource, ProjectionAccessor, PushBarrierEvidencePort, PushVerificationPort, QaCyclePushBarrierGate, ReadModelRoutes, ReportedHeadEvidence, RepoGitBackend, RepoRunners, RepositoryConfig, RequirementsCoverageProto, ReviewCompletionEvent, ReviewCompletionSink, RuntimeExecutionPurgePort, RuntimeExecutionResidueProbe, SanityGatePort, SetupContextRepository, SetupPhaseHandler, Skills, SonarDimensionPort, SonarGateInputPort, SplitSourceState, StoryContext, StoryService, StorySplitRequest, StoryType, TaskManagementRoutes, TelemetryEvidencePort, VectorDbSyncPort, VerifySystem, datetime  # noqa: E501,I001
 
 
 def build_producer_registry() -> ProducerRegistry:
@@ -1361,15 +1272,6 @@ class _StateBackendTelemetryEventCountPort:
 _TEST_FILE_MARKERS: tuple[str, ...] = ("test_", "_test.", "/tests/", "tests/")
 
 
-def _default_push_verification_port() -> PushVerificationPort:
-    """Lazily resolve the fail-closed absent push-verification port (AG3-147)."""
-    from agentkit.backend.verify_system.structural.system_evidence import (
-        ABSENT_PUSH_VERIFICATION_PORT,
-    )
-
-    return ABSENT_PUSH_VERIFICATION_PORT
-
-
 @dataclass(frozen=True)
 class _BarrierPushVerification:
     """Productive ``PushVerificationPort`` over persisted barrier verdicts.
@@ -1397,12 +1299,18 @@ class _BarrierPushVerification:
         run_id = getattr(scope, "run_id", None)
         if not project_key or not story_id or not run_id:
             return False
-        boundary_id = _boundary_id_from_sync_point(
+        boundary_id = qa_boundary.boundary_id_from_sync_point(
             self.required_sync_point_id,
             expected_type=SyncPointBarrierType.PHASE_COMPLETION,
         )
         if boundary_id is None:
             return False
+        self._commission_sync_push_best_effort(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            boundary_id=boundary_id,
+        )
         try:
             verdicts = facade.list_push_barrier_verdicts_global(
                 project_key=project_key,
@@ -1413,10 +1321,18 @@ class _BarrierPushVerification:
             )
         except Exception:  # noqa: BLE001 -- unavailable verdict SSOT -> not pushed
             return False
-        return bool(verdicts) and all(v.status.value == "passed" for v in verdicts)
+        return push_barrier_freshness.verdicts_server_fresh(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
+            boundary_id=boundary_id,
+            verdicts=tuple(verdicts),
+            evidence_factory=build_push_barrier_evidence,
+        )
 
     def _commission_sync_push_best_effort(
-        self, *, project_key: str, story_id: str, run_id: str, sync_point_id: str
+        self, *, project_key: str, story_id: str, run_id: str, boundary_id: str
     ) -> None:
         """Queue structural phase-completion ``sync_push`` evidence."""
         import logging
@@ -1424,6 +1340,9 @@ class _BarrierPushVerification:
 
         from agentkit.backend.control_plane.models import SyncPushCommandPayload
         from agentkit.backend.control_plane.push_sync import (
+            PushBarrierVerdict,
+            PushBarrierVerdictStatus,
+            SyncPointBarrierType,
             next_sync_push_command_id,
             official_story_ref,
         )
@@ -1440,6 +1359,89 @@ class _BarrierPushVerification:
             now = datetime.now(tz=UTC)
             branch = official_story_ref(story_id)
             for repo in tuple(ctx.participating_repos):
+                current = facade.load_push_barrier_verdict_global(
+                    project_key=project_key,
+                    story_id=story_id,
+                    run_id=run_id,
+                    boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
+                    boundary_id=boundary_id,
+                    repo_id=repo,
+                )
+                if (
+                    current is not None
+                    and current.status is PushBarrierVerdictStatus.PASSED
+                ):
+                    continue
+                if current is None:
+                    epoch = 1
+                    verdict = PushBarrierVerdict(
+                        project_key=project_key,
+                        story_id=story_id,
+                        run_id=run_id,
+                        boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
+                        boundary_id=boundary_id,
+                        repo_id=repo,
+                        producer="control_plane.push_barrier",
+                        boundary_epoch=epoch,
+                        expected_head_sha=None,
+                        server_head_sha=None,
+                        ownership_epoch=active.ownership_epoch,
+                        status=PushBarrierVerdictStatus.PENDING,
+                        created_at=now,
+                        updated_at=now,
+                        resolved_at=None,
+                        status_detail="completion_push_boundary_bound",
+                    )
+                    facade.upsert_push_barrier_verdict_global(verdict)
+                elif current.status is PushBarrierVerdictStatus.PENDING:
+                    epoch = current.boundary_epoch
+                elif current.status is PushBarrierVerdictStatus.SUPERSEDED:
+                    epoch = current.boundary_epoch
+                    facade.upsert_push_barrier_verdict_global(
+                        PushBarrierVerdict(
+                            project_key=current.project_key,
+                            story_id=current.story_id,
+                            run_id=current.run_id,
+                            boundary_type=current.boundary_type,
+                            boundary_id=current.boundary_id,
+                            repo_id=current.repo_id,
+                            producer=current.producer,
+                            boundary_epoch=epoch,
+                            expected_head_sha=current.expected_head_sha,
+                            server_head_sha=None,
+                            ownership_epoch=active.ownership_epoch,
+                            status=PushBarrierVerdictStatus.PENDING,
+                            created_at=current.created_at,
+                            updated_at=now,
+                            resolved_at=None,
+                            status_detail="completion_push_rebound_after_supersede",
+                        )
+                    )
+                else:
+                    epoch = current.boundary_epoch + 1
+                    facade.upsert_push_barrier_verdict_global(
+                        PushBarrierVerdict(
+                            project_key=current.project_key,
+                            story_id=current.story_id,
+                            run_id=current.run_id,
+                            boundary_type=current.boundary_type,
+                            boundary_id=current.boundary_id,
+                            repo_id=current.repo_id,
+                            producer=current.producer,
+                            boundary_epoch=epoch,
+                            expected_head_sha=None,
+                            server_head_sha=None,
+                            ownership_epoch=active.ownership_epoch,
+                            status=PushBarrierVerdictStatus.PENDING,
+                            created_at=current.created_at,
+                            updated_at=now,
+                            resolved_at=None,
+                            status_detail="completion_push_retry_after_backlog",
+                        )
+                    )
+                sync_point_id = push_barrier_freshness.barrier_sync_point_id(
+                    SyncPointBarrierType.PHASE_COMPLETION, boundary_id, epoch
+                )
                 command_id = next_sync_push_command_id(
                     run_id=run_id,
                     sync_point_id=sync_point_id,
@@ -1462,6 +1464,10 @@ class _BarrierPushVerification:
                             run_id=run_id,
                             repo_id=repo,
                             branch=branch,
+                            boundary_type=SyncPointBarrierType.PHASE_COMPLETION.value,
+                            boundary_id=boundary_id,
+                            boundary_epoch=epoch,
+                            ownership_epoch=active.ownership_epoch,
                         ).model_dump(mode="json"),
                         status="created",
                         ownership_epoch=active.ownership_epoch,
@@ -1505,7 +1511,7 @@ class _SubprocessGitChangeEvidenceProvider:
 
     base_ref: str = "origin/main"
     push_verification_port: PushVerificationPort = field(
-        default_factory=_default_push_verification_port
+        default_factory=qa_boundary.default_push_verification_port
     )
 
     def collect(self, story_dir: Path) -> ChangeEvidence:
@@ -3753,6 +3759,8 @@ class _ControlPlaneQaCyclePushBarrierGate:
                 epoch = self._ensure_qa_boundary_verdict(
                     boundary, repo=repo, updated_at=now
                 )
+                if epoch is None:
+                    continue
                 self._commission_qa_repo_sync_push(
                     boundary,
                     repo=repo,
@@ -3771,7 +3779,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
     @staticmethod
     def _qa_boundary_binding(
         story_dir: Path, sync_point_id: str
-    ) -> QaBoundaryBinding | None:
+    ) -> qa_boundary.QaBoundaryBinding | None:
         """Resolve QA boundary identity, story context, and active ownership."""
         from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
         from agentkit.backend.state_backend.store import facade
@@ -3781,7 +3789,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
         active = facade.load_active_run_ownership_record_global(
             scope.project_key, scope.story_id
         )
-        boundary_id = _boundary_id_from_sync_point(
+        boundary_id = qa_boundary.boundary_id_from_sync_point(
             sync_point_id,
             expected_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
         )
@@ -3789,7 +3797,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
             return None
         if boundary_id is None:
             return None
-        return QaBoundaryBinding(
+        return qa_boundary.QaBoundaryBinding(
             scope=scope, ctx=ctx, active=active, boundary_id=boundary_id
         )
 
@@ -3803,52 +3811,9 @@ class _ControlPlaneQaCyclePushBarrierGate:
         return int(current.boundary_epoch)
 
     @staticmethod
-    def _block_qa_boundary_open_command(
-        boundary: QaBoundaryBinding, *, repo: str, updated_at: datetime
-    ) -> None:
-        """Mark a QA-boundary verdict blocked when an earlier command is open."""
-        from agentkit.backend.control_plane.push_sync import (
-            PushBarrierVerdict,
-            PushBarrierVerdictStatus,
-            SyncPointBarrierType,
-        )
-        from agentkit.backend.state_backend.store import facade
-
-        latest = facade.load_push_barrier_verdict_global(
-            project_key=boundary.scope.project_key,
-            story_id=boundary.scope.story_id,
-            run_id=boundary.scope.run_id,
-            boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
-            boundary_id=boundary.boundary_id,
-            repo_id=repo,
-        )
-        if latest is None or latest.status is not PushBarrierVerdictStatus.PENDING:
-            return
-        facade.upsert_push_barrier_verdict_global(
-            PushBarrierVerdict(
-                project_key=latest.project_key,
-                story_id=latest.story_id,
-                run_id=latest.run_id,
-                boundary_type=latest.boundary_type,
-                boundary_id=latest.boundary_id,
-                repo_id=latest.repo_id,
-                producer=latest.producer,
-                boundary_epoch=latest.boundary_epoch,
-                expected_head_sha=latest.expected_head_sha,
-                server_head_sha=latest.server_head_sha,
-                ownership_epoch=latest.ownership_epoch,
-                status=PushBarrierVerdictStatus.BLOCKED_BACKLOG,
-                created_at=latest.created_at,
-                updated_at=updated_at,
-                resolved_at=updated_at,
-                status_detail="sync_push_command_still_open",
-            )
-        )
-
-    @staticmethod
     def _ensure_qa_boundary_verdict(
-        boundary: QaBoundaryBinding, *, repo: str, updated_at: datetime
-    ) -> int:
+        boundary: qa_boundary.QaBoundaryBinding, *, repo: str, updated_at: datetime
+    ) -> int | None:
         """Ensure a pending QA-boundary verdict row exists and return its epoch."""
         from agentkit.backend.control_plane.push_sync import (
             PushBarrierVerdict,
@@ -3868,6 +3833,8 @@ class _ControlPlaneQaCyclePushBarrierGate:
         epoch = _ControlPlaneQaCyclePushBarrierGate._qa_boundary_epoch(current)
         if current is not None and current.status is PushBarrierVerdictStatus.PENDING:
             return epoch
+        if current is not None and current.status is PushBarrierVerdictStatus.PASSED:
+            return None
         facade.upsert_push_barrier_verdict_global(
             PushBarrierVerdict(
                 project_key=boundary.scope.project_key,
@@ -3892,7 +3859,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
 
     @staticmethod
     def _commission_qa_repo_sync_push(
-        boundary: QaBoundaryBinding,
+        boundary: qa_boundary.QaBoundaryBinding,
         *,
         repo: str,
         branch: str,
@@ -3917,9 +3884,6 @@ class _ControlPlaneQaCyclePushBarrierGate:
             load_command=facade.load_edge_command_record_global,
         )
         if command_id is None:
-            _ControlPlaneQaCyclePushBarrierGate._block_qa_boundary_open_command(
-                boundary, repo=repo, updated_at=created_at
-            )
             return
         facade.commission_edge_command_record_global(
             EdgeCommandRecord(
@@ -3972,7 +3936,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
         if not project_key or not story_id or not run_id:
             msg = "QA-cycle boundary fail-closed: incomplete run scope"
             raise QaCycleBarrierBlockedError(msg)
-        boundary_id = _boundary_id_from_sync_point(
+        boundary_id = qa_boundary.boundary_id_from_sync_point(
             sync_point_id,
             expected_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
         )
@@ -3990,7 +3954,15 @@ class _ControlPlaneQaCyclePushBarrierGate:
         except Exception as exc:  # noqa: BLE001 -- unavailable verdict SSOT -> block
             msg = f"QA-cycle boundary fail-closed: verdict SSOT unavailable ({exc})"
             raise QaCycleBarrierBlockedError(msg) from exc
-        if not verdicts or any(v.status.value != "passed" for v in verdicts):
+        if not push_barrier_freshness.verdicts_server_fresh(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
+            boundary_id=boundary_id,
+            verdicts=tuple(verdicts),
+            evidence_factory=build_push_barrier_evidence,
+        ):
             blocking = ", ".join(
                 f"{v.repo_id}:{v.status.value}" for v in verdicts
             ) or "no verdict rows"

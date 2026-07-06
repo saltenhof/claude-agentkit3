@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from agentkit.backend.verify_system.structural.system_evidence import (
+        PushVerificationPort,
+    )
 
 
 @dataclass(frozen=True)
@@ -33,3 +38,13 @@ def boundary_id_from_sync_point(
     if ":epoch-" in body:
         body = body.rsplit(":epoch-", 1)[0]
     return body or None
+
+
+def default_push_verification_port() -> PushVerificationPort:
+    """Lazily resolve the fail-closed absent push-verification port."""
+
+    from agentkit.backend.verify_system.structural.system_evidence import (
+        ABSENT_PUSH_VERIFICATION_PORT,
+    )
+
+    return ABSENT_PUSH_VERIFICATION_PORT

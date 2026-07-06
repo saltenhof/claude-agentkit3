@@ -1,10 +1,157 @@
 story_id: AG3-147
 title: "Sync-Punkte + Push-Gate + Ref-Schutz: pushed-only-Durchsetzung mit harten fail-closed Push-Barrieren, serverseitiger ls-remote-Verifikation, opportunistischen Pushes, Edge-Push-Gate (online-pflichtig), Dienst-Identität und story/*-Ref-Schutz"
 type: implementation
-status: blocked
-phase: setup
+status: in_progress
+phase: implementation
 created: "2026-07-02"
+started_at: "2026-07-05T19:05:00Z"
 size: L
+# 2026-07-05: Deps AG3-145 + AG3-146 geschlossen (main gruen auf 640873db,
+# Jenkins #1025 SUCCESS). Von blocked -> in_progress. Opus-Worker mit
+# vollstaendigem Paket (story.md + Konzept-MCP + operative Zugaenge on top).
+# Danach Codex+GLM-Doppel-Review -> Synthese -> ein Fixauftrag -> Close.
+# Orchestrator editiert keinen Python-Code, haelt nur diese YAML aktuell.
+#
+# 2026-07-06: Zwei-Pass-Schnitt (L-Story, ehrliche Worker-Selbstauskunft).
+# PASS 1 FOUNDATION (additiv, gelandet auf main, gate-gruen): 5 Commits
+# d1deb306 A-core push_sync.py (Barrieren-Praedikat + Frische + Freigabe-Regel
+# + Gate-Entscheidung + Degradations-WARNING + Merge-Vorbedingung),
+# 2d906c15 Postgres-only Persistenz Push-Frische/-Rueckstand (K5),
+# 7c83fe68 GitHub-Adapter Dienst-Identitaet + story/*-Ref-Schutz-Capabilities,
+# 62092d14 HTTP-Read-Surface (AC5), 76c649e2 Merge-Vorbedingung/Wire-Codes
+# (AC12/AC14), 9602ff1a LOC-Fix (ControlPlaneApplication 823->757,
+# PY_CLASS_MAX_LOC_800). CI-GRUEN auf main: Jenkins #1032 SUCCESS auf 9602ff1a,
+# Sonar-Gate OK (violations 0 / critical 0 / hotspots 0 / coverage 85.2). Lokal:
+# unit 7101 / 87.15% cov, contract+integration 1789, 4 Konzept-Gates. Deckt
+# AC4/5/6/7/8/9/10/12/13/14 (Logik/Persistenz/Adapter/Contracts).
+# PASS 2 ENFORCEMENT: implementiert (8 Enforcement-Commits 7406ac44..7b769226
+# + E501-Fix -> HEAD 44178960 auf origin): AC1/2/3 Barrieren an allen 4
+# Grenztypen (phase-completion _mutate_admitted_phase, closure-entry
+# complete_closure + verify_pushed_across_repos, yield-point, QA-cycle-boundary),
+# Frische-WRITE-Pfad an _commit_command_result, AC11 Evidenz-Umzug off
+# backend-local-git (+ SOLL-136-Inventar-Update), AC6/AC10 sync_push-Executor +
+# Online-Ownership + Bundle. Zwei Remediation-Runden nach CI-Reveal:
+# (1) #1035 rot an 5 Postgres-Tests -> fail-closed-Guard in confirm_story_pushed
+# + _ControlPlaneQaCyclePushBarrierGate.enforce vervollstaendigt (unresolvable
+# workspace/config -> not-verified/typed-block, nie crash/pass; adjudiziert als
+# fail-closed, nicht silencing) + DI-Port in Idempotenz-Contract-Test + DE->EN
+# runtime.py:143/:4617 -> c55668d3. (2) #1037 Tests gruen, aber Sonar-Gate rot
+# (9 Findings, 1 kritisch S3776): Cognitive-Complexity-Extraktion, 2x Klassen-LOC
+# via _RunGateMixin/_ProjectEdgeSyncMixin (859->771, 820->739), 2x Modul-LOC,
+# S3358/S1110/S5713 -> 07723653, alle verhaltensidentisch. FINAL GRUEN:
+# Jenkins #1039 SUCCESS auf 07723653, Sonar 0/0/0, coverage 85.2. Alle 14 AC
+# erfuellt. Delta 640873db..07723653: 51 files, +5518/-387 (src 2941+, tests
+# 2577+). Codex+GLM-Doppel-Review: BEIDE REJECT (CI-gruen != feature-complete).
+# Konvergenz + selbst verifiziert: (C1 CRITICAL) AC9 Degradations-WARNING +
+# Ref-Schutz-Administration + authorize_story_ref_write ohne Produktions-Aufrufer
+# (stille Degradation); (M1) sync_push an Sync-Punkten nicht commissioniert ->
+# Barriere ohne Evidenz-Produzent (Real-Deadlock); (M2) AC11 unvollstaendig,
+# qa_cycle/fingerprint.py shellt weiter git; (M3, GLM) execute_sync_push 5xx
+# crasht Command-Loop statt Backlog; (M4/M5) QA-cycle- + no-edge-report-
+# Negativpfade nicht auf echten Grenzen getestet; + Minors (ARCH-55-DE,
+# Docstring-Drift, Barrier-no-op-Footgun). Sound (nicht anfassen): Barriere-
+# A-Kern, K5, Blutgruppen, closure-op_id-DI, request_resolver-Retarget, Mixins.
+# Synthese -> ein Fixauftrag (scratchpad/ag3147-remediation-fixorder.md) ->
+# Codex-Remediation-Worker (job-612bab3b, neues Modell: besitzt Schleife bis
+# gruen-auf-main). REMEDIATION GELANDET GRUEN: Commit 1bb517fe (27 files),
+# Jenkins #1043 SUCCESS auf 1bb517fe, Sonar 0/0/0, unit 7128 passed/87.07%,
+# contract+integration 1813 passed, alle 4 Konzept-/Architektur-Gates. Alle
+# REJECT-Findings adressiert (C1 Ref-Schutz-Basis+AC9-WARNING persistiert+
+# Dienst-Identitaet; M1 sync_push vor Barrieren commissioniert; M2 fingerprint
+# off git + SOLL-136-Key raus; M3 5xx->backlog; M4 Real-Boundary QA-cycle;
+# M5 no-edge-report closure/yield; Minors). Disown-Doppel-Sperre bewusst
+# AG3-149 (Scope-Guard). Re-Review auf 1bb517fe: SPLIT (Codex REJECT, GLM
+# APPROVE). Orchestrator-Adjudikation per Code-Lesung: Codex-CRITICAL verifiziert,
+# GLM dort faktisch falsch. CRITICAL: Barriere passt auf STALE Evidenz -
+# evaluate_repo_push (push_sync.py:221) prueft nur server==edge_reported_head;
+# collect_repo_inputs (push_verification.py:89-103) nimmt freshness.
+# last_reported_head_sha (running-latest) ohne Korrelation zum aktuellen Head /
+# zur commissionierten sync_push -> freshness=A + server=A passt, waehrend lokal
+# B ungepusht ist (pushed-only-Verletzung; deckt sich mit In-Scope-8 "an der
+# Grenze gemeldete Head-SHAs"). + 2 MAJOR (ref-protection nicht story/*-scoped/
+# idempotent; post-gate git-failure ohne Backlog) + 1 MINOR (GLM). Fixauftrag
+# scratchpad/ag3147-remediation2-fixorder.md -> Codex-R2 (job-36818b28).
+# R2 GELANDET GRUEN: Commit 3f98950b (22 files), Jenkins #1046 SUCCESS, Sonar
+# 0/0/0, unit 87.05%. CRITICAL gefixt via boundary-korrelierte Freshness
+# (last_sync_point_id/last_command_id; stale running-latest -> Block
+# stale_edge_push_report, 3 Tests); MAJOR ref-protection story/*-Wildcard +
+# idempotent (get-or-update); MAJOR post-gate git-failure -> behind_remote-
+# Backlog; MINOR best-effort-Branch getestet. Runde-3-Re-Review laeuft
+# (job-f88edb8d Codex / job-bf32eebd GLM). Regel: bei nur noch kosmetischen
+# Resten -> Orchestrator raeumt selbst + Close ohne weitere Runde; bei Substanz
+# -> Loop weiter.
+# R3-Re-Review: BEIDE REJECT, konvergent (Korrelation nicht auf ALLE Evidenz-
+# Flaechen angewandt, ist opt-in statt fail-closed). CRITICAL (beide, verifiziert):
+# QA-Cycle-Barriere konstante sync_point_id (composition_root.py:3680) ->
+# stale-pass Fail-Open + Deadlock (phase/yield/closure korrelieren monoton, QA
+# nicht). MAJOR (Codex): ref-protection-Ruleset ohne bypass_actors fuer die
+# Dienst-Identitaet -> sanktionierter Edge-Push selbst geblockt. MAJOR (GLM):
+# _BarrierPushVerification.confirm_story_pushed (composition_root.py:1394) ruft
+# collect_repo_inputs ohne required_sync_point_id -> None -> Korrelation
+# uebersprungen (push_sync.py:216), running-latest, stale-anfaellig (durch harte
+# Barriere backstopped). Substanziell -> Loop weiter. Fixauftrag scratchpad/
+# ag3147-remediation3-fixorder.md -> Codex-R3 (job-29f1eee4).
+# R3 GELANDET GRUEN: Commit d74306f3 (10 files), Jenkins #1049 SUCCESS, Sonar
+# 0/0/0, unit 7138/87.05%, c+i 1817. CRITICAL: QA-Barriere monotone id
+# qa_cycle_boundary:{qa_cycle_id}:round-{n}; MAJOR bypass_actors nur Service-
+# Actor; MAJOR evaluate_repo_push fail-closed missing_sync_point_correlation
+# (Korrelation verpflichtend statt opt-in). Runde-4-Re-Review laeuft
+# (job-d142ba6f Codex / job-cc6ba0c6 GLM).
+# R4-Re-Review: BEIDE REJECT, konvergent. R3 schloss QA-Korrelation +
+# bypass_actors (beide bestaetigt), UEBERKORRIGIERTE aber Fail-Open -> Deadlock
+# (GLM: "fixed the symptom, broke the function"). CRITICAL (beide): structural
+# completion.push False-Negative - confirm_story_pushed (composition_root.py:1394)
+# ohne required_sync_point_id -> mit R3-fail-closed-on-None immer False -> der
+# BLOCKING-Check (branch_checks.py:200, code-producing) blockt permanent
+# (test-maskiert via injizierte ChangeEvidence). CRITICAL/MAJOR (Codex): Retry-
+# Deadlock (ON CONFLICT DO NOTHING + deterministische command_id kann nach
+# transientem Fehler nicht re-firen). Balance-Fix noetig (stale blocken + aktuellen
+# Head passen + Retry zulassen). Fixauftrag scratchpad/ag3147-remediation4-
+# fixorder.md -> Codex-R4 (job-f4e5308e).
+# R4 GELANDET GRUEN: Commit ab72d74c (2 Commits, 8 files), Jenkins #1054
+# SUCCESS, Sonar 0/0/0, unit 87.03%. Modell-Balance-Fix (kein Guard-Flip):
+# structural completion.push korreliert via durchgereichten phase-completion-
+# sync-point (produktiver Pfad passt bei aktuellem Head, blockt bei stale);
+# retry-scoped command-ids nach terminalem Vorversuch unter Beibehaltung der
+# Boundary-Korrelation (Retry passt, stale blockt). Tests fuer alle 3 Balance-
+# Faelle. ENTSCHEIDENDE Re-Review laeuft (job-4569a4f5 Codex / job-38e8cd7f
+# GLM) - LETZTE automatische Runde: passt -> Close; substanzieller Befund ->
+# STOPP + Eskalation an PO (Design-/Architektur-Root-Cause).
+# ENTSCHEIDENDE RE-REVIEW: Codex REJECT (design-level Oszillation, kein Fail-Open-
+# Reopen). Root cause: structural sync-point = phase_completion:{run}:attempt-{n},
+# n=qa_feedback_rounds+1; Barriere sampelt Evidenz SYNCHRON sofort nach dem
+# Commissioning, Edge meldet ASYNCHRON -> frischer korrelierter Report existiert
+# zur Sample-Zeit nie; ein gueltiger Vor-Attempt-Report wird per neuer attempt-id
+# als stale verworfen -> False-Negative-Treadmill. Regel-Trigger: kein R5,
+# ESKALIERT AN PO. Baseline bleibt ab72d74c (CI-gruen, aber structural
+# completion.push produktiv defekt/oszillierend). status: BLOCKED-ESCALATED.
+# 2026-07-06 REDESIGN (mit PO): Root-Cause = synchrones Barriere-Praedikat ueber
+# geratene running-latest Frische, obwohl FK-10 §10.2.4b Frische als "Information,
+# nie Entscheidung" fuehrt -> Impl war Konzept-VERSTOSS. Ziel-Design (soll-prozess-
+# push-barriere.md): Barriere = edge-getriebener bounded WARTEPUNKT, aufgeloest bei
+# Edge-Rueckkehr auf konkreten Grenz-Head-SHA H, server-bestaetigt (ls-remote==H),
+# zweistufig hartes UND je Repo; Frische bleibt info-only; eine autoritative
+# Verifikation, structural completion.push liest sie nur. PO-Entscheid: V1 (edge-
+# deklariert). Konzept-Korrektur-Vorschlag FK-10 §10.2.4b: konzept-korrektur-fk10-
+# 10.2.4b.md (noch nicht eingearbeitet, PO-Hoheit). Codex-DESIGN-Review laeuft
+# (job-e87ed0a0) VOR Implementierung. Danach: FK-10 einarbeiten + frischer Codex-
+# Implementierungsauftrag (nur Barriere-Aufloesung ersetzen, Rest behalten).
+# Codex-DESIGN-Review R1 (job-e87ed0a0): NEEDS-REVISION, 5 ERRORs (stale edge-H;
+# offene Queue-Commands/Late-Result; kein Verdict-Record; Reentry-H-Invalidierung;
+# Multi-Repo/Closure-Pre-Merge) + 2 WARNINGs. PO-Entscheid: V1-GEHAERTET. Beide
+# Artefakte auf Rev.2 ueberarbeitet: Boundary-Lifecycle (boundary_id/epoch),
+# V1-Haertung (rev-parse HEAD unmittelbar + Post-Push-Recheck + Quieszenz/Mutations-
+# Invalidierung), persistierter PushBarrierVerdict als SSOT (Konsumenten lesen nur),
+# Supersede-/Late-Result-Fence, Closure-Entry vs Pre-Merge getrennt. Codex-DESIGN-
+# Re-Review R2 (job-61dd63cf): DESIGN SOUND — alle 5 Findings CLOSED, kein neues
+# Loch, adversariale Faelle (Ownership-Transfer/Edge-Crash/Remote-Flap/QA-Reentry/
+# Multi-Repo) alle fail-closed; Minor-Auflage (Mutations-Invalidierung mechanisch)
+# eingefaltet. IMPLEMENTIERUNG dispatcht (job-62d271c8): Boundary-Lifecycle +
+# V1-Haertung + PushBarrierVerdict-SSOT (Postgres/K5) + Supersede/Late-Fence +
+# Multi-Repo/Closure-Split, alte Mechanik (running-latest-Frische-Entscheidung +
+# per-attempt-Korrelation) entfernt, gesunder Rest behalten; paired FK-10-§10.2.4b-
+# Edit (einzige autorisierte Konzept-Aenderung). Danach Codex+GLM-Doppel-Review ->
+# Close. status: in_progress (Redesign-Umsetzung).
 # Herkunft: GAP-ST-15 (gap-analyse-session-ownership.md v4, Codex-APPROVE;
 # K1-Verankerung 58c190b7, PO-Entscheidung II pushed-only). Setzt die
 # Pushed-only-Regel durch: harte Push-Barrieren an Phasen-/QA-/Yield-/

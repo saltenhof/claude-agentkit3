@@ -882,9 +882,9 @@ class _RunGateMixin:
     def _closure_push_precondition_block(
         self, *, project_key: str, story_id: str, run_id: str, sync_point_id: str
     ) -> MergePrecondition | None:
-        """SOLL-190 pre-merge boundary verdict read (distinct from closure entry)."""
+        """Closure-entry boundary verdict read (distinct from pre-merge)."""
         block = self._push_barrier_block(
-            SyncPointBarrierType.PRE_MERGE,
+            SyncPointBarrierType.CLOSURE_ENTRY,
             project_key=project_key,
             story_id=story_id,
             run_id=run_id,
@@ -933,15 +933,6 @@ class _RunGateMixin:
                     load_command=self._edge_command_repo.load_command,
                 )
                 if command_id is None:
-                    self._upsert_boundary_verdict(
-                        _replace_push_barrier_verdict(
-                            verdict,
-                            status=PushBarrierVerdictStatus.BLOCKED_BACKLOG,
-                            updated_at=now,
-                            resolved_at=now,
-                            status_detail="sync_push_command_still_open",
-                        )
-                    )
                     continue
                 self._edge_command_repo.commission_command(
                     EdgeCommandRecord(
@@ -3364,7 +3355,7 @@ class ControlPlaneRuntimeService(
             project_key=request.project_key,
             story_id=request.story_id,
             run_id=run_id,
-            sync_point_id=request.op_id,
+            sync_point_id=run_id,
         )
         if merge_block is not None:
             return _rejection_result(
@@ -3775,7 +3766,7 @@ class ControlPlaneRuntimeService(
             project_key=request.project_key,
             story_id=request.story_id,
             run_id=run_id,
-            sync_point_id=request.op_id,
+            sync_point_id=f"{run_id}:{phase}",
         )
         if yield_block is None:
             return None

@@ -239,8 +239,8 @@ def _verified_input(repo_id: str) -> RepoPushVerificationInput:
     )
 
 
-def _seed_passed_pre_merge_verdict(boundary_id: str) -> None:
-    """Seed the distinct SOLL-190 Pre-Merge verdict for idempotency-only tests."""
+def _seed_passed_closure_entry_verdict(boundary_id: str) -> None:
+    """Seed the closure-entry verdict for idempotency-only tests."""
     now = datetime(2026, 6, 7, 10, 0, tzinfo=UTC)
     sha = "a" * 40
     upsert_push_barrier_verdict_global(
@@ -248,7 +248,7 @@ def _seed_passed_pre_merge_verdict(boundary_id: str) -> None:
             project_key="tenant-a",
             story_id="AG3-100",
             run_id="run-100",
-            boundary_type=SyncPointBarrierType.PRE_MERGE,
+            boundary_type=SyncPointBarrierType.CLOSURE_ENTRY,
             boundary_id=boundary_id,
             repo_id="api",
             producer="test",
@@ -1270,8 +1270,8 @@ def test_closure_reused_op_id_different_body_mismatch_real_store(
 
     del postgres_backend_env
     _seed_pg_story_context(tmp_path)
-    # The SOLL-190 Pre-Merge push barrier (AG3-147, FK-10 §10.2.4b) is wired on
-    # the default store; seed its persisted verdict so this test stays focused on
+    # The closure-entry push barrier (AG3-147, FK-10 §10.2.4b) is wired on the
+    # default store; seed its persisted verdict so this test stays focused on
     # the op-id idempotency contract (the barrier's own negative paths are
     # covered elsewhere).
     service = ControlPlaneRuntimeService(
@@ -1286,7 +1286,7 @@ def test_closure_reused_op_id_different_body_mismatch_real_store(
         request=_pg_setup_request("op-pg-closure-admit-001"),
     )
     assert admitted.status == "committed"
-    _seed_passed_pre_merge_verdict("op-pg-closure-mismatch-001")
+    _seed_passed_closure_entry_verdict("run-100")
 
     def _closure(op_id: str, detail: dict[str, object]) -> ClosureCompleteRequest:
         return ClosureCompleteRequest(
