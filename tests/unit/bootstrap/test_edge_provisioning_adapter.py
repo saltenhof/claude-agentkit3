@@ -344,7 +344,31 @@ def test_ref_protection_administered_with_service_identity() -> None:
         branch="story/AG3-900",
     )
 
-    assert backend.administered == ["story/AG3-900"]
+    assert backend.administered == ["story/*"]
+
+
+def test_ref_protection_wildcard_is_stable_across_stories() -> None:
+    store = _CommandStore()
+    backend = _CapableCodeBackend()
+    coordinator = _coordinator(store, code_backend=backend)
+    second_coordinator = _coordinator(store, run_id="run-901", code_backend=backend)
+
+    coordinator.ensure_preflight_probes(
+        project_key=_PROJECT,
+        story_id="AG3-900",
+        run_id=_RUN,
+        repos=("repo-a",),
+        branch="story/AG3-900",
+    )
+    second_coordinator.ensure_preflight_probes(
+        project_key=_PROJECT,
+        story_id="AG3-901",
+        run_id="run-901",
+        repos=("repo-a",),
+        branch="story/AG3-901",
+    )
+
+    assert backend.administered == ["story/*", "story/*"]
 
 
 def test_personal_token_is_rejected_before_ref_protection_admin() -> None:

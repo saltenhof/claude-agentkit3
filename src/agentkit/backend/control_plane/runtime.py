@@ -702,7 +702,10 @@ class _RunGateMixin:
             sync_point_id=f"{barrier_type.value}:{sync_point_id}",
         )
         inputs = self._collect_push_barrier_inputs(
-            project_key=project_key, story_id=story_id, run_id=run_id
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            required_sync_point_id=f"{barrier_type.value}:{sync_point_id}",
         )
         if inputs is None:
             return None
@@ -710,7 +713,12 @@ class _RunGateMixin:
         return None if verdict.passed else verdict
 
     def _collect_push_barrier_inputs(
-        self, *, project_key: str, story_id: str, run_id: str
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+        required_sync_point_id: str | None = None,
     ) -> tuple[RepoPushVerificationInput, ...] | None:
         """Collect the two-stage barrier inputs, or ``None`` when unwired (DI test)."""
         ctx = self._repo.load_story_context(project_key, story_id)
@@ -721,7 +729,10 @@ class _RunGateMixin:
         if port is None:
             return None
         return port.collect_repo_inputs(
-            project_key=project_key, story_id=story_id, run_id=run_id
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            required_sync_point_id=required_sync_point_id,
         )
 
     def _closure_push_precondition_block(
@@ -741,7 +752,12 @@ class _RunGateMixin:
             sync_point_id=f"{SyncPointBarrierType.CLOSURE_ENTRY.value}:{sync_point_id}",
         )
         inputs = self._collect_push_barrier_inputs(
-            project_key=project_key, story_id=story_id, run_id=run_id
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            required_sync_point_id=(
+                f"{SyncPointBarrierType.CLOSURE_ENTRY.value}:{sync_point_id}"
+            ),
         )
         if inputs is None:
             return None
@@ -2283,6 +2299,8 @@ class _EdgeCommandMixin:
                     last_reported_head_sha=record.last_reported_head_sha,
                     last_pushed_head_sha=record.last_pushed_head_sha,
                     last_reported_at=record.last_reported_at,
+                    last_sync_point_id=record.last_sync_point_id,
+                    last_command_id=record.last_command_id,
                     backlog=record.backlog,
                     backlog_detail=record.backlog_detail,
                 )
@@ -2527,10 +2545,15 @@ class _EdgeCommandMixin:
         Runs INSIDE the fenced command-result commit (behind the Postgres guard,
         K5), so it inherits the Rule-15 ownership fence -- an ex-owner's result
         never updates the freshness. Freshness is INFORMATION only; it triggers
-        NO ownership wirkung (AC5). A non-``push_status_report`` result is a no-op.
+        NO ownership wirkung (AC5). A ``sync_push`` ``command_error`` records a
+        visible backlog as well, so a post-gate git failure cannot leave a stale
+        successful freshness row standing.
         """
         result = request.result
-        if result.result_type != "push_status_report":
+        if existing.command_kind != "sync_push":
+            return
+        repo_id = _sync_push_result_repo_id(existing, result)
+        if repo_id is None:
             return
         from agentkit.backend.state_backend.store import (
             load_push_freshness_record_global,
@@ -2538,17 +2561,28 @@ class _EdgeCommandMixin:
         )
 
         previous = load_push_freshness_record_global(
-            request.project_key, request.story_id, existing.run_id, result.repo_id
+            request.project_key, request.story_id, existing.run_id, repo_id
+        )
+        if result.result_type == "push_status_report":
+            reported_head_sha = result.head_sha
+            push_outcome = result.push_outcome
+        else:
+            reported_head_sha = None
+            push_outcome = "behind_remote"
+        sync_point_id = _sync_point_id_from_sync_push_command(
+            existing.command_id, run_id=existing.run_id, repo_id=repo_id
         )
         record = project_push_freshness(
             previous,
             project_key=request.project_key,
             story_id=request.story_id,
             run_id=existing.run_id,
-            repo_id=result.repo_id,
-            reported_head_sha=result.head_sha,
-            push_outcome=result.push_outcome,
+            repo_id=repo_id,
+            reported_head_sha=reported_head_sha,
+            push_outcome=push_outcome,
             reported_at=now,
+            sync_point_id=sync_point_id,
+            command_id=existing.command_id,
         )
         upsert_push_freshness_record_global(record)
 
@@ -4451,6 +4485,31 @@ def _require_postgres_control_plane_backend() -> None:
             "AGENTKIT_STATE_BACKEND=postgres for any productive / control-plane "
             "path; fail-closed (#3).",
         )
+
+
+def _sync_push_result_repo_id(
+    existing: EdgeCommandRecord, result: object
+) -> str | None:
+    """Resolve the repo id for a ``sync_push`` result/backlog projection."""
+    result_repo_id = getattr(result, "repo_id", None)
+    if isinstance(result_repo_id, str) and result_repo_id:
+        return result_repo_id
+    payload_repo_id = existing.payload.get("repo_id")
+    if isinstance(payload_repo_id, str) and payload_repo_id:
+        return payload_repo_id
+    return None
+
+
+def _sync_point_id_from_sync_push_command(
+    command_id: str, *, run_id: str, repo_id: str
+) -> str | None:
+    """Extract the boundary sync-point id from the deterministic command id."""
+    prefix = f"{run_id}::sync_push::"
+    suffix = f"::{repo_id}"
+    if not command_id.startswith(prefix) or not command_id.endswith(suffix):
+        return None
+    sync_point_id = command_id[len(prefix) : -len(suffix)]
+    return sync_point_id or None
 
 
 def _default_di_instance_identity() -> BackendInstanceIdentityRecord:

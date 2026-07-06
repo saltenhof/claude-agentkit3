@@ -83,6 +83,7 @@ def test_barrier_type_codes_are_pinned() -> None:
 def test_barrier_block_codes_are_pinned() -> None:
     assert {c.value for c in PushBarrierBlockCode} == {
         "no_edge_push_report",
+        "stale_edge_push_report",
         "edge_reports_backlog",
         "missing_edge_head_sha",
         "server_ref_unresolved",

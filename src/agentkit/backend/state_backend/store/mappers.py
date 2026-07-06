@@ -1416,6 +1416,8 @@ def push_freshness_record_to_row(record: PushFreshnessRecord) -> dict[str, Any]:
         "last_reported_head_sha": record.last_reported_head_sha,
         "last_pushed_head_sha": record.last_pushed_head_sha,
         "last_reported_at": record.last_reported_at.isoformat(),
+        "last_sync_point_id": record.last_sync_point_id,
+        "last_command_id": record.last_command_id,
         "backlog": 1 if record.backlog else 0,
         "backlog_detail": record.backlog_detail,
     }
@@ -1438,6 +1440,8 @@ def push_freshness_row_to_record(row: dict[str, Any]) -> PushFreshnessRecord:
         last_reported_head_sha=cast("_OptionalString", row.get("last_reported_head_sha")),
         last_pushed_head_sha=cast("_OptionalString", row.get("last_pushed_head_sha")),
         last_reported_at=datetime.fromisoformat(str(row["last_reported_at"])),
+        last_sync_point_id=cast("_OptionalString", row.get("last_sync_point_id")),
+        last_command_id=cast("_OptionalString", row.get("last_command_id")),
         backlog=bool(int(row["backlog"])),
         backlog_detail=cast("_OptionalString", row.get("backlog_detail")),
     )

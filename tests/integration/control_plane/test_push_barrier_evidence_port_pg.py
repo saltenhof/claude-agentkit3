@@ -19,6 +19,7 @@ import pytest
 
 from agentkit.backend.bootstrap.composition_root import _build_repo_code_backend_port
 from agentkit.backend.control_plane.push_sync import (
+    PushBarrierBlockCode,
     PushFreshnessRecord,
     SyncPointBarrierType,
     evaluate_push_barrier,
@@ -116,7 +117,13 @@ def _write_project_config(project_root: Path, remotes: dict[str, Path]) -> None:
     )
 
 
-def _freshness(repo_id: str, head_sha: str | None, *, backlog: bool) -> PushFreshnessRecord:
+def _freshness(
+    repo_id: str,
+    head_sha: str | None,
+    *,
+    backlog: bool,
+    sync_point_id: str = "phase_completion:op-910",
+) -> PushFreshnessRecord:
     return PushFreshnessRecord(
         project_key=_PROJECT,
         story_id=_STORY,
@@ -125,6 +132,8 @@ def _freshness(repo_id: str, head_sha: str | None, *, backlog: bool) -> PushFres
         last_reported_head_sha=head_sha,
         last_pushed_head_sha=head_sha if not backlog else None,
         last_reported_at=_NOW,
+        last_sync_point_id=sync_point_id,
+        last_command_id=f"{_RUN}::sync_push::{sync_point_id}::{repo_id}",
         backlog=backlog,
         backlog_detail=None if not backlog else "behind remote",
     )
@@ -145,12 +154,40 @@ def test_port_verifies_when_server_confirms_the_reported_head(tmp_path: Path) ->
     upsert_push_freshness_record_global(_freshness("api", api_sha, backlog=False))
 
     inputs = _port(tmp_path).collect_repo_inputs(
-        project_key=_PROJECT, story_id=_STORY, run_id=_RUN
+        project_key=_PROJECT,
+        story_id=_STORY,
+        run_id=_RUN,
+        required_sync_point_id="phase_completion:op-910",
     )
 
     verdict = evaluate_push_barrier(SyncPointBarrierType.PHASE_COMPLETION, inputs)
     assert verdict.passed is True
     assert inputs[0].server_head_sha == api_sha
+
+
+def test_port_blocks_stale_running_latest_even_when_server_matches(
+    tmp_path: Path,
+) -> None:
+    """Regression: freshness=A and server=A from an old boundary is not enough."""
+    api_remote, api_sha = _bare_remote_with_story_branch(tmp_path, "api", push=True)
+    assert api_sha is not None
+    _write_project_config(tmp_path, {"api": api_remote})
+    upsert_push_freshness_record_global(
+        _freshness("api", api_sha, backlog=False, sync_point_id="phase_completion:op-old")
+    )
+
+    inputs = _port(tmp_path).collect_repo_inputs(
+        project_key=_PROJECT,
+        story_id=_STORY,
+        run_id=_RUN,
+        required_sync_point_id="phase_completion:op-new",
+    )
+
+    verdict = evaluate_push_barrier(SyncPointBarrierType.PHASE_COMPLETION, inputs)
+    assert verdict.passed is False
+    assert verdict.repo_verdicts[0].block_code is (
+        PushBarrierBlockCode.STALE_EDGE_PUSH_REPORT
+    )
 
 
 def test_port_blocks_teildivergenz_one_repo_not_on_remote(tmp_path: Path) -> None:
@@ -165,7 +202,10 @@ def test_port_blocks_teildivergenz_one_repo_not_on_remote(tmp_path: Path) -> Non
     upsert_push_freshness_record_global(_freshness("web", "f" * 40, backlog=False))
 
     inputs = _port(tmp_path).collect_repo_inputs(
-        project_key=_PROJECT, story_id=_STORY, run_id=_RUN
+        project_key=_PROJECT,
+        story_id=_STORY,
+        run_id=_RUN,
+        required_sync_point_id="phase_completion:op-910",
     )
 
     verdict = evaluate_push_barrier(SyncPointBarrierType.PHASE_COMPLETION, inputs)

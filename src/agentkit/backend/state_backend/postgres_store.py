@@ -520,6 +520,10 @@ def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
         # EXISTS in postgres_schema.sql -- no additive ALTER/backfill needed,
         # the table is brand-new and forward-only).
         "execution_contract_digests",
+        # AG3-147 canary: push freshness/backlog is Postgres-only and now also
+        # carries the boundary correlation fields used by hard push barriers.
+        "push_freshness_records",
+        "ref_protection_degradation_findings",
         # AG3-145 canary: a pre-AG3-145 schema lacks the Edge-Command-Queue
         # table; brand-new and forward-only (mirrors the AG3-143 precedent
         # above -- no additive ALTER/backfill needed).
@@ -549,6 +553,8 @@ def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
         return False
     if not _ag3_137_additive_columns_present(conn):
         return False
+    if not _ag3_147_push_freshness_columns_present(conn):
+        return False
     if not _ag3_137_binding_constraints_present(conn):
         return False
     if not _analytics_versions_are_recorded(conn):
@@ -577,6 +583,27 @@ _AG3_137_ADDITIVE_COLUMNS: tuple[tuple[str, str], ...] = (
     # ``story_id`` DROP NOT NULL re-runs on the same forced bootstrap.
     ("control_plane_operations", "request_body_hash"),
 )
+
+_AG3_147_PUSH_FRESHNESS_COLUMNS: tuple[str, ...] = (
+    "last_sync_point_id",
+    "last_command_id",
+)
+
+
+def _ag3_147_push_freshness_columns_present(conn: _CompatConnection) -> bool:
+    """Return whether AG3-147 boundary-correlation columns exist."""
+    rows = conn.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'push_freshness_records'
+          AND column_name = ANY(%s)
+        """,
+        (list(_AG3_147_PUSH_FRESHNESS_COLUMNS),),
+    ).fetchall()
+    present = {str(row["column_name"]) for row in rows}
+    return set(_AG3_147_PUSH_FRESHNESS_COLUMNS) <= present
 
 
 def _ag3_137_additive_columns_present(conn: _CompatConnection) -> bool:
@@ -860,6 +887,18 @@ def _schema_alter_statements() -> tuple[str, ...]:
         (
             "ALTER TABLE control_plane_operations "
             "ALTER COLUMN story_id DROP NOT NULL"
+        ),
+        # AG3-147 remediation: hard push barriers require boundary-correlated
+        # freshness, so existing push_freshness_records rows need producer
+        # metadata columns. Nullable keeps the migration additive/lossless; rows
+        # without a sync-point id simply cannot satisfy a correlated barrier.
+        (
+            "ALTER TABLE push_freshness_records "
+            "ADD COLUMN IF NOT EXISTS last_sync_point_id TEXT"
+        ),
+        (
+            "ALTER TABLE push_freshness_records "
+            "ADD COLUMN IF NOT EXISTS last_command_id TEXT"
         ),
         # The legacy ``attempt_records`` table was removed with schema 3.5.0
         # (AG3-025 re-review finding 2). No more migration updates.
@@ -3078,12 +3117,14 @@ def upsert_push_freshness_record_global_row(row: dict[str, Any]) -> None:
             INSERT INTO push_freshness_records (
                 project_key, story_id, run_id, repo_id,
                 last_reported_head_sha, last_pushed_head_sha, last_reported_at,
-                backlog, backlog_detail
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                last_sync_point_id, last_command_id, backlog, backlog_detail
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (project_key, story_id, run_id, repo_id) DO UPDATE SET
                 last_reported_head_sha = EXCLUDED.last_reported_head_sha,
                 last_pushed_head_sha = EXCLUDED.last_pushed_head_sha,
                 last_reported_at = EXCLUDED.last_reported_at,
+                last_sync_point_id = EXCLUDED.last_sync_point_id,
+                last_command_id = EXCLUDED.last_command_id,
                 backlog = EXCLUDED.backlog,
                 backlog_detail = EXCLUDED.backlog_detail
             """,
@@ -3095,6 +3136,8 @@ def upsert_push_freshness_record_global_row(row: dict[str, Any]) -> None:
                 row["last_reported_head_sha"],
                 row["last_pushed_head_sha"],
                 row["last_reported_at"],
+                row["last_sync_point_id"],
+                row["last_command_id"],
                 row["backlog"],
                 row["backlog_detail"],
             ),

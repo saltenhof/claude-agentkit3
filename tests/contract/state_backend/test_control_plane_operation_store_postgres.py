@@ -16,7 +16,7 @@ available); the fixture provisions a throwaway container or honours an explicit
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -200,10 +200,24 @@ class _FakeBarrierPort:
     inputs: tuple[RepoPushVerificationInput, ...]
 
     def collect_repo_inputs(
-        self, *, project_key: str, story_id: str, run_id: str
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+        required_sync_point_id: str | None = None,
     ) -> tuple[RepoPushVerificationInput, ...]:
         del project_key, story_id, run_id
-        return self.inputs
+        return tuple(
+            replace(
+                inp,
+                edge_report_sync_point_id=(
+                    inp.edge_report_sync_point_id or required_sync_point_id
+                ),
+                required_sync_point_id=required_sync_point_id,
+            )
+            for inp in self.inputs
+        )
 
 
 def _verified_input(repo_id: str) -> RepoPushVerificationInput:

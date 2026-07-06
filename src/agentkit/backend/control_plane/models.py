@@ -994,6 +994,8 @@ class PushFreshnessView(BaseModel):
     last_reported_head_sha: str | None = None
     last_pushed_head_sha: str | None = None
     last_reported_at: datetime
+    last_sync_point_id: str | None = None
+    last_command_id: str | None = None
     backlog: bool
     backlog_detail: str | None = None
 

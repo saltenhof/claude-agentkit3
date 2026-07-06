@@ -49,12 +49,19 @@ class PushBarrierEvidencePort(Protocol):
     """Collect the two-stage barrier evidence per participating repo (AG3-147)."""
 
     def collect_repo_inputs(
-        self, *, project_key: str, story_id: str, run_id: str
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+        required_sync_point_id: str | None = None,
     ) -> tuple[RepoPushVerificationInput, ...]:
         """Return one two-stage :class:`RepoPushVerificationInput` per repo.
 
         Fail-closed: a repo with no Edge report and/or an unresolved server ref
-        yields an input the A-core blocks. An empty tuple (no participating
+        yields an input the A-core blocks. Productive hard barriers pass their
+        freshly commissioned sync-point id; a freshness row from another
+        boundary is stale and fails closed. An empty tuple (no participating
         repos resolvable) makes the barrier fail closed (never an optimistic
         pass).
         """
@@ -78,7 +85,12 @@ class StateBackedPushBarrierEvidence:
     code_backend_factory: Callable[[RepositoryConfig, Path], CodeBackendPort]
 
     def collect_repo_inputs(
-        self, *, project_key: str, story_id: str, run_id: str
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+        required_sync_point_id: str | None = None,
     ) -> tuple[RepoPushVerificationInput, ...]:
         """Assemble the per-repo two-stage barrier inputs (Edge + server)."""
         workspace = self.workspace_locator.resolve(project_key, story_id, run_id)
@@ -101,6 +113,10 @@ class StateBackedPushBarrierEvidence:
                     ),
                     server_ref_resolved=server.resolved,
                     server_head_sha=server.head_sha,
+                    edge_report_sync_point_id=(
+                        freshness.last_sync_point_id if freshness else None
+                    ),
+                    required_sync_point_id=required_sync_point_id,
                 )
             )
         return tuple(inputs)

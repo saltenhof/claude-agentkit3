@@ -22,6 +22,7 @@ BCs (CLAUDE.md architecture rule).
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -165,17 +166,19 @@ class GhRulesetRefProtectionAdministrator:
                 ),
             )
         include_ref = f"refs/heads/{ref_pattern}"
-        payload = (
-            '{"name":"' + _STORY_REF_RULESET_NAME + '","target":"branch",'
-            '"enforcement":"active","conditions":{"ref_name":{"include":["'
-            + include_ref + '"],"exclude":[]}},"rules":[{"type":"non_fast_forward"},'
-            '{"type":"deletion"},{"type":"pull_request"}]}'
+        payload = self._ruleset_payload(include_ref)
+        existing_ruleset_id = self._existing_ruleset_id()
+        method = "PATCH" if existing_ruleset_id is not None else "POST"
+        path = (
+            f"repos/{self.owner}/{self.repo}/rulesets/{existing_ruleset_id}"
+            if existing_ruleset_id is not None
+            else f"repos/{self.owner}/{self.repo}/rulesets"
         )
         try:
             completed = subprocess.run(  # noqa: S603
                 [  # noqa: S607
-                    "gh", "api", "--method", "POST",
-                    f"repos/{self.owner}/{self.repo}/rulesets",
+                    "gh", "api", "--method", method,
+                    path,
                     "--input", "-",
                 ],
                 input=payload,
@@ -191,7 +194,7 @@ class GhRulesetRefProtectionAdministrator:
                 administered=False,
                 blocks_direct_developer_push=False,
                 blocks_fast_forward=False,
-                detail=f"gh api ruleset create failed to execute: {exc}",
+                detail=f"gh api ruleset upsert failed to execute: {exc}",
             )
         if completed.returncode != 0:
             stderr = (completed.stderr or "").strip()
@@ -200,7 +203,7 @@ class GhRulesetRefProtectionAdministrator:
                 administered=False,
                 blocks_direct_developer_push=False,
                 blocks_fast_forward=False,
-                detail=f"gh api ruleset create failed: {stderr or 'non-zero exit'}",
+                detail=f"gh api ruleset upsert failed: {stderr or 'non-zero exit'}",
             )
         return RefProtectionResult(
             ref_pattern=ref_pattern,
@@ -208,9 +211,64 @@ class GhRulesetRefProtectionAdministrator:
             blocks_direct_developer_push=True,
             blocks_fast_forward=True,
             detail=(
-                f"applied story-ref-protection ruleset for {ref_pattern!r} "
+                f"upserted story-ref-protection ruleset for {ref_pattern!r} "
                 "(blocks direct + fast-forward developer pushes)"
             ),
+        )
+
+    def _existing_ruleset_id(self) -> int | None:
+        """Return the administered ruleset id when it already exists."""
+        try:
+            completed = subprocess.run(  # noqa: S603
+                [  # noqa: S607
+                    "gh", "api", "--method", "GET",
+                    f"repos/{self.owner}/{self.repo}/rulesets",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=self.gh_timeout_seconds,
+                check=False,
+                env={**os.environ, "GH_TOKEN": self._service_token()},
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if completed.returncode != 0:
+            return None
+        try:
+            raw = json.loads(completed.stdout or "[]")
+        except json.JSONDecodeError:
+            return None
+        rulesets = raw.get("rulesets", []) if isinstance(raw, dict) else raw
+        if not isinstance(rulesets, list):
+            return None
+        for ruleset in rulesets:
+            if not isinstance(ruleset, dict):
+                continue
+            if ruleset.get("name") != _STORY_REF_RULESET_NAME:
+                continue
+            ruleset_id = ruleset.get("id")
+            if isinstance(ruleset_id, int):
+                return ruleset_id
+        return None
+
+    @staticmethod
+    def _ruleset_payload(include_ref: str) -> str:
+        """Build the GitHub ruleset payload for the protected ref pattern."""
+        return json.dumps(
+            {
+                "name": _STORY_REF_RULESET_NAME,
+                "target": "branch",
+                "enforcement": "active",
+                "conditions": {
+                    "ref_name": {"include": [include_ref], "exclude": []}
+                },
+                "rules": [
+                    {"type": "non_fast_forward"},
+                    {"type": "deletion"},
+                    {"type": "pull_request"},
+                ],
+            },
+            separators=(",", ":"),
         )
 
     def _service_token(self) -> str:

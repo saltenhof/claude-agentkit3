@@ -456,6 +456,8 @@
             last_reported_head_sha TEXT,
             last_pushed_head_sha TEXT,
             last_reported_at TEXT NOT NULL,
+            last_sync_point_id TEXT,
+            last_command_id TEXT,
             backlog INTEGER NOT NULL CHECK (backlog IN (0, 1)),
             backlog_detail TEXT,
             PRIMARY KEY (project_key, story_id, run_id, repo_id)

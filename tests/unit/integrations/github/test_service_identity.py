@@ -7,6 +7,8 @@ administration) via the adapter's injectable seams.
 
 from __future__ import annotations
 
+import json
+import subprocess
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -19,6 +21,7 @@ from agentkit.integration_clients.github.adapter import GitHubCodeBackendAdapter
 from agentkit.integration_clients.github.service_identity import (
     DEFAULT_SERVICE_IDENTITY_ENV_VAR,
     EnvVarServiceIdentitySource,
+    GhRulesetRefProtectionAdministrator,
 )
 
 if TYPE_CHECKING:
@@ -42,6 +45,23 @@ class _ScriptedAdministrator:
             blocks_direct_developer_push=self.administered,
             blocks_fast_forward=self.administered,
             detail="scripted",
+        )
+
+
+class _AvailableServiceIdentity:
+    def is_available(self) -> bool:
+        return True
+
+    def resolve_write_credential(self) -> object:
+        from agentkit.backend.code_backend.provider_port import (
+            StoryRefWriteCredentialResult,
+        )
+
+        return StoryRefWriteCredentialResult(
+            resolved=True,
+            credential_class=StoryRefWriteCredentialClass.SERVICE_IDENTITY,
+            credential_ref=f"env:{DEFAULT_SERVICE_IDENTITY_ENV_VAR}",
+            detail="service",
         )
 
 
@@ -132,3 +152,48 @@ def test_capability_supported_false_when_administrator_unavailable() -> None:
     # Administration is fail-closed, never raises.
     result = adapter.administer_ref_protection("story/*")
     assert result.administered is False
+
+
+def test_gh_ruleset_administration_patches_existing_story_wildcard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[list[str], str | None]] = []
+
+    def _run(
+        args: list[str],
+        *,
+        input: str | None = None,  # noqa: A002 - mirrors subprocess.run
+        **_kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append((args, input))
+        if "--method" in args and args[args.index("--method") + 1] == "GET":
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                stdout=json.dumps(
+                    [{"id": 42, "name": "agentkit-story-ref-protection"}]
+                ),
+                stderr="",
+            )
+        return subprocess.CompletedProcess(args, 0, stdout="{}", stderr="")
+
+    monkeypatch.setattr(
+        "agentkit.integration_clients.github.service_identity.shutil.which",
+        lambda _name: "gh",
+    )
+    monkeypatch.setattr(
+        "agentkit.integration_clients.github.service_identity.subprocess.run",
+        _run,
+    )
+    monkeypatch.setenv(DEFAULT_SERVICE_IDENTITY_ENV_VAR, "svc-token")
+    admin = GhRulesetRefProtectionAdministrator(
+        owner="acme", repo="widgets", service_source=_AvailableServiceIdentity()
+    )
+
+    result = admin.administer("story/*")
+
+    assert result.administered is True
+    assert calls[1][0][calls[1][0].index("--method") + 1] == "PATCH"
+    assert calls[1][0][4] == "repos/acme/widgets/rulesets/42"
+    assert calls[1][1] is not None
+    assert "refs/heads/story/*" in calls[1][1]

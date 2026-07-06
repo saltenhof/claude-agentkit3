@@ -21,7 +21,8 @@ fixture, so this module requests it explicitly.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -62,10 +63,24 @@ class _FakeBarrierPort:
     inputs: tuple[RepoPushVerificationInput, ...]
 
     def collect_repo_inputs(
-        self, *, project_key: str, story_id: str, run_id: str
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+        required_sync_point_id: str | None = None,
     ) -> tuple[RepoPushVerificationInput, ...]:
         del project_key, story_id, run_id
-        return self.inputs
+        return tuple(
+            replace(
+                inp,
+                edge_report_sync_point_id=(
+                    inp.edge_report_sync_point_id or required_sync_point_id
+                ),
+                required_sync_point_id=required_sync_point_id,
+            )
+            for inp in self.inputs
+        )
 
 
 class _AdmittedDispatcher:
@@ -95,6 +110,12 @@ class _YieldingDispatcher:
         return PhaseDispatchResult(
             phase=phase, status="yielded", reaction="run_worker", dispatched=True,
         )
+
+
+class _FailingCommissionRepo:
+    def commission_command(self, record: object) -> bool:
+        del record
+        raise RuntimeError("commission boom")
 
 
 def _verified(repo_id: str) -> RepoPushVerificationInput:
@@ -160,13 +181,17 @@ def _request(*, story_id: str, op_id: str, session_id: str = "sess-A") -> PhaseM
 
 
 def _service(
-    inputs: tuple[RepoPushVerificationInput, ...], *, ident: str
+    inputs: tuple[RepoPushVerificationInput, ...],
+    *,
+    ident: str,
+    edge_command_repository: object | None = None,
 ) -> ControlPlaneRuntimeService:
     identity = boot_backend_instance_identity_global(ident, _T0)
     return ControlPlaneRuntimeService(
         phase_dispatcher=_AdmittedDispatcher(),  # type: ignore[arg-type]
         now_fn=lambda: _T0,
         instance_identity=identity,
+        edge_command_repository=edge_command_repository,  # type: ignore[arg-type]
         push_barrier_evidence=_FakeBarrierPort(inputs),  # type: ignore[arg-type]
     )
 
@@ -218,6 +243,25 @@ def test_phase_completion_barrier_blocks_when_no_edge_report(tmp_path: Path) -> 
     assert "push_barrier_unverified" in (result.phase_dispatch.rejection_reason or "")
 
 
+def test_phase_completion_barrier_blocks_stale_edge_report(tmp_path: Path) -> None:
+    """Regression: stale A==A evidence cannot satisfy the current boundary."""
+    story_id, run_id = "AG3-905", "run-905"
+    _seed_story_context(tmp_path, story_id)
+    stale = replace(_verified("api"), edge_report_sync_point_id="phase_completion:old")
+    service = _service((stale,), ident="inst-905")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+
+    result = service.complete_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(story_id=story_id, op_id="op-complete-905"),
+    )
+
+    assert result.status == "rejected"
+    reason = result.phase_dispatch.rejection_reason if result.phase_dispatch else ""
+    assert "stale_edge_push_report" in (reason or "")
+
+
 def test_phase_completion_commissions_sync_push_before_block(tmp_path: Path) -> None:
     """M1: the hard boundary queues ``sync_push`` so the barrier has a producer."""
     story_id, run_id = "AG3-912", "run-912"
@@ -238,6 +282,31 @@ def test_phase_completion_commissions_sync_push_before_block(tmp_path: Path) -> 
     assert command is not None
     assert command.command_kind == "sync_push"
     assert command.payload["repo_id"] == "api"
+
+
+def test_phase_completion_commission_failure_warns_and_still_blocks(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Best-effort commission exceptions do not escape or open the boundary."""
+    story_id, run_id = "AG3-913", "run-913"
+    _seed_story_context(tmp_path, story_id, participating_repos=["api"])
+    service = _service(
+        (_no_edge_report("api"),),
+        ident="inst-913",
+        edge_command_repository=_FailingCommissionRepo(),
+    )
+    _admit_run(service, story_id=story_id, run_id=run_id)
+
+    with caplog.at_level(logging.WARNING):
+        result = service.complete_phase(
+            run_id=run_id,
+            phase="implementation",
+            request=_request(story_id=story_id, op_id="op-complete-913"),
+        )
+
+    assert result.status == "rejected"
+    assert "push_barrier_unverified" in (result.phase_dispatch.rejection_reason or "")
+    assert "sync_push commissioning failed before barrier" in caplog.text
 
 
 def test_phase_completion_barrier_passes_when_verified(tmp_path: Path) -> None:

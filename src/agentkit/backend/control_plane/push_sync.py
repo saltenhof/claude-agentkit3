@@ -92,6 +92,7 @@ class PushBarrierBlockCode(StrEnum):
     """Named, contract-pinned barrier block reasons (never a collective FAIL)."""
 
     NO_EDGE_PUSH_REPORT = "no_edge_push_report"
+    STALE_EDGE_PUSH_REPORT = "stale_edge_push_report"
     EDGE_REPORTS_BACKLOG = "edge_reports_backlog"
     MISSING_EDGE_HEAD_SHA = "missing_edge_head_sha"
     SERVER_REF_UNRESOLVED = "server_ref_unresolved"
@@ -133,6 +134,13 @@ class RepoPushVerificationInput:
         edge_report_present: Whether an Edge sync-point report exists at all for
             this repo/barrier. ``False`` fails closed (AC1b: no Edge report ->
             block, even when the server ref-read would pass).
+        edge_report_sync_point_id: The sync-point id of the Edge report that
+            produced the freshness row. Hard barriers require this to match
+            ``required_sync_point_id`` so running-latest stale evidence cannot
+            satisfy a new boundary.
+        required_sync_point_id: The sync-point id commissioned by THIS hard
+            barrier. ``None`` keeps pure callers / legacy fixtures uncorrelated;
+            productive barriers always pass a value.
         edge_reported_head_sha: The head SHA the Edge ``branch_ref_report``
             carried (``None`` when absent -- fails closed).
         server_ref_resolved: Whether the server ``ls-remote`` ref-read resolved
@@ -147,6 +155,8 @@ class RepoPushVerificationInput:
     edge_reported_head_sha: str | None
     server_ref_resolved: bool
     server_head_sha: str | None
+    edge_report_sync_point_id: str | None = None
+    required_sync_point_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -201,6 +211,18 @@ def evaluate_repo_push(inp: RepoPushVerificationInput) -> RepoPushVerdict:
             inp, PushBarrierBlockCode.NO_EDGE_PUSH_REPORT,
             "no Edge push report for this repo at the barrier (fail-closed; the "
             "server ref-read alone never satisfies the barrier)",
+        )
+    if (
+        inp.required_sync_point_id is not None
+        and inp.edge_report_sync_point_id != inp.required_sync_point_id
+    ):
+        return _repo_block(
+            inp,
+            PushBarrierBlockCode.STALE_EDGE_PUSH_REPORT,
+            "the Edge push report is not correlated to this boundary "
+            f"(required sync point {inp.required_sync_point_id!r}, got "
+            f"{inp.edge_report_sync_point_id!r}); stale running-latest "
+            "freshness cannot satisfy a hard barrier",
         )
     if not inp.edge_reported_pushed:
         return _repo_block(
@@ -327,6 +349,9 @@ class PushFreshnessRecord:
         last_pushed_head_sha: The most recent head SHA confirmed as pushed
             (``None`` until a first successful push).
         last_reported_at: The instant of the most recent sync-point report.
+        last_sync_point_id: The sync-point id of the command/report that last
+            updated this row. Hard barriers consume only a matching boundary id.
+        last_command_id: The Edge command id that produced the latest report.
         backlog: Whether an unresolved push backlog exists for this repo.
         backlog_detail: A human-readable backlog hint (``None`` when no backlog).
     """
@@ -338,6 +363,8 @@ class PushFreshnessRecord:
     last_reported_head_sha: str | None
     last_pushed_head_sha: str | None
     last_reported_at: datetime
+    last_sync_point_id: str | None
+    last_command_id: str | None
     backlog: bool
     backlog_detail: str | None
 
@@ -352,6 +379,8 @@ def project_push_freshness(
     reported_head_sha: str | None,
     push_outcome: PushOutcome,
     reported_at: datetime,
+    sync_point_id: str | None = None,
+    command_id: str | None = None,
 ) -> PushFreshnessRecord:
     """Compute the next push-freshness record from a sync-point report (pure).
 
@@ -370,6 +399,9 @@ def project_push_freshness(
             ``None``).
         push_outcome: ``pushed`` or ``behind_remote``.
         reported_at: The instant of this report.
+        sync_point_id: The sync-point id of the command/report. Hard barriers
+            require their own id before accepting the report as boundary-fresh.
+        command_id: The Edge command id that produced the report.
 
     Returns:
         The next :class:`PushFreshnessRecord`.
@@ -384,6 +416,8 @@ def project_push_freshness(
         last_reported_head_sha=reported_head_sha,
         last_pushed_head_sha=reported_head_sha if pushed else prior_pushed_sha,
         last_reported_at=reported_at,
+        last_sync_point_id=sync_point_id,
+        last_command_id=command_id,
         backlog=not pushed,
         backlog_detail=(
             None

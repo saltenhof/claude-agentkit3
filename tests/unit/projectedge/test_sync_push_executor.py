@@ -224,6 +224,24 @@ def test_personal_developer_token_is_never_used_for_story_ref(tmp_path: Path) ->
     assert result.head_sha is None
 
 
+def test_post_gate_git_failure_yields_backlog_not_command_error(tmp_path: Path) -> None:
+    """After the gate opens, a local git failure is still a visible backlog."""
+    context = _context(
+        PushOwnershipProbe(server_reachable=True, owner_confirmed=True, detail="owner")
+    )
+
+    result = execute_sync_push(
+        _payload(),
+        project_config=_project_config(tmp_path, ["api"]),
+        project_root=tmp_path,
+        context=context,
+    )
+
+    assert result.result_type == "push_status_report"
+    assert result.push_outcome == "behind_remote"
+    assert result.head_sha is None
+
+
 # ---------------------------------------------------------------------------
 # execute_command dispatch: sync_push needs the context (fail-closed otherwise)
 # ---------------------------------------------------------------------------

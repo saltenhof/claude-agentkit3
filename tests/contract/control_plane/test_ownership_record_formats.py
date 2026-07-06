@@ -309,6 +309,8 @@ def test_push_freshness_entrypoints_fail_closed_on_sqlite(
         last_reported_head_sha="a" * 40,
         last_pushed_head_sha="a" * 40,
         last_reported_at=datetime(2026, 7, 6, tzinfo=UTC),
+        last_sync_point_id="phase_completion:op-1",
+        last_command_id="run-1::sync_push::phase_completion:op-1::repo-a",
         backlog=False,
         backlog_detail=None,
     )

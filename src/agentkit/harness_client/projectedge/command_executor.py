@@ -401,16 +401,19 @@ def execute_sync_push(
         # personal developer token is NEVER substituted for a story/* write.
         return _push_backlog(payload.repo_id, head_sha=None)
 
-    repo_root = _resolve_repo_root(project_config, project_root, payload.repo_id)
-    worktree_path = repo_root / "worktrees" / payload.story_id
-    head = _run_git(worktree_path, "rev-parse", "HEAD")
-    _require_git(head, "rev-parse HEAD")
-    head_sha = head.stdout.strip()
-    outcome = _push_official_ref(
-        worktree_path,
-        story_id=payload.story_id,
-        credential_ref=credential.credential_ref,
-    )
+    try:
+        repo_root = _resolve_repo_root(project_config, project_root, payload.repo_id)
+        worktree_path = repo_root / "worktrees" / payload.story_id
+        head = _run_git(worktree_path, "rev-parse", "HEAD")
+        _require_git(head, "rev-parse HEAD")
+        head_sha = head.stdout.strip()
+        outcome = _push_official_ref(
+            worktree_path,
+            story_id=payload.story_id,
+            credential_ref=credential.credential_ref,
+        )
+    except EdgeGitError:
+        return _push_backlog(payload.repo_id, head_sha=None)
     return PushStatusReport(
         repo_id=payload.repo_id, push_outcome=outcome, head_sha=head_sha
     )

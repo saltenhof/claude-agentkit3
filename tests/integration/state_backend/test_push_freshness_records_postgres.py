@@ -40,7 +40,14 @@ def _record(
     at: datetime,
     backlog: bool,
     detail: str | None,
+    sync_point_id: str | None = "phase_completion:op-1",
+    command_id: str | None = None,
 ) -> PushFreshnessRecord:
+    actual_command_id = (
+        command_id
+        if command_id is not None or sync_point_id is None
+        else f"run-1::sync_push::{sync_point_id}::{repo_id}"
+    )
     return PushFreshnessRecord(
         project_key="tenant-a",
         story_id="AG3-147",
@@ -49,6 +56,8 @@ def _record(
         last_reported_head_sha=reported,
         last_pushed_head_sha=pushed,
         last_reported_at=at,
+        last_sync_point_id=sync_point_id,
+        last_command_id=actual_command_id,
         backlog=backlog,
         backlog_detail=detail,
     )
@@ -99,6 +108,8 @@ def test_upsert_is_last_writer_wins_per_repo() -> None:
         reported_head_sha=_SHA_B,
         push_outcome="behind_remote",
         reported_at=_LATER,
+        sync_point_id="phase_completion:op-2",
+        command_id="run-1::sync_push::phase_completion:op-2::repo-b",
     )
     upsert_push_freshness_record_global(projected)
 
@@ -107,6 +118,8 @@ def test_upsert_is_last_writer_wins_per_repo() -> None:
     assert reloaded.backlog is True
     assert reloaded.backlog_detail is not None
     assert reloaded.last_reported_head_sha == _SHA_B
+    assert reloaded.last_sync_point_id == "phase_completion:op-2"
+    assert reloaded.last_command_id == "run-1::sync_push::phase_completion:op-2::repo-b"
     # The last KNOWN pushed head is preserved across the backlog report.
     assert reloaded.last_pushed_head_sha == _SHA_A
 

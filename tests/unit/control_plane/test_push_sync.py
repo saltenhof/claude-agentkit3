@@ -102,6 +102,23 @@ def test_ac1b_no_edge_report_blocks_even_when_server_would_pass() -> None:
     assert verdict.block_code is PushBarrierBlockCode.NO_EDGE_PUSH_REPORT
 
 
+def test_boundary_requires_correlated_edge_report_not_running_latest() -> None:
+    """Regression: stale A==A evidence from an earlier sync-point must block."""
+    inp = RepoPushVerificationInput(
+        repo_id="repo-a",
+        edge_report_present=True,
+        edge_reported_pushed=True,
+        edge_reported_head_sha=_SHA_A,
+        server_ref_resolved=True,
+        server_head_sha=_SHA_A,
+        edge_report_sync_point_id="phase_completion:op-old",
+        required_sync_point_id="phase_completion:op-new",
+    )
+    verdict = evaluate_repo_push(inp)
+    assert verdict.verified is False
+    assert verdict.block_code is PushBarrierBlockCode.STALE_EDGE_PUSH_REPORT
+
+
 def test_edge_reports_backlog_blocks() -> None:
     inp = RepoPushVerificationInput(
         repo_id="repo-a",
@@ -215,9 +232,13 @@ def test_ac4_pushed_outcome_clears_backlog_and_advances_sha() -> None:
         reported_head_sha=_SHA_A,
         push_outcome="pushed",
         reported_at=_NOW,
+        sync_point_id="phase_completion:op-1",
+        command_id="run-1::sync_push::phase_completion:op-1::repo-a",
     )
     assert record.backlog is False
     assert record.last_pushed_head_sha == _SHA_A
+    assert record.last_sync_point_id == "phase_completion:op-1"
+    assert record.last_command_id == "run-1::sync_push::phase_completion:op-1::repo-a"
     assert record.backlog_detail is None
 
 
@@ -231,6 +252,8 @@ def test_ac4_behind_remote_raises_visible_backlog() -> None:
         reported_head_sha=_SHA_A,
         push_outcome="behind_remote",
         reported_at=_NOW,
+        sync_point_id="phase_completion:op-1",
+        command_id="run-1::sync_push::phase_completion:op-1::repo-a",
     )
     assert record.backlog is True
     assert record.backlog_detail is not None
@@ -247,6 +270,8 @@ def test_ac4_backlog_preserves_prior_pushed_sha() -> None:
         reported_head_sha=_SHA_A,
         push_outcome="pushed",
         reported_at=_NOW,
+        sync_point_id="phase_completion:op-1",
+        command_id="run-1::sync_push::phase_completion:op-1::repo-a",
     )
     later = project_push_freshness(
         first,
@@ -257,11 +282,14 @@ def test_ac4_backlog_preserves_prior_pushed_sha() -> None:
         reported_head_sha=_SHA_B,
         push_outcome="behind_remote",
         reported_at=_NOW,
+        sync_point_id="phase_completion:op-2",
+        command_id="run-1::sync_push::phase_completion:op-2::repo-a",
     )
     assert later.backlog is True
     # The last KNOWN pushed head is preserved across a backlog report.
     assert later.last_pushed_head_sha == _SHA_A
     assert later.last_reported_head_sha == _SHA_B
+    assert later.last_sync_point_id == "phase_completion:op-2"
 
 
 # ---------------------------------------------------------------------------

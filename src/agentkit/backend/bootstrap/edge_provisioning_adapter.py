@@ -157,7 +157,7 @@ class SetupEdgeProvisioningCoordinator:
             session_id=session_id,
             ownership_epoch=epoch,
             repos=repos,
-            ref_pattern=branch,
+            ref_pattern="story/*",
         )
         payloads = {
             repo: PreflightProbeCommandPayload(

@@ -3677,10 +3677,10 @@ class _ControlPlaneQaCyclePushBarrierGate:
                 return
             now = datetime.now(tz=UTC)
             branch = official_story_ref(scope.story_id)
+            sync_point_id = SyncPointBarrierType.QA_CYCLE_BOUNDARY.value
             for repo in tuple(ctx.participating_repos):
                 command_id = (
-                    f"{scope.run_id}::sync_push::"
-                    f"{SyncPointBarrierType.QA_CYCLE_BOUNDARY.value}::{repo}"
+                    f"{scope.run_id}::sync_push::{sync_point_id}::{repo}"
                 )
                 facade.commission_edge_command_record_global(
                     EdgeCommandRecord(
@@ -3738,7 +3738,10 @@ class _ControlPlaneQaCyclePushBarrierGate:
             raise QaCycleBarrierBlockedError(msg)
         try:
             inputs = build_push_barrier_evidence().collect_repo_inputs(
-                project_key=project_key, story_id=story_id, run_id=run_id
+                project_key=project_key,
+                story_id=story_id,
+                run_id=run_id,
+                required_sync_point_id=SyncPointBarrierType.QA_CYCLE_BOUNDARY.value,
             )
         except (StoryWorkspaceUnresolvedError, ConfigError) as exc:
             # An unresolvable participating-repo set (no project_registry anchor,
