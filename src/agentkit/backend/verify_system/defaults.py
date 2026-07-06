@@ -20,6 +20,7 @@ if TYPE_CHECKING:
         TelemetryEventQueryPort,
     )
     from agentkit.backend.verify_system.qa_cycle.invalidation import ArtifactInvalidationSink
+    from agentkit.backend.verify_system.qa_cycle.lifecycle import QaCyclePushBarrierGate
     from agentkit.backend.verify_system.review_completion import ReviewCompletionSink
     from agentkit.backend.verify_system.sonarqube_gate.port import SonarGateInputPort
     from agentkit.backend.verify_system.stage_registry.registry import StageRegistry
@@ -59,6 +60,11 @@ class VerifySystemDefaultOptions:
     structural_build_test_port: BuildTestEvidencePort | None = None
     structural_are_provider: AreGateProvider | None = None
     structural_change_evidence_port: ChangeEvidencePort | None = None
+    #: AG3-147 (FK-10 §10.2.4b boundary type 2): the QA-cycle-boundary push-barrier
+    #: gate the ``QaCycleLifecycle`` enforces before advancing a cycle round.
+    #: ``None`` => the no-op gate (test / unwired path); the composition root wires
+    #: the productive control-plane-delegating gate.
+    qa_cycle_push_barrier_gate: QaCyclePushBarrierGate | None = None
 
 
 def resolve_default_options(
@@ -166,6 +172,12 @@ def resolve_default_options(
             overrides.get(
                 "structural_change_evidence_port",
                 config.structural_change_evidence_port,
+            ),
+        ),
+        qa_cycle_push_barrier_gate=cast(
+            "QaCyclePushBarrierGate | None",
+            overrides.get(
+                "qa_cycle_push_barrier_gate", config.qa_cycle_push_barrier_gate
             ),
         ),
     )

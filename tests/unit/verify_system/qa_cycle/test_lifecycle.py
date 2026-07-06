@@ -79,6 +79,38 @@ class TestAdvanceCycle:
         assert next_state.epoch == 2  # noqa: PLR2004
         assert next_state.qa_cycle_id != first.qa_cycle_id
 
+    def test_advance_blocks_fail_closed_on_qa_cycle_push_barrier(
+        self, tmp_path: Path
+    ) -> None:
+        """AG3-147 AC2 (QA-cycle boundary): advancing to a new cycle round is
+        fail-closed BLOCKED when the push-barrier gate refuses -- BEFORE any
+        artefact invalidation or fingerprint recompute (no state change)."""
+        from agentkit.backend.verify_system.qa_cycle.lifecycle import (
+            QaCycleBarrierBlockedError,
+        )
+
+        class _BlockingGate:
+            def __init__(self) -> None:
+                self.seen: Path | None = None
+
+            def enforce(self, story_dir: Path) -> None:
+                self.seen = story_dir
+                msg = "story branch not server-verified-pushed"
+                raise QaCycleBarrierBlockedError(msg)
+
+        gate = _BlockingGate()
+        lifecycle = QaCycleLifecycle(push_barrier_gate=gate)  # type: ignore[arg-type]
+        current = PhaseEnvelopeView(
+            qa_cycle_id="abc123def456",
+            qa_cycle_round=1,
+            evidence_epoch=datetime(2026, 7, 6, tzinfo=UTC),
+            evidence_fingerprint="a" * 64,
+        )
+
+        with pytest.raises(QaCycleBarrierBlockedError):
+            lifecycle.advance_qa_cycle(current, tmp_path, _STORY_ID)
+        assert gate.seen == tmp_path
+
     def test_advance_invalidates_cycle_artifacts(self, tmp_path: Path) -> None:
         _init_repo(tmp_path)
         base = qa_artifact_dir(tmp_path, _STORY_ID, project_root=tmp_path)

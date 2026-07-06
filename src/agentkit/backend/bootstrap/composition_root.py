@@ -86,6 +86,7 @@ if TYPE_CHECKING:
         ArtifactInvalidationEvent,
         ArtifactInvalidationSink,
     )
+    from agentkit.backend.verify_system.qa_cycle.lifecycle import QaCyclePushBarrierGate
     from agentkit.backend.verify_system.review_completion import (
         ReviewCompletionEvent,
         ReviewCompletionSink,
@@ -1232,6 +1233,9 @@ def build_verify_system(
         structural_change_evidence_port=_SubprocessGitChangeEvidenceProvider(
             push_verification_port=build_push_verification_port()
         ),
+        # AG3-147 (FK-10 §10.2.4b boundary type 2): the QA-cycle-boundary push
+        # barrier gate, delegating to the control-plane two-stage barrier.
+        qa_cycle_push_barrier_gate=build_qa_cycle_push_barrier_gate(),
         # FIX-1: the REAL build/test evidence port + the real ARE provider need
         # per-run config (the project ``ci`` stanza / ``features.are``) the
         # builder does not have, so the per-run caller (ImplementationPhaseHandler)
@@ -3625,6 +3629,60 @@ def _build_repo_code_backend_port(
     return GitHubCodeBackendAdapter(
         owner=owner, repo=name, remote_url_override=remote
     )
+
+
+@dataclass(frozen=True)
+class _ControlPlaneQaCyclePushBarrierGate:
+    """Productive QA-cycle-boundary gate delegating to the control-plane barrier.
+
+    AG3-147 (FK-10 §10.2.4b boundary type 2, the design-decision boundary): the
+    barrier stays a SINGLE SOURCE OF TRUTH in the control-plane
+    ``evaluate_push_barrier`` A-core; the verify-system QA-cycle lifecycle calls
+    this fail-closed gate at the QA-cycle boundary. The run scope is resolved
+    Backend-side from ``story_dir``; an unresolvable scope or any unverified repo
+    is a fail-closed BLOCK (raises) -- NO ERROR BYPASSING.
+    """
+
+    def enforce(self, story_dir: Path) -> None:
+        """Raise when the QA_CYCLE_BOUNDARY barrier is not satisfied (fail-closed)."""
+        from agentkit.backend.control_plane.push_sync import (
+            SyncPointBarrierType,
+            evaluate_push_barrier,
+        )
+        from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.verify_system.qa_cycle.lifecycle import (
+            QaCycleBarrierBlockedError,
+        )
+
+        try:
+            scope = facade.resolve_runtime_scope(story_dir)
+        except Exception as exc:  # noqa: BLE001 -- unresolvable scope -> fail-closed block
+            msg = f"QA-cycle boundary fail-closed: run scope unresolvable ({exc})"
+            raise QaCycleBarrierBlockedError(msg) from exc
+        project_key = getattr(scope, "project_key", None)
+        story_id = getattr(scope, "story_id", None)
+        run_id = getattr(scope, "run_id", None)
+        if not project_key or not story_id or not run_id:
+            msg = "QA-cycle boundary fail-closed: incomplete run scope"
+            raise QaCycleBarrierBlockedError(msg)
+        inputs = build_push_barrier_evidence().collect_repo_inputs(
+            project_key=project_key, story_id=story_id, run_id=run_id
+        )
+        verdict = evaluate_push_barrier(
+            SyncPointBarrierType.QA_CYCLE_BOUNDARY, inputs
+        )
+        if not verdict.passed:
+            msg = (
+                "push_barrier_unverified: QA-cycle boundary blocked -- the story "
+                "branch is not server-verified-pushed in every repo (FK-10 "
+                f"§10.2.4b). Unverified repos: {verdict.blocking_summary()}"
+            )
+            raise QaCycleBarrierBlockedError(msg)
+
+
+def build_qa_cycle_push_barrier_gate() -> QaCyclePushBarrierGate:
+    """Wire the productive QA-cycle-boundary push-barrier gate (AG3-147, AC2)."""
+    return _ControlPlaneQaCyclePushBarrierGate()
 
 
 def build_push_barrier_evidence() -> PushBarrierEvidencePort:

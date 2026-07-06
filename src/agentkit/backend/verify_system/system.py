@@ -1302,6 +1302,27 @@ def _execute_data_layers(
     )
 
 
+def _build_qa_cycle_lifecycle(
+    defaults: VerifySystemDefaultOptions,
+) -> _qa.QaCycleLifecycle:
+    """Build the QA-cycle lifecycle with its invalidation sink + push-barrier gate.
+
+    AG3-147 (FK-10 §10.2.4b boundary type 2): the QA-cycle-boundary push barrier
+    gate is injected here (defaulting to the no-op gate when unwired). The
+    composition root supplies the productive control-plane-delegating gate.
+    """
+    from agentkit.backend.verify_system.qa_cycle.lifecycle import (
+        NULL_QA_CYCLE_PUSH_BARRIER_GATE,
+    )
+
+    gate = defaults.qa_cycle_push_barrier_gate or NULL_QA_CYCLE_PUSH_BARRIER_GATE
+    if defaults.invalidation_sink is not None:
+        return _qa.QaCycleLifecycle(
+            invalidation_sink=defaults.invalidation_sink, push_barrier_gate=gate
+        )
+    return _qa.QaCycleLifecycle(push_barrier_gate=gate)
+
+
 def _create_default(
     cls: type[VerifySystem],
     *,
@@ -1479,11 +1500,7 @@ def _create_default(
             if defaults.max_feedback_rounds is not None
             else _qa.RemediationLoopController()
         ),
-        qa_cycle_lifecycle=(
-            _qa.QaCycleLifecycle(invalidation_sink=defaults.invalidation_sink)
-            if defaults.invalidation_sink is not None
-            else _qa.QaCycleLifecycle()
-        ),
+        qa_cycle_lifecycle=_build_qa_cycle_lifecycle(defaults),
         review_completion_sink=(
             defaults.review_completion_sink
             if defaults.review_completion_sink is not None

@@ -32,7 +32,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from agentkit.backend.verify_system.contract import PhaseEnvelopeView
 from agentkit.backend.verify_system.errors import VerifySystemError
@@ -49,6 +49,48 @@ from agentkit.backend.verify_system.qa_cycle.invalidation import (
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+class QaCycleBarrierBlockedError(VerifySystemError):
+    """A QA-cycle boundary is fail-closed BLOCKED by the push barrier (AG3-147)."""
+
+
+@runtime_checkable
+class QaCyclePushBarrierGate(Protocol):
+    """Enforce the QA-cycle-boundary push barrier (AG3-147, FK-10 §10.2.4b).
+
+    The DESIGN DECISION for the ONE barrier type without a control-plane seam
+    (the QA cycle runs in the verify-system subflow, not the control plane): the
+    barrier stays a SINGLE SOURCE OF TRUTH in the control-plane
+    ``evaluate_push_barrier`` A-core -- it is NOT re-implemented here (that would
+    either violate BC-topology by importing control-plane/state-backend into
+    verify-system, or duplicate the barrier). Instead the QA-cycle lifecycle
+    calls this fail-closed port at the QA-cycle boundary; the productive adapter
+    (wired by the composition root) resolves the run scope and delegates to the
+    control-plane ``QA_CYCLE_BOUNDARY`` barrier.
+    """
+
+    def enforce(self, story_dir: Path) -> None:
+        """Raise :class:`QaCycleBarrierBlockedError` when the barrier blocks.
+
+        A satisfied barrier (or an unwired gate) returns ``None``.
+        """
+        ...
+
+
+@dataclass(frozen=True)
+class _NullQaCyclePushBarrierGate:
+    """Default gate: the QA-cycle boundary is not push-gated (test / unwired path)."""
+
+    def enforce(self, story_dir: Path) -> None:
+        """No-op: no productive barrier adapter is wired."""
+        del story_dir
+
+
+#: Default no-op QA-cycle push-barrier gate (no barrier adapter wired). The
+#: composition root wires the productive gate that delegates to the control-plane
+#: two-stage barrier (single source of truth).
+NULL_QA_CYCLE_PUSH_BARRIER_GATE: QaCyclePushBarrierGate = _NullQaCyclePushBarrierGate()
 
 
 @dataclass(frozen=True)
@@ -105,6 +147,11 @@ class QaCycleLifecycle:
 
     invalidation_sink: ArtifactInvalidationSink = NullArtifactInvalidationSink()
     diff_base: str = DEFAULT_DIFF_BASE
+    #: AG3-147 (FK-10 §10.2.4b, boundary type 2): the QA-cycle-boundary push
+    #: barrier gate. Fail-closed: a blocked barrier raises before a new cycle
+    #: round begins. Defaults to the no-op gate (unwired / test path); the
+    #: composition root wires the productive control-plane-delegating gate.
+    push_barrier_gate: QaCyclePushBarrierGate = NULL_QA_CYCLE_PUSH_BARRIER_GATE
 
     def start_cycle(self, story_dir: Path) -> QaCycleState:
         """Begin the first QA cycle for a story (FK-27 §27.2.1).
@@ -175,6 +222,12 @@ class QaCycleLifecycle:
             raise VerifySystemError(msg)
 
         old_epoch = _epoch_of(current, fallback=prev_round)
+
+        # AG3-147 (FK-10 §10.2.4b boundary type 2): the QA-cycle-boundary push
+        # barrier. Advancing to a NEW QA cycle round is a hard sync point --
+        # fail-closed BLOCKED (raises) until the current state is server-verified-
+        # pushed, so a takeover between rounds can never lose unpushed work.
+        self.push_barrier_gate.enforce(story_dir)
 
         # FK-27 §27.2.3: invalidate the previous epoch's cycle-bound artefacts
         # BEFORE the new identities take effect (no stale consumption).
@@ -262,6 +315,9 @@ def _now_utc() -> datetime:
 
 
 __all__ = [
+    "NULL_QA_CYCLE_PUSH_BARRIER_GATE",
+    "QaCycleBarrierBlockedError",
     "QaCycleLifecycle",
+    "QaCyclePushBarrierGate",
     "QaCycleState",
 ]
