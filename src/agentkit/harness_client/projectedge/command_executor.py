@@ -24,9 +24,12 @@ import subprocess
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from agentkit.backend.code_backend.provider_port import StoryRefWriteCredentialClass
+from agentkit.backend.code_backend.provider_port import (
+    StoryRefWriteCredentialClass,
+    StoryRefWriteCredentialResult,
+)
 from agentkit.backend.control_plane.edge_commands import is_executable_command_kind
 from agentkit.backend.control_plane.models import (
     CommandErrorResult,
@@ -44,9 +47,6 @@ from agentkit.backend.control_plane.push_sync import (
     official_story_ref,
 )
 from agentkit.backend.utils.io import atomic_write_text
-from agentkit.integration_clients.github.service_identity import (
-    EnvVarServiceIdentitySource,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -59,9 +59,63 @@ if TYPE_CHECKING:
         EdgeCommandView,
     )
     from agentkit.harness_client.projectedge.client import ProjectEdgeClient
-    from agentkit.integration_clients.github.service_identity import ServiceIdentitySource
 
 _STORY_MARKER_FILENAME = ".agentkit-story.json"
+
+#: The backend-managed env-var HANDLE carrying the story/* write credential
+#: (FK-15 §15.5.1). Deployment contract: it MUST match the backend adapter's
+#: ``DEFAULT_SERVICE_IDENTITY_ENV_VAR``. The edge resolves the credential through
+#: a provider-neutral seam (below) rather than importing the GitHub Integrations
+#: boundary (architecture-conformance AC010: ProjectEdge must not import Integrations).
+_DEFAULT_EDGE_SERVICE_TOKEN_ENV_VAR = "AGENTKIT_GITHUB_SERVICE_TOKEN"
+
+
+@runtime_checkable
+class EdgeServiceCredentialSource(Protocol):
+    """The edge-side ``story/*`` write-credential source (FK-15 §15.5.1, AG3-147).
+
+    Provider-neutral: it returns the backend-managed service-identity credential
+    (never the personal developer token). The concrete provider mechanic (GitHub
+    ruleset admin etc.) stays in the backend adapter; the edge only needs "resolve
+    the backend-managed token handle", so it depends on this narrow seam, not on
+    the Integrations boundary.
+    """
+
+    def resolve_write_credential(self) -> StoryRefWriteCredentialResult:
+        """Resolve the service-identity credential (never the personal token)."""
+        ...
+
+
+@dataclass(frozen=True)
+class EnvVarEdgeServiceCredentialSource:
+    """Resolve the service identity from a backend-managed env-var handle (fail-closed)."""
+
+    env_var: str = _DEFAULT_EDGE_SERVICE_TOKEN_ENV_VAR
+
+    def resolve_write_credential(self) -> StoryRefWriteCredentialResult:
+        """Resolve ``SERVICE_IDENTITY`` when the env token is set, else fail-closed.
+
+        Returns an opaque ``env:{name}`` handle (never the secret VALUE). It NEVER
+        returns the personal developer token class -- there is no fallback path to
+        the personal token for a ``story/*`` write (AC8).
+        """
+        if not os.environ.get(self.env_var, "").strip():
+            return StoryRefWriteCredentialResult(
+                resolved=False,
+                credential_class=None,
+                credential_ref=None,
+                detail=(
+                    f"no backend-managed service identity configured (env "
+                    f"{self.env_var!r} unset); the personal developer token is "
+                    "never substituted for a story/* write (fail-closed)"
+                ),
+            )
+        return StoryRefWriteCredentialResult(
+            resolved=True,
+            credential_class=StoryRefWriteCredentialClass.SERVICE_IDENTITY,
+            credential_ref=f"env:{self.env_var}",
+            detail="resolved the backend-managed service identity",
+        )
 
 
 class EdgeGitError(RuntimeError):
@@ -289,8 +343,8 @@ class SyncPushContext:
 
     client: ProjectEdgeClient
     session_id: str
-    service_identity_source: ServiceIdentitySource = field(
-        default_factory=EnvVarServiceIdentitySource
+    service_identity_source: EdgeServiceCredentialSource = field(
+        default_factory=EnvVarEdgeServiceCredentialSource
     )
 
 
