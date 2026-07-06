@@ -111,12 +111,16 @@ _GIT_SUBPROCESS_INVENTORY: dict[str, str] = {
     "closure/multi_repo_saga.py": "AG3-152 (SubprocessGitBackend closure saga)",
     "closure/runtime_ports.py": "AG3-152 (closure git diff reads)",
     "verify_system/sonarqube_gate/runtime_wiring.py": "AG3-152 (worktree-HEAD attestation reads)",
-    # AG3-147 push / QA-evidence git reads (diff / merge-base).
-    "verify_system/evidence/request_resolver.py": "AG3-147 (QA/review diff evidence)",
+    # AG3-147 QA-cycle content fingerprint (diff vs base). The
+    # evidence/request_resolver diff-expansion was RETARGETED off backend git in
+    # AG3-147 (AC11) -- it now reads the file/adapter-compare surface, so its
+    # former entry here is intentionally GONE (no git subprocess remains there).
     "verify_system/qa_cycle/fingerprint.py": "AG3-147 (QA diff fingerprint)",
-    # composition_root wires BOTH the AG3-147 subprocess push-evidence provider
-    # (``_git`` merge-base) AND the AG3-152 SubprocessGitBackend.
-    "bootstrap/composition_root.py": "AG3-147/AG3-152 (subprocess-provider + SubprocessGitBackend wiring)",
+    # composition_root wires the AG3-152 SubprocessGitBackend AND the FK-33 §33.5
+    # change-evidence subprocess-provider (branch/commit/diff reads). AG3-147
+    # moved the push-evidence (``pushed``) OFF backend git onto the two-stage
+    # barrier (AC11), so this file's git surface is no longer an AG3-147 owner.
+    "bootstrap/composition_root.py": "AG3-152 (SubprocessGitBackend) + FK-33 change-evidence subprocess-provider (branch/commit/diff)",
     # AG3-146 provider-neutral NETWORK-PROTOCOL reads -- no local checkout,
     # expressly permitted by FK-10 §10.2.4a(b); NOT a physical worktree op.
     "code_backend/git_protocol.py": "AG3-146 (git ls-remote ref-read)",

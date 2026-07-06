@@ -194,28 +194,21 @@ class RequestResolver:
         return self._d3_result(request, self._text_match_candidates(pattern, files=files))
 
     def _resolve_diff_expansion(self, request: ReviewerRequest) -> RequestResult:
-        """Resolve extended diff context for one requested file."""
+        """Resolve extended diff context for one requested file (AG3-147 AC11).
+
+        The extended diff context is sourced from the file CONTENT, NOT a
+        backend-local ``git diff`` subprocess: FK-10 §10.2.4a moved physical
+        worktree git off the backend, so the diff-expansion reads the pushed
+        state via the file / the adapter-compare surface
+        (``CodeBackendPort.read_compare_evidence``, declared-only in AG3-146),
+        never a backend-worktree git. The optional ``region`` narrows the content.
+        """
         candidates = self._exact_file_candidates(request.target)
         if len(candidates) != 1:
             return self._d3_result(request, candidates)
         candidate = candidates[0]
-        command = [
-            "git",
-            "diff",
-            f"--unified={REQUEST_TIMEOUT_S}",
-            "--",
-            candidate.rel_path.as_posix(),
-        ]
         start = time.monotonic()
-        result = subprocess.run(
-            command,
-            cwd=candidate.repo_root,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=REQUEST_TIMEOUT_S,
-        )
-        content = result.stdout or candidate.content
+        content = candidate.content
         if request.region:
             content = _extract_region(content, request.region) or content
         return RequestResult(

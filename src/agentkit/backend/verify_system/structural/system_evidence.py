@@ -35,8 +35,10 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ABSENT_CHANGE_EVIDENCE_PORT",
+    "ABSENT_PUSH_VERIFICATION_PORT",
     "ChangeEvidence",
     "ChangeEvidencePort",
+    "PushVerificationPort",
 ]
 
 
@@ -59,9 +61,12 @@ class ChangeEvidence:
         commit_messages: The story-branch commit messages since the base ref
             (``git log <base>..HEAD``), newest first. Empty when there are
             none.
-        pushed: Whether the current branch has an upstream whose tip contains
-            ``HEAD`` (the branch is published to the remote). Independent of
-            any worker claim.
+        pushed: Whether the story branch is SERVER-verified-pushed in every
+            participating repo (AG3-147). Sourced from the two-stage push
+            barrier via :class:`PushVerificationPort` (the Edge push report AND
+            the server ``ls-remote`` ref-read), NOT a backend-local ``git``
+            upstream check (SOLL-142/170: "allein lokal" is forbidden).
+            Independent of any worker claim.
         secret_files: Changed paths (``git diff --name-only``) that match a
             forbidden secret filename or extension, computed over the SYSTEM
             diff via the shared guard-system secret pattern source.
@@ -81,6 +86,52 @@ class ChangeEvidence:
     secret_content_hits: tuple[str, ...] = ()
     changed_files: tuple[str, ...] = ()
     actual_impact: ChangeImpact | None = None
+
+
+@runtime_checkable
+class PushVerificationPort(Protocol):
+    """Confirm the story branch is server-verified-pushed (AG3-147, FK-10 §10.2.4b).
+
+    The AC11 retarget seam: ``completion.push`` KEEPS deciding on
+    :attr:`ChangeEvidence.pushed`, but that field is no longer computed from a
+    backend-local ``git`` upstream check (SOLL-142/170: "allein lokal" is
+    forbidden). It is sourced HERE, from the two-stage push barrier (the Edge
+    push report AND the server ``ls-remote`` ref-read); the Edge report alone is
+    never sufficient (FK-91 §91.1b). The provider that fills ``ChangeEvidence``
+    consults this port instead of shelling git. The productive adapter is wired
+    by the composition root (verify-system never imports control-plane /
+    state-backend directly -- BC-topology, AG3-035).
+    """
+
+    def confirm_story_pushed(self, story_dir: Path) -> bool:
+        """Whether the story branch is server-verified-pushed in every repo.
+
+        Args:
+            story_dir: The story working directory (the run scope is resolved
+                from it Backend-side).
+
+        Returns:
+            ``True`` only when the two-stage barrier confirms EVERY participating
+            repo. Fail-closed ``False`` on any unresolvable scope / unverified
+            repo (so ``completion.push`` FAILs rather than fall back to a local
+            self-report).
+        """
+        ...
+
+
+@dataclass(frozen=True)
+class _AbsentPushVerificationPort:
+    """Default port: the push is never confirmable (fail-closed)."""
+
+    def confirm_story_pushed(self, story_dir: Path) -> bool:
+        """Return ``False`` -- no push-verification adapter wired (fail-closed)."""
+        del story_dir
+        return False
+
+
+#: Default fail-closed push-verification port (no barrier adapter wired). The
+#: BLOCKING ``completion.push`` check FAILs on this default (NO ERROR BYPASSING).
+ABSENT_PUSH_VERIFICATION_PORT: PushVerificationPort = _AbsentPushVerificationPort()
 
 
 @runtime_checkable

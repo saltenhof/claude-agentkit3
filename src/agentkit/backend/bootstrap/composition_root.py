@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import contextlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -96,7 +96,10 @@ if TYPE_CHECKING:
         BuildTestEvidence,
         BuildTestEvidencePort,
     )
-    from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
+    from agentkit.backend.verify_system.structural.system_evidence import (
+        ChangeEvidence,
+        PushVerificationPort,
+    )
     from agentkit.backend.verify_system.system import VerifySystem
     from agentkit.integration_clients.multi_llm_hub.client import HubClientProtocol
 
@@ -1226,7 +1229,9 @@ def build_verify_system(
         # productive subprocess-git provider (verify-system stays free of
         # subprocess; the import lives in this composition root). NEVER the
         # worker manifest.
-        structural_change_evidence_port=_SubprocessGitChangeEvidenceProvider(),
+        structural_change_evidence_port=_SubprocessGitChangeEvidenceProvider(
+            push_verification_port=build_push_verification_port()
+        ),
         # FIX-1: the REAL build/test evidence port + the real ARE provider need
         # per-run config (the project ``ci`` stanza / ``features.are``) the
         # builder does not have, so the per-run caller (ImplementationPhaseHandler)
@@ -1341,21 +1346,81 @@ class _StateBackendTelemetryEventCountPort:
 _TEST_FILE_MARKERS: tuple[str, ...] = ("test_", "_test.", "/tests/", "tests/")
 
 
+def _default_push_verification_port() -> PushVerificationPort:
+    """Lazily resolve the fail-closed absent push-verification port (AG3-147)."""
+    from agentkit.backend.verify_system.structural.system_evidence import (
+        ABSENT_PUSH_VERIFICATION_PORT,
+    )
+
+    return ABSENT_PUSH_VERIFICATION_PORT
+
+
+@dataclass(frozen=True)
+class _BarrierPushVerification:
+    """Productive ``PushVerificationPort`` over the two-stage barrier (AG3-147 AC11).
+
+    Sources ``completion.push``'s ``pushed`` from the server-verified push barrier
+    (Edge report AND ``ls-remote`` ref-read), NEVER a backend-local git upstream
+    check. The run scope is resolved Backend-side from ``story_dir`` (the same
+    ``resolve_runtime_scope`` surface the recurring guards use); an unresolvable
+    scope or any unverified repo is fail-closed ``False`` (``completion.push``
+    then FAILs -- NO ERROR BYPASSING).
+    """
+
+    def confirm_story_pushed(self, story_dir: Path) -> bool:
+        """Whether the story branch is server-verified-pushed in every repo."""
+        from agentkit.backend.control_plane.push_sync import (
+            SyncPointBarrierType,
+            evaluate_push_barrier,
+        )
+        from agentkit.backend.state_backend.store import facade
+
+        try:
+            scope = facade.resolve_runtime_scope(story_dir)
+        except Exception:  # noqa: BLE001 -- unresolvable scope -> fail-closed (not pushed)
+            return False
+        project_key = getattr(scope, "project_key", None)
+        story_id = getattr(scope, "story_id", None)
+        run_id = getattr(scope, "run_id", None)
+        if not project_key or not story_id or not run_id:
+            return False
+        inputs = build_push_barrier_evidence().collect_repo_inputs(
+            project_key=project_key, story_id=story_id, run_id=run_id
+        )
+        return evaluate_push_barrier(
+            SyncPointBarrierType.PHASE_COMPLETION, inputs
+        ).passed
+
+
+def build_push_verification_port() -> PushVerificationPort:
+    """Wire the productive two-stage push-verification port (AG3-147 AC11)."""
+    return _BarrierPushVerification()
+
+
 @dataclass(frozen=True)
 class _SubprocessGitChangeEvidenceProvider:
-    """Productive ``ChangeEvidencePort`` over real ``git`` (FIX-3, FK-33 §33.5).
+    """Productive ``ChangeEvidencePort`` (FK-33 §33.5) with AG3-147 push retarget.
 
     Collects INDEPENDENT system evidence about the story's change set by running
     read-only ``git`` commands in the story worktree (NEVER the worker manifest):
     the actual checked-out branch, the commit history since ``origin/main`` (the
-    base ref), the upstream-push state, the diff's changed + secret-shaped files
-    and the diff-derived actual change impact (FK-23 §23.8). The ``git`` import
-    (subprocess) lives HERE in the composition root, keeping ``verify_system``
-    free of subprocess. Any git error yields ``available=False`` so the BLOCKING
-    checks fail closed (NO ERROR BYPASSING; never a fall-back to self-report).
+    base ref), the diff's changed + secret-shaped files and the diff-derived
+    actual change impact (FK-23 §23.8). The ``git`` import (subprocess) lives HERE
+    in the composition root, keeping ``verify_system`` free of subprocess. Any git
+    error yields ``available=False`` so the BLOCKING checks fail closed (NO ERROR
+    BYPASSING; never a fall-back to self-report).
+
+    AG3-147 AC11: the ``pushed`` field is NO LONGER a backend-local ``git``
+    upstream check (``_is_pushed`` removed). It is sourced from the two-stage push
+    barrier via the injected :class:`PushVerificationPort` (Edge report AND server
+    ``ls-remote`` ref-read) -- ``completion.push`` still decides on
+    ``evidence.pushed``, only the SOURCE moved (FK-10 §10.2.4a Option b).
     """
 
     base_ref: str = "origin/main"
+    push_verification_port: PushVerificationPort = field(
+        default_factory=_default_push_verification_port
+    )
 
     def collect(self, story_dir: Path) -> ChangeEvidence:
         """Collect the system change evidence (``available=False`` on any error)."""
@@ -1374,7 +1439,8 @@ class _SubprocessGitChangeEvidenceProvider:
             available=True,
             current_branch=branch,
             commit_messages=commits,
-            pushed=self._is_pushed(story_dir),
+            # AG3-147 AC11: server-verified push barrier, NOT a local upstream check.
+            pushed=self.push_verification_port.confirm_story_pushed(story_dir),
             secret_files=secret_files,
             secret_content_hits=secret_content_hits,
             changed_files=changed,
@@ -1421,24 +1487,6 @@ class _SubprocessGitChangeEvidenceProvider:
         return tuple(
             f"{hit.path}:{hit.pattern.value}" for hit in result.content_hits
         )
-
-    def _is_pushed(self, story_dir: Path) -> bool:
-        """Whether the branch has an upstream whose tip contains HEAD."""
-        upstream = self._git(
-            story_dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"
-        )
-        if upstream is None:
-            return False
-        head = self._git(story_dir, "rev-parse", "HEAD")
-        upstream_sha = self._git(story_dir, "rev-parse", upstream)
-        if head is None or upstream_sha is None:
-            return False
-        # The branch is pushed when the upstream is an ancestor of (or equal to)
-        # HEAD's pushed tip; conservatively require the upstream to contain HEAD.
-        contains = self._git(
-            story_dir, "merge-base", "--is-ancestor", head, upstream
-        )
-        return contains is not None
 
     def _git(self, story_dir: Path, *args: str) -> str | None:
         """Run a read-only git command; return stripped stdout or ``None``."""
@@ -2362,7 +2410,9 @@ def build_closure_phase_handler(
         base_dir, project_key=project_key
     )
     config.mode_lock_release_port = _build_mode_lock_release_port(base_dir)
-    config.change_evidence_port = _SubprocessGitChangeEvidenceProvider()
+    config.change_evidence_port = _SubprocessGitChangeEvidenceProvider(
+        push_verification_port=build_push_verification_port()
+    )
     config.telemetry_evidence_port = _build_telemetry_evidence_port(
         base_dir, project_key=project_key
     )

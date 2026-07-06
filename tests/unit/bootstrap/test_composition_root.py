@@ -8,14 +8,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
 from agentkit.backend.artifacts import ProducerRegistry
 from agentkit.backend.bootstrap import build_producer_registry
 from agentkit.backend.core_types import ArtifactClass
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 
 def test_build_producer_registry_returns_registry() -> None:
@@ -556,6 +556,68 @@ def test_change_evidence_provider_failclosed_on_bad_base_ref(tmp_path: Path) -> 
     missing = tmp_path / "definitely" / "not" / "a" / "repo"
     evidence = _SubprocessGitChangeEvidenceProvider().collect(missing)
     assert evidence.available is False
+
+
+def test_absent_push_verification_port_is_fail_closed() -> None:
+    """AC11: with no barrier adapter wired, the push is never confirmed."""
+    from pathlib import Path as _Path
+
+    from agentkit.backend.verify_system.structural.system_evidence import (
+        ABSENT_PUSH_VERIFICATION_PORT,
+    )
+
+    assert ABSENT_PUSH_VERIFICATION_PORT.confirm_story_pushed(_Path(".")) is False
+
+
+@pytest.mark.requires_git
+def test_change_evidence_pushed_is_sourced_from_the_push_verification_port(
+    tmp_path: Path,
+) -> None:
+    """AC11 code proof: ``ChangeEvidence.pushed`` is sourced from the two-stage
+    push-verification port, NOT a backend-local ``git`` upstream check."""
+    import subprocess
+
+    from agentkit.backend.bootstrap.composition_root import (
+        _SubprocessGitChangeEvidenceProvider,
+    )
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def _git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True)
+
+    _git("init", "-q", "-b", "story/AG3-147")
+    _git("config", "user.email", "t@example.com")
+    _git("config", "user.name", "T")
+    _git("config", "commit.gpgsign", "false")
+    (repo / "f.py").write_text("x = 1\n", encoding="utf-8")
+    _git("add", ".")
+    _git("commit", "-q", "-m", "feat(AG3-147): x")
+
+    class _FakePort:
+        def __init__(self, pushed: bool) -> None:
+            self.pushed = pushed
+            self.seen: Path | None = None
+
+        def confirm_story_pushed(self, story_dir: Path) -> bool:
+            self.seen = story_dir
+            return self.pushed
+
+    # NO upstream is configured, yet the port decides `pushed` -- proving the
+    # source is the barrier, not a local `@{u}` check (which would be False here).
+    port_true = _FakePort(True)
+    ev = _SubprocessGitChangeEvidenceProvider(
+        push_verification_port=port_true,  # type: ignore[arg-type]
+    ).collect(repo)
+    assert ev.available is True
+    assert ev.pushed is True
+    assert port_true.seen == repo
+
+    ev_false = _SubprocessGitChangeEvidenceProvider(
+        push_verification_port=_FakePort(False),  # type: ignore[arg-type]
+    ).collect(repo)
+    assert ev_false.pushed is False
 
 
 def test_build_structural_build_test_port_absent_ci_is_failclosed(
