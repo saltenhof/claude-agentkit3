@@ -30,9 +30,6 @@ The pieces (each pure):
 * The **push-gate decision** (In-Scope #4, AC6): online-required, bounded; a
   stale ACTIVE bundle grants no push (the FK-56 §56.9a re-sync fallback does
   not apply to the push path, FK-15 §15.5.4).
-* The **merge precondition** (In-Scope #9, AC12, SOLL-190): the reusable
-  "pushed in all participating repos, server-verified" checkpoint AG3-152
-  consumes before ``merge_local``.
 """
 
 from __future__ import annotations
@@ -49,7 +46,6 @@ if TYPE_CHECKING:
 __all__ = [
     "STORY_REF_PREFIX",
     "BarrierVerdict",
-    "MergePrecondition",
     "PushBarrierBlockCode",
     "PushBarrierVerdict",
     "PushBarrierVerdictStatus",
@@ -74,7 +70,6 @@ __all__ = [
     "open_sync_push_command",
     "sync_point_id_from_sync_push_command_id",
     "sync_push_command_id",
-    "verify_pushed_across_repos",
 ]
 
 #: The canonical push target namespace (FK-22 §22, In-Scope #7). The official
@@ -93,7 +88,6 @@ class SyncPointBarrierType(StrEnum):
     QA_CYCLE_BOUNDARY = "qa_cycle_boundary"
     YIELD_POINT = "yield_point"
     CLOSURE_ENTRY = "closure_entry"
-    PRE_MERGE = "pre_merge"
 
 
 class PushBarrierVerdictStatus(StrEnum):
@@ -445,42 +439,6 @@ def evaluate_push_barrier(
     verdicts = tuple(evaluate_repo_push(inp) for inp in inputs)
     passed = all(v.verified for v in verdicts)
     return BarrierVerdict(barrier_type, passed=passed, repo_verdicts=verdicts)
-
-
-@dataclass(frozen=True)
-class MergePrecondition:
-    """The reusable "pushed in all repos, server-verified" checkpoint (AC12)."""
-
-    satisfied: bool
-    blocking_repos: tuple[str, ...]
-    detail: str
-
-
-def verify_pushed_across_repos(
-    inputs: Sequence[RepoPushVerificationInput],
-) -> MergePrecondition:
-    """SOLL-190 merge precondition: story branch pushed+verified in every repo.
-
-    Shares the exact two-stage engine as the closure-entry barrier so the merge
-    precondition and the barrier can never diverge (SINGLE SOURCE OF TRUTH).
-    AG3-152 consumes this before productive ``merge_local`` (In-Scope #9).
-
-    Args:
-        inputs: One verification input per participating repo.
-
-    Returns:
-        A :class:`MergePrecondition` (fail-closed on any un-verified repo).
-    """
-    verdict = evaluate_push_barrier(SyncPointBarrierType.PRE_MERGE, inputs)
-    return MergePrecondition(
-        satisfied=verdict.passed,
-        blocking_repos=verdict.blocking_repos,
-        detail=(
-            "all participating repos server-verified as pushed"
-            if verdict.passed
-            else f"unverified repos: {verdict.blocking_summary()}"
-        ),
-    )
 
 
 @dataclass(frozen=True)

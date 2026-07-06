@@ -386,7 +386,7 @@ from agentkit.backend.state_backend.store.facade import (
     save_takeover_transfer_record_global as save_takeover_transfer_record_global,
 )
 from agentkit.backend.state_backend.store.facade import (
-    supersede_pending_push_barriers_for_commit_global as supersede_pending_push_barriers_for_commit_global,
+    supersede_open_edge_command_global as supersede_open_edge_command_global,
 )
 from agentkit.backend.state_backend.store.facade import (
     update_story_are_link_kind as update_story_are_link_kind,

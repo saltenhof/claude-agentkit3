@@ -31,7 +31,6 @@ from agentkit.backend.control_plane.push_sync import (
     project_push_freshness,
     sync_point_id_from_sync_push_command_id,
     sync_push_command_id,
-    verify_pushed_across_repos,
 )
 
 _SHA_A = "a" * 40
@@ -574,30 +573,3 @@ def test_ac10_gate_refuses_non_official_ref() -> None:
     )
     assert decision.allowed is False
     assert decision.refusal_code is PushGateRefusalCode.NON_OFFICIAL_REF
-
-
-# ---------------------------------------------------------------------------
-# AC12: reusable merge precondition shares the barrier engine
-# ---------------------------------------------------------------------------
-
-
-def test_ac12_merge_precondition_satisfied_when_all_pushed() -> None:
-    precondition = verify_pushed_across_repos(
-        [_verified_repo("repo-a", _SHA_A), _verified_repo("repo-b", _SHA_B)]
-    )
-    assert precondition.satisfied is True
-    assert precondition.blocking_repos == ()
-
-
-def test_ac12_merge_precondition_blocks_on_unpushed_repo() -> None:
-    bad = RepoPushVerificationInput(
-        repo_id="repo-b",
-        edge_report_present=False,
-        edge_reported_pushed=False,
-        edge_reported_head_sha=None,
-        server_ref_resolved=False,
-        server_head_sha=None,
-    )
-    precondition = verify_pushed_across_repos([_verified_repo("repo-a"), bad])
-    assert precondition.satisfied is False
-    assert precondition.blocking_repos == ("repo-b",)

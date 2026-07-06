@@ -1172,6 +1172,24 @@ def commit_edge_command_result_global(
     )
 
 
+def supersede_open_edge_command_global(
+    *,
+    command_id: str,
+    completed_at: datetime,
+    result_payload: dict[str, object],
+) -> bool:
+    """Terminalize an open edge command superseded by a newer boundary epoch."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    return bool(
+        backend.supersede_open_edge_command_global_row(
+            command_id=command_id,
+            completed_at=completed_at.isoformat(),
+            result_payload_json=mappers.dump_json(result_payload),
+        )
+    )
+
+
 # ---------------------------------------------------------------------------
 # PushFreshnessRecord (AG3-147, Postgres-only K5)
 # ---------------------------------------------------------------------------
@@ -1269,30 +1287,6 @@ def list_push_barrier_verdicts_global(
         boundary_id,
     )
     return tuple(mappers.push_barrier_verdict_row_to_record(row) for row in rows)
-
-
-def supersede_pending_push_barriers_for_commit_global(
-    *,
-    project_key: str,
-    story_id: str,
-    run_id: str,
-    repo_id: str,
-    expected_head_sha: str,
-    updated_at: datetime,
-) -> int:
-    """Mechanically invalidate pending boundaries after a registered commit."""
-    _require_control_plane_backend()
-    backend = _backend_module()
-    return int(
-        backend.supersede_pending_push_barriers_for_commit_global_row(
-            project_key=project_key,
-            story_id=story_id,
-            run_id=run_id,
-            repo_id=repo_id,
-            expected_head_sha=expected_head_sha,
-            updated_at=updated_at.isoformat(),
-        )
-    )
 
 
 def upsert_ref_protection_degradation_finding_global(

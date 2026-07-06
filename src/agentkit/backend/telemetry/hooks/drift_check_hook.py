@@ -26,7 +26,10 @@ from agentkit.backend.telemetry.hooks.base import (
     HookResult,
     HookTrigger,
 )
-from agentkit.backend.telemetry.hooks.commit_hook import _GIT_COMMIT_PATTERN
+from agentkit.backend.telemetry.hooks.commit_hook import (
+    command_may_create_commit,
+    context_has_commit_fact,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -118,7 +121,10 @@ class DriftCheckHook(EmittingHook):
         return (
             context.trigger is HookTrigger.POST_TOOL_USE
             and context.tool == "Bash"
-            and bool(_GIT_COMMIT_PATTERN.search(context.command))
+            and (
+                context_has_commit_fact(context)
+                or command_may_create_commit(context.command)
+            )
         )
 
 

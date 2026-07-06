@@ -31,7 +31,7 @@ from agentkit.backend.telemetry.hooks.base import (
     HookResult,
     HookTrigger,
 )
-from agentkit.backend.telemetry.hooks.commit_hook import _GIT_COMMIT_PATTERN
+from agentkit.backend.telemetry.hooks.commit_hook import command_may_create_commit
 
 if TYPE_CHECKING:
     from agentkit.backend.telemetry.emitters import EventEmitter
@@ -116,7 +116,7 @@ class ReviewGuard(EmittingHook):
         return (
             context.trigger is HookTrigger.PRE_TOOL_USE
             and context.tool == "Bash"
-            and bool(_GIT_COMMIT_PATTERN.search(context.command))
+            and command_may_create_commit(context.command)
         )
 
     def _missing_roles(self, context: HookContext) -> tuple[str, ...]:

@@ -93,7 +93,7 @@ if TYPE_CHECKING:
         TelemetryEvidencePort,
         VectorDbSyncPort,
         VerifySystem,
-    )  # noqa: E501,I001
+    )
 
 
 def build_producer_registry() -> ProducerRegistry:
@@ -1443,15 +1443,13 @@ class _BarrierPushVerification:
                         repo_id=repo,
                         load_command=facade.load_edge_command_record_global,
                     )
-                    if open_command is not None and push_barrier_lifecycle.open_command_timed_out(
-                        open_command,
-                        now=now,
-                    ):
-                        facade.upsert_push_barrier_verdict_global(
-                            push_barrier_lifecycle.timed_out_open_command_verdict(
-                                verdict,
-                                updated_at=now,
-                            )
+                    if open_command is not None:
+                        push_barrier_lifecycle.block_timed_out_open_command(
+                            command=open_command,
+                            verdict=verdict,
+                            now=now,
+                            persist_blocked_verdict=facade.upsert_push_barrier_verdict_global,
+                            supersede_open_command=facade.supersede_open_edge_command_global,
                         )
                     continue
                 facade.commission_edge_command_record_global(
@@ -3796,9 +3794,13 @@ class _ControlPlaneQaCyclePushBarrierGate:
                 repo_id=repo,
                 load_command=facade.load_edge_command_record_global,
             )
-            if open_command is not None and push_barrier_lifecycle.open_command_timed_out(open_command, now=created_at):
-                facade.upsert_push_barrier_verdict_global(
-                    push_barrier_lifecycle.timed_out_open_command_verdict(verdict, updated_at=created_at)
+            if open_command is not None:
+                push_barrier_lifecycle.block_timed_out_open_command(
+                    command=open_command,
+                    verdict=verdict,
+                    now=created_at,
+                    persist_blocked_verdict=facade.upsert_push_barrier_verdict_global,
+                    supersede_open_command=facade.supersede_open_edge_command_global,
                 )
             return
         facade.commission_edge_command_record_global(
@@ -3949,7 +3951,6 @@ def build_push_barrier_evidence() -> PushBarrierEvidencePort:
     )
 
 
-# Keep export metadata compact so module-level LOC stays under the project gate.
 __all__ = [
     "ClosureConfigUnavailableError",
     "build_compat_window_reader",
@@ -3984,4 +3985,4 @@ __all__ = [
     "cli_load_story_context",
     "cli_load_execution_events_for_project_global",
     "cli_read_phase_state_record",
-]  # noqa: E501
+]

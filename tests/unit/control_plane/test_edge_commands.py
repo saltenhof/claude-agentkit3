@@ -34,7 +34,13 @@ def test_executable_command_kinds_is_the_ag3_145_subset() -> None:
 
 def test_all_command_statuses_has_no_wall_clock_expiry_member() -> None:
     """SOLL-165 (FK-91 §91.1a Rule 16): no 'expired' status exists at all."""
-    assert {"created", "delivered", "completed", "failed"} == ec.ALL_COMMAND_STATUSES
+    assert {
+        "created",
+        "delivered",
+        "completed",
+        "failed",
+        "superseded",
+    } == ec.ALL_COMMAND_STATUSES
     assert not (ec.ALL_COMMAND_STATUSES & {"expired", "timed_out", "lapsed"})
 
 

@@ -7,7 +7,10 @@ import pytest
 from agentkit.backend.telemetry.emitters import MemoryEmitter
 from agentkit.backend.telemetry.events import EventType
 from agentkit.backend.telemetry.hooks.base import HookContext, HookTrigger
-from agentkit.backend.telemetry.hooks.commit_hook import CommitHook
+from agentkit.backend.telemetry.hooks.commit_hook import (
+    CommitHook,
+    command_may_create_commit,
+)
 
 
 def _context(**overrides: object) -> HookContext:
@@ -80,6 +83,56 @@ def test_increment_commit_emitted_on_commit_producing_git_commands(
     assert result.events[0].event_type is EventType.INCREMENT_COMMIT
 
 
+def test_increment_commit_emitted_on_mechanical_head_delta_without_git_regex() -> None:
+    hook = CommitHook(MemoryEmitter())
+
+    result = hook.evaluate(
+        _context(
+            command="invoke-local-wrapper-that-commits",
+            payload={
+                "head_before": "a" * 40,
+                "head_after": "b" * 40,
+                "repo_name": "demo-repo",
+            },
+        )
+    )
+
+    assert result.triggered is True
+    assert result.events[0].payload["commit_sha"] == "b" * 40
+    assert result.events[0].payload["repo_name"] == "demo-repo"
+
+
+def test_increment_commit_skips_unchanged_mechanical_head() -> None:
+    hook = CommitHook(MemoryEmitter())
+
+    result = hook.evaluate(
+        _context(
+            command="git am patch.mbox",
+            payload={
+                "head_before": "a" * 40,
+                "head_after": "a" * 40,
+                "repo_name": "demo-repo",
+            },
+        )
+    )
+
+    assert result.triggered is False
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git -C repo cherry-pick abc123",
+        "git -c user.name=bot commit -m work",
+        "git --work-tree=repo merge feature/ag3-147",
+        "git am patch.mbox",
+        "git pull --rebase",
+    ],
+)
+def test_command_may_create_commit_handles_git_global_options(command: str) -> None:
+    assert command_may_create_commit(command) is True
+
+
 def test_non_commit_bash_is_skipped() -> None:
     hook = CommitHook(MemoryEmitter())
     result = hook.evaluate(_context(command="git status"))
@@ -94,5 +147,7 @@ def test_non_bash_tool_is_skipped() -> None:
 
 def test_files_changed_defaults_to_zero_for_bad_value() -> None:
     hook = CommitHook(MemoryEmitter())
-    result = hook.evaluate(_context(payload={"files_changed": "not-a-number"}))
+    result = hook.evaluate(
+        _context(payload={"commit_sha": "abc123", "files_changed": "not-a-number"})
+    )
     assert result.events[0].payload["files_changed"] == 0

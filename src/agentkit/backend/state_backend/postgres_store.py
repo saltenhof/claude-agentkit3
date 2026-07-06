@@ -714,6 +714,53 @@ def _schema_alter_statements() -> tuple[str, ...]:
     return (
         "ALTER TABLE story_contexts ADD COLUMN IF NOT EXISTS story_uuid UUID",
         "ALTER TABLE story_contexts ADD COLUMN IF NOT EXISTS story_number INTEGER",
+        (
+            "DO $$ "
+            "DECLARE status_constraint text; "
+            "BEGIN "
+            "IF to_regclass('edge_command_records') IS NULL THEN RETURN; END IF; "
+            "SELECT c.conname INTO status_constraint "
+            "FROM pg_constraint c "
+            "JOIN pg_class t ON t.oid = c.conrelid "
+            "JOIN pg_namespace n ON n.oid = t.relnamespace "
+            "WHERE n.nspname = current_schema() "
+            "AND t.relname = 'edge_command_records' "
+            "AND c.contype = 'c' "
+            "AND position('status' in pg_get_constraintdef(c.oid)) > 0 "
+            "LIMIT 1; "
+            "IF status_constraint IS NOT NULL THEN "
+            "EXECUTE 'ALTER TABLE edge_command_records DROP CONSTRAINT ' || quote_ident(status_constraint); "
+            "END IF; "
+            "ALTER TABLE edge_command_records "
+            "ADD CONSTRAINT edge_command_records_status_check "
+            "CHECK (status IN ('created', 'delivered', 'completed', 'failed', 'superseded')); "
+            "EXCEPTION WHEN duplicate_object THEN NULL; "
+            "END $$"
+        ),
+        (
+            "DO $$ "
+            "DECLARE boundary_constraint text; "
+            "BEGIN "
+            "IF to_regclass('push_barrier_verdicts') IS NULL THEN RETURN; END IF; "
+            "SELECT c.conname INTO boundary_constraint "
+            "FROM pg_constraint c "
+            "JOIN pg_class t ON t.oid = c.conrelid "
+            "JOIN pg_namespace n ON n.oid = t.relnamespace "
+            "WHERE n.nspname = current_schema() "
+            "AND t.relname = 'push_barrier_verdicts' "
+            "AND c.contype = 'c' "
+            "AND position('boundary_type' in pg_get_constraintdef(c.oid)) > 0 "
+            "LIMIT 1; "
+            "IF boundary_constraint IS NOT NULL THEN "
+            "EXECUTE 'ALTER TABLE push_barrier_verdicts DROP CONSTRAINT ' || quote_ident(boundary_constraint); "
+            "END IF; "
+            "DELETE FROM push_barrier_verdicts WHERE boundary_type = 'pre_merge'; "
+            "ALTER TABLE push_barrier_verdicts "
+            "ADD CONSTRAINT push_barrier_verdicts_boundary_type_check "
+            "CHECK (boundary_type IN ('phase_completion', 'qa_cycle_boundary', 'yield_point', 'closure_entry')); "
+            "EXCEPTION WHEN duplicate_object THEN NULL; "
+            "END $$"
+        ),
         ("UPDATE story_contexts SET story_uuid = gen_random_uuid() WHERE story_uuid IS NULL"),
         (
             "UPDATE story_contexts SET story_number = "
@@ -3084,6 +3131,29 @@ def commit_edge_command_result_global_row(
             raise EdgeCommandNotOpenError(command_id)
 
 
+def supersede_open_edge_command_global_row(
+    *,
+    command_id: str,
+    completed_at: str,
+    result_payload_json: str,
+) -> bool:
+    """Terminalize an open edge command superseded by a newer boundary epoch."""
+
+    with _connect_global() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE edge_command_records
+            SET status = 'superseded',
+                completed_at = ?,
+                result_type = 'command_superseded',
+                result_payload_json = ?
+            WHERE command_id = ? AND status IN ('created', 'delivered')
+            """,
+            (completed_at, result_payload_json, command_id),
+        )
+        return int(cursor.rowcount) == 1
+
+
 # ---------------------------------------------------------------------------
 # PushFreshnessRecord rows (AG3-147, Postgres-only K5)
 # ---------------------------------------------------------------------------
@@ -3245,52 +3315,6 @@ def list_push_barrier_verdicts_global_row(
             (project_key, story_id, run_id, boundary_type, boundary_id),
         ).fetchall()
     return [dict(row) for row in rows]
-
-
-def supersede_pending_push_barriers_for_commit_global_row(
-    *,
-    project_key: str,
-    story_id: str,
-    run_id: str,
-    repo_id: str,
-    expected_head_sha: str,
-    updated_at: str,
-) -> int:
-    """Invalidate every live boundary for a repo after a registered commit.
-
-    This is the mechanical mutation-invalidation hook required by AG3-147 Rev. 2:
-    any AK3-registered productive commit after boundary entry bumps the boundary
-    epoch, rebinds the expected head, and marks old evidence superseded.
-    """
-
-    with _connect_global() as conn:
-        cursor = conn.execute(
-            """
-            UPDATE push_barrier_verdicts
-            SET boundary_epoch = boundary_epoch + 1,
-                expected_head_sha = ?,
-                server_head_sha = NULL,
-                status = 'superseded',
-                updated_at = ?,
-                resolved_at = ?,
-                status_detail = 'superseded_by_registered_commit'
-            WHERE project_key = ?
-              AND story_id = ?
-              AND run_id = ?
-              AND repo_id = ?
-              AND status IN ('pending', 'passed')
-            """,
-            (
-                expected_head_sha,
-                updated_at,
-                updated_at,
-                project_key,
-                story_id,
-                run_id,
-                repo_id,
-            ),
-        )
-    return int(cursor.rowcount)
 
 
 def _push_barrier_verdict_params(row: dict[str, Any]) -> tuple[object, ...]:

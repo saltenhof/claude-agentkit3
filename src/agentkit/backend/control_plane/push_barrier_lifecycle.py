@@ -111,6 +111,30 @@ def timed_out_open_command_verdict(verdict: PushBarrierVerdict, *, updated_at: d
     )
 
 
+def block_timed_out_open_command(
+    *,
+    command: Any,
+    verdict: PushBarrierVerdict,
+    now: datetime,
+    persist_blocked_verdict: Any,
+    supersede_open_command: Any,
+) -> bool:
+    """Escalate a stale open command and terminalize it as superseded."""
+
+    if not open_command_timed_out(command, now=now):
+        return False
+    blocked = timed_out_open_command_verdict(verdict, updated_at=now)
+    persist_blocked_verdict(blocked)
+    command_id = getattr(command, "command_id", None)
+    if isinstance(command_id, str) and command_id:
+        supersede_open_command(
+            command_id=command_id,
+            completed_at=now,
+            result_payload=_superseded_command_payload(verdict),
+        )
+    return True
+
+
 def open_command_timed_out(
     command: Any,
     *,
@@ -149,8 +173,20 @@ def aggregate_persisted_push_barrier(
         if verdict.status is not PushBarrierVerdictStatus.PASSED:
             repo_verdicts.append(repo_verdict_from_persisted(verdict))
             continue
+        if not _non_empty_sha(verdict.expected_head_sha):
+            blocked = replace_push_barrier_verdict(
+                verdict,
+                status=PushBarrierVerdictStatus.BLOCKED_BACKLOG,
+                server_head_sha=None,
+                updated_at=now,
+                resolved_at=now,
+                status_detail="passed_verdict_missing_expected_head",
+            )
+            persist_blocked_verdict(blocked)
+            repo_verdicts.append(repo_verdict_from_persisted(blocked))
+            continue
         server_head = server_head_for_verdict(verdict)
-        if server_head == verdict.expected_head_sha:
+        if _non_empty_sha(server_head) and server_head == verdict.expected_head_sha:
             repo_verdicts.append(
                 RepoPushVerdict(
                     repo_id=verdict.repo_id,
@@ -239,3 +275,20 @@ def _missing_repo_verdict(repo_id: str) -> RepoPushVerdict:
         block_code=PushBarrierBlockCode.NO_EDGE_PUSH_REPORT,
         detail="no push-barrier verdict row exists for this participating repo",
     )
+
+
+def _non_empty_sha(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _superseded_command_payload(verdict: PushBarrierVerdict) -> dict[str, object]:
+    return {
+        "reason": "sync_push_command_timed_out",
+        "project_key": verdict.project_key,
+        "story_id": verdict.story_id,
+        "run_id": verdict.run_id,
+        "boundary_type": verdict.boundary_type.value,
+        "boundary_id": verdict.boundary_id,
+        "boundary_epoch": verdict.boundary_epoch,
+        "repo_id": verdict.repo_id,
+    }

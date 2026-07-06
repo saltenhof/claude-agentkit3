@@ -274,6 +274,7 @@ def _seed_pg_story_context(tmp_path: Path) -> StoryContext:
         story_type=StoryType.IMPLEMENTATION,
         execution_route=StoryMode.EXECUTION,
         project_root=project_root,
+        participating_repos=["api"],
     )
     save_story_context_global(None, ctx)
     return ctx

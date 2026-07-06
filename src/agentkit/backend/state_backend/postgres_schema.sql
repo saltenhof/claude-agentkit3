@@ -423,7 +423,7 @@
             ),
             payload_json TEXT NOT NULL,
             status TEXT NOT NULL CHECK (
-                status IN ('created', 'delivered', 'completed', 'failed')
+                status IN ('created', 'delivered', 'completed', 'failed', 'superseded')
             ),
             ownership_epoch INTEGER NOT NULL CHECK (ownership_epoch >= 1),
             created_at TEXT NOT NULL,
@@ -469,7 +469,7 @@
         -- push_barrier_verdicts: authoritative per-repo verdict for one bound
         -- hard push-barrier instance (AG3-147 redesign, FK-10 §10.2.4b). This
         -- Postgres-only K5 table is the SSOT for completion.push, the QA-cycle
-        -- gate and the SOLL-190 pre-merge precondition. Push freshness remains
+        -- gate, yield-point and closure-entry barriers. Push freshness remains
         -- information-only and is never a decision basis.
         CREATE TABLE IF NOT EXISTS push_barrier_verdicts (
             project_key TEXT NOT NULL,
@@ -480,8 +480,7 @@
                     'phase_completion',
                     'qa_cycle_boundary',
                     'yield_point',
-                    'closure_entry',
-                    'pre_merge'
+                    'closure_entry'
                 )
             ),
             boundary_id TEXT NOT NULL,

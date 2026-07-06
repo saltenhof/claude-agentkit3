@@ -40,6 +40,7 @@ def _build_public_api_names() -> tuple[str, ...]:
         "load_edge_command_record_global",
         "list_and_ack_open_edge_command_records_global",
         "commit_edge_command_result_global",
+        "supersede_open_edge_command_global",
         # AG3-147 Push-freshness / push-backlog read surface (Postgres-only K5).
         "upsert_push_freshness_record_global",
         "load_push_freshness_record_global",
@@ -47,7 +48,6 @@ def _build_public_api_names() -> tuple[str, ...]:
         "upsert_push_barrier_verdict_global",
         "load_push_barrier_verdict_global",
         "list_push_barrier_verdicts_global",
-        "supersede_pending_push_barriers_for_commit_global",
         "upsert_ref_protection_degradation_finding_global",
         "list_ref_protection_degradation_findings_global",
         "insert_object_mutation_claim_global",

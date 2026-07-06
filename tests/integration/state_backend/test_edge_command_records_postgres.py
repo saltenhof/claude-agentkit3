@@ -37,6 +37,7 @@ from agentkit.backend.state_backend.store import (
     list_and_ack_open_edge_command_records_global,
     load_control_plane_operation_global,
     load_edge_command_record_global,
+    supersede_open_edge_command_global,
 )
 
 if TYPE_CHECKING:
@@ -240,6 +241,44 @@ def test_list_and_ack_terminal_commands_are_excluded() -> None:
     )
 
     assert open_commands == ()
+
+
+def test_supersede_open_command_terminalizes_and_fences_late_result() -> None:
+    insert_run_ownership_record_global(_ownership_record(story_id="AG3-705", run_id="run-705"))
+    insert_edge_command_record_global(
+        _command("cmd-pg-supersede", story_id="AG3-705", run_id="run-705", status="delivered")
+    )
+
+    applied = supersede_open_edge_command_global(
+        command_id="cmd-pg-supersede",
+        completed_at=_NOW,
+        result_payload={"reason": "sync_push_command_timed_out"},
+    )
+
+    assert applied is True
+    stored = load_edge_command_record_global("cmd-pg-supersede")
+    assert stored is not None
+    assert stored.status == "superseded"
+    assert stored.result_type == "command_superseded"
+    open_commands = list_and_ack_open_edge_command_records_global(
+        project_key="tenant-a",
+        run_id="run-705",
+        session_id="sess-A",
+        delivered_at=_NOW,
+    )
+    assert open_commands == ()
+    with pytest.raises(EdgeCommandNotOpenError):
+        commit_edge_command_result_global(
+            _op_record("op-pg-superseded-late", story_id="AG3-705", run_id="run-705"),
+            command_id="cmd-pg-supersede",
+            result_status="completed",
+            completed_at=_NOW,
+            result_op_id="op-pg-superseded-late",
+            result_type="worktree_report",
+            result_payload={},
+            expected_ownership_epoch=1,
+        )
+    assert load_control_plane_operation_global("op-pg-superseded-late") is None
 
 
 # ---------------------------------------------------------------------------

@@ -46,6 +46,7 @@ from agentkit.backend.state_backend.store import (
     save_session_run_binding_global,
     save_story_execution_lock_global,
     save_takeover_transfer_record_global,
+    supersede_open_edge_command_global,
 )
 
 if TYPE_CHECKING:
@@ -360,3 +361,4 @@ class EdgeCommandRepository:
         list_and_ack_open_edge_command_records_global
     )
     commit_result: Callable[..., None] = commit_edge_command_result_global
+    supersede_command: Callable[..., bool] = supersede_open_edge_command_global

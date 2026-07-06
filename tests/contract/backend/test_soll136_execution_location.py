@@ -123,6 +123,7 @@ _GIT_SUBPROCESS_INVENTORY: dict[str, str] = {
     # expressly permitted by FK-10 §10.2.4a(b); NOT a physical worktree op.
     "code_backend/git_protocol.py": "AG3-146 (git ls-remote ref-read)",
     "installer/github_coordinates.py": "AG3-146 (git remote get-url origin metadata read)",
+    "telemetry/hooks/commit_hook.py": "AG3-147 (mechanical commit invalidation HEAD reads)",
     # Non-worktree, dev-local (Level 2/3) subsystems that legitimately shell git
     # on the dev machine -- NOT the Level-1 backend-process physical git FK-10
     # §10.2.4a forbids, and NOT worktree provisioning/teardown/path ops.

@@ -462,6 +462,10 @@ def test_phase_completion_open_sync_push_timeout_rebinds_boundary_epoch(
     assert blocked is not None
     assert blocked.status is PushBarrierVerdictStatus.BLOCKED_BACKLOG
     assert blocked.status_detail == "sync_push_command_timed_out"
+    superseded_command = load_edge_command_record_global(base_command_id)
+    assert superseded_command is not None
+    assert superseded_command.status == "superseded"
+    assert superseded_command.result_type == "command_superseded"
 
     third = service.complete_phase(
         run_id=run_id,
@@ -471,6 +475,55 @@ def test_phase_completion_open_sync_push_timeout_rebinds_boundary_epoch(
     assert third.status == "rejected"
     retry_command_id = "run-925::sync_push::phase_completion:run-925:epoch-2::api"
     assert load_edge_command_record_global(retry_command_id) is not None
+
+
+def test_phase_completion_malformed_passed_without_expected_head_blocks(
+    tmp_path: Path,
+) -> None:
+    """Regression: nullable expected_head_sha on PASSED cannot pass as None == None."""
+    story_id, run_id = "AG3-927", "run-927"
+    _seed_story_context(tmp_path, story_id, participating_repos=["api"])
+    service = _service((_no_edge_report("api"),), ident="inst-927")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    upsert_push_barrier_verdict_global(
+        PushBarrierVerdict(
+            project_key=_PROJECT,
+            story_id=story_id,
+            run_id=run_id,
+            boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
+            boundary_id=run_id,
+            repo_id="api",
+            producer="control_plane.push_barrier",
+            boundary_epoch=1,
+            expected_head_sha=None,
+            server_head_sha=None,
+            ownership_epoch=1,
+            status=PushBarrierVerdictStatus.PASSED,
+            created_at=_T0,
+            updated_at=_T0,
+            resolved_at=_T0,
+            status_detail="malformed_test_fixture",
+        )
+    )
+
+    result = service.complete_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(story_id=story_id, op_id="op-complete-927"),
+    )
+
+    assert result.status == "rejected"
+    blocked = load_push_barrier_verdict_global(
+        project_key=_PROJECT,
+        story_id=story_id,
+        run_id=run_id,
+        boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
+        boundary_id=run_id,
+        repo_id="api",
+    )
+    assert blocked is not None
+    assert blocked.status is PushBarrierVerdictStatus.BLOCKED_BACKLOG
+    assert blocked.status_detail == "passed_verdict_missing_expected_head"
 
 
 def test_registered_commit_invalidates_pending_boundary_epoch(tmp_path: Path) -> None:
@@ -814,7 +867,7 @@ def test_phase_completion_barrier_blocks_on_one_unverified_repo(tmp_path: Path) 
 
 
 # ---------------------------------------------------------------------------
-# AC2 / AC12 closure-entry barrier (verify_pushed_across_repos precondition)
+# AC2 / AC12 closure-entry barrier
 # ---------------------------------------------------------------------------
 
 
@@ -889,10 +942,10 @@ def test_closure_entry_barrier_passes_when_verified(tmp_path: Path) -> None:
     assert result.status == "committed"
 
 
-def test_pre_merge_verdict_does_not_satisfy_closure_entry_boundary(
+def test_phase_completion_verdict_does_not_satisfy_closure_entry_boundary(
     tmp_path: Path,
 ) -> None:
-    """Pre-Merge and closure-entry are distinct boundary verdicts."""
+    """Phase-completion and closure-entry are distinct boundary verdicts."""
     story_id, run_id = "AG3-923", "run-923"
     _seed_story_context(tmp_path, story_id, participating_repos=["api"])
     service = _service((_verified("api"),), ident="inst-923")
@@ -902,7 +955,7 @@ def test_pre_merge_verdict_does_not_satisfy_closure_entry_boundary(
             project_key=_PROJECT,
             story_id=story_id,
             run_id=run_id,
-            boundary_type=SyncPointBarrierType.PRE_MERGE,
+            boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
             boundary_id=run_id,
             repo_id="api",
             producer="test",
@@ -914,7 +967,7 @@ def test_pre_merge_verdict_does_not_satisfy_closure_entry_boundary(
             created_at=_T0,
             updated_at=_T0,
             resolved_at=_T0,
-            status_detail="pre-merge only",
+            status_detail="phase-completion only",
         )
     )
 

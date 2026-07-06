@@ -78,12 +78,14 @@ EXECUTABLE_COMMAND_KINDS: frozenset[str] = frozenset(
 #: FK-91 §91.1a Rule 16 (no wall-clock end): a command record's lifecycle
 #: status. ``created`` = enqueued, not yet fetched by any GET; ``delivered`` =
 #: the GET ack fired at least once; ``completed`` / ``failed`` are terminal (a
-#: result was applied). There is deliberately no ``expired`` member -- open
-#: commands never end by TTL (SOLL-165).
-CommandStatus = Literal["created", "delivered", "completed", "failed"]
+#: result was applied). ``superseded`` is a terminal backend transition for a
+#: commissioned boundary command whose wait point escalated and rebound a newer
+#: epoch; it is not a silent wall-clock expiry because the caller writes a
+#: durable backlog verdict and audit payload at the same boundary decision.
+CommandStatus = Literal["created", "delivered", "completed", "failed", "superseded"]
 
 ALL_COMMAND_STATUSES: frozenset[str] = frozenset(
-    {"created", "delivered", "completed", "failed"}
+    {"created", "delivered", "completed", "failed", "superseded"}
 )
 
 #: The non-terminal statuses a session's GET may return / a POST result may

@@ -53,7 +53,6 @@ from agentkit.backend.control_plane.ownership_fence import (
 )
 from agentkit.backend.control_plane.push_sync import (
     BarrierVerdict,
-    MergePrecondition,
     PushBarrierBlockCode,
     PushBarrierVerdict,
     PushBarrierVerdictStatus,
@@ -109,6 +108,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _RECONCILE_PRESERVED_STATUSES = frozenset({"aborted", "repair", "failed"})
+
+
+@dataclass(frozen=True)
+class MergePrecondition:
+    """Closure-entry push precondition projected from the barrier SSOT."""
+
+    satisfied: bool
+    blocking_repos: tuple[str, ...]
+    detail: str
 
 
 class OperationNotFoundError(LookupError):
@@ -892,15 +900,13 @@ class _RunGateMixin:
                         repo_id=verdict.repo_id,
                         load_command=self._edge_command_repo.load_command,
                     )
-                    if open_command is not None and push_barrier_lifecycle.open_command_timed_out(
-                        open_command,
-                        now=now,
-                    ):
-                        self._upsert_boundary_verdict(
-                            push_barrier_lifecycle.timed_out_open_command_verdict(
-                                verdict,
-                                updated_at=now,
-                            )
+                    if open_command is not None:
+                        push_barrier_lifecycle.block_timed_out_open_command(
+                            command=open_command,
+                            verdict=verdict,
+                            now=now,
+                            persist_blocked_verdict=self._upsert_boundary_verdict,
+                            supersede_open_command=self._edge_command_repo.supersede_command,
                         )
                     continue
                 self._edge_command_repo.commission_command(
@@ -3213,9 +3219,9 @@ class ControlPlaneRuntimeService(
         #: AG3-147 (FK-10 §10.2.4b boundary type 4 + FK-12 §12.4.3, SOLL-190):
         #: the closure-entry push barrier. Closure entry is fail-closed BLOCKED
         #: unless the story branch is server-verified-pushed in EVERY participating
-        #: repo -- via the SAME reusable ``verify_pushed_across_repos`` merge
-        #: precondition AG3-152 consumes (AC12). Checked AFTER admission, BEFORE the
-        #: object claim + teardown, so a blocked barrier tears down NOTHING.
+        #: repo -- via the persisted closure-entry barrier SSOT. Checked AFTER
+        #: admission, BEFORE the object claim + teardown, so a blocked barrier
+        #: tears down NOTHING.
         merge_block = self._closure_push_precondition_block(
             project_key=request.project_key,
             story_id=request.story_id,
@@ -4889,12 +4895,33 @@ def _default_di_edge_command_repository() -> EdgeCommandRepository:
             result_payload=result_payload,
         )
 
+    def _supersede_command(
+        *,
+        command_id: str,
+        completed_at: datetime,
+        result_payload: dict[str, object],
+    ) -> bool:
+        from dataclasses import replace
+
+        current = commands.get(command_id)
+        if current is None or current.status not in {"created", "delivered"}:
+            return False
+        commands[command_id] = replace(
+            current,
+            status="superseded",
+            completed_at=completed_at,
+            result_type="command_superseded",
+            result_payload=result_payload,
+        )
+        return True
+
     return EdgeCommandRepository(
         insert_command=_insert,
         commission_command=_commission,
         load_command=_load,
         list_and_ack_open_commands=_list_and_ack,
         commit_result=_commit_result,
+        supersede_command=_supersede_command,
     )
 
 
