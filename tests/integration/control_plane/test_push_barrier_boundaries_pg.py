@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
@@ -86,9 +86,7 @@ class _FakeBarrierPort:
         return tuple(
             replace(
                 inp,
-                edge_report_sync_point_id=(
-                    inp.edge_report_sync_point_id or required_sync_point_id
-                ),
+                edge_report_sync_point_id=(inp.edge_report_sync_point_id or required_sync_point_id),
                 required_sync_point_id=required_sync_point_id,
             )
             for inp in self.inputs
@@ -97,15 +95,23 @@ class _FakeBarrierPort:
 
 class _AdmittedDispatcher:
     def dispatch(
-        self, *, ctx: object, phase: str, run_id: str, run_admitted: bool,
+        self,
+        *,
+        ctx: object,
+        phase: str,
+        run_id: str,
+        run_admitted: bool,
         detail: dict[str, object] | None = None,
     ) -> object:
         from agentkit.backend.control_plane.models import PhaseDispatchResult
 
         del ctx, run_id, run_admitted, detail
         return PhaseDispatchResult(
-            phase=phase, status="phase_completed", reaction="advance",
-            dispatched=True, next_phase="implementation",
+            phase=phase,
+            status="phase_completed",
+            reaction="advance",
+            dispatched=True,
+            next_phase="implementation",
         )
 
 
@@ -113,14 +119,22 @@ class _YieldingDispatcher:
     """A dispatcher whose resume RE-PAUSES the phase (yields to the worker)."""
 
     def dispatch(
-        self, *, ctx: object, phase: str, run_id: str, run_admitted: bool,
+        self,
+        *,
+        ctx: object,
+        phase: str,
+        run_id: str,
+        run_admitted: bool,
         detail: dict[str, object] | None = None,
     ) -> object:
         from agentkit.backend.control_plane.models import PhaseDispatchResult
 
         del ctx, run_id, run_admitted, detail
         return PhaseDispatchResult(
-            phase=phase, status="yielded", reaction="run_worker", dispatched=True,
+            phase=phase,
+            status="yielded",
+            reaction="run_worker",
+            dispatched=True,
         )
 
 
@@ -183,9 +197,7 @@ def _no_edge_report(repo_id: str) -> RepoPushVerificationInput:
     )
 
 
-def _seed_story_context(
-    tmp_path: Path, story_id: str, *, participating_repos: list[str] | None = None
-) -> None:
+def _seed_story_context(tmp_path: Path, story_id: str, *, participating_repos: list[str] | None = None) -> None:
     project_root = tmp_path / _PROJECT
     (project_root / "stories" / story_id).mkdir(parents=True, exist_ok=True)
     save_story_context_global(
@@ -228,9 +240,7 @@ def _service(
     )
 
 
-def _service_with_mutable_barrier(
-    barrier: _MutableBarrierPort, *, ident: str
-) -> ControlPlaneRuntimeService:
+def _service_with_mutable_barrier(barrier: _MutableBarrierPort, *, ident: str) -> ControlPlaneRuntimeService:
     identity = boot_backend_instance_identity_global(ident, _T0)
     return ControlPlaneRuntimeService(
         phase_dispatcher=_AdmittedDispatcher(),  # type: ignore[arg-type]
@@ -243,7 +253,8 @@ def _service_with_mutable_barrier(
 def _admit_run(service: ControlPlaneRuntimeService, *, story_id: str, run_id: str) -> None:
     """Mint the active ownership via a REAL setup start (not hand-assembled)."""
     result = service.start_phase(
-        run_id=run_id, phase="setup",
+        run_id=run_id,
+        phase="setup",
         request=_request(story_id=story_id, op_id=f"op-setup-{story_id}"),
     )
     assert result.status == "committed"
@@ -289,7 +300,8 @@ def test_phase_completion_barrier_blocks_when_server_head_mismatches_edge(tmp_pa
     _admit_run(service, story_id=story_id, run_id=run_id)
 
     result = service.complete_phase(
-        run_id=run_id, phase="implementation",
+        run_id=run_id,
+        phase="implementation",
         request=_request(story_id=story_id, op_id="op-complete-901"),
     )
 
@@ -306,7 +318,8 @@ def test_phase_completion_barrier_blocks_when_no_edge_report(tmp_path: Path) -> 
     _admit_run(service, story_id=story_id, run_id=run_id)
 
     result = service.complete_phase(
-        run_id=run_id, phase="implementation",
+        run_id=run_id,
+        phase="implementation",
         request=_request(story_id=story_id, op_id="op-complete-902"),
     )
 
@@ -347,17 +360,13 @@ def test_phase_completion_commissions_sync_push_before_block(tmp_path: Path) -> 
     )
 
     assert result.status == "rejected"
-    command = load_edge_command_record_global(
-        "run-912::sync_push::phase_completion:run-912:epoch-1::api"
-    )
+    command = load_edge_command_record_global("run-912::sync_push::phase_completion:run-912:epoch-1::api")
     assert command is not None
     assert command.command_kind == "sync_push"
     assert command.payload["repo_id"] == "api"
 
 
-def test_phase_completion_commission_failure_warns_and_still_blocks(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_phase_completion_commission_failure_warns_and_still_blocks(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     """Best-effort commission exceptions do not escape or open the boundary."""
     story_id, run_id = "AG3-913", "run-913"
     _seed_story_context(tmp_path, story_id, participating_repos=["api"])
@@ -392,9 +401,7 @@ def test_phase_completion_retry_after_failed_sync_push_eventually_passes(
     request = _request(story_id=story_id, op_id="op-complete-914")
     base_command_id = "run-914::sync_push::phase_completion:run-914:epoch-1::api"
 
-    first = service.complete_phase(
-        run_id=run_id, phase="implementation", request=request
-    )
+    first = service.complete_phase(run_id=run_id, phase="implementation", request=request)
     assert first.status == "rejected"
     assert load_edge_command_record_global(base_command_id) is not None
 
@@ -403,9 +410,7 @@ def test_phase_completion_retry_after_failed_sync_push_eventually_passes(
         _command_error_request(story_id=story_id, op_id="edge-op-failed-914"),
     )
     assert failed.status == "completed"
-    second = service.complete_phase(
-        run_id=run_id, phase="implementation", request=request
-    )
+    second = service.complete_phase(run_id=run_id, phase="implementation", request=request)
     assert second.status == "rejected"
     retry_command_id = "run-914::sync_push::phase_completion:run-914:epoch-2::api"
     assert load_edge_command_record_global(retry_command_id) is not None
@@ -417,10 +422,55 @@ def test_phase_completion_retry_after_failed_sync_push_eventually_passes(
     assert pushed.status == "completed"
     barrier.inputs = (_verified("api"),)
 
-    third = service.complete_phase(
-        run_id=run_id, phase="implementation", request=request
-    )
+    third = service.complete_phase(run_id=run_id, phase="implementation", request=request)
     assert third.status == "committed"
+
+
+def test_phase_completion_open_sync_push_timeout_rebinds_boundary_epoch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale open sync_push command is escalated and superseded by a retry epoch."""
+    from agentkit.backend.control_plane import push_barrier_lifecycle
+
+    story_id, run_id = "AG3-925", "run-925"
+    _seed_story_context(tmp_path, story_id, participating_repos=["api"])
+    service = _service((_no_edge_report("api"),), ident="inst-925")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    request = _request(story_id=story_id, op_id="op-complete-925")
+    monkeypatch.setattr(push_barrier_lifecycle, "OPEN_SYNC_PUSH_TIMEOUT", timedelta(seconds=0))
+
+    first = service.complete_phase(run_id=run_id, phase="implementation", request=request)
+    assert first.status == "rejected"
+    base_command_id = "run-925::sync_push::phase_completion:run-925:epoch-1::api"
+    assert load_edge_command_record_global(base_command_id) is not None
+
+    second = service.complete_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(story_id=story_id, op_id="op-complete-925-timeout"),
+    )
+    assert second.status == "rejected"
+    blocked = load_push_barrier_verdict_global(
+        project_key=_PROJECT,
+        story_id=story_id,
+        run_id=run_id,
+        boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
+        boundary_id=run_id,
+        repo_id="api",
+    )
+    assert blocked is not None
+    assert blocked.status is PushBarrierVerdictStatus.BLOCKED_BACKLOG
+    assert blocked.status_detail == "sync_push_command_timed_out"
+
+    third = service.complete_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(story_id=story_id, op_id="op-complete-925-retry"),
+    )
+    assert third.status == "rejected"
+    retry_command_id = "run-925::sync_push::phase_completion:run-925:epoch-2::api"
+    assert load_edge_command_record_global(retry_command_id) is not None
 
 
 def test_registered_commit_invalidates_pending_boundary_epoch(tmp_path: Path) -> None:
@@ -538,6 +588,74 @@ def test_registered_commit_invalidates_passed_boundary_epoch(tmp_path: Path) -> 
     assert superseded.expected_head_sha == _SHA_Y
 
 
+def test_registered_commit_with_missing_metadata_invalidates_all_live_boundaries(
+    tmp_path: Path,
+) -> None:
+    """Missing hook metadata degrades fail-closed instead of leaving PASS usable."""
+    story_id, run_id = "AG3-926", "run-926"
+    _seed_story_context(tmp_path, story_id, participating_repos=["api", "web"])
+    service = _service((_verified("api"), _verified("web")), ident="inst-926")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+
+    first = service.complete_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(story_id=story_id, op_id="op-complete-926"),
+    )
+    assert first.status == "rejected"
+    for repo in ("api", "web"):
+        pushed = service.submit_command_result(
+            f"run-926::sync_push::phase_completion:run-926:epoch-1::{repo}",
+            EdgeCommandResultRequest(
+                project_key=_PROJECT,
+                story_id=story_id,
+                session_id="sess-A",
+                op_id=f"edge-op-{repo}-926",
+                result=PushStatusReport(
+                    repo_id=repo,
+                    push_outcome="pushed",
+                    head_sha=_SHA_X,
+                ),
+            ),
+        )
+        assert pushed.status == "completed"
+    committed = service.complete_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(story_id=story_id, op_id="op-complete-926-pass"),
+    )
+    assert committed.status == "committed"
+
+    append_execution_event_global(
+        ExecutionEventRecord(
+            project_key=_PROJECT,
+            story_id=story_id,
+            run_id=run_id,
+            event_id="commit-926",
+            event_type="increment_commit",
+            occurred_at=_T0,
+            source_component="commit_hook",
+            severity="info",
+            phase="implementation",
+            payload={},
+        )
+    )
+
+    for repo in ("api", "web"):
+        superseded = load_push_barrier_verdict_global(
+            project_key=_PROJECT,
+            story_id=story_id,
+            run_id=run_id,
+            boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
+            boundary_id=run_id,
+            repo_id=repo,
+        )
+        assert superseded is not None
+        assert superseded.status is PushBarrierVerdictStatus.SUPERSEDED
+        assert superseded.boundary_epoch == 2
+        assert superseded.expected_head_sha is None
+
+
 def test_late_result_with_stale_ownership_epoch_is_fenced(tmp_path: Path) -> None:
     """A result tagged with a stale ownership epoch cannot satisfy the boundary."""
     story_id, run_id = "AG3-922", "run-922"
@@ -590,7 +708,8 @@ def test_phase_completion_barrier_passes_when_verified(tmp_path: Path) -> None:
     _admit_run(service, story_id=story_id, run_id=run_id)
 
     result = service.complete_phase(
-        run_id=run_id, phase="implementation",
+        run_id=run_id,
+        phase="implementation",
         request=_request(story_id=story_id, op_id="op-complete-903"),
     )
 
@@ -618,7 +737,8 @@ def test_phase_completion_barrier_passes_when_verified(tmp_path: Path) -> None:
     )
     assert pushed.status == "completed"
     result = service.complete_phase(
-        run_id=run_id, phase="implementation",
+        run_id=run_id,
+        phase="implementation",
         request=_request(story_id=story_id, op_id="op-complete-903-retry"),
     )
 
@@ -635,7 +755,8 @@ def test_setup_completion_is_not_gated_by_the_push_barrier(tmp_path: Path) -> No
     _admit_run(service, story_id=story_id, run_id=run_id)
 
     result = service.complete_phase(
-        run_id=run_id, phase="setup",
+        run_id=run_id,
+        phase="setup",
         request=_request(story_id=story_id, op_id="op-complete-setup-904"),
     )
 
@@ -658,7 +779,8 @@ def test_phase_completion_barrier_blocks_on_one_unverified_repo(tmp_path: Path) 
     _admit_run(service, story_id=story_id, run_id=run_id)
 
     result = service.complete_phase(
-        run_id=run_id, phase="implementation",
+        run_id=run_id,
+        phase="implementation",
         request=_request(story_id=story_id, op_id="op-complete-905"),
     )
 
@@ -680,7 +802,8 @@ def test_phase_completion_barrier_blocks_on_one_unverified_repo(tmp_path: Path) 
         )
         assert pushed.status == "completed"
     result = service.complete_phase(
-        run_id=run_id, phase="implementation",
+        run_id=run_id,
+        phase="implementation",
         request=_request(story_id=story_id, op_id="op-complete-905-retry"),
     )
 
@@ -713,7 +836,8 @@ def test_closure_entry_barrier_blocks_unverified_push(tmp_path: Path) -> None:
     _admit_run(service, story_id=story_id, run_id=run_id)
 
     result = service.complete_closure(
-        run_id=run_id, request=_closure_request(story_id=story_id, op_id="op-closure-906"),
+        run_id=run_id,
+        request=_closure_request(story_id=story_id, op_id="op-closure-906"),
     )
 
     assert result.status == "rejected"
@@ -746,7 +870,8 @@ def test_closure_entry_barrier_passes_when_verified(tmp_path: Path) -> None:
     _admit_run(service, story_id=story_id, run_id=run_id)
 
     result = service.complete_closure(
-        run_id=run_id, request=_closure_request(story_id=story_id, op_id="op-closure-907"),
+        run_id=run_id,
+        request=_closure_request(story_id=story_id, op_id="op-closure-907"),
     )
 
     assert result.status == "rejected"
@@ -829,7 +954,8 @@ def test_yield_point_barrier_blocks_unverified_push(tmp_path: Path) -> None:
     )
 
     result = resume_svc.resume_phase(
-        run_id=run_id, phase="implementation",
+        run_id=run_id,
+        phase="implementation",
         request=_request(story_id=story_id, op_id="op-resume-908"),
     )
 
@@ -887,7 +1013,8 @@ def test_yield_point_barrier_passes_when_verified(tmp_path: Path) -> None:
     )
 
     result = resume_svc.resume_phase(
-        run_id=run_id, phase="implementation",
+        run_id=run_id,
+        phase="implementation",
         request=_request(story_id=story_id, op_id="op-resume-909"),
     )
 
@@ -899,7 +1026,8 @@ def test_yield_point_barrier_passes_when_verified(tmp_path: Path) -> None:
     )
     assert pushed.status == "completed"
     result = resume_svc.resume_phase(
-        run_id=run_id, phase="implementation",
+        run_id=run_id,
+        phase="implementation",
         request=_request(story_id=story_id, op_id="op-resume-909"),
     )
 

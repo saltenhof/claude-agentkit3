@@ -73,8 +73,7 @@ def _database_url() -> str:
     config = load_state_backend_config()
     if not config.database_url:
         raise RuntimeError(
-            f"{STATE_DATABASE_URL_ENV} must be set when "
-            "AGENTKIT_STATE_BACKEND=postgres",
+            f"{STATE_DATABASE_URL_ENV} must be set when AGENTKIT_STATE_BACKEND=postgres",
         )
     return config.database_url
 
@@ -296,8 +295,7 @@ def _resolve_state_pool_max_size() -> int:
         ) from exc
     if value < 1:
         raise RuntimeError(
-            f"Invalid {_STATE_POOL_MAX_SIZE_ENV}={value}; the pool must allow at "
-            "least one connection.",
+            f"Invalid {_STATE_POOL_MAX_SIZE_ENV}={value}; the pool must allow at least one connection.",
         )
     return value
 
@@ -716,10 +714,7 @@ def _schema_alter_statements() -> tuple[str, ...]:
     return (
         "ALTER TABLE story_contexts ADD COLUMN IF NOT EXISTS story_uuid UUID",
         "ALTER TABLE story_contexts ADD COLUMN IF NOT EXISTS story_number INTEGER",
-        (
-            "UPDATE story_contexts SET story_uuid = gen_random_uuid() "
-            "WHERE story_uuid IS NULL"
-        ),
+        ("UPDATE story_contexts SET story_uuid = gen_random_uuid() WHERE story_uuid IS NULL"),
         (
             "UPDATE story_contexts SET story_number = "
             "substring(story_id from '-([0-9]+)$')::INTEGER "
@@ -757,18 +752,12 @@ def _schema_alter_statements() -> tuple[str, ...]:
         "ALTER TABLE story_contexts ALTER COLUMN story_uuid SET DEFAULT gen_random_uuid()",
         "ALTER TABLE story_contexts ALTER COLUMN story_uuid SET NOT NULL",
         "ALTER TABLE story_contexts ALTER COLUMN story_number SET NOT NULL",
-        (
-            "CREATE UNIQUE INDEX IF NOT EXISTS story_contexts_story_uuid_idx "
-            "ON story_contexts (story_uuid)"
-        ),
+        ("CREATE UNIQUE INDEX IF NOT EXISTS story_contexts_story_uuid_idx ON story_contexts (story_uuid)"),
         (
             "CREATE UNIQUE INDEX IF NOT EXISTS story_contexts_project_story_number_idx "
             "ON story_contexts (project_key, story_number)"
         ),
-        (
-            "CREATE UNIQUE INDEX IF NOT EXISTS story_contexts_story_id_idx "
-            "ON story_contexts (story_id)"
-        ),
+        ("CREATE UNIQUE INDEX IF NOT EXISTS story_contexts_story_id_idx ON story_contexts (story_id)"),
         (
             "CREATE TABLE IF NOT EXISTS story_are_links ("
             "story_id TEXT NOT NULL, "
@@ -789,10 +778,7 @@ def _schema_alter_statements() -> tuple[str, ...]:
         # AG3-031 Pass-5 FK-22 §22.7 corrective: PK corrected to 4-tuple
         # (project_key, story_id, run_id, lock_type).  Old PK omitted story_id.
         # Applied under SCHEMA_VERSION 3.6.0 as the old schema was never in production.
-        (
-            "ALTER TABLE story_execution_locks "
-            "DROP CONSTRAINT IF EXISTS story_execution_locks_pkey"
-        ),
+        ("ALTER TABLE story_execution_locks DROP CONSTRAINT IF EXISTS story_execution_locks_pkey"),
         (
             "ALTER TABLE story_execution_locks "
             "ADD CONSTRAINT story_execution_locks_pkey "
@@ -802,10 +788,7 @@ def _schema_alter_statements() -> tuple[str, ...]:
         "ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS run_id TEXT",
         "ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS flow_id TEXT",
         "UPDATE phase_states SET phase = 'implementation' WHERE phase = 'verify'",
-        (
-            "UPDATE flow_executions SET current_node_id = 'implementation' "
-            "WHERE current_node_id = 'verify'"
-        ),
+        ("UPDATE flow_executions SET current_node_id = 'implementation' WHERE current_node_id = 'verify'"),
         (
             "UPDATE node_execution_ledgers n SET node_id = 'implementation' "
             "WHERE n.node_id = 'verify' AND NOT EXISTS ("
@@ -829,14 +812,8 @@ def _schema_alter_statements() -> tuple[str, ...]:
         # TIMESTAMPTZ) for claimed_at matches the table's other instants
         # (created_at/updated_at) so the ownership-scoped finalize/release CAS
         # (AG3-054 WARNING-4) exact-match roundtrips through plain ISO-8601 text.
-        (
-            "ALTER TABLE control_plane_operations "
-            "ADD COLUMN IF NOT EXISTS claimed_by TEXT"
-        ),
-        (
-            "ALTER TABLE control_plane_operations "
-            "ADD COLUMN IF NOT EXISTS claimed_at TEXT"
-        ),
+        ("ALTER TABLE control_plane_operations ADD COLUMN IF NOT EXISTS claimed_by TEXT"),
+        ("ALTER TABLE control_plane_operations ADD COLUMN IF NOT EXISTS claimed_at TEXT"),
         (
             "CREATE INDEX IF NOT EXISTS control_plane_operations_run_idx "
             "ON control_plane_operations (project_key, story_id, run_id)"
@@ -847,90 +824,46 @@ def _schema_alter_statements() -> tuple[str, ...]:
         # applied idempotently here for an existing same-version schema. All are
         # nullable / DEFAULT so a DB pre-populated with legacy rows survives
         # losslessly (AK3/AK4).
-        (
-            "ALTER TABLE session_run_bindings "
-            "ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'"
-        ),
-        (
-            "ALTER TABLE session_run_bindings "
-            "ADD COLUMN IF NOT EXISTS revocation_reason TEXT"
-        ),
-        (
-            "ALTER TABLE control_plane_operations "
-            "ADD COLUMN IF NOT EXISTS operation_epoch INTEGER"
-        ),
-        (
-            "ALTER TABLE control_plane_operations "
-            "ADD COLUMN IF NOT EXISTS backend_instance_id TEXT"
-        ),
-        (
-            "ALTER TABLE control_plane_operations "
-            "ADD COLUMN IF NOT EXISTS instance_incarnation INTEGER"
-        ),
-        (
-            "ALTER TABLE control_plane_operations "
-            "ADD COLUMN IF NOT EXISTS declared_serialization_scope TEXT"
-        ),
-        (
-            "ALTER TABLE control_plane_operations "
-            "ADD COLUMN IF NOT EXISTS finalized_at TEXT"
-        ),
+        ("ALTER TABLE session_run_bindings ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'"),
+        ("ALTER TABLE session_run_bindings ADD COLUMN IF NOT EXISTS revocation_reason TEXT"),
+        ("ALTER TABLE control_plane_operations ADD COLUMN IF NOT EXISTS operation_epoch INTEGER"),
+        ("ALTER TABLE control_plane_operations ADD COLUMN IF NOT EXISTS backend_instance_id TEXT"),
+        ("ALTER TABLE control_plane_operations ADD COLUMN IF NOT EXISTS instance_incarnation INTEGER"),
+        ("ALTER TABLE control_plane_operations ADD COLUMN IF NOT EXISTS declared_serialization_scope TEXT"),
+        ("ALTER TABLE control_plane_operations ADD COLUMN IF NOT EXISTS finalized_at TEXT"),
         # AG3-140 (unified idempotency contract): the ``request_body_hash`` column
         # + the ``story_id`` NOT-NULL relaxation on the inflight-operation-record.
         # A fresh schema gets both from postgres_schema.sql CREATE TABLE; an
         # existing same-version schema gets them idempotently here. Additive /
         # lossless on a pre-populated DB (every existing row keeps its non-null
         # story_id; DROP NOT NULL on an already-nullable column is a no-op).
-        (
-            "ALTER TABLE control_plane_operations "
-            "ADD COLUMN IF NOT EXISTS request_body_hash TEXT"
-        ),
-        (
-            "ALTER TABLE control_plane_operations "
-            "ALTER COLUMN story_id DROP NOT NULL"
-        ),
+        ("ALTER TABLE control_plane_operations ADD COLUMN IF NOT EXISTS request_body_hash TEXT"),
+        ("ALTER TABLE control_plane_operations ALTER COLUMN story_id DROP NOT NULL"),
         # AG3-147 remediation: hard push barriers require boundary-correlated
         # freshness, so existing push_freshness_records rows need producer
         # metadata columns. Nullable keeps the migration additive/lossless; rows
         # without a sync-point id simply cannot satisfy a correlated barrier.
-        (
-            "ALTER TABLE push_freshness_records "
-            "ADD COLUMN IF NOT EXISTS last_sync_point_id TEXT"
-        ),
-        (
-            "ALTER TABLE push_freshness_records "
-            "ADD COLUMN IF NOT EXISTS last_command_id TEXT"
-        ),
+        ("ALTER TABLE push_freshness_records ADD COLUMN IF NOT EXISTS last_sync_point_id TEXT"),
+        ("ALTER TABLE push_freshness_records ADD COLUMN IF NOT EXISTS last_command_id TEXT"),
         # The legacy ``attempt_records`` table was removed with schema 3.5.0
         # (AG3-025 re-review finding 2). No more migration updates.
         # AG3-057: Trigger 3 input column for existing Postgres schemas that
         # pre-date the postgres_schema.sql addition.  Idempotent via IF NOT EXISTS.
-        (
-            "ALTER TABLE stories "
-            "ADD COLUMN IF NOT EXISTS new_structures BOOLEAN NOT NULL DEFAULT FALSE"
-        ),
+        ("ALTER TABLE stories ADD COLUMN IF NOT EXISTS new_structures BOOLEAN NOT NULL DEFAULT FALSE"),
         # AG3-068: VectorDB-conflict producer flag column for existing Postgres
         # schemas that pre-date the postgres_schema.sql addition (FK-21 §21.12).
         # Idempotent via IF NOT EXISTS.
-        (
-            "ALTER TABLE stories ADD COLUMN IF NOT EXISTS "
-            "vectordb_conflict_resolved BOOLEAN NOT NULL DEFAULT FALSE"
-        ),
+        ("ALTER TABLE stories ADD COLUMN IF NOT EXISTS vectordb_conflict_resolved BOOLEAN NOT NULL DEFAULT FALSE"),
         # AG3-072 (FK-54 §54.8.5): materialized split lineage columns for existing
         # Postgres schemas that pre-date the postgres_schema.sql addition.
         # Idempotent via IF NOT EXISTS.
         "ALTER TABLE stories ADD COLUMN IF NOT EXISTS split_from TEXT NULL",
-        (
-            "ALTER TABLE stories ADD COLUMN IF NOT EXISTS "
-            "split_successors JSONB NOT NULL DEFAULT '[]'::jsonb"
-        ),
+        ("ALTER TABLE stories ADD COLUMN IF NOT EXISTS split_successors JSONB NOT NULL DEFAULT '[]'::jsonb"),
     )
 
 
 def _ensure_reporting_indexes(conn: _CompatConnection) -> None:
-    conn.execute(
-        "ALTER TABLE decision_records DROP CONSTRAINT IF EXISTS decision_records_pkey"
-    )
+    conn.execute("ALTER TABLE decision_records DROP CONSTRAINT IF EXISTS decision_records_pkey")
     conn.execute(
         """
         CREATE UNIQUE INDEX IF NOT EXISTS decision_records_scope_identity_idx
@@ -1064,8 +997,7 @@ def _ensure_run_ownership_backfill(conn: _CompatConnection) -> None:
     #    normalisation, never data-discarding): legacy rows carry a random
     #    ``bind-<uuid4>`` binding_version and no status.
     conn.execute(
-        "UPDATE session_run_bindings SET status = 'active' "
-        "WHERE status IS NULL OR status = ''",
+        "UPDATE session_run_bindings SET status = 'active' WHERE status IS NULL OR status = ''",
     )
     conn.execute(
         # Normalise every NON-canonical legacy value (random bind-<uuid4>, empty,
@@ -1075,8 +1007,7 @@ def _ensure_run_ownership_backfill(conn: _CompatConnection) -> None:
         # regex is single-sourced from ownership.BINDING_VERSION_SQL_CHECK (a
         # trusted module constant, not user input) so it cannot drift from the
         # CHECK the same bootstrap installs below (target-3 / SSOT).
-        "UPDATE session_run_bindings SET binding_version = '1' "
-        f"WHERE binding_version !~ '{BINDING_VERSION_SQL_CHECK}'",
+        f"UPDATE session_run_bindings SET binding_version = '1' WHERE binding_version !~ '{BINDING_VERSION_SQL_CHECK}'",
     )
 
     # 2. Ambiguity guard: two active bindings for the same (project, story)
@@ -2469,21 +2400,36 @@ def _invalidate_push_barriers_for_registered_commit(
     conn: _CompatConnection,
     row: dict[str, Any],
 ) -> None:
-    """Supersede live push barriers for an AK3-registered commit event."""
+    """Supersede live push barriers for an AK3-registered commit event.
+
+    The event hook is intentionally best-effort at extracting repo and SHA
+    metadata from shell execution. Missing metadata must degrade fail-closed:
+    unknown repo supersedes every repo in the run scope, and unknown SHA clears
+    the expected head instead of leaving an old PASS usable.
+    """
 
     if row["event_type"] != "increment_commit":
         return
     payload = json.loads(str(row["payload_json"]))
     if not isinstance(payload, dict):
         return
-    repo_id = payload.get("repo_name")
-    commit_sha = payload.get("commit_sha")
-    if not isinstance(repo_id, str) or not repo_id.strip():
-        return
-    if not isinstance(commit_sha, str) or not commit_sha.strip():
-        return
+    repo_name = payload.get("repo_name")
+    repo_id = repo_name.strip() if isinstance(repo_name, str) else ""
+    head_value = payload.get("commit_sha")
+    commit_sha = head_value.strip() if isinstance(head_value, str) else ""
+    repo_filter = "AND repo_id = ?" if repo_id else ""
+    params: list[object] = [
+        commit_sha or None,
+        row["occurred_at"],
+        row["occurred_at"],
+        row["project_key"],
+        row["story_id"],
+        row["run_id"],
+    ]
+    if repo_id:
+        params.append(repo_id)
     conn.execute(
-        """
+        f"""
         UPDATE push_barrier_verdicts
         SET boundary_epoch = boundary_epoch + 1,
             expected_head_sha = ?,
@@ -2495,18 +2441,10 @@ def _invalidate_push_barriers_for_registered_commit(
         WHERE project_key = ?
           AND story_id = ?
           AND run_id = ?
-          AND repo_id = ?
+          {repo_filter}
           AND status IN ('pending', 'passed')
         """,
-        (
-            commit_sha,
-            row["occurred_at"],
-            row["occurred_at"],
-            row["project_key"],
-            row["story_id"],
-            row["run_id"],
-            repo_id,
-        ),
+        tuple(params),
     )
 
 
@@ -2868,7 +2806,8 @@ def load_active_run_ownership_record_global_row(
 
 
 def _insert_execution_contract_digest_row(
-    conn: _CompatConnection, row: dict[str, Any],
+    conn: _CompatConnection,
+    row: dict[str, Any],
 ) -> None:
     """Strictly INSERT one execution-contract-digest row on an EXISTING connection.
 
@@ -3192,9 +3131,7 @@ def upsert_push_freshness_record_global_row(row: dict[str, Any]) -> None:
         )
 
 
-def load_push_freshness_record_global_row(
-    project_key: str, story_id: str, run_id: str, repo_id: str
-) -> dict[str, Any] | None:
+def load_push_freshness_record_global_row(project_key: str, story_id: str, run_id: str, repo_id: str) -> dict[str, Any] | None:
     """Return the raw push-freshness row for one repo, or ``None`` (AG3-147)."""
 
     with _connect_global() as conn:
@@ -3210,9 +3147,7 @@ def load_push_freshness_record_global_row(
     return dict(row)
 
 
-def list_push_freshness_records_global_row(
-    project_key: str, story_id: str, run_id: str
-) -> list[dict[str, Any]]:
+def list_push_freshness_records_global_row(project_key: str, story_id: str, run_id: str) -> list[dict[str, Any]]:
     """Return the run's push-freshness rows, one per repo, ordered (AG3-147)."""
 
     with _connect_global() as conn:
@@ -3413,9 +3348,7 @@ def upsert_ref_protection_degradation_finding_global_row(row: dict[str, Any]) ->
         )
 
 
-def list_ref_protection_degradation_finding_global_rows(
-    project_key: str, story_id: str
-) -> list[dict[str, Any]]:
+def list_ref_protection_degradation_finding_global_rows(project_key: str, story_id: str) -> list[dict[str, Any]]:
     """Return project-visible ref-protection degradation WARNING rows."""
     with _connect_global() as conn:
         rows = conn.execute(
@@ -4066,9 +3999,7 @@ def finalize_control_plane_operation_global_row(
         ``True`` iff this owner's terminal write applied (rowcount == 1).
     """
 
-    epoch_clause, epoch_params = _owner_fencing_cas_clause(
-        owner_claimed_at, owner_operation_epoch
-    )
+    epoch_clause, epoch_params = _owner_fencing_cas_clause(owner_claimed_at, owner_operation_epoch)
     with _connect_global() as conn:
         # epoch_clause is a constant fragment, not user data.
         cursor = conn.execute(
@@ -4324,25 +4255,16 @@ def _enforce_ownership_fence_row(
     raise OwnershipFenceViolationError(
         f"ownership fence violated for run {run_id!r} "
         f"(project={project_key!r}, story={story_id!r}, session={session_id!r}, "
-        f"expected_ownership_epoch={expected_ownership_epoch!r}): "
-        + reason,
+        f"expected_ownership_epoch={expected_ownership_epoch!r}): " + reason,
         detail={
-            "current_owner_session_id": (
-                str(active["owner_session_id"]) if active is not None else None
-            ),
-            "current_ownership_epoch": (
-                int(active["ownership_epoch"]) if active is not None else None
-            ),
-            "transferred_at": (
-                str(active["acquired_at"]) if active is not None else None
-            ),
+            "current_owner_session_id": (str(active["owner_session_id"]) if active is not None else None),
+            "current_ownership_epoch": (int(active["ownership_epoch"]) if active is not None else None),
+            "transferred_at": (str(active["acquired_at"]) if active is not None else None),
         },
     )
 
 
-def _insert_story_execution_lock_row(
-    conn: _CompatConnection, row: dict[str, Any]
-) -> None:
+def _insert_story_execution_lock_row(conn: _CompatConnection, row: dict[str, Any]) -> None:
     """Insert/upsert one story-execution-lock row on an EXISTING connection (#1)."""
     conn.execute(
         """
@@ -4460,9 +4382,7 @@ def finalize_control_plane_start_phase_global_row(
     class _NotOwnerError(RuntimeError):
         """Internal sentinel: abort + roll back when the ownership CAS loses."""
 
-    epoch_clause, epoch_params = _owner_fencing_cas_clause(
-        owner_claimed_at, owner_operation_epoch
-    )
+    epoch_clause, epoch_params = _owner_fencing_cas_clause(owner_claimed_at, owner_operation_epoch)
     try:
         with _connect_global() as conn:
             cursor = conn.execute(
@@ -4505,7 +4425,8 @@ def finalize_control_plane_start_phase_global_row(
                 _insert_run_ownership_record_row(conn, ownership_row_to_insert)
             if execution_contract_digest_row_to_insert is not None:
                 _insert_execution_contract_digest_row(
-                    conn, execution_contract_digest_row_to_insert,
+                    conn,
+                    execution_contract_digest_row_to_insert,
                 )
             if binding_row is not None:
                 _insert_session_binding_row(conn, binding_row)
@@ -4791,9 +4712,7 @@ def resolve_repair_control_plane_operation_global_row(
         return int(cursor.rowcount) == 1
 
 
-def _conditional_upsert_control_plane_op_row(
-    conn: _CompatConnection, row: dict[str, Any]
-) -> None:
+def _conditional_upsert_control_plane_op_row(conn: _CompatConnection, row: dict[str, Any]) -> None:
     """Conditionally upsert a terminal op row on an EXISTING connection (ERROR-2).
 
     Shares the conditional-upsert semantics of
@@ -5468,13 +5387,11 @@ def persist_layer_artifact_rows(
     story_id = _story_id_for(story_dir)
     if story_id is None:
         raise CorruptStateError(
-            "Cannot persist QA layer artifacts without story context "
-            "in canonical backend",
+            "Cannot persist QA layer artifacts without story context in canonical backend",
         )
     if flow_row is None:
         raise CorruptStateError(
-            "Cannot materialize FK-69 QA read models without flow execution "
-            "scope in canonical Postgres backend",
+            "Cannot materialize FK-69 QA read models without flow execution scope in canonical Postgres backend",
         )
     produced: list[str] = []
     with _connect(story_dir) as conn:
@@ -5505,9 +5422,7 @@ def persist_layer_artifact_rows(
             )
             # Rebuild stage_row and finding_rows with the real artifact_id
             stage_row = cast("dict[str, object] | None", item.get("stage_row"))
-            finding_rows = cast(
-                "list[dict[str, object]]", item.get("finding_rows") or []
-            )
+            finding_rows = cast("list[dict[str, object]]", item.get("finding_rows") or [])
             if stage_row is not None:
                 updated_stage = dict(stage_row)
                 updated_stage["artifact_id"] = artifact_id
@@ -5555,8 +5470,7 @@ def persist_verify_decision_row(
         )
     if flow_row is None:
         raise CorruptStateError(
-            "Cannot persist verify decision artifact without flow execution "
-            "scope in canonical Postgres backend",
+            "Cannot persist verify decision artifact without flow execution scope in canonical Postgres backend",
         )
     target_dir = projection_dir or story_dir
     written = (VERIFY_DECISION_FILE,)
@@ -5820,14 +5734,12 @@ def persist_closure_report_row(
 
     if flow_row is None:
         raise CorruptStateError(
-            "Cannot persist closure artifact without flow execution scope "
-            "in canonical Postgres backend",
+            "Cannot persist closure artifact without flow execution scope in canonical Postgres backend",
         )
     story_id = _story_id_for(story_dir)
     if story_id is None:
         raise CorruptStateError(
-            "Cannot persist closure artifact without story context "
-            "in canonical backend",
+            "Cannot persist closure artifact without story context in canonical backend",
         )
     target_dir = projection_dir or story_dir
     path = target_dir / CLOSURE_REPORT_FILE
@@ -5964,8 +5876,7 @@ def purge_flow_executions_row(
 
     with _connect(story_dir) as conn:
         cursor = conn.execute(
-            "DELETE FROM flow_executions "
-            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            "DELETE FROM flow_executions WHERE project_key = ? AND story_id = ? AND run_id = ?",
             (project_key, story_id, run_id),
         )
         return int(cursor.rowcount)
@@ -5981,8 +5892,7 @@ def purge_node_execution_ledgers_row(
 
     with _connect(story_dir) as conn:
         cursor = conn.execute(
-            "DELETE FROM node_execution_ledgers "
-            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            "DELETE FROM node_execution_ledgers WHERE project_key = ? AND story_id = ? AND run_id = ?",
             (project_key, story_id, run_id),
         )
         return int(cursor.rowcount)
@@ -6013,8 +5923,7 @@ def purge_override_records_row(
 
     with _connect(story_dir) as conn:
         cursor = conn.execute(
-            "DELETE FROM override_records "
-            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            "DELETE FROM override_records WHERE project_key = ? AND story_id = ? AND run_id = ?",
             (project_key, story_id, run_id),
         )
         return int(cursor.rowcount)
@@ -6030,8 +5939,7 @@ def purge_guard_decisions_row(
 
     with _connect(story_dir) as conn:
         cursor = conn.execute(
-            "DELETE FROM guard_decisions "
-            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            "DELETE FROM guard_decisions WHERE project_key = ? AND story_id = ? AND run_id = ?",
             (project_key, story_id, run_id),
         )
         return int(cursor.rowcount)
@@ -6099,8 +6007,7 @@ def purge_execution_events_row(
 
     with _connect(story_dir) as conn:
         cursor = conn.execute(
-            "DELETE FROM execution_events "
-            "WHERE project_key = ? AND story_id = ? AND run_id = ?",
+            "DELETE FROM execution_events WHERE project_key = ? AND story_id = ? AND run_id = ?",
             (project_key, story_id, run_id),
         )
         return int(cursor.rowcount)
@@ -6161,13 +6068,11 @@ def _count_runtime_execution_residue(
     s = (story_id,)
     return {
         "flow_executions": _count(
-            "SELECT COUNT(*) AS n FROM flow_executions "
-            "WHERE story_id = ? AND run_id = ?",
+            "SELECT COUNT(*) AS n FROM flow_executions WHERE story_id = ? AND run_id = ?",
             sr,
         ),
         "node_execution_ledgers": _count(
-            "SELECT COUNT(*) AS n FROM node_execution_ledgers "
-            "WHERE story_id = ? AND run_id = ?",
+            "SELECT COUNT(*) AS n FROM node_execution_ledgers WHERE story_id = ? AND run_id = ?",
             sr,
         ),
         "attempts": _count(
@@ -6175,13 +6080,11 @@ def _count_runtime_execution_residue(
             sr,
         ),
         "override_records": _count(
-            "SELECT COUNT(*) AS n FROM override_records "
-            "WHERE story_id = ? AND run_id = ?",
+            "SELECT COUNT(*) AS n FROM override_records WHERE story_id = ? AND run_id = ?",
             sr,
         ),
         "guard_decisions": _count(
-            "SELECT COUNT(*) AS n FROM guard_decisions "
-            "WHERE story_id = ? AND run_id = ?",
+            "SELECT COUNT(*) AS n FROM guard_decisions WHERE story_id = ? AND run_id = ?",
             sr,
         ),
         "decision_records": _count(
@@ -6197,13 +6100,11 @@ def _count_runtime_execution_residue(
             s,
         ),
         "execution_events": _count(
-            "SELECT COUNT(*) AS n FROM execution_events "
-            "WHERE story_id = ? AND run_id = ?",
+            "SELECT COUNT(*) AS n FROM execution_events WHERE story_id = ? AND run_id = ?",
             sr,
         ),
         "artifact_envelopes": _count(
-            "SELECT COUNT(*) AS n FROM artifact_envelopes "
-            "WHERE story_id = ? AND run_id = ?",
+            "SELECT COUNT(*) AS n FROM artifact_envelopes WHERE story_id = ? AND run_id = ?",
             sr,
         ),
     }

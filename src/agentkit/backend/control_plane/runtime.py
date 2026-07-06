@@ -8,7 +8,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 
-from agentkit.backend.control_plane import object_claims, runtime_constants
+from agentkit.backend.control_plane import (
+    object_claims,
+    push_barrier_lifecycle,
+    runtime_constants,
+)
 from agentkit.backend.control_plane.execution_contract_assembly import (
     ExecutionContractDigestOutcome,
     build_execution_contract_digest,
@@ -126,8 +130,7 @@ class OperationNotAbortableError(RuntimeError):
 
     def __init__(self, op_id: str, current_status: str) -> None:
         super().__init__(
-            f"operation {op_id!r} is not an abortable in-flight claim "
-            f"(current status: {current_status!r})",
+            f"operation {op_id!r} is not an abortable in-flight claim (current status: {current_status!r})",
         )
         self.op_id = op_id
         self.current_status = current_status
@@ -243,9 +246,7 @@ class _ClaimOutcome:
         return self.result
 
 
-def _start_binding_collision_reason(
-    phase: str, exc: ControlPlaneBindingCollisionError
-) -> str:
+def _start_binding_collision_reason(phase: str, exc: ControlPlaneBindingCollisionError) -> str:
     return "".join(
         (
             f"phase_start({phase}) rejected: {exc}. A start for this run ",
@@ -255,13 +256,9 @@ def _start_binding_collision_reason(
     )
 
 
-def _claimed_operation_rejection_reason(
-    operation_kind: str, op_id: str, operation_label: str
-) -> str:
+def _claimed_operation_rejection_reason(operation_kind: str, op_id: str, operation_label: str) -> str:
     suffix = (
-        "A complete/fail reusing a live start's op_id must not clobber the claim "
-        if operation_label == "complete/fail"
-        else ""
+        "A complete/fail reusing a live start's op_id must not clobber the claim " if operation_label == "complete/fail" else ""
     )
     return "".join(
         (
@@ -272,9 +269,7 @@ def _claimed_operation_rejection_reason(
     )
 
 
-def _phase_binding_collision_reason(
-    operation_kind: str, exc: ControlPlaneBindingCollisionError
-) -> str:
+def _phase_binding_collision_reason(operation_kind: str, exc: ControlPlaneBindingCollisionError) -> str:
     return "".join(
         (
             f"{operation_kind} rejected: {exc}. A {operation_kind} for an ",
@@ -433,9 +428,7 @@ class _ClaimMixin:
             # NOT caught here). A matching (or legacy null) hash replays as before.
             return _ClaimOutcome(
                 won=False,
-                result=_replay_or_mismatch(
-                    request, stored, operation_kind=operation_kind, phase=phase
-                ),
+                result=_replay_or_mismatch(request, stored, operation_kind=operation_kind, phase=phase),
             )
         # AG3-139: a foreign ``claimed`` row -- of ANY age -- is a LOSER. There is
         # no wall-clock expiry and no CAS takeover; an in-flight claim never ends
@@ -473,22 +466,16 @@ class _ClaimMixin:
             ),
         )
 
-    def _release_my_claim(
-        self, op_id: str, owner_token: str, owner_claimed_at: str | None
-    ) -> None:
+    def _release_my_claim(self, op_id: str, owner_token: str, owner_claimed_at: str | None) -> None:
         """Ownership-scoped release of MY claim (never a foreign / terminal row).
 
         WARNING-4 fix (#4): the release CAS matches BOTH the owner token AND MY
         claim instant (``owner_claimed_at``), so a stale generation (a reused token
         in DI/test wiring) cannot delete a NEWER claim generation.
         """
-        self._repo.release_operation(
-            op_id, owner_token=owner_token, owner_claimed_at=owner_claimed_at
-        )
+        self._repo.release_operation(op_id, owner_token=owner_token, owner_claimed_at=owner_claimed_at)
 
-    def _release_my_claim_best_effort(
-        self, op_id: str, owner_token: str, owner_claimed_at: str | None
-    ) -> None:
+    def _release_my_claim_best_effort(self, op_id: str, owner_token: str, owner_claimed_at: str | None) -> None:
         """Release MY claim without masking an in-flight original error (#1).
 
         Used on the exception path: a release failure must NOT replace the original
@@ -496,9 +483,7 @@ class _ClaimMixin:
         propagates (NO ERROR BYPASSING). The CAS is claim-instant-scoped (#4).
         """
         try:
-            self._repo.release_operation(
-                op_id, owner_token=owner_token, owner_claimed_at=owner_claimed_at
-            )
+            self._repo.release_operation(op_id, owner_token=owner_token, owner_claimed_at=owner_claimed_at)
         except Exception:  # noqa: BLE001 -- never mask the original error
             logger.warning(
                 "control-plane claim release failed for op_id=%s (original error "
@@ -542,17 +527,11 @@ class _ClaimMixin:
             now=self._now_fn(),
         )
 
-    def _release_claim_key(
-        self, key: object_claims.ObjectClaimKey, *, op_id: str
-    ) -> None:
+    def _release_claim_key(self, key: object_claims.ObjectClaimKey, *, op_id: str) -> None:
         """Release ONE object-mutation claim by its identity (ownership-scoped)."""
-        self._object_claim_repo.release_claim(
-            key.project_key, key.serialization_scope, key.scope_key, op_id
-        )
+        self._object_claim_repo.release_claim(key.project_key, key.serialization_scope, key.scope_key, op_id)
 
-    def _release_claim_key_best_effort(
-        self, key: object_claims.ObjectClaimKey, *, op_id: str
-    ) -> None:
+    def _release_claim_key_best_effort(self, key: object_claims.ObjectClaimKey, *, op_id: str) -> None:
         """Release an object-mutation claim without masking an original error."""
         try:
             self._release_claim_key(key, op_id=op_id)
@@ -568,21 +547,13 @@ class _ClaimMixin:
                 key.scope_key,
             )
 
-    def _release_object_claim(
-        self, *, project_key: str, story_id: str, op_id: str
-    ) -> None:
+    def _release_object_claim(self, *, project_key: str, story_id: str, op_id: str) -> None:
         """Release the default per-story object-mutation claim (finalize/abort)."""
-        self._release_claim_key(
-            object_claims.story_claim_key(project_key, story_id), op_id=op_id
-        )
+        self._release_claim_key(object_claims.story_claim_key(project_key, story_id), op_id=op_id)
 
-    def _release_object_claim_best_effort(
-        self, *, project_key: str, story_id: str, op_id: str
-    ) -> None:
+    def _release_object_claim_best_effort(self, *, project_key: str, story_id: str, op_id: str) -> None:
         """Release the per-story object claim without masking an original error."""
-        self._release_claim_key_best_effort(
-            object_claims.story_claim_key(project_key, story_id), op_id=op_id
-        )
+        self._release_claim_key_best_effort(object_claims.story_claim_key(project_key, story_id), op_id=op_id)
 
 
 class _RunGateMixin:
@@ -613,9 +584,7 @@ class _RunGateMixin:
             phase: str | None,
         ) -> ControlPlaneMutationResult: ...
 
-    def _resolve_push_barrier_evidence(
-        self, *, require_wired: bool
-    ) -> PushBarrierEvidencePort | None:
+    def _resolve_push_barrier_evidence(self, *, require_wired: bool) -> PushBarrierEvidencePort | None:
         """Return the wired two-stage push-barrier evidence port.
 
         Mirrors :meth:`_require_postgres_backend_on_first_use`: an explicitly
@@ -695,8 +664,16 @@ class _RunGateMixin:
                     ),
                 ),
             )
-        block = self._aggregate_persisted_push_barrier(barrier_type, verdicts)
+        block = self._aggregate_persisted_push_barrier(
+            barrier_type,
+            verdicts,
+            expected_repo_ids=self._participating_repo_ids(project_key, story_id),
+        )
         return None if block.passed else block
+
+    def _participating_repo_ids(self, project_key: str, story_id: str) -> tuple[str, ...]:
+        ctx = self._repo.load_story_context(project_key, story_id)
+        return tuple(ctx.participating_repos) if ctx is not None else ()
 
     def _bind_push_boundary(
         self,
@@ -710,9 +687,7 @@ class _RunGateMixin:
         """Ensure per-repo verdict rows exist for the current boundary epoch."""
         ctx = self._repo.load_story_context(project_key, story_id)
         has_participating_repos = bool(ctx is not None and ctx.participating_repos)
-        if self._resolve_push_barrier_evidence(
-            require_wired=has_participating_repos
-        ) is None:
+        if self._resolve_push_barrier_evidence(require_wired=has_participating_repos) is None:
             return None
         if ctx is None or not ctx.participating_repos:
             return ()
@@ -730,7 +705,7 @@ class _RunGateMixin:
                 boundary_id=boundary_id,
                 repo_id=repo_id,
             )
-            next_record = _next_boundary_binding(
+            next_record = push_barrier_lifecycle.next_boundary_binding(
                 current,
                 project_key=project_key,
                 story_id=story_id,
@@ -750,39 +725,18 @@ class _RunGateMixin:
         self,
         barrier_type: SyncPointBarrierType,
         verdicts: tuple[PushBarrierVerdict, ...],
+        *,
+        expected_repo_ids: tuple[str, ...],
     ) -> BarrierVerdict:
         """Aggregate persisted verdict rows with a final server-fresh recheck."""
-        repo_verdicts: list[RepoPushVerdict] = []
-        for verdict in verdicts:
-            if verdict.status is not PushBarrierVerdictStatus.PASSED:
-                repo_verdicts.append(_repo_verdict_from_persisted(verdict))
-                continue
-            server_head = self._server_head_for_verdict(verdict)
-            if server_head == verdict.expected_head_sha:
-                repo_verdicts.append(
-                    RepoPushVerdict(
-                        repo_id=verdict.repo_id,
-                        verified=True,
-                        block_code=None,
-                        detail=(
-                            "persisted push-barrier verdict passed and server "
-                            f"still confirms {server_head}"
-                        ),
-                    )
-                )
-                continue
-            now = self._now_fn()
-            blocked = _replace_push_barrier_verdict(
-                verdict,
-                status=PushBarrierVerdictStatus.BLOCKED_BACKLOG,
-                server_head_sha=server_head,
-                updated_at=now,
-                resolved_at=now,
-                status_detail="server_head_moved_after_pass",
-            )
-            self._upsert_boundary_verdict(blocked)
-            repo_verdicts.append(_repo_verdict_from_persisted(blocked))
-        return _barrier_from_repo_verdicts(barrier_type, tuple(repo_verdicts))
+        return push_barrier_lifecycle.aggregate_persisted_push_barrier(
+            barrier_type,
+            verdicts,
+            expected_repo_ids=expected_repo_ids,
+            server_head_for_verdict=self._server_head_for_verdict,
+            persist_blocked_verdict=self._upsert_boundary_verdict,
+            now=self._now_fn(),
+        )
 
     def _collect_push_barrier_inputs(
         self,
@@ -795,9 +749,7 @@ class _RunGateMixin:
         """Collect the two-stage barrier inputs, or ``None`` when unwired (DI test)."""
         ctx = self._repo.load_story_context(project_key, story_id)
         has_participating_repos = bool(ctx is not None and ctx.participating_repos)
-        port = self._resolve_push_barrier_evidence(
-            require_wired=has_participating_repos
-        )
+        port = self._resolve_push_barrier_evidence(require_wired=has_participating_repos)
         if port is None:
             return None
         return port.collect_repo_inputs(
@@ -868,7 +820,7 @@ class _RunGateMixin:
             project_key=verdict.project_key,
             story_id=verdict.story_id,
             run_id=verdict.run_id,
-            required_sync_point_id=_boundary_sync_point_id(
+            required_sync_point_id=push_barrier_lifecycle.boundary_sync_point_id(
                 verdict.boundary_type, verdict.boundary_id, verdict.boundary_epoch
             ),
         )
@@ -911,7 +863,10 @@ class _RunGateMixin:
         evaluation remains fail-closed on missing/old evidence.
         """
         from agentkit.backend.control_plane.models import SyncPushCommandPayload
-        from agentkit.backend.control_plane.push_sync import next_sync_push_command_id
+        from agentkit.backend.control_plane.push_sync import (
+            next_sync_push_command_id,
+            open_sync_push_command,
+        )
 
         try:
             ctx = self._repo.load_story_context(project_key, story_id)
@@ -923,9 +878,7 @@ class _RunGateMixin:
             for verdict in verdicts:
                 if verdict.status is PushBarrierVerdictStatus.PASSED:
                     continue
-                sync_point_id = _boundary_sync_point_id(
-                    barrier_type, boundary_id, verdict.boundary_epoch
-                )
+                sync_point_id = push_barrier_lifecycle.boundary_sync_point_id(barrier_type, boundary_id, verdict.boundary_epoch)
                 command_id = next_sync_push_command_id(
                     run_id=run_id,
                     sync_point_id=sync_point_id,
@@ -933,6 +886,22 @@ class _RunGateMixin:
                     load_command=self._edge_command_repo.load_command,
                 )
                 if command_id is None:
+                    open_command = open_sync_push_command(
+                        run_id=run_id,
+                        sync_point_id=sync_point_id,
+                        repo_id=verdict.repo_id,
+                        load_command=self._edge_command_repo.load_command,
+                    )
+                    if open_command is not None and push_barrier_lifecycle.open_command_timed_out(
+                        open_command,
+                        now=now,
+                    ):
+                        self._upsert_boundary_verdict(
+                            push_barrier_lifecycle.timed_out_open_command_verdict(
+                                verdict,
+                                updated_at=now,
+                            )
+                        )
                     continue
                 self._edge_command_repo.commission_command(
                     EdgeCommandRecord(
@@ -1031,18 +1000,14 @@ class _RunGateMixin:
         Fail-closed: no active record for THIS run, or an active record whose
         ``owner_session_id`` differs, means the run was never admitted.
         """
-        if self._repo.has_committed_story_exit_operation_for_run(
-            project_key, story_id, run_id
-        ):
+        if self._repo.has_committed_story_exit_operation_for_run(project_key, story_id, run_id):
             return OwnershipAdmission(
                 admitted=False,
                 active_record=None,
                 rejection_reason=OwnershipRejectionReason.STORY_EXITED,
             )
         active = self._repo.load_active_ownership(project_key, story_id)
-        return evaluate_ownership_admission(
-            active_record=active, run_id=run_id, session_id=session_id
-        )
+        return evaluate_ownership_admission(active_record=active, run_id=run_id, session_id=session_id)
 
     def _unadmitted_run_rejection(
         self,
@@ -1062,10 +1027,7 @@ class _RunGateMixin:
         yields the generic fail-closed rejection carrying ``reason``. The caller
         guards on ``not admission.admitted``.
         """
-        if (
-            admission.rejection_reason
-            is OwnershipRejectionReason.OWNERSHIP_TRANSFERRED
-        ):
+        if admission.rejection_reason is OwnershipRejectionReason.OWNERSHIP_TRANSFERRED:
             return self._ownership_admission_rejection(
                 admission,
                 op_id=op_id,
@@ -1096,10 +1058,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
         now_fn: Callable[[], datetime] | None = None,
         token_factory: Callable[[], str] | None = None,
         instance_identity: BackendInstanceIdentityRecord | None = None,
-        execution_contract_digest_reader: (
-            Callable[[PhaseMutationRequest, str], ExecutionContractDigestOutcome]
-            | None
-        ) = None,
+        execution_contract_digest_reader: (Callable[[PhaseMutationRequest, str], ExecutionContractDigestOutcome] | None) = None,
         push_barrier_evidence: PushBarrierEvidencePort | None = None,
     ) -> None:
         #: ERROR-3 fix (#3): whether this service uses the PRODUCTIVE default
@@ -1157,16 +1116,11 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
         #: prompt-bundle fixture. ``None`` on the FULLY productive default
         #: path (neither overridden) is lazily resolved to
         #: :meth:`_build_execution_contract_digest` on first use.
-        self._execution_contract_digest_reader: (
-            Callable[[PhaseMutationRequest, str], ExecutionContractDigestOutcome]
-            | None
-        )
+        self._execution_contract_digest_reader: Callable[[PhaseMutationRequest, str], ExecutionContractDigestOutcome] | None
         if execution_contract_digest_reader is not None:
             self._execution_contract_digest_reader = execution_contract_digest_reader
         elif repository is not None or phase_dispatcher is not None:
-            self._execution_contract_digest_reader = (
-                _default_di_execution_contract_digest_reader()
-            )
+            self._execution_contract_digest_reader = _default_di_execution_contract_digest_reader()
         else:
             self._execution_contract_digest_reader = None
         #: AG3-142 (K5 Postgres-only): the run-ownership persistence port the
@@ -1190,9 +1144,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
         #: longer consulted for any wall-clock expiry decision -- a claim's age is
         #: never interpreted to end it.
         self._now_fn: Callable[[], datetime] = now_fn or (lambda: datetime.now(tz=UTC))
-        self._token_factory: Callable[[], str] = token_factory or (
-            lambda: f"owner-{uuid.uuid4().hex}"
-        )
+        self._token_factory: Callable[[], str] = token_factory or (lambda: f"owner-{uuid.uuid4().hex}")
         #: AG3-138 (IMPL-003/IMPL-004): THIS boot's resolved instance identity.
         #: For the PRODUCTIVE default store it stays ``None`` until the pre-serve
         #: startup hook resolves and binds it (fail-closed via
@@ -1320,9 +1272,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
             carrying the normalized ``phase_dispatch`` outcome on a fresh commit.
         """
         self._require_postgres_backend_on_first_use()
-        existing = self._load_existing_operation(
-            request, operation_kind="phase_start", phase=phase
-        )
+        existing = self._load_existing_operation(request, operation_kind="phase_start", phase=phase)
         if existing is not None:
             return existing
         locked = self._repair_locked_rejection(
@@ -1345,9 +1295,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
         #: ONLY via the AG3-138 startup reconciliation or an explicit
         #: ``admin_abort_inflight_operation`` (#1).
         owner_token = self._mint_owner_token()
-        claim = self._acquire_claim(
-            request, run_id=run_id, phase=phase, owner_token=owner_token
-        )
+        claim = self._acquire_claim(request, run_id=run_id, phase=phase, owner_token=owner_token)
         if not claim.won:
             #: ``claim.result`` is the loser's fail-closed result (replay or
             #: in-flight rejection); it is always present when ``won`` is False.
@@ -1381,9 +1329,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
                 op_id=request.op_id,
             )
             if object_conflict is not None:
-                self._release_my_claim(
-                    request.op_id, owner_token, owner_claimed_at
-                )
+                self._release_my_claim(request.op_id, owner_token, owner_claimed_at)
                 return _object_claim_busy_rejection(
                     op_id=request.op_id,
                     operation_kind="phase_start",
@@ -1391,15 +1337,11 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
                     phase=phase,
                     conflict=object_conflict,
                 )
-            outcome = self._start_phase_after_claim(
-                run_id=run_id, phase=phase, request=request
-            )
+            outcome = self._start_phase_after_claim(run_id=run_id, phase=phase, request=request)
             if outcome.rejection is not None:
                 # Fail-closed rejection: release MY claims so NO committed op
                 # survives and a later retry (once admitted) re-evaluates.
-                self._release_my_claim(
-                    request.op_id, owner_token, owner_claimed_at
-                )
+                self._release_my_claim(request.op_id, owner_token, owner_claimed_at)
                 self._release_object_claim(
                     project_key=request.project_key,
                     story_id=request.story_id,
@@ -1440,9 +1382,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
             #: (``_start_phase_after_claim``) and this commit. The whole finalize
             #: rolled back (no side effect, no stored op). Release MY claims and
             #: surface the rich ex-owner rejection.
-            self._release_my_claim_best_effort(
-                request.op_id, owner_token, owner_claimed_at
-            )
+            self._release_my_claim_best_effort(request.op_id, owner_token, owner_claimed_at)
             self._release_object_claim(
                 project_key=request.project_key,
                 story_id=request.story_id,
@@ -1464,9 +1404,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
             #: fail-closed rejection (a later retry, once the foreign run releases the
             #: session, re-evaluates). The claim is not yet a terminal row, so the
             #: release is ownership-scoped and safe.
-            self._release_my_claim_best_effort(
-                request.op_id, owner_token, owner_claimed_at
-            )
+            self._release_my_claim_best_effort(request.op_id, owner_token, owner_claimed_at)
             #: Codex-R1 (BLOCKER): the object-claim release on this handled-return
             #: rejection is NON-best-effort -- a release failure SURFACES (raises ->
             #: 5xx), never swallowed while a normal rejection is returned with the
@@ -1495,9 +1433,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
             #: reconciliation or an explicit admin_abort_inflight_operation
             #: (AC1, Scope item 7).
             if not finalized:
-                self._release_my_claim_best_effort(
-                    request.op_id, owner_token, owner_claimed_at
-                )
+                self._release_my_claim_best_effort(request.op_id, owner_token, owner_claimed_at)
                 self._release_object_claim_best_effort(
                     project_key=request.project_key,
                     story_id=request.story_id,
@@ -1571,8 +1507,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
         #: record. Computed HERE (before dispatch) so the AG3-143 digest build
         #: below runs -- and can reject -- BEFORE the engine ever dispatches.
         mints_ownership_record = (
-            phase == PhaseName.SETUP.value
-            and admission.rejection_reason is OwnershipRejectionReason.NO_ACTIVE_RECORD
+            phase == PhaseName.SETUP.value and admission.rejection_reason is OwnershipRejectionReason.NO_ACTIVE_RECORD
         )
         execution_contract_digest: str | None = None
         if mints_ownership_record:
@@ -1585,7 +1520,8 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
             #: the missing component is fixed) re-evaluates cleanly instead of
             #: landing in the AG3-138 partial-write "repair" state.
             digest_outcome = self._resolve_execution_contract_digest_reader()(
-                request, run_id,
+                request,
+                run_id,
             )
             if digest_outcome.rejection_reason is not None:
                 return _StartPhaseOutcome(
@@ -1598,9 +1534,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
                     dispatch_result=None,
                 )
             execution_contract_digest = digest_outcome.digest
-        dispatch_result = self._dispatch_phase(
-            run_id=run_id, phase=phase, request=request, run_admitted=run_admitted
-        )
+        dispatch_result = self._dispatch_phase(run_id=run_id, phase=phase, request=request, run_admitted=run_admitted)
         if dispatch_result is None and phase == PhaseName.SETUP.value and not run_admitted:
             #: Fail-closed run admission (FK-20 §20.8.2): a FRESH SETUP START whose
             #: ``StoryContext`` is ABSENT (AG3-123: no longer "no project_root")
@@ -1623,11 +1557,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
                 ),
                 dispatch_result=None,
             )
-        if (
-            dispatch_result is None
-            and phase != PhaseName.SETUP.value
-            and not run_admitted
-        ):
+        if dispatch_result is None and phase != PhaseName.SETUP.value and not run_admitted:
             #: ERROR-1 fix (#1): a FRESH, UN-ADMITTED, NON-setup start whose run
             #: ``StoryContext`` is ABSENT (AG3-123). ``_dispatch_phase`` returned
             #: ``None`` BEFORE the dispatcher's run-scoped first-call gate could run,
@@ -1682,11 +1612,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
             rejection=None,
             dispatch_result=dispatch_result,
             mints_ownership_record=mints_ownership_record,
-            observed_ownership_epoch=(
-                admission.active_record.ownership_epoch
-                if admission.active_record is not None
-                else None
-            ),
+            observed_ownership_epoch=(admission.active_record.ownership_epoch if admission.active_record is not None else None),
             execution_contract_digest=execution_contract_digest,
         )
 
@@ -1701,10 +1627,9 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
         self-built eagerly (non-setup flows pay no wiring cost).
         """
         if self._execution_contract_digest_reader is None:
-            self._execution_contract_digest_reader = (
-                lambda request, run_id: self._build_execution_contract_digest(
-                    request=request, run_id=run_id,
-                )
+            self._execution_contract_digest_reader = lambda request, run_id: self._build_execution_contract_digest(
+                request=request,
+                run_id=run_id,
             )
         return self._execution_contract_digest_reader
 
@@ -1726,7 +1651,9 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
         rejection-before-dispatch semantics (AC2).
         """
         return build_execution_contract_digest(
-            repo=self._repo, request=request, run_id=run_id,
+            repo=self._repo,
+            request=request,
+            run_id=run_id,
         )
 
     def _finalize_start_phase(
@@ -1831,9 +1758,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
             phase=phase,
             result=result,
             now=now,
-            request_body_hash=_control_plane_request_body_hash(
-                request, operation_kind="phase_start", phase=phase
-            ),
+            request_body_hash=_control_plane_request_body_hash(request, operation_kind="phase_start", phase=phase),
         )
         ownership_record_to_insert = (
             RunOwnershipRecord(
@@ -1892,9 +1817,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
             events=plan.events,
             ownership_record_to_insert=ownership_record_to_insert,
             execution_contract_digest_to_insert=execution_contract_digest_to_insert,
-            expected_ownership_epoch=(
-                None if mints_ownership_record else ownership_epoch_for_commit
-            ),
+            expected_ownership_epoch=(None if mints_ownership_record else ownership_epoch_for_commit),
         ):
             return result
         #: Lost the ownership CAS: a concurrent finalize/admin-abort already
@@ -1936,9 +1859,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
                 phase=phase,
                 request=request,
                 now=now,
-                previous_binding_version=self._current_binding_version(
-                    request.session_id
-                ),
+                previous_binding_version=self._current_binding_version(request.session_id),
                 ownership_epoch=ownership_epoch,
             )
         return _plan_fast_materialization(request=request, now=now)
@@ -2082,11 +2003,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
         new_owner = exc.detail.get("current_owner_session_id")
         new_epoch = exc.detail.get("current_ownership_epoch")
         transferred_at = exc.detail.get("transferred_at")
-        if (
-            not isinstance(new_owner, str)
-            or not isinstance(new_epoch, int)
-            or not isinstance(transferred_at, str)
-        ):
+        if not isinstance(new_owner, str) or not isinstance(new_epoch, int) or not isinstance(transferred_at, str):
             return _rejection_result(
                 op_id=op_id,
                 operation_kind=operation_kind,
@@ -2221,9 +2138,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
             prior admitted run exists.
         """
         self._require_postgres_backend_on_first_use()
-        existing = self._load_existing_operation(
-            request, operation_kind=operation_kind, phase=phase
-        )
+        existing = self._load_existing_operation(request, operation_kind=operation_kind, phase=phase)
         if existing is not None:
             return existing
         locked = self._repair_locked_rejection(
@@ -2267,10 +2182,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
         #: barrier. A code-bearing phase's completion is fail-closed BLOCKED until
         #: EVERY participating repo is server-verified-pushed -- checked AFTER
         #: admission, BEFORE the commit, so a blocked barrier writes NO state.
-        if (
-            operation_kind == "phase_complete"
-            and phase in runtime_constants.PUSH_GATED_COMPLETION_PHASES
-        ):
+        if operation_kind == "phase_complete" and phase in runtime_constants.PUSH_GATED_COMPLETION_PHASES:
             blocked = self._push_barrier_block(
                 SyncPointBarrierType.PHASE_COMPLETION,
                 project_key=request.project_key,
@@ -2312,9 +2224,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
             #: finalize/release may transition a claimed row), so this
             #: complete/fail reusing a live start's op_id is rejected fail-closed
             #: -- it never steals/destroys the start's ownership.
-            reason = _claimed_operation_rejection_reason(
-                operation_kind, request.op_id, "complete/fail"
-            )
+            reason = _claimed_operation_rejection_reason(operation_kind, request.op_id, "complete/fail")
             return _rejection_result(
                 op_id=request.op_id,
                 operation_kind=operation_kind,
@@ -2349,9 +2259,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
         del request, operation_kind, phase, mutating_retry
         raise NotImplementedError
 
-    def _story_scoped_materialization_enabled(
-        self, request: PhaseMutationRequest
-    ) -> bool:
+    def _story_scoped_materialization_enabled(self, request: PhaseMutationRequest) -> bool:
         del request
         raise NotImplementedError
 
@@ -2387,12 +2295,8 @@ class _EdgeCommandMixin:
         def _acquire_object_claim(
             self, *, project_key: str, story_id: str, op_id: str
         ) -> object_claims.ObjectClaimConflict | None: ...
-        def _release_object_claim(
-            self, *, project_key: str, story_id: str, op_id: str
-        ) -> None: ...
-        def _release_object_claim_best_effort(
-            self, *, project_key: str, story_id: str, op_id: str
-        ) -> None: ...
+        def _release_object_claim(self, *, project_key: str, story_id: str, op_id: str) -> None: ...
+        def _release_object_claim_best_effort(self, *, project_key: str, story_id: str, op_id: str) -> None: ...
         def _load_boundary_verdict(
             self,
             *,
@@ -2511,36 +2415,21 @@ class _EdgeCommandMixin:
             session_id=session_id,
         )
         write_auth = authorize_story_ref_write(
-            active_owner_session_id=(
-                active_record.owner_session_id if active_record is not None else None
-            ),
-            active_ownership_epoch=(
-                active_record.ownership_epoch if active_record is not None else None
-            ),
+            active_owner_session_id=(active_record.owner_session_id if active_record is not None else None),
+            active_ownership_epoch=(active_record.ownership_epoch if active_record is not None else None),
             requesting_session_id=session_id,
             requesting_ownership_epoch=(
-                active_record.ownership_epoch
-                if active_record is not None
-                and active_record.owner_session_id == session_id
-                else 0
+                active_record.ownership_epoch if active_record is not None and active_record.owner_session_id == session_id else 0
             ),
         )
-        rejection_detail = (
-            admission.rejection_reason.value
-            if admission.rejection_reason
-            else write_auth.detail
-        )
+        rejection_detail = admission.rejection_reason.value if admission.rejection_reason else write_auth.detail
         return PushOwnershipConfirmation(
             run_id=run_id,
             owner_confirmed=admission.admitted and write_auth.granted,
             detail=(
-                "the server confirms this session as the current run owner and "
-                "story/* service-identity write is released"
+                "the server confirms this session as the current run owner and story/* service-identity write is released"
                 if admission.admitted and write_auth.granted
-                else (
-                    "the server does not confirm this session as the current run "
-                    f"owner ({rejection_detail})"
-                )
+                else (f"the server does not confirm this session as the current run owner ({rejection_detail})")
             ),
         )
 
@@ -2562,10 +2451,7 @@ class _EdgeCommandMixin:
         """
         self._require_postgres_backend_on_first_use()
         existing = self._edge_command_repo.load_command(command_id)
-        not_found = existing is None or (
-            existing.project_key != request.project_key
-            or existing.story_id != request.story_id
-        )
+        not_found = existing is None or (existing.project_key != request.project_key or existing.story_id != request.story_id)
         if not_found:
             return EdgeCommandMutationResult(
                 status="rejected",
@@ -2577,7 +2463,9 @@ class _EdgeCommandMixin:
         if existing.result_op_id is not None:
             if existing.result_op_id == request.op_id:
                 return EdgeCommandMutationResult(
-                    status="replayed", command_id=command_id, op_id=request.op_id,
+                    status="replayed",
+                    command_id=command_id,
+                    op_id=request.op_id,
                 )
             return EdgeCommandMutationResult(
                 status="rejected",
@@ -2587,15 +2475,15 @@ class _EdgeCommandMixin:
             )
 
         admission = evaluate_ownership_admission(
-            active_record=self._repo.load_active_ownership(
-                request.project_key, request.story_id
-            ),
+            active_record=self._repo.load_active_ownership(request.project_key, request.story_id),
             run_id=existing.run_id,
             session_id=request.session_id,
         )
         if not admission.admitted:
             return self._edge_command_ownership_admission_rejection(
-                admission, command_id=command_id, op_id=request.op_id,
+                admission,
+                command_id=command_id,
+                op_id=request.op_id,
             )
         assert admission.active_record is not None  # noqa: S101 -- admitted implies a record
         expected_ownership_epoch = admission.active_record.ownership_epoch
@@ -2636,10 +2524,7 @@ class _EdgeCommandMixin:
         """
         now = self._now_fn()
         result_status: Literal["completed", "failed"] = (
-            "failed"
-            if request.result.result_type
-            in runtime_constants.EDGE_COMMAND_FAILURE_RESULT_TYPES
-            else "completed"
+            "failed" if request.result.result_type in runtime_constants.EDGE_COMMAND_FAILURE_RESULT_TYPES else "completed"
         )
         op_record = ControlPlaneOperationRecord(
             op_id=request.op_id,
@@ -2678,7 +2563,9 @@ class _EdgeCommandMixin:
                 op_id=request.op_id,
             )
             return self._edge_command_fence_violation_rejection(
-                exc, command_id=command_id, op_id=request.op_id,
+                exc,
+                command_id=command_id,
+                op_id=request.op_id,
             )
         except (ControlPlaneClaimCollisionError, EdgeCommandNotOpenError):
             self._release_object_claim(
@@ -2705,7 +2592,9 @@ class _EdgeCommandMixin:
             op_id=request.op_id,
         )
         return EdgeCommandMutationResult(
-            status="completed", command_id=command_id, op_id=request.op_id,
+            status="completed",
+            command_id=command_id,
+            op_id=request.op_id,
         )
 
     def _project_push_freshness_from_result(
@@ -2738,18 +2627,14 @@ class _EdgeCommandMixin:
             upsert_push_freshness_record_global,
         )
 
-        previous = load_push_freshness_record_global(
-            request.project_key, request.story_id, existing.run_id, repo_id
-        )
+        previous = load_push_freshness_record_global(request.project_key, request.story_id, existing.run_id, repo_id)
         if result.result_type == "push_status_report":
             reported_head_sha = result.head_sha
             push_outcome = result.push_outcome
         else:
             reported_head_sha = None
             push_outcome = "behind_remote"
-        sync_point_id = _sync_point_id_from_sync_push_command(
-            existing.command_id, run_id=existing.run_id, repo_id=repo_id
-        )
+        sync_point_id = _sync_point_id_from_sync_push_command(existing.command_id, run_id=existing.run_id, repo_id=repo_id)
         record = project_push_freshness(
             previous,
             project_key=request.project_key,
@@ -2790,13 +2675,9 @@ class _EdgeCommandMixin:
             return
         result = request.result
         if result.result_type != "push_status_report":
-            self._upsert_boundary_verdict(
-                _sync_push_failed_barrier_verdict(current, updated_at=now)
-            )
+            self._upsert_boundary_verdict(_sync_push_failed_barrier_verdict(current, updated_at=now))
             return
-        sync_point_id = _boundary_sync_point_id(
-            boundary_type, boundary_id, current.boundary_epoch
-        )
+        sync_point_id = push_barrier_lifecycle.boundary_sync_point_id(boundary_type, boundary_id, current.boundary_epoch)
         self._upsert_boundary_verdict(
             self._push_status_barrier_verdict(
                 current,
@@ -2843,15 +2724,11 @@ class _EdgeCommandMixin:
                 required_sync_point_id=sync_point_id,
             )
         )
-        return _replace_push_barrier_verdict(
+        return push_barrier_lifecycle.replace_push_barrier_verdict(
             current,
             expected_head_sha=result.head_sha,
             server_head_sha=server_head,
-            status=(
-                PushBarrierVerdictStatus.PASSED
-                if repo_verdict.verified
-                else PushBarrierVerdictStatus.BLOCKED_BACKLOG
-            ),
+            status=(PushBarrierVerdictStatus.PASSED if repo_verdict.verified else PushBarrierVerdictStatus.BLOCKED_BACKLOG),
             updated_at=updated_at,
             resolved_at=updated_at,
             status_detail=repo_verdict.detail,
@@ -2954,11 +2831,7 @@ class _EdgeCommandMixin:
         new_owner = exc.detail.get("current_owner_session_id")
         new_epoch = exc.detail.get("current_ownership_epoch")
         transferred_at = exc.detail.get("transferred_at")
-        if (
-            not isinstance(new_owner, str)
-            or not isinstance(new_epoch, int)
-            or not isinstance(transferred_at, str)
-        ):
+        if not isinstance(new_owner, str) or not isinstance(new_epoch, int) or not isinstance(transferred_at, str):
             return EdgeCommandMutationResult(
                 status="rejected",
                 command_id=command_id,
@@ -2993,9 +2866,7 @@ class _AdminTransitionMixin:
         _object_claim_repo: ObjectMutationClaimRepository
 
         def _require_postgres_backend_on_first_use(self) -> None: ...
-        def _release_claim_key_best_effort(
-            self, key: object_claims.ObjectClaimKey, *, op_id: str
-        ) -> None: ...
+        def _release_claim_key_best_effort(self, key: object_claims.ObjectClaimKey, *, op_id: str) -> None: ...
 
     def admin_abort_inflight_operation(
         self,
@@ -3098,9 +2969,7 @@ class _AdminTransitionMixin:
         #: (``orphaned_claims_are_finalized_only_by_same_instance_startup_reconciliation_or_admin_abort``).
         #: Best-effort: a legacy/pre-AG3-141 row with no declared scope has
         #: nothing to release (``parse_declared_scope`` returns ``None``).
-        claim_key = object_claims.parse_declared_scope(
-            record.project_key, record.declared_serialization_scope
-        )
+        claim_key = object_claims.parse_declared_scope(record.project_key, record.declared_serialization_scope)
         if claim_key is not None:
             self._release_claim_key_best_effort(claim_key, op_id=record.op_id)
         return result
@@ -3196,9 +3065,7 @@ class _ProjectEdgeSyncMixin:
                 lock_type="story_execution",
                 status="INACTIVE",
                 worktree_roots=(),
-                binding_version=_next_binding_version(
-                    binding.binding_version if binding is not None else None
-                ),
+                binding_version=_next_binding_version(binding.binding_version if binding is not None else None),
                 activated_at=now,
                 updated_at=now,
                 deactivated_at=now,
@@ -3306,9 +3173,7 @@ class ControlPlaneRuntimeService(
             The committed (or replayed) closure :class:`ControlPlaneMutationResult`.
         """
         self._require_postgres_backend_on_first_use()
-        existing = self._load_existing_operation(
-            request, operation_kind="closure_complete", phase="closure"
-        )
+        existing = self._load_existing_operation(request, operation_kind="closure_complete", phase="closure")
         if existing is not None:
             return existing
         locked = self._repair_locked_rejection(
@@ -3454,9 +3319,7 @@ class ControlPlaneRuntimeService(
                 story_id=request.story_id,
                 op_id=request.op_id,
             )
-            reason = _claimed_operation_rejection_reason(
-                "closure_complete", request.op_id, "closure"
-            )
+            reason = _claimed_operation_rejection_reason("closure_complete", request.op_id, "closure")
             return _rejection_result(
                 op_id=request.op_id,
                 operation_kind="closure_complete",
@@ -3537,9 +3400,7 @@ class ControlPlaneRuntimeService(
             rejection.
         """
         self._require_postgres_backend_on_first_use()
-        existing = self._load_existing_operation(
-            request, operation_kind="phase_resume", phase=phase
-        )
+        existing = self._load_existing_operation(request, operation_kind="phase_resume", phase=phase)
         if existing is not None:
             return existing
         locked = self._repair_locked_rejection(
@@ -3598,9 +3459,7 @@ class ControlPlaneRuntimeService(
                 op_id=request.op_id,
             )
             if object_conflict is not None:
-                self._release_my_claim(
-                    request.op_id, owner_token, owner_claimed_at
-                )
+                self._release_my_claim(request.op_id, owner_token, owner_claimed_at)
                 return _object_claim_busy_rejection(
                     op_id=request.op_id,
                     operation_kind="phase_resume",
@@ -3618,9 +3477,7 @@ class ControlPlaneRuntimeService(
                 request=request,
                 run_admitted=resume_admission.admitted,
             )
-            rejection = self._resume_rejection_if_unsuccessful(
-                dispatch_result, run_id=run_id, phase=phase, request=request
-            )
+            rejection = self._resume_rejection_if_unsuccessful(dispatch_result, run_id=run_id, phase=phase, request=request)
             if rejection is not None:
                 #: AG3-130 (Codex M3): a resume that did NOT advance/re-pause the
                 #: phase (absent ctx, not-PAUSED, invalid trigger -> EngineResult
@@ -3629,9 +3486,7 @@ class ControlPlaneRuntimeService(
                 #: SESSION_RUN_BINDING_CREATED. Release MY claims and return the
                 #: NON-stored rejection (the engine's own phase-state, if any,
                 #: stands). A retry then re-evaluates.
-                self._release_my_claim(
-                    request.op_id, owner_token, owner_claimed_at
-                )
+                self._release_my_claim(request.op_id, owner_token, owner_claimed_at)
                 self._release_object_claim(
                     project_key=request.project_key,
                     story_id=request.story_id,
@@ -3684,9 +3539,7 @@ class ControlPlaneRuntimeService(
             #: this commit. The whole finalize rolled back (no side effect, no
             #: stored op). Release MY claims and surface the rich ex-owner
             #: rejection.
-            self._release_my_claim_best_effort(
-                request.op_id, owner_token, owner_claimed_at
-            )
+            self._release_my_claim_best_effort(request.op_id, owner_token, owner_claimed_at)
             self._release_object_claim(
                 project_key=request.project_key,
                 story_id=request.story_id,
@@ -3704,9 +3557,7 @@ class ControlPlaneRuntimeService(
             #: belonging to a DIFFERENT run that rebound the same session. The store
             #: refused fail-closed and the WHOLE transaction rolled back -- a resume
             #: for an old run must never clobber a foreign run's live binding.
-            self._release_my_claim_best_effort(
-                request.op_id, owner_token, owner_claimed_at
-            )
+            self._release_my_claim_best_effort(request.op_id, owner_token, owner_claimed_at)
             #: Codex-R1 (BLOCKER): NON-best-effort object-claim release on this
             #: handled-return rejection (surface failures, never a swallowed held
             #: claim behind a normal rejection).
@@ -3731,9 +3582,7 @@ class ControlPlaneRuntimeService(
             #: durably held -- ended ONLY via the AG3-138 startup reconciliation
             #: or an explicit admin_abort_inflight_operation.
             if not finalized:
-                self._release_my_claim_best_effort(
-                    request.op_id, owner_token, owner_claimed_at
-                )
+                self._release_my_claim_best_effort(request.op_id, owner_token, owner_claimed_at)
                 self._release_object_claim_best_effort(
                     project_key=request.project_key,
                     story_id=request.story_id,
@@ -3883,9 +3732,7 @@ class ControlPlaneRuntimeService(
             phase=phase,
             result=result,
             now=now,
-            request_body_hash=_control_plane_request_body_hash(
-                request, operation_kind="phase_resume", phase=phase
-            ),
+            request_body_hash=_control_plane_request_body_hash(request, operation_kind="phase_resume", phase=phase),
         )
         #: Ownership-CAS finalize of ONLY the op record (binding/locks/events are
         #: EMPTY -- mirrors the fast-start finalize which materializes no side
@@ -3936,19 +3783,11 @@ class ControlPlaneRuntimeService(
             or binding.story_id != request.story_id
             or binding.run_id != run_id
         ):
-            return _build_fast_edge_bundle(
-                project_key=request.project_key, sync_class="mutation", now=now
-            )
-        lock = self._repo.load_lock(
-            binding.project_key, binding.story_id, binding.run_id, "story_execution"
-        )
+            return _build_fast_edge_bundle(project_key=request.project_key, sync_class="mutation", now=now)
+        lock = self._repo.load_lock(binding.project_key, binding.story_id, binding.run_id, "story_execution")
         if lock is None:
-            return _build_fast_edge_bundle(
-                project_key=request.project_key, sync_class="mutation", now=now
-            )
-        qa_lock = self._repo.load_lock(
-            binding.project_key, binding.story_id, binding.run_id, "qa_artifact_write"
-        )
+            return _build_fast_edge_bundle(project_key=request.project_key, sync_class="mutation", now=now)
+        qa_lock = self._repo.load_lock(binding.project_key, binding.story_id, binding.run_id, "qa_artifact_write")
         return _build_edge_bundle(
             binding=binding,
             lock=lock,
@@ -3989,11 +3828,7 @@ class ControlPlaneRuntimeService(
         """
         binding = self._run_matched_binding_for_teardown(request, run_id=run_id)
         worktree_roots = binding.worktree_roots if binding is not None else ()
-        binding_version = (
-            binding.binding_version
-            if binding is not None
-            else _next_binding_version(None)
-        )
+        binding_version = binding.binding_version if binding is not None else _next_binding_version(None)
         lock = StoryExecutionLockRecord(
             project_key=request.project_key,
             story_id=request.story_id,
@@ -4071,9 +3906,7 @@ class ControlPlaneRuntimeService(
             phase="closure",
             result=result,
             now=now,
-            request_body_hash=_control_plane_request_body_hash(
-                request, operation_kind="closure_complete", phase="closure"
-            ),
+            request_body_hash=_control_plane_request_body_hash(request, operation_kind="closure_complete", phase="closure"),
         )
         #: Atomic: the conditional op-row upsert (collision gate FIRST) + the
         #: INACTIVE locks, the binding deletion and the deactivation events apply in
@@ -4123,11 +3956,7 @@ class ControlPlaneRuntimeService(
         binding = self._repo.load_binding(request.session_id)
         if binding is None:
             return None
-        if (
-            binding.project_key == request.project_key
-            and binding.story_id == request.story_id
-            and binding.run_id == run_id
-        ):
+        if binding.project_key == request.project_key and binding.story_id == request.story_id and binding.run_id == run_id:
             return binding
         raise ControlPlaneBindingCollisionError(
             f"closure for run {run_id!r} refused: session "
@@ -4147,9 +3976,7 @@ class ControlPlaneRuntimeService(
         expected_ownership_epoch: int,
         phase_dispatch: PhaseDispatchResult | None = None,
     ) -> ControlPlaneMutationResult:
-        existing = self._load_existing_operation(
-            request, operation_kind=operation_kind, phase=phase
-        )
+        existing = self._load_existing_operation(request, operation_kind=operation_kind, phase=phase)
         if existing is not None:
             return existing
 
@@ -4185,9 +4012,7 @@ class ControlPlaneRuntimeService(
                     phase=phase,
                     request=request,
                     now=now,
-                    previous_binding_version=self._current_binding_version(
-                        request.session_id
-                    ),
+                    previous_binding_version=self._current_binding_version(request.session_id),
                     ownership_epoch=expected_ownership_epoch,
                 )
             else:
@@ -4217,9 +4042,7 @@ class ControlPlaneRuntimeService(
                 phase=phase,
                 result=result,
                 now=now,
-                request_body_hash=_control_plane_request_body_hash(
-                    request, operation_kind=operation_kind, phase=phase
-                ),
+                request_body_hash=_control_plane_request_body_hash(request, operation_kind=operation_kind, phase=phase),
             )
             #: Atomic: the conditional op-row upsert (collision gate) + side effects in
             #: ONE transaction. A collision raises ``ControlPlaneClaimCollisionError``
@@ -4414,9 +4237,7 @@ def _complete_fast_closure(
         phase="closure",
         result=result,
         now=now,
-        request_body_hash=_control_plane_request_body_hash(
-            request, operation_kind="closure_complete", phase="closure"
-        ),
+        request_body_hash=_control_plane_request_body_hash(request, operation_kind="closure_complete", phase="closure"),
     )
     repo.commit_operation_with_side_effects(
         record,
@@ -4560,9 +4381,7 @@ def _plan_fast_materialization(
         sync_class="mutation",
         now=now,
     )
-    return _StartPhaseMaterialization(
-        bundle=bundle, binding=None, locks=(), events=()
-    )
+    return _StartPhaseMaterialization(bundle=bundle, binding=None, locks=(), events=())
 
 
 def _control_plane_request_body_hash(
@@ -4655,9 +4474,7 @@ def _replay_or_mismatch(
     """
     stored_hash = stored.request_body_hash
     if stored_hash is not None:
-        incoming = _control_plane_request_body_hash(
-            request, operation_kind=operation_kind, phase=phase
-        )
+        incoming = _control_plane_request_body_hash(request, operation_kind=operation_kind, phase=phase)
         if incoming != stored_hash:
             from agentkit.backend.story_context_manager.errors import (
                 IdempotencyMismatchError,
@@ -4803,9 +4620,7 @@ def _require_postgres_control_plane_backend() -> None:
         )
 
 
-def _sync_push_result_repo_id(
-    existing: EdgeCommandRecord, result: object
-) -> str | None:
+def _sync_push_result_repo_id(existing: EdgeCommandRecord, result: object) -> str | None:
     """Resolve the repo id for a ``sync_push`` result/backlog projection."""
     result_repo_id = getattr(result, "repo_id", None)
     if isinstance(result_repo_id, str) and result_repo_id:
@@ -4816,27 +4631,13 @@ def _sync_push_result_repo_id(
     return None
 
 
-def _sync_point_id_from_sync_push_command(
-    command_id: str, *, run_id: str, repo_id: str
-) -> str | None:
+def _sync_point_id_from_sync_push_command(command_id: str, *, run_id: str, repo_id: str) -> str | None:
     """Extract the boundary sync-point id from the deterministic command id."""
     from agentkit.backend.control_plane.push_sync import (
         sync_point_id_from_sync_push_command_id,
     )
 
-    return sync_point_id_from_sync_push_command_id(
-        command_id, run_id=run_id, repo_id=repo_id
-    )
-
-
-def _boundary_sync_point_id(
-    boundary_type: SyncPointBarrierType,
-    boundary_id: str,
-    boundary_epoch: int,
-) -> str:
-    """Return the edge-command correlation id for one boundary epoch."""
-
-    return f"{boundary_type.value}:{boundary_id}:epoch-{boundary_epoch}"
+    return sync_point_id_from_sync_push_command_id(command_id, run_id=run_id, repo_id=repo_id)
 
 
 def _push_barrier_result_binding(
@@ -4851,12 +4652,7 @@ def _push_barrier_result_binding(
     boundary_type = existing.payload.get("boundary_type")
     boundary_id = existing.payload.get("boundary_id")
     boundary_epoch = existing.payload.get("boundary_epoch")
-    if not (
-        repo_id
-        and isinstance(boundary_type, str)
-        and isinstance(boundary_id, str)
-        and isinstance(boundary_epoch, int)
-    ):
+    if not (repo_id and isinstance(boundary_type, str) and isinstance(boundary_id, str) and isinstance(boundary_epoch, int)):
         return None
     try:
         return repo_id, SyncPointBarrierType(boundary_type), boundary_id, boundary_epoch
@@ -4881,21 +4677,15 @@ def _push_barrier_result_is_fenced(
         return True
     if result.result_type != "push_status_report":
         return False
-    return (
-        (result.boundary_epoch is not None and result.boundary_epoch != current.boundary_epoch)
-        or (
-            result.ownership_epoch is not None
-            and result.ownership_epoch != current.ownership_epoch
-        )
+    return (result.boundary_epoch is not None and result.boundary_epoch != current.boundary_epoch) or (
+        result.ownership_epoch is not None and result.ownership_epoch != current.ownership_epoch
     )
 
 
-def _sync_push_failed_barrier_verdict(
-    current: PushBarrierVerdict, *, updated_at: datetime
-) -> PushBarrierVerdict:
+def _sync_push_failed_barrier_verdict(current: PushBarrierVerdict, *, updated_at: datetime) -> PushBarrierVerdict:
     """Project a failed ``sync_push`` command into a fail-closed backlog verdict."""
 
-    return _replace_push_barrier_verdict(
+    return push_barrier_lifecycle.replace_push_barrier_verdict(
         current,
         expected_head_sha=None,
         server_head_sha=None,
@@ -4903,135 +4693,6 @@ def _sync_push_failed_barrier_verdict(
         updated_at=updated_at,
         resolved_at=updated_at,
         status_detail="sync_push_command_failed",
-    )
-
-
-def _next_boundary_binding(
-    current: PushBarrierVerdict | None,
-    *,
-    project_key: str,
-    story_id: str,
-    run_id: str,
-    boundary_type: SyncPointBarrierType,
-    boundary_id: str,
-    repo_id: str,
-    ownership_epoch: int,
-    now: datetime,
-) -> PushBarrierVerdict:
-    """Return the verdict row representing the current boundary epoch."""
-
-    if current is None:
-        return PushBarrierVerdict(
-            project_key=project_key,
-            story_id=story_id,
-            run_id=run_id,
-            boundary_type=boundary_type,
-            boundary_id=boundary_id,
-            repo_id=repo_id,
-            producer="control_plane.push_barrier",
-            boundary_epoch=1,
-            expected_head_sha=None,
-            server_head_sha=None,
-            ownership_epoch=ownership_epoch,
-            status=PushBarrierVerdictStatus.PENDING,
-            created_at=now,
-            updated_at=now,
-            resolved_at=None,
-            status_detail="boundary_bound",
-        )
-    if current.status in (
-        PushBarrierVerdictStatus.PENDING,
-        PushBarrierVerdictStatus.PASSED,
-    ):
-        return current
-    if current.status is PushBarrierVerdictStatus.SUPERSEDED:
-        return _replace_push_barrier_verdict(
-            current,
-            status=PushBarrierVerdictStatus.PENDING,
-            ownership_epoch=ownership_epoch,
-            updated_at=now,
-            resolved_at=None,
-            status_detail="boundary_rebound_after_supersede",
-        )
-    return _replace_push_barrier_verdict(
-        current,
-        boundary_epoch=current.boundary_epoch + 1,
-        expected_head_sha=None,
-        server_head_sha=None,
-        ownership_epoch=ownership_epoch,
-        status=PushBarrierVerdictStatus.PENDING,
-        updated_at=now,
-        resolved_at=None,
-        status_detail="boundary_retry_after_backlog",
-    )
-
-
-def _replace_push_barrier_verdict(
-    verdict: PushBarrierVerdict,
-    *,
-    updated_at: datetime,
-    resolved_at: datetime | None,
-    status_detail: str | None,
-    boundary_epoch: int | None = None,
-    expected_head_sha: str | None | object = runtime_constants.KEEP_FIELD,
-    server_head_sha: str | None | object = runtime_constants.KEEP_FIELD,
-    ownership_epoch: int | None = None,
-    status: PushBarrierVerdictStatus | None = None,
-) -> PushBarrierVerdict:
-    """Return a copy of a verdict with lifecycle fields replaced."""
-
-    return PushBarrierVerdict(
-        project_key=verdict.project_key,
-        story_id=verdict.story_id,
-        run_id=verdict.run_id,
-        boundary_type=verdict.boundary_type,
-        boundary_id=verdict.boundary_id,
-        repo_id=verdict.repo_id,
-        producer=verdict.producer,
-        boundary_epoch=(
-            boundary_epoch if boundary_epoch is not None else verdict.boundary_epoch
-        ),
-        expected_head_sha=(
-            verdict.expected_head_sha
-            if expected_head_sha is runtime_constants.KEEP_FIELD
-            else cast("str | None", expected_head_sha)
-        ),
-        server_head_sha=(
-            verdict.server_head_sha
-            if server_head_sha is runtime_constants.KEEP_FIELD
-            else cast("str | None", server_head_sha)
-        ),
-        ownership_epoch=(
-            ownership_epoch if ownership_epoch is not None else verdict.ownership_epoch
-        ),
-        status=status or verdict.status,
-        created_at=verdict.created_at,
-        updated_at=updated_at,
-        resolved_at=resolved_at,
-        status_detail=status_detail,
-    )
-
-
-def _repo_verdict_from_persisted(verdict: PushBarrierVerdict) -> RepoPushVerdict:
-    """Project a persisted verdict row into the existing rejection vocabulary."""
-
-    if verdict.status is PushBarrierVerdictStatus.SUPERSEDED:
-        code = PushBarrierBlockCode.STALE_EDGE_PUSH_REPORT
-    elif verdict.status is PushBarrierVerdictStatus.PENDING:
-        code = PushBarrierBlockCode.NO_EDGE_PUSH_REPORT
-    else:
-        code = PushBarrierBlockCode.EDGE_REPORTS_BACKLOG
-    return RepoPushVerdict(
-        repo_id=verdict.repo_id,
-        verified=False,
-        block_code=code,
-        detail=(
-            f"push-barrier verdict status={verdict.status.value}, "
-            f"epoch={verdict.boundary_epoch}, expected_head="
-            f"{verdict.expected_head_sha or 'unknown'}, server_head="
-            f"{verdict.server_head_sha or 'unknown'}"
-            + (f", detail={verdict.status_detail}" if verdict.status_detail else "")
-        ),
     )
 
 
@@ -5116,9 +4777,7 @@ def _default_di_object_claim_repository() -> ObjectMutationClaimRepository:
         held[key] = (op_id, backend_instance_id, instance_incarnation)
         return True
 
-    def _release(
-        project_key: str, serialization_scope: str, scope_key: str, op_id: str
-    ) -> bool:
+    def _release(project_key: str, serialization_scope: str, scope_key: str, op_id: str) -> bool:
         key = (project_key, serialization_scope, scope_key)
         current = held.get(key)
         if current is None or current[0] != op_id:
@@ -5180,7 +4839,11 @@ def _default_di_edge_command_repository() -> EdgeCommandRepository:
         return commands.get(command_id)
 
     def _list_and_ack(
-        *, project_key: str, run_id: str, session_id: str, delivered_at: datetime,
+        *,
+        project_key: str,
+        run_id: str,
+        session_id: str,
+        delivered_at: datetime,
     ) -> tuple[EdgeCommandRecord, ...]:
         from dataclasses import replace
 
@@ -5235,9 +4898,7 @@ def _default_di_edge_command_repository() -> EdgeCommandRepository:
     )
 
 
-def _default_di_execution_contract_digest_reader() -> (
-    Callable[[PhaseMutationRequest, str], ExecutionContractDigestOutcome]
-):
+def _default_di_execution_contract_digest_reader() -> Callable[[PhaseMutationRequest, str], ExecutionContractDigestOutcome]:
     """Build a trivial, always-succeeding digest reader (DI seam, AG3-143).
 
     Mirrors :func:`_default_di_object_claim_repository`: a directly
@@ -5255,7 +4916,8 @@ def _default_di_execution_contract_digest_reader() -> (
     """
 
     def _reader(
-        request: PhaseMutationRequest, run_id: str,
+        request: PhaseMutationRequest,
+        run_id: str,
     ) -> ExecutionContractDigestOutcome:
         del request, run_id
         from agentkit.backend.prompt_runtime.execution_contract import (
@@ -5340,9 +5002,7 @@ def _build_claim_placeholder(
         #: as a legitimate replay (hash match) vs ``409 idempotency_mismatch`` (hash
         #: differs). Fed with THIS claim's operation_kind + phase, identical to the
         #: terminal-write/replay pair of the same entrypoint (no false-mismatch).
-        request_body_hash=_control_plane_request_body_hash(
-            request, operation_kind=operation_kind, phase=phase
-        ),
+        request_body_hash=_control_plane_request_body_hash(request, operation_kind=operation_kind, phase=phase),
     )
 
 

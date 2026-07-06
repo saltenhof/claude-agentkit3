@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from agentkit.backend.control_plane import push_barrier_lifecycle
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -18,8 +20,7 @@ def barrier_sync_point_id(
 ) -> str:
     """Return the edge-command correlation id for one boundary epoch."""
 
-    boundary_value = getattr(boundary_type, "value", str(boundary_type))
-    return f"{boundary_value}:{boundary_id}:epoch-{boundary_epoch}"
+    return push_barrier_lifecycle.boundary_sync_point_id(boundary_type, boundary_id, boundary_epoch)
 
 
 def verdicts_server_fresh(
@@ -30,11 +31,15 @@ def verdicts_server_fresh(
     boundary_type: Any,
     boundary_id: str,
     verdicts: tuple[Any, ...],
+    expected_repo_ids: tuple[str, ...],
     evidence_factory: Callable[[], PushBarrierEvidencePort],
 ) -> bool:
     """Aggregate persisted PASS verdicts with the required final server recheck."""
 
     if not verdicts or any(_status_value(v) != "passed" for v in verdicts):
+        return False
+    verdict_repos = {getattr(v, "repo_id", None) for v in verdicts}
+    if verdict_repos != set(expected_repo_ids):
         return False
     try:
         evidence = evidence_factory()

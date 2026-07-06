@@ -71,6 +71,7 @@ __all__ = [
     "next_sync_push_command_id",
     "official_story_ref",
     "project_push_freshness",
+    "open_sync_push_command",
     "sync_point_id_from_sync_push_command_id",
     "sync_push_command_id",
     "verify_pushed_across_repos",
@@ -207,8 +208,7 @@ class BarrierVerdict:
     def blocking_summary(self) -> str:
         """A deterministic, human-readable summary of the blocking repos."""
         return "; ".join(
-            f"{v.repo_id}: {v.block_code.value if v.block_code else 'blocked'} "
-            f"({v.detail})"
+            f"{v.repo_id}: {v.block_code.value if v.block_code else 'blocked'} ({v.detail})"
             for v in self.repo_verdicts
             if not v.verified
         )
@@ -258,7 +258,8 @@ def evaluate_repo_push(inp: RepoPushVerificationInput) -> RepoPushVerdict:
     """
     if not inp.edge_report_present:
         return _repo_block(
-            inp, PushBarrierBlockCode.NO_EDGE_PUSH_REPORT,
+            inp,
+            PushBarrierBlockCode.NO_EDGE_PUSH_REPORT,
             "no Edge push report for this repo at the barrier (fail-closed; the "
             "server ref-read alone never satisfies the barrier)",
         )
@@ -280,25 +281,27 @@ def evaluate_repo_push(inp: RepoPushVerificationInput) -> RepoPushVerdict:
         )
     if not inp.edge_reported_pushed:
         return _repo_block(
-            inp, PushBarrierBlockCode.EDGE_REPORTS_BACKLOG,
+            inp,
+            PushBarrierBlockCode.EDGE_REPORTS_BACKLOG,
             "the Edge reported a push backlog (behind_remote), not a push",
         )
     if inp.edge_reported_head_sha is None:
         return _repo_block(
-            inp, PushBarrierBlockCode.MISSING_EDGE_HEAD_SHA,
+            inp,
+            PushBarrierBlockCode.MISSING_EDGE_HEAD_SHA,
             "the Edge push report carried no branch head SHA",
         )
     if not inp.server_ref_resolved or inp.server_head_sha is None:
         return _repo_block(
-            inp, PushBarrierBlockCode.SERVER_REF_UNRESOLVED,
-            "the server ls-remote ref-read did not resolve the story branch "
-            "(remote unreachable or ref absent)",
+            inp,
+            PushBarrierBlockCode.SERVER_REF_UNRESOLVED,
+            "the server ls-remote ref-read did not resolve the story branch (remote unreachable or ref absent)",
         )
     if inp.server_head_sha != inp.edge_reported_head_sha:
         return _repo_block(
-            inp, PushBarrierBlockCode.SERVER_HEAD_MISMATCH,
-            f"the server head SHA {inp.server_head_sha} does not confirm the "
-            f"Edge-reported head SHA {inp.edge_reported_head_sha}",
+            inp,
+            PushBarrierBlockCode.SERVER_HEAD_MISMATCH,
+            f"the server head SHA {inp.server_head_sha} does not confirm the Edge-reported head SHA {inp.edge_reported_head_sha}",
         )
     return RepoPushVerdict(
         repo_id=inp.repo_id,
@@ -308,9 +311,7 @@ def evaluate_repo_push(inp: RepoPushVerificationInput) -> RepoPushVerdict:
     )
 
 
-def sync_push_command_id(
-    *, run_id: str, sync_point_id: str, repo_id: str, retry_token: str | None = None
-) -> str:
+def sync_push_command_id(*, run_id: str, sync_point_id: str, repo_id: str, retry_token: str | None = None) -> str:
     """Build a ``sync_push`` command id while preserving boundary correlation.
 
     The first attempt keeps the legacy deterministic identity. Retry attempts add
@@ -321,15 +322,10 @@ def sync_push_command_id(
     """
     if retry_token is None:
         return f"{run_id}::{SYNC_PUSH_COMMAND_KIND}::{sync_point_id}::{repo_id}"
-    return (
-        f"{run_id}::{SYNC_PUSH_COMMAND_KIND}::{sync_point_id}"
-        f"{_SYNC_PUSH_RETRY_MARKER}{retry_token}::{repo_id}"
-    )
+    return f"{run_id}::{SYNC_PUSH_COMMAND_KIND}::{sync_point_id}{_SYNC_PUSH_RETRY_MARKER}{retry_token}::{repo_id}"
 
 
-def sync_point_id_from_sync_push_command_id(
-    command_id: str, *, run_id: str, repo_id: str
-) -> str | None:
+def sync_point_id_from_sync_push_command_id(command_id: str, *, run_id: str, repo_id: str) -> str | None:
     """Extract the hard-boundary sync-point id from a ``sync_push`` command id."""
     prefix = f"{run_id}::{SYNC_PUSH_COMMAND_KIND}::"
     suffix = f"::{repo_id}"
@@ -358,9 +354,7 @@ def next_sync_push_command_id(
     and result op, keeping retries deterministic without server-minting a new
     correlation.
     """
-    command_id = sync_push_command_id(
-        run_id=run_id, sync_point_id=sync_point_id, repo_id=repo_id
-    )
+    command_id = sync_push_command_id(run_id=run_id, sync_point_id=sync_point_id, repo_id=repo_id)
     for _ in range(_MAX_SYNC_PUSH_RETRY_CHAIN):
         existing = load_command(command_id)
         if existing is None:
@@ -368,6 +362,33 @@ def next_sync_push_command_id(
         status = getattr(existing, "status", None)
         if status in {"created", "delivered"}:
             return None
+        token = _sync_push_retry_token(existing, fallback=command_id)
+        command_id = sync_push_command_id(
+            run_id=run_id,
+            sync_point_id=sync_point_id,
+            repo_id=repo_id,
+            retry_token=token,
+        )
+    return None
+
+
+def open_sync_push_command(
+    *,
+    run_id: str,
+    sync_point_id: str,
+    repo_id: str,
+    load_command: Callable[[str], object | None],
+) -> object | None:
+    """Return the open command blocking a boundary retry, if any."""
+
+    command_id = sync_push_command_id(run_id=run_id, sync_point_id=sync_point_id, repo_id=repo_id)
+    for _ in range(_MAX_SYNC_PUSH_RETRY_CHAIN):
+        existing = load_command(command_id)
+        if existing is None:
+            return None
+        status = getattr(existing, "status", None)
+        if status in {"created", "delivered"}:
+            return existing
         token = _sync_push_retry_token(existing, fallback=command_id)
         command_id = sync_push_command_id(
             run_id=run_id,
@@ -393,9 +414,7 @@ def _repo_block(
     detail: str,
 ) -> RepoPushVerdict:
     """Build a fail-closed, named per-repo block verdict."""
-    return RepoPushVerdict(
-        repo_id=inp.repo_id, verified=False, block_code=code, detail=detail
-    )
+    return RepoPushVerdict(repo_id=inp.repo_id, verified=False, block_code=code, detail=detail)
 
 
 def evaluate_push_barrier(
@@ -555,10 +574,7 @@ def project_push_freshness(
         backlog_detail=(
             None
             if pushed
-            else (
-                "opportunistic push behind remote; local work continues, "
-                "completion stays fail-closed blocked until pushed"
-            )
+            else ("opportunistic push behind remote; local work continues, completion stays fail-closed blocked until pushed")
         ),
     )
 
@@ -604,28 +620,21 @@ def authorize_story_ref_write(
     if requesting_session_id != active_owner_session_id:
         return _write_refusal(
             StoryRefWriteRefusalCode.OWNERSHIP_TRANSFERRED,
-            f"session {requesting_session_id!r} is not the active owner "
-            f"{active_owner_session_id!r} (ownership transferred)",
+            f"session {requesting_session_id!r} is not the active owner {active_owner_session_id!r} (ownership transferred)",
         )
     if requesting_ownership_epoch != active_ownership_epoch:
         return _write_refusal(
             StoryRefWriteRefusalCode.STALE_OWNERSHIP_EPOCH,
-            f"epoch {requesting_ownership_epoch} is stale; the active epoch is "
-            f"{active_ownership_epoch}",
+            f"epoch {requesting_ownership_epoch} is stale; the active epoch is {active_ownership_epoch}",
         )
     return StoryRefWriteAuthorization(
         granted=True,
         refusal_code=None,
-        detail=(
-            f"write released for active owner {active_owner_session_id!r} "
-            f"epoch {active_ownership_epoch}"
-        ),
+        detail=(f"write released for active owner {active_owner_session_id!r} epoch {active_ownership_epoch}"),
     )
 
 
-def _write_refusal(
-    code: StoryRefWriteRefusalCode, detail: str
-) -> StoryRefWriteAuthorization:
+def _write_refusal(code: StoryRefWriteRefusalCode, detail: str) -> StoryRefWriteAuthorization:
     """Build a fail-closed, named write-release refusal."""
     return StoryRefWriteAuthorization(granted=False, refusal_code=code, detail=detail)
 
@@ -728,8 +737,7 @@ def decide_push_gate(
     if not is_official_story_ref(target_ref, story_id=story_id):
         return _gate_refusal(
             PushGateRefusalCode.NON_OFFICIAL_REF,
-            f"push target {target_ref!r} is not the official ref "
-            f"{official_story_ref(story_id)!r}; no WIP-ref push path exists",
+            f"push target {target_ref!r} is not the official ref {official_story_ref(story_id)!r}; no WIP-ref push path exists",
         )
     if not server_reachable:
         return _gate_refusal(

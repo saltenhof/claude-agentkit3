@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from agentkit.backend.telemetry.emitters import MemoryEmitter
 from agentkit.backend.telemetry.events import EventType
 from agentkit.backend.telemetry.hooks.base import HookContext, HookTrigger
@@ -47,6 +49,35 @@ def test_increment_commit_emitted_on_git_commit() -> None:
     assert event.payload["worker_id"] == "worker-1"
     assert event.payload["files_changed"] == 3
     assert emitter.all_events[0].event_type is EventType.INCREMENT_COMMIT
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git cherry-pick abc123",
+        "git revert --no-edit abc123",
+        "git merge feature/ag3-147",
+        "git rebase origin/main",
+    ],
+)
+def test_increment_commit_emitted_on_commit_producing_git_commands(
+    command: str,
+) -> None:
+    hook = CommitHook(MemoryEmitter())
+
+    result = hook.evaluate(
+        _context(
+            command=command,
+            payload={
+                "commit_sha": "abc123",
+                "repo_name": "demo-repo",
+                "files_changed": 1,
+            },
+        )
+    )
+
+    assert result.triggered is True
+    assert result.events[0].event_type is EventType.INCREMENT_COMMIT
 
 
 def test_non_commit_bash_is_skipped() -> None:

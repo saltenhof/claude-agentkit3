@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from agentkit.backend.artifacts import ArtifactManager, EnvelopeValidator, ProducerRegistry
 from agentkit.backend.bootstrap import push_barrier_freshness, qa_boundary
+from agentkit.backend.control_plane import push_barrier_lifecycle
 from agentkit.backend.exploration.register import register_exploration_producers
 from agentkit.backend.implementation.register import register_implementation_producers
 from agentkit.backend.prompt_runtime.register import register_prompt_runtime_producers
@@ -17,7 +18,82 @@ from agentkit.backend.state_backend.store.artifact_repository import StateBacken
 from agentkit.backend.verify_system.register import register_verify_producers
 
 if TYPE_CHECKING:
-    from agentkit.backend.bootstrap.composition_types import AreGateProvider, ArtifactInvalidationEvent, ArtifactInvalidationSink, BuildTestEvidence, BuildTestEvidencePort, BuildTestPort, Callable, ChangeEvidence, ChangeFrame, ChangeImpact, ClosurePhaseHandler, ClosureProgressStore, CodeBackendPort, ConformanceConfig, CoverageVerdict, DashboardService, DocFidelityFeedbackPort, EdgeProvisioningCoordinator, EventEmitter, ExplorationDrafting, ExplorationPhaseHandler, ExplorationReview, FailureCorpus, FineDesignEvaluator, FineDesignRoundOutcome, GuardCounterFlushPort, GuardDeactivationPort, HandlerResult, HubClientProtocol, IntegrityGate, KpiAnalytics, LlmClient, MergeApplicability, ModeLockReleasePort, PhaseEnvelope, PhaseEnvelopeStore, PhaseHandlerRegistry, PipelineEngine, PlanningProjectionAccessor, PlanningWritePathStoryDependencyRepository, PreMergeScanPort, ProjectRepository, ProjectTelemetryEventSource, ProjectionAccessor, PushBarrierEvidencePort, PushVerificationPort, QaCyclePushBarrierGate, ReadModelRoutes, ReportedHeadEvidence, RepoGitBackend, RepoRunners, RepositoryConfig, RequirementsCoverageProto, ReviewCompletionEvent, ReviewCompletionSink, RuntimeExecutionPurgePort, RuntimeExecutionResidueProbe, SanityGatePort, SetupContextRepository, SetupPhaseHandler, Skills, SonarDimensionPort, SonarGateInputPort, SplitSourceState, StoryContext, StoryService, StorySplitRequest, StoryType, TaskManagementRoutes, TelemetryEvidencePort, VectorDbSyncPort, VerifySystem, datetime  # noqa: E501,I001
+    from datetime import datetime
+
+    from agentkit.backend.bootstrap.composition_types import (
+        AreGateProvider,
+        ArtifactInvalidationEvent,
+        ArtifactInvalidationSink,
+        BuildTestEvidence,
+        BuildTestEvidencePort,
+        BuildTestPort,
+        Callable,
+        ChangeEvidence,
+        ChangeFrame,
+        ChangeImpact,
+        ClosurePhaseHandler,
+        ClosureProgressStore,
+        CodeBackendPort,
+        ConformanceConfig,
+        CoverageVerdict,
+        DashboardService,
+        DocFidelityFeedbackPort,
+        EdgeProvisioningCoordinator,
+        EventEmitter,
+        ExplorationDrafting,
+        ExplorationPhaseHandler,
+        ExplorationReview,
+        FailureCorpus,
+        FineDesignEvaluator,
+        FineDesignRoundOutcome,
+        GuardCounterFlushPort,
+        GuardDeactivationPort,
+        HandlerResult,
+        HubClientProtocol,
+        IntegrityGate,
+        KpiAnalytics,
+        LlmClient,
+        MergeApplicability,
+        ModeLockReleasePort,
+        PhaseEnvelope,
+        PhaseEnvelopeStore,
+        PhaseHandlerRegistry,
+        PipelineEngine,
+        PlanningProjectionAccessor,
+        PlanningWritePathStoryDependencyRepository,
+        PreMergeScanPort,
+        ProjectionAccessor,
+        ProjectRepository,
+        ProjectTelemetryEventSource,
+        PushBarrierEvidencePort,
+        PushVerificationPort,
+        QaCyclePushBarrierGate,
+        ReadModelRoutes,
+        RepoGitBackend,
+        ReportedHeadEvidence,
+        RepoRunners,
+        RepositoryConfig,
+        RequirementsCoverageProto,
+        ReviewCompletionEvent,
+        ReviewCompletionSink,
+        RuntimeExecutionPurgePort,
+        RuntimeExecutionResidueProbe,
+        SanityGatePort,
+        SetupContextRepository,
+        SetupPhaseHandler,
+        Skills,
+        SonarDimensionPort,
+        SonarGateInputPort,
+        SplitSourceState,
+        StoryContext,
+        StoryService,
+        StorySplitRequest,
+        StoryType,
+        TaskManagementRoutes,
+        TelemetryEvidencePort,
+        VectorDbSyncPort,
+        VerifySystem,
+    )  # noqa: E501,I001
 
 
 def build_producer_registry() -> ProducerRegistry:
@@ -126,21 +202,13 @@ def _default_split_source_state_loader(
     )
     for event in events:
         payload = event.payload if isinstance(event.payload, dict) else {}
-        if (
-            event.event_type == "scope_explosion_check"
-            and str(payload.get("status")) == "exploded"
-        ):
+        if event.event_type == "scope_explosion_check" and str(payload.get("status")) == "exploded":
             scope_exploded = True
-        if (
-            event.event_type == "mandate_classification"
-            and str(payload.get("escalation_class")) == "scope_explosion"
-        ):
+        if event.event_type == "mandate_classification" and str(payload.get("escalation_class")) == "scope_explosion":
             paused_with_scope_explosion = True
 
     repo = ControlPlaneRuntimeRepository()
-    competing = repo.has_committed_story_exit_operation_for_run(
-        request.project_key, request.source_story_id, request.run_id
-    )
+    competing = repo.has_committed_story_exit_operation_for_run(request.project_key, request.source_story_id, request.run_id)
     return SplitSourceState(
         scope_explosion_established=scope_exploded,
         paused_with_scope_explosion=paused_with_scope_explosion,
@@ -214,9 +282,7 @@ def build_story_split_service(
             )
 
     class _SupersededIndex:
-        def mark_superseded(
-            self, *, story_id: str, superseded_by: tuple[str, ...]
-        ) -> int:
+        def mark_superseded(self, *, story_id: str, superseded_by: tuple[str, ...]) -> int:
             # HONOR superseded_by (AG3-072 review #4): persist the superseded_by
             # ids onto the source story's authoritative lineage FIRST, so the
             # (re-)export below indexes the source as Cancelled WITH
@@ -245,8 +311,7 @@ def build_story_split_service(
             # so the split stays fail-closed and a later rerun resumes.
             if not result.success:
                 raise StorySplitError(
-                    "source superseded re-export/reindex failed for "
-                    f"{story_id!r}: {result.error or 'no detail reported'}",
+                    f"source superseded re-export/reindex failed for {story_id!r}: {result.error or 'no detail reported'}",
                 )
             return 1
 
@@ -427,11 +492,7 @@ def build_kpi_analytics_read_facade(store_dir: Path | None = None) -> KpiAnalyti
         StateBackendFactRepository,
     )
 
-    fact_repository = (
-        StateBackendFactRepository()
-        if store_dir is None
-        else StateBackendFactRepository(store_dir)
-    )
+    fact_repository = StateBackendFactRepository() if store_dir is None else StateBackendFactRepository(store_dir)
     return KpiAnalytics(catalog=KpiCatalog(), fact_store=FactStore(fact_repository))
 
 
@@ -467,9 +528,7 @@ def build_project_telemetry_event_source() -> ProjectTelemetryEventSource:
     return StateBackendProjectTelemetryEventSource()
 
 
-def build_dashboard_service(
-    story_service: StoryService, store_dir: Path | None = None
-) -> DashboardService:
+def build_dashboard_service(story_service: StoryService, store_dir: Path | None = None) -> DashboardService:
     """Wire the legacy dashboard service without leaking fact persistence to HTTP."""
     from agentkit.backend.kpi_analytics.dashboard import DashboardService
     from agentkit.backend.kpi_analytics.fact_store import FactStore
@@ -477,11 +536,7 @@ def build_dashboard_service(
         StateBackendFactRepository,
     )
 
-    fact_repository = (
-        StateBackendFactRepository()
-        if store_dir is None
-        else StateBackendFactRepository(store_dir)
-    )
+    fact_repository = StateBackendFactRepository() if store_dir is None else StateBackendFactRepository(store_dir)
     return DashboardService(
         story_service=story_service,
         fact_store=FactStore(fact_repository),
@@ -553,9 +608,7 @@ def build_project_read_model_routes(store_dir: Path | None = None) -> ReadModelR
         story_service=story_service,
         config_repository=StateBackendParallelizationConfigRepository(store_dir),
         are_link_repository=StateBackendStoryAreLinkRepository(store_dir),
-        phase_state_loader=StateBackendStoryReadRepository(
-            store_dir=store_dir
-        ).load_phase_state,
+        phase_state_loader=StateBackendStoryReadRepository(store_dir=store_dir).load_phase_state,
     )
 
 
@@ -736,18 +789,14 @@ def build_exploration_phase_handler(
     )
     from agentkit.backend.telemetry.storage import StateBackendEmitter
 
-    adapter = StateBackendExplorationChangeFrameAdapter(
-        build_artifact_manager(story_dir)
-    )
+    adapter = StateBackendExplorationChangeFrameAdapter(build_artifact_manager(story_dir))
     mandate = MandateClassification(
         scope_detector=ScopeExplosionDetector(),
         impact_checker=ImpactExceedanceChecker(),
     )
     evaluator = fine_design_evaluator or build_hub_fine_design_evaluator(story_dir)
     fine_design = FineDesignSubprocess(evaluator)
-    freeze_marker = DesignFreezeMarker(
-        writer=adapter, clock=lambda: datetime.now(UTC)
-    )
+    freeze_marker = DesignFreezeMarker(writer=adapter, clock=lambda: datetime.now(UTC))
     telemetry = MandateTelemetry(StateBackendEmitter(story_dir))
     # AG3-055 produce->consume loop: wire the productive ExplorationDrafting A-core
     # (CONSUMER) + the draft-presence reader so the handler drives the typed loop
@@ -758,11 +807,7 @@ def build_exploration_phase_handler(
     # root). The worker-runner resolves the authoritative StoryContext at draft
     # time (ERROR-2 scope cross-check).
     project_root = project_root_for_story_dir(story_dir)
-    drafting = (
-        _build_exploration_drafting(story_dir, project_root=project_root)
-        if project_root is not None
-        else None
-    )
+    drafting = _build_exploration_drafting(story_dir, project_root=project_root) if project_root is not None else None
     return _ExplorationPhaseHandler(
         change_frame_reader=adapter,
         run_scope_resolver=adapter,
@@ -890,7 +935,9 @@ def build_exploration_drafting(
 
 
 def _build_exploration_drafting(
-    story_dir: Path, *, project_root: Path,
+    story_dir: Path,
+    *,
+    project_root: Path,
 ) -> ExplorationDrafting:
     """Wire the productive ``ExplorationDrafting`` from ``story_dir`` + root.
 
@@ -971,9 +1018,7 @@ class _StateBackendDeclaredImpactReader:
             StateBackendStoryRepository,
         )
 
-        story = StateBackendStoryRepository(self.store_dir).get_by_display_id(
-            story_id
-        )
+        story = StateBackendStoryRepository(self.store_dir).get_by_display_id(story_id)
         if story is None:
             raise CorruptStateError(
                 "Cannot resolve declared change_impact: no persisted story for "
@@ -1006,9 +1051,7 @@ class _UnavailableFineDesignEvaluator:
     triple.
     """
 
-    def run_round(
-        self, change_frame: ChangeFrame, *, round_number: int
-    ) -> FineDesignRoundOutcome:
+    def run_round(self, change_frame: ChangeFrame, *, round_number: int) -> FineDesignRoundOutcome:
         """Raise fail-closed: no real fine-design evaluator is wired yet.
 
         Args:
@@ -1150,9 +1193,7 @@ def build_verify_system(
         # subprocess; the import lives in this composition root). NEVER the
         # worker manifest.
         structural_change_evidence_port=_SubprocessGitChangeEvidenceProvider(
-            push_verification_port=build_push_verification_port(
-                required_sync_point_id=structural_completion_sync_point_id
-            )
+            push_verification_port=build_push_verification_port(required_sync_point_id=structural_completion_sync_point_id)
         ),
         # AG3-147 (FK-10 §10.2.4b boundary type 2): the QA-cycle-boundary push
         # barrier gate, delegating to the control-plane two-stage barrier.
@@ -1235,10 +1276,7 @@ class _StateBackendTelemetryEventCountPort:
         if role is None:
             return len(events)
         return sum(
-            1
-            for event in events
-            if isinstance(getattr(event, "payload", None), dict)
-            and event.payload.get("role") == role
+            1 for event in events if isinstance(getattr(event, "payload", None), dict) and event.payload.get("role") == role
         )
 
     def run_scope_resolvable(self, story_dir: Path) -> bool:
@@ -1328,8 +1366,16 @@ class _BarrierPushVerification:
             boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
             boundary_id=boundary_id,
             verdicts=tuple(verdicts),
+            expected_repo_ids=self._participating_repos(project_key, story_id),
             evidence_factory=build_push_barrier_evidence,
         )
+
+    @staticmethod
+    def _participating_repos(project_key: str, story_id: str) -> tuple[str, ...]:
+        from agentkit.backend.state_backend.store import facade
+
+        ctx = facade.load_story_context_global(project_key, story_id)
+        return tuple(ctx.participating_repos) if ctx is not None else ()
 
     def _commission_sync_push_best_effort(
         self, *, project_key: str, story_id: str, run_id: str, boundary_id: str
@@ -1340,20 +1386,17 @@ class _BarrierPushVerification:
 
         from agentkit.backend.control_plane.models import SyncPushCommandPayload
         from agentkit.backend.control_plane.push_sync import (
-            PushBarrierVerdict,
-            PushBarrierVerdictStatus,
             SyncPointBarrierType,
             next_sync_push_command_id,
             official_story_ref,
+            open_sync_push_command,
         )
         from agentkit.backend.control_plane.records import EdgeCommandRecord
         from agentkit.backend.state_backend.store import facade
 
         try:
             ctx = facade.load_story_context_global(project_key, story_id)
-            active = facade.load_active_run_ownership_record_global(
-                project_key, story_id
-            )
+            active = facade.load_active_run_ownership_record_global(project_key, story_id)
             if ctx is None or active is None or active.run_id != run_id:
                 return
             now = datetime.now(tz=UTC)
@@ -1367,80 +1410,25 @@ class _BarrierPushVerification:
                     boundary_id=boundary_id,
                     repo_id=repo,
                 )
-                if (
-                    current is not None
-                    and current.status is PushBarrierVerdictStatus.PASSED
-                ):
-                    continue
-                if current is None:
-                    epoch = 1
-                    verdict = PushBarrierVerdict(
-                        project_key=project_key,
-                        story_id=story_id,
-                        run_id=run_id,
-                        boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
-                        boundary_id=boundary_id,
-                        repo_id=repo,
-                        producer="control_plane.push_barrier",
-                        boundary_epoch=epoch,
-                        expected_head_sha=None,
-                        server_head_sha=None,
-                        ownership_epoch=active.ownership_epoch,
-                        status=PushBarrierVerdictStatus.PENDING,
-                        created_at=now,
-                        updated_at=now,
-                        resolved_at=None,
-                        status_detail="completion_push_boundary_bound",
-                    )
+                verdict = push_barrier_lifecycle.next_boundary_binding(
+                    current,
+                    project_key=project_key,
+                    story_id=story_id,
+                    run_id=run_id,
+                    boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
+                    boundary_id=boundary_id,
+                    repo_id=repo,
+                    ownership_epoch=active.ownership_epoch,
+                    now=now,
+                )
+                if verdict != current:
                     facade.upsert_push_barrier_verdict_global(verdict)
-                elif current.status is PushBarrierVerdictStatus.PENDING:
-                    epoch = current.boundary_epoch
-                elif current.status is PushBarrierVerdictStatus.SUPERSEDED:
-                    epoch = current.boundary_epoch
-                    facade.upsert_push_barrier_verdict_global(
-                        PushBarrierVerdict(
-                            project_key=current.project_key,
-                            story_id=current.story_id,
-                            run_id=current.run_id,
-                            boundary_type=current.boundary_type,
-                            boundary_id=current.boundary_id,
-                            repo_id=current.repo_id,
-                            producer=current.producer,
-                            boundary_epoch=epoch,
-                            expected_head_sha=current.expected_head_sha,
-                            server_head_sha=None,
-                            ownership_epoch=active.ownership_epoch,
-                            status=PushBarrierVerdictStatus.PENDING,
-                            created_at=current.created_at,
-                            updated_at=now,
-                            resolved_at=None,
-                            status_detail="completion_push_rebound_after_supersede",
-                        )
-                    )
-                else:
-                    epoch = current.boundary_epoch + 1
-                    facade.upsert_push_barrier_verdict_global(
-                        PushBarrierVerdict(
-                            project_key=current.project_key,
-                            story_id=current.story_id,
-                            run_id=current.run_id,
-                            boundary_type=current.boundary_type,
-                            boundary_id=current.boundary_id,
-                            repo_id=current.repo_id,
-                            producer=current.producer,
-                            boundary_epoch=epoch,
-                            expected_head_sha=None,
-                            server_head_sha=None,
-                            ownership_epoch=active.ownership_epoch,
-                            status=PushBarrierVerdictStatus.PENDING,
-                            created_at=current.created_at,
-                            updated_at=now,
-                            resolved_at=None,
-                            status_detail="completion_push_retry_after_backlog",
-                        )
-                    )
-                sync_point_id = push_barrier_freshness.barrier_sync_point_id(
-                    SyncPointBarrierType.PHASE_COMPLETION, boundary_id, epoch
+                if verdict.status.value == "passed":
+                    continue
+                sync_point_id = push_barrier_lifecycle.boundary_sync_point_id(
+                    SyncPointBarrierType.PHASE_COMPLETION,
+                    boundary_id,
+                    verdict.boundary_epoch,
                 )
                 command_id = next_sync_push_command_id(
                     run_id=run_id,
@@ -1449,6 +1437,22 @@ class _BarrierPushVerification:
                     load_command=facade.load_edge_command_record_global,
                 )
                 if command_id is None:
+                    open_command = open_sync_push_command(
+                        run_id=run_id,
+                        sync_point_id=sync_point_id,
+                        repo_id=repo,
+                        load_command=facade.load_edge_command_record_global,
+                    )
+                    if open_command is not None and push_barrier_lifecycle.open_command_timed_out(
+                        open_command,
+                        now=now,
+                    ):
+                        facade.upsert_push_barrier_verdict_global(
+                            push_barrier_lifecycle.timed_out_open_command_verdict(
+                                verdict,
+                                updated_at=now,
+                            )
+                        )
                     continue
                 facade.commission_edge_command_record_global(
                     EdgeCommandRecord(
@@ -1466,7 +1470,7 @@ class _BarrierPushVerification:
                             branch=branch,
                             boundary_type=SyncPointBarrierType.PHASE_COMPLETION.value,
                             boundary_id=boundary_id,
-                            boundary_epoch=epoch,
+                            boundary_epoch=verdict.boundary_epoch,
                             ownership_epoch=active.ownership_epoch,
                         ).model_dump(mode="json"),
                         status="created",
@@ -1476,8 +1480,7 @@ class _BarrierPushVerification:
                 )
         except Exception as exc:  # noqa: BLE001 -- queue failure cannot open barrier
             logging.getLogger(__name__).warning(
-                "sync_push commissioning failed before structural completion.push "
-                "barrier: %s",
+                "sync_push commissioning failed before structural completion.push barrier: %s",
                 exc,
             )
 
@@ -1510,9 +1513,7 @@ class _SubprocessGitChangeEvidenceProvider:
     """
 
     base_ref: str = "origin/main"
-    push_verification_port: PushVerificationPort = field(
-        default_factory=qa_boundary.default_push_verification_port
-    )
+    push_verification_port: PushVerificationPort = field(default_factory=qa_boundary.default_push_verification_port)
 
     def collect(self, story_dir: Path) -> ChangeEvidence:
         """Collect the system change evidence (``available=False`` on any error)."""
@@ -1576,9 +1577,7 @@ class _SubprocessGitChangeEvidenceProvider:
         if out is None:
             return ()
         result = scan_paths_and_diff((), out)
-        return tuple(
-            f"{hit.path}:{hit.pattern.value}" for hit in result.content_hits
-        )
+        return tuple(f"{hit.path}:{hit.pattern.value}" for hit in result.content_hits)
 
     def _git(self, story_dir: Path, *args: str) -> str | None:
         """Run a read-only git command; return stripped stdout or ``None``."""
@@ -1620,11 +1619,7 @@ def _derive_actual_impact(changed_files: tuple[str, ...]) -> ChangeImpact | None
     top_dirs = {f.split("/", 1)[0] for f in changed_files if "/" in f} or {""}
     distinct = len(top_dirs)
     if distinct <= 1:
-        return (
-            ChangeImpact.LOCAL
-            if len(changed_files) <= _LOCAL_FILE_THRESHOLD
-            else ChangeImpact.COMPONENT
-        )
+        return ChangeImpact.LOCAL if len(changed_files) <= _LOCAL_FILE_THRESHOLD else ChangeImpact.COMPONENT
     if distinct == _CROSS_COMPONENT_DIRS:
         return ChangeImpact.CROSS_COMPONENT
     return ChangeImpact.ARCHITECTURE_IMPACT
@@ -2061,10 +2056,7 @@ def build_are_client_from_project_config(project_config: object) -> object | Non
     from agentkit.backend.requirements_coverage.are_client import AreClient
 
     if not isinstance(project_config, ProjectConfig):
-        msg = (
-            "project_config must be a ProjectConfig; got "
-            f"{type(project_config).__name__}"
-        )
+        msg = f"project_config must be a ProjectConfig; got {type(project_config).__name__}"
         raise TypeError(msg)
     if not project_config.pipeline.features.are:
         return None
@@ -2197,13 +2189,9 @@ def build_setup_phase_handler(
         mode_lock_repository=ModeLockRepository(config.project_root),
         green_main_port=green_main_port,  # type: ignore[arg-type]
         are_bundle_loader=are_bundle_loader,
-        residue_probe=build_phase_state_residue_probe(
-            store_dir or config.project_root
-        ),
+        residue_probe=build_phase_state_residue_probe(store_dir or config.project_root),
         fence_scope_binder=build_setup_fence_scope_binder(),
-        edge_provisioning_coordinator=build_setup_edge_provisioning_coordinator(
-            config.project_root
-        ),
+        edge_provisioning_coordinator=build_setup_edge_provisioning_coordinator(config.project_root),
     )
 
 
@@ -2475,9 +2463,7 @@ def build_closure_phase_handler(
     # test/legacy caller it is derived structurally from the canonical story_dir
     # layout -- the identical anchor, never a cwd/ctx fallback.
     effective_project_root = project_root or (
-        project_root_for_story_dir(config.story_dir)
-        if config.story_dir is not None
-        else None
+        project_root_for_story_dir(config.story_dir) if config.story_dir is not None else None
     )
     ci_config, sonar_config = _resolve_pre_merge_configs(effective_project_root)
     config.sonar_config = sonar_config
@@ -2487,9 +2473,7 @@ def build_closure_phase_handler(
     # repo). The applicability is resolved once (story-type + ci/sonar facets are
     # the same across repos for one story).
     repo_roots = _closure_repo_roots(config, base_dir)
-    repo_runners, applicability = _build_per_repo_runners(
-        ci_config, sonar_config, repo_roots
-    )
+    repo_runners, applicability = _build_per_repo_runners(ci_config, sonar_config, repo_roots)
     config.merge_applicability = applicability
     primary = repo_runners[repo_roots[0]]
     config.scan_port = primary.scan_port
@@ -2498,16 +2482,10 @@ def build_closure_phase_handler(
     config.sanity_port = _build_sanity_gate_port(ci_config)
     config.doc_fidelity_port = _build_doc_fidelity_feedback_port(layer2_llm_client)
     config.vectordb_sync_port = _build_vectordb_sync_port()
-    config.guard_deactivation_port = _build_guard_deactivation_port(
-        base_dir, project_key=project_key
-    )
+    config.guard_deactivation_port = _build_guard_deactivation_port(base_dir, project_key=project_key)
     config.mode_lock_release_port = _build_mode_lock_release_port(base_dir)
-    config.change_evidence_port = _SubprocessGitChangeEvidenceProvider(
-        push_verification_port=build_push_verification_port()
-    )
-    config.telemetry_evidence_port = _build_telemetry_evidence_port(
-        base_dir, project_key=project_key
-    )
+    config.change_evidence_port = _SubprocessGitChangeEvidenceProvider(push_verification_port=build_push_verification_port())
+    config.telemetry_evidence_port = _build_telemetry_evidence_port(base_dir, project_key=project_key)
     config.guard_counter_flush_port = _build_guard_counter_flush_port(base_dir)
     return ClosurePhaseHandler(config)
 
@@ -2525,9 +2503,7 @@ def _build_guard_counter_flush_port(store_dir: Path) -> GuardCounterFlushPort:
     return ProductiveGuardCounterFlushPort(store_dir=store_dir)
 
 
-def _build_telemetry_evidence_port(
-    store_dir: Path, *, project_key: str
-) -> TelemetryEvidencePort:
+def _build_telemetry_evidence_port(store_dir: Path, *, project_key: str) -> TelemetryEvidencePort:
     """Build the Closure Telemetry-Evidence-Block seam (FK-68 §68.4, AG3-081).
 
     Runs the six FK-68 §68.4 proofs against the run's ``execution_events`` at
@@ -2538,9 +2514,7 @@ def _build_telemetry_evidence_port(
     """
     from agentkit.backend.closure.runtime_ports import ProductiveTelemetryEvidencePort
 
-    return ProductiveTelemetryEvidencePort(
-        project_key=project_key, project_root=store_dir
-    )
+    return ProductiveTelemetryEvidencePort(project_key=project_key, project_root=store_dir)
 
 
 def _build_mode_lock_release_port(store_dir: Path) -> ModeLockReleasePort:
@@ -2761,9 +2735,7 @@ class _UnresolvedSetupCoordinatesHandler:
         """No-op exit (the phase escalated before doing any work)."""
         _ = ctx, envelope
 
-    def on_resume(
-        self, ctx: StoryContext, envelope: PhaseEnvelope, trigger: str
-    ) -> HandlerResult:
+    def on_resume(self, ctx: StoryContext, envelope: PhaseEnvelope, trigger: str) -> HandlerResult:
         """Escalate fail-closed on resume too (coordinates still unresolved)."""
         _ = ctx, envelope, trigger
         return self._escalation()
@@ -3070,9 +3042,7 @@ def _build_per_repo_runners(
     runners: dict[Path, RepoRunners] = {}
     resolved_applicability: MergeApplicability | None = None
     for repo_root in repo_roots:
-        scan_port, build_test_port, applicability = _build_pre_merge_runners(
-            ci_config, sonar_config, repo_root=repo_root
-        )
+        scan_port, build_test_port, applicability = _build_pre_merge_runners(ci_config, sonar_config, repo_root=repo_root)
         if resolved_applicability is None:
             resolved_applicability = applicability
         elif applicability is not resolved_applicability:  # pragma: no cover
@@ -3082,9 +3052,7 @@ def _build_per_repo_runners(
                 "(the ci/sonar facets must be project-wide for one story)"
             )
             raise ClosureConfigUnavailableError(msg)
-        runners[repo_root] = RepoRunners(
-            scan_port=scan_port, build_test_port=build_test_port
-        )
+        runners[repo_root] = RepoRunners(scan_port=scan_port, build_test_port=build_test_port)
     # ``repo_roots`` always has at least one entry (the story-dir fallback).
     assert resolved_applicability is not None  # noqa: S101 - non-empty roots
     return runners, resolved_applicability
@@ -3193,9 +3161,7 @@ def _build_vectordb_sync_port() -> VectorDbSyncPort:
     return ProductiveVectorDbSyncPort()
 
 
-def _build_guard_deactivation_port(
-    store_dir: Path, *, project_key: str
-) -> GuardDeactivationPort:
+def _build_guard_deactivation_port(store_dir: Path, *, project_key: str) -> GuardDeactivationPort:
     """Build the guard-deactivation seam (FK-29 §29.5, governance top surface).
 
     Delegates to ``Governance.deactivate_locks`` via a real ``Governance`` wired
@@ -3300,9 +3266,7 @@ class _CiBuildTestEvidenceAdapter:
         tree = self._read(repo, "rev-parse", "HEAD^{tree}")
         if branch is None or commit is None or tree is None:
             return None  # HEAD unresolvable -> evidence unconfirmable (fail-closed)
-        outcome = self.build_test_port.run(
-            CandidateRef(branch=branch, commit_sha=commit, tree_hash=tree)
-        )
+        outcome = self.build_test_port.run(CandidateRef(branch=branch, commit_sha=commit, tree_hash=tree))
         test_file_count = self._diff_test_file_count(repo)
         return BuildTestEvidence(
             build_ok=outcome.green,
@@ -3322,11 +3286,7 @@ class _CiBuildTestEvidenceAdapter:
             out = self._read(repo, "diff", "--name-only", "HEAD")
         if not out:
             return 0
-        return sum(
-            1
-            for line in out.splitlines()
-            if any(marker in line for marker in _TEST_FILE_MARKERS)
-        )
+        return sum(1 for line in out.splitlines() if any(marker in line for marker in _TEST_FILE_MARKERS))
 
     def _read(self, repo: object, *args: str) -> str | None:
         from agentkit.backend.closure.multi_repo_saga import ClosureRepo
@@ -3369,10 +3329,7 @@ def build_structural_are_provider(
     )
 
     if not isinstance(pipeline_config, PipelineConfig):
-        msg = (
-            "pipeline_config must be a PipelineConfig; got "
-            f"{type(pipeline_config).__name__}"
-        )
+        msg = f"pipeline_config must be a PipelineConfig; got {type(pipeline_config).__name__}"
         raise TypeError(msg)
     typed_client = are_client if isinstance(are_client, AreClient) else None
     coverage = RequirementsCoverage(
@@ -3411,9 +3368,7 @@ class _RequirementsCoverageAreProvider:
         """Return whether ``features.are`` is active."""
         return self.coverage.is_enabled
 
-    def coverage_verdict(
-        self, story_id: str, project_key: str
-    ) -> CoverageVerdict | None:
+    def coverage_verdict(self, story_id: str, project_key: str) -> CoverageVerdict | None:
         """Return the ARE coverage verdict, or ``None`` when ARE is disabled."""
         if not self.coverage.is_enabled:
             return None
@@ -3660,9 +3615,7 @@ def build_compat_window_reader(
     return _read
 
 
-def build_github_code_backend_port(
-    owner: str, repo: str, *, gh_timeout_seconds: int = 30
-) -> CodeBackendPort:
+def build_github_code_backend_port(owner: str, repo: str, *, gh_timeout_seconds: int = 30) -> CodeBackendPort:
     """Wire the productive GitHub adapter onto the AG3-146 code-backend port.
 
     Composition root for :class:`CodeBackendPort` (FK-12 §12.1): binds the
@@ -3687,14 +3640,10 @@ def build_github_code_backend_port(
     """
     from agentkit.integration_clients.github.adapter import GitHubCodeBackendAdapter
 
-    return GitHubCodeBackendAdapter(
-        owner=owner, repo=repo, gh_timeout_seconds=gh_timeout_seconds
-    )
+    return GitHubCodeBackendAdapter(owner=owner, repo=repo, gh_timeout_seconds=gh_timeout_seconds)
 
 
-def _build_repo_code_backend_port(
-    repo: RepositoryConfig, project_root: Path
-) -> CodeBackendPort:
+def _build_repo_code_backend_port(repo: RepositoryConfig, project_root: Path) -> CodeBackendPort:
     """Bind ONE participating repo's coordinate onto a ``CodeBackendPort`` (AG3-147).
 
     The provider-specific half of the push-barrier evidence port (kept OUT of the
@@ -3709,14 +3658,10 @@ def _build_repo_code_backend_port(
     from agentkit.backend.installer.github_coordinates import parse_github_remote_url
     from agentkit.integration_clients.github.adapter import GitHubCodeBackendAdapter
 
-    remote = repo.remote_url or str(
-        repo.path if repo.path.is_absolute() else project_root / repo.path
-    )
+    remote = repo.remote_url or str(repo.path if repo.path.is_absolute() else project_root / repo.path)
     coordinates = parse_github_remote_url(repo.remote_url) if repo.remote_url else None
     owner, name = coordinates or (repo.name, repo.name)
-    return GitHubCodeBackendAdapter(
-        owner=owner, repo=name, remote_url_override=remote
-    )
+    return GitHubCodeBackendAdapter(owner=owner, repo=name, remote_url_override=remote)
 
 
 @dataclass(frozen=True)
@@ -3736,14 +3681,9 @@ class _ControlPlaneQaCyclePushBarrierGate:
         if current.qa_cycle_id is None or current.qa_cycle_round is None:
             msg = "QA-cycle boundary fail-closed: incomplete QA-cycle identity"
             raise ValueError(msg)
-        return (
-            f"{SyncPointBarrierType.QA_CYCLE_BOUNDARY.value}:"
-            f"{current.qa_cycle_id}:round-{current.qa_cycle_round}"
-        )
+        return f"{SyncPointBarrierType.QA_CYCLE_BOUNDARY.value}:{current.qa_cycle_id}:round-{current.qa_cycle_round}"
 
-    def _commission_sync_push_best_effort(
-        self, story_dir: Path, *, sync_point_id: str
-    ) -> None:
+    def _commission_sync_push_best_effort(self, story_dir: Path, *, sync_point_id: str) -> None:
         """Queue QA-boundary ``sync_push`` commands before evaluating evidence."""
         from datetime import UTC, datetime
 
@@ -3756,39 +3696,30 @@ class _ControlPlaneQaCyclePushBarrierGate:
             now = datetime.now(tz=UTC)
             branch = official_story_ref(boundary.scope.story_id)
             for repo in tuple(boundary.ctx.participating_repos):
-                epoch = self._ensure_qa_boundary_verdict(
-                    boundary, repo=repo, updated_at=now
-                )
-                if epoch is None:
+                verdict = self._ensure_qa_boundary_verdict(boundary, repo=repo, updated_at=now)
+                if verdict is None:
                     continue
                 self._commission_qa_repo_sync_push(
                     boundary,
                     repo=repo,
                     branch=branch,
-                    sync_point_id=sync_point_id,
-                    boundary_epoch=epoch,
+                    verdict=verdict,
                     created_at=now,
                 )
         except Exception as exc:  # noqa: BLE001 -- queue failure cannot open barrier
             import logging
 
-            logging.getLogger(__name__).warning(
-                "sync_push commissioning failed before QA-cycle barrier: %s", exc
-            )
+            logging.getLogger(__name__).warning("sync_push commissioning failed before QA-cycle barrier: %s", exc)
 
     @staticmethod
-    def _qa_boundary_binding(
-        story_dir: Path, sync_point_id: str
-    ) -> qa_boundary.QaBoundaryBinding | None:
+    def _qa_boundary_binding(story_dir: Path, sync_point_id: str) -> qa_boundary.QaBoundaryBinding | None:
         """Resolve QA boundary identity, story context, and active ownership."""
         from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
         from agentkit.backend.state_backend.store import facade
 
         scope = facade.resolve_runtime_scope(story_dir)
         ctx = facade.load_story_context(story_dir)
-        active = facade.load_active_run_ownership_record_global(
-            scope.project_key, scope.story_id
-        )
+        active = facade.load_active_run_ownership_record_global(scope.project_key, scope.story_id)
         boundary_id = qa_boundary.boundary_id_from_sync_point(
             sync_point_id,
             expected_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
@@ -3797,29 +3728,12 @@ class _ControlPlaneQaCyclePushBarrierGate:
             return None
         if boundary_id is None:
             return None
-        return qa_boundary.QaBoundaryBinding(
-            scope=scope, ctx=ctx, active=active, boundary_id=boundary_id
-        )
+        return qa_boundary.QaBoundaryBinding(scope=scope, ctx=ctx, active=active, boundary_id=boundary_id)
 
     @staticmethod
-    def _qa_boundary_epoch(current: Any | None) -> int:
-        """Return the active QA boundary epoch, bumping retries after backlog."""
-        if current is None:
-            return 1
-        if current.status.value == "blocked_backlog":
-            return int(current.boundary_epoch) + 1
-        return int(current.boundary_epoch)
-
-    @staticmethod
-    def _ensure_qa_boundary_verdict(
-        boundary: qa_boundary.QaBoundaryBinding, *, repo: str, updated_at: datetime
-    ) -> int | None:
-        """Ensure a pending QA-boundary verdict row exists and return its epoch."""
-        from agentkit.backend.control_plane.push_sync import (
-            PushBarrierVerdict,
-            PushBarrierVerdictStatus,
-            SyncPointBarrierType,
-        )
+    def _ensure_qa_boundary_verdict(boundary: qa_boundary.QaBoundaryBinding, *, repo: str, updated_at: datetime) -> Any | None:
+        """Ensure a QA-boundary verdict row exists and return the active row."""
+        from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
         from agentkit.backend.state_backend.store import facade
 
         current = facade.load_push_barrier_verdict_global(
@@ -3830,32 +3744,20 @@ class _ControlPlaneQaCyclePushBarrierGate:
             boundary_id=boundary.boundary_id,
             repo_id=repo,
         )
-        epoch = _ControlPlaneQaCyclePushBarrierGate._qa_boundary_epoch(current)
-        if current is not None and current.status is PushBarrierVerdictStatus.PENDING:
-            return epoch
-        if current is not None and current.status is PushBarrierVerdictStatus.PASSED:
-            return None
-        facade.upsert_push_barrier_verdict_global(
-            PushBarrierVerdict(
-                project_key=boundary.scope.project_key,
-                story_id=boundary.scope.story_id,
-                run_id=boundary.scope.run_id,
-                boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
-                boundary_id=boundary.boundary_id,
-                repo_id=repo,
-                producer="control_plane.push_barrier",
-                boundary_epoch=epoch,
-                expected_head_sha=current.expected_head_sha if current else None,
-                server_head_sha=None,
-                ownership_epoch=boundary.active.ownership_epoch,
-                status=PushBarrierVerdictStatus.PENDING,
-                created_at=current.created_at if current else updated_at,
-                updated_at=updated_at,
-                resolved_at=None,
-                status_detail="qa_boundary_bound",
-            )
+        verdict = push_barrier_lifecycle.next_boundary_binding(
+            current,
+            project_key=boundary.scope.project_key,
+            story_id=boundary.scope.story_id,
+            run_id=boundary.scope.run_id,
+            boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
+            boundary_id=boundary.boundary_id,
+            repo_id=repo,
+            ownership_epoch=boundary.active.ownership_epoch,
+            now=updated_at,
         )
-        return epoch
+        if current != verdict:
+            facade.upsert_push_barrier_verdict_global(verdict)
+        return None if verdict.status.value == "passed" else verdict
 
     @staticmethod
     def _commission_qa_repo_sync_push(
@@ -3863,8 +3765,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
         *,
         repo: str,
         branch: str,
-        sync_point_id: str,
-        boundary_epoch: int,
+        verdict: Any,
         created_at: datetime,
     ) -> None:
         """Queue one QA-boundary ``sync_push`` or mark backlog when still open."""
@@ -3872,11 +3773,16 @@ class _ControlPlaneQaCyclePushBarrierGate:
         from agentkit.backend.control_plane.push_sync import (
             SyncPointBarrierType,
             next_sync_push_command_id,
+            open_sync_push_command,
         )
         from agentkit.backend.control_plane.records import EdgeCommandRecord
         from agentkit.backend.state_backend.store import facade
 
-        boundary_sync_point_id = f"{sync_point_id}:epoch-{boundary_epoch}"
+        boundary_sync_point_id = push_barrier_lifecycle.boundary_sync_point_id(
+            SyncPointBarrierType.QA_CYCLE_BOUNDARY,
+            boundary.boundary_id,
+            verdict.boundary_epoch,
+        )
         command_id = next_sync_push_command_id(
             run_id=boundary.scope.run_id,
             sync_point_id=boundary_sync_point_id,
@@ -3884,6 +3790,16 @@ class _ControlPlaneQaCyclePushBarrierGate:
             load_command=facade.load_edge_command_record_global,
         )
         if command_id is None:
+            open_command = open_sync_push_command(
+                run_id=boundary.scope.run_id,
+                sync_point_id=boundary_sync_point_id,
+                repo_id=repo,
+                load_command=facade.load_edge_command_record_global,
+            )
+            if open_command is not None and push_barrier_lifecycle.open_command_timed_out(open_command, now=created_at):
+                facade.upsert_push_barrier_verdict_global(
+                    push_barrier_lifecycle.timed_out_open_command_verdict(verdict, updated_at=created_at)
+                )
             return
         facade.commission_edge_command_record_global(
             EdgeCommandRecord(
@@ -3901,7 +3817,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
                     branch=branch,
                     boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY.value,
                     boundary_id=boundary.boundary_id,
-                    boundary_epoch=boundary_epoch,
+                    boundary_epoch=verdict.boundary_epoch,
                     ownership_epoch=boundary.active.ownership_epoch,
                 ).model_dump(mode="json"),
                 status="created",
@@ -3922,9 +3838,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
             sync_point_id = self._sync_point_id(current)
         except ValueError as exc:
             raise QaCycleBarrierBlockedError(str(exc)) from exc
-        self._commission_sync_push_best_effort(
-            story_dir, sync_point_id=sync_point_id
-        )
+        self._commission_sync_push_best_effort(story_dir, sync_point_id=sync_point_id)
         try:
             scope = facade.resolve_runtime_scope(story_dir)
         except Exception as exc:  # noqa: BLE001 -- unresolvable scope -> fail-closed block
@@ -3954,6 +3868,8 @@ class _ControlPlaneQaCyclePushBarrierGate:
         except Exception as exc:  # noqa: BLE001 -- unavailable verdict SSOT -> block
             msg = f"QA-cycle boundary fail-closed: verdict SSOT unavailable ({exc})"
             raise QaCycleBarrierBlockedError(msg) from exc
+        ctx = facade.load_story_context(story_dir)
+        expected_repo_ids = tuple(ctx.participating_repos) if ctx is not None else ()
         if not push_barrier_freshness.verdicts_server_fresh(
             project_key=project_key,
             story_id=story_id,
@@ -3961,11 +3877,10 @@ class _ControlPlaneQaCyclePushBarrierGate:
             boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
             boundary_id=boundary_id,
             verdicts=tuple(verdicts),
+            expected_repo_ids=expected_repo_ids,
             evidence_factory=build_push_barrier_evidence,
         ):
-            blocking = ", ".join(
-                f"{v.repo_id}:{v.status.value}" for v in verdicts
-            ) or "no verdict rows"
+            blocking = ", ".join(f"{v.repo_id}:{v.status.value}" for v in verdicts) or "no verdict rows"
             msg = (
                 "push_barrier_unverified: QA-cycle boundary blocked -- the story "
                 "branch is not server-verified-pushed in every repo (FK-10 "
@@ -3988,12 +3903,8 @@ class _StateBackedQaCycleFingerprintSource:
         try:
             scope = facade.resolve_runtime_scope(story_dir)
             if scope.run_id is None:
-                raise FingerprintComputationError(
-                    "QA-cycle fingerprint evidence has incomplete run scope"
-                )
-            records = facade.list_push_freshness_records_global(
-                scope.project_key, scope.story_id, scope.run_id
-            )
+                raise FingerprintComputationError("QA-cycle fingerprint evidence has incomplete run scope")
+            records = facade.list_push_freshness_records_global(scope.project_key, scope.story_id, scope.run_id)
         except Exception as exc:  # noqa: BLE001 -- fingerprinting is fail-closed
             msg = f"QA-cycle fingerprint evidence is unavailable: {exc}"
             raise FingerprintComputationError(msg) from exc
@@ -4006,9 +3917,7 @@ class _StateBackedQaCycleFingerprintSource:
             if record.last_pushed_head_sha is not None and not record.backlog
         )
         if not heads:
-            raise FingerprintComputationError(
-                "QA-cycle fingerprint evidence has no pushed head records"
-            )
+            raise FingerprintComputationError("QA-cycle fingerprint evidence has no pushed head records")
         return heads
 
 
@@ -4041,4 +3950,38 @@ def build_push_barrier_evidence() -> PushBarrierEvidencePort:
 
 
 # Keep export metadata compact so module-level LOC stays under the project gate.
-__all__ = ["ClosureConfigUnavailableError", "build_compat_window_reader", "build_artifact_invalidation_sink", "build_review_completion_sink", "build_artifact_manager", "build_closure_phase_handler", "build_exploration_drafting", "build_exploration_phase_handler", "build_exploration_review", "build_failure_corpus", "build_github_code_backend_port", "build_integrity_gate", "build_phase_state_residue_probe", "build_pipeline_engine", "build_pipeline_handler_registry", "build_planning_projection_accessor", "build_planning_story_dependency_repository", "build_producer_registry", "build_projection_accessor", "build_push_barrier_evidence", "build_runtime_execution_purge_port", "build_runtime_execution_residue_probe", "build_setup_config_for_run", "build_setup_phase_handler", "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_structural_are_provider", "build_structural_build_test_port", "build_verify_system", "cli_load_story_context", "cli_load_execution_events_for_project_global", "cli_read_phase_state_record"]  # noqa: E501
+__all__ = [
+    "ClosureConfigUnavailableError",
+    "build_compat_window_reader",
+    "build_artifact_invalidation_sink",
+    "build_review_completion_sink",
+    "build_artifact_manager",
+    "build_closure_phase_handler",
+    "build_exploration_drafting",
+    "build_exploration_phase_handler",
+    "build_exploration_review",
+    "build_failure_corpus",
+    "build_github_code_backend_port",
+    "build_integrity_gate",
+    "build_phase_state_residue_probe",
+    "build_pipeline_engine",
+    "build_pipeline_handler_registry",
+    "build_planning_projection_accessor",
+    "build_planning_story_dependency_repository",
+    "build_producer_registry",
+    "build_projection_accessor",
+    "build_push_barrier_evidence",
+    "build_runtime_execution_purge_port",
+    "build_runtime_execution_residue_probe",
+    "build_setup_config_for_run",
+    "build_setup_phase_handler",
+    "build_setup_preflight_gate",
+    "build_skills",
+    "build_sonar_gate_port",
+    "build_structural_are_provider",
+    "build_structural_build_test_port",
+    "build_verify_system",
+    "cli_load_story_context",
+    "cli_load_execution_events_for_project_global",
+    "cli_read_phase_state_record",
+]  # noqa: E501

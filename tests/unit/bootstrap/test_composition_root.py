@@ -253,32 +253,53 @@ def test_build_sonar_gate_port_rejects_bad_collaborator_types() -> None:
 
     with pytest.raises(TypeError, match="config must be a SonarQubeConfig"):
         build_sonar_gate_port(
-            object(), client=good_client, fast=False, story_type=None,
-            ledger=good_ledger, bound_analysis=good_bound, main_head_revision="",
+            object(),
+            client=good_client,
+            fast=False,
+            story_type=None,
+            ledger=good_ledger,
+            bound_analysis=good_bound,
+            main_head_revision="",
         )
     with pytest.raises(TypeError, match="client must be a SonarClient"):
         build_sonar_gate_port(
-            _sonar_config(available=True), client=object(), fast=False,
-            story_type=None, ledger=good_ledger, bound_analysis=good_bound,
+            _sonar_config(available=True),
+            client=object(),
+            fast=False,
+            story_type=None,
+            ledger=good_ledger,
+            bound_analysis=good_bound,
             main_head_revision="",
         )
     with pytest.raises(TypeError, match="ledger must be an AcceptedExceptionLedger"):
         build_sonar_gate_port(
-            _sonar_config(available=True), client=good_client, fast=False,
-            story_type=None, ledger=object(), bound_analysis=good_bound,
+            _sonar_config(available=True),
+            client=good_client,
+            fast=False,
+            story_type=None,
+            ledger=object(),
+            bound_analysis=good_bound,
             main_head_revision="",
         )
     with pytest.raises(TypeError, match="bound_analysis must be a BoundAnalysis"):
         build_sonar_gate_port(
-            _sonar_config(available=True), client=good_client, fast=False,
-            story_type=None, ledger=good_ledger, bound_analysis=object(),
+            _sonar_config(available=True),
+            client=good_client,
+            fast=False,
+            story_type=None,
+            ledger=good_ledger,
+            bound_analysis=object(),
             main_head_revision="",
         )
     with pytest.raises(TypeError, match="story_type must be a StoryType"):
         build_sonar_gate_port(
-            _sonar_config(available=True), client=good_client,
-            fast=False, story_type="impl",
-            ledger=good_ledger, bound_analysis=good_bound, main_head_revision="",
+            _sonar_config(available=True),
+            client=good_client,
+            fast=False,
+            story_type="impl",
+            ledger=good_ledger,
+            bound_analysis=good_bound,
+            main_head_revision="",
         )
 
 
@@ -360,9 +381,7 @@ def _gate_ctx(story_dir: Path) -> object:
     from agentkit.backend.governance.integrity_gate import IntegrityGateContext
     from agentkit.backend.story_context_manager.types import StoryType
 
-    return IntegrityGateContext(
-        story_dir=story_dir, story_type=StoryType.IMPLEMENTATION
-    )
+    return IntegrityGateContext(story_dir=story_dir, story_type=StoryType.IMPLEMENTATION)
 
 
 def _gate_ctx_for(story_dir: Path, story_type: object) -> object:
@@ -371,9 +390,7 @@ def _gate_ctx_for(story_dir: Path, story_type: object) -> object:
     return IntegrityGateContext(story_dir=story_dir, story_type=story_type)
 
 
-def test_load_sonar_config_propagates_config_error_no_silent_skip(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_load_sonar_config_propagates_config_error_no_silent_skip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """R3-C/A2: a code-producing project that OMITS the sonarqube stanza
     raises ``ConfigError`` (E6 hard-fail); ``_load_sonar_config`` must PROPAGATE
     it, never swallow it into ``None`` (which would route to a silent Dim-9
@@ -421,21 +438,15 @@ def test_qa_cycle_gate_sync_point_is_monotonic_per_round() -> None:
     )
     from agentkit.backend.verify_system.contract import PhaseEnvelopeView
 
-    first = _ControlPlaneQaCyclePushBarrierGate._sync_point_id(
-        PhaseEnvelopeView(qa_cycle_id="a1b2c3d4e5f6", qa_cycle_round=1)
-    )
-    second = _ControlPlaneQaCyclePushBarrierGate._sync_point_id(
-        PhaseEnvelopeView(qa_cycle_id="f6e5d4c3b2a1", qa_cycle_round=2)
-    )
+    first = _ControlPlaneQaCyclePushBarrierGate._sync_point_id(PhaseEnvelopeView(qa_cycle_id="a1b2c3d4e5f6", qa_cycle_round=1))
+    second = _ControlPlaneQaCyclePushBarrierGate._sync_point_id(PhaseEnvelopeView(qa_cycle_id="f6e5d4c3b2a1", qa_cycle_round=2))
 
     assert first == "qa_cycle_boundary:a1b2c3d4e5f6:round-1"
     assert second == "qa_cycle_boundary:f6e5d4c3b2a1:round-2"
     assert first != second
 
 
-def test_load_sonar_config_available_false_is_declared_absence_none(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_load_sonar_config_available_false_is_declared_absence_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """R3-C/A2: only a SUCCESSFULLY loaded config with an explicit
     ``available: false`` is a legitimate declared absence -> ``None`` (skip).
     """
@@ -478,9 +489,7 @@ def test_load_sonar_config_available_false_is_declared_absence_none(
         reset_backend_cache_for_tests()
 
 
-def test_load_sonar_config_no_project_root_code_story_fails_closed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_load_sonar_config_no_project_root_code_story_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """R4-C/A2: a CODE-PRODUCING story with NO resolvable ``project_root`` is a
     broken precondition, NOT a declared absence. ``_load_sonar_config`` MUST
     raise ``ConfigError`` (fail-closed) rather than return ``None`` (which would
@@ -530,9 +539,7 @@ def test_load_sonar_config_no_project_root_non_code_story_is_absence_none(
         story_dir.mkdir(parents=True, exist_ok=True)
         _save_ctx_without_project_root(story_dir)
 
-        stanza = _load_sonar_config(
-            _gate_ctx_for(story_dir, StoryType.CONCEPT)
-        )
+        stanza = _load_sonar_config(_gate_ctx_for(story_dir, StoryType.CONCEPT))
         assert stanza is None
     finally:
         reset_backend_cache_for_tests()
@@ -548,17 +555,9 @@ def test_derive_actual_impact_diff_proxy() -> None:
 
     assert _derive_actual_impact(()) is None
     assert _derive_actual_impact(("pkg/a.py",)) is ChangeImpact.LOCAL
-    assert (
-        _derive_actual_impact(tuple(f"pkg/m{i}.py" for i in range(5)))
-        is ChangeImpact.COMPONENT
-    )
-    assert (
-        _derive_actual_impact(("a/x.py", "b/y.py")) is ChangeImpact.CROSS_COMPONENT
-    )
-    assert (
-        _derive_actual_impact(("a/x.py", "b/y.py", "c/z.py"))
-        is ChangeImpact.ARCHITECTURE_IMPACT
-    )
+    assert _derive_actual_impact(tuple(f"pkg/m{i}.py" for i in range(5))) is ChangeImpact.COMPONENT
+    assert _derive_actual_impact(("a/x.py", "b/y.py")) is ChangeImpact.CROSS_COMPONENT
+    assert _derive_actual_impact(("a/x.py", "b/y.py", "c/z.py")) is ChangeImpact.ARCHITECTURE_IMPACT
 
 
 def test_change_evidence_provider_failclosed_on_bad_base_ref(tmp_path: Path) -> None:
@@ -686,6 +685,9 @@ def test_change_evidence_productive_push_verification_passes_current_boundary(
         boundary_epoch = 1
         expected_head_sha = "x" * 40
 
+    class _Ctx:
+        participating_repos = ("api",)
+
     class _Evidence:
         def collect_repo_inputs(self, **_kwargs: object) -> tuple[RepoPushVerificationInput, ...]:
             return (
@@ -704,6 +706,10 @@ def test_change_evidence_productive_push_verification_passes_current_boundary(
         lambda _story_dir: _Scope(),
     )
     monkeypatch.setattr(
+        "agentkit.backend.state_backend.store.facade.load_story_context_global",
+        lambda _project_key, _story_id: _Ctx(),
+    )
+    monkeypatch.setattr(
         "agentkit.backend.state_backend.store.facade.list_push_barrier_verdicts_global",
         lambda **_kwargs: (_Verdict(),),
     )
@@ -713,9 +719,7 @@ def test_change_evidence_productive_push_verification_passes_current_boundary(
     )
 
     evidence = _SubprocessGitChangeEvidenceProvider(
-        push_verification_port=_BarrierPushVerification(
-            required_sync_point_id=sync_point_id
-        )
+        push_verification_port=_BarrierPushVerification(required_sync_point_id=sync_point_id)
     ).collect(repo)
 
     assert evidence.available is True
@@ -796,9 +800,7 @@ def test_are_client_construction_from_project_config(tmp_path: Path) -> None:
     off_client = build_are_client_from_project_config(_project(None, enabled=False))
     assert off_client is None
 
-    client = build_are_client_from_project_config(
-        _project("https://are.example.com", enabled=True)
-    )
+    client = build_are_client_from_project_config(_project("https://are.example.com", enabled=True))
     assert isinstance(client, AreClient)
     assert client.base_url == "https://are.example.com"
     assert client.auth_token == "token"
@@ -863,9 +865,7 @@ def test_build_setup_phase_handler_wires_are_bundle_loader(
     assert client.auth_token == "token"
 
 
-def test_telemetry_count_port_run_scoped(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_telemetry_count_port_run_scoped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """WARNING (FK-33 §33.3.2): the count port filters by (project, story, run)."""
     from agentkit.backend.bootstrap import composition_root as cr
 
@@ -887,9 +887,7 @@ def test_telemetry_count_port_run_scoped(
         )
         return []
 
-    monkeypatch.setattr(
-        "agentkit.backend.state_backend.store.load_execution_events", _fake_load
-    )
+    monkeypatch.setattr("agentkit.backend.state_backend.store.load_execution_events", _fake_load)
     port = cr._StateBackendTelemetryEventCountPort()
     port.count_events(
         tmp_path,
@@ -904,9 +902,7 @@ def test_telemetry_count_port_run_scoped(
     assert captured["event_type"] == "review_request"
 
 
-def test_telemetry_count_port_failclosed_on_unresolvable_run_scope(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_telemetry_count_port_failclosed_on_unresolvable_run_scope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """FIX-B (FK-33 §33.3.2): never count cross-run on an unresolvable scope.
 
     When no ``run_id`` is supplied AND the active run scope cannot be resolved,
@@ -925,9 +921,7 @@ def test_telemetry_count_port_failclosed_on_unresolvable_run_scope(
     class _NoScope:
         story_id = "S-1"
 
-    monkeypatch.setattr(
-        "agentkit.backend.state_backend.store.load_execution_events", _fail_load
-    )
+    monkeypatch.setattr("agentkit.backend.state_backend.store.load_execution_events", _fail_load)
     monkeypatch.setattr(
         "agentkit.backend.state_backend.store.facade.resolve_runtime_scope",
         lambda story_dir: _NoScope(),
@@ -992,14 +986,10 @@ def test_ci_build_test_evidence_adapter_maps_green(tmp_path: Path) -> None:
             ("rev-parse", "--abbrev-ref", "HEAD"): "story/X-1",
             ("rev-parse", "HEAD"): "abc123",
             ("rev-parse", "HEAD^{tree}"): "tree9",
-            ("diff", "--name-only", "origin/main...HEAD"): (
-                "src/a.py\ntests/test_a.py\n"
-            ),
+            ("diff", "--name-only", "origin/main...HEAD"): ("src/a.py\ntests/test_a.py\n"),
         }
     )
-    adapter = _CiBuildTestEvidenceAdapter(
-        build_test_port=_FakeBuildTestPort(green=True), git_backend=git
-    )
+    adapter = _CiBuildTestEvidenceAdapter(build_test_port=_FakeBuildTestPort(green=True), git_backend=git)
     ev = adapter.evaluate(tmp_path)
     assert ev is not None
     assert ev.build_ok is True
@@ -1033,9 +1023,7 @@ def test_ci_build_test_evidence_adapter_failclosed_no_head(tmp_path: Path) -> No
     from agentkit.backend.bootstrap.composition_root import _CiBuildTestEvidenceAdapter
 
     git = _FakeGitBackend({})  # every git call returns empty -> None HEAD
-    adapter = _CiBuildTestEvidenceAdapter(
-        build_test_port=_FakeBuildTestPort(green=True), git_backend=git
-    )
+    adapter = _CiBuildTestEvidenceAdapter(build_test_port=_FakeBuildTestPort(green=True), git_backend=git)
     assert adapter.evaluate(tmp_path) is None
 
 
@@ -1084,9 +1072,7 @@ def _save_guard_flow(story_dir: Path, *, story_id: str, run_id: str) -> None:
     )
 
 
-def test_confirm_story_pushed_fail_closed_on_unresolvable_workspace(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_confirm_story_pushed_fail_closed_on_unresolvable_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """AG3-147: ``confirm_story_pushed`` is fail-closed (not-verified) when the
     participating repo set is unresolvable.
 
@@ -1117,9 +1103,7 @@ def test_confirm_story_pushed_fail_closed_on_unresolvable_workspace(
         reset_backend_cache_for_tests()
 
 
-def test_confirm_story_pushed_fails_closed_without_boundary_correlation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_confirm_story_pushed_fails_closed_without_boundary_correlation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """AG3-147 R3: structural ``completion.push`` cannot opt out silently."""
     from agentkit.backend.bootstrap.composition_root import _BarrierPushVerification
 
@@ -1136,9 +1120,7 @@ def test_confirm_story_pushed_fails_closed_without_boundary_correlation(
     assert _BarrierPushVerification().confirm_story_pushed(tmp_path) is False
 
 
-def test_confirm_story_pushed_passes_with_fresh_boundary_correlation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_confirm_story_pushed_passes_with_fresh_boundary_correlation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """AG3-147 R4: current phase-completion evidence is not a false-negative."""
     from agentkit.backend.bootstrap.composition_root import _BarrierPushVerification
     from agentkit.backend.control_plane.push_sync import RepoPushVerificationInput
@@ -1160,6 +1142,9 @@ def test_confirm_story_pushed_passes_with_fresh_boundary_correlation(
         boundary_epoch = 1
         expected_head_sha = sha
 
+    class _Ctx:
+        participating_repos = ("api",)
+
     class _Evidence:
         def collect_repo_inputs(self, **_kwargs: object) -> tuple[RepoPushVerificationInput, ...]:
             return (
@@ -1178,6 +1163,10 @@ def test_confirm_story_pushed_passes_with_fresh_boundary_correlation(
         lambda _story_dir: _Scope(),
     )
     monkeypatch.setattr(
+        "agentkit.backend.state_backend.store.facade.load_story_context_global",
+        lambda _project_key, _story_id: _Ctx(),
+    )
+    monkeypatch.setattr(
         "agentkit.backend.state_backend.store.facade.list_push_barrier_verdicts_global",
         lambda **_kwargs: (_Verdict(),),
     )
@@ -1186,12 +1175,7 @@ def test_confirm_story_pushed_passes_with_fresh_boundary_correlation(
         lambda: _Evidence(),
     )
 
-    assert (
-        _BarrierPushVerification(
-            required_sync_point_id=sync_point_id
-        ).confirm_story_pushed(tmp_path)
-        is True
-    )
+    assert _BarrierPushVerification(required_sync_point_id=sync_point_id).confirm_story_pushed(tmp_path) is True
 
 
 def test_confirm_story_pushed_blocks_passed_verdict_when_server_head_moved(
@@ -1217,6 +1201,9 @@ def test_confirm_story_pushed_blocks_passed_verdict_when_server_head_moved(
         boundary_epoch = 1
         expected_head_sha = "x" * 40
 
+    class _Ctx:
+        participating_repos = ("api",)
+
     class _Evidence:
         def collect_repo_inputs(self, **_kwargs: object) -> tuple[RepoPushVerificationInput, ...]:
             return (
@@ -1235,6 +1222,10 @@ def test_confirm_story_pushed_blocks_passed_verdict_when_server_head_moved(
         lambda _story_dir: _Scope(),
     )
     monkeypatch.setattr(
+        "agentkit.backend.state_backend.store.facade.load_story_context_global",
+        lambda _project_key, _story_id: _Ctx(),
+    )
+    monkeypatch.setattr(
         "agentkit.backend.state_backend.store.facade.list_push_barrier_verdicts_global",
         lambda **_kwargs: (_Verdict(),),
     )
@@ -1243,17 +1234,10 @@ def test_confirm_story_pushed_blocks_passed_verdict_when_server_head_moved(
         lambda: _Evidence(),
     )
 
-    assert (
-        _BarrierPushVerification(
-            required_sync_point_id=sync_point_id
-        ).confirm_story_pushed(tmp_path)
-        is False
-    )
+    assert _BarrierPushVerification(required_sync_point_id=sync_point_id).confirm_story_pushed(tmp_path) is False
 
 
-def test_confirm_story_pushed_blocks_stale_boundary_correlation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_confirm_story_pushed_blocks_stale_boundary_correlation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """AG3-147 R4: stale running-latest freshness cannot satisfy the check."""
     from agentkit.backend.bootstrap.composition_root import _BarrierPushVerification
 
@@ -1264,26 +1248,84 @@ def test_confirm_story_pushed_blocks_stale_boundary_correlation(
         story_id = "AG3-147"
         run_id = "run-147"
 
+    class _Ctx:
+        participating_repos = ("api",)
+
     monkeypatch.setattr(
         "agentkit.backend.state_backend.store.facade.resolve_runtime_scope",
         lambda _story_dir: _Scope(),
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.state_backend.store.facade.load_story_context_global",
+        lambda _project_key, _story_id: _Ctx(),
     )
     monkeypatch.setattr(
         "agentkit.backend.state_backend.store.facade.list_push_barrier_verdicts_global",
         lambda **_kwargs: (),
     )
 
-    assert (
-        _BarrierPushVerification(
-            required_sync_point_id=sync_point_id
-        ).confirm_story_pushed(tmp_path)
-        is False
+    assert _BarrierPushVerification(required_sync_point_id=sync_point_id).confirm_story_pushed(tmp_path) is False
+
+
+def test_confirm_story_pushed_blocks_missing_participating_repo_verdict(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """AG3-147: aggregation is over participating repos, not existing rows."""
+    from agentkit.backend.bootstrap.composition_root import _BarrierPushVerification
+    from agentkit.backend.control_plane.push_sync import RepoPushVerificationInput
+
+    sync_point_id = "phase_completion:run-147"
+    sha = "x" * 40
+
+    class _Scope:
+        project_key = "proj"
+        story_id = "AG3-147"
+        run_id = "run-147"
+
+    class _Status:
+        value = "passed"
+
+    class _Verdict:
+        status = _Status()
+        repo_id = "api"
+        boundary_epoch = 1
+        expected_head_sha = sha
+
+    class _Ctx:
+        participating_repos = ("api", "web")
+
+    class _Evidence:
+        def collect_repo_inputs(self, **_kwargs: object) -> tuple[RepoPushVerificationInput, ...]:
+            return (
+                RepoPushVerificationInput(
+                    repo_id="api",
+                    edge_report_present=True,
+                    edge_reported_pushed=True,
+                    edge_reported_head_sha=sha,
+                    server_ref_resolved=True,
+                    server_head_sha=sha,
+                ),
+            )
+
+    monkeypatch.setattr(
+        "agentkit.backend.state_backend.store.facade.resolve_runtime_scope",
+        lambda _story_dir: _Scope(),
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.state_backend.store.facade.load_story_context_global",
+        lambda _project_key, _story_id: _Ctx(),
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.state_backend.store.facade.list_push_barrier_verdicts_global",
+        lambda **_kwargs: (_Verdict(),),
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.bootstrap.composition_root.build_push_barrier_evidence",
+        lambda: _Evidence(),
     )
 
+    assert _BarrierPushVerification(required_sync_point_id=sync_point_id).confirm_story_pushed(tmp_path) is False
 
-def test_qa_cycle_gate_fail_closed_typed_block_on_unresolvable_workspace(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+
+def test_qa_cycle_gate_fail_closed_typed_block_on_unresolvable_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """AG3-147: the QA-cycle-boundary gate raises its TYPED block (not a raw
     ``StoryWorkspaceUnresolvedError``) when the participating repo set is
     unresolvable -- fail-closed, never a pass."""

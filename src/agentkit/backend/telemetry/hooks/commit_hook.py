@@ -1,7 +1,8 @@
-"""CommitHook: emit ``increment_commit`` on each worker ``git commit``.
+"""CommitHook: emit ``increment_commit`` on worker commit-producing git commands.
 
 FK-68 §68.2.2 (Worker-Lifecycle) / §68.3.1: a harness hook observes a Bash
-``git commit`` in the worktree and emits an ``increment_commit`` event.
+git command that creates commits in the worktree and emits an
+``increment_commit`` event.
 
 Mandatory payload fields (AG3-036 AC3): ``commit_sha``, ``repo_name``,
 ``story_id``, ``worker_id``, ``files_changed``. The DriftCheckHook (§2.1.7) is a
@@ -25,12 +26,13 @@ from agentkit.backend.telemetry.hooks.base import (
 if TYPE_CHECKING:
     from agentkit.backend.telemetry.emitters import EventEmitter
 
-#: Recognises a ``git commit`` invocation (FK-68 §68.2.2 "git commit im Worktree").
-_GIT_COMMIT_PATTERN = re.compile(r"\bgit\s+commit\b")
+#: Recognises git invocations that can create local commits.
+_GIT_COMMIT_PRODUCING_PATTERN = re.compile(r"\bgit\s+(?:commit|cherry-pick|revert|merge|rebase)\b")
+_GIT_COMMIT_PATTERN = _GIT_COMMIT_PRODUCING_PATTERN
 
 
 class CommitHook(EmittingHook):
-    """Emits ``increment_commit`` on each worker ``git commit`` (FK-68 §68.2.2)."""
+    """Emits ``increment_commit`` on worker commit-producing git commands."""
 
     name = "commit_hook"
 
@@ -43,17 +45,17 @@ class CommitHook(EmittingHook):
         super().__init__(emitter)
 
     def evaluate(self, context: HookContext) -> HookResult:
-        """Emit ``increment_commit`` when a Bash ``git commit`` is observed.
+        """Emit ``increment_commit`` when a commit-producing Bash git command runs.
 
-        Trigger (FK-68 §68.2.2): a Bash tool call whose command matches
-        ``git commit``.
+        Trigger (FK-68 §68.2.2): a Bash tool call whose command can create
+        commits in the worktree.
 
         Args:
             context: The harness-neutral observation.
 
         Returns:
             A :class:`HookResult` carrying the ``increment_commit`` event, or a
-            skipped result when the command is not a ``git commit``.
+            skipped result when the command is not commit-producing.
         """
         if not self._is_git_commit(context):
             return HookResult.skipped()
@@ -79,10 +81,9 @@ class CommitHook(EmittingHook):
     @staticmethod
     def _is_git_commit(context: HookContext) -> bool:
         return (
-            context.trigger
-            in (HookTrigger.PRE_TOOL_USE, HookTrigger.POST_TOOL_USE)
+            context.trigger in (HookTrigger.PRE_TOOL_USE, HookTrigger.POST_TOOL_USE)
             and context.tool == "Bash"
-            and bool(_GIT_COMMIT_PATTERN.search(context.command))
+            and bool(_GIT_COMMIT_PRODUCING_PATTERN.search(context.command))
         )
 
 
