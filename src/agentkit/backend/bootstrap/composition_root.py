@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from agentkit.backend.artifacts import ArtifactManager, EnvelopeValidator, ProducerRegistry
+from agentkit.backend.bootstrap.qa_boundary import QaBoundaryBinding
 from agentkit.backend.exploration.register import register_exploration_producers
 from agentkit.backend.implementation.register import register_implementation_producers
 from agentkit.backend.prompt_runtime.register import register_prompt_runtime_producers
@@ -3727,16 +3728,6 @@ def _build_repo_code_backend_port(
 
 
 @dataclass(frozen=True)
-class _QaBoundaryBinding:
-    """Resolved QA boundary scope for sync-push commissioning."""
-
-    scope: Any
-    ctx: Any
-    active: Any
-    boundary_id: str
-
-
-@dataclass(frozen=True)
 class _ControlPlaneQaCyclePushBarrierGate:
     """Productive QA-cycle-boundary gate delegating to the control-plane barrier.
 
@@ -3794,7 +3785,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
     @staticmethod
     def _qa_boundary_binding(
         story_dir: Path, sync_point_id: str
-    ) -> _QaBoundaryBinding | None:
+    ) -> QaBoundaryBinding | None:
         """Resolve QA boundary identity, story context, and active ownership."""
         from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
         from agentkit.backend.state_backend.store import facade
@@ -3812,7 +3803,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
             return None
         if boundary_id is None:
             return None
-        return _QaBoundaryBinding(
+        return QaBoundaryBinding(
             scope=scope, ctx=ctx, active=active, boundary_id=boundary_id
         )
 
@@ -3827,7 +3818,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
 
     @staticmethod
     def _block_qa_boundary_open_command(
-        boundary: _QaBoundaryBinding, *, repo: str, updated_at: datetime
+        boundary: QaBoundaryBinding, *, repo: str, updated_at: datetime
     ) -> None:
         """Mark a QA-boundary verdict blocked when an earlier command is open."""
         from agentkit.backend.control_plane.push_sync import (
@@ -3870,7 +3861,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
 
     @staticmethod
     def _ensure_qa_boundary_verdict(
-        boundary: _QaBoundaryBinding, *, repo: str, updated_at: datetime
+        boundary: QaBoundaryBinding, *, repo: str, updated_at: datetime
     ) -> int:
         """Ensure a pending QA-boundary verdict row exists and return its epoch."""
         from agentkit.backend.control_plane.push_sync import (
@@ -3915,7 +3906,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
 
     @staticmethod
     def _commission_qa_repo_sync_push(
-        boundary: _QaBoundaryBinding,
+        boundary: QaBoundaryBinding,
         *,
         repo: str,
         branch: str,
