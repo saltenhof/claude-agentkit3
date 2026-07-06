@@ -16,6 +16,7 @@ available); the fixture provisions a throwaway container or honours an explicit
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -27,6 +28,7 @@ from agentkit.backend.control_plane.models import (
     PhaseDispatchResult,
     PhaseMutationRequest,
 )
+from agentkit.backend.control_plane.push_sync import RepoPushVerificationInput
 from agentkit.backend.control_plane.records import (
     ControlPlaneOperationRecord,
     SessionRunBindingRecord,
@@ -182,6 +184,39 @@ class _CountingDispatcher:
             dispatched=True,
             next_phase="implementation",
         )
+
+
+@dataclass(frozen=True)
+class _FakeBarrierPort:
+    """Minimal ``PushBarrierEvidencePort`` returning prepared two-stage inputs.
+
+    Mirrors the barrier's own boundary tests
+    (``tests/integration/control_plane/test_push_barrier_boundaries_pg.py``): the
+    op-id idempotency test injects a VERIFIED-pushed evidence set so the wired
+    closure-entry barrier (FK-10 §10.2.4b) is satisfied and the test stays focused
+    on the request-body-hash idempotency contract, not the unrelated push barrier.
+    """
+
+    inputs: tuple[RepoPushVerificationInput, ...]
+
+    def collect_repo_inputs(
+        self, *, project_key: str, story_id: str, run_id: str
+    ) -> tuple[RepoPushVerificationInput, ...]:
+        del project_key, story_id, run_id
+        return self.inputs
+
+
+def _verified_input(repo_id: str) -> RepoPushVerificationInput:
+    """A two-stage input the A-core counts as server-verified-pushed."""
+    sha = "a" * 40
+    return RepoPushVerificationInput(
+        repo_id=repo_id,
+        edge_report_present=True,
+        edge_reported_pushed=True,
+        edge_reported_head_sha=sha,
+        server_ref_resolved=True,
+        server_head_sha=sha,
+    )
 
 
 def _seed_pg_story_context(tmp_path: Path) -> StoryContext:
@@ -1189,7 +1224,14 @@ def test_closure_reused_op_id_different_body_mismatch_real_store(
 
     del postgres_backend_env
     _seed_pg_story_context(tmp_path)
-    service = ControlPlaneRuntimeService(phase_dispatcher=_CountingDispatcher())  # type: ignore[arg-type]
+    # The closure-entry push barrier (AG3-147, FK-10 §10.2.4b) is wired on the
+    # default store; inject a VERIFIED-pushed evidence port via the DI seam so the
+    # barrier is satisfied and this test stays focused on the op-id idempotency
+    # contract (the barrier's own negative paths are covered elsewhere).
+    service = ControlPlaneRuntimeService(
+        phase_dispatcher=_CountingDispatcher(),  # type: ignore[arg-type]
+        push_barrier_evidence=_FakeBarrierPort((_verified_input("api"),)),  # type: ignore[arg-type]
+    )
     # Admit the run: a committed setup start materializes the run-matched evidence
     # closure requires (a session binding + a committed setup phase_start).
     admitted = service.start_phase(

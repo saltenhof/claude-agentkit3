@@ -1377,6 +1377,10 @@ class _BarrierPushVerification:
             SyncPointBarrierType,
             evaluate_push_barrier,
         )
+        from agentkit.backend.control_plane.workspace_locator import (
+            StoryWorkspaceUnresolvedError,
+        )
+        from agentkit.backend.exceptions import ConfigError
         from agentkit.backend.state_backend.store import facade
 
         try:
@@ -1388,9 +1392,19 @@ class _BarrierPushVerification:
         run_id = getattr(scope, "run_id", None)
         if not project_key or not story_id or not run_id:
             return False
-        inputs = build_push_barrier_evidence().collect_repo_inputs(
-            project_key=project_key, story_id=story_id, run_id=run_id
-        )
+        try:
+            inputs = build_push_barrier_evidence().collect_repo_inputs(
+                project_key=project_key, story_id=story_id, run_id=run_id
+            )
+        except (StoryWorkspaceUnresolvedError, ConfigError):
+            # An unresolvable participating-repo set -- no canonical
+            # project_registry anchor, or an absent/broken .agentkit project
+            # config -- means the branch canNOT be confirmed server-verified-
+            # pushed. Fail closed to "not pushed" (never an escaping crash, never
+            # an optimistic pass): the documented contract of this port. Wherever
+            # ``pushed`` gates (the structural ``story_pushed_check``) this stays
+            # strictly fail-closed.
+            return False
         return evaluate_push_barrier(
             SyncPointBarrierType.PHASE_COMPLETION, inputs
         ).passed
@@ -3649,6 +3663,10 @@ class _ControlPlaneQaCyclePushBarrierGate:
             SyncPointBarrierType,
             evaluate_push_barrier,
         )
+        from agentkit.backend.control_plane.workspace_locator import (
+            StoryWorkspaceUnresolvedError,
+        )
+        from agentkit.backend.exceptions import ConfigError
         from agentkit.backend.state_backend.store import facade
         from agentkit.backend.verify_system.qa_cycle.lifecycle import (
             QaCycleBarrierBlockedError,
@@ -3665,9 +3683,21 @@ class _ControlPlaneQaCyclePushBarrierGate:
         if not project_key or not story_id or not run_id:
             msg = "QA-cycle boundary fail-closed: incomplete run scope"
             raise QaCycleBarrierBlockedError(msg)
-        inputs = build_push_barrier_evidence().collect_repo_inputs(
-            project_key=project_key, story_id=story_id, run_id=run_id
-        )
+        try:
+            inputs = build_push_barrier_evidence().collect_repo_inputs(
+                project_key=project_key, story_id=story_id, run_id=run_id
+            )
+        except (StoryWorkspaceUnresolvedError, ConfigError) as exc:
+            # An unresolvable participating-repo set (no project_registry anchor,
+            # or an absent/broken .agentkit config) is fail-closed BLOCKED: the
+            # branch cannot be confirmed server-verified-pushed, so the QA-cycle
+            # boundary must not open. Surface the typed block, never an escaping
+            # StoryWorkspaceUnresolvedError/ConfigError and never a pass.
+            msg = (
+                "QA-cycle boundary fail-closed: the participating repo set is "
+                f"unresolvable ({exc})"
+            )
+            raise QaCycleBarrierBlockedError(msg) from exc
         verdict = evaluate_push_barrier(
             SyncPointBarrierType.QA_CYCLE_BOUNDARY, inputs
         )

@@ -958,3 +958,88 @@ def test_are_provider_coverage_verdict_when_enabled() -> None:
     assert provider.is_enabled is True
     assert provider.coverage_verdict("S-1", "p") is sentinel
 
+
+def _save_guard_flow(story_dir: Path, *, story_id: str, run_id: str) -> None:
+    """Persist a FlowExecution so ``resolve_runtime_scope`` yields a full scope."""
+    from datetime import UTC, datetime
+
+    from agentkit.backend.phase_state_store.models import FlowExecution
+    from agentkit.backend.state_backend.store import save_flow_execution
+
+    story_dir.mkdir(parents=True, exist_ok=True)
+    save_flow_execution(
+        story_dir,
+        FlowExecution(
+            project_key="test-project",
+            story_id=story_id,
+            run_id=run_id,
+            flow_id="implementation",
+            level="story",
+            owner="pipeline_engine",
+            status="COMPLETED",
+            started_at=datetime(2026, 7, 6, 10, 0, tzinfo=UTC),
+        ),
+    )
+
+
+def test_confirm_story_pushed_fail_closed_on_unresolvable_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AG3-147: ``confirm_story_pushed`` is fail-closed (not-verified) when the
+    participating repo set is unresolvable.
+
+    The run scope resolves (a persisted ``FlowExecution``), but there is NO
+    canonical ``project_registry`` anchor, so ``collect_repo_inputs`` raises
+    ``StoryWorkspaceUnresolvedError`` inside the barrier evidence port. The guard
+    must map that to "not server-verified-pushed" (``False``) -- never an escaping
+    crash and never an optimistic pass (the port's documented contract).
+    """
+    monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
+    monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+    monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
+
+    from agentkit.backend.bootstrap.composition_root import (
+        build_push_verification_port,
+    )
+    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+
+    reset_backend_cache_for_tests()
+    try:
+        story_dir = tmp_path / "stories" / "AG3-GUARD"
+        _save_guard_flow(story_dir, story_id="AG3-GUARD", run_id="run-guard")
+        port = build_push_verification_port()
+        # No project_registry entry for 'test-project' -> the workspace anchor is
+        # unresolvable inside collect_repo_inputs; the guard fails closed to False.
+        assert port.confirm_story_pushed(story_dir) is False
+    finally:
+        reset_backend_cache_for_tests()
+
+
+def test_qa_cycle_gate_fail_closed_typed_block_on_unresolvable_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AG3-147: the QA-cycle-boundary gate raises its TYPED block (not a raw
+    ``StoryWorkspaceUnresolvedError``) when the participating repo set is
+    unresolvable -- fail-closed, never a pass."""
+    monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
+    monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+    monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
+
+    from agentkit.backend.bootstrap.composition_root import (
+        build_qa_cycle_push_barrier_gate,
+    )
+    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.verify_system.qa_cycle.lifecycle import (
+        QaCycleBarrierBlockedError,
+    )
+
+    reset_backend_cache_for_tests()
+    try:
+        story_dir = tmp_path / "stories" / "AG3-GUARD2"
+        _save_guard_flow(story_dir, story_id="AG3-GUARD2", run_id="run-guard2")
+        gate = build_qa_cycle_push_barrier_gate()
+        with pytest.raises(QaCycleBarrierBlockedError):
+            gate.enforce(story_dir)
+    finally:
+        reset_backend_cache_for_tests()
+

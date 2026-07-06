@@ -140,7 +140,7 @@ _PUSH_GATED_COMPLETION_PHASES: frozenset[str] = frozenset(
     {PhaseName.IMPLEMENTATION.value}
 )
 
-#: AG3-147 (Regel-8 Fehlervertrag, ARCH-55): the stable error code a fail-closed
+#: AG3-147 (Rule-8 error contract, ARCH-55): the stable error code a fail-closed
 #: push-barrier block carries so a consumer recognises "unverified push", never a
 #: generic rejection. The blocking repos + named block codes ride the reason.
 _PUSH_BARRIER_BLOCKED_CODE = "push_barrier_unverified"
@@ -4614,7 +4614,7 @@ def _push_barrier_rejection(
     FK-10 §10.2.4b: a boundary transition without a server-verified push is
     deterministically blocked -- no commit, no bundle. The stable
     ``push_barrier_unverified`` code plus the blocking repos + named A-core block
-    codes ride the reason (Regel-8 Fehlervertrag, ARCH-55) so a consumer
+    codes ride the reason (Rule-8 error contract, ARCH-55) so a consumer
     recognises "unverified push" and escalates (FK-10 §10.6.1), never a bypass.
     """
     return _rejection_result(
