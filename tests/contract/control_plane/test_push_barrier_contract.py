@@ -83,6 +83,7 @@ def test_barrier_type_codes_are_pinned() -> None:
         "qa_cycle_boundary",
         "yield_point",
         "closure_entry",
+        "pre_merge",
     }
 
 

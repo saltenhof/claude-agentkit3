@@ -821,6 +821,10 @@ class SyncPushCommandPayload(BaseModel):
     run_id: str = Field(min_length=1)
     repo_id: str = Field(min_length=1)
     branch: str = Field(min_length=1)
+    boundary_type: str | None = None
+    boundary_id: str | None = None
+    boundary_epoch: int | None = Field(default=None, ge=1)
+    ownership_epoch: int | None = Field(default=None, ge=1)
 
 
 class BranchRefReport(BaseModel):
@@ -853,6 +857,10 @@ class PushStatusReport(BaseModel):
     repo_id: str = Field(min_length=1)
     push_outcome: Literal["pushed", "behind_remote"]
     head_sha: str | None = None
+    boundary_type: str | None = None
+    boundary_id: str | None = None
+    boundary_epoch: int | None = Field(default=None, ge=1)
+    ownership_epoch: int | None = Field(default=None, ge=1)
 
 
 class WorktreeReport(BaseModel):

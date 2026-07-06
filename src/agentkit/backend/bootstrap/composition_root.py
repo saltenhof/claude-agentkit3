@@ -1354,6 +1354,25 @@ class _StateBackendTelemetryEventCountPort:
 _TEST_FILE_MARKERS: tuple[str, ...] = ("test_", "_test.", "/tests/", "tests/")
 
 
+def _boundary_id_from_sync_point(
+    sync_point_id: str,
+    *,
+    expected_type: object,
+) -> str | None:
+    """Extract a boundary id from ``<type>:<id>[:epoch-n]`` correlations."""
+
+    expected_value = getattr(expected_type, "value", str(expected_type))
+    prefix = f"{expected_value}:"
+    if not sync_point_id.startswith(prefix):
+        return None
+    body = sync_point_id[len(prefix) :]
+    if not body:
+        return None
+    if ":epoch-" in body:
+        body = body.rsplit(":epoch-", 1)[0]
+    return body or None
+
+
 def _default_push_verification_port() -> PushVerificationPort:
     """Lazily resolve the fail-closed absent push-verification port (AG3-147)."""
     from agentkit.backend.verify_system.structural.system_evidence import (
@@ -1365,14 +1384,11 @@ def _default_push_verification_port() -> PushVerificationPort:
 
 @dataclass(frozen=True)
 class _BarrierPushVerification:
-    """Productive ``PushVerificationPort`` over the two-stage barrier (AG3-147 AC11).
+    """Productive ``PushVerificationPort`` over persisted barrier verdicts.
 
-    Sources ``completion.push``'s ``pushed`` from the server-verified push barrier
-    (Edge report AND ``ls-remote`` ref-read), NEVER a backend-local git upstream
-    check. The run scope is resolved Backend-side from ``story_dir`` (the same
-    ``resolve_runtime_scope`` surface the recurring guards use); an unresolvable
-    scope or any unverified repo is fail-closed ``False`` (``completion.push``
-    then FAILs -- NO ERROR BYPASSING).
+    ``completion.push`` reads the authoritative ``PushBarrierVerdict`` SSOT. It
+    does not re-run the push barrier from freshness; result handling owns the
+    two-stage Edge+server resolution.
     """
 
     required_sync_point_id: str | None = None
@@ -1381,14 +1397,7 @@ class _BarrierPushVerification:
         """Whether the story branch is server-verified-pushed in every repo."""
         if self.required_sync_point_id is None:
             return False
-        from agentkit.backend.control_plane.push_sync import (
-            SyncPointBarrierType,
-            evaluate_push_barrier,
-        )
-        from agentkit.backend.control_plane.workspace_locator import (
-            StoryWorkspaceUnresolvedError,
-        )
-        from agentkit.backend.exceptions import ConfigError
+        from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
         from agentkit.backend.state_backend.store import facade
 
         try:
@@ -1400,31 +1409,23 @@ class _BarrierPushVerification:
         run_id = getattr(scope, "run_id", None)
         if not project_key or not story_id or not run_id:
             return False
-        self._commission_sync_push_best_effort(
-            project_key=project_key,
-            story_id=story_id,
-            run_id=run_id,
-            sync_point_id=self.required_sync_point_id,
+        boundary_id = _boundary_id_from_sync_point(
+            self.required_sync_point_id,
+            expected_type=SyncPointBarrierType.PHASE_COMPLETION,
         )
+        if boundary_id is None:
+            return False
         try:
-            inputs = build_push_barrier_evidence().collect_repo_inputs(
+            verdicts = facade.list_push_barrier_verdicts_global(
                 project_key=project_key,
                 story_id=story_id,
                 run_id=run_id,
-                required_sync_point_id=self.required_sync_point_id,
+                boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
+                boundary_id=boundary_id,
             )
-        except (StoryWorkspaceUnresolvedError, ConfigError):
-            # An unresolvable participating-repo set -- no canonical
-            # project_registry anchor, or an absent/broken .agentkit project
-            # config -- means the branch canNOT be confirmed server-verified-
-            # pushed. Fail closed to "not pushed" (never an escaping crash, never
-            # an optimistic pass): the documented contract of this port. Wherever
-            # ``pushed`` gates (the structural ``story_pushed_check``) this stays
-            # strictly fail-closed.
+        except Exception:  # noqa: BLE001 -- unavailable verdict SSOT -> not pushed
             return False
-        return evaluate_push_barrier(
-            SyncPointBarrierType.PHASE_COMPLETION, inputs
-        ).passed
+        return bool(verdicts) and all(v.status.value == "passed" for v in verdicts)
 
     def _commission_sync_push_best_effort(
         self, *, project_key: str, story_id: str, run_id: str, sync_point_id: str
@@ -3729,11 +3730,8 @@ class _ControlPlaneQaCyclePushBarrierGate:
     """Productive QA-cycle-boundary gate delegating to the control-plane barrier.
 
     AG3-147 (FK-10 §10.2.4b boundary type 2, the design-decision boundary): the
-    barrier stays a SINGLE SOURCE OF TRUTH in the control-plane
-    ``evaluate_push_barrier`` A-core; the verify-system QA-cycle lifecycle calls
-    this fail-closed gate at the QA-cycle boundary. The run scope is resolved
-    Backend-side from ``story_dir``; an unresolvable scope or any unverified repo
-    is a fail-closed BLOCK (raises) -- NO ERROR BYPASSING.
+    verify-system QA-cycle lifecycle reads the persisted ``PushBarrierVerdict``
+    SSOT at the QA-cycle boundary. It does not re-derive from push freshness.
     """
 
     @staticmethod
@@ -3757,6 +3755,9 @@ class _ControlPlaneQaCyclePushBarrierGate:
 
         from agentkit.backend.control_plane.models import SyncPushCommandPayload
         from agentkit.backend.control_plane.push_sync import (
+            PushBarrierVerdict,
+            PushBarrierVerdictStatus,
+            SyncPointBarrierType,
             next_sync_push_command_id,
             official_story_ref,
         )
@@ -3771,16 +3772,86 @@ class _ControlPlaneQaCyclePushBarrierGate:
             )
             if ctx is None or active is None or active.run_id != scope.run_id:
                 return
+            boundary_id = _boundary_id_from_sync_point(
+                sync_point_id,
+                expected_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
+            )
+            if boundary_id is None:
+                return
             now = datetime.now(tz=UTC)
             branch = official_story_ref(scope.story_id)
             for repo in tuple(ctx.participating_repos):
+                current = facade.load_push_barrier_verdict_global(
+                    project_key=scope.project_key,
+                    story_id=scope.story_id,
+                    run_id=scope.run_id,
+                    boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
+                    boundary_id=boundary_id,
+                    repo_id=repo,
+                )
+                epoch = 1 if current is None else current.boundary_epoch
+                if current is None or current.status.value != "pending":
+                    if current is not None and current.status.value == "blocked_backlog":
+                        epoch += 1
+                    facade.upsert_push_barrier_verdict_global(
+                        PushBarrierVerdict(
+                            project_key=scope.project_key,
+                            story_id=scope.story_id,
+                            run_id=scope.run_id,
+                            boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
+                            boundary_id=boundary_id,
+                            repo_id=repo,
+                            producer="control_plane.push_barrier",
+                            boundary_epoch=epoch,
+                            expected_head_sha=(
+                                current.expected_head_sha if current else None
+                            ),
+                            server_head_sha=None,
+                            ownership_epoch=active.ownership_epoch,
+                            status=PushBarrierVerdictStatus.PENDING,
+                            created_at=current.created_at if current else now,
+                            updated_at=now,
+                            resolved_at=None,
+                            status_detail="qa_boundary_bound",
+                        )
+                    )
+                boundary_sync_point_id = f"{sync_point_id}:epoch-{epoch}"
                 command_id = next_sync_push_command_id(
                     run_id=scope.run_id,
-                    sync_point_id=sync_point_id,
+                    sync_point_id=boundary_sync_point_id,
                     repo_id=repo,
                     load_command=facade.load_edge_command_record_global,
                 )
                 if command_id is None:
+                    latest = facade.load_push_barrier_verdict_global(
+                        project_key=scope.project_key,
+                        story_id=scope.story_id,
+                        run_id=scope.run_id,
+                        boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
+                        boundary_id=boundary_id,
+                        repo_id=repo,
+                    )
+                    if latest is not None and latest.status.value == "pending":
+                        facade.upsert_push_barrier_verdict_global(
+                            PushBarrierVerdict(
+                                project_key=latest.project_key,
+                                story_id=latest.story_id,
+                                run_id=latest.run_id,
+                                boundary_type=latest.boundary_type,
+                                boundary_id=latest.boundary_id,
+                                repo_id=latest.repo_id,
+                                producer=latest.producer,
+                                boundary_epoch=latest.boundary_epoch,
+                                expected_head_sha=latest.expected_head_sha,
+                                server_head_sha=latest.server_head_sha,
+                                ownership_epoch=latest.ownership_epoch,
+                                status=PushBarrierVerdictStatus.BLOCKED_BACKLOG,
+                                created_at=latest.created_at,
+                                updated_at=now,
+                                resolved_at=now,
+                                status_detail="sync_push_command_still_open",
+                            )
+                        )
                     continue
                 facade.commission_edge_command_record_global(
                     EdgeCommandRecord(
@@ -3796,6 +3867,10 @@ class _ControlPlaneQaCyclePushBarrierGate:
                             run_id=scope.run_id,
                             repo_id=repo,
                             branch=branch,
+                            boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY.value,
+                            boundary_id=boundary_id,
+                            boundary_epoch=epoch,
+                            ownership_epoch=active.ownership_epoch,
                         ).model_dump(mode="json"),
                         status="created",
                         ownership_epoch=active.ownership_epoch,
@@ -3811,14 +3886,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
 
     def enforce(self, story_dir: Path, current: Any) -> None:
         """Raise when the QA_CYCLE_BOUNDARY barrier is not satisfied (fail-closed)."""
-        from agentkit.backend.control_plane.push_sync import (
-            SyncPointBarrierType,
-            evaluate_push_barrier,
-        )
-        from agentkit.backend.control_plane.workspace_locator import (
-            StoryWorkspaceUnresolvedError,
-        )
-        from agentkit.backend.exceptions import ConfigError
+        from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
         from agentkit.backend.state_backend.store import facade
         from agentkit.backend.verify_system.qa_cycle.lifecycle import (
             QaCycleBarrierBlockedError,
@@ -3842,29 +3910,32 @@ class _ControlPlaneQaCyclePushBarrierGate:
         if not project_key or not story_id or not run_id:
             msg = "QA-cycle boundary fail-closed: incomplete run scope"
             raise QaCycleBarrierBlockedError(msg)
+        boundary_id = _boundary_id_from_sync_point(
+            sync_point_id,
+            expected_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
+        )
+        if boundary_id is None:
+            msg = "QA-cycle boundary fail-closed: invalid boundary correlation"
+            raise QaCycleBarrierBlockedError(msg)
         try:
-            inputs = build_push_barrier_evidence().collect_repo_inputs(
+            verdicts = facade.list_push_barrier_verdicts_global(
                 project_key=project_key,
                 story_id=story_id,
                 run_id=run_id,
-                required_sync_point_id=sync_point_id,
+                boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
+                boundary_id=boundary_id,
             )
-        except (StoryWorkspaceUnresolvedError, ConfigError) as exc:
-            # An unresolvable participating-repo set (no project_registry anchor,
-            # or an absent/broken .agentkit config) is fail-closed BLOCKED: the
-            # branch cannot be confirmed server-verified-pushed, so the QA-cycle
-            # boundary must not open. Surface the typed block, never an escaping
-            # StoryWorkspaceUnresolvedError/ConfigError and never a pass.
-            msg = f"QA-cycle boundary fail-closed: the participating repo set is unresolvable ({exc})"
+        except Exception as exc:  # noqa: BLE001 -- unavailable verdict SSOT -> block
+            msg = f"QA-cycle boundary fail-closed: verdict SSOT unavailable ({exc})"
             raise QaCycleBarrierBlockedError(msg) from exc
-        verdict = evaluate_push_barrier(
-            SyncPointBarrierType.QA_CYCLE_BOUNDARY, inputs
-        )
-        if not verdict.passed:
+        if not verdicts or any(v.status.value != "passed" for v in verdicts):
+            blocking = ", ".join(
+                f"{v.repo_id}:{v.status.value}" for v in verdicts
+            ) or "no verdict rows"
             msg = (
                 "push_barrier_unverified: QA-cycle boundary blocked -- the story "
                 "branch is not server-verified-pushed in every repo (FK-10 "
-                f"§10.2.4b). Unverified repos: {verdict.blocking_summary()}"
+                f"§10.2.4b). Unverified repos: {blocking}"
             )
             raise QaCycleBarrierBlockedError(msg)
 

@@ -650,11 +650,10 @@ def test_change_evidence_productive_push_verification_passes_current_boundary(
         _BarrierPushVerification,
         _SubprocessGitChangeEvidenceProvider,
     )
-    from agentkit.backend.control_plane.push_sync import RepoPushVerificationInput
 
     repo = tmp_path / "repo"
     repo.mkdir()
-    sync_point_id = "phase_completion:run-147:attempt-1"
+    sync_point_id = "phase_completion:run-147"
 
     def _git(*args: str) -> None:
         subprocess.run(
@@ -677,37 +676,19 @@ def test_change_evidence_productive_push_verification_passes_current_boundary(
         story_id = "AG3-147"
         run_id = "run-147"
 
-    class _Evidence:
-        def collect_repo_inputs(
-            self,
-            *,
-            project_key: str,
-            story_id: str,
-            run_id: str,
-            required_sync_point_id: str | None = None,
-        ) -> tuple[RepoPushVerificationInput, ...]:
-            del project_key, story_id, run_id
-            sha = "b" * 40
-            return (
-                RepoPushVerificationInput(
-                    repo_id="api",
-                    edge_report_present=True,
-                    edge_reported_pushed=True,
-                    edge_reported_head_sha=sha,
-                    server_ref_resolved=True,
-                    server_head_sha=sha,
-                    edge_report_sync_point_id=sync_point_id,
-                    required_sync_point_id=required_sync_point_id,
-                ),
-            )
+    class _Status:
+        value = "passed"
+
+    class _Verdict:
+        status = _Status()
 
     monkeypatch.setattr(
         "agentkit.backend.state_backend.store.facade.resolve_runtime_scope",
         lambda _story_dir: _Scope(),
     )
     monkeypatch.setattr(
-        "agentkit.backend.bootstrap.composition_root.build_push_barrier_evidence",
-        lambda: _Evidence(),
+        "agentkit.backend.state_backend.store.facade.list_push_barrier_verdicts_global",
+        lambda **_kwargs: (_Verdict(),),
     )
 
     evidence = _SubprocessGitChangeEvidenceProvider(
@@ -1139,47 +1120,27 @@ def test_confirm_story_pushed_passes_with_fresh_boundary_correlation(
 ) -> None:
     """AG3-147 R4: current phase-completion evidence is not a false-negative."""
     from agentkit.backend.bootstrap.composition_root import _BarrierPushVerification
-    from agentkit.backend.control_plane.push_sync import RepoPushVerificationInput
 
-    sync_point_id = "phase_completion:run-147:attempt-1"
+    sync_point_id = "phase_completion:run-147"
 
     class _Scope:
         project_key = "proj"
         story_id = "AG3-147"
         run_id = "run-147"
 
-    class _Evidence:
-        def collect_repo_inputs(
-            self,
-            *,
-            project_key: str,
-            story_id: str,
-            run_id: str,
-            required_sync_point_id: str | None = None,
-        ) -> tuple[RepoPushVerificationInput, ...]:
-            del project_key, story_id, run_id
-            sha = "a" * 40
-            assert required_sync_point_id == sync_point_id
-            return (
-                RepoPushVerificationInput(
-                    repo_id="api",
-                    edge_report_present=True,
-                    edge_reported_pushed=True,
-                    edge_reported_head_sha=sha,
-                    server_ref_resolved=True,
-                    server_head_sha=sha,
-                    edge_report_sync_point_id=sync_point_id,
-                    required_sync_point_id=required_sync_point_id,
-                ),
-            )
+    class _Status:
+        value = "passed"
+
+    class _Verdict:
+        status = _Status()
 
     monkeypatch.setattr(
         "agentkit.backend.state_backend.store.facade.resolve_runtime_scope",
         lambda _story_dir: _Scope(),
     )
     monkeypatch.setattr(
-        "agentkit.backend.bootstrap.composition_root.build_push_barrier_evidence",
-        lambda: _Evidence(),
+        "agentkit.backend.state_backend.store.facade.list_push_barrier_verdicts_global",
+        lambda **_kwargs: (_Verdict(),),
     )
 
     assert (
@@ -1195,46 +1156,21 @@ def test_confirm_story_pushed_blocks_stale_boundary_correlation(
 ) -> None:
     """AG3-147 R4: stale running-latest freshness cannot satisfy the check."""
     from agentkit.backend.bootstrap.composition_root import _BarrierPushVerification
-    from agentkit.backend.control_plane.push_sync import RepoPushVerificationInput
 
-    sync_point_id = "phase_completion:run-147:attempt-2"
+    sync_point_id = "phase_completion:run-147"
 
     class _Scope:
         project_key = "proj"
         story_id = "AG3-147"
         run_id = "run-147"
 
-    class _Evidence:
-        def collect_repo_inputs(
-            self,
-            *,
-            project_key: str,
-            story_id: str,
-            run_id: str,
-            required_sync_point_id: str | None = None,
-        ) -> tuple[RepoPushVerificationInput, ...]:
-            del project_key, story_id, run_id
-            sha = "a" * 40
-            return (
-                RepoPushVerificationInput(
-                    repo_id="api",
-                    edge_report_present=True,
-                    edge_reported_pushed=True,
-                    edge_reported_head_sha=sha,
-                    server_ref_resolved=True,
-                    server_head_sha=sha,
-                    edge_report_sync_point_id="phase_completion:run-147:attempt-1",
-                    required_sync_point_id=required_sync_point_id,
-                ),
-            )
-
     monkeypatch.setattr(
         "agentkit.backend.state_backend.store.facade.resolve_runtime_scope",
         lambda _story_dir: _Scope(),
     )
     monkeypatch.setattr(
-        "agentkit.backend.bootstrap.composition_root.build_push_barrier_evidence",
-        lambda: _Evidence(),
+        "agentkit.backend.state_backend.store.facade.list_push_barrier_verdicts_global",
+        lambda **_kwargs: (),
     )
 
     assert (

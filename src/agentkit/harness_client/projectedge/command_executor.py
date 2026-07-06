@@ -24,7 +24,7 @@ import subprocess
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 from agentkit.backend.code_backend.provider_port import (
     StoryRefWriteCredentialClass,
@@ -348,13 +348,6 @@ class SyncPushContext:
     )
 
 
-def _push_backlog(repo_id: str, head_sha: str | None) -> PushStatusReport:
-    """Build a visible push BACKLOG report (no verified push happened)."""
-    return PushStatusReport(
-        repo_id=repo_id, push_outcome="behind_remote", head_sha=head_sha
-    )
-
-
 def execute_sync_push(
     payload: SyncPushCommandPayload,
     *,
@@ -390,7 +383,7 @@ def execute_sync_push(
     if not gate.allowed:
         # Offline (OFFLINE_NO_SERVER_CONFIRMATION), ex-owner
         # (OWNERSHIP_NOT_CONFIRMED) or a WIP ref (NON_OFFICIAL_REF): no push ran.
-        return _push_backlog(payload.repo_id, head_sha=None)
+        return _sync_push_report(payload, "behind_remote", head_sha=None)
 
     credential = context.service_identity_source.resolve_write_credential()
     if (
@@ -399,37 +392,40 @@ def execute_sync_push(
     ):
         # AC8 fail-closed: no backend-managed service identity -> NO push. The
         # personal developer token is NEVER substituted for a story/* write.
-        return _push_backlog(payload.repo_id, head_sha=None)
+        return _sync_push_report(payload, "behind_remote", head_sha=None)
 
     try:
         repo_root = _resolve_repo_root(project_config, project_root, payload.repo_id)
         worktree_path = repo_root / "worktrees" / payload.story_id
-        head = _run_git(worktree_path, "rev-parse", "HEAD")
-        _require_git(head, "rev-parse HEAD")
-        head_sha = head.stdout.strip()
+        head_sha = _current_head_sha(worktree_path)
         outcome = _push_official_ref(
             worktree_path,
             story_id=payload.story_id,
+            head_sha=head_sha,
             credential_ref=credential.credential_ref,
         )
+        if _current_head_sha(worktree_path) != head_sha:
+            return _sync_push_report(payload, "behind_remote", head_sha=head_sha)
     except EdgeGitError:
-        return _push_backlog(payload.repo_id, head_sha=None)
-    return PushStatusReport(
-        repo_id=payload.repo_id, push_outcome=outcome, head_sha=head_sha
-    )
+        return _sync_push_report(payload, "behind_remote", head_sha=None)
+    return _sync_push_report(payload, outcome, head_sha=head_sha)
 
 
 def _push_official_ref(
-    worktree_path: Path, *, story_id: str, credential_ref: str | None
-) -> str:
-    """Push ``HEAD`` to the official ``refs/heads/story/{id}`` (best-effort).
+    worktree_path: Path,
+    *,
+    story_id: str,
+    head_sha: str,
+    credential_ref: str | None,
+) -> Literal["pushed", "behind_remote"]:
+    """Push exactly ``head_sha`` to the official ``refs/heads/story/{id}``.
 
     Returns ``"pushed"`` on a clean push, ``"behind_remote"`` on any push
     rejection / network failure (a visible backlog, NEVER a raise: opportunistic
     pushes must not block local work, SOLL-143/146). The service token stays in
     the subprocess environment and is never returned or logged.
     """
-    refspec = f"HEAD:refs/heads/{official_story_ref(story_id)}"
+    refspec = f"{head_sha}:refs/heads/{official_story_ref(story_id)}"
     result = subprocess.run(
         ["git", "-C", str(worktree_path), "push", "origin", refspec],
         capture_output=True,
@@ -438,6 +434,33 @@ def _push_official_ref(
         env=_push_env(credential_ref),
     )
     return "pushed" if result.returncode == 0 else "behind_remote"
+
+
+def _current_head_sha(worktree_path: Path) -> str:
+    """Return the current worktree HEAD SHA."""
+
+    head = _run_git(worktree_path, "rev-parse", "HEAD")
+    _require_git(head, "rev-parse HEAD")
+    return head.stdout.strip()
+
+
+def _sync_push_report(
+    payload: SyncPushCommandPayload,
+    push_outcome: Literal["pushed", "behind_remote"],
+    *,
+    head_sha: str | None,
+) -> PushStatusReport:
+    """Build the boundary-tagged ``sync_push`` result."""
+
+    return PushStatusReport(
+        repo_id=payload.repo_id,
+        push_outcome=push_outcome,
+        head_sha=head_sha,
+        boundary_type=payload.boundary_type,
+        boundary_id=payload.boundary_id,
+        boundary_epoch=payload.boundary_epoch,
+        ownership_epoch=payload.ownership_epoch,
+    )
 
 
 def _push_env(credential_ref: str | None) -> dict[str, str]:

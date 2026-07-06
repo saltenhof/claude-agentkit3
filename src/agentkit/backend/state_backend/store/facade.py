@@ -37,8 +37,10 @@ if TYPE_CHECKING:
     from agentkit.backend.closure.execution_report.records import ExecutionReport
     from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
     from agentkit.backend.control_plane.push_sync import (
+        PushBarrierVerdict,
         PushFreshnessRecord,
         RefProtectionDegradationFinding,
+        SyncPointBarrierType,
     )
     from agentkit.backend.control_plane.records import (
         BackendInstanceIdentityRecord,
@@ -1212,6 +1214,85 @@ def list_push_freshness_records_global(
         project_key, story_id, run_id
     )
     return tuple(mappers.push_freshness_row_to_record(row) for row in rows)
+
+
+def upsert_push_barrier_verdict_global(record: PushBarrierVerdict) -> None:
+    """Upsert the authoritative per-repo push-barrier verdict (AG3-147, K5)."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    backend.upsert_push_barrier_verdict_global_row(
+        mappers.push_barrier_verdict_to_row(record)
+    )
+
+
+def load_push_barrier_verdict_global(
+    *,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    boundary_type: SyncPointBarrierType,
+    boundary_id: str,
+    repo_id: str,
+) -> PushBarrierVerdict | None:
+    """Load one push-barrier verdict, or ``None`` (AG3-147, K5)."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    row = backend.load_push_barrier_verdict_global_row(
+        project_key,
+        story_id,
+        run_id,
+        boundary_type.value,
+        boundary_id,
+        repo_id,
+    )
+    if row is None:
+        return None
+    return mappers.push_barrier_verdict_row_to_record(row)
+
+
+def list_push_barrier_verdicts_global(
+    *,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    boundary_type: SyncPointBarrierType,
+    boundary_id: str,
+) -> tuple[PushBarrierVerdict, ...]:
+    """List the per-repo verdicts for one boundary instance (AG3-147, K5)."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    rows = backend.list_push_barrier_verdicts_global_row(
+        project_key,
+        story_id,
+        run_id,
+        boundary_type.value,
+        boundary_id,
+    )
+    return tuple(mappers.push_barrier_verdict_row_to_record(row) for row in rows)
+
+
+def supersede_pending_push_barriers_for_commit_global(
+    *,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    repo_id: str,
+    expected_head_sha: str,
+    updated_at: datetime,
+) -> int:
+    """Mechanically invalidate pending boundaries after a registered commit."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    return int(
+        backend.supersede_pending_push_barriers_for_commit_global_row(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            repo_id=repo_id,
+            expected_head_sha=expected_head_sha,
+            updated_at=updated_at.isoformat(),
+        )
+    )
 
 
 def upsert_ref_protection_degradation_finding_global(

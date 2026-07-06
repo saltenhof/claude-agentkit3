@@ -466,6 +466,48 @@
         CREATE INDEX IF NOT EXISTS push_freshness_records_run_backlog_idx
             ON push_freshness_records (project_key, story_id, run_id, backlog);
 
+        -- push_barrier_verdicts: authoritative per-repo verdict for one bound
+        -- hard push-barrier instance (AG3-147 redesign, FK-10 §10.2.4b). This
+        -- Postgres-only K5 table is the SSOT for completion.push, the QA-cycle
+        -- gate and the SOLL-190 pre-merge precondition. Push freshness remains
+        -- information-only and is never a decision basis.
+        CREATE TABLE IF NOT EXISTS push_barrier_verdicts (
+            project_key TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            boundary_type TEXT NOT NULL CHECK (
+                boundary_type IN (
+                    'phase_completion',
+                    'qa_cycle_boundary',
+                    'yield_point',
+                    'closure_entry',
+                    'pre_merge'
+                )
+            ),
+            boundary_id TEXT NOT NULL,
+            repo_id TEXT NOT NULL,
+            producer TEXT NOT NULL,
+            boundary_epoch INTEGER NOT NULL CHECK (boundary_epoch >= 1),
+            expected_head_sha TEXT,
+            server_head_sha TEXT,
+            ownership_epoch INTEGER NOT NULL CHECK (ownership_epoch >= 1),
+            status TEXT NOT NULL CHECK (
+                status IN ('pending', 'passed', 'blocked_backlog', 'superseded')
+            ),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            resolved_at TEXT,
+            status_detail TEXT,
+            PRIMARY KEY (
+                project_key, story_id, run_id, boundary_type, boundary_id, repo_id
+            )
+        );
+
+        CREATE INDEX IF NOT EXISTS push_barrier_verdicts_status_idx
+            ON push_barrier_verdicts (
+                project_key, story_id, run_id, boundary_type, boundary_id, status
+            );
+
         -- ref_protection_degradation_findings: project-visible operational
         -- WARNINGs emitted when a provider cannot administer story/* ref
         -- protection (AG3-147 AC9). The Edge push gate remains active; this row

@@ -48,12 +48,18 @@ from agentkit.backend.control_plane.ownership_fence import (
     evaluate_ownership_admission,
 )
 from agentkit.backend.control_plane.push_sync import (
+    BarrierVerdict,
+    MergePrecondition,
+    PushBarrierBlockCode,
+    PushBarrierVerdict,
+    PushBarrierVerdictStatus,
+    RepoPushVerdict,
+    RepoPushVerificationInput,
     SyncPointBarrierType,
     authorize_story_ref_write,
-    evaluate_push_barrier,
+    evaluate_repo_push,
     official_story_ref,
     project_push_freshness,
-    verify_pushed_across_repos,
 )
 from agentkit.backend.control_plane.records import (
     BindingDeleteScope,
@@ -91,11 +97,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from agentkit.backend.control_plane.dispatch import PhaseDispatcher
-    from agentkit.backend.control_plane.push_sync import (
-        BarrierVerdict,
-        MergePrecondition,
-        RepoPushVerificationInput,
-    )
     from agentkit.backend.control_plane.push_verification import PushBarrierEvidencePort
     from agentkit.backend.control_plane.records import (
         BackendInstanceIdentityRecord,
@@ -140,6 +141,7 @@ _PUSH_GATED_COMPLETION_PHASES: frozenset[str] = frozenset({PhaseName.IMPLEMENTAT
 #: push-barrier block carries so a consumer recognises "unverified push", never a
 #: generic rejection. The blocking repos + named block codes ride the reason.
 _PUSH_BARRIER_BLOCKED_CODE = "push_barrier_unverified"
+_KEEP_FIELD: object = object()
 
 
 class OperationNotFoundError(LookupError):
@@ -686,31 +688,138 @@ class _RunGateMixin:
         run_id: str,
         sync_point_id: str,
     ) -> BarrierVerdict | None:
-        """Evaluate a hard push barrier; return the blocking verdict, or ``None``.
+        """Read the persisted boundary verdict; return a block or ``None``.
 
-        ``None`` means the barrier PASSED (every participating repo is
-        server-verified-pushed) OR the barrier is not wired (DI test). A returned
-        :class:`BarrierVerdict` is a fail-closed BLOCK (FK-10 §10.2.4b): the
-        caller must NOT commit the boundary transition. The Edge report alone is
-        never sufficient -- the A-core requires the server ref-read to confirm the
-        same head SHA (FK-91 §91.1b).
+        Boundary consumers do NOT re-run the two-stage predicate here. They bind
+        a boundary instance, commission the edge wait-point producer, and read
+        the persisted ``PushBarrierVerdict`` SSOT. Result handling resolves that
+        verdict after the edge returns and the backend has performed its own
+        server ref-read.
         """
+        verdicts = self._bind_push_boundary(
+            barrier_type,
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            boundary_id=sync_point_id,
+        )
+        if verdicts is None:
+            return None
         self._commission_sync_push_best_effort(
             project_key=project_key,
             story_id=story_id,
             run_id=run_id,
-            sync_point_id=f"{barrier_type.value}:{sync_point_id}",
+            barrier_type=barrier_type,
+            boundary_id=sync_point_id,
+            verdicts=verdicts,
         )
-        inputs = self._collect_push_barrier_inputs(
+        verdicts = self._load_boundary_verdicts(
             project_key=project_key,
             story_id=story_id,
             run_id=run_id,
-            required_sync_point_id=f"{barrier_type.value}:{sync_point_id}",
+            boundary_type=barrier_type,
+            boundary_id=sync_point_id,
         )
-        if inputs is None:
+        if not verdicts:
+            return _barrier_from_repo_verdicts(
+                barrier_type,
+                (
+                    RepoPushVerdict(
+                        repo_id="",
+                        verified=False,
+                        block_code=PushBarrierBlockCode.NO_PARTICIPATING_REPOS,
+                        detail="no push-barrier verdict rows exist for this boundary",
+                    ),
+                ),
+            )
+        block = self._aggregate_persisted_push_barrier(barrier_type, verdicts)
+        return None if block.passed else block
+
+    def _bind_push_boundary(
+        self,
+        barrier_type: SyncPointBarrierType,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+        boundary_id: str,
+    ) -> tuple[PushBarrierVerdict, ...] | None:
+        """Ensure per-repo verdict rows exist for the current boundary epoch."""
+        ctx = self._repo.load_story_context(project_key, story_id)
+        has_participating_repos = bool(ctx is not None and ctx.participating_repos)
+        if self._resolve_push_barrier_evidence(
+            require_wired=has_participating_repos
+        ) is None:
             return None
-        verdict = evaluate_push_barrier(barrier_type, inputs)
-        return None if verdict.passed else verdict
+        if ctx is None or not ctx.participating_repos:
+            return ()
+        active = self._repo.load_active_ownership(project_key, story_id)
+        if active is None or active.run_id != run_id:
+            return ()
+        now = self._now_fn()
+        bound: list[PushBarrierVerdict] = []
+        for repo_id in tuple(ctx.participating_repos):
+            current = self._load_boundary_verdict(
+                project_key=project_key,
+                story_id=story_id,
+                run_id=run_id,
+                boundary_type=barrier_type,
+                boundary_id=boundary_id,
+                repo_id=repo_id,
+            )
+            next_record = _next_boundary_binding(
+                current,
+                project_key=project_key,
+                story_id=story_id,
+                run_id=run_id,
+                boundary_type=barrier_type,
+                boundary_id=boundary_id,
+                repo_id=repo_id,
+                ownership_epoch=active.ownership_epoch,
+                now=now,
+            )
+            if next_record != current:
+                self._upsert_boundary_verdict(next_record)
+            bound.append(next_record)
+        return tuple(bound)
+
+    def _aggregate_persisted_push_barrier(
+        self,
+        barrier_type: SyncPointBarrierType,
+        verdicts: tuple[PushBarrierVerdict, ...],
+    ) -> BarrierVerdict:
+        """Aggregate persisted verdict rows with a final server-fresh recheck."""
+        repo_verdicts: list[RepoPushVerdict] = []
+        for verdict in verdicts:
+            if verdict.status is not PushBarrierVerdictStatus.PASSED:
+                repo_verdicts.append(_repo_verdict_from_persisted(verdict))
+                continue
+            server_head = self._server_head_for_verdict(verdict)
+            if server_head == verdict.expected_head_sha:
+                repo_verdicts.append(
+                    RepoPushVerdict(
+                        repo_id=verdict.repo_id,
+                        verified=True,
+                        block_code=None,
+                        detail=(
+                            "persisted push-barrier verdict passed and server "
+                            f"still confirms {server_head}"
+                        ),
+                    )
+                )
+                continue
+            now = self._now_fn()
+            blocked = _replace_push_barrier_verdict(
+                verdict,
+                status=PushBarrierVerdictStatus.BLOCKED_BACKLOG,
+                server_head_sha=server_head,
+                updated_at=now,
+                resolved_at=now,
+                status_detail="server_head_moved_after_pass",
+            )
+            self._upsert_boundary_verdict(blocked)
+            repo_verdicts.append(_repo_verdict_from_persisted(blocked))
+        return _barrier_from_repo_verdicts(barrier_type, tuple(repo_verdicts))
 
     def _collect_push_barrier_inputs(
         self,
@@ -735,37 +844,102 @@ class _RunGateMixin:
             required_sync_point_id=required_sync_point_id,
         )
 
-    def _closure_push_precondition_block(
-        self, *, project_key: str, story_id: str, run_id: str, sync_point_id: str
-    ) -> MergePrecondition | None:
-        """Closure-entry barrier via the SOLL-190 merge precondition (AC12).
-
-        Consumes the SAME reusable ``verify_pushed_across_repos`` checkpoint
-        AG3-152 uses before ``merge_local`` (FK-12 §12.4.3) -- so closure entry
-        and merge can never diverge. Returns the failing precondition (a
-        fail-closed BLOCK) or ``None`` (satisfied, or the barrier is unwired).
-        """
-        self._commission_sync_push_best_effort(
-            project_key=project_key,
-            story_id=story_id,
-            run_id=run_id,
-            sync_point_id=f"{SyncPointBarrierType.CLOSURE_ENTRY.value}:{sync_point_id}",
+    def _load_boundary_verdict(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+        boundary_type: SyncPointBarrierType,
+        boundary_id: str,
+        repo_id: str,
+    ) -> PushBarrierVerdict | None:
+        """Load one persisted push-barrier verdict row."""
+        from agentkit.backend.state_backend.store import (
+            load_push_barrier_verdict_global,
         )
-        inputs = self._collect_push_barrier_inputs(
+
+        return load_push_barrier_verdict_global(
             project_key=project_key,
             story_id=story_id,
             run_id=run_id,
-            required_sync_point_id=(
-                f"{SyncPointBarrierType.CLOSURE_ENTRY.value}:{sync_point_id}"
+            boundary_type=boundary_type,
+            boundary_id=boundary_id,
+            repo_id=repo_id,
+        )
+
+    def _load_boundary_verdicts(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+        boundary_type: SyncPointBarrierType,
+        boundary_id: str,
+    ) -> tuple[PushBarrierVerdict, ...]:
+        """List persisted verdict rows for one boundary instance."""
+        from agentkit.backend.state_backend.store import (
+            list_push_barrier_verdicts_global,
+        )
+
+        return list_push_barrier_verdicts_global(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            boundary_type=boundary_type,
+            boundary_id=boundary_id,
+        )
+
+    @staticmethod
+    def _upsert_boundary_verdict(verdict: PushBarrierVerdict) -> None:
+        """Persist one push-barrier verdict row."""
+        from agentkit.backend.state_backend.store import (
+            upsert_push_barrier_verdict_global,
+        )
+
+        upsert_push_barrier_verdict_global(verdict)
+
+    def _server_head_for_verdict(self, verdict: PushBarrierVerdict) -> str | None:
+        """Read the current server head for a verdict's repo."""
+        inputs = self._collect_push_barrier_inputs(
+            project_key=verdict.project_key,
+            story_id=verdict.story_id,
+            run_id=verdict.run_id,
+            required_sync_point_id=_boundary_sync_point_id(
+                verdict.boundary_type, verdict.boundary_id, verdict.boundary_epoch
             ),
         )
         if inputs is None:
             return None
-        precondition = verify_pushed_across_repos(inputs)
-        return None if precondition.satisfied else precondition
+        for inp in inputs:
+            if inp.repo_id == verdict.repo_id:
+                return inp.server_head_sha if inp.server_ref_resolved else None
+        return None
+
+    def _closure_push_precondition_block(
+        self, *, project_key: str, story_id: str, run_id: str, sync_point_id: str
+    ) -> MergePrecondition | None:
+        """SOLL-190 pre-merge boundary verdict read (distinct from closure entry)."""
+        block = self._push_barrier_block(
+            SyncPointBarrierType.PRE_MERGE,
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            sync_point_id=sync_point_id,
+        )
+        if block is None:
+            return None
+        return _merge_precondition_from_barrier(block)
 
     def _commission_sync_push_best_effort(
-        self, *, project_key: str, story_id: str, run_id: str, sync_point_id: str
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+        barrier_type: SyncPointBarrierType,
+        boundary_id: str,
+        verdicts: tuple[PushBarrierVerdict, ...],
     ) -> None:
         """Queue ``sync_push`` for participating repos before a hard boundary.
 
@@ -783,14 +957,28 @@ class _RunGateMixin:
                 return
             now = self._now_fn()
             branch = official_story_ref(story_id)
-            for repo in tuple(ctx.participating_repos):
+            for verdict in verdicts:
+                if verdict.status is PushBarrierVerdictStatus.PASSED:
+                    continue
+                sync_point_id = _boundary_sync_point_id(
+                    barrier_type, boundary_id, verdict.boundary_epoch
+                )
                 command_id = next_sync_push_command_id(
                     run_id=run_id,
                     sync_point_id=sync_point_id,
-                    repo_id=repo,
+                    repo_id=verdict.repo_id,
                     load_command=self._edge_command_repo.load_command,
                 )
                 if command_id is None:
+                    self._upsert_boundary_verdict(
+                        _replace_push_barrier_verdict(
+                            verdict,
+                            status=PushBarrierVerdictStatus.BLOCKED_BACKLOG,
+                            updated_at=now,
+                            resolved_at=now,
+                            status_detail="sync_push_command_still_open",
+                        )
+                    )
                     continue
                 self._edge_command_repo.commission_command(
                     EdgeCommandRecord(
@@ -804,8 +992,12 @@ class _RunGateMixin:
                             story_id=story_id,
                             project_key=project_key,
                             run_id=run_id,
-                            repo_id=repo,
+                            repo_id=verdict.repo_id,
                             branch=branch,
+                            boundary_type=barrier_type.value,
+                            boundary_id=boundary_id,
+                            boundary_epoch=verdict.boundary_epoch,
+                            ownership_epoch=active.ownership_epoch,
                         ).model_dump(mode="json"),
                         status="created",
                         ownership_epoch=active.ownership_epoch,
@@ -2127,7 +2319,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
                 project_key=request.project_key,
                 story_id=request.story_id,
                 run_id=run_id,
-                sync_point_id=request.op_id,
+                sync_point_id=run_id,
             )
             if blocked is not None:
                 return _push_barrier_rejection(
@@ -2244,6 +2436,25 @@ class _EdgeCommandMixin:
         def _release_object_claim_best_effort(
             self, *, project_key: str, story_id: str, op_id: str
         ) -> None: ...
+        def _load_boundary_verdict(
+            self,
+            *,
+            project_key: str,
+            story_id: str,
+            run_id: str,
+            boundary_type: SyncPointBarrierType,
+            boundary_id: str,
+            repo_id: str,
+        ) -> PushBarrierVerdict | None: ...
+        def _upsert_boundary_verdict(self, verdict: PushBarrierVerdict) -> None: ...
+        def _collect_push_barrier_inputs(
+            self,
+            *,
+            project_key: str,
+            story_id: str,
+            run_id: str,
+            required_sync_point_id: str | None = None,
+        ) -> tuple[RepoPushVerificationInput, ...] | None: ...
 
     def list_and_ack_open_commands(
         self,
@@ -2501,6 +2712,7 @@ class _EdgeCommandMixin:
                 expected_ownership_epoch=expected_ownership_epoch,
             )
             self._project_push_freshness_from_result(existing, request=request, now=now)
+            self._resolve_push_barrier_from_result(existing, request=request, now=now)
         except OwnershipFenceViolationError as exc:
             self._release_object_claim(
                 project_key=request.project_key,
@@ -2593,6 +2805,139 @@ class _EdgeCommandMixin:
             command_id=existing.command_id,
         )
         upsert_push_freshness_record_global(record)
+
+    def _resolve_push_barrier_from_result(
+        self,
+        existing: EdgeCommandRecord,
+        *,
+        request: EdgeCommandResultRequest,
+        now: datetime,
+    ) -> None:
+        """Resolve a pending boundary verdict from a confirming ``sync_push`` return."""
+        if existing.command_kind != "sync_push":
+            return
+        repo_id = _sync_push_result_repo_id(existing, request.result)
+        if repo_id is None:
+            return
+        payload_boundary_type = existing.payload.get("boundary_type")
+        payload_boundary_id = existing.payload.get("boundary_id")
+        payload_boundary_epoch = existing.payload.get("boundary_epoch")
+        if not (
+            isinstance(payload_boundary_type, str)
+            and isinstance(payload_boundary_id, str)
+            and isinstance(payload_boundary_epoch, int)
+        ):
+            return
+        try:
+            boundary_type = SyncPointBarrierType(payload_boundary_type)
+        except ValueError:
+            return
+        current = self._load_boundary_verdict(
+            project_key=request.project_key,
+            story_id=request.story_id,
+            run_id=existing.run_id,
+            boundary_type=boundary_type,
+            boundary_id=payload_boundary_id,
+            repo_id=repo_id,
+        )
+        if current is None:
+            return
+        if (
+            current.status is not PushBarrierVerdictStatus.PENDING
+            or current.boundary_epoch != payload_boundary_epoch
+            or current.ownership_epoch != existing.ownership_epoch
+        ):
+            return
+        result = request.result
+        if result.result_type != "push_status_report":
+            self._upsert_boundary_verdict(
+                _replace_push_barrier_verdict(
+                    current,
+                    expected_head_sha=None,
+                    server_head_sha=None,
+                    status=PushBarrierVerdictStatus.BLOCKED_BACKLOG,
+                    updated_at=now,
+                    resolved_at=now,
+                    status_detail="sync_push_command_failed",
+                )
+            )
+            return
+        result_epoch = result.boundary_epoch
+        result_ownership_epoch = result.ownership_epoch
+        if (
+            result_epoch is not None
+            and result_epoch != current.boundary_epoch
+        ) or (
+            result_ownership_epoch is not None
+            and result_ownership_epoch != current.ownership_epoch
+        ):
+            return
+        sync_point_id = _boundary_sync_point_id(
+            boundary_type, payload_boundary_id, current.boundary_epoch
+        )
+        server_input = self._server_input_for_push_result(
+            project_key=request.project_key,
+            story_id=request.story_id,
+            run_id=existing.run_id,
+            repo_id=repo_id,
+            required_sync_point_id=sync_point_id,
+        )
+        if server_input is None:
+            server_resolved = False
+            server_head = None
+        else:
+            server_resolved = server_input.server_ref_resolved
+            server_head = server_input.server_head_sha
+        repo_verdict = evaluate_repo_push(
+            RepoPushVerificationInput(
+                repo_id=repo_id,
+                edge_report_present=True,
+                edge_reported_pushed=result.push_outcome == "pushed",
+                edge_reported_head_sha=result.head_sha,
+                server_ref_resolved=server_resolved,
+                server_head_sha=server_head,
+                edge_report_sync_point_id=sync_point_id,
+                required_sync_point_id=sync_point_id,
+            )
+        )
+        self._upsert_boundary_verdict(
+            _replace_push_barrier_verdict(
+                current,
+                expected_head_sha=result.head_sha,
+                server_head_sha=server_head,
+                status=(
+                    PushBarrierVerdictStatus.PASSED
+                    if repo_verdict.verified
+                    else PushBarrierVerdictStatus.BLOCKED_BACKLOG
+                ),
+                updated_at=now,
+                resolved_at=now,
+                status_detail=repo_verdict.detail,
+            )
+        )
+
+    def _server_input_for_push_result(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+        repo_id: str,
+        required_sync_point_id: str,
+    ) -> RepoPushVerificationInput | None:
+        """Return server-ref evidence for one repo during result resolution."""
+        inputs = self._collect_push_barrier_inputs(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            required_sync_point_id=required_sync_point_id,
+        )
+        if inputs is None:
+            return None
+        for inp in inputs:
+            if inp.repo_id == repo_id:
+                return inp
+        return None
 
     def _edge_command_ownership_admission_rejection(
         self,
@@ -4518,6 +4863,172 @@ def _sync_point_id_from_sync_push_command(
 
     return sync_point_id_from_sync_push_command_id(
         command_id, run_id=run_id, repo_id=repo_id
+    )
+
+
+def _boundary_sync_point_id(
+    boundary_type: SyncPointBarrierType,
+    boundary_id: str,
+    boundary_epoch: int,
+) -> str:
+    """Return the edge-command correlation id for one boundary epoch."""
+
+    return f"{boundary_type.value}:{boundary_id}:epoch-{boundary_epoch}"
+
+
+def _next_boundary_binding(
+    current: PushBarrierVerdict | None,
+    *,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    boundary_type: SyncPointBarrierType,
+    boundary_id: str,
+    repo_id: str,
+    ownership_epoch: int,
+    now: datetime,
+) -> PushBarrierVerdict:
+    """Return the verdict row representing the current boundary epoch."""
+
+    if current is None:
+        return PushBarrierVerdict(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            boundary_type=boundary_type,
+            boundary_id=boundary_id,
+            repo_id=repo_id,
+            producer="control_plane.push_barrier",
+            boundary_epoch=1,
+            expected_head_sha=None,
+            server_head_sha=None,
+            ownership_epoch=ownership_epoch,
+            status=PushBarrierVerdictStatus.PENDING,
+            created_at=now,
+            updated_at=now,
+            resolved_at=None,
+            status_detail="boundary_bound",
+        )
+    if current.status in (
+        PushBarrierVerdictStatus.PENDING,
+        PushBarrierVerdictStatus.PASSED,
+    ):
+        return current
+    if current.status is PushBarrierVerdictStatus.SUPERSEDED:
+        return _replace_push_barrier_verdict(
+            current,
+            status=PushBarrierVerdictStatus.PENDING,
+            ownership_epoch=ownership_epoch,
+            updated_at=now,
+            resolved_at=None,
+            status_detail="boundary_rebound_after_supersede",
+        )
+    return _replace_push_barrier_verdict(
+        current,
+        boundary_epoch=current.boundary_epoch + 1,
+        expected_head_sha=None,
+        server_head_sha=None,
+        ownership_epoch=ownership_epoch,
+        status=PushBarrierVerdictStatus.PENDING,
+        updated_at=now,
+        resolved_at=None,
+        status_detail="boundary_retry_after_backlog",
+    )
+
+
+def _replace_push_barrier_verdict(
+    verdict: PushBarrierVerdict,
+    *,
+    updated_at: datetime,
+    resolved_at: datetime | None,
+    status_detail: str | None,
+    boundary_epoch: int | None = None,
+    expected_head_sha: str | None | object = _KEEP_FIELD,
+    server_head_sha: str | None | object = _KEEP_FIELD,
+    ownership_epoch: int | None = None,
+    status: PushBarrierVerdictStatus | None = None,
+) -> PushBarrierVerdict:
+    """Return a copy of a verdict with lifecycle fields replaced."""
+
+    return PushBarrierVerdict(
+        project_key=verdict.project_key,
+        story_id=verdict.story_id,
+        run_id=verdict.run_id,
+        boundary_type=verdict.boundary_type,
+        boundary_id=verdict.boundary_id,
+        repo_id=verdict.repo_id,
+        producer=verdict.producer,
+        boundary_epoch=(
+            boundary_epoch if boundary_epoch is not None else verdict.boundary_epoch
+        ),
+        expected_head_sha=(
+            verdict.expected_head_sha
+            if expected_head_sha is _KEEP_FIELD
+            else cast("str | None", expected_head_sha)
+        ),
+        server_head_sha=(
+            verdict.server_head_sha
+            if server_head_sha is _KEEP_FIELD
+            else cast("str | None", server_head_sha)
+        ),
+        ownership_epoch=(
+            ownership_epoch if ownership_epoch is not None else verdict.ownership_epoch
+        ),
+        status=status or verdict.status,
+        created_at=verdict.created_at,
+        updated_at=updated_at,
+        resolved_at=resolved_at,
+        status_detail=status_detail,
+    )
+
+
+def _repo_verdict_from_persisted(verdict: PushBarrierVerdict) -> RepoPushVerdict:
+    """Project a persisted verdict row into the existing rejection vocabulary."""
+
+    if verdict.status is PushBarrierVerdictStatus.SUPERSEDED:
+        code = PushBarrierBlockCode.STALE_EDGE_PUSH_REPORT
+    elif verdict.status is PushBarrierVerdictStatus.PENDING:
+        code = PushBarrierBlockCode.NO_EDGE_PUSH_REPORT
+    else:
+        code = PushBarrierBlockCode.EDGE_REPORTS_BACKLOG
+    return RepoPushVerdict(
+        repo_id=verdict.repo_id,
+        verified=False,
+        block_code=code,
+        detail=(
+            f"push-barrier verdict status={verdict.status.value}, "
+            f"epoch={verdict.boundary_epoch}, expected_head="
+            f"{verdict.expected_head_sha or 'unknown'}, server_head="
+            f"{verdict.server_head_sha or 'unknown'}"
+            + (f", detail={verdict.status_detail}" if verdict.status_detail else "")
+        ),
+    )
+
+
+def _barrier_from_repo_verdicts(
+    barrier_type: SyncPointBarrierType,
+    repo_verdicts: tuple[RepoPushVerdict, ...],
+) -> BarrierVerdict:
+    """Build an aggregate barrier verdict from persisted per-repo verdicts."""
+
+    return BarrierVerdict(
+        barrier_type=barrier_type,
+        passed=bool(repo_verdicts) and all(v.verified for v in repo_verdicts),
+        repo_verdicts=repo_verdicts,
+    )
+
+
+def _merge_precondition_from_barrier(verdict: BarrierVerdict) -> MergePrecondition:
+    """Project a pre-merge push-barrier block into the SOLL-190 shape."""
+
+    return MergePrecondition(
+        satisfied=verdict.passed,
+        blocking_repos=verdict.blocking_repos,
+        detail=(
+            "all participating repos server-verified as pushed"
+            if verdict.passed
+            else f"unverified repos: {verdict.blocking_summary()}"
+        ),
     )
 
 

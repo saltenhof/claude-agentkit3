@@ -36,17 +36,23 @@ from agentkit.backend.control_plane.models import (
     PushStatusReport,
 )
 from agentkit.backend.control_plane.push_sync import (
+    PushBarrierVerdict,
+    PushBarrierVerdictStatus,
     RepoPushVerificationInput,
-    next_sync_push_command_id,
+    SyncPointBarrierType,
 )
 from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.backend.state_backend.store import (
+    append_execution_event_global,
     boot_backend_instance_identity_global,
     load_edge_command_record_global,
+    load_push_barrier_verdict_global,
     save_story_context_global,
+    upsert_push_barrier_verdict_global,
 )
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -190,7 +196,7 @@ def _seed_story_context(
             story_type=StoryType.IMPLEMENTATION,
             execution_route=StoryMode.EXECUTION,
             project_root=project_root,
-            participating_repos=participating_repos or [],
+            participating_repos=participating_repos or ["api"],
         ),
     )
 
@@ -309,7 +315,7 @@ def test_phase_completion_barrier_blocks_when_no_edge_report(tmp_path: Path) -> 
 
 
 def test_phase_completion_barrier_blocks_stale_edge_report(tmp_path: Path) -> None:
-    """Regression: stale A==A evidence cannot satisfy the current boundary."""
+    """Regression: stale running-latest freshness is ignored by the verdict SSOT."""
     story_id, run_id = "AG3-905", "run-905"
     _seed_story_context(tmp_path, story_id)
     stale = replace(_verified("api"), edge_report_sync_point_id="phase_completion:old")
@@ -324,7 +330,7 @@ def test_phase_completion_barrier_blocks_stale_edge_report(tmp_path: Path) -> No
 
     assert result.status == "rejected"
     reason = result.phase_dispatch.rejection_reason if result.phase_dispatch else ""
-    assert "stale_edge_push_report" in (reason or "")
+    assert "no_edge_push_report" in (reason or "")
 
 
 def test_phase_completion_commissions_sync_push_before_block(tmp_path: Path) -> None:
@@ -342,7 +348,7 @@ def test_phase_completion_commissions_sync_push_before_block(tmp_path: Path) -> 
 
     assert result.status == "rejected"
     command = load_edge_command_record_global(
-        "run-912::sync_push::phase_completion:op-complete-912::api"
+        "run-912::sync_push::phase_completion:run-912:epoch-1::api"
     )
     assert command is not None
     assert command.command_kind == "sync_push"
@@ -384,7 +390,7 @@ def test_phase_completion_retry_after_failed_sync_push_eventually_passes(
     service = _service_with_mutable_barrier(barrier, ident="inst-914")
     _admit_run(service, story_id=story_id, run_id=run_id)
     request = _request(story_id=story_id, op_id="op-complete-914")
-    base_command_id = "run-914::sync_push::phase_completion:op-complete-914::api"
+    base_command_id = "run-914::sync_push::phase_completion:run-914:epoch-1::api"
 
     first = service.complete_phase(
         run_id=run_id, phase="implementation", request=request
@@ -397,19 +403,11 @@ def test_phase_completion_retry_after_failed_sync_push_eventually_passes(
         _command_error_request(story_id=story_id, op_id="edge-op-failed-914"),
     )
     assert failed.status == "completed"
-    retry_command_id = next_sync_push_command_id(
-        run_id=run_id,
-        sync_point_id="phase_completion:op-complete-914",
-        repo_id="api",
-        load_command=load_edge_command_record_global,
-    )
-    assert retry_command_id is not None
-    assert retry_command_id != base_command_id
-
     second = service.complete_phase(
         run_id=run_id, phase="implementation", request=request
     )
     assert second.status == "rejected"
+    retry_command_id = "run-914::sync_push::phase_completion:run-914:epoch-2::api"
     assert load_edge_command_record_global(retry_command_id) is not None
 
     pushed = service.submit_command_result(
@@ -425,6 +423,108 @@ def test_phase_completion_retry_after_failed_sync_push_eventually_passes(
     assert third.status == "committed"
 
 
+def test_registered_commit_invalidates_pending_boundary_epoch(tmp_path: Path) -> None:
+    """A productive AK3 commit supersedes pending verdicts mechanically."""
+    story_id, run_id = "AG3-921", "run-921"
+    _seed_story_context(tmp_path, story_id, participating_repos=["api"])
+    service = _service((_verified("api"),), ident="inst-921")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+
+    first = service.complete_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(story_id=story_id, op_id="op-complete-921"),
+    )
+    assert first.status == "rejected"
+
+    append_execution_event_global(
+        ExecutionEventRecord(
+            project_key=_PROJECT,
+            story_id=story_id,
+            run_id=run_id,
+            event_id="commit-921",
+            event_type="increment_commit",
+            occurred_at=_T0,
+            source_component="commit_hook",
+            severity="info",
+            phase="implementation",
+            payload={"repo_name": "api", "commit_sha": _SHA_Y},
+        )
+    )
+    superseded = load_push_barrier_verdict_global(
+        project_key=_PROJECT,
+        story_id=story_id,
+        run_id=run_id,
+        boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
+        boundary_id=run_id,
+        repo_id="api",
+    )
+    assert superseded is not None
+    assert superseded.status is PushBarrierVerdictStatus.SUPERSEDED
+    assert superseded.boundary_epoch == 2
+    assert superseded.expected_head_sha == _SHA_Y
+
+    stale = service.submit_command_result(
+        "run-921::sync_push::phase_completion:run-921:epoch-1::api",
+        _push_result_request(story_id=story_id, op_id="edge-op-stale-921"),
+    )
+    assert stale.status == "completed"
+    still_superseded = load_push_barrier_verdict_global(
+        project_key=_PROJECT,
+        story_id=story_id,
+        run_id=run_id,
+        boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
+        boundary_id=run_id,
+        repo_id="api",
+    )
+    assert still_superseded is not None
+    assert still_superseded.status is PushBarrierVerdictStatus.SUPERSEDED
+
+
+def test_late_result_with_stale_ownership_epoch_is_fenced(tmp_path: Path) -> None:
+    """A result tagged with a stale ownership epoch cannot satisfy the boundary."""
+    story_id, run_id = "AG3-922", "run-922"
+    _seed_story_context(tmp_path, story_id, participating_repos=["api"])
+    service = _service((_verified("api"),), ident="inst-922")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    first = service.complete_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(story_id=story_id, op_id="op-complete-922"),
+    )
+    assert first.status == "rejected"
+
+    result = service.submit_command_result(
+        "run-922::sync_push::phase_completion:run-922:epoch-1::api",
+        EdgeCommandResultRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-A",
+            op_id="edge-op-stale-owner-922",
+            result=PushStatusReport(
+                repo_id="api",
+                push_outcome="pushed",
+                head_sha=_SHA_X,
+                boundary_type="phase_completion",
+                boundary_id=run_id,
+                boundary_epoch=1,
+                ownership_epoch=999,
+            ),
+        ),
+    )
+    assert result.status == "completed"
+    verdict = load_push_barrier_verdict_global(
+        project_key=_PROJECT,
+        story_id=story_id,
+        run_id=run_id,
+        boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
+        boundary_id=run_id,
+        repo_id="api",
+    )
+    assert verdict is not None
+    assert verdict.status is PushBarrierVerdictStatus.PENDING
+
+
 def test_phase_completion_barrier_passes_when_verified(tmp_path: Path) -> None:
     """The barrier passes (commits) when the repo is server-verified-pushed."""
     story_id, run_id = "AG3-903", "run-903"
@@ -435,6 +535,18 @@ def test_phase_completion_barrier_passes_when_verified(tmp_path: Path) -> None:
     result = service.complete_phase(
         run_id=run_id, phase="implementation",
         request=_request(story_id=story_id, op_id="op-complete-903"),
+    )
+
+    assert result.status == "rejected"
+    command_id = "run-903::sync_push::phase_completion:run-903:epoch-1::api"
+    pushed = service.submit_command_result(
+        command_id,
+        _push_result_request(story_id=story_id, op_id="edge-op-pushed-903"),
+    )
+    assert pushed.status == "completed"
+    result = service.complete_phase(
+        run_id=run_id, phase="implementation",
+        request=_request(story_id=story_id, op_id="op-complete-903-retry"),
     )
 
     assert result.status == "committed"
@@ -465,7 +577,7 @@ def test_setup_completion_is_not_gated_by_the_push_barrier(tmp_path: Path) -> No
 def test_phase_completion_barrier_blocks_on_one_unverified_repo(tmp_path: Path) -> None:
     """AC3: one un-verified repo blocks even when every other repo is verified."""
     story_id, run_id = "AG3-905", "run-905"
-    _seed_story_context(tmp_path, story_id)
+    _seed_story_context(tmp_path, story_id, participating_repos=["api", "web", "infra"])
     service = _service(
         (_verified("api"), _server_mismatch("web"), _verified("infra")),
         ident="inst-905",
@@ -475,6 +587,28 @@ def test_phase_completion_barrier_blocks_on_one_unverified_repo(tmp_path: Path) 
     result = service.complete_phase(
         run_id=run_id, phase="implementation",
         request=_request(story_id=story_id, op_id="op-complete-905"),
+    )
+
+    assert result.status == "rejected"
+    for repo, op in (("api", "edge-op-api-905"), ("web", "edge-op-web-905"), ("infra", "edge-op-infra-905")):
+        pushed = service.submit_command_result(
+            f"run-905::sync_push::phase_completion:run-905:epoch-1::{repo}",
+            EdgeCommandResultRequest(
+                project_key=_PROJECT,
+                story_id=story_id,
+                session_id="sess-A",
+                op_id=op,
+                result=PushStatusReport(
+                    repo_id=repo,
+                    push_outcome="pushed",
+                    head_sha=_SHA_X,
+                ),
+            ),
+        )
+        assert pushed.status == "completed"
+    result = service.complete_phase(
+        run_id=run_id, phase="implementation",
+        request=_request(story_id=story_id, op_id="op-complete-905-retry"),
     )
 
     assert result.status == "rejected"
@@ -542,7 +676,58 @@ def test_closure_entry_barrier_passes_when_verified(tmp_path: Path) -> None:
         run_id=run_id, request=_closure_request(story_id=story_id, op_id="op-closure-907"),
     )
 
+    assert result.status == "rejected"
+    command_id = "run-907::sync_push::pre_merge:op-closure-907:epoch-1::api"
+    pushed = service.submit_command_result(
+        command_id,
+        _push_result_request(story_id=story_id, op_id="edge-op-pushed-907"),
+    )
+    assert pushed.status == "completed"
+    result = service.complete_closure(
+        run_id=run_id,
+        request=_closure_request(story_id=story_id, op_id="op-closure-907"),
+    )
+
     assert result.status == "committed"
+
+
+def test_closure_entry_verdict_does_not_satisfy_pre_merge_boundary(
+    tmp_path: Path,
+) -> None:
+    """Closure-entry and Pre-Merge are distinct boundary verdicts."""
+    story_id, run_id = "AG3-923", "run-923"
+    _seed_story_context(tmp_path, story_id, participating_repos=["api"])
+    service = _service((_verified("api"),), ident="inst-923")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    upsert_push_barrier_verdict_global(
+        PushBarrierVerdict(
+            project_key=_PROJECT,
+            story_id=story_id,
+            run_id=run_id,
+            boundary_type=SyncPointBarrierType.CLOSURE_ENTRY,
+            boundary_id="closure-entry",
+            repo_id="api",
+            producer="test",
+            boundary_epoch=1,
+            expected_head_sha=_SHA_X,
+            server_head_sha=_SHA_X,
+            ownership_epoch=1,
+            status=PushBarrierVerdictStatus.PASSED,
+            created_at=_T0,
+            updated_at=_T0,
+            resolved_at=_T0,
+            status_detail="closure entry only",
+        )
+    )
+
+    result = service.complete_closure(
+        run_id=run_id,
+        request=_closure_request(story_id=story_id, op_id="op-closure-923"),
+    )
+
+    assert result.status == "rejected"
+    reason = result.phase_dispatch.rejection_reason if result.phase_dispatch else ""
+    assert "push_barrier_unverified" in (reason or "")
 
 
 # ---------------------------------------------------------------------------
@@ -628,6 +813,18 @@ def test_yield_point_barrier_passes_when_verified(tmp_path: Path) -> None:
         push_barrier_evidence=_FakeBarrierPort((_verified("api"),)),  # type: ignore[arg-type]
     )
 
+    result = resume_svc.resume_phase(
+        run_id=run_id, phase="implementation",
+        request=_request(story_id=story_id, op_id="op-resume-909"),
+    )
+
+    assert result.status == "rejected"
+    command_id = "run-909::sync_push::yield_point:op-resume-909:epoch-1::api"
+    pushed = resume_svc.submit_command_result(
+        command_id,
+        _push_result_request(story_id=story_id, op_id="edge-op-pushed-909"),
+    )
+    assert pushed.status == "completed"
     result = resume_svc.resume_phase(
         run_id=run_id, phase="implementation",
         request=_request(story_id=story_id, op_id="op-resume-909"),

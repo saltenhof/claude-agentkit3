@@ -487,12 +487,48 @@ definierten Punkten und meldet den Head-SHA ans Backend
 - **Harte Push-Barrieren (Pflicht, fail-closed):** Phasen-Abschlüsse
   (`completion.push`, FK-33), QA-Zyklus-Grenzen, Yield-Points,
   Closure-Eintritt. Ohne erfolgreichen Push kein Phasen-Abschluss.
-  Die Verifikation erfolgt als Edge-Erhebung **plus** serverseitige
-  Verifikation gegen das Code-Backend (Ref-Read) — nie allein aus der
-  lokalen Erhebung.
+  Die Entscheidungsgrundlage ist der konkrete, an DIESE
+  Grenz-Instanz gebundene Head `H` je beteiligtem Repo: Die Barriere
+  passt genau dann, wenn der Edge fuer diese Grenze `H` als gepusht
+  meldet **und** der backend-eigene Ref-Read (`ls-remote` auf
+  `story/{story_id}`) denselben `H` bestaetigt. Die Verifikation ist
+  damit ein zweistufiges hartes UND je Repo — nie allein aus der
+  lokalen Erhebung und nie aus der running-latest Push-Frische.
 - **Opportunistische Pushes (best-effort, queued):** nach jedem
   AK3-registrierten Commit. Scheitern blockiert die lokale Arbeit
   nicht, ist aber sichtbarer Zustand (Push-Rückstand).
+
+Die harte Barriere ist ein **begrenzter Wartepunkt**, keine
+Backend-Momentaufnahme vor dem Push: Der Backend autorisiert den Push
+ueber das Online-Ownership-Gate, der Edge pusht mit der
+Dienst-Identitaet und kehrt mit der Branch-Ref-Meldung zurueck; erst
+diese bestaetigende Rueckkehr plus Server-Ref-Read loest die Barriere
+auf.
+
+Jede Grenz-Ueberquerung bindet eine Grenz-Instanz
+(`boundary_id` + Epoch) an das erwartete `H`. In der V1-haertung
+bestimmt der Edge `H` unmittelbar vor dem Push (`rev-parse HEAD`),
+pusht genau dieses `H` und prueft danach `HEAD == H`. Jede
+produktive Mutation (neuer AK3-registrierter Commit) nach
+Grenz-Eintritt invalidiert die Bindung mechanisch: neue Epoch, neues
+erwartetes `H`; Ergebnisse aus alten Boundary- oder
+Ownership-Epochen koennen die Barriere nie nachtraeglich passfaehig
+machen.
+
+Das Barriere-Ergebnis ist ein **persistierter Verdict** je
+Grenz-Instanz und Repo (Postgres-only, K5) und die operative Single
+Source of Truth. Der strukturelle `completion.push`-Check (FK-33),
+das QA-Zyklus-Gate und die Push-Verifikation vor Merge (SOLL-190,
+§12.4.3) lesen diesen Verdict, statt die Verifikation eigenstaendig
+neu abzuleiten. Wer eine frische Pruefung braucht, fordert eine neue
+Grenz-Instanz an.
+
+Bleibt die bestaetigende Rueckkehr innerhalb der Schranke aus oder
+steckt ein offener Auftrag, bleibt die Barriere fail-closed
+blockiert: sichtbarer Push-Rueckstand, Eskalation an den Menschen,
+kein stiller Durchlass und kein Endlos-Hang. Superseded oder aus
+veralteter Ownership-/Grenz-Epoch stammende Ergebnisse werden
+gefenct und koennen eine Grenze nie rueckwirkend erfuellen.
 
 Die **Push-Frische** (letzter gemeldeter Head-SHA + Zeitpunkt) ist
 Teil der Eigentumslage-Anzeige und des Takeover-Challenge

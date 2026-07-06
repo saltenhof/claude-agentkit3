@@ -224,9 +224,7 @@ class ImplementationPhaseHandler:
         layer2_bundle_token_limit = _resolve_layer2_bundle_token_limit(ctx)
         qa_rounds = state.memory.implementation.qa_feedback_rounds
         attempt_nr = qa_rounds + 1
-        structural_completion_sync_point_id = (
-            f"phase_completion:{flow.run_id}:attempt-{attempt_nr}"
-        )
+        structural_completion_sync_point_id = f"phase_completion:{flow.run_id}"
         verify_system = self._config.verify_system or build_verify_system(
             s_dir,
             sonar_gate_port=sonar_gate_port,

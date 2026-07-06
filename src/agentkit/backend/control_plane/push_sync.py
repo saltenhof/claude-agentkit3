@@ -51,6 +51,8 @@ __all__ = [
     "BarrierVerdict",
     "MergePrecondition",
     "PushBarrierBlockCode",
+    "PushBarrierVerdict",
+    "PushBarrierVerdictStatus",
     "PushFreshnessRecord",
     "PushGateDecision",
     "PushGateRefusalCode",
@@ -84,12 +86,22 @@ PushOutcome = Literal["pushed", "behind_remote"]
 
 
 class SyncPointBarrierType(StrEnum):
-    """The four hard fail-closed push barriers (FK-10 §10.2.4b hybrid)."""
+    """The hard fail-closed push barrier boundary types (FK-10 §10.2.4b)."""
 
     PHASE_COMPLETION = "phase_completion"
     QA_CYCLE_BOUNDARY = "qa_cycle_boundary"
     YIELD_POINT = "yield_point"
     CLOSURE_ENTRY = "closure_entry"
+    PRE_MERGE = "pre_merge"
+
+
+class PushBarrierVerdictStatus(StrEnum):
+    """Persisted push-barrier verdict lifecycle status (Postgres-only SSOT)."""
+
+    PENDING = "pending"
+    PASSED = "passed"
+    BLOCKED_BACKLOG = "blocked_backlog"
+    SUPERSEDED = "superseded"
 
 
 SYNC_PUSH_COMMAND_KIND = "sync_push"
@@ -200,6 +212,34 @@ class BarrierVerdict:
             for v in self.repo_verdicts
             if not v.verified
         )
+
+
+@dataclass(frozen=True)
+class PushBarrierVerdict:
+    """Authoritative per-repo verdict for one bound push-barrier instance.
+
+    Identity is ``(project_key, story_id, run_id, boundary_type, boundary_id,
+    repo_id)``. The row is the SSOT read by ``completion.push``, the QA-cycle
+    gate and the SOLL-190 pre-merge precondition. Push freshness remains a read
+    model only and must never satisfy a hard boundary by itself.
+    """
+
+    project_key: str
+    story_id: str
+    run_id: str
+    boundary_type: SyncPointBarrierType
+    boundary_id: str
+    repo_id: str
+    producer: str
+    boundary_epoch: int
+    expected_head_sha: str | None
+    server_head_sha: str | None
+    ownership_epoch: int
+    status: PushBarrierVerdictStatus
+    created_at: datetime
+    updated_at: datetime
+    resolved_at: datetime | None = None
+    status_detail: str | None = None
 
 
 def evaluate_repo_push(inp: RepoPushVerificationInput) -> RepoPushVerdict:
@@ -412,7 +452,7 @@ def verify_pushed_across_repos(
     Returns:
         A :class:`MergePrecondition` (fail-closed on any un-verified repo).
     """
-    verdict = evaluate_push_barrier(SyncPointBarrierType.CLOSURE_ENTRY, inputs)
+    verdict = evaluate_push_barrier(SyncPointBarrierType.PRE_MERGE, inputs)
     return MergePrecondition(
         satisfied=verdict.passed,
         blocking_repos=verdict.blocking_repos,

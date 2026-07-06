@@ -523,6 +523,7 @@ def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
         # AG3-147 canary: push freshness/backlog is Postgres-only and now also
         # carries the boundary correlation fields used by hard push barriers.
         "push_freshness_records",
+        "push_barrier_verdicts",
         "ref_protection_degradation_findings",
         # AG3-145 canary: a pre-AG3-145 schema lacks the Edge-Command-Queue
         # table; brand-new and forward-only (mirrors the AG3-143 precedent
@@ -2453,6 +2454,7 @@ def append_execution_event_row(story_dir: Path, row: dict[str, Any]) -> None:
 
     with _connect(story_dir) as conn:
         _insert_execution_event_row(conn, row)
+        _invalidate_push_barriers_for_registered_commit(conn, row)
 
 
 def append_execution_event_global_row(row: dict[str, Any]) -> None:
@@ -2460,6 +2462,52 @@ def append_execution_event_global_row(row: dict[str, Any]) -> None:
 
     with _connect_global() as conn:
         _insert_execution_event_row(conn, row)
+        _invalidate_push_barriers_for_registered_commit(conn, row)
+
+
+def _invalidate_push_barriers_for_registered_commit(
+    conn: _CompatConnection,
+    row: dict[str, Any],
+) -> None:
+    """Supersede pending push barriers for an AK3-registered commit event."""
+
+    if row["event_type"] != "increment_commit":
+        return
+    payload = json.loads(str(row["payload_json"]))
+    if not isinstance(payload, dict):
+        return
+    repo_id = payload.get("repo_name")
+    commit_sha = payload.get("commit_sha")
+    if not isinstance(repo_id, str) or not repo_id.strip():
+        return
+    if not isinstance(commit_sha, str) or not commit_sha.strip():
+        return
+    conn.execute(
+        """
+        UPDATE push_barrier_verdicts
+        SET boundary_epoch = boundary_epoch + 1,
+            expected_head_sha = ?,
+            server_head_sha = NULL,
+            status = 'superseded',
+            updated_at = ?,
+            resolved_at = ?,
+            status_detail = 'superseded_by_registered_commit'
+        WHERE project_key = ?
+          AND story_id = ?
+          AND run_id = ?
+          AND repo_id = ?
+          AND status = 'pending'
+        """,
+        (
+            commit_sha,
+            row["occurred_at"],
+            row["occurred_at"],
+            row["project_key"],
+            row["story_id"],
+            row["run_id"],
+            repo_id,
+        ),
+    )
 
 
 def load_execution_event_rows(
@@ -3177,6 +3225,160 @@ def list_push_freshness_records_global_row(
             (project_key, story_id, run_id),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# PushBarrierVerdict rows (AG3-147 redesign, Postgres-only K5)
+# ---------------------------------------------------------------------------
+
+
+def upsert_push_barrier_verdict_global_row(row: dict[str, Any]) -> None:
+    """Upsert the authoritative per-repo push-barrier verdict row."""
+
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            INSERT INTO push_barrier_verdicts (
+                project_key, story_id, run_id, boundary_type, boundary_id, repo_id,
+                producer, boundary_epoch, expected_head_sha, server_head_sha,
+                ownership_epoch, status, created_at, updated_at, resolved_at,
+                status_detail
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (
+                project_key, story_id, run_id, boundary_type, boundary_id, repo_id
+            ) DO UPDATE SET
+                producer = EXCLUDED.producer,
+                boundary_epoch = EXCLUDED.boundary_epoch,
+                expected_head_sha = EXCLUDED.expected_head_sha,
+                server_head_sha = EXCLUDED.server_head_sha,
+                ownership_epoch = EXCLUDED.ownership_epoch,
+                status = EXCLUDED.status,
+                updated_at = EXCLUDED.updated_at,
+                resolved_at = EXCLUDED.resolved_at,
+                status_detail = EXCLUDED.status_detail
+            """,
+            _push_barrier_verdict_params(row),
+        )
+
+
+def load_push_barrier_verdict_global_row(
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    boundary_type: str,
+    boundary_id: str,
+    repo_id: str,
+) -> dict[str, Any] | None:
+    """Load one push-barrier verdict row, or ``None``."""
+
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM push_barrier_verdicts
+            WHERE project_key = ?
+              AND story_id = ?
+              AND run_id = ?
+              AND boundary_type = ?
+              AND boundary_id = ?
+              AND repo_id = ?
+            """,
+            (project_key, story_id, run_id, boundary_type, boundary_id, repo_id),
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def list_push_barrier_verdicts_global_row(
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    boundary_type: str,
+    boundary_id: str,
+) -> list[dict[str, Any]]:
+    """List all repo verdicts for one boundary instance, ordered by repo."""
+
+    with _connect_global() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM push_barrier_verdicts
+            WHERE project_key = ?
+              AND story_id = ?
+              AND run_id = ?
+              AND boundary_type = ?
+              AND boundary_id = ?
+            ORDER BY repo_id
+            """,
+            (project_key, story_id, run_id, boundary_type, boundary_id),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def supersede_pending_push_barriers_for_commit_global_row(
+    *,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    repo_id: str,
+    expected_head_sha: str,
+    updated_at: str,
+) -> int:
+    """Invalidate every pending boundary for a repo after a registered commit.
+
+    This is the mechanical mutation-invalidation hook required by AG3-147 Rev. 2:
+    any AK3-registered productive commit after boundary entry bumps the boundary
+    epoch, rebinds the expected head, and marks old evidence superseded.
+    """
+
+    with _connect_global() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE push_barrier_verdicts
+            SET boundary_epoch = boundary_epoch + 1,
+                expected_head_sha = ?,
+                server_head_sha = NULL,
+                status = 'superseded',
+                updated_at = ?,
+                resolved_at = ?,
+                status_detail = 'superseded_by_registered_commit'
+            WHERE project_key = ?
+              AND story_id = ?
+              AND run_id = ?
+              AND repo_id = ?
+              AND status = 'pending'
+            """,
+            (
+                expected_head_sha,
+                updated_at,
+                updated_at,
+                project_key,
+                story_id,
+                run_id,
+                repo_id,
+            ),
+        )
+    return int(cursor.rowcount)
+
+
+def _push_barrier_verdict_params(row: dict[str, Any]) -> tuple[object, ...]:
+    """Return DB parameter order for a push-barrier verdict row."""
+
+    return (
+        row["project_key"],
+        row["story_id"],
+        row["run_id"],
+        row["boundary_type"],
+        row["boundary_id"],
+        row["repo_id"],
+        row["producer"],
+        row["boundary_epoch"],
+        row["expected_head_sha"],
+        row["server_head_sha"],
+        row["ownership_epoch"],
+        row["status"],
+        row["created_at"],
+        row["updated_at"],
+        row["resolved_at"],
+        row["status_detail"],
+    )
 
 
 # Ref-protection degradation findings (AG3-147, Postgres-only K5)
