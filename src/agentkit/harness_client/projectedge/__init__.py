@@ -10,7 +10,9 @@ from agentkit.harness_client.projectedge.client import (
 )
 from agentkit.harness_client.projectedge.command_executor import (
     EdgeGitError,
+    SyncPushContext,
     execute_command,
+    execute_sync_push,
     process_open_commands,
 )
 from agentkit.harness_client.projectedge.runtime import (
@@ -30,8 +32,10 @@ __all__ = [
     "ProjectEdgeResolver",
     "ProjectEdgeClient",
     "ResolvedEdgeState",
+    "SyncPushContext",
     "build_project_edge_client",
     "execute_command",
+    "execute_sync_push",
     "process_open_commands",
     "read_change_frame_freeze_state",
 ]

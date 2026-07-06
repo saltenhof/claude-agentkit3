@@ -45,6 +45,7 @@ from agentkit.backend.control_plane_http._route_patterns import (
     _EDGE_COMMAND_RESULT_PATTERN,
     _EDGE_COMMANDS_COLLECTION_PATTERN,
     _EDGE_PUSH_FRESHNESS_PATTERN,
+    _EDGE_PUSH_OWNERSHIP_PATTERN,
     _OPERATION_ADMIN_ABORT_PATTERN,
     _OPERATION_PATH_PATTERN,
     _PROJECT_CLOSURE_PATH_PATTERN,
@@ -310,6 +311,53 @@ def _handle_get_push_freshness(
         return _error_response(
             HTTPStatus.SERVICE_UNAVAILABLE,
             error_code="push_freshness_unavailable",
+            message=str(exc),
+            correlation_id=correlation_id,
+        )
+    return _json_response(
+        HTTPStatus.OK,
+        result.model_dump(mode="json"),
+        correlation_id=correlation_id,
+    )
+
+
+def _handle_get_push_ownership(
+    runtime_service: ControlPlaneRuntimeService,
+    run_id: str,
+    query: dict[str, list[str]],
+    correlation_id: str,
+) -> HttpResponse:
+    """``GET .../story-runs/{run_id}/push-ownership`` (FK-15 §15.5.4, AG3-147 AC6).
+
+    The bounded online-ownership check the official Edge-Push-Gate runs
+    immediately before a ``story/*`` push. ``project_key``/``story_id``/
+    ``session_id`` are mandatory query parameters (a GET carries no body).
+    Read-only, no lock/claim. Postgres-only (K5): a non-Postgres backend fails
+    closed with a stable ``push_ownership_unavailable`` 503.
+    """
+    project_key = _single_query_value(query, "project_key")
+    story_id = _single_query_value(query, "story_id")
+    session_id = _single_query_value(query, "session_id")
+    if not project_key or not story_id or not session_id:
+        return _error_response(
+            HTTPStatus.BAD_REQUEST,
+            error_code="invalid_push_ownership_query",
+            message="project_key, story_id and session_id query parameters are required",
+            correlation_id=correlation_id,
+        )
+    try:
+        result = runtime_service.confirm_push_ownership(
+            run_id, project_key=project_key, story_id=story_id, session_id=session_id,
+        )
+    except ConfigError as exc:
+        return _backend_requirement_response(
+            "push_ownership_unavailable", exc, correlation_id
+        )
+    except RuntimeError as exc:
+        logger.warning("Push-ownership read unavailable: %s", exc)
+        return _error_response(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            error_code="push_ownership_unavailable",
             message=str(exc),
             correlation_id=correlation_id,
         )
@@ -1092,6 +1140,16 @@ class ControlPlaneApplication(
             return _handle_get_push_freshness(
                 self._runtime_service,
                 freshness_match.group("run_id"),
+                query,
+                correlation_id,
+            )
+
+        # AG3-147 Edge-Push-Gate bounded online-ownership check (FK-15 §15.5.4, AC6):
+        push_ownership_match = _EDGE_PUSH_OWNERSHIP_PATTERN.match(route_path)
+        if push_ownership_match is not None:
+            return _handle_get_push_ownership(
+                self._runtime_service,
+                push_ownership_match.group("run_id"),
                 query,
                 correlation_id,
             )

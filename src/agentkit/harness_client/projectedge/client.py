@@ -25,6 +25,7 @@ from agentkit.backend.control_plane.models import (
     OpenEdgeCommandsResponse,
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,
+    PushOwnershipConfirmation,
 )
 from agentkit.backend.exceptions import ControlPlaneApiError
 from agentkit.backend.utils.io import atomic_write_text
@@ -106,6 +107,34 @@ class CreateStoryResult:
     reconciliation_counters: dict[str, object]
 
 
+#: Bounded per-invocation timeout (seconds) for the Edge-Push-Gate online
+#: ownership check (FK-15 §15.5.4 AC6: the gate check is bounded -- never an
+#: unbounded block of the local process). Deliberately short: offline means
+#: "local work yes, push no", and the edge must not hang waiting for a dead
+#: control plane.
+PUSH_GATE_OWNERSHIP_TIMEOUT_S = 10.0
+
+
+@dataclass(frozen=True)
+class PushOwnershipProbe:
+    """The Edge-side outcome of the bounded online-ownership check (AG3-147, AC6).
+
+    Separates the two facts the official Edge-Push-Gate needs from the network:
+
+    * ``server_reachable`` -- whether the bounded check reached the control plane
+      at all. ``False`` on any connection/timeout failure (offline): the gate
+      then refuses the push (``local work yes, push no``); it is NEVER treated as
+      a confirmation.
+    * ``owner_confirmed`` -- the server's answer (only meaningful when
+      ``server_reachable``): whether it confirms this session as the current run
+      owner. ``False`` (fail-closed) whenever the server was unreachable.
+    """
+
+    server_reachable: bool
+    owner_confirmed: bool
+    detail: str
+
+
 class ControlPlaneTransport(Protocol):
     """Send one control-plane request and return the decoded JSON object."""
 
@@ -116,6 +145,7 @@ class ControlPlaneTransport(Protocol):
         path: str,
         payload: Mapping[str, object] | None = None,
         headers: Mapping[str, str] | None = None,
+        timeout: float | None = None,
     ) -> dict[str, object]:
         ...
 
@@ -152,6 +182,7 @@ class HttpsJsonTransport:
         path: str,
         payload: Mapping[str, object] | None = None,
         headers: Mapping[str, str] | None = None,
+        timeout: float | None = None,
     ) -> dict[str, object]:
         body = (
             json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
@@ -183,10 +214,19 @@ class HttpsJsonTransport:
             headers=request_headers,
         )
         try:
-            with urllib.request.urlopen(
-                request,
-                context=self._ssl_context,
-            ) as response:
+            # Pass ``timeout`` ONLY when the caller bounded the call (the
+            # Edge-Push-Gate online check, FK-15 §15.5.4). Omitting it otherwise
+            # keeps the pre-existing behaviour (the process-wide socket default)
+            # byte-for-byte -- the other endpoints are unchanged.
+            if timeout is None:
+                response_ctx = urllib.request.urlopen(
+                    request, context=self._ssl_context
+                )
+            else:
+                response_ctx = urllib.request.urlopen(
+                    request, context=self._ssl_context, timeout=timeout
+                )
+            with response_ctx as response:
                 response_body = response.read()
                 response_correlation = response.headers.get(_CORRELATION_HEADER)
         except urllib.error.HTTPError as exc:
@@ -828,6 +868,57 @@ class ProjectEdgeClient:
         )
         data.pop("correlation_id", None)
         return EdgeCommandMutationResult.model_validate(data)
+
+    def confirm_push_ownership(
+        self,
+        *,
+        run_id: str,
+        project_key: str,
+        story_id: str,
+        session_id: str,
+    ) -> PushOwnershipProbe:
+        """Run the bounded online-ownership check before a ``story/*`` push (AC6).
+
+        The official Edge-Push-Gate's fresh online verification (FK-15 §15.5.4:
+        online-pflichtig, bounded). Returns a :class:`PushOwnershipProbe`: a
+        connection/timeout failure is ``server_reachable=False`` (offline ->
+        local work yes, push no; NEVER a confirmation), a reachable server
+        surfaces its ``owner_confirmed`` verdict. Read-only (no local publish).
+        The bounded timeout (:data:`PUSH_GATE_OWNERSHIP_TIMEOUT_S`) guarantees
+        the check never blocks the local process indefinitely.
+        """
+        run_segment = urllib.parse.quote(run_id, safe="")
+        query = urllib.parse.urlencode(
+            {
+                "project_key": project_key,
+                "story_id": story_id,
+                "session_id": session_id,
+            }
+        )
+        try:
+            data = self._transport.send(
+                method="GET",
+                path=(
+                    f"/v1/project-edge/story-runs/{run_segment}/push-ownership?{query}"
+                ),
+                timeout=PUSH_GATE_OWNERSHIP_TIMEOUT_S,
+            )
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            # Offline / bounded-timeout: the server was not reached. Fail-closed
+            # to "push no" -- never optimistically treat unreachable as confirmed
+            # (FK-15 §15.5.4: no ACTIVE-bundle re-sync fallback for the push path).
+            return PushOwnershipProbe(
+                server_reachable=False,
+                owner_confirmed=False,
+                detail=f"control plane unreachable within the bound: {exc}",
+            )
+        data.pop("correlation_id", None)
+        confirmation = PushOwnershipConfirmation.model_validate(data)
+        return PushOwnershipProbe(
+            server_reachable=True,
+            owner_confirmed=confirmation.owner_confirmed,
+            detail=confirmation.detail,
+        )
 
     def _post_and_publish(
         self,

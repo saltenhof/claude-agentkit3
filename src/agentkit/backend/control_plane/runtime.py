@@ -30,6 +30,7 @@ from agentkit.backend.control_plane.models import (
     ProjectEdgeSyncRequest,
     PushFreshnessListResponse,
     PushFreshnessView,
+    PushOwnershipConfirmation,
     SessionRunBindingView,
     StoryExecutionLockView,
 )
@@ -2024,6 +2025,44 @@ class _EdgeCommandMixin:
                 )
                 for record in records
             ]
+        )
+
+    def confirm_push_ownership(
+        self,
+        run_id: str,
+        *,
+        project_key: str,
+        story_id: str,
+        session_id: str,
+    ) -> PushOwnershipConfirmation:
+        """``GET .../story-runs/{run_id}/push-ownership`` (FK-15 §15.5.4, AG3-147 AC6).
+
+        The bounded, fresh online-ownership check the official Edge-Push-Gate
+        runs immediately before a ``story/*`` push. Read-only (Rule 13: a read
+        takes no lock/claim); it reuses the EXACT
+        :func:`evaluate_ownership_admission` rule the mutating fences apply, so
+        the gate can never diverge from the write fence. It consults NO ACTIVE
+        bundle by design -- a stale bundle grants no push (the FK-56 §56.9a
+        re-sync fallback does not apply to the push path, FK-15 §15.5.4).
+        Fail-closed on a non-Postgres backend (``ConfigError``, K5).
+        """
+        self._require_postgres_backend_on_first_use()
+        admission = evaluate_ownership_admission(
+            active_record=self._repo.load_active_ownership(project_key, story_id),
+            run_id=run_id,
+            session_id=session_id,
+        )
+        return PushOwnershipConfirmation(
+            run_id=run_id,
+            owner_confirmed=admission.admitted,
+            detail=(
+                "the server confirms this session as the current run owner"
+                if admission.admitted
+                else (
+                    "the server does not confirm this session as the current run "
+                    f"owner ({admission.rejection_reason.value if admission.rejection_reason else 'not admitted'})"
+                )
+            ),
         )
 
     def submit_command_result(

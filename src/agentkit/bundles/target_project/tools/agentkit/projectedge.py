@@ -351,13 +351,17 @@ def _run_commands(
     *,
     client_factory: ClientFactory | None = None,
 ) -> int:
-    """Run the Edge-Command-Queue loop for this session (AG3-145, FK-91 §91.1b).
+    """Run the Edge-Command-Queue loop for this session (AG3-145/AG3-147, FK-91 §91.1b).
 
     Fetches this session's open commands, executes provision/teardown/
-    preflight_probe dev-locally and reports each result with the edge's own
-    ``op_id``. A missing / invalid project.yaml or control-plane.json is a
-    stable ``configuration_error``. The per-command terminal outcomes are
-    printed as JSON (completed / replayed / rejected).
+    preflight_probe AND the official ``sync_push`` Edge-Push-Gate path (FK-15
+    §15.5.4: bounded online-ownership check, push only the official
+    ``story/{id}`` ref via the backend-managed service identity) dev-locally, and
+    reports each result with the edge's own ``op_id``. The push mechanic is the
+    SINGLE shared :func:`process_open_commands` (the harness-client executor) --
+    this bundle wrapper adds no second copy. A missing / invalid project.yaml or
+    control-plane.json is a stable ``configuration_error``. The per-command
+    terminal outcomes are printed as JSON (completed / replayed / rejected).
     """
     try:
         project_config = load_project_config(project_root)

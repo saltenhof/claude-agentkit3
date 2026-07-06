@@ -1011,6 +1011,28 @@ class PushFreshnessListResponse(BaseModel):
     freshness: list[PushFreshnessView] = Field(default_factory=list)
 
 
+class PushOwnershipConfirmation(BaseModel):
+    """The bounded online-ownership answer for the Edge-Push-Gate (AG3-147, AC6).
+
+    ``GET .../story-runs/{run_id}/push-ownership`` -- the fresh online check the
+    official Edge-Push-Gate runs IMMEDIATELY before a ``story/*`` push (FK-15
+    §15.5.4: online-pflichtig, bounded). Read-only, no lock/claim. ``owner_confirmed``
+    is ``True`` iff the story's ACTIVE ``run_ownership_records`` row admits THIS
+    run/session (the exact :func:`evaluate_ownership_admission` rule the mutating
+    fences reuse) -- it deliberately consults NO ACTIVE bundle, so a stale bundle
+    can never grant a push (the FK-56 §56.9a re-sync fallback does not apply to
+    the push path). The edge treats an unreachable server as ``server_reachable``
+    ``False`` (offline: local work yes, push no) -- never as a confirmation.
+    ARCH-55: English wire keys.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    run_id: str = Field(min_length=1)
+    owner_confirmed: bool
+    detail: str = ""
+
+
 class EdgeCommandMutationResult(BaseModel):
     """Response body for ``POST .../commands/{command_id}/result`` (AG3-145).
 

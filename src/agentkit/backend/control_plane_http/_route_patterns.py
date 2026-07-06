@@ -37,6 +37,13 @@ _EDGE_PUSH_FRESHNESS_PATTERN = re.compile(
     r"^/v1/project-edge/story-runs/(?P<run_id>[^/]+)/push-freshness$",
 )
 
+# AG3-147: bounded online-ownership check for the official Edge-Push-Gate
+# (FK-15 §15.5.4 online-pflichtig, AC6). Read-only; the fresh confirmation the
+# edge runs immediately before a ``story/*`` push. Non-project-scoped sibling.
+_EDGE_PUSH_OWNERSHIP_PATTERN = re.compile(
+    r"^/v1/project-edge/story-runs/(?P<run_id>[^/]+)/push-ownership$",
+)
+
 # Project-scoped paths under /v1/projects/{project_key}/<bc>/...
 _PROJECT_SCOPED_PREFIX = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/(?P<rest>.+)$",

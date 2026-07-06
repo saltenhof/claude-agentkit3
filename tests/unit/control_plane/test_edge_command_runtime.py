@@ -96,6 +96,51 @@ def _success_request(*, op_id: str = "op-1") -> EdgeCommandResultRequest:
 
 
 # ---------------------------------------------------------------------------
+# AG3-147 AC6: bounded online-ownership check for the Edge-Push-Gate
+# (read-only, reuses the exact evaluate_ownership_admission write-fence rule)
+# ---------------------------------------------------------------------------
+
+
+def _confirm(service: ControlPlaneRuntimeService, *, session_id: str = "sess-A",
+             run_id: str = "run-1") -> bool:
+    return service.confirm_push_ownership(
+        run_id, project_key="tenant-a", story_id="AG3-100", session_id=session_id,
+    ).owner_confirmed
+
+
+def test_confirm_push_ownership_admits_the_current_owner() -> None:
+    service = _service(
+        active=_ownership_record(owner="sess-A", run_id="run-1"),
+        edge_command_repository=_default_di_edge_command_repository(),
+    )
+    assert _confirm(service, session_id="sess-A", run_id="run-1") is True
+
+
+def test_confirm_push_ownership_denies_an_ex_owner() -> None:
+    """AC7 (gate half): after a transfer the ex-owner is NOT confirmed online."""
+    service = _service(
+        active=_ownership_record(owner="sess-B", run_id="run-1"),
+        edge_command_repository=_default_di_edge_command_repository(),
+    )
+    assert _confirm(service, session_id="sess-A", run_id="run-1") is False
+
+
+def test_confirm_push_ownership_denies_when_no_active_record() -> None:
+    service = _service(
+        active=None, edge_command_repository=_default_di_edge_command_repository()
+    )
+    assert _confirm(service, session_id="sess-A", run_id="run-1") is False
+
+
+def test_confirm_push_ownership_denies_a_run_mismatch() -> None:
+    service = _service(
+        active=_ownership_record(owner="sess-A", run_id="run-2"),
+        edge_command_repository=_default_di_edge_command_repository(),
+    )
+    assert _confirm(service, session_id="sess-A", run_id="run-1") is False
+
+
+# ---------------------------------------------------------------------------
 # AC1: GET list_and_ack_open_commands -- Ack + fail-closed session scoping
 # ---------------------------------------------------------------------------
 

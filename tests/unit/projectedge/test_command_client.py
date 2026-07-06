@@ -19,6 +19,7 @@ from agentkit.backend.control_plane.models import (
     EdgeCommandMutationResult,
     EdgeCommandResultRequest,
     OpenEdgeCommandsResponse,
+    PushOwnershipConfirmation,
     WorktreeReport,
 )
 from agentkit.harness_client.projectedge import (
@@ -26,6 +27,7 @@ from agentkit.harness_client.projectedge import (
     LocalEdgePublisher,
     ProjectEdgeClient,
 )
+from agentkit.harness_client.projectedge.client import PUSH_GATE_OWNERSHIP_TIMEOUT_S
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -34,13 +36,21 @@ if TYPE_CHECKING:
 class _RecordingTransport:
     def __init__(self, response: dict[str, object]) -> None:
         self.calls: list[tuple[str, str, object]] = []
+        self.timeouts: list[float | None] = []
         self._response = response
 
     def send(
-        self, *, method: str, path: str, payload: object = None, headers: object = None,
+        self,
+        *,
+        method: str,
+        path: str,
+        payload: object = None,
+        headers: object = None,
+        timeout: float | None = None,
     ) -> dict[str, object]:
         del headers
         self.calls.append((method, path, payload))
+        self.timeouts.append(timeout)
         return dict(self._response)
 
 
@@ -127,6 +137,51 @@ def test_report_command_result_url_encodes_the_command_id(tmp_path: Path) -> Non
 
     _, path, _ = transport.calls[0]
     assert path == "/v1/project-edge/commands/cmd%2Fevil/result"
+
+
+def test_confirm_push_ownership_reachable_returns_owner_verdict(tmp_path: Path) -> None:
+    """A reachable server surfaces its ``owner_confirmed`` verdict + bounded timeout."""
+    response = PushOwnershipConfirmation(
+        run_id="run-1", owner_confirmed=True, detail="ok"
+    ).model_dump(mode="json")
+    transport = _RecordingTransport(response)
+    client = _client(transport, tmp_path)
+
+    probe = client.confirm_push_ownership(
+        run_id="run-1", project_key="tenant-a", story_id="AG3-100", session_id="sess-A"
+    )
+
+    assert probe.server_reachable is True
+    assert probe.owner_confirmed is True
+    method, path, payload = transport.calls[0]
+    assert method == "GET"
+    assert path.startswith("/v1/project-edge/story-runs/run-1/push-ownership?")
+    assert "session_id=sess-A" in path
+    assert payload is None  # a GET carries no body
+    # The gate check is bounded (FK-15 §15.5.4 AC6): a timeout was supplied.
+    assert transport.timeouts[0] == PUSH_GATE_OWNERSHIP_TIMEOUT_S
+
+
+def test_confirm_push_ownership_offline_is_never_a_confirmation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """AC6 offline: an unreachable control plane is ``server_reachable=False`` --
+    NEVER treated as a confirmation (the edge then refuses the push)."""
+    import urllib.error
+
+    def fake_urlopen(request: Any, context: Any = None, timeout: Any = None) -> Any:
+        del request, context, timeout
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    client = _client(HttpsJsonTransport(base_url="https://127.0.0.1:9080"), tmp_path)
+
+    probe = client.confirm_push_ownership(
+        run_id="run-1", project_key="tenant-a", story_id="AG3-100", session_id="sess-A"
+    )
+
+    assert probe.server_reachable is False
+    assert probe.owner_confirmed is False
 
 
 @pytest.mark.parametrize("http_code", [403, 404, 409])
