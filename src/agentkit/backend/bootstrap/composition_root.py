@@ -37,7 +37,8 @@ if TYPE_CHECKING:
         VectorDbSyncPort,
     )
     from agentkit.backend.code_backend.provider_port import CodeBackendPort
-    from agentkit.backend.config.models import ConformanceConfig
+    from agentkit.backend.config.models import ConformanceConfig, RepositoryConfig
+    from agentkit.backend.control_plane.push_verification import PushBarrierEvidencePort
     from agentkit.backend.execution_planning.persistence.accessor import PlanningProjectionAccessor
     from agentkit.backend.exploration.change_frame import ChangeFrame
     from agentkit.backend.exploration.drafting import ExplorationDrafting
@@ -3549,5 +3550,55 @@ def build_github_code_backend_port(
     )
 
 
+def _build_repo_code_backend_port(
+    repo: RepositoryConfig, project_root: Path
+) -> CodeBackendPort:
+    """Bind ONE participating repo's coordinate onto a ``CodeBackendPort`` (AG3-147).
+
+    The provider-specific half of the push-barrier evidence port (kept OUT of the
+    provider-neutral ``control_plane`` BC, PO Directive III): derives the GitHub
+    ``(owner, repo)`` from the config ``remote_url`` and uses it -- or the
+    configured repo path -- as the ``git ls-remote`` remote for the server
+    ref-read (``remote_url_override`` accepts a URL OR a local path, so this works
+    for a real GitHub remote and a local bare-repo fixture alike). Only
+    ``ref_read`` is exercised by the barrier, so a non-github remote (no parseable
+    owner/repo) still reads correctly via the override.
+    """
+    from agentkit.backend.installer.github_coordinates import parse_github_remote_url
+    from agentkit.integration_clients.github.adapter import GitHubCodeBackendAdapter
+
+    remote = repo.remote_url or str(
+        repo.path if repo.path.is_absolute() else project_root / repo.path
+    )
+    coordinates = parse_github_remote_url(repo.remote_url) if repo.remote_url else None
+    owner, name = coordinates or (repo.name, repo.name)
+    return GitHubCodeBackendAdapter(
+        owner=owner, repo=name, remote_url_override=remote
+    )
+
+
+def build_push_barrier_evidence() -> PushBarrierEvidencePort:
+    """Wire the productive two-stage push-barrier evidence port (AG3-147, FK-10 §10.2.4b).
+
+    Composition root for the hard push barriers: binds the Postgres-only
+    push-freshness read (the Edge report) and the provider-neutral
+    ``CodeBackendPort.ref_read`` (the server ``ls-remote`` read) behind the
+    ``control_plane`` port. The ``project_root`` is resolved from canonical
+    level-1 state (``project_registry``) via the workspace locator (AG3-123),
+    never a dev-supplied path.
+    """
+    from agentkit.backend.control_plane.push_verification import (
+        StateBackedPushBarrierEvidence,
+    )
+    from agentkit.backend.control_plane.workspace_locator import (
+        build_story_workspace_locator,
+    )
+
+    return StateBackedPushBarrierEvidence(
+        workspace_locator=build_story_workspace_locator(),
+        code_backend_factory=_build_repo_code_backend_port,
+    )
+
+
 # Keep export metadata compact so module-level LOC stays under the project gate.
-__all__ = ["ClosureConfigUnavailableError", "build_compat_window_reader", "build_artifact_invalidation_sink", "build_review_completion_sink", "build_artifact_manager", "build_closure_phase_handler", "build_exploration_drafting", "build_exploration_phase_handler", "build_exploration_review", "build_failure_corpus", "build_github_code_backend_port", "build_integrity_gate", "build_phase_state_residue_probe", "build_pipeline_engine", "build_pipeline_handler_registry", "build_planning_projection_accessor", "build_planning_story_dependency_repository", "build_producer_registry", "build_projection_accessor", "build_runtime_execution_purge_port", "build_runtime_execution_residue_probe", "build_setup_config_for_run", "build_setup_phase_handler", "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_structural_are_provider", "build_structural_build_test_port", "build_verify_system", "cli_load_story_context", "cli_load_execution_events_for_project_global", "cli_read_phase_state_record"]  # noqa: E501
+__all__ = ["ClosureConfigUnavailableError", "build_compat_window_reader", "build_artifact_invalidation_sink", "build_review_completion_sink", "build_artifact_manager", "build_closure_phase_handler", "build_exploration_drafting", "build_exploration_phase_handler", "build_exploration_review", "build_failure_corpus", "build_github_code_backend_port", "build_integrity_gate", "build_phase_state_residue_probe", "build_pipeline_engine", "build_pipeline_handler_registry", "build_planning_projection_accessor", "build_planning_story_dependency_repository", "build_producer_registry", "build_projection_accessor", "build_push_barrier_evidence", "build_runtime_execution_purge_port", "build_runtime_execution_residue_probe", "build_setup_config_for_run", "build_setup_phase_handler", "build_setup_preflight_gate", "build_skills", "build_sonar_gate_port", "build_structural_are_provider", "build_structural_build_test_port", "build_verify_system", "cli_load_story_context", "cli_load_execution_events_for_project_global", "cli_read_phase_state_record"]  # noqa: E501

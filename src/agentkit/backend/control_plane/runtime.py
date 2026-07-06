@@ -47,7 +47,12 @@ from agentkit.backend.control_plane.ownership_fence import (
     OwnershipRejectionReason,
     evaluate_ownership_admission,
 )
-from agentkit.backend.control_plane.push_sync import project_push_freshness
+from agentkit.backend.control_plane.push_sync import (
+    SyncPointBarrierType,
+    evaluate_push_barrier,
+    project_push_freshness,
+    verify_pushed_across_repos,
+)
 from agentkit.backend.control_plane.records import (
     BindingDeleteScope,
     ControlPlaneOperationRecord,
@@ -85,6 +90,12 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from agentkit.backend.control_plane.dispatch import PhaseDispatcher
+    from agentkit.backend.control_plane.push_sync import (
+        BarrierVerdict,
+        MergePrecondition,
+        RepoPushVerificationInput,
+    )
+    from agentkit.backend.control_plane.push_verification import PushBarrierEvidencePort
     from agentkit.backend.control_plane.records import (
         BackendInstanceIdentityRecord,
         EdgeCommandRecord,
@@ -118,6 +129,21 @@ _RECONCILE_PRESERVED_STATUSES = frozenset({"aborted", "repair", "failed"})
 _EDGE_COMMAND_FAILURE_RESULT_TYPES = TAKEOVER_ERROR_RESULT_TYPES | frozenset(
     {"command_error"}
 )
+
+#: AG3-147 (FK-10 §10.2.4b): the phase completions that are HARD push barriers.
+#: Only the code-bearing implementation phase's completion requires a verified
+#: push -- setup/exploration produce no takeover-eligible code state, and closure
+#: has its OWN closure-entry barrier (:meth:`complete_closure`). Gating every
+#: completion would fail-closed-block setup (nothing pushed yet), so the gate is
+#: scoped to the phase where the pushed-only rule bites.
+_PUSH_GATED_COMPLETION_PHASES: frozenset[str] = frozenset(
+    {PhaseName.IMPLEMENTATION.value}
+)
+
+#: AG3-147 (Regel-8 Fehlervertrag, ARCH-55): the stable error code a fail-closed
+#: push-barrier block carries so a consumer recognises "unverified push", never a
+#: generic rejection. The blocking repos + named block codes ride the reason.
+_PUSH_BARRIER_BLOCKED_CODE = "push_barrier_unverified"
 
 
 class OperationNotFoundError(LookupError):
@@ -615,6 +641,7 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
             Callable[[PhaseMutationRequest, str], ExecutionContractDigestOutcome]
             | None
         ) = None,
+        push_barrier_evidence: PushBarrierEvidencePort | None = None,
     ) -> None:
         #: ERROR-3 fix (#3): whether this service uses the PRODUCTIVE default
         #: control-plane store (Postgres-only by design). When ``True`` every
@@ -646,6 +673,15 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         #: ``object_claim_repository`` above; extracted to a module-level
         #: helper to keep this constructor's LOC budget, PY_CLASS_MAX_LOC_800).
         self._edge_command_repo = _resolve_edge_command_repository(edge_command_repository, repository)
+        #: AG3-147 (FK-10 §10.2.4b): the two-stage push-barrier evidence DI seam
+        #: (Edge freshness ∧ server ref-read). ``None`` here means "not explicitly
+        #: wired": on the PRODUCTIVE default store it is lazily resolved to the
+        #: real Postgres+code-backend port (:meth:`_resolve_push_barrier_evidence`)
+        #: so the barrier is fail-closed enforced; a DI-injected ``repository``
+        #: (test / alternative wiring) without an explicit port leaves the barrier
+        #: UNWIRED (the gate no-ops) -- barrier tests inject an explicit port with
+        #: prepared evidence, exactly like ``edge_command_repository``.
+        self._push_barrier_evidence = push_barrier_evidence
         #: AG3-143 (K5 Postgres-only, FK-44 §44.3a): the execution-contract-
         #: digest reader for a genuinely fresh setup start. Mirrors
         #: ``object_claim_repository``: a DI-injected ``repository`` OR an
@@ -797,6 +833,81 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
             return
         _require_postgres_control_plane_backend()
         self._backend_checked = True
+
+    def _resolve_push_barrier_evidence(self) -> PushBarrierEvidencePort | None:
+        """Return the wired two-stage push-barrier evidence port, or ``None``.
+
+        Mirrors :meth:`_require_postgres_backend_on_first_use`: an explicitly
+        injected port wins; the PRODUCTIVE default store lazily builds the real
+        Postgres+code-backend port on first use (barrier fail-closed enforced); a
+        DI-injected repository WITHOUT an explicit port leaves the barrier UNWIRED
+        (``None`` -> the gate no-ops), so a DB-free unit test of an unrelated
+        phase completion is never forced to also wire push evidence.
+        """
+        if self._push_barrier_evidence is not None:
+            return self._push_barrier_evidence
+        if self._uses_default_store:
+            from agentkit.backend.bootstrap.composition_root import (
+                build_push_barrier_evidence,
+            )
+
+            self._push_barrier_evidence = build_push_barrier_evidence()
+            return self._push_barrier_evidence
+        return None
+
+    def _push_barrier_block(
+        self,
+        barrier_type: SyncPointBarrierType,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+    ) -> BarrierVerdict | None:
+        """Evaluate a hard push barrier; return the blocking verdict, or ``None``.
+
+        ``None`` means the barrier PASSED (every participating repo is
+        server-verified-pushed) OR the barrier is not wired (DI test). A returned
+        :class:`BarrierVerdict` is a fail-closed BLOCK (FK-10 §10.2.4b): the
+        caller must NOT commit the boundary transition. The Edge report alone is
+        never sufficient -- the A-core requires the server ref-read to confirm the
+        same head SHA (FK-91 §91.1b).
+        """
+        inputs = self._collect_push_barrier_inputs(
+            project_key=project_key, story_id=story_id, run_id=run_id
+        )
+        if inputs is None:
+            return None
+        verdict = evaluate_push_barrier(barrier_type, inputs)
+        return None if verdict.passed else verdict
+
+    def _collect_push_barrier_inputs(
+        self, *, project_key: str, story_id: str, run_id: str
+    ) -> tuple[RepoPushVerificationInput, ...] | None:
+        """Collect the two-stage barrier inputs, or ``None`` when unwired (DI test)."""
+        port = self._resolve_push_barrier_evidence()
+        if port is None:
+            return None
+        return port.collect_repo_inputs(
+            project_key=project_key, story_id=story_id, run_id=run_id
+        )
+
+    def _closure_push_precondition_block(
+        self, *, project_key: str, story_id: str, run_id: str
+    ) -> MergePrecondition | None:
+        """Closure-entry barrier via the SOLL-190 merge precondition (AC12).
+
+        Consumes the SAME reusable ``verify_pushed_across_repos`` checkpoint
+        AG3-152 uses before ``merge_local`` (FK-12 §12.4.3) -- so closure entry
+        and merge can never diverge. Returns the failing precondition (a
+        fail-closed BLOCK) or ``None`` (satisfied, or the barrier is unwired).
+        """
+        inputs = self._collect_push_barrier_inputs(
+            project_key=project_key, story_id=story_id, run_id=run_id
+        )
+        if inputs is None:
+            return None
+        precondition = verify_pushed_across_repos(inputs)
+        return None if precondition.satisfied else precondition
 
     def start_phase(
         self,
@@ -1768,6 +1879,25 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
         #: (``evaluate_ownership_admission``): its epoch is threaded verbatim to
         #: the commit-time re-check (no TOCTOU) and to the accountability stamp.
         assert admission.active_record is not None  # noqa: S101 -- admitted implies a record
+        #: AG3-147 (FK-10 §10.2.4b, boundary type 1): the phase-completion push
+        #: barrier. A code-bearing phase's completion is fail-closed BLOCKED until
+        #: EVERY participating repo is server-verified-pushed -- checked AFTER
+        #: admission, BEFORE the commit, so a blocked barrier writes NO state.
+        if operation_kind == "phase_complete" and phase in _PUSH_GATED_COMPLETION_PHASES:
+            blocked = self._push_barrier_block(
+                SyncPointBarrierType.PHASE_COMPLETION,
+                project_key=request.project_key,
+                story_id=request.story_id,
+                run_id=run_id,
+            )
+            if blocked is not None:
+                return _push_barrier_rejection(
+                    blocked,
+                    op_id=request.op_id,
+                    operation_kind=operation_kind,
+                    run_id=run_id,
+                    phase=phase,
+                )
         try:
             return self._mutate_phase(
                 run_id=run_id,
@@ -2615,6 +2745,32 @@ class ControlPlaneRuntimeService(
                 dispatch_phase="closure",
             )
 
+        #: AG3-147 (FK-10 §10.2.4b boundary type 4 + FK-12 §12.4.3, SOLL-190):
+        #: the closure-entry push barrier. Closure entry is fail-closed BLOCKED
+        #: unless the story branch is server-verified-pushed in EVERY participating
+        #: repo -- via the SAME reusable ``verify_pushed_across_repos`` merge
+        #: precondition AG3-152 consumes (AC12). Checked AFTER admission, BEFORE the
+        #: object claim + teardown, so a blocked barrier tears down NOTHING.
+        merge_block = self._closure_push_precondition_block(
+            project_key=request.project_key,
+            story_id=request.story_id,
+            run_id=run_id,
+        )
+        if merge_block is not None:
+            return _rejection_result(
+                op_id=request.op_id,
+                operation_kind="closure_complete",
+                run_id=run_id,
+                phase="closure",
+                reason=(
+                    f"{_PUSH_BARRIER_BLOCKED_CODE}: closure_complete blocked -- the "
+                    "story branch is not server-verified-pushed in every "
+                    f"participating repo (FK-12 §12.4.3 / SOLL-190, fail-closed). "
+                    f"{merge_block.detail}"
+                ),
+                dispatch_phase="closure",
+            )
+
         #: SOLL-054: closure competes for the SAME per-story object claim as
         #: start/resume/complete/fail (FK-91 §91.1a Rule 13). A busy object
         #: returns the K4 deterministic 409 + Retry-After (IMPL-016); NO
@@ -2891,6 +3047,36 @@ class ControlPlaneRuntimeService(
                     op_id=request.op_id,
                 )
                 return rejection
+            #: AG3-147 (FK-10 §10.2.4b boundary type 3): the yield-point push
+            #: barrier. A phase that RE-PAUSES (yields control back to the worker)
+            #: is fail-closed BLOCKED until the current state is server-verified-
+            #: pushed -- so a takeover during the yield can never lose unpushed
+            #: work. Checked BEFORE the finalize commit; a block releases MY claims
+            #: and stores NO operation (the engine's phase-state stands, a retry
+            #: re-evaluates once the push lands).
+            if dispatch_result is not None and dispatch_result.status == "yielded":
+                yield_block = self._push_barrier_block(
+                    SyncPointBarrierType.YIELD_POINT,
+                    project_key=request.project_key,
+                    story_id=request.story_id,
+                    run_id=run_id,
+                )
+                if yield_block is not None:
+                    self._release_my_claim(
+                        request.op_id, owner_token, owner_claimed_at
+                    )
+                    self._release_object_claim(
+                        project_key=request.project_key,
+                        story_id=request.story_id,
+                        op_id=request.op_id,
+                    )
+                    return _push_barrier_rejection(
+                        yield_block,
+                        op_id=request.op_id,
+                        operation_kind="phase_resume",
+                        run_id=run_id,
+                        phase=phase,
+                    )
             #: ``resume_admission.admitted`` is True, so ``active_record`` is
             #: present (``evaluate_ownership_admission``).
             assert resume_admission.active_record is not None  # noqa: S101
@@ -4412,6 +4598,37 @@ def _rejection_result(
             dispatched=False,
             rejection_reason=reason,
         ),
+    )
+
+
+def _push_barrier_rejection(
+    verdict: BarrierVerdict,
+    *,
+    op_id: str,
+    operation_kind: str,
+    run_id: str,
+    phase: str,
+) -> ControlPlaneMutationResult:
+    """Build a fail-closed REJECTED result for a blocked push barrier (AG3-147).
+
+    FK-10 §10.2.4b: a boundary transition without a server-verified push is
+    deterministically blocked -- no commit, no bundle. The stable
+    ``push_barrier_unverified`` code plus the blocking repos + named A-core block
+    codes ride the reason (Regel-8 Fehlervertrag, ARCH-55) so a consumer
+    recognises "unverified push" and escalates (FK-10 §10.6.1), never a bypass.
+    """
+    return _rejection_result(
+        op_id=op_id,
+        operation_kind=operation_kind,
+        run_id=run_id,
+        phase=phase,
+        reason=(
+            f"{_PUSH_BARRIER_BLOCKED_CODE}: {operation_kind} blocked -- the "
+            f"{verdict.barrier_type.value} push barrier is not satisfied "
+            f"(FK-10 §10.2.4b, fail-closed; the Edge report alone is never "
+            f"sufficient). Unverified repos: {verdict.blocking_summary()}"
+        ),
+        dispatch_phase=phase,
     )
 
 
