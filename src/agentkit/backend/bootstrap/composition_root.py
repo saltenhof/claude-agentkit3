@@ -11,12 +11,8 @@ from agentkit.backend.artifacts import ArtifactManager, EnvelopeValidator, Produ
 from agentkit.backend.exploration.register import register_exploration_producers
 from agentkit.backend.implementation.register import register_implementation_producers
 from agentkit.backend.prompt_runtime.register import register_prompt_runtime_producers
-from agentkit.backend.requirements_coverage.register import (
-    register_requirements_coverage_producers,
-)
-from agentkit.backend.state_backend.store.artifact_repository import (
-    StateBackendArtifactRepository,
-)
+from agentkit.backend.requirements_coverage.register import register_requirements_coverage_producers
+from agentkit.backend.state_backend.store.artifact_repository import StateBackendArtifactRepository
 from agentkit.backend.verify_system.register import register_verify_producers
 
 if TYPE_CHECKING:
@@ -3693,10 +3689,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
             # branch cannot be confirmed server-verified-pushed, so the QA-cycle
             # boundary must not open. Surface the typed block, never an escaping
             # StoryWorkspaceUnresolvedError/ConfigError and never a pass.
-            msg = (
-                "QA-cycle boundary fail-closed: the participating repo set is "
-                f"unresolvable ({exc})"
-            )
+            msg = f"QA-cycle boundary fail-closed: the participating repo set is unresolvable ({exc})"
             raise QaCycleBarrierBlockedError(msg) from exc
         verdict = evaluate_push_barrier(
             SyncPointBarrierType.QA_CYCLE_BOUNDARY, inputs

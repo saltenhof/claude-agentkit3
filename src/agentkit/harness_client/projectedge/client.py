@@ -903,8 +903,10 @@ class ProjectEdgeClient:
                 ),
                 timeout=PUSH_GATE_OWNERSHIP_TIMEOUT_S,
             )
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            # Offline / bounded-timeout: the server was not reached. Fail-closed
+        except OSError as exc:
+            # Offline / bounded-timeout: the server was not reached. ``OSError``
+            # is the common base of ``urllib.error.URLError`` and ``TimeoutError``
+            # (S5713: subclasses in the same ``except`` are redundant). Fail-closed
             # to "push no" -- never optimistically treat unreachable as confirmed
             # (FK-15 §15.5.4: no ACTIVE-bundle re-sync fallback for the push path).
             return PushOwnershipProbe(

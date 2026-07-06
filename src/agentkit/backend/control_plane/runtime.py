@@ -79,9 +79,7 @@ from agentkit.backend.exceptions import (
     OwnershipFenceViolationError,
 )
 from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
-from agentkit.backend.governance.guard_system.story_scoped_guards import (
-    should_create_story_lock_records,
-)
+from agentkit.backend.governance.guard_system.story_scoped_guards import should_create_story_lock_records
 from agentkit.backend.pipeline_engine.phase_executor import PhaseName
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 from agentkit.backend.telemetry.events import EventType
@@ -126,9 +124,7 @@ _RECONCILE_PRESERVED_STATUSES = frozenset({"aborted", "repair", "failed"})
 #: that terminate a command as ``failed`` rather than ``completed`` -- the
 #: named takeover-family error states plus the generic command-error
 #: fallback (Scope item 4). Every other registered result type is a success.
-_EDGE_COMMAND_FAILURE_RESULT_TYPES = TAKEOVER_ERROR_RESULT_TYPES | frozenset(
-    {"command_error"}
-)
+_EDGE_COMMAND_FAILURE_RESULT_TYPES = TAKEOVER_ERROR_RESULT_TYPES | frozenset({"command_error"})
 
 #: AG3-147 (FK-10 §10.2.4b): the phase completions that are HARD push barriers.
 #: Only the code-bearing implementation phase's completion requires a verified
@@ -136,9 +132,7 @@ _EDGE_COMMAND_FAILURE_RESULT_TYPES = TAKEOVER_ERROR_RESULT_TYPES | frozenset(
 #: has its OWN closure-entry barrier (:meth:`complete_closure`). Gating every
 #: completion would fail-closed-block setup (nothing pushed yet), so the gate is
 #: scoped to the phase where the pushed-only rule bites.
-_PUSH_GATED_COMPLETION_PHASES: frozenset[str] = frozenset(
-    {PhaseName.IMPLEMENTATION.value}
-)
+_PUSH_GATED_COMPLETION_PHASES: frozenset[str] = frozenset({PhaseName.IMPLEMENTATION.value})
 
 #: AG3-147 (Rule-8 error contract, ARCH-55): the stable error code a fail-closed
 #: push-barrier block carries so a consumer recognises "unverified push", never a
@@ -624,7 +618,230 @@ class _ClaimMixin:
         )
 
 
-class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
+class _RunGateMixin:
+    """Pre-mutation run gates: run-admission + two-stage push barrier (AG3-147).
+
+    Cohesive fail-closed gating evaluated BEFORE a run mutation commits -- the
+    shared run-scoped ownership admission probe (AG3-142) and the two-stage push
+    barrier evidence (FK-10 §10.2.4b) -- split out of
+    :class:`_ControlPlaneRuntimeAdmissionBase` for cohesion (PY_CLASS_MAX_LOC_800;
+    no behaviour change). The concrete runtime supplies the shared dependencies
+    below.
+    """
+
+    if TYPE_CHECKING:
+        _repo: ControlPlaneRuntimeRepository
+        _push_barrier_evidence: PushBarrierEvidencePort | None
+        _uses_default_store: bool
+
+        def _ownership_admission_rejection(
+            self,
+            admission: OwnershipAdmission,
+            *,
+            op_id: str,
+            operation_kind: str,
+            run_id: str | None,
+            phase: str | None,
+        ) -> ControlPlaneMutationResult: ...
+
+    def _resolve_push_barrier_evidence(self) -> PushBarrierEvidencePort | None:
+        """Return the wired two-stage push-barrier evidence port, or ``None``.
+
+        Mirrors :meth:`_require_postgres_backend_on_first_use`: an explicitly
+        injected port wins; the PRODUCTIVE default store lazily builds the real
+        Postgres+code-backend port on first use (barrier fail-closed enforced); a
+        DI-injected repository WITHOUT an explicit port leaves the barrier UNWIRED
+        (``None`` -> the gate no-ops), so a DB-free unit test of an unrelated
+        phase completion is never forced to also wire push evidence.
+        """
+        if self._push_barrier_evidence is not None:
+            return self._push_barrier_evidence
+        if self._uses_default_store:
+            from agentkit.backend.bootstrap.composition_root import (
+                build_push_barrier_evidence,
+            )
+
+            self._push_barrier_evidence = build_push_barrier_evidence()
+            return self._push_barrier_evidence
+        return None
+
+    def _push_barrier_block(
+        self,
+        barrier_type: SyncPointBarrierType,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+    ) -> BarrierVerdict | None:
+        """Evaluate a hard push barrier; return the blocking verdict, or ``None``.
+
+        ``None`` means the barrier PASSED (every participating repo is
+        server-verified-pushed) OR the barrier is not wired (DI test). A returned
+        :class:`BarrierVerdict` is a fail-closed BLOCK (FK-10 §10.2.4b): the
+        caller must NOT commit the boundary transition. The Edge report alone is
+        never sufficient -- the A-core requires the server ref-read to confirm the
+        same head SHA (FK-91 §91.1b).
+        """
+        inputs = self._collect_push_barrier_inputs(
+            project_key=project_key, story_id=story_id, run_id=run_id
+        )
+        if inputs is None:
+            return None
+        verdict = evaluate_push_barrier(barrier_type, inputs)
+        return None if verdict.passed else verdict
+
+    def _collect_push_barrier_inputs(
+        self, *, project_key: str, story_id: str, run_id: str
+    ) -> tuple[RepoPushVerificationInput, ...] | None:
+        """Collect the two-stage barrier inputs, or ``None`` when unwired (DI test)."""
+        port = self._resolve_push_barrier_evidence()
+        if port is None:
+            return None
+        return port.collect_repo_inputs(
+            project_key=project_key, story_id=story_id, run_id=run_id
+        )
+
+    def _closure_push_precondition_block(
+        self, *, project_key: str, story_id: str, run_id: str
+    ) -> MergePrecondition | None:
+        """Closure-entry barrier via the SOLL-190 merge precondition (AC12).
+
+        Consumes the SAME reusable ``verify_pushed_across_repos`` checkpoint
+        AG3-152 uses before ``merge_local`` (FK-12 §12.4.3) -- so closure entry
+        and merge can never diverge. Returns the failing precondition (a
+        fail-closed BLOCK) or ``None`` (satisfied, or the barrier is unwired).
+        """
+        inputs = self._collect_push_barrier_inputs(
+            project_key=project_key, story_id=story_id, run_id=run_id
+        )
+        if inputs is None:
+            return None
+        precondition = verify_pushed_across_repos(inputs)
+        return None if precondition.satisfied else precondition
+
+    def _run_was_admitted(
+        self,
+        request: PhaseMutationRequest,
+        *,
+        run_id: str,
+    ) -> OwnershipAdmission:
+        """Whether the active ownership record admits THIS exact run (E3 / AG3-142).
+
+        Args:
+            request: The phase mutation request (lookup keys + session id).
+            run_id: The authoritative path run id of the completion/failure.
+
+        Returns:
+            The :class:`OwnershipAdmission` verdict for THIS run/session.
+        """
+        return self._evaluate_run_admission(
+            project_key=request.project_key,
+            story_id=request.story_id,
+            session_id=request.session_id,
+            run_id=run_id,
+        )
+
+    def _closure_run_was_admitted(
+        self,
+        request: ClosureCompleteRequest,
+        *,
+        run_id: str,
+    ) -> OwnershipAdmission:
+        """Whether the active ownership record admits THIS run for closure (#6).
+
+        Same run-matched admission rule as :meth:`_run_was_admitted`. Closure
+        shares the complete/fail admission rule so the entrypoint is consistent
+        (no unexplained asymmetry).
+        """
+        return self._evaluate_run_admission(
+            project_key=request.project_key,
+            story_id=request.story_id,
+            session_id=request.session_id,
+            run_id=run_id,
+        )
+
+    def _evaluate_run_admission(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        session_id: str,
+        run_id: str,
+    ) -> OwnershipAdmission:
+        """Shared RUN-scoped admission probe for ALL 5 regime paths (AG3-142).
+
+        IMPL-021 / SOLL-014: replaces the retired committed-op admission
+        heuristic (``_run_admission_evidence``) ENTIRELY -- there is no positive
+        committed-op evidence left. Admission evidence is EXCLUSIVELY the story's
+        active ``run_ownership_records`` row (the session binding is a
+        subordinate projection, never a second admission path;
+        ``historical_ownership_records_are_never_admission_evidence``,
+        ``story_execution_mutations_require_current_ownership_epoch``): a record
+        with any status other than ``active`` is never returned by
+        :attr:`~agentkit.backend.control_plane.repository.ControlPlaneRuntimeRepository.load_active_ownership`
+        and therefore never admits (SOLL-014 / AC3).
+
+        The exit-fence negative check (``has_committed_story_exit_operation_for_run``)
+        is kept as the transition-protection short-circuit (AC11) until AG3-149
+        maintains the record status on the exit path -- it is consulted FIRST,
+        unchanged from the retired heuristic.
+
+        Fail-closed: no active record for THIS run, or an active record whose
+        ``owner_session_id`` differs, means the run was never admitted.
+        """
+        if self._repo.has_committed_story_exit_operation_for_run(
+            project_key, story_id, run_id
+        ):
+            return OwnershipAdmission(
+                admitted=False,
+                active_record=None,
+                rejection_reason=OwnershipRejectionReason.STORY_EXITED,
+            )
+        active = self._repo.load_active_ownership(project_key, story_id)
+        return evaluate_ownership_admission(
+            active_record=active, run_id=run_id, session_id=session_id
+        )
+
+    def _unadmitted_run_rejection(
+        self,
+        admission: OwnershipAdmission,
+        *,
+        op_id: str,
+        operation_kind: str,
+        run_id: str,
+        phase: str,
+        reason: str,
+    ) -> ControlPlaneMutationResult:
+        """Fail-closed rejection for a run the active ownership record does not admit.
+
+        Shared by complete/closure/resume (identical structure, only the reason
+        prose differs): a transferred-ownership admission yields the rich ex-owner
+        rejection (:meth:`_ownership_admission_rejection`); every other unadmitted
+        reason yields the generic fail-closed rejection carrying ``reason``. The
+        caller guards on ``not admission.admitted``.
+        """
+        if (
+            admission.rejection_reason
+            is OwnershipRejectionReason.OWNERSHIP_TRANSFERRED
+        ):
+            return self._ownership_admission_rejection(
+                admission,
+                op_id=op_id,
+                operation_kind=operation_kind,
+                run_id=run_id,
+                phase=phase,
+            )
+        return _rejection_result(
+            op_id=op_id,
+            operation_kind=operation_kind,
+            run_id=run_id,
+            phase=phase,
+            reason=reason,
+            dispatch_phase=phase,
+        )
+
+
+class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
     """Start-phase admission and dispatch support for the runtime service."""
 
     def __init__(
@@ -833,81 +1050,6 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
             return
         _require_postgres_control_plane_backend()
         self._backend_checked = True
-
-    def _resolve_push_barrier_evidence(self) -> PushBarrierEvidencePort | None:
-        """Return the wired two-stage push-barrier evidence port, or ``None``.
-
-        Mirrors :meth:`_require_postgres_backend_on_first_use`: an explicitly
-        injected port wins; the PRODUCTIVE default store lazily builds the real
-        Postgres+code-backend port on first use (barrier fail-closed enforced); a
-        DI-injected repository WITHOUT an explicit port leaves the barrier UNWIRED
-        (``None`` -> the gate no-ops), so a DB-free unit test of an unrelated
-        phase completion is never forced to also wire push evidence.
-        """
-        if self._push_barrier_evidence is not None:
-            return self._push_barrier_evidence
-        if self._uses_default_store:
-            from agentkit.backend.bootstrap.composition_root import (
-                build_push_barrier_evidence,
-            )
-
-            self._push_barrier_evidence = build_push_barrier_evidence()
-            return self._push_barrier_evidence
-        return None
-
-    def _push_barrier_block(
-        self,
-        barrier_type: SyncPointBarrierType,
-        *,
-        project_key: str,
-        story_id: str,
-        run_id: str,
-    ) -> BarrierVerdict | None:
-        """Evaluate a hard push barrier; return the blocking verdict, or ``None``.
-
-        ``None`` means the barrier PASSED (every participating repo is
-        server-verified-pushed) OR the barrier is not wired (DI test). A returned
-        :class:`BarrierVerdict` is a fail-closed BLOCK (FK-10 §10.2.4b): the
-        caller must NOT commit the boundary transition. The Edge report alone is
-        never sufficient -- the A-core requires the server ref-read to confirm the
-        same head SHA (FK-91 §91.1b).
-        """
-        inputs = self._collect_push_barrier_inputs(
-            project_key=project_key, story_id=story_id, run_id=run_id
-        )
-        if inputs is None:
-            return None
-        verdict = evaluate_push_barrier(barrier_type, inputs)
-        return None if verdict.passed else verdict
-
-    def _collect_push_barrier_inputs(
-        self, *, project_key: str, story_id: str, run_id: str
-    ) -> tuple[RepoPushVerificationInput, ...] | None:
-        """Collect the two-stage barrier inputs, or ``None`` when unwired (DI test)."""
-        port = self._resolve_push_barrier_evidence()
-        if port is None:
-            return None
-        return port.collect_repo_inputs(
-            project_key=project_key, story_id=story_id, run_id=run_id
-        )
-
-    def _closure_push_precondition_block(
-        self, *, project_key: str, story_id: str, run_id: str
-    ) -> MergePrecondition | None:
-        """Closure-entry barrier via the SOLL-190 merge precondition (AC12).
-
-        Consumes the SAME reusable ``verify_pushed_across_repos`` checkpoint
-        AG3-152 uses before ``merge_local`` (FK-12 §12.4.3) -- so closure entry
-        and merge can never diverge. Returns the failing precondition (a
-        fail-closed BLOCK) or ``None`` (satisfied, or the barrier is unwired).
-        """
-        inputs = self._collect_push_barrier_inputs(
-            project_key=project_key, story_id=story_id, run_id=run_id
-        )
-        if inputs is None:
-            return None
-        precondition = verify_pushed_across_repos(inputs)
-        return None if precondition.satisfied else precondition
 
     def start_phase(
         self,
@@ -1950,89 +2092,6 @@ class _ControlPlaneRuntimeAdmissionBase(_ClaimMixin):
                 reason=reason,
             )
 
-    def _run_was_admitted(
-        self,
-        request: PhaseMutationRequest,
-        *,
-        run_id: str,
-    ) -> OwnershipAdmission:
-        """Whether the active ownership record admits THIS exact run (E3 / AG3-142).
-
-        Args:
-            request: The phase mutation request (lookup keys + session id).
-            run_id: The authoritative path run id of the completion/failure.
-
-        Returns:
-            The :class:`OwnershipAdmission` verdict for THIS run/session.
-        """
-        return self._evaluate_run_admission(
-            project_key=request.project_key,
-            story_id=request.story_id,
-            session_id=request.session_id,
-            run_id=run_id,
-        )
-
-    def _closure_run_was_admitted(
-        self,
-        request: ClosureCompleteRequest,
-        *,
-        run_id: str,
-    ) -> OwnershipAdmission:
-        """Whether the active ownership record admits THIS run for closure (#6).
-
-        Same run-matched admission rule as :meth:`_run_was_admitted`. Closure
-        shares the complete/fail admission rule so the entrypoint is consistent
-        (no unexplained asymmetry).
-        """
-        return self._evaluate_run_admission(
-            project_key=request.project_key,
-            story_id=request.story_id,
-            session_id=request.session_id,
-            run_id=run_id,
-        )
-
-    def _evaluate_run_admission(
-        self,
-        *,
-        project_key: str,
-        story_id: str,
-        session_id: str,
-        run_id: str,
-    ) -> OwnershipAdmission:
-        """Shared RUN-scoped admission probe for ALL 5 regime paths (AG3-142).
-
-        IMPL-021 / SOLL-014: replaces the retired committed-op admission
-        heuristic (``_run_admission_evidence``) ENTIRELY -- there is no positive
-        committed-op evidence left. Admission evidence is EXCLUSIVELY the story's
-        active ``run_ownership_records`` row (the session binding is a
-        subordinate projection, never a second admission path;
-        ``historical_ownership_records_are_never_admission_evidence``,
-        ``story_execution_mutations_require_current_ownership_epoch``): a record
-        with any status other than ``active`` is never returned by
-        :attr:`~agentkit.backend.control_plane.repository.ControlPlaneRuntimeRepository.load_active_ownership`
-        and therefore never admits (SOLL-014 / AC3).
-
-        The exit-fence negative check (``has_committed_story_exit_operation_for_run``)
-        is kept as the transition-protection short-circuit (AC11) until AG3-149
-        maintains the record status on the exit path -- it is consulted FIRST,
-        unchanged from the retired heuristic.
-
-        Fail-closed: no active record for THIS run, or an active record whose
-        ``owner_session_id`` differs, means the run was never admitted.
-        """
-        if self._repo.has_committed_story_exit_operation_for_run(
-            project_key, story_id, run_id
-        ):
-            return OwnershipAdmission(
-                admitted=False,
-                active_record=None,
-                rejection_reason=OwnershipRejectionReason.STORY_EXITED,
-            )
-        active = self._repo.load_active_ownership(project_key, story_id)
-        return evaluate_ownership_admission(
-            active_record=active, run_id=run_id, session_id=session_id
-        )
-
     def _load_existing_operation(
         self,
         request: PhaseMutationRequest | ClosureCompleteRequest,
@@ -2183,6 +2242,11 @@ class _EdgeCommandMixin:
             run_id=run_id,
             session_id=session_id,
         )
+        rejection_detail = (
+            admission.rejection_reason.value
+            if admission.rejection_reason
+            else "not admitted"
+        )
         return PushOwnershipConfirmation(
             run_id=run_id,
             owner_confirmed=admission.admitted,
@@ -2191,7 +2255,7 @@ class _EdgeCommandMixin:
                 if admission.admitted
                 else (
                     "the server does not confirm this session as the current run "
-                    f"owner ({admission.rejection_reason.value if admission.rejection_reason else 'not admitted'})"
+                    f"owner ({rejection_detail})"
                 )
             ),
         )
@@ -2664,8 +2728,116 @@ class _AdminTransitionMixin:
         )
 
 
+class _ProjectEdgeSyncMixin:
+    """Project-edge sync + operation-read service methods (AG3-147 mixin).
+
+    Cohesive bounded ``project_edge_sync`` + ``GET operations/{op_id}`` read,
+    split out of :class:`ControlPlaneRuntimeService` for cohesion
+    (PY_CLASS_MAX_LOC_800; no behaviour change). The concrete runtime supplies
+    the shared dependencies below.
+    """
+
+    if TYPE_CHECKING:
+        _repo: ControlPlaneRuntimeRepository
+
+        def _require_postgres_backend_on_first_use(self) -> None: ...
+
+    def sync_project_edge(
+        self,
+        request: ProjectEdgeSyncRequest,
+    ) -> ControlPlaneMutationResult:
+        self._require_postgres_backend_on_first_use()
+        now = datetime.now(tz=UTC)
+        binding = self._repo.load_binding(request.session_id)
+        if binding is None or binding.project_key != request.project_key:
+            lock = StoryExecutionLockRecord(
+                project_key=request.project_key,
+                story_id="",
+                run_id="",
+                lock_type="story_execution",
+                status="INACTIVE",
+                worktree_roots=(),
+                binding_version=_next_binding_version(
+                    binding.binding_version if binding is not None else None
+                ),
+                activated_at=now,
+                updated_at=now,
+                deactivated_at=now,
+            )
+            bundle = _build_edge_bundle(
+                binding=None,
+                lock=lock,
+                sync_class=request.freshness_class,
+                now=now,
+            )
+            return ControlPlaneMutationResult(
+                status="synced",
+                op_id=request.op_id,
+                operation_kind="project_edge_sync",
+                edge_bundle=bundle,
+            )
+
+        lock_record = self._repo.load_lock(
+            binding.project_key,
+            binding.story_id,
+            binding.run_id,
+            "story_execution",
+        )
+        qa_lock_record = self._repo.load_lock(
+            binding.project_key,
+            binding.story_id,
+            binding.run_id,
+            "qa_artifact_write",
+        )
+        if lock_record is None:
+            lock = StoryExecutionLockRecord(
+                project_key=binding.project_key,
+                story_id=binding.story_id,
+                run_id=binding.run_id,
+                lock_type="story_execution",
+                status="INVALID",
+                worktree_roots=binding.worktree_roots,
+                binding_version=binding.binding_version,
+                activated_at=now,
+                updated_at=now,
+            )
+        else:
+            lock = lock_record
+        bundle = _build_edge_bundle(
+            binding=binding,
+            lock=lock,
+            qa_lock=qa_lock_record,
+            sync_class=request.freshness_class,
+            now=now,
+        )
+        return ControlPlaneMutationResult(
+            status="synced",
+            op_id=request.op_id,
+            operation_kind="project_edge_sync",
+            run_id=binding.run_id,
+            edge_bundle=bundle,
+        )
+
+    def get_operation(self, op_id: str) -> ControlPlaneMutationResult | None:
+        self._require_postgres_backend_on_first_use()
+        record = self._repo.load_operation(op_id)
+        if record is None:
+            return None
+        if record.status == "claimed":
+            #: ERROR-4: an in-flight claim placeholder is not a reconcilable op yet.
+            return None
+        #: AG3-138 (AC5, FK-91 §91.1a Rule 17): ``_replayed_result`` surfaces an
+        #: ``aborted`` / ``repair`` / ``failed`` terminal state VERBATIM (a
+        #: visible, auditable reconcile/repair state, SEVERITY-SEMANTIK) and
+        #: only echoes the ordinary success statuses as ``replayed``.
+        return _replayed_result(record.response_payload)
+
+
 class ControlPlaneRuntimeService(
-    _AdminTransitionMixin, _EdgeCommandMixin, _ControlPlaneRuntimeAdmissionBase
+    _AdminTransitionMixin,
+    _EdgeCommandMixin,
+    _ProjectEdgeSyncMixin,
+    _ControlPlaneRuntimeAdmissionBase,
 ):
     """Implement control-plane mutations with idempotent op replay."""
 
@@ -2720,18 +2892,8 @@ class ControlPlaneRuntimeService(
             #: PRESERVED when there WAS a prior admitted run (the fast story's
             #: admitted setup left an active record), so a legitimate fast
             #: closure still no-ops below.
-            if (
-                closure_admission.rejection_reason
-                is OwnershipRejectionReason.OWNERSHIP_TRANSFERRED
-            ):
-                return self._ownership_admission_rejection(
-                    closure_admission,
-                    op_id=request.op_id,
-                    operation_kind="closure_complete",
-                    run_id=run_id,
-                    phase="closure",
-                )
-            return _rejection_result(
+            return self._unadmitted_run_rejection(
+                closure_admission,
                 op_id=request.op_id,
                 operation_kind="closure_complete",
                 run_id=run_id,
@@ -2742,7 +2904,6 @@ class ControlPlaneRuntimeService(
                     "fail-closed -- closure must not commit for an unadmitted "
                     "run (FK-56 §56.8a)."
                 ),
-                dispatch_phase="closure",
             )
 
         #: AG3-147 (FK-10 §10.2.4b boundary type 4 + FK-12 §12.4.3, SOLL-190):
@@ -2952,18 +3113,8 @@ class ControlPlaneRuntimeService(
             return locked
         resume_admission = self._run_was_admitted(request, run_id=run_id)
         if not resume_admission.admitted:
-            if (
-                resume_admission.rejection_reason
-                is OwnershipRejectionReason.OWNERSHIP_TRANSFERRED
-            ):
-                return self._ownership_admission_rejection(
-                    resume_admission,
-                    op_id=request.op_id,
-                    operation_kind="phase_resume",
-                    run_id=run_id,
-                    phase=phase,
-                )
-            return _rejection_result(
+            return self._unadmitted_run_rejection(
+                resume_admission,
                 op_id=request.op_id,
                 operation_kind="phase_resume",
                 run_id=run_id,
@@ -2974,7 +3125,6 @@ class ControlPlaneRuntimeService(
                     "must not materialize story-scoped state for an unadmitted "
                     "run (FK-56 §56.8a)."
                 ),
-                dispatch_phase=phase,
             )
         #: AG3-130 (Codex B1): reserve the op_id via the SAME owner-scoped
         #: claim as ``start_phase`` BEFORE the side-effecting engine resume runs.
@@ -3048,35 +3198,22 @@ class ControlPlaneRuntimeService(
                 )
                 return rejection
             #: AG3-147 (FK-10 §10.2.4b boundary type 3): the yield-point push
-            #: barrier. A phase that RE-PAUSES (yields control back to the worker)
-            #: is fail-closed BLOCKED until the current state is server-verified-
-            #: pushed -- so a takeover during the yield can never lose unpushed
-            #: work. Checked BEFORE the finalize commit; a block releases MY claims
-            #: and stores NO operation (the engine's phase-state stands, a retry
+            #: barrier -- a phase that RE-PAUSES (yields to the worker) is
+            #: fail-closed BLOCKED until the current state is server-verified-
+            #: pushed (a takeover during the yield can never lose unpushed work).
+            #: Checked BEFORE the finalize commit; a block releases MY claims and
+            #: stores NO operation (the engine phase-state stands; a retry
             #: re-evaluates once the push lands).
-            if dispatch_result is not None and dispatch_result.status == "yielded":
-                yield_block = self._push_barrier_block(
-                    SyncPointBarrierType.YIELD_POINT,
-                    project_key=request.project_key,
-                    story_id=request.story_id,
-                    run_id=run_id,
-                )
-                if yield_block is not None:
-                    self._release_my_claim(
-                        request.op_id, owner_token, owner_claimed_at
-                    )
-                    self._release_object_claim(
-                        project_key=request.project_key,
-                        story_id=request.story_id,
-                        op_id=request.op_id,
-                    )
-                    return _push_barrier_rejection(
-                        yield_block,
-                        op_id=request.op_id,
-                        operation_kind="phase_resume",
-                        run_id=run_id,
-                        phase=phase,
-                    )
+            yield_rejection = self._yield_point_barrier_rejection(
+                dispatch_result,
+                request=request,
+                run_id=run_id,
+                phase=phase,
+                owner_token=owner_token,
+                owner_claimed_at=owner_claimed_at,
+            )
+            if yield_rejection is not None:
+                return yield_rejection
             #: ``resume_admission.admitted`` is True, so ``active_record`` is
             #: present (``evaluate_ownership_admission``).
             assert resume_admission.active_record is not None  # noqa: S101
@@ -3162,6 +3299,48 @@ class ControlPlaneRuntimeService(
                     op_id=request.op_id,
                 )
             raise
+
+    def _yield_point_barrier_rejection(
+        self,
+        dispatch_result: PhaseDispatchResult | None,
+        *,
+        request: PhaseMutationRequest,
+        run_id: str,
+        phase: str,
+        owner_token: str,
+        owner_claimed_at: str | None,
+    ) -> ControlPlaneMutationResult | None:
+        """Yield-point push barrier (FK-10 §10.2.4b type 3); rejection or ``None``.
+
+        A phase that RE-PAUSES (``yielded``) is fail-closed BLOCKED until the
+        current state is server-verified-pushed. On a block MY op_id + object
+        claims are released and the NON-stored ``push_barrier_unverified``
+        rejection is returned; a passed/absent barrier returns ``None`` and the
+        resume proceeds to finalize (behaviour identical to the inlined check).
+        """
+        if dispatch_result is None or dispatch_result.status != "yielded":
+            return None
+        yield_block = self._push_barrier_block(
+            SyncPointBarrierType.YIELD_POINT,
+            project_key=request.project_key,
+            story_id=request.story_id,
+            run_id=run_id,
+        )
+        if yield_block is None:
+            return None
+        self._release_my_claim(request.op_id, owner_token, owner_claimed_at)
+        self._release_object_claim(
+            project_key=request.project_key,
+            story_id=request.story_id,
+            op_id=request.op_id,
+        )
+        return _push_barrier_rejection(
+            yield_block,
+            op_id=request.op_id,
+            operation_kind="phase_resume",
+            run_id=run_id,
+            phase=phase,
+        )
 
     def _resume_rejection_if_unsuccessful(
         self,
@@ -3515,96 +3694,6 @@ class ControlPlaneRuntimeService(
             "stale closure must not tear down a foreign run's live binding "
             "(AG3-054 run-scoping, fail-closed).",
         )
-
-    def sync_project_edge(
-        self,
-        request: ProjectEdgeSyncRequest,
-    ) -> ControlPlaneMutationResult:
-        self._require_postgres_backend_on_first_use()
-        now = datetime.now(tz=UTC)
-        binding = self._repo.load_binding(request.session_id)
-        if binding is None or binding.project_key != request.project_key:
-            lock = StoryExecutionLockRecord(
-                project_key=request.project_key,
-                story_id="",
-                run_id="",
-                lock_type="story_execution",
-                status="INACTIVE",
-                worktree_roots=(),
-                binding_version=_next_binding_version(
-                    binding.binding_version if binding is not None else None
-                ),
-                activated_at=now,
-                updated_at=now,
-                deactivated_at=now,
-            )
-            bundle = _build_edge_bundle(
-                binding=None,
-                lock=lock,
-                sync_class=request.freshness_class,
-                now=now,
-            )
-            return ControlPlaneMutationResult(
-                status="synced",
-                op_id=request.op_id,
-                operation_kind="project_edge_sync",
-                edge_bundle=bundle,
-            )
-
-        lock_record = self._repo.load_lock(
-            binding.project_key,
-            binding.story_id,
-            binding.run_id,
-            "story_execution",
-        )
-        qa_lock_record = self._repo.load_lock(
-            binding.project_key,
-            binding.story_id,
-            binding.run_id,
-            "qa_artifact_write",
-        )
-        if lock_record is None:
-            lock = StoryExecutionLockRecord(
-                project_key=binding.project_key,
-                story_id=binding.story_id,
-                run_id=binding.run_id,
-                lock_type="story_execution",
-                status="INVALID",
-                worktree_roots=binding.worktree_roots,
-                binding_version=binding.binding_version,
-                activated_at=now,
-                updated_at=now,
-            )
-        else:
-            lock = lock_record
-        bundle = _build_edge_bundle(
-            binding=binding,
-            lock=lock,
-            qa_lock=qa_lock_record,
-            sync_class=request.freshness_class,
-            now=now,
-        )
-        return ControlPlaneMutationResult(
-            status="synced",
-            op_id=request.op_id,
-            operation_kind="project_edge_sync",
-            run_id=binding.run_id,
-            edge_bundle=bundle,
-        )
-
-    def get_operation(self, op_id: str) -> ControlPlaneMutationResult | None:
-        self._require_postgres_backend_on_first_use()
-        record = self._repo.load_operation(op_id)
-        if record is None:
-            return None
-        if record.status == "claimed":
-            #: ERROR-4: an in-flight claim placeholder is not a reconcilable op yet.
-            return None
-        #: AG3-138 (AC5, FK-91 §91.1a Rule 17): ``_replayed_result`` surfaces an
-        #: ``aborted`` / ``repair`` / ``failed`` terminal state VERBATIM (a
-        #: visible, auditable reconcile/repair state, SEVERITY-SEMANTIK) and
-        #: only echoes the ordinary success statuses as ``replayed``.
-        return _replayed_result(record.response_payload)
 
     def _mutate_phase(
         self,
