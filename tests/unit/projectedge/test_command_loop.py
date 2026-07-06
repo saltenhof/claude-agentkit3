@@ -86,7 +86,7 @@ def _command(command_id: str, kind: str, payload: dict[str, object]) -> EdgeComm
 def test_loop_reports_each_command_with_a_fresh_client_op_id(tmp_path: Path) -> None:
     """The loop fetches, executes and reports each command with its OWN op_id."""
     commands = [
-        _command("cmd-a", "sync_push", {"repo_id": "api"}),
+        _command("cmd-a", "takeover_reconcile", {"repo_id": "api"}),
         _command("cmd-b", "merge_local", {"repo_id": "api"}),
     ]
     client = _RecordingClient(commands)

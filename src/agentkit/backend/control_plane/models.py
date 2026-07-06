@@ -801,6 +801,28 @@ class PreflightProbeCommandPayload(BaseModel):
     branch: str = Field(min_length=1)
 
 
+class SyncPushCommandPayload(BaseModel):
+    """Typed ``sync_push`` command payload (FK-91 §91.1b, FK-10 §10.2.4b, AG3-147).
+
+    The backend commissions ONE per participating repo. It carries only what the
+    edge cannot derive itself -- the repo NAME (not path; FK-10 §10.2.4a: the
+    backend derives NO physical path) and the story branch. The official push
+    target ref is ALWAYS ``story/{story_id}`` (there is no WIP-ref push path,
+    In-Scope #7 / AC10); the edge derives it from ``story_id`` and rejects any
+    other ref at the push gate. The edge resolves the physical repo path from its
+    LOCAL project config and runs the bounded online-ownership check itself
+    (FK-15 §15.5.4: online-pflichtig, no ACTIVE-bundle re-sync fallback).
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    story_id: str = Field(min_length=1)
+    project_key: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    repo_id: str = Field(min_length=1)
+    branch: str = Field(min_length=1)
+
+
 class BranchRefReport(BaseModel):
     """``branch_ref_report`` (FK-91 §91.1b / FK-10 §10.2.4b): per-repo branch
     class + head SHA, reported after every sync point."""
@@ -816,7 +838,13 @@ class BranchRefReport(BaseModel):
 class PushStatusReport(BaseModel):
     """``push_status_report`` (FK-91 §91.1b): push success vs. backlog per repo.
 
-    Foundation shape only -- ``sync_push`` execution is AG3-147.
+    Reported by the AG3-147 ``sync_push`` edge executor after every sync point.
+    ``head_sha`` folds the FK-91 ``branch_ref_report`` head SHA into this one
+    wire result so a single ``sync_push`` command result carries BOTH pieces the
+    two-stage push barrier + freshness projection consume together (FK-10
+    §10.2.4b): the pushed branch head AND whether it reached the remote. It is
+    the Edge-reported head of ``story/{story_id}`` (``None`` only when the local
+    branch head could not be resolved -- a fail-closed backlog).
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -824,6 +852,7 @@ class PushStatusReport(BaseModel):
     result_type: Literal["push_status_report"] = "push_status_report"
     repo_id: str = Field(min_length=1)
     push_outcome: Literal["pushed", "behind_remote"]
+    head_sha: str | None = None
 
 
 class WorktreeReport(BaseModel):

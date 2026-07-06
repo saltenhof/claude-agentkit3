@@ -52,10 +52,12 @@ def test_six_command_kinds_are_pinned() -> None:
 
 @pytest.mark.contract
 def test_an_edge_unknown_command_kind_is_registered_but_not_executable() -> None:
-    """Scope item 4: only 3 of the 6 registered kinds are EXECUTED this story."""
-    for kind in ("sync_push", "takeover_reconcile", "merge_local"):
+    """Scope item 4: 4 of the 6 registered kinds are EXECUTED (the AG3-145 trio
+    plus the AG3-147 ``sync_push`` path); the neighbour-owned two are not."""
+    for kind in ("takeover_reconcile", "merge_local"):
         assert ec.is_known_command_kind(kind) is True
         assert ec.is_executable_command_kind(kind) is False
+    assert ec.is_executable_command_kind("sync_push") is True
 
 
 # ---------------------------------------------------------------------------
@@ -73,9 +75,15 @@ def test_branch_ref_report_pins_its_field_shape() -> None:
 
 @pytest.mark.contract
 def test_push_status_report_pins_its_field_shape() -> None:
-    report = PushStatusReport(repo_id="repo-a", push_outcome="pushed")
+    report = PushStatusReport(repo_id="repo-a", push_outcome="pushed", head_sha="deadbeef")
     assert report.result_type == "push_status_report"
-    assert set(report.model_dump(mode="json")) == {"result_type", "repo_id", "push_outcome"}
+    # AG3-147: ``head_sha`` folds the FK-91 branch-ref head into the one
+    # ``sync_push`` result the two-stage barrier + freshness consume together.
+    assert set(report.model_dump(mode="json")) == {
+        "result_type", "repo_id", "push_outcome", "head_sha",
+    }
+    # It stays optional so the AG3-145 foundation shape (no head) still validates.
+    assert PushStatusReport(repo_id="repo-a", push_outcome="behind_remote").head_sha is None
 
 
 @pytest.mark.contract

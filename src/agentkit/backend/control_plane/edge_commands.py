@@ -8,13 +8,13 @@ owns the closed, contract-pinned command-kind / result-type / lifecycle-status
 vocabulary shared by both sides of the wire (backend command creation +
 ``harness_client`` edge executor) -- no I/O, no transactions.
 
-Only ``provision_worktree`` / ``teardown_worktree`` / ``preflight_probe`` are
-EXECUTED by this story (AG3-145 Teilschritt B); ``sync_push`` /
-``takeover_reconcile`` / ``merge_local`` are REGISTERED here (contract-pinned
-vocabulary) but their commissioning/execution belongs to AG3-147 / AG3-151 /
-AG3-152 respectively. An edge that receives a command of a kind outside
-:data:`EXECUTABLE_COMMAND_KINDS` reports a deterministic error result -- never
-a silent no-op (Scope item 4).
+``provision_worktree`` / ``teardown_worktree`` / ``preflight_probe`` (AG3-145
+Teilschritt B) plus ``sync_push`` (the AG3-147 official Edge-Push-Gate path,
+FK-10 §10.2.4b / FK-15 §15.5.4) are EXECUTED by the edge; ``takeover_reconcile``
+/ ``merge_local`` are REGISTERED here (contract-pinned vocabulary) but their
+commissioning/execution belongs to AG3-151 / AG3-152 respectively. An edge that
+receives a command of a kind outside :data:`EXECUTABLE_COMMAND_KINDS` reports a
+deterministic error result -- never a silent no-op (Scope item 4).
 """
 
 from __future__ import annotations
@@ -45,9 +45,9 @@ __all__ = (
 )
 
 #: FK-91 §91.1b "Auftragsarten (initial)": the closed set of command kinds the
-#: Edge-Command-Queue can carry. Six total; only three are executed by THIS
-#: story (see :data:`EXECUTABLE_COMMAND_KINDS`) -- the rest are registered
-#: vocabulary owned by AG3-147 / AG3-151 / AG3-152.
+#: Edge-Command-Queue can carry. Six total; four are executed (see
+#: :data:`EXECUTABLE_COMMAND_KINDS`) -- the remaining two are registered
+#: vocabulary owned by AG3-151 / AG3-152.
 CommandKind = Literal[
     "provision_worktree",
     "teardown_worktree",
@@ -68,10 +68,11 @@ ALL_COMMAND_KINDS: frozenset[str] = frozenset(
     }
 )
 
-#: AG3-145 Teilschritt B: the edge executors THIS story builds. A command of
-#: any OTHER registered kind is a deterministic error result at the edge.
+#: The edge executors that exist: the AG3-145 worktree/preflight trio plus the
+#: AG3-147 ``sync_push`` official Edge-Push-Gate path (FK-10 §10.2.4b). A command
+#: of any OTHER registered kind is a deterministic error result at the edge.
 EXECUTABLE_COMMAND_KINDS: frozenset[str] = frozenset(
-    {"provision_worktree", "teardown_worktree", "preflight_probe"}
+    {"provision_worktree", "teardown_worktree", "preflight_probe", "sync_push"}
 )
 
 #: FK-91 §91.1a Rule 16 (no wall-clock end): a command record's lifecycle

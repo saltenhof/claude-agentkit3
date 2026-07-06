@@ -234,7 +234,7 @@ def test_preflight_probe_after_provision_reports_branch_and_marker(tmp_path: Pat
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("kind", ["sync_push", "takeover_reconcile", "merge_local"])
+@pytest.mark.parametrize("kind", ["takeover_reconcile", "merge_local"])
 def test_registered_but_unexecutable_kind_yields_error_result(tmp_path: Path, kind: str) -> None:
     config = _project_config(tmp_path, ["api"])
     command = _command(kind, {"repo_id": "api"})

@@ -21,11 +21,13 @@ def test_all_command_kinds_pins_the_six_registered_kinds() -> None:
 
 
 def test_executable_command_kinds_is_the_ag3_145_subset() -> None:
-    """AG3-145 Teilschritt B executes exactly three of the six registered kinds."""
+    """The edge executes four of the six kinds: the AG3-145 worktree/preflight
+    trio plus the AG3-147 ``sync_push`` official Edge-Push-Gate path."""
     assert {
         "provision_worktree",
         "teardown_worktree",
         "preflight_probe",
+        "sync_push",
     } == ec.EXECUTABLE_COMMAND_KINDS
     assert ec.EXECUTABLE_COMMAND_KINDS < ec.ALL_COMMAND_KINDS
 
