@@ -72,7 +72,7 @@ class QaCyclePushBarrierGate(Protocol):
     control-plane ``QA_CYCLE_BOUNDARY`` barrier.
     """
 
-    def enforce(self, story_dir: Path) -> None:
+    def enforce(self, story_dir: Path, current: PhaseEnvelopeView) -> None:
         """Raise :class:`QaCycleBarrierBlockedError` when the barrier blocks.
 
         A satisfied barrier (or an unwired gate) returns ``None``.
@@ -84,9 +84,9 @@ class QaCyclePushBarrierGate(Protocol):
 class _NullQaCyclePushBarrierGate:
     """Default gate: the QA-cycle boundary is not push-gated (test / unwired path)."""
 
-    def enforce(self, story_dir: Path) -> None:
+    def enforce(self, story_dir: Path, current: PhaseEnvelopeView) -> None:
         """No-op: no productive barrier adapter is wired."""
-        del story_dir
+        del story_dir, current
 
 
 #: Default no-op QA-cycle push-barrier gate (no barrier adapter wired). The
@@ -235,7 +235,7 @@ class QaCycleLifecycle:
         # barrier. Advancing to a NEW QA cycle round is a hard sync point --
         # fail-closed BLOCKED (raises) until the current state is server-verified-
         # pushed, so a takeover between rounds can never lose unpushed work.
-        self.push_barrier_gate.enforce(story_dir)
+        self.push_barrier_gate.enforce(story_dir, current)
 
         # FK-27 §27.2.3: invalidate the previous epoch's cycle-bound artefacts
         # BEFORE the new identities take effect (no stale consumption).

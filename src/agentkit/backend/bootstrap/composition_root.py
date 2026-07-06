@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agentkit.backend.artifacts import ArtifactManager, EnvelopeValidator, ProducerRegistry
 from agentkit.backend.exploration.register import register_exploration_producers
@@ -3655,13 +3655,27 @@ class _ControlPlaneQaCyclePushBarrierGate:
     is a fail-closed BLOCK (raises) -- NO ERROR BYPASSING.
     """
 
-    def _commission_sync_push_best_effort(self, story_dir: Path) -> None:
+    @staticmethod
+    def _sync_point_id(current: Any) -> str:
+        """Build the per-QA-round correlation id for this boundary crossing."""
+        from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
+
+        if current.qa_cycle_id is None or current.qa_cycle_round is None:
+            msg = "QA-cycle boundary fail-closed: incomplete QA-cycle identity"
+            raise ValueError(msg)
+        return (
+            f"{SyncPointBarrierType.QA_CYCLE_BOUNDARY.value}:"
+            f"{current.qa_cycle_id}:round-{current.qa_cycle_round}"
+        )
+
+    def _commission_sync_push_best_effort(
+        self, story_dir: Path, *, sync_point_id: str
+    ) -> None:
         """Queue QA-boundary ``sync_push`` commands before evaluating evidence."""
         from datetime import UTC, datetime
 
         from agentkit.backend.control_plane.models import SyncPushCommandPayload
         from agentkit.backend.control_plane.push_sync import (
-            SyncPointBarrierType,
             official_story_ref,
         )
         from agentkit.backend.control_plane.records import EdgeCommandRecord
@@ -3677,7 +3691,6 @@ class _ControlPlaneQaCyclePushBarrierGate:
                 return
             now = datetime.now(tz=UTC)
             branch = official_story_ref(scope.story_id)
-            sync_point_id = SyncPointBarrierType.QA_CYCLE_BOUNDARY.value
             for repo in tuple(ctx.participating_repos):
                 command_id = (
                     f"{scope.run_id}::sync_push::{sync_point_id}::{repo}"
@@ -3709,7 +3722,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
                 "sync_push commissioning failed before QA-cycle barrier: %s", exc
             )
 
-    def enforce(self, story_dir: Path) -> None:
+    def enforce(self, story_dir: Path, current: Any) -> None:
         """Raise when the QA_CYCLE_BOUNDARY barrier is not satisfied (fail-closed)."""
         from agentkit.backend.control_plane.push_sync import (
             SyncPointBarrierType,
@@ -3724,7 +3737,13 @@ class _ControlPlaneQaCyclePushBarrierGate:
             QaCycleBarrierBlockedError,
         )
 
-        self._commission_sync_push_best_effort(story_dir)
+        try:
+            sync_point_id = self._sync_point_id(current)
+        except ValueError as exc:
+            raise QaCycleBarrierBlockedError(str(exc)) from exc
+        self._commission_sync_push_best_effort(
+            story_dir, sync_point_id=sync_point_id
+        )
         try:
             scope = facade.resolve_runtime_scope(story_dir)
         except Exception as exc:  # noqa: BLE001 -- unresolvable scope -> fail-closed block
@@ -3741,7 +3760,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
                 project_key=project_key,
                 story_id=story_id,
                 run_id=run_id,
-                required_sync_point_id=SyncPointBarrierType.QA_CYCLE_BOUNDARY.value,
+                required_sync_point_id=sync_point_id,
             )
         except (StoryWorkspaceUnresolvedError, ConfigError) as exc:
             # An unresolvable participating-repo set (no project_registry anchor,

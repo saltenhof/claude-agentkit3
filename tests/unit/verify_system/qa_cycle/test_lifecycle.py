@@ -39,8 +39,9 @@ class _HeadSource:
 class _EvaluatingBlockingGate:
     def __init__(self) -> None:
         self.seen: Path | None = None
+        self.current: PhaseEnvelopeView | None = None
 
-    def enforce(self, story_dir: Path) -> None:
+    def enforce(self, story_dir: Path, current: PhaseEnvelopeView) -> None:
         from agentkit.backend.control_plane.push_sync import (
             RepoPushVerificationInput,
             SyncPointBarrierType,
@@ -51,6 +52,7 @@ class _EvaluatingBlockingGate:
         )
 
         self.seen = story_dir
+        self.current = current
         verdict = evaluate_push_barrier(
             SyncPointBarrierType.QA_CYCLE_BOUNDARY,
             (
@@ -124,6 +126,7 @@ class TestAdvanceCycle:
         with pytest.raises(QaCycleBarrierBlockedError):
             lifecycle.advance_qa_cycle(current, tmp_path, _STORY_ID)
         assert gate.seen == tmp_path
+        assert gate.current is current
 
     def test_advance_invalidates_cycle_artifacts(self, tmp_path: Path) -> None:
         base = qa_artifact_dir(tmp_path, _STORY_ID, project_root=tmp_path)

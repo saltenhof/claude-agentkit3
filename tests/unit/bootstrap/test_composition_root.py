@@ -414,6 +414,25 @@ def test_load_sonar_config_propagates_config_error_no_silent_skip(
         reset_backend_cache_for_tests()
 
 
+def test_qa_cycle_gate_sync_point_is_monotonic_per_round() -> None:
+    """AG3-147 R3: QA-boundary sync-push command IDs must not be constant."""
+    from agentkit.backend.bootstrap.composition_root import (
+        _ControlPlaneQaCyclePushBarrierGate,
+    )
+    from agentkit.backend.verify_system.contract import PhaseEnvelopeView
+
+    first = _ControlPlaneQaCyclePushBarrierGate._sync_point_id(
+        PhaseEnvelopeView(qa_cycle_id="a1b2c3d4e5f6", qa_cycle_round=1)
+    )
+    second = _ControlPlaneQaCyclePushBarrierGate._sync_point_id(
+        PhaseEnvelopeView(qa_cycle_id="f6e5d4c3b2a1", qa_cycle_round=2)
+    )
+
+    assert first == "qa_cycle_boundary:a1b2c3d4e5f6:round-1"
+    assert second == "qa_cycle_boundary:f6e5d4c3b2a1:round-2"
+    assert first != second
+
+
 def test_load_sonar_config_available_false_is_declared_absence_none(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1015,6 +1034,55 @@ def test_confirm_story_pushed_fail_closed_on_unresolvable_workspace(
         reset_backend_cache_for_tests()
 
 
+def test_confirm_story_pushed_fails_closed_without_boundary_correlation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AG3-147 R3: structural ``completion.push`` cannot opt out silently."""
+    from agentkit.backend.bootstrap.composition_root import _BarrierPushVerification
+    from agentkit.backend.control_plane.push_sync import RepoPushVerificationInput
+
+    class _Scope:
+        project_key = "proj"
+        story_id = "AG3-147"
+        run_id = "run-147"
+
+    class _Evidence:
+        def collect_repo_inputs(
+            self,
+            *,
+            project_key: str,
+            story_id: str,
+            run_id: str,
+            required_sync_point_id: str | None = None,
+        ) -> tuple[RepoPushVerificationInput, ...]:
+            del project_key, story_id, run_id
+            assert required_sync_point_id is None
+            sha = "a" * 40
+            return (
+                RepoPushVerificationInput(
+                    repo_id="api",
+                    edge_report_present=True,
+                    edge_reported_pushed=True,
+                    edge_reported_head_sha=sha,
+                    server_ref_resolved=True,
+                    server_head_sha=sha,
+                    edge_report_sync_point_id="phase_completion:old",
+                    required_sync_point_id=required_sync_point_id,
+                ),
+            )
+
+    monkeypatch.setattr(
+        "agentkit.backend.state_backend.store.facade.resolve_runtime_scope",
+        lambda _story_dir: _Scope(),
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.bootstrap.composition_root.build_push_barrier_evidence",
+        lambda: _Evidence(),
+    )
+
+    assert _BarrierPushVerification().confirm_story_pushed(tmp_path) is False
+
+
 def test_qa_cycle_gate_fail_closed_typed_block_on_unresolvable_workspace(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1029,6 +1097,7 @@ def test_qa_cycle_gate_fail_closed_typed_block_on_unresolvable_workspace(
         build_qa_cycle_push_barrier_gate,
     )
     from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.verify_system.contract import PhaseEnvelopeView
     from agentkit.backend.verify_system.qa_cycle.lifecycle import (
         QaCycleBarrierBlockedError,
     )
@@ -1038,8 +1107,8 @@ def test_qa_cycle_gate_fail_closed_typed_block_on_unresolvable_workspace(
         story_dir = tmp_path / "stories" / "AG3-GUARD2"
         _save_guard_flow(story_dir, story_id="AG3-GUARD2", run_id="run-guard2")
         gate = build_qa_cycle_push_barrier_gate()
+        current = PhaseEnvelopeView(qa_cycle_id="a1b2c3d4e5f6", qa_cycle_round=1)
         with pytest.raises(QaCycleBarrierBlockedError):
-            gate.enforce(story_dir)
+            gate.enforce(story_dir, current)
     finally:
         reset_backend_cache_for_tests()
-

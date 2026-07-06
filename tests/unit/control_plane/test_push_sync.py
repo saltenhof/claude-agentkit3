@@ -32,6 +32,7 @@ from agentkit.backend.control_plane.push_sync import (
 
 _SHA_A = "a" * 40
 _SHA_B = "b" * 40
+_SYNC_POINT_ID = "phase_completion:op-1"
 _NOW = datetime(2026, 7, 6, 12, 0, tzinfo=UTC)
 
 
@@ -44,6 +45,8 @@ def _verified_repo(repo_id: str = "repo-a", sha: str = _SHA_A) -> RepoPushVerifi
         edge_reported_head_sha=sha,
         server_ref_resolved=True,
         server_head_sha=sha,
+        edge_report_sync_point_id=_SYNC_POINT_ID,
+        required_sync_point_id=_SYNC_POINT_ID,
     )
 
 
@@ -67,6 +70,8 @@ def test_ac1a_server_read_does_not_confirm_edge_head_blocks() -> None:
         edge_reported_head_sha=_SHA_A,
         server_ref_resolved=True,
         server_head_sha=_SHA_B,
+        edge_report_sync_point_id=_SYNC_POINT_ID,
+        required_sync_point_id=_SYNC_POINT_ID,
     )
     verdict = evaluate_repo_push(inp)
     assert verdict.verified is False
@@ -81,6 +86,8 @@ def test_ac1a_server_ref_unresolved_blocks_despite_edge_push_claim() -> None:
         edge_reported_head_sha=_SHA_A,
         server_ref_resolved=False,
         server_head_sha=None,
+        edge_report_sync_point_id=_SYNC_POINT_ID,
+        required_sync_point_id=_SYNC_POINT_ID,
     )
     verdict = evaluate_repo_push(inp)
     assert verdict.verified is False
@@ -96,6 +103,8 @@ def test_ac1b_no_edge_report_blocks_even_when_server_would_pass() -> None:
         edge_reported_head_sha=None,
         server_ref_resolved=True,
         server_head_sha=_SHA_A,
+        edge_report_sync_point_id=_SYNC_POINT_ID,
+        required_sync_point_id=_SYNC_POINT_ID,
     )
     verdict = evaluate_repo_push(inp)
     assert verdict.verified is False
@@ -119,6 +128,80 @@ def test_boundary_requires_correlated_edge_report_not_running_latest() -> None:
     assert verdict.block_code is PushBarrierBlockCode.STALE_EDGE_PUSH_REPORT
 
 
+def test_boundary_fails_closed_without_required_sync_point() -> None:
+    """Regression: None correlation must not fall back to running-latest."""
+    inp = RepoPushVerificationInput(
+        repo_id="repo-a",
+        edge_report_present=True,
+        edge_reported_pushed=True,
+        edge_reported_head_sha=_SHA_A,
+        server_ref_resolved=True,
+        server_head_sha=_SHA_A,
+        edge_report_sync_point_id=_SYNC_POINT_ID,
+        required_sync_point_id=None,
+    )
+    verdict = evaluate_repo_push(inp)
+    assert verdict.verified is False
+    assert verdict.block_code is PushBarrierBlockCode.MISSING_SYNC_POINT_CORRELATION
+
+
+def test_boundary_fails_closed_without_edge_sync_point() -> None:
+    """Regression: untagged freshness must not satisfy a hard barrier."""
+    inp = RepoPushVerificationInput(
+        repo_id="repo-a",
+        edge_report_present=True,
+        edge_reported_pushed=True,
+        edge_reported_head_sha=_SHA_A,
+        server_ref_resolved=True,
+        server_head_sha=_SHA_A,
+        edge_report_sync_point_id=None,
+        required_sync_point_id=_SYNC_POINT_ID,
+    )
+    verdict = evaluate_repo_push(inp)
+    assert verdict.verified is False
+    assert verdict.block_code is PushBarrierBlockCode.MISSING_SYNC_POINT_CORRELATION
+
+
+def test_qa_cycle_second_boundary_rejects_first_boundary_freshness() -> None:
+    """Regression: two QA boundaries must not share one running-latest report."""
+    first_qa_boundary = "qa_cycle_boundary:a1b2c3d4e5f6:round-1"
+    second_qa_boundary = "qa_cycle_boundary:f6e5d4c3b2a1:round-2"
+    stale = RepoPushVerificationInput(
+        repo_id="repo-a",
+        edge_report_present=True,
+        edge_reported_pushed=True,
+        edge_reported_head_sha=_SHA_A,
+        server_ref_resolved=True,
+        server_head_sha=_SHA_A,
+        edge_report_sync_point_id=first_qa_boundary,
+        required_sync_point_id=second_qa_boundary,
+    )
+
+    stale_verdict = evaluate_push_barrier(
+        SyncPointBarrierType.QA_CYCLE_BOUNDARY, [stale]
+    )
+
+    assert stale_verdict.passed is False
+    assert stale_verdict.repo_verdicts[0].block_code is (
+        PushBarrierBlockCode.STALE_EDGE_PUSH_REPORT
+    )
+
+    fresh = RepoPushVerificationInput(
+        repo_id="repo-a",
+        edge_report_present=True,
+        edge_reported_pushed=True,
+        edge_reported_head_sha=_SHA_B,
+        server_ref_resolved=True,
+        server_head_sha=_SHA_B,
+        edge_report_sync_point_id=second_qa_boundary,
+        required_sync_point_id=second_qa_boundary,
+    )
+    fresh_verdict = evaluate_push_barrier(
+        SyncPointBarrierType.QA_CYCLE_BOUNDARY, [fresh]
+    )
+    assert fresh_verdict.passed is True
+
+
 def test_edge_reports_backlog_blocks() -> None:
     inp = RepoPushVerificationInput(
         repo_id="repo-a",
@@ -127,6 +210,8 @@ def test_edge_reports_backlog_blocks() -> None:
         edge_reported_head_sha=_SHA_A,
         server_ref_resolved=True,
         server_head_sha=_SHA_A,
+        edge_report_sync_point_id=_SYNC_POINT_ID,
+        required_sync_point_id=_SYNC_POINT_ID,
     )
     verdict = evaluate_repo_push(inp)
     assert verdict.block_code is PushBarrierBlockCode.EDGE_REPORTS_BACKLOG
@@ -140,6 +225,8 @@ def test_missing_edge_head_sha_blocks() -> None:
         edge_reported_head_sha=None,
         server_ref_resolved=True,
         server_head_sha=_SHA_A,
+        edge_report_sync_point_id=_SYNC_POINT_ID,
+        required_sync_point_id=_SYNC_POINT_ID,
     )
     verdict = evaluate_repo_push(inp)
     assert verdict.block_code is PushBarrierBlockCode.MISSING_EDGE_HEAD_SHA
@@ -199,6 +286,8 @@ def test_ac3_one_unpushed_repo_blocks_the_barrier() -> None:
         edge_reported_head_sha=_SHA_A,
         server_ref_resolved=False,
         server_head_sha=None,
+        edge_report_sync_point_id=_SYNC_POINT_ID,
+        required_sync_point_id=_SYNC_POINT_ID,
     )
     verdict = evaluate_push_barrier(
         SyncPointBarrierType.CLOSURE_ENTRY, [good, bad]

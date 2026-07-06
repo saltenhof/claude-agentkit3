@@ -60,10 +60,10 @@ class PushBarrierEvidencePort(Protocol):
 
         Fail-closed: a repo with no Edge report and/or an unresolved server ref
         yields an input the A-core blocks. Productive hard barriers pass their
-        freshly commissioned sync-point id; a freshness row from another
-        boundary is stale and fails closed. An empty tuple (no participating
-        repos resolvable) makes the barrier fail closed (never an optimistic
-        pass).
+        freshly commissioned sync-point id; missing correlation or a freshness
+        row from another boundary is stale and fails closed. An empty tuple (no
+        participating repos resolvable) makes the barrier fail closed (never an
+        optimistic pass).
         """
         ...
 

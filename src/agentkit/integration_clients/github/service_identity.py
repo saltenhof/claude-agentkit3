@@ -36,6 +36,8 @@ from agentkit.backend.code_backend.provider_port import (
 )
 
 __all__ = [
+    "DEFAULT_SERVICE_BYPASS_ACTOR_ID_ENV_VAR",
+    "DEFAULT_SERVICE_BYPASS_ACTOR_TYPE_ENV_VAR",
     "DEFAULT_SERVICE_IDENTITY_ENV_VAR",
     "EnvVarServiceIdentitySource",
     "GhRulesetRefProtectionAdministrator",
@@ -48,11 +50,20 @@ __all__ = [
 #: handle NAME is public; the token VALUE is the secret and never surfaces.
 DEFAULT_SERVICE_IDENTITY_ENV_VAR = "AGENTKIT_GITHUB_SERVICE_TOKEN"
 
+#: GitHub rulesets need an explicit actor entry for the service identity that may
+#: bypass ``story/*`` protection. For GitHub Apps this is the app ID with actor
+#: type ``Integration``; service-account deployments may configure ``User``.
+DEFAULT_SERVICE_BYPASS_ACTOR_ID_ENV_VAR = "AGENTKIT_GITHUB_SERVICE_BYPASS_ACTOR_ID"
+DEFAULT_SERVICE_BYPASS_ACTOR_TYPE_ENV_VAR = (
+    "AGENTKIT_GITHUB_SERVICE_BYPASS_ACTOR_TYPE"
+)
+
 #: Default per-invocation timeout for the ``gh api`` ruleset subprocess.
 _DEFAULT_GH_TIMEOUT_SECONDS = 30
 
 #: The ruleset name AK3 administers for story-ref protection (idempotent by name).
 _STORY_REF_RULESET_NAME = "agentkit-story-ref-protection"
+_SUPPORTED_BYPASS_ACTOR_TYPES = frozenset({"Integration", "User"})
 
 
 @runtime_checkable
@@ -149,7 +160,11 @@ class GhRulesetRefProtectionAdministrator:
 
     def is_available(self) -> bool:
         """Whether ``gh`` is installed AND a backend service identity exists."""
-        return shutil.which("gh") is not None and self.service_source.is_available()
+        return (
+            shutil.which("gh") is not None
+            and self.service_source.is_available()
+            and self._service_bypass_actor() is not None
+        )
 
     def administer(self, ref_pattern: str) -> RefProtectionResult:
         """Apply the story-ref protection ruleset (fail-closed, never raises)."""
@@ -161,12 +176,25 @@ class GhRulesetRefProtectionAdministrator:
                 blocks_fast_forward=False,
                 detail=(
                     "ref-protection administration unavailable (missing gh CLI "
-                    "or no backend-managed service identity); caller raises the "
-                    "FK-12 §12.1.3 degradation WARNING (never a silent pass)"
+                    "or no backend-managed service identity/bypass actor); caller "
+                    "raises the FK-12 §12.1.3 degradation WARNING (never a "
+                    "silent pass)"
                 ),
             )
         include_ref = f"refs/heads/{ref_pattern}"
-        payload = self._ruleset_payload(include_ref)
+        bypass_actor = self._service_bypass_actor()
+        if bypass_actor is None:
+            return RefProtectionResult(
+                ref_pattern=ref_pattern,
+                administered=False,
+                blocks_direct_developer_push=False,
+                blocks_fast_forward=False,
+                detail=(
+                    "ref-protection administration unavailable: no valid "
+                    "service-identity bypass actor configured"
+                ),
+            )
+        payload = self._ruleset_payload(include_ref, bypass_actor=bypass_actor)
         existing_ruleset_id = self._existing_ruleset_id()
         method = "PATCH" if existing_ruleset_id is not None else "POST"
         path = (
@@ -252,13 +280,16 @@ class GhRulesetRefProtectionAdministrator:
         return None
 
     @staticmethod
-    def _ruleset_payload(include_ref: str) -> str:
+    def _ruleset_payload(
+        include_ref: str, *, bypass_actor: dict[str, object]
+    ) -> str:
         """Build the GitHub ruleset payload for the protected ref pattern."""
         return json.dumps(
             {
                 "name": _STORY_REF_RULESET_NAME,
                 "target": "branch",
                 "enforcement": "active",
+                "bypass_actors": [bypass_actor],
                 "conditions": {
                     "ref_name": {"include": [include_ref], "exclude": []}
                 },
@@ -270,6 +301,29 @@ class GhRulesetRefProtectionAdministrator:
             },
             separators=(",", ":"),
         )
+
+    @staticmethod
+    def _service_bypass_actor() -> dict[str, object] | None:
+        """Return the configured GitHub ruleset bypass actor for the service."""
+        raw_actor_id = os.environ.get(
+            DEFAULT_SERVICE_BYPASS_ACTOR_ID_ENV_VAR, ""
+        ).strip()
+        actor_type = os.environ.get(
+            DEFAULT_SERVICE_BYPASS_ACTOR_TYPE_ENV_VAR, "Integration"
+        ).strip()
+        if actor_type not in _SUPPORTED_BYPASS_ACTOR_TYPES:
+            return None
+        try:
+            actor_id = int(raw_actor_id)
+        except ValueError:
+            return None
+        if actor_id <= 0:
+            return None
+        return {
+            "actor_id": actor_id,
+            "actor_type": actor_type,
+            "bypass_mode": "always",
+        }
 
     def _service_token(self) -> str:
         """Resolve the service token env-var VALUE for the authorised admin call.

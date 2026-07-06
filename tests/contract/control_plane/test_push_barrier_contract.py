@@ -24,6 +24,8 @@ from agentkit.backend.control_plane.push_sync import (
 
 pytestmark = pytest.mark.contract
 
+_SYNC_POINT_ID = "phase_completion:op-1"
+
 
 def _verified(repo_id: str, sha: str) -> RepoPushVerificationInput:
     return RepoPushVerificationInput(
@@ -33,6 +35,8 @@ def _verified(repo_id: str, sha: str) -> RepoPushVerificationInput:
         edge_reported_head_sha=sha,
         server_ref_resolved=True,
         server_head_sha=sha,
+        edge_report_sync_point_id=_SYNC_POINT_ID,
+        required_sync_point_id=_SYNC_POINT_ID,
     )
 
 
@@ -58,6 +62,8 @@ def test_merge_precondition_blocks_when_any_repo_unverified() -> None:
         edge_reported_head_sha="a" * 40,
         server_ref_resolved=True,
         server_head_sha="b" * 40,  # server does not confirm the reported head
+        edge_report_sync_point_id=_SYNC_POINT_ID,
+        required_sync_point_id=_SYNC_POINT_ID,
     )
     precondition = verify_pushed_across_repos(
         [_verified("api", "a" * 40), unverified]
@@ -84,6 +90,7 @@ def test_barrier_block_codes_are_pinned() -> None:
     assert {c.value for c in PushBarrierBlockCode} == {
         "no_edge_push_report",
         "stale_edge_push_report",
+        "missing_sync_point_correlation",
         "edge_reports_backlog",
         "missing_edge_head_sha",
         "server_ref_unresolved",
