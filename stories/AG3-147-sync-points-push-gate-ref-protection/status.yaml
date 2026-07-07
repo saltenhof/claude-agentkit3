@@ -1,8 +1,9 @@
 story_id: AG3-147
 title: "Sync-Punkte + Push-Gate + Ref-Schutz: pushed-only-Durchsetzung mit harten fail-closed Push-Barrieren, serverseitiger ls-remote-Verifikation, opportunistischen Pushes, Edge-Push-Gate (online-pflichtig), Dienst-Identität und story/*-Ref-Schutz"
 type: implementation
-status: in_progress
-phase: implementation
+status: completed
+phase: closure
+completed_at: "2026-07-07T06:10:00Z"
 created: "2026-07-02"
 started_at: "2026-07-05T19:05:00Z"
 size: L
@@ -185,6 +186,26 @@ size: L
 # kann 1 Invalidierung an Zwischen-Wartepunkt verschlucken; cwd-shift/cross-repo
 # HEAD-Delta-Blindfleck). Danach Doppel-Review (Fable+Codex) -> Close.
 # status: in_progress (Settings-Shape-Fix).
+# 2026-07-07 SETTINGS-FIX GRUEN + GESCHLOSSEN: Worker job-fae6f98a landete
+# be1c364f "Fix Claude hook settings shape" — Claude-Hook-Settings flach->
+# dreistufig (echte Claude-Doku code.claude.com/docs/en/hooks: hooks->event[]->
+# {matcher, hooks:[{type:command,command}]}), Multi-Guard-per-Matcher = mehrere
+# Handler in EINER Gruppe, Bundle + detach-Roundtrip (fremde Hooks byte-identisch
+# erhalten) + idempotente Upgrade-Migration + FK-30 §30.3.1/FK-76 §76.5.x/FK-31
+# korrigiert + Contract-Test pinnt die Form + ARCH-55/ARCH-43. Jenkins #1090
+# SUCCESS, Sonar OK (0/0/0, cov 85.0%), unit 9018 passed. Doppel-Review
+# @be1c364f (Codex job-6f3979b5 + Fable): BEIDE APPROVED, 7/7 PASS (Form/Multi-
+# Guard/detach/Migration/SSOT/Contract-Test/Regression), 85 gezielte Tests gruen.
+# NON-BLOCKING MINORS (dokumentiert, Haertungs-Kandidaten fuer Folge-Story, kein
+# 147-Blocker): (LOW) detach eines NIE-migrierten Legacy-Installs laesst inerte
+# flache AK3-Eintraege stehen (fail-safe, kein Datenverlust, kein ausfuehrbarer
+# Handler ueberlebt; Fix = ein Guard in _strip_hook_matcher_groups, detach.py:263);
+# (2x trivial) normalize-Konsolidierungs-Edge-Case + type-Re-Stamp; (2x out-of-
+# scope WARNING aus dem 147-Feature) fail-soft Telemetrie-Delivery kann 1
+# Invalidierung an einem Zwischen-Wartepunkt verschlucken + cwd-shift/cross-repo
+# HEAD-Delta-Blindfleck (cd ../other && git commit). Kernauftrag pushed-only-
+# Durchsetzung mechanisch produktiv wirksam (commit_hook feuert jetzt in echter
+# Claude-Installation). status: completed.
 # Herkunft: GAP-ST-15 (gap-analyse-session-ownership.md v4, Codex-APPROVE;
 # K1-Verankerung 58c190b7, PO-Entscheidung II pushed-only). Setzt die
 # Pushed-only-Regel durch: harte Push-Barrieren an Phasen-/QA-/Yield-/

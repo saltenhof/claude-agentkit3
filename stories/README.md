@@ -381,7 +381,7 @@ Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
 | AG3-144 | Job-Muster + Ergebnisarten + Upsert-Fences | L | **in_progress ⛔ arch-blocked (W2)** | 141, 142, 143 |
 | AG3-145 | Edge-Command-Queue + Worktree-Ops-Umzug | L | **ready** | 137, 141, 142, 146 |
 | AG3-146 | Provider-Adapter-Schnitt (ls-remote, gh nur im Adapter) | M | **completed** | — |
-| AG3-147 | Sync-Punkte + Push-Gate + Ref-Schutz (pushed-only) | L | blocked | 145, 146 |
+| AG3-147 | Sync-Punkte + Push-Gate + Ref-Schutz (pushed-only) | L | **completed** | 145, 146 |
 | AG3-148 | Transfer-Kern (Challenge-Confirm-CAS, Approval-Queue) | L | blocked | 141, 142, 147 |
 | AG3-149 | Disown-Baustein + Ex-Owner + Ping-Pong-Schranke | M | blocked | 148 |
 | AG3-150 | Freeze-Admission-Blocker (`freeze_epoch`) | M | blocked | 149 |
