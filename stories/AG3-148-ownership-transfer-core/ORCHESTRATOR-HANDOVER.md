@@ -39,8 +39,8 @@
   - Der Harness benachrichtigt dich bei Job-Abschluss automatisch (Channel-Message) — **nicht** eng pollen.
 - **venv (Pflicht):** `.venv\Scripts\python -m ...`. **NIEMALS global `pip install`** — AK3 und AK2 teilen den Package-Namen `agentkit`; ein globaler Install überschreibt AK2 und zerstört dessen Claude-Code-Hooks.
 - **Gates vor jedem Merge:** `.venv\Scripts\python -m ruff check src tests`, `... -m mypy src` (und `--platform linux`), `... -m pytest` (Coverage ≥ **85 %**), plus 4 Konzept-Gates (concept-frontmatter, formal-specs, concept-code-contracts, architecture-conformance).
-- **Jenkins:** Job ist parametrisiert → **`/build` gibt 400**; nutze `/buildWithParameters?agentkit_mode=ci&sonar_project_key=claude-agentkit3&sonar_branch=main&delay=0sec`. Details/Auth in **`AGENTS.md`** (Repo-Root). Codex kennt AGENTS.md und fährt den CI-Loop selbst.
-- **Sonar-Host:** `192.168.0.20:9901` (nicht localhost). Gate muss OK sein: 0 violations / 0 critical / 0 hotspots, coverage ≥ 85 %.
+- **Jenkins:** Der Job `claude-agentkit3` ist **unparametrisiert** → CI-Trigger ist **`POST /job/claude-agentkit3/build?delay=0sec`** (+ CSRF-Crumb aus `/crumbIssuer/api/json`); `buildWithParameters` gibt hier **400**. Jenkins läuft mit `SecurityRealm=None`/`Unsecured` (kein Login, anonym = Vollzugriff, kein Token nötig). Details in **`AGENTS.md`** (Repo-Root). Codex kennt AGENTS.md und fährt den CI-Loop selbst. *(Aktualisiert 2026-07-07 nach Rechner-Wechsel; die frühere parametrisierte Form galt für den alten Rechner.)*
+- **Sonar-Host:** `localhost:9901` (Docker-Container `seu-sonarqube`). Der alte Rechner adressierte denselben Host über die LAN-IP `192.168.0.20`; portabel ist `localhost`. Gate muss OK sein: 0 violations / 0 critical / 0 hotspots, coverage ≥ 85 %.
 - **git-Workflow:** Fix-/Close-Commits landen im etablierten Workflow **direkt auf `main`** (Worker pushen auf `main`). Vor Push `git fetch` + rebase auf aktuellen grünen `main`.
 - **Concept-MCP** (`agentkit3-concepts`): `concept_search`/`concept_get`/`concept_glossary_search` statt grep über `concept/`. FK-/DK-/formal-Layer filterbar.
 

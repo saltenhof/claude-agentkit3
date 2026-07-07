@@ -31,15 +31,27 @@ Auftraggeber iterieren.
 ## Pflicht-Gates vor "fertig"
 
 - Jenkins gruen: `http://localhost:9900/job/claude-agentkit3/`
-- Sonar gruen: `http://192.168.0.20:9901`
+- Sonar gruen: `http://localhost:9901`
+- Jenkins und Sonar laufen als lokale Docker-Container (`seu-jenkins`,
+  `seu-sonarqube`). Alle Gate-Hosts sind maschinen-lokal ueber `localhost`
+  zu adressieren; frueher genutzte LAN-IPs (z. B. `192.168.0.20`) sind
+  rechner-spezifisch und nicht portabel.
 - Sonar-Ziel ist strikt: `violations=0`, `critical_violations=0`,
   `security_hotspots=0` (Sonar-Metrik fuer offene Hotspots auf dieser
   Instanz; `open_hotspots` ist hier kein gueltiger Metric-Key)
+- Jenkins-Build triggern: Der Job `claude-agentkit3` ist **unparametrisiert**;
+  der CI-Loop startet mit `POST /job/claude-agentkit3/build?delay=0sec`
+  (plus CSRF-Crumb aus `/crumbIssuer/api/json`). `buildWithParameters`
+  gibt hier `400`. Jenkins laeuft mit `SecurityRealm=None` +
+  `AuthorizationStrategy=Unsecured`: kein Login, anonym hat Vollzugriff;
+  ein Jenkins-Token wird nicht benoetigt (nur der Crumb fuer POST).
 - Lokale Gate-Zugaenge liegen ausserhalb des Repos in
   `T:\seu\agentkit3-secrets.cmd` und werden von den Codex-Startern fuer
   CLI und App geladen. Die Datei setzt `SONAR_URL`, `SONAR_PROJECT_KEY`,
   `SONAR_USER`, `SONAR_PASSWORD`, `JENKINS_URL`, `JENKINS_USER`,
-  `JENKINS_PASSWORD` und `JENKINS_API_TOKEN`.
+  `JENKINS_PASSWORD` und `JENKINS_API_TOKEN` (die JENKINS_*-User/Token
+  sind bei `SecurityRealm=None` Platzhalter, damit Tooling mit
+  Pflicht-Credentials nicht scheitert).
 - Remote-Gates mit `scripts/ci/check_remote_gates.ps1` pruefen; das Script
   nutzt die geladenen Env-Vars und scheitert hart, wenn Jenkins oder Sonar
   nicht gruen sind.

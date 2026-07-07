@@ -10,7 +10,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-if (-not $SonarUrl) { $SonarUrl = "http://192.168.0.20:9901" }
+if (-not $SonarUrl) { $SonarUrl = "http://localhost:9901" }
 if (-not $SonarProjectKey) { $SonarProjectKey = "claude-agentkit3" }
 if (-not $JenkinsUrl) { $JenkinsUrl = "http://localhost:9900/job/claude-agentkit3/" }
 

@@ -1052,7 +1052,7 @@ Stages (in Reihenfolge):
     Modus).
 
 **SonarQube**:
-- URL: `http://192.168.0.20:9901`
+- URL: `http://localhost:9901`
 - Credentials: `admin` / `meinSonarCube2026!`
 - Project-Key: `claude-agentkit3`.
 
@@ -1267,7 +1267,7 @@ git config core.hookspath .githooks
 | System | URL | Credentials |
 |---|---|---|
 | Jenkins | `http://127.0.0.1:9900` | `admin` / `admin` |
-| SonarQube | `http://192.168.0.20:9901` | `admin` / `meinSonarCube2026!` |
+| SonarQube | `http://localhost:9901` | `admin` / `meinSonarCube2026!` |
 | Weaviate (lokal) | `127.0.0.1:9903` (HTTP) / `50051` (gRPC) | — |
 | Postgres (lokal, Docker, geteilt: `ak3-postgres-local`) | `127.0.0.1:55442` (Host) / `host.docker.internal:55442` (Container) | `agentkit` / `agentkit` |
 
