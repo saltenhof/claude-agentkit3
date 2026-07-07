@@ -6,7 +6,6 @@ import atexit
 import os
 import threading
 from contextlib import contextmanager
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from psycopg.rows import dict_row
@@ -20,6 +19,7 @@ from agentkit.backend.state_backend.config import (
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
     import psycopg
 
@@ -225,8 +225,3 @@ def _borrow_pooled_connection_raw() -> Iterator[psycopg.Connection[Any]]:
     with pool.connection() as conn:
         yield conn
         conn.commit()
-
-
-def _schema_create_script() -> str:
-    schema_path = Path(__file__).with_name("postgres_schema.sql")
-    return schema_path.read_text(encoding="utf-8")
