@@ -66,6 +66,7 @@ from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus, PolicyVer
 from agentkit.backend.exceptions import CorruptStateError, OwnershipFenceViolationError
 from agentkit.backend.phase_state_store.models import FlowExecution
 from agentkit.backend.state_backend import postgres_store
+from agentkit.backend.state_backend.postgres_store import _qa_artifact_rows
 from agentkit.backend.state_backend.schema_bootstrap import ensure_versioned_schema
 from agentkit.backend.state_backend.store import (
     bind_ownership_fence_scope,
@@ -496,7 +497,7 @@ def test_record_closure_report_lock_spans_the_projection_write(
 
     write_started = threading.Event()
     release_write = threading.Event()
-    original_write_projection = postgres_store._write_projection
+    original_write_projection = _qa_artifact_rows._write_projection
 
     def _blocking_write_projection(path: object, payload: object) -> None:
         write_started.set()
@@ -507,7 +508,7 @@ def test_record_closure_report_lock_spans_the_projection_write(
     errors: list[BaseException] = []
 
     def _run_writer() -> None:
-        postgres_store._write_projection = _blocking_write_projection
+        _qa_artifact_rows._write_projection = _blocking_write_projection
         try:
             result["path"] = record_closure_report(
                 story_dir,
@@ -519,7 +520,7 @@ def test_record_closure_report_lock_spans_the_projection_write(
         except BaseException as exc:  # noqa: BLE001 -- surfaced to the test thread
             errors.append(exc)
         finally:
-            postgres_store._write_projection = original_write_projection
+            _qa_artifact_rows._write_projection = original_write_projection
 
     writer_thread = threading.Thread(target=_run_writer)
     writer_thread.start()
@@ -556,7 +557,7 @@ def test_record_closure_report_lock_spans_the_projection_write(
             probe_conn.rollback()
             probe_conn.close()
     finally:
-        postgres_store._write_projection = original_write_projection
+        _qa_artifact_rows._write_projection = original_write_projection
 
     assert result["path"] == story_dir / "closure.json"
     assert (story_dir / "closure.json").exists()

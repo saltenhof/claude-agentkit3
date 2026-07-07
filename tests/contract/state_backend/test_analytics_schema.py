@@ -511,9 +511,9 @@ def test_reconciliation_is_column_conditional_drop_not_create_if_not_exists() ->
     (drops ONLY when the existing column set differs from FK-62 — so an old table is
     rebuilt FK-62-shaped while an already-FK-62 table is NOT wiped each startup).
     """
-    from agentkit.backend.state_backend import postgres_store
+    from agentkit.backend.state_backend.postgres_store import _schema
 
-    source = Path(postgres_store.__file__).read_text(encoding="utf-8")
+    source = Path(_schema.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
     func = next(
         node

@@ -8,7 +8,7 @@ calling the public facade functions.
 from __future__ import annotations
 
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -18,7 +18,11 @@ from tests.phase_state_factory import make_phase_state
 from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.backend.phase_state_store.models import FlowExecution
 from agentkit.backend.pipeline_engine.phase_executor import PhaseState
-from agentkit.backend.state_backend import postgres_store
+from agentkit.backend.state_backend.postgres_store import (
+    _qa_artifact_rows,
+    _runtime_rows,
+    _story_project_rows,
+)
 from agentkit.backend.state_backend.store import facade
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
@@ -51,6 +55,15 @@ def _fake_global(rows: list[Any]) -> Generator[_FakeConnection, None, None]:
     yield _FakeConnection(rows)
 
 
+def _seed_connect_global(monkeypatch: pytest.MonkeyPatch, rows: list[Any]) -> None:
+    def fake() -> AbstractContextManager[_FakeConnection]:
+        return _fake_global(rows)
+
+    monkeypatch.setattr(_story_project_rows, "_connect_global", fake)
+    monkeypatch.setattr(_runtime_rows, "_connect_global", fake)
+    monkeypatch.setattr(_qa_artifact_rows, "_connect_global", fake)
+
+
 @pytest.fixture(autouse=True)
 def _use_postgres_backend(
     monkeypatch: pytest.MonkeyPatch,
@@ -69,20 +82,17 @@ def _use_postgres_backend(
 
 
 def test_load_story_context_global_reads_single_payload(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        postgres_store,
-        "_connect_global",
-        lambda: _fake_global(
-            [
-                {
-                    "payload_json": (
-                        '{"project_key":"tenant-a","story_id":"AG3-100",'
-                        '"story_type":"implementation","execution_route":"execution",'
-                        '"title":"Story 100","story_size":"M"}'
-                    ),
-                },
-            ],
-        ),
+    _seed_connect_global(
+        monkeypatch,
+        [
+            {
+                "payload_json": (
+                    '{"project_key":"tenant-a","story_id":"AG3-100",'
+                    '"story_type":"implementation","execution_route":"execution",'
+                    '"title":"Story 100","story_size":"M"}'
+                ),
+            },
+        ],
     )
 
     record = facade.load_story_context_global("tenant-a", "AG3-100")
@@ -93,27 +103,24 @@ def test_load_story_context_global_reads_single_payload(monkeypatch: pytest.Monk
 
 
 def test_load_story_contexts_global_reads_multiple_payloads(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        postgres_store,
-        "_connect_global",
-        lambda: _fake_global(
-            [
-                {
-                    "payload_json": (
-                        '{"project_key":"tenant-a","story_id":"AG3-100",'
-                        '"story_type":"implementation","execution_route":"execution",'
-                        '"title":"Story 100","story_size":"S"}'
-                    ),
-                },
-                {
-                    "payload_json": (
-                        '{"project_key":"tenant-a","story_id":"AG3-101",'
-                        '"story_type":"bugfix","execution_route":"execution",'
-                        '"title":"Story 101","story_size":"M"}'
-                    ),
-                },
-            ],
-        ),
+    _seed_connect_global(
+        monkeypatch,
+        [
+            {
+                "payload_json": (
+                    '{"project_key":"tenant-a","story_id":"AG3-100",'
+                    '"story_type":"implementation","execution_route":"execution",'
+                    '"title":"Story 100","story_size":"S"}'
+                ),
+            },
+            {
+                "payload_json": (
+                    '{"project_key":"tenant-a","story_id":"AG3-101",'
+                    '"story_type":"bugfix","execution_route":"execution",'
+                    '"title":"Story 101","story_size":"M"}'
+                ),
+            },
+        ],
     )
 
     records = facade.load_story_contexts_global("tenant-a")
@@ -129,16 +136,13 @@ def test_load_phase_state_global_reads_payload(monkeypatch: pytest.MonkeyPatch) 
         review_round=0,
         errors=[],
     ).model_dump_json()
-    monkeypatch.setattr(
-        postgres_store,
-        "_connect_global",
-        lambda: _fake_global(
-            [
-                {
-                    "payload_json": payload_json,
-                },
-            ],
-        ),
+    _seed_connect_global(
+        monkeypatch,
+        [
+            {
+                "payload_json": payload_json,
+            },
+        ],
     )
 
     record = facade.load_phase_state_global("AG3-100")
@@ -148,27 +152,24 @@ def test_load_phase_state_global_reads_payload(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_load_flow_execution_global_reads_row(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        postgres_store,
-        "_connect_global",
-        lambda: _fake_global(
-            [
-                {
-                    "project_key": "tenant-a",
-                    "story_id": "AG3-100",
-                    "run_id": "run-100",
-                    "flow_id": "implementation",
-                    "level": "story",
-                    "owner": "pipeline_engine",
-                    "parent_flow_id": None,
-                    "status": "RUNNING",
-                    "current_node_id": "implementation",
-                    "attempt_no": 2,
-                    "started_at": "2026-04-22T10:00:00+00:00",
-                    "finished_at": None,
-                },
-            ],
-        ),
+    _seed_connect_global(
+        monkeypatch,
+        [
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "run_id": "run-100",
+                "flow_id": "implementation",
+                "level": "story",
+                "owner": "pipeline_engine",
+                "parent_flow_id": None,
+                "status": "RUNNING",
+                "current_node_id": "implementation",
+                "attempt_no": 2,
+                "started_at": "2026-04-22T10:00:00+00:00",
+                "finished_at": None,
+            },
+        ],
     )
 
     record = facade.load_flow_execution_global("tenant-a", "AG3-100")
@@ -179,33 +180,30 @@ def test_load_flow_execution_global_reads_row(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_load_latest_story_metrics_global_reads_row(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        postgres_store,
-        "_connect_global",
-        lambda: _fake_global(
-            [
-                {
-                    "project_key": "tenant-a",
-                    "story_id": "AG3-100",
-                    "run_id": "run-100",
-                    "story_type": "implementation",
-                    "story_size": "medium",
-                    "mode": "standard",
-                    "processing_time_min": 12.5,
-                    "qa_rounds": 2,
-                    "increments": 3,
-                    "final_status": "DONE",
-                    "completed_at": "2026-04-22T10:30:00+00:00",
-                    "adversarial_findings": None,
-                    "adversarial_tests_created": None,
-                    "files_changed": None,
-                    "agentkit_version": None,
-                    "agentkit_commit": None,
-                    "config_version": None,
-                    "llm_roles_json": "[]",
-                },
-            ],
-        ),
+    _seed_connect_global(
+        monkeypatch,
+        [
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "run_id": "run-100",
+                "story_type": "implementation",
+                "story_size": "medium",
+                "mode": "standard",
+                "processing_time_min": 12.5,
+                "qa_rounds": 2,
+                "increments": 3,
+                "final_status": "DONE",
+                "completed_at": "2026-04-22T10:30:00+00:00",
+                "adversarial_findings": None,
+                "adversarial_tests_created": None,
+                "files_changed": None,
+                "agentkit_version": None,
+                "agentkit_commit": None,
+                "config_version": None,
+                "llm_roles_json": "[]",
+            },
+        ],
     )
 
     record = facade.load_latest_story_metrics_global("tenant-a", "AG3-100")
@@ -215,41 +213,38 @@ def test_load_latest_story_metrics_global_reads_row(monkeypatch: pytest.MonkeyPa
 
 
 def test_load_execution_events_global_reads_latest_subset(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        postgres_store,
-        "_connect_global",
-        lambda: _fake_global(
-            [
-                {
-                    "project_key": "tenant-a",
-                    "story_id": "AG3-100",
-                    "run_id": "run-100",
-                    "event_id": "evt-002",
-                    "event_type": "node_result",
-                    "occurred_at": "2026-04-22T10:05:00+00:00",
-                    "source_component": "pipeline-engine",
-                    "severity": "info",
-                    "phase": "implementation",
-                    "flow_id": "implementation",
-                    "node_id": "node-2",
-                    "payload_json": "{\"order\":2}",
-                },
-                {
-                    "project_key": "tenant-a",
-                    "story_id": "AG3-100",
-                    "run_id": "run-100",
-                    "event_id": "evt-001",
-                    "event_type": "agent_start",
-                    "occurred_at": "2026-04-22T10:00:00+00:00",
-                    "source_component": "control-plane",
-                    "severity": "info",
-                    "phase": "implementation",
-                    "flow_id": "implementation",
-                    "node_id": "node-1",
-                    "payload_json": "{\"order\":1}",
-                },
-            ],
-        ),
+    _seed_connect_global(
+        monkeypatch,
+        [
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "run_id": "run-100",
+                "event_id": "evt-002",
+                "event_type": "node_result",
+                "occurred_at": "2026-04-22T10:05:00+00:00",
+                "source_component": "pipeline-engine",
+                "severity": "info",
+                "phase": "implementation",
+                "flow_id": "implementation",
+                "node_id": "node-2",
+                "payload_json": "{\"order\":2}",
+            },
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "run_id": "run-100",
+                "event_id": "evt-001",
+                "event_type": "agent_start",
+                "occurred_at": "2026-04-22T10:00:00+00:00",
+                "source_component": "control-plane",
+                "severity": "info",
+                "phase": "implementation",
+                "flow_id": "implementation",
+                "node_id": "node-1",
+                "payload_json": "{\"order\":1}",
+            },
+        ],
     )
 
     records = facade.load_execution_events_global(

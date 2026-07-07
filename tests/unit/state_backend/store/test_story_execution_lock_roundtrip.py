@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 _STATE_DATABASE_URL_ENV = "AGENTKIT_STATE_DATABASE_URL"
+_POSTGRES_URL_AT_IMPORT = os.environ.get(_STATE_DATABASE_URL_ENV)
 
 _NOW = datetime(2026, 5, 24, 12, 0, 0, tzinfo=UTC)
 _PROJECT_KEY = "test-lock-proj"
@@ -51,7 +52,7 @@ def _make_lock_record(story_id: str) -> StoryExecutionLockRecord:
 
 
 def _has_postgres_url() -> bool:
-    return bool(os.environ.get(_STATE_DATABASE_URL_ENV, ""))
+    return bool(_POSTGRES_URL_AT_IMPORT)
 
 
 # ---------------------------------------------------------------------------
@@ -309,6 +310,8 @@ class TestStoryExecutionLockPostgresRoundtrip:
     ) -> None:
         """Postgres roundtrip: activate then deactivate."""
         monkeypatch.setenv(STATE_BACKEND_ENV, "postgres")
+        if _POSTGRES_URL_AT_IMPORT is not None:
+            monkeypatch.setenv(_STATE_DATABASE_URL_ENV, _POSTGRES_URL_AT_IMPORT)
         from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
         reset_backend_cache_for_tests()

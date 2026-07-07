@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agentkit.backend.state_backend import postgres_store
 from agentkit.backend.state_backend.postgres_store import iter_sql_statements
 
 
@@ -72,14 +73,7 @@ def test_empty_script_yields_nothing() -> None:
 
 def test_real_postgres_schema_parses_without_bogus_fragment() -> None:
     """The shipped schema must split cleanly with no prose-as-SQL fragment."""
-    schema_path = (
-        Path(__file__).resolve().parents[3]
-        / "src"
-        / "agentkit"
-        / "backend"
-        / "state_backend"
-        / "postgres_schema.sql"
-    )
+    schema_path = Path(postgres_store.__file__).with_name("postgres_schema.sql")
     statements = list(iter_sql_statements(schema_path.read_text(encoding="utf-8")))
 
     assert statements, "schema produced no statements"

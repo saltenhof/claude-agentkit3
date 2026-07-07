@@ -10,7 +10,7 @@ adapter returns the correct StoryContext/PhaseState/FlowExecution/StoryMetrics/
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -20,7 +20,11 @@ from tests.phase_state_factory import make_phase_state
 from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.backend.phase_state_store.models import FlowExecution
 from agentkit.backend.pipeline_engine.phase_executor import PhaseState
-from agentkit.backend.state_backend import postgres_store
+from agentkit.backend.state_backend.postgres_store import (
+    _qa_artifact_rows,
+    _runtime_rows,
+    _story_project_rows,
+)
 from agentkit.backend.state_backend.store import facade
 from agentkit.backend.state_backend.store.story_read_repository import (
     StateBackendStoryReadRepository,
@@ -68,9 +72,12 @@ def _use_postgres_backend(
 
 
 def _seed(monkeypatch: pytest.MonkeyPatch, rows: list[Any]) -> None:
-    monkeypatch.setattr(
-        postgres_store, "_connect_global", lambda: _fake_global(rows)
-    )
+    def fake() -> AbstractContextManager[_FakeConnection]:
+        return _fake_global(rows)
+
+    monkeypatch.setattr(_story_project_rows, "_connect_global", fake)
+    monkeypatch.setattr(_runtime_rows, "_connect_global", fake)
+    monkeypatch.setattr(_qa_artifact_rows, "_connect_global", fake)
 
 
 def test_adapter_is_runtime_checkable_story_read_port() -> None:
