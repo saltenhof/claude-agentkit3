@@ -30,7 +30,7 @@ pipeline {
             }
             steps {
                 deleteDir()
-                withSonarQubeEnv('agentkit3-sonar') {
+                withSonarQubeEnv('seu-sonar') {
                     sh '''
                         set -eu
                         mkdir -p cp10d-fixture
@@ -310,7 +310,7 @@ PY
             }
             steps {
                 dir('agentkit-src') {
-                    withSonarQubeEnv('agentkit3-sonar') {
+                    withSonarQubeEnv('seu-sonar') {
                         sh 'sonar-scanner'
                     }
                 }
@@ -323,7 +323,7 @@ PY
             }
             steps {
                 dir('agentkit-src') {
-                    withSonarQubeEnv('agentkit3-sonar') {
+                    withSonarQubeEnv('seu-sonar') {
                         script {
                             int gateStatus = sh(
                                 returnStatus: true,

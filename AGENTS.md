@@ -39,12 +39,13 @@ Auftraggeber iterieren.
 - Sonar-Ziel ist strikt: `violations=0`, `critical_violations=0`,
   `security_hotspots=0` (Sonar-Metrik fuer offene Hotspots auf dieser
   Instanz; `open_hotspots` ist hier kein gueltiger Metric-Key)
-- Jenkins-Build triggern: Der Job `claude-agentkit3` ist **unparametrisiert**;
-  der CI-Loop startet mit `POST /job/claude-agentkit3/build?delay=0sec`
-  (plus CSRF-Crumb aus `/crumbIssuer/api/json`). `buildWithParameters`
-  gibt hier `400`. Jenkins laeuft mit `SecurityRealm=None` +
-  `AuthorizationStrategy=Unsecured`: kein Login, anonym hat Vollzugriff;
-  ein Jenkins-Token wird nicht benoetigt (nur der Crumb fuer POST).
+- Jenkins-Build triggern: Der Job `claude-agentkit3` fuehrt den Repo-`Jenkinsfile`
+  aus und ist **parametrisiert** (`agentkit_mode`, `sonar_project_key`,
+  `sonar_branch`). Der CI-Loop startet mit
+  `POST /job/claude-agentkit3/buildWithParameters?agentkit_mode=ci&sonar_project_key=claude-agentkit3&sonar_branch=main&delay=0sec`
+  (plus CSRF-Crumb aus `/crumbIssuer/api/json`). Jenkins laeuft mit
+  `SecurityRealm=None` + `AuthorizationStrategy=Unsecured`: kein Login, anonym
+  hat Vollzugriff; ein Jenkins-Token wird nicht benoetigt (nur der Crumb fuer POST).
 - Lokale Gate-Zugaenge liegen ausserhalb des Repos in
   `T:\seu\agentkit3-secrets.cmd` und werden von den Codex-Startern fuer
   CLI und App geladen. Die Datei setzt `SONAR_URL`, `SONAR_PROJECT_KEY`,
