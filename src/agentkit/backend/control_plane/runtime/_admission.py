@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -40,13 +41,6 @@ from agentkit.backend.control_plane.repository import (
     EdgeCommandRepository,
     ObjectMutationClaimRepository,
 )
-
-# Deliberate RUNTIME re-import (not TYPE_CHECKING): this is the SSOT re-import of
-# the canonical FK-56 operating-mode literal from its SINGLE foundation definition
-# (``core_types.operating_mode``). It must be a runtime binding so the
-# single-definition identity holds for consumers (and is assertable) -- moving it
-# into a type-checking block would make ``control_plane.runtime.OperatingMode`` a
-# different/absent object at runtime, defeating the AK2 SSOT consolidation.
 from agentkit.backend.exceptions import (
     ControlPlaneBindingCollisionError,
     ControlPlaneClaimCollisionError,
@@ -89,8 +83,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
-    """Start-phase admission and dispatch support for the runtime service."""
+class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin, ABC):
+    """Abstract admission-algorithm base for the runtime service.
+
+    The concrete ``ControlPlaneRuntimeService`` supplies the template-method
+    hooks below. Those hooks orchestrate collaborators assembled only by the full
+    service, including ``_AdminTransitionMixin``, ``_EdgeCommandMixin``, and
+    ``_ProjectEdgeSyncMixin``.
+    """
 
     def __init__(
         self,
@@ -1292,6 +1292,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
                 reason=reason,
             )
 
+    @abstractmethod
     def _load_existing_operation(
         self,
         request: PhaseMutationRequest | ClosureCompleteRequest,
@@ -1303,10 +1304,12 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin):
         del request, operation_kind, phase, mutating_retry
         raise NotImplementedError
 
+    @abstractmethod
     def _story_scoped_materialization_enabled(self, request: PhaseMutationRequest) -> bool:
         del request
         raise NotImplementedError
 
+    @abstractmethod
     def _mutate_phase(
         self,
         *,

@@ -41,13 +41,6 @@ from agentkit.backend.control_plane.records import (
     ControlPlaneOperationRecord,
     EdgeCommandRecord,
 )
-
-# Deliberate RUNTIME re-import (not TYPE_CHECKING): this is the SSOT re-import of
-# the canonical FK-56 operating-mode literal from its SINGLE foundation definition
-# (``core_types.operating_mode``). It must be a runtime binding so the
-# single-definition identity holds for consumers (and is assertable) -- moving it
-# into a type-checking block would make ``control_plane.runtime.OperatingMode`` a
-# different/absent object at runtime, defeating the AK2 SSOT consolidation.
 from agentkit.backend.exceptions import (
     ControlPlaneClaimCollisionError,
     EdgeCommandNotOpenError,
@@ -121,7 +114,7 @@ class _EdgeCommandMixin:
     ) -> OpenEdgeCommandsResponse:
         """``GET .../story-runs/{run_id}/commands`` (FK-91 §91.1b, AG3-145 AC1).
 
-        Read-only Ack (Rule 13: "Reads nehmen niemals Sperren") -- the fetch
+        Read-only Ack (Rule 13: "reads never take locks") -- the fetch
         stamps delivery (``created`` -> ``delivered``) but acquires no
         lock/claim. Scoped to ``(project_key, run_id, session_id)`` at the
         store: a foreign session's query matches zero rows -- fail-closed by
@@ -407,7 +400,7 @@ class _EdgeCommandMixin:
         Runs INSIDE the fenced command-result commit (behind the Postgres guard,
         K5), so it inherits the Rule-15 ownership fence -- an ex-owner's result
         never updates the freshness. Freshness is INFORMATION only; it triggers
-        NO ownership wirkung (AC5). A ``sync_push`` ``command_error`` records a
+        No ownership effect (AC5). A ``sync_push`` ``command_error`` records a
         visible backlog as well, so a post-gate git failure cannot leave a stale
         successful freshness row standing.
         """

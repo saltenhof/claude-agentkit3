@@ -10,13 +10,6 @@ from agentkit.backend.control_plane.models import (
     ControlPlaneMutationResult,
     ProjectEdgeSyncRequest,
 )
-
-# Deliberate RUNTIME re-import (not TYPE_CHECKING): this is the SSOT re-import of
-# the canonical FK-56 operating-mode literal from its SINGLE foundation definition
-# (``core_types.operating_mode``). It must be a runtime binding so the
-# single-definition identity holds for consumers (and is assertable) -- moving it
-# into a type-checking block would make ``control_plane.runtime.OperatingMode`` a
-# different/absent object at runtime, defeating the AK2 SSOT consolidation.
 from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
 
 from ._edge_bundles import _build_edge_bundle, _next_binding_version
