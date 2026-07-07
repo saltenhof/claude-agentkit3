@@ -87,7 +87,7 @@ _RESERVED_PRODUCTION_POSTGRES_PORT_ERROR = (
 # ``--rm``, never removed on teardown) instead of spawning an ephemeral
 # ``ak3-postgres-<uuid>`` per pytest session — so a machine runs at most ONE local
 # test DB regardless of how many sessions/workers execute. It is strictly separate
-# from the CI instance (``agentkit-postgres-ci``, docker-internal only): a distinct
+# from the CI instance (``seu-ci-postgres``, docker-internal only): a distinct
 # host port (55442, not the CI 55432) so the two never collide even while both run on
 # one machine. It carries NO reapable test label and its name is not the ephemeral
 # 12-hex form, so neither container reaper removes it (see _is_reapable_test_container).

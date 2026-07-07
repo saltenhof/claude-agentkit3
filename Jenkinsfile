@@ -151,16 +151,16 @@ PY
                         . .venv/bin/activate
                         DB_NAME="agentkit_test_${BUILD_NUMBER:-manual}"
                         # CI Postgres reachability is DOCKER-INTERNAL ONLY: the DB runs as the
-                        # single CI instance ``agentkit-postgres-ci`` on the shared Docker
+                        # single CI instance ``seu-ci-postgres`` on the shared Docker
                         # network and is reached by CONTAINER NAME on the internal port 5432.
                         # It publishes NO host port (no ``-p 55432``, no host.docker.internal),
                         # so there is no host-network grenzuebertritt through the Docker-Desktop
                         # userspace port proxy. Prerequisite (infra, not this repo): the Jenkins
                         # build container is attached to the same user-defined Docker network as
-                        # ``agentkit-postgres-ci``.
+                        # ``seu-ci-postgres``.
                         export AGENTKIT_STATE_BACKEND=postgres
-                        export AGENTKIT_STATE_DATABASE_URL="postgresql://agentkit:agentkit@agentkit-postgres-ci:55432/${DB_NAME}"
-                        export AGENTKIT_PG_ADMIN_DSN="postgresql://agentkit:agentkit@agentkit-postgres-ci:55432/postgres"
+                        export AGENTKIT_STATE_DATABASE_URL="postgresql://ci:ci@seu-ci-postgres:55432/${DB_NAME}"
+                        export AGENTKIT_PG_ADMIN_DSN="postgresql://ci:ci@seu-ci-postgres:55432/postgres"
                         python - <<'PY'
 from __future__ import annotations
 
@@ -202,7 +202,7 @@ while time.time() < deadline:
         time.sleep(1)
 else:
     raise SystemExit(
-        "Postgres service at agentkit-postgres-ci:55432 (shared Docker network) "
+        "Postgres service at seu-ci-postgres:55432 (shared Docker network) "
         f"not reachable within 60s: {last_error!r}"
     )
 PY
