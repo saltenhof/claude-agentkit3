@@ -51,6 +51,18 @@ def _config(root: Path) -> InstallConfig:
     )
 
 
+def _claude_commands_for_event(
+    settings: dict[str, object], event_key: str
+) -> set[tuple[str | None, str]]:
+    hooks = settings["hooks"]  # type: ignore[index]
+    groups = hooks[event_key]  # type: ignore[index]
+    return {
+        (group.get("matcher"), handler["command"])
+        for group in groups
+        for handler in group["hooks"]
+    }
+
+
 def test_default_install_lands_ag3_086_hooks_in_settings(tmp_path: Path) -> None:
     """The real installer path materializes all four AG3-086 hooks into settings."""
     changed = _register_default_governance_hooks(_config(tmp_path), tmp_path)
@@ -62,14 +74,8 @@ def test_default_install_lands_ag3_086_hooks_in_settings(tmp_path: Path) -> None
     assert settings_path.is_file()
     claude = json.loads(settings_path.read_text(encoding="utf-8"))
 
-    pre = {
-        (entry["matcher"], entry["command"])
-        for entry in claude["hooks"]["PreToolUse"]
-    }
-    post = {
-        (entry["matcher"], entry["command"])
-        for entry in claude["hooks"]["PostToolUse"]
-    }
+    pre = _claude_commands_for_event(claude, "PreToolUse")
+    post = _claude_commands_for_event(claude, "PostToolUse")
 
     # FK-30 §30.5.1a: the single blocking web-call budget owner (PreToolUse).
     assert ("WebFetch|WebSearch", "agentkit-hook-claude pre budget") in pre
@@ -95,10 +101,9 @@ def test_default_install_is_idempotent_on_second_run(tmp_path: Path) -> None:
     second_content = json.loads(settings_path.read_text(encoding="utf-8"))
 
     def _pre(content: dict[str, object]) -> set[tuple[str, str]]:
-        hooks = content["hooks"]  # type: ignore[index]
         return {
-            (entry["matcher"], entry["command"])
-            for entry in hooks["PreToolUse"]  # type: ignore[index]
+            (matcher or "", command)
+            for matcher, command in _claude_commands_for_event(content, "PreToolUse")
         }
 
     # The four AG3-086 hooks remain present and stable across re-install.

@@ -152,6 +152,39 @@ size: L
 # per-attempt-Korrelation) entfernt, gesunder Rest behalten; paired FK-10-§10.2.4b-
 # Edit (einzige autorisierte Konzept-Aenderung). Danach Codex+GLM-Doppel-Review ->
 # Close. status: in_progress (Redesign-Umsetzung).
+# 2026-07-07 REDESIGN GELANDET + 3 externe Fix-Commits (a0b1d646/2c0399c1/
+# ca97cd4f, ausserhalb Orchestrator-Lane) + Codex-Re-Screens: C1/C2/C3 zu,
+# aber Rest offen. Codex-Screen @ca97cd4f REJECT: #1 Fail-Open (commit-
+# Invalidierung nicht produktiv verdrahtet - commit_hook nicht in Default-Hooks),
+# #4 ARCH-02/04 (Commissioning 3-fach dupliziert), ARCH-55 DE-Kommentare.
+# Codex-Remediation (job-2084a752) GELANDET GRUEN: SHA 00f7f063 (4 Commits
+# d14d4245+..), Jenkins #1086 SUCCESS, Sonar OK (0/0/0, cov 86.11%), unit
+# 9007 passed/86.88%. #1 zu: commit_hook produktiv registriert+dispatcht
+# (default_hook_definitions.py:63-77, runner.py:579-662), HEAD-Delta statt
+# Regex, unknown-repo fail-closed supersede-all, Integrationstest beweist
+# lokaler-Commit-B -> PASS->SUPERSEDED->Block. #4 zu: ein Owner
+# push_barrier_lifecycle.py, freshness.py geloescht. #2/#3 zu geblieben.
+# Doppel-Review @00f7f063 (Codex job-bf53b785 + Fable): BEIDE REJECT.
+# Codex-#3 "malformed-PASSED Fail-Open" = FEHLALARM (Orchestrator-Adjudikation
+# per Code-Lesung + Codex-eigenes Repro: passt nur weil FRISCHER server-read
+# A==expected; server_head_sha-Spalte nie in Entscheidung gelesen; leerer
+# frischer read -> Block/fail-closed). Items 1/2/4 von BEIDEN als CLOSED
+# bestaetigt. FABLE-FLAGSHIP ERROR (Orchestrator gegen ausgeliefertes Bundle +
+# Anthropic-Doku code.claude.com/docs/en/hooks verifiziert): Claude-Hook-Settings
+# in FLACHER Form {matcher,command} statt echter DREISTUFIGER Form {matcher,
+# hooks:[{type:command,command}]} -> in echtem Claude Code feuert KEIN AK3-Hook
+# -> mechanisch korrekte Invalidierung wird produktiv NIE ausgeloest (uebergreifend,
+# seit AG3-031, konzept-verwurzelt FK-30 §30.3.1; PO bestaetigt Praxis-Fehler).
+# PO-Entscheid: JETZT fixen inkl. Konzept. Codex-Worker (job-fae6f98a):
+# ClaudeSettingsWriter flach->dreistufig (multi-guard-per-matcher = mehrere
+# Handler in EINER matcher-Gruppe), Bundle settings.json, detach.py _strip_claude_
+# hooks (two-level->three-level, chirurgisch FK-10 §10.2.9), Upgrade-Migration
+# flach->dreistufig, FK-30 §30.3.1-Korrektur, Contract-Test pinnt Form, ~25
+# Test-Dateien, + ARCH-55 edge_commands.py DE->EN, + ARCH-43 push-timeout
+# command_executor.py. OUT-OF-SCOPE (gemeldet): 2 WARNINGs (fail-soft delivery
+# kann 1 Invalidierung an Zwischen-Wartepunkt verschlucken; cwd-shift/cross-repo
+# HEAD-Delta-Blindfleck). Danach Doppel-Review (Fable+Codex) -> Close.
+# status: in_progress (Settings-Shape-Fix).
 # Herkunft: GAP-ST-15 (gap-analyse-session-ownership.md v4, Codex-APPROVE;
 # K1-Verankerung 58c190b7, PO-Entscheidung II pushed-only). Setzt die
 # Pushed-only-Regel durch: harte Push-Barrieren an Phasen-/QA-/Yield-/

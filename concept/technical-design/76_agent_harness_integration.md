@@ -187,28 +187,42 @@ neutral und stammen aus FK-30 §30.3.1; FK-76 definiert die harness-spezifische
 
 ### 76.5.1 Claude Code — `.claude/settings.json`
 
+Claude Code verwendet eine **dreistufige** Shape (Event → Matcher-Gruppe →
+Handler-Liste):
+
 ```json
 {
   "hooks": {
     "PreToolUse": [
-      { "matcher": "Bash", "command": "agentkit-hook-claude pre branch_guard" }
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "agentkit-hook-claude pre branch_guard" }
+        ]
+      }
     ],
     "PostToolUse": [
-      { "matcher": "Agent|Bash|*_send", "command": "agentkit-hook-claude post telemetry" }
+      {
+        "matcher": "Agent|Bash|*_send",
+        "hooks": [
+          { "type": "command", "command": "agentkit-hook-claude post telemetry" }
+        ]
+      }
     ]
   }
 }
 ```
 
-Identitaet eines Eintrags ist `(hook_event_name, matcher, command)` — mehrere
-Guards duerfen denselben Matcher teilen (z. B. `Bash` fuer `branch_guard` UND
-`story_creation_guard`); ein Merge nach Matcher allein ist unzulaessig
-(verwirft Guards).
+Identitaet eines AK3-Handlers ist `(hook_event_name, matcher, command)` —
+mehrere Guards duerfen denselben Matcher teilen (z. B. `Bash` fuer
+`branch_guard` UND `story_creation_guard`) und werden als mehrere Handler in
+derselben Matcher-Gruppe materialisiert; ein Merge nach Matcher allein ist
+unzulaessig (verwirft Guards).
 
 ### 76.5.2 Codex — `.codex/hooks.json`
 
-Codex verwendet eine **dreistufige** Shape (Event → Matcher-Gruppe →
-Handler-Liste), nicht die flache Claude-Form:
+Codex verwendet dieselbe **dreistufige** Shape (Event → Matcher-Gruppe →
+Handler-Liste), mit Codex-spezifischem Wrapper und Matcher-Mapping:
 
 ```json
 {

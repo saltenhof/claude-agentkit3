@@ -46,6 +46,7 @@ from agentkit.backend.installer.upgrade.footprint import (
 from agentkit.backend.installer.upgrade.hook_migration import (
     migrate_git_hook_dispatch,
     migrate_hooks,
+    migrate_legacy_claude_hook_settings,
 )
 from agentkit.backend.installer.upgrade.scenarios import decide_upgrade_scenario
 from agentkit.backend.process.language.model import (
@@ -141,6 +142,7 @@ class UpgradeRunState:
     config_migrated: bool = False
     config_target_version: str | None = None
     hook_outcome: HookMigrationOutcome | None = None
+    claude_hook_settings_migrated: bool = False
     git_hook_outcome: GitHookMigrationOutcome | None = None
     cleanup_outcome: CleanupOutcome | None = None
 
@@ -331,11 +333,21 @@ def up_04_migrate_hooks(context: UpgradeRunContext) -> CheckpointResult:
     """
     start = time.monotonic()
     req = context.request
+    if context.mode.mutations_allowed:
+        context.run_state.claude_hook_settings_migrated = (
+            migrate_legacy_claude_hook_settings(req.project_root)
+        )
     if req.governance is None:
+        detail = "No governance surface provided; hook migration not wired here."
+        if context.run_state.claude_hook_settings_migrated:
+            detail = (
+                "Migrated legacy Claude hook settings to the three-level shape. "
+                + detail
+            )
         return _result(
             UP_04_MIGRATE_HOOKS,
             status=CheckpointStatus.SKIPPED,
-            detail="No governance surface provided; hook migration not wired here.",
+            detail=detail,
             reason="no_governance_surface",
             start=start,
         )
@@ -360,12 +372,15 @@ def up_04_migrate_hooks(context: UpgradeRunContext) -> CheckpointResult:
         req.governance, desired, current_matchers=req.current_hook_matchers
     )
     context.run_state.hook_outcome = outcome
+    changed = outcome.changed or context.run_state.claude_hook_settings_migrated
     return _result(
         UP_04_MIGRATE_HOOKS,
-        status=CheckpointStatus.UPDATED if outcome.changed else CheckpointStatus.PASS,
+        status=CheckpointStatus.UPDATED if changed else CheckpointStatus.PASS,
         detail=(
             f"Registered {len(outcome.registered)} hook(s) via "
-            f"Governance.register_hooks; removed {len(outcome.removed)} obsolete."
+            f"Governance.register_hooks; removed {len(outcome.removed)} obsolete; "
+            "migrated legacy Claude settings="
+            f"{context.run_state.claude_hook_settings_migrated}."
         ),
         start=start,
     )

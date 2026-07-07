@@ -154,18 +154,23 @@ def deploy_ccag_rules(project_root: Path) -> list[str]:
     return written
 
 
-def build_claude_hook_entry() -> dict[str, str]:
-    """Return the CCAG hook entry for ``.claude/settings.json``.
+def build_claude_hook_entry() -> dict[str, object]:
+    """Return the CCAG matcher group for ``.claude/settings.json``.
 
-    The entry uses the canonical wrapper so CCAG is the last
+    The handler uses the canonical wrapper so CCAG is the last
     PreToolUse hook (FK-42 §42.5.2 / F-42-030).
 
     Returns:
-        Dict with ``matcher`` and ``command`` keys.
+        Dict with ``matcher`` and nested ``hooks`` handler list.
     """
     return {
         "matcher": CCAG_HOOK_MATCHER,
-        "command": CCAG_HOOK_COMMAND_CLAUDE,
+        "hooks": [
+            {
+                "type": "command",
+                "command": CCAG_HOOK_COMMAND_CLAUDE,
+            }
+        ],
     }
 
 

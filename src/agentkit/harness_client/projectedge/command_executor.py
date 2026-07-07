@@ -8,7 +8,7 @@ against the REAL git repo, and reports the typed result with the edge's OWN
 ``op_id`` (:meth:`ProjectEdgeClient.report_command_result`).
 
 ``provision_worktree`` / ``teardown_worktree`` / ``preflight_probe`` (AG3-145
-Teilschritt B) plus ``sync_push`` (the AG3-147 official Edge-Push-Gate path,
+substep B) plus ``sync_push`` (the AG3-147 official Edge-Push-Gate path,
 FK-15 §15.5.4 / FK-55 §55.9) are executed here. A command of any OTHER
 registered kind (``takeover_reconcile`` / ``merge_local`` -- owned by
 AG3-151/152) yields a deterministic :class:`CommandErrorResult`, never a silent
@@ -61,6 +61,8 @@ if TYPE_CHECKING:
     from agentkit.harness_client.projectedge.client import ProjectEdgeClient
 
 _STORY_MARKER_FILENAME = ".agentkit-story.json"
+_EDGE_GIT_TIMEOUT_S = 30
+_EDGE_GIT_PUSH_TIMEOUT_S = 120
 
 #: The backend-managed env-var HANDLE carrying the story/* write credential
 #: (FK-15 §15.5.1). Deployment contract: it MUST match the backend adapter's
@@ -124,12 +126,19 @@ class EdgeGitError(RuntimeError):
 
 def _run_git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     """Run one ``git -C <repo_root> <args>`` subprocess and return the result."""
-    return subprocess.run(
-        ["git", "-C", str(repo_root), *args],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        return subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_EDGE_GIT_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise EdgeGitError(
+            f"dev-local git {' '.join(args)} timed out after "
+            f"{_EDGE_GIT_TIMEOUT_S}s"
+        ) from exc
 
 
 def _require_git(result: subprocess.CompletedProcess[str], action: str) -> None:
@@ -277,7 +286,7 @@ def execute_preflight_probe(
 
     Reports branch class (present + head SHA), local worktree presence, path
     and marker content. Makes NO decision -- the backend's preflight checks 7/8
-    decide on this evidence (AG3-145 Teilschritt C).
+    decide on this evidence (AG3-145 substep C).
     """
     repo_root = _resolve_repo_root(project_config, project_root, payload.repo_id)
     branch_present, head_sha = _probe_branch(repo_root, payload.branch)
@@ -426,13 +435,17 @@ def _push_official_ref(
     the subprocess environment and is never returned or logged.
     """
     refspec = f"{head_sha}:refs/heads/{official_story_ref(story_id)}"
-    result = subprocess.run(
-        ["git", "-C", str(worktree_path), "push", "origin", refspec],
-        capture_output=True,
-        text=True,
-        check=False,
-        env=_push_env(credential_ref),
-    )
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(worktree_path), "push", "origin", refspec],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=_push_env(credential_ref),
+            timeout=_EDGE_GIT_PUSH_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        return "behind_remote"
     return "pushed" if result.returncode == 0 else "behind_remote"
 
 

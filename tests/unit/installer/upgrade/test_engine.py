@@ -10,6 +10,7 @@ FIX 3: the upgrade flow actually invokes ``migrate_hooks`` ->
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 from tests.unit.installer.upgrade.conftest import (
@@ -168,6 +169,57 @@ def test_run_upgrade_register_calls_register_hooks(
     assert {d.matcher for d in governance.calls[0]} == {"Bash", "Write"}
     assert result.hook_outcome is not None
     assert set(result.hook_outcome.registered) == {"Bash", "Write"}
+
+
+def test_run_upgrade_register_migrates_legacy_claude_settings(
+    tmp_path: Path, registration_repo: InMemoryRegistrationRepo
+) -> None:
+    """The engine-wired hook checkpoint rewrites persisted flat Claude settings."""
+    project_root = tmp_path / "proj"
+    project_root.mkdir()
+    settings_path = project_root / ".claude" / "settings.json"
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "PreToolUse": [
+                        {
+                            "matcher": "Bash",
+                            "command": "agentkit-hook-claude pre branch_guard",
+                        }
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path = write_valid_project_yaml(project_root)
+    register_project(
+        registration_repo,
+        project_root=project_root,
+        project_key=project_root.stem,
+        config_digest=config_file_digest(config_path),
+    )
+    governance = _RecordingGovernance()
+
+    result = run_upgrade(
+        project_root,
+        project_key=project_root.stem,
+        target_config_version="3.0",
+        registration_repo=registration_repo,  # type: ignore[arg-type]
+        mode=ExecutionMode.REGISTER,
+        governance=governance,  # type: ignore[arg-type]
+        desired_hook_definitions=[],
+    )
+
+    assert result.claude_hook_settings_migrated is True
+    data = json.loads(settings_path.read_text(encoding="utf-8"))
+    group = data["hooks"]["PreToolUse"][0]
+    assert "command" not in group
+    assert group["hooks"] == [
+        {"command": "agentkit-hook-claude pre branch_guard", "type": "command"}
+    ]
 
 
 def test_run_upgrade_verify_does_not_call_register_hooks(

@@ -20,6 +20,9 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
 from agentkit.backend.installer.upgrade.config_migration import BACKUP_SUFFIX, backup_config_file
+from agentkit.harness_client.harness_adapters.settings_writer import (
+    normalize_claude_hooks_section,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -147,6 +150,46 @@ def migrate_hooks(
     )
 
 
+def migrate_legacy_claude_hook_settings(project_root: Path) -> bool:
+    """Rewrite persisted flat Claude hook settings to the canonical shape.
+
+    Existing AG3 installs before AG3-147 may carry flat Claude entries like
+    ``{"matcher": "Bash", "command": "agentkit-hook-claude pre branch_guard"}``.
+    The harness writer owns the single normalization rule; upgrade invokes it
+    here to preserve foreign settings while emitting only the real Claude Code
+    three-level shape on disk.
+
+    Args:
+        project_root: The target-project root.
+
+    Returns:
+        ``True`` when the settings file was rewritten, otherwise ``False``.
+
+    Raises:
+        ValueError: If a present settings file or ``hooks`` section is malformed.
+        OSError: If the settings file cannot be read or written.
+    """
+    settings_path = project_root / ".claude" / "settings.json"
+    if not settings_path.is_file():
+        return False
+    import json
+
+    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    if not isinstance(settings, dict):
+        raise ValueError(
+            "Existing .claude/settings.json must be a JSON object "
+            "(fail-closed).",
+        )
+    if "hooks" not in settings:
+        return False
+    normalized = normalize_claude_hooks_section(settings.get("hooks"))
+    if not normalized.changed:
+        return False
+    settings["hooks"] = normalized.hooks_section
+    settings_path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+    return True
+
+
 def _pre_commit_path(project_root: Path) -> Path:
     """Return the target-project ``tools/hooks/pre-commit`` path (FK-51 §51.6.1)."""
     return project_root / "tools" / "hooks" / "pre-commit"
@@ -246,6 +289,7 @@ __all__ = [
     "HookMigrationOutcome",
     "determine_hook_definitions",
     "has_dispatch_block",
+    "migrate_legacy_claude_hook_settings",
     "migrate_git_hook_dispatch",
     "migrate_hooks",
 ]

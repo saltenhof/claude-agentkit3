@@ -33,6 +33,7 @@ from agentkit.backend.control_plane.models import (
     PushStatusReport,
     SyncPushCommandPayload,
 )
+from agentkit.harness_client.projectedge import command_executor
 from agentkit.harness_client.projectedge.client import PushOwnershipProbe
 from agentkit.harness_client.projectedge.command_executor import (
     SyncPushContext,
@@ -240,6 +241,49 @@ def test_post_gate_git_failure_yields_backlog_not_command_error(tmp_path: Path) 
     assert result.result_type == "push_status_report"
     assert result.push_outcome == "behind_remote"
     assert result.head_sha is None
+
+
+def test_push_official_ref_uses_bounded_subprocess_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stalled network push cannot hang the edge executor indefinitely."""
+    recorded: dict[str, object] = {}
+
+    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        recorded["timeout"] = kwargs.get("timeout")
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(command_executor.subprocess, "run", fake_run)
+
+    outcome = command_executor._push_official_ref(
+        tmp_path,
+        story_id=_STORY_ID,
+        head_sha="a" * 40,
+        credential_ref=None,
+    )
+
+    assert outcome == "pushed"
+    assert recorded["timeout"] == command_executor._EDGE_GIT_PUSH_TIMEOUT_S
+
+
+def test_timed_out_push_reports_backlog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A push timeout is a visible backlog, not an unbounded wait or exception."""
+
+    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(cmd="git push", timeout=kwargs.get("timeout"))
+
+    monkeypatch.setattr(command_executor.subprocess, "run", fake_run)
+
+    outcome = command_executor._push_official_ref(
+        tmp_path,
+        story_id=_STORY_ID,
+        head_sha="a" * 40,
+        credential_ref=None,
+    )
+
+    assert outcome == "behind_remote"
 
 
 # ---------------------------------------------------------------------------

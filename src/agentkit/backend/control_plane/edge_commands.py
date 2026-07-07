@@ -1,7 +1,7 @@
 """Edge-Command-Queue vocabulary A-core (FK-91 §91.1b, AG3-145).
 
 Blood-type A: pure, DB-free, unit-testable. FK-91 §91.1b defines the
-Edge-Command-Queue (Auftrag/Meldung) that replaces backend-side physical
+Edge-Command-Queue (command/report) that replaces backend-side physical
 worktree operations (FK-10 §10.2.4a): the backend commissions a command, the
 Project Edge executes it dev-locally and reports a typed result. This module
 owns the closed, contract-pinned command-kind / result-type / lifecycle-status
@@ -9,7 +9,7 @@ vocabulary shared by both sides of the wire (backend command creation +
 ``harness_client`` edge executor) -- no I/O, no transactions.
 
 ``provision_worktree`` / ``teardown_worktree`` / ``preflight_probe`` (AG3-145
-Teilschritt B) plus ``sync_push`` (the AG3-147 official Edge-Push-Gate path,
+substep B) plus ``sync_push`` (the AG3-147 official Edge-Push-Gate path,
 FK-10 §10.2.4b / FK-15 §15.5.4) are EXECUTED by the edge; ``takeover_reconcile``
 / ``merge_local`` are REGISTERED here (contract-pinned vocabulary) but their
 commissioning/execution belongs to AG3-151 / AG3-152 respectively. An edge that
@@ -44,7 +44,7 @@ __all__ = (
     "is_known_command_kind",
 )
 
-#: FK-91 §91.1b "Auftragsarten (initial)": the closed set of command kinds the
+#: FK-91 §91.1b "initial command kinds": the closed set of command kinds the
 #: Edge-Command-Queue can carry. Six total; four are executed (see
 #: :data:`EXECUTABLE_COMMAND_KINDS`) -- the remaining two are registered
 #: vocabulary owned by AG3-151 / AG3-152.
@@ -100,10 +100,10 @@ RESULT_TYPES: frozenset[str] = frozenset(
     {"branch_ref_report", "push_status_report", "worktree_report"}
 )
 
-#: FK-91 §91.1b / FK-30 §30.6.3: the named takeover-family error states --
-#: benannte Result-Zustaende, never a collective FAIL.
+#: FK-91 §91.1b / FK-30 §30.6.3: the named takeover-family error states,
+#: never a collective FAIL.
 #: ``local_stale_or_dirty_takeover_target`` doubles as a named Check-8
-#: preflight finding (AG3-145 Teilschritt C, FK-22 §22.3.1).
+#: preflight finding (AG3-145 substep C, FK-22 §22.3.1).
 TakeoverErrorResultType = Literal[
     "remote_branch_diverged_after_takeover",
     "local_stale_or_dirty_takeover_target",
@@ -156,7 +156,7 @@ def edge_command_id(run_id: str, command_kind: str, repo_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Preflight checks 7/8 decision logic (FK-22 §22.3.1, AG3-145 Teilschritt C)
+# Preflight checks 7/8 decision logic (FK-22 §22.3.1, AG3-145 substep C)
 #
 # Blood-type A: pure, DB-free. The Project Edge collects the ``preflight_probe``
 # evidence (branch class + head SHA + local worktree/marker state -- NO

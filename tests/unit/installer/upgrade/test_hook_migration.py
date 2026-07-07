@@ -24,6 +24,7 @@ from agentkit.backend.installer.upgrade.hook_migration import (
     has_dispatch_block,
     migrate_git_hook_dispatch,
     migrate_hooks,
+    migrate_legacy_claude_hook_settings,
 )
 
 if TYPE_CHECKING:
@@ -90,6 +91,74 @@ def test_migrate_hooks_reports_removed() -> None:
 
     assert outcome.removed == ("Gone",)
     assert outcome.changed is True
+
+
+def test_migrate_legacy_claude_hook_settings_rewrites_flat_shape(
+    tmp_path: Path,
+) -> None:
+    settings_path = tmp_path / ".claude" / "settings.json"
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        """
+{
+  "permissions": {"allow": ["Bash"]},
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Bash", "command": "agentkit-hook-claude pre branch_guard"},
+      {"matcher": "Bash", "command": "agentkit-hook-claude pre story_creation_guard"},
+      {"matcher": "Write|Edit", "command": "/opt/foreign.sh"}
+    ]
+  }
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    changed = migrate_legacy_claude_hook_settings(tmp_path)
+
+    assert changed is True
+    import json
+
+    data = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert data["permissions"] == {"allow": ["Bash"]}
+    groups = data["hooks"]["PreToolUse"]
+    bash = next(group for group in groups if group["matcher"] == "Bash")
+    assert [handler["command"] for handler in bash["hooks"]] == [
+        "agentkit-hook-claude pre branch_guard",
+        "agentkit-hook-claude pre story_creation_guard",
+    ]
+    assert all("command" not in group for group in groups)
+
+    second = migrate_legacy_claude_hook_settings(tmp_path)
+
+    assert second is False
+
+
+def test_migrate_legacy_claude_hook_settings_preserves_three_level_shape(
+    tmp_path: Path,
+) -> None:
+    settings_path = tmp_path / ".claude" / "settings.json"
+    settings_path.parent.mkdir(parents=True)
+    content = """
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "agentkit-hook-claude pre branch_guard"}
+        ]
+      }
+    ]
+  }
+}
+""".strip()
+    settings_path.write_text(content, encoding="utf-8")
+
+    changed = migrate_legacy_claude_hook_settings(tmp_path)
+
+    assert changed is False
+    assert settings_path.read_text(encoding="utf-8") == content
 
 
 def test_git_hook_dispatch_migration_no_hook(tmp_path: Path) -> None:

@@ -155,6 +155,28 @@ def _make_governance(
     )
 
 
+def _claude_commands_for_event(
+    settings: dict[str, object], event_key: str
+) -> set[tuple[str | None, str]]:
+    hooks = settings["hooks"]  # type: ignore[index]
+    groups = hooks[event_key]  # type: ignore[index]
+    return {
+        (group.get("matcher"), handler["command"])
+        for group in groups
+        for handler in group["hooks"]
+    }
+
+
+def _claude_commands_for_matcher(
+    settings: dict[str, object], event_key: str, matcher: str
+) -> set[str]:
+    return {
+        command
+        for group_matcher, command in _claude_commands_for_event(settings, event_key)
+        if group_matcher == matcher
+    }
+
+
 # ---------------------------------------------------------------------------
 # Tests: happy path
 # ---------------------------------------------------------------------------
@@ -323,7 +345,8 @@ class TestRegisterHooksSettingsMaterialisation:
         assert "PreToolUse" in data["hooks"]
         entries = data["hooks"]["PreToolUse"]
         assert any(
-            e["matcher"] == "Bash" and "branch_guard" in e["command"]
+            e["matcher"] == "Bash"
+            and any("branch_guard" in handler["command"] for handler in e["hooks"])
             for e in entries
         )
 
@@ -351,11 +374,16 @@ class TestRegisterHooksSettingsMaterialisation:
         data = json.loads(
             (tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8")
         )
-        # FK-30 §30.3.1 schema: {hooks: {PreToolUse: [{matcher, command}], ...}}
+        # FK-30 §30.3.1 schema: event -> matcher group -> command handlers.
         pre_entries = data["hooks"]["PreToolUse"]
         post_entries = data["hooks"]["PostToolUse"]
-        assert all("matcher" in e and "command" in e for e in pre_entries)
-        assert all("matcher" in e and "command" in e for e in post_entries)
+        assert all("matcher" in e and isinstance(e.get("hooks"), list) for e in pre_entries)
+        assert all("matcher" in e and isinstance(e.get("hooks"), list) for e in post_entries)
+        assert all(
+            handler["type"] == "command"
+            for group in pre_entries + post_entries
+            for handler in group["hooks"]
+        )
 
     def test_health_monitor_post_hooks_materialized_for_both_harnesses(
         self,
@@ -392,19 +420,11 @@ class TestRegisterHooksSettingsMaterialisation:
         codex = json.loads(
             (tmp_path / ".codex" / "hooks.json").read_text(encoding="utf-8")
         )
-        assert {
-            entry["command"]
-            for entry in claude["hooks"]["PostToolUse"]
-            if entry["matcher"] == "Bash"
-        } == {
+        assert _claude_commands_for_matcher(claude, "PostToolUse", "Bash") == {
             "agentkit-hook-claude post health_monitor",
             "agentkit-hook-claude post commit_hook",
         }
-        assert {
-            entry["command"]
-            for entry in claude["hooks"]["PostToolUseFailure"]
-            if entry["matcher"] == "Bash"
-        } == {
+        assert _claude_commands_for_matcher(claude, "PostToolUseFailure", "Bash") == {
             "agentkit-hook-claude post health_monitor",
             "agentkit-hook-claude post commit_hook",
         }
@@ -487,14 +507,8 @@ class TestRegisterHooksSettingsMaterialisation:
         claude = json.loads(
             (tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8")
         )
-        pre = {
-            (entry["matcher"], entry["command"])
-            for entry in claude["hooks"]["PreToolUse"]
-        }
-        post = {
-            (entry["matcher"], entry["command"])
-            for entry in claude["hooks"]["PostToolUse"]
-        }
+        pre = _claude_commands_for_event(claude, "PreToolUse")
+        post = _claude_commands_for_event(claude, "PostToolUse")
         assert ("WebFetch|WebSearch", "agentkit-hook-claude pre budget") in pre
         assert ("Bash", "agentkit-hook-claude pre skill_usage_check") in pre
         assert ("Bash", "agentkit-hook-claude pre commit_hook") in pre
@@ -680,7 +694,10 @@ class TestRegisterHooksSharedMatcherGovernanceHole:
         data = json.loads(
             (tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8")
         )
-        commands = {e["command"] for e in data["hooks"]["PreToolUse"]}
+        commands = {
+            command
+            for _, command in _claude_commands_for_event(data, "PreToolUse")
+        }
         for guard in (
             "branch_guard",
             "story_creation_guard",
@@ -693,10 +710,11 @@ class TestRegisterHooksSharedMatcherGovernanceHole:
                 f"{guard} must survive — shared-matcher collapse is the hole"
             )
         # Two distinct Bash entries, not one (collapse would leave one).
-        bash_entries = [
+        bash_groups = [
             e for e in data["hooks"]["PreToolUse"] if e["matcher"] == "Bash"
         ]
-        assert len(bash_entries) == 2
+        assert len(bash_groups) == 1
+        assert len(bash_groups[0]["hooks"]) == 2
 
     def test_shared_matcher_hooks_all_registered_in_repo(
         self, tmp_path: Path

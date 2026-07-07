@@ -3,7 +3,12 @@
     "PreToolUse": [
       {
         "matcher": "Bash|Write|Edit|Read|Grep|Glob",
-        "command": "python .agentkit/hooks/pre_tool_use.py"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .agentkit/hooks/pre_tool_use.py"
+          }
+        ]
       }
     ]
   }

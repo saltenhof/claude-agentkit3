@@ -31,7 +31,9 @@ from agentkit.backend.control_plane.models import (
     WorktreeReport,
 )
 from agentkit.harness_client.projectedge.command_executor import (
+    _EDGE_GIT_TIMEOUT_S,
     EdgeGitError,
+    _run_git,
     execute_command,
     execute_preflight_probe,
     execute_provision_worktree,
@@ -262,6 +264,40 @@ def test_execution_failure_yields_error_result_not_exception(tmp_path: Path) -> 
 
     assert isinstance(result, CommandErrorResult)
     assert result.error_code == "command_execution_failed"
+
+
+def test_run_git_uses_bounded_subprocess_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Local git operations cannot hang the edge executor indefinitely."""
+    from agentkit.harness_client.projectedge import command_executor
+
+    recorded: dict[str, object] = {}
+
+    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        recorded["timeout"] = kwargs.get("timeout")
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(command_executor.subprocess, "run", fake_run)
+
+    result = _run_git(tmp_path, "status")
+
+    assert result.returncode == 0
+    assert recorded["timeout"] == _EDGE_GIT_TIMEOUT_S
+
+
+def test_run_git_timeout_raises_edge_git_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agentkit.harness_client.projectedge import command_executor
+
+    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(cmd="git status", timeout=kwargs.get("timeout"))
+
+    monkeypatch.setattr(command_executor.subprocess, "run", fake_run)
+
+    with pytest.raises(EdgeGitError, match="timed out"):
+        _run_git(tmp_path, "status")
 
 
 def test_unknown_repo_id_raises_edge_git_error(tmp_path: Path) -> None:

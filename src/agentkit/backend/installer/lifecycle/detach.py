@@ -55,10 +55,10 @@ _AK3_HOOK_MARKERS = (
     ".agentkit/hooks",
 )
 
-#: Structural keys of a Codex matcher group. Any OTHER key is foreign-owned data
+#: Structural keys of a hook matcher group. Any OTHER key is foreign-owned data
 #: that must survive even when the group's AK3 handler list is fully stripped
 #: (FK-10 §10.2.9 surgical removal — never discard foreign config).
-_CODEX_GROUP_STRUCTURAL_KEYS = frozenset({"matcher", "hooks"})
+_MATCHER_GROUP_STRUCTURAL_KEYS = frozenset({"matcher", "hooks"})
 
 
 def _is_ak3_hook_command(command: object) -> bool:
@@ -158,22 +158,18 @@ def _strip_all_ak3_hooks(project_root: Path) -> tuple[list[str], list[str]]:
     return removed, preserved
 
 
-def _is_well_formed_claude_event(entries: object) -> bool:
-    """Return whether a Claude event value is the expected list-of-blocks shape."""
-    return isinstance(entries, list) and all(isinstance(e, dict) for e in entries)
-
-
 def _strip_claude_hooks(settings_path: Path) -> tuple[list[str], list[str]]:
-    """Remove AK3 entries from ``.claude/settings.json`` (two-level shape).
+    """Remove AK3 handlers from ``.claude/settings.json`` (three-level shape).
 
-    Keeps foreign hook entries and any non-``hooks`` settings keys. Fail-closed
+    Keeps foreign matcher groups, handlers and any non-``hooks`` settings keys. Fail-closed
     against an unexpected/malformed shape (mirrors the harness settings-writer
     contract, ``settings_writer._coerce_hooks_section``): a present-but-malformed
     ``hooks`` section (``hooks`` not an object, or an event value that is not a
-    well-formed list-of-blocks) is PRESERVED VERBATIM and never popped/rewritten —
-    coercing it to empty would DELETE foreign hook config (FK-10 §10.2.9). Only
-    recognized AK3 blocks in well-formed lists are stripped. The file is removed
-    only when it is left structurally empty by a clean strip.
+    well-formed list of matcher groups) is PRESERVED VERBATIM and never
+    popped/rewritten — coercing it to empty would DELETE foreign hook config
+    (FK-10 §10.2.9). Only recognized AK3 handlers in well-formed lists are
+    stripped. The file is removed only when it is left structurally empty by a
+    clean strip.
     """
     settings = _load_json_object(settings_path)
     if settings is None:
@@ -187,18 +183,14 @@ def _strip_claude_hooks(settings_path: Path) -> tuple[list[str], list[str]]:
     removed: list[str] = []
     preserved: list[str] = []
     new_hooks: dict[str, object] = {}
-    for event_key, entries in hooks.items():
-        if not _is_well_formed_claude_event(entries):
+    for event_key, groups in hooks.items():
+        if not isinstance(groups, list):
             # Unexpected shape for this event: preserve verbatim, strip nothing.
-            new_hooks[event_key] = entries
+            new_hooks[event_key] = groups
             continue
-        kept_entries = [
-            entry
-            for entry in cast("list[dict[str, object]]", entries)
-            if not _record_ak3_command(entry.get("command", ""), removed, preserved)
-        ]
-        if kept_entries:
-            new_hooks[event_key] = kept_entries
+        kept_groups = _strip_hook_matcher_groups(groups, removed, preserved)
+        if kept_groups:
+            new_hooks[event_key] = kept_groups
     if not removed:
         # No AK3 hook was found: the strip changed nothing. Leave the file
         # byte-for-byte untouched (never rewrite a purely-foreign settings file —
@@ -241,7 +233,7 @@ def _strip_codex_hooks(hooks_path: Path) -> tuple[list[str], list[str]]:
             # Malformed event value: preserve verbatim, strip nothing.
             new_hooks[event_key] = groups
             continue
-        kept_groups = _strip_codex_groups(groups, removed, preserved)
+        kept_groups = _strip_hook_matcher_groups(groups, removed, preserved)
         if kept_groups:
             new_hooks[event_key] = kept_groups
     if not removed:
@@ -257,10 +249,10 @@ def _strip_codex_hooks(hooks_path: Path) -> tuple[list[str], list[str]]:
     return removed, preserved
 
 
-def _strip_codex_groups(
+def _strip_hook_matcher_groups(
     groups: list[object], removed: list[str], preserved: list[str]
 ) -> list[object]:
-    """Filter AK3 handlers out of a Codex event's matcher groups (helper).
+    """Filter AK3 handlers out of an event's matcher groups (helper).
 
     A malformed group (not an object, ``hooks`` not a list, or a non-object
     handler) is PRESERVED VERBATIM — never coerced/dropped, which would delete
@@ -269,7 +261,7 @@ def _strip_codex_groups(
     kept_groups: list[object] = []
     for group in groups:
         handlers = group.get("hooks") if isinstance(group, dict) else None
-        if not isinstance(group, dict) or not _is_well_formed_codex_handlers(handlers):
+        if not isinstance(group, dict) or not _is_well_formed_hook_handlers(handlers):
             # Foreign/malformed group shape: preserve verbatim.
             kept_groups.append(group)
             continue
@@ -296,16 +288,16 @@ def _strip_codex_groups(
 
 
 def _group_has_foreign_keys(group: dict[str, object]) -> bool:
-    """Return whether a Codex matcher group carries keys beyond the AK3 structure.
+    """Return whether a matcher group carries keys beyond the AK3 structure.
 
     A pure AK3 registration group has only the structural ``matcher``/``hooks``
     keys; any other key is foreign-owned data that must survive an emptied strip.
     """
-    return any(key not in _CODEX_GROUP_STRUCTURAL_KEYS for key in group)
+    return any(key not in _MATCHER_GROUP_STRUCTURAL_KEYS for key in group)
 
 
-def _is_well_formed_codex_handlers(handlers: object) -> bool:
-    """Return whether a Codex group's ``hooks`` value is a list of handler objects."""
+def _is_well_formed_hook_handlers(handlers: object) -> bool:
+    """Return whether a matcher group's ``hooks`` value is a list of handlers."""
     return isinstance(handlers, list) and all(isinstance(h, dict) for h in handlers)
 
 

@@ -62,6 +62,8 @@ class UpgradeResult:
             migration ran).
         hook_outcome: The §51.6 hook-migration outcome (``None`` in read-only
             modes or when no governance surface was provided).
+        claude_hook_settings_migrated: Whether legacy flat Claude settings were
+            rewritten to the canonical three-level shape.
         git_hook_outcome: The git-hook dispatch migration outcome (``None`` in
             read-only modes or when no migration ran).
         cleanup_outcome: The §51.7 cleanup outcome (``None`` when no cleanup ran).
@@ -74,6 +76,7 @@ class UpgradeResult:
     config_migrated: bool = False
     config_target_version: str | None = None
     hook_outcome: HookMigrationOutcome | None = None
+    claude_hook_settings_migrated: bool = False
     git_hook_outcome: GitHookMigrationOutcome | None = None
     cleanup_outcome: CleanupOutcome | None = None
     detail: str = ""
@@ -83,6 +86,7 @@ class UpgradeResult:
         """Return whether the flow performed any mutation."""
         return (
             self.config_migrated
+            or self.claude_hook_settings_migrated
             or (self.hook_outcome is not None and self.hook_outcome.changed)
             or (self.git_hook_outcome is not None and self.git_hook_outcome.migrated)
             or (
@@ -179,6 +183,7 @@ def run_upgrade(
         config_migrated=state.config_migrated,
         config_target_version=state.config_target_version,
         hook_outcome=state.hook_outcome,
+        claude_hook_settings_migrated=state.claude_hook_settings_migrated,
         git_hook_outcome=state.git_hook_outcome,
         cleanup_outcome=state.cleanup_outcome,
         detail=detail,

@@ -69,8 +69,11 @@ class TestHookRegistration:
     def test_claude_hook_entry_has_required_keys(self) -> None:
         entry = build_claude_hook_entry()
         assert "matcher" in entry
-        assert "command" in entry
-        assert "ccag_gatekeeper" in entry["command"]
+        assert "hooks" in entry
+        handlers = entry["hooks"]
+        assert isinstance(handlers, list)
+        assert handlers[0]["type"] == "command"
+        assert "ccag_gatekeeper" in handlers[0]["command"]
 
     def test_claude_settings_snippet_is_valid_json(self) -> None:
         import json

@@ -380,57 +380,63 @@ trifft:
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "command": "agentkit-hook-claude pre branch_guard"
+        "hooks": [
+          { "type": "command", "command": "agentkit-hook-claude pre branch_guard" },
+          { "type": "command", "command": "agentkit-hook-claude pre story_creation_guard" }
+        ]
       },
       {
         "matcher": "Read|Grep|Glob|Bash",
-        "command": "agentkit-hook-claude pre orchestrator_guard"
-      },
-      {
-        "matcher": "Bash",
-        "command": "agentkit-hook-claude pre story_creation_guard"
-      },
-      {
-        "matcher": "Write|Edit|Bash",
-        "command": "agentkit-hook-claude pre integrity_guard"
-      },
-      {
-        "matcher": "Write|Edit",
-        "command": "agentkit-hook-claude pre qa_agent_guard"
-      },
-      {
-        "matcher": "Write|Edit",
-        "command": "agentkit-hook-claude pre adversarial_guard"
+        "hooks": [
+          { "type": "command", "command": "agentkit-hook-claude pre orchestrator_guard" }
+        ]
       },
       {
         "matcher": "Write|Edit|Bash",
-        "command": "agentkit-hook-claude pre self_protection_guard"
+        "hooks": [
+          { "type": "command", "command": "agentkit-hook-claude pre integrity_guard" },
+          { "type": "command", "command": "agentkit-hook-claude pre self_protection_guard" }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          { "type": "command", "command": "agentkit-hook-claude pre qa_agent_guard" },
+          { "type": "command", "command": "agentkit-hook-claude pre adversarial_guard" }
+        ]
       },
       {
         "matcher": "Bash|Write|Edit|Read|Grep|Glob|Agent",
-        "command": "agentkit-hook-claude pre health_monitor"
-      },
-      {
-        "matcher": "Bash|Write|Edit|Read|Grep|Glob|Agent",
-        "command": "agentkit-hook-claude pre ccag_gatekeeper"
+        "hooks": [
+          { "type": "command", "command": "agentkit-hook-claude pre health_monitor" },
+          { "type": "command", "command": "agentkit-hook-claude pre ccag_gatekeeper" }
+        ]
       }
     ],
     "PostToolUse": [
       {
         "matcher": "Agent|Bash|*_send",
-        "command": "agentkit-hook-claude post telemetry"
+        "hooks": [
+          { "type": "command", "command": "agentkit-hook-claude post telemetry" }
+        ]
       },
       {
         "matcher": "*_send",
-        "command": "agentkit-hook-claude post review_guard"
+        "hooks": [
+          { "type": "command", "command": "agentkit-hook-claude post review_guard" }
+        ]
       },
       {
         "matcher": "WebSearch|WebFetch",
-        "command": "agentkit-hook-claude post budget"
+        "hooks": [
+          { "type": "command", "command": "agentkit-hook-claude post budget" }
+        ]
       },
       {
         "matcher": "Bash|Write|Edit|Read|Grep|Glob|Agent",
-        "command": "agentkit-hook-claude post health_monitor"
+        "hooks": [
+          { "type": "command", "command": "agentkit-hook-claude post health_monitor" }
+        ]
       }
     ]
   }

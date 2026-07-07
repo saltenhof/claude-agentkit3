@@ -63,14 +63,19 @@ def _build_project_with_bindings(tmp_path: Path) -> tuple[Path, Path]:
         skills_dir.mkdir(parents=True)
         create_directory_link(skills_dir / "skill-a", bundle_target)
 
-    # .claude/settings.json: one AK3 hook block + one FOREIGN hook block + a
-    # foreign top-level key.
+    # .claude/settings.json: one AK3 handler + one FOREIGN handler in the same
+    # matcher group + a foreign top-level key.
     claude_settings = {
         "permissions": {"allow": ["Bash"]},  # foreign top-level key
         "hooks": {
             "PreToolUse": [
-                {"matcher": "Bash", "command": "agentkit-hook-claude pre branch_guard"},
-                {"matcher": "Bash", "command": "/opt/foreign/audit-hook.sh"},
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {"type": "command", "command": "agentkit-hook-claude pre branch_guard"},
+                        {"type": "command", "command": "/opt/foreign/audit-hook.sh"},
+                    ],
+                }
             ]
         },
     }
@@ -143,7 +148,7 @@ def test_detach_removes_only_ak3_hook_blocks_and_preserves_foreign(
     assert settings_path.is_file()
     settings = json.loads(settings_path.read_text(encoding="utf-8"))
     pre = settings["hooks"]["PreToolUse"]
-    commands = [entry["command"] for entry in pre]
+    commands = [handler["command"] for handler in pre[0]["hooks"]]
     assert "/opt/foreign/audit-hook.sh" in commands  # foreign preserved
     assert all(not c.startswith("agentkit-hook-claude") for c in commands)  # AK3 gone
     assert settings["permissions"] == {"allow": ["Bash"]}  # foreign key preserved
@@ -203,10 +208,15 @@ def test_detach_preserves_foreign_hook_in_unexpected_shape(tmp_path: Path) -> No
     settings = {
         "permissions": {"allow": ["Bash"]},  # foreign top-level key
         "hooks": {
-            # Well-formed event: AK3 block + foreign block.
+            # Well-formed event: AK3 handler + foreign handler.
             "PreToolUse": [
-                {"matcher": "Bash", "command": "agentkit-hook-claude pre branch_guard"},
-                {"matcher": "Bash", "command": "/opt/foreign/audit-hook.sh"},
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {"type": "command", "command": "agentkit-hook-claude pre branch_guard"},
+                        {"type": "command", "command": "/opt/foreign/audit-hook.sh"},
+                    ],
+                }
             ],
             # UNEXPECTED shape (a string, not a list-of-blocks): a foreign hook
             # registration AK3 does not own — it must survive verbatim.
@@ -225,7 +235,7 @@ def test_detach_preserves_foreign_hook_in_unexpected_shape(tmp_path: Path) -> No
     assert hooks["Stop"] == "/opt/foreign/stop-hook.sh"
     assert hooks["SessionStart"] == {"command": "/opt/foreign/session-hook.sh"}
     # The well-formed event still strips AK3 and keeps the foreign block.
-    pre_commands = [entry["command"] for entry in hooks["PreToolUse"]]
+    pre_commands = [handler["command"] for handler in hooks["PreToolUse"][0]["hooks"]]
     assert pre_commands == ["/opt/foreign/audit-hook.sh"]
     assert surviving["permissions"] == {"allow": ["Bash"]}
     assert "agentkit-hook-claude pre branch_guard" in result.removed_ak3_hooks
@@ -308,7 +318,12 @@ def test_detach_leaves_pure_foreign_claude_settings_byte_identical(
                 "permissions": {"allow": ["Bash"]},
                 "hooks": {
                     "PreToolUse": [
-                        {"matcher": "Bash", "command": "/opt/foreign/audit-hook.sh"}
+                        {
+                            "matcher": "Bash",
+                            "hooks": [
+                                {"type": "command", "command": "/opt/foreign/audit-hook.sh"}
+                            ],
+                        }
                     ]
                 },
             },

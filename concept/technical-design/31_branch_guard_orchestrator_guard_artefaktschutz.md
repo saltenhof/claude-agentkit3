@@ -619,8 +619,19 @@ def check(tool_name: str, tool_input: dict, is_subagent: bool,
 Codex-Adapter materialisiert das Aequivalent):
 ```json
 {
-  "matcher": "Write|Edit",
-  "command": "python -m agentkit.backend.governance.adversarial_guard"
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agentkit-hook-claude pre adversarial_guard"
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
 

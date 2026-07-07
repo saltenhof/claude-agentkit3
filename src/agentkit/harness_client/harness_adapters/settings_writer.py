@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -47,20 +48,23 @@ class ClaudeCodeSettingsWriter:
         {
           "hooks": {
             "PreToolUse": [
-              {"matcher": "Bash", "command": "agentkit-hook-claude pre branch_guard"}
-            ],
-            "PostToolUse": [
-              {"matcher": "Agent|Bash|*_send", "command": "agentkit-hook-claude post telemetry"}
+              {
+                "matcher": "Bash",
+                "hooks": [
+                  {"type": "command", "command": "agentkit-hook-claude pre branch_guard"}
+                ]
+              }
             ]
           }
         }
 
-    Idempotent / UPSERT semantics: an entry is replaced only when both its
-    ``matcher`` and ``command`` match under the same event key (idempotent
-    re-registration); a distinct ``command`` under the same matcher is kept as
-    a separate entry, because FK-30 §30.3.1 registers several hooks that share a
-    matcher (e.g. ``Bash``).  The file is written atomically (write to tmp + rename is
-    impractical on all OSes; write-in-place is sufficient for settings files).
+    Idempotent / UPSERT semantics: a command handler is replaced only when both
+    its matcher group and ``command`` match under the same event key (idempotent
+    re-registration); a distinct ``command`` under the same matcher is kept as a
+    separate handler in that matcher group's ``hooks`` list, because FK-30
+    §30.3.1 registers several hooks that share a matcher (e.g. ``Bash``).  The
+    file is written atomically (write to tmp + rename is impractical on all OSes;
+    write-in-place is sufficient for settings files).
 
     Fail-closed: if the existing settings file contains invalid JSON, raises
     ``ValueError`` rather than silently overwriting.
@@ -97,48 +101,48 @@ class ClaudeCodeSettingsWriter:
             OSError: If the file cannot be written.
         """
         settings = self._load_existing()
-        raw_hooks = settings.get("hooks")
-        if isinstance(raw_hooks, dict):
-            hooks_section: dict[str, list[dict[str, str]]] = {}
-            for k, v in raw_hooks.items():
-                if isinstance(v, list):
-                    hooks_section[str(k)] = [
-                        {str(ek): str(ev) for ek, ev in e.items()}
-                        for e in v
-                        if isinstance(e, dict)
-                    ]
-        else:
-            hooks_section = {}
+        normalized = normalize_claude_hooks_section(settings.get("hooks"))
+        hooks_section = normalized.hooks_section
 
         for defn in hook_definitions:
             event_key = defn.hook_event_name.value  # "PreToolUse" or "PostToolUse"
-            entries: list[dict[str, str]] = list(hooks_section.get(event_key, []))
-            # UPSERT keyed on (matcher, command): FK-30 §30.3.1 registers
-            # multiple distinct hooks under the same matcher (e.g. "Bash" hosts
-            # both branch_guard and story_creation_guard). Keying the UPSERT on
-            # matcher alone silently collapsed those into one, dropping guards.
-            # Identity is therefore (matcher, command) -- re-registering an
-            # identical pair is idempotent; a different command under the same
-            # matcher is preserved as a separate entry.
-            idx = next(
-                (
-                    i
-                    for i, e in enumerate(entries)
-                    if e.get("matcher") == defn.matcher
-                    and e.get("command") == defn.command
-                ),
-                None,
-            )
-            entry: dict[str, str] = {"matcher": defn.matcher, "command": defn.command}
-            if idx is not None:
-                entries[idx] = entry
-            else:
-                entries.append(entry)
-            hooks_section[event_key] = entries
+            self._merge_handler(hooks_section, event_key, defn.matcher, defn.command)
 
         settings["hooks"] = hooks_section
         self._write(settings)
         return self.settings_path
+
+    @staticmethod
+    def _merge_handler(
+        hooks_section: dict[str, list[dict[str, object]]],
+        event_key: str,
+        matcher: str,
+        command: str,
+    ) -> None:
+        """Merge one Claude command handler into its matcher group.
+
+        Identity is (event, matcher, command). Re-registering the identical
+        command under the same matcher is idempotent; a different command under
+        the same matcher becomes a second handler in the existing group.
+        """
+        groups = hooks_section.setdefault(event_key, [])
+        group = next((g for g in groups if g.get("matcher") == matcher), None)
+        if group is None:
+            group = {"matcher": matcher, "hooks": []}
+            groups.append(group)
+        handlers = group["hooks"]
+        if not isinstance(handlers, list):
+            handlers = []
+            group["hooks"] = handlers
+        handler = {"type": _CLAUDE_HANDLER_TYPE, "command": command}
+        existing = next(
+            (h for h in handlers if isinstance(h, dict) and h.get("command") == command),
+            None,
+        )
+        if existing is not None:
+            existing.update(handler)
+        else:
+            handlers.append(handler)
 
     def _load_existing(self) -> dict[str, object]:
         """Load the existing settings file or return an empty dict.
@@ -154,6 +158,140 @@ class ClaudeCodeSettingsWriter:
         path = self.settings_path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+
+
+_CLAUDE_HANDLER_TYPE = "command"
+
+
+@dataclass(frozen=True)
+class ClaudeHooksSectionNormalization:
+    """Normalized Claude hooks section plus whether legacy flat entries changed."""
+
+    hooks_section: dict[str, list[dict[str, object]]]
+    changed: bool = False
+
+
+def normalize_claude_hooks_section(
+    raw_hooks: object,
+) -> ClaudeHooksSectionNormalization:
+    """Validate and normalize Claude hooks to the three-level settings shape.
+
+    Missing ``hooks`` starts empty. Present malformed content fails closed. Legacy
+    flat entries from pre-AG3-147 installs are migrated into matcher groups with
+    command handlers, preserving non-``matcher`` fields on the handler.
+    """
+    if raw_hooks is None:
+        return ClaudeHooksSectionNormalization({})
+    if not isinstance(raw_hooks, dict):
+        raise ValueError(
+            "Existing .claude/settings.json 'hooks' must be an object, got "
+            f"{type(raw_hooks).__name__}; refusing to overwrite (fail-closed).",
+        )
+    changed = False
+    section: dict[str, list[dict[str, object]]] = {}
+    for event_key, entries in raw_hooks.items():
+        if not isinstance(entries, list):
+            raise ValueError(
+                f"Existing .claude/settings.json event {event_key!r} must map to "
+                f"a list of matcher groups, got {type(entries).__name__} "
+                "(fail-closed).",
+            )
+        event_groups: list[dict[str, object]] = []
+        for entry in entries:
+            group, migrated = _normalize_claude_group(event_key, entry)
+            changed = changed or migrated
+            _append_claude_group(event_groups, group)
+        section[str(event_key)] = event_groups
+    return ClaudeHooksSectionNormalization(section, changed=changed)
+
+
+def _normalize_claude_group(
+    event_key: object, entry: object
+) -> tuple[dict[str, object], bool]:
+    """Normalize one Claude matcher group or legacy flat hook entry."""
+    if not isinstance(entry, dict):
+        raise ValueError(
+            f"Existing .claude/settings.json group under {event_key!r} must be "
+            f"an object, got {type(entry).__name__} (fail-closed).",
+        )
+    if "hooks" in entry:
+        _validate_claude_group_shape(event_key, entry)
+        return entry, False
+    command = entry.get("command")
+    if not isinstance(command, str):
+        raise ValueError(
+            f"Existing .claude/settings.json legacy entry {entry!r} must carry a "
+            "string 'command' or a three-level 'hooks' list (fail-closed).",
+        )
+    group: dict[str, object] = {}
+    matcher = entry.get("matcher")
+    if matcher is not None:
+        if not isinstance(matcher, str):
+            raise ValueError(
+                f"Existing .claude/settings.json legacy entry {entry!r} has a "
+                f"non-string matcher {type(matcher).__name__} (fail-closed).",
+            )
+        group["matcher"] = matcher
+    handler = {
+        str(k): v
+        for k, v in entry.items()
+        if k != "matcher"
+    }
+    handler.setdefault("type", _CLAUDE_HANDLER_TYPE)
+    group["hooks"] = [handler]
+    return group, True
+
+
+def _validate_claude_group_shape(event_key: object, group: dict[object, object]) -> None:
+    """Fail-closed validation of one three-level Claude matcher group."""
+    matcher = group.get("matcher")
+    if matcher is not None and not isinstance(matcher, str):
+        raise ValueError(
+            f"Existing .claude/settings.json group under {event_key!r} has a "
+            f"non-string matcher {type(matcher).__name__} (fail-closed).",
+        )
+    handlers = group.get("hooks")
+    if not isinstance(handlers, list):
+        raise ValueError(
+            f"Existing .claude/settings.json group {group!r} must have a "
+            f"'hooks' list, got {type(handlers).__name__} (fail-closed).",
+        )
+    for handler in handlers:
+        if not isinstance(handler, dict):
+            raise ValueError(
+                "Existing .claude/settings.json handler must be an object, "
+                f"got {type(handler).__name__} (fail-closed).",
+            )
+
+
+def _append_claude_group(
+    event_groups: list[dict[str, object]],
+    group: dict[str, object],
+) -> None:
+    """Append a normalized group, merging legacy groups by matcher when possible."""
+    matcher = group.get("matcher")
+    existing = next((g for g in event_groups if g.get("matcher") == matcher), None)
+    if existing is None:
+        event_groups.append(group)
+        return
+    existing_handlers = existing.get("hooks")
+    new_handlers = group.get("hooks")
+    if not isinstance(existing_handlers, list) or not isinstance(new_handlers, list):
+        event_groups.append(group)
+        return
+    for handler in new_handlers:
+        command = handler.get("command") if isinstance(handler, dict) else None
+        duplicate = next(
+            (
+                h for h in existing_handlers
+                if isinstance(h, dict) and h.get("command") == command
+            ),
+            None,
+        )
+        if duplicate is None:
+            existing_handlers.append(handler)
+        elif isinstance(handler, dict):
+            duplicate.update(handler)
 
 
 # ---------------------------------------------------------------------------
@@ -586,8 +724,10 @@ def _validate_group_shape(event_key: str, group: object) -> None:
 
 __all__ = [
     "ClaudeCodeSettingsWriter",
+    "ClaudeHooksSectionNormalization",
     "CodexMatcherMapping",
     "CodexSettingsWriter",
     "map_claude_matcher",
+    "normalize_claude_hooks_section",
     "remap_command",
 ]

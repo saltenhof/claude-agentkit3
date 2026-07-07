@@ -76,6 +76,17 @@ _LINKS_AVAILABLE = _directory_links_supported()
 _BUNDLE_IDS = {name: f"{name}-core" for name in MANDATORY_SKILLS}
 
 
+def _claude_commands_for_matcher(
+    settings: dict[str, object], event_key: str, matcher: str
+) -> set[str]:
+    return {
+        handler["command"]
+        for group in settings["hooks"][event_key]  # type: ignore[index]
+        if group.get("matcher") == matcher
+        for handler in group["hooks"]
+    }
+
+
 @pytest.mark.skipif(
     not _LINKS_AVAILABLE,
     reason="Filesystem supports neither symlinks nor directory junctions",
@@ -93,19 +104,15 @@ def test_install_creates_claude_and_codex_settings(tmp_path: Path) -> None:
     codex_hooks = json.loads(
         (tmp_path / ".codex" / "hooks.json").read_text(encoding="utf-8")
     )
-    assert {
-        entry["command"]
-        for entry in claude_settings["hooks"]["PostToolUse"]
-        if entry["matcher"] == "Bash"
-    } == {
+    assert _claude_commands_for_matcher(
+        claude_settings, "PostToolUse", "Bash"
+    ) == {
         "agentkit-hook-claude post health_monitor",
         "agentkit-hook-claude post commit_hook",
     }
-    assert {
-        entry["command"]
-        for entry in claude_settings["hooks"]["PostToolUseFailure"]
-        if entry["matcher"] == "Bash"
-    } == {
+    assert _claude_commands_for_matcher(
+        claude_settings, "PostToolUseFailure", "Bash"
+    ) == {
         "agentkit-hook-claude post health_monitor",
         "agentkit-hook-claude post commit_hook",
     }
