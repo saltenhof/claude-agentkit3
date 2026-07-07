@@ -21,86 +21,12 @@ from agentkit.backend.state_backend.store.artifact_repository import StateBacken
 from agentkit.backend.verify_system.register import register_verify_producers
 
 if TYPE_CHECKING:
-    from agentkit.backend.bootstrap.composition_closure_types import (
-        ChangeEvidence,
-        ClosurePhaseHandler,
-        ClosureProgressStore,
-        CodeBackendPort,
-        DocFidelityFeedbackPort,
-        GuardCounterFlushPort,
-        GuardDeactivationPort,
-        MergeApplicability,
-        ModeLockReleasePort,
-        PreMergeScanPort,
-        PushVerificationPort,
-        RepoGitBackend,
-        RepoRunners,
-        SanityGatePort,
-        TelemetryEvidencePort,
-        VectorDbSyncPort,
-    )
-    from agentkit.backend.bootstrap.composition_exploration_types import (
-        ChangeFrame,
-        ExplorationDrafting,
-        ExplorationPhaseHandler,
-        ExplorationReview,
-        FineDesignEvaluator,
-        FineDesignRoundOutcome,
-    )
-    from agentkit.backend.bootstrap.composition_project_types import (
-        Callable,
-        ChangeImpact,
-        ConformanceConfig,
-        DashboardService,
-        EventEmitter,
-        FailureCorpus,
-        HandlerResult,
-        HubClientProtocol,
-        KpiAnalytics,
-        PhaseEnvelope,
-        PhaseEnvelopeStore,
-        PhaseHandlerRegistry,
-        PipelineEngine,
-        PlanningProjectionAccessor,
-        PlanningWritePathStoryDependencyRepository,
-        ProjectionAccessor,
-        ProjectRepository,
-        ProjectTelemetryEventSource,
-        ReadModelRoutes,
-        RepositoryConfig,
-        RuntimeExecutionPurgePort,
-        RuntimeExecutionResidueProbe,
-        Skills,
-        SplitSourceState,
-        StoryContext,
-        StoryService,
-        StorySplitRequest,
-        StoryType,
-        TaskManagementRoutes,
-    )
-    from agentkit.backend.bootstrap.composition_verify_types import (
-        AreGateProvider,
-        ArtifactInvalidationEvent,
-        ArtifactInvalidationSink,
-        BuildTestEvidence,
-        BuildTestEvidencePort,
-        BuildTestPort,
-        CoverageVerdict,
-        EdgeProvisioningCoordinator,
-        IntegrityGate,
-        LlmClient,
-        PushBarrierEvidencePort,
-        QaCyclePushBarrierGate,
-        ReportedHeadEvidence,
-        RequirementsCoverageProto,
-        ReviewCompletionEvent,
-        ReviewCompletionSink,
-        SetupContextRepository,
-        SetupPhaseHandler,
-        SonarDimensionPort,
-        SonarGateInputPort,
-        VerifySystem,
-    )
+    from collections.abc import Callable
+
+    from agentkit.backend.bootstrap import composition_closure_types as closure_types
+    from agentkit.backend.bootstrap import composition_exploration_types as exploration_types
+    from agentkit.backend.bootstrap import composition_project_types as project_types
+    from agentkit.backend.bootstrap import composition_verify_types as verify_types
 
 
 def build_producer_registry() -> ProducerRegistry:
@@ -184,8 +110,8 @@ def build_story_exit_service(*, project_key: str) -> object:
 
 
 def _default_split_source_state_loader(
-    request: StorySplitRequest,
-) -> SplitSourceState:
+    request: project_types.StorySplitRequest,
+) -> project_types.SplitSourceState:
     """Derive the §54.4 entry-gate source state from real run telemetry.
 
     Reads the FK-25 scope-explosion evidence from the ``execution_events`` stream
@@ -228,7 +154,7 @@ def build_story_split_service(
     project_key: str,
     stories_root: Path,
     project_root: str | None,
-    source_state_loader: Callable[[StorySplitRequest], SplitSourceState] | None = None,
+    source_state_loader: Callable[[project_types.StorySplitRequest], project_types.SplitSourceState] | None = None,
 ) -> object:
     """Build the productive FK-54 story-split service (AG3-072).
 
@@ -441,7 +367,7 @@ def build_story_reset_service(
     )
 
 
-def build_kpi_analytics(store_dir: Path, *, project_key: str) -> KpiAnalytics:
+def build_kpi_analytics(store_dir: Path, *, project_key: str) -> project_types.KpiAnalytics:
     """Wire a ``KpiAnalytics`` facade onto the real FactStore + RefreshWorker.
 
     Composition-Root for the analytics path (AG3-038 read side + AG3-082 worker):
@@ -491,7 +417,7 @@ def build_kpi_analytics(store_dir: Path, *, project_key: str) -> KpiAnalytics:
     )
 
 
-def build_kpi_analytics_read_facade(store_dir: Path | None = None) -> KpiAnalytics:
+def build_kpi_analytics_read_facade(store_dir: Path | None = None) -> project_types.KpiAnalytics:
     """Wire the read-only KPI facade used by the HTTP KPI routes."""
     from agentkit.backend.kpi_analytics import KpiAnalytics, KpiCatalog
     from agentkit.backend.kpi_analytics.fact_store import FactStore
@@ -503,7 +429,7 @@ def build_kpi_analytics_read_facade(store_dir: Path | None = None) -> KpiAnalyti
     return KpiAnalytics(catalog=KpiCatalog(), fact_store=FactStore(fact_repository))
 
 
-def build_story_read_service() -> StoryService:
+def build_story_read_service() -> project_types.StoryService:
     """Wire the Story-BC read service over the productive ``StoryReadPort`` adapter.
 
     Composition root for :class:`agentkit.backend.story.service.StoryService`
@@ -519,7 +445,7 @@ def build_story_read_service() -> StoryService:
     return StoryService(repository=StateBackendStoryReadRepository())
 
 
-def build_project_telemetry_event_source() -> ProjectTelemetryEventSource:
+def build_project_telemetry_event_source() -> project_types.ProjectTelemetryEventSource:
     """Wire the telemetry-BC read edge over the productive event-source adapter.
 
     Composition root for the ``ProjectTelemetryEventSource`` port (FK-07
@@ -535,7 +461,10 @@ def build_project_telemetry_event_source() -> ProjectTelemetryEventSource:
     return StateBackendProjectTelemetryEventSource()
 
 
-def build_dashboard_service(story_service: StoryService, store_dir: Path | None = None) -> DashboardService:
+def build_dashboard_service(
+    story_service: project_types.StoryService,
+    store_dir: Path | None = None,
+) -> project_types.DashboardService:
     """Wire the legacy dashboard service without leaking fact persistence to HTTP."""
     from agentkit.backend.kpi_analytics.dashboard import DashboardService
     from agentkit.backend.kpi_analytics.fact_store import FactStore
@@ -550,7 +479,7 @@ def build_dashboard_service(story_service: StoryService, store_dir: Path | None 
     )
 
 
-def build_task_management_routes(store_dir: Path | None = None) -> TaskManagementRoutes:
+def build_task_management_routes(store_dir: Path | None = None) -> project_types.TaskManagementRoutes:
     """Wire task-management HTTP routes through the telemetry projection port."""
     import os
 
@@ -562,7 +491,7 @@ def build_task_management_routes(store_dir: Path | None = None) -> TaskManagemen
     return TaskManagementRoutes(task_management=service)
 
 
-def build_project_repository(store_dir: Path | None = None) -> ProjectRepository:
+def build_project_repository(store_dir: Path | None = None) -> project_types.ProjectRepository:
     """Wire the project-management repository adapter."""
     from agentkit.backend.state_backend.store.project_management_repository import (
         StateBackendProjectRepository,
@@ -571,7 +500,7 @@ def build_project_repository(store_dir: Path | None = None) -> ProjectRepository
     return StateBackendProjectRepository(store_dir)
 
 
-def build_project_read_model_routes(store_dir: Path | None = None) -> ReadModelRoutes:
+def build_project_read_model_routes(store_dir: Path | None = None) -> project_types.ReadModelRoutes:
     """Wire project-scoped frontend read-model routes outside the HTTP boundary."""
     from agentkit.backend.project_management.read_model_routes import ReadModelRoutes
     from agentkit.backend.state_backend.store.parallelization_config_repository import (
@@ -620,12 +549,12 @@ def build_project_read_model_routes(store_dir: Path | None = None) -> ReadModelR
 
 
 def build_exploration_review(
-    ctx: StoryContext,
+    ctx: project_types.StoryContext,
     story_dir: Path,
     *,
-    llm_client: LlmClient | None = None,
-    conformance_config: ConformanceConfig | None = None,
-) -> ExplorationReview:
+    llm_client: verify_types.LlmClient | None = None,
+    conformance_config: project_types.ConformanceConfig | None = None,
+) -> exploration_types.ExplorationReview:
     """Wire the three-stage exploration exit-gate (AG3-046, FK-23 §23.5).
 
     Composition root for :class:`ExplorationReview`: builds the Stage 1
@@ -709,9 +638,9 @@ def build_exploration_review(
 def build_exploration_phase_handler(
     story_dir: Path,
     *,
-    review: ExplorationReview | None = None,
-    fine_design_evaluator: FineDesignEvaluator | None = None,
-) -> ExplorationPhaseHandler:
+    review: exploration_types.ExplorationReview | None = None,
+    fine_design_evaluator: exploration_types.FineDesignEvaluator | None = None,
+) -> exploration_types.ExplorationPhaseHandler:
     """Wire the registrable ``ExplorationPhaseHandler`` surface (AG3-045/AG3-046).
 
     Composition root for the exploration-phase handler (BC 5,
@@ -833,10 +762,10 @@ def build_exploration_phase_handler(
 def build_hub_fine_design_evaluator(
     story_dir: Path,
     *,
-    hub_client: HubClientProtocol | None = None,
-    llm_client: LlmClient | None = None,
+    hub_client: project_types.HubClientProtocol | None = None,
+    llm_client: verify_types.LlmClient | None = None,
     owner: str | None = None,
-) -> FineDesignEvaluator:
+) -> exploration_types.FineDesignEvaluator:
     """Wire the productive multi-LLM-hub fine-design evaluator (AG3-097).
 
     Composition root for :class:`HubFineDesignEvaluator` (FK-25 §25.5.2/§25.5.4):
@@ -891,8 +820,8 @@ def build_hub_fine_design_evaluator(
 
 def build_exploration_drafting(
     story_dir: Path,
-    ctx: StoryContext,
-) -> ExplorationDrafting:
+    ctx: project_types.StoryContext,
+) -> exploration_types.ExplorationDrafting:
     """Wire the productive ``ExplorationDrafting`` sub (AG3-055, FK-23 §23.3).
 
     Composition root for the exploration-worker drafting (BC 5,
@@ -945,7 +874,7 @@ def _build_exploration_drafting(
     story_dir: Path,
     *,
     project_root: Path,
-) -> ExplorationDrafting:
+) -> exploration_types.ExplorationDrafting:
     """Wire the productive ``ExplorationDrafting`` from ``story_dir`` + root.
 
     Shared wiring for :func:`build_exploration_drafting` (ctx-driven) and
@@ -1007,7 +936,7 @@ class _StateBackendDeclaredImpactReader:
 
     store_dir: Path
 
-    def declared_change_impact(self, *, story_id: str) -> ChangeImpact:
+    def declared_change_impact(self, *, story_id: str) -> project_types.ChangeImpact:
         """Return the story's declared change impact (fail-closed).
 
         Args:
@@ -1058,7 +987,12 @@ class _UnavailableFineDesignEvaluator:
     triple.
     """
 
-    def run_round(self, change_frame: ChangeFrame, *, round_number: int) -> FineDesignRoundOutcome:
+    def run_round(
+        self,
+        change_frame: exploration_types.ChangeFrame,
+        *,
+        round_number: int,
+    ) -> exploration_types.FineDesignRoundOutcome:
         """Raise fail-closed: no real fine-design evaluator is wired yet.
 
         Args:
@@ -1089,15 +1023,15 @@ def build_verify_system(
     *,
     max_major_findings: int = 0,
     max_feedback_rounds: int | None = None,
-    sonar_gate_port: SonarGateInputPort | None = None,
-    layer2_llm_client: LlmClient | None = None,
+    sonar_gate_port: verify_types.SonarGateInputPort | None = None,
+    layer2_llm_client: verify_types.LlmClient | None = None,
     fast_test_runner: Callable[[Path], tuple[bool, str | None]] | None = None,
-    structural_build_test_port: BuildTestEvidencePort | None = None,
-    structural_are_provider: AreGateProvider | None = None,
-    conformance_config: ConformanceConfig | None = None,
+    structural_build_test_port: verify_types.BuildTestEvidencePort | None = None,
+    structural_are_provider: verify_types.AreGateProvider | None = None,
+    conformance_config: project_types.ConformanceConfig | None = None,
     layer2_bundle_token_limit: int = 32_000,
     structural_completion_sync_point_id: str | None = None,
-) -> VerifySystem:
+) -> verify_types.VerifySystem:
     """Create a fully wired ``VerifySystem``.
 
     Composition root for the QA-subflow top-surface (AG3-026):
@@ -1454,7 +1388,7 @@ class _BarrierPushVerification:
 
 def build_push_verification_port(
     required_sync_point_id: str | None = None,
-) -> PushVerificationPort:
+) -> closure_types.PushVerificationPort:
     """Wire the productive two-stage push-verification port (AG3-147 AC11)."""
     return _BarrierPushVerification(required_sync_point_id=required_sync_point_id)
 
@@ -1480,9 +1414,9 @@ class _SubprocessGitChangeEvidenceProvider:
     """
 
     base_ref: str = "origin/main"
-    push_verification_port: PushVerificationPort = field(default_factory=qa_boundary.default_push_verification_port)
+    push_verification_port: closure_types.PushVerificationPort = field(default_factory=qa_boundary.default_push_verification_port)
 
-    def collect(self, story_dir: Path) -> ChangeEvidence:
+    def collect(self, story_dir: Path) -> closure_types.ChangeEvidence:
         """Collect the system change evidence (``available=False`` on any error)."""
         from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
@@ -1571,7 +1505,7 @@ _LOCAL_FILE_THRESHOLD = 3
 _CROSS_COMPONENT_DIRS = 2
 
 
-def _derive_actual_impact(changed_files: tuple[str, ...]) -> ChangeImpact | None:
+def _derive_actual_impact(changed_files: tuple[str, ...]) -> project_types.ChangeImpact | None:
     """Derive the SYSTEM actual change impact from the diff (FK-23 §23.8).
 
     A deterministic, diff-based proxy (no worker input): more distinct top-level
@@ -1592,7 +1526,7 @@ def _derive_actual_impact(changed_files: tuple[str, ...]) -> ChangeImpact | None
     return ChangeImpact.ARCHITECTURE_IMPACT
 
 
-def build_artifact_invalidation_sink(store_dir: Path) -> ArtifactInvalidationSink:
+def build_artifact_invalidation_sink(store_dir: Path) -> verify_types.ArtifactInvalidationSink:
     """Build the productive ``artifact_invalidated`` telemetry sink (AG3-041 §2.1.3).
 
     Composition-Root wiring for FK-27 §27.2.3: every cycle-bound QA artefact
@@ -1625,9 +1559,9 @@ class _TelemetryArtifactInvalidationSink:
     move has already happened, so a telemetry hiccup never corrupts QA truth.
     """
 
-    emitter: EventEmitter
+    emitter: project_types.EventEmitter
 
-    def artifact_invalidated(self, event: ArtifactInvalidationEvent) -> None:
+    def artifact_invalidated(self, event: verify_types.ArtifactInvalidationEvent) -> None:
         """Emit an ``artifact_invalidated`` telemetry event for one moved file.
 
         Args:
@@ -1651,7 +1585,7 @@ class _TelemetryArtifactInvalidationSink:
         )
 
 
-def build_review_completion_sink(store_dir: Path) -> ReviewCompletionSink:
+def build_review_completion_sink(store_dir: Path) -> verify_types.ReviewCompletionSink:
     """Build the productive ``llm_call_complete`` telemetry sink (FIX-C).
 
     Composition-Root wiring for FK-27 §27.4.3 / §27.5.5: after each Layer-2
@@ -1691,9 +1625,9 @@ class _TelemetryReviewCompletionSink:
     active run and the run-scoped Gate-2 count finds it (FK-33 §33.3.2).
     """
 
-    emitter: EventEmitter
+    emitter: project_types.EventEmitter
 
-    def review_completed(self, event: ReviewCompletionEvent) -> None:
+    def review_completed(self, event: verify_types.ReviewCompletionEvent) -> None:
         """Emit an ``llm_call_complete`` telemetry event for one completed review.
 
         Args:
@@ -1724,7 +1658,7 @@ def build_sonar_gate_port(
     ledger: object,
     bound_analysis: object,
     main_head_revision: str,
-) -> SonarGateInputPort:
+) -> verify_types.SonarGateInputPort:
     """Build the productive ``sonarqube_gate`` port (FK-33 §33.6, AG3-052).
 
     When ``sonarqube.available == false`` the gate is deliberately absent
@@ -1800,7 +1734,7 @@ def build_skills(
     store_dir: Path,
     *,
     bundle_store_root: Path | None = None,
-) -> Skills:
+) -> project_types.Skills:
     """Create a fully wired ``Skills`` top-surface (AG3-048).
 
     Composition root for the agent-skills BC (FK-43, bc-cut-decisions.md §BC 11
@@ -1839,7 +1773,7 @@ def build_skills(
     )
 
 
-def build_integrity_gate(store_dir: Path | None = None) -> IntegrityGate:
+def build_integrity_gate(store_dir: Path | None = None) -> verify_types.IntegrityGate:
     """Create a fully wired ``IntegrityGate``.
 
     Composition root for the closure phase (AG3-031 Pass-5 Fix E9):
@@ -1886,7 +1820,7 @@ def build_integrity_gate(store_dir: Path | None = None) -> IntegrityGate:
     )
 
 
-def _build_dim9_sonar_port(store_dir: Path | None) -> SonarDimensionPort:
+def _build_dim9_sonar_port(store_dir: Path | None) -> verify_types.SonarDimensionPort:
     """Build the productive Dim-9 ``SonarDimensionPort`` (FK-35 §35.2.4a, R2-C/A2).
 
     Wires the :class:`ProductiveSonarDimensionPort`, which CONSUMES the AG3-052
@@ -1998,7 +1932,7 @@ def _load_sonar_config(gate_ctx: object) -> object | None:
     return getattr(pipeline, "sonarqube", None) if pipeline is not None else None
 
 
-def build_setup_preflight_gate() -> SetupContextRepository:
+def build_setup_preflight_gate() -> verify_types.SetupContextRepository:
     """Create a wired ``SetupContextRepository`` adapter.
 
     Composition root for the setup phase (AG3-031 Pass-5 Fix E9):
@@ -2083,7 +2017,7 @@ def build_setup_fence_scope_binder() -> Callable[..., contextlib.AbstractContext
 
 def build_setup_edge_provisioning_coordinator(
     project_root: Path,
-) -> EdgeProvisioningCoordinator:
+) -> verify_types.EdgeProvisioningCoordinator:
     """Build the productive edge-provisioning coordinator (AG3-145 Teilschritt C).
 
     Delegates to the ``bootstrap.edge_provisioning_adapter`` module which owns the
@@ -2105,7 +2039,7 @@ def build_setup_phase_handler(
     store_dir: Path | None = None,
     dependency_repository: object | None = None,
     green_main_port: object | None = None,
-) -> SetupPhaseHandler:
+) -> verify_types.SetupPhaseHandler:
     """Wire a fully-collaborated ``SetupPhaseHandler`` (AG3-034 canonical point).
 
     Assembles the Setup-phase collaborators the truth-boundary-protected
@@ -2217,7 +2151,7 @@ def build_phase_state_residue_probe(
 
 def build_runtime_execution_purge_port(
     store_dir: Path | None = None,
-) -> RuntimeExecutionPurgePort:
+) -> project_types.RuntimeExecutionPurgePort:
     """Wire the coordinating Runtime-Execution-Purge port (AG3-109, FK-53 §53.7.5).
 
     Composition root for the per-owner Runtime-Execution purge. The port
@@ -2246,7 +2180,7 @@ def build_runtime_execution_purge_port(
 
 def build_runtime_execution_residue_probe(
     store_dir: Path | None = None,
-) -> RuntimeExecutionResidueProbe:
+) -> project_types.RuntimeExecutionResidueProbe:
     """Wire the Runtime-Residue verify building block (AG3-109, FK-53 §53.7.5).
 
     Fail-closed probe that confirms no Runtime-Execution residue remains for a
@@ -2266,7 +2200,7 @@ def build_runtime_execution_residue_probe(
     return _RuntimeExecutionResidueProbe(store_dir or Path.cwd())
 
 
-def build_projection_accessor(store_dir: Path | None = None) -> ProjectionAccessor:
+def build_projection_accessor(store_dir: Path | None = None) -> project_types.ProjectionAccessor:
     """Create a fully wired ``ProjectionAccessor``.
 
     Composition root for the FK-69 projection write/read path (AG3-035):
@@ -2298,7 +2232,7 @@ def build_projection_accessor(store_dir: Path | None = None) -> ProjectionAccess
 
 def build_planning_projection_accessor(
     store_dir: Path | None = None,
-) -> PlanningProjectionAccessor:
+) -> project_types.PlanningProjectionAccessor:
     """Wire the BC-9-hosted planning projection write path (FK-70 §70.10.2, AG3-099).
 
     Composition root for the BC14 planning projection write/read boundary. Builds
@@ -2327,7 +2261,7 @@ def build_planning_projection_accessor(
 
 def build_planning_story_dependency_repository(
     store_dir: Path | None = None,
-) -> PlanningWritePathStoryDependencyRepository:
+) -> project_types.PlanningWritePathStoryDependencyRepository:
     """Wire the planning-write-path ``StoryDependencyRepository`` (AG3-099 migration).
 
     Replaces the legacy direct-facade ``StateBackendStoryDependencyRepository`` for
@@ -2360,8 +2294,8 @@ def build_closure_phase_handler(
     store_dir: Path | None = None,
     project_key: str = "",
     project_root: Path | None = None,
-    layer2_llm_client: LlmClient | None = None,
-) -> ClosurePhaseHandler:
+    layer2_llm_client: verify_types.LlmClient | None = None,
+) -> closure_types.ClosurePhaseHandler:
     """Wire a fully-collaborated ``ClosurePhaseHandler`` (FK-29, AG3-053).
 
     Composition root for the Closure phase (BC 7, ``story-closure``): assembles
@@ -2457,7 +2391,7 @@ def build_closure_phase_handler(
     return ClosurePhaseHandler(config)
 
 
-def _build_guard_counter_flush_port(store_dir: Path) -> GuardCounterFlushPort:
+def _build_guard_counter_flush_port(store_dir: Path) -> closure_types.GuardCounterFlushPort:
     """Build the Closure guard-counter flush seam (FK-61 §61.4.3 Trigger 1, AG3-081).
 
     Delegates to the kpi-owned ``GuardCounterService.flush_on_closure`` over the
@@ -2470,7 +2404,7 @@ def _build_guard_counter_flush_port(store_dir: Path) -> GuardCounterFlushPort:
     return ProductiveGuardCounterFlushPort(store_dir=store_dir)
 
 
-def _build_telemetry_evidence_port(store_dir: Path, *, project_key: str) -> TelemetryEvidencePort:
+def _build_telemetry_evidence_port(store_dir: Path, *, project_key: str) -> closure_types.TelemetryEvidencePort:
     """Build the Closure Telemetry-Evidence-Block seam (FK-68 §68.4, AG3-081).
 
     Runs the six FK-68 §68.4 proofs against the run's ``execution_events`` at
@@ -2484,7 +2418,7 @@ def _build_telemetry_evidence_port(store_dir: Path, *, project_key: str) -> Tele
     return ProductiveTelemetryEvidencePort(project_key=project_key, project_root=store_dir)
 
 
-def _build_mode_lock_release_port(store_dir: Path) -> ModeLockReleasePort:
+def _build_mode_lock_release_port(store_dir: Path) -> closure_types.ModeLockReleasePort:
     """Build the project mode-lock release seam (FK-24 §24.3.3, AG3-018).
 
     Delegates to the atomic ``ModeLockRepository.release`` for the mode this story
@@ -2497,7 +2431,7 @@ def _build_mode_lock_release_port(store_dir: Path) -> ModeLockReleasePort:
     return ProductiveModeLockReleasePort(mode_lock_repo=ModeLockRepository(store_dir))
 
 
-def _build_closure_progress_store(store_dir: Path) -> ClosureProgressStore:
+def _build_closure_progress_store(store_dir: Path) -> closure_types.ClosureProgressStore:
     """Build the closure checkpoint store (FK-29 §29.1.0, AC003 pipeline surface).
 
     Phase-state mutation may only happen through a pipeline surface
@@ -2514,7 +2448,7 @@ def _build_closure_progress_store(store_dir: Path) -> ClosureProgressStore:
     return PhaseEnvelopeStore(StateBackendPhaseEnvelopeRepository(store_dir))
 
 
-def build_phase_envelope_store(story_dir: Path) -> PhaseEnvelopeStore:
+def build_phase_envelope_store(story_dir: Path) -> project_types.PhaseEnvelopeStore:
     """Build a :class:`~agentkit.backend.pipeline_engine.phase_envelope.store.PhaseEnvelopeStore`.
 
     Public factory exposed to boundary-callers (e.g. the operator/recovery CLI,
@@ -2542,12 +2476,12 @@ def build_phase_envelope_store(story_dir: Path) -> PhaseEnvelopeStore:
 def build_pipeline_handler_registry(
     story_dir: Path,
     *,
-    story_type: StoryType,
+    story_type: project_types.StoryType,
     project_key: str = "",
     project_root: Path | None = None,
     setup_config: object | None = None,
-    layer2_llm_client: LlmClient | None = None,
-) -> PhaseHandlerRegistry:
+    layer2_llm_client: verify_types.LlmClient | None = None,
+) -> project_types.PhaseHandlerRegistry:
     """Wire ONE ``PhaseHandlerRegistry`` for a story run (AG3-054, FK-20 §20.1.1).
 
     Pure WIRING over the phase-owning self-registration surfaces (bc-cut-decisions
@@ -2683,7 +2617,7 @@ class _UnresolvedSetupCoordinatesHandler:
         "(fail-closed; E4/#4)."
     )
 
-    def _escalation(self) -> HandlerResult:
+    def _escalation(self) -> project_types.HandlerResult:
         from agentkit.backend.pipeline_engine.lifecycle import HandlerResult
         from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
 
@@ -2693,16 +2627,21 @@ class _UnresolvedSetupCoordinatesHandler:
             suggested_reaction="setup_coordinates_unresolved",
         )
 
-    def on_enter(self, ctx: StoryContext, envelope: PhaseEnvelope) -> HandlerResult:
+    def on_enter(self, ctx: project_types.StoryContext, envelope: project_types.PhaseEnvelope) -> project_types.HandlerResult:
         """Escalate fail-closed: setup must never run on unresolved coordinates."""
         _ = ctx, envelope
         return self._escalation()
 
-    def on_exit(self, ctx: StoryContext, envelope: PhaseEnvelope) -> None:
+    def on_exit(self, ctx: project_types.StoryContext, envelope: project_types.PhaseEnvelope) -> None:
         """No-op exit (the phase escalated before doing any work)."""
         _ = ctx, envelope
 
-    def on_resume(self, ctx: StoryContext, envelope: PhaseEnvelope, trigger: str) -> HandlerResult:
+    def on_resume(
+        self,
+        ctx: project_types.StoryContext,
+        envelope: project_types.PhaseEnvelope,
+        trigger: str,
+    ) -> project_types.HandlerResult:
         """Escalate fail-closed on resume too (coordinates still unresolved)."""
         _ = ctx, envelope, trigger
         return self._escalation()
@@ -2711,12 +2650,12 @@ class _UnresolvedSetupCoordinatesHandler:
 def build_pipeline_engine(
     story_dir: Path,
     *,
-    story_type: StoryType,
+    story_type: project_types.StoryType,
     project_key: str = "",
     project_root: Path | None = None,
     setup_config: object | None = None,
-    layer2_llm_client: LlmClient | None = None,
-) -> PipelineEngine:
+    layer2_llm_client: verify_types.LlmClient | None = None,
+) -> project_types.PipelineEngine:
     """Wire a ``PipelineEngine`` for a story run (AG3-054, FK-20 §20.1.1).
 
     Resolves the typed workflow for ``story_type`` and constructs the engine over
@@ -2762,7 +2701,7 @@ def build_pipeline_engine(
     return PipelineEngine(workflow, registry, story_dir)
 
 
-def _story_is_github_backed(ctx: StoryContext) -> bool:
+def _story_is_github_backed(ctx: project_types.StoryContext) -> bool:
     """Whether the run's story type is GitHub-backed (code-producing; E5).
 
     SSOT criterion: a GitHub-backed story is a CODE-PRODUCING story
@@ -2786,7 +2725,7 @@ def _story_is_github_backed(ctx: StoryContext) -> bool:
     return is_code_producing_story(ctx.story_type)
 
 
-def build_setup_config_for_run(ctx: StoryContext, *, project_root: Path) -> object:
+def build_setup_config_for_run(ctx: project_types.StoryContext, *, project_root: Path) -> object:
     """Build the run's authoritative ``SetupConfig`` (AG3-123 / E5).
 
     AK3 owns the user story via ``story_id`` (branch-safe ``story/{story_id}``);
@@ -2910,7 +2849,7 @@ def _build_pre_merge_runners(
     sonar_config: object | None,
     *,
     repo_root: Path,
-) -> tuple[PreMergeScanPort | None, BuildTestPort | None, MergeApplicability]:
+) -> tuple[closure_types.PreMergeScanPort | None, verify_types.BuildTestPort | None, closure_types.MergeApplicability]:
     """Wire the AG3-056 pre-merge runners + resolve the typed applicability (FIX-3).
 
     CONSUMES AG3-056's
@@ -2995,7 +2934,7 @@ def _build_per_repo_runners(
     ci_config: object | None,
     sonar_config: object | None,
     repo_roots: list[Path],
-) -> tuple[dict[Path, RepoRunners], MergeApplicability]:
+) -> tuple[dict[Path, closure_types.RepoRunners], closure_types.MergeApplicability]:
     """Build a :class:`RepoRunners` pair per repo root + the shared applicability (FIX-C).
 
     Each repo root gets its OWN ``CiSonarScanRunner`` / ``CiBuildTestRunner``
@@ -3006,8 +2945,8 @@ def _build_per_repo_runners(
     """
     from agentkit.backend.closure.merge_sequence import RepoRunners
 
-    runners: dict[Path, RepoRunners] = {}
-    resolved_applicability: MergeApplicability | None = None
+    runners: dict[Path, closure_types.RepoRunners] = {}
+    resolved_applicability: closure_types.MergeApplicability | None = None
     for repo_root in repo_roots:
         scan_port, build_test_port, applicability = _build_pre_merge_runners(ci_config, sonar_config, repo_root=repo_root)
         if resolved_applicability is None:
@@ -3025,7 +2964,7 @@ def _build_per_repo_runners(
     return runners, resolved_applicability
 
 
-def _build_sanity_gate_port(ci_config: object | None) -> SanityGatePort:
+def _build_sanity_gate_port(ci_config: object | None) -> closure_types.SanityGatePort:
     """Build the fast-mode Sanity-Gate seam (FK-29 §29.1a.6, FIX-6).
 
     Wires the real subprocess git backend so the adapter genuinely confirms the
@@ -3092,8 +3031,8 @@ def build_fast_test_runner(
 
 
 def _build_doc_fidelity_feedback_port(
-    layer2_llm_client: LlmClient | None = None,
-) -> DocFidelityFeedbackPort:
+    layer2_llm_client: verify_types.LlmClient | None = None,
+) -> closure_types.DocFidelityFeedbackPort:
     """Build the level-4 doc-fidelity feedback seam (FK-38 §38.3.1, non-blocking).
 
     Runs a REAL level-4 evaluation through the SAME productive
@@ -3116,7 +3055,7 @@ def _build_doc_fidelity_feedback_port(
     return ProductiveDocFidelityFeedbackPort(llm_client=layer2_llm_client)
 
 
-def _build_vectordb_sync_port() -> VectorDbSyncPort:
+def _build_vectordb_sync_port() -> closure_types.VectorDbSyncPort:
     """Build the VectorDB sync seam (FK-13 §13.7.1, fire-and-forget, non-blocking).
 
     Triggers an async ``story_sync``. The VectorDB integration is not yet
@@ -3128,7 +3067,7 @@ def _build_vectordb_sync_port() -> VectorDbSyncPort:
     return ProductiveVectorDbSyncPort()
 
 
-def _build_guard_deactivation_port(store_dir: Path, *, project_key: str) -> GuardDeactivationPort:
+def _build_guard_deactivation_port(store_dir: Path, *, project_key: str) -> closure_types.GuardDeactivationPort:
     """Build the guard-deactivation seam (FK-29 §29.5, governance top surface).
 
     Delegates to ``Governance.deactivate_locks`` via a real ``Governance`` wired
@@ -3154,7 +3093,7 @@ def _build_guard_deactivation_port(store_dir: Path, *, project_key: str) -> Guar
 def build_structural_build_test_port(
     ci_config: object | None,
     story_dir: Path,
-) -> BuildTestEvidencePort:
+) -> verify_types.BuildTestEvidencePort:
     """Build the REAL Layer-1 build/test evidence port (FIX-1, FK-27 §27.4.2).
 
     REUSES the AG3-056 commit-bound :class:`CiBuildTestRunner` (the same CI
@@ -3218,10 +3157,10 @@ class _CiBuildTestEvidenceAdapter:
         git_backend: Git read port to resolve the worktree HEAD + diff.
     """
 
-    build_test_port: BuildTestPort
-    git_backend: RepoGitBackend
+    build_test_port: verify_types.BuildTestPort
+    git_backend: closure_types.RepoGitBackend
 
-    def evaluate(self, story_dir: Path) -> BuildTestEvidence | None:
+    def evaluate(self, story_dir: Path) -> verify_types.BuildTestEvidence | None:
         """Run the commit-bound Build/Test for the worktree HEAD (fail-closed)."""
         from agentkit.backend.closure.multi_repo_saga import ClosureRepo
         from agentkit.backend.verify_system.pre_merge_runner.contract import CandidateRef
@@ -3270,7 +3209,7 @@ def build_structural_are_provider(
     pipeline_config: object,
     *,
     store_dir: Path | None = None,
-) -> AreGateProvider:
+) -> verify_types.AreGateProvider:
     """Build the REAL Layer-1 ARE provider (FIX-1, FK-27 §27.4.4).
 
     Wraps the productive :class:`RequirementsCoverage` top-surface (AG3-030,
@@ -3322,7 +3261,7 @@ class _RequirementsCoverageAreProvider:
         coverage: The wired ``RequirementsCoverage`` top-surface.
     """
 
-    coverage: RequirementsCoverageProto
+    coverage: verify_types.RequirementsCoverageProto
 
     @property
     def are_client(self) -> object | None:
@@ -3335,7 +3274,7 @@ class _RequirementsCoverageAreProvider:
         """Return whether ``features.are`` is active."""
         return self.coverage.is_enabled
 
-    def coverage_verdict(self, story_id: str, project_key: str) -> CoverageVerdict | None:
+    def coverage_verdict(self, story_id: str, project_key: str) -> verify_types.CoverageVerdict | None:
         """Return the ARE coverage verdict, or ``None`` when ARE is disabled."""
         if not self.coverage.is_enabled:
             return None
@@ -3343,11 +3282,11 @@ class _RequirementsCoverageAreProvider:
 
 
 def build_failure_corpus(
-    accessor: ProjectionAccessor,
+    accessor: project_types.ProjectionAccessor,
     project_key: str | None = None,
     store_dir: Path | None = None,
-    llm_client: LlmClient | None = None,
-) -> FailureCorpus:
+    llm_client: verify_types.LlmClient | None = None,
+) -> project_types.FailureCorpus:
     """Create a wired ``FailureCorpus`` top component (AG3-028, AG3-078).
 
     Composition root for the failure-corpus BC (FK-41 §41.1/§41.4). Wires the
@@ -3483,7 +3422,7 @@ def build_failure_corpus(
 # ---------------------------------------------------------------------------
 
 
-def cli_load_story_context(story_dir: Path) -> StoryContext | None:
+def cli_load_story_context(story_dir: Path) -> project_types.StoryContext | None:
     """Load a :class:`~agentkit.backend.story_context_manager.models.StoryContext` for the CLI.
 
     Thin composition-root wrapper over ``facade.load_story_context`` so the
@@ -3582,7 +3521,7 @@ def build_compat_window_reader(
     return _read
 
 
-def build_github_code_backend_port(owner: str, repo: str, *, gh_timeout_seconds: int = 30) -> CodeBackendPort:
+def build_github_code_backend_port(owner: str, repo: str, *, gh_timeout_seconds: int = 30) -> closure_types.CodeBackendPort:
     """Wire the productive GitHub adapter onto the AG3-146 code-backend port.
 
     Composition root for :class:`CodeBackendPort` (FK-12 §12.1): binds the
@@ -3610,7 +3549,7 @@ def build_github_code_backend_port(owner: str, repo: str, *, gh_timeout_seconds:
     return GitHubCodeBackendAdapter(owner=owner, repo=repo, gh_timeout_seconds=gh_timeout_seconds)
 
 
-def _build_repo_code_backend_port(repo: RepositoryConfig, project_root: Path) -> CodeBackendPort:
+def _build_repo_code_backend_port(repo: project_types.RepositoryConfig, project_root: Path) -> closure_types.CodeBackendPort:
     """Bind ONE participating repo's coordinate onto a ``CodeBackendPort`` (AG3-147).
 
     The provider-specific half of the push-barrier evidence port (kept OUT of the
@@ -3788,7 +3727,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
 class _StateBackedQaCycleFingerprintSource:
     """Resolve QA-cycle fingerprint heads from push-freshness records (AC11)."""
 
-    def collect(self, story_dir: Path) -> tuple[ReportedHeadEvidence, ...]:
+    def collect(self, story_dir: Path) -> tuple[verify_types.ReportedHeadEvidence, ...]:
         from agentkit.backend.state_backend.store import facade
         from agentkit.backend.verify_system.qa_cycle.fingerprint import (
             FingerprintComputationError,
@@ -3816,12 +3755,12 @@ class _StateBackedQaCycleFingerprintSource:
         return heads
 
 
-def build_qa_cycle_push_barrier_gate() -> QaCyclePushBarrierGate:
+def build_qa_cycle_push_barrier_gate() -> verify_types.QaCyclePushBarrierGate:
     """Wire the productive QA-cycle-boundary push-barrier gate (AG3-147, AC2)."""
     return _ControlPlaneQaCyclePushBarrierGate()
 
 
-def build_push_barrier_evidence() -> PushBarrierEvidencePort:
+def build_push_barrier_evidence() -> verify_types.PushBarrierEvidencePort:
     """Wire the productive two-stage push-barrier evidence port (AG3-147, FK-10 §10.2.4b).
 
     Composition root for the hard push barriers: binds the Postgres-only

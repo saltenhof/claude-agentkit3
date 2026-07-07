@@ -6,9 +6,9 @@ runtime consumers and bootstrap adapters do not grow divergent state machines.
 
 from __future__ import annotations
 
-from dataclasses import is_dataclass, replace
+from dataclasses import is_dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from agentkit.backend.control_plane.models import SyncPushCommandPayload
 from agentkit.backend.control_plane.push_sync import (
@@ -404,20 +404,24 @@ def replace_push_barrier_verdict(
 ) -> PushBarrierVerdict:
     """Return a copy of a verdict with lifecycle fields replaced."""
 
-    updated: PushBarrierVerdict = replace(
-        verdict,
+    return PushBarrierVerdict(
+        project_key=verdict.project_key,
+        story_id=verdict.story_id,
+        run_id=verdict.run_id,
+        boundary_type=verdict.boundary_type,
+        boundary_id=verdict.boundary_id,
+        repo_id=verdict.repo_id,
+        producer=verdict.producer,
         boundary_epoch=(boundary_epoch if boundary_epoch is not None else verdict.boundary_epoch),
-        expected_head_sha=(
-            verdict.expected_head_sha if expected_head_sha is _KEEP_FIELD else cast("str | None", expected_head_sha)
-        ),
-        server_head_sha=(verdict.server_head_sha if server_head_sha is _KEEP_FIELD else cast("str | None", server_head_sha)),
+        expected_head_sha=(verdict.expected_head_sha if expected_head_sha is _KEEP_FIELD else _optional_sha(expected_head_sha)),
+        server_head_sha=(verdict.server_head_sha if server_head_sha is _KEEP_FIELD else _optional_sha(server_head_sha)),
         ownership_epoch=(ownership_epoch if ownership_epoch is not None else verdict.ownership_epoch),
         status=status or verdict.status,
+        created_at=verdict.created_at,
         updated_at=updated_at,
         resolved_at=resolved_at,
         status_detail=status_detail,
     )
-    return updated
 
 
 def _missing_repo_verdict(repo_id: str) -> RepoPushVerdict:
@@ -436,6 +440,10 @@ def _blocked_repo_verdict(repo_id: str, *, detail: str) -> RepoPushVerdict:
         block_code=PushBarrierBlockCode.EDGE_REPORTS_BACKLOG,
         detail=detail,
     )
+
+
+def _optional_sha(value: object) -> str | None:
+    return value if isinstance(value, str) else None
 
 
 def _non_empty_sha(value: object) -> bool:
