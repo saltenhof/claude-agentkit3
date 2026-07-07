@@ -1,7 +1,7 @@
 story_id: AG3-148
 title: "Transfer-Kern: takeover-request/-confirm (Challenge-Confirm-CAS), persistente Approval-Queue, pending_human_approval, atomarer Vollzug mit takeover_base_sha"
 type: implementation
-status: blocked
+status: ready
 phase: setup
 created: "2026-07-02"
 size: L

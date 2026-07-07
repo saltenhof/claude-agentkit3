@@ -1,7 +1,7 @@
 story_id: AG3-156
 title: "Verify-Evidenz-Ausführungsort: Request-DSL-Resolver vom Backend-Worktree-Zugriff lösen (K1-Akteursmodell), shell=True-Härtung, FK-47-Konzept-Nachzug"
 type: implementation
-status: blocked
+status: ready
 phase: setup
 created: "2026-07-02"
 size: L

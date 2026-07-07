@@ -378,21 +378,21 @@ Autoritativ ist je `status.yaml`; Reihenfolge ist `depends_on`-getrieben.
 | AG3-141 | Objekt-Serialisierung (per-Story-Claims, 409/Retry-After) | L | **completed** | 137, 138 |
 | AG3-142 | Ownership-Fencing der Regime-Pfade (`ownership_epoch`) | L | **completed** | 137 |
 | AG3-143 | Execution-Contract-Digest + Spec-Freeze | M | **completed** | 137 |
-| AG3-144 | Job-Muster + Ergebnisarten + Upsert-Fences | L | **in_progress ⛔ arch-blocked (W2)** | 141, 142, 143 |
-| AG3-145 | Edge-Command-Queue + Worktree-Ops-Umzug | L | **ready** | 137, 141, 142, 146 |
+| AG3-144 | Job-Muster + Ergebnisarten + Upsert-Fences | L | **completed** | 141, 142, 143 |
+| AG3-145 | Edge-Command-Queue + Worktree-Ops-Umzug | L | **completed** | 137, 141, 142, 146 |
 | AG3-146 | Provider-Adapter-Schnitt (ls-remote, gh nur im Adapter) | M | **completed** | — |
 | AG3-147 | Sync-Punkte + Push-Gate + Ref-Schutz (pushed-only) | L | **completed** | 145, 146 |
-| AG3-148 | Transfer-Kern (Challenge-Confirm-CAS, Approval-Queue) | L | blocked | 141, 142, 147 |
+| AG3-148 | Transfer-Kern (Challenge-Confirm-CAS, Approval-Queue) | L | **ready** | 141, 142, 147 |
 | AG3-149 | Disown-Baustein + Ex-Owner + Ping-Pong-Schranke | M | blocked | 148 |
 | AG3-150 | Freeze-Admission-Blocker (`freeze_epoch`) | M | blocked | 149 |
 | AG3-151 | Takeover-Reconcile + Quarantäne + Edge-Zustände | L | blocked | 145, 148, 149, 150 |
-| AG3-152 | merge_local-Umzug (Closure via Edge) | M | blocked | 145, 147 |
+| AG3-152 | merge_local-Umzug (Closure via Edge) | M | **ready** | 145, 147 |
 | AG3-153 | Frontend Takeover (globaler governance-Stream, Overlay, Cockpit) | L | blocked | 144, 148, 151 |
 | AG3-154 | CLI/Admin-Kommandos + Edge-Tool (inkl. recover-story) | M | blocked | 138, 145, 148 |
 | AG3-155 | Betriebs-Runbook FK-04 (concept) | S | blocked | 139, 149, 151, 154 |
-| AG3-156 | Verify-Evidenz-Ausführungsort: Request-DSL-Resolver + Evidence-Assembler vom Backend-Worktree-Zugriff lösen (Review-Fund, PO-Go 2026-07-02) | L | blocked | 144, 145 |
+| AG3-156 | Verify-Evidenz-Ausführungsort: Request-DSL-Resolver + Evidence-Assembler vom Backend-Worktree-Zugriff lösen (Review-Fund, PO-Go 2026-07-02) | L | **ready** | 144, 145 |
 
-**Sofort startbar (`ready`): AG3-145.**
+**Sofort startbar (`ready`): AG3-148, AG3-152, AG3-156** (Ownership-Strang; nach AG3-144/145/147-Close entblockt). Unabhängige Blätter ausserhalb dieses Strangs: AG3-131/132/133/134/157.**
 (AG3-146 ✅ **completed** 2026-07-05 — Provider-Adapter-Schnitt: neues Backend-BC
 `code_backend/` mit schmalem Capability-Port `provider_port.py` (Blutgruppe A,
 GitHub-frei/Azure-DevOps-tauglich: keine gh-Argumente/URL-Formen/owner-repo-Slugs im
@@ -409,15 +409,11 @@ Sonar-Gate OK / 0 Issues. Entblockt AG3-145. WARNING: das neue BC ist noch nicht
 Conformance-Gate erzwingt die A-Core-AT-Freiheit nicht mechanisch fort (manuell + per
 AST-Grep-Test belegt); Registrierung ist eine `concept/`-Änderung (PO) — kleiner
 Follow-up.
-AG3-144 ⛔ **in_progress / arch-blocked** 2026-07-05 — nach 4 Codex-Runden zeigte
-sich: vollständiges fail-closed Fencing verlangt Fence-Context-Capture in JEDER Phase
-(Exploration/Requirements/Prompt-Audit/Handover, nicht nur Implementation) — eine
-system-weite Architekturänderung — UND das 202-Job-Muster braucht einen undefinierten
-server-seitigen Execution-Driver. Beides sind Architekturentscheidungen (PO).
-Implementation-Phase-Fences sind korrekt; die Fence-Arbeit (5 Commits, Suite 8727
-passed/92,56 %) ist auf Branch `ag3-144-fence-half-wip` geparkt, `main` sauber auf
-`6446aa8f` zurückgesetzt, nichts gepusht. Details + Optionen: `scratchpad/
-deferred-decisions.md` W2.
+AG3-144 ✅ **completed** 2026-07-05 (status.yaml `completed_at` 10:43:33Z) — Job-Muster
++ Ergebnisarten + Upsert-Fences. Die zuvor hier notierte W2-Arch-Blockade
+(phasenübergreifendes Fence-Context-Capture + server-seitiger 202-Execution-Driver)
+wurde aufgelöst und die Story abgeschlossen; Abschlussdetails im story-eigenen
+`status.yaml`.
 (AG3-143 ✅ **completed** 2026-07-04 — Execution-Contract-Digest + Spec-Freeze:
 deterministischer `execution_contract_digest` beim Setup-Commit, content-adressiert
 über tragende Spec-Felder (FK-59 §59.9a) + `ProjectRegistration.config_version`/
