@@ -288,62 +288,15 @@ def aggregate_persisted_push_barrier(
     verdict_by_repo = {v.repo_id: v for v in verdicts}
     repo_verdicts: list[RepoPushVerdict] = []
     for repo_id in tuple(expected_repo_ids):
-        verdict = verdict_by_repo.get(repo_id)
-        if verdict is None:
-            repo_verdicts.append(_missing_repo_verdict(repo_id))
-            continue
-        if _status_value(verdict) != PushBarrierVerdictStatus.PASSED.value:
-            repo_verdicts.append(repo_verdict_from_persisted(verdict))
-            continue
-        if not _non_empty_sha(verdict.expected_head_sha):
-            if not is_dataclass(verdict):
-                repo_verdicts.append(
-                    _blocked_repo_verdict(
-                        verdict.repo_id,
-                        detail="passed_verdict_missing_expected_head",
-                    )
-                )
-                continue
-            blocked = replace_push_barrier_verdict(
-                verdict,
-                status=PushBarrierVerdictStatus.BLOCKED_BACKLOG,
-                server_head_sha=None,
-                updated_at=now,
-                resolved_at=now,
-                status_detail="passed_verdict_missing_expected_head",
+        repo_verdicts.append(
+            _aggregate_repo_verdict(
+                verdict_by_repo.get(repo_id),
+                repo_id=repo_id,
+                server_head_for_verdict=server_head_for_verdict,
+                persist_blocked_verdict=persist_blocked_verdict,
+                now=now,
             )
-            persist_blocked_verdict(blocked)
-            repo_verdicts.append(repo_verdict_from_persisted(blocked))
-            continue
-        server_head = server_head_for_verdict(verdict)
-        if _non_empty_sha(server_head) and server_head == verdict.expected_head_sha:
-            repo_verdicts.append(
-                RepoPushVerdict(
-                    repo_id=verdict.repo_id,
-                    verified=True,
-                    block_code=None,
-                    detail=(f"persisted push-barrier verdict passed and server still confirms {server_head}"),
-                )
-            )
-            continue
-        if not is_dataclass(verdict):
-            repo_verdicts.append(
-                _blocked_repo_verdict(
-                    verdict.repo_id,
-                    detail="server_head_moved_after_pass",
-                )
-            )
-            continue
-        blocked = replace_push_barrier_verdict(
-            verdict,
-            status=PushBarrierVerdictStatus.BLOCKED_BACKLOG,
-            server_head_sha=server_head,
-            updated_at=now,
-            resolved_at=now,
-            status_detail="server_head_moved_after_pass",
         )
-        persist_blocked_verdict(blocked)
-        repo_verdicts.append(repo_verdict_from_persisted(blocked))
     if not repo_verdicts:
         repo_verdicts.append(
             RepoPushVerdict(
@@ -358,6 +311,65 @@ def aggregate_persisted_push_barrier(
         passed=all(v.verified for v in repo_verdicts),
         repo_verdicts=tuple(repo_verdicts),
     )
+
+
+def _aggregate_repo_verdict(
+    verdict: PushBarrierVerdict | None,
+    *,
+    repo_id: str,
+    server_head_for_verdict: Any,
+    persist_blocked_verdict: Any,
+    now: datetime,
+) -> RepoPushVerdict:
+    if verdict is None:
+        return _missing_repo_verdict(repo_id)
+    if _status_value(verdict) != PushBarrierVerdictStatus.PASSED.value:
+        return repo_verdict_from_persisted(verdict)
+    if not _non_empty_sha(verdict.expected_head_sha):
+        return _block_persisted_verdict(
+            verdict,
+            server_head_sha=None,
+            detail="passed_verdict_missing_expected_head",
+            persist_blocked_verdict=persist_blocked_verdict,
+            now=now,
+        )
+    server_head = server_head_for_verdict(verdict)
+    if _non_empty_sha(server_head) and server_head == verdict.expected_head_sha:
+        return RepoPushVerdict(
+            repo_id=verdict.repo_id,
+            verified=True,
+            block_code=None,
+            detail=f"persisted push-barrier verdict passed and server still confirms {server_head}",
+        )
+    return _block_persisted_verdict(
+        verdict,
+        server_head_sha=server_head,
+        detail="server_head_moved_after_pass",
+        persist_blocked_verdict=persist_blocked_verdict,
+        now=now,
+    )
+
+
+def _block_persisted_verdict(
+    verdict: PushBarrierVerdict,
+    *,
+    server_head_sha: str | None,
+    detail: str,
+    persist_blocked_verdict: Any,
+    now: datetime,
+) -> RepoPushVerdict:
+    if not is_dataclass(verdict):
+        return _blocked_repo_verdict(verdict.repo_id, detail=detail)
+    blocked = replace_push_barrier_verdict(
+        verdict,
+        status=PushBarrierVerdictStatus.BLOCKED_BACKLOG,
+        server_head_sha=server_head_sha,
+        updated_at=now,
+        resolved_at=now,
+        status_detail=detail,
+    )
+    persist_blocked_verdict(blocked)
+    return repo_verdict_from_persisted(blocked)
 
 
 def repo_verdict_from_persisted(verdict: PushBarrierVerdict) -> RepoPushVerdict:
@@ -392,7 +404,7 @@ def replace_push_barrier_verdict(
 ) -> PushBarrierVerdict:
     """Return a copy of a verdict with lifecycle fields replaced."""
 
-    return replace(
+    updated: PushBarrierVerdict = replace(
         verdict,
         boundary_epoch=(boundary_epoch if boundary_epoch is not None else verdict.boundary_epoch),
         expected_head_sha=(
@@ -405,6 +417,7 @@ def replace_push_barrier_verdict(
         resolved_at=resolved_at,
         status_detail=status_detail,
     )
+    return updated
 
 
 def _missing_repo_verdict(repo_id: str) -> RepoPushVerdict:

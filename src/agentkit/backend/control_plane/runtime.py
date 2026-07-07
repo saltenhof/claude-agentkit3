@@ -4758,37 +4758,28 @@ def _resolve_edge_command_repository(
     return EdgeCommandRepository()
 
 
-def _default_di_edge_command_repository() -> EdgeCommandRepository:
-    """Build a self-contained in-memory Edge-Command repository (DI seam, AG3-145).
+class _InMemoryEdgeCommandStore:
+    """Self-contained in-memory Edge-Command store for DI tests."""
 
-    Mirrors :func:`_default_di_object_claim_repository`: a directly-constructed
-    service with an injected ``repository`` but no explicit
-    ``edge_command_repository`` gets THIS in-memory store instead of the
-    productive Postgres-backed default. ``commit_result`` replicates the
-    productive CAS (open -> terminal, raising :class:`EdgeCommandNotOpenError`
-    on a double-completion) so the runtime's fail-closed handling is genuinely
-    exercised without a database; the Rule-15 no-TOCTOU RACE window itself is
-    proven only against real Postgres (``tests/integration/state_backend``),
-    never faked here.
-    """
-    commands: dict[str, EdgeCommandRecord] = {}
+    def __init__(self) -> None:
+        self._commands: dict[str, EdgeCommandRecord] = {}
 
-    def _insert(record: EdgeCommandRecord) -> None:
-        if record.command_id in commands:
+    def insert(self, record: EdgeCommandRecord) -> None:
+        if record.command_id in self._commands:
             raise ValueError(f"duplicate command_id {record.command_id!r}")
-        commands[record.command_id] = record
+        self._commands[record.command_id] = record
 
-    def _commission(record: EdgeCommandRecord) -> bool:
-        # Atomic ON CONFLICT DO NOTHING analogue: insert only if absent.
-        if record.command_id in commands:
+    def commission(self, record: EdgeCommandRecord) -> bool:
+        if record.command_id in self._commands:
             return False
-        commands[record.command_id] = record
+        self._commands[record.command_id] = record
         return True
 
-    def _load(command_id: str) -> EdgeCommandRecord | None:
-        return commands.get(command_id)
+    def load(self, command_id: str) -> EdgeCommandRecord | None:
+        return self._commands.get(command_id)
 
-    def _list_and_ack(
+    def list_and_ack(
+        self,
         *,
         project_key: str,
         run_id: str,
@@ -4797,23 +4788,16 @@ def _default_di_edge_command_repository() -> EdgeCommandRepository:
     ) -> tuple[EdgeCommandRecord, ...]:
         from dataclasses import replace
 
-        matching = [
-            record
-            for record in commands.values()
-            if record.project_key == project_key
-            and record.run_id == run_id
-            and record.session_id == session_id
-            and record.status in {"created", "delivered"}
-        ]
         acked: list[EdgeCommandRecord] = []
-        for record in matching:
+        for record in self._matching_open(project_key, run_id, session_id):
             if record.status == "created":
                 record = replace(record, status="delivered", delivered_at=delivered_at)
-                commands[record.command_id] = record
+                self._commands[record.command_id] = record
             acked.append(record)
         return tuple(sorted(acked, key=lambda r: (r.created_at, r.command_id)))
 
-    def _commit_result(
+    def commit_result(
+        self,
         op_record: ControlPlaneOperationRecord,
         *,
         command_id: str,
@@ -4827,10 +4811,10 @@ def _default_di_edge_command_repository() -> EdgeCommandRepository:
         from dataclasses import replace
 
         del op_record, expected_ownership_epoch
-        current = commands.get(command_id)
+        current = self._commands.get(command_id)
         if current is None or current.status not in {"created", "delivered"}:
             raise EdgeCommandNotOpenError(command_id)
-        commands[command_id] = replace(
+        self._commands[command_id] = replace(
             current,
             status=result_status,
             completed_at=completed_at,
@@ -4839,7 +4823,8 @@ def _default_di_edge_command_repository() -> EdgeCommandRepository:
             result_payload=result_payload,
         )
 
-    def _supersede_command(
+    def supersede_command(
+        self,
         *,
         command_id: str,
         completed_at: datetime,
@@ -4847,10 +4832,10 @@ def _default_di_edge_command_repository() -> EdgeCommandRepository:
     ) -> bool:
         from dataclasses import replace
 
-        current = commands.get(command_id)
+        current = self._commands.get(command_id)
         if current is None or current.status not in {"created", "delivered"}:
             return False
-        commands[command_id] = replace(
+        self._commands[command_id] = replace(
             current,
             status="superseded",
             completed_at=completed_at,
@@ -4859,13 +4844,33 @@ def _default_di_edge_command_repository() -> EdgeCommandRepository:
         )
         return True
 
+    def _matching_open(
+        self,
+        project_key: str,
+        run_id: str,
+        session_id: str,
+    ) -> tuple[EdgeCommandRecord, ...]:
+        return tuple(
+            record
+            for record in self._commands.values()
+            if record.project_key == project_key
+            and record.run_id == run_id
+            and record.session_id == session_id
+            and record.status in {"created", "delivered"}
+        )
+
+
+def _default_di_edge_command_repository() -> EdgeCommandRepository:
+    """Build a self-contained in-memory Edge-Command repository (DI seam, AG3-145)."""
+
+    store = _InMemoryEdgeCommandStore()
     return EdgeCommandRepository(
-        insert_command=_insert,
-        commission_command=_commission,
-        load_command=_load,
-        list_and_ack_open_commands=_list_and_ack,
-        commit_result=_commit_result,
-        supersede_command=_supersede_command,
+        insert_command=store.insert,
+        commission_command=store.commission,
+        load_command=store.load,
+        list_and_ack_open_commands=store.list_and_ack,
+        commit_result=store.commit_result,
+        supersede_command=store.supersede_command,
     )
 
 

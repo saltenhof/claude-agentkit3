@@ -9,6 +9,9 @@ from typing import TYPE_CHECKING, Any
 
 from agentkit.backend.artifacts import ArtifactManager, EnvelopeValidator, ProducerRegistry
 from agentkit.backend.bootstrap import qa_boundary
+from agentkit.backend.bootstrap.push_barrier_server_head import (
+    server_head_for_push_barrier_verdict,
+)
 from agentkit.backend.control_plane import push_barrier_lifecycle
 from agentkit.backend.exploration.register import register_exploration_producers
 from agentkit.backend.implementation.register import register_implementation_producers
@@ -18,78 +21,84 @@ from agentkit.backend.state_backend.store.artifact_repository import StateBacken
 from agentkit.backend.verify_system.register import register_verify_producers
 
 if TYPE_CHECKING:
-    from agentkit.backend.bootstrap.composition_types import (
-        AreGateProvider,
-        ArtifactInvalidationEvent,
-        ArtifactInvalidationSink,
-        BuildTestEvidence,
-        BuildTestEvidencePort,
-        BuildTestPort,
-        Callable,
+    from agentkit.backend.bootstrap.composition_closure_types import (
         ChangeEvidence,
-        ChangeFrame,
-        ChangeImpact,
         ClosurePhaseHandler,
         ClosureProgressStore,
         CodeBackendPort,
-        ConformanceConfig,
-        CoverageVerdict,
-        DashboardService,
         DocFidelityFeedbackPort,
-        EdgeProvisioningCoordinator,
-        EventEmitter,
+        GuardCounterFlushPort,
+        GuardDeactivationPort,
+        MergeApplicability,
+        ModeLockReleasePort,
+        PreMergeScanPort,
+        PushVerificationPort,
+        RepoGitBackend,
+        RepoRunners,
+        SanityGatePort,
+        TelemetryEvidencePort,
+        VectorDbSyncPort,
+    )
+    from agentkit.backend.bootstrap.composition_exploration_types import (
+        ChangeFrame,
         ExplorationDrafting,
         ExplorationPhaseHandler,
         ExplorationReview,
-        FailureCorpus,
         FineDesignEvaluator,
         FineDesignRoundOutcome,
-        GuardCounterFlushPort,
-        GuardDeactivationPort,
+    )
+    from agentkit.backend.bootstrap.composition_project_types import (
+        Callable,
+        ChangeImpact,
+        ConformanceConfig,
+        DashboardService,
+        EventEmitter,
+        FailureCorpus,
         HandlerResult,
         HubClientProtocol,
-        IntegrityGate,
         KpiAnalytics,
-        LlmClient,
-        MergeApplicability,
-        ModeLockReleasePort,
         PhaseEnvelope,
         PhaseEnvelopeStore,
         PhaseHandlerRegistry,
         PipelineEngine,
         PlanningProjectionAccessor,
         PlanningWritePathStoryDependencyRepository,
-        PreMergeScanPort,
         ProjectionAccessor,
         ProjectRepository,
         ProjectTelemetryEventSource,
-        PushBarrierEvidencePort,
-        PushVerificationPort,
-        QaCyclePushBarrierGate,
         ReadModelRoutes,
-        RepoGitBackend,
-        ReportedHeadEvidence,
-        RepoRunners,
         RepositoryConfig,
-        RequirementsCoverageProto,
-        ReviewCompletionEvent,
-        ReviewCompletionSink,
         RuntimeExecutionPurgePort,
         RuntimeExecutionResidueProbe,
-        SanityGatePort,
-        SetupContextRepository,
-        SetupPhaseHandler,
         Skills,
-        SonarDimensionPort,
-        SonarGateInputPort,
         SplitSourceState,
         StoryContext,
         StoryService,
         StorySplitRequest,
         StoryType,
         TaskManagementRoutes,
-        TelemetryEvidencePort,
-        VectorDbSyncPort,
+    )
+    from agentkit.backend.bootstrap.composition_verify_types import (
+        AreGateProvider,
+        ArtifactInvalidationEvent,
+        ArtifactInvalidationSink,
+        BuildTestEvidence,
+        BuildTestEvidencePort,
+        BuildTestPort,
+        CoverageVerdict,
+        EdgeProvisioningCoordinator,
+        IntegrityGate,
+        LlmClient,
+        PushBarrierEvidencePort,
+        QaCyclePushBarrierGate,
+        ReportedHeadEvidence,
+        RequirementsCoverageProto,
+        ReviewCompletionEvent,
+        ReviewCompletionSink,
+        SetupContextRepository,
+        SetupPhaseHandler,
+        SonarDimensionPort,
+        SonarGateInputPort,
         VerifySystem,
     )
 
@@ -1308,35 +1317,6 @@ class _StateBackendTelemetryEventCountPort:
 _TEST_FILE_MARKERS: tuple[str, ...] = ("test_", "_test.", "/tests/", "tests/")
 
 
-def _server_head_for_push_barrier_verdict(
-    verdict: Any,
-    *,
-    project_key: str | None = None,
-    story_id: str | None = None,
-    run_id: str | None = None,
-    boundary_type: Any = None,
-    boundary_id: str | None = None,
-) -> str | None:
-    """Read the current server head for one persisted push-barrier verdict."""
-
-    resolved_boundary_type = boundary_type or verdict.boundary_type
-    resolved_boundary_id = boundary_id or verdict.boundary_id
-    inputs = build_push_barrier_evidence().collect_repo_inputs(
-        project_key=project_key or verdict.project_key,
-        story_id=story_id or verdict.story_id,
-        run_id=run_id or verdict.run_id,
-        required_sync_point_id=push_barrier_lifecycle.boundary_sync_point_id(
-            resolved_boundary_type,
-            resolved_boundary_id,
-            verdict.boundary_epoch,
-        ),
-    )
-    for inp in inputs:
-        if inp.repo_id == verdict.repo_id:
-            return inp.server_head_sha if inp.server_ref_resolved else None
-    return None
-
-
 @dataclass(frozen=True)
 class _BarrierPushVerification:
     """Productive ``PushVerificationPort`` over persisted barrier verdicts.
@@ -1389,8 +1369,9 @@ class _BarrierPushVerification:
         except Exception:  # noqa: BLE001 -- unavailable verdict SSOT -> not pushed
             return False
         def _server_head_for_verdict(verdict: Any) -> str | None:
-            return _server_head_for_push_barrier_verdict(
+            return server_head_for_push_barrier_verdict(
                 verdict,
+                evidence_factory=build_push_barrier_evidence,
                 project_key=project_key,
                 story_id=story_id,
                 run_id=run_id,
@@ -1409,7 +1390,10 @@ class _BarrierPushVerification:
 
     @staticmethod
     def _server_head_for_verdict(verdict: Any) -> str | None:
-        return _server_head_for_push_barrier_verdict(verdict)
+        return server_head_for_push_barrier_verdict(
+            verdict,
+            evidence_factory=build_push_barrier_evidence,
+        )
 
     @staticmethod
     def _participating_repos(project_key: str, story_id: str) -> tuple[str, ...]:
@@ -3779,7 +3763,10 @@ class _ControlPlaneQaCyclePushBarrierGate:
             SyncPointBarrierType.QA_CYCLE_BOUNDARY,
             tuple(verdicts),
             expected_repo_ids=expected_repo_ids,
-            server_head_for_verdict=_server_head_for_push_barrier_verdict,
+            server_head_for_verdict=lambda verdict: server_head_for_push_barrier_verdict(
+                verdict,
+                evidence_factory=build_push_barrier_evidence,
+            ),
             persist_blocked_verdict=facade.upsert_push_barrier_verdict_global,
             now=datetime.now(tz=UTC),
         )

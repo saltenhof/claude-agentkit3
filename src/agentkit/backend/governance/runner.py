@@ -41,6 +41,7 @@ if TYPE_CHECKING:
 type HookDecision = GuardVerdict
 
 logger = logging.getLogger(__name__)
+_AGENTKIT_DIR_NAME = ".agentkit"
 
 
 class _GuardDecisionSink(Protocol):
@@ -641,7 +642,7 @@ def _run_commit_hook(
             run_id=run_id,
             default_source_component="commit_hook",
         ),
-        snapshot_dir=project_root / ".agentkit" / "hooks" / "commit-heads",
+        snapshot_dir=project_root / _AGENTKIT_DIR_NAME / "hooks" / "commit-heads",
     )
     command = event.operation_args.get("command")
     payload: dict[str, object] = {"cwd": event.cwd, "repo_name": ""}
@@ -2174,7 +2175,7 @@ def _block_with_permission_request(
     request_id: str | None = None
     try:
         request = CcagPermissionRuntime(
-            request_db_path=project_root / ".agentkit" / "ccag" / "ccag_requests.db"
+            request_db_path=project_root / _AGENTKIT_DIR_NAME / "ccag" / "ccag_requests.db"
         ).open_permission_request(event)
         request_id = request.request_id
     except Exception:  # noqa: BLE001
@@ -2383,7 +2384,7 @@ def _ccag_request_db_path(project_root: Path) -> Path:
     TTL-expiry escalation inspects exactly the requests CCAG creates — no second
     request truth (FIX THE MODEL). Mirrors ``_block_with_permission_request``.
     """
-    return project_root / ".agentkit" / "ccag" / "ccag_requests.db"
+    return project_root / _AGENTKIT_DIR_NAME / "ccag" / "ccag_requests.db"
 
 
 def _escalate_expired_permission_requests(
