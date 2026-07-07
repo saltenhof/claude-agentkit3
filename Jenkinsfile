@@ -70,7 +70,7 @@ PY
                     git clone --depth 1 --branch main --single-branch https://github.com/saltenhof/claude-agentkit3.git agentkit-src
                     git -C agentkit-src rev-parse HEAD
                     git -C agentkit-src show --no-patch --oneline HEAD
-                    grep -n "agentkit_postgres_schema_ddl" agentkit-src/src/agentkit/backend/state_backend/postgres_store.py
+                    grep -R -n "agentkit_postgres_schema_ddl" agentkit-src/src/agentkit/backend/state_backend/postgres_store
                 '''
             }
         }
