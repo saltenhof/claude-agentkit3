@@ -7,9 +7,11 @@ import uuid
 from typing import TYPE_CHECKING
 
 from agentkit.backend.state_backend.store import (
+    resolve_runtime_scope,
+)
+from agentkit.backend.state_backend.telemetry_event_store import (
     append_execution_event,
     load_execution_events,
-    resolve_runtime_scope,
 )
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 from agentkit.backend.telemetry.events import Event, EventType
@@ -171,7 +173,7 @@ class StateBackendExecutionEventReader:
     """Run-scoped ``ExecutionEventReader`` over the canonical event stream.
 
     Adapter wiring the ``telemetry.contract`` port to
-    ``state_backend.store.load_execution_events`` (FK-68 §68.4 evaluates against
+    ``TelemetryEventStore.load_execution_events`` (FK-68 §68.4 evaluates against
     ``execution_events``). Bound to one ``(story_dir, project_key, story_id)``
     scope at construction; ``read_run_events`` filters by ``run_id``.
 

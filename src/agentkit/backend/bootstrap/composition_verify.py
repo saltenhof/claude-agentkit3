@@ -191,7 +191,9 @@ class _StateBackendTelemetryEventCountPort:
         whose ``payload['role']`` matches are counted (FK-27 §27.4.3 Gate 2:
         ``llm_call_complete`` events carry the reviewer role in their payload).
         """
-        from agentkit.backend.state_backend.store import load_execution_events
+        from agentkit.backend.state_backend.telemetry_event_store import (
+            load_execution_events,
+        )
 
         resolved_run_id = run_id or self._resolve_active_run_id(story_dir)
         if resolved_run_id is None:

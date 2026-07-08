@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from agentkit.backend.state_backend.store.projection_repositories import (
+from agentkit.backend.state_backend.store.telemetry_projection_repository_common import (
     _is_postgres,
     _postgres_connect,
     _sqlite_connect_qa,

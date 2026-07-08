@@ -112,11 +112,11 @@ def build_story_split_service(
         StateBackendHookRegistrationRepository,
     )
     from agentkit.backend.state_backend.store.lock_record_repository import LockRecordRepository
-    from agentkit.backend.state_backend.store.projection_repositories import (
-        FacadePhaseStateProjectionRepository,
-    )
     from agentkit.backend.state_backend.store.story_dependency_repository import (
         StateBackendStoryDependencyRepository,
+    )
+    from agentkit.backend.state_backend.store.telemetry_projection_repositories import (
+        FacadePhaseStateProjectionRepository,
     )
     from agentkit.backend.story_context_manager.service import StoryService
     from agentkit.backend.story_creation.story_md_export import export_story_md

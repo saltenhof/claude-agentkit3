@@ -887,7 +887,7 @@ def test_telemetry_count_port_run_scoped(tmp_path: Path, monkeypatch: pytest.Mon
         )
         return []
 
-    monkeypatch.setattr("agentkit.backend.state_backend.store.load_execution_events", _fake_load)
+    monkeypatch.setattr("agentkit.backend.state_backend.telemetry_event_store.load_execution_events", _fake_load)
     port = cr._StateBackendTelemetryEventCountPort()
     port.count_events(
         tmp_path,
@@ -921,7 +921,7 @@ def test_telemetry_count_port_failclosed_on_unresolvable_run_scope(tmp_path: Pat
     class _NoScope:
         story_id = "S-1"
 
-    monkeypatch.setattr("agentkit.backend.state_backend.store.load_execution_events", _fail_load)
+    monkeypatch.setattr("agentkit.backend.state_backend.telemetry_event_store.load_execution_events", _fail_load)
     monkeypatch.setattr(
         "agentkit.backend.state_backend.store.facade.resolve_runtime_scope",
         lambda story_dir: _NoScope(),

@@ -322,7 +322,7 @@ class StateBackendAnalyticsSource:
     def _load_project_events(
         self, project_key: str
     ) -> list[ExecutionEventRecord]:
-        from agentkit.backend.state_backend.store.facade import (
+        from agentkit.backend.state_backend.telemetry_event_store import (
             load_execution_events_for_project_global,
         )
 

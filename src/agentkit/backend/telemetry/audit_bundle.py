@@ -31,9 +31,11 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from agentkit.backend.state_backend.store import (
-    load_execution_events,
     load_flow_execution,
     resolve_runtime_scope,
+)
+from agentkit.backend.state_backend.telemetry_event_store import (
+    load_execution_events,
 )
 from agentkit.backend.telemetry.projection_accessor import (
     ProjectionFilter,

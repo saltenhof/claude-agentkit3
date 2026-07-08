@@ -30,9 +30,11 @@ from agentkit.backend.core_types import PROTOCOL_FILE, VERIFY_DECISION_FILE
 from agentkit.backend.core_types.qa_artifact_names import LAYER_ARTIFACT_FILES
 from agentkit.backend.installer.paths import qa_story_dir
 from agentkit.backend.state_backend.store import (
+    resolve_runtime_scope,
+)
+from agentkit.backend.state_backend.telemetry_event_store import (
     load_execution_events,
     load_story_metrics,
-    resolve_runtime_scope,
 )
 from agentkit.backend.story_context_manager.types import StoryType
 from agentkit.backend.telemetry.events import EventType

@@ -9,9 +9,9 @@ from agentkit.backend.closure.post_merge_finalization.records import StoryMetric
 from agentkit.backend.exceptions import CorruptStateError
 from agentkit.backend.state_backend.store import (
     load_attempts,
-    load_execution_events,
     resolve_runtime_scope,
 )
+from agentkit.backend.state_backend.telemetry_event_store import load_execution_events
 from agentkit.backend.telemetry.events import EventType
 
 if TYPE_CHECKING:

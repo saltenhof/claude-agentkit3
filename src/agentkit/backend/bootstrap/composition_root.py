@@ -112,6 +112,8 @@ def cli_load_execution_events_for_project_global(
     limit: int | None = None,
 ) -> list[object]:
     """Load all execution events for a project for the CLI."""
-    from agentkit.backend.state_backend.store.facade import load_execution_events_for_project_global
+    from agentkit.backend.state_backend.telemetry_event_store import (
+        load_execution_events_for_project_global,
+    )
 
     return load_execution_events_for_project_global(project_key, limit=limit)  # type: ignore[return-value]

@@ -1227,7 +1227,7 @@ class TestQueryTelemetryProjectGlobalForms:
         event_b = self._make_event("run-xyz", "phase_end", "2025-01-02T00:00:00")
 
         with patch(
-            "agentkit.backend.state_backend.store.facade.load_execution_events_for_project_global",
+            "agentkit.backend.state_backend.telemetry_event_store.load_execution_events_for_project_global",
             return_value=[event_a, event_b],
         ) as mock_reader:
             code, out, _err = _invoke(
@@ -1257,7 +1257,7 @@ class TestQueryTelemetryProjectGlobalForms:
         wrong_type = self._make_event("run-3", "agent_end", "2025-03-01T00:00:00")
 
         with patch(
-            "agentkit.backend.state_backend.store.facade.load_execution_events_for_project_global",
+            "agentkit.backend.state_backend.telemetry_event_store.load_execution_events_for_project_global",
             return_value=[old_event, new_event, wrong_type],
         ) as mock_reader:
             code, out, _err = _invoke(
@@ -1308,7 +1308,7 @@ class TestQueryTelemetryConfigFlag:
         with (
             patch("agentkit.backend.config.loader.load_project_config", return_value=mock_cfg),
             patch(
-                "agentkit.backend.state_backend.store.facade.load_execution_events_for_project_global",
+                "agentkit.backend.state_backend.telemetry_event_store.load_execution_events_for_project_global",
                 return_value=[event_a],
             ) as mock_reader,
         ):
@@ -1428,7 +1428,7 @@ class TestQueryTelemetryEventValidation:
         event.story_id = "AG3-001"
 
         with patch(
-            "agentkit.backend.state_backend.store.facade.load_execution_events_for_project_global",
+            "agentkit.backend.state_backend.telemetry_event_store.load_execution_events_for_project_global",
             return_value=[event],
         ):
             code, out, _err = _invoke(
@@ -1476,7 +1476,7 @@ class TestQueryTelemetrySinceParsing:
         event_old = self._make_event(old)
 
         with patch(
-            "agentkit.backend.state_backend.store.facade.load_execution_events_for_project_global",
+            "agentkit.backend.state_backend.telemetry_event_store.load_execution_events_for_project_global",
             return_value=[event_recent, event_old],
         ):
             code, out, _err = _invoke(
@@ -1521,7 +1521,7 @@ class TestQueryTelemetrySinceParsing:
         event = self._make_event(recent)
 
         with patch(
-            "agentkit.backend.state_backend.store.facade.load_execution_events_for_project_global",
+            "agentkit.backend.state_backend.telemetry_event_store.load_execution_events_for_project_global",
             return_value=[event],
         ):
             code, _out, _err = _invoke(

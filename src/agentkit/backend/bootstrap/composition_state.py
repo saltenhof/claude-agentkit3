@@ -133,7 +133,7 @@ def build_projection_accessor(store_dir: Path | None = None) -> project_types.Pr
     Returns:
         ``ProjectionAccessor`` with all four repository adapters.
     """
-    from agentkit.backend.state_backend.store.projection_repositories import (
+    from agentkit.backend.state_backend.store.telemetry_projection_repositories import (
         build_projection_repositories,
     )
     from agentkit.backend.telemetry.projection_accessor import (

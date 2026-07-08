@@ -28,17 +28,22 @@ import json
 import os
 import sqlite3
 from contextlib import contextmanager
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from agentkit.backend.artifacts.envelope import ArtifactEnvelope
-from agentkit.backend.artifacts.producer import Producer, ProducerId, ProducerType
 from agentkit.backend.artifacts.reference import ArtifactReference
-from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus
+from agentkit.backend.state_backend.artifact_envelope_mappers import (
+    postgres_artifact_envelope_row_to_record as _pg_row_to_envelope,
+)
+from agentkit.backend.state_backend.artifact_envelope_mappers import (
+    sqlite_artifact_envelope_row_to_record as _sqlite_row_to_envelope,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    from agentkit.backend.artifacts.envelope import ArtifactEnvelope
+    from agentkit.backend.core_types import ArtifactClass
 
 
 # ---------------------------------------------------------------------------
@@ -135,43 +140,6 @@ def _envelope_to_sqlite_row(envelope: ArtifactEnvelope) -> dict[str, Any]:
     }
 
 
-def _sqlite_row_to_envelope(row: dict[str, Any]) -> ArtifactEnvelope:
-    """Deserialize a SQLite row dict to ArtifactEnvelope."""
-    payload: dict[str, Any] | None = None
-    raw_payload = row.get("payload_json")
-    if raw_payload is not None:
-        payload = json.loads(str(raw_payload))
-
-    started_at = datetime.fromisoformat(str(row["started_at"]))
-    finished_at = datetime.fromisoformat(str(row["finished_at"]))
-    # Ensure UTC tz-awareness preserved through TEXT roundtrip
-    if started_at.tzinfo is None:
-        started_at = started_at.replace(tzinfo=UTC)
-    if finished_at.tzinfo is None:
-        finished_at = finished_at.replace(tzinfo=UTC)
-
-    return ArtifactEnvelope(
-        schema_version="3.0",
-        story_id=str(row["story_id"]),
-        run_id=str(row["run_id"]),
-        stage=str(row["stage"]),
-        attempt=int(row["attempt"]),
-        producer=Producer(
-            type=ProducerType(str(row["producer_type"])),
-            name=str(row["producer_name"]),
-            id=ProducerId(str(row["producer_id"])),
-            version=str(row["producer_version"])
-            if row.get("producer_version") is not None
-            else None,
-        ),
-        started_at=started_at,
-        finished_at=finished_at,
-        status=EnvelopeStatus(str(row["status"])),
-        artifact_class=ArtifactClass(str(row["artifact_class"])),
-        payload=payload,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Row <-> Envelope conversion (Postgres — TIMESTAMPTZ, JSON column)
 # ---------------------------------------------------------------------------
@@ -197,52 +165,6 @@ def _envelope_to_pg_row(envelope: ArtifactEnvelope) -> dict[str, Any]:
         if envelope.payload is not None
         else None,
     }
-
-
-def _pg_row_to_envelope(row: dict[str, Any]) -> ArtifactEnvelope:
-    """Deserialize a Postgres row dict to ArtifactEnvelope."""
-    payload: dict[str, Any] | None = None
-    raw_payload = row.get("payload_json")
-    if raw_payload is not None:
-        payload = raw_payload if isinstance(raw_payload, dict) else json.loads(str(raw_payload))
-
-    started_at = row["started_at"]
-    finished_at = row["finished_at"]
-    if isinstance(started_at, str):
-        started_at = datetime.fromisoformat(started_at)
-    if isinstance(finished_at, str):
-        finished_at = datetime.fromisoformat(finished_at)
-    # Postgres TIMESTAMPTZ returns tz-aware values in the connection's session
-    # timezone (e.g. Europe/Berlin on a localized server), but FK-71 §71.2
-    # requires UTC offset 0. Normalize regardless of the incoming tz: convert
-    # aware values to UTC, and treat naive values as already-UTC.
-    started_at = (
-        started_at.replace(tzinfo=UTC) if started_at.tzinfo is None else started_at.astimezone(UTC)
-    )
-    finished_at = (
-        finished_at.replace(tzinfo=UTC) if finished_at.tzinfo is None else finished_at.astimezone(UTC)
-    )
-
-    return ArtifactEnvelope(
-        schema_version="3.0",
-        story_id=str(row["story_id"]),
-        run_id=str(row["run_id"]),
-        stage=str(row["stage"]),
-        attempt=int(row["attempt"]),
-        producer=Producer(
-            type=ProducerType(str(row["producer_type"])),
-            name=str(row["producer_name"]),
-            id=ProducerId(str(row["producer_id"])),
-            version=str(row["producer_version"])
-            if row.get("producer_version") is not None
-            else None,
-        ),
-        started_at=started_at,
-        finished_at=finished_at,
-        status=EnvelopeStatus(str(row["status"])),
-        artifact_class=ArtifactClass(str(row["artifact_class"])),
-        payload=payload,
-    )
 
 
 # ---------------------------------------------------------------------------

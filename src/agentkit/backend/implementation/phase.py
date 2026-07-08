@@ -64,10 +64,10 @@ from agentkit.backend.state_backend.store import (
     bind_ownership_fence_scope,
     load_flow_execution,
     load_override_records,
-    record_verify_decision,
     resolve_ownership_fence_snapshot,
     save_story_context,
 )
+from agentkit.backend.state_backend.verify_artifact_store import record_verify_decision
 from agentkit.backend.verify_system.contract import PhaseEnvelopeView, VerifyContextBundle
 from agentkit.backend.verify_system.contract import QaSubflowOutcome as _QaSubflowOutcome
 

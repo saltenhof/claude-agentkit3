@@ -135,7 +135,9 @@ class StateBackendGovernanceEventReader:
         Returns:
             UNIX timestamp of the last matching adjudication, or ``None``.
         """
-        from agentkit.backend.state_backend.store.facade import load_last_adjudication_ts
+        from agentkit.backend.state_backend.telemetry_event_store import (
+            load_last_adjudication_ts,
+        )
 
         story_dir = self._resolved_story_dir()
         return load_last_adjudication_ts(
@@ -193,7 +195,9 @@ class StateBackendGovernanceEventReader:
         Returns:
             List of :class:`~agentkit.backend.telemetry.contract.records.ExecutionEventRecord`.
         """
-        from agentkit.backend.state_backend.store.facade import load_execution_events
+        from agentkit.backend.state_backend.telemetry_event_store import (
+            load_execution_events,
+        )
 
         return load_execution_events(
             self._resolved_story_dir(),

@@ -202,6 +202,42 @@ def load_artifact_record_payload_for_scope(
     return load_artifact_record_payload(scope.story_dir, artifact_kind)
 
 
+def find_latest_artifact_envelope_row(
+    story_dir: Path,
+    *,
+    story_id: str,
+    run_id: str | None,
+    artifact_class: ArtifactClass,
+    stage: str,
+) -> dict[str, Any] | None:
+    """Return the highest-attempt artifact_envelopes row for a scope."""
+    with _connect(story_dir) as conn:
+        if run_id is None:
+            row = conn.execute(
+                """
+                SELECT * FROM artifact_envelopes
+                WHERE story_id = ? AND stage = ? AND artifact_class = ?
+                ORDER BY attempt DESC
+                LIMIT 1
+                """,
+                (story_id, stage, artifact_class.value),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                """
+                SELECT * FROM artifact_envelopes
+                WHERE story_id = ? AND run_id = ? AND stage = ?
+                  AND artifact_class = ?
+                ORDER BY attempt DESC
+                LIMIT 1
+                """,
+                (story_id, run_id, stage, artifact_class.value),
+            ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
 def load_prompt_audit_payload_rows(
     story_dir: Path,
     story_id: str,

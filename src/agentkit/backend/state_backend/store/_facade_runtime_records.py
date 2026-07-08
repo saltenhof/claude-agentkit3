@@ -6,6 +6,24 @@ from typing import TYPE_CHECKING
 
 from agentkit.backend.state_backend.store import mappers
 from agentkit.backend.state_backend.store._facade_backend import _backend_module
+from agentkit.backend.state_backend.telemetry_event_store import (
+    append_execution_event as append_execution_event,
+)
+from agentkit.backend.state_backend.telemetry_event_store import (
+    append_execution_event_global as append_execution_event_global,
+)
+from agentkit.backend.state_backend.telemetry_event_store import (
+    load_execution_events as load_execution_events,
+)
+from agentkit.backend.state_backend.telemetry_event_store import (
+    load_execution_events_for_project_global as load_execution_events_for_project_global,
+)
+from agentkit.backend.state_backend.telemetry_event_store import (
+    load_execution_events_global as load_execution_events_global,
+)
+from agentkit.backend.state_backend.telemetry_event_store import (
+    load_last_adjudication_ts as load_last_adjudication_ts,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -20,7 +38,6 @@ if TYPE_CHECKING:
         PhaseState,
     )
     from agentkit.backend.pipeline_engine.phase_executor.records import AttemptRecord
-    from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 
 def save_phase_state(story_dir: Path, state: PhaseState) -> None:
@@ -105,134 +122,6 @@ def load_attempts(
 
     rows = _backend_module().load_attempt_rows(story_dir, phase, run_id=run_id)
     return [mappers.attempt_row_to_record(row) for row in rows]
-
-
-def append_execution_event(story_dir: Path, event: ExecutionEventRecord) -> None:
-    row = mappers.execution_event_to_row(event)
-    _backend_module().append_execution_event_row(story_dir, row)
-
-
-def append_execution_event_global(event: ExecutionEventRecord) -> None:
-    backend = _backend_module()
-    if not hasattr(backend, "append_execution_event_global_row"):
-        raise RuntimeError(
-            "Global execution-event append is unsupported by the active backend",
-        )
-    row = mappers.execution_event_to_row(event)
-    backend.append_execution_event_global_row(row)
-
-
-def load_execution_events(
-    story_dir: Path,
-    *,
-    project_key: str | None = None,
-    story_id: str | None = None,
-    run_id: str | None = None,
-    event_type: str | None = None,
-    limit: int | None = None,
-) -> list[ExecutionEventRecord]:
-    rows = _backend_module().load_execution_event_rows(
-        story_dir,
-        project_key=project_key,
-        story_id=story_id,
-        run_id=run_id,
-        event_type=event_type,
-        limit=limit,
-    )
-    return [mappers.execution_event_row_to_record(row) for row in rows]
-
-
-def load_execution_events_global(
-    project_key: str,
-    story_id: str,
-    *,
-    run_id: str | None = None,
-    event_type: str | None = None,
-    limit: int | None = None,
-) -> list[ExecutionEventRecord]:
-    backend = _backend_module()
-    if not hasattr(backend, "load_execution_event_rows_global"):
-        raise RuntimeError(
-            "Global execution-event reads are unsupported by the active backend",
-        )
-    rows = backend.load_execution_event_rows_global(
-        project_key,
-        story_id,
-        run_id=run_id,
-        event_type=event_type,
-        limit=limit,
-    )
-    return [mappers.execution_event_row_to_record(row) for row in rows]
-
-
-def load_execution_events_for_project_global(
-    project_key: str,
-    *,
-    limit: int | None = None,
-) -> list[ExecutionEventRecord]:
-    backend = _backend_module()
-    if not hasattr(backend, "load_execution_event_rows_for_project_global"):
-        raise RuntimeError(
-            "Global project execution-event reads are unsupported by the active backend",
-        )
-    rows = backend.load_execution_event_rows_for_project_global(
-        project_key,
-        limit=limit,
-    )
-    return [mappers.execution_event_row_to_record(row) for row in rows]
-
-
-def load_last_adjudication_ts(
-    story_dir: Path,
-    *,
-    project_key: str,
-    story_id: str,
-    run_id: str,
-    payload_signal_type: str,
-) -> float | None:
-    """Return the UNIX timestamp of the last ``governance_adjudication`` for the scope.
-
-    Implements FK-35 §35.3.11: queries the EXACT ``(project_key, story_id,
-    run_id, signal_type)`` tuple via a DB-side MAX(occurred_at) with exact
-    JSON matching.  This avoids the bounded-scan + Python-max pattern that can
-    miss same-signal adjudications when 200+ other-signal adjudications are newer.
-
-    Both stores apply identical semantics (``payload_json`` is a ``TEXT``
-    column in both schemas):
-    - SQLite: ``json_extract(payload_json, '$.signal_type') = ?``
-    - Postgres: ``(payload_json::jsonb)->>'signal_type' = ?`` (cast required
-      because the ``->>`` operator does not apply to ``TEXT``).
-
-    Neither uses LIKE (which could false-match substrings).
-
-    Args:
-        story_dir: Story directory (used by the SQLite driver; ignored by Postgres
-            which derives the connection from the environment).
-        project_key: Exact project scope.
-        story_id: Exact story scope.
-        run_id: Exact run scope.
-        payload_signal_type: Exact ``signal_type`` wire value to match.
-
-    Returns:
-        UNIX float timestamp of the most-recent matching adjudication, or
-        ``None`` when no such adjudication exists.
-    """
-    from datetime import UTC, datetime
-
-    raw = _backend_module().max_adjudication_occurred_at(
-        story_dir,
-        project_key=project_key,
-        story_id=story_id,
-        run_id=run_id,
-        payload_signal_type=payload_signal_type,
-    )
-    if raw is None:
-        return None
-    # occurred_at is stored as ISO-8601; parse and return as UNIX float.
-    dt = datetime.fromisoformat(raw)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return dt.timestamp()
 
 
 def save_flow_execution(story_dir: Path, record: FlowExecution) -> None:

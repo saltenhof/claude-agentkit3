@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 
     from agentkit.backend.failure_corpus.incident import IncidentDraft
     from agentkit.backend.failure_corpus.types import IncidentId
-    from agentkit.backend.state_backend.store.projection_repositories import (
+    from agentkit.backend.state_backend.store.telemetry_projection_repositories import (
         ProjectionRepositories,
     )
     from agentkit.backend.task_management.models import Task, TaskLink, TaskListFilter, TaskTargetKind
@@ -96,7 +96,7 @@ _ACCESSOR_OWNED_KINDS: frozenset[ProjectionKind] = frozenset(
         ProjectionKind.STORY_METRICS,
         # AG3-028 CONFLICT-2: fc_incidents is accessor-owned after this story
         # (FK-69 §69.9/§69.14 route fc_* explicitly via write_projection). The
-        # fc_incidents repo adapter lives accessor-side in state_backend/store.
+        # fc_incidents repo adapter is injected on the accessor side.
         ProjectionKind.FC_INCIDENTS,
         # AG3-078 (FK-41 §41.5/§41.6): FC_PATTERNS and FC_CHECK_PROPOSALS ownership
         # wired. PatternPromotion/CheckFactory are the producer stories.

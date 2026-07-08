@@ -22,12 +22,14 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentkit.backend.state_backend.store.facade import (
-    load_execution_events_global,
     load_flow_execution_global,
-    load_latest_story_metrics_global,
     load_phase_state_global,
     load_story_context_global,
     load_story_contexts_global,
+)
+from agentkit.backend.state_backend.telemetry_event_store import (
+    load_execution_events_global,
+    load_latest_story_metrics_global,
 )
 
 if TYPE_CHECKING:

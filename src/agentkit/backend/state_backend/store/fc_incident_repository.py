@@ -1,7 +1,7 @@
 """fc_incidents repository adapter (FK-41 §41.3.1, FK-69 §69.9, AG3-028 CONFLICT-2).
 
 The DB-owner-side adapter for ``fc_incidents``. Lives — like the other
-FK-69 repos — on the accessor side in ``state_backend/store`` and is injected
+FK-69 repos — on the accessor side and is injected
 via ``ProjectionRepositories`` into the ``ProjectionAccessor``. The
 ``failure_corpus`` BC does NOT know this adapter (AC#6); it writes/reads
 exclusively via the ``ProjectionAccessor``.
@@ -31,7 +31,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from agentkit.backend.state_backend.store.projection_repositories import (
+from agentkit.backend.state_backend.store.telemetry_projection_repository_common import (
     _is_postgres,
     _postgres_connect,
     _sqlite_connect_qa,

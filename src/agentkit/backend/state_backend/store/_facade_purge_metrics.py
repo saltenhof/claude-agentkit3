@@ -4,16 +4,32 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.backend.state_backend.store import mappers
+from agentkit.backend.state_backend.artifact_catalog_store import (
+    purge_run_bound_artifact_envelopes as purge_run_bound_artifact_envelopes,
+)
 from agentkit.backend.state_backend.store._facade_backend import _backend_module
+from agentkit.backend.state_backend.telemetry_event_store import (
+    load_latest_story_metrics_global as load_latest_story_metrics_global,
+)
+from agentkit.backend.state_backend.telemetry_event_store import (
+    load_story_metrics as load_story_metrics,
+)
+from agentkit.backend.state_backend.telemetry_event_store import (
+    load_story_metrics_for_scope as load_story_metrics_for_scope,
+)
+from agentkit.backend.state_backend.telemetry_event_store import (
+    purge_execution_events as purge_execution_events,
+)
+from agentkit.backend.state_backend.telemetry_event_store import (
+    upsert_story_metrics as upsert_story_metrics,
+)
+from agentkit.backend.state_backend.verify_artifact_store import (
+    purge_decision_records as purge_decision_records,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.backend.closure.post_merge_finalization.records import (
-        StoryMetricsRecord,
-    )
-    from agentkit.backend.state_backend.scope import RuntimeStateScope
 
 
 def purge_flow_executions(story_dir: Path, project_key: str, story_id: str, run_id: str) -> int:
@@ -73,36 +89,6 @@ def purge_phase_snapshots(story_dir: Path, story_id: str) -> int:
     return int(_backend_module().purge_phase_snapshots_row(story_dir, story_id))
 
 
-def purge_decision_records(story_dir: Path, story_id: str) -> int:
-    """Delete all decision_records rows for story_id; return deleted row count.
-
-    Canonical verify decisions (governance runtime residue, FK-53 §53.7.5) are
-    keyed ``(story_id, decision_kind, attempt_nr)`` in the canonical SQLite
-    schema — attempt numbering restarts per run, and ``load_latest_verify_decision``
-    selects ``MAX(attempt_nr)`` story-wide (Postgres falls back story-wide), so a
-    purged run's leftover decision would SHADOW the next run's verify decision in
-    the Integrity Gate. Purged for the whole story.
-    """
-
-    return int(_backend_module().purge_decision_records_row(story_dir, story_id))
-
-
-def purge_execution_events(story_dir: Path, project_key: str, story_id: str, run_id: str) -> int:
-    """Delete execution_events rows for the run scope; return deleted row count."""
-
-    return int(_backend_module().purge_execution_events_row(story_dir, project_key, story_id, run_id))
-
-
-def purge_run_bound_artifact_envelopes(story_dir: Path, story_id: str, run_id: str) -> int:
-    """Delete run-bound artifact_envelopes rows for (story_id, run_id).
-
-    ``artifact_envelopes`` has no ``project_key`` column; every row is run-bound
-    via ``run_id``. Other-run (across-run/durable) rows are left intact.
-    """
-
-    return int(_backend_module().purge_run_bound_artifact_envelopes_row(story_dir, story_id, run_id))
-
-
 def count_runtime_execution_residue(story_dir: Path, project_key: str, story_id: str, run_id: str) -> dict[str, int]:
     """Return remaining Runtime-Execution rows per table for the run scope.
 
@@ -118,54 +104,6 @@ def count_runtime_execution_residue(story_dir: Path, project_key: str, story_id:
     """
 
     return dict(_backend_module().count_runtime_execution_residue_row(story_dir, project_key, story_id, run_id))
-
-
-def upsert_story_metrics(story_dir: Path, metrics: StoryMetricsRecord) -> None:
-    row = mappers.story_metrics_to_row(metrics)
-    _backend_module().upsert_story_metrics_row(story_dir, row)
-
-
-def load_story_metrics(
-    story_dir: Path,
-    *,
-    project_key: str | None = None,
-    story_id: str | None = None,
-    run_id: str | None = None,
-) -> list[StoryMetricsRecord]:
-    rows = _backend_module().load_story_metrics_rows(
-        story_dir,
-        project_key=project_key,
-        story_id=story_id,
-        run_id=run_id,
-    )
-    return [mappers.story_metrics_row_to_record(row) for row in rows]
-
-
-def load_story_metrics_for_scope(
-    scope: RuntimeStateScope,
-) -> list[StoryMetricsRecord]:
-    return load_story_metrics(
-        scope.story_dir,
-        project_key=scope.project_key,
-        story_id=scope.story_id,
-        run_id=scope.run_id,
-    )
-
-
-def load_latest_story_metrics_global(
-    project_key: str,
-    story_id: str,
-    store_dir: Path | None = None,
-) -> StoryMetricsRecord | None:
-    backend = _backend_module()
-    if not hasattr(backend, "load_latest_story_metrics_global_row"):
-        raise RuntimeError(
-            "Global story-metrics reads are unsupported by the active backend",
-        )
-    row = backend.load_latest_story_metrics_global_row(store_dir, project_key, story_id)
-    if row is None:
-        return None
-    return mappers.story_metrics_row_to_record(row)
 
 
 __all__ = [

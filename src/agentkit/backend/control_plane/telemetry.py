@@ -10,7 +10,9 @@ from agentkit.backend.control_plane.models import (
     TelemetryEventIngestRequest,
     TelemetryEventQueryResponse,
 )
-from agentkit.backend.state_backend.store import append_execution_event_global
+from agentkit.backend.state_backend.telemetry_event_store import (
+    append_execution_event_global,
+)
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 if TYPE_CHECKING:

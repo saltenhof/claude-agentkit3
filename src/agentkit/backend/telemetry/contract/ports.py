@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 class ExecutionEventReader(Protocol):
     """Run-scoped read boundary over the canonical ``execution_events`` stream.
 
-    The canonical adapter wraps ``state_backend.store.load_execution_events``
+    The canonical adapter wraps ``TelemetryEventStore.load_execution_events``
     (see :class:`StateBackendExecutionEventReader`). Injected as a Protocol so
     ``telemetry.contract`` stays free of facade imports.
     """

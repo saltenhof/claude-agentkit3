@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from agentkit.backend.state_backend.store.facade import (
+from agentkit.backend.state_backend.telemetry_event_store import (
     load_execution_events_for_project_global,
 )
 

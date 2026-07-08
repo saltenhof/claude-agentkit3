@@ -20,12 +20,12 @@ from agentkit.backend.core_types.qa_artifact_names import (
     VERIFY_DECISION_FILE,
 )
 from agentkit.backend.exceptions import CorruptStateError
+from agentkit.backend.state_backend.artifact_catalog_store import read_artifact_record
 from agentkit.backend.state_backend.paths import (
     CONTEXT_EXPORT_FILE,
     PHASE_STATE_EXPORT_FILE,
 )
 from agentkit.backend.state_backend.store import (
-    read_artifact_record,
     read_phase_snapshot_record,
     read_phase_state_record,
     read_story_context_record,

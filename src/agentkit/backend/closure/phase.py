@@ -1236,7 +1236,7 @@ def _load_existing_metrics(
     status). FK-29 §29.6: the projection is written exactly once and read back
     here unchanged.
     """
-    from agentkit.backend.state_backend.store import load_story_metrics
+    from agentkit.backend.state_backend.telemetry_event_store import load_story_metrics
 
     del status  # the persisted record is authoritative; no rebuild on resume.
     run_id = _resume_run_id(s_dir)

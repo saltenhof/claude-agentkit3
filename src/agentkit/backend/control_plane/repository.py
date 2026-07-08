@@ -13,7 +13,6 @@ from agentkit.backend.state_backend.state_backend_connection_manager import (
 from agentkit.backend.state_backend.store import (
     acquire_object_mutation_claim_global,
     admin_abort_control_plane_operation_global,
-    append_execution_event_global,
     claim_control_plane_operation_global,
     commission_edge_command_record_global,
     commit_control_plane_operation_with_side_effects_global,
@@ -49,6 +48,9 @@ from agentkit.backend.state_backend.store import (
     save_story_execution_lock_global,
     save_takeover_transfer_record_global,
     supersede_open_edge_command_global,
+)
+from agentkit.backend.state_backend.telemetry_event_store import (
+    append_execution_event_global,
 )
 
 if TYPE_CHECKING:
