@@ -10,7 +10,12 @@ from agentkit.backend.requirements_coverage.errors import (
     StoryAreLinkNotFoundError,
 )
 from agentkit.backend.requirements_coverage.repository import StoryAreLinkRepository
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.requirements_coverage_store import (
+    delete_story_are_link,
+    load_story_are_links,
+    save_story_are_link,
+    update_story_are_link_kind,
+)
 
 if TYPE_CHECKING:
     from agentkit.backend.requirements_coverage.models import StoryAreLink, StoryAreLinkKind
@@ -19,7 +24,7 @@ _NOT_FOUND_MESSAGE = "StoryAreLink not found"
 
 
 class StateBackendStoryAreLinkRepository(StoryAreLinkRepository):
-    """Persist StoryAreLink edges through the canonical state-backend facade."""
+    """Persist StoryAreLink edges through the requirements-coverage store."""
 
     def __init__(self, store_dir: Path | None = None) -> None:
         self._store_dir = store_dir or Path.cwd()
@@ -32,7 +37,7 @@ class StateBackendStoryAreLinkRepository(StoryAreLinkRepository):
         ]
         if existing:
             raise StoryAreLinkConflictError("StoryAreLink already exists")
-        facade.save_story_are_link(link, self._store_dir)
+        save_story_are_link(link, self._store_dir)
 
     def update_kind(
         self,
@@ -57,7 +62,7 @@ class StateBackendStoryAreLinkRepository(StoryAreLinkRepository):
         ):
             raise StoryAreLinkConflictError("Target StoryAreLink kind already exists")
 
-        updated = facade.update_story_are_link_kind(
+        updated = update_story_are_link_kind(
             self._store_dir,
             story_id,
             are_item_id,
@@ -74,7 +79,7 @@ class StateBackendStoryAreLinkRepository(StoryAreLinkRepository):
         are_item_id: str,
         kind: StoryAreLinkKind,
     ) -> None:
-        removed = facade.delete_story_are_link(
+        removed = delete_story_are_link(
             self._store_dir,
             story_id,
             are_item_id,
@@ -84,4 +89,4 @@ class StateBackendStoryAreLinkRepository(StoryAreLinkRepository):
             raise StoryAreLinkNotFoundError(_NOT_FOUND_MESSAGE)
 
     def list_by_story(self, story_id: str) -> list[StoryAreLink]:
-        return facade.load_story_are_links(story_id, self._store_dir)
+        return load_story_are_links(story_id, self._store_dir)

@@ -13,6 +13,9 @@ from agentkit.backend.requirements_coverage.errors import (
     StoryAreLinkNotFoundError,
 )
 from agentkit.backend.requirements_coverage.models import StoryAreLink, StoryAreLinkKind
+from agentkit.backend.state_backend.requirements_coverage_store import (
+    save_story_are_link,
+)
 from agentkit.backend.state_backend.store import facade
 from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
@@ -114,7 +117,7 @@ def test_story_are_link_repository_rejects_duplicates(tmp_path: Path) -> None:
     with pytest.raises(StoryAreLinkConflictError):
         repository.add(link)
     with pytest.raises(sqlite3.IntegrityError):
-        facade.save_story_are_link(link, tmp_path)
+        save_story_are_link(link, tmp_path)
 
 
 def test_story_are_link_repository_allows_multiple_kinds(tmp_path: Path) -> None:

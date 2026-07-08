@@ -666,10 +666,15 @@ class StateBackendArtifactRepository:
             when none materialized -- a story_execution spawn then has no pinned
             baseline and is fail-closed blocked at Stage 3).
         """
-        if _is_postgres():
-            rows = self._pg_prompt_audit_payloads(story_id, run_id)
-        else:
-            rows = self._sqlite_prompt_audit_payloads(story_id, run_id)
+        from agentkit.backend.state_backend.state_backend_connection_manager import (
+            _backend_module,
+        )
+
+        rows = _backend_module().load_prompt_audit_payload_rows(
+            self._store_dir,
+            story_id,
+            run_id,
+        )
         hashes: set[str] = set()
         for raw_payload in rows:
             if raw_payload is None:
@@ -683,33 +688,6 @@ class StateBackendArtifactRepository:
             if isinstance(digest, str) and digest:
                 hashes.add(digest)
         return frozenset(hashes)
-
-    def _sqlite_prompt_audit_payloads(
-        self, story_id: str, run_id: str
-    ) -> list[object]:
-        with _sqlite_connect(self._store_dir) as conn:
-            cursor = conn.execute(
-                """
-                SELECT payload_json FROM artifact_envelopes
-                WHERE story_id = ? AND run_id = ? AND artifact_class = ?
-                """,
-                (story_id, run_id, ArtifactClass.PROMPT_AUDIT.value),
-            )
-            return [dict(row).get("payload_json") for row in cursor.fetchall()]
-
-    def _pg_prompt_audit_payloads(
-        self, story_id: str, run_id: str
-    ) -> list[object]:
-        with _postgres_connect() as conn:
-            _ensure_artifact_table_postgres(conn)
-            cursor = conn.execute(
-                """
-                SELECT payload_json FROM artifact_envelopes
-                WHERE story_id = %s AND run_id = %s AND artifact_class = %s
-                """,
-                (story_id, run_id, ArtifactClass.PROMPT_AUDIT.value),
-            )
-            return [dict(row).get("payload_json") for row in cursor.fetchall()]
 
     # ------------------------------------------------------------------
     # read_envelope

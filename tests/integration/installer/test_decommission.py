@@ -35,6 +35,7 @@ from agentkit.backend.state_backend.config import (
     STATE_BACKEND_ENV,
     STORE_DIR_ENV,
 )
+from agentkit.backend.state_backend.project_store import save_project
 from agentkit.backend.state_backend.store import facade
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import (
@@ -70,7 +71,7 @@ def sqlite_store(
 
 def _seed_canonical_state(store: Path) -> None:
     """Seed real audit-trail / closure / QA records into the SQLite backend."""
-    facade.save_project(
+    save_project(
         Project(
             key=_PROJECT,
             name="Tenant A",

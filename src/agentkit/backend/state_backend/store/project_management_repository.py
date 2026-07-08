@@ -7,29 +7,34 @@ from typing import TYPE_CHECKING
 
 from agentkit.backend.project_management.errors import ProjectStoryIdPrefixConflictError
 from agentkit.backend.project_management.repository import ProjectRepository
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.project_store import (
+    load_project,
+    load_project_by_story_id_prefix,
+    load_projects,
+    save_project,
+)
 
 if TYPE_CHECKING:
     from agentkit.backend.project_management.entities import Project
 
 
 class StateBackendProjectRepository(ProjectRepository):
-    """Persist projects through the canonical state-backend facade."""
+    """Persist projects through the project-management state-backend store."""
 
     def __init__(self, store_dir: Path | None = None) -> None:
         self._store_dir = store_dir or Path.cwd()
 
     def get(self, key: str) -> Project | None:
-        return facade.load_project(key, self._store_dir)
+        return load_project(key, self._store_dir)
 
     def list(self, *, include_archived: bool = False) -> list[Project]:
-        return facade.load_projects(
+        return load_projects(
             self._store_dir,
             include_archived=include_archived,
         )
 
     def save(self, project: Project) -> None:
-        existing_prefix_owner = facade.load_project_by_story_id_prefix(
+        existing_prefix_owner = load_project_by_story_id_prefix(
             project.story_id_prefix,
             self._store_dir,
         )
@@ -48,4 +53,4 @@ class StateBackendProjectRepository(ProjectRepository):
             raise ProjectStoryIdPrefixConflictError(
                 "Project story-id prefix is immutable",
             )
-        facade.save_project(project, self._store_dir)
+        save_project(project, self._store_dir)

@@ -6,7 +6,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentkit.backend.execution_planning.repository import ParallelizationConfigRepository
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.execution_planning_store import (
+    load_parallelization_config,
+    save_parallelization_config,
+)
 
 if TYPE_CHECKING:
     from agentkit.backend.execution_planning.entities import ParallelizationConfig
@@ -15,13 +18,13 @@ if TYPE_CHECKING:
 class StateBackendParallelizationConfigRepository(
     ParallelizationConfigRepository,
 ):
-    """Persist parallelization configs through the state-backend facade."""
+    """Persist parallelization configs through the execution-planning store."""
 
     def __init__(self, store_dir: Path | None = None) -> None:
         self._store_dir = store_dir or Path.cwd()
 
     def get(self, project_key: str) -> ParallelizationConfig | None:
-        return facade.load_parallelization_config(project_key, self._store_dir)
+        return load_parallelization_config(project_key, self._store_dir)
 
     def upsert(self, config: ParallelizationConfig) -> None:
-        facade.save_parallelization_config(config, self._store_dir)
+        save_parallelization_config(config, self._store_dir)

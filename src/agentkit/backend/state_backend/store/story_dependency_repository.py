@@ -10,7 +10,12 @@ from agentkit.backend.execution_planning.errors import (
     StoryDependencyNotFoundError,
 )
 from agentkit.backend.execution_planning.repository import StoryDependencyRepository
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.execution_planning_store import (
+    delete_story_dependency,
+    load_story_dependencies,
+    load_story_dependency_rows_for_story,
+    save_story_dependency,
+)
 
 if TYPE_CHECKING:
     from agentkit.backend.execution_planning.entities import (
@@ -20,16 +25,16 @@ if TYPE_CHECKING:
 
 
 class StateBackendStoryDependencyRepository(StoryDependencyRepository):
-    """Persist story dependency edges through the state-backend facade."""
+    """Persist story dependency edges through the execution-planning store."""
 
     def __init__(self, store_dir: Path | None = None) -> None:
         self._store_dir = store_dir or Path.cwd()
 
     def list_for_project(self, project_key: str) -> list[StoryDependency]:
-        return facade.load_story_dependencies(project_key, self._store_dir)
+        return load_story_dependencies(project_key, self._store_dir)
 
     def list_for_story(self, story_id: str) -> list[StoryDependency]:
-        return facade.load_story_dependency_rows_for_story(story_id, self._store_dir)
+        return load_story_dependency_rows_for_story(story_id, self._store_dir)
 
     def add(self, edge: StoryDependency, *, project_key: str) -> None:
         existing = [
@@ -41,7 +46,7 @@ class StateBackendStoryDependencyRepository(StoryDependencyRepository):
         ]
         if existing:
             raise StoryDependencyConflictError("Story dependency already exists")
-        facade.save_story_dependency(project_key, edge, self._store_dir)
+        save_story_dependency(project_key, edge, self._store_dir)
 
     def remove(
         self,
@@ -49,7 +54,7 @@ class StateBackendStoryDependencyRepository(StoryDependencyRepository):
         depends_on_story_id: str,
         kind: StoryDependencyKind,
     ) -> None:
-        removed = facade.delete_story_dependency(
+        removed = delete_story_dependency(
             story_id,
             depends_on_story_id,
             kind,

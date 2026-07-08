@@ -143,10 +143,10 @@ def _pinned_prompt_output_hashes(
     unresolvable or nothing has been materialized -- a story_execution spawn then
     fails Stage 3 fail-closed.
     """
-    from agentkit.backend.state_backend.scope import RuntimeStateScope
-    from agentkit.backend.state_backend.store.facade import (
+    from agentkit.backend.state_backend.prompt_runtime_store import (
         find_prompt_audit_output_hashes,
     )
+    from agentkit.backend.state_backend.scope import RuntimeStateScope
 
     if not story_id or not run_id:
         return frozenset()

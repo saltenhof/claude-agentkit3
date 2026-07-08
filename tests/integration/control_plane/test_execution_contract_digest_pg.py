@@ -40,11 +40,13 @@ from agentkit.backend.exceptions import ConfigError
 from agentkit.backend.installer.paths import PROMPT_BUNDLE_STORE_ENV, prompt_bundle_store_dir
 from agentkit.backend.installer.registration import ProjectRegistration, RuntimeProfile
 from agentkit.backend.prompt_runtime.execution_contract import ExecutionContractDigestRecord
+from agentkit.backend.state_backend.prompt_runtime_store import (
+    insert_execution_contract_digest_global,
+    load_execution_contract_digest_global,
+)
 from agentkit.backend.state_backend.store import (
     boot_backend_instance_identity_global,
-    insert_execution_contract_digest_global,
     load_active_run_ownership_record_global,
-    load_execution_contract_digest_global,
     save_story_context_global,
 )
 from agentkit.backend.state_backend.store.project_registration_repository import (

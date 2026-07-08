@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from agentkit.backend.state_backend.prompt_runtime_store import (
+    insert_execution_contract_digest_global as insert_execution_contract_digest_global,
+)
+from agentkit.backend.state_backend.prompt_runtime_store import (
+    load_execution_contract_digest_global as load_execution_contract_digest_global,
+)
 from agentkit.backend.state_backend.store import mappers
 from agentkit.backend.state_backend.store._facade_backend import (
     _backend_module,
@@ -27,9 +33,6 @@ if TYPE_CHECKING:
     )
     from agentkit.backend.governance.guard_system.records import (
         StoryExecutionLockRecord,
-    )
-    from agentkit.backend.prompt_runtime.execution_contract import (
-        ExecutionContractDigestRecord,
     )
 
 
@@ -258,49 +261,6 @@ def list_ref_protection_degradation_findings_global(project_key: str, story_id: 
     _require_control_plane_backend()
     rows = backend.list_ref_protection_degradation_finding_global_rows(project_key, story_id)
     return tuple(dict(row) for row in rows)
-
-
-def insert_execution_contract_digest_global(
-    record: ExecutionContractDigestRecord,
-) -> None:
-    """Strictly INSERT one execution-contract-digest row (AG3-143).
-
-    Standalone entrypoint (test seeding / backfill parity with
-    ``insert_run_ownership_record_global``); the productive setup-start
-    writer inserts atomically WITHIN the
-    ``finalize_control_plane_start_phase_global_row`` transaction instead
-    (see ``execution_contract_digest_row_to_insert``), never via this
-    standalone call. Fail-closed on a non-Postgres backend (``ConfigError``,
-    K5); a second row for the same ``(project_key, story_id, run_id)``
-    identity is rejected by the persistence layer's primary key (read-only
-    after insert, FK-44 §44.3a).
-    """
-    _require_control_plane_backend()
-    backend = _backend_module()
-    backend.insert_execution_contract_digest_global_row(
-        mappers.execution_contract_digest_to_row(record),
-    )
-
-
-def load_execution_contract_digest_global(
-    project_key: str,
-    story_id: str,
-    run_id: str,
-) -> ExecutionContractDigestRecord | None:
-    """Load the run's persisted ``execution_contract_digest`` row, or ``None``.
-
-    Lock-free (FK-44 §44.3a: the digest fence predicate never takes a lock).
-    """
-    _require_control_plane_backend()
-    backend = _backend_module()
-    row = backend.load_execution_contract_digest_global_row(
-        project_key,
-        story_id,
-        run_id,
-    )
-    if row is None:
-        return None
-    return mappers.execution_contract_digest_row_to_record(row)
 
 
 def insert_object_mutation_claim_global(record: ObjectMutationClaimRecord) -> None:

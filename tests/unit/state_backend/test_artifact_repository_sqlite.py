@@ -22,6 +22,9 @@ from agentkit.backend.artifacts.envelope import ArtifactEnvelope
 from agentkit.backend.artifacts.producer import Producer, ProducerId, ProducerType
 from agentkit.backend.artifacts.reference import ArtifactReference
 from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus
+from agentkit.backend.state_backend.persistence_test_support import (
+    reset_backend_cache_for_tests,
+)
 from agentkit.backend.state_backend.store.artifact_repository import (
     StateBackendArtifactRepository,
     _ensure_artifact_table_sqlite,
@@ -38,6 +41,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> StateBackendArtifac
     """SQLite-Repository gegen tmp_path."""
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+    reset_backend_cache_for_tests()
     return StateBackendArtifactRepository(store_dir=tmp_path)
 
 
@@ -435,19 +439,20 @@ class TestFindPromptAuditOutputHashes:
         )
 
 
-class TestFacadeFindPromptAuditOutputHashes:
-    """``facade.find_prompt_audit_output_hashes`` (the governance read seam)."""
+class TestPromptRuntimeStoreFindPromptAuditOutputHashes:
+    """``PromptRuntimeStore.find_prompt_audit_output_hashes`` read surface."""
 
     @pytest.fixture(autouse=True)
     def _sqlite_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
+        reset_backend_cache_for_tests()
 
     def test_explicit_scope_returns_pinned_hashes(self, tmp_path: Path) -> None:
-        from agentkit.backend.state_backend.scope import RuntimeStateScope
-        from agentkit.backend.state_backend.store.facade import (
+        from agentkit.backend.state_backend.prompt_runtime_store import (
             find_prompt_audit_output_hashes,
         )
+        from agentkit.backend.state_backend.scope import RuntimeStateScope
 
         repo = StateBackendArtifactRepository(store_dir=tmp_path)
         repo.write_envelope(
@@ -470,10 +475,10 @@ class TestFacadeFindPromptAuditOutputHashes:
         assert result == frozenset({"d" * 64})
 
     def test_empty_run_id_returns_empty(self, tmp_path: Path) -> None:
-        from agentkit.backend.state_backend.scope import RuntimeStateScope
-        from agentkit.backend.state_backend.store.facade import (
+        from agentkit.backend.state_backend.prompt_runtime_store import (
             find_prompt_audit_output_hashes,
         )
+        from agentkit.backend.state_backend.scope import RuntimeStateScope
 
         scope = RuntimeStateScope(
             project_key="demo",
@@ -486,7 +491,7 @@ class TestFacadeFindPromptAuditOutputHashes:
     def test_unresolvable_scope_returns_empty(self, tmp_path: Path) -> None:
         # scope=None with no runtime state -> CorruptStateError -> empty (fail-soft;
         # the guard then treats Stage 3 as fail-closed downstream).
-        from agentkit.backend.state_backend.store.facade import (
+        from agentkit.backend.state_backend.prompt_runtime_store import (
             find_prompt_audit_output_hashes,
         )
 

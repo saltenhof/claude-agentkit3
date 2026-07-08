@@ -6,6 +6,7 @@ import json
 from typing import TYPE_CHECKING, Any, cast
 
 from agentkit.backend.boundary.shared.time import now_iso
+from agentkit.backend.core_types import ArtifactClass
 from agentkit.backend.core_types.qa_artifact_names import VERIFY_DECISION_FILE
 from agentkit.backend.exceptions import CorruptStateError
 from agentkit.backend.state_backend.paths import CLOSURE_REPORT_FILE
@@ -199,6 +200,23 @@ def load_artifact_record_payload_for_scope(
     """Return the latest artifact payload dict for a scope and kind, or None."""
 
     return load_artifact_record_payload(scope.story_dir, artifact_kind)
+
+
+def load_prompt_audit_payload_rows(
+    story_dir: Path,
+    story_id: str,
+    run_id: str,
+) -> list[object]:
+    """Return prompt-audit envelope payload values for one story/run scope."""
+    with _connect(story_dir) as conn:
+        rows = conn.execute(
+            """
+            SELECT payload_json FROM artifact_envelopes
+            WHERE story_id = ? AND run_id = ? AND artifact_class = ?
+            """,
+            (story_id, run_id, ArtifactClass.PROMPT_AUDIT.value),
+        ).fetchall()
+    return [row["payload_json"] for row in rows]
 
 
 def persist_closure_report_row(
