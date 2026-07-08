@@ -6,6 +6,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from agentkit.backend.state_backend.store._json_projection import (
+    cast_json_record,
+    dump_json,
+    load_json,
+)
+from agentkit.backend.state_backend.store.flow_execution_rows import (
+    flow_execution_row_to_record,
+)
+
 if TYPE_CHECKING:
     from agentkit.backend.verify_system.policy_engine.engine import VerifyDecision
     from agentkit.backend.verify_system.protocols import LayerResult
@@ -69,7 +78,7 @@ def qa_finding_row_to_record(row: dict[str, Any]) -> QAFindingRecord:
             str(row["description"]) if row["description"] is not None else None
         ),
         detail=str(row["detail"]) if row["detail"] is not None else None,
-        metadata=_cast_json_record(_load_json(str(row["metadata_json"]), {})),
+        metadata=cast_json_record(load_json(str(row["metadata_json"]), {})),
     )
 
 
@@ -121,7 +130,6 @@ def build_qa_stage_result_row(
 ) -> dict[str, Any]:
     """Build a ``qa_stage_results`` insert-row from a flow row and layer result."""
 
-    from agentkit.backend.state_backend.store.mappers import flow_execution_row_to_record
     from agentkit.backend.verify_system.qa_read_models import (
         build_qa_stage_result as _build_qa_stage_result,
     )
@@ -163,7 +171,6 @@ def build_qa_finding_rows(
 ) -> list[dict[str, Any]]:
     """Build ``qa_findings`` insert-rows from a flow row and layer result."""
 
-    from agentkit.backend.state_backend.store.mappers import flow_execution_row_to_record
     from agentkit.backend.verify_system.qa_read_models import (
         build_qa_findings as _build_qa_findings,
     )
@@ -195,25 +202,7 @@ def build_qa_finding_rows(
             "reason": r.reason,
             "description": r.description,
             "detail": r.detail,
-            "metadata_json": _dump_json(r.metadata),
+            "metadata_json": dump_json(r.metadata),
         }
         for r in finding_records
     ]
-
-
-def _load_json(data: str | None, default: Any) -> Any:
-    from agentkit.backend.state_backend.store.mappers import load_json
-
-    return load_json(data, default)
-
-
-def _cast_json_record(data: Any) -> dict[str, object]:
-    from agentkit.backend.state_backend.store.mappers import cast_json_record
-
-    return cast_json_record(data)
-
-
-def _dump_json(data: object) -> str:
-    from agentkit.backend.state_backend.store.mappers import dump_json
-
-    return dump_json(data)

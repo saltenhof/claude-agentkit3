@@ -98,41 +98,37 @@ def test_fc_check_proposals_in_projection_kind() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Verifiziere DRIFT-AG3-035-Aufloesung: DRIFT-Kommentar aus verify_system entfernt
+# Verify DRIFT-AG3-035 resolution: run_qa_subflow uses the injected port
 # ---------------------------------------------------------------------------
 
 
 def test_drift_ag3_035_resolved_in_verify_system() -> None:
-    """verify_system/system.py importiert StoryContext NICHT mehr aus state_backend.store.
-
-    AG3-035 (echter Drift-Fix): der BC-Topologie-Bruch ist real aufgeloest --
-    ``run_qa_subflow`` loest den ``StoryContext`` ueber den injizierten
-    ``StoryContextQueryPort`` auf, nicht via direktem
-    ``state_backend.store``-Import. Dieser Test prueft den ECHTEN Zustand
-    (Abwesenheit des Imports + Nutzung des Ports), nicht nur einen
-    Marker-Kommentar (Codex-Recheck N1: keine Marker-Kosmetik).
-    """
+    """run_qa_subflow resolves StoryContext through the injected query port."""
     import pathlib
 
-    system_py = (
-        pathlib.Path(__file__).parents[3]
-        / "src"
-        / "agentkit"
-        / "backend"
-        / "verify_system"
-        / "system.py"
+    verify_system_root = (
+        pathlib.Path(__file__).parents[3] / "src" / "agentkit" / "backend" / "verify_system"
     )
-    content = system_py.read_text(encoding="utf-8")
-    # Kein direkter state_backend.store-Import mehr (der eigentliche Drift):
-    assert "from agentkit.backend.state_backend.store import" not in content, (
-        "verify_system/system.py importiert weiterhin direkt aus "
-        "agentkit.backend.state_backend.store. AG3-035 verlangt Aufloesung des "
-        "BC-Topologie-Drifts via StoryContextQueryPort-Injection."
+    system_content = (verify_system_root / "system.py").read_text(encoding="utf-8")
+    execution_content = (verify_system_root / "qa_execution.py").read_text(
+        encoding="utf-8"
     )
-    # Der Port wird tatsaechlich genutzt (kein toter Pfad):
-    assert "self.story_context_port.load(" in content, (
-        "run_qa_subflow nutzt den injizierten StoryContextQueryPort nicht."
+    moved_body_modules = (
+        verify_system_root / "qa_execution.py",
+        verify_system_root / "story_contract_resolution.py",
     )
-    assert "StoryContextQueryPort" in content, (
-        "verify_system/system.py referenziert den StoryContextQueryPort nicht."
+    for module_path in moved_body_modules:
+        content = module_path.read_text(encoding="utf-8")
+        assert "from agentkit.backend.state_backend.store import" not in content, (
+            f"{module_path.name} still imports state_backend.store directly. "
+            "AG3-035 requires StoryContextQueryPort injection."
+        )
+    assert "self._load_story_context_for_qa(ctx.story_dir)" in execution_content, (
+        "run_qa_subflow does not use the injected story-context loader."
+    )
+    assert "self.story_context_port.load(" in system_content, (
+        "VerifySystem._load_story_context_for_qa does not use StoryContextQueryPort."
+    )
+    assert "StoryContextQueryPort" in system_content, (
+        "verify_system/system.py does not reference StoryContextQueryPort."
     )

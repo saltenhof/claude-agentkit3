@@ -1,8 +1,8 @@
-"""Version handshake middleware and compat window (FK-91 §91.1a Regel 11).
+"""Version handshake middleware and compat window (FK-91 §91.1a Rule 11).
 
 The ``/v1`` boundary between the developer machine (levels 2/3) and the central
 core (level 1) is an explicitly **negotiated** wire boundary, not a static
-prefix.  FK-91 §91.1a Regel 11 and FK-10 §10.2.7/§10.2.8 require a version
+prefix.  FK-91 §91.1a Rule 11 and FK-10 §10.2.7/§10.2.8 require a version
 handshake: every Dev->Control-Plane request carries the agent-runtime package
 version (``X-AK3-Client``) and the bound skill bundle (``X-AK3-Skill-Bundle``).
 The core validates the runtime against a supported ``[min, max]`` window,
@@ -19,10 +19,10 @@ reaction matrix mirrors FK-10 §10.2.8:
   Dev-agent->Core mutation / governance endpoint.
 * **WARNING (request runs):** agent-runtime inside the window but below
   ``recommended``; a stale-but-allowed skill bundle -> a structured advisory
-  response header, no block (FK-10 §10.2.8: "Skills brechen nie hart").
+  response header, no block (FK-10 §10.2.8: "skills never hard-block").
 * **PASS:** agent-runtime ``>= recommended`` with a current bundle.
 
-**Route classification (FK-91 §91.1a Regel 11).** The handshake carries the
+**Route classification (FK-91 §91.1a Rule 11).** The handshake carries the
 *agent-runtime* version, so it applies **only** to the Dev-agent->Core surface
 (telemetry ingest, project-edge sync/operations, story-run phase / closure
 mutations, governance commands).  Frontend / browser writes (``+Story`` create,
@@ -33,7 +33,7 @@ process through the BFF (FK-72 §72.8: one server process) and carry **no**
 ``GET /v1/compat`` (otherwise a too-old client could never learn it is too old
 -- hen-and-egg) and all frontend read / write routes.
 
-**Governance is method-aware (FK-10 §10.2.7 / FK-72 §72.11).** Regel 11's
+**Governance is method-aware (FK-10 §10.2.7 / FK-72 §72.11).** Rule 11's
 "governance endpoints" are the Dev-agent->Core governance *commands*
 (mutations), not the browser read surface: the Frontend Inspector READS
 governance status (Guard-/Hook-Status, FK-72 §72.11) browser->Core through the
@@ -54,6 +54,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict, Field
 
 from agentkit.backend.control_plane.models import ApiErrorResponse
+from agentkit.backend.control_plane_http.header_lookup import lookup_header_ci
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -64,9 +65,9 @@ if TYPE_CHECKING:
 # Wire header names (ARCH-55: English identifiers / wire keys)
 # ---------------------------------------------------------------------------
 
-#: Request header carrying the dev agent-runtime package version (FK-91 Regel 11).
+#: Request header carrying the dev agent-runtime package version (FK-91 Rule 11).
 CLIENT_VERSION_HEADER = "X-AK3-Client"
-#: Request header carrying the bound skill-bundle version (FK-91 Regel 11).
+#: Request header carrying the bound skill-bundle version (FK-91 Rule 11).
 SKILL_BUNDLE_HEADER = "X-AK3-Skill-Bundle"
 #: Response header announcing the recommended agent-runtime version.
 COMPAT_RECOMMENDED_HEADER = "X-AK3-Compat-Recommended"
@@ -79,7 +80,7 @@ _CORRELATION_HEADER = "X-Correlation-Id"
 _UPGRADE_REQUIRED_ERROR_CODE = "upgrade_required"
 
 # ---------------------------------------------------------------------------
-# Dev-agent->Core route classification (FK-91 §91.1a Regel 11, FK-72 §72.8)
+# Dev-agent->Core route classification (FK-91 §91.1a Rule 11, FK-72 §72.8)
 # ---------------------------------------------------------------------------
 
 #: Strips an optional ``/vN`` wire prefix and yields the logical (wire-agnostic)
@@ -108,7 +109,7 @@ _REQUIRED_LOGICAL_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^/project-edge/operations/[^/]+$"),
     # Story-run phase + closure mutations (bare and project-scoped forms).
     # AG3-130: ``resume`` is a phase mutation of the same story-runs family and is
-    # therefore handshake-required like start/complete/fail (FK-91 §91.1a Regel 11).
+    # therefore handshake-required like start/complete/fail (FK-91 §91.1a Rule 11).
     re.compile(r"^/story-runs/[^/]+/phases/[^/]+/(?:start|complete|fail|resume)$"),
     re.compile(r"^/story-runs/[^/]+/closure/complete$"),
     re.compile(
@@ -118,7 +119,7 @@ _REQUIRED_LOGICAL_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 #: Governance is method-aware (FK-10 §10.2.7 / FK-72 §72.11). The handshake
-#: carries the *agent-runtime* version, so Regel 11's "governance endpoints" mean
+#: carries the *agent-runtime* version, so Rule 11's "governance endpoints" mean
 #: the Dev-agent->Core governance *commands* (mutations), NOT the browser read
 #: surface: the Frontend Inspector READS governance status (Guard-/Hook-Status,
 #: FK-72 §72.11) browser->Core through the SAME control-plane process (FK-72
@@ -128,7 +129,7 @@ _REQUIRED_LOGICAL_PATTERNS: tuple[re.Pattern[str], ...] = (
 #: (POST/PUT/PATCH/DELETE), if any exist over ``/v1``, remain handshake-REQUIRED.
 _MUTATION_ONLY_LOGICAL_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^/projects/[^/]+/governance(?:/.*)?$"),
-    # AG3-129 (FK-91 §91.1a Regel 11 / Regel 12): the Dev-agent->Core governance
+    # AG3-129 (FK-91 §91.1a Rule 11 / Rule 12): the Dev-agent->Core governance
     # hook-mediation mutations (guard-counter record/housekeeping, worker-health
     # write) are bare (non-project-scoped, like ``/telemetry/events``). Their
     # WRITE verbs are handshake-required; the worker-health GET read stays exempt
@@ -147,7 +148,7 @@ def _logical_path(route_path: str) -> str:
 
 @dataclass(frozen=True)
 class HandshakeRouteClassifier:
-    """Typed classifier of the Dev-agent->Core handshake surface (Regel 11).
+    """Typed classifier of the Dev-agent->Core handshake surface (Rule 11).
 
     A route requires the handshake iff its wire-agnostic logical path matches one
     of the always-required Dev-agent->Core patterns (any method) OR a
@@ -158,7 +159,7 @@ class HandshakeRouteClassifier:
 
     Governance is method-aware: its GET reads are the FK-72 §72.11 browser read
     surface (no agent header) and stay EXEMPT, while its mutations remain
-    handshake-REQUIRED (FK-91 §91.1a Regel 11 governance commands).
+    handshake-REQUIRED (FK-91 §91.1a Rule 11 governance commands).
 
     Args:
         required_patterns: The compiled logical-path allowlist required for every
@@ -204,7 +205,7 @@ _RUNTIME_RECOMMENDED = "0.1.0"
 #: ``/v2`` (FK-10 §10.2.7: no in-place break), never an in-place change.
 _WIRE_SUPPORTED = "1"
 #: Skill-bundle window (FK-10 §10.2.7 axis). Bundles never hard-block on version
-#: (FK-10 §10.2.8: "Skills brechen nie hart außer Integritätsbruch"); the window
+#: (FK-10 §10.2.8: "Skills brechen never hard-block except on integrity breach"); the window
 #: only drives the stale-but-allowed WARNING. Sourced from the SAME core-owned
 #: SSOT module as the compat window. Integrity (hash/signature) is out of scope
 #: (FK-43/FK-44).
@@ -307,7 +308,7 @@ class HandshakeOutcome:
 
 @dataclass(frozen=True)
 class VersionHandshakeMiddleware:
-    """Validate the dev->central version handshake fail-closed (FK-91 Regel 11).
+    """Validate the dev->central version handshake fail-closed (FK-91 Rule 11).
 
     Args:
         window: The supported agent-runtime + wire compatibility window. Defaults
@@ -317,7 +318,7 @@ class VersionHandshakeMiddleware:
         bundle_window: The supported skill-bundle window (same core-owned SSOT,
             :func:`default_bundle_window`). Drives only the stale-but-allowed
             WARNING; never hard-blocks (FK-10 §10.2.8).
-        classifier: The Dev-agent->Core route classifier (Regel 11).
+        classifier: The Dev-agent->Core route classifier (Rule 11).
     """
 
     window: CompatWindow = field(default_factory=default_compat_window)
@@ -344,7 +345,7 @@ class VersionHandshakeMiddleware:
             A :class:`HandshakeOutcome` carrying either a fail-closed 426 block
             or (for a passing request) the advisory response headers.
         """
-        # Route + verb classification (Regel 11): the handshake carries the
+        # Route + verb classification (Rule 11): the handshake carries the
         # agent-runtime version, so only the Dev-agent->Core surface is gated.
         # Governance is method-aware -- its GET read is the FK-72 §72.11 browser
         # surface and stays exempt. Everything else (auth, health, compat,
@@ -365,15 +366,15 @@ class VersionHandshakeMiddleware:
             )
 
         # A complete handshake is mandatory; each missing header fails closed
-        # individually (FK-91 §91.1a Regel 11).
-        client_version = _lookup_header_ci(request_headers, CLIENT_VERSION_HEADER)
+        # individually (FK-91 §91.1a Rule 11).
+        client_version = lookup_header_ci(request_headers, CLIENT_VERSION_HEADER)
         if client_version is None or not client_version.strip():
             return self._block(
                 f"Missing version handshake: header {CLIENT_VERSION_HEADER!r} is "
                 f"required at Dev-agent->Core mutation and governance endpoints",
                 correlation_id,
             )
-        skill_bundle = _lookup_header_ci(request_headers, SKILL_BUNDLE_HEADER)
+        skill_bundle = lookup_header_ci(request_headers, SKILL_BUNDLE_HEADER)
         if skill_bundle is None or not skill_bundle.strip():
             return self._block(
                 f"Missing version handshake: header {SKILL_BUNDLE_HEADER!r} is "
@@ -408,7 +409,7 @@ class VersionHandshakeMiddleware:
     ) -> HttpResponse:
         """Gate one request: fail-closed 426, else dispatch + attach advisories.
 
-        Evaluates the handshake (FK-91 §91.1a Regel 11) after auth/tenant and
+        Evaluates the handshake (FK-91 §91.1a Rule 11) after auth/tenant and
         before routing. On a fail-closed outcome the ready 426 block is returned
         without dispatching; otherwise ``dispatch`` runs and any announce/WARNING
         advisory headers are attached onto its response.
@@ -465,7 +466,7 @@ class VersionHandshakeMiddleware:
         """Return a stale-but-allowed WARNING message, or ``None`` when current.
 
         Skill bundles never hard-block on version (FK-10 §10.2.8: "Skills brechen
-        nie hart außer Integritätsbruch"; a centrally-outdated bundle hints, never
+        never hard-block except on integrity breach"; a centrally-outdated bundle hints, never
         bricks). A stale-but-allowed bundle therefore only yields a WARNING.
         Integrity (hash/signature) is intentionally out of scope (FK-43/FK-44);
         only the bundle *version* participates in the handshake. A non-numeric /
@@ -514,7 +515,7 @@ class VersionHandshakeMiddleware:
     def _block(self, message: str, correlation_id: str) -> HandshakeOutcome:
         """Build a fail-closed 426 outcome with the stable error contract.
 
-        The 426 body follows the FK-91 §91.1a Regel 8 error contract
+        The 426 body follows the FK-91 §91.1a Rule 8 error contract
         (``error_code``/``error``/``correlation_id``) and announces the full
         compatibility window in ``detail`` plus the recommended/blocked headers.
         """
@@ -601,17 +602,3 @@ def _compare_versions(left: tuple[int, ...], right: tuple[int, ...]) -> int:
     padded_left = left + (0,) * (width - len(left))
     padded_right = right + (0,) * (width - len(right))
     return (padded_left > padded_right) - (padded_left < padded_right)
-
-
-def _lookup_header_ci(
-    headers: Mapping[str, str] | None,
-    name: str,
-) -> str | None:
-    """Look a request header up case-insensitively (HTTP headers are CI)."""
-    if headers is None:
-        return None
-    target = name.lower()
-    for key, value in headers.items():
-        if key.lower() == target:
-            return value
-    return None

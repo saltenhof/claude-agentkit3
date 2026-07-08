@@ -28,9 +28,7 @@ from pathlib import Path
 
 import pytest
 
-from agentkit.backend.bootstrap import composition_root as composition_root_module
-from agentkit.backend.control_plane import dispatch as dispatch_module
-from agentkit.backend.control_plane import runtime as runtime_module
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 #: Identifiers that denote the dev-supplied ``StoryContext`` carrier. Reading
 #: ``<carrier>.project_root`` to derive an FS anchor is the forbidden coupling.
@@ -112,14 +110,35 @@ def _coupling_offenders(source: str) -> list[str]:
     return offenders
 
 
+def _productive_source_paths() -> tuple[Path, ...]:
+    patterns = (
+        "src/agentkit/backend/control_plane/dispatch.py",
+        "src/agentkit/backend/control_plane/runtime/*.py",
+        "src/agentkit/backend/bootstrap/composition_*.py",
+    )
+    paths: list[Path] = []
+    missing: list[str] = []
+    for pattern in patterns:
+        matches = sorted(_REPO_ROOT.glob(pattern))
+        if not matches:
+            missing.append(pattern)
+            continue
+        paths.extend(path for path in matches if path.suffix == ".py")
+    if missing:
+        raise AssertionError(
+            "workspace SSOT guard pattern(s) matched no files: " + ", ".join(missing)
+        )
+    return tuple(paths)
+
+
 @pytest.mark.parametrize(
-    "module",
-    [dispatch_module, runtime_module, composition_root_module],
-    ids=["dispatch", "runtime", "composition_root"],
+    "source_path",
+    _productive_source_paths(),
+    ids=lambda path: str(path.relative_to(_REPO_ROOT)),
 )
-def test_no_fs_anchor_from_story_context_project_root(module: object) -> None:
+def test_no_fs_anchor_from_story_context_project_root(source_path: Path) -> None:
     """No FS/config root is derived from a dev-supplied ``ctx.project_root``."""
-    source = Path(module.__file__).read_text(encoding="utf-8")  # type: ignore[attr-defined]
+    source = source_path.read_text(encoding="utf-8")
 
     offenders = _coupling_offenders(source)
 
@@ -127,7 +146,7 @@ def test_no_fs_anchor_from_story_context_project_root(module: object) -> None:
         "A productive story-context project_root -> FS/config-root coupling "
         "reappeared. The workspace FS anchor must be resolved Backend-side via "
         "StoryWorkspaceLocator and threaded down only (AG3-123 AC2). Offending "
-        f"call(s) in {module.__name__}: {offenders}"  # type: ignore[attr-defined]
+        f"call(s) in {source_path.relative_to(_REPO_ROOT)}: {offenders}"
     )
 
 

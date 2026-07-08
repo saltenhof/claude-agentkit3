@@ -66,63 +66,23 @@ def test_no_default_factory_op_id_mint_in_backend() -> None:
 # German blocklist so German cannot silently re-enter the AG3-140 diff.
 # ---------------------------------------------------------------------------
 
-#: The .py files AG3-140 created or modified (git diff d8a7da41..HEAD). Deleted
-#: files (e.g. the retired ``idempotency.py``) are skipped when absent.
-_AG3_140_TOUCHED_FILES: tuple[str, ...] = (
-    "src/agentkit/backend/auth/http/routes.py",
-    "src/agentkit/backend/bootstrap/composition_root.py",
+#: Source patterns for the backend areas touched by AG3-140 and the later split
+#: repairs. Each glob must match at least one file, so moved or deleted modules
+#: fail closed instead of silently dropping out of ARCH-55 coverage.
+_AG3_140_SOURCE_GLOBS: tuple[str, ...] = (
+    "src/agentkit/backend/bootstrap/composition_*.py",
+    "src/agentkit/backend/cli/*_commands.py",
     "src/agentkit/backend/cli/main.py",
-    "src/agentkit/backend/control_plane/guard_counter.py",
-    "src/agentkit/backend/control_plane/models.py",
-    "src/agentkit/backend/control_plane/records.py",
-    "src/agentkit/backend/control_plane/runtime.py",
-    "src/agentkit/backend/control_plane_http/app.py",
-    "src/agentkit/backend/execution_planning/http/routes.py",
-    "src/agentkit/backend/governance/runner.py",
-    "src/agentkit/backend/project_management/http/routes.py",
-    "src/agentkit/backend/state_backend/postgres_store.py",
-    "src/agentkit/backend/state_backend/sqlite_store/__init__.py",
-    "src/agentkit/backend/state_backend/sqlite_store/_backend_checks.py",
-    "src/agentkit/backend/state_backend/sqlite_store/_common.py",
-    "src/agentkit/backend/state_backend/sqlite_store/_connection.py",
-    "src/agentkit/backend/state_backend/sqlite_store/_ownership_rows.py",
-    "src/agentkit/backend/state_backend/sqlite_store/_purge_rows.py",
-    "src/agentkit/backend/state_backend/sqlite_store/_qa_artifact_rows.py",
-    "src/agentkit/backend/state_backend/sqlite_store/_runtime_rows.py",
-    "src/agentkit/backend/state_backend/sqlite_store/_schema.py",
-    "src/agentkit/backend/state_backend/sqlite_store/_schema_runtime.py",
-    "src/agentkit/backend/state_backend/sqlite_store/_story_identity.py",
-    "src/agentkit/backend/state_backend/sqlite_store/_story_project_rows.py",
-    "src/agentkit/backend/state_backend/store/facade.py",
-    "src/agentkit/backend/state_backend/store/guard_counter_repository.py",
-    "src/agentkit/backend/state_backend/store/inflight_idempotency_guard.py",
-    "src/agentkit/backend/state_backend/store/mappers.py",
-    "src/agentkit/backend/state_backend/store/story_repository.py",
-    "src/agentkit/backend/story_context_manager/errors.py",
-    "src/agentkit/backend/story_context_manager/http/routes.py",
-    "src/agentkit/backend/story_context_manager/service.py",
-    "src/agentkit/backend/task_management/http/routes.py",
-    "src/agentkit/bundles/target_project/tools/agentkit/projectedge.py",
-    "src/agentkit/harness_client/projectedge/runtime.py",
-    "tests/contract/state_backend/test_control_plane_operation_store_postgres.py",
-    "tests/contract/state_backend/test_inflight_idempotency_guard_postgres.py",
-    "tests/contract/test_op_id_no_server_mint_pin.py",
-    "tests/integration/control_plane_http/test_task_management_routes.py",
-    "tests/integration/governance_hooks/test_hook_rest_mediation.py",
-    "tests/integration/pipeline_engine/test_operator_cli_phase_rest.py",
-    "tests/integration/story_creation/test_create_story_tool_e2e.py",
-    "tests/unit/auth/http/test_auth_routes.py",
-    "tests/unit/control_plane/test_hook_mediation_services.py",
-    "tests/unit/control_plane/test_http.py",
-    "tests/unit/control_plane/test_runtime.py",
-    "tests/unit/control_plane_http/test_app.py",
-    "tests/unit/control_plane_http/test_version_handshake.py",
-    "tests/unit/execution_planning/http/test_execution_planning_routes.py",
-    "tests/unit/project_management/http/test_routes.py",
-    "tests/unit/state_backend/test_inflight_idempotency_guard.py",
-    "tests/unit/story_context_manager/test_http_routes.py",
-    "tests/unit/story_context_manager/test_service.py",
-    "tests/unit/task_management/http/test_routes.py",
+    "src/agentkit/backend/cli/serve.py",
+    "src/agentkit/backend/control_plane/runtime/*.py",
+    "src/agentkit/backend/control_plane_http/*.py",
+    "src/agentkit/backend/verify_system/**/*.py",
+    "src/agentkit/backend/governance/hook_*.py",
+    "src/agentkit/backend/state_backend/store/*mappers*.py",
+    "src/agentkit/backend/state_backend/store/*_json_projection.py",
+    "src/agentkit/backend/state_backend/store/flow_execution_rows.py",
+    "src/agentkit/backend/state_backend/sqlite_store/*.py",
+    "src/agentkit/backend/state_backend/postgres_store/*.py",
 )
 
 #: German words that must not appear in AG3-140 source comments/identifiers
@@ -137,15 +97,34 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def _guarded_ag3140_source_files(root: Path) -> tuple[Path, ...]:
+    missing_patterns: list[str] = []
+    files: dict[Path, None] = {}
+    for pattern in _AG3_140_SOURCE_GLOBS:
+        matches = sorted(path for path in root.glob(pattern) if path.suffix == ".py")
+        if not matches:
+            missing_patterns.append(pattern)
+            continue
+        for path in matches:
+            if not path.exists():
+                msg = f"guarded source path is missing: {path.relative_to(root)}"
+                raise AssertionError(msg)
+            files[path] = None
+    if missing_patterns:
+        raise AssertionError(
+            "ARCH-55 source guard pattern(s) matched no files: "
+            + ", ".join(missing_patterns)
+        )
+    return tuple(files)
+
+
 def test_no_german_in_ag3140_touched_files() -> None:
     """ARCH-55: zero German blocklist words in the AG3-140-touched .py files."""
     root = _repo_root()
     this_file = Path(__file__).resolve()
     offenders: list[str] = []
-    for rel in _AG3_140_TOUCHED_FILES:
-        path = root / rel
-        if not path.exists():  # a deleted file (e.g. the retired idempotency.py)
-            continue
+    for path in _guarded_ag3140_source_files(root):
+        rel = str(path.relative_to(root))
         if path.resolve() == this_file:
             # This pin file legitimately DEFINES the German blocklist -- skip it.
             continue

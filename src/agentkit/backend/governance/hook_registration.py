@@ -40,7 +40,7 @@ class HookId(StrEnum):
     11 values: 10 guard-hooks from the §30.5.1 table plus
     ``ccag_gatekeeper`` (FK-30 §30.3.1 JSON example).
 
-    String values are FK-30 §30.5.1 wortgleich — no invented ``_guard``
+    String values are FK-30 §30.5.1 literal concept values — no invented ``_guard``
     suffixes.
     """
 
@@ -77,7 +77,7 @@ class HookDefinition(BaseModel):
     """Typed representation of a single harness hook entry.
 
     Immutable (frozen) to enforce value-object semantics.  Fields are
-    FK-30 §30.3.1 wortgleich:
+    FK-30 §30.3.1 literal concept values:
 
     Attributes:
         hook_event_name: Hook timing — ``"PreToolUse"`` or ``"PostToolUse"``.

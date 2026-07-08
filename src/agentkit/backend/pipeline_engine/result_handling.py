@@ -641,7 +641,7 @@ def _handle_paused_result(
 
     finished_at = datetime.now(tz=UTC)
 
-    # AG3-025 §2.1.4: AttemptRecord traegt outcome=YIELDED, failure_cause=None.
+    # AG3-025 §2.1.4: AttemptRecord carries outcome=YIELDED, failure_cause=None.
     # pause_reason lives exclusively in PhaseEnvelope.state.pause_reason.
     # No pause_reason/yield_status in AttemptRecord.detail.
     run_id = engine._runtime.resolve_run_id(ctx)

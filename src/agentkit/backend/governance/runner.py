@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 
 from agentkit.backend.governance.hook_event_inputs import (
     _AGENT_TOOL,
+    HookWrapperArgs,
     _event_command,
     _event_str_arg,
     _event_tool,
@@ -57,7 +58,6 @@ from agentkit.backend.governance.hook_ids import (
     SUPPORTED_HOOK_IDS,
     SUPPORTED_PHASES,
 )
-from agentkit.backend.governance.hook_wrapper_args import HookWrapperArgs
 
 type HookDecision = GuardVerdict
 

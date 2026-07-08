@@ -277,7 +277,7 @@ class PolicyVerdictResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Public outcome DTO (Befund A / AG3-026 Pass-2)
+# Public outcome DTO (finding A / AG3-026 Pass-2)
 # ---------------------------------------------------------------------------
 
 
@@ -297,7 +297,7 @@ class QaSubflowOutcome(BaseModel):
     **only** exported carrier of QA-subflow results (AK11).
 
     Normative references:
-    - AG3-026 Pass-2 §Befund-A (Outcome-Modell).
+    - AG3-026 Pass-2 finding A (outcome model).
     - FK-27 §27.3 / §27.7 (QA-Subflow-Top, Artefakt-Filenamen).
     - FK-69 (record_layer_artifacts / record_verify_decision).
     - ``concept/_meta/bc-cut-decisions.md §BC 2 verify-system``.

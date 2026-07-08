@@ -240,7 +240,7 @@
 
         -- AG3-054 (FK-91, FK-22 §22.9): owner-scoped claim, instance-bound
         -- (AG3-139: ownership never ends by wall clock / TTL / lease -- FK-91
-        -- §91.1a Regel 16; an orphaned claim ends ONLY via the AG3-138 startup
+        -- §91.1a Rule 16; an orphaned claim ends ONLY via the AG3-138 startup
         -- reconciliation or an explicit admin_abort_inflight_operation).
         -- ``status`` stays the terminal-vs-claimed discriminator ('claimed' =
         -- in-flight reservation; 'committed'/'rejected'/'replayed'/'synced' =

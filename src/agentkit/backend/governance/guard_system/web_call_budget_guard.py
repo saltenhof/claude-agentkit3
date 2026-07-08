@@ -55,7 +55,7 @@ _DEFAULT_WEB_CALL_WARNING = 180
 _WEB_TOOLS = frozenset({"WebFetch", "WebSearch"})
 
 #: Guard identifier surfaced on the verdict and in the ``integrity_violation``
-#: ``guard`` field (FK-30 §30.5.1a wortgleich).
+#: ``guard`` field (FK-30 §30.5.1a literal concept value).
 GUARD_NAME = "web_call_budget_guard"
 
 

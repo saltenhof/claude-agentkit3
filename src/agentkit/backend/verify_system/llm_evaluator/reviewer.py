@@ -1,7 +1,7 @@
 """Layer-2 LLM reviewers for the QA subflow (FK-27 §27.4-§27.6 + §27.7).
 
 Three standalone reviewer classes per W1 (AG3-026 re-review)
-with real deterministic check logic (AG3-026 Pass-2 §Befund-B):
+with real deterministic check logic (AG3-026 Pass-2 finding B):
 
 - ``QaReviewReviewer``: checks test quality, coverage, edge cases.
   Layer tag: ``qa_review``. Artifact: ``qa_review.json``.
@@ -19,7 +19,7 @@ When ``review_input`` has empty fields, a MAJOR finding with code
 ``"layer2_input.missing"`` is emitted instead of silent PASS.
 
 All three reviewers are deterministic rule checks (Pass-2
-§Befund-B). The ``LLMClient`` slot is reserved for AG3-043; if
+finding B). The ``LLMClient`` slot is reserved for AG3-043; if
 a client is passed, ``NotImplementedError`` is raised.
 
 Visibility rule (AC001): callers outside ``verify_system``

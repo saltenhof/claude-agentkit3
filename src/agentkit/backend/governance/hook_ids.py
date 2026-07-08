@@ -4,7 +4,7 @@ from __future__ import annotations
 
 PRE_HOOK_IDS = frozenset(
     {
-        # FK-30 §30.5.1 guard-hook identifiers (wortgleich) + ccag_gatekeeper
+        # FK-30 §30.5.1 guard-hook identifiers (literal concept values) + ccag_gatekeeper
         "branch_guard",
         "orchestrator_guard",
         "integrity",

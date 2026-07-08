@@ -861,7 +861,7 @@ def _sonar_available(project_root: Path) -> bool:
 
 
 def _resolve_story_service(cfg: SetupConfig) -> StoryService:
-    """Return the injected StoryService or build a real one (Befund 9)."""
+    """Return the injected StoryService or build a real one (finding 9)."""
     if cfg.story_service is not None:
         return cfg.story_service
     from agentkit.backend.story_context_manager.service import StoryService as _StoryService

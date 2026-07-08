@@ -16,6 +16,7 @@ from agentkit.backend.control_plane.models import (
     EdgeCommandMutationResult,
 )
 from agentkit.backend.control_plane.ownership_fence import ERROR_CODE_OWNERSHIP_TRANSFERRED
+from agentkit.backend.control_plane_http.header_lookup import lookup_header_ci
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
@@ -301,21 +302,12 @@ def _resolve_correlation_id(request_headers: Mapping[str, str] | None) -> str:
     # Rule #7 violation). Resolve the header case-insensitively so the client's
     # correlation id is adopted regardless of the transmitted casing.
     if request_headers is not None:
-        provided = _lookup_header_ci(request_headers, _CORRELATION_HEADER)
+        provided = lookup_header_ci(request_headers, _CORRELATION_HEADER)
         if provided is not None:
             value = provided.strip()
             if value:
                 return value
     return f"req-{uuid.uuid4().hex}"
-
-
-def _lookup_header_ci(headers: Mapping[str, str], name: str) -> str | None:
-    """Look a request header up case-insensitively (HTTP headers are case-insensitive)."""
-    target = name.lower()
-    for key, value in headers.items():
-        if key.lower() == target:
-            return value
-    return None
 
 
 def _has_header(headers: Sequence[tuple[str, str]], name: str) -> bool:

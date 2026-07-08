@@ -52,7 +52,7 @@ from agentkit.backend.telemetry.events import (
 if TYPE_CHECKING:
     from agentkit.backend.telemetry.emitters import EventEmitter
 
-#: Guard identifier (FK-30 §30.5.1 / FK-61 §61.12.2 wortgleich).
+#: Guard identifier (FK-30 §30.5.1 / FK-61 §61.12.2 literal concept value).
 GUARD_NAME = INTEGRITY_VIOLATION_PROMPT_GUARD
 
 #: Opaque outbound block message (FK-31 §31.7.3 — Exit 2, no detail).

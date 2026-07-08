@@ -3,7 +3,7 @@
 Determines which QA layers to run for a given ``QaContext``.
 
 Routing rules (normative source: ``concept/_meta/bc-cut-decisions.md
-§QA-Subflow-Vertrag``):
+§QA-subflow contract``):
 
 - IMPLEMENTATION_INITIAL / IMPLEMENTATION_REMEDIATION:
   All four layers: Structural (1), LLM-Evaluator (2), Adversarial (3),
@@ -11,9 +11,9 @@ Routing rules (normative source: ``concept/_meta/bc-cut-decisions.md
 
 - EXPLORATION_INITIAL / EXPLORATION_REMEDIATION:
   Reduced layer set: LLM-Evaluator (2) + Policy (4). Design-review
-  only; no structural or adversarial checks (BC-Cut: Exploration-Vertrag).
+  only; no structural or adversarial checks (BC-Cut: exploration contract).
 
-Source: AG3-026 §2.1.2, ``concept/_meta/bc-cut-decisions.md §QA-Subflow-Vertrag``
+Source: AG3-026 §2.1.2, ``concept/_meta/bc-cut-decisions.md §QA-subflow contract``
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ _IMPLEMENTATION_LAYERS: tuple[QALayerKind, ...] = (
     QALayerKind.POLICY,
 )
 
-#: Reduced layer set for Exploration contexts (BC-Cut: Exploration-Vertrag).
+#: Reduced layer set for Exploration contexts (BC-Cut: exploration contract).
 _EXPLORATION_LAYERS: tuple[QALayerKind, ...] = (
     QALayerKind.LLM_EVALUATOR,
     QALayerKind.POLICY,

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentkit.backend.governance.principal_capabilities.operations import (
@@ -13,6 +14,14 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentkit.backend.governance.guard_evaluation import HookEvent
+
+
+@dataclass(frozen=True)
+class HookWrapperArgs:
+    """Validated hook-wrapper command-line selector."""
+
+    phase: str
+    hook_id: str
 
 
 class _SkillBindingLookupAdapter:

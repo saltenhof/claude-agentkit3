@@ -18,25 +18,40 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from agentkit.backend.exceptions import CorruptStateError
-from agentkit.backend.state_backend.store.mappers_verify import (
+from agentkit.backend.state_backend.store._json_projection import (
+    cast_json_record as cast_json_record,
+)
+from agentkit.backend.state_backend.store._json_projection import (
+    dump_json as dump_json,
+)
+from agentkit.backend.state_backend.store._json_projection import (
+    load_json as load_json,
+)
+from agentkit.backend.state_backend.store.flow_execution_rows import (
+    flow_execution_row_to_record as flow_execution_row_to_record,
+)
+from agentkit.backend.state_backend.store.flow_execution_rows import (
+    flow_execution_to_row as flow_execution_to_row,
+)
+from agentkit.backend.state_backend.store.verify_row_mappers import (
     build_qa_finding_rows as build_qa_finding_rows,
 )
-from agentkit.backend.state_backend.store.mappers_verify import (
+from agentkit.backend.state_backend.store.verify_row_mappers import (
     build_qa_stage_result_row as build_qa_stage_result_row,
 )
-from agentkit.backend.state_backend.store.mappers_verify import (
+from agentkit.backend.state_backend.store.verify_row_mappers import (
     build_verify_decision_dict as build_verify_decision_dict,
 )
-from agentkit.backend.state_backend.store.mappers_verify import (
+from agentkit.backend.state_backend.store.verify_row_mappers import (
     get_producer_component_for_layer as get_producer_component_for_layer,
 )
-from agentkit.backend.state_backend.store.mappers_verify import (
+from agentkit.backend.state_backend.store.verify_row_mappers import (
     qa_finding_row_to_record as qa_finding_row_to_record,
 )
-from agentkit.backend.state_backend.store.mappers_verify import (
+from agentkit.backend.state_backend.store.verify_row_mappers import (
     qa_stage_result_row_to_record as qa_stage_result_row_to_record,
 )
-from agentkit.backend.state_backend.store.mappers_verify import (
+from agentkit.backend.state_backend.store.verify_row_mappers import (
     serialize_layer_result_to_dict as serialize_layer_result_to_dict,
 )
 
@@ -65,7 +80,6 @@ if TYPE_CHECKING:
     )
     from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
     from agentkit.backend.phase_state_store.models import (
-        FlowExecution,
         NodeExecutionLedger,
         OverrideRecord,
     )
@@ -85,33 +99,6 @@ if TYPE_CHECKING:
 
 _JsonRecord = dict[str, object]
 _OptionalString = str | None
-
-# ---------------------------------------------------------------------------
-# JSON helpers
-# ---------------------------------------------------------------------------
-
-
-def dump_json(data: object) -> str:
-    """Serialize data to a canonical JSON string."""
-
-    return json.dumps(data, sort_keys=True, default=str)
-
-
-def load_json(data: str | None, default: Any) -> Any:
-    """Deserialize a JSON string, returning *default* if *data* is None."""
-
-    if data is None:
-        return default
-    return json.loads(data)
-
-
-def cast_json_record(value: object) -> _JsonRecord:
-    """Cast an opaque value to ``dict[str, object]`` without allocation."""
-
-    from typing import cast
-
-    return cast("_JsonRecord", value)
-
 
 # ---------------------------------------------------------------------------
 # Project
@@ -699,61 +686,6 @@ def skill_binding_row_to_record(row: dict[str, Any]) -> SkillBinding:
         binding_mode=_SkillBindingMode(str(row["binding_mode"])),
         status=_SkillLifecycleStatus(str(row["status"])),
         pinned_at=pinned_at,
-    )
-
-
-# ---------------------------------------------------------------------------
-# FlowExecution
-# ---------------------------------------------------------------------------
-
-
-def flow_execution_to_row(record: FlowExecution) -> dict[str, Any]:
-    """Convert a ``FlowExecution`` to a DB-insertable row dict."""
-
-    return {
-        "story_id": record.story_id,
-        "project_key": record.project_key,
-        "run_id": record.run_id,
-        "flow_id": record.flow_id,
-        "level": record.level,
-        "owner": record.owner,
-        "parent_flow_id": record.parent_flow_id,
-        "status": record.status,
-        "current_node_id": record.current_node_id,
-        "attempt_no": record.attempt_no,
-        "started_at": record.started_at.isoformat(),
-        "finished_at": record.finished_at.isoformat() if record.finished_at else None,
-    }
-
-
-def flow_execution_row_to_record(row: dict[str, Any]) -> FlowExecution:
-    """Convert a DB row dict to a ``FlowExecution``."""
-
-    from datetime import datetime
-
-    from agentkit.backend.phase_state_store.models import FlowExecution as _FlowExecution
-
-    return _FlowExecution(
-        project_key=str(row["project_key"]),
-        story_id=str(row["story_id"]),
-        run_id=str(row["run_id"]),
-        flow_id=str(row["flow_id"]),
-        level=str(row["level"]),
-        owner=str(row["owner"]),
-        parent_flow_id=(
-            str(row["parent_flow_id"]) if row["parent_flow_id"] is not None else None
-        ),
-        status=str(row["status"]),
-        current_node_id=(
-            str(row["current_node_id"]) if row["current_node_id"] is not None else None
-        ),
-        attempt_no=int(row["attempt_no"]),
-        started_at=datetime.fromisoformat(str(row["started_at"])),
-        finished_at=(
-            datetime.fromisoformat(str(row["finished_at"]))
-            if row["finished_at"] is not None
-            else None
-        ),
     )
 
 
