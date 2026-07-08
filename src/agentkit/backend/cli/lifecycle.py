@@ -29,6 +29,7 @@ def add_lifecycle_parsers(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
     """Register the level-specific lifecycle subcommands (FK-10 §10.2.0)."""
+    _add_serve_control_plane_alias_parser(subparsers)
     _add_serve_parser(subparsers)
     _add_ui_parser(subparsers)
     _add_update_parser(subparsers)
@@ -56,6 +57,19 @@ def _add_serve_parser(
     serve_parser.add_argument("--port", type=int, default=None)
     serve_parser.add_argument("--certfile", required=True)
     serve_parser.add_argument("--keyfile")
+
+
+def _add_serve_control_plane_alias_parser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    control_plane_parser = subparsers.add_parser(
+        "serve-control-plane",
+        help="[deprecated] Alias for 'serve --project-api' (FK-10 §10.2.5)",
+    )
+    control_plane_parser.add_argument("--host", default="127.0.0.1")
+    control_plane_parser.add_argument("--port", type=int, default=None)
+    control_plane_parser.add_argument("--certfile", required=True)
+    control_plane_parser.add_argument("--keyfile")
 
 
 def _add_ui_parser(
