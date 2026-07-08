@@ -132,6 +132,43 @@ class TestUi:
         assert exit_code == 0
         assert captured["port"] == 9700
 
+    @pytest.mark.parametrize("host", ["0.0.0.0", "192.168.0.20"])
+    def test_serve_spa_rejects_non_loopback_cleartext_bind(
+        self, host: str, tmp_path: Path
+    ) -> None:
+        from agentkit.backend.cli.serve import UiBindHostError, _serve_spa
+
+        with pytest.raises(UiBindHostError, match="restricted to loopback"):
+            _serve_spa(host=host, port=9700, dist_dir=tmp_path)
+
+    @pytest.mark.parametrize("host", ["127.0.0.1", "localhost"])
+    def test_serve_spa_allows_loopback_cleartext_bind(
+        self, host: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from agentkit.backend.cli.serve import _serve_spa
+
+        calls: list[tuple[str, object]] = []
+
+        class FakeThreadingHTTPServer:
+            def __init__(self, server_address: tuple[str, int], handler: object) -> None:
+                self.server_address = server_address
+                self.handler = handler
+                calls.append(("bind", server_address))
+
+            def serve_forever(self) -> None:
+                calls.append(("serve_forever", self.server_address))
+
+            def server_close(self) -> None:
+                calls.append(("server_close", self.server_address))
+
+        monkeypatch.setattr("http.server.ThreadingHTTPServer", FakeThreadingHTTPServer)
+        _serve_spa(host=host, port=9700, dist_dir=tmp_path)
+        assert calls == [
+            ("bind", (host, 9700)),
+            ("serve_forever", (host, 9700)),
+            ("server_close", (host, 9700)),
+        ]
+
 
 class TestUpdate:
     def _patch_reader(
