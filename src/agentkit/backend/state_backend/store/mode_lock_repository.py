@@ -16,7 +16,7 @@ Architecture (mirrors ``freeze_repository.py`` / ``lock_record_repository.py``):
   (``AGENTKIT_ALLOW_SQLITE=1``).
 - Does NOT import from ``agentkit.backend.state_backend.store.facade``.
 - Schema (``project_mode_lock``) lives in both ``postgres_schema.sql``
-  (canonical) and ``sqlite_store.py`` (test-parallel); this adapter only
+  (canonical) and the ``sqlite_store`` package (test-parallel); this adapter only
   reads/writes via the bootstrapped schema.
 """
 
