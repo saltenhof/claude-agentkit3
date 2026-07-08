@@ -41,7 +41,7 @@ def _pin_sqlite(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
-    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     yield

@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
-from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store.analytics_source import StateBackendAnalyticsSource
 from agentkit.backend.state_backend.store.projection_repositories import (
     build_projection_repositories,

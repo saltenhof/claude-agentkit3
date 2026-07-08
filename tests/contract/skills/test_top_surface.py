@@ -289,7 +289,7 @@ class TestProductivePersistencePath:
     def test_bind_resolve_list_via_state_backend_repo(self, tmp_path: Path) -> None:
         from agentkit.backend.skills.binding import SkillLifecycleStatus
         from agentkit.backend.skills.bundle_store import SkillBundleStore
-        from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
         from agentkit.backend.state_backend.store.skill_binding_repository import (
             StateBackendSkillBindingRepository,
         )

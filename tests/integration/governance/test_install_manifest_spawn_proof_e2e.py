@@ -61,7 +61,7 @@ from agentkit.backend.installer.runner import (
 )
 from agentkit.backend.skills import PlaceholderSubstitutor
 from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore
-from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store.project_registration_repository import (
     StateBackendProjectRegistrationRepository,
 )

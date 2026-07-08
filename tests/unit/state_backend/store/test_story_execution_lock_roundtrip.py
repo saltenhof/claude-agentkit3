@@ -76,7 +76,7 @@ def sqlite_env(
     # the SAME isolated DB. monkeypatch.chdir is auto-restored (no manual
     # try/finally crutch) and isolates per test.
     monkeypatch.chdir(tmp_path)
-    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     yield
@@ -216,11 +216,9 @@ class TestStoryExecutionLockSQLiteRoundtrip:
         assert loaded.status == "INACTIVE"
         assert loaded.deactivated_at is not None
 
-
 # ---------------------------------------------------------------------------
 # Tests: save + load + deactivate_locks_for_story roundtrip
 # ---------------------------------------------------------------------------
-
 
 class TestStoryExecutionLockDeactivateRoundtrip:
     """Full roundtrip: save -> load -> deactivate_locks_for_story on SQLite."""
@@ -292,11 +290,9 @@ class TestStoryExecutionLockDeactivateRoundtrip:
         assert len(first) >= 1
         assert second == []
 
-
 # ---------------------------------------------------------------------------
 # Tests: Postgres (opt-in, skipped when URL not set)
 # ---------------------------------------------------------------------------
-
 
 @pytest.mark.skipif(
     not _has_postgres_url(),
@@ -312,7 +308,7 @@ class TestStoryExecutionLockPostgresRoundtrip:
         monkeypatch.setenv(STATE_BACKEND_ENV, "postgres")
         if _POSTGRES_URL_AT_IMPORT is not None:
             monkeypatch.setenv(_STATE_DATABASE_URL_ENV, _POSTGRES_URL_AT_IMPORT)
-        from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
         reset_backend_cache_for_tests()
         try:

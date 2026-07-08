@@ -7,8 +7,8 @@ the decision, only a stamped instant): the first boot ever for an installation
 mints a fresh id at incarnation 1; every later boot keeps the SAME id (stable
 across restarts, AC3) and increments the incarnation by exactly 1. The
 atomicity of the underlying create-or-increment (serialized against a
-concurrent boot of the same database) lives in the ``state_backend`` store
-layer (:func:`~agentkit.backend.state_backend.store.boot_backend_instance_identity_global`);
+concurrent boot of the same database) lives in the state backend connection
+manager (:func:`~agentkit.backend.state_backend.state_backend_connection_manager.boot_backend_instance_identity_global`);
 this module is the thin, injectable-seam call site that the pre-serve startup
 hook (``control_plane_http.app``) invokes exactly once per process boot.
 """

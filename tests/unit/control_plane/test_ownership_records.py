@@ -338,10 +338,12 @@ def test_session_binding_accepts_revoked_with_reason() -> None:
 
 
 def test_repository_ports_default_to_the_facade_globals() -> None:
+    from agentkit.backend.state_backend.state_backend_connection_manager import (
+        load_backend_instance_identity_global,
+    )
     from agentkit.backend.state_backend.store import (
         insert_object_mutation_claim_global,
         insert_run_ownership_record_global,
-        load_backend_instance_identity_global,
         save_takeover_transfer_record_global,
     )
 

@@ -403,7 +403,7 @@ def test_load_sonar_config_propagates_config_error_no_silent_skip(tmp_path: Path
 
     from agentkit.backend.bootstrap.composition_root import _load_sonar_config
     from agentkit.backend.exceptions import ConfigError
-    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     try:
@@ -455,7 +455,7 @@ def test_load_sonar_config_available_false_is_declared_absence_none(tmp_path: Pa
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
     from agentkit.backend.bootstrap.composition_root import _load_sonar_config
     from agentkit.backend.config.models import SonarQubeConfig
-    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     try:
@@ -504,7 +504,7 @@ def test_load_sonar_config_no_project_root_code_story_fails_closed(tmp_path: Pat
 
     from agentkit.backend.bootstrap.composition_root import _load_sonar_config
     from agentkit.backend.exceptions import ConfigError
-    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     try:
@@ -530,7 +530,7 @@ def test_load_sonar_config_no_project_root_non_code_story_is_absence_none(
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
     from agentkit.backend.bootstrap.composition_root import _load_sonar_config
-    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
     from agentkit.backend.story_context_manager.types import StoryType
 
     reset_backend_cache_for_tests()
@@ -1089,7 +1089,7 @@ def test_confirm_story_pushed_fail_closed_on_unresolvable_workspace(tmp_path: Pa
     from agentkit.backend.bootstrap.composition_root import (
         build_push_verification_port,
     )
-    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     try:
@@ -1336,7 +1336,7 @@ def test_qa_cycle_gate_fail_closed_typed_block_on_unresolvable_workspace(tmp_pat
     from agentkit.backend.bootstrap.composition_root import (
         build_qa_cycle_push_barrier_gate,
     )
-    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
     from agentkit.backend.verify_system.contract import PhaseEnvelopeView
     from agentkit.backend.verify_system.qa_cycle.lifecycle import (
         QaCycleBarrierBlockedError,

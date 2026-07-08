@@ -32,7 +32,7 @@ from agentkit.backend.execution_planning.persistence.records import (
 )
 from agentkit.backend.execution_planning.persistence.schema_kind import PlanningSchemaKind
 from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
 if TYPE_CHECKING:
     from collections.abc import Generator

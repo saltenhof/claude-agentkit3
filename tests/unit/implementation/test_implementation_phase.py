@@ -32,8 +32,8 @@ from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseStatus,
 )
 from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store import (
-    reset_backend_cache_for_tests,
     save_flow_execution,
     save_phase_snapshot,
     save_story_context,
@@ -147,7 +147,7 @@ def test_conformance_config_flows_from_project_config_to_verify_system(
     # This proves the project-config value flows through the productive factory.
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     from agentkit.backend.bootstrap.composition_root import build_verify_system

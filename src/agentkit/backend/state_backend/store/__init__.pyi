@@ -1,5 +1,11 @@
 from agentkit.backend.state_backend.store.facade import (
+    JsonRecord as JsonRecord,
+)
+from agentkit.backend.state_backend.store.facade import (
     acquire_object_mutation_claim_global as acquire_object_mutation_claim_global,
+)
+from agentkit.backend.state_backend.store.facade import (
+    active_backend_is_sqlite as active_backend_is_sqlite,
 )
 from agentkit.backend.state_backend.store.facade import (
     admin_abort_control_plane_operation_global as admin_abort_control_plane_operation_global,

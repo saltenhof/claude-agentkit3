@@ -16,8 +16,8 @@ import pytest
 
 from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.backend.phase_state_store.models import FlowExecution
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store import (
-    reset_backend_cache_for_tests,
     save_flow_execution,
     save_story_context,
 )

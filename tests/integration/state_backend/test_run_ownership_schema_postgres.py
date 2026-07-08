@@ -33,18 +33,20 @@ from agentkit.backend.control_plane.records import (
     TakeoverTransferRecord,
 )
 from agentkit.backend.state_backend import postgres_store
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.state_backend_connection_manager import (
+    load_backend_instance_identity_global,
+    save_backend_instance_identity_global,
+)
 from agentkit.backend.state_backend.store import (
     insert_object_mutation_claim_global,
     insert_run_ownership_record_global,
     load_active_run_ownership_record_global,
-    load_backend_instance_identity_global,
     load_control_plane_operation_global,
     load_object_mutation_claim_global,
     load_run_ownership_record_global,
     load_session_run_binding_global,
     load_takeover_transfer_record_global,
-    reset_backend_cache_for_tests,
-    save_backend_instance_identity_global,
     save_session_run_binding_global,
     save_story_execution_lock_global,
     save_takeover_transfer_record_global,

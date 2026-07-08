@@ -9,7 +9,8 @@ import pytest
 
 from agentkit.backend.phase_state_store.models import FlowExecution
 from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.backend.state_backend.store import reset_backend_cache_for_tests, save_flow_execution, save_story_context
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.store import save_flow_execution, save_story_context
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 from agentkit.backend.telemetry.emitters import EventEmitter

@@ -47,7 +47,7 @@ def sqlite_accessor(
     """Erzeugt ProjectionAccessor gegen echtes SQLite via tmp_path."""
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-    from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     repos = build_projection_repositories(tmp_path)
@@ -392,8 +392,10 @@ def test_record_qa_layer_artifacts_runs_real_batch_chain(
 
     from agentkit.backend.bootstrap.composition_root import build_artifact_manager
     from agentkit.backend.phase_state_store.models import FlowExecution
-    from agentkit.backend.state_backend.store import (
+    from agentkit.backend.state_backend.persistence_test_support import (
         reset_backend_cache_for_tests,
+    )
+    from agentkit.backend.state_backend.store import (
         save_flow_execution,
         save_story_context,
     )

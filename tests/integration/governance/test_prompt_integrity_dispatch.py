@@ -53,7 +53,7 @@ from agentkit.backend.governance.runner import (
     _run_prompt_integrity_guard,
     run_hook,
 )
-from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.telemetry.events import EventType
 from agentkit.backend.telemetry.storage import StateBackendEmitter
 from agentkit.harness_client.harness_adapters.claude_code import (

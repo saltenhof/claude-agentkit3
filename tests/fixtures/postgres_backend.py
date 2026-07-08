@@ -47,7 +47,7 @@ from agentkit.backend.state_backend.config import (
     STATE_BACKEND_ENV,
     STATE_DATABASE_URL_ENV,
 )
-from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

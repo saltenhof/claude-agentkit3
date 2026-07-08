@@ -38,10 +38,10 @@ from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseStatus,
 )
 from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store import (
     record_layer_artifacts,
     record_verify_decision,
-    reset_backend_cache_for_tests,
     save_flow_execution,
     save_phase_snapshot,
     save_story_context,

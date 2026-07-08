@@ -20,7 +20,6 @@ if TYPE_CHECKING:
         SyncPointBarrierType,
     )
     from agentkit.backend.control_plane.records import (
-        BackendInstanceIdentityRecord,
         ControlPlaneOperationRecord,
         EdgeCommandRecord,
         ObjectMutationClaimRecord,
@@ -437,49 +436,6 @@ def load_takeover_transfer_record_global(
     return mappers.takeover_transfer_row_to_record(row)
 
 
-def save_backend_instance_identity_global(
-    record: BackendInstanceIdentityRecord,
-) -> None:
-    """Upsert the backend-instance-identity record (AG3-137). Fail-closed off-Postgres."""
-    _require_control_plane_backend()
-    backend = _backend_module()
-    backend.save_backend_instance_identity_global_row(
-        mappers.backend_instance_identity_to_row(record),
-    )
-
-
-def load_backend_instance_identity_global(
-    backend_instance_id: str,
-) -> BackendInstanceIdentityRecord | None:
-    """Load the backend-instance-identity record, or ``None``."""
-    _require_control_plane_backend()
-    backend = _backend_module()
-    row = backend.load_backend_instance_identity_global_row(backend_instance_id)
-    if row is None:
-        return None
-    return mappers.backend_instance_identity_row_to_record(row)
-
-
-def boot_backend_instance_identity_global(
-    candidate_backend_instance_id: str,
-    now: datetime,
-) -> BackendInstanceIdentityRecord:
-    """Atomically resolve the boot-time backend instance identity (AG3-138).
-
-    First boot ever: persists ``candidate_backend_instance_id`` with
-    ``instance_incarnation = 1``. Every later boot: keeps the EXISTING
-    (stable) ``backend_instance_id`` and increments ``instance_incarnation`` by
-    exactly 1 -- deterministic, no wall-clock input. Fail-closed off-Postgres.
-    """
-    _require_control_plane_backend()
-    backend = _backend_module()
-    row = backend.boot_backend_instance_identity_global_row(
-        candidate_backend_instance_id=candidate_backend_instance_id,
-        now=now.isoformat(),
-    )
-    return mappers.backend_instance_identity_row_to_record(row)
-
-
 def save_story_execution_lock_global(record: StoryExecutionLockRecord) -> None:
     backend = _backend_module()
     if not hasattr(backend, "save_story_execution_lock_global_row"):
@@ -536,9 +492,6 @@ __all__ = [
     "list_orphaned_object_mutation_claims_global",
     "save_takeover_transfer_record_global",
     "load_takeover_transfer_record_global",
-    "save_backend_instance_identity_global",
-    "load_backend_instance_identity_global",
-    "boot_backend_instance_identity_global",
     "save_story_execution_lock_global",
     "load_story_execution_lock_global",
 ]

@@ -41,7 +41,7 @@ def accessor(
 ) -> Iterator[ProjectionAccessor]:
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-    from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     yield ProjectionAccessor(build_projection_repositories(tmp_path))

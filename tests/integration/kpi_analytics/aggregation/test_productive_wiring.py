@@ -38,7 +38,7 @@ from agentkit.backend.kpi_analytics.aggregation import (
 )
 from agentkit.backend.kpi_analytics.fact_store import FactStore, FactStory, PeriodFilter, SyncState
 from agentkit.backend.kpi_analytics.views import RefreshStatus
-from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store.analytics_source import StateBackendAnalyticsSource
 from agentkit.backend.state_backend.store.fact_repository import StateBackendFactRepository
 from agentkit.backend.state_backend.store.guard_counter_repository import (

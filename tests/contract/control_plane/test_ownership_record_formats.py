@@ -31,6 +31,7 @@ from agentkit.backend.control_plane.records import (
 )
 from agentkit.backend.exceptions import ConfigError
 from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store import (
     commit_edge_command_result_global,
     insert_edge_command_record_global,
@@ -46,7 +47,6 @@ from agentkit.backend.state_backend.store import (
     load_run_ownership_record_global,
     load_takeover_transfer_record_global,
     mappers,
-    reset_backend_cache_for_tests,
     save_backend_instance_identity_global,
     save_takeover_transfer_record_global,
     upsert_push_freshness_record_global,

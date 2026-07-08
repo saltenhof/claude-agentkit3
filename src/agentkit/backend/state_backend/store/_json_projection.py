@@ -1,25 +1,18 @@
-"""JSON projection primitives shared by state row mappers."""
+"""Static compatibility exports for persistence JSON codec helpers."""
 
 from __future__ import annotations
 
-import json
-from typing import Any, cast
+from agentkit.backend.state_backend.persistence_json_codec import (
+    JsonRecord as _JsonRecord,
+)
+from agentkit.backend.state_backend.persistence_json_codec import (
+    cast_json_record as cast_json_record,
+)
+from agentkit.backend.state_backend.persistence_json_codec import (
+    dump_json as dump_json,
+)
+from agentkit.backend.state_backend.persistence_json_codec import (
+    load_json as load_json,
+)
 
-_JsonRecord = dict[str, object]
-
-
-def dump_json(data: object) -> str:
-    """Serialize data to a canonical JSON string."""
-    return json.dumps(data, sort_keys=True, default=str)
-
-
-def load_json(data: str | None, default: Any) -> Any:
-    """Deserialize a JSON string, returning ``default`` when ``data`` is None."""
-    if data is None:
-        return default
-    return json.loads(data)
-
-
-def cast_json_record(value: object) -> _JsonRecord:
-    """Cast an opaque value to ``dict[str, object]`` without allocation."""
-    return cast("_JsonRecord", value)
+__all__ = ["_JsonRecord", "dump_json", "load_json", "cast_json_record"]

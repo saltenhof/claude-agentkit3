@@ -580,7 +580,7 @@ def test_phase_wiring_emits_overridden_outcome_via_production_path(
     from agentkit.backend.bootstrap.composition_root import build_projection_accessor
     from agentkit.backend.implementation.phase import ImplementationConfig, ImplementationPhaseHandler
     from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
-    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
     reset_backend_cache_for_tests()
     story_dir = _prepare_story_dir_ac4(tmp_path)

@@ -26,7 +26,7 @@ from agentkit.backend.control_plane.models import (
 from agentkit.backend.governance import runner as runner_mod
 from agentkit.backend.governance.guard_evaluation import HookEvent
 from agentkit.backend.governance.runner import run_hook
-from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store.guard_counter_repository import (
     StateBackendGuardCounterRepository,
 )

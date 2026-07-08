@@ -36,7 +36,7 @@ from agentkit.backend.pipeline_engine.phase_executor.models import (
     EscalationReason,
     PhaseStatus,
 )
-from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store.phase_envelope_repository import (
     StateBackendPhaseEnvelopeRepository,
 )

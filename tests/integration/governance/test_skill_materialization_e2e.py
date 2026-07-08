@@ -52,7 +52,7 @@ from agentkit.backend.skills import (
     read_directory_link_target,
 )
 from agentkit.backend.skills.bundle_store import SkillBundle, SkillBundleStore, shipped_skill_bundles_root
-from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store.project_registration_repository import (
     StateBackendProjectRegistrationRepository,
 )

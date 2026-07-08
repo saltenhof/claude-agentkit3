@@ -41,7 +41,7 @@ from agentkit.backend.control_plane.models import (
     StoryExecutionLockView,
 )
 from agentkit.backend.governance import runner as runner_mod
-from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.harness_client.harness_adapters.claude_code import main as claude_main
 from agentkit.harness_client.harness_adapters.codex.cli import main as codex_main
 from agentkit.harness_client.projectedge.client import LocalEdgePublisher

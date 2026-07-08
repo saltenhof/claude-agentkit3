@@ -22,7 +22,7 @@ from agentkit.backend.core_types.qa_artifact_names import (
     ADVERSARIAL_STAGE,
 )
 from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.telemetry.emitters import MemoryEmitter
 from agentkit.backend.telemetry.events import EventType
 from agentkit.backend.verify_system.adversarial_orchestrator.runtime import runner as _runner

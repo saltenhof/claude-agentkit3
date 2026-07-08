@@ -5,11 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from agentkit.backend.state_backend.state_backend_connection_manager import (
+    boot_backend_instance_identity_global,
+    load_backend_instance_identity_global,
+    save_backend_instance_identity_global,
+)
 from agentkit.backend.state_backend.store import (
     acquire_object_mutation_claim_global,
     admin_abort_control_plane_operation_global,
     append_execution_event_global,
-    boot_backend_instance_identity_global,
     claim_control_plane_operation_global,
     commission_edge_command_record_global,
     commit_control_plane_operation_with_side_effects_global,
@@ -31,7 +35,6 @@ from agentkit.backend.state_backend.store import (
     list_orphaned_claimed_control_plane_operations_global,
     list_orphaned_object_mutation_claims_global,
     load_active_run_ownership_record_global,
-    load_backend_instance_identity_global,
     load_control_plane_operation_global,
     load_edge_command_record_global,
     load_object_mutation_claim_global,
@@ -41,7 +44,6 @@ from agentkit.backend.state_backend.store import (
     load_takeover_transfer_record_global,
     release_control_plane_operation_global,
     resolve_repair_control_plane_operation_global,
-    save_backend_instance_identity_global,
     save_control_plane_operation_global,
     save_session_run_binding_global,
     save_story_execution_lock_global,

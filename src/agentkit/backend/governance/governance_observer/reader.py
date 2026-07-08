@@ -214,9 +214,8 @@ def _assert_story_dir_valid_for_backend(story_dir: Path | None) -> None:
     wrong-database read.  This guard enforces FAIL-CLOSED construction so the
     ambiguous implicit path cannot occur.
 
-    Uses :func:`~agentkit.backend.state_backend.store.facade.active_backend_is_sqlite`
-    (the sanctioned facade surface) rather than importing
-    ``agentkit.backend.state_backend.config`` directly — preserving AC010/AC011 (GAC-1).
+    Uses the state backend connection manager rather than importing
+    ``agentkit.backend.state_backend.config`` directly -- preserving AC010/AC011 (GAC-1).
 
     Args:
         story_dir: The story directory passed to the reader constructor.
@@ -226,7 +225,9 @@ def _assert_story_dir_valid_for_backend(story_dir: Path | None) -> None:
     """
     if story_dir is not None:
         return
-    from agentkit.backend.state_backend.store.facade import active_backend_is_sqlite
+    from agentkit.backend.state_backend.state_backend_connection_manager import (
+        active_backend_is_sqlite,
+    )
 
     if active_backend_is_sqlite():
         raise ValueError(

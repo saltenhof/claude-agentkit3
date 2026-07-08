@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.backend.kpi_analytics.fact_store.guard_counter import GuardCounterService
-from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store.guard_counter_repository import (
     StateBackendGuardCounterRepository,
 )

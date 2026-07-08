@@ -38,7 +38,7 @@ from agentkit.backend.control_plane.models import (
 from agentkit.backend.governance import runner as runner_mod
 from agentkit.backend.governance.guard_evaluation import HookEvent
 from agentkit.backend.governance.runner import POST_HOOK_IDS, PRE_HOOK_IDS, run_hook
-from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store.story_repository import StateBackendStoryRepository
 from agentkit.backend.story_context_manager.story_model import Story, WireStoryType
 from agentkit.backend.telemetry.events import Event, EventType, validate_event_payload

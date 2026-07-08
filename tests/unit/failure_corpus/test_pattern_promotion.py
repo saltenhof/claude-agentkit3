@@ -176,7 +176,7 @@ def _suggest_for_incidents(
     from agentkit.backend.bootstrap.composition_root import build_failure_corpus
     from agentkit.backend.failure_corpus import IncidentCandidate
     from agentkit.backend.failure_corpus.types import IncidentRole
-    from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
     from agentkit.backend.state_backend.store.fc_pattern_repository import (
         StateBackendFcPatternRepository,
     )
@@ -239,7 +239,7 @@ class TestSuggestPatterns:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
         try:
             candidates = _suggest_for_incidents(
@@ -258,7 +258,7 @@ class TestSuggestPatterns:
     ) -> None:
         """2 TEST_OMISSION/LOW incidents in 30d -> NO candidate (REPETITION needs 3)."""
         from agentkit.backend.failure_corpus.types import IncidentSeverity
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
         try:
             candidates = _suggest_for_incidents(
@@ -287,7 +287,7 @@ class TestSuggestPatterns:
     ) -> None:
         """3 TEST_OMISSION/LOW incidents in 30d -> exactly one REPETITION candidate."""
         from agentkit.backend.failure_corpus.types import IncidentSeverity
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
         try:
             candidates = _suggest_for_incidents(
@@ -320,7 +320,7 @@ class TestSuggestPatterns:
     ) -> None:
         """severity==HIGH at 1 -> exactly one HIGH_SEVERITY candidate."""
         from agentkit.backend.failure_corpus.types import IncidentSeverity
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
         try:
             candidates = _suggest_for_incidents(
@@ -350,7 +350,7 @@ class TestSuggestPatterns:
     ) -> None:
         """severity==MEDIUM at 1 -> zero candidates (no rule satisfied at count 1)."""
         from agentkit.backend.failure_corpus.types import IncidentSeverity
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
         try:
             candidates = _suggest_for_incidents(
@@ -385,7 +385,7 @@ class TestSuggestPatterns:
         HIGH_SEVERITY off.
         """
         from agentkit.backend.failure_corpus.types import IncidentSeverity
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
         far_future = datetime.now(UTC) + timedelta(days=100)
         try:
@@ -421,7 +421,7 @@ class TestSuggestPatterns:
         and LOW severity, so neither REPETITION nor HIGH_SEVERITY fires either.
         """
         from agentkit.backend.failure_corpus.types import IncidentSeverity
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
         far_future = datetime.now(UTC) + timedelta(days=100)
         try:
@@ -454,7 +454,7 @@ class TestSuggestPatterns:
         HALLUCINATION -> FIXTURE_REPLAY -> HIGH FP risk.
         """
         from agentkit.backend.failure_corpus.types import IncidentSeverity
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
         far_future = datetime.now(UTC) + timedelta(days=100)
         try:
@@ -486,7 +486,7 @@ class TestSuggestPatterns:
     ) -> None:
         """3 incidents in 30d (REPETITION) where one is HIGH -> HIGH_SEVERITY wins."""
         from agentkit.backend.failure_corpus.types import IncidentSeverity
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
         try:
             candidates = _suggest_for_incidents(
@@ -534,7 +534,7 @@ class TestConfirmPattern:
     ) -> None:
         monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
         from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
@@ -575,7 +575,7 @@ class TestConfirmPattern:
     ) -> None:
         monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
         from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
@@ -608,7 +608,7 @@ class TestConfirmPattern:
         monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
         from agentkit.backend.failure_corpus.errors import FailureCorpusError
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
         from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )

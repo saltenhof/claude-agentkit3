@@ -31,7 +31,7 @@ from agentkit.backend.control_plane_http.app import (
 from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
 from agentkit.backend.project_management.entities import Project, ProjectConfiguration
 from agentkit.backend.project_management.lifecycle import create_project
-from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     InMemoryInflightIdempotencyGuard,
 )

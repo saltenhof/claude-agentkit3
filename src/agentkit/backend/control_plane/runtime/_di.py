@@ -47,7 +47,9 @@ def _require_postgres_control_plane_backend() -> None:
         ConfigError: When the active backend lacks the control-plane store.
     """
     from agentkit.backend.exceptions import ConfigError
-    from agentkit.backend.state_backend.store import control_plane_backend_available
+    from agentkit.backend.state_backend.state_backend_connection_manager import (
+        control_plane_backend_available,
+    )
 
     # Resolve the backend support through the sanctioned ``state_backend.store``
     # surface (architecture conformance AC010/AC011: the control plane must not

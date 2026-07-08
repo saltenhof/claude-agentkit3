@@ -1369,6 +1369,9 @@ boundary_modules:
     bloodgroup: R
     boundary_kind: adapter_boundary
     module_prefixes:
+      - agentkit.backend.state_backend.persistence_json_codec
+      - agentkit.backend.state_backend.persistence_test_support
+      - agentkit.backend.state_backend.state_backend_connection_manager
       - agentkit.backend.state_backend.store
     importable_by: any
     may_import_component_groups: any

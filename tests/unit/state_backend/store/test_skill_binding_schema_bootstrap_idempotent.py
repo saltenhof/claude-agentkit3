@@ -17,8 +17,8 @@ import pytest
 
 from agentkit.backend.skills.binding import SkillLifecycleStatus
 from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.sqlite_store import _connect, state_db_path_for
-from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
 
 if TYPE_CHECKING:
     from collections.abc import Generator

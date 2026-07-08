@@ -1226,7 +1226,6 @@ def _start_story(tmp_path: Path, *, op_suffix: str) -> Story:
     svc.begin_progress(story.story_display_id)
     return story
 
-
 def test_flow_implementation_payload_qa_cycle_round_through_real_db(
     tmp_path: Path,
 ) -> None:

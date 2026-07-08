@@ -22,7 +22,7 @@ from uuid import uuid4
 
 import pytest
 
-from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     IdempotencyRequest,
     InMemoryInflightIdempotencyGuard,

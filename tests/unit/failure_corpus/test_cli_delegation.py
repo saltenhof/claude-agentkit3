@@ -235,7 +235,7 @@ class TestCliBuildsWithoutLlmClient:
         monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
         monkeypatch.chdir(tmp_path)
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
         reset_backend_cache_for_tests()
 
@@ -243,7 +243,7 @@ class TestCliBuildsWithoutLlmClient:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         from agentkit.backend.failure_corpus.cli import handle_suggest_patterns
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
         self._sqlite_env(tmp_path, monkeypatch)
         try:
@@ -258,7 +258,7 @@ class TestCliBuildsWithoutLlmClient:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         from agentkit.backend.failure_corpus.cli import handle_effectiveness_report
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
         self._sqlite_env(tmp_path, monkeypatch)
         try:
@@ -287,7 +287,7 @@ class TestCliBuildsWithoutLlmClient:
         """
         import agentkit.backend.bootstrap.composition_root as comp_root
         from agentkit.backend.failure_corpus.cli import handle_list_checks
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
         calls: list[dict[str, object]] = []
         real_build = comp_root.build_failure_corpus
@@ -316,7 +316,7 @@ class TestCliBuildsWithoutLlmClient:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         from agentkit.backend.failure_corpus.cli import handle_review_patterns
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
         self._sqlite_env(tmp_path, monkeypatch)
         try:
@@ -340,7 +340,7 @@ class TestCliBuildsWithoutLlmClient:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         from agentkit.backend.failure_corpus.cli import handle_add_incident
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
         self._sqlite_env(tmp_path, monkeypatch)
         try:
@@ -373,7 +373,7 @@ class TestCliBuildsWithoutLlmClient:
         handler then reaches approve_check and reports the proposal is missing.
         """
         from agentkit.backend.failure_corpus.cli import handle_review_checks
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
         self._sqlite_env(tmp_path, monkeypatch)
         try:
@@ -414,7 +414,7 @@ class TestCliBuildsWithoutLlmClient:
             PromotionRule,
         )
         from agentkit.backend.failure_corpus.types import PatternId
-        from agentkit.backend.state_backend.store.facade import reset_backend_cache_for_tests
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
         from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )

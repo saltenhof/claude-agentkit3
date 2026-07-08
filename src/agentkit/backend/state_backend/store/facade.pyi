@@ -8,13 +8,22 @@ from agentkit.backend.state_backend.store._facade_backend import (
     active_backend_is_sqlite as active_backend_is_sqlite,
 )
 from agentkit.backend.state_backend.store._facade_backend import (
+    boot_backend_instance_identity_global as boot_backend_instance_identity_global,
+)
+from agentkit.backend.state_backend.store._facade_backend import (
     control_plane_backend_available as control_plane_backend_available,
+)
+from agentkit.backend.state_backend.store._facade_backend import (
+    load_backend_instance_identity_global as load_backend_instance_identity_global,
 )
 from agentkit.backend.state_backend.store._facade_backend import (
     load_json_safe as load_json_safe,
 )
 from agentkit.backend.state_backend.store._facade_backend import (
     reset_backend_cache_for_tests as reset_backend_cache_for_tests,
+)
+from agentkit.backend.state_backend.store._facade_backend import (
+    save_backend_instance_identity_global as save_backend_instance_identity_global,
 )
 from agentkit.backend.state_backend.store._facade_control_plane_operations import (
     admin_abort_control_plane_operation_global as admin_abort_control_plane_operation_global,
@@ -107,9 +116,6 @@ from agentkit.backend.state_backend.store._facade_control_plane_records import (
     acquire_object_mutation_claim_global as acquire_object_mutation_claim_global,
 )
 from agentkit.backend.state_backend.store._facade_control_plane_records import (
-    boot_backend_instance_identity_global as boot_backend_instance_identity_global,
-)
-from agentkit.backend.state_backend.store._facade_control_plane_records import (
     commission_edge_command_record_global as commission_edge_command_record_global,
 )
 from agentkit.backend.state_backend.store._facade_control_plane_records import (
@@ -143,9 +149,6 @@ from agentkit.backend.state_backend.store._facade_control_plane_records import (
     list_ref_protection_degradation_findings_global as list_ref_protection_degradation_findings_global,
 )
 from agentkit.backend.state_backend.store._facade_control_plane_records import (
-    load_backend_instance_identity_global as load_backend_instance_identity_global,
-)
-from agentkit.backend.state_backend.store._facade_control_plane_records import (
     load_edge_command_record_global as load_edge_command_record_global,
 )
 from agentkit.backend.state_backend.store._facade_control_plane_records import (
@@ -165,9 +168,6 @@ from agentkit.backend.state_backend.store._facade_control_plane_records import (
 )
 from agentkit.backend.state_backend.store._facade_control_plane_records import (
     load_takeover_transfer_record_global as load_takeover_transfer_record_global,
-)
-from agentkit.backend.state_backend.store._facade_control_plane_records import (
-    save_backend_instance_identity_global as save_backend_instance_identity_global,
 )
 from agentkit.backend.state_backend.store._facade_control_plane_records import (
     save_story_execution_lock_global as save_story_execution_lock_global,

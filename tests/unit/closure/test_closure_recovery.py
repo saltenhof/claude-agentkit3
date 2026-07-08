@@ -70,7 +70,7 @@ if TYPE_CHECKING:
 
 @pytest.fixture(autouse=True)
 def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
-    from agentkit.backend.state_backend.store import reset_backend_cache_for_tests
+    from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
