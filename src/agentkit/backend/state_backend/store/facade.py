@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from importlib import import_module
-from typing import Any
 
 _MODULE_NAMES = (
     "_facade_backend",
@@ -35,9 +34,3 @@ def _install_exports() -> tuple[str, ...]:
 
 
 __all__ = _install_exports()
-
-
-def __getattr__(name: str) -> Any:
-    if name == "_backend_module":
-        return _backend_module
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
