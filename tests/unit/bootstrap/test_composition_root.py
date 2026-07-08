@@ -710,8 +710,12 @@ def test_change_evidence_productive_push_verification_passes_current_boundary(
         lambda _project_key, _story_id: _Ctx(),
     )
     monkeypatch.setattr(
-        "agentkit.backend.state_backend.store.facade.list_push_barrier_verdicts_global",
+        "agentkit.backend.state_backend.story_closure_store.list_push_barrier_verdicts_global",
         lambda **_kwargs: (_Verdict(),),
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.state_backend.story_closure_store.upsert_push_barrier_verdict_global",
+        lambda _verdict: None,
     )
     monkeypatch.setattr(
         "agentkit.backend.bootstrap.composition_root.build_push_barrier_evidence",
@@ -1167,8 +1171,12 @@ def test_confirm_story_pushed_passes_with_fresh_boundary_correlation(tmp_path: P
         lambda _project_key, _story_id: _Ctx(),
     )
     monkeypatch.setattr(
-        "agentkit.backend.state_backend.store.facade.list_push_barrier_verdicts_global",
+        "agentkit.backend.state_backend.story_closure_store.list_push_barrier_verdicts_global",
         lambda **_kwargs: (_Verdict(),),
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.state_backend.story_closure_store.upsert_push_barrier_verdict_global",
+        lambda _verdict: None,
     )
     monkeypatch.setattr(
         "agentkit.backend.bootstrap.composition_root.build_push_barrier_evidence",
@@ -1226,8 +1234,12 @@ def test_confirm_story_pushed_blocks_passed_verdict_when_server_head_moved(
         lambda _project_key, _story_id: _Ctx(),
     )
     monkeypatch.setattr(
-        "agentkit.backend.state_backend.store.facade.list_push_barrier_verdicts_global",
+        "agentkit.backend.state_backend.story_closure_store.list_push_barrier_verdicts_global",
         lambda **_kwargs: (_Verdict(),),
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.state_backend.story_closure_store.upsert_push_barrier_verdict_global",
+        lambda _verdict: None,
     )
     monkeypatch.setattr(
         "agentkit.backend.bootstrap.composition_root.build_push_barrier_evidence",
@@ -1260,8 +1272,12 @@ def test_confirm_story_pushed_blocks_stale_boundary_correlation(tmp_path: Path, 
         lambda _project_key, _story_id: _Ctx(),
     )
     monkeypatch.setattr(
-        "agentkit.backend.state_backend.store.facade.list_push_barrier_verdicts_global",
+        "agentkit.backend.state_backend.story_closure_store.list_push_barrier_verdicts_global",
         lambda **_kwargs: (),
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.state_backend.story_closure_store.upsert_push_barrier_verdict_global",
+        lambda _verdict: None,
     )
 
     assert _BarrierPushVerification(required_sync_point_id=sync_point_id).confirm_story_pushed(tmp_path) is False
@@ -1314,8 +1330,12 @@ def test_confirm_story_pushed_blocks_missing_participating_repo_verdict(tmp_path
         lambda _project_key, _story_id: _Ctx(),
     )
     monkeypatch.setattr(
-        "agentkit.backend.state_backend.store.facade.list_push_barrier_verdicts_global",
+        "agentkit.backend.state_backend.story_closure_store.list_push_barrier_verdicts_global",
         lambda **_kwargs: (_Verdict(),),
+    )
+    monkeypatch.setattr(
+        "agentkit.backend.state_backend.story_closure_store.upsert_push_barrier_verdict_global",
+        lambda _verdict: None,
     )
     monkeypatch.setattr(
         "agentkit.backend.bootstrap.composition_root.build_push_barrier_evidence",

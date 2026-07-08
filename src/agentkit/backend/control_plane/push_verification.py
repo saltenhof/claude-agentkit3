@@ -126,7 +126,7 @@ class StateBackedPushBarrierEvidence:
         project_key: str, story_id: str, run_id: str, repo_id: str
     ) -> PushFreshnessRecord | None:
         """Read the persisted push-freshness record (Postgres-only, K5)."""
-        from agentkit.backend.state_backend.store import (
+        from agentkit.backend.state_backend.story_closure_store import (
             load_push_freshness_record_global,
         )
 

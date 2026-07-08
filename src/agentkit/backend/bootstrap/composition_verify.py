@@ -271,6 +271,10 @@ class _BarrierPushVerification:
 
         from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
         from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.state_backend.story_closure_store import (
+            list_push_barrier_verdicts_global,
+            upsert_push_barrier_verdict_global,
+        )
 
         try:
             scope = facade.resolve_runtime_scope(story_dir)
@@ -294,7 +298,7 @@ class _BarrierPushVerification:
             boundary_id=boundary_id,
         )
         try:
-            verdicts = facade.list_push_barrier_verdicts_global(
+            verdicts = list_push_barrier_verdicts_global(
                 project_key=project_key,
                 story_id=story_id,
                 run_id=run_id,
@@ -321,7 +325,7 @@ class _BarrierPushVerification:
             tuple(verdicts),
             expected_repo_ids=self._participating_repos(project_key, story_id),
             server_head_for_verdict=_server_head_for_verdict,
-            persist_blocked_verdict=facade.upsert_push_barrier_verdict_global,
+            persist_blocked_verdict=upsert_push_barrier_verdict_global,
             now=datetime.now(tz=UTC),
         ).passed
 
@@ -347,7 +351,16 @@ class _BarrierPushVerification:
         from datetime import UTC, datetime
 
         from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
+        from agentkit.backend.state_backend.harness_edge_command_store import (
+            commission_edge_command_record_global,
+            load_edge_command_record_global,
+            supersede_open_edge_command_global,
+        )
         from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.state_backend.story_closure_store import (
+            load_push_barrier_verdict_global,
+            upsert_push_barrier_verdict_global,
+        )
 
         try:
             ctx = facade.load_story_context_global(project_key, story_id)
@@ -363,8 +376,8 @@ class _BarrierPushVerification:
                 boundary_id=boundary_id,
                 repo_ids=tuple(ctx.participating_repos),
                 ownership_epoch=active.ownership_epoch,
-                load_verdict=facade.load_push_barrier_verdict_global,
-                persist_verdict=facade.upsert_push_barrier_verdict_global,
+                load_verdict=load_push_barrier_verdict_global,
+                persist_verdict=upsert_push_barrier_verdict_global,
                 now=now,
             )
             push_barrier_lifecycle.commission_sync_push_commands(
@@ -376,10 +389,10 @@ class _BarrierPushVerification:
                 boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
                 boundary_id=boundary_id,
                 verdicts=verdicts,
-                load_command=facade.load_edge_command_record_global,
-                commission_command=facade.commission_edge_command_record_global,
-                persist_blocked_verdict=facade.upsert_push_barrier_verdict_global,
-                supersede_open_command=facade.supersede_open_edge_command_global,
+                load_command=load_edge_command_record_global,
+                commission_command=commission_edge_command_record_global,
+                persist_blocked_verdict=upsert_push_barrier_verdict_global,
+                supersede_open_command=supersede_open_edge_command_global,
                 now=now,
             )
         except Exception as exc:  # noqa: BLE001 -- queue failure cannot open barrier
@@ -724,7 +737,15 @@ class _ControlPlaneQaCyclePushBarrierGate:
         from datetime import UTC, datetime
 
         from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
-        from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.state_backend.harness_edge_command_store import (
+            commission_edge_command_record_global,
+            load_edge_command_record_global,
+            supersede_open_edge_command_global,
+        )
+        from agentkit.backend.state_backend.story_closure_store import (
+            load_push_barrier_verdict_global,
+            upsert_push_barrier_verdict_global,
+        )
 
         try:
             boundary = self._qa_boundary_binding(story_dir, sync_point_id)
@@ -739,8 +760,8 @@ class _ControlPlaneQaCyclePushBarrierGate:
                 boundary_id=boundary.boundary_id,
                 repo_ids=tuple(boundary.ctx.participating_repos),
                 ownership_epoch=boundary.active.ownership_epoch,
-                load_verdict=facade.load_push_barrier_verdict_global,
-                persist_verdict=facade.upsert_push_barrier_verdict_global,
+                load_verdict=load_push_barrier_verdict_global,
+                persist_verdict=upsert_push_barrier_verdict_global,
                 now=now,
             )
             push_barrier_lifecycle.commission_sync_push_commands(
@@ -752,10 +773,10 @@ class _ControlPlaneQaCyclePushBarrierGate:
                 boundary_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
                 boundary_id=boundary.boundary_id,
                 verdicts=verdicts,
-                load_command=facade.load_edge_command_record_global,
-                commission_command=facade.commission_edge_command_record_global,
-                persist_blocked_verdict=facade.upsert_push_barrier_verdict_global,
-                supersede_open_command=facade.supersede_open_edge_command_global,
+                load_command=load_edge_command_record_global,
+                commission_command=commission_edge_command_record_global,
+                persist_blocked_verdict=upsert_push_barrier_verdict_global,
+                supersede_open_command=supersede_open_edge_command_global,
                 now=now,
             )
         except Exception as exc:  # noqa: BLE001 -- queue failure cannot open barrier
@@ -788,6 +809,10 @@ class _ControlPlaneQaCyclePushBarrierGate:
 
         from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
         from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.state_backend.story_closure_store import (
+            list_push_barrier_verdicts_global,
+            upsert_push_barrier_verdict_global,
+        )
         from agentkit.backend.verify_system.qa_cycle.lifecycle import (
             QaCycleBarrierBlockedError,
         )
@@ -816,7 +841,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
             msg = "QA-cycle boundary fail-closed: invalid boundary correlation"
             raise QaCycleBarrierBlockedError(msg)
         try:
-            verdicts = facade.list_push_barrier_verdicts_global(
+            verdicts = list_push_barrier_verdicts_global(
                 project_key=project_key,
                 story_id=story_id,
                 run_id=run_id,
@@ -836,7 +861,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
                 verdict,
                 evidence_factory=composition_root_attr("build_push_barrier_evidence"),
             ),
-            persist_blocked_verdict=facade.upsert_push_barrier_verdict_global,
+            persist_blocked_verdict=upsert_push_barrier_verdict_global,
             now=datetime.now(tz=UTC),
         )
         if not aggregate.passed:
@@ -859,6 +884,9 @@ class _StateBackedQaCycleFingerprintSource:
 
     def collect(self, story_dir: Path) -> tuple[verify_types.ReportedHeadEvidence, ...]:
         from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.state_backend.story_closure_store import (
+            list_push_freshness_records_global,
+        )
         from agentkit.backend.verify_system.qa_cycle.fingerprint import (
             FingerprintComputationError,
             ReportedHeadEvidence,
@@ -868,7 +896,11 @@ class _StateBackedQaCycleFingerprintSource:
             scope = facade.resolve_runtime_scope(story_dir)
             if scope.run_id is None:
                 raise FingerprintComputationError("QA-cycle fingerprint evidence has incomplete run scope")
-            records = facade.list_push_freshness_records_global(scope.project_key, scope.story_id, scope.run_id)
+            records = list_push_freshness_records_global(
+                scope.project_key,
+                scope.story_id,
+                scope.run_id,
+            )
         except Exception as exc:  # noqa: BLE001 -- fingerprinting is fail-closed
             msg = f"QA-cycle fingerprint evidence is unavailable: {exc}"
             raise FingerprintComputationError(msg) from exc

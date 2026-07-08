@@ -245,7 +245,7 @@ class _RunGateMixin:
         repo_id: str,
     ) -> PushBarrierVerdict | None:
         """Load one persisted push-barrier verdict row."""
-        from agentkit.backend.state_backend.store import (
+        from agentkit.backend.state_backend.story_closure_store import (
             load_push_barrier_verdict_global,
         )
 
@@ -268,7 +268,7 @@ class _RunGateMixin:
         boundary_id: str,
     ) -> tuple[PushBarrierVerdict, ...]:
         """List persisted verdict rows for one boundary instance."""
-        from agentkit.backend.state_backend.store import (
+        from agentkit.backend.state_backend.story_closure_store import (
             list_push_barrier_verdicts_global,
         )
 
@@ -283,7 +283,7 @@ class _RunGateMixin:
     @staticmethod
     def _upsert_boundary_verdict(verdict: PushBarrierVerdict) -> None:
         """Persist one push-barrier verdict row."""
-        from agentkit.backend.state_backend.store import (
+        from agentkit.backend.state_backend.story_closure_store import (
             upsert_push_barrier_verdict_global,
         )
 

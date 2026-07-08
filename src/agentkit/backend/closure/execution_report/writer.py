@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from agentkit.backend.closure.execution_report.records import ExecutionReport
-from agentkit.backend.state_backend.store import record_closure_report
+from agentkit.backend.state_backend.story_closure_store import record_closure_report
 
 if TYPE_CHECKING:
     from pathlib import Path

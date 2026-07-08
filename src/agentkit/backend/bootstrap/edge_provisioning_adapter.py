@@ -359,7 +359,7 @@ class SetupEdgeProvisioningCoordinator:
         ref_pattern: str,
     ) -> None:
         """Administer or visibly degrade ``story/*`` ref protection (AC9)."""
-        from agentkit.backend.state_backend.store import (
+        from agentkit.backend.state_backend.story_closure_store import (
             upsert_ref_protection_degradation_finding_global,
         )
 

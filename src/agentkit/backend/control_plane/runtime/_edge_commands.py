@@ -155,7 +155,7 @@ class _EdgeCommandMixin:
         (AC5). Fail-closed on a non-Postgres backend (``ConfigError``, K5).
         """
         self._require_postgres_backend_on_first_use()
-        from agentkit.backend.state_backend.store import (
+        from agentkit.backend.state_backend.story_closure_store import (
             list_push_freshness_records_global,
         )
 
@@ -410,7 +410,7 @@ class _EdgeCommandMixin:
         repo_id = _sync_push_result_repo_id(existing, result)
         if repo_id is None:
             return
-        from agentkit.backend.state_backend.store import (
+        from agentkit.backend.state_backend.story_closure_store import (
             load_push_freshness_record_global,
             upsert_push_freshness_record_global,
         )

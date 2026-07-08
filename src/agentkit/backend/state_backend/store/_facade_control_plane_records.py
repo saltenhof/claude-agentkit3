@@ -4,6 +4,21 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from agentkit.backend.state_backend.harness_edge_command_store import (
+    commission_edge_command_record_global as commission_edge_command_record_global,
+)
+from agentkit.backend.state_backend.harness_edge_command_store import (
+    insert_edge_command_record_global as insert_edge_command_record_global,
+)
+from agentkit.backend.state_backend.harness_edge_command_store import (
+    list_and_ack_open_edge_command_records_global as list_and_ack_open_edge_command_records_global,
+)
+from agentkit.backend.state_backend.harness_edge_command_store import (
+    load_edge_command_record_global as load_edge_command_record_global,
+)
+from agentkit.backend.state_backend.harness_edge_command_store import (
+    supersede_open_edge_command_global as supersede_open_edge_command_global,
+)
 from agentkit.backend.state_backend.prompt_runtime_store import (
     insert_execution_contract_digest_global as insert_execution_contract_digest_global,
 )
@@ -15,80 +30,42 @@ from agentkit.backend.state_backend.store._facade_backend import (
     _backend_module,
     _require_control_plane_backend,
 )
+from agentkit.backend.state_backend.story_closure_store import (
+    list_push_barrier_verdicts_global as list_push_barrier_verdicts_global,
+)
+from agentkit.backend.state_backend.story_closure_store import (
+    list_push_freshness_records_global as list_push_freshness_records_global,
+)
+from agentkit.backend.state_backend.story_closure_store import (
+    list_ref_protection_degradation_findings_global as list_ref_protection_degradation_findings_global,
+)
+from agentkit.backend.state_backend.story_closure_store import (
+    load_push_barrier_verdict_global as load_push_barrier_verdict_global,
+)
+from agentkit.backend.state_backend.story_closure_store import (
+    load_push_freshness_record_global as load_push_freshness_record_global,
+)
+from agentkit.backend.state_backend.story_closure_store import (
+    upsert_push_barrier_verdict_global as upsert_push_barrier_verdict_global,
+)
+from agentkit.backend.state_backend.story_closure_store import (
+    upsert_push_freshness_record_global as upsert_push_freshness_record_global,
+)
+from agentkit.backend.state_backend.story_closure_store import (
+    upsert_ref_protection_degradation_finding_global as upsert_ref_protection_degradation_finding_global,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from agentkit.backend.control_plane.push_sync import (
-        PushBarrierVerdict,
-        PushFreshnessRecord,
-        RefProtectionDegradationFinding,
-        SyncPointBarrierType,
-    )
     from agentkit.backend.control_plane.records import (
         ControlPlaneOperationRecord,
-        EdgeCommandRecord,
         ObjectMutationClaimRecord,
         TakeoverTransferRecord,
     )
     from agentkit.backend.governance.guard_system.records import (
         StoryExecutionLockRecord,
     )
-
-
-def insert_edge_command_record_global(record: EdgeCommandRecord) -> None:
-    """Strictly INSERT one edge-command row (AG3-145 command creation).
-
-    Fail-closed on a non-Postgres backend (``ConfigError``, K5).
-    """
-    _require_control_plane_backend()
-    backend = _backend_module()
-    backend.insert_edge_command_record_global_row(mappers.edge_command_record_to_row(record))
-
-
-def commission_edge_command_record_global(record: EdgeCommandRecord) -> bool:
-    """Atomically INSERT one edge-command row if absent (AG3-145 commissioning).
-
-    Idempotent by the deterministic ``command_id`` (``ON CONFLICT DO NOTHING``):
-    a concurrent double commissioning is a no-op, never a ``UniqueViolation``
-    (FK-10 §10.5.3). Fail-closed on a non-Postgres backend (``ConfigError``, K5).
-
-    Returns:
-        ``True`` iff THIS call inserted the row; ``False`` when the command
-        already exists.
-    """
-    _require_control_plane_backend()
-    backend = _backend_module()
-    return bool(backend.commission_edge_command_record_global_row(mappers.edge_command_record_to_row(record)))
-
-
-def load_edge_command_record_global(command_id: str) -> EdgeCommandRecord | None:
-    """Load one edge-command record by ``command_id``, or ``None`` (K5)."""
-    _require_control_plane_backend()
-    backend = _backend_module()
-    row = backend.load_edge_command_record_global_row(command_id)
-    if row is None:
-        return None
-    return mappers.edge_command_row_to_record(row)
-
-
-def list_and_ack_open_edge_command_records_global(
-    *,
-    project_key: str,
-    run_id: str,
-    session_id: str,
-    delivered_at: datetime,
-) -> tuple[EdgeCommandRecord, ...]:
-    """Return + ack the session's open commands (K5, FK-91 §91.1a Rule 13: no lock)."""
-    _require_control_plane_backend()
-    backend = _backend_module()
-    rows = backend.list_and_ack_open_edge_command_records_global_row(
-        project_key=project_key,
-        run_id=run_id,
-        session_id=session_id,
-        delivered_at=delivered_at.isoformat(),
-    )
-    return tuple(mappers.edge_command_row_to_record(row) for row in rows)
 
 
 def commit_edge_command_result_global(
@@ -128,139 +105,6 @@ def commit_edge_command_result_global(
         },
         expected_ownership_epoch=expected_ownership_epoch,
     )
-
-
-def supersede_open_edge_command_global(
-    *,
-    command_id: str,
-    completed_at: datetime,
-    result_payload: dict[str, object],
-) -> bool:
-    """Terminalize an open edge command superseded by a newer boundary epoch."""
-    _require_control_plane_backend()
-    backend = _backend_module()
-    return bool(
-        backend.supersede_open_edge_command_global_row(
-            command_id=command_id,
-            completed_at=completed_at.isoformat(),
-            result_payload_json=mappers.dump_json(result_payload),
-        )
-    )
-
-
-def upsert_push_freshness_record_global(record: PushFreshnessRecord) -> None:
-    """Upsert one push-freshness row per ``(project, story, run, repo)`` (AG3-147).
-
-    Fail-closed on a non-Postgres backend (``ConfigError``, K5): the push
-    freshness / backlog read surface is Postgres-only, no SQLite mirror (AC13).
-    """
-    _require_control_plane_backend()
-    backend = _backend_module()
-    backend.upsert_push_freshness_record_global_row(mappers.push_freshness_record_to_row(record))
-
-
-def load_push_freshness_record_global(project_key: str, story_id: str, run_id: str, repo_id: str) -> PushFreshnessRecord | None:
-    """Load one push-freshness record for a repo, or ``None`` (AG3-147, K5)."""
-    _require_control_plane_backend()
-    backend = _backend_module()
-    row = backend.load_push_freshness_record_global_row(project_key, story_id, run_id, repo_id)
-    if row is None:
-        return None
-    return mappers.push_freshness_row_to_record(row)
-
-
-def list_push_freshness_records_global(project_key: str, story_id: str, run_id: str) -> tuple[PushFreshnessRecord, ...]:
-    """List the run's push-freshness records, one per repo (AG3-147, K5)."""
-    _require_control_plane_backend()
-    backend = _backend_module()
-    rows = backend.list_push_freshness_records_global_row(project_key, story_id, run_id)
-    return tuple(mappers.push_freshness_row_to_record(row) for row in rows)
-
-
-def upsert_push_barrier_verdict_global(record: PushBarrierVerdict) -> None:
-    """Upsert the authoritative per-repo push-barrier verdict (AG3-147, K5)."""
-    _require_control_plane_backend()
-    backend = _backend_module()
-    backend.upsert_push_barrier_verdict_global_row(mappers.push_barrier_verdict_to_row(record))
-
-
-def load_push_barrier_verdict_global(
-    *,
-    project_key: str,
-    story_id: str,
-    run_id: str,
-    boundary_type: SyncPointBarrierType,
-    boundary_id: str,
-    repo_id: str,
-) -> PushBarrierVerdict | None:
-    """Load one push-barrier verdict, or ``None`` (AG3-147, K5)."""
-    _require_control_plane_backend()
-    backend = _backend_module()
-    row = backend.load_push_barrier_verdict_global_row(
-        project_key,
-        story_id,
-        run_id,
-        boundary_type.value,
-        boundary_id,
-        repo_id,
-    )
-    if row is None:
-        return None
-    return mappers.push_barrier_verdict_row_to_record(row)
-
-
-def list_push_barrier_verdicts_global(
-    *,
-    project_key: str,
-    story_id: str,
-    run_id: str,
-    boundary_type: SyncPointBarrierType,
-    boundary_id: str,
-) -> tuple[PushBarrierVerdict, ...]:
-    """List the per-repo verdicts for one boundary instance (AG3-147, K5)."""
-    _require_control_plane_backend()
-    backend = _backend_module()
-    rows = backend.list_push_barrier_verdicts_global_row(
-        project_key,
-        story_id,
-        run_id,
-        boundary_type.value,
-        boundary_id,
-    )
-    return tuple(mappers.push_barrier_verdict_row_to_record(row) for row in rows)
-
-
-def upsert_ref_protection_degradation_finding_global(
-    *,
-    project_key: str,
-    story_id: str,
-    repo_id: str,
-    finding: RefProtectionDegradationFinding,
-    recorded_at: datetime,
-) -> None:
-    """Persist a project-visible ref-protection degradation WARNING (AG3-147)."""
-    backend = _backend_module()
-    _require_control_plane_backend()
-    backend.upsert_ref_protection_degradation_finding_global_row(
-        {
-            "project_key": project_key,
-            "story_id": story_id,
-            "repo_id": repo_id,
-            "finding_code": finding.finding_code,
-            "severity": finding.severity,
-            "provider_label": finding.provider_label,
-            "detail": finding.detail,
-            "recorded_at": recorded_at.isoformat(),
-        }
-    )
-
-
-def list_ref_protection_degradation_findings_global(project_key: str, story_id: str) -> tuple[dict[str, object], ...]:
-    """List project-visible ref-protection degradation WARNING rows."""
-    backend = _backend_module()
-    _require_control_plane_backend()
-    rows = backend.list_ref_protection_degradation_finding_global_rows(project_key, story_id)
-    return tuple(dict(row) for row in rows)
 
 
 def insert_object_mutation_claim_global(record: ObjectMutationClaimRecord) -> None:
