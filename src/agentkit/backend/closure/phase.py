@@ -49,10 +49,17 @@ from agentkit.backend.pipeline_engine.phase_executor import (
     QaCycleStatus,
     evolve_phase_state,
 )
+from agentkit.backend.state_backend.pipeline_runtime_store import (
+    load_phase_snapshot,
+)
+from agentkit.backend.state_backend.runtime_scope_resolver import (
+    resolve_runtime_scope,
+)
 from agentkit.backend.state_backend.store import (
     bind_ownership_fence_scope,
-    load_phase_snapshot,
     resolve_ownership_fence_snapshot,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
     save_story_context,
 )
 from agentkit.backend.story_context_manager.types import get_profile
@@ -1006,8 +1013,6 @@ def _resolve_run_id_fail_closed(s_dir: Path) -> str | None:
     concept does not permit, FK-29 §29.2). Returns ``None`` on any failure /
     absent scope so the caller escalates (the gate is never run cross-run).
     """
-    from agentkit.backend.state_backend.store import resolve_runtime_scope
-
     try:
         run_id = resolve_runtime_scope(s_dir).run_id
     except Exception:  # noqa: BLE001 -- a missing/corrupt scope => fail-closed (None)
@@ -1265,8 +1270,6 @@ def _resume_run_id(s_dir: Path) -> str | None:
     persisted metrics. An unresolvable scope returns ``None`` (the read then
     matches on ``(project_key, story_id)`` only -- still this story's own rows).
     """
-    from agentkit.backend.state_backend.store import resolve_runtime_scope
-
     try:
         return resolve_runtime_scope(s_dir).run_id or None
     except Exception:  # noqa: BLE001 -- best-effort scope read for the metrics key

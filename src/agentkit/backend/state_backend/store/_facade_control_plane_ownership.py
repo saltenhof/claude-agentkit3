@@ -12,104 +12,27 @@ from agentkit.backend.state_backend.config import (
     StateBackendKind,
     load_state_backend_config,
 )
-from agentkit.backend.state_backend.store import mappers
-from agentkit.backend.state_backend.store._facade_backend import (
-    _backend_module,
-    _require_control_plane_backend,
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    delete_session_run_binding_global as delete_session_run_binding_global,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    insert_run_ownership_record_global as insert_run_ownership_record_global,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    load_active_run_ownership_record_global as load_active_run_ownership_record_global,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    load_run_ownership_record_global as load_run_ownership_record_global,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    load_session_run_binding_global as load_session_run_binding_global,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    save_session_run_binding_global as save_session_run_binding_global,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-
-    from agentkit.backend.control_plane.records import (
-        RunOwnershipRecord,
-        SessionRunBindingRecord,
-    )
-
-
-_SESSION_BINDING_UNSUPPORTED = "Global session binding storage is unsupported by the active backend"
-
-
-def save_session_run_binding_global(record: SessionRunBindingRecord) -> None:
-    backend = _backend_module()
-    if not hasattr(backend, "save_session_run_binding_global_row"):
-        raise RuntimeError(_SESSION_BINDING_UNSUPPORTED)
-    row = mappers.session_binding_to_row(record)
-    backend.save_session_run_binding_global_row(row)
-
-
-def load_session_run_binding_global(
-    session_id: str,
-) -> SessionRunBindingRecord | None:
-    backend = _backend_module()
-    if not hasattr(backend, "load_session_run_binding_global_row"):
-        raise RuntimeError(_SESSION_BINDING_UNSUPPORTED)
-    row = backend.load_session_run_binding_global_row(session_id)
-    if row is None:
-        return None
-    return mappers.session_binding_row_to_record(row)
-
-
-def delete_session_run_binding_global(session_id: str) -> None:
-    backend = _backend_module()
-    if not hasattr(backend, "delete_session_run_binding_global"):
-        raise RuntimeError(_SESSION_BINDING_UNSUPPORTED)
-    backend.delete_session_run_binding_global(session_id)
-
-
-def insert_run_ownership_record_global(record: RunOwnershipRecord) -> None:
-    """Strictly INSERT one run-ownership record (AG3-137).
-
-    Fail-closed on a non-Postgres backend (``ConfigError``). The ``TRANSFERRED``
-    status has no writer in this strand (AG3-137 scope §1): persisting it is
-    rejected here at the write boundary, so no path (takeover/disown/recovery)
-    can silently set it. A second active record for the same story is rejected by
-    the persistence layer's partial-unique index (AK1).
-
-    Raises:
-        ConfigError: On a non-Postgres backend.
-        ValueError: When ``status`` is ``TRANSFERRED`` (no writer, fail-closed).
-    """
-    from agentkit.backend.control_plane.ownership import OwnershipStatus
-
-    if record.status is OwnershipStatus.TRANSFERRED:
-        raise ValueError(
-            "run-ownership status 'transferred' has no writer in this strand "
-            "(AG3-137 scope §1): a run-continuing takeover is an in-place CAS "
-            "that keeps status='active'; setting 'transferred' is fail-closed "
-            "rejected until a normative concretisation exists.",
-        )
-    _require_control_plane_backend()
-    backend = _backend_module()
-    backend.insert_run_ownership_record_global_row(mappers.run_ownership_to_row(record))
-
-
-def load_run_ownership_record_global(
-    project_key: str,
-    story_id: str,
-    run_id: str,
-) -> RunOwnershipRecord | None:
-    """Load one run-ownership record by run identity, or ``None``."""
-    _require_control_plane_backend()
-    backend = _backend_module()
-    row = backend.load_run_ownership_record_global_row(project_key, story_id, run_id)
-    if row is None:
-        return None
-    return mappers.run_ownership_row_to_record(row)
-
-
-def load_active_run_ownership_record_global(
-    project_key: str,
-    story_id: str,
-) -> RunOwnershipRecord | None:
-    """Load the single active run-ownership record for a story, or ``None``."""
-    _require_control_plane_backend()
-    backend = _backend_module()
-    row = backend.load_active_run_ownership_record_global_row(project_key, story_id)
-    if row is None:
-        return None
-    return mappers.run_ownership_row_to_record(row)
-
 
 def resolve_ownership_fence_snapshot(
     project_key: str,

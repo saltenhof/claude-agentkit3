@@ -356,7 +356,9 @@ def _project_root_for_feedback(story_dir: Path) -> Path:
 
 def _run_id_for_feedback(story_dir: Path) -> str:
     try:
-        from agentkit.backend.state_backend.store import resolve_runtime_scope
+        from agentkit.backend.state_backend.runtime_scope_resolver import (
+            resolve_runtime_scope,
+        )
 
         scope = resolve_runtime_scope(story_dir)
     except Exception:  # noqa: BLE001 -- non-blocking fallback correlation

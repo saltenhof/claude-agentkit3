@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Protocol
 from agentkit.backend.core_types import PROTOCOL_FILE, VERIFY_DECISION_FILE
 from agentkit.backend.core_types.qa_artifact_names import LAYER_ARTIFACT_FILES
 from agentkit.backend.installer.paths import qa_story_dir
-from agentkit.backend.state_backend.store import (
+from agentkit.backend.state_backend.runtime_scope_resolver import (
     resolve_runtime_scope,
 )
 from agentkit.backend.state_backend.telemetry_event_store import (

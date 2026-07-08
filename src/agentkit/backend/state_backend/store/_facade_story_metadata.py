@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from agentkit.backend.state_backend.execution_planning_store import (
     delete_story_dependency as delete_story_dependency,
 )
@@ -58,113 +56,30 @@ from agentkit.backend.state_backend.requirements_coverage_store import (
 from agentkit.backend.state_backend.requirements_coverage_store import (
     update_story_are_link_kind as update_story_are_link_kind,
 )
-from agentkit.backend.state_backend.store import mappers
-from agentkit.backend.state_backend.store._facade_backend import _backend_module
-
-if TYPE_CHECKING:
-    from pathlib import Path
-    from uuid import UUID
-
-    from agentkit.backend.story_context_manager.models import StoryContext
-
-
-def save_story_context(story_dir: Path, ctx: StoryContext) -> None:
-    row = mappers.story_context_to_row(ctx)
-    _backend_module().save_story_context_row(story_dir, row)
-
-
-def save_story_context_global(store_dir: Path | None, ctx: StoryContext) -> None:
-    row = mappers.story_context_to_row(ctx)
-    _backend_module().save_story_context_global_row(store_dir, row)
-
-
-def load_story_context(story_dir: Path) -> StoryContext | None:
-    row = _backend_module().load_story_context_row(story_dir)
-    if row is None:
-        return None
-    return mappers.story_context_payload_to_record(
-        str(row["payload_json"]),
-        db_label=str(story_dir),
-    )
-
-
-def load_story_context_global(
-    project_key: str,
-    story_id: str,
-    store_dir: Path | None = None,
-) -> StoryContext | None:
-    backend = _backend_module()
-    if not hasattr(backend, "load_story_context_global_row"):
-        raise RuntimeError(
-            "Global story-context reads are unsupported by the active backend",
-        )
-    row = backend.load_story_context_global_row(store_dir, project_key, story_id)
-    if row is None:
-        return None
-    return mappers.story_context_payload_to_record(
-        str(row["payload_json"]),
-        db_label="postgres",
-    )
-
-
-def load_story_context_by_story_number_global(
-    store_dir: Path | None,
-    project_key: str,
-    story_number: int,
-) -> StoryContext | None:
-    row = _backend_module().load_story_context_by_story_number_row(
-        store_dir,
-        project_key,
-        story_number,
-    )
-    if row is None:
-        return None
-    return mappers.story_context_payload_to_record(
-        str(row["payload_json"]),
-        db_label="story_contexts",
-    )
-
-
-def load_story_context_by_uuid_global(
-    store_dir: Path | None,
-    story_uuid: UUID,
-) -> StoryContext | None:
-    row = _backend_module().load_story_context_by_uuid_row(
-        store_dir,
-        str(story_uuid),
-    )
-    if row is None:
-        return None
-    return mappers.story_context_payload_to_record(
-        str(row["payload_json"]),
-        db_label="story_contexts",
-    )
-
-
-def load_story_contexts_global(
-    project_key: str,
-    store_dir: Path | None = None,
-) -> list[StoryContext]:
-    backend = _backend_module()
-    if not hasattr(backend, "load_story_context_rows_global"):
-        raise RuntimeError(
-            "Global story-context reads are unsupported by the active backend",
-        )
-    rows = backend.load_story_context_rows_global(store_dir, project_key)
-    result: list[StoryContext] = []
-    for row in rows:
-        result.append(
-            mappers.story_context_payload_to_record(
-                str(row["payload_json"]),
-                db_label="postgres",
-            )
-        )
-    return result
-
-
-def read_story_context_record(story_dir: Path) -> StoryContext | None:
-    return load_story_context(story_dir)
-
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    load_story_context as load_story_context,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    load_story_context_by_story_number_global as load_story_context_by_story_number_global,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    load_story_context_by_uuid_global as load_story_context_by_uuid_global,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    load_story_context_global as load_story_context_global,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    load_story_contexts_global as load_story_contexts_global,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    read_story_context_record as read_story_context_record,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    save_story_context as save_story_context,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    save_story_context_global as save_story_context_global,
+)
 
 __all__ = [
     "save_story_context",

@@ -11,7 +11,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from agentkit.backend.state_backend.store import save_attempt, save_phase_state
+from agentkit.backend.state_backend.pipeline_runtime_store import (
+    save_attempt,
+    save_phase_state,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path

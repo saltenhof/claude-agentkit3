@@ -288,7 +288,7 @@ class StoryService(ResetTransitionMixin):
             )
             dependency_repository = StateBackendStoryDependencyRepository()
         if execution_regime_reader is None:
-            from agentkit.backend.state_backend.store import (
+            from agentkit.backend.state_backend.story_lifecycle_store import (
                 load_active_run_ownership_record_global,
             )
             execution_regime_reader = load_active_run_ownership_record_global

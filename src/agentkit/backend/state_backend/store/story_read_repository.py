@@ -21,9 +21,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from agentkit.backend.state_backend.store.facade import (
+from agentkit.backend.state_backend.pipeline_runtime_store import (
     load_flow_execution_global,
     load_phase_state_global,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
     load_story_context_global,
     load_story_contexts_global,
 )

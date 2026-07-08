@@ -292,7 +292,9 @@ class ContextSufficiencyBuilder:
             from agentkit.backend.integration_stabilization.state import (
                 load_integration_manifest,
             )
-            from agentkit.backend.state_backend.store.facade import load_story_context
+            from agentkit.backend.state_backend.story_lifecycle_store import (
+                load_story_context,
+            )
             from agentkit.backend.story_context_manager.types import ImplementationContract
 
             ctx = load_story_context(self._story_dir)

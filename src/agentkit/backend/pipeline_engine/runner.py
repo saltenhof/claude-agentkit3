@@ -26,7 +26,7 @@ from agentkit.backend.pipeline_engine.phase_executor.models import (
 )
 from agentkit.backend.pipeline_engine.runtime_state import EngineRuntimeState
 from agentkit.backend.process.language.definitions import resolve_workflow
-from agentkit.backend.state_backend.store import save_phase_state
+from agentkit.backend.state_backend.pipeline_runtime_store import save_phase_state
 from agentkit.backend.state_backend.store.phase_envelope_repository import (
     StateBackendPhaseEnvelopeRepository,
 )

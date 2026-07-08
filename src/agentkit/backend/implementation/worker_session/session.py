@@ -295,7 +295,7 @@ def build_state_backend_context_loader(story_dir: Path) -> StoryContextLoaderPor
     Returns:
         A loader port resolving the persisted ``StoryContext``.
     """
-    from agentkit.backend.state_backend.store import load_story_context
+    from agentkit.backend.state_backend.story_lifecycle_store import load_story_context
 
     class _StateBackendLoader:
         def load(self, story_id: str, run_id: str) -> StoryContext | None:

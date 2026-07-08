@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.backend.state_backend.store.facade import (
+from agentkit.backend.state_backend.pipeline_runtime_store import (
     load_phase_state,
     save_phase_state,
 )

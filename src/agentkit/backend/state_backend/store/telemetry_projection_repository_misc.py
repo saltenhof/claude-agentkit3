@@ -219,7 +219,9 @@ class FacadeRiskWindowRepository:
             self._sqlite_record(row)
 
     def _resolve_project_key(self, event: NormalizedEvent) -> str:
-        from agentkit.backend.state_backend.store import resolve_runtime_scope
+        from agentkit.backend.state_backend.runtime_scope_resolver import (
+            resolve_runtime_scope,
+        )
 
         scope = resolve_runtime_scope(self._story_dir)
         if scope.project_key and scope.story_id == event.story_id:

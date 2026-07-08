@@ -133,7 +133,9 @@ def _is_manifest_approved_and_bound(ctx: StoryContext) -> GuardResult:
         load_integration_manifest,
         load_manifest_approval,
     )
-    from agentkit.backend.state_backend.store import resolve_runtime_scope
+    from agentkit.backend.state_backend.runtime_scope_resolver import (
+        resolve_runtime_scope,
+    )
 
     s_dir = _story_dir(ctx.project_root, ctx.story_id)
     manifest = load_integration_manifest(s_dir)

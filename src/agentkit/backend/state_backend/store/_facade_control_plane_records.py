@@ -54,6 +54,12 @@ from agentkit.backend.state_backend.story_closure_store import (
 from agentkit.backend.state_backend.story_closure_store import (
     upsert_ref_protection_degradation_finding_global as upsert_ref_protection_degradation_finding_global,
 )
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    load_takeover_transfer_record_global as load_takeover_transfer_record_global,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    save_takeover_transfer_record_global as save_takeover_transfer_record_global,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -61,7 +67,6 @@ if TYPE_CHECKING:
     from agentkit.backend.control_plane.records import (
         ControlPlaneOperationRecord,
         ObjectMutationClaimRecord,
-        TakeoverTransferRecord,
     )
     from agentkit.backend.governance.guard_system.records import (
         StoryExecutionLockRecord,
@@ -207,37 +212,6 @@ def list_orphaned_object_mutation_claims_global(
         before_incarnation=before_incarnation,
     )
     return tuple(mappers.object_mutation_claim_row_to_record(row) for row in rows)
-
-
-def save_takeover_transfer_record_global(record: TakeoverTransferRecord) -> None:
-    """Upsert one takeover-transfer record (AG3-137). Fail-closed off-Postgres."""
-    _require_control_plane_backend()
-    backend = _backend_module()
-    backend.save_takeover_transfer_record_global_row(
-        mappers.takeover_transfer_to_row(record),
-    )
-
-
-def load_takeover_transfer_record_global(
-    project_key: str,
-    story_id: str,
-    run_id: str,
-    ownership_epoch: int,
-    repo_id: str,
-) -> TakeoverTransferRecord | None:
-    """Load one takeover-transfer record by per-repo identity, or ``None``."""
-    _require_control_plane_backend()
-    backend = _backend_module()
-    row = backend.load_takeover_transfer_record_global_row(
-        project_key,
-        story_id,
-        run_id,
-        ownership_epoch,
-        repo_id,
-    )
-    if row is None:
-        return None
-    return mappers.takeover_transfer_row_to_record(row)
 
 
 def save_story_execution_lock_global(record: StoryExecutionLockRecord) -> None:

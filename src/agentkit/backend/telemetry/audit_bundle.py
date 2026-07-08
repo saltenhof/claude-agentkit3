@@ -30,8 +30,10 @@ import json
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from agentkit.backend.state_backend.store import (
+from agentkit.backend.state_backend.pipeline_runtime_store import (
     load_flow_execution,
+)
+from agentkit.backend.state_backend.runtime_scope_resolver import (
     resolve_runtime_scope,
 )
 from agentkit.backend.state_backend.telemetry_event_store import (

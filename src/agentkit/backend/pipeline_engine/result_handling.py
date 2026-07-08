@@ -24,7 +24,7 @@ from agentkit.backend.pipeline_engine.phase_executor.records import AttemptRecor
 from agentkit.backend.pipeline_engine.phase_executor.save_phase_completion import (
     save_phase_completion,
 )
-from agentkit.backend.state_backend.store import (
+from agentkit.backend.state_backend.pipeline_runtime_store import (
     save_phase_snapshot,
 )
 

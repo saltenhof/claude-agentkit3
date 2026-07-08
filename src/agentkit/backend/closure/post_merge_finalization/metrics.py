@@ -7,8 +7,10 @@ from typing import TYPE_CHECKING
 
 from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.backend.exceptions import CorruptStateError
-from agentkit.backend.state_backend.store import (
+from agentkit.backend.state_backend.pipeline_runtime_store import (
     load_attempts,
+)
+from agentkit.backend.state_backend.runtime_scope_resolver import (
     resolve_runtime_scope,
 )
 from agentkit.backend.state_backend.telemetry_event_store import load_execution_events
