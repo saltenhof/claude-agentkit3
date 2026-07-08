@@ -185,20 +185,3 @@ class _StaticChangeEvidencePort:
         from agentkit.backend.verify_system.structural.system_evidence import ChangeEvidence
 
         return ChangeEvidence(available=False)
-
-
-# ---------------------------------------------------------------------------
-# AG3-076: operator/recovery command registration + handlers
-# ---------------------------------------------------------------------------
-
-_VALID_PHASES = frozenset({"setup", "exploration", "implementation", "closure"})
-
-
-class _ConfigResolutionError(Exception):
-    """Raised when ``--config`` is provided but fails to yield a project_key.
-
-    Signals that the caller must fail-closed (non-zero) rather than falling
-    through to the environment variable.  Never raised when ``--config`` is
-    absent (the fallthrough path is intentional in that case).
-    """
-

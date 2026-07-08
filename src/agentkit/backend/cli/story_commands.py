@@ -527,5 +527,3 @@ def _cmd_repair_story_md(
         )
     )
     return 0 if report.errors == 0 else 1
-
-

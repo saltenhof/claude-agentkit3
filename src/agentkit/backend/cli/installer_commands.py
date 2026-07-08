@@ -704,5 +704,3 @@ def _cmd_upgrade_project(args: argparse.Namespace) -> int:
         f"scenario {result.scenario.scenario.value!r}; {result.detail}"
     )
     return 0
-
-

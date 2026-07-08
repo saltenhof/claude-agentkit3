@@ -44,5 +44,3 @@ def _cmd_failure_corpus(args: argparse.Namespace) -> int:
     from agentkit.backend.failure_corpus.cli import dispatch as _fc_dispatch
 
     return _fc_dispatch(args)
-
-
