@@ -128,7 +128,7 @@ _GIT_SUBPROCESS_INVENTORY: dict[str, str] = {
     # on the dev machine -- NOT the Level-1 backend-process physical git FK-10
     # §10.2.4a forbids, and NOT worktree provisioning/teardown/path ops.
     "governance/guard_system/secret_scan.py": "governance-secret-scan (guard git-history scan)",
-    "installer/runner.py": "installer-bootstrap (git clone at project registration)",
+    "installer/project_structure.py": "installer-bootstrap (git clone at project registration)",
     "installer/bootstrap_checkpoints/cp11_to_12.py": "installer-bootstrap (git config core.hooksPath checkpoint)",
 }
 

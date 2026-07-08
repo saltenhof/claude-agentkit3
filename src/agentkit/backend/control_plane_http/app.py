@@ -6,14 +6,11 @@ by AG3-090).  ``agentkit.backend.control_plane.http`` holds a compat re-export o
 
 from __future__ import annotations
 
-import json
 import logging
 import re
-import uuid
-from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPSServer
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlsplit
 
 from pydantic import ValidationError
@@ -22,18 +19,12 @@ from agentkit.backend.auth.middleware import AuthMiddlewareResponse
 from agentkit.backend.control_plane.guard_counter import ControlPlaneGuardCounterService
 from agentkit.backend.control_plane.models import (
     AdminAbortRequest,
-    ApiErrorResponse,
     ClosureCompleteRequest,
-    ControlPlaneMutationResult,
-    EdgeCommandMutationResult,
     EdgeCommandResultRequest,
-    GuardCounterMutationRequest,
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,
-    TelemetryEventIngestRequest,
     op_id_validation_error,
 )
-from agentkit.backend.control_plane.ownership_fence import ERROR_CODE_OWNERSHIP_TRANSFERRED
 from agentkit.backend.control_plane.runtime import (
     ControlPlaneRuntimeService,
     OperationNotAbortableError,
@@ -41,47 +32,68 @@ from agentkit.backend.control_plane.runtime import (
 )
 from agentkit.backend.control_plane.telemetry import ControlPlaneTelemetryService
 from agentkit.backend.control_plane.worker_health import ControlPlaneWorkerHealthService
-from agentkit.backend.control_plane_http._route_patterns import (
-    _EDGE_COMMAND_RESULT_PATTERN,
-    _EDGE_COMMANDS_COLLECTION_PATTERN,
-    _EDGE_PUSH_FRESHNESS_PATTERN,
-    _EDGE_PUSH_OWNERSHIP_PATTERN,
-    _OPERATION_ADMIN_ABORT_PATTERN,
-    _OPERATION_PATH_PATTERN,
-    _PROJECT_CLOSURE_PATH_PATTERN,
-    _PROJECT_DASHBOARD_BOARD,
-    _PROJECT_DASHBOARD_STORY_METRICS,
-    _PROJECT_PHASE_PATH_PATTERN,
-    _PROJECT_STORIES_COLLECTION,
-    _PROJECT_STORY_APPROVE,
-    _PROJECT_STORY_CANCEL,
-    _PROJECT_STORY_DETAIL,
-    _PROJECT_STORY_FIELD_KEY,
-    _PROJECT_STORY_FIELDS,
-    _PROJECT_STORY_REJECT,
-    _PROJECT_STORY_SEARCH,
-)
+from agentkit.backend.control_plane_http import _route_patterns
 from agentkit.backend.control_plane_http.tenant_scope import TenantScopeMiddleware
 from agentkit.backend.control_plane_http.version_handshake import CompatWindow, VersionHandshakeMiddleware
 from agentkit.backend.exceptions import ConfigError
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping, Sequence
+    from collections.abc import Callable, Mapping
     from pathlib import Path
 
-    from agentkit.backend.auth.http.routes import AuthRouteResponse, AuthRoutes
     from agentkit.backend.auth.middleware import AuthMiddleware
-    from agentkit.backend.concept_catalog.http.routes import ConceptCatalogRoutes, ConceptRouteResponse
-    from agentkit.backend.execution_planning.http.routes import ExecutionPlanningRouteResponse, ExecutionPlanningRoutes
     from agentkit.backend.kpi_analytics.dashboard import DashboardService
-    from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
-    from agentkit.backend.project_management.http.routes import ProjectManagementRoutes, ProjectRouteResponse
-    from agentkit.backend.project_management.read_model_routes import ReadModelRoutes
     from agentkit.backend.story.service import StoryService
-    from agentkit.backend.story_context_manager.http.routes import StoryContextRoutes, StoryRouteResponse
-    from agentkit.backend.task_management.http.routes import TaskManagementRoutes
-    from agentkit.backend.telemetry.http.routes import TelemetryRouteResponse, TelemetryRoutes
-    from agentkit.integration_clients.multi_llm_hub.http.routes import MultiLlmHubRouteResponse, MultiLlmHubRoutes
+    from agentkit.backend.story_context_manager.http.routes import StoryContextRoutes
+
+from agentkit.backend.control_plane_http.default_routes import (
+    _build_default_auth_routes,
+    _build_default_concept_routes,
+    _build_default_hub_routes,
+    _build_default_kpi_analytics_routes,
+    _build_default_planning_routes,
+    _build_default_project_routes,
+    _build_default_read_model_routes,
+    _build_default_story_routes,
+    _build_default_story_service,
+    _build_default_task_management_routes,
+    _build_default_telemetry_routes,
+)
+from agentkit.backend.control_plane_http.edge_read_handlers import (
+    _handle_get_open_commands,
+    _handle_get_operation,
+    _handle_get_push_freshness,
+    _handle_get_push_ownership,
+    _handle_healthz,
+    _read_only_method_not_allowed,
+)
+from agentkit.backend.control_plane_http.governance_mediation import _GovernanceMediationHandlers
+from agentkit.backend.control_plane_http.responses import (
+    HttpResponse as HttpResponse,
+)
+from agentkit.backend.control_plane_http.responses import (
+    _auth_middleware_response_to_http_response,
+    _auth_response_to_http_response,
+    _backend_requirement_response,
+    _bc_response_to_http_response,
+    _concept_response_to_http_response,
+    _decode_json_body,
+    _decode_optional_json_body,
+    _edge_command_result_response,
+    _error_response,
+    _has_header,
+    _hub_response_to_http_response,
+    _json_response,
+    _mutation_result_response,
+    _planning_response_to_http_response,
+    _project_response_to_http_response,
+    _resolve_correlation_id,
+    _story_response_to_http_response,
+    _telemetry_response_to_http_response,
+)
+from agentkit.backend.control_plane_http.routes_config import (
+    ControlPlaneApplicationRoutes as ControlPlaneApplicationRoutes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +103,6 @@ logger = logging.getLogger(__name__)
 # route matching is unchanged.
 
 _NOT_FOUND_MESSAGE = "Not found"
-_CORRELATION_HEADER = "X-Correlation-Id"
 
 
 # ---------------------------------------------------------------------------
@@ -99,340 +110,9 @@ _CORRELATION_HEADER = "X-Correlation-Id"
 # ---------------------------------------------------------------------------
 
 
-def _build_default_story_service() -> StoryService:
-    """Build the BFF story read service through the Story-BC ``StoryReadPort``.
-
-    FK-07 §7.6: the default wiring routes story list/detail reads through the
-    published port adapter (composition root), never a state-backend passthrough.
-    """
-    from agentkit.backend.bootstrap.composition_root import build_story_read_service
-
-    return build_story_read_service()
-
-
-def _build_default_project_routes() -> ProjectManagementRoutes:
-    from agentkit.backend.bootstrap.composition_root import build_project_repository
-    from agentkit.backend.project_management.http.routes import ProjectManagementRoutes
-    from agentkit.backend.story_context_manager.service import (
-        StoryService as StoryContextStoryService,
-    )
-
-    _ctx_service: list[StoryContextStoryService | None] = [None]
-
-    def _repos_in_use_checker(
-        project_key: str,
-        repos: list[str],
-    ) -> list[str]:
-        svc = _ctx_service[0]
-        if svc is None:
-            svc = StoryContextStoryService()
-            _ctx_service[0] = svc
-        in_use = svc.list_active_repos(project_key)
-        return [r for r in repos if r in in_use]
-
-    # FK-07 §7.6/§7.9 (AG3-127): the BFF composition root owns the project read
-    # adapter wiring — inject the ``ProjectRepository`` port through the
-    # composition root instead of relying on the BC-internal default.
-    return ProjectManagementRoutes(
-        repos_in_use_checker=_repos_in_use_checker,
-        repository=build_project_repository(),
-    )
-
-
-def _build_default_story_routes() -> StoryContextRoutes:
-    from agentkit.backend.story_context_manager.http.routes import StoryContextRoutes
-
-    return StoryContextRoutes()
-
-
-def _build_default_concept_routes() -> ConceptCatalogRoutes:
-    from agentkit.backend.concept_catalog.http.routes import ConceptCatalogRoutes
-
-    return ConceptCatalogRoutes()
-
-
-def _build_default_hub_routes() -> MultiLlmHubRoutes:
-    from agentkit.integration_clients.multi_llm_hub.http.routes import MultiLlmHubRoutes
-
-    return MultiLlmHubRoutes()
-
-
-def _build_default_planning_routes() -> ExecutionPlanningRoutes:
-    from agentkit.backend.execution_planning.http.routes import ExecutionPlanningRoutes
-
-    return ExecutionPlanningRoutes()
-
-
-def _build_default_telemetry_routes() -> TelemetryRoutes:
-    from agentkit.backend.bootstrap.composition_root import (
-        build_project_telemetry_event_source,
-    )
-    from agentkit.backend.telemetry.http.routes import TelemetryRoutes
-
-    # FK-07 §7.6/§7.8 (AG3-127): the BFF composition root owns the telemetry read
-    # adapter wiring — inject the ``ProjectTelemetryEventSource`` port; the
-    # telemetry BC no longer self-instantiates a state-backend adapter.
-    return TelemetryRoutes(build_project_telemetry_event_source())
-
-
-def _build_default_auth_routes(auth_middleware: AuthMiddleware | None) -> AuthRoutes:
-    from agentkit.backend.auth.http.routes import AuthRoutes
-
-    if auth_middleware is not None:
-        return AuthRoutes(
-            session_store=auth_middleware.session_store,
-            token_repository=auth_middleware.token_repository,
-        )
-    return AuthRoutes()
-
-
-def _build_default_kpi_analytics_routes() -> KpiAnalyticsRoutes:
-    """Build the default KpiAnalyticsRoutes backed by a real FactStore.
-
-    Wires ``StateBackendFactRepository`` (the production SQLite/Postgres
-    adapter) into a real ``FactStore`` and ``KpiAnalytics`` so that the five
-    KPI dimension endpoints read live data from the fact tables.  This is the
-    composition root for the kpi_analytics BC (AC1/AC3 — real FactStore reads,
-    not a stub).
-
-    The ``KpiCatalog`` and ``FactStore`` are the minimal dependencies required
-    for ``KpiAnalytics``; the optional ``RefreshWorker`` is omitted here
-    (refresh is triggered by the closure pipeline, not by the HTTP read path).
-    """
-    from agentkit.backend.bootstrap.composition_root import build_kpi_analytics_read_facade
-    from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
-
-    return KpiAnalyticsRoutes(kpi_analytics=build_kpi_analytics_read_facade())
-
-
-def _build_default_task_management_routes() -> TaskManagementRoutes:
-    """Build the default task-management BC route handler backed by real storage."""
-    from agentkit.backend.bootstrap.composition_root import build_task_management_routes
-
-    return build_task_management_routes()
-
-
-def _build_default_read_model_routes() -> ReadModelRoutes:
-    from agentkit.backend.bootstrap.composition_root import build_project_read_model_routes
-
-    return build_project_read_model_routes()
-
-
 # ---------------------------------------------------------------------------
 # AG3-091 read-only 405 guard (module-level — no instance state required)
 # ---------------------------------------------------------------------------
-
-
-def _handle_healthz(method: str, correlation_id: str) -> HttpResponse:
-    """Return the /healthz response (200 OK for GET, 405 for anything else)."""
-    if method != "GET":
-        return _error_response(
-            HTTPStatus.METHOD_NOT_ALLOWED,
-            error_code="method_not_allowed",
-            message="Method not allowed",
-            correlation_id=correlation_id,
-            headers=(("Allow", "GET"),),
-        )
-    return _json_response(
-        HTTPStatus.OK,
-        {"status": "ok"},
-        correlation_id=correlation_id,
-    )
-
-
-def _handle_get_operation(
-    runtime_service: ControlPlaneRuntimeService,
-    op_id: str,
-    correlation_id: str,
-) -> HttpResponse:
-    """Return the project-edge operation status (module-level helper, AG3-105 LOC split)."""
-    try:
-        result = runtime_service.get_operation(op_id)
-    except ConfigError as exc:
-        return _backend_requirement_response(
-            "project_edge_reconcile_unavailable", exc, correlation_id
-        )
-    except RuntimeError as exc:
-        logger.warning("Project-edge reconcile unavailable: %s", exc)
-        return _error_response(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            error_code="project_edge_reconcile_unavailable",
-            message=str(exc),
-            correlation_id=correlation_id,
-        )
-    if result is None:
-        return _error_response(
-            HTTPStatus.NOT_FOUND,
-            error_code="operation_not_found",
-            message="Operation not found",
-            correlation_id=correlation_id,
-        )
-    return _json_response(
-        HTTPStatus.OK,
-        result.model_dump(mode="json"),
-        correlation_id=correlation_id,
-    )
-
-
-def _handle_get_push_freshness(
-    runtime_service: ControlPlaneRuntimeService,
-    run_id: str,
-    query: dict[str, list[str]],
-    correlation_id: str,
-) -> HttpResponse:
-    """``GET .../story-runs/{run_id}/push-freshness`` (FK-10 §10.2.4b, AG3-147 AC5).
-
-    Module-level helper (AG3-147 LOC split, PY_CLASS_MAX_LOC_800): keeps the
-    read-model route out of ``ControlPlaneApplication``'s class body.
-    ``project_key``/``story_id`` are mandatory query parameters (a GET carries no
-    body). Read-only, no lock/claim. The read surface is Postgres-only (K5): a
-    non-Postgres backend fails closed with a stable
-    ``push_freshness_unavailable`` 503.
-    """
-    project_key = _single_query_value(query, "project_key")
-    story_id = _single_query_value(query, "story_id")
-    if not project_key or not story_id:
-        return _error_response(
-            HTTPStatus.BAD_REQUEST,
-            error_code="invalid_push_freshness_query",
-            message="project_key and story_id query parameters are required",
-            correlation_id=correlation_id,
-        )
-    try:
-        result = runtime_service.list_push_freshness(
-            run_id, project_key=project_key, story_id=story_id,
-        )
-    except ConfigError as exc:
-        return _backend_requirement_response(
-            "push_freshness_unavailable", exc, correlation_id
-        )
-    except RuntimeError as exc:
-        logger.warning("Push-freshness read unavailable: %s", exc)
-        return _error_response(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            error_code="push_freshness_unavailable",
-            message=str(exc),
-            correlation_id=correlation_id,
-        )
-    return _json_response(
-        HTTPStatus.OK,
-        result.model_dump(mode="json"),
-        correlation_id=correlation_id,
-    )
-
-
-def _handle_get_push_ownership(
-    runtime_service: ControlPlaneRuntimeService,
-    run_id: str,
-    query: dict[str, list[str]],
-    correlation_id: str,
-) -> HttpResponse:
-    """``GET .../story-runs/{run_id}/push-ownership`` (FK-15 §15.5.4, AG3-147 AC6).
-
-    The bounded online-ownership check the official Edge-Push-Gate runs
-    immediately before a ``story/*`` push. ``project_key``/``story_id``/
-    ``session_id`` are mandatory query parameters (a GET carries no body).
-    Read-only, no lock/claim. Postgres-only (K5): a non-Postgres backend fails
-    closed with a stable ``push_ownership_unavailable`` 503.
-    """
-    project_key = _single_query_value(query, "project_key")
-    story_id = _single_query_value(query, "story_id")
-    session_id = _single_query_value(query, "session_id")
-    if not project_key or not story_id or not session_id:
-        return _error_response(
-            HTTPStatus.BAD_REQUEST,
-            error_code="invalid_push_ownership_query",
-            message="project_key, story_id and session_id query parameters are required",
-            correlation_id=correlation_id,
-        )
-    try:
-        result = runtime_service.confirm_push_ownership(
-            run_id, project_key=project_key, story_id=story_id, session_id=session_id,
-        )
-    except ConfigError as exc:
-        return _backend_requirement_response(
-            "push_ownership_unavailable", exc, correlation_id
-        )
-    except RuntimeError as exc:
-        logger.warning("Push-ownership read unavailable: %s", exc)
-        return _error_response(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            error_code="push_ownership_unavailable",
-            message=str(exc),
-            correlation_id=correlation_id,
-        )
-    return _json_response(
-        HTTPStatus.OK,
-        result.model_dump(mode="json"),
-        correlation_id=correlation_id,
-    )
-
-
-def _handle_get_open_commands(
-    runtime_service: ControlPlaneRuntimeService,
-    run_id: str,
-    query: dict[str, list[str]],
-    correlation_id: str,
-) -> HttpResponse:
-    """``GET .../story-runs/{run_id}/commands`` (FK-91 §91.1b, AG3-145 AC1).
-
-    Module-level helper (AG3-147 LOC split, PY_CLASS_MAX_LOC_800): keeps the
-    Edge-Command-Queue GET out of ``ControlPlaneApplication``'s class body.
-    ``project_key``/``session_id`` are mandatory query parameters (a GET carries
-    no body); the fail-closed session scoping happens at the store query, never
-    at this validation.
-    """
-    project_key = _single_query_value(query, "project_key")
-    session_id = _single_query_value(query, "session_id")
-    if not project_key or not session_id:
-        return _error_response(
-            HTTPStatus.BAD_REQUEST,
-            error_code="invalid_edge_commands_query",
-            message="project_key and session_id query parameters are required",
-            correlation_id=correlation_id,
-        )
-    try:
-        result = runtime_service.list_and_ack_open_commands(
-            run_id, project_key=project_key, session_id=session_id,
-        )
-    except ConfigError as exc:
-        return _backend_requirement_response(
-            "edge_commands_unavailable", exc, correlation_id
-        )
-    except RuntimeError as exc:
-        logger.warning("Edge-command list unavailable: %s", exc)
-        return _error_response(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            error_code="edge_commands_unavailable",
-            message=str(exc),
-            correlation_id=correlation_id,
-        )
-    return _json_response(
-        HTTPStatus.OK,
-        result.model_dump(mode="json"),
-        correlation_id=correlation_id,
-    )
-
-
-def _read_only_method_not_allowed(
-    read_model_routes: ReadModelRoutes,
-    route_path: str,
-    correlation_id: str,
-) -> HttpResponse | None:
-    """Return 405 for a mutation on an AG3-091 read-only path, else None.
-
-    Only called for POST/PUT/PATCH (GET/DELETE return earlier).  Reuses the
-    verb-agnostic ``ReadModelRoutes`` 405-matcher (all mutation verbs map to
-    the same ``_method_not_allowed_if_matches`` with ``Allow: GET``) so the
-    read-only-endpoint decision lives in exactly one place (SSOT).  Running
-    this BEFORE ``_decode_json_body`` ensures the 405 fires regardless of the
-    request body — an empty or non-JSON body on a read-only path must NOT
-    degrade to ``400 invalid_json`` (FAIL-CLOSED, AC1/AC5).
-    """
-    response = read_model_routes.handle_post(route_path, None, correlation_id)
-    if response is not None:
-        return _bc_response_to_http_response(response)
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -440,240 +120,9 @@ def _read_only_method_not_allowed(
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class HttpResponse:
-    """Serializable HTTP response."""
-
-    status_code: int
-    body: bytes
-    headers: tuple[tuple[str, str], ...] = ()
-    stream: Iterable[bytes] | None = None
-
-
-# ---------------------------------------------------------------------------
-# ControlPlaneApplicationRoutes — groups all BC-route dependencies (S107)
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class ControlPlaneApplicationRoutes:
-    """Optional route-bundle for :class:`ControlPlaneApplication`.
-
-    Collects all BC-route and middleware route overrides into a single
-    typed object so that the constructor stays within the S107 parameter-count
-    limit.  Every field defaults to ``None``; missing entries are filled with
-    their respective ``_build_default_*`` helpers at construction time.
-    """
-
-    project_routes: ProjectManagementRoutes | None = None
-    story_routes: StoryContextRoutes | None = None
-    concept_routes: ConceptCatalogRoutes | None = None
-    hub_routes: MultiLlmHubRoutes | None = None
-    planning_routes: ExecutionPlanningRoutes | None = None
-    telemetry_routes: TelemetryRoutes | None = None
-    auth_routes: AuthRoutes | None = None
-    kpi_analytics_routes: KpiAnalyticsRoutes | None = None
-    read_model_routes: ReadModelRoutes | None = None
-    task_management_routes: TaskManagementRoutes | None = None
-
-
 # ---------------------------------------------------------------------------
 # ControlPlaneApplication
 # ---------------------------------------------------------------------------
-
-
-class _GovernanceMediationHandlers:
-    """Governance hook-mediation HTTP handlers (AG3-129), split out of the app.
-
-    Extracted from :class:`ControlPlaneApplication` so that transport class stays
-    within the per-class LOC budget (``PY_CLASS_MAX_LOC_800``) WITHOUT any
-    behaviour change: these handlers depend only on the injected mediation
-    services and the module-level response helpers, never on the app's routing
-    state. The three collaborators are supplied by
-    ``ControlPlaneApplication.__init__``; they are declared here as annotations
-    for the type checker (the mixin never constructs them).
-    """
-
-    _telemetry_service: ControlPlaneTelemetryService
-    _guard_counter_service: ControlPlaneGuardCounterService
-    _worker_health_service: ControlPlaneWorkerHealthService
-
-    def _handle_post_telemetry(
-        self,
-        payload: object,
-        correlation_id: str,
-    ) -> HttpResponse:
-        try:
-            request = TelemetryEventIngestRequest.model_validate(payload)
-            accepted = self._telemetry_service.ingest_event(request)
-        except ValidationError as exc:
-            return _error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="invalid_telemetry_event_payload",
-                message="Invalid telemetry event payload",
-                correlation_id=correlation_id,
-                detail=exc.errors(),
-            )
-        except RuntimeError as exc:
-            logger.warning("Control-plane telemetry ingest unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="telemetry_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _json_response(
-            HTTPStatus.CREATED,
-            accepted.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
-
-    def _handle_post_guard_counter(
-        self,
-        payload: object,
-        correlation_id: str,
-    ) -> HttpResponse:
-        """Apply a guard-invocation counter mutation (AG3-129, FK-61 §61.4.3)."""
-        from agentkit.backend.story_context_manager.errors import (
-            IdempotencyMismatchError,
-        )
-
-        try:
-            request = GuardCounterMutationRequest.model_validate(payload)
-            accepted = self._guard_counter_service.apply(request)
-        except ValidationError as exc:
-            # AG3-140 (FK-91 §91.1a Rule 5, AC1): a missing/empty op_id fails
-            # closed with 422, distinct from an ordinary 400 payload-shape defect.
-            return _error_response(
-                HTTPStatus.UNPROCESSABLE_ENTITY
-                if op_id_validation_error(exc)
-                else HTTPStatus.BAD_REQUEST,
-                error_code="invalid_guard_counter_payload",
-                message="Invalid guard-counter mutation payload",
-                correlation_id=correlation_id,
-                detail=exc.errors(),
-            )
-        except IdempotencyMismatchError as exc:
-            # FK-91 §91.1a Rule 5: same op_id + different body -> fail-closed 409.
-            return _error_response(
-                HTTPStatus.CONFLICT,
-                error_code="idempotency_mismatch",
-                message=str(exc),
-                correlation_id=correlation_id,
-                detail=exc.detail,
-            )
-        except RuntimeError as exc:
-            logger.warning("Guard-counter mutation unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="guard_counter_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _json_response(
-            HTTPStatus.CREATED,
-            accepted.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
-
-    def _handle_get_worker_health(
-        self,
-        query: dict[str, list[str]],
-        correlation_id: str,
-    ) -> HttpResponse:
-        """Read canonical worker-health state (AG3-129, FK-30 §30.10)."""
-        story_id = _single_query_value(query, "story_id")
-        worker_id = _single_query_value(query, "worker_id")
-        if not story_id or not worker_id:
-            return _error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="invalid_worker_health_query",
-                message="story_id and worker_id query parameters are required",
-                correlation_id=correlation_id,
-            )
-        try:
-            result = self._worker_health_service.load(
-                story_id=story_id, worker_id=worker_id
-            )
-        except RuntimeError as exc:
-            logger.warning("Worker-health read unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="worker_health_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _json_response(
-            HTTPStatus.OK,
-            result.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
-
-    def _handle_post_worker_health(
-        self,
-        payload: object,
-        correlation_id: str,
-    ) -> HttpResponse:
-        """Write canonical worker-health state (AG3-129, FK-30 §30.10)."""
-        try:
-            accepted = self._worker_health_service.save(payload)
-        except ValidationError as exc:
-            return _error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="invalid_worker_health_payload",
-                message="Invalid worker-health state payload",
-                correlation_id=correlation_id,
-                detail=exc.errors(),
-            )
-        except RuntimeError as exc:
-            logger.warning("Worker-health write unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="worker_health_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _json_response(
-            HTTPStatus.CREATED,
-            accepted.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
-
-    def _handle_get_telemetry_events(
-        self,
-        query: dict[str, list[str]],
-        correlation_id: str,
-    ) -> HttpResponse:
-        """Read canonical execution events for one scope (AG3-129)."""
-        project_key = _single_query_value(query, "project_key")
-        story_id = _single_query_value(query, "story_id")
-        event_type = _single_query_value(query, "event_type")
-        if not project_key or not story_id:
-            return _error_response(
-                HTTPStatus.BAD_REQUEST,
-                error_code="invalid_telemetry_query",
-                message="project_key and story_id query parameters are required",
-                correlation_id=correlation_id,
-            )
-        try:
-            result = self._telemetry_service.query_events(
-                project_key=project_key,
-                story_id=story_id,
-                event_type=event_type,
-            )
-        except RuntimeError as exc:
-            logger.warning("Telemetry read unavailable: %s", exc)
-            return _error_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                error_code="telemetry_unavailable",
-                message=str(exc),
-                correlation_id=correlation_id,
-            )
-        return _json_response(
-            HTTPStatus.OK,
-            result.model_dump(mode="json"),
-            correlation_id=correlation_id,
-        )
 
 
 class _StoryDashboardHandlersMixin:
@@ -1101,7 +550,6 @@ class ControlPlaneApplication(
         )
 
 
-
     def _handle_get_request(
         self,
         route_path: str,
@@ -1125,7 +573,7 @@ class ControlPlaneApplication(
 
         # AG3-145 Edge-Command-Queue (non-project-scoped, mirrors the sibling
         # project-edge operation/sync/ownership routes):
-        commands_match = _EDGE_COMMANDS_COLLECTION_PATTERN.match(route_path)
+        commands_match = _route_patterns._EDGE_COMMANDS_COLLECTION_PATTERN.match(route_path)
         if commands_match is not None:
             return _handle_get_open_commands(
                 self._runtime_service,
@@ -1135,7 +583,7 @@ class ControlPlaneApplication(
             )
 
         # AG3-147 push-freshness / push-backlog read surface (FK-10 §10.2.4b, AC5):
-        freshness_match = _EDGE_PUSH_FRESHNESS_PATTERN.match(route_path)
+        freshness_match = _route_patterns._EDGE_PUSH_FRESHNESS_PATTERN.match(route_path)
         if freshness_match is not None:
             return _handle_get_push_freshness(
                 self._runtime_service,
@@ -1145,7 +593,7 @@ class ControlPlaneApplication(
             )
 
         # AG3-147 Edge-Push-Gate bounded online-ownership check (FK-15 §15.5.4, AC6):
-        push_ownership_match = _EDGE_PUSH_OWNERSHIP_PATTERN.match(route_path)
+        push_ownership_match = _route_patterns._EDGE_PUSH_OWNERSHIP_PATTERN.match(route_path)
         if push_ownership_match is not None:
             return _handle_get_push_ownership(
                 self._runtime_service,
@@ -1207,34 +655,34 @@ class ControlPlaneApplication(
         # Legacy bare /v1/stories paths are intentionally NOT delegated here.
 
         # AG3-091 read-model routes: checked BEFORE story handlers to prevent
-        # collisions such as /stories/counters being captured by _PROJECT_STORY_DETAIL.
+        # collisions such as /stories/counters being captured by _route_patterns._PROJECT_STORY_DETAIL.
         rm_response = self._read_model_routes.handle_get(route_path, query, correlation_id)
         if rm_response is not None:
             return _bc_response_to_http_response(rm_response)
 
         # GET /v1/projects/{key}/stories/search?q=...
         # Must match before /stories/{id} to avoid "search" being treated as story_id.
-        story_search_match = _PROJECT_STORY_SEARCH.match(route_path)
+        story_search_match = _route_patterns._PROJECT_STORY_SEARCH.match(route_path)
         if story_search_match is not None:
             return self._handle_get_story_search(
                 story_search_match.group("project_key"), query, correlation_id,
             )
 
         # GET /v1/projects/{key}/stories (collection)
-        stories_match = _PROJECT_STORIES_COLLECTION.match(route_path)
+        stories_match = _route_patterns._PROJECT_STORIES_COLLECTION.match(route_path)
         if stories_match is not None:
             return self._handle_get_stories(stories_match.group("project_key"), correlation_id)
 
         # GET /v1/projects/{key}/stories/{id}/fields
         # Must match before /stories/{id} (more specific pattern).
-        story_fields_match = _PROJECT_STORY_FIELDS.match(route_path)
+        story_fields_match = _route_patterns._PROJECT_STORY_FIELDS.match(route_path)
         if story_fields_match is not None:
             return self._handle_get_story_fields(
                 story_fields_match.group("story_id"), correlation_id,
             )
 
         # GET /v1/projects/{key}/stories/{id}
-        story_detail_match = _PROJECT_STORY_DETAIL.match(route_path)
+        story_detail_match = _route_patterns._PROJECT_STORY_DETAIL.match(route_path)
         if story_detail_match is not None:
             return self._handle_get_story(
                 story_detail_match.group("story_id"),
@@ -1243,12 +691,12 @@ class ControlPlaneApplication(
             )
 
         # GET /v1/projects/{key}/dashboard/board
-        board_match = _PROJECT_DASHBOARD_BOARD.match(route_path)
+        board_match = _route_patterns._PROJECT_DASHBOARD_BOARD.match(route_path)
         if board_match is not None:
             return self._handle_get_dashboard_board(board_match.group("project_key"), correlation_id)
 
         # GET /v1/projects/{key}/dashboard/story-metrics
-        metrics_match = _PROJECT_DASHBOARD_STORY_METRICS.match(route_path)
+        metrics_match = _route_patterns._PROJECT_DASHBOARD_STORY_METRICS.match(route_path)
         if metrics_match is not None:
             return self._handle_get_dashboard_story_metrics(
                 metrics_match.group("project_key"), correlation_id,
@@ -1260,7 +708,7 @@ class ControlPlaneApplication(
             return bc_get
 
         # Legacy non-project project-edge operation GET:
-        operation_match = _OPERATION_PATH_PATTERN.match(route_path)
+        operation_match = _route_patterns._OPERATION_PATH_PATTERN.match(route_path)
         if operation_match is not None:
             return _handle_get_operation(
                 self._runtime_service, operation_match.group("op_id"), correlation_id,
@@ -1336,7 +784,7 @@ class ControlPlaneApplication(
             return self._handle_post_project_edge_sync(payload, correlation_id)
 
         # AG3-145 Edge-Command-Queue result (non-project-scoped, FK-91 §91.1b):
-        command_result_match = _EDGE_COMMAND_RESULT_PATTERN.match(route_path)
+        command_result_match = _route_patterns._EDGE_COMMAND_RESULT_PATTERN.match(route_path)
         if command_result_match is not None:
             return self._handle_post_command_result(
                 command_id=command_result_match.group("command_id"),
@@ -1345,7 +793,7 @@ class ControlPlaneApplication(
             )
 
         # AG3-138 admin-abort (non-project-scoped, mirrors the operation GET path):
-        admin_abort_match = _OPERATION_ADMIN_ABORT_PATTERN.match(route_path)
+        admin_abort_match = _route_patterns._OPERATION_ADMIN_ABORT_PATTERN.match(route_path)
         if admin_abort_match is not None:
             return self._handle_post_admin_abort(
                 op_id=admin_abort_match.group("op_id"),
@@ -1361,7 +809,7 @@ class ControlPlaneApplication(
             return story_post
 
         # Project-scoped phase/closure mutations:
-        phase_match = _PROJECT_PHASE_PATH_PATTERN.match(route_path)
+        phase_match = _route_patterns._PROJECT_PHASE_PATH_PATTERN.match(route_path)
         if phase_match is not None:
             return self._handle_post_phase_mutation(
                 payload=payload,
@@ -1371,7 +819,7 @@ class ControlPlaneApplication(
                 correlation_id=correlation_id,
             )
 
-        closure_match = _PROJECT_CLOSURE_PATH_PATTERN.match(route_path)
+        closure_match = _route_patterns._PROJECT_CLOSURE_PATH_PATTERN.match(route_path)
         if closure_match is not None:
             return self._handle_post_closure_complete(
                 payload=payload,
@@ -1398,13 +846,13 @@ class ControlPlaneApplication(
         correlation_id: str,
     ) -> HttpResponse | None:
         """Dispatch POST for project-scoped story mutations (AG3-090)."""
-        if _PROJECT_STORIES_COLLECTION.match(route_path):
+        if _route_patterns._PROJECT_STORIES_COLLECTION.match(route_path):
             return self._handle_post_story(payload, correlation_id)
 
         for pattern, suffix in (
-            (_PROJECT_STORY_APPROVE, "approve"),
-            (_PROJECT_STORY_REJECT, "reject"),
-            (_PROJECT_STORY_CANCEL, "cancel"),
+            (_route_patterns._PROJECT_STORY_APPROVE, "approve"),
+            (_route_patterns._PROJECT_STORY_REJECT, "reject"),
+            (_route_patterns._PROJECT_STORY_CANCEL, "cancel"),
         ):
             match = pattern.match(route_path)
             if match is not None:
@@ -1455,7 +903,7 @@ class ControlPlaneApplication(
             return _planning_response_to_http_response(planning_response)
 
         # Project-scoped story field PUT (only route; bare /v1/stories/... is not exposed):
-        field_match = _PROJECT_STORY_FIELD_KEY.match(route_path)
+        field_match = _route_patterns._PROJECT_STORY_FIELD_KEY.match(route_path)
         if field_match is not None:
             sr = self._story_routes.handle_put(
                 f"/v1/stories/{field_match.group('story_id')}"
@@ -1538,7 +986,7 @@ class ControlPlaneApplication(
             return _project_response_to_http_response(project_response)
 
         # Project-scoped story PATCH (only route; bare /v1/stories/... is not exposed):
-        story_detail_match = _PROJECT_STORY_DETAIL.match(route_path)
+        story_detail_match = _route_patterns._PROJECT_STORY_DETAIL.match(route_path)
         if story_detail_match is not None:
             sr = self._story_routes.handle_patch(
                 f"/v1/stories/{story_detail_match.group('story_id')}",
@@ -1971,281 +1419,3 @@ def _is_project_scoped_path(route_path: str) -> bool:
 # ---------------------------------------------------------------------------
 # Response converters
 # ---------------------------------------------------------------------------
-
-
-def _json_response(
-    status: HTTPStatus,
-    payload: dict[str, object],
-    *,
-    correlation_id: str,
-    headers: Sequence[tuple[str, str]] = (),
-) -> HttpResponse:
-    return HttpResponse(
-        status_code=int(status),
-        body=json.dumps(payload, sort_keys=True, default=str).encode("utf-8"),
-        headers=((_CORRELATION_HEADER, correlation_id),) + tuple(headers),
-    )
-
-
-def _mutation_result_response(
-    result: ControlPlaneMutationResult,
-    *,
-    correlation_id: str,
-) -> HttpResponse:
-    """Map a control-plane mutation result to its fail-closed HTTP status (AG3-138).
-
-    A ``rejected`` result -- the fail-closed outcome of EVERY mutating control-plane
-    entrypoint (``start``/``complete``/``fail``/``resume``/``closure``), including the
-    AC10 open-reconcile/repair mutation lock -- maps to 409 CONFLICT; any other
-    (committed / replayed) result maps to 201 CREATED. Centralizing this here keeps
-    the rejected->409 wiring identical across phase mutations and closure completion,
-    so no mutating entrypoint can return 2xx for a fail-closed rejection.
-
-    AG3-142 (FK-91 §91.1a Rule 18): the ONE exception is the ex-owner
-    ``ownership_transferred`` rejection, which maps to 403 FORBIDDEN instead of
-    the generic 409 -- the caller is not merely conflicting with concurrent
-    state, it no longer holds run-ownership at all. The structured
-    ``ownership_conflict`` detail (reason, new owner, transfer instant) travels
-    on the SAME ``ControlPlaneMutationResult`` body, embedded per the FK-91
-    Rule 8 error contract (``error_code`` here; ``correlation_id`` via the
-    ``X-Correlation-Id`` header on every response, Rule 7).
-
-    AG3-141 (K4, IMPL-016): a busy-object-claim rejection additionally carries
-    ``retry_after_seconds`` -- surfaced here as a ``Retry-After`` header (the
-    deterministic wait contract; never a blocking wait). Every other rejection
-    cause carries no such header (unchanged behaviour).
-    """
-    if result.status != "rejected":
-        status = HTTPStatus.CREATED
-    elif result.error_code == ERROR_CODE_OWNERSHIP_TRANSFERRED:
-        status = HTTPStatus.FORBIDDEN
-    else:
-        status = HTTPStatus.CONFLICT
-    headers: tuple[tuple[str, str], ...] = ()
-    if result.retry_after_seconds is not None:
-        headers = (("Retry-After", str(result.retry_after_seconds)),)
-    return _json_response(
-        status,
-        result.model_dump(mode="json"),
-        correlation_id=correlation_id,
-        headers=headers,
-    )
-
-
-def _edge_command_result_response(
-    result: EdgeCommandMutationResult,
-    *,
-    correlation_id: str,
-) -> HttpResponse:
-    """Map an Edge-Command-Queue result to its fail-closed HTTP status (AG3-145).
-
-    Mirrors ``_mutation_result_response`` for the DEDICATED
-    :class:`EdgeCommandMutationResult` shape: ``completed``/``replayed`` map to
-    201 CREATED; a ``rejected`` result maps to 404 for an unknown/foreign
-    ``command_id`` (``edge_command_not_found``), 403 for the ex-owner
-    ``ownership_transferred`` payload (Rule 18), and 409 CONFLICT for every
-    other fail-closed cause (double-completion, non-admitted, busy object --
-    the busy-object cause additionally carries the K4 ``Retry-After`` header).
-    """
-    if result.status != "rejected":
-        status = HTTPStatus.CREATED
-    elif result.error_code == "edge_command_not_found":
-        status = HTTPStatus.NOT_FOUND
-    elif result.error_code == ERROR_CODE_OWNERSHIP_TRANSFERRED:
-        status = HTTPStatus.FORBIDDEN
-    else:
-        status = HTTPStatus.CONFLICT
-    headers: tuple[tuple[str, str], ...] = ()
-    if result.retry_after_seconds is not None:
-        headers = (("Retry-After", str(result.retry_after_seconds)),)
-    return _json_response(
-        status,
-        result.model_dump(mode="json"),
-        correlation_id=correlation_id,
-        headers=headers,
-    )
-
-
-def _project_response_to_http_response(response: ProjectRouteResponse) -> HttpResponse:
-    return HttpResponse(
-        status_code=response.status_code,
-        body=response.body,
-        headers=response.headers,
-    )
-
-
-def _auth_response_to_http_response(response: AuthRouteResponse) -> HttpResponse:
-    return HttpResponse(
-        status_code=response.status_code,
-        body=response.body,
-        headers=response.headers,
-    )
-
-
-def _auth_middleware_response_to_http_response(
-    response: AuthMiddlewareResponse,
-) -> HttpResponse:
-    return HttpResponse(
-        status_code=response.status_code,
-        body=response.body,
-        headers=response.headers,
-    )
-
-
-def _concept_response_to_http_response(response: ConceptRouteResponse) -> HttpResponse:
-    return HttpResponse(
-        status_code=response.status_code,
-        body=response.body,
-        headers=response.headers,
-    )
-
-
-def _hub_response_to_http_response(response: MultiLlmHubRouteResponse) -> HttpResponse:
-    return HttpResponse(
-        status_code=response.status_code,
-        body=response.body,
-        headers=response.headers,
-        stream=response.stream,
-    )
-
-
-def _planning_response_to_http_response(
-    response: ExecutionPlanningRouteResponse,
-) -> HttpResponse:
-    return HttpResponse(
-        status_code=response.status_code,
-        body=response.body,
-        headers=response.headers,
-    )
-
-
-def _story_response_to_http_response(response: StoryRouteResponse) -> HttpResponse:
-    return HttpResponse(
-        status_code=response.status_code,
-        body=response.body,
-        headers=response.headers,
-    )
-
-
-def _telemetry_response_to_http_response(
-    response: TelemetryRouteResponse,
-) -> HttpResponse:
-    return HttpResponse(
-        status_code=response.status_code,
-        body=response.body,
-        headers=response.headers,
-        stream=response.stream,
-    )
-
-
-def _bc_response_to_http_response(response: object) -> HttpResponse:
-    """Convert any BC route response (dataclass with status_code/body/headers)."""
-    return HttpResponse(
-        status_code=getattr(response, "status_code", 500),
-        body=getattr(response, "body", b""),
-        headers=getattr(response, "headers", ()),
-    )
-
-
-def _error_response(
-    status: HTTPStatus,
-    *,
-    error_code: str,
-    message: str,
-    correlation_id: str,
-    detail: object | None = None,
-    headers: Sequence[tuple[str, str]] = (),
-) -> HttpResponse:
-    payload = ApiErrorResponse(
-        error_code=error_code,
-        error=message,
-        correlation_id=correlation_id,
-        detail=detail,
-    ).model_dump(mode="json", exclude_none=True)
-    return _json_response(
-        status,
-        payload,
-        correlation_id=correlation_id,
-        headers=headers,
-    )
-
-
-def _backend_requirement_response(
-    error_code: str,
-    exc: ConfigError,
-    correlation_id: str,
-) -> HttpResponse:
-    """Map a backend-requirement ``ConfigError`` to a structured 503."""
-    logger.warning("Control-plane backend requirement unmet: %s", exc)
-    return _error_response(
-        HTTPStatus.SERVICE_UNAVAILABLE,
-        error_code=error_code,
-        message=str(exc),
-        correlation_id=correlation_id,
-    )
-
-
-def _decode_json_body(body: bytes, correlation_id: str) -> object | HttpResponse:
-    try:
-        return cast("object", json.loads(body.decode("utf-8")))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return _error_response(
-            HTTPStatus.BAD_REQUEST,
-            error_code="invalid_json",
-            message="Request body must be valid JSON",
-            correlation_id=correlation_id,
-        )
-
-
-def _decode_optional_json_body(
-    body: bytes, correlation_id: str
-) -> object | HttpResponse:
-    """Decode a request body that may legitimately be empty (DELETE routes).
-
-    An empty body decodes to ``{}`` so a route needing no payload is unaffected;
-    a non-empty body must still be valid JSON (fail-closed ``invalid_json`` on a
-    malformed one). AG3-140: the token-revoke DELETE carries its client-supplied
-    ``op_id`` (FK-91 §91.1a Rule 5) in this optional body.
-    """
-    if not body or not body.strip():
-        return {}
-    return _decode_json_body(body, correlation_id)
-
-
-def _single_query_value(query: dict[str, list[str]], key: str) -> str | None:
-    """Return the first value for ``key`` in a parsed query string, or ``None``."""
-    values = query.get(key)
-    if not values:
-        return None
-    value = values[0].strip()
-    return value or None
-
-
-def _resolve_correlation_id(request_headers: Mapping[str, str] | None) -> str:
-    # HTTP header names are case-insensitive (RFC 9110 §5.1). The official client
-    # sends ``X-Correlation-Id`` but ``urllib`` (and intermediaries) may normalize
-    # the casing on the wire, so an EXACT-case lookup would miss the client's id
-    # and the control plane would mint a divergent ``req-<uuid>`` (FK-91 §91.1a
-    # Rule #7 violation). Resolve the header case-insensitively so the client's
-    # correlation id is adopted regardless of the transmitted casing.
-    if request_headers is not None:
-        provided = _lookup_header_ci(request_headers, _CORRELATION_HEADER)
-        if provided is not None:
-            value = provided.strip()
-            if value:
-                return value
-    return f"req-{uuid.uuid4().hex}"
-
-
-def _lookup_header_ci(headers: Mapping[str, str], name: str) -> str | None:
-    """Look a request header up case-insensitively (HTTP headers are case-insensitive)."""
-    target = name.lower()
-    for key, value in headers.items():
-        if key.lower() == target:
-            return value
-    return None
-
-
-def _has_header(headers: Sequence[tuple[str, str]], name: str) -> bool:
-    normalized = name.lower()
-    return any(key.lower() == normalized for key, _value in headers)
