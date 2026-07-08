@@ -114,11 +114,11 @@ _GIT_SUBPROCESS_INVENTORY: dict[str, str] = {
     # AG3-147 retargeted QA-cycle fingerprinting off backend-local git; it now
     # hashes reported pushed heads / compare evidence, so no inventory entry
     # remains for verify_system/qa_cycle/fingerprint.py.
-    # composition_root wires the AG3-152 SubprocessGitBackend AND the FK-33 §33.5
+    # composition_verify wires the AG3-152 SubprocessGitBackend AND the FK-33 §33.5
     # change-evidence subprocess-provider (branch/commit/diff reads). AG3-147
     # moved the push-evidence (``pushed``) OFF backend git onto the two-stage
     # barrier (AC11), so this file's git surface is no longer an AG3-147 owner.
-    "bootstrap/composition_root.py": "AG3-152 (SubprocessGitBackend) + FK-33 change-evidence provider (branch/commit/diff)",
+    "bootstrap/composition_verify.py": "AG3-152 (SubprocessGitBackend) + FK-33 change-evidence provider (branch/commit/diff)",
     # AG3-146 provider-neutral NETWORK-PROTOCOL reads -- no local checkout,
     # expressly permitted by FK-10 §10.2.4a(b); NOT a physical worktree op.
     "code_backend/git_protocol.py": "AG3-146 (git ls-remote ref-read)",
