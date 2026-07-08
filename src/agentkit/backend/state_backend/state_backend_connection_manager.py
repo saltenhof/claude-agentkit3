@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -12,9 +11,12 @@ from agentkit.backend.state_backend.config import (
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime
     from types import ModuleType
 
-    from agentkit.backend.control_plane.records import BackendInstanceIdentityRecord
+    from agentkit.backend.state_backend.backend_instance_identity_types import (
+        BackendInstanceIdentityRecord,
+    )
 
 
 @lru_cache(maxsize=1)
@@ -47,14 +49,9 @@ def _require_control_plane_backend() -> None:
         from agentkit.backend.exceptions import ConfigError
 
         raise ConfigError(
-            "The session-ownership store (run_ownership_records, "
-            "object_mutation_claims, takeover_transfer_records, "
-            "backend_instance_identity, edge_command_records, "
-            "push_freshness_records, ref_protection_degradation_findings) "
-            "requires the "
-            "Postgres state backend: these tables are Postgres-only (AG3-137 / "
-            "AG3-145 / AG3-147 K5) and have no SQLite implementation. Set "
-            "AGENTKIT_STATE_BACKEND=postgres; fail-closed.",
+            "This record family requires the Postgres state backend: the "
+            "requested persistence surface is Postgres-only and fails closed "
+            "off Postgres. Set AGENTKIT_STATE_BACKEND=postgres.",
         )
 
 
@@ -64,8 +61,12 @@ def save_backend_instance_identity_global(
     """Upsert the backend-instance-identity record. Fail closed off Postgres."""
     _require_control_plane_backend()
     backend = _backend_module()
+    from agentkit.backend.state_backend.store.mappers import (
+        backend_instance_identity_to_row,
+    )
+
     backend.save_backend_instance_identity_global_row(
-        _backend_instance_identity_to_row(record),
+        backend_instance_identity_to_row(record),
     )
 
 
@@ -78,7 +79,11 @@ def load_backend_instance_identity_global(
     row = backend.load_backend_instance_identity_global_row(backend_instance_id)
     if row is None:
         return None
-    return _backend_instance_identity_row_to_record(row)
+    from agentkit.backend.state_backend.store.mappers import (
+        backend_instance_identity_row_to_record,
+    )
+
+    return backend_instance_identity_row_to_record(row)
 
 
 def boot_backend_instance_identity_global(
@@ -92,29 +97,11 @@ def boot_backend_instance_identity_global(
         candidate_backend_instance_id=candidate_backend_instance_id,
         now=now.isoformat(),
     )
-    return _backend_instance_identity_row_to_record(row)
-
-
-def _backend_instance_identity_to_row(
-    record: BackendInstanceIdentityRecord,
-) -> dict[str, object]:
-    return {
-        "backend_instance_id": record.backend_instance_id,
-        "instance_incarnation": record.instance_incarnation,
-        "updated_at": record.updated_at.isoformat(),
-    }
-
-
-def _backend_instance_identity_row_to_record(
-    row: dict[str, object],
-) -> BackendInstanceIdentityRecord:
-    from agentkit.backend.control_plane.records import BackendInstanceIdentityRecord
-
-    return BackendInstanceIdentityRecord(
-        backend_instance_id=str(row["backend_instance_id"]),
-        instance_incarnation=int(str(row["instance_incarnation"])),
-        updated_at=datetime.fromisoformat(str(row["updated_at"])),
+    from agentkit.backend.state_backend.store.mappers import (
+        backend_instance_identity_row_to_record,
     )
+
+    return backend_instance_identity_row_to_record(row)
 
 
 __all__ = [

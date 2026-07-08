@@ -74,7 +74,7 @@ The current facade inventory is 148 exported symbols: 135 names from `PUBLIC_API
   - sqlite/postgres note: backend identity is Postgres-only and fail-closed off Postgres. D3 is baked in: backend instance identity is Core-singleton topology infrastructure, not a BC and not the ledger.
 
 - PersistenceJsonCodec - owns JSON-safe persistence record typing and JSON load/dump boundary helpers.
-  - Provided interface: `JsonRecord`, `load_json_safe`.
+  - Provided interface: `JsonRecord`, `load_json_safe`, `dump_json`, `load_json`, `cast_json_record`.
   - Required interfaces: `StateBackendConnectionManager` only for file/backend selection where needed.
   - sqlite/postgres note: backend-neutral utility; no domain ownership.
 

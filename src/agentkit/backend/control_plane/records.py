@@ -24,6 +24,9 @@ from agentkit.backend.control_plane.ownership import (
     OwnershipStatus,
     is_canonical_binding_version,
 )
+from agentkit.backend.state_backend.backend_instance_identity_types import (
+    BackendInstanceIdentityRecord as BackendInstanceIdentityRecord,
+)
 
 #: Closed set of admissible ``SessionRunBindingRecord.status`` values (the
 #: ``BindingStatus`` value space) for fail-closed record-boundary validation.
@@ -278,33 +281,6 @@ class TakeoverTransferRecord:
             )
         if not self.repo_id.strip():
             raise ValueError("repo_id is part of the identity and must not be empty")
-
-
-@dataclass(frozen=True)
-class BackendInstanceIdentityRecord:
-    """Persistent backend instance identity + boot incarnation (IMPL-004).
-
-    Persistence for ``backend_instance_id`` plus a monotone boot incarnation
-    counter (FK-91 §91.1a rule 16). AG3-137 provides the schema/record/repository
-    so AG3-138 need only create/increment on boot.
-
-    Raises:
-        ValueError: On an empty ``backend_instance_id`` or an
-            ``instance_incarnation`` below the minimum.
-    """
-
-    backend_instance_id: str
-    instance_incarnation: int
-    updated_at: datetime
-
-    def __post_init__(self) -> None:
-        if not self.backend_instance_id.strip():
-            raise ValueError("backend_instance_id must not be empty")
-        if self.instance_incarnation < MIN_INSTANCE_INCARNATION:
-            raise ValueError(
-                "instance_incarnation must be >= "
-                f"{MIN_INSTANCE_INCARNATION}, got {self.instance_incarnation!r}",
-            )
 
 
 @dataclass(frozen=True)

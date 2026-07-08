@@ -66,7 +66,6 @@ if TYPE_CHECKING:
         PushFreshnessRecord,
     )
     from agentkit.backend.control_plane.records import (
-        BackendInstanceIdentityRecord,
         ControlPlaneOperationRecord,
         EdgeCommandRecord,
         ObjectMutationClaimRecord,
@@ -94,6 +93,9 @@ if TYPE_CHECKING:
     )
     from agentkit.backend.requirements_coverage.models import StoryAreLink
     from agentkit.backend.skills.binding import SkillBinding
+    from agentkit.backend.state_backend.backend_instance_identity_types import (
+        BackendInstanceIdentityRecord,
+    )
     from agentkit.backend.story_context_manager.models import StoryContext
     from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
@@ -1584,7 +1586,7 @@ def backend_instance_identity_row_to_record(
 
     from datetime import datetime
 
-    from agentkit.backend.control_plane.records import (
+    from agentkit.backend.state_backend.backend_instance_identity_types import (
         BackendInstanceIdentityRecord as _BackendInstanceIdentityRecord,
     )
 
