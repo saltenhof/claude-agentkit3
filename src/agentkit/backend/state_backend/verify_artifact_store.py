@@ -32,58 +32,14 @@ def record_layer_artifacts(
     projection_dir: Path | None = None,
 ) -> tuple[str, ...]:
     """Serialize QA layer artifacts and persist them through the active backend."""
-    from datetime import datetime
-
-    from agentkit.backend.boundary.shared.time import now_iso
-    from agentkit.backend.core_types.qa_artifact_names import LAYER_ARTIFACT_FILES
     from agentkit.backend.state_backend import persistence_mappers as mappers
 
     flow_row = _backend_module().load_flow_execution_row(story_dir)
-
-    layer_payload_rows: list[dict[str, object]] = []
-    for layer_result in layer_results:
-        artifact_name = LAYER_ARTIFACT_FILES.get(layer_result.layer)
-        if artifact_name is None:
-            continue
-        payload = mappers.serialize_layer_result_to_dict(
-            layer_result,
-            attempt_nr=attempt_nr,
-        )
-        producer_component = mappers.get_producer_component_for_layer(
-            layer_result.layer,
-        )
-        recorded_at = datetime.fromisoformat(now_iso())
-
-        stage_row: dict[str, object] | None = None
-        finding_rows: list[dict[str, object]] = []
-        if flow_row is not None:
-            stage_row = mappers.build_qa_stage_result_row(
-                flow_row,
-                layer_result,
-                attempt_no=attempt_nr,
-                artifact_id="",
-                recorded_at=recorded_at,
-            )
-            finding_rows = mappers.build_qa_finding_rows(
-                flow_row,
-                layer_result,
-                attempt_no=attempt_nr,
-                artifact_id="",
-                recorded_at=recorded_at,
-            )
-
-        layer_payload_rows.append(
-            {
-                "layer": layer_result.layer,
-                "artifact_name": artifact_name,
-                "producer_component": producer_component,
-                "payload": payload,
-                "passed": layer_result.passed,
-                "recorded_at": recorded_at.isoformat(),
-                "stage_row": stage_row,
-                "finding_rows": finding_rows,
-            }
-        )
+    layer_payload_rows = mappers.build_qa_layer_payload_rows(
+        flow_row,
+        layer_results,
+        attempt_nr=attempt_nr,
+    )
 
     return cast(
         "tuple[str, ...]",

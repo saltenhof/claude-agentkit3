@@ -76,6 +76,7 @@ from ._telemetry import (
 )
 from ._verify import (
     build_qa_finding_rows as build_qa_finding_rows,
+    build_qa_layer_payload_rows as build_qa_layer_payload_rows,
     build_qa_stage_result_row as build_qa_stage_result_row,
     build_verify_decision_dict as build_verify_decision_dict,
     get_producer_component_for_layer as get_producer_component_for_layer,
@@ -86,7 +87,8 @@ from ._verify import (
 
 __all__ = [
     "attempt_record_to_row", "attempt_row_to_record", "backend_instance_identity_row_to_record",
-    "backend_instance_identity_to_row", "build_qa_finding_rows", "build_qa_stage_result_row", "build_verify_decision_dict",
+    "backend_instance_identity_to_row", "build_qa_finding_rows", "build_qa_layer_payload_rows",
+    "build_qa_stage_result_row", "build_verify_decision_dict",
     "cast_json_record", "control_plane_op_row_to_record", "control_plane_op_to_row", "dump_json", "edge_command_record_to_row",
     "edge_command_row_to_record", "execution_contract_digest_row_to_record", "execution_contract_digest_to_row",
     "execution_event_row_to_record", "execution_event_to_row", "execution_lock_row_to_record", "execution_lock_to_row",
