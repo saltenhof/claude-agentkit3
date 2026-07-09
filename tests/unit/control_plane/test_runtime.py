@@ -4078,6 +4078,45 @@ def test_injected_push_barrier_factory_is_used_and_memoized() -> None:
     assert calls == 1
 
 
+def test_push_barrier_factory_returning_none_fails_closed_for_push_gated_story() -> None:
+    """AG3-147/ARCH-26: a None factory result must not skip a push-gated barrier."""
+    state = _RepoState()
+    state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        mode=WireStoryMode.STANDARD,
+        project_root=Path("T:/projects/tenant-a"),
+        participating_repos=["api"],
+    )
+    service = ControlPlaneRuntimeService(
+        repository=_repository(state),
+        push_barrier_evidence_factory=lambda: None,
+    )
+
+    with pytest.raises(AssertionError, match="push_barrier_evidence"):
+        service._collect_push_barrier_inputs(
+            project_key="tenant-a",
+            story_id="AG3-100",
+            run_id="run-100",
+        )
+
+
+def test_push_barrier_factory_returning_none_stays_unwired_when_not_required() -> None:
+    """Non-push-gated boundaries may remain unwired, but None is not cached."""
+    calls = 0
+
+    def _factory() -> None:
+        nonlocal calls
+        calls += 1
+        return None
+
+    service = ControlPlaneRuntimeService(push_barrier_evidence_factory=_factory)
+
+    assert service._resolve_push_barrier_evidence(require_wired=False) is None
+    assert service._resolve_push_barrier_evidence(require_wired=False) is None
+    assert calls == 2
+
+
 # ---------------------------------------------------------------------------
 # AG3-140 / Codex finding 3: op_id reuse with a DIFFERENT body must NOT replay
 # the stored result -- it fails closed with ``409 idempotency_mismatch`` (the

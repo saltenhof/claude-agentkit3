@@ -85,8 +85,17 @@ class _RunGateMixin:
         if self._push_barrier_evidence is not None:
             return self._push_barrier_evidence
         if self._push_barrier_evidence_factory is not None:
-            self._push_barrier_evidence = self._push_barrier_evidence_factory()
-            return self._push_barrier_evidence
+            evidence = self._push_barrier_evidence_factory()
+            if evidence is not None:
+                self._push_barrier_evidence = evidence
+                return evidence
+            if not require_wired:
+                return None
+            raise AssertionError(
+                "push_barrier_evidence or push_barrier_evidence_factory must be "
+                "injected before a push-gated control-plane boundary; otherwise the "
+                "AG3-147 barrier would be skipped"
+            )
         if not require_wired:
             return None
         raise AssertionError(
