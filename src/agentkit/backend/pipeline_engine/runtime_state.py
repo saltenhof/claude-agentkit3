@@ -249,10 +249,11 @@ class EngineRuntimeState:
     def consume_override(self, ctx: StoryContext, record: OverrideRecord) -> None:
         """Mark an override as consumed."""
 
-        save_override_record(
-            self._story_dir,
-            replace(record, consumed_at=datetime.now(tz=UTC)),
+        consumed_record: OverrideRecord = replace(
+            record,
+            consumed_at=datetime.now(tz=UTC),
         )
+        save_override_record(self._story_dir, consumed_record)
         self._emit_event(
             ctx,
             EventType.OVERRIDE_APPLIED,
