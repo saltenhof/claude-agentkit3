@@ -1,11 +1,19 @@
 story_id: AG3-148
 title: "Transfer-Kern: takeover-request/-confirm (Challenge-Confirm-CAS), persistente Approval-Queue, pending_human_approval, atomarer Vollzug mit takeover_base_sha"
 type: implementation
-status: completed
-phase: setup
+status: in_progress
+phase: implementation
 created: "2026-07-02"
-completed_at: "2026-07-09T14:11:44+02:00"
 size: L
+# NOTE (2026-07-09): premature `completed` reverted. A final third-reviewer
+# (Fable) pass found confirmed defects the Codex+GLM loop missed: F2 event
+# routed to topic `phases` not `governance`; F4b reconcile-blocker UPDATE
+# fail-open (no rowcount, shared free-text stories.blocker clearable by an
+# unattested agent PATCH — AC16); F3 challenge not persisted (client-attested
+# expires_at/challenge_id, K5/FK-56 §56.13a); F1 approved outcome not
+# terminalized on the request op; F5 challenge content (open_operation_ids/
+# takeover_history_refs) hardcoded empty. Design clarification (challenge
+# persistence + blocker fencing) in progress before remediation.
 # Herkunft: GAP-ST-07a (gap-analyse-session-ownership.md v4, Codex-APPROVE).
 # Kern des Ownership-Transfers: Challenge-Confirm-Protokoll, Approval-Queue
 # (persistent/verfallbar/benutzeruebergreifend), pending_human_approval,
