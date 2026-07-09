@@ -63,8 +63,10 @@ from agentkit.backend.state_backend.governance_runtime_store import (
     save_story_execution_lock_global,
 )
 from agentkit.backend.state_backend.operation_ledger import (
+    acquire_object_mutation_claim_global,
     commit_takeover_confirm_global,
     commit_takeover_expiry_global,
+    delete_object_mutation_claim_global,
     load_control_plane_operation_global,
     save_control_plane_operation_global,
 )
@@ -262,18 +264,24 @@ def _admit_run(
     assert result.status == "committed"
 
 
-def _seed_pushed_only_evidence(*, story_id: str, run_id: str) -> None:
+def _seed_pushed_only_evidence(
+    *,
+    story_id: str,
+    run_id: str,
+    repo_id: str = _REPO,
+    sha: str = _SHA,
+) -> None:
     upsert_push_freshness_record_global(
         PushFreshnessRecord(
             project_key=_PROJECT,
             story_id=story_id,
             run_id=run_id,
-            repo_id=_REPO,
-            last_reported_head_sha=_SHA,
-            last_pushed_head_sha=_SHA,
+            repo_id=repo_id,
+            last_reported_head_sha=sha,
+            last_pushed_head_sha=sha,
             last_reported_at=_NOW,
             last_sync_point_id=f"phase_completion:{run_id}",
-            last_command_id=f"{run_id}::sync_push::phase_completion:{run_id}::{_REPO}",
+            last_command_id=f"{run_id}::sync_push::phase_completion:{run_id}::{repo_id}",
             backlog=False,
             backlog_detail=None,
         )
@@ -285,11 +293,11 @@ def _seed_pushed_only_evidence(*, story_id: str, run_id: str) -> None:
             run_id=run_id,
             boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
             boundary_id=run_id,
-            repo_id=_REPO,
+            repo_id=repo_id,
             producer="control_plane.push_barrier",
             boundary_epoch=1,
-            expected_head_sha=_SHA,
-            server_head_sha=_SHA,
+            expected_head_sha=sha,
+            server_head_sha=sha,
             ownership_epoch=1,
             status=PushBarrierVerdictStatus.PASSED,
             created_at=_NOW,
@@ -1472,6 +1480,12 @@ def test_reconcile_obligation_blocks_until_audited_admin_clear_and_story_upsert_
     service = _service(ident="inst-reconcile-obligation")
     _admit_run(service, story_id=story_id, run_id=run_id)
     _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(
+        story_id=story_id,
+        run_id=run_id,
+        repo_id="web",
+        sha="c" * 40,
+    )
     echo = _request_takeover(
         service,
         story_id=story_id,
@@ -1537,6 +1551,22 @@ def test_reconcile_obligation_blocks_until_audited_admin_clear_and_story_upsert_
             reconciled_at=_LATER,
             reconcile_ref="agentic_clear:unattested",
         )
+    with pytest.raises(ValueError, match=r"admin_transition:\{op_id\}"):
+        TakeoverTransferRecord(
+            project_key=transfer.project_key,
+            story_id=transfer.story_id,
+            run_id=transfer.run_id,
+            ownership_epoch=transfer.ownership_epoch,
+            repo_id=transfer.repo_id,
+            takeover_base_sha=transfer.takeover_base_sha,
+            last_push_at=transfer.last_push_at,
+            push_lag_hint=transfer.push_lag_hint,
+            base_quality=transfer.base_quality,
+            challenge_ref=transfer.challenge_ref,
+            confirm_ref=transfer.confirm_ref,
+            reconciled_at=_LATER,
+            reconcile_ref="admin_transition:",
+        )
 
     with pytest.raises(ValueError, match="generic transfer upsert"):
         save_takeover_transfer_record_global(
@@ -1556,6 +1586,27 @@ def test_reconcile_obligation_blocks_until_audited_admin_clear_and_story_upsert_
                 reconcile_ref="admin_transition:manual-clear",
             )
         )
+    raw_forged_row = {
+        "project_key": transfer.project_key,
+        "story_id": transfer.story_id,
+        "run_id": transfer.run_id,
+        "ownership_epoch": transfer.ownership_epoch,
+        "repo_id": transfer.repo_id,
+        "takeover_base_sha": transfer.takeover_base_sha,
+        "last_push_at": (
+            transfer.last_push_at.isoformat()
+            if transfer.last_push_at is not None
+            else None
+        ),
+        "push_lag_hint": transfer.push_lag_hint,
+        "base_quality": transfer.base_quality,
+        "challenge_ref": transfer.challenge_ref,
+        "confirm_ref": transfer.confirm_ref,
+        "reconciled_at": _LATER.isoformat(),
+        "reconcile_ref": "admin_transition:raw-forged-clear",
+    }
+    with pytest.raises(ValueError, match="generic transfer upsert"):
+        postgres_store.save_takeover_transfer_record_global_row(raw_forged_row)
     agentic_clear = service.clear_takeover_reconcile_obligation(
         request=AdminTakeoverReconcileClearRequest(
             project_key=_PROJECT,
@@ -1598,6 +1649,19 @@ def test_reconcile_obligation_blocks_until_audited_admin_clear_and_story_upsert_
     assert cleared_transfer is not None
     assert cleared_transfer.reconciled_at == _NOW
     assert cleared_transfer.reconcile_ref == "admin_transition:op-reconcile-admin-clear"
+    cleared_web_transfer = load_takeover_transfer_record_global(
+        _PROJECT,
+        story_id,
+        run_id,
+        2,
+        "web",
+    )
+    assert cleared_web_transfer is not None
+    assert cleared_web_transfer.reconciled_at == _NOW
+    assert (
+        cleared_web_transfer.reconcile_ref
+        == "admin_transition:op-reconcile-admin-clear"
+    )
 
     allowed = service.start_phase(
         run_id=run_id,
@@ -1609,6 +1673,72 @@ def test_reconcile_obligation_blocks_until_audited_admin_clear_and_story_upsert_
         ),
     )
     assert allowed.status == "committed"
+
+
+@pytest.mark.integration
+def test_takeover_reconcile_admin_clear_respects_story_object_claim(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(209)
+    run_id = "run-reconcile-object-claim"
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident="inst-reconcile-object-claim")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    echo = _request_takeover(
+        service,
+        story_id=story_id,
+        run_id=run_id,
+        op_id="op-reconcile-claim-request",
+    )
+    confirmed = service.confirm_ownership_takeover(
+        request=_confirm_request(
+            story_id=story_id,
+            echo=echo,
+            op_id="op-reconcile-claim-confirm",
+        )
+    )
+    assert confirmed.status == "committed"
+
+    holder = boot_backend_instance_identity_global("inst-reconcile-claim-holder", _NOW)
+    assert acquire_object_mutation_claim_global(
+        project_key=_PROJECT,
+        serialization_scope="story",
+        scope_key=story_id,
+        op_id="op-held-reconcile-clear-claim",
+        backend_instance_id=holder.backend_instance_id,
+        instance_incarnation=holder.instance_incarnation,
+        acquired_at=_NOW,
+    )
+    try:
+        busy = service.clear_takeover_reconcile_obligation(
+            request=AdminTakeoverReconcileClearRequest(
+                project_key=_PROJECT,
+                story_id=story_id,
+                run_id=run_id,
+                session_id="sess-admin-reconcile",
+                principal_type="human_cli",
+                op_id="op-reconcile-busy-clear",
+                reason="manual pre-AG3-151 reconcile clear",
+            )
+        )
+    finally:
+        assert delete_object_mutation_claim_global(
+            _PROJECT,
+            "story",
+            story_id,
+            "op-held-reconcile-clear-claim",
+        )
+
+    assert busy.status == "rejected"
+    assert busy.error_code == "conflict"
+    assert load_control_plane_operation_global("op-reconcile-busy-clear") is None
+    transfer = load_takeover_transfer_record_global(_PROJECT, story_id, run_id, 2, _REPO)
+    assert transfer is not None
+    assert transfer.reconciled_at is None
+    assert transfer.reconcile_ref is None
 
 
 def _challenge_echo_from_current(story_id: str, challenge_id: str) -> TakeoverChallengeEcho:

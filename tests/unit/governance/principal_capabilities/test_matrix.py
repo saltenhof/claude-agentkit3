@@ -137,3 +137,31 @@ def test_human_cli_no_free_governance_or_content_mutation() -> None:
     assert _MATRIX.is_allowed(
         Principal.HUMAN_CLI, OperationClass.ADMIN_TRANSITION, PathClass.REPO_ADMIN_SURFACE
     ).decision is CapabilityDecision.ALLOW
+
+
+def test_takeover_reconcile_clear_matrix_cells_are_privileged() -> None:
+    for principal in (Principal.HUMAN_CLI, Principal.ADMIN_SERVICE):
+        assert (
+            _MATRIX.is_allowed(
+                principal,
+                OperationClass.ADMIN_TRANSITION,
+                PathClass.REPO_ADMIN_SURFACE,
+            ).decision
+            is CapabilityDecision.ALLOW
+        )
+    for principal in (
+        Principal.INTERACTIVE_AGENT,
+        Principal.ORCHESTRATOR,
+        Principal.WORKER,
+        Principal.QA_READER,
+        Principal.ADVERSARIAL_WRITER,
+        Principal.LLM_EVALUATOR,
+    ):
+        assert (
+            _MATRIX.is_allowed(
+                principal,
+                OperationClass.ADMIN_TRANSITION,
+                PathClass.REPO_ADMIN_SURFACE,
+            ).decision
+            is CapabilityDecision.DENY
+        )

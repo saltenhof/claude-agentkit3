@@ -11,6 +11,7 @@ transaction/constraint mechanics live in the ``state_backend`` layer
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -34,6 +35,9 @@ from agentkit.backend.state_backend.backend_instance_identity_types import (
 _VALID_BINDING_STATUS = frozenset(status.value for status in BindingStatus)
 _VALID_TAKEOVER_CHALLENGE_STATUS = frozenset(
     {"pending", "confirmed", "denied", "expired"}
+)
+_ADMIN_TRANSITION_REF_PATTERN = re.compile(
+    r"^admin_transition:[A-Za-z0-9][A-Za-z0-9_.:-]*$",
 )
 
 if TYPE_CHECKING:
@@ -297,12 +301,12 @@ class TakeoverTransferRecord:
             raise ValueError("reconciled_at requires reconcile_ref")
         if self.reconcile_ref is not None and not self.reconcile_ref.strip():
             raise ValueError("reconcile_ref must be non-empty when present")
-        if self.reconcile_ref is not None and not self.reconcile_ref.startswith(
-            "admin_transition:",
+        if self.reconcile_ref is not None and not _ADMIN_TRANSITION_REF_PATTERN.fullmatch(
+            self.reconcile_ref,
         ):
             raise ValueError(
                 "pre-AG3-151 takeover reconcile clear requires "
-                "an audited admin_transition reconcile_ref",
+                "an audited admin_transition:{op_id} reconcile_ref",
             )
 
 

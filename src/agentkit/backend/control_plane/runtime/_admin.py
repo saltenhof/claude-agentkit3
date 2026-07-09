@@ -13,12 +13,25 @@ from agentkit.backend.control_plane.models import (
     AdminTakeoverReconcileClearRequest,
     ControlPlaneMutationResult,
 )
+from agentkit.backend.exceptions import OwnershipFenceViolationError
+from agentkit.backend.governance.principal_capabilities.matrix import (
+    CapabilityMatrix,
+)
+from agentkit.backend.governance.principal_capabilities.operations import (
+    OperationClass,
+)
+from agentkit.backend.governance.principal_capabilities.paths import PathClass
+from agentkit.backend.governance.principal_capabilities.principals import Principal
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     compute_body_hash,
 )
 
 from ._models import OperationNotAbortableError, OperationNotFoundError
-from ._operation_records import _operation_record, _rejection_result
+from ._operation_records import (
+    _object_claim_busy_rejection,
+    _operation_record,
+    _rejection_result,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -39,6 +52,7 @@ _TAKEOVER_RECONCILE_PHASE = "ownership"
 _ADMIN_TRANSITION_PRINCIPALS = frozenset(
     {"human_cli", "admin_service", "human_bff_session"},
 )
+_ADMIN_RECONCILE_MATRIX = CapabilityMatrix()
 
 
 class _AdminTransitionMixin:
@@ -55,6 +69,15 @@ class _AdminTransitionMixin:
         _object_claim_repo: ObjectMutationClaimRepository
 
         def _require_postgres_backend_on_first_use(self) -> None: ...
+        def _acquire_object_claim(
+            self, *, project_key: str, story_id: str, op_id: str
+        ) -> object_claims.ObjectClaimConflict | None: ...
+        def _release_object_claim(
+            self, *, project_key: str, story_id: str, op_id: str
+        ) -> None: ...
+        def _release_object_claim_best_effort(
+            self, *, project_key: str, story_id: str, op_id: str
+        ) -> None: ...
         def _release_claim_key_best_effort(self, key: object_claims.ObjectClaimKey, *, op_id: str) -> None: ...
 
     def admin_abort_inflight_operation(
@@ -139,7 +162,7 @@ class _AdminTransitionMixin:
         transaction.
         """
         self._require_postgres_backend_on_first_use()
-        if request.principal_type not in _ADMIN_TRANSITION_PRINCIPALS:
+        if not _admin_reconcile_principal_allowed(request.principal_type):
             return _admin_reconcile_clear_rejection(
                 request,
                 reason="takeover_reconcile_clear_forbidden",
@@ -163,6 +186,49 @@ class _AdminTransitionMixin:
                     },
                 )
             return ControlPlaneMutationResult.model_validate(existing.response_payload)
+        conflict = self._acquire_object_claim(
+            project_key=request.project_key,
+            story_id=request.story_id,
+            op_id=request.op_id,
+        )
+        if conflict is not None:
+            return _object_claim_busy_rejection(
+                op_id=request.op_id,
+                operation_kind=_TAKEOVER_RECONCILE_CLEAR,
+                run_id=request.run_id,
+                phase=_TAKEOVER_RECONCILE_PHASE,
+                conflict=conflict,
+            )
+        try:
+            result = self._clear_takeover_reconcile_obligation_under_claim(request)
+            self._release_object_claim(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
+            return result
+        except OwnershipFenceViolationError:
+            self._release_object_claim(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
+            return _admin_reconcile_clear_rejection(
+                request,
+                reason="takeover_reconcile_not_required",
+            )
+        except BaseException:
+            self._release_object_claim_best_effort(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
+            raise
+
+    def _clear_takeover_reconcile_obligation_under_claim(
+        self,
+        request: AdminTakeoverReconcileClearRequest,
+    ) -> ControlPlaneMutationResult:
         active = self._repo.load_active_ownership(request.project_key, request.story_id)
         if active is None or active.run_id != request.run_id:
             return _admin_reconcile_clear_rejection(
@@ -312,6 +378,23 @@ def _admin_reconcile_body_hash(
     payload["__operation_kind"] = _TAKEOVER_RECONCILE_CLEAR
     payload["__phase"] = _TAKEOVER_RECONCILE_PHASE
     return compute_body_hash(payload)
+
+
+def _admin_reconcile_principal_allowed(principal_type: str) -> bool:
+    """Return whether the attested principal may run the admin clear path."""
+    if principal_type not in _ADMIN_TRANSITION_PRINCIPALS:
+        return False
+    matrix_principal = (
+        Principal.HUMAN_CLI
+        if principal_type == "human_bff_session"
+        else Principal(principal_type)
+    )
+    verdict = _ADMIN_RECONCILE_MATRIX.is_allowed(
+        matrix_principal,
+        OperationClass.ADMIN_TRANSITION,
+        PathClass.REPO_ADMIN_SURFACE,
+    )
+    return verdict.allowed
 
 
 def _admin_reconcile_clear_rejection(
