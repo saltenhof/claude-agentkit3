@@ -214,6 +214,9 @@ from ._ownership_rows import (
     list_ref_protection_degradation_finding_global_rows as list_ref_protection_degradation_finding_global_rows,
 )
 from ._ownership_rows import (
+    list_verified_push_barrier_verdicts_for_run_global_row as list_verified_push_barrier_verdicts_for_run_global_row,
+)
+from ._ownership_rows import (
     load_active_run_ownership_record_global_row as load_active_run_ownership_record_global_row,
 )
 from ._ownership_rows import (

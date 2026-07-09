@@ -367,6 +367,7 @@ class TakeoverChallengeEcho(BaseModel):
     owner_session_id: str = Field(min_length=1)
     ownership_epoch: int = Field(ge=1)
     binding_version: str = Field(min_length=1)
+    expires_at: datetime | None = None
 
 
 class TakeoverChallengeEchoRequest(BaseModel):
@@ -377,7 +378,7 @@ class TakeoverChallengeEchoRequest(BaseModel):
     project_key: str = Field(min_length=1)
     story_id: str = Field(min_length=1)
     session_id: str = Field(min_length=1)
-    principal_type: str = Field(min_length=1)
+    principal_type: str = Field(min_length=1, default="untrusted_http_body")
     op_id: str = Field(min_length=1)
     reason: str = Field(min_length=1)
     worktree_roots: list[str] = Field(min_length=1)

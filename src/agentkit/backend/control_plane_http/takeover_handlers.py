@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
+from agentkit.backend.auth.middleware import is_ownership_transfer_path
 from agentkit.backend.control_plane.models import (
     TakeoverChallengeEchoRequest,
     TakeoverRequest,
@@ -22,6 +23,7 @@ from agentkit.backend.control_plane_http.responses import (
 from agentkit.backend.exceptions import ConfigError
 
 if TYPE_CHECKING:
+    from agentkit.backend.auth.middleware import AuthResult
     from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
     from agentkit.backend.control_plane_http.responses import HttpResponse
 
@@ -34,8 +36,11 @@ def dispatch_project_edge_takeover_post(
     payload: object,
     correlation_id: str,
     runtime_service: ControlPlaneRuntimeService,
+    auth_result: AuthResult | None = None,
 ) -> HttpResponse | None:
     """Dispatch AG3-148 takeover POST routes, or return ``None``."""
+    if not is_ownership_transfer_path(route_path):
+        return None
     if _route_patterns._TAKEOVER_REQUEST_PATTERN.match(route_path):
         return _handle_post_takeover_request(
             payload,
@@ -47,6 +52,7 @@ def dispatch_project_edge_takeover_post(
             payload,
             correlation_id,
             runtime_service=runtime_service,
+            auth_result=auth_result,
         )
     return None
 
@@ -102,13 +108,22 @@ def _handle_post_takeover_confirm(
     correlation_id: str,
     *,
     runtime_service: ControlPlaneRuntimeService,
+    auth_result: AuthResult | None,
 ) -> HttpResponse:
     from agentkit.backend.story_context_manager.errors import (
         IdempotencyMismatchError,
     )
 
     try:
+        if auth_result is None or not auth_result.is_human_bff_session:
+            return _error_response(
+                HTTPStatus.FORBIDDEN,
+                error_code="agent_confirm_forbidden",
+                message="Ownership takeover confirm requires a human BFF session",
+                correlation_id=correlation_id,
+            )
         request = TakeoverChallengeEchoRequest.model_validate(payload)
+        request = request.model_copy(update={"principal_type": "human_bff_session"})
         result = runtime_service.confirm_ownership_takeover(request=request)
     except ValidationError as exc:
         return _error_response(

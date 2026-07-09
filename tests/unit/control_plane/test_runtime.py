@@ -23,7 +23,12 @@ from agentkit.backend.control_plane.ownership import (
     OwnershipAcquisition,
     OwnershipStatus,
 )
-from agentkit.backend.control_plane.push_sync import PushFreshnessRecord
+from agentkit.backend.control_plane.push_sync import (
+    PushBarrierVerdict,
+    PushBarrierVerdictStatus,
+    PushFreshnessRecord,
+    SyncPointBarrierType,
+)
 from agentkit.backend.control_plane.records import (
     BackendInstanceIdentityRecord,
     BindingDeleteScope,
@@ -86,6 +91,9 @@ class _RepoState:
         ] = {}
         self.push_freshness: dict[
             tuple[str, str, str], tuple[PushFreshnessRecord, ...]
+        ] = {}
+        self.push_barrier_verdicts: dict[
+            tuple[str, str, str], tuple[PushBarrierVerdict, ...]
         ] = {}
         self.takeover_transfers: list[TakeoverTransferRecord] = []
         self.story_blockers: dict[tuple[str, str], str] = {}
@@ -315,7 +323,9 @@ class _FakeOps:
         locks: tuple[StoryExecutionLockRecord, ...],
         transfers: tuple[TakeoverTransferRecord, ...],
         events: tuple[ExecutionEventRecord, ...],
+        approved_approval: object | None = None,
     ) -> None:
+        del approved_approval
         active = self._state.load_active_ownership(record.project_key, record.story_id)
         owner_binding = self._state.bindings.get(expected_owner_session_id)
         if (
@@ -720,6 +730,10 @@ def _repository(state: _RepoState) -> ControlPlaneRuntimeRepository:
             (project_key, story_id, run_id),
             (),
         ),
+        list_verified_push_barrier_verdicts_for_run=lambda project_key, story_id, run_id: state.push_barrier_verdicts.get(
+            (project_key, story_id, run_id),
+            (),
+        ),
         commit_takeover_confirm=ops.commit_takeover_confirm,
     )
 
@@ -839,11 +853,37 @@ def _push_freshness(
     )
 
 
+def _push_barrier_verdict(
+    *,
+    repo_id: str = "backend",
+    expected_head_sha: str | None = "abc123",
+    status: PushBarrierVerdictStatus = PushBarrierVerdictStatus.PASSED,
+) -> PushBarrierVerdict:
+    return PushBarrierVerdict(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        run_id="run-100",
+        boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
+        boundary_id="boundary-1",
+        repo_id=repo_id,
+        producer="control_plane.push_barrier",
+        boundary_epoch=1,
+        expected_head_sha=expected_head_sha,
+        server_head_sha=expected_head_sha,
+        ownership_epoch=1,
+        status=status,
+        created_at=datetime(2026, 4, 22, 10, 4, tzinfo=UTC),
+        updated_at=datetime(2026, 4, 22, 10, 4, tzinfo=UTC),
+        resolved_at=datetime(2026, 4, 22, 10, 4, tzinfo=UTC),
+    )
+
+
 def _takeover_confirm_request(
     *,
     op_id: str = "op-takeover-confirm",
     principal_type: str = "strategist",
     session_id: str = "sess-B",
+    challenge_expires_at: datetime | None = datetime(2099, 4, 22, 10, 20, tzinfo=UTC),
 ) -> TakeoverChallengeEchoRequest:
     return TakeoverChallengeEchoRequest(
         project_key="tenant-a",
@@ -858,6 +898,7 @@ def _takeover_confirm_request(
             owner_session_id="sess-001",
             ownership_epoch=1,
             binding_version="1",
+            expires_at=challenge_expires_at,
         ),
     )
 
@@ -894,11 +935,14 @@ def test_takeover_request_returns_challenge_with_pushed_only_evidence() -> None:
     assert challenge.repos[0].base_quality == "pushed"
 
 
-def test_takeover_confirm_commits_cas_transfer_and_four_events() -> None:
+def test_takeover_confirm_commits_cas_transfer_and_mandated_events() -> None:
     state = _RepoState()
     _seed_admitted_run(state, run_id="run-100", session_id="sess-001")
     state.push_freshness[("tenant-a", "AG3-100", "run-100")] = (
         _push_freshness(repo_id="backend", pushed_sha="abc123"),
+    )
+    state.push_barrier_verdicts[("tenant-a", "AG3-100", "run-100")] = (
+        _push_barrier_verdict(repo_id="backend", expected_head_sha="abc123"),
     )
     service = ControlPlaneRuntimeService(repository=_repository(state))
 
@@ -919,7 +963,10 @@ def test_takeover_confirm_commits_cas_transfer_and_four_events() -> None:
     assert len(state.takeover_transfers) == 1
     assert state.takeover_transfers[0].takeover_base_sha == "abc123"
     assert state.story_blockers[("tenant-a", "AG3-100")] == "takeover_reconcile_required"
-    assert len(state.events) == 4
+    assert [event.event_type for event in state.events] == [
+        "session_run_binding_transferred",
+        "session_disowned",
+    ]
 
 
 def test_takeover_confirm_requires_pushed_head_and_writes_nothing() -> None:
@@ -936,6 +983,78 @@ def test_takeover_confirm_requires_pushed_head_and_writes_nothing() -> None:
 
     assert result.status == "rejected"
     assert result.error_code == "pushed_head_required"
+    active = state.load_active_ownership("tenant-a", "AG3-100")
+    assert active is not None
+    assert active.owner_session_id == "sess-001"
+    assert "sess-B" not in state.bindings
+    assert state.takeover_transfers == []
+    assert state.events == []
+
+
+def test_takeover_confirm_rejects_empty_push_evidence_and_writes_nothing() -> None:
+    state = _RepoState()
+    _seed_admitted_run(state, run_id="run-100", session_id="sess-001")
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    result = service.confirm_ownership_takeover(
+        request=_takeover_confirm_request(op_id="op-takeover-empty-evidence"),
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "pushed_head_required"
+    active = state.load_active_ownership("tenant-a", "AG3-100")
+    assert active is not None
+    assert active.owner_session_id == "sess-001"
+    assert "sess-B" not in state.bindings
+    assert state.takeover_transfers == []
+    assert state.events == []
+
+
+def test_takeover_confirm_rejects_mismatched_barrier_head_and_writes_nothing() -> None:
+    state = _RepoState()
+    _seed_admitted_run(state, run_id="run-100", session_id="sess-001")
+    state.push_freshness[("tenant-a", "AG3-100", "run-100")] = (
+        _push_freshness(repo_id="backend", pushed_sha="abc123"),
+    )
+    state.push_barrier_verdicts[("tenant-a", "AG3-100", "run-100")] = (
+        _push_barrier_verdict(repo_id="backend", expected_head_sha="def456"),
+    )
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    result = service.confirm_ownership_takeover(
+        request=_takeover_confirm_request(op_id="op-takeover-stale-head"),
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "pushed_head_required"
+    active = state.load_active_ownership("tenant-a", "AG3-100")
+    assert active is not None
+    assert active.owner_session_id == "sess-001"
+    assert "sess-B" not in state.bindings
+    assert state.takeover_transfers == []
+    assert state.events == []
+
+
+def test_takeover_confirm_rejects_expired_challenge_and_writes_nothing() -> None:
+    state = _RepoState()
+    _seed_admitted_run(state, run_id="run-100", session_id="sess-001")
+    state.push_freshness[("tenant-a", "AG3-100", "run-100")] = (
+        _push_freshness(repo_id="backend", pushed_sha="abc123"),
+    )
+    state.push_barrier_verdicts[("tenant-a", "AG3-100", "run-100")] = (
+        _push_barrier_verdict(repo_id="backend", expected_head_sha="abc123"),
+    )
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    result = service.confirm_ownership_takeover(
+        request=_takeover_confirm_request(
+            op_id="op-takeover-expired",
+            challenge_expires_at=datetime(2026, 4, 22, 9, 59, tzinfo=UTC),
+        ),
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "challenge_expired"
     active = state.load_active_ownership("tenant-a", "AG3-100")
     assert active is not None
     assert active.owner_session_id == "sess-001"

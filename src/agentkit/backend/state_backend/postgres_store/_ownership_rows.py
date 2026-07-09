@@ -983,6 +983,44 @@ def list_pending_takeover_approval_rows_global(project_key: str | None = None) -
     return [dict(row) for row in rows]
 
 
+def list_verified_push_barrier_verdicts_for_run_global_row(
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> list[dict[str, Any]]:
+    """List the latest passed push-barrier verdict for each repo in a run."""
+
+    with _connect_global() as conn:
+        rows = conn.execute(
+            """
+            SELECT verdicts.*
+            FROM push_barrier_verdicts verdicts
+            JOIN (
+                SELECT repo_id, MAX(updated_at) AS updated_at
+                FROM push_barrier_verdicts
+                WHERE project_key = ?
+                  AND story_id = ?
+                  AND run_id = ?
+                  AND status = 'passed'
+                  AND expected_head_sha IS NOT NULL
+                  AND expected_head_sha <> ''
+                GROUP BY repo_id
+            ) latest
+              ON latest.repo_id = verdicts.repo_id
+             AND latest.updated_at = verdicts.updated_at
+            WHERE verdicts.project_key = ?
+              AND verdicts.story_id = ?
+              AND verdicts.run_id = ?
+              AND verdicts.status = 'passed'
+              AND verdicts.expected_head_sha IS NOT NULL
+              AND verdicts.expected_head_sha <> ''
+            ORDER BY verdicts.repo_id
+            """,
+            (project_key, story_id, run_id, project_key, story_id, run_id),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def _takeover_approval_params(row: dict[str, Any]) -> tuple[object, ...]:
     """Return DB parameter order for a takeover approval row."""
 

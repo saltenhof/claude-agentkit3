@@ -65,10 +65,10 @@ _EXPECTED_EVENT_VALUES = {
     "binding_invalid_detected",
     "local_edge_bundle_materialized",
     "edge_operation_reconciled",
-    "run_ownership_takeover_requested",
     "run_ownership_takeover_offered",
-    "run_ownership_takeover_confirmed",
-    "run_ownership_takeover_reconcile_required",
+    "run_ownership_takeover_approval_requested",
+    "session_run_binding_transferred",
+    "session_disowned",
     "takeover_approval_changed",
     "web_call",
     "impact_violation_check",
@@ -234,6 +234,23 @@ _EXPECTED_MANDATORY_FIELDS: dict[EventType, tuple[str, ...]] = {
         "dominant_signals",
     ),
     EventType.GOVERNANCE_MEASURE_APPLIED: ("measure", "severity"),
+    EventType.RUN_OWNERSHIP_TAKEOVER_OFFERED: (
+        "challenge_id",
+        "requesting_session_id",
+    ),
+    EventType.RUN_OWNERSHIP_TAKEOVER_APPROVAL_REQUESTED: (
+        "approval_id",
+        "requesting_session_id",
+        "status",
+        "reason",
+    ),
+    EventType.SESSION_RUN_BINDING_TRANSFERRED: (
+        "previous_owner_session_id",
+        "new_owner_session_id",
+        "ownership_epoch",
+    ),
+    EventType.SESSION_DISOWNED: ("previous_owner_session_id", "reason"),
+    EventType.TAKEOVER_APPROVAL_CHANGED: ("approval_id", "status", "topic"),
     # Integration-stabilization contract events (FK-05 §5.14, AG3-069 AC11).
     EventType.INTEGRATION_MANIFEST_APPROVED: (
         "event_name",

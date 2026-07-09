@@ -84,12 +84,12 @@ class EventType(StrEnum):
     BINDING_INVALID_DETECTED = "binding_invalid_detected"
     LOCAL_EDGE_BUNDLE_MATERIALIZED = "local_edge_bundle_materialized"
     EDGE_OPERATION_RECONCILED = "edge_operation_reconciled"
-    RUN_OWNERSHIP_TAKEOVER_REQUESTED = "run_ownership_takeover_requested"
     RUN_OWNERSHIP_TAKEOVER_OFFERED = "run_ownership_takeover_offered"
-    RUN_OWNERSHIP_TAKEOVER_CONFIRMED = "run_ownership_takeover_confirmed"
-    RUN_OWNERSHIP_TAKEOVER_RECONCILE_REQUIRED = (
-        "run_ownership_takeover_reconcile_required"
+    RUN_OWNERSHIP_TAKEOVER_APPROVAL_REQUESTED = (
+        "run_ownership_takeover_approval_requested"
     )
+    SESSION_RUN_BINDING_TRANSFERRED = "session_run_binding_transferred"
+    SESSION_DISOWNED = "session_disowned"
     TAKEOVER_APPROVAL_CHANGED = "takeover_approval_changed"
     WEB_CALL = "web_call"
     IMPACT_VIOLATION_CHECK = "impact_violation_check"

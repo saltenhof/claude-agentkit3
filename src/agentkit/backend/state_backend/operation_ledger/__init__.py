@@ -18,6 +18,7 @@ if TYPE_CHECKING:
         ObjectMutationClaimRecord,
         RunOwnershipRecord,
         SessionRunBindingRecord,
+        TakeoverApprovalRecord,
         TakeoverTransferRecord,
     )
     from agentkit.backend.governance.guard_system.records import (
@@ -259,6 +260,7 @@ def commit_takeover_confirm_global(
     locks: tuple[StoryExecutionLockRecord, ...],
     transfers: tuple[TakeoverTransferRecord, ...],
     events: tuple[ExecutionEventRecord, ...],
+    approved_approval: TakeoverApprovalRecord | None = None,
 ) -> None:
     """Atomically commit takeover confirm side effects in one transaction."""
     from agentkit.backend.state_backend import persistence_mappers as mappers
@@ -277,6 +279,11 @@ def commit_takeover_confirm_global(
             mappers.takeover_transfer_to_row(record) for record in transfers
         ),
         event_rows=tuple(mappers.execution_event_to_row(event) for event in events),
+        approved_approval_row=(
+            mappers.takeover_approval_to_row(approved_approval)
+            if approved_approval is not None
+            else None
+        ),
     )
 
 

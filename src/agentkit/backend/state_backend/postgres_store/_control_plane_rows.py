@@ -942,6 +942,7 @@ def commit_takeover_confirm_global_row(
     lock_rows: Sequence[dict[str, Any]],
     transfer_rows: Sequence[dict[str, Any]],
     event_rows: Sequence[dict[str, Any]],
+    approved_approval_row: dict[str, Any] | None = None,
 ) -> None:
     """Atomically commit a takeover confirm and all ownership side effects.
 
@@ -1045,6 +1046,34 @@ def commit_takeover_confirm_global_row(
             raise ControlPlaneBindingCollisionError(
                 "takeover confirm could not revoke the previous owner's active binding",
             )
+        if approved_approval_row is not None:
+            approval_cursor = conn.execute(
+                """
+                UPDATE takeover_approvals
+                SET status = ?, decided_at = ?, decided_by_session_id = ?,
+                    decision_reason = ?
+                WHERE approval_id = ?
+                  AND project_key = ?
+                  AND story_id = ?
+                  AND run_id = ?
+                  AND status = 'pending'
+                """,
+                (
+                    approved_approval_row["status"],
+                    approved_approval_row["decided_at"],
+                    approved_approval_row["decided_by_session_id"],
+                    approved_approval_row["decision_reason"],
+                    approved_approval_row["approval_id"],
+                    approved_approval_row["project_key"],
+                    approved_approval_row["story_id"],
+                    approved_approval_row["run_id"],
+                ),
+            )
+            if int(approval_cursor.rowcount) != 1:
+                raise OwnershipFenceViolationError(
+                    "takeover confirm CAS failed: approval is no longer pending",
+                    detail={"approval_id": approved_approval_row["approval_id"]},
+                )
         _insert_session_binding_row(conn, new_binding_row)
         for lock_row in lock_rows:
             _insert_story_execution_lock_row(conn, lock_row)

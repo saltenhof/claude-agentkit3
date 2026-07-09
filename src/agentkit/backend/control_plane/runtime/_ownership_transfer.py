@@ -47,7 +47,10 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from agentkit.backend.control_plane import object_claims
-    from agentkit.backend.control_plane.push_sync import PushFreshnessRecord
+    from agentkit.backend.control_plane.push_sync import (
+        PushBarrierVerdict,
+        PushFreshnessRecord,
+    )
     from agentkit.backend.control_plane.records import ControlPlaneOperationRecord, RunOwnershipRecord
     from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
 
@@ -256,13 +259,25 @@ class _OwnershipTransferMixin:
                     approval=_approval_view(approval),
                 ),
             )
-            event_type = EventType.TAKEOVER_APPROVAL_CHANGED
-            event_payload: dict[str, object] = {
-                "approval_id": approval.approval_id,
-                "status": approval.status.value,
-                "topic": "governance",
-                "reason": request.reason,
-            }
+            event_specs: tuple[tuple[EventType, dict[str, object]], ...] = (
+                (
+                    EventType.RUN_OWNERSHIP_TAKEOVER_APPROVAL_REQUESTED,
+                    {
+                        "approval_id": approval.approval_id,
+                        "requesting_session_id": request.session_id,
+                        "status": approval.status.value,
+                        "reason": request.reason,
+                    },
+                ),
+                (
+                    EventType.TAKEOVER_APPROVAL_CHANGED,
+                    {
+                        "approval_id": approval.approval_id,
+                        "status": approval.status.value,
+                        "topic": "governance",
+                    },
+                ),
+            )
         else:
             result = ControlPlaneMutationResult(
                 status="offered",
@@ -272,11 +287,15 @@ class _OwnershipTransferMixin:
                 phase=_TAKEOVER_PHASE,
                 takeover_challenge=_challenge_view(challenge),
             )
-            event_type = EventType.RUN_OWNERSHIP_TAKEOVER_OFFERED
-            event_payload = {
-                "challenge_id": challenge.challenge_id,
-                "requesting_session_id": request.session_id,
-            }
+            event_specs = (
+                (
+                    EventType.RUN_OWNERSHIP_TAKEOVER_OFFERED,
+                    {
+                        "challenge_id": challenge.challenge_id,
+                        "requesting_session_id": request.session_id,
+                    },
+                ),
+            )
         self._repo.save_operation(
             self._takeover_operation_record(
                 request,
@@ -285,18 +304,19 @@ class _OwnershipTransferMixin:
                 run_id=active.run_id,
             )
         )
-        self._repo.append_event(
-            _lifecycle_event_record(
-                event_type=event_type,
-                project_key=request.project_key,
-                story_id=request.story_id,
-                run_id=active.run_id,
-                source_component=request.source_component,
-                payload=event_payload,
-                now=now,
-                phase=_TAKEOVER_PHASE,
+        for event_type, event_payload in event_specs:
+            self._repo.append_event(
+                _lifecycle_event_record(
+                    event_type=event_type,
+                    project_key=request.project_key,
+                    story_id=request.story_id,
+                    run_id=active.run_id,
+                    source_component=request.source_component,
+                    payload=event_payload,
+                    now=now,
+                    phase=_TAKEOVER_PHASE,
+                )
             )
-        )
         return result
 
     def _confirm_ownership_takeover_under_claim(
@@ -317,6 +337,7 @@ class _OwnershipTransferMixin:
         )
         approval_status = None
         approval = None
+        approved_approval = None
         if request.approval_id is not None:
             from agentkit.backend.control_plane.repository import (
                 TakeoverApprovalRepository,
@@ -349,6 +370,26 @@ class _OwnershipTransferMixin:
                         decision_reason="approval_expired",
                     )
                     approval_repo.update_status(approval)
+                elif approval.status is TakeoverApprovalStatus.PENDING:
+                    approval_status = TakeoverApprovalStatus.APPROVED
+                    approved_approval = TakeoverApprovalRecord(
+                        approval_id=approval.approval_id,
+                        project_key=approval.project_key,
+                        story_id=approval.story_id,
+                        run_id=approval.run_id,
+                        requested_by_session_id=approval.requested_by_session_id,
+                        requested_by_principal_type=(
+                            approval.requested_by_principal_type
+                        ),
+                        reason=approval.reason,
+                        challenge_ref=approval.challenge_ref,
+                        status=TakeoverApprovalStatus.APPROVED,
+                        requested_at=approval.requested_at,
+                        expires_at=approval.expires_at,
+                        decided_at=now,
+                        decided_by_session_id=request.session_id,
+                        decision_reason="human_confirm",
+                    )
         core_echo = transfer_core.TakeoverChallengeEcho(
             challenge_id=request.challenge_echo.challenge_id,
             owner_session_id=request.challenge_echo.owner_session_id,
@@ -360,7 +401,7 @@ class _OwnershipTransferMixin:
             owner_binding=owner_binding,
             echo=core_echo,
             now=now,
-            challenge_expires_at=None,
+            challenge_expires_at=request.challenge_echo.expires_at,
             approval_status=approval_status,
             approval_required=request.approval_id is not None,
             repo_evidence=repo_evidence,
@@ -450,11 +491,7 @@ class _OwnershipTransferMixin:
         )
         event_specs: tuple[tuple[EventType, dict[str, object]], ...] = (
             (
-                EventType.RUN_OWNERSHIP_TAKEOVER_REQUESTED,
-                {"reason": request.reason, "new_owner_session_id": request.session_id},
-            ),
-            (
-                EventType.RUN_OWNERSHIP_TAKEOVER_CONFIRMED,
+                EventType.SESSION_RUN_BINDING_TRANSFERRED,
                 {
                     "previous_owner_session_id": owner_binding.session_id,
                     "new_owner_session_id": request.session_id,
@@ -462,18 +499,24 @@ class _OwnershipTransferMixin:
                 },
             ),
             (
-                EventType.RUN_OWNERSHIP_TAKEOVER_RECONCILE_REQUIRED,
-                {"blocker": "takeover_reconcile_required"},
-            ),
-            (
-                EventType.TAKEOVER_APPROVAL_CHANGED,
+                EventType.SESSION_DISOWNED,
                 {
-                    "approval_id": request.approval_id or "",
-                    "status": "approved" if approval is not None else "not_required",
-                    "topic": "governance",
+                    "previous_owner_session_id": owner_binding.session_id,
+                    "reason": "ownership_transferred",
                 },
             ),
         )
+        if approved_approval is not None:
+            event_specs += (
+                (
+                    EventType.TAKEOVER_APPROVAL_CHANGED,
+                    {
+                        "approval_id": approved_approval.approval_id,
+                        "status": approved_approval.status.value,
+                        "topic": "governance",
+                    },
+                ),
+            )
         events = tuple(
             _lifecycle_event_record(
                 event_type=event_type,
@@ -497,6 +540,7 @@ class _OwnershipTransferMixin:
             locks=(lock,),
             transfers=transfer_records,
             events=events,
+            approved_approval=approved_approval,
         )
         return result
 
@@ -546,6 +590,31 @@ class _OwnershipTransferMixin:
         if not run_id:
             return ()
         records = self._repo.list_push_freshness(project_key, story_id, run_id)
+        if not allow_unpushed:
+            freshness_by_repo = {record.repo_id: record for record in records}
+            verdicts = self._repo.list_verified_push_barrier_verdicts_for_run(
+                project_key,
+                story_id,
+                run_id,
+            )
+            evidence = tuple(
+                _repo_challenge_from_verified_barrier(verdict, freshness_by_repo)
+                for verdict in verdicts
+            )
+            verdict_repo_ids = {repo.repo_id for repo in evidence}
+            missing_repos = sorted(set(freshness_by_repo) - verdict_repo_ids)
+            if missing_repos:
+                evidence += tuple(
+                    transfer_core.TakeoverRepoChallenge(
+                        repo_id=repo_id,
+                        takeover_base_sha=None,
+                        last_push_at=freshness_by_repo[repo_id].last_reported_at,
+                        push_lag_hint="missing_verified_push_barrier",
+                        base_quality="missing_verified_push_barrier",
+                    )
+                    for repo_id in missing_repos
+                )
+            return evidence
         return tuple(
             _repo_challenge_from_freshness(record, allow_unpushed=allow_unpushed)
             for record in records
@@ -706,6 +775,39 @@ def _repo_challenge_from_freshness(
         last_push_at=record.last_reported_at if pushed_sha is not None else None,
         push_lag_hint=record.backlog_detail,
         base_quality=base_quality,
+    )
+
+
+def _repo_challenge_from_verified_barrier(
+    verdict: PushBarrierVerdict,
+    freshness_by_repo: dict[str, PushFreshnessRecord],
+) -> transfer_core.TakeoverRepoChallenge:
+    freshness = freshness_by_repo.get(verdict.repo_id)
+    expected_head_sha = verdict.expected_head_sha
+    if freshness is None:
+        return transfer_core.TakeoverRepoChallenge(
+            repo_id=verdict.repo_id,
+            takeover_base_sha=expected_head_sha,
+            last_push_at=verdict.resolved_at or verdict.updated_at,
+            push_lag_hint=None,
+            base_quality="verified_pushed",
+        )
+    # PushFreshnessRecord is a read projection. Confirm accepts its head only
+    # after it matches the server+edge verified PushBarrierVerdict head.
+    if freshness.last_pushed_head_sha != expected_head_sha:
+        return transfer_core.TakeoverRepoChallenge(
+            repo_id=verdict.repo_id,
+            takeover_base_sha=None,
+            last_push_at=freshness.last_reported_at,
+            push_lag_hint="push_freshness_barrier_head_mismatch",
+            base_quality="push_freshness_barrier_head_mismatch",
+        )
+    return transfer_core.TakeoverRepoChallenge(
+        repo_id=verdict.repo_id,
+        takeover_base_sha=expected_head_sha,
+        last_push_at=freshness.last_reported_at,
+        push_lag_hint=freshness.backlog_detail,
+        base_quality="verified_pushed",
     )
 
 

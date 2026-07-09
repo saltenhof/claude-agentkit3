@@ -15,8 +15,12 @@ from __future__ import annotations
 import json
 import re
 from http import HTTPStatus
+from typing import TYPE_CHECKING
 
 import pytest
+
+from agentkit.backend.auth.middleware import AuthMiddleware
+from agentkit.backend.auth.tokens import issue_project_api_token
 
 # AC1: compat re-export must resolve to the SAME class
 from agentkit.backend.control_plane.http import ControlPlaneApplication as CompatCPA
@@ -29,6 +33,10 @@ from agentkit.backend.control_plane_http.app import (
     HttpResponse,
 )
 from agentkit.backend.telemetry.http.routes import TelemetryRouteResponse
+
+if TYPE_CHECKING:
+    from agentkit.backend.auth.entities import ProjectApiToken
+    from agentkit.backend.control_plane.models import TakeoverChallengeEchoRequest
 
 # ---------------------------------------------------------------------------
 # AC1 — compat re-export identity
@@ -350,6 +358,39 @@ class _FakeReadModelRoutes:
         return None
 
 
+class _InMemoryTokenRepository:
+    def __init__(self) -> None:
+        self.tokens: dict[str, ProjectApiToken] = {}
+
+    def get(self, token_id: str) -> ProjectApiToken | None:
+        return self.tokens.get(token_id)
+
+    def get_by_hash(self, token_hash: str) -> ProjectApiToken | None:
+        for token in self.tokens.values():
+            if token.token_hash == token_hash:
+                return token
+        return None
+
+    def list_for_project(self, project_key: str) -> list[ProjectApiToken]:
+        return [token for token in self.tokens.values() if token.project_key == project_key]
+
+    def save(self, token: ProjectApiToken) -> None:
+        self.tokens[token.token_id] = token
+
+    def revoke(self, project_key: str, token_id: str) -> None:
+        del project_key
+        del self.tokens[token_id]
+
+
+class _FakeTakeoverRuntime:
+    def __init__(self) -> None:
+        self.confirm_calls: list[TakeoverChallengeEchoRequest] = []
+
+    def confirm_ownership_takeover(self, *, request: TakeoverChallengeEchoRequest) -> object:
+        self.confirm_calls.append(request)
+        raise AssertionError("forged takeover confirm reached runtime")
+
+
 def _make_app(
     *,
     tenant_scope: object | None = None,
@@ -384,6 +425,61 @@ def _header(response: HttpResponse, name: str) -> str | None:
         if k.lower() == name.lower():
             return v
     return None
+
+
+def test_token_agent_cannot_forge_human_takeover_confirm_and_writes_nothing() -> None:
+    tokens = _InMemoryTokenRepository()
+    issued = issue_project_api_token(
+        project_key="tenant-a",
+        label="agent",
+        repository=tokens,
+    )
+    runtime = _FakeTakeoverRuntime()
+    app = ControlPlaneApplication(
+        routes=ControlPlaneApplicationRoutes(
+            project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
+            story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
+            concept_routes=_FakeConceptRoutes(),  # type: ignore[arg-type]
+            hub_routes=_FakeHubRoutes(),  # type: ignore[arg-type]
+            planning_routes=_FakePlanningRoutes(),  # type: ignore[arg-type]
+            telemetry_routes=_FakeTelemetryRoutes(),  # type: ignore[arg-type]
+            auth_routes=_FakeAuthRoutes(),  # type: ignore[arg-type]
+            read_model_routes=_FakeReadModelRoutes(),  # type: ignore[arg-type]
+        ),
+        runtime_service=runtime,  # type: ignore[arg-type]
+        auth_middleware=AuthMiddleware(token_repository=tokens),
+        tenant_scope_middleware=_NoopTenantScope(),  # type: ignore[arg-type]
+    )
+    response = app.handle_request(
+        method="POST",
+        path="/v1/project-edge/story-runs/run-100/ownership/takeover-confirm",
+        body=json.dumps(
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "session_id": "sess-agent",
+                "principal_type": "human_cli",
+                "op_id": "op-forged-confirm",
+                "reason": "forged",
+                "worktree_roots": ["T:/worktrees/ag3-100"],
+                "challenge_echo": {
+                    "challenge_id": "takeover-op",
+                    "owner_session_id": "sess-001",
+                    "ownership_epoch": 1,
+                    "binding_version": "1",
+                },
+            }
+        ).encode(),
+        request_headers={
+            "Authorization": f"Bearer {issued.plaintext_token}",
+            "X-Project-Key": "tenant-a",
+            "X-Correlation-Id": "req-forged-confirm",
+        },
+    )
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert _json_body(response)["error_code"] == "agent_confirm_forbidden"  # type: ignore[index]
+    assert runtime.confirm_calls == []
 
 
 # ---------------------------------------------------------------------------

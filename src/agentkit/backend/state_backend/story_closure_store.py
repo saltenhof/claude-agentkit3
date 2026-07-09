@@ -154,6 +154,24 @@ def list_push_barrier_verdicts_global(
     return tuple(mappers.push_barrier_verdict_row_to_record(row) for row in rows)
 
 
+def list_verified_push_barrier_verdicts_for_run_global(
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> tuple[Any, ...]:
+    """List latest passed push-barrier verdicts for a run, one per repo."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    rows = backend.list_verified_push_barrier_verdicts_for_run_global_row(
+        project_key,
+        story_id,
+        run_id,
+    )
+    return tuple(mappers.push_barrier_verdict_row_to_record(row) for row in rows)
+
+
 def upsert_ref_protection_degradation_finding_global(
     *,
     project_key: str,
@@ -201,6 +219,7 @@ __all__ = [
     "upsert_push_barrier_verdict_global",
     "load_push_barrier_verdict_global",
     "list_push_barrier_verdicts_global",
+    "list_verified_push_barrier_verdicts_for_run_global",
     "upsert_ref_protection_degradation_finding_global",
     "list_ref_protection_degradation_findings_global",
 ]

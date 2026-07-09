@@ -203,6 +203,8 @@ def evaluate_takeover_confirm(
         return TakeoverConfirmDecision(False, TakeoverConfirmFailure.APPROVAL_REQUIRED)
     if approval_required and approval_status is not TakeoverApprovalStatus.APPROVED:
         return TakeoverConfirmDecision(False, TakeoverConfirmFailure.APPROVAL_NOT_APPROVED)
+    if not repo_evidence:
+        return TakeoverConfirmDecision(False, TakeoverConfirmFailure.PUSHED_HEAD_REQUIRED)
     if any(repo.takeover_base_sha is None or not repo.takeover_base_sha.strip() for repo in repo_evidence):
         return TakeoverConfirmDecision(False, TakeoverConfirmFailure.PUSHED_HEAD_REQUIRED)
     return TakeoverConfirmDecision(True)

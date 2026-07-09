@@ -46,10 +46,10 @@ _EDGE_PUSH_OWNERSHIP_PATTERN = re.compile(
 
 # AG3-148: ownership-transfer challenge / confirm surfaces.
 _TAKEOVER_REQUEST_PATTERN = re.compile(
-    r"^/v1/project-edge/ownership/takeover-request$",
+    r"^/v1/project-edge/story-runs/(?P<run_id>[^/]+)/ownership/takeover-request$",
 )
 _TAKEOVER_CONFIRM_PATTERN = re.compile(
-    r"^/v1/project-edge/ownership/takeover-confirm$",
+    r"^/v1/project-edge/story-runs/(?P<run_id>[^/]+)/ownership/takeover-confirm$",
 )
 
 # Project-scoped paths under /v1/projects/{project_key}/<bc>/...

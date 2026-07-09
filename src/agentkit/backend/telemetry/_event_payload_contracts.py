@@ -155,6 +155,24 @@ def _build_mandatory_payload_fields_raw() -> Mapping[str, tuple[str, ...]]:
         ),
         "governance_incident_opened": ("risk_score", "event_count", "dominant_signals"),
         "governance_measure_applied": ("measure", "severity"),
+        # FK-91 §91.1a / formal.operating-modes.events — ownership-transfer facts.
+        "run_ownership_takeover_offered": (
+            "challenge_id",
+            "requesting_session_id",
+        ),
+        "run_ownership_takeover_approval_requested": (
+            "approval_id",
+            "requesting_session_id",
+            "status",
+            "reason",
+        ),
+        "session_run_binding_transferred": (
+            "previous_owner_session_id",
+            "new_owner_session_id",
+            "ownership_epoch",
+        ),
+        "session_disowned": ("previous_owner_session_id", "reason"),
+        "takeover_approval_changed": ("approval_id", "status", "topic"),
         # FK-68 §68.2.2 (Z. 397-399) — BC15 ARE / Requirements events.
         "are_requirements_linked": ("story_id", "requirement_count"),
         "are_evidence_submitted": ("story_id", "evidence_type"),

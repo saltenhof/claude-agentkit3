@@ -26,7 +26,7 @@ _PROJECT_TOKEN_MANAGEMENT = re.compile(
     r"^/v1/projects/[^/]+/api-tokens(?:/[^/]+)?$",
 )
 _OWNERSHIP_TRANSFER_PATH = re.compile(
-    r"^/v1/project-edge/ownership/takeover-(?:request|confirm)$",
+    r"^/v1/project-edge/story-runs/[^/]+/ownership/takeover-(?:request|confirm)$",
 )
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -99,7 +99,7 @@ class AuthMiddleware:
             return AuthResult(auth_kind="none")
 
         headers = _normalized_headers(request_headers)
-        project_key = _project_key_from_path(route_path)
+        project_key = _project_key_from_path(route_path) or headers.get("x-project-key")
         bearer = _bearer_token(headers)
         if bearer is not None:
             if project_key is None:

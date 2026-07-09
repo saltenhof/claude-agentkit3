@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from pathlib import Path
 
-    from agentkit.backend.auth.middleware import AuthMiddleware
+    from agentkit.backend.auth.middleware import AuthMiddleware, AuthResult
     from agentkit.backend.kpi_analytics.dashboard import DashboardService
     from agentkit.backend.story.service import StoryService
     from agentkit.backend.story_context_manager.http.routes import StoryContextRoutes
@@ -457,14 +457,22 @@ class ControlPlaneApplication(
         if route_path == "/healthz":
             return _handle_healthz(method, correlation_id)
 
-        middleware_block = self._run_middleware(
+        middleware_block, auth_result = self._run_middleware(
             method, route_path, request_headers, correlation_id
         )
         if middleware_block is not None:
             return middleware_block
 
         def _dispatch() -> HttpResponse:
-            return self._dispatch_method(method, route_path, query, body, correlation_id, request_headers)
+            return self._dispatch_method(
+                method,
+                route_path,
+                query,
+                body,
+                correlation_id,
+                request_headers,
+                auth_result,
+            )
 
         # Version handshake (FK-91 §91.1a Rule 11): after auth/tenant, before
         # routing. The middleware fails closed (426) for incompatible /
@@ -486,8 +494,9 @@ class ControlPlaneApplication(
         route_path: str,
         request_headers: Mapping[str, str] | None,
         correlation_id: str,
-    ) -> HttpResponse | None:
-        """Run auth and tenant-scope middleware; return a response to short-circuit or None."""
+    ) -> tuple[HttpResponse | None, AuthResult | None]:
+        """Run auth and tenant middleware; return any short-circuit plus auth context."""
+        authorized: AuthResult | None = None
         if self._auth_middleware is not None:
             auth_result = self._auth_middleware.authorize(
                 method=method,
@@ -496,7 +505,8 @@ class ControlPlaneApplication(
                 correlation_id=correlation_id,
             )
             if isinstance(auth_result, AuthMiddlewareResponse):
-                return _auth_middleware_response_to_http_response(auth_result)
+                return _auth_middleware_response_to_http_response(auth_result), None
+            authorized = auth_result
 
         # Tenant-scope middleware: validate project_key for all project-scoped paths.
         # Non-project endpoints (/v1/concepts, /v1/hub, /v1/events/hub, /v1/projects
@@ -508,8 +518,8 @@ class ControlPlaneApplication(
                 correlation_id=correlation_id,
             )
             if isinstance(tenant_result, HttpResponse):
-                return tenant_result
-        return None
+                return tenant_result, authorized
+        return None, authorized
 
     def _dispatch_method(
         self,
@@ -519,6 +529,7 @@ class ControlPlaneApplication(
         body: bytes,
         correlation_id: str,
         request_headers: Mapping[str, str] | None,
+        auth_result: AuthResult | None,
     ) -> HttpResponse:
         """Dispatch to the correct HTTP-method handler.
 
@@ -551,6 +562,7 @@ class ControlPlaneApplication(
             payload,
             correlation_id,
             request_headers,
+            auth_result,
         )
 
 
@@ -747,6 +759,7 @@ class ControlPlaneApplication(
         payload: object,
         correlation_id: str,
         request_headers: Mapping[str, str] | None,
+        auth_result: AuthResult | None,
     ) -> HttpResponse:
         # AG3-091 read-only endpoints already returned 405 in _dispatch_method
         # (before body decode); this handler only sees genuine mutation paths.
@@ -788,6 +801,7 @@ class ControlPlaneApplication(
             route_path,
             payload,
             correlation_id,
+            auth_result,
         )
         if project_edge_response is not None:
             return project_edge_response
@@ -853,12 +867,14 @@ class ControlPlaneApplication(
         route_path: str,
         payload: object,
         correlation_id: str,
+        auth_result: AuthResult | None,
     ) -> HttpResponse | None:
         takeover_response = dispatch_project_edge_takeover_post(
             route_path=route_path,
             payload=payload,
             correlation_id=correlation_id,
             runtime_service=self._runtime_service,
+            auth_result=auth_result,
         )
         if takeover_response is not None:
             return takeover_response

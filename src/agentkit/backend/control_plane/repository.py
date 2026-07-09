@@ -48,6 +48,7 @@ from agentkit.backend.state_backend.state_backend_connection_manager import (
 )
 from agentkit.backend.state_backend.story_closure_store import (
     list_push_freshness_records_global,
+    list_verified_push_barrier_verdicts_for_run_global,
 )
 from agentkit.backend.state_backend.story_lifecycle_store import (
     delete_session_run_binding_global,
@@ -71,7 +72,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
-    from agentkit.backend.control_plane.push_sync import PushFreshnessRecord
+    from agentkit.backend.control_plane.push_sync import PushBarrierVerdict, PushFreshnessRecord
     from agentkit.backend.control_plane.records import (
         BackendInstanceIdentityRecord,
         ControlPlaneOperationRecord,
@@ -248,6 +249,9 @@ class ControlPlaneRuntimeRepository:
     list_push_freshness: Callable[
         [str, str, str], tuple[PushFreshnessRecord, ...]
     ] = list_push_freshness_records_global
+    list_verified_push_barrier_verdicts_for_run: Callable[
+        [str, str, str], tuple[PushBarrierVerdict, ...]
+    ] = list_verified_push_barrier_verdicts_for_run_global
     commit_takeover_confirm: Callable[..., None] = commit_takeover_confirm_global
 
 
