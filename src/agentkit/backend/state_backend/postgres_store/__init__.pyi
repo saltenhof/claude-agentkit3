@@ -64,12 +64,6 @@ from ._constants import (
     _STORY_ID_FILTER as _STORY_ID_FILTER,
 )
 from ._control_plane_rows import (
-    _conditional_upsert_control_plane_op_row as _conditional_upsert_control_plane_op_row,
-)
-from ._control_plane_rows import (
-    _enforce_ownership_fence_row as _enforce_ownership_fence_row,
-)
-from ._control_plane_rows import (
     _insert_session_binding_row as _insert_session_binding_row,
 )
 from ._control_plane_rows import (
@@ -155,6 +149,12 @@ from ._json_projection import (
 )
 from ._json_projection import (
     load_json_safe as load_json_safe,
+)
+from ._mutation_commit_rows import (
+    _conditional_upsert_control_plane_op_row as _conditional_upsert_control_plane_op_row,
+)
+from ._mutation_commit_rows import (
+    _enforce_ownership_fence_row as _enforce_ownership_fence_row,
 )
 from ._ownership_rows import (
     _BACKEND_INSTANCE_IDENTITY_BOOT_LOCK_KEY as _BACKEND_INSTANCE_IDENTITY_BOOT_LOCK_KEY,

@@ -744,6 +744,29 @@ def test_build_structural_build_test_port_absent_ci_is_failclosed(
     assert port.evaluate(tmp_path) is None
 
 
+def test_build_control_plane_runtime_service_injects_push_barrier_factory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AG3-147/ARCH-26: default runtime wiring supplies the barrier factory."""
+    from agentkit.backend.bootstrap import composition_root as cr
+    from agentkit.backend.bootstrap import composition_verify
+
+    class _Evidence:
+        def collect_repo_inputs(self, **_kwargs: object) -> tuple[object, ...]:
+            return ()
+
+    evidence = _Evidence()
+    monkeypatch.setattr(
+        composition_verify,
+        "build_push_barrier_evidence",
+        lambda: evidence,
+    )
+
+    service = cr.build_control_plane_runtime_service()
+
+    assert service._resolve_push_barrier_evidence(require_wired=True) is evidence
+
+
 def test_build_structural_are_provider_activation() -> None:
     """FIX-1: the ARE provider reflects features.are and never silently disables."""
     from agentkit.backend.bootstrap.composition_root import build_structural_are_provider

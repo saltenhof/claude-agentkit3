@@ -13,6 +13,7 @@ _EXPORT_MODULES = (
     "._schema",
     "._story_project_rows",
     "._runtime_rows",
+    "._mutation_commit_rows",
     "._ownership_rows",
     "._control_plane_rows",
     "._qa_artifact_rows",

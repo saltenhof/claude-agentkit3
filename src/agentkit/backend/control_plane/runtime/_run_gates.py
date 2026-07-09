@@ -58,7 +58,7 @@ class _RunGateMixin:
     if TYPE_CHECKING:
         _repo: ControlPlaneRuntimeRepository
         _push_barrier_evidence: PushBarrierEvidencePort | None
-        _uses_default_store: bool
+        _push_barrier_evidence_factory: Callable[[], PushBarrierEvidencePort] | None
         _edge_command_repo: EdgeCommandRepository
         _now_fn: Callable[[], datetime]
 
@@ -75,28 +75,24 @@ class _RunGateMixin:
     def _resolve_push_barrier_evidence(self, *, require_wired: bool) -> PushBarrierEvidencePort | None:
         """Return the wired two-stage push-barrier evidence port.
 
-        Mirrors :meth:`_require_postgres_backend_on_first_use`: an explicitly
-        injected port wins; the PRODUCTIVE default store lazily builds the real
-        Postgres+code-backend port on first use (barrier fail-closed enforced).
-        A DI-injected repository WITHOUT an explicit port is a wiring error at a
-        push-gated boundary. Legacy custom-repository unit fixtures with no
-        participating repos are not push-gated boundaries.
+        An explicitly injected port wins. Otherwise a composition-root injected
+        factory lazily builds the real Postgres+code-backend port on first use
+        (barrier fail-closed enforced). A DI-injected repository WITHOUT an
+        explicit port/factory is a wiring error at a push-gated boundary. Legacy
+        custom-repository unit fixtures with no participating repos are not
+        push-gated boundaries.
         """
         if self._push_barrier_evidence is not None:
             return self._push_barrier_evidence
-        if self._uses_default_store:
-            from agentkit.backend.bootstrap.composition_root import (
-                build_push_barrier_evidence,
-            )
-
-            self._push_barrier_evidence = build_push_barrier_evidence()
+        if self._push_barrier_evidence_factory is not None:
+            self._push_barrier_evidence = self._push_barrier_evidence_factory()
             return self._push_barrier_evidence
         if not require_wired:
             return None
         raise AssertionError(
-            "push_barrier_evidence must be injected with a custom control-plane "
-            "repository; otherwise push-gated boundaries would silently skip the "
-            "AG3-147 barrier"
+            "push_barrier_evidence or push_barrier_evidence_factory must be "
+            "injected before a push-gated control-plane boundary; otherwise the "
+            "AG3-147 barrier would be skipped"
         )
 
     def _push_barrier_block(

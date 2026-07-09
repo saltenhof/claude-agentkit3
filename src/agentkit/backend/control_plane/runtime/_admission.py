@@ -104,6 +104,7 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin, ABC):
         instance_identity: BackendInstanceIdentityRecord | None = None,
         execution_contract_digest_reader: (Callable[[PhaseMutationRequest, str], ExecutionContractDigestOutcome] | None) = None,
         push_barrier_evidence: PushBarrierEvidencePort | None = None,
+        push_barrier_evidence_factory: Callable[[], PushBarrierEvidencePort] | None = None,
     ) -> None:
         #: ERROR-3 fix (#3): whether this service uses the PRODUCTIVE default
         #: control-plane store (Postgres-only by design). When ``True`` every
@@ -136,14 +137,14 @@ class _ControlPlaneRuntimeAdmissionBase(_RunGateMixin, _ClaimMixin, ABC):
         #: helper to keep this constructor's LOC budget, PY_CLASS_MAX_LOC_800).
         self._edge_command_repo = _resolve_edge_command_repository(edge_command_repository, repository)
         #: AG3-147 (FK-10 §10.2.4b): the two-stage push-barrier evidence DI seam
-        #: (Edge freshness ∧ server ref-read). ``None`` here means "not explicitly
-        #: wired": on the PRODUCTIVE default store it is lazily resolved to the
-        #: real Postgres+code-backend port (:meth:`_resolve_push_barrier_evidence`)
-        #: so the barrier is fail-closed enforced; a DI-injected ``repository``
-        #: (test / alternative wiring) without an explicit port leaves the barrier
-        #: UNWIRED (the gate no-ops) -- barrier tests inject an explicit port with
-        #: prepared evidence, exactly like ``edge_command_repository``.
+        #: (Edge freshness ∧ server ref-read). An injected port wins; otherwise
+        #: the composition root injects a factory for the PRODUCTIVE default store
+        #: so the barrier lazily resolves the real Postgres+code-backend port
+        #: without runtime importing bootstrap. A DI-injected ``repository`` (test
+        #: / alternative wiring) without an explicit port/factory is UNWIRED for
+        #: non-push-gated boundaries and a hard wiring error for push-gated ones.
         self._push_barrier_evidence = push_barrier_evidence
+        self._push_barrier_evidence_factory = push_barrier_evidence_factory
         #: AG3-143 (K5 Postgres-only, FK-44 §44.3a): the execution-contract-
         #: digest reader for a genuinely fresh setup start. Mirrors
         #: ``object_claim_repository``: a DI-injected ``repository`` OR an

@@ -3,13 +3,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
 
     from agentkit.backend.auth.http.routes import AuthRoutes
     from agentkit.backend.auth.middleware import AuthMiddleware
     from agentkit.backend.concept_catalog.http.routes import ConceptCatalogRoutes
+    from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
     from agentkit.backend.execution_planning.http.routes import ExecutionPlanningRoutes
     from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
     from agentkit.backend.project_management.http.routes import ProjectManagementRoutes
@@ -30,6 +31,15 @@ def _build_default_story_service() -> StoryService:
     from agentkit.backend.bootstrap.composition_root import build_story_read_service
 
     return build_story_read_service()
+
+
+def _build_default_runtime_service() -> ControlPlaneRuntimeService:
+    """Build the productive control-plane runtime through the composition root."""
+    from agentkit.backend.bootstrap.composition_root import (
+        build_control_plane_runtime_service,
+    )
+
+    return cast("ControlPlaneRuntimeService", build_control_plane_runtime_service())
 
 
 def _build_default_project_routes() -> ProjectManagementRoutes:

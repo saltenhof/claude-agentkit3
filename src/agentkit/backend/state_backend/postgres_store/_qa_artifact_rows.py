@@ -29,13 +29,13 @@ from ._connection import (
     _database_label,
 )
 from ._constants import _PROJECT_KEY_FILTER, _RUN_ID_FILTER, _STORY_ID_FILTER
-from ._control_plane_rows import _enforce_ownership_fence_row
 from ._json_projection import (
     _cast_json_record,
     _dump_json,
     _JsonRecord,
     _write_projection,
 )
+from ._mutation_commit_rows import _enforce_ownership_fence_row
 from ._runtime_rows import load_flow_execution_row
 from ._story_project_rows import (
     _artifact_id_for,

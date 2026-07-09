@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from agentkit.backend.bootstrap import composition_closure_types as closure_types
     from agentkit.backend.bootstrap import composition_project_types as project_types
     from agentkit.backend.bootstrap import composition_verify_types as verify_types
+    from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
 
 
 def build_verify_system(
@@ -938,6 +939,15 @@ class _StateBackedQaCycleFingerprintSource:
 def build_qa_cycle_push_barrier_gate() -> verify_types.QaCyclePushBarrierGate:
     """Wire the productive QA-cycle-boundary push-barrier gate (AG3-147, AC2)."""
     return _ControlPlaneQaCyclePushBarrierGate()
+
+
+def build_control_plane_runtime_service() -> ControlPlaneRuntimeService:
+    """Wire the productive control-plane runtime service."""
+    from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
+
+    return ControlPlaneRuntimeService(
+        push_barrier_evidence_factory=build_push_barrier_evidence,
+    )
 
 
 def build_push_barrier_evidence() -> verify_types.PushBarrierEvidencePort:

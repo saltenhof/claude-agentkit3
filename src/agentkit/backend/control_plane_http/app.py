@@ -54,6 +54,7 @@ from agentkit.backend.control_plane_http.default_routes import (
     _build_default_planning_routes,
     _build_default_project_routes,
     _build_default_read_model_routes,
+    _build_default_runtime_service,
     _build_default_story_routes,
     _build_default_story_service,
     _build_default_task_management_routes,
@@ -323,7 +324,7 @@ class ControlPlaneApplication(
         self._worker_health_service = (
             worker_health_service or ControlPlaneWorkerHealthService()
         )
-        self._runtime_service = runtime_service or ControlPlaneRuntimeService()
+        self._runtime_service = runtime_service or _build_default_runtime_service()
         self._story_service = story_service or _build_default_story_service()
         self._dashboard_service = self._resolve_dashboard_service(dashboard_service)
         self._auth_middleware = auth_middleware

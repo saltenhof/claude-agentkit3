@@ -11,6 +11,10 @@ from agentkit.backend.exceptions import (
 from ._connection import (
     _connect_global,
 )
+from ._mutation_commit_rows import (
+    _conditional_upsert_control_plane_op_row,
+    _enforce_ownership_fence_row,
+)
 
 if TYPE_CHECKING:
     from ._compat import _CompatConnection
@@ -367,11 +371,6 @@ def commit_edge_command_result_global_row(
         EdgeCommandNotOpenError: When ``command_id`` is unknown or already
             terminal (double-completion) -- nothing committed.
     """
-
-    from ._control_plane_rows import (
-        _conditional_upsert_control_plane_op_row,
-        _enforce_ownership_fence_row,
-    )
 
     with _connect_global() as conn:
         _conditional_upsert_control_plane_op_row(conn, op_row)

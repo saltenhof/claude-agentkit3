@@ -656,6 +656,7 @@ def _story_context(
     mode: WireStoryMode,
     story_type: StoryType = StoryType.IMPLEMENTATION,
     project_root: Path | None = None,
+    participating_repos: list[str] | None = None,
 ) -> StoryContext:
     return StoryContext(
         project_key=project_key,
@@ -664,6 +665,7 @@ def _story_context(
         execution_route=StoryMode.EXECUTION,
         mode=mode,
         project_root=project_root,
+        participating_repos=participating_repos or [],
     )
 
 
@@ -4031,6 +4033,49 @@ def test_di_service_binds_a_deterministic_identity_without_explicit_injection() 
     identity = service._current_instance_identity()
     assert identity.backend_instance_id.strip()
     assert identity.instance_incarnation >= 1
+
+
+def test_custom_repository_without_push_barrier_port_fails_closed_for_push_gated_story() -> None:
+    """AG3-147/ARCH-26: custom repository wiring must not skip the push barrier."""
+    state = _RepoState()
+    ctx = _story_context(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        mode=WireStoryMode.STANDARD,
+        project_root=Path("T:/projects/tenant-a"),
+        participating_repos=["api"],
+    )
+    state.story_contexts[("tenant-a", "AG3-100")] = ctx
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    with pytest.raises(AssertionError, match="push_barrier_evidence"):
+        service._collect_push_barrier_inputs(
+            project_key="tenant-a",
+            story_id="AG3-100",
+            run_id="run-100",
+        )
+
+
+def test_injected_push_barrier_factory_is_used_and_memoized() -> None:
+    """AG3-147/ARCH-26: the runtime consumes a DI factory, not bootstrap lookup."""
+
+    class _Evidence:
+        def collect_repo_inputs(self, **_kwargs: object) -> tuple[object, ...]:
+            return ()
+
+    evidence = _Evidence()
+    calls = 0
+
+    def _factory() -> _Evidence:
+        nonlocal calls
+        calls += 1
+        return evidence
+
+    service = ControlPlaneRuntimeService(push_barrier_evidence_factory=_factory)
+
+    assert service._resolve_push_barrier_evidence(require_wired=True) is evidence
+    assert service._resolve_push_barrier_evidence(require_wired=True) is evidence
+    assert calls == 1
 
 
 # ---------------------------------------------------------------------------
