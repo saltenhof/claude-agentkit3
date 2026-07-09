@@ -852,8 +852,8 @@ def save_takeover_transfer_record_global_row(row: dict[str, Any]) -> None:
             INSERT INTO takeover_transfer_records (
                 project_key, story_id, run_id, ownership_epoch, repo_id,
                 takeover_base_sha, last_push_at, push_lag_hint, base_quality,
-                challenge_ref, confirm_ref
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                challenge_ref, confirm_ref, reconciled_at, reconcile_ref
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (project_key, story_id, run_id, ownership_epoch, repo_id)
             DO UPDATE SET
                 takeover_base_sha = EXCLUDED.takeover_base_sha,
@@ -861,7 +861,9 @@ def save_takeover_transfer_record_global_row(row: dict[str, Any]) -> None:
                 push_lag_hint = EXCLUDED.push_lag_hint,
                 base_quality = EXCLUDED.base_quality,
                 challenge_ref = EXCLUDED.challenge_ref,
-                confirm_ref = EXCLUDED.confirm_ref
+                confirm_ref = EXCLUDED.confirm_ref,
+                reconciled_at = EXCLUDED.reconciled_at,
+                reconcile_ref = EXCLUDED.reconcile_ref
             """,
             (
                 row["project_key"],
@@ -875,6 +877,8 @@ def save_takeover_transfer_record_global_row(row: dict[str, Any]) -> None:
                 row.get("base_quality"),
                 row.get("challenge_ref"),
                 row.get("confirm_ref"),
+                row.get("reconciled_at"),
+                row.get("reconcile_ref"),
             ),
         )
 
@@ -900,6 +904,75 @@ def load_takeover_transfer_record_global_row(
     if row is None:
         return None
     return dict(row)
+
+
+def list_takeover_transfer_records_for_story_global_row(
+    project_key: str,
+    story_id: str,
+) -> list[dict[str, Any]]:
+    """Return takeover-transfer rows for one story, newest epoch first."""
+
+    with _connect_global() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM takeover_transfer_records
+            WHERE project_key = ? AND story_id = ?
+            ORDER BY ownership_epoch DESC, repo_id
+            """,
+            (project_key, story_id),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def insert_takeover_challenge_global_row(row: dict[str, Any]) -> None:
+    """Strictly insert one server-minted takeover challenge."""
+
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            INSERT INTO takeover_challenges (
+                challenge_id, request_op_id, project_key, story_id, run_id,
+                requesting_session_id, requesting_principal_type, reason,
+                owner_session_id, ownership_epoch, binding_version, phase_status,
+                issued_at, expires_at, repos_json, open_operation_ids_json,
+                takeover_history_refs_json, status, decided_at, terminal_op_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            _takeover_challenge_params(row),
+        )
+
+
+def load_takeover_challenge_global_row(challenge_id: str) -> dict[str, Any] | None:
+    """Return one takeover challenge row, or None."""
+
+    with _connect_global() as conn:
+        row = conn.execute(
+            "SELECT * FROM takeover_challenges WHERE challenge_id = ?",
+            (challenge_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def update_takeover_challenge_status_global_row(row: dict[str, Any]) -> bool:
+    """Terminalize a pending challenge only."""
+
+    with _connect_global() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE takeover_challenges
+            SET status = ?, decided_at = ?, terminal_op_id = ?
+            WHERE challenge_id = ? AND status = 'pending'
+            """,
+            (
+                row["status"],
+                row["decided_at"],
+                row["terminal_op_id"],
+                row["challenge_id"],
+            ),
+        )
+        return int(cursor.rowcount) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -947,6 +1020,7 @@ def update_takeover_approval_status_global_row(row: dict[str, Any]) -> bool:
             SET status = ?, decided_at = ?, decided_by_session_id = ?,
                 decision_reason = ?
             WHERE approval_id = ?
+              AND status = 'pending'
             """,
             (
                 row["status"],
@@ -1039,6 +1113,33 @@ def _takeover_approval_params(row: dict[str, Any]) -> tuple[object, ...]:
         row["decided_at"],
         row["decided_by_session_id"],
         row["decision_reason"],
+    )
+
+
+def _takeover_challenge_params(row: dict[str, Any]) -> tuple[object, ...]:
+    """Return DB parameter order for a takeover challenge row."""
+
+    return (
+        row["challenge_id"],
+        row["request_op_id"],
+        row["project_key"],
+        row["story_id"],
+        row["run_id"],
+        row["requesting_session_id"],
+        row["requesting_principal_type"],
+        row["reason"],
+        row["owner_session_id"],
+        row["ownership_epoch"],
+        row["binding_version"],
+        row["phase_status"],
+        row["issued_at"],
+        row["expires_at"],
+        row["repos_json"],
+        row["open_operation_ids_json"],
+        row["takeover_history_refs_json"],
+        row["status"],
+        row["decided_at"],
+        row["terminal_op_id"],
     )
 
 

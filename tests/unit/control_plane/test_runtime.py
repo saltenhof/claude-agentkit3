@@ -35,6 +35,9 @@ from agentkit.backend.control_plane.records import (
     ControlPlaneOperationRecord,
     RunOwnershipRecord,
     SessionRunBindingRecord,
+    TakeoverChallengeRecord,
+    TakeoverChallengeRepoRecord,
+    TakeoverConfirmTerminalRecords,
     TakeoverTransferRecord,
 )
 from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
@@ -96,7 +99,7 @@ class _RepoState:
             tuple[str, str, str], tuple[PushBarrierVerdict, ...]
         ] = {}
         self.takeover_transfers: list[TakeoverTransferRecord] = []
-        self.story_blockers: dict[tuple[str, str], str] = {}
+        self.takeover_challenges: dict[str, TakeoverChallengeRecord] = {}
 
     def load_active_ownership(
         self, project_key: str, story_id: str
@@ -323,9 +326,8 @@ class _FakeOps:
         locks: tuple[StoryExecutionLockRecord, ...],
         transfers: tuple[TakeoverTransferRecord, ...],
         events: tuple[ExecutionEventRecord, ...],
-        approved_approval: object | None = None,
+        terminal_records: TakeoverConfirmTerminalRecords,
     ) -> None:
-        del approved_approval
         active = self._state.load_active_ownership(record.project_key, record.story_id)
         owner_binding = self._state.bindings.get(expected_owner_session_id)
         if (
@@ -361,6 +363,24 @@ class _FakeOps:
             audit_ref=record.op_id,
         )
         self._state.operations[record.op_id] = record
+        self._state.operations[terminal_records.request_op_record.op_id] = (
+            terminal_records.request_op_record
+        )
+        if terminal_records.challenge_to_insert is not None:
+            self._state.takeover_challenges[
+                terminal_records.challenge_to_insert.challenge_id
+            ] = (
+                terminal_records.challenge_to_insert
+            )
+        if terminal_records.challenge_to_expire is not None:
+            self._state.takeover_challenges[
+                terminal_records.challenge_to_expire.challenge_id
+            ] = (
+                terminal_records.challenge_to_expire
+            )
+        self._state.takeover_challenges[terminal_records.challenge.challenge_id] = (
+            terminal_records.challenge
+        )
         self._state.bindings[revoked_binding.session_id] = revoked_binding
         self._state.bindings[new_binding.session_id] = new_binding
         for lock in locks:
@@ -368,9 +388,21 @@ class _FakeOps:
                 (lock.project_key, lock.story_id, lock.run_id, lock.lock_type)
             ] = lock
         self._state.takeover_transfers.extend(transfers)
-        self._state.story_blockers[(record.project_key, record.story_id)] = (
-            "takeover_reconcile_required"
-        )
+        self._state.events.extend(events)
+
+    def commit_takeover_expiry(
+        self,
+        record: ControlPlaneOperationRecord,
+        *,
+        request_op_record: ControlPlaneOperationRecord,
+        challenge: TakeoverChallengeRecord,
+        expired_approval: object | None,
+        events: tuple[ExecutionEventRecord, ...],
+    ) -> None:
+        del expired_approval
+        self._state.operations[record.op_id] = record
+        self._state.operations[request_op_record.op_id] = request_op_record
+        self._state.takeover_challenges[challenge.challenge_id] = challenge
         self._state.events.extend(events)
 
     def release(
@@ -561,11 +593,21 @@ class _FakeOps:
         return write_at is not None and write_at >= since
 
     def has_open_repair_for_story(self, project_key: str, story_id: str) -> bool:
-        return any(
+        if any(
             op.status == "repair"
             and op.project_key == project_key
             and op.story_id == story_id
             for op in self._state.operations.values()
+        ):
+            return True
+        active = self._state.load_active_ownership(project_key, story_id)
+        return active is not None and any(
+            transfer.project_key == project_key
+            and transfer.story_id == story_id
+            and transfer.run_id == active.run_id
+            and transfer.ownership_epoch == active.ownership_epoch
+            and transfer.reconciled_at is None
+            for transfer in self._state.takeover_transfers
         )
 
 
@@ -735,6 +777,24 @@ def _repository(state: _RepoState) -> ControlPlaneRuntimeRepository:
             (),
         ),
         commit_takeover_confirm=ops.commit_takeover_confirm,
+        commit_takeover_expiry=ops.commit_takeover_expiry,
+        load_takeover_challenge=state.takeover_challenges.get,
+        insert_takeover_challenge=lambda record: state.takeover_challenges.__setitem__(
+            record.challenge_id,
+            record,
+        ),
+        list_takeover_history=lambda project_key, story_id: tuple(
+            transfer
+            for transfer in state.takeover_transfers
+            if transfer.project_key == project_key and transfer.story_id == story_id
+        ),
+        list_open_operation_ids_for_story=lambda project_key, story_id: tuple(
+            op.op_id
+            for op in state.operations.values()
+            if op.project_key == project_key
+            and op.story_id == story_id
+            and op.status in {"claimed", "pending_human_approval", "offered", "repair"}
+        ),
     )
 
 
@@ -894,12 +954,63 @@ def _takeover_confirm_request(
         reason="previous owner is unavailable",
         worktree_roots=["T:/worktrees/ag3-100-b"],
         challenge_echo=TakeoverChallengeEcho(
-            challenge_id="takeover-op-request",
+            challenge_id="challenge-op-request",
             owner_session_id="sess-001",
             ownership_epoch=1,
             binding_version="1",
             expires_at=challenge_expires_at,
         ),
+    )
+
+
+def _seed_takeover_challenge(
+    state: _RepoState,
+    *,
+    expires_at: datetime = datetime(2099, 4, 22, 10, 20, tzinfo=UTC),
+) -> None:
+    issued_at = min(
+        datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
+        expires_at - timedelta(minutes=15),
+    )
+    state.operations["op-request"] = ControlPlaneOperationRecord(
+        op_id="op-request",
+        project_key="tenant-a",
+        story_id="AG3-100",
+        run_id="run-100",
+        session_id="sess-agent",
+        operation_kind="ownership_takeover_request",
+        phase="ownership",
+        status="offered",
+        response_payload={"status": "offered", "op_id": "op-request"},
+        created_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
+    )
+    state.takeover_challenges["challenge-op-request"] = TakeoverChallengeRecord(
+        challenge_id="challenge-op-request",
+        request_op_id="op-request",
+        project_key="tenant-a",
+        story_id="AG3-100",
+        run_id="run-100",
+        requesting_session_id="sess-agent",
+        requesting_principal_type="interactive_agent",
+        reason="previous owner is unavailable",
+        owner_session_id="sess-001",
+        ownership_epoch=1,
+        binding_version="1",
+        phase_status="ACTIVE",
+        issued_at=issued_at,
+        expires_at=expires_at,
+        repos=(
+            TakeoverChallengeRepoRecord(
+                repo_id="backend",
+                takeover_base_sha="abc123",
+                last_push_at=datetime(2026, 4, 22, 10, 5, tzinfo=UTC),
+                push_lag_hint=None,
+                base_quality="pushed",
+            ),
+        ),
+        open_operation_ids=(),
+        takeover_history_refs=(),
     )
 
 
@@ -944,6 +1055,7 @@ def test_takeover_confirm_commits_cas_transfer_and_mandated_events() -> None:
     state.push_barrier_verdicts[("tenant-a", "AG3-100", "run-100")] = (
         _push_barrier_verdict(repo_id="backend", expected_head_sha="abc123"),
     )
+    _seed_takeover_challenge(state)
     service = ControlPlaneRuntimeService(repository=_repository(state))
 
     result = service.confirm_ownership_takeover(request=_takeover_confirm_request())
@@ -962,7 +1074,7 @@ def test_takeover_confirm_commits_cas_transfer_and_mandated_events() -> None:
     )
     assert len(state.takeover_transfers) == 1
     assert state.takeover_transfers[0].takeover_base_sha == "abc123"
-    assert state.story_blockers[("tenant-a", "AG3-100")] == "takeover_reconcile_required"
+    assert state.takeover_transfers[0].reconciled_at is None
     assert [event.event_type for event in state.events] == [
         "session_run_binding_transferred",
         "session_disowned",
@@ -975,6 +1087,7 @@ def test_takeover_confirm_requires_pushed_head_and_writes_nothing() -> None:
     state.push_freshness[("tenant-a", "AG3-100", "run-100")] = (
         _push_freshness(repo_id="backend", pushed_sha=None),
     )
+    _seed_takeover_challenge(state)
     service = ControlPlaneRuntimeService(repository=_repository(state))
 
     result = service.confirm_ownership_takeover(
@@ -994,6 +1107,7 @@ def test_takeover_confirm_requires_pushed_head_and_writes_nothing() -> None:
 def test_takeover_confirm_rejects_empty_push_evidence_and_writes_nothing() -> None:
     state = _RepoState()
     _seed_admitted_run(state, run_id="run-100", session_id="sess-001")
+    _seed_takeover_challenge(state)
     service = ControlPlaneRuntimeService(repository=_repository(state))
 
     result = service.confirm_ownership_takeover(
@@ -1019,6 +1133,7 @@ def test_takeover_confirm_rejects_mismatched_barrier_head_and_writes_nothing() -
     state.push_barrier_verdicts[("tenant-a", "AG3-100", "run-100")] = (
         _push_barrier_verdict(repo_id="backend", expected_head_sha="def456"),
     )
+    _seed_takeover_challenge(state)
     service = ControlPlaneRuntimeService(repository=_repository(state))
 
     result = service.confirm_ownership_takeover(
@@ -1044,6 +1159,10 @@ def test_takeover_confirm_rejects_expired_challenge_and_writes_nothing() -> None
     state.push_barrier_verdicts[("tenant-a", "AG3-100", "run-100")] = (
         _push_barrier_verdict(repo_id="backend", expected_head_sha="abc123"),
     )
+    _seed_takeover_challenge(
+        state,
+        expires_at=datetime(2026, 4, 22, 9, 59, tzinfo=UTC),
+    )
     service = ControlPlaneRuntimeService(repository=_repository(state))
 
     result = service.confirm_ownership_takeover(
@@ -1060,6 +1179,9 @@ def test_takeover_confirm_rejects_expired_challenge_and_writes_nothing() -> None
     assert active.owner_session_id == "sess-001"
     assert "sess-B" not in state.bindings
     assert state.takeover_transfers == []
+    assert state.operations["op-takeover-expired"].status == "rejected"
+    assert state.operations["op-request"].status == "expired"
+    assert state.takeover_challenges["challenge-op-request"].status == "expired"
     assert state.events == []
 
 

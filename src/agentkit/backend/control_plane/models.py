@@ -727,7 +727,9 @@ _NO_EDGE_BUNDLE_STATUSES = frozenset(
         "resolved",
         "offered",
         "pending_human_approval",
+        "approved",
         "denied",
+        "expired",
     }
 )
 
@@ -780,7 +782,9 @@ class ControlPlaneMutationResult(BaseModel):
         "resolved",
         "offered",
         "pending_human_approval",
+        "approved",
         "denied",
+        "expired",
     ]
     op_id: str
     operation_kind: str

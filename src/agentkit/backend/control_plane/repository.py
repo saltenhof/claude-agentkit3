@@ -24,6 +24,7 @@ from agentkit.backend.state_backend.operation_ledger import (
     commit_edge_command_result_global,
     commit_takeover_confirm_global,
     commit_takeover_deny_global,
+    commit_takeover_expiry_global,
     delete_control_plane_operation_global,
     delete_object_mutation_claim_global,
     finalize_control_plane_operation_global,
@@ -34,6 +35,7 @@ from agentkit.backend.state_backend.operation_ledger import (
     has_engine_writes_since_control_plane_claim_global,
     has_open_repair_control_plane_operation_for_story_global,
     insert_object_mutation_claim_global,
+    list_open_control_plane_operation_ids_for_story_global,
     list_orphaned_claimed_control_plane_operations_global,
     list_orphaned_object_mutation_claims_global,
     load_control_plane_operation_global,
@@ -55,15 +57,19 @@ from agentkit.backend.state_backend.story_lifecycle_store import (
     delete_session_run_binding_global,
     insert_run_ownership_record_global,
     insert_takeover_approval_global,
+    insert_takeover_challenge_global,
     list_pending_takeover_approvals_global,
+    list_takeover_transfer_records_for_story_global,
     load_active_run_ownership_record_global,
     load_run_ownership_record_global,
     load_session_run_binding_global,
     load_takeover_approval_global,
+    load_takeover_challenge_global,
     load_takeover_transfer_record_global,
     save_session_run_binding_global,
     save_takeover_transfer_record_global,
     update_takeover_approval_status_global,
+    update_takeover_challenge_status_global,
 )
 from agentkit.backend.state_backend.telemetry_event_store import (
     append_execution_event_global,
@@ -82,6 +88,7 @@ if TYPE_CHECKING:
         RunOwnershipRecord,
         SessionRunBindingRecord,
         TakeoverApprovalRecord,
+        TakeoverChallengeRecord,
         TakeoverTransferRecord,
     )
     from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
@@ -255,6 +262,22 @@ class ControlPlaneRuntimeRepository:
     ] = list_verified_push_barrier_verdicts_for_run_global
     commit_takeover_confirm: Callable[..., None] = commit_takeover_confirm_global
     commit_takeover_deny: Callable[..., None] = commit_takeover_deny_global
+    commit_takeover_expiry: Callable[..., None] = commit_takeover_expiry_global
+    load_takeover_challenge: Callable[[str], TakeoverChallengeRecord | None] = (
+        load_takeover_challenge_global
+    )
+    insert_takeover_challenge: Callable[[TakeoverChallengeRecord], None] = (
+        insert_takeover_challenge_global
+    )
+    update_takeover_challenge_status: Callable[[TakeoverChallengeRecord], bool] = (
+        update_takeover_challenge_status_global
+    )
+    list_takeover_history: Callable[[str, str], tuple[TakeoverTransferRecord, ...]] = (
+        list_takeover_transfer_records_for_story_global
+    )
+    list_open_operation_ids_for_story: Callable[[str, str], tuple[str, ...]] = (
+        list_open_control_plane_operation_ids_for_story_global
+    )
 
 
 @dataclass(frozen=True)

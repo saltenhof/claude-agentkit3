@@ -20,6 +20,7 @@ def _record(
     event_id: str = "evt-1",
     event_type: str = "agent_start",
     topic: str | None = None,
+    phase: str | None = None,
 ) -> ExecutionEventRecord:
     return ExecutionEventRecord(
         project_key=project_key,
@@ -30,6 +31,7 @@ def _record(
         occurred_at=datetime(2026, 5, 4, 10, 0, tzinfo=UTC),
         source_component="telemetry",
         severity="info",
+        phase=phase,
         payload=({"topic": topic} if topic is not None else {}),
     )
 
@@ -40,6 +42,14 @@ def test_project_event_to_sse_uses_payload_topic() -> None:
     assert envelope.event == "stories"
     assert envelope.data["project_key"] == "tenant-a"
     assert envelope.data["event_id"] == "evt-1"
+
+
+def test_takeover_approval_changed_routes_to_governance_before_phase() -> None:
+    envelope = project_event_to_sse(
+        _record(event_type="takeover_approval_changed", phase="ownership")
+    )
+
+    assert envelope.event == "governance"
 
 
 def test_render_project_snapshot_filters_topics_and_adds_heartbeat() -> None:

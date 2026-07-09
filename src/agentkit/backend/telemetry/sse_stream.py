@@ -162,14 +162,14 @@ def _topic_for_record(record: ExecutionEventRecord) -> ProjectSseTopic:
     payload_topic = record.payload.get("topic")
     if isinstance(payload_topic, str) and payload_topic in PROJECT_SSE_TOPICS:
         return payload_topic
-    if record.phase is not None:
-        return "phases"
     if record.event_type in {
         "integrity_violation",
         "edge_operation_reconciled",
         "takeover_approval_changed",
     }:
         return "governance"
+    if record.phase is not None:
+        return "phases"
     if record.event_type.startswith("story_"):
         return "stories"
     return "telemetry"

@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         RunOwnershipRecord,
         SessionRunBindingRecord,
         TakeoverApprovalRecord,
+        TakeoverChallengeRecord,
         TakeoverTransferRecord,
     )
     from agentkit.backend.state_backend.backend_instance_identity_types import BackendInstanceIdentityRecord
@@ -256,6 +257,12 @@ def takeover_transfer_to_row(record: TakeoverTransferRecord) -> dict[str, Any]:
         "base_quality": record.base_quality,
         "challenge_ref": record.challenge_ref,
         "confirm_ref": record.confirm_ref,
+        "reconciled_at": (
+            record.reconciled_at.isoformat()
+            if record.reconciled_at is not None
+            else None
+        ),
+        "reconcile_ref": record.reconcile_ref,
     }
 
 
@@ -279,6 +286,118 @@ def takeover_transfer_row_to_record(row: dict[str, Any]) -> TakeoverTransferReco
         base_quality=_optional_str(row.get("base_quality")),
         challenge_ref=_optional_str(row.get("challenge_ref")),
         confirm_ref=_optional_str(row.get("confirm_ref")),
+        reconciled_at=_optional_iso_datetime(row.get("reconciled_at")),
+        reconcile_ref=_optional_str(row.get("reconcile_ref")),
+    )
+
+
+def takeover_challenge_to_row(record: TakeoverChallengeRecord) -> dict[str, Any]:
+    """Convert a ``TakeoverChallengeRecord`` to a DB row dict."""
+
+    return {
+        "challenge_id": record.challenge_id,
+        "request_op_id": record.request_op_id,
+        "project_key": record.project_key,
+        "story_id": record.story_id,
+        "run_id": record.run_id,
+        "requesting_session_id": record.requesting_session_id,
+        "requesting_principal_type": record.requesting_principal_type,
+        "reason": record.reason,
+        "owner_session_id": record.owner_session_id,
+        "ownership_epoch": record.ownership_epoch,
+        "binding_version": record.binding_version,
+        "phase_status": record.phase_status,
+        "issued_at": record.issued_at.isoformat(),
+        "expires_at": record.expires_at.isoformat(),
+        "repos_json": dump_json(
+            [
+                {
+                    "repo_id": repo.repo_id,
+                    "takeover_base_sha": repo.takeover_base_sha,
+                    "last_push_at": (
+                        repo.last_push_at.isoformat()
+                        if repo.last_push_at is not None
+                        else None
+                    ),
+                    "push_lag_hint": repo.push_lag_hint,
+                    "base_quality": repo.base_quality,
+                }
+                for repo in record.repos
+            ]
+        ),
+        "open_operation_ids_json": dump_json(list(record.open_operation_ids)),
+        "takeover_history_refs_json": dump_json(list(record.takeover_history_refs)),
+        "status": record.status,
+        "decided_at": (
+            record.decided_at.isoformat() if record.decided_at is not None else None
+        ),
+        "terminal_op_id": record.terminal_op_id,
+    }
+
+
+def _load_json_value(value: Any, default: Any) -> Any:
+    """Load JSON stored either as a string or as a native JSONB value."""
+
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return load_json(value, default)
+    return value
+
+
+def takeover_challenge_row_to_record(row: dict[str, Any]) -> TakeoverChallengeRecord:
+    """Convert a DB row dict to a ``TakeoverChallengeRecord``."""
+
+    from agentkit.backend.control_plane.records import (
+        TakeoverChallengeRecord as _TakeoverChallengeRecord,
+    )
+    from agentkit.backend.control_plane.records import (
+        TakeoverChallengeRepoRecord as _TakeoverChallengeRepoRecord,
+    )
+
+    raw_repos = _load_json_value(row.get("repos_json"), [])
+    if not isinstance(raw_repos, list):
+        raise ValueError("takeover_challenges.repos_json must be a list")
+    raw_open_ops = _load_json_value(row.get("open_operation_ids_json"), [])
+    if not isinstance(raw_open_ops, list):
+        raise ValueError("takeover_challenges.open_operation_ids_json must be a list")
+    raw_history = _load_json_value(row.get("takeover_history_refs_json"), [])
+    if not isinstance(raw_history, list):
+        raise ValueError("takeover_challenges.takeover_history_refs_json must be a list")
+    repos = tuple(
+        _TakeoverChallengeRepoRecord(
+            repo_id=str(repo["repo_id"]),
+            takeover_base_sha=_optional_str(repo.get("takeover_base_sha")),
+            last_push_at=_optional_iso_datetime(repo.get("last_push_at")),
+            push_lag_hint=_optional_str(repo.get("push_lag_hint")),
+            base_quality=str(repo["base_quality"]),
+        )
+        for repo in raw_repos
+        if isinstance(repo, dict)
+    )
+    if len(repos) != len(raw_repos):
+        raise ValueError("takeover_challenges.repos_json entries must be objects")
+    return _TakeoverChallengeRecord(
+        challenge_id=str(row["challenge_id"]),
+        request_op_id=str(row["request_op_id"]),
+        project_key=str(row["project_key"]),
+        story_id=str(row["story_id"]),
+        run_id=str(row["run_id"]),
+        requesting_session_id=str(row["requesting_session_id"]),
+        requesting_principal_type=str(row["requesting_principal_type"]),
+        reason=str(row["reason"]),
+        owner_session_id=str(row["owner_session_id"]),
+        ownership_epoch=int(row["ownership_epoch"]),
+        binding_version=str(row["binding_version"]),
+        phase_status=str(row["phase_status"]),
+        issued_at=datetime.fromisoformat(str(row["issued_at"])),
+        expires_at=datetime.fromisoformat(str(row["expires_at"])),
+        repos=repos,
+        open_operation_ids=tuple(str(item) for item in raw_open_ops),
+        takeover_history_refs=tuple(str(item) for item in raw_history),
+        status=str(row["status"]),
+        decided_at=_optional_iso_datetime(row.get("decided_at")),
+        terminal_op_id=_optional_str(row.get("terminal_op_id")),
     )
 
 

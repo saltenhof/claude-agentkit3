@@ -259,6 +259,58 @@ def load_takeover_transfer_record_global(
     return mappers.takeover_transfer_row_to_record(row)
 
 
+def list_takeover_transfer_records_for_story_global(
+    project_key: str,
+    story_id: str,
+) -> tuple[Any, ...]:
+    """List takeover-transfer records for one story."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    rows = backend.list_takeover_transfer_records_for_story_global_row(
+        project_key,
+        story_id,
+    )
+    return tuple(mappers.takeover_transfer_row_to_record(row) for row in rows)
+
+
+def insert_takeover_challenge_global(record: Any) -> None:
+    """Insert one server-authoritative takeover challenge."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    backend.insert_takeover_challenge_global_row(
+        mappers.takeover_challenge_to_row(record),
+    )
+
+
+def load_takeover_challenge_global(challenge_id: str) -> Any | None:
+    """Load one takeover challenge."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    row = backend.load_takeover_challenge_global_row(challenge_id)
+    if row is None:
+        return None
+    return mappers.takeover_challenge_row_to_record(row)
+
+
+def update_takeover_challenge_status_global(record: Any) -> bool:
+    """Terminalize one pending takeover challenge."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    return bool(
+        backend.update_takeover_challenge_status_global_row(
+            mappers.takeover_challenge_to_row(record),
+        )
+    )
+
+
 def insert_takeover_approval_global(record: Any) -> None:
     """Insert one persistent takeover approval request."""
     from agentkit.backend.state_backend import persistence_mappers as mappers
@@ -323,6 +375,10 @@ __all__ = [
     "load_active_run_ownership_record_global",
     "save_takeover_transfer_record_global",
     "load_takeover_transfer_record_global",
+    "list_takeover_transfer_records_for_story_global",
+    "insert_takeover_challenge_global",
+    "load_takeover_challenge_global",
+    "update_takeover_challenge_status_global",
     "insert_takeover_approval_global",
     "load_takeover_approval_global",
     "update_takeover_approval_status_global",

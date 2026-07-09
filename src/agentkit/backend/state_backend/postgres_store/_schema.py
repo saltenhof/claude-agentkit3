@@ -79,6 +79,7 @@ def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
         "run_ownership_records",
         "object_mutation_claims",
         "takeover_transfer_records",
+        "takeover_challenges",
         "takeover_approvals",
         "backend_instance_identity",
         # AG3-143 canary: a pre-AG3-143 schema lacks this table, so it reports
@@ -150,6 +151,8 @@ _AG3_137_ADDITIVE_COLUMNS: tuple[tuple[str, str], ...] = (
     # _schema_alter_statements). Column existence is the canary; the co-located
     # ``story_id`` DROP NOT NULL re-runs on the same forced bootstrap.
     ("control_plane_operations", "request_body_hash"),
+    ("takeover_transfer_records", "reconciled_at"),
+    ("takeover_transfer_records", "reconcile_ref"),
 )
 
 _AG3_147_PUSH_FRESHNESS_COLUMNS: tuple[str, ...] = (
@@ -454,6 +457,8 @@ def _schema_alter_statements() -> tuple[str, ...]:
         # lossless on a pre-populated DB (every existing row keeps its non-null
         # story_id; DROP NOT NULL on an already-nullable column is a no-op).
         ("ALTER TABLE control_plane_operations ADD COLUMN IF NOT EXISTS request_body_hash TEXT"),
+        "ALTER TABLE takeover_transfer_records ADD COLUMN IF NOT EXISTS reconciled_at TEXT",
+        "ALTER TABLE takeover_transfer_records ADD COLUMN IF NOT EXISTS reconcile_ref TEXT",
         ("ALTER TABLE control_plane_operations ALTER COLUMN story_id DROP NOT NULL"),
         # AG3-147 remediation: hard push barriers require boundary-correlated
         # freshness, so existing push_freshness_records rows need producer

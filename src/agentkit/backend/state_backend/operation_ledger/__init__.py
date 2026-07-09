@@ -20,6 +20,8 @@ if TYPE_CHECKING:
         RunOwnershipRecord,
         SessionRunBindingRecord,
         TakeoverApprovalRecord,
+        TakeoverChallengeRecord,
+        TakeoverConfirmTerminalRecords,
         TakeoverTransferRecord,
     )
     from agentkit.backend.governance.guard_system.records import (
@@ -261,7 +263,7 @@ def commit_takeover_confirm_global(
     locks: tuple[StoryExecutionLockRecord, ...],
     transfers: tuple[TakeoverTransferRecord, ...],
     events: tuple[ExecutionEventRecord, ...],
-    approved_approval: TakeoverApprovalRecord | None = None,
+    terminal_records: TakeoverConfirmTerminalRecords,
     fault_after_step: Callable[[str], None] | None = None,
 ) -> None:
     """Atomically commit takeover confirm side effects in one transaction."""
@@ -281,11 +283,29 @@ def commit_takeover_confirm_global(
             mappers.takeover_transfer_to_row(record) for record in transfers
         ),
         event_rows=tuple(mappers.execution_event_to_row(event) for event in events),
-        approved_approval_row=(
-            mappers.takeover_approval_to_row(approved_approval)
-            if approved_approval is not None
-            else None
-        ),
+        terminal_rows={
+            "challenge": mappers.takeover_challenge_to_row(
+                terminal_records.challenge,
+            ),
+            "request_op": mappers.control_plane_op_to_row(
+                terminal_records.request_op_record,
+            ),
+            "challenge_to_insert": (
+                mappers.takeover_challenge_to_row(terminal_records.challenge_to_insert)
+                if terminal_records.challenge_to_insert is not None
+                else None
+            ),
+            "challenge_to_expire": (
+                mappers.takeover_challenge_to_row(terminal_records.challenge_to_expire)
+                if terminal_records.challenge_to_expire is not None
+                else None
+            ),
+            "approved_approval": (
+                mappers.takeover_approval_to_row(terminal_records.approved_approval)
+                if terminal_records.approved_approval is not None
+                else None
+            ),
+        },
         fault_after_step=fault_after_step,
     )
 
@@ -295,6 +315,7 @@ def commit_takeover_deny_global(
     *,
     request_op_record: ControlPlaneOperationRecord,
     denied_approval: TakeoverApprovalRecord,
+    challenge: TakeoverChallengeRecord,
     events: tuple[ExecutionEventRecord, ...],
 ) -> None:
     """Atomically deny a takeover approval and terminalize related rows."""
@@ -306,6 +327,33 @@ def commit_takeover_deny_global(
         op_row=mappers.control_plane_op_to_row(op_record),
         request_op_row=mappers.control_plane_op_to_row(request_op_record),
         denied_approval_row=mappers.takeover_approval_to_row(denied_approval),
+        challenge_row=mappers.takeover_challenge_to_row(challenge),
+        event_rows=tuple(mappers.execution_event_to_row(event) for event in events),
+    )
+
+
+def commit_takeover_expiry_global(
+    op_record: ControlPlaneOperationRecord,
+    *,
+    request_op_record: ControlPlaneOperationRecord,
+    challenge: TakeoverChallengeRecord,
+    expired_approval: TakeoverApprovalRecord | None,
+    events: tuple[ExecutionEventRecord, ...],
+) -> None:
+    """Atomically record lazy takeover expiry and terminalize related rows."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    backend.commit_takeover_expiry_global_row(
+        op_row=mappers.control_plane_op_to_row(op_record),
+        request_op_row=mappers.control_plane_op_to_row(request_op_record),
+        challenge_row=mappers.takeover_challenge_to_row(challenge),
+        expired_approval_row=(
+            mappers.takeover_approval_to_row(expired_approval)
+            if expired_approval is not None
+            else None
+        ),
         event_rows=tuple(mappers.execution_event_to_row(event) for event in events),
     )
 
@@ -439,6 +487,21 @@ def has_open_repair_control_plane_operation_for_story_global(
         backend.has_open_repair_control_plane_operation_for_story_global_row(
             project_key=project_key,
             story_id=story_id,
+        )
+    )
+
+
+def list_open_control_plane_operation_ids_for_story_global(
+    project_key: str,
+    story_id: str,
+) -> tuple[str, ...]:
+    """Return currently claimed control-plane operation ids for one story."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    return tuple(
+        backend.list_open_control_plane_operation_ids_for_story_global_row(
+            project_key,
+            story_id,
         )
     )
 
@@ -614,6 +677,7 @@ __all__ = [
     "commit_edge_command_result_global",
     "commit_takeover_deny_global",
     "commit_takeover_confirm_global",
+    "commit_takeover_expiry_global",
     "release_control_plane_operation_global",
     "list_orphaned_claimed_control_plane_operations_global",
     "finalize_orphaned_control_plane_operation_global",
@@ -621,6 +685,7 @@ __all__ = [
     "resolve_repair_control_plane_operation_global",
     "has_engine_writes_since_control_plane_claim_global",
     "has_open_repair_control_plane_operation_for_story_global",
+    "list_open_control_plane_operation_ids_for_story_global",
     "has_committed_control_plane_operation_for_run_global",
     "has_committed_story_exit_operation_for_run_global",
     "delete_control_plane_operation_global",

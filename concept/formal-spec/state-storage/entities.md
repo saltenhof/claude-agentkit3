@@ -21,7 +21,7 @@ sondern fachliche Record-Families.
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.state-storage.entities
-schema_version: 5
+schema_version: 6
 kind: entity-set
 context: state-storage
 entities:
@@ -99,5 +99,47 @@ entities:
       - base_quality
       - challenge_ref
       - confirm_ref
+      - reconciled_at
+      - reconcile_ref
+  - id: state-storage.entity.takeover-challenge
+    identity_key: challenge_id
+    attributes:
+      - challenge_id
+      - request_op_id
+      - project_key
+      - story_id
+      - run_id
+      - requesting_session_id
+      - requesting_principal_type
+      - reason
+      - owner_session_id
+      - ownership_epoch
+      - binding_version
+      - phase_status
+      - issued_at
+      - expires_at
+      - repos
+      - open_operation_ids
+      - takeover_history_refs
+      - status
+      - decided_at
+      - terminal_op_id
+  - id: state-storage.entity.takeover-approval
+    identity_key: approval_id
+    attributes:
+      - approval_id
+      - project_key
+      - story_id
+      - run_id
+      - requested_by_session_id
+      - requested_by_principal_type
+      - reason
+      - challenge_ref
+      - status
+      - requested_at
+      - expires_at
+      - decided_at
+      - decided_by_session_id
+      - decision_reason
 ```
 <!-- FORMAL-SPEC:END -->

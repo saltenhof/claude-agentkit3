@@ -1,7 +1,7 @@
 """Contract pins for the AG3-137 session-ownership record row formats.
 
 Pins the mapper row shapes field-by-field against the formal entity attribute
-sets (``formal.state-storage.entities`` v5, ``formal.operating-modes.entities``,
+sets (``formal.state-storage.entities`` v6, ``formal.operating-modes.entities``,
 FK-17 §17.3a.15) — the concept is the single source of truth, so the expected
 key sets below mirror the formal attribute lists, NOT a duplicate literal from
 the mapper. Also pins the Postgres-only fail-closed gate (AK7) and the
@@ -27,6 +27,8 @@ from agentkit.backend.control_plane.records import (
     EdgeCommandRecord,
     ObjectMutationClaimRecord,
     RunOwnershipRecord,
+    TakeoverChallengeRecord,
+    TakeoverChallengeRepoRecord,
     TakeoverTransferRecord,
 )
 from agentkit.backend.exceptions import ConfigError
@@ -54,8 +56,10 @@ from agentkit.backend.state_backend.story_closure_store import (
 )
 from agentkit.backend.state_backend.story_lifecycle_store import (
     insert_run_ownership_record_global,
+    insert_takeover_challenge_global,
     load_active_run_ownership_record_global,
     load_run_ownership_record_global,
+    load_takeover_challenge_global,
     load_takeover_transfer_record_global,
     save_takeover_transfer_record_global,
 )
@@ -99,6 +103,30 @@ _TAKEOVER_KEYS = {
     "base_quality",
     "challenge_ref",
     "confirm_ref",
+    "reconciled_at",
+    "reconcile_ref",
+}
+_TAKEOVER_CHALLENGE_KEYS = {
+    "challenge_id",
+    "request_op_id",
+    "project_key",
+    "story_id",
+    "run_id",
+    "requesting_session_id",
+    "requesting_principal_type",
+    "reason",
+    "owner_session_id",
+    "ownership_epoch",
+    "binding_version",
+    "phase_status",
+    "issued_at",
+    "expires_at",
+    "repos_json",
+    "open_operation_ids_json",
+    "takeover_history_refs_json",
+    "status",
+    "decided_at",
+    "terminal_op_id",
 }
 _INSTANCE_KEYS = {"backend_instance_id", "instance_incarnation", "updated_at"}
 
@@ -155,12 +183,48 @@ def test_takeover_transfer_row_is_field_exact_and_has_no_snapshot() -> None:
         base_quality="clean",
         challenge_ref="challenge:1",
         confirm_ref="confirm:1",
+        reconciled_at=_NOW,
+        reconcile_ref="admin_transition:1",
     )
     row = mappers.takeover_transfer_to_row(record)
     assert set(row) == _TAKEOVER_KEYS
     assert not (set(row) & {"snapshot", "binary_diff", "index_status"})
     assert row["last_push_at"] == _NOW.isoformat()
     assert mappers.takeover_transfer_row_to_record(row) == record
+
+
+@pytest.mark.contract
+def test_takeover_challenge_row_is_field_exact_and_roundtrips() -> None:
+    record = TakeoverChallengeRecord(
+        challenge_id="challenge-1",
+        request_op_id="op-request",
+        project_key="tenant-a",
+        story_id="AG3-100",
+        run_id="run-1",
+        requesting_session_id="sess-b",
+        requesting_principal_type="orchestrator",
+        reason="stalled owner",
+        owner_session_id="sess-a",
+        ownership_epoch=2,
+        binding_version="3",
+        phase_status="ACTIVE",
+        issued_at=_NOW,
+        expires_at=_NOW.replace(minute=15),
+        repos=(
+            TakeoverChallengeRepoRecord(
+                repo_id="repo-a",
+                takeover_base_sha="abc123",
+                last_push_at=_NOW,
+                push_lag_hint="fresh",
+                base_quality="verified_pushed",
+            ),
+        ),
+        open_operation_ids=("op-live",),
+        takeover_history_refs=("confirm-old",),
+    )
+    row = mappers.takeover_challenge_to_row(record)
+    assert set(row) == _TAKEOVER_CHALLENGE_KEYS
+    assert mappers.takeover_challenge_row_to_record(row) == record
 
 
 @pytest.mark.contract
@@ -287,6 +351,30 @@ def test_every_new_repository_entrypoint_fails_closed_on_sqlite(
         save_takeover_transfer_record_global(transfer)
     with pytest.raises(ConfigError):
         load_takeover_transfer_record_global("tenant-a", "AG3-100", "run-1", 1, "repo-a")
+    with pytest.raises(ConfigError):
+        insert_takeover_challenge_global(
+            TakeoverChallengeRecord(
+                challenge_id="challenge-1",
+                request_op_id="op-request",
+                project_key="tenant-a",
+                story_id="AG3-100",
+                run_id="run-1",
+                requesting_session_id="sess-b",
+                requesting_principal_type="orchestrator",
+                reason="stalled owner",
+                owner_session_id="sess-a",
+                ownership_epoch=1,
+                binding_version="1",
+                phase_status="ACTIVE",
+                issued_at=_NOW,
+                expires_at=_NOW.replace(minute=15),
+                repos=(),
+                open_operation_ids=(),
+                takeover_history_refs=(),
+            )
+        )
+    with pytest.raises(ConfigError):
+        load_takeover_challenge_global("challenge-1")
     with pytest.raises(ConfigError):
         save_backend_instance_identity_global(identity)
     with pytest.raises(ConfigError):

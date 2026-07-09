@@ -388,8 +388,41 @@
             base_quality TEXT,
             challenge_ref TEXT,
             confirm_ref TEXT,
+            reconciled_at TEXT,
+            reconcile_ref TEXT,
             PRIMARY KEY (project_key, story_id, run_id, ownership_epoch, repo_id)
         );
+
+        -- takeover_challenges: server-authoritative, versioned takeover
+        -- decision basis. Postgres-only K5; challenge_id is opaque and
+        -- server-minted, never parsed from request_op_id.
+        CREATE TABLE IF NOT EXISTS takeover_challenges (
+            challenge_id TEXT PRIMARY KEY,
+            request_op_id TEXT NOT NULL,
+            project_key TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            requesting_session_id TEXT NOT NULL,
+            requesting_principal_type TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            owner_session_id TEXT NOT NULL,
+            ownership_epoch INTEGER NOT NULL CHECK (ownership_epoch >= 1),
+            binding_version TEXT NOT NULL,
+            phase_status TEXT NOT NULL,
+            issued_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            repos_json JSONB NOT NULL,
+            open_operation_ids_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+            takeover_history_refs_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+            status TEXT NOT NULL CHECK (
+                status IN ('pending', 'confirmed', 'denied', 'expired')
+            ),
+            decided_at TEXT,
+            terminal_op_id TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS takeover_challenges_request_op_idx
+            ON takeover_challenges (request_op_id);
 
         -- takeover_approvals: persistent, user-independent approval queue for
         -- agent-initiated ownership transfer requests (AG3-148, FK-56 §56.13b).

@@ -792,16 +792,53 @@ def has_open_repair_control_plane_operation_for_story_global_row(
         ).fetchone()
         if row is not None:
             return True
-        blocker = conn.execute(
+        active = conn.execute(
             """
-            SELECT 1 FROM stories
-            WHERE project_key = ? AND story_display_id = ?
-              AND blocker = 'takeover_reconcile_required'
-            LIMIT 1
+            SELECT run_id, ownership_epoch
+            FROM run_ownership_records
+            WHERE project_key = ? AND story_id = ? AND status = 'active'
             """,
             (project_key, story_id),
         ).fetchone()
-        return blocker is not None
+        if active is None:
+            return False
+        unreconciled = conn.execute(
+            """
+            SELECT 1 FROM takeover_transfer_records
+            WHERE project_key = ?
+              AND story_id = ?
+              AND run_id = ?
+              AND ownership_epoch = ?
+              AND reconciled_at IS NULL
+            LIMIT 1
+            """,
+            (
+                project_key,
+                story_id,
+                active["run_id"],
+                active["ownership_epoch"],
+            ),
+        ).fetchone()
+        return unreconciled is not None
+
+
+def list_open_control_plane_operation_ids_for_story_global_row(
+    project_key: str,
+    story_id: str,
+) -> list[str]:
+    """Return live synchronous control-plane operation ids for one story."""
+
+    with _connect_global() as conn:
+        rows = conn.execute(
+            """
+            SELECT op_id FROM control_plane_operations
+            WHERE project_key = ? AND story_id = ?
+              AND status = 'claimed'
+            ORDER BY created_at, op_id
+            """,
+            (project_key, story_id),
+        ).fetchall()
+    return [str(row["op_id"]) for row in rows]
 
 
 def resolve_repair_control_plane_operation_global_row(
@@ -942,7 +979,7 @@ def commit_takeover_confirm_global_row(
     lock_rows: Sequence[dict[str, Any]],
     transfer_rows: Sequence[dict[str, Any]],
     event_rows: Sequence[dict[str, Any]],
-    approved_approval_row: dict[str, Any] | None = None,
+    terminal_rows: dict[str, dict[str, Any] | None],
     fault_after_step: Callable[[str], None] | None = None,
 ) -> None:
     """Atomically commit a takeover confirm and all ownership side effects.
@@ -955,59 +992,13 @@ def commit_takeover_confirm_global_row(
     with _connect_global() as conn:
         _conditional_upsert_control_plane_op_row(conn, op_row)
         _run_takeover_fault_hook(fault_after_step, "control_plane_op_upsert")
-        active = conn.execute(
-            """
-            SELECT owner_session_id, ownership_epoch, status
-            FROM run_ownership_records
-            WHERE project_key = ? AND story_id = ? AND run_id = ?
-              AND status = 'active'
-            FOR UPDATE
-            """,
-            (op_row["project_key"], op_row["story_id"], op_row["run_id"]),
-        ).fetchone()
-        if (
-            active is None
-            or str(active["owner_session_id"]) != expected_owner_session_id
-            or int(active["ownership_epoch"]) != expected_ownership_epoch
-            or str(active["status"]) != "active"
-        ):
-            raise OwnershipFenceViolationError(
-                "takeover confirm CAS failed: active ownership row no longer "
-                "matches the echoed challenge",
-                detail={
-                    "current_owner_session_id": (
-                        str(active["owner_session_id"]) if active is not None else None
-                    ),
-                    "current_ownership_epoch": (
-                        int(active["ownership_epoch"]) if active is not None else None
-                    ),
-                    "transferred_at": str(op_row["updated_at"]) if active is not None else None,
-                },
-            )
-        binding = conn.execute(
-            """
-            SELECT binding_version FROM session_run_bindings
-            WHERE session_id = ? AND project_key = ? AND story_id = ?
-              AND run_id = ? AND status = 'active'
-            FOR UPDATE
-            """,
-            (
-                expected_owner_session_id,
-                op_row["project_key"],
-                op_row["story_id"],
-                op_row["run_id"],
-            ),
-        ).fetchone()
-        if binding is None or str(binding["binding_version"]) != expected_binding_version:
-            raise OwnershipFenceViolationError(
-                "takeover confirm CAS failed: owner binding version no longer "
-                "matches the echoed challenge",
-                detail={
-                    "current_owner_session_id": expected_owner_session_id,
-                    "current_ownership_epoch": expected_ownership_epoch,
-                    "transferred_at": str(op_row["updated_at"]),
-                },
-            )
+        _verify_takeover_confirm_cas(
+            conn,
+            op_row=op_row,
+            expected_owner_session_id=expected_owner_session_id,
+            expected_ownership_epoch=expected_ownership_epoch,
+            expected_binding_version=expected_binding_version,
+        )
         conn.execute(
             """
             UPDATE run_ownership_records
@@ -1050,9 +1041,26 @@ def commit_takeover_confirm_global_row(
                 "takeover confirm could not revoke the previous owner's active binding",
             )
         _run_takeover_fault_hook(fault_after_step, "previous_binding_revoke")
+        approved_approval_row = terminal_rows["approved_approval"]
         _approve_takeover_approval_row(conn, approved_approval_row)
         if approved_approval_row is not None:
             _run_takeover_fault_hook(fault_after_step, "approval_approve")
+        challenge_row_to_insert = terminal_rows["challenge_to_insert"]
+        if challenge_row_to_insert is not None:
+            _insert_takeover_challenge_row(conn, challenge_row_to_insert)
+            _run_takeover_fault_hook(fault_after_step, "challenge_reissue")
+        challenge_row_to_expire = terminal_rows["challenge_to_expire"]
+        if challenge_row_to_expire is not None:
+            _terminalize_takeover_challenge_row(conn, challenge_row_to_expire)
+            _run_takeover_fault_hook(fault_after_step, "expired_challenge_terminalize")
+        challenge_row = terminal_rows["challenge"]
+        request_op_row = terminal_rows["request_op"]
+        if challenge_row is None or request_op_row is None:
+            raise RuntimeError("takeover confirm terminal rows are incomplete")
+        _terminalize_takeover_challenge_row(conn, challenge_row)
+        _run_takeover_fault_hook(fault_after_step, "challenge_terminalize")
+        _terminalize_takeover_request_operation_row(conn, request_op_row)
+        _run_takeover_fault_hook(fault_after_step, "request_operation_terminalize")
         _insert_session_binding_row(conn, new_binding_row)
         _run_takeover_fault_hook(fault_after_step, "new_binding_insert")
         for lock_row in lock_rows:
@@ -1064,8 +1072,8 @@ def commit_takeover_confirm_global_row(
                 INSERT INTO takeover_transfer_records (
                     project_key, story_id, run_id, ownership_epoch, repo_id,
                     takeover_base_sha, last_push_at, push_lag_hint, base_quality,
-                    challenge_ref, confirm_ref
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    challenge_ref, confirm_ref, reconciled_at, reconcile_ref
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     transfer_row["project_key"],
@@ -1079,20 +1087,14 @@ def commit_takeover_confirm_global_row(
                     transfer_row["base_quality"],
                     transfer_row["challenge_ref"],
                     transfer_row["confirm_ref"],
+                    transfer_row["reconciled_at"],
+                    transfer_row["reconcile_ref"],
                 ),
             )
             _run_takeover_fault_hook(
                 fault_after_step,
                 f"transfer_record_insert:{transfer_row['repo_id']}",
             )
-        conn.execute(
-            """
-            UPDATE stories
-            SET blocker = 'takeover_reconcile_required'
-            WHERE project_key = ? AND story_display_id = ?
-            """,
-            (op_row["project_key"], op_row["story_id"]),
-        )
         _run_takeover_fault_hook(fault_after_step, "takeover_reconcile_required")
         for event_row in event_rows:
             _insert_execution_event_row(conn, event_row)
@@ -1102,11 +1104,75 @@ def commit_takeover_confirm_global_row(
             )
 
 
+def _verify_takeover_confirm_cas(
+    conn: _CompatConnection,
+    *,
+    op_row: dict[str, Any],
+    expected_owner_session_id: str,
+    expected_ownership_epoch: int,
+    expected_binding_version: str,
+) -> None:
+    active = conn.execute(
+        """
+        SELECT owner_session_id, ownership_epoch, status
+        FROM run_ownership_records
+        WHERE project_key = ? AND story_id = ? AND run_id = ?
+          AND status = 'active'
+        FOR UPDATE
+        """,
+        (op_row["project_key"], op_row["story_id"], op_row["run_id"]),
+    ).fetchone()
+    if (
+        active is None
+        or str(active["owner_session_id"]) != expected_owner_session_id
+        or int(active["ownership_epoch"]) != expected_ownership_epoch
+        or str(active["status"]) != "active"
+    ):
+        raise OwnershipFenceViolationError(
+            "takeover confirm CAS failed: active ownership row no longer "
+            "matches the echoed challenge",
+            detail={
+                "current_owner_session_id": (
+                    str(active["owner_session_id"]) if active is not None else None
+                ),
+                "current_ownership_epoch": (
+                    int(active["ownership_epoch"]) if active is not None else None
+                ),
+                "transferred_at": str(op_row["updated_at"]) if active is not None else None,
+            },
+        )
+    binding = conn.execute(
+        """
+        SELECT binding_version FROM session_run_bindings
+        WHERE session_id = ? AND project_key = ? AND story_id = ?
+          AND run_id = ? AND status = 'active'
+        FOR UPDATE
+        """,
+        (
+            expected_owner_session_id,
+            op_row["project_key"],
+            op_row["story_id"],
+            op_row["run_id"],
+        ),
+    ).fetchone()
+    if binding is None or str(binding["binding_version"]) != expected_binding_version:
+        raise OwnershipFenceViolationError(
+            "takeover confirm CAS failed: owner binding version no longer "
+            "matches the echoed challenge",
+            detail={
+                "current_owner_session_id": expected_owner_session_id,
+                "current_ownership_epoch": expected_ownership_epoch,
+                "transferred_at": str(op_row["updated_at"]),
+            },
+        )
+
+
 def commit_takeover_deny_global_row(
     *,
     op_row: dict[str, Any],
     request_op_row: dict[str, Any],
     denied_approval_row: dict[str, Any],
+    challenge_row: dict[str, Any],
     event_rows: Sequence[dict[str, Any]],
 ) -> None:
     """Atomically deny a pending takeover approval and terminalize its request."""
@@ -1167,8 +1233,61 @@ def commit_takeover_deny_global_row(
                 "takeover deny CAS failed: request operation is no longer pending",
                 detail={"op_id": request_op_row["op_id"]},
             )
+        _terminalize_takeover_challenge_row(conn, challenge_row)
         for event_row in event_rows:
             _insert_execution_event_row(conn, event_row)
+
+
+def commit_takeover_expiry_global_row(
+    *,
+    op_row: dict[str, Any],
+    request_op_row: dict[str, Any],
+    challenge_row: dict[str, Any],
+    expired_approval_row: dict[str, Any] | None,
+    event_rows: Sequence[dict[str, Any]],
+) -> None:
+    """Atomically record lazy takeover expiry and terminalize its request."""
+
+    with _connect_global() as conn:
+        _conditional_upsert_control_plane_op_row(conn, op_row)
+        _expire_takeover_approval_row(conn, expired_approval_row)
+        _terminalize_takeover_request_operation_row(conn, request_op_row)
+        _terminalize_takeover_challenge_row(conn, challenge_row)
+        for event_row in event_rows:
+            _insert_execution_event_row(conn, event_row)
+
+
+def _expire_takeover_approval_row(
+    conn: _CompatConnection,
+    row: dict[str, Any] | None,
+) -> None:
+    if row is None:
+        return
+    cursor = conn.execute(
+        """
+        UPDATE takeover_approvals
+        SET status = ?, decided_at = ?, decision_reason = ?
+        WHERE approval_id = ?
+          AND project_key = ?
+          AND story_id = ?
+          AND run_id = ?
+          AND status = 'pending'
+        """,
+        (
+            row["status"],
+            row["decided_at"],
+            row["decision_reason"],
+            row["approval_id"],
+            row["project_key"],
+            row["story_id"],
+            row["run_id"],
+        ),
+    )
+    if int(cursor.rowcount) != 1:
+        raise OwnershipFenceViolationError(
+            "takeover expiry CAS failed: approval is no longer pending",
+            detail={"approval_id": row["approval_id"]},
+        )
 
 
 def _approve_takeover_approval_row(
@@ -1181,7 +1300,7 @@ def _approve_takeover_approval_row(
         """
         UPDATE takeover_approvals
         SET status = ?, decided_at = ?, decided_by_session_id = ?,
-            decision_reason = ?
+            decision_reason = ?, challenge_ref = ?
         WHERE approval_id = ?
           AND project_key = ?
           AND story_id = ?
@@ -1193,6 +1312,7 @@ def _approve_takeover_approval_row(
             row["decided_at"],
             row["decided_by_session_id"],
             row["decision_reason"],
+            row["challenge_ref"],
             row["approval_id"],
             row["project_key"],
             row["story_id"],
@@ -1203,6 +1323,109 @@ def _approve_takeover_approval_row(
         raise OwnershipFenceViolationError(
             "takeover confirm CAS failed: approval is no longer pending",
             detail={"approval_id": row["approval_id"]},
+        )
+
+
+def _terminalize_takeover_challenge_row(
+    conn: _CompatConnection,
+    row: dict[str, Any],
+) -> None:
+    cursor = conn.execute(
+        """
+        UPDATE takeover_challenges
+        SET status = ?, decided_at = ?, terminal_op_id = ?
+        WHERE challenge_id = ?
+          AND project_key = ?
+          AND story_id = ?
+          AND run_id = ?
+          AND status = 'pending'
+        """,
+        (
+            row["status"],
+            row["decided_at"],
+            row["terminal_op_id"],
+            row["challenge_id"],
+            row["project_key"],
+            row["story_id"],
+            row["run_id"],
+        ),
+    )
+    if int(cursor.rowcount) != 1:
+        raise OwnershipFenceViolationError(
+            "takeover confirm CAS failed: challenge is no longer pending",
+            detail={"challenge_id": row["challenge_id"]},
+        )
+
+
+def _insert_takeover_challenge_row(
+    conn: _CompatConnection,
+    row: dict[str, Any],
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO takeover_challenges (
+            challenge_id, request_op_id, project_key, story_id, run_id,
+            requesting_session_id, requesting_principal_type, reason,
+            owner_session_id, ownership_epoch, binding_version, phase_status,
+            issued_at, expires_at, repos_json, open_operation_ids_json,
+            takeover_history_refs_json, status, decided_at, terminal_op_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            row["challenge_id"],
+            row["request_op_id"],
+            row["project_key"],
+            row["story_id"],
+            row["run_id"],
+            row["requesting_session_id"],
+            row["requesting_principal_type"],
+            row["reason"],
+            row["owner_session_id"],
+            row["ownership_epoch"],
+            row["binding_version"],
+            row["phase_status"],
+            row["issued_at"],
+            row["expires_at"],
+            row["repos_json"],
+            row["open_operation_ids_json"],
+            row["takeover_history_refs_json"],
+            row["status"],
+            row["decided_at"],
+            row["terminal_op_id"],
+        ),
+    )
+
+
+def _terminalize_takeover_request_operation_row(
+    conn: _CompatConnection,
+    row: dict[str, Any],
+) -> None:
+    cursor = conn.execute(
+        """
+        UPDATE control_plane_operations
+        SET status = ?, response_json = ?, updated_at = ?,
+            finalized_at = ?
+        WHERE op_id = ?
+          AND project_key = ?
+          AND story_id = ?
+          AND run_id = ?
+          AND status IN ('pending_human_approval', 'offered')
+        """,
+        (
+            row["status"],
+            row["response_json"],
+            row["updated_at"],
+            row["updated_at"],
+            row["op_id"],
+            row["project_key"],
+            row["story_id"],
+            row["run_id"],
+        ),
+    )
+    if int(cursor.rowcount) != 1:
+        raise OwnershipFenceViolationError(
+            "takeover confirm CAS failed: request operation is no longer pending",
+            detail={"op_id": row["op_id"]},
         )
 
 

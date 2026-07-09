@@ -61,7 +61,7 @@ class _AdmissionRejectionMixin:
         """
         if not self._repo.has_open_repair_for_story(project_key, story_id):
             return None
-        return _rejection_result(
+        result = _rejection_result(
             op_id=op_id,
             operation_kind=operation_kind,
             run_id=run_id,
@@ -76,6 +76,7 @@ class _AdmissionRejectionMixin:
             ),
             dispatch_phase=phase,
         )
+        return result.model_copy(update={"error_code": "takeover_reconcile_required"})
 
     def _fail_closed_setup_rejection(
         self,

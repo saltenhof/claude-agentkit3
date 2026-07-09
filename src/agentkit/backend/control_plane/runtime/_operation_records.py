@@ -505,7 +505,9 @@ def _replayed_result(
     if stored_status in _RECONCILE_PRESERVED_STATUSES or stored_status in {
         "offered",
         "pending_human_approval",
+        "approved",
         "denied",
+        "expired",
     }:
         return ControlPlaneMutationResult.model_validate(stored_payload)
     return ControlPlaneMutationResult.model_validate(

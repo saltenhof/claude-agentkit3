@@ -112,6 +112,9 @@ from ._control_plane_rows import (
     has_open_repair_control_plane_operation_for_story_global_row as has_open_repair_control_plane_operation_for_story_global_row,
 )
 from ._control_plane_rows import (
+    list_open_control_plane_operation_ids_for_story_global_row as list_open_control_plane_operation_ids_for_story_global_row,
+)
+from ._control_plane_rows import (
     list_orphaned_claimed_control_plane_operations_global_row as list_orphaned_claimed_control_plane_operations_global_row,
 )
 from ._control_plane_rows import (
@@ -199,6 +202,9 @@ from ._ownership_rows import (
     insert_run_ownership_record_global_row as insert_run_ownership_record_global_row,
 )
 from ._ownership_rows import (
+    insert_takeover_challenge_global_row as insert_takeover_challenge_global_row,
+)
+from ._ownership_rows import (
     list_and_ack_open_edge_command_records_global_row as list_and_ack_open_edge_command_records_global_row,
 )
 from ._ownership_rows import (
@@ -212,6 +218,9 @@ from ._ownership_rows import (
 )
 from ._ownership_rows import (
     list_ref_protection_degradation_finding_global_rows as list_ref_protection_degradation_finding_global_rows,
+)
+from ._ownership_rows import (
+    list_takeover_transfer_records_for_story_global_row as list_takeover_transfer_records_for_story_global_row,
 )
 from ._ownership_rows import (
     list_verified_push_barrier_verdicts_for_run_global_row as list_verified_push_barrier_verdicts_for_run_global_row,
@@ -244,6 +253,9 @@ from ._ownership_rows import (
     load_story_execution_lock_global_row as load_story_execution_lock_global_row,
 )
 from ._ownership_rows import (
+    load_takeover_challenge_global_row as load_takeover_challenge_global_row,
+)
+from ._ownership_rows import (
     load_takeover_transfer_record_global_row as load_takeover_transfer_record_global_row,
 )
 from ._ownership_rows import (
@@ -257,6 +269,9 @@ from ._ownership_rows import (
 )
 from ._ownership_rows import (
     supersede_open_edge_command_global_row as supersede_open_edge_command_global_row,
+)
+from ._ownership_rows import (
+    update_takeover_challenge_status_global_row as update_takeover_challenge_status_global_row,
 )
 from ._ownership_rows import (
     upsert_push_barrier_verdict_global_row as upsert_push_barrier_verdict_global_row,

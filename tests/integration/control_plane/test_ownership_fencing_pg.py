@@ -446,9 +446,8 @@ def test_t3_real_takeover_confirm_fences_ex_owner_mutations_but_allows_operation
         ),
     )
     assert rejected.status == "rejected"
-    assert rejected.error_code == "ownership_transferred"
-    assert rejected.ownership_conflict is not None
-    assert rejected.ownership_conflict.new_owner_session_id == "sess-NEW-OWNER"
+    assert rejected.error_code == "takeover_reconcile_required"
+    assert rejected.ownership_conflict is None
     assert load_control_plane_operation_global("op-ac15-ex-owner-start") is None
 
     replayed = service.get_operation("op-ac7-setup")

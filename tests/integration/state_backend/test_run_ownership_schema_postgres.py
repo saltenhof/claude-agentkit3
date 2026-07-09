@@ -227,6 +227,8 @@ def test_takeover_transfer_schema_is_field_exact_one_row_per_repo() -> None:
         "base_quality",
         "challenge_ref",
         "confirm_ref",
+        "reconciled_at",
+        "reconcile_ref",
     }
     repo_a = TakeoverTransferRecord(
         project_key="tenant-a",

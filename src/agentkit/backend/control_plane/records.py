@@ -32,6 +32,9 @@ from agentkit.backend.state_backend.backend_instance_identity_types import (
 #: Closed set of admissible ``SessionRunBindingRecord.status`` values (the
 #: ``BindingStatus`` value space) for fail-closed record-boundary validation.
 _VALID_BINDING_STATUS = frozenset(status.value for status in BindingStatus)
+_VALID_TAKEOVER_CHALLENGE_STATUS = frozenset(
+    {"pending", "confirmed", "denied", "expired"}
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -45,6 +48,9 @@ __all__ = (
     "RunOwnershipRecord",
     "SessionRunBindingRecord",
     "TakeoverApprovalRecord",
+    "TakeoverChallengeRecord",
+    "TakeoverChallengeRepoRecord",
+    "TakeoverConfirmTerminalRecords",
     "TakeoverTransferRecord",
 )
 
@@ -247,7 +253,7 @@ class TakeoverTransferRecord:
 ``takeover-transfer-record``).
 
     Identity ``(project_key, story_id, run_id, ownership_epoch, repo_id)`` — one
-    row per participating repo (state-storage entities v5). Replaces the former
+    row per participating repo (state-storage entities v6). Replaces the former
     ``takeover-worktree-snapshot`` (SOLL-147): the handover object is a SHA
     (``takeover_base_sha``), never a file snapshot; no snapshot infrastructure
     exists.
@@ -274,6 +280,8 @@ class TakeoverTransferRecord:
     base_quality: str | None = None
     challenge_ref: str | None = None
     confirm_ref: str | None = None
+    reconciled_at: datetime | None = None
+    reconcile_ref: str | None = None
 
     def __post_init__(self) -> None:
         if self.ownership_epoch < MIN_OWNERSHIP_EPOCH:
@@ -283,6 +291,107 @@ class TakeoverTransferRecord:
             )
         if not self.repo_id.strip():
             raise ValueError("repo_id is part of the identity and must not be empty")
+        if self.reconciled_at is None and self.reconcile_ref is not None:
+            raise ValueError("reconcile_ref requires reconciled_at")
+        if self.reconciled_at is not None and self.reconcile_ref is None:
+            raise ValueError("reconciled_at requires reconcile_ref")
+        if self.reconcile_ref is not None and not self.reconcile_ref.strip():
+            raise ValueError("reconcile_ref must be non-empty when present")
+        if self.reconcile_ref is not None and not self.reconcile_ref.startswith(
+            "admin_transition:",
+        ):
+            raise ValueError(
+                "pre-AG3-151 takeover reconcile clear requires "
+                "an audited admin_transition reconcile_ref",
+            )
+
+
+@dataclass(frozen=True)
+class TakeoverChallengeRepoRecord:
+    """Persisted per-repo challenge display/audit block."""
+
+    repo_id: str
+    takeover_base_sha: str | None
+    last_push_at: datetime | None
+    push_lag_hint: str | None
+    base_quality: str
+
+    def __post_init__(self) -> None:
+        if not self.repo_id.strip():
+            raise ValueError("repo_id must not be empty")
+        if not self.base_quality.strip():
+            raise ValueError("base_quality must not be empty")
+
+
+@dataclass(frozen=True)
+class TakeoverChallengeRecord:
+    """Server-authoritative takeover challenge decision basis."""
+
+    challenge_id: str
+    request_op_id: str
+    project_key: str
+    story_id: str
+    run_id: str
+    requesting_session_id: str
+    requesting_principal_type: str
+    reason: str
+    owner_session_id: str
+    ownership_epoch: int
+    binding_version: str
+    phase_status: str
+    issued_at: datetime
+    expires_at: datetime
+    repos: tuple[TakeoverChallengeRepoRecord, ...]
+    open_operation_ids: tuple[str, ...]
+    takeover_history_refs: tuple[str, ...]
+    status: str = "pending"
+    decided_at: datetime | None = None
+    terminal_op_id: str | None = None
+
+    def __post_init__(self) -> None:
+        for value_name in (
+            "challenge_id",
+            "request_op_id",
+            "project_key",
+            "story_id",
+            "run_id",
+            "requesting_session_id",
+            "requesting_principal_type",
+            "reason",
+            "owner_session_id",
+            "binding_version",
+            "phase_status",
+        ):
+            if not str(getattr(self, value_name)).strip():
+                raise ValueError(f"{value_name} must not be empty")
+        if self.ownership_epoch < MIN_OWNERSHIP_EPOCH:
+            raise ValueError(
+                f"ownership_epoch must be >= {MIN_OWNERSHIP_EPOCH}, "
+                f"got {self.ownership_epoch!r}",
+            )
+        if self.expires_at <= self.issued_at:
+            raise ValueError("expires_at must be after issued_at")
+        if self.status not in _VALID_TAKEOVER_CHALLENGE_STATUS:
+            raise ValueError(
+                "status must be one of "
+                f"{sorted(_VALID_TAKEOVER_CHALLENGE_STATUS)}, got {self.status!r}",
+            )
+        if self.status == "pending":
+            if self.decided_at is not None or self.terminal_op_id is not None:
+                raise ValueError("a pending challenge must not carry terminal audit")
+        elif self.decided_at is None or not (self.terminal_op_id or "").strip():
+            raise ValueError("a terminal challenge requires decided_at and terminal_op_id")
+
+
+@dataclass(frozen=True)
+class TakeoverConfirmTerminalRecords:
+    """Terminal rows that confirm commits beside the ownership transfer."""
+
+    challenge: TakeoverChallengeRecord
+    request_op_record: ControlPlaneOperationRecord
+    challenge_to_insert: TakeoverChallengeRecord | None = None
+    challenge_to_expire: TakeoverChallengeRecord | None = None
+    approved_approval: TakeoverApprovalRecord | None = None
 
 
 @dataclass(frozen=True)
