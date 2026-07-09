@@ -405,7 +405,7 @@ class _OperatorServiceController:
     (``subprocess.run``); a teardown that cannot run (orchestrator unavailable) or
     that exits non-zero FAILS CLOSED with :class:`ServiceTeardownError` — services
     are never reported "stopped" when the teardown did not actually succeed (AC6,
-    "kein Stub-Echo als 'done'").
+    "no stub echo as 'done'").
 
     The ``runner`` is an injectable seam: tests provide a recording fake to assert
     the executed argv without a real Docker daemon; the productive default runs
