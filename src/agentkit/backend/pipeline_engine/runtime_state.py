@@ -8,7 +8,6 @@ The engine remains responsible for orchestration decisions.
 from __future__ import annotations
 
 import uuid
-from dataclasses import replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -249,9 +248,20 @@ class EngineRuntimeState:
     def consume_override(self, ctx: StoryContext, record: OverrideRecord) -> None:
         """Mark an override as consumed."""
 
-        consumed_record: OverrideRecord = replace(
-            record,
+        consumed_record = OverrideRecord(
+            override_id=record.override_id,
+            project_key=record.project_key,
+            story_id=record.story_id,
+            run_id=record.run_id,
+            flow_id=record.flow_id,
+            target_node_id=record.target_node_id,
+            override_type=record.override_type,
+            actor_type=record.actor_type,
+            actor_id=record.actor_id,
+            reason=record.reason,
+            created_at=record.created_at,
             consumed_at=datetime.now(tz=UTC),
+            check_id=record.check_id,
         )
         save_override_record(self._story_dir, consumed_record)
         self._emit_event(
