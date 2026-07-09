@@ -14,18 +14,23 @@ from agentkit.backend.control_plane.models import (
     PhaseDispatchResult,
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,
+    TakeoverChallengeEcho,
+    TakeoverChallengeEchoRequest,
+    TakeoverRequest,
 )
 from agentkit.backend.control_plane.ownership import (
     INITIAL_OWNERSHIP_EPOCH,
     OwnershipAcquisition,
     OwnershipStatus,
 )
+from agentkit.backend.control_plane.push_sync import PushFreshnessRecord
 from agentkit.backend.control_plane.records import (
     BackendInstanceIdentityRecord,
     BindingDeleteScope,
     ControlPlaneOperationRecord,
     RunOwnershipRecord,
     SessionRunBindingRecord,
+    TakeoverTransferRecord,
 )
 from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
 from agentkit.backend.control_plane.runtime import (
@@ -79,6 +84,11 @@ class _RepoState:
         self.execution_contract_digests: dict[
             tuple[str, str, str], ExecutionContractDigestRecord
         ] = {}
+        self.push_freshness: dict[
+            tuple[str, str, str], tuple[PushFreshnessRecord, ...]
+        ] = {}
+        self.takeover_transfers: list[TakeoverTransferRecord] = []
+        self.story_blockers: dict[tuple[str, str], str] = {}
 
     def load_active_ownership(
         self, project_key: str, story_id: str
@@ -291,6 +301,66 @@ class _FakeOps:
             self._state.locks[
                 (lock.project_key, lock.story_id, lock.run_id, lock.lock_type)
             ] = lock
+        self._state.events.extend(events)
+
+    def commit_takeover_confirm(
+        self,
+        record: ControlPlaneOperationRecord,
+        *,
+        expected_owner_session_id: str,
+        expected_ownership_epoch: int,
+        expected_binding_version: str,
+        revoked_binding: SessionRunBindingRecord,
+        new_binding: SessionRunBindingRecord,
+        locks: tuple[StoryExecutionLockRecord, ...],
+        transfers: tuple[TakeoverTransferRecord, ...],
+        events: tuple[ExecutionEventRecord, ...],
+    ) -> None:
+        active = self._state.load_active_ownership(record.project_key, record.story_id)
+        owner_binding = self._state.bindings.get(expected_owner_session_id)
+        if (
+            active is None
+            or active.run_id != record.run_id
+            or active.owner_session_id != expected_owner_session_id
+            or active.ownership_epoch != expected_ownership_epoch
+            or owner_binding is None
+            or owner_binding.binding_version != expected_binding_version
+        ):
+            raise OwnershipFenceViolationError(
+                "takeover confirm CAS failed in fake store",
+                detail={
+                    "current_owner_session_id": (
+                        active.owner_session_id if active is not None else None
+                    ),
+                    "current_ownership_epoch": (
+                        active.ownership_epoch if active is not None else None
+                    ),
+                },
+            )
+        _fake_run_scoped_save_binding(self._state, new_binding)
+        ownership_key = (active.project_key, active.story_id, active.run_id)
+        self._state.ownership_records[ownership_key] = RunOwnershipRecord(
+            project_key=active.project_key,
+            story_id=active.story_id,
+            run_id=active.run_id,
+            owner_session_id=new_binding.session_id,
+            ownership_epoch=expected_ownership_epoch + 1,
+            status=OwnershipStatus.ACTIVE,
+            acquired_via=OwnershipAcquisition.TAKEOVER,
+            acquired_at=record.updated_at,
+            audit_ref=record.op_id,
+        )
+        self._state.operations[record.op_id] = record
+        self._state.bindings[revoked_binding.session_id] = revoked_binding
+        self._state.bindings[new_binding.session_id] = new_binding
+        for lock in locks:
+            self._state.locks[
+                (lock.project_key, lock.story_id, lock.run_id, lock.lock_type)
+            ] = lock
+        self._state.takeover_transfers.extend(transfers)
+        self._state.story_blockers[(record.project_key, record.story_id)] = (
+            "takeover_reconcile_required"
+        )
         self._state.events.extend(events)
 
     def release(
@@ -646,6 +716,11 @@ def _repository(state: _RepoState) -> ControlPlaneRuntimeRepository:
         has_engine_writes_since=ops.has_engine_writes_since,
         has_open_repair_for_story=ops.has_open_repair_for_story,
         load_active_ownership=state.load_active_ownership,
+        list_push_freshness=lambda project_key, story_id, run_id: state.push_freshness.get(
+            (project_key, story_id, run_id),
+            (),
+        ),
+        commit_takeover_confirm=ops.commit_takeover_confirm,
     )
 
 
@@ -741,6 +816,152 @@ def _seed_admitted_run(
             updated_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
         )
     return record
+
+
+def _push_freshness(
+    *,
+    repo_id: str = "backend",
+    pushed_sha: str | None = "abc123",
+    backlog: bool = False,
+) -> PushFreshnessRecord:
+    return PushFreshnessRecord(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        run_id="run-100",
+        repo_id=repo_id,
+        last_reported_head_sha=pushed_sha,
+        last_pushed_head_sha=pushed_sha,
+        last_reported_at=datetime(2026, 4, 22, 10, 5, tzinfo=UTC),
+        last_sync_point_id="sync-1",
+        last_command_id="cmd-1",
+        backlog=backlog,
+        backlog_detail="behind_remote" if backlog else None,
+    )
+
+
+def _takeover_confirm_request(
+    *,
+    op_id: str = "op-takeover-confirm",
+    principal_type: str = "strategist",
+    session_id: str = "sess-B",
+) -> TakeoverChallengeEchoRequest:
+    return TakeoverChallengeEchoRequest(
+        project_key="tenant-a",
+        story_id="AG3-100",
+        session_id=session_id,
+        principal_type=principal_type,
+        op_id=op_id,
+        reason="previous owner is unavailable",
+        worktree_roots=["T:/worktrees/ag3-100-b"],
+        challenge_echo=TakeoverChallengeEcho(
+            challenge_id="takeover-op-request",
+            owner_session_id="sess-001",
+            ownership_epoch=1,
+            binding_version="1",
+        ),
+    )
+
+
+def test_takeover_request_returns_challenge_with_pushed_only_evidence() -> None:
+    state = _RepoState()
+    _seed_admitted_run(state, run_id="run-100", session_id="sess-001")
+    state.push_freshness[("tenant-a", "AG3-100", "run-100")] = (
+        _push_freshness(repo_id="backend", pushed_sha="abc123"),
+    )
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    result = service.request_ownership_takeover(
+        request=TakeoverRequest(
+            project_key="tenant-a",
+            story_id="AG3-100",
+            session_id="sess-B",
+            principal_type="strategist",
+            op_id="op-takeover-request",
+            reason="previous owner is unavailable",
+            worktree_roots=["T:/worktrees/ag3-100-b"],
+        ),
+    )
+
+    assert result.status == "offered"
+    assert result.takeover_challenge is not None
+    challenge = result.takeover_challenge
+    assert challenge.current_owner_session_id == "sess-001"
+    assert challenge.ownership_epoch == 1
+    assert challenge.binding_version == "1"
+    assert challenge.loss_corridor_notice_key == "pushed_only_loss_corridor"
+    assert "Unpushed commits" in challenge.loss_corridor_notice_text
+    assert challenge.repos[0].takeover_base_sha == "abc123"
+    assert challenge.repos[0].base_quality == "pushed"
+
+
+def test_takeover_confirm_commits_cas_transfer_and_four_events() -> None:
+    state = _RepoState()
+    _seed_admitted_run(state, run_id="run-100", session_id="sess-001")
+    state.push_freshness[("tenant-a", "AG3-100", "run-100")] = (
+        _push_freshness(repo_id="backend", pushed_sha="abc123"),
+    )
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    result = service.confirm_ownership_takeover(request=_takeover_confirm_request())
+
+    assert result.status == "committed"
+    active = state.load_active_ownership("tenant-a", "AG3-100")
+    assert active is not None
+    assert active.owner_session_id == "sess-B"
+    assert active.ownership_epoch == 2
+    assert active.status is OwnershipStatus.ACTIVE
+    assert state.bindings["sess-001"].status == "revoked"
+    assert state.bindings["sess-001"].revocation_reason == "ownership_transferred"
+    assert state.bindings["sess-B"].worktree_roots == ("T:/worktrees/ag3-100-b",)
+    assert state.locks[("tenant-a", "AG3-100", "run-100", "story_execution")].worktree_roots == (
+        "T:/worktrees/ag3-100-b",
+    )
+    assert len(state.takeover_transfers) == 1
+    assert state.takeover_transfers[0].takeover_base_sha == "abc123"
+    assert state.story_blockers[("tenant-a", "AG3-100")] == "takeover_reconcile_required"
+    assert len(state.events) == 4
+
+
+def test_takeover_confirm_requires_pushed_head_and_writes_nothing() -> None:
+    state = _RepoState()
+    _seed_admitted_run(state, run_id="run-100", session_id="sess-001")
+    state.push_freshness[("tenant-a", "AG3-100", "run-100")] = (
+        _push_freshness(repo_id="backend", pushed_sha=None),
+    )
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    result = service.confirm_ownership_takeover(
+        request=_takeover_confirm_request(op_id="op-takeover-no-push"),
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "pushed_head_required"
+    active = state.load_active_ownership("tenant-a", "AG3-100")
+    assert active is not None
+    assert active.owner_session_id == "sess-001"
+    assert "sess-B" not in state.bindings
+    assert state.takeover_transfers == []
+    assert state.events == []
+
+
+def test_agent_confirm_is_forbidden_and_writes_nothing() -> None:
+    state = _RepoState()
+    _seed_admitted_run(state, run_id="run-100", session_id="sess-001")
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    result = service.confirm_ownership_takeover(
+        request=_takeover_confirm_request(
+            op_id="op-agent-confirm",
+            principal_type="interactive_agent",
+        ),
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "agent_confirm_forbidden"
+    active = state.load_active_ownership("tenant-a", "AG3-100")
+    assert active is not None
+    assert active.owner_session_id == "sess-001"
+    assert state.events == []
 
 
 def test_start_phase_persists_binding_lock_and_operation() -> None:

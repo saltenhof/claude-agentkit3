@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from agentkit.backend.exceptions import (
     ControlPlaneBindingCollisionError,
     ControlPlaneClaimCollisionError,
+    OwnershipFenceViolationError,
 )
 
 if TYPE_CHECKING:
@@ -789,7 +790,18 @@ def has_open_repair_control_plane_operation_for_story_global_row(
             """,
             (project_key, story_id),
         ).fetchone()
-        return row is not None
+        if row is not None:
+            return True
+        blocker = conn.execute(
+            """
+            SELECT 1 FROM stories
+            WHERE project_key = ? AND story_display_id = ?
+              AND blocker = 'takeover_reconcile_required'
+            LIMIT 1
+            """,
+            (project_key, story_id),
+        ).fetchone()
+        return blocker is not None
 
 
 def resolve_repair_control_plane_operation_global_row(
@@ -915,6 +927,158 @@ def commit_control_plane_operation_with_side_effects_global_row(
             )
         for lock_row in lock_rows:
             _insert_story_execution_lock_row(conn, lock_row)
+        for event_row in event_rows:
+            _insert_execution_event_row(conn, event_row)
+
+
+def commit_takeover_confirm_global_row(
+    *,
+    op_row: dict[str, Any],
+    expected_owner_session_id: str,
+    expected_ownership_epoch: int,
+    expected_binding_version: str,
+    revoked_binding_row: dict[str, Any],
+    new_binding_row: dict[str, Any],
+    lock_rows: Sequence[dict[str, Any]],
+    transfer_rows: Sequence[dict[str, Any]],
+    event_rows: Sequence[dict[str, Any]],
+) -> None:
+    """Atomically commit a takeover confirm and all ownership side effects.
+
+    CAS-loss raises before durable side effects survive. The active ownership row
+    remains ``status='active'`` and is updated in place to the new owner with
+    ``ownership_epoch + 1``.
+    """
+
+    with _connect_global() as conn:
+        _conditional_upsert_control_plane_op_row(conn, op_row)
+        active = conn.execute(
+            """
+            SELECT owner_session_id, ownership_epoch, status
+            FROM run_ownership_records
+            WHERE project_key = ? AND story_id = ? AND run_id = ?
+              AND status = 'active'
+            FOR UPDATE
+            """,
+            (op_row["project_key"], op_row["story_id"], op_row["run_id"]),
+        ).fetchone()
+        if (
+            active is None
+            or str(active["owner_session_id"]) != expected_owner_session_id
+            or int(active["ownership_epoch"]) != expected_ownership_epoch
+            or str(active["status"]) != "active"
+        ):
+            raise OwnershipFenceViolationError(
+                "takeover confirm CAS failed: active ownership row no longer "
+                "matches the echoed challenge",
+                detail={
+                    "current_owner_session_id": (
+                        str(active["owner_session_id"]) if active is not None else None
+                    ),
+                    "current_ownership_epoch": (
+                        int(active["ownership_epoch"]) if active is not None else None
+                    ),
+                    "transferred_at": str(op_row["updated_at"]) if active is not None else None,
+                },
+            )
+        binding = conn.execute(
+            """
+            SELECT binding_version FROM session_run_bindings
+            WHERE session_id = ? AND project_key = ? AND story_id = ?
+              AND run_id = ? AND status = 'active'
+            FOR UPDATE
+            """,
+            (
+                expected_owner_session_id,
+                op_row["project_key"],
+                op_row["story_id"],
+                op_row["run_id"],
+            ),
+        ).fetchone()
+        if binding is None or str(binding["binding_version"]) != expected_binding_version:
+            raise OwnershipFenceViolationError(
+                "takeover confirm CAS failed: owner binding version no longer "
+                "matches the echoed challenge",
+                detail={
+                    "current_owner_session_id": expected_owner_session_id,
+                    "current_ownership_epoch": expected_ownership_epoch,
+                    "transferred_at": str(op_row["updated_at"]),
+                },
+            )
+        conn.execute(
+            """
+            UPDATE run_ownership_records
+            SET owner_session_id = ?, ownership_epoch = ?,
+                acquired_via = 'takeover', acquired_at = ?, audit_ref = ?
+            WHERE project_key = ? AND story_id = ? AND run_id = ?
+              AND status = 'active'
+            """,
+            (
+                new_binding_row["session_id"],
+                expected_ownership_epoch + 1,
+                op_row["updated_at"],
+                op_row["op_id"],
+                op_row["project_key"],
+                op_row["story_id"],
+                op_row["run_id"],
+            ),
+        )
+        cursor = conn.execute(
+            """
+            UPDATE session_run_bindings
+            SET status = 'revoked', revocation_reason = ?,
+                binding_version = ?, updated_at = ?
+            WHERE session_id = ? AND project_key = ? AND story_id = ?
+              AND run_id = ?
+            """,
+            (
+                revoked_binding_row["revocation_reason"],
+                revoked_binding_row["binding_version"],
+                revoked_binding_row["updated_at"],
+                revoked_binding_row["session_id"],
+                revoked_binding_row["project_key"],
+                revoked_binding_row["story_id"],
+                revoked_binding_row["run_id"],
+            ),
+        )
+        if int(cursor.rowcount) != 1:
+            raise ControlPlaneBindingCollisionError(
+                "takeover confirm could not revoke the previous owner's active binding",
+            )
+        _insert_session_binding_row(conn, new_binding_row)
+        for lock_row in lock_rows:
+            _insert_story_execution_lock_row(conn, lock_row)
+        for transfer_row in transfer_rows:
+            conn.execute(
+                """
+                INSERT INTO takeover_transfer_records (
+                    project_key, story_id, run_id, ownership_epoch, repo_id,
+                    takeover_base_sha, last_push_at, push_lag_hint, base_quality,
+                    challenge_ref, confirm_ref
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    transfer_row["project_key"],
+                    transfer_row["story_id"],
+                    transfer_row["run_id"],
+                    transfer_row["ownership_epoch"],
+                    transfer_row["repo_id"],
+                    transfer_row["takeover_base_sha"],
+                    transfer_row["last_push_at"],
+                    transfer_row["push_lag_hint"],
+                    transfer_row["base_quality"],
+                    transfer_row["challenge_ref"],
+                    transfer_row["confirm_ref"],
+                ),
+            )
+        conn.execute(
+            """
+            UPDATE stories
+            SET blocker = 'takeover_reconcile_required'
+            WHERE project_key = ? AND story_display_id = ?
+            """,
+            (op_row["project_key"], op_row["story_id"]),
+        )
         for event_row in event_rows:
             _insert_execution_event_row(conn, event_row)
 

@@ -22,6 +22,7 @@ from agentkit.backend.state_backend.operation_ledger import (
     claim_control_plane_operation_global,
     commit_control_plane_operation_with_side_effects_global,
     commit_edge_command_result_global,
+    commit_takeover_confirm_global,
     delete_control_plane_operation_global,
     delete_object_mutation_claim_global,
     finalize_control_plane_operation_global,
@@ -45,15 +46,22 @@ from agentkit.backend.state_backend.state_backend_connection_manager import (
     load_backend_instance_identity_global,
     save_backend_instance_identity_global,
 )
+from agentkit.backend.state_backend.story_closure_store import (
+    list_push_freshness_records_global,
+)
 from agentkit.backend.state_backend.story_lifecycle_store import (
     delete_session_run_binding_global,
     insert_run_ownership_record_global,
+    insert_takeover_approval_global,
+    list_pending_takeover_approvals_global,
     load_active_run_ownership_record_global,
     load_run_ownership_record_global,
     load_session_run_binding_global,
+    load_takeover_approval_global,
     load_takeover_transfer_record_global,
     save_session_run_binding_global,
     save_takeover_transfer_record_global,
+    update_takeover_approval_status_global,
 )
 from agentkit.backend.state_backend.telemetry_event_store import (
     append_execution_event_global,
@@ -63,6 +71,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
+    from agentkit.backend.control_plane.push_sync import PushFreshnessRecord
     from agentkit.backend.control_plane.records import (
         BackendInstanceIdentityRecord,
         ControlPlaneOperationRecord,
@@ -70,6 +79,7 @@ if TYPE_CHECKING:
         ObjectMutationClaimRecord,
         RunOwnershipRecord,
         SessionRunBindingRecord,
+        TakeoverApprovalRecord,
         TakeoverTransferRecord,
     )
     from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
@@ -235,6 +245,10 @@ class ControlPlaneRuntimeRepository:
     load_active_ownership: Callable[[str, str], RunOwnershipRecord | None] = (
         load_active_run_ownership_record_global
     )
+    list_push_freshness: Callable[
+        [str, str, str], tuple[PushFreshnessRecord, ...]
+    ] = list_push_freshness_records_global
+    commit_takeover_confirm: Callable[..., None] = commit_takeover_confirm_global
 
 
 @dataclass(frozen=True)
@@ -316,6 +330,24 @@ class TakeoverTransferRepository:
     load_transfer: Callable[
         [str, str, str, int, str], TakeoverTransferRecord | None
     ] = load_takeover_transfer_record_global
+
+
+@dataclass(frozen=True)
+class TakeoverApprovalRepository:
+    """Persistence port for persistent takeover approval requests."""
+
+    insert_approval: Callable[[TakeoverApprovalRecord], None] = (
+        insert_takeover_approval_global
+    )
+    load_approval: Callable[[str], TakeoverApprovalRecord | None] = (
+        load_takeover_approval_global
+    )
+    update_status: Callable[[TakeoverApprovalRecord], bool] = (
+        update_takeover_approval_status_global
+    )
+    list_pending: Callable[[str | None], tuple[TakeoverApprovalRecord, ...]] = (
+        list_pending_takeover_approvals_global
+    )
 
 
 @dataclass(frozen=True)

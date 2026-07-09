@@ -164,7 +164,11 @@ def _topic_for_record(record: ExecutionEventRecord) -> ProjectSseTopic:
         return payload_topic
     if record.phase is not None:
         return "phases"
-    if record.event_type in {"integrity_violation", "edge_operation_reconciled"}:
+    if record.event_type in {
+        "integrity_violation",
+        "edge_operation_reconciled",
+        "takeover_approval_changed",
+    }:
         return "governance"
     if record.event_type.startswith("story_"):
         return "stories"

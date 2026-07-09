@@ -25,6 +25,9 @@ _UNAUTHENTICATED_PATHS = {"/healthz", "/v1/auth/login"}
 _PROJECT_TOKEN_MANAGEMENT = re.compile(
     r"^/v1/projects/[^/]+/api-tokens(?:/[^/]+)?$",
 )
+_OWNERSHIP_TRANSFER_PATH = re.compile(
+    r"^/v1/project-edge/ownership/takeover-(?:request|confirm)$",
+)
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
@@ -36,6 +39,11 @@ class AuthResult:
     project_key: str | None = None
     session_id: str | None = None
     token_id: str | None = None
+
+    @property
+    def is_human_bff_session(self) -> bool:
+        """Whether this result came from a human BFF session."""
+        return self.auth_kind == "strategist_session"
 
 
 @dataclass(frozen=True)
@@ -144,6 +152,12 @@ def is_project_api_token_management_path(route_path: str) -> bool:
     """Return whether a route path manages project API tokens."""
 
     return _PROJECT_TOKEN_MANAGEMENT.match(route_path) is not None
+
+
+def is_ownership_transfer_path(route_path: str) -> bool:
+    """Return whether a route path is an ownership-transfer endpoint."""
+
+    return _OWNERSHIP_TRANSFER_PATH.match(route_path) is not None
 
 
 def _project_key_from_path(route_path: str) -> str | None:

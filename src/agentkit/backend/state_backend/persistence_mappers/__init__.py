@@ -21,6 +21,8 @@ from ._control_plane import (
     run_ownership_to_row as run_ownership_to_row,
     session_binding_row_to_record as session_binding_row_to_record,
     session_binding_to_row as session_binding_to_row,
+    takeover_approval_row_to_record as takeover_approval_row_to_record,
+    takeover_approval_to_row as takeover_approval_to_row,
     takeover_transfer_row_to_record as takeover_transfer_row_to_record,
     takeover_transfer_to_row as takeover_transfer_to_row,
 )
@@ -96,5 +98,6 @@ __all__ = [
     "run_ownership_to_row", "serialize_layer_result_to_dict", "session_binding_row_to_record", "session_binding_to_row",
     "skill_binding_row_to_record", "skill_binding_to_row", "story_are_link_row_to_entity", "story_are_link_to_row",
     "story_context_payload_to_record", "story_context_to_row", "story_dependency_row_to_entity", "story_dependency_to_row",
-    "story_metrics_row_to_record", "story_metrics_to_row", "takeover_transfer_row_to_record", "takeover_transfer_to_row",
+    "story_metrics_row_to_record", "story_metrics_to_row", "takeover_approval_row_to_record", "takeover_approval_to_row",
+    "takeover_transfer_row_to_record", "takeover_transfer_to_row",
 ]

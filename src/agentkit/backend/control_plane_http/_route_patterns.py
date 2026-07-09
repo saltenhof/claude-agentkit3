@@ -44,6 +44,14 @@ _EDGE_PUSH_OWNERSHIP_PATTERN = re.compile(
     r"^/v1/project-edge/story-runs/(?P<run_id>[^/]+)/push-ownership$",
 )
 
+# AG3-148: ownership-transfer challenge / confirm surfaces.
+_TAKEOVER_REQUEST_PATTERN = re.compile(
+    r"^/v1/project-edge/ownership/takeover-request$",
+)
+_TAKEOVER_CONFIRM_PATTERN = re.compile(
+    r"^/v1/project-edge/ownership/takeover-confirm$",
+)
+
 # Project-scoped paths under /v1/projects/{project_key}/<bc>/...
 _PROJECT_SCOPED_PREFIX = re.compile(
     r"^/v1/projects/(?P<project_key>[^/]+)/(?P<rest>.+)$",

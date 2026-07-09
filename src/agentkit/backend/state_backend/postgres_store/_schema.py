@@ -79,6 +79,7 @@ def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
         "run_ownership_records",
         "object_mutation_claims",
         "takeover_transfer_records",
+        "takeover_approvals",
         "backend_instance_identity",
         # AG3-143 canary: a pre-AG3-143 schema lacks this table, so it reports
         # "not bootstrapped" and re-runs the full _ensure_schema (which creates

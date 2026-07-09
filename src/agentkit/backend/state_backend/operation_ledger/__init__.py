@@ -18,6 +18,7 @@ if TYPE_CHECKING:
         ObjectMutationClaimRecord,
         RunOwnershipRecord,
         SessionRunBindingRecord,
+        TakeoverTransferRecord,
     )
     from agentkit.backend.governance.guard_system.records import (
         StoryExecutionLockRecord,
@@ -244,6 +245,38 @@ def commit_edge_command_result_global(
             "result_payload_json": mappers.dump_json(result_payload),
         },
         expected_ownership_epoch=expected_ownership_epoch,
+    )
+
+
+def commit_takeover_confirm_global(
+    op_record: ControlPlaneOperationRecord,
+    *,
+    expected_owner_session_id: str,
+    expected_ownership_epoch: int,
+    expected_binding_version: str,
+    revoked_binding: SessionRunBindingRecord,
+    new_binding: SessionRunBindingRecord,
+    locks: tuple[StoryExecutionLockRecord, ...],
+    transfers: tuple[TakeoverTransferRecord, ...],
+    events: tuple[ExecutionEventRecord, ...],
+) -> None:
+    """Atomically commit takeover confirm side effects in one transaction."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    backend.commit_takeover_confirm_global_row(
+        op_row=mappers.control_plane_op_to_row(op_record),
+        expected_owner_session_id=expected_owner_session_id,
+        expected_ownership_epoch=expected_ownership_epoch,
+        expected_binding_version=expected_binding_version,
+        revoked_binding_row=mappers.session_binding_to_row(revoked_binding),
+        new_binding_row=mappers.session_binding_to_row(new_binding),
+        lock_rows=tuple(mappers.execution_lock_to_row(lock) for lock in locks),
+        transfer_rows=tuple(
+            mappers.takeover_transfer_to_row(record) for record in transfers
+        ),
+        event_rows=tuple(mappers.execution_event_to_row(event) for event in events),
     )
 
 
@@ -549,6 +582,7 @@ __all__ = [
     "finalize_control_plane_start_phase_global",
     "commit_control_plane_operation_with_side_effects_global",
     "commit_edge_command_result_global",
+    "commit_takeover_confirm_global",
     "release_control_plane_operation_global",
     "list_orphaned_claimed_control_plane_operations_global",
     "finalize_orphaned_control_plane_operation_global",

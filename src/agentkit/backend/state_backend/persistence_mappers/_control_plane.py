@@ -22,6 +22,7 @@ if TYPE_CHECKING:
         ObjectMutationClaimRecord,
         RunOwnershipRecord,
         SessionRunBindingRecord,
+        TakeoverApprovalRecord,
         TakeoverTransferRecord,
     )
     from agentkit.backend.state_backend.backend_instance_identity_types import BackendInstanceIdentityRecord
@@ -278,6 +279,55 @@ def takeover_transfer_row_to_record(row: dict[str, Any]) -> TakeoverTransferReco
         base_quality=_optional_str(row.get("base_quality")),
         challenge_ref=_optional_str(row.get("challenge_ref")),
         confirm_ref=_optional_str(row.get("confirm_ref")),
+    )
+
+
+def takeover_approval_to_row(record: TakeoverApprovalRecord) -> dict[str, Any]:
+    """Convert a ``TakeoverApprovalRecord`` to a DB-insertable row dict."""
+
+    return {
+        "approval_id": record.approval_id,
+        "project_key": record.project_key,
+        "story_id": record.story_id,
+        "run_id": record.run_id,
+        "requested_by_session_id": record.requested_by_session_id,
+        "requested_by_principal_type": record.requested_by_principal_type,
+        "reason": record.reason,
+        "challenge_ref": record.challenge_ref,
+        "status": record.status.value,
+        "requested_at": record.requested_at.isoformat(),
+        "expires_at": record.expires_at.isoformat(),
+        "decided_at": (
+            record.decided_at.isoformat() if record.decided_at is not None else None
+        ),
+        "decided_by_session_id": record.decided_by_session_id,
+        "decision_reason": record.decision_reason,
+    }
+
+
+def takeover_approval_row_to_record(row: dict[str, Any]) -> TakeoverApprovalRecord:
+    """Convert a DB row dict to a ``TakeoverApprovalRecord``."""
+
+    from agentkit.backend.control_plane.ownership import TakeoverApprovalStatus
+    from agentkit.backend.control_plane.records import (
+        TakeoverApprovalRecord as _TakeoverApprovalRecord,
+    )
+
+    return _TakeoverApprovalRecord(
+        approval_id=str(row["approval_id"]),
+        project_key=str(row["project_key"]),
+        story_id=str(row["story_id"]),
+        run_id=str(row["run_id"]),
+        requested_by_session_id=str(row["requested_by_session_id"]),
+        requested_by_principal_type=str(row["requested_by_principal_type"]),
+        reason=str(row["reason"]),
+        challenge_ref=str(row["challenge_ref"]),
+        status=TakeoverApprovalStatus(str(row["status"])),
+        requested_at=datetime.fromisoformat(str(row["requested_at"])),
+        expires_at=datetime.fromisoformat(str(row["expires_at"])),
+        decided_at=_optional_iso_datetime(row.get("decided_at")),
+        decided_by_session_id=_optional_str(row.get("decided_by_session_id")),
+        decision_reason=_optional_str(row.get("decision_reason")),
     )
 
 

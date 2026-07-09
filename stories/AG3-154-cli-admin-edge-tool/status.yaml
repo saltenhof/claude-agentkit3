@@ -1,7 +1,7 @@
 story_id: AG3-154
 title: "CLI/Admin-Kommandos + Edge-Tool: takeover-request/-confirm (human_cli, direkter Challenge-Dialog), echtes recover-story (acquired_via=recovery, neuer Run auf bestehendem Worktree), Agent-Kommandos im deployten projectedge.py"
 type: implementation
-status: blocked
+status: ready
 phase: setup
 created: "2026-07-02"
 size: M

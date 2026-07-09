@@ -22,6 +22,7 @@ from agentkit.backend.control_plane.ownership import (
     BindingStatus,
     OwnershipAcquisition,
     OwnershipStatus,
+    TakeoverApprovalStatus,
     is_canonical_binding_version,
 )
 from agentkit.backend.state_backend.backend_instance_identity_types import (
@@ -43,6 +44,7 @@ __all__ = (
     "ObjectMutationClaimRecord",
     "RunOwnershipRecord",
     "SessionRunBindingRecord",
+    "TakeoverApprovalRecord",
     "TakeoverTransferRecord",
 )
 
@@ -281,6 +283,56 @@ class TakeoverTransferRecord:
             )
         if not self.repo_id.strip():
             raise ValueError("repo_id is part of the identity and must not be empty")
+
+
+@dataclass(frozen=True)
+class TakeoverApprovalRecord:
+    """Persistent human approval request for an agent-initiated takeover."""
+
+    approval_id: str
+    project_key: str
+    story_id: str
+    run_id: str
+    requested_by_session_id: str
+    requested_by_principal_type: str
+    reason: str
+    challenge_ref: str
+    status: TakeoverApprovalStatus
+    requested_at: datetime
+    expires_at: datetime
+    decided_at: datetime | None = None
+    decided_by_session_id: str | None = None
+    decision_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        for value_name in (
+            "approval_id",
+            "project_key",
+            "story_id",
+            "run_id",
+            "requested_by_session_id",
+            "requested_by_principal_type",
+            "reason",
+            "challenge_ref",
+        ):
+            if not str(getattr(self, value_name)).strip():
+                raise ValueError(f"{value_name} must not be empty")
+        if self.expires_at <= self.requested_at:
+            raise ValueError("expires_at must be after requested_at")
+        if self.status is TakeoverApprovalStatus.PENDING:
+            if self.decided_at is not None or self.decided_by_session_id is not None:
+                raise ValueError("a pending approval must not carry decision metadata")
+            return
+        if self.decided_at is None:
+            raise ValueError("a terminal approval requires decided_at")
+        if self.status in {
+            TakeoverApprovalStatus.APPROVED,
+            TakeoverApprovalStatus.DENIED,
+        } and (
+            self.decided_by_session_id is None
+            or not self.decided_by_session_id.strip()
+        ):
+            raise ValueError("approved/denied approvals require decided_by_session_id")
 
 
 @dataclass(frozen=True)

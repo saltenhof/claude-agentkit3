@@ -502,7 +502,10 @@ def _replayed_result(
         preserved terminal status, else a ``replayed`` echo.
     """
     stored_status = stored_payload.get("status")
-    if stored_status in _RECONCILE_PRESERVED_STATUSES:
+    if stored_status in _RECONCILE_PRESERVED_STATUSES or stored_status in {
+        "offered",
+        "pending_human_approval",
+    }:
         return ControlPlaneMutationResult.model_validate(stored_payload)
     return ControlPlaneMutationResult.model_validate(
         {**stored_payload, "status": "replayed"},

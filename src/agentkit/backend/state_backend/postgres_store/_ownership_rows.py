@@ -903,6 +903,108 @@ def load_takeover_transfer_record_global_row(
 
 
 # ---------------------------------------------------------------------------
+# TakeoverApprovalRecord rows (AG3-148, Postgres-only K5)
+# ---------------------------------------------------------------------------
+
+
+def insert_takeover_approval_global_row(row: dict[str, Any]) -> None:
+    """Strictly insert one takeover approval request."""
+
+    with _connect_global() as conn:
+        conn.execute(
+            """
+            INSERT INTO takeover_approvals (
+                approval_id, project_key, story_id, run_id,
+                requested_by_session_id, requested_by_principal_type,
+                reason, challenge_ref, status, requested_at, expires_at,
+                decided_at, decided_by_session_id, decision_reason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            _takeover_approval_params(row),
+        )
+
+
+def load_takeover_approval_global_row(approval_id: str) -> dict[str, Any] | None:
+    """Return one takeover approval row, or None."""
+
+    with _connect_global() as conn:
+        row = conn.execute(
+            "SELECT * FROM takeover_approvals WHERE approval_id = ?",
+            (approval_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def update_takeover_approval_status_global_row(row: dict[str, Any]) -> bool:
+    """Update one approval status if the row still exists."""
+
+    with _connect_global() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE takeover_approvals
+            SET status = ?, decided_at = ?, decided_by_session_id = ?,
+                decision_reason = ?
+            WHERE approval_id = ?
+            """,
+            (
+                row["status"],
+                row["decided_at"],
+                row["decided_by_session_id"],
+                row["decision_reason"],
+                row["approval_id"],
+            ),
+        )
+        return int(cursor.rowcount) == 1
+
+
+def list_pending_takeover_approval_rows_global(project_key: str | None = None) -> list[dict[str, Any]]:
+    """Return pending approval rows, oldest first."""
+
+    with _connect_global() as conn:
+        if project_key is None:
+            rows = conn.execute(
+                """
+                SELECT * FROM takeover_approvals
+                WHERE status = 'pending'
+                ORDER BY requested_at, approval_id
+                """,
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM takeover_approvals
+                WHERE status = 'pending' AND project_key = ?
+                ORDER BY requested_at, approval_id
+                """,
+                (project_key,),
+            ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _takeover_approval_params(row: dict[str, Any]) -> tuple[object, ...]:
+    """Return DB parameter order for a takeover approval row."""
+
+    return (
+        row["approval_id"],
+        row["project_key"],
+        row["story_id"],
+        row["run_id"],
+        row["requested_by_session_id"],
+        row["requested_by_principal_type"],
+        row["reason"],
+        row["challenge_ref"],
+        row["status"],
+        row["requested_at"],
+        row["expires_at"],
+        row["decided_at"],
+        row["decided_by_session_id"],
+        row["decision_reason"],
+    )
+
+
+# ---------------------------------------------------------------------------
 # BackendInstanceIdentityRecord rows (AG3-137, Postgres-only K5)
 # ---------------------------------------------------------------------------
 

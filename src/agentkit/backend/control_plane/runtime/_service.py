@@ -5,6 +5,7 @@ from __future__ import annotations
 from ._admin import _AdminTransitionMixin
 from ._admission import _ControlPlaneRuntimeAdmissionBase
 from ._edge_commands import _EdgeCommandMixin
+from ._ownership_transfer import _OwnershipTransferMixin
 from ._project_edge_sync import _ProjectEdgeSyncMixin
 from ._service_closure import _ControlPlaneClosureMixin
 from ._service_phase_mutation import _ControlPlanePhaseMutationMixin
@@ -13,6 +14,7 @@ from ._service_resume import _ControlPlaneResumeMixin
 
 class ControlPlaneRuntimeService(
     _AdminTransitionMixin,
+    _OwnershipTransferMixin,
     _EdgeCommandMixin,
     _ProjectEdgeSyncMixin,
     _ControlPlaneClosureMixin,

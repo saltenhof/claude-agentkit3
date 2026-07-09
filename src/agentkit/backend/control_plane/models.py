@@ -303,6 +303,122 @@ class ProjectEdgeSyncRequest(BaseModel):
     )
 
 
+class TakeoverRequest(BaseModel):
+    """Request payload for ``takeover-request``."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    project_key: str = Field(min_length=1)
+    story_id: str = Field(min_length=1)
+    session_id: str = Field(min_length=1)
+    principal_type: str = Field(min_length=1)
+    op_id: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    worktree_roots: list[str] = Field(min_length=1)
+    source_component: str = Field(min_length=1, default="project_edge_client")
+
+
+class TakeoverRepoChallenge(BaseModel):
+    """Per-repository pushed-only SHA evidence in a takeover challenge."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    repo_id: str = Field(min_length=1)
+    takeover_base_sha: str | None = None
+    last_push_at: datetime | None = None
+    push_lag_hint: str | None = None
+    base_quality: str = Field(min_length=1)
+
+
+class TakeoverChallenge(BaseModel):
+    """Wire form of a versioned takeover challenge."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    challenge_id: str = Field(min_length=1)
+    project_key: str = Field(min_length=1)
+    story_id: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    requesting_session_id: str = Field(min_length=1)
+    requesting_principal_type: str = Field(min_length=1)
+    current_owner_session_id: str = Field(min_length=1)
+    ownership_epoch: int = Field(ge=1)
+    binding_version: str = Field(min_length=1)
+    phase_status: str = Field(min_length=1)
+    owner_principal_type: str = Field(min_length=1)
+    owner_bound_since: datetime | None = None
+    last_owner_api_contact_at: datetime | None = None
+    last_owner_api_contact_note: str = Field(min_length=1)
+    open_operation_ids: list[str] = Field(default_factory=list)
+    takeover_history_refs: list[str] = Field(default_factory=list)
+    repos: list[TakeoverRepoChallenge] = Field(default_factory=list)
+    reason: str = Field(min_length=1)
+    loss_corridor_notice_key: str = Field(min_length=1)
+    loss_corridor_notice_text: str = Field(min_length=1)
+    expires_at: datetime | None = None
+
+
+class TakeoverChallengeEcho(BaseModel):
+    """Confirm payload echo of the CAS-relevant challenge fields."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    challenge_id: str = Field(min_length=1)
+    owner_session_id: str = Field(min_length=1)
+    ownership_epoch: int = Field(ge=1)
+    binding_version: str = Field(min_length=1)
+
+
+class TakeoverChallengeEchoRequest(BaseModel):
+    """Request payload for ``takeover-confirm``."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    project_key: str = Field(min_length=1)
+    story_id: str = Field(min_length=1)
+    session_id: str = Field(min_length=1)
+    principal_type: str = Field(min_length=1)
+    op_id: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    worktree_roots: list[str] = Field(min_length=1)
+    challenge_echo: TakeoverChallengeEcho
+    approval_id: str | None = None
+    source_component: str = Field(min_length=1, default="project_edge_client")
+
+
+class TakeoverApprovalView(BaseModel):
+    """Wire view of a takeover approval request."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    approval_id: str = Field(min_length=1)
+    project_key: str = Field(min_length=1)
+    story_id: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    requested_by_session_id: str = Field(min_length=1)
+    requested_by_principal_type: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    challenge_ref: str = Field(min_length=1)
+    status: Literal["pending", "approved", "denied", "expired"]
+    requested_at: datetime
+    expires_at: datetime
+    decided_at: datetime | None = None
+    decided_by_session_id: str | None = None
+    decision_reason: str | None = None
+
+
+class PendingHumanApprovalResponse(BaseModel):
+    """Typed pending-human-approval response for agent-initiated requests."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: Literal["pending_human_approval"] = "pending_human_approval"
+    op_id: str = Field(min_length=1)
+    approval_id: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+    approval: TakeoverApprovalView
+
+
 class CreateStoryInputs(BaseModel):
     """Typed story master data for the agent-facing create (FK-91 §91.1a).
 
@@ -587,7 +703,15 @@ class PhaseDispatchResult(BaseModel):
 #: an open ``repair`` state that was productively closed out via the admin-abort
 #: repair-resolve path (AC10), which lifts the story-scoped mutation lock.
 _NO_EDGE_BUNDLE_STATUSES = frozenset(
-    {"rejected", "aborted", "repair", "failed", "resolved"}
+    {
+        "rejected",
+        "aborted",
+        "repair",
+        "failed",
+        "resolved",
+        "offered",
+        "pending_human_approval",
+    }
 )
 
 
@@ -637,6 +761,8 @@ class ControlPlaneMutationResult(BaseModel):
         "repair",
         "failed",
         "resolved",
+        "offered",
+        "pending_human_approval",
     ]
     op_id: str
     operation_kind: str
@@ -692,6 +818,14 @@ class ControlPlaneMutationResult(BaseModel):
     #: longer matches the story's active record. ``None`` for every other
     #: rejection cause and every non-``rejected`` status.
     ownership_conflict: OwnershipTransferredDetail | None = None
+    #: AG3-148: the non-materializing human challenge offered by
+    #: ``takeover-request``. The challenge is the single CAS echo source for a
+    #: later ``takeover-confirm``; no edge bundle is materialized at offer time.
+    takeover_challenge: TakeoverChallenge | None = None
+    #: AG3-148: agent-initiated takeover requests never auto-transfer. They
+    #: persist a pending approval and return this typed handle until a human
+    #: explicitly approves and confirms.
+    pending_human_approval: PendingHumanApprovalResponse | None = None
 
     @model_validator(mode="after")
     def _edge_bundle_optionality_is_bound_to_rejection(self) -> ControlPlaneMutationResult:

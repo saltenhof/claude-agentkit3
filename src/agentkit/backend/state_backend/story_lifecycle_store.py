@@ -259,6 +259,48 @@ def load_takeover_transfer_record_global(
     return mappers.takeover_transfer_row_to_record(row)
 
 
+def insert_takeover_approval_global(record: Any) -> None:
+    """Insert one persistent takeover approval request."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    backend.insert_takeover_approval_global_row(mappers.takeover_approval_to_row(record))
+
+
+def load_takeover_approval_global(approval_id: str) -> Any | None:
+    """Load one takeover approval request."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    row = backend.load_takeover_approval_global_row(approval_id)
+    if row is None:
+        return None
+    return mappers.takeover_approval_row_to_record(row)
+
+
+def update_takeover_approval_status_global(record: Any) -> bool:
+    """CAS-update one takeover approval status from its current record state."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    return bool(backend.update_takeover_approval_status_global_row(mappers.takeover_approval_to_row(record)))
+
+
+def list_pending_takeover_approvals_global(
+    project_key: str | None = None,
+) -> tuple[Any, ...]:
+    """List pending takeover approvals, optionally scoped to one project."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    rows = backend.list_pending_takeover_approval_rows_global(project_key)
+    return tuple(mappers.takeover_approval_row_to_record(row) for row in rows)
+
+
 def backend_has_valid_context(story_dir: Path) -> bool:
     """Return whether the story has a readable canonical context."""
     return load_story_context(story_dir) is not None
@@ -281,5 +323,9 @@ __all__ = [
     "load_active_run_ownership_record_global",
     "save_takeover_transfer_record_global",
     "load_takeover_transfer_record_global",
+    "insert_takeover_approval_global",
+    "load_takeover_approval_global",
+    "update_takeover_approval_status_global",
+    "list_pending_takeover_approvals_global",
     "backend_has_valid_context",
 ]

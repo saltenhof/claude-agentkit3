@@ -23,6 +23,8 @@ from agentkit.backend.control_plane.models import (
     EdgeCommandResultRequest,
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,
+    TakeoverChallengeEchoRequest,
+    TakeoverRequest,
     op_id_validation_error,
 )
 from agentkit.backend.control_plane.runtime import (
@@ -90,6 +92,7 @@ from agentkit.backend.control_plane_http.responses import (
     _project_response_to_http_response,
     _resolve_correlation_id,
     _story_response_to_http_response,
+    _takeover_result_response,
     _telemetry_response_to_http_response,
 )
 from agentkit.backend.control_plane_http.routes_config import (
@@ -781,8 +784,13 @@ class ControlPlaneApplication(
             return self._handle_post_guard_counter(payload, correlation_id)
         if route_path == "/v1/governance/worker-health":
             return self._handle_post_worker_health(payload, correlation_id)
-        if route_path == "/v1/project-edge/sync":
-            return self._handle_post_project_edge_sync(payload, correlation_id)
+        project_edge_response = self._dispatch_project_edge_post(
+            route_path,
+            payload,
+            correlation_id,
+        )
+        if project_edge_response is not None:
+            return project_edge_response
 
         # AG3-145 Edge-Command-Queue result (non-project-scoped, FK-91 §91.1b):
         command_result_match = _route_patterns._EDGE_COMMAND_RESULT_PATTERN.match(route_path)
@@ -839,6 +847,20 @@ class ControlPlaneApplication(
             message=_NOT_FOUND_MESSAGE,
             correlation_id=correlation_id,
         )
+
+    def _dispatch_project_edge_post(
+        self,
+        route_path: str,
+        payload: object,
+        correlation_id: str,
+    ) -> HttpResponse | None:
+        if route_path == "/v1/project-edge/sync":
+            return self._handle_post_project_edge_sync(payload, correlation_id)
+        if _route_patterns._TAKEOVER_REQUEST_PATTERN.match(route_path):
+            return self._handle_post_takeover_request(payload, correlation_id)
+        if _route_patterns._TAKEOVER_CONFIRM_PATTERN.match(route_path):
+            return self._handle_post_takeover_confirm(payload, correlation_id)
+        return None
 
     def _dispatch_project_story_post(
         self,
@@ -1148,6 +1170,98 @@ class ControlPlaneApplication(
         #: path returned 201 CREATED unconditionally, letting a rejected closure look
         #: like a success (fail-closed violation).
         return _mutation_result_response(result, correlation_id=correlation_id)
+
+    def _handle_post_takeover_request(
+        self,
+        payload: object,
+        correlation_id: str,
+    ) -> HttpResponse:
+        from agentkit.backend.story_context_manager.errors import (
+            IdempotencyMismatchError,
+        )
+
+        try:
+            request = TakeoverRequest.model_validate(payload)
+            result = self._runtime_service.request_ownership_takeover(
+                request=request,
+            )
+        except ValidationError as exc:
+            return _error_response(
+                HTTPStatus.UNPROCESSABLE_ENTITY
+                if op_id_validation_error(exc)
+                else HTTPStatus.BAD_REQUEST,
+                error_code="invalid_takeover_request_payload",
+                message="Invalid takeover request payload",
+                correlation_id=correlation_id,
+                detail=exc.errors(),
+            )
+        except IdempotencyMismatchError as exc:
+            return _error_response(
+                HTTPStatus.CONFLICT,
+                error_code="idempotency_mismatch",
+                message=str(exc),
+                correlation_id=correlation_id,
+                detail=exc.detail,
+            )
+        except ConfigError as exc:
+            return _backend_requirement_response(
+                "ownership_takeover_unavailable", exc, correlation_id
+            )
+        except RuntimeError as exc:
+            logger.warning("Ownership takeover request unavailable: %s", exc)
+            return _error_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                error_code="ownership_takeover_unavailable",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+        return _takeover_result_response(result, correlation_id=correlation_id)
+
+    def _handle_post_takeover_confirm(
+        self,
+        payload: object,
+        correlation_id: str,
+    ) -> HttpResponse:
+        from agentkit.backend.story_context_manager.errors import (
+            IdempotencyMismatchError,
+        )
+
+        try:
+            request = TakeoverChallengeEchoRequest.model_validate(payload)
+            result = self._runtime_service.confirm_ownership_takeover(
+                request=request,
+            )
+        except ValidationError as exc:
+            return _error_response(
+                HTTPStatus.UNPROCESSABLE_ENTITY
+                if op_id_validation_error(exc)
+                else HTTPStatus.BAD_REQUEST,
+                error_code="invalid_takeover_confirm_payload",
+                message="Invalid takeover confirm payload",
+                correlation_id=correlation_id,
+                detail=exc.errors(),
+            )
+        except IdempotencyMismatchError as exc:
+            return _error_response(
+                HTTPStatus.CONFLICT,
+                error_code="idempotency_mismatch",
+                message=str(exc),
+                correlation_id=correlation_id,
+                detail=exc.detail,
+            )
+        except ConfigError as exc:
+            return _backend_requirement_response(
+                "ownership_takeover_unavailable", exc, correlation_id
+            )
+        except RuntimeError as exc:
+            logger.warning("Ownership takeover confirm unavailable: %s", exc)
+            return _error_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                error_code="ownership_takeover_unavailable",
+                message=str(exc),
+                correlation_id=correlation_id,
+            )
+        return _takeover_result_response(result, correlation_id=correlation_id)
 
     def _handle_post_project_edge_sync(
         self,

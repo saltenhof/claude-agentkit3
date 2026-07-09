@@ -43,6 +43,7 @@ __all__ = (
     "OwnershipAcquisition",
     "OwnershipStatus",
     "SessionId",
+    "TakeoverApprovalStatus",
     "is_canonical_binding_version",
 )
 
@@ -107,6 +108,15 @@ class BindingRevocationReason(StrEnum):
     """
 
     OWNERSHIP_TRANSFERRED = "ownership_transferred"
+
+
+class TakeoverApprovalStatus(StrEnum):
+    """Closed lifecycle states for a takeover approval request."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    DENIED = "denied"
+    EXPIRED = "expired"
 
 
 #: Enforced-by-persistence invariant name (``formal.operating-modes.invariants``).

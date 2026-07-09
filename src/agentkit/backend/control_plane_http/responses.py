@@ -139,6 +139,31 @@ def _edge_command_result_response(
     )
 
 
+def _takeover_result_response(
+    result: ControlPlaneMutationResult,
+    *,
+    correlation_id: str,
+) -> HttpResponse:
+    """Map ownership-transfer results to their dedicated HTTP contract."""
+    if result.status == "pending_human_approval":
+        status = HTTPStatus.ACCEPTED
+    elif result.status in {"offered", "committed", "replayed"}:
+        status = HTTPStatus.CREATED
+    elif result.error_code == "agent_confirm_forbidden" or result.error_code == ERROR_CODE_OWNERSHIP_TRANSFERRED:
+        status = HTTPStatus.FORBIDDEN
+    else:
+        status = HTTPStatus.CONFLICT
+    headers: tuple[tuple[str, str], ...] = ()
+    if result.retry_after_seconds is not None:
+        headers = (("Retry-After", str(result.retry_after_seconds)),)
+    return _json_response(
+        status,
+        result.model_dump(mode="json"),
+        correlation_id=correlation_id,
+        headers=headers,
+    )
+
+
 def _project_response_to_http_response(response: ProjectRouteResponse) -> HttpResponse:
     return HttpResponse(
         status_code=response.status_code,

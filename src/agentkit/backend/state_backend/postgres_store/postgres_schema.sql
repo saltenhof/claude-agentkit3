@@ -391,6 +391,31 @@
             PRIMARY KEY (project_key, story_id, run_id, ownership_epoch, repo_id)
         );
 
+        -- takeover_approvals: persistent, user-independent approval queue for
+        -- agent-initiated ownership transfer requests (AG3-148, FK-56 §56.13b).
+        -- Postgres-only K5; no SQLite/session-lease mirror.
+        CREATE TABLE IF NOT EXISTS takeover_approvals (
+            approval_id TEXT PRIMARY KEY,
+            project_key TEXT NOT NULL,
+            story_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            requested_by_session_id TEXT NOT NULL,
+            requested_by_principal_type TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            challenge_ref TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (
+                status IN ('pending', 'approved', 'denied', 'expired')
+            ),
+            requested_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            decided_at TEXT,
+            decided_by_session_id TEXT,
+            decision_reason TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS takeover_approvals_pending_idx
+            ON takeover_approvals (project_key, status, requested_at);
+
         -- backend_instance_identity: persistent store for backend_instance_id +
         -- a monotone boot incarnation counter (IMPL-004 persistence part; FK-91
         -- §91.1a rule 16). AG3-138 creates/increments on boot.

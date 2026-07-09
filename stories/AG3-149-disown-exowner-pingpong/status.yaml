@@ -1,7 +1,7 @@
 story_id: AG3-149
 title: "Disown-Baustein + Ex-Owner-Verhalten + Ping-Pong-Schranke: vereinheitlichte Entzugspfade (Exit/Reset/Split), Record-Status-Pflege, Abloesung der Exit-Fence"
 type: implementation
-status: blocked
+status: ready
 phase: setup
 created: "2026-07-02"
 size: M
