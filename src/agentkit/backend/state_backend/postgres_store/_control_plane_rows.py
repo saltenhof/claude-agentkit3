@@ -1046,34 +1046,7 @@ def commit_takeover_confirm_global_row(
             raise ControlPlaneBindingCollisionError(
                 "takeover confirm could not revoke the previous owner's active binding",
             )
-        if approved_approval_row is not None:
-            approval_cursor = conn.execute(
-                """
-                UPDATE takeover_approvals
-                SET status = ?, decided_at = ?, decided_by_session_id = ?,
-                    decision_reason = ?
-                WHERE approval_id = ?
-                  AND project_key = ?
-                  AND story_id = ?
-                  AND run_id = ?
-                  AND status = 'pending'
-                """,
-                (
-                    approved_approval_row["status"],
-                    approved_approval_row["decided_at"],
-                    approved_approval_row["decided_by_session_id"],
-                    approved_approval_row["decision_reason"],
-                    approved_approval_row["approval_id"],
-                    approved_approval_row["project_key"],
-                    approved_approval_row["story_id"],
-                    approved_approval_row["run_id"],
-                ),
-            )
-            if int(approval_cursor.rowcount) != 1:
-                raise OwnershipFenceViolationError(
-                    "takeover confirm CAS failed: approval is no longer pending",
-                    detail={"approval_id": approved_approval_row["approval_id"]},
-                )
+        _approve_takeover_approval_row(conn, approved_approval_row)
         _insert_session_binding_row(conn, new_binding_row)
         for lock_row in lock_rows:
             _insert_story_execution_lock_row(conn, lock_row)
@@ -1110,6 +1083,41 @@ def commit_takeover_confirm_global_row(
         )
         for event_row in event_rows:
             _insert_execution_event_row(conn, event_row)
+
+
+def _approve_takeover_approval_row(
+    conn: _CompatConnection,
+    row: dict[str, Any] | None,
+) -> None:
+    if row is None:
+        return
+    cursor = conn.execute(
+        """
+        UPDATE takeover_approvals
+        SET status = ?, decided_at = ?, decided_by_session_id = ?,
+            decision_reason = ?
+        WHERE approval_id = ?
+          AND project_key = ?
+          AND story_id = ?
+          AND run_id = ?
+          AND status = 'pending'
+        """,
+        (
+            row["status"],
+            row["decided_at"],
+            row["decided_by_session_id"],
+            row["decision_reason"],
+            row["approval_id"],
+            row["project_key"],
+            row["story_id"],
+            row["run_id"],
+        ),
+    )
+    if int(cursor.rowcount) != 1:
+        raise OwnershipFenceViolationError(
+            "takeover confirm CAS failed: approval is no longer pending",
+            detail={"approval_id": row["approval_id"]},
+        )
 
 
 def release_control_plane_operation_global_row(

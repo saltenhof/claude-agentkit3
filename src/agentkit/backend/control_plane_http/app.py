@@ -457,8 +457,13 @@ class ControlPlaneApplication(
         if route_path == "/healthz":
             return _handle_healthz(method, correlation_id)
 
-        middleware_block, auth_result = self._run_middleware(
-            method, route_path, request_headers, correlation_id
+        middleware_block, auth_result = _run_request_middleware(
+            auth_middleware=self._auth_middleware,
+            tenant_scope=self._tenant_scope,
+            method=method,
+            route_path=route_path,
+            request_headers=request_headers,
+            correlation_id=correlation_id,
         )
         if middleware_block is not None:
             return middleware_block
@@ -487,39 +492,6 @@ class ControlPlaneApplication(
                 dispatch=_dispatch,
             )
         return _dispatch()
-
-    def _run_middleware(
-        self,
-        method: str,
-        route_path: str,
-        request_headers: Mapping[str, str] | None,
-        correlation_id: str,
-    ) -> tuple[HttpResponse | None, AuthResult | None]:
-        """Run auth and tenant middleware; return any short-circuit plus auth context."""
-        authorized: AuthResult | None = None
-        if self._auth_middleware is not None:
-            auth_result = self._auth_middleware.authorize(
-                method=method,
-                route_path=route_path,
-                request_headers=request_headers,
-                correlation_id=correlation_id,
-            )
-            if isinstance(auth_result, AuthMiddlewareResponse):
-                return _auth_middleware_response_to_http_response(auth_result), None
-            authorized = auth_result
-
-        # Tenant-scope middleware: validate project_key for all project-scoped paths.
-        # Non-project endpoints (/v1/concepts, /v1/hub, /v1/events/hub, /v1/projects
-        # list/create, /healthz, auth, project-edge) bypass tenant-scope.
-        if _is_project_scoped_path(route_path):
-            tenant_result = self._tenant_scope.validate(
-                method=method,
-                route_path=route_path,
-                correlation_id=correlation_id,
-            )
-            if isinstance(tenant_result, HttpResponse):
-                return tenant_result, authorized
-        return None, authorized
 
     def _dispatch_method(
         self,
@@ -1457,6 +1429,41 @@ def _is_project_scoped_path(route_path: str) -> bool:
     """
     match = re.match(r"^/v1/projects/([^/]+)/(.+)$", route_path)
     return match is not None
+
+
+def _run_request_middleware(
+    *,
+    auth_middleware: AuthMiddleware | None,
+    tenant_scope: TenantScopeMiddleware,
+    method: str,
+    route_path: str,
+    request_headers: Mapping[str, str] | None,
+    correlation_id: str,
+) -> tuple[HttpResponse | None, AuthResult | None]:
+    """Run auth and tenant middleware; return any short-circuit plus auth context."""
+    authorized: AuthResult | None = None
+    if auth_middleware is not None:
+        auth_result = auth_middleware.authorize(
+            method=method,
+            route_path=route_path,
+            request_headers=request_headers,
+            correlation_id=correlation_id,
+        )
+        if isinstance(auth_result, AuthMiddlewareResponse):
+            return _auth_middleware_response_to_http_response(auth_result), None
+        authorized = auth_result
+
+    # Tenant-scope middleware validates project resources only. Non-project
+    # endpoints (/healthz, auth, concepts, hub, project-edge) bypass it.
+    if _is_project_scoped_path(route_path):
+        tenant_result = tenant_scope.validate(
+            method=method,
+            route_path=route_path,
+            correlation_id=correlation_id,
+        )
+        if isinstance(tenant_result, HttpResponse):
+            return tenant_result, authorized
+    return None, authorized
 
 
 # ---------------------------------------------------------------------------
