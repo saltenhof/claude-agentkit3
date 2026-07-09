@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from dataclasses import replace
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -25,6 +25,7 @@ from agentkit.backend.control_plane.ownership import (
     TakeoverApprovalStatus,
 )
 from agentkit.backend.control_plane.records import (
+    ControlPlaneOperationRecord,
     SessionRunBindingRecord,
     TakeoverApprovalRecord,
     TakeoverTransferRecord,
@@ -53,8 +54,11 @@ if TYPE_CHECKING:
         PushBarrierVerdict,
         PushFreshnessRecord,
     )
-    from agentkit.backend.control_plane.records import ControlPlaneOperationRecord, RunOwnershipRecord
-    from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
+    from agentkit.backend.control_plane.records import RunOwnershipRecord
+    from agentkit.backend.control_plane.repository import (
+        ControlPlaneRuntimeRepository,
+        TakeoverApprovalRepository,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +69,14 @@ _TAKEOVER_PHASE = "ownership"
 _CHALLENGE_TTL = timedelta(minutes=15)
 _APPROVAL_TTL = timedelta(hours=2)
 _AGENT_PRINCIPAL_TYPES = frozenset({"interactive_agent", "orchestrator", "agent"})
+
+
+@dataclass(frozen=True)
+class _ConfirmApprovalState:
+    status: TakeoverApprovalStatus | None
+    approval: TakeoverApprovalRecord | None
+    approved_approval: TakeoverApprovalRecord | None
+    repo: TakeoverApprovalRepository | None
 
 
 class _OwnershipTransferMixin:
@@ -387,61 +399,7 @@ class _OwnershipTransferMixin:
             request.story_id,
             active.run_id if active is not None else "",
         )
-        approval_status = None
-        approval = None
-        approved_approval = None
-        approval_repo = None
-        if request.approval_id is not None:
-            from agentkit.backend.control_plane.repository import (
-                TakeoverApprovalRepository,
-            )
-
-            approval_repo = TakeoverApprovalRepository()
-            approval = approval_repo.load_approval(request.approval_id)
-            if approval is not None:
-                approval_status = transfer_core.approval_status_after_expiry(
-                    current_status=approval.status,
-                    now=now,
-                    expires_at=approval.expires_at,
-                )
-                if approval_status is not approval.status:
-                    approval = TakeoverApprovalRecord(
-                        approval_id=approval.approval_id,
-                        project_key=approval.project_key,
-                        story_id=approval.story_id,
-                        run_id=approval.run_id,
-                        requested_by_session_id=approval.requested_by_session_id,
-                        requested_by_principal_type=(
-                            approval.requested_by_principal_type
-                        ),
-                        reason=approval.reason,
-                        challenge_ref=approval.challenge_ref,
-                        status=approval_status,
-                        requested_at=approval.requested_at,
-                        expires_at=approval.expires_at,
-                        decided_at=now,
-                        decision_reason="approval_expired",
-                    )
-                elif approval.status is TakeoverApprovalStatus.PENDING:
-                    approval_status = TakeoverApprovalStatus.APPROVED
-                    approved_approval = TakeoverApprovalRecord(
-                        approval_id=approval.approval_id,
-                        project_key=approval.project_key,
-                        story_id=approval.story_id,
-                        run_id=approval.run_id,
-                        requested_by_session_id=approval.requested_by_session_id,
-                        requested_by_principal_type=(
-                            approval.requested_by_principal_type
-                        ),
-                        reason=approval.reason,
-                        challenge_ref=approval.challenge_ref,
-                        status=TakeoverApprovalStatus.APPROVED,
-                        requested_at=approval.requested_at,
-                        expires_at=approval.expires_at,
-                        decided_at=now,
-                        decided_by_session_id=request.session_id,
-                        decision_reason="human_confirm",
-                    )
+        approval_state = _confirm_approval_state(request, now)
         core_echo = transfer_core.TakeoverChallengeEcho(
             challenge_id=request.challenge_echo.challenge_id,
             owner_session_id=request.challenge_echo.owner_session_id,
@@ -454,7 +412,7 @@ class _OwnershipTransferMixin:
             echo=core_echo,
             now=now,
             challenge_expires_at=request.challenge_echo.expires_at,
-            approval_status=approval_status,
+            approval_status=approval_state.status,
             approval_required=request.approval_id is not None,
             repo_evidence=repo_evidence,
         )
@@ -462,19 +420,19 @@ class _OwnershipTransferMixin:
             if (
                 decision.failure
                 is transfer_core.TakeoverConfirmFailure.APPROVAL_NOT_APPROVED
-                and approval is not None
-                and approval.status is TakeoverApprovalStatus.EXPIRED
+                and approval_state.approval is not None
+                and approval_state.approval.status is TakeoverApprovalStatus.EXPIRED
             ):
-                assert approval_repo is not None
-                approval_repo.update_status(approval)
+                assert approval_state.repo is not None
+                approval_state.repo.update_status(approval_state.approval)
                 self._repo.append_event(
                     _lifecycle_event_record(
                         event_type=EventType.TAKEOVER_APPROVAL_CHANGED,
                         project_key=request.project_key,
                         story_id=request.story_id,
-                        run_id=approval.run_id,
+                        run_id=approval_state.approval.run_id,
                         source_component=request.source_component,
-                        payload=_approval_changed_payload(approval),
+                        payload=_approval_changed_payload(approval_state.approval),
                         now=now,
                         phase=_TAKEOVER_PHASE,
                     )
@@ -578,11 +536,11 @@ class _OwnershipTransferMixin:
                 },
             ),
         )
-        if approved_approval is not None:
+        if approval_state.approved_approval is not None:
             event_specs += (
                 (
                     EventType.TAKEOVER_APPROVAL_CHANGED,
-                    _approval_changed_payload(approved_approval),
+                    _approval_changed_payload(approval_state.approved_approval),
                 ),
             )
         events = tuple(
@@ -608,7 +566,7 @@ class _OwnershipTransferMixin:
             locks=(lock,),
             transfers=transfer_records,
             events=events,
-            approved_approval=approved_approval,
+            approved_approval=approval_state.approved_approval,
         )
         return result
 
@@ -663,13 +621,7 @@ class _OwnershipTransferMixin:
                 error_code="takeover_request_operation_required",
                 run_id=approval.run_id,
             )
-        denied_approval = replace(
-            approval,
-            status=TakeoverApprovalStatus.DENIED,
-            decided_at=now,
-            decided_by_session_id=request.session_id,
-            decision_reason=request.reason,
-        )
+        denied_approval = _denied_approval_record(approval, request=request, now=now)
         result = ControlPlaneMutationResult(
             status="denied",
             op_id=request.op_id,
@@ -701,13 +653,16 @@ class _OwnershipTransferMixin:
             phase=_TAKEOVER_PHASE,
         )
         self._repo.commit_takeover_deny(
-            self._takeover_operation_record(request, result=result, now=now, run_id=approval.run_id),
-            request_op_record=replace(
+            self._takeover_operation_record(
+                request,
+                result=result,
+                now=now,
+                run_id=approval.run_id,
+            ),
+            request_op_record=_denied_request_operation_record(
                 request_operation,
-                status="denied",
                 response_payload=request_result.model_dump(mode="json"),
-                updated_at=now,
-                finalized_at=now,
+                now=now,
             ),
             denied_approval=denied_approval,
             events=(event,),
@@ -848,6 +803,138 @@ def _takeover_body_hash(
     payload["__operation_kind"] = operation_kind
     payload["__phase"] = _TAKEOVER_PHASE
     return compute_body_hash(payload)
+
+
+def _confirm_approval_state(
+    request: TakeoverChallengeEchoRequest,
+    now: datetime,
+) -> _ConfirmApprovalState:
+    if request.approval_id is None:
+        return _ConfirmApprovalState(None, None, None, None)
+    from agentkit.backend.control_plane.repository import (
+        TakeoverApprovalRepository,
+    )
+
+    approval_repo = TakeoverApprovalRepository()
+    approval = approval_repo.load_approval(request.approval_id)
+    if approval is None:
+        return _ConfirmApprovalState(None, None, None, approval_repo)
+    approval_status = transfer_core.approval_status_after_expiry(
+        current_status=approval.status,
+        now=now,
+        expires_at=approval.expires_at,
+    )
+    if approval_status is not approval.status:
+        expired = _expired_approval_record(approval, now=now)
+        return _ConfirmApprovalState(approval_status, expired, None, approval_repo)
+    if approval.status is TakeoverApprovalStatus.PENDING:
+        approved = _approved_approval_record(approval, request=request, now=now)
+        return _ConfirmApprovalState(
+            TakeoverApprovalStatus.APPROVED,
+            approval,
+            approved,
+            approval_repo,
+        )
+    return _ConfirmApprovalState(approval_status, approval, None, approval_repo)
+
+
+def _expired_approval_record(
+    approval: TakeoverApprovalRecord,
+    *,
+    now: datetime,
+) -> TakeoverApprovalRecord:
+    return TakeoverApprovalRecord(
+        approval_id=approval.approval_id,
+        project_key=approval.project_key,
+        story_id=approval.story_id,
+        run_id=approval.run_id,
+        requested_by_session_id=approval.requested_by_session_id,
+        requested_by_principal_type=approval.requested_by_principal_type,
+        reason=approval.reason,
+        challenge_ref=approval.challenge_ref,
+        status=TakeoverApprovalStatus.EXPIRED,
+        requested_at=approval.requested_at,
+        expires_at=approval.expires_at,
+        decided_at=now,
+        decision_reason="approval_expired",
+    )
+
+
+def _approved_approval_record(
+    approval: TakeoverApprovalRecord,
+    *,
+    request: TakeoverChallengeEchoRequest,
+    now: datetime,
+) -> TakeoverApprovalRecord:
+    return TakeoverApprovalRecord(
+        approval_id=approval.approval_id,
+        project_key=approval.project_key,
+        story_id=approval.story_id,
+        run_id=approval.run_id,
+        requested_by_session_id=approval.requested_by_session_id,
+        requested_by_principal_type=approval.requested_by_principal_type,
+        reason=approval.reason,
+        challenge_ref=approval.challenge_ref,
+        status=TakeoverApprovalStatus.APPROVED,
+        requested_at=approval.requested_at,
+        expires_at=approval.expires_at,
+        decided_at=now,
+        decided_by_session_id=request.session_id,
+        decision_reason="human_confirm",
+    )
+
+
+def _denied_approval_record(
+    approval: TakeoverApprovalRecord,
+    *,
+    request: TakeoverDenyRequest,
+    now: datetime,
+) -> TakeoverApprovalRecord:
+    return TakeoverApprovalRecord(
+        approval_id=approval.approval_id,
+        project_key=approval.project_key,
+        story_id=approval.story_id,
+        run_id=approval.run_id,
+        requested_by_session_id=approval.requested_by_session_id,
+        requested_by_principal_type=approval.requested_by_principal_type,
+        reason=approval.reason,
+        challenge_ref=approval.challenge_ref,
+        status=TakeoverApprovalStatus.DENIED,
+        requested_at=approval.requested_at,
+        expires_at=approval.expires_at,
+        decided_at=now,
+        decided_by_session_id=request.session_id,
+        decision_reason=request.reason,
+    )
+
+
+def _denied_request_operation_record(
+    operation: ControlPlaneOperationRecord,
+    *,
+    response_payload: dict[str, object],
+    now: datetime,
+) -> ControlPlaneOperationRecord:
+    return ControlPlaneOperationRecord(
+        op_id=operation.op_id,
+        project_key=operation.project_key,
+        story_id=operation.story_id,
+        run_id=operation.run_id,
+        session_id=operation.session_id,
+        operation_kind=operation.operation_kind,
+        phase=operation.phase,
+        status="denied",
+        response_payload=response_payload,
+        created_at=operation.created_at,
+        updated_at=now,
+        claimed_by=operation.claimed_by,
+        claimed_at=operation.claimed_at,
+        operation_epoch=operation.operation_epoch,
+        backend_instance_id=operation.backend_instance_id,
+        instance_incarnation=operation.instance_incarnation,
+        declared_serialization_scope=operation.declared_serialization_scope,
+        finalized_at=now,
+        request_body_hash=operation.request_body_hash,
+    )
 
 
 def _request_op_id_from_challenge_ref(challenge_ref: str) -> str | None:
