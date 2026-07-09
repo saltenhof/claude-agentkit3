@@ -10,6 +10,7 @@ from agentkit.backend.state_backend.state_backend_connection_manager import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from datetime import datetime
 
     from agentkit.backend.control_plane.records import (
@@ -261,6 +262,7 @@ def commit_takeover_confirm_global(
     transfers: tuple[TakeoverTransferRecord, ...],
     events: tuple[ExecutionEventRecord, ...],
     approved_approval: TakeoverApprovalRecord | None = None,
+    fault_after_step: Callable[[str], None] | None = None,
 ) -> None:
     """Atomically commit takeover confirm side effects in one transaction."""
     from agentkit.backend.state_backend import persistence_mappers as mappers
@@ -284,6 +286,7 @@ def commit_takeover_confirm_global(
             if approved_approval is not None
             else None
         ),
+        fault_after_step=fault_after_step,
     )
 
 

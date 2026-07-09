@@ -250,7 +250,12 @@ _EXPECTED_MANDATORY_FIELDS: dict[EventType, tuple[str, ...]] = {
         "ownership_epoch",
     ),
     EventType.SESSION_DISOWNED: ("previous_owner_session_id", "reason"),
-    EventType.TAKEOVER_APPROVAL_CHANGED: ("approval_id", "status", "topic"),
+    EventType.TAKEOVER_APPROVAL_CHANGED: (
+        "project_key",
+        "story_id",
+        "approval_id",
+        "approval",
+    ),
     # Integration-stabilization contract events (FK-05 §5.14, AG3-069 AC11).
     EventType.INTEGRATION_MANIFEST_APPROVED: (
         "event_name",
@@ -278,6 +283,38 @@ def test_mandatory_payload_fields_match_contract() -> None:
 
 def test_mandatory_payload_fields_by_name_match_contract() -> None:
     assert dict(MANDATORY_PAYLOAD_FIELDS_BY_NAME) == _EXPECTED_MANDATORY_FIELDS_BY_NAME
+
+
+def test_takeover_approval_changed_payload_matches_frontend_contract() -> None:
+    """Pin formal.frontend-contracts.event.takeover_approval_changed payload."""
+    payload = {
+        "project_key": "tenant-a",
+        "story_id": "AG3-148",
+        "approval_id": "approval-1",
+        "approval": {
+            "approval_id": "approval-1",
+            "project_key": "tenant-a",
+            "story_id": "AG3-148",
+            "run_id": "run-148",
+            "requested_by_session_id": "sess-agent",
+            "requested_by_principal_type": "interactive_agent",
+            "reason": "owner unavailable",
+            "challenge_ref": "takeover-op-request",
+            "status": "pending",
+            "requested_at": "2026-06-07T10:00:00+00:00",
+            "expires_at": "2026-06-07T12:00:00+00:00",
+            "decided_at": None,
+            "decided_by_session_id": None,
+            "decision_reason": None,
+        },
+    }
+
+    validate_event_payload(EventType.TAKEOVER_APPROVAL_CHANGED, payload)
+    with pytest.raises(EventPayloadContractError):
+        validate_event_payload(
+            EventType.TAKEOVER_APPROVAL_CHANGED,
+            {"approval_id": "approval-1", "status": "pending", "topic": "governance"},
+        )
 
 
 # ---------------------------------------------------------------------------

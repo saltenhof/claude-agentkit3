@@ -271,11 +271,7 @@ class _OwnershipTransferMixin:
                 ),
                 (
                     EventType.TAKEOVER_APPROVAL_CHANGED,
-                    {
-                        "approval_id": approval.approval_id,
-                        "status": approval.status.value,
-                        "topic": "governance",
-                    },
+                    _approval_changed_payload(approval),
                 ),
             )
         else:
@@ -338,6 +334,7 @@ class _OwnershipTransferMixin:
         approval_status = None
         approval = None
         approved_approval = None
+        approval_repo = None
         if request.approval_id is not None:
             from agentkit.backend.control_plane.repository import (
                 TakeoverApprovalRepository,
@@ -369,7 +366,6 @@ class _OwnershipTransferMixin:
                         decided_at=now,
                         decision_reason="approval_expired",
                     )
-                    approval_repo.update_status(approval)
                 elif approval.status is TakeoverApprovalStatus.PENDING:
                     approval_status = TakeoverApprovalStatus.APPROVED
                     approved_approval = TakeoverApprovalRecord(
@@ -407,6 +403,26 @@ class _OwnershipTransferMixin:
             repo_evidence=repo_evidence,
         )
         if not decision.accepted:
+            if (
+                decision.failure
+                is transfer_core.TakeoverConfirmFailure.APPROVAL_NOT_APPROVED
+                and approval is not None
+                and approval.status is TakeoverApprovalStatus.EXPIRED
+            ):
+                assert approval_repo is not None
+                approval_repo.update_status(approval)
+                self._repo.append_event(
+                    _lifecycle_event_record(
+                        event_type=EventType.TAKEOVER_APPROVAL_CHANGED,
+                        project_key=request.project_key,
+                        story_id=request.story_id,
+                        run_id=approval.run_id,
+                        source_component=request.source_component,
+                        payload=_approval_changed_payload(approval),
+                        now=now,
+                        phase=_TAKEOVER_PHASE,
+                    )
+                )
             return _takeover_rejection(
                 op_id=request.op_id,
                 operation_kind=_TAKEOVER_CONFIRM,
@@ -510,11 +526,7 @@ class _OwnershipTransferMixin:
             event_specs += (
                 (
                     EventType.TAKEOVER_APPROVAL_CHANGED,
-                    {
-                        "approval_id": approved_approval.approval_id,
-                        "status": approved_approval.status.value,
-                        "topic": "governance",
-                    },
+                    _approval_changed_payload(approved_approval),
                 ),
             )
         events = tuple(
@@ -718,6 +730,15 @@ def _approval_view(record: TakeoverApprovalRecord) -> TakeoverApprovalView:
         decided_by_session_id=record.decided_by_session_id,
         decision_reason=record.decision_reason,
     )
+
+
+def _approval_changed_payload(record: TakeoverApprovalRecord) -> dict[str, object]:
+    return {
+        "project_key": record.project_key,
+        "story_id": record.story_id,
+        "approval_id": record.approval_id,
+        "approval": _approval_view(record).model_dump(mode="json"),
+    }
 
 
 def _challenge_view(challenge: transfer_core.TakeoverChallenge) -> TakeoverChallenge:

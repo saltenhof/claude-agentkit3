@@ -172,7 +172,12 @@ def _build_mandatory_payload_fields_raw() -> Mapping[str, tuple[str, ...]]:
             "ownership_epoch",
         ),
         "session_disowned": ("previous_owner_session_id", "reason"),
-        "takeover_approval_changed": ("approval_id", "status", "topic"),
+        "takeover_approval_changed": (
+            "project_key",
+            "story_id",
+            "approval_id",
+            "approval",
+        ),
         # FK-68 §68.2.2 (Z. 397-399) — BC15 ARE / Requirements events.
         "are_requirements_linked": ("story_id", "requirement_count"),
         "are_evidence_submitted": ("story_id", "evidence_type"),

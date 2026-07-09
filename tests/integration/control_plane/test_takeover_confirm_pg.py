@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
+from functools import partial
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -10,8 +13,13 @@ from agentkit.backend.control_plane.models import (
     ControlPlaneMutationResult,
     EdgeBundle,
     EdgePointer,
+    PhaseDispatchResult,
+    PhaseMutationRequest,
     SessionRunBindingView,
     StoryExecutionLockView,
+    TakeoverChallengeEcho,
+    TakeoverChallengeEchoRequest,
+    TakeoverRequest,
 )
 from agentkit.backend.control_plane.ownership import (
     OWNERSHIP_TRANSFERRED_REVOCATION_REASON,
@@ -20,6 +28,12 @@ from agentkit.backend.control_plane.ownership import (
     OwnershipStatus,
     TakeoverApprovalStatus,
 )
+from agentkit.backend.control_plane.push_sync import (
+    PushBarrierVerdict,
+    PushBarrierVerdictStatus,
+    PushFreshnessRecord,
+    SyncPointBarrierType,
+)
 from agentkit.backend.control_plane.records import (
     ControlPlaneOperationRecord,
     RunOwnershipRecord,
@@ -27,12 +41,26 @@ from agentkit.backend.control_plane.records import (
     TakeoverApprovalRecord,
     TakeoverTransferRecord,
 )
+from agentkit.backend.control_plane.repository import (
+    ControlPlaneRuntimeRepository,
+    ObjectMutationClaimRepository,
+)
+from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
+from agentkit.backend.exceptions import OwnershipFenceViolationError
 from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
+from agentkit.backend.state_backend import postgres_store
 from agentkit.backend.state_backend.governance_runtime_store import (
     load_story_execution_lock_global,
     save_story_execution_lock_global,
 )
 from agentkit.backend.state_backend.operation_ledger import commit_takeover_confirm_global
+from agentkit.backend.state_backend.state_backend_connection_manager import (
+    boot_backend_instance_identity_global,
+)
+from agentkit.backend.state_backend.story_closure_store import (
+    upsert_push_barrier_verdict_global,
+    upsert_push_freshness_record_global,
+)
 from agentkit.backend.state_backend.story_lifecycle_store import (
     insert_run_ownership_record_global,
     insert_takeover_approval_global,
@@ -41,16 +69,249 @@ from agentkit.backend.state_backend.story_lifecycle_store import (
     load_takeover_approval_global,
     load_takeover_transfer_record_global,
     save_session_run_binding_global,
+    save_story_context_global,
 )
 from agentkit.backend.state_backend.telemetry_event_store import (
     load_execution_events_global,
 )
+from agentkit.backend.story_context_manager.models import StoryContext
+from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 from agentkit.backend.telemetry.events import EventType
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
 
 pytest_plugins = ("tests.fixtures.postgres_backend",)
 
 _NOW = datetime(2026, 6, 7, 10, 0, tzinfo=UTC)
+_LATER = datetime(2026, 6, 7, 10, 5, tzinfo=UTC)
+_EXPIRED_NOW = datetime(2026, 6, 7, 13, 0, tzinfo=UTC)
+_PROJECT = "tenant-a"
+_REPO = "api"
+_SHA = "a" * 40
+_FAULT_STEPS = (
+    "ownership_update",
+    "previous_binding_revoke",
+    "approval_approve",
+    "new_binding_insert",
+    "lock_insert",
+    f"transfer_record_insert:{_REPO}",
+    "takeover_reconcile_required",
+    f"event_insert:{EventType.SESSION_RUN_BINDING_TRANSFERRED.value}",
+    f"event_insert:{EventType.SESSION_DISOWNED.value}",
+    f"event_insert:{EventType.TAKEOVER_APPROVAL_CHANGED.value}",
+)
+
+
+class _AdmittedDispatcher:
+    def dispatch(
+        self,
+        *,
+        ctx: StoryContext,
+        phase: str,
+        run_id: str,
+        run_admitted: bool,
+        detail: dict[str, object] | None = None,
+    ) -> PhaseDispatchResult:
+        del ctx, run_id, run_admitted, detail
+        return PhaseDispatchResult(
+            phase=phase,
+            status="phase_completed",
+            reaction="advance",
+            dispatched=True,
+            next_phase="implementation",
+        )
+
+
+def _seed_story_context(tmp_path: Path, story_id: str) -> None:
+    project_root = tmp_path / _PROJECT
+    (project_root / "stories" / story_id).mkdir(parents=True, exist_ok=True)
+    save_story_context_global(
+        None,
+        StoryContext(
+            project_key=_PROJECT,
+            story_id=story_id,
+            story_type=StoryType.IMPLEMENTATION,
+            execution_route=StoryMode.EXECUTION,
+            project_root=project_root,
+            participating_repos=[_REPO],
+        ),
+    )
+
+
+def _phase_request(
+    *,
+    story_id: str,
+    op_id: str,
+    session_id: str,
+    principal_type: str = "orchestrator",
+) -> PhaseMutationRequest:
+    return PhaseMutationRequest(
+        project_key=_PROJECT,
+        story_id=story_id,
+        session_id=session_id,
+        op_id=op_id,
+        principal_type=principal_type,
+        worktree_roots=[f"T:/worktrees/{story_id}/{session_id}"],
+    )
+
+
+def _service(
+    *,
+    ident: str,
+    now: datetime = _NOW,
+    fault_after_step: Callable[[str], None] | None = None,
+) -> ControlPlaneRuntimeService:
+    identity = boot_backend_instance_identity_global(ident, now)
+    repository = None
+    object_claim_repository = None
+    if fault_after_step is not None:
+        repository = ControlPlaneRuntimeRepository(
+            commit_takeover_confirm=partial(
+                commit_takeover_confirm_global,
+                fault_after_step=fault_after_step,
+            )
+        )
+        object_claim_repository = ObjectMutationClaimRepository()
+    return ControlPlaneRuntimeService(
+        repository=repository,
+        object_claim_repository=object_claim_repository,
+        phase_dispatcher=_AdmittedDispatcher(),  # type: ignore[arg-type]
+        now_fn=lambda: now,
+        instance_identity=identity,
+    )
+
+
+def _admit_run(
+    service: ControlPlaneRuntimeService,
+    *,
+    story_id: str,
+    run_id: str,
+    session_id: str = "sess-A",
+) -> None:
+    result = service.start_phase(
+        run_id=run_id,
+        phase="setup",
+        request=_phase_request(
+            story_id=story_id,
+            op_id=f"op-setup-{story_id}",
+            session_id=session_id,
+        ),
+    )
+    assert result.status == "committed"
+
+
+def _seed_pushed_only_evidence(*, story_id: str, run_id: str) -> None:
+    upsert_push_freshness_record_global(
+        PushFreshnessRecord(
+            project_key=_PROJECT,
+            story_id=story_id,
+            run_id=run_id,
+            repo_id=_REPO,
+            last_reported_head_sha=_SHA,
+            last_pushed_head_sha=_SHA,
+            last_reported_at=_NOW,
+            last_sync_point_id=f"phase_completion:{run_id}",
+            last_command_id=f"{run_id}::sync_push::phase_completion:{run_id}::{_REPO}",
+            backlog=False,
+            backlog_detail=None,
+        )
+    )
+    upsert_push_barrier_verdict_global(
+        PushBarrierVerdict(
+            project_key=_PROJECT,
+            story_id=story_id,
+            run_id=run_id,
+            boundary_type=SyncPointBarrierType.PHASE_COMPLETION,
+            boundary_id=run_id,
+            repo_id=_REPO,
+            producer="control_plane.push_barrier",
+            boundary_epoch=1,
+            expected_head_sha=_SHA,
+            server_head_sha=_SHA,
+            ownership_epoch=1,
+            status=PushBarrierVerdictStatus.PASSED,
+            created_at=_NOW,
+            updated_at=_NOW,
+            resolved_at=_NOW,
+            status_detail="verified",
+        )
+    )
+
+
+def _request_takeover(
+    service: ControlPlaneRuntimeService,
+    *,
+    story_id: str,
+    run_id: str,
+    session_id: str = "sess-B",
+    principal_type: str = "human_cli",
+    op_id: str = "op-takeover-request",
+) -> TakeoverChallengeEcho:
+    del run_id
+    result = service.request_ownership_takeover(
+        request=TakeoverRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id=session_id,
+            principal_type=principal_type,
+            op_id=op_id,
+            reason="owner unavailable",
+            worktree_roots=[f"T:/worktrees/{story_id}/{session_id}"],
+        )
+    )
+    assert result.status in {"offered", "pending_human_approval"}
+    challenge = result.takeover_challenge
+    if challenge is None:
+        assert result.pending_human_approval is not None
+        approval = load_takeover_approval_global(result.pending_human_approval.approval_id)
+        assert approval is not None
+        challenge_id = approval.challenge_ref
+        active = load_active_run_ownership_record_global(_PROJECT, story_id)
+        binding = load_session_run_binding_global("sess-A")
+        assert active is not None
+        assert binding is not None
+        return TakeoverChallengeEcho(
+            challenge_id=challenge_id,
+            owner_session_id=active.owner_session_id,
+            ownership_epoch=active.ownership_epoch,
+            binding_version=binding.binding_version,
+            expires_at=_NOW + timedelta(minutes=15),
+        )
+    return TakeoverChallengeEcho(
+        challenge_id=challenge.challenge_id,
+        owner_session_id=challenge.current_owner_session_id,
+        ownership_epoch=challenge.ownership_epoch,
+        binding_version=challenge.binding_version,
+        expires_at=challenge.expires_at,
+    )
+
+
+def _confirm_request(
+    *,
+    story_id: str,
+    echo: TakeoverChallengeEcho,
+    op_id: str,
+    session_id: str = "sess-B",
+    approval_id: str | None = None,
+) -> TakeoverChallengeEchoRequest:
+    return TakeoverChallengeEchoRequest(
+        project_key=_PROJECT,
+        story_id=story_id,
+        session_id=session_id,
+        principal_type="human_cli",
+        op_id=op_id,
+        reason="human confirmed",
+        worktree_roots=[f"T:/worktrees/{story_id}/{session_id}"],
+        challenge_echo=echo,
+        approval_id=approval_id,
+    )
+
+
+def _story_id(number: int) -> str:
+    return f"AG3148-{number}"
 
 
 @pytest.mark.integration
@@ -291,6 +552,386 @@ def test_takeover_confirm_global_approves_pending_approval_in_same_transaction(
     active = load_active_run_ownership_record_global("tenant-b", "AG3-148B")
     assert active is not None
     assert active.owner_session_id == "sess-B2"
+
+
+@pytest.mark.integration
+def test_t1_concurrent_takeover_confirm_same_challenge_one_commits_loser_writes_nothing(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(101)
+    run_id = "run-t1"
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident="inst-t1")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    echo = _request_takeover(service, story_id=story_id, run_id=run_id)
+    events_before_confirm = _event_count(story_id, run_id)
+
+    def confirm(op_id: str, session_id: str) -> ControlPlaneMutationResult:
+        local_service = _service(ident=f"inst-{op_id}", now=_LATER)
+        return local_service._confirm_ownership_takeover_under_claim(  # noqa: SLF001
+            request=_confirm_request(
+                story_id=story_id,
+                echo=echo,
+                op_id=op_id,
+                session_id=session_id,
+            )
+        )
+
+    def attempt(op_id: str, session_id: str) -> ControlPlaneMutationResult | str:
+        try:
+            return confirm(op_id, session_id)
+        except OwnershipFenceViolationError:
+            return "takeover_confirm_cas_lost"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = tuple(
+            pool.map(
+                lambda args: attempt(*args),
+                (("op-t1-confirm-a", "sess-B"), ("op-t1-confirm-b", "sess-C")),
+            )
+        )
+
+    committed_results = [
+        result
+        for result in results
+        if isinstance(result, ControlPlaneMutationResult)
+    ]
+    assert len(committed_results) == 1
+    assert committed_results[0].status == "committed"
+    assert results.count("takeover_confirm_cas_lost") == 1
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None
+    assert active.ownership_epoch == 2
+    assert active.owner_session_id in {"sess-B", "sess-C"}
+    losing_op_id = (
+        "op-t1-confirm-a"
+        if committed_results[0].op_id == "op-t1-confirm-b"
+        else "op-t1-confirm-b"
+    )
+    assert _operation_row_count(losing_op_id) == 0
+    assert _binding_exists("sess-B") + _binding_exists("sess-C") == 1
+    assert _transfer_count(story_id, run_id) == 1
+    assert _event_count(story_id, run_id) == events_before_confirm + 2
+
+
+@pytest.mark.parametrize("fault_step", _FAULT_STEPS)
+@pytest.mark.integration
+def test_t2_takeover_confirm_fault_injection_rolls_back_each_write_step(
+    postgres_backend_env: object,
+    tmp_path: Path,
+    fault_step: str,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(200 + _FAULT_STEPS.index(fault_step))
+    run_id = f"run-{abs(hash(fault_step))}"
+    _seed_story_context(tmp_path, story_id)
+    setup_service = _service(ident=f"inst-t2-setup-{fault_step}")
+    _admit_run(setup_service, story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    pending_result = setup_service.request_ownership_takeover(
+        request=TakeoverRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-agent",
+            principal_type="interactive_agent",
+            op_id=f"op-t2-request-{fault_step}",
+            reason="owner unavailable",
+            worktree_roots=[f"T:/worktrees/{story_id}/agent"],
+        )
+    )
+    assert pending_result.pending_human_approval is not None
+    approval_id = pending_result.pending_human_approval.approval_id
+    pending = load_takeover_approval_global(approval_id)
+    assert pending is not None
+    echo = _challenge_echo_from_current(story_id, pending.challenge_ref)
+    before = _state_snapshot(story_id, run_id, approval_id)
+
+    def fault_hook(step: str) -> None:
+        if step == fault_step:
+            raise RuntimeError(f"fault after {step}")
+
+    service = _service(
+        ident=f"inst-t2-fault-{fault_step}",
+        now=_LATER,
+        fault_after_step=fault_hook,
+    )
+    with pytest.raises(RuntimeError, match="fault after"):
+        service.confirm_ownership_takeover(
+            request=_confirm_request(
+                story_id=story_id,
+                echo=echo,
+                op_id=f"op-t2-confirm-{fault_step}",
+                approval_id=approval_id,
+            )
+        )
+
+    assert _state_snapshot(story_id, run_id, approval_id) == before
+    assert _operation_row_count(f"op-t2-confirm-{fault_step}") == 0
+
+
+@pytest.mark.integration
+def test_t4_expired_approval_confirm_rejects_and_only_lazy_expiry_is_written(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(104)
+    run_id = "run-t4"
+    _seed_story_context(tmp_path, story_id)
+    setup_service = _service(ident="inst-t4-setup")
+    _admit_run(setup_service, story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    pending_result = setup_service.request_ownership_takeover(
+        request=TakeoverRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-agent-t4",
+            principal_type="interactive_agent",
+            op_id="op-t4-request",
+            reason="owner unavailable",
+            worktree_roots=[f"T:/worktrees/{story_id}/agent"],
+        )
+    )
+    assert pending_result.pending_human_approval is not None
+    approval_id = pending_result.pending_human_approval.approval_id
+    pending = load_takeover_approval_global(approval_id)
+    assert pending is not None
+    echo = _challenge_echo_from_current(story_id, pending.challenge_ref).model_copy(
+        update={"expires_at": _EXPIRED_NOW + timedelta(minutes=1)}
+    )
+    before = _state_snapshot(story_id, run_id, approval_id)
+    service = _service(ident="inst-t4-confirm", now=_EXPIRED_NOW)
+
+    result = service.confirm_ownership_takeover(
+        request=_confirm_request(
+            story_id=story_id,
+            echo=echo,
+            op_id="op-t4-confirm",
+            approval_id=approval_id,
+        )
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "approval_not_approved"
+    after = _state_snapshot(story_id, run_id, approval_id)
+    assert after == {
+        **before,
+        "approval_status": "expired",
+        "approval_decided": True,
+        "events": before["events"] + 1,
+    }
+    assert _operation_row_count("op-t4-confirm") == 0
+    approval_events = _event_payloads(story_id, run_id, EventType.TAKEOVER_APPROVAL_CHANGED)
+    assert approval_events[-1]["approval"]["status"] == "expired"
+
+
+@pytest.mark.integration
+def test_t5_pending_approval_survives_backend_restart_and_remains_usable(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(105)
+    run_id = "run-t5"
+    _seed_story_context(tmp_path, story_id)
+    first_service = _service(ident="inst-t5-before")
+    _admit_run(first_service, story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    pending_result = first_service.request_ownership_takeover(
+        request=TakeoverRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-agent-t5",
+            principal_type="interactive_agent",
+            op_id="op-t5-request",
+            reason="owner unavailable",
+            worktree_roots=[f"T:/worktrees/{story_id}/agent"],
+        )
+    )
+    assert pending_result.pending_human_approval is not None
+    approval_id = pending_result.pending_human_approval.approval_id
+
+    restarted = _service(ident="inst-t5-after", now=_LATER)
+    loaded = load_takeover_approval_global(approval_id)
+    assert loaded is not None
+    assert loaded.status is TakeoverApprovalStatus.PENDING
+    echo = _challenge_echo_from_current(story_id, loaded.challenge_ref)
+    result = restarted.confirm_ownership_takeover(
+        request=_confirm_request(
+            story_id=story_id,
+            echo=echo,
+            op_id="op-t5-confirm",
+            approval_id=approval_id,
+        )
+    )
+
+    assert result.status == "committed"
+    stored = load_takeover_approval_global(approval_id)
+    assert stored is not None
+    assert stored.status is TakeoverApprovalStatus.APPROVED
+
+
+@pytest.mark.integration
+def test_t6_late_ex_owner_push_does_not_modify_committed_transfer_record(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(106)
+    run_id = "run-t6"
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident="inst-t6")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    echo = _request_takeover(service, story_id=story_id, run_id=run_id)
+    result = service.confirm_ownership_takeover(
+        request=_confirm_request(story_id=story_id, echo=echo, op_id="op-t6-confirm")
+    )
+    assert result.status == "committed"
+    before = _transfer_row(story_id, run_id)
+
+    upsert_push_freshness_record_global(
+        PushFreshnessRecord(
+            project_key=_PROJECT,
+            story_id=story_id,
+            run_id=run_id,
+            repo_id=_REPO,
+            last_reported_head_sha="b" * 40,
+            last_pushed_head_sha="b" * 40,
+            last_reported_at=_LATER,
+            last_sync_point_id="late-ex-owner-push",
+            last_command_id="late-ex-owner-command",
+            backlog=False,
+            backlog_detail=None,
+        )
+    )
+
+    assert _transfer_row(story_id, run_id) == before
+
+
+def _challenge_echo_from_current(story_id: str, challenge_id: str) -> TakeoverChallengeEcho:
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None
+    binding = load_session_run_binding_global(active.owner_session_id)
+    assert binding is not None
+    return TakeoverChallengeEcho(
+        challenge_id=challenge_id,
+        owner_session_id=active.owner_session_id,
+        ownership_epoch=active.ownership_epoch,
+        binding_version=binding.binding_version,
+        expires_at=_NOW + timedelta(minutes=15),
+    )
+
+
+def _state_snapshot(
+    story_id: str,
+    run_id: str,
+    approval_id: str,
+) -> dict[str, object]:
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    approval = load_takeover_approval_global(approval_id)
+    old_binding = load_session_run_binding_global("sess-A")
+    return {
+        "active_owner": active.owner_session_id if active is not None else None,
+        "active_epoch": active.ownership_epoch if active is not None else None,
+        "active_acquired_via": active.acquired_via.value if active is not None else None,
+        "old_binding_status": old_binding.status if old_binding is not None else None,
+        "old_binding_revocation": (
+            old_binding.revocation_reason if old_binding is not None else None
+        ),
+        "new_binding": _binding_exists("sess-B"),
+        "transfers": _transfer_count(story_id, run_id),
+        "blocker": _story_blocker(story_id),
+        "events": _event_count(story_id, run_id),
+        "approval_status": approval.status.value if approval is not None else None,
+        "approval_decided": approval.decided_at is not None if approval is not None else None,
+    }
+
+
+def _operation_row_count(op_id: str) -> int:
+    with postgres_store._connect_global() as conn:  # noqa: SLF001 -- read-only test assertion
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM control_plane_operations WHERE op_id = ?",
+            (op_id,),
+        ).fetchone()
+    assert row is not None
+    return int(row["n"])
+
+
+def _binding_exists(session_id: str) -> int:
+    with postgres_store._connect_global() as conn:  # noqa: SLF001 -- read-only test assertion
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM session_run_bindings WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+    assert row is not None
+    return int(row["n"])
+
+
+def _transfer_count(story_id: str, run_id: str) -> int:
+    with postgres_store._connect_global() as conn:  # noqa: SLF001 -- read-only test assertion
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM takeover_transfer_records
+            WHERE project_key = ? AND story_id = ? AND run_id = ?
+            """,
+            (_PROJECT, story_id, run_id),
+        ).fetchone()
+    assert row is not None
+    return int(row["n"])
+
+
+def _event_count(story_id: str, run_id: str) -> int:
+    with postgres_store._connect_global() as conn:  # noqa: SLF001 -- read-only test assertion
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM execution_events
+            WHERE project_key = ? AND story_id = ? AND run_id = ?
+            """,
+            (_PROJECT, story_id, run_id),
+        ).fetchone()
+    assert row is not None
+    return int(row["n"])
+
+
+def _story_blocker(story_id: str) -> str | None:
+    with postgres_store._connect_global() as conn:  # noqa: SLF001 -- read-only test assertion
+        row = conn.execute(
+            """
+            SELECT blocker FROM stories
+            WHERE project_key = ? AND story_display_id = ?
+            """,
+            (_PROJECT, story_id),
+        ).fetchone()
+    return str(row["blocker"]) if row is not None and row["blocker"] is not None else None
+
+
+def _event_payloads(
+    story_id: str,
+    run_id: str,
+    event_type: EventType,
+) -> list[dict[str, object]]:
+    return [
+        event.payload
+        for event in load_execution_events_global(_PROJECT, story_id, run_id=run_id)
+        if event.event_type == event_type.value
+    ]
+
+
+def _transfer_row(story_id: str, run_id: str) -> dict[str, object]:
+    with postgres_store._connect_global() as conn:  # noqa: SLF001 -- read-only test assertion
+        row = conn.execute(
+            """
+            SELECT * FROM takeover_transfer_records
+            WHERE project_key = ? AND story_id = ? AND run_id = ? AND repo_id = ?
+            """,
+            (_PROJECT, story_id, run_id, _REPO),
+        ).fetchone()
+    assert row is not None
+    return dict(row)
 
 
 def _op_record(

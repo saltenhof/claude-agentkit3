@@ -11,7 +11,7 @@ from agentkit.backend.exceptions import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from ._compat import _CompatConnection
 
@@ -943,6 +943,7 @@ def commit_takeover_confirm_global_row(
     transfer_rows: Sequence[dict[str, Any]],
     event_rows: Sequence[dict[str, Any]],
     approved_approval_row: dict[str, Any] | None = None,
+    fault_after_step: Callable[[str], None] | None = None,
 ) -> None:
     """Atomically commit a takeover confirm and all ownership side effects.
 
@@ -1024,6 +1025,7 @@ def commit_takeover_confirm_global_row(
                 op_row["run_id"],
             ),
         )
+        _run_takeover_fault_hook(fault_after_step, "ownership_update")
         cursor = conn.execute(
             """
             UPDATE session_run_bindings
@@ -1046,10 +1048,15 @@ def commit_takeover_confirm_global_row(
             raise ControlPlaneBindingCollisionError(
                 "takeover confirm could not revoke the previous owner's active binding",
             )
+        _run_takeover_fault_hook(fault_after_step, "previous_binding_revoke")
         _approve_takeover_approval_row(conn, approved_approval_row)
+        if approved_approval_row is not None:
+            _run_takeover_fault_hook(fault_after_step, "approval_approve")
         _insert_session_binding_row(conn, new_binding_row)
+        _run_takeover_fault_hook(fault_after_step, "new_binding_insert")
         for lock_row in lock_rows:
             _insert_story_execution_lock_row(conn, lock_row)
+            _run_takeover_fault_hook(fault_after_step, "lock_insert")
         for transfer_row in transfer_rows:
             conn.execute(
                 """
@@ -1073,6 +1080,10 @@ def commit_takeover_confirm_global_row(
                     transfer_row["confirm_ref"],
                 ),
             )
+            _run_takeover_fault_hook(
+                fault_after_step,
+                f"transfer_record_insert:{transfer_row['repo_id']}",
+            )
         conn.execute(
             """
             UPDATE stories
@@ -1081,8 +1092,13 @@ def commit_takeover_confirm_global_row(
             """,
             (op_row["project_key"], op_row["story_id"]),
         )
+        _run_takeover_fault_hook(fault_after_step, "takeover_reconcile_required")
         for event_row in event_rows:
             _insert_execution_event_row(conn, event_row)
+            _run_takeover_fault_hook(
+                fault_after_step,
+                f"event_insert:{event_row['event_type']}",
+            )
 
 
 def _approve_takeover_approval_row(
@@ -1118,6 +1134,14 @@ def _approve_takeover_approval_row(
             "takeover confirm CAS failed: approval is no longer pending",
             detail={"approval_id": row["approval_id"]},
         )
+
+
+def _run_takeover_fault_hook(
+    fault_after_step: Callable[[str], None] | None,
+    step: str,
+) -> None:
+    if fault_after_step is not None:
+        fault_after_step(step)
 
 
 def release_control_plane_operation_global_row(
