@@ -49,15 +49,15 @@ from agentkit.backend.pipeline_engine.phase_executor import (
     QaCycleStatus,
     evolve_phase_state,
 )
+from agentkit.backend.state_backend.governance_runtime_store import (
+    bind_ownership_fence_scope,
+    resolve_ownership_fence_snapshot,
+)
 from agentkit.backend.state_backend.pipeline_runtime_store import (
     load_phase_snapshot,
 )
 from agentkit.backend.state_backend.runtime_scope_resolver import (
     resolve_runtime_scope,
-)
-from agentkit.backend.state_backend.store import (
-    bind_ownership_fence_scope,
-    resolve_ownership_fence_snapshot,
 )
 from agentkit.backend.state_backend.story_lifecycle_store import (
     save_story_context,

@@ -79,7 +79,9 @@ class FacadeStoryMetricsRepository:
                 time -- nothing written.
         """
         from agentkit.backend.state_backend import postgres_store
-        from agentkit.backend.state_backend.store.facade import require_ownership_fence_scope
+        from agentkit.backend.state_backend.governance_runtime_store import (
+            require_ownership_fence_scope,
+        )
 
         scope = require_ownership_fence_scope(story_id=str(row["story_id"]))
         with _postgres_connect() as conn:

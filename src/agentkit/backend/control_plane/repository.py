@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from agentkit.backend.state_backend.governance_runtime_store import (
+    load_story_execution_lock_global,
+    save_story_execution_lock_global,
+)
 from agentkit.backend.state_backend.harness_edge_command_store import (
     commission_edge_command_record_global,
     insert_edge_command_record_global,
@@ -12,12 +16,7 @@ from agentkit.backend.state_backend.harness_edge_command_store import (
     load_edge_command_record_global,
     supersede_open_edge_command_global,
 )
-from agentkit.backend.state_backend.state_backend_connection_manager import (
-    boot_backend_instance_identity_global,
-    load_backend_instance_identity_global,
-    save_backend_instance_identity_global,
-)
-from agentkit.backend.state_backend.store import (
+from agentkit.backend.state_backend.operation_ledger import (
     acquire_object_mutation_claim_global,
     admin_abort_control_plane_operation_global,
     claim_control_plane_operation_global,
@@ -37,11 +36,14 @@ from agentkit.backend.state_backend.store import (
     list_orphaned_object_mutation_claims_global,
     load_control_plane_operation_global,
     load_object_mutation_claim_global,
-    load_story_execution_lock_global,
     release_control_plane_operation_global,
     resolve_repair_control_plane_operation_global,
     save_control_plane_operation_global,
-    save_story_execution_lock_global,
+)
+from agentkit.backend.state_backend.state_backend_connection_manager import (
+    boot_backend_instance_identity_global,
+    load_backend_instance_identity_global,
+    save_backend_instance_identity_global,
 )
 from agentkit.backend.state_backend.story_lifecycle_store import (
     delete_session_run_binding_global,

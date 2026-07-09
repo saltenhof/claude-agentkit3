@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from agentkit.backend.state_backend.artifact_catalog_store import (
     purge_run_bound_artifact_envelopes as purge_run_bound_artifact_envelopes,
+)
+from agentkit.backend.state_backend.governance_runtime_store import (
+    purge_guard_decisions as purge_guard_decisions,
 )
 from agentkit.backend.state_backend.pipeline_runtime_store import (
     count_runtime_execution_residue as count_runtime_execution_residue,
@@ -28,7 +29,6 @@ from agentkit.backend.state_backend.pipeline_runtime_store import (
 from agentkit.backend.state_backend.pipeline_runtime_store import (
     purge_phase_states as purge_phase_states,
 )
-from agentkit.backend.state_backend.store._facade_backend import _backend_module
 from agentkit.backend.state_backend.telemetry_event_store import (
     load_latest_story_metrics_global as load_latest_story_metrics_global,
 )
@@ -47,16 +47,6 @@ from agentkit.backend.state_backend.telemetry_event_store import (
 from agentkit.backend.state_backend.verify_artifact_store import (
     purge_decision_records as purge_decision_records,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-
-def purge_guard_decisions(story_dir: Path, project_key: str, story_id: str, run_id: str) -> int:
-    """Delete guard_decisions rows for the run scope; return deleted row count."""
-
-    return int(_backend_module().purge_guard_decisions_row(story_dir, project_key, story_id, run_id))
-
 
 __all__ = [
     "purge_flow_executions",

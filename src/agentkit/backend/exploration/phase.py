@@ -20,7 +20,7 @@ from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseStatus,
     evolve_phase_state,
 )
-from agentkit.backend.state_backend.store import (
+from agentkit.backend.state_backend.governance_runtime_store import (
     bind_ownership_fence_scope,
     resolve_ownership_fence_snapshot,
 )

@@ -342,11 +342,10 @@ def build_setup_fence_scope_binder() -> Callable[..., contextlib.AbstractContext
     """Build the REAL ownership-fence-scope binder for ``SetupPhaseHandler``.
 
     AG3-144 (Codex round-3, architecture-conformance fix): ``setup_preflight_gate.phase``
-    must have ZERO ``state_backend.store`` imports -- module-level OR lazy
+    must have ZERO ownership-fence store imports -- module-level OR lazy
     (``tests/unit/governance/test_architecture_conformance_imports.py``). This
     composition-root helper owns the ``resolve_ownership_fence_snapshot`` +
-    ``bind_ownership_fence_scope`` calls (the sanctioned ``state_backend.store``
-    import boundary) and is injected into ``SetupPhaseHandler`` as a plain
+    ``bind_ownership_fence_scope`` calls and is injected into ``SetupPhaseHandler`` as a plain
     callable DI seam -- mirrors ``build_phase_state_residue_probe`` (TB003:
     governance may not call the state-backend loader directly).
 
@@ -358,7 +357,7 @@ def build_setup_fence_scope_binder() -> Callable[..., contextlib.AbstractContext
         ``run_ownership_records`` snapshot and binds it for the caller's
         mutating call.
     """
-    from agentkit.backend.state_backend.store import (
+    from agentkit.backend.state_backend.governance_runtime_store import (
         bind_ownership_fence_scope,
         resolve_ownership_fence_snapshot,
     )
