@@ -49,9 +49,9 @@ from agentkit.backend.state_backend.store import (
     mode_lock_repository,
     planning_projection_repository,
     project_registration_repository,
-    projection_repositories,
     skill_binding_repository,
     story_repository,
+    telemetry_projection_repository_common,
     worker_health_repository,
 )
 
@@ -191,13 +191,13 @@ _SQLITE_CONNECT_HELPERS: list[tuple[str, Any, str]] = [
         "dir",
     ),
     (
-        "projection_repositories._sqlite_connect",
-        projection_repositories._sqlite_connect,
+        "telemetry_projection_repository_common._sqlite_connect",
+        telemetry_projection_repository_common._sqlite_connect,
         "dir",
     ),
     (
-        "projection_repositories._sqlite_connect_qa",
-        projection_repositories._sqlite_connect_qa,
+        "telemetry_projection_repository_common._sqlite_connect_qa",
+        telemetry_projection_repository_common._sqlite_connect_qa,
         "dir",
     ),
     (

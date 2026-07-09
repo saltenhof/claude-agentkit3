@@ -226,7 +226,7 @@ def _pg_raw_insert_check(values: tuple[object, ...]) -> None:
     """Raw INSERT into fc_check_proposals via the canonical Postgres connect path."""
     import psycopg
 
-    from agentkit.backend.state_backend.store.projection_repositories import _postgres_connect
+    from agentkit.backend.state_backend.store.telemetry_projection_repository_common import _postgres_connect
 
     with pytest.raises(psycopg.errors.Error), _postgres_connect() as conn:
         conn.execute(_CHECK_INSERT, values)
@@ -300,7 +300,7 @@ def test_postgres_rejects_unknown_check_ref_fk(
     """
     import psycopg
 
-    from agentkit.backend.state_backend.store.projection_repositories import _postgres_connect
+    from agentkit.backend.state_backend.store.telemetry_projection_repository_common import _postgres_connect
 
     cols = _PATTERN_COLUMNS + ", check_ref"
     insert = (

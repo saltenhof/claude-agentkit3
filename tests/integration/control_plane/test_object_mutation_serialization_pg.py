@@ -43,14 +43,16 @@ from agentkit.backend.control_plane.records import ObjectMutationClaimRecord
 from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
 from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.backend.control_plane.startup_reconcile import run_startup_reconciliation
-from agentkit.backend.state_backend.store import (
-    boot_backend_instance_identity_global,
+from agentkit.backend.state_backend.operation_ledger import (
     claim_control_plane_operation_global,
     insert_object_mutation_claim_global,
     load_control_plane_operation_global,
     load_object_mutation_claim_global,
-    save_story_context_global,
 )
+from agentkit.backend.state_backend.state_backend_connection_manager import (
+    boot_backend_instance_identity_global,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import save_story_context_global
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 

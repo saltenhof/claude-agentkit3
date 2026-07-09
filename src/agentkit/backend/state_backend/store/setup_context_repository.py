@@ -1,7 +1,7 @@
 """StateBackendSetupContextAdapter — SetupContextRepository implementation.
 
 Implements ``agentkit.backend.governance.repository.SetupContextRepository`` using
-the canonical ``state_backend.store.facade.save_story_context`` function.
+the canonical ``state-backend owner modules.save_story_context`` function.
 This keeps ``agentkit.backend.governance.setup_preflight_gate.phase`` decoupled
 from the state backend (Architecture Conformance Fix E9, AG3-031 Pass-4).
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -19,9 +19,9 @@ if TYPE_CHECKING:
 
 
 class StateBackendSetupContextAdapter:
-    """Adapter from ``state_backend.store.facade`` to ``SetupContextRepository``.
+    """Adapter from ``state-backend owner modules`` to ``SetupContextRepository``.
 
-    Delegates the single ``save`` call to ``facade.save_story_context``.
+    Delegates the single ``save`` call to ``save_story_context``.
     No business logic lives here.
 
     This class intentionally does not inherit from the Protocol class — it
@@ -32,7 +32,7 @@ class StateBackendSetupContextAdapter:
     """
 
     def save(self, story_dir: Path, ctx: StoryContext) -> None:
-        """Persist ``ctx`` via ``facade.save_story_context``.
+        """Persist ``ctx`` via ``save_story_context``.
 
         Args:
             story_dir: Story base directory (scopes the write).
@@ -41,7 +41,7 @@ class StateBackendSetupContextAdapter:
         Raises:
             Exception: On unrecoverable backend failures.
         """
-        facade.save_story_context(story_dir, ctx)
+        save_story_context(story_dir, ctx)
 
 
 __all__ = ["StateBackendSetupContextAdapter"]

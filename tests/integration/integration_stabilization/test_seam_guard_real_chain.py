@@ -43,7 +43,7 @@ from agentkit.backend.integration_stabilization.state import (
     save_integration_manifest,
     save_manifest_approval,
 )
-from agentkit.backend.state_backend.store import save_story_context
+from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import (
     ImplementationContract,

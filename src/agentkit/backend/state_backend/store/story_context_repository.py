@@ -5,7 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    load_story_context_by_story_number_global,
+    load_story_context_by_uuid_global,
+    load_story_context_global,
+    save_story_context_global,
+)
 from agentkit.backend.story_context_manager.errors import StoryIdentityConflictError
 from agentkit.backend.story_context_manager.repository import StoryContextRepository
 
@@ -22,21 +27,21 @@ class StateBackendStoryContextRepository(StoryContextRepository):
         self._store_dir = store_dir or Path.cwd()
 
     def get(self, project_key: str, story_id: str) -> StoryContext | None:
-        return facade.load_story_context_global(project_key, story_id, self._store_dir)
+        return load_story_context_global(project_key, story_id, self._store_dir)
 
     def get_by_story_number(
         self,
         project_key: str,
         story_number: int,
     ) -> StoryContext | None:
-        return facade.load_story_context_by_story_number_global(
+        return load_story_context_by_story_number_global(
             self._store_dir,
             project_key,
             story_number,
         )
 
     def get_by_story_uuid(self, story_uuid: UUID) -> StoryContext | None:
-        return facade.load_story_context_by_uuid_global(self._store_dir, story_uuid)
+        return load_story_context_by_uuid_global(self._store_dir, story_uuid)
 
     def save(self, story: StoryContext) -> None:
         existing_number = self.get_by_story_number(
@@ -50,4 +55,4 @@ class StateBackendStoryContextRepository(StoryContextRepository):
         existing_uuid = self.get_by_story_uuid(story.story_uuid)
         if existing_uuid is not None and existing_uuid.story_id != story.story_id:
             raise StoryIdentityConflictError("Story UUID already exists")
-        facade.save_story_context_global(self._store_dir, story)
+        save_story_context_global(self._store_dir, story)

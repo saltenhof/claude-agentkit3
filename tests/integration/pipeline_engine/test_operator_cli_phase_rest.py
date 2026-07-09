@@ -69,10 +69,8 @@ from agentkit.backend.pipeline_engine.lifecycle import (
 )
 from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
 from agentkit.backend.process.language.definitions import resolve_workflow
-from agentkit.backend.state_backend.store import save_story_context
-from agentkit.backend.state_backend.store.facade import (
-    load_execution_events_for_project_global,
-)
+from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
+from agentkit.backend.state_backend.telemetry_event_store import load_execution_events_for_project_global
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 from agentkit.backend.telemetry.events import EventType

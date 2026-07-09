@@ -23,10 +23,10 @@ from agentkit.backend.installer.paths import (
 )
 from agentkit.backend.phase_state_store import FlowExecution, save_flow_execution
 from agentkit.backend.prompt_runtime.runtime import PromptRuntime
-from agentkit.backend.state_backend.store import save_story_context
 from agentkit.backend.state_backend.store.verify_story_context_repository import (
     StateBackendVerifyStoryContextAdapter,
 )
+from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 from agentkit.backend.verify_system.llm_evaluator.inputs import Layer2ReviewInput

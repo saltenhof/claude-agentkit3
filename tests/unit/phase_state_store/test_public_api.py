@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import agentkit.backend.phase_state_store as phase_state_store_api
-import agentkit.backend.state_backend.store as state_backend_store
+import agentkit.backend.state_backend.pipeline_runtime_store as runtime_store
 from agentkit.backend.core_types import OverrideType
 from agentkit.backend.phase_state_store import (
     FlowExecution,
@@ -40,12 +40,12 @@ def test_load_override_records_delegates_to_state_backend(tmp_path: Path) -> Non
         seen.append(story_dir)
         return expected
 
-    original = state_backend_store.load_override_records
-    state_backend_store.load_override_records = fake_loader
+    original = runtime_store.load_override_records
+    runtime_store.load_override_records = fake_loader
     try:
         assert phase_state_store_api.load_override_records(tmp_path) == expected
     finally:
-        state_backend_store.load_override_records = original
+        runtime_store.load_override_records = original
 
     assert seen == [tmp_path]
 
@@ -67,12 +67,12 @@ def test_save_node_execution_ledger_delegates_to_state_backend(tmp_path: Path) -
     def fake_saver(story_dir: Path, record: NodeExecutionLedger) -> None:
         seen.append((story_dir, record))
 
-    original = state_backend_store.save_node_execution_ledger
-    state_backend_store.save_node_execution_ledger = fake_saver
+    original = runtime_store.save_node_execution_ledger
+    runtime_store.save_node_execution_ledger = fake_saver
     try:
         phase_state_store_api.save_node_execution_ledger(tmp_path, record)
     finally:
-        state_backend_store.save_node_execution_ledger = original
+        runtime_store.save_node_execution_ledger = original
 
     assert seen == [(tmp_path, record)]
 
@@ -92,12 +92,12 @@ def test_load_flow_execution_delegates_to_state_backend(tmp_path: Path) -> None:
         seen.append(story_dir)
         return expected
 
-    original = state_backend_store.load_flow_execution
-    state_backend_store.load_flow_execution = fake_loader
+    original = runtime_store.load_flow_execution
+    runtime_store.load_flow_execution = fake_loader
     try:
         assert phase_state_store_api.load_flow_execution(tmp_path) == expected
     finally:
-        state_backend_store.load_flow_execution = original
+        runtime_store.load_flow_execution = original
 
     assert seen == [tmp_path]
 
@@ -121,11 +121,11 @@ def test_save_override_record_delegates_to_state_backend(tmp_path: Path) -> None
     def fake_saver(story_dir: Path, record: OverrideRecord) -> None:
         seen.append((story_dir, record))
 
-    original = state_backend_store.save_override_record
-    state_backend_store.save_override_record = fake_saver
+    original = runtime_store.save_override_record
+    runtime_store.save_override_record = fake_saver
     try:
         phase_state_store_api.save_override_record(tmp_path, record)
     finally:
-        state_backend_store.save_override_record = original
+        runtime_store.save_override_record = original
 
     assert seen == [(tmp_path, record)]

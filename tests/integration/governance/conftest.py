@@ -36,10 +36,6 @@ from agentkit.backend.control_plane.telemetry import execution_event_to_wire
 from agentkit.backend.control_plane.worker_health import (
     ControlPlaneWorkerHealthService,
 )
-from agentkit.backend.state_backend.store import (
-    append_execution_event,
-    load_execution_events,
-)
 from agentkit.backend.state_backend.store.guard_counter_repository import (
     StateBackendGuardCounterRepository,
 )
@@ -48,6 +44,10 @@ from agentkit.backend.state_backend.store.story_read_repository import (
 )
 from agentkit.backend.state_backend.store.worker_health_repository import (
     StateBackendWorkerHealthRepository,
+)
+from agentkit.backend.state_backend.telemetry_event_store import (
+    append_execution_event,
+    load_execution_events,
 )
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 

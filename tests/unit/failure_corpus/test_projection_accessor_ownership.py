@@ -42,7 +42,7 @@ def accessor(
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
     from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
-    from agentkit.backend.state_backend.store.projection_repositories import (
+    from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
         build_projection_repositories,
     )
 

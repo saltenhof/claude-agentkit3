@@ -172,9 +172,7 @@ def test_admin_aborted_row_is_stable_conflict_not_replay_real_store(
     """
     from datetime import UTC, datetime
 
-    from agentkit.backend.state_backend.store import (
-        admin_abort_control_plane_operation_global,
-    )
+    from agentkit.backend.state_backend.operation_ledger import admin_abort_control_plane_operation_global
     from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
         AbortedOutcome,
     )
@@ -216,7 +214,7 @@ def test_route_op_id_colliding_with_control_plane_committed_row_is_mismatch_real
     from datetime import UTC, datetime
 
     from agentkit.backend.control_plane.records import ControlPlaneOperationRecord
-    from agentkit.backend.state_backend.store import save_control_plane_operation_global
+    from agentkit.backend.state_backend.operation_ledger import save_control_plane_operation_global
     from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
         MismatchOutcome,
     )

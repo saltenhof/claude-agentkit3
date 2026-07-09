@@ -41,7 +41,8 @@ from agentkit.backend.control_plane.records import (
 from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.backend.core_types import StoryMode
 from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
-from agentkit.backend.state_backend.store import (
+from agentkit.backend.state_backend.governance_runtime_store import load_story_execution_lock_global
+from agentkit.backend.state_backend.operation_ledger import (
     admin_abort_control_plane_operation_global,
     claim_control_plane_operation_global,
     delete_control_plane_operation_global,
@@ -49,15 +50,16 @@ from agentkit.backend.state_backend.store import (
     finalize_control_plane_start_phase_global,
     has_committed_control_plane_operation_for_run_global,
     load_control_plane_operation_global,
-    load_execution_events_global,
-    load_session_run_binding_global,
-    load_story_execution_lock_global,
     release_control_plane_operation_global,
     save_control_plane_operation_global,
+)
+from agentkit.backend.state_backend.story_closure_store import upsert_push_barrier_verdict_global
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    load_session_run_binding_global,
     save_session_run_binding_global,
     save_story_context_global,
-    upsert_push_barrier_verdict_global,
 )
+from agentkit.backend.state_backend.telemetry_event_store import load_execution_events_global
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryType
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord

@@ -33,14 +33,14 @@ from agentkit.backend.pipeline_engine.phase_executor import (
 )
 from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
-from agentkit.backend.state_backend.store import (
+from agentkit.backend.state_backend.pipeline_runtime_store import (
     save_flow_execution,
     save_phase_snapshot,
-    save_story_context,
 )
 from agentkit.backend.state_backend.store.verify_story_context_repository import (
     StateBackendVerifyStoryContextAdapter,
 )
+from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType, get_profile
 from agentkit.backend.telemetry.emitters import MemoryEmitter

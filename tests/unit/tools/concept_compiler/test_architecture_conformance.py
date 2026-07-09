@@ -192,7 +192,7 @@ def test_architecture_conformance_rejects_unauthorized_telemetry_project_read_im
         tmp_path,
         module_name="agentkit.backend.kpi_analytics.service",
         source="""
-            from agentkit.backend.state_backend.store.facade import (
+            from agentkit.backend.state_backend.telemetry_event_store import (
                 load_execution_events_for_project_global,
             )
 
@@ -231,7 +231,7 @@ def test_architecture_conformance_allows_telemetry_project_read_on_surface(
         tmp_path,
         module_name="agentkit.backend.bootstrap.composition_root",
         source="""
-            from agentkit.backend.state_backend.store.facade import (
+            from agentkit.backend.state_backend.telemetry_event_store import (
                 load_execution_events_for_project_global,
             )
 
@@ -354,9 +354,21 @@ def test_real_spec_rejects_offsurface_global_read_loader(
     code_root = tmp_path / "src"
     module_dir = code_root / "agentkit" / "backend" / "kpi_analytics"
     module_dir.mkdir(parents=True)
+    loader_modules = {
+        "load_story_context_by_uuid_global": (
+            "agentkit.backend.state_backend.story_lifecycle_store"
+        ),
+        "load_execution_event_rows_global": "agentkit.backend.state_backend.sqlite_store",
+        "load_execution_event_rows_for_project_global": (
+            "agentkit.backend.state_backend.sqlite_store"
+        ),
+        "load_project": "agentkit.backend.state_backend.project_store",
+        "load_projects": "agentkit.backend.state_backend.project_store",
+        "load_project_by_story_id_prefix": "agentkit.backend.state_backend.project_store",
+    }
     (module_dir / "read_model_leak.py").write_text(
         "from __future__ import annotations\n"
-        "from agentkit.backend.state_backend.store.facade import (\n"
+        f"from {loader_modules[loader_symbol]} import (\n"
         f"    {loader_symbol},\n"
         ")\n\n\n"
         "def leak() -> object:\n"

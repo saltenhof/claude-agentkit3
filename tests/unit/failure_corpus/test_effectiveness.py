@@ -114,7 +114,7 @@ class TestCheckEffectivenessTracker:
         from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
-        from agentkit.backend.state_backend.store.projection_repositories import (
+        from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
             build_projection_repositories,
         )
         from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
@@ -156,7 +156,7 @@ class TestCheckEffectivenessTracker:
         from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
-        from agentkit.backend.state_backend.store.projection_repositories import (
+        from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
             build_projection_repositories,
         )
         from agentkit.backend.telemetry.projection_accessor import (
@@ -268,7 +268,7 @@ class TestCheckEffectivenessTracker:
         from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
-        from agentkit.backend.state_backend.store.projection_repositories import (
+        from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
             build_projection_repositories,
         )
         from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor, ProjectionKind
@@ -368,7 +368,7 @@ class TestCheckEffectivenessTracker:
         from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
-        from agentkit.backend.state_backend.store.projection_repositories import (
+        from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
             build_projection_repositories,
         )
         from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor, ProjectionKind
@@ -484,7 +484,7 @@ class TestCheckEffectivenessTracker:
         from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
-        from agentkit.backend.state_backend.store.projection_repositories import (
+        from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
             build_projection_repositories,
         )
         from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor, ProjectionKind
@@ -593,7 +593,7 @@ class TestCheckEffectivenessTracker:
         from agentkit.backend.state_backend.store.fc_pattern_repository import (
             StateBackendFcPatternRepository,
         )
-        from agentkit.backend.state_backend.store.projection_repositories import (
+        from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
             build_projection_repositories,
         )
         from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor

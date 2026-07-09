@@ -6,7 +6,7 @@ without introducing a new operative truth.
 
 Architecture Conformance (AC#7):
 - ``ProjectionAccessor`` in ``agentkit.backend.telemetry`` may NOT import directly from
-  ``agentkit.backend.state_backend.store.facade``.
+  ``agentkit.backend.state_backend owner modules``.
 - Instead these repository protocols are injected via ``ProjectionRepositories``
   (a dependency-injection dataclass).
 - Concrete implementations live here (DB layer), the accessor in ``telemetry``.

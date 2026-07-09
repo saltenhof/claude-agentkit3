@@ -391,7 +391,7 @@ class StateBackendArtifactRepository:
     def _pg_write(self, envelope: ArtifactEnvelope) -> None:
         """Fence-first (AG3-144 Codex round-2), then upsert in ONE transaction.
 
-        The caller's ambient :class:`~agentkit.backend.state_backend.store.facade.OwnershipFenceScope`
+        The caller's ambient :class:`~agentkit.backend.state_backend.governance_runtime_store.OwnershipFenceScope`
         (bound by the owning phase handler via ``bind_ownership_fence_scope``,
         FK-91 §91.1a Rule 15) is re-verified AT COMMIT TIME, in THIS SAME
         Postgres transaction, under ``SELECT ... FOR UPDATE`` -- a lost lease

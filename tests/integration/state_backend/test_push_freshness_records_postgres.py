@@ -18,7 +18,7 @@ from agentkit.backend.control_plane.push_sync import (
     PushFreshnessRecord,
     project_push_freshness,
 )
-from agentkit.backend.state_backend.store import (
+from agentkit.backend.state_backend.story_closure_store import (
     list_push_freshness_records_global,
     load_push_freshness_record_global,
     upsert_push_freshness_record_global,

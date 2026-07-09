@@ -30,7 +30,7 @@ from agentkit.backend.project_management.http.routes import (
 )
 from agentkit.backend.project_management.lifecycle import create_project
 from agentkit.backend.project_management.service import ProjectDetailService
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     InMemoryInflightIdempotencyGuard,
 )
@@ -58,7 +58,7 @@ def _reset_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     # our repositories to the shared Postgres DB instead of tmp_path.
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
 
 
 def _story_service(tmp_path: Path) -> StoryService:

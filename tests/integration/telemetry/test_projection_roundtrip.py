@@ -30,7 +30,7 @@ def test_projection_repositories_buildable() -> None:
     """build_projection_repositories kann ohne Fehler aufgerufen werden."""
     from pathlib import Path
 
-    from agentkit.backend.state_backend.store.projection_repositories import (
+    from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
         build_projection_repositories,
     )
 

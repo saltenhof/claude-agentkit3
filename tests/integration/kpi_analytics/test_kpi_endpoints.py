@@ -46,7 +46,7 @@ from agentkit.backend.kpi_analytics.http.routes import KpiAnalyticsRoutes
 from agentkit.backend.kpi_analytics.top import KpiAnalytics
 from agentkit.backend.project_management.entities import ProjectConfiguration
 from agentkit.backend.project_management.lifecycle import create_project
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
@@ -72,9 +72,9 @@ def _reset_backend(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
     yield
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
 
 
 # ---------------------------------------------------------------------------

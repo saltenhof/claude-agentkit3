@@ -198,9 +198,9 @@ class FacadeQAStageResultsRepository:
         stage_id: str | None,
     ) -> list[QAStageResultRecord]:
         from agentkit.backend.state_backend import persistence_mappers as mappers
-        from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.state_backend.state_backend_connection_manager import _backend_module
 
-        rows = facade._backend_module().load_qa_stage_result_rows(
+        rows = _backend_module().load_qa_stage_result_rows(
             self._story_dir,
             project_key=project_key,
             story_id=story_id,
@@ -443,9 +443,9 @@ class FacadeQAFindingsRepository:
         stage_id: str | None,
     ) -> list[QAFindingRecord]:
         from agentkit.backend.state_backend import persistence_mappers as mappers
-        from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.state_backend.state_backend_connection_manager import _backend_module
 
-        rows = facade._backend_module().load_qa_finding_rows(
+        rows = _backend_module().load_qa_finding_rows(
             self._story_dir,
             project_key=project_key,
             story_id=story_id,

@@ -16,10 +16,8 @@ from agentkit.backend.closure.post_merge_finalization.metrics import (
     build_story_metrics_record,
 )
 from agentkit.backend.phase_state_store.models import FlowExecution
-from agentkit.backend.state_backend.store import (
-    append_execution_event,
-    save_flow_execution,
-)
+from agentkit.backend.state_backend.pipeline_runtime_store import save_flow_execution
+from agentkit.backend.state_backend.telemetry_event_store import append_execution_event
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.story_model import WireStoryMode
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType

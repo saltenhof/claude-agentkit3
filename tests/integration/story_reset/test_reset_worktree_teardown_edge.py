@@ -39,15 +39,17 @@ from agentkit.backend.control_plane.repository import (
 )
 from agentkit.backend.installer.paths import story_dir as resolve_story_dir
 from agentkit.backend.project_management.entities import Project, ProjectConfiguration
-from agentkit.backend.state_backend.store import (
-    commit_edge_command_result_global,
-    facade,
-    insert_run_ownership_record_global,
+from agentkit.backend.state_backend.harness_edge_command_store import (
     list_and_ack_open_edge_command_records_global,
     load_edge_command_record_global,
 )
+from agentkit.backend.state_backend.operation_ledger import commit_edge_command_result_global
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     InMemoryInflightIdempotencyGuard,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    insert_run_ownership_record_global,
+    save_story_context,
 )
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.service import StoryService
@@ -224,7 +226,7 @@ def _seed_worktree_context(
         participating_repos=[_REPO],
         worktree_map={_REPO: worktree_root},
     )
-    facade.save_story_context(resolve_story_dir(project_root, story_id), ctx)
+    save_story_context(resolve_story_dir(project_root, story_id), ctx)
 
 
 def _build_service(

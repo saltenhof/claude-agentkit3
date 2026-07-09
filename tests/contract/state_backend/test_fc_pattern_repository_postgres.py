@@ -124,7 +124,7 @@ def _pg_raw_insert_pattern(values: tuple[object, ...]) -> None:
     """Raw INSERT into fc_patterns via the canonical Postgres connect path."""
     import psycopg
 
-    from agentkit.backend.state_backend.store.projection_repositories import _postgres_connect
+    from agentkit.backend.state_backend.store.telemetry_projection_repository_common import _postgres_connect
 
     with pytest.raises(psycopg.errors.Error), _postgres_connect() as conn:
         conn.execute(_PATTERN_INSERT, values)

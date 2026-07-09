@@ -24,7 +24,7 @@ from agentkit.backend.execution_planning.entities import (
 )
 from agentkit.backend.project_management.entities import Project, ProjectConfiguration
 from agentkit.backend.project_management.lifecycle import archive_project, create_project
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     InMemoryInflightIdempotencyGuard,
 )
@@ -230,7 +230,7 @@ def test_state_backend_allocates_story_numbers_monotone_sequence(
     This test makes no race-safety claim; concurrent atomicity is proven
     separately by ``test_state_backend_concurrent_allocation_is_gap_free``.
     """
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
     project_repository = StateBackendProjectRepository(tmp_path)
     project_repository.save(
         create_project(
@@ -262,7 +262,7 @@ def test_state_backend_vectordb_conflict_flag_sqlite_roundtrip(
     the migrated column) faithfully writes and reads the flag — both True and
     the fail-closed False default.
     """
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
     project_repository = StateBackendProjectRepository(tmp_path)
     project_repository.save(
         create_project(
@@ -293,7 +293,7 @@ def test_state_backend_vectordb_conflict_flag_sqlite_roundtrip(
     )
 
     # Read back through a FRESH SQLite repository instance (no in-memory cache).
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
     reloaded = StateBackendStoryRepository(tmp_path)
     flagged = reloaded.get_by_display_id("AK3-001")
     plain = reloaded.get_by_display_id("AK3-002")
@@ -312,7 +312,7 @@ def test_state_backend_split_lineage_sqlite_roundtrip(tmp_path: Path) -> None:
     ``split_successors`` and each successor carries ``split_from`` = source id,
     while an unrelated story keeps the fail-closed defaults (None / []).
     """
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
     project_repository = StateBackendProjectRepository(tmp_path)
     project_repository.save(
         create_project(
@@ -339,7 +339,7 @@ def test_state_backend_split_lineage_sqlite_roundtrip(tmp_path: Path) -> None:
     )
 
     # Read back through a FRESH SQLite repository instance (no in-memory cache).
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
     reloaded = StateBackendStoryRepository(tmp_path)
     source = reloaded.get_by_display_id("AK3-001")
     succ_a = reloaded.get_by_display_id("AK3-002")
@@ -366,7 +366,7 @@ def test_state_backend_concurrent_allocation_is_gap_free(tmp_path: Path) -> None
     value and produce duplicate numbers / a gap — this asserts that does not
     happen.
     """
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
     project_repository = StateBackendProjectRepository(tmp_path)
     project_repository.save(
         create_project(
@@ -432,7 +432,7 @@ def test_state_backend_concurrent_allocation_is_gap_free(tmp_path: Path) -> None
 
 
 def _seed_two_stories(tmp_path: Path) -> tuple[str, str]:
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
     project_repository = StateBackendProjectRepository(tmp_path)
     project_repository.save(
         create_project(
@@ -488,7 +488,7 @@ def test_cross_project_dependency_edge_fails_closed(tmp_path: Path) -> None:
     Before the composite-FK fix the single-column FK only checked that the
     display IDs existed *somewhere*, so this cross-project edge was accepted.
     """
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
     project_repository = StateBackendProjectRepository(tmp_path)
     project_repository.save(
         create_project(

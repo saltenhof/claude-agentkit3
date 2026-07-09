@@ -20,8 +20,9 @@ from typing import TYPE_CHECKING
 
 from agentkit.backend.execution_planning.entities import StoryRefForPlanning
 from agentkit.backend.execution_planning.lifecycle import PlanningStoryRepository
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.pipeline_runtime_store import load_phase_state_global
 from agentkit.backend.state_backend.store.story_repository import StateBackendStoryRepository
+from agentkit.backend.state_backend.telemetry_event_store import load_latest_story_metrics_global
 
 if TYPE_CHECKING:
     from agentkit.backend.story_context_manager.story_model import Story
@@ -81,8 +82,8 @@ def _derive_lifecycle_status(
     run already exists. Stories without any runtime state default to
     ``"defined"`` so they participate in planning immediately after creation.
     """
-    phase_state = facade.load_phase_state_global(story_display_id, store_dir)
-    metrics = facade.load_latest_story_metrics_global(
+    phase_state = load_phase_state_global(story_display_id, store_dir)
+    metrics = load_latest_story_metrics_global(
         project_key,
         story_display_id,
         store_dir,

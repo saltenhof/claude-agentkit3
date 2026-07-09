@@ -25,8 +25,10 @@ import pytest
 
 from agentkit.backend.governance.governance_observer.reader import StateBackendGovernanceEventReader
 from agentkit.backend.governance.governance_observer.score import compute_risk_score
-from agentkit.backend.state_backend.store import facade
-from agentkit.backend.state_backend.store.facade import append_execution_event
+from agentkit.backend.state_backend.persistence_test_support import (
+    reset_backend_cache_for_tests,
+)
+from agentkit.backend.state_backend.telemetry_event_store import append_execution_event
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 if TYPE_CHECKING:
@@ -48,7 +50,7 @@ def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
 
 
 # ---------------------------------------------------------------------------

@@ -48,15 +48,17 @@ from agentkit.backend.control_plane.startup_reconcile import (
     run_startup_reconciliation,
 )
 from agentkit.backend.control_plane_http.app import ControlPlaneApplication
-from agentkit.backend.state_backend.store import (
-    boot_backend_instance_identity_global,
+from agentkit.backend.state_backend.operation_ledger import (
     claim_control_plane_operation_global,
     finalize_control_plane_operation_global,
     finalize_orphaned_control_plane_operation_global,
     load_control_plane_operation_global,
-    save_backend_instance_identity_global,
-    save_story_context_global,
 )
+from agentkit.backend.state_backend.state_backend_connection_manager import (
+    boot_backend_instance_identity_global,
+    save_backend_instance_identity_global,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import save_story_context_global
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 

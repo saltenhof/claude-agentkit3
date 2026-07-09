@@ -312,9 +312,9 @@ class WorktreePurgeAdapter:
         carries only ``repo_id`` + branch and the edge resolves the path.
         """
         from agentkit.backend.installer.paths import story_dir as resolve_story_dir
-        from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.state_backend.story_lifecycle_store import load_story_context
 
-        ctx = facade.load_story_context(resolve_story_dir(self.project_root, story_id))
+        ctx = load_story_context(resolve_story_dir(self.project_root, story_id))
         if ctx is None:
             return []
         return list(ctx.worktree_map.keys())

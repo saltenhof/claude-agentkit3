@@ -1538,7 +1538,7 @@ boundary_modules:
     # state_backend_repository (den Repos) sowie postgres_store nutzbar.
     #
     # Driver importieren keine BC-Records direkt; Mapping erfolgt
-    # in store.mappers (boundary.state_backend_repository). Die Driver
+    # in persistence_mappers (boundary.state_backend_repository). Die Driver
     # erhalten und liefern ausschliesslich dict[str, Any]-Zeilen.
 ```
 <!-- FORMAL-SPEC:END -->

@@ -8,7 +8,7 @@ import pytest
 from agentkit.backend.project_management.entities import ProjectConfiguration
 from agentkit.backend.project_management.errors import ProjectStoryIdPrefixConflictError
 from agentkit.backend.project_management.lifecycle import archive_project, create_project
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
@@ -29,7 +29,7 @@ def _configuration() -> ProjectConfiguration:
 
 @pytest.fixture(autouse=True)
 def _reset_backend() -> None:
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
 
 
 def test_repository_saves_gets_and_lists_projects(tmp_path: Path) -> None:
@@ -101,7 +101,6 @@ def test_repository_reads_old_record_without_repositories_field(tmp_path: Path) 
     import sqlite3
 
     from agentkit.backend.state_backend import sqlite_store
-    from agentkit.backend.state_backend.store import facade
 
     # Write an old-style record directly into the DB, bypassing the ORM.
     db_path = sqlite_store.state_db_path_for(tmp_path)
@@ -130,7 +129,7 @@ def test_repository_reads_old_record_without_repositories_field(tmp_path: Path) 
     conn.commit()
     conn.close()
 
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
     repository = StateBackendProjectRepository(tmp_path)
     project = repository.get("legacy-proj")
 

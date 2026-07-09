@@ -25,7 +25,7 @@ import psycopg
 import pytest
 
 from agentkit.backend.state_backend.config import SCHEMA_OVERRIDE_ENV
-from agentkit.backend.state_backend.store import (
+from agentkit.backend.state_backend.story_lifecycle_store import (
     load_story_context,
     load_story_context_global,
     save_story_context,

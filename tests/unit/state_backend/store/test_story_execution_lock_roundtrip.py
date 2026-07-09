@@ -148,7 +148,7 @@ class TestStoryExecutionLockSQLiteRoundtrip:
 
     def test_save_and_load(self, tmp_path: Path) -> None:
         """Persisted lock record is loadable with all fields intact."""
-        from agentkit.backend.state_backend.store import (
+        from agentkit.backend.state_backend.governance_runtime_store import (
             load_story_execution_lock_global,
             save_story_execution_lock_global,
         )
@@ -176,7 +176,7 @@ class TestStoryExecutionLockSQLiteRoundtrip:
 
     def test_load_nonexistent_returns_none(self, tmp_path: Path) -> None:
         """Loading a non-existent lock returns None."""
-        from agentkit.backend.state_backend.store import load_story_execution_lock_global
+        from agentkit.backend.state_backend.governance_runtime_store import load_story_execution_lock_global
 
         loaded = load_story_execution_lock_global(
             "no-proj", "no-story", "no-run", "story_execution"
@@ -186,7 +186,7 @@ class TestStoryExecutionLockSQLiteRoundtrip:
 
     def test_upsert_on_conflict(self, tmp_path: Path) -> None:
         """Second save with same PK updates the row (upsert semantics)."""
-        from agentkit.backend.state_backend.store import (
+        from agentkit.backend.state_backend.governance_runtime_store import (
             load_story_execution_lock_global,
             save_story_execution_lock_global,
         )
@@ -225,7 +225,7 @@ class TestStoryExecutionLockDeactivateRoundtrip:
 
     def test_activate_then_deactivate(self, tmp_path: Path) -> None:
         """Lock activated via save, then deactivated via LockRecordRepository."""
-        from agentkit.backend.state_backend.store import (
+        from agentkit.backend.state_backend.governance_runtime_store import (
             load_story_execution_lock_global,
             save_story_execution_lock_global,
         )
@@ -262,7 +262,7 @@ class TestStoryExecutionLockDeactivateRoundtrip:
 
         # Need schema to exist in that db first; trigger bootstrap via save.
         # Bootstrap the DB by saving a different story first.
-        from agentkit.backend.state_backend.store import save_story_execution_lock_global
+        from agentkit.backend.state_backend.governance_runtime_store import save_story_execution_lock_global
 
         bootstrap_record = _make_lock_record("bootstrap-story")
         save_story_execution_lock_global(bootstrap_record)
@@ -272,7 +272,7 @@ class TestStoryExecutionLockDeactivateRoundtrip:
 
     def test_idempotent_deactivation(self, tmp_path: Path) -> None:
         """Re-deactivating an already-inactive story returns empty list (idempotent)."""
-        from agentkit.backend.state_backend.store import save_story_execution_lock_global
+        from agentkit.backend.state_backend.governance_runtime_store import save_story_execution_lock_global
         from agentkit.backend.state_backend.store.lock_record_repository import (
             LockRecordRepository,
         )
@@ -312,7 +312,7 @@ class TestStoryExecutionLockPostgresRoundtrip:
 
         reset_backend_cache_for_tests()
         try:
-            from agentkit.backend.state_backend.store import (
+            from agentkit.backend.state_backend.governance_runtime_store import (
                 load_story_execution_lock_global,
                 save_story_execution_lock_global,
             )

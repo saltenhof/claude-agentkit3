@@ -31,7 +31,8 @@ from agentkit.backend.bootstrap.composition_root import build_project_read_model
 from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
 from agentkit.backend.project_management.entities import ProjectConfiguration
 from agentkit.backend.project_management.lifecycle import create_project
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.pipeline_runtime_store import save_phase_state
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     InMemoryInflightIdempotencyGuard,
 )
@@ -62,7 +63,7 @@ _STORY = "AG3-126"
 def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
 
 
 def test_read_model_routes_phase_state_loader_honors_store_dir(
@@ -75,7 +76,7 @@ def test_read_model_routes_phase_state_loader_honors_store_dir(
     cwd.mkdir()
 
     # Persist the phase-state under store_dir ONLY.
-    facade.save_phase_state(
+    save_phase_state(
         store_dir,
         make_phase_state(
             story_id=_STORY,
@@ -161,7 +162,7 @@ def test_build_routes_full_flow_route_resolves_story_from_store_dir(
     svc.approve_story(story.story_display_id, op_id="op-approve-full-flow")
     svc.begin_progress(story.story_display_id)
 
-    facade.save_phase_state(
+    save_phase_state(
         store_dir,
         make_phase_state(
             story_id=story.story_display_id,

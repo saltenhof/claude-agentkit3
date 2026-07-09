@@ -35,7 +35,7 @@ import pytest
 from agentkit.backend.governance.governance_observer.reader import (
     StateBackendGovernanceEventReader,
 )
-from agentkit.backend.state_backend.store.facade import (
+from agentkit.backend.state_backend.telemetry_event_store import (
     append_execution_event,
     load_last_adjudication_ts,
 )

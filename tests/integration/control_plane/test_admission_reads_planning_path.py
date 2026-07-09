@@ -28,7 +28,7 @@ from agentkit.backend.core_types import StoryDependencyKind
 from agentkit.backend.execution_planning.entities import StoryDependency
 from agentkit.backend.project_management.entities import ProjectConfiguration
 from agentkit.backend.project_management.lifecycle import create_project
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     InMemoryInflightIdempotencyGuard,
 )
@@ -51,7 +51,7 @@ _PROJECT = "tenant-a"
 def _sqlite_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
 
 
 def _story_service(tmp_path: Path) -> StoryService:

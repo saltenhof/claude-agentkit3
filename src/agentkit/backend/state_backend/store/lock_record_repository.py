@@ -11,7 +11,7 @@ without touching the existing ``load_lock`` / ``save_lock`` callables in
 Architecture:
 - Postgres is canonical (DK-05 §5, FK-60 §60).
 - SQLite is a test-only parallel path (``AGENTKIT_ALLOW_SQLITE=1``).
-- Does NOT import from ``agentkit.backend.state_backend.store.facade``.
+- Does NOT import from ``agentkit.backend.state_backend owner modules``.
 - Direct connection helpers — same pattern as ``governance_hook_repository.py``.
 
 Sources:

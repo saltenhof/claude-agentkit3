@@ -338,7 +338,7 @@ def test_build_verify_system_wires_injected_sonar_gate_port(tmp_path: Path) -> N
 
 
 def _save_ctx_with_project_root(story_dir: Path, project_root: Path) -> None:
-    from agentkit.backend.state_backend.store import save_story_context
+    from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
     from agentkit.backend.story_context_manager.models import StoryContext
     from agentkit.backend.story_context_manager.story_model import WireStoryMode
     from agentkit.backend.story_context_manager.types import StoryMode, StoryType
@@ -358,7 +358,7 @@ def _save_ctx_with_project_root(story_dir: Path, project_root: Path) -> None:
 
 
 def _save_ctx_without_project_root(story_dir: Path) -> None:
-    from agentkit.backend.state_backend.store import save_story_context
+    from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
     from agentkit.backend.story_context_manager.models import StoryContext
     from agentkit.backend.story_context_manager.story_model import WireStoryMode
     from agentkit.backend.story_context_manager.types import StoryMode, StoryType
@@ -702,12 +702,12 @@ def test_change_evidence_productive_push_verification_passes_current_boundary(
             )
 
     monkeypatch.setattr(
-        "agentkit.backend.state_backend.store.facade.resolve_runtime_scope",
+        "agentkit.backend.state_backend.runtime_scope_resolver.resolve_runtime_scope",
         lambda _story_dir: _Scope(),
     )
     monkeypatch.setattr(
-        "agentkit.backend.state_backend.store.facade.load_story_context_global",
-        lambda _project_key, _story_id: _Ctx(),
+        "agentkit.backend.state_backend.store.story_read_repository.StateBackendStoryReadRepository.load_story_context",
+        lambda _self, _project_key, _story_id: _Ctx(),
     )
     monkeypatch.setattr(
         "agentkit.backend.state_backend.story_closure_store.list_push_barrier_verdicts_global",
@@ -927,7 +927,7 @@ def test_telemetry_count_port_failclosed_on_unresolvable_run_scope(tmp_path: Pat
 
     monkeypatch.setattr("agentkit.backend.state_backend.telemetry_event_store.load_execution_events", _fail_load)
     monkeypatch.setattr(
-        "agentkit.backend.state_backend.store.facade.resolve_runtime_scope",
+        "agentkit.backend.state_backend.runtime_scope_resolver.resolve_runtime_scope",
         lambda story_dir: _NoScope(),
     )
     port = cr._StateBackendTelemetryEventCountPort()
@@ -1058,7 +1058,7 @@ def _save_guard_flow(story_dir: Path, *, story_id: str, run_id: str) -> None:
     from datetime import UTC, datetime
 
     from agentkit.backend.phase_state_store.models import FlowExecution
-    from agentkit.backend.state_backend.store import save_flow_execution
+    from agentkit.backend.state_backend.pipeline_runtime_store import save_flow_execution
 
     story_dir.mkdir(parents=True, exist_ok=True)
     save_flow_execution(
@@ -1117,7 +1117,7 @@ def test_confirm_story_pushed_fails_closed_without_boundary_correlation(tmp_path
         run_id = "run-147"
 
     monkeypatch.setattr(
-        "agentkit.backend.state_backend.store.facade.resolve_runtime_scope",
+        "agentkit.backend.state_backend.runtime_scope_resolver.resolve_runtime_scope",
         lambda _story_dir: _Scope(),
     )
 
@@ -1163,12 +1163,12 @@ def test_confirm_story_pushed_passes_with_fresh_boundary_correlation(tmp_path: P
             )
 
     monkeypatch.setattr(
-        "agentkit.backend.state_backend.store.facade.resolve_runtime_scope",
+        "agentkit.backend.state_backend.runtime_scope_resolver.resolve_runtime_scope",
         lambda _story_dir: _Scope(),
     )
     monkeypatch.setattr(
-        "agentkit.backend.state_backend.store.facade.load_story_context_global",
-        lambda _project_key, _story_id: _Ctx(),
+        "agentkit.backend.state_backend.store.story_read_repository.StateBackendStoryReadRepository.load_story_context",
+        lambda _self, _project_key, _story_id: _Ctx(),
     )
     monkeypatch.setattr(
         "agentkit.backend.state_backend.story_closure_store.list_push_barrier_verdicts_global",
@@ -1226,12 +1226,12 @@ def test_confirm_story_pushed_blocks_passed_verdict_when_server_head_moved(
             )
 
     monkeypatch.setattr(
-        "agentkit.backend.state_backend.store.facade.resolve_runtime_scope",
+        "agentkit.backend.state_backend.runtime_scope_resolver.resolve_runtime_scope",
         lambda _story_dir: _Scope(),
     )
     monkeypatch.setattr(
-        "agentkit.backend.state_backend.store.facade.load_story_context_global",
-        lambda _project_key, _story_id: _Ctx(),
+        "agentkit.backend.state_backend.store.story_read_repository.StateBackendStoryReadRepository.load_story_context",
+        lambda _self, _project_key, _story_id: _Ctx(),
     )
     monkeypatch.setattr(
         "agentkit.backend.state_backend.story_closure_store.list_push_barrier_verdicts_global",
@@ -1264,12 +1264,12 @@ def test_confirm_story_pushed_blocks_stale_boundary_correlation(tmp_path: Path, 
         participating_repos = ("api",)
 
     monkeypatch.setattr(
-        "agentkit.backend.state_backend.store.facade.resolve_runtime_scope",
+        "agentkit.backend.state_backend.runtime_scope_resolver.resolve_runtime_scope",
         lambda _story_dir: _Scope(),
     )
     monkeypatch.setattr(
-        "agentkit.backend.state_backend.store.facade.load_story_context_global",
-        lambda _project_key, _story_id: _Ctx(),
+        "agentkit.backend.state_backend.store.story_read_repository.StateBackendStoryReadRepository.load_story_context",
+        lambda _self, _project_key, _story_id: _Ctx(),
     )
     monkeypatch.setattr(
         "agentkit.backend.state_backend.story_closure_store.list_push_barrier_verdicts_global",
@@ -1322,12 +1322,12 @@ def test_confirm_story_pushed_blocks_missing_participating_repo_verdict(tmp_path
             )
 
     monkeypatch.setattr(
-        "agentkit.backend.state_backend.store.facade.resolve_runtime_scope",
+        "agentkit.backend.state_backend.runtime_scope_resolver.resolve_runtime_scope",
         lambda _story_dir: _Scope(),
     )
     monkeypatch.setattr(
-        "agentkit.backend.state_backend.store.facade.load_story_context_global",
-        lambda _project_key, _story_id: _Ctx(),
+        "agentkit.backend.state_backend.store.story_read_repository.StateBackendStoryReadRepository.load_story_context",
+        lambda _self, _project_key, _story_id: _Ctx(),
     )
     monkeypatch.setattr(
         "agentkit.backend.state_backend.story_closure_store.list_push_barrier_verdicts_global",

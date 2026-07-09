@@ -22,7 +22,7 @@ from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeS
 from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseStatus,
 )
-from agentkit.backend.state_backend.store import read_story_context_record
+from agentkit.backend.state_backend.story_lifecycle_store import read_story_context_record
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.story_model import WireStoryType
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType

@@ -17,13 +17,11 @@ import pytest
 from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.backend.phase_state_store.models import FlowExecution
 from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
-from agentkit.backend.state_backend.store import (
-    save_flow_execution,
-    save_story_context,
-)
-from agentkit.backend.state_backend.store.projection_repositories import (
+from agentkit.backend.state_backend.pipeline_runtime_store import save_flow_execution
+from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
     build_projection_repositories,
 )
+from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 from agentkit.backend.telemetry.audit_bundle import AuditBundleExporter

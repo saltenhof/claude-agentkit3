@@ -14,7 +14,7 @@ Scope (AG3-034 §2.1.2 / §2.2):
 Architecture (mirrors ``freeze_repository.py`` / ``lock_record_repository.py``):
 - Postgres is canonical (DK-05 §5); SQLite is the test-only parallel path
   (``AGENTKIT_ALLOW_SQLITE=1``).
-- Does NOT import from ``agentkit.backend.state_backend.store.facade``.
+- Does NOT import from ``agentkit.backend.state_backend owner modules``.
 - Schema (``project_mode_lock``) lives in both ``postgres_schema.sql``
   (canonical) and the ``sqlite_store`` package (test-parallel); this adapter only
   reads/writes via the bootstrapped schema.

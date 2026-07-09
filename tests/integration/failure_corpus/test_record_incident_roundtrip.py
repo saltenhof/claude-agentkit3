@@ -21,7 +21,7 @@ import pytest
 from agentkit.backend.bootstrap.composition_root import build_failure_corpus
 from agentkit.backend.core_types import FailureCategory, IncidentStatus
 from agentkit.backend.failure_corpus import IncidentCandidate, IncidentRole, IncidentSeverity
-from agentkit.backend.state_backend.store.projection_repositories import (
+from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
     build_projection_repositories,
 )
 from agentkit.backend.telemetry.projection_accessor import (
@@ -204,7 +204,7 @@ def test_postgres_db_checks_reject_malformed_rows() -> None:
     """
     import psycopg
 
-    from agentkit.backend.state_backend.store.projection_repositories import _postgres_connect
+    from agentkit.backend.state_backend.store.telemetry_projection_repository_common import _postgres_connect
 
     cols = (
         "project_key, incident_id, run_id, story_id, category, severity, "

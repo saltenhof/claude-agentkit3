@@ -14,36 +14,44 @@ from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseSnapshot,
     PhaseStatus,
 )
-from agentkit.backend.state_backend.store import (
-    append_execution_event,
-    append_execution_event_global,
-    bind_ownership_fence_scope,
+from agentkit.backend.state_backend.artifact_catalog_store import (
     load_artifact_record,
     load_artifact_record_for_scope,
-    load_execution_events,
-    load_execution_events_global,
+)
+from agentkit.backend.state_backend.governance_runtime_store import bind_ownership_fence_scope
+from agentkit.backend.state_backend.pipeline_runtime_store import (
     load_flow_execution,
     load_flow_execution_global,
-    load_latest_story_metrics_global,
-    load_latest_verify_decision,
-    load_latest_verify_decision_for_scope,
     load_phase_snapshot,
     load_phase_state,
     load_phase_state_global,
-    load_qa_findings,
-    load_qa_stage_results,
-    load_story_context,
-    load_story_context_global,
-    load_story_contexts_global,
-    load_story_metrics,
-    record_layer_artifacts,
-    record_verify_decision,
-    resolve_runtime_scope,
     save_flow_execution,
     save_phase_snapshot,
     save_phase_state,
+)
+from agentkit.backend.state_backend.runtime_scope_resolver import resolve_runtime_scope
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    load_story_context,
+    load_story_context_global,
+    load_story_contexts_global,
     save_story_context,
+)
+from agentkit.backend.state_backend.telemetry_event_store import (
+    append_execution_event,
+    append_execution_event_global,
+    load_execution_events,
+    load_execution_events_global,
+    load_latest_story_metrics_global,
+    load_qa_findings,
+    load_qa_stage_results,
+    load_story_metrics,
     upsert_story_metrics,
+)
+from agentkit.backend.state_backend.verify_artifact_store import (
+    load_latest_verify_decision,
+    load_latest_verify_decision_for_scope,
+    record_layer_artifacts,
+    record_verify_decision,
 )
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
@@ -81,7 +89,7 @@ def _seed_active_ownership(*, project_key: str, story_id: str, run_id: str) -> N
     )
     from agentkit.backend.control_plane.records import RunOwnershipRecord
     from agentkit.backend.state_backend import postgres_store
-    from agentkit.backend.state_backend.store import (
+    from agentkit.backend.state_backend.story_lifecycle_store import (
         insert_run_ownership_record_global,
         load_active_run_ownership_record_global,
     )

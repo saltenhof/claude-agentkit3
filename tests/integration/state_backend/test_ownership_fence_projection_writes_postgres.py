@@ -66,27 +66,35 @@ from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus, PolicyVer
 from agentkit.backend.exceptions import CorruptStateError, OwnershipFenceViolationError
 from agentkit.backend.phase_state_store.models import FlowExecution
 from agentkit.backend.state_backend import postgres_store
+from agentkit.backend.state_backend.governance_runtime_store import (
+    bind_ownership_fence_scope,
+    require_ownership_fence_scope,
+)
+from agentkit.backend.state_backend.pipeline_runtime_store import save_flow_execution
 from agentkit.backend.state_backend.postgres_store import _qa_artifact_rows
 from agentkit.backend.state_backend.schema_bootstrap import ensure_versioned_schema
-from agentkit.backend.state_backend.store import (
-    bind_ownership_fence_scope,
-    insert_run_ownership_record_global,
-    load_active_run_ownership_record_global,
-    load_latest_verify_decision,
-    load_qa_findings,
-    load_qa_stage_results,
-    record_closure_report,
-    record_layer_artifacts,
-    record_verify_decision,
-    require_ownership_fence_scope,
-    save_flow_execution,
-)
 from agentkit.backend.state_backend.store.artifact_repository import (
     StateBackendArtifactRepository,
 )
-from agentkit.backend.state_backend.store.projection_repositories import (
-    FacadeQACheckOutcomesRepository,
+from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
     FacadeStoryMetricsRepository,
+)
+from agentkit.backend.state_backend.store.telemetry_projection_repository_qa import (
+    FacadeQACheckOutcomesRepository,
+)
+from agentkit.backend.state_backend.story_closure_store import record_closure_report
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    insert_run_ownership_record_global,
+    load_active_run_ownership_record_global,
+)
+from agentkit.backend.state_backend.telemetry_event_store import (
+    load_qa_findings,
+    load_qa_stage_results,
+)
+from agentkit.backend.state_backend.verify_artifact_store import (
+    load_latest_verify_decision,
+    record_layer_artifacts,
+    record_verify_decision,
 )
 from agentkit.backend.verify_system.policy_engine.engine import VerifyDecision
 from agentkit.backend.verify_system.protocols import LayerResult

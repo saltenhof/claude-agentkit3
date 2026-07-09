@@ -42,11 +42,11 @@ from agentkit.backend.process.language.guards import GuardResult, guard
 from agentkit.backend.process.language.model import ExecutionPolicy
 from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
-from agentkit.backend.state_backend.store import (
+from agentkit.backend.state_backend.pipeline_runtime_store import (
     load_attempts,
-    load_execution_events,
     read_phase_state_record,
 )
+from agentkit.backend.state_backend.telemetry_event_store import load_execution_events
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 from agentkit.backend.telemetry.events import EventType

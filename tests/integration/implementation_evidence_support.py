@@ -13,7 +13,7 @@ from agentkit.backend.core_types.qa_artifact_names import (
     WORKER_MANIFEST_FILE,
 )
 from agentkit.backend.implementation.manifest import WorkerManifest, WorkerManifestStatus
-from agentkit.backend.state_backend.store import save_story_context
+from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 from agentkit.backend.verify_system.protocols import RunScope

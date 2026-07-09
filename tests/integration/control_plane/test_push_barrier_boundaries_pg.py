@@ -49,14 +49,16 @@ from agentkit.backend.control_plane.push_sync import (
 from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.backend.governance.guard_evaluation import HookEvent
 from agentkit.backend.governance.runner import run_hook
-from agentkit.backend.state_backend.store import (
-    append_execution_event_global,
+from agentkit.backend.state_backend.harness_edge_command_store import load_edge_command_record_global
+from agentkit.backend.state_backend.state_backend_connection_manager import (
     boot_backend_instance_identity_global,
-    load_edge_command_record_global,
+)
+from agentkit.backend.state_backend.story_closure_store import (
     load_push_barrier_verdict_global,
-    save_story_context_global,
     upsert_push_barrier_verdict_global,
 )
+from agentkit.backend.state_backend.story_lifecycle_store import save_story_context_global
+from agentkit.backend.state_backend.telemetry_event_store import append_execution_event_global
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord

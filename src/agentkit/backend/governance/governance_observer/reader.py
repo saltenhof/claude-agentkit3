@@ -18,8 +18,8 @@ Design decisions
   unlike the previous bounded-scan (200-limit) + Python-max approach that could
   miss a same-signal adjudication when 200+ other-signal adjudications were newer.
 * **Public run-scoped facade reader** — this reader calls the public
-  ``agentkit.backend.state_backend.store.facade.load_execution_events`` (signal reads) and
-  ``agentkit.backend.state_backend.store.facade.load_last_adjudication_ts`` (cooldown reads).
+  ``agentkit.backend.state_backend.telemetry_event_store.load_execution_events`` (signal reads) and
+  ``agentkit.backend.state_backend.telemetry_event_store.load_last_adjudication_ts`` (cooldown reads).
   Both are the same import surface the closure BC uses, so it is NOT
   import-restricted and GAC-1 stays green.  The private ``_backend_module``
   bypass is not used and must not be reintroduced.
@@ -122,7 +122,7 @@ class StateBackendGovernanceEventReader:
 
         Scoped to the EXACT ``(project_key, story_id, run_id, signal_type)`` tuple
         per FK-35 §35.3.11.  Issues a DB-side MAX(occurred_at) with exact JSON
-        field matching via :func:`~agentkit.backend.state_backend.store.facade.load_last_adjudication_ts`
+        field matching via :func:`~agentkit.backend.state_backend.telemetry_event_store.load_last_adjudication_ts`
         — no bounded Python scan, no risk of missing an adjudication due to a
         200-row cap being exceeded.
 

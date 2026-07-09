@@ -32,24 +32,32 @@ from agentkit.backend.control_plane.records import (
 from agentkit.backend.exceptions import ConfigError
 from agentkit.backend.state_backend import persistence_mappers as mappers
 from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
-from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
-from agentkit.backend.state_backend.store import (
-    commit_edge_command_result_global,
+from agentkit.backend.state_backend.harness_edge_command_store import (
     insert_edge_command_record_global,
-    insert_object_mutation_claim_global,
-    insert_run_ownership_record_global,
     list_and_ack_open_edge_command_records_global,
-    list_push_freshness_records_global,
-    load_active_run_ownership_record_global,
-    load_backend_instance_identity_global,
     load_edge_command_record_global,
+)
+from agentkit.backend.state_backend.operation_ledger import (
+    commit_edge_command_result_global,
+    insert_object_mutation_claim_global,
     load_object_mutation_claim_global,
+)
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.state_backend_connection_manager import (
+    load_backend_instance_identity_global,
+    save_backend_instance_identity_global,
+)
+from agentkit.backend.state_backend.story_closure_store import (
+    list_push_freshness_records_global,
     load_push_freshness_record_global,
+    upsert_push_freshness_record_global,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    insert_run_ownership_record_global,
+    load_active_run_ownership_record_global,
     load_run_ownership_record_global,
     load_takeover_transfer_record_global,
-    save_backend_instance_identity_global,
     save_takeover_transfer_record_global,
-    upsert_push_freshness_record_global,
 )
 
 if TYPE_CHECKING:

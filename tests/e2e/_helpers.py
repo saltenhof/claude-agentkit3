@@ -116,7 +116,7 @@ def seed_active_run_ownership(
         OwnershipStatus,
     )
     from agentkit.backend.control_plane.records import RunOwnershipRecord
-    from agentkit.backend.state_backend.store import (
+    from agentkit.backend.state_backend.story_lifecycle_store import (
         insert_run_ownership_record_global,
         load_active_run_ownership_record_global,
     )

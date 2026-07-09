@@ -35,7 +35,7 @@ import pytest
 
 from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV, STORE_DIR_ENV
 from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
-from agentkit.backend.state_backend.store import (
+from agentkit.backend.state_backend.telemetry_event_store import (
     append_execution_event_global,
     load_execution_events_for_project_global,
 )

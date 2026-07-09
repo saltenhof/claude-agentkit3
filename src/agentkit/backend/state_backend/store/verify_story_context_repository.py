@@ -17,7 +17,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from agentkit.backend.exceptions import CorruptStateError
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.runtime_scope_resolver import resolve_runtime_scope
+from agentkit.backend.state_backend.story_lifecycle_store import load_story_context
 from agentkit.backend.verify_system.protocols import RunScope
 
 if TYPE_CHECKING:
@@ -29,8 +30,8 @@ if TYPE_CHECKING:
 class StateBackendVerifyStoryContextAdapter:
     """Adapter satisfying ``verify_system.protocols.StoryContextQueryPort``.
 
-    Delegates loading to ``facade.load_story_context`` and the
-    run correlation to ``facade.resolve_runtime_scope`` (AG3-015, FK-44
+    Delegates loading to ``load_story_context`` and the
+    run correlation to ``resolve_runtime_scope`` (AG3-015, FK-44
     §44.4.2). Consuming BCs may not import from
     ``state_backend.store`` themselves; this adapter encapsulates the
     ``facade`` call.
@@ -45,7 +46,7 @@ class StateBackendVerifyStoryContextAdapter:
         Returns:
             The ``StoryContext`` or ``None`` when none is persisted.
         """
-        return facade.load_story_context(story_dir)
+        return load_story_context(story_dir)
 
     def resolve_run_scope(self, story_dir: Path) -> RunScope | None:
         """Resolve the run correlation (run_id, story_id, attempt).
@@ -59,7 +60,7 @@ class StateBackendVerifyStoryContextAdapter:
             no ``run_id``); then the prompt audit is skipped.
         """
         try:
-            scope = facade.resolve_runtime_scope(story_dir)
+            scope = resolve_runtime_scope(story_dir)
         except CorruptStateError:
             return None
         if scope.run_id is None:

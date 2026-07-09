@@ -549,7 +549,7 @@ def test_exploration_for_implementation_sets_execution_pending(
         _ctx().model_copy(update={"project_root": tmp_path}), _envelope()
     )
 
-    from agentkit.backend.state_backend.store import load_story_context
+    from agentkit.backend.state_backend.story_lifecycle_store import load_story_context
 
     persisted = load_story_context(story_dir)
     assert result.status is PhaseStatus.COMPLETED

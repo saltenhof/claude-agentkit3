@@ -18,12 +18,24 @@ from tests.phase_state_factory import make_phase_state
 from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.backend.phase_state_store.models import FlowExecution
 from agentkit.backend.pipeline_engine.phase_executor import PhaseState
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.pipeline_runtime_store import (
+    load_flow_execution_global,
+    load_phase_state_global,
+)
 from agentkit.backend.state_backend.postgres_store import (
     _qa_artifact_rows,
     _runtime_rows,
     _story_project_rows,
 )
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    load_story_context_global,
+    load_story_contexts_global,
+)
+from agentkit.backend.state_backend.telemetry_event_store import (
+    load_execution_events_global,
+    load_latest_story_metrics_global,
+)
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
@@ -75,10 +87,10 @@ def _use_postgres_backend(
     remaining in the LRU cache after monkeypatch reverts the env var.
     """
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "postgres")
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
     yield
     # Teardown: clear cache so next test gets the correct backend (sqlite).
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
 
 
 def test_load_story_context_global_reads_single_payload(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -95,7 +107,7 @@ def test_load_story_context_global_reads_single_payload(monkeypatch: pytest.Monk
         ],
     )
 
-    record = facade.load_story_context_global("tenant-a", "AG3-100")
+    record = load_story_context_global("tenant-a", "AG3-100")
 
     assert isinstance(record, StoryContext)
     assert record.story_id == "AG3-100"
@@ -123,7 +135,7 @@ def test_load_story_contexts_global_reads_multiple_payloads(monkeypatch: pytest.
         ],
     )
 
-    records = facade.load_story_contexts_global("tenant-a")
+    records = load_story_contexts_global("tenant-a")
 
     assert [record.story_id for record in records] == ["AG3-100", "AG3-101"]
 
@@ -145,7 +157,7 @@ def test_load_phase_state_global_reads_payload(monkeypatch: pytest.MonkeyPatch) 
         ],
     )
 
-    record = facade.load_phase_state_global("AG3-100")
+    record = load_phase_state_global("AG3-100")
 
     assert isinstance(record, PhaseState)
     assert record.phase == "implementation"
@@ -172,7 +184,7 @@ def test_load_flow_execution_global_reads_row(monkeypatch: pytest.MonkeyPatch) -
         ],
     )
 
-    record = facade.load_flow_execution_global("tenant-a", "AG3-100")
+    record = load_flow_execution_global("tenant-a", "AG3-100")
 
     assert isinstance(record, FlowExecution)
     assert record.run_id == "run-100"
@@ -206,7 +218,7 @@ def test_load_latest_story_metrics_global_reads_row(monkeypatch: pytest.MonkeyPa
         ],
     )
 
-    record = facade.load_latest_story_metrics_global("tenant-a", "AG3-100")
+    record = load_latest_story_metrics_global("tenant-a", "AG3-100")
 
     assert isinstance(record, StoryMetricsRecord)
     assert record.final_status == "DONE"
@@ -247,7 +259,7 @@ def test_load_execution_events_global_reads_latest_subset(monkeypatch: pytest.Mo
         ],
     )
 
-    records = facade.load_execution_events_global(
+    records = load_execution_events_global(
         "tenant-a",
         "AG3-100",
         run_id="run-100",

@@ -8,8 +8,8 @@ path ``agentkit.backend.phase_state_store``.
 
 Design (PO decision D3, story §2.1.2, AK 5):
 
-* The per-owner purge is executed by the owner facade APIs in
-  :mod:`agentkit.backend.state_backend.store.facade` (SQL lives in the driver helper
+* The per-owner purge is executed by the owner APIs in
+  :mod:`agentkit.backend.state_backend owner modules` (SQL lives in the driver helper
   ``sqlite_store`` / ``postgres_store``). This port only *orchestrates* those
   owner operations bundled from ``(project_key, story_id, run_id)``. It issues
   **no** cross-BC SQL of its own — there is no God-Purge.
@@ -65,7 +65,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.artifact_catalog_store import purge_run_bound_artifact_envelopes
+from agentkit.backend.state_backend.governance_runtime_store import purge_guard_decisions
+from agentkit.backend.state_backend.pipeline_runtime_store import (
+    count_runtime_execution_residue,
+    purge_attempts,
+    purge_flow_executions,
+    purge_node_execution_ledgers,
+    purge_override_records,
+    purge_phase_snapshots,
+    purge_phase_states,
+)
+from agentkit.backend.state_backend.telemetry_event_store import purge_execution_events
+from agentkit.backend.state_backend.verify_artifact_store import purge_decision_records
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -175,7 +187,7 @@ class RuntimeExecutionPurgePort:
     ) -> RuntimeExecutionPurgeResult:
         """Purge all Runtime-Execution domains for one run, bundled per owner.
 
-        Calls the owner-purge facade APIs in a fixed order and aggregates the
+        Calls the owner-purge APIs in a fixed order and aggregates the
         per-domain deleted row counts. Idempotent (FK-53 §53.9.1): a repeated
         call returns zero additional deletions without error.
 
@@ -197,26 +209,26 @@ class RuntimeExecutionPurgePort:
         _validate_scope(project_key, story_id, run_id)
         store_dir = self._store_dir
         purged: dict[str, int] = {
-            "flow_executions": facade.purge_flow_executions(
+            "flow_executions": purge_flow_executions(
                 store_dir, project_key, story_id, run_id
             ),
-            "node_execution_ledgers": facade.purge_node_execution_ledgers(
+            "node_execution_ledgers": purge_node_execution_ledgers(
                 store_dir, project_key, story_id, run_id
             ),
-            "attempts": facade.purge_attempts(store_dir, story_id, run_id),
-            "override_records": facade.purge_override_records(
+            "attempts": purge_attempts(store_dir, story_id, run_id),
+            "override_records": purge_override_records(
                 store_dir, project_key, story_id, run_id
             ),
-            "guard_decisions": facade.purge_guard_decisions(
+            "guard_decisions": purge_guard_decisions(
                 store_dir, project_key, story_id, run_id
             ),
-            "decision_records": facade.purge_decision_records(store_dir, story_id),
-            "phase_states": facade.purge_phase_states(store_dir, story_id),
-            "phase_snapshots": facade.purge_phase_snapshots(store_dir, story_id),
-            "execution_events": facade.purge_execution_events(
+            "decision_records": purge_decision_records(store_dir, story_id),
+            "phase_states": purge_phase_states(store_dir, story_id),
+            "phase_snapshots": purge_phase_snapshots(store_dir, story_id),
+            "execution_events": purge_execution_events(
                 store_dir, project_key, story_id, run_id
             ),
-            "artifact_envelopes": facade.purge_run_bound_artifact_envelopes(
+            "artifact_envelopes": purge_run_bound_artifact_envelopes(
                 store_dir, story_id, run_id
             ),
         }
@@ -260,7 +272,7 @@ class RuntimeExecutionResidueProbe:
             ValueError: When the scope is incomplete (fail-closed).
         """
         _validate_scope(project_key, story_id, run_id)
-        residue = facade.count_runtime_execution_residue(
+        residue = count_runtime_execution_residue(
             self._store_dir, project_key, story_id, run_id
         )
         return RuntimeExecutionResidueResult(residue_rows=residue)

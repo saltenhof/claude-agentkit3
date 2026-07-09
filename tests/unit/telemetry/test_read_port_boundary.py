@@ -11,8 +11,8 @@ Regression guards (FK-07 §7.6/§7.8):
   read port) must not import anything from ``agentkit.backend.state_backend`` —
   the Protocol module hangs on nothing but the domain entity (AG3-126 mirror).
 * ``agentkit.backend.project_management.read_model_routes`` (the project
-  read-model surface) must not import the generic ``state_backend.store.facade``
-  mega-facade nor any ``load_*`` global loader (FK-07 §7.8 Punkt 8). It composes
+  read-model surface) must not import the deleted state-backend facade nor any
+  ``load_*`` global loader (FK-07 §7.8 Punkt 8). It composes
   read models through injected Protocol ports; its only sanctioned state-backend
   seam is the published ``StoryReadPort`` adapter (AG3-126) used as a fallback
   default — never the generic loader facade.
@@ -109,7 +109,7 @@ def test_project_repository_port_hangs_only_on_protocol() -> None:
 
 def test_project_read_model_routes_do_not_import_facade_loaders() -> None:
     # AC4: the project read-model surface never reaches for the generic
-    # state_backend.store.facade / load_* mega-facade (FK-07 §7.8 Punkt 8); the
+    # deleted state-backend facade / load_* mega-facade (FK-07 §7.8 Punkt 8); the
     # published StoryReadPort adapter (AG3-126) is the only sanctioned seam.
     source = Path(read_model_routes_module.__file__).read_text(encoding="utf-8")
     flagged = _facade_or_loader_imports_from_state_backend(source)

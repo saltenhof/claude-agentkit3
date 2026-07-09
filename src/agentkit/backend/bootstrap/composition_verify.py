@@ -243,10 +243,10 @@ class _StateBackendTelemetryEventCountPort:
         CURRENT run only. The authoritative run correlation is the persisted
         run scope of the story's flow execution.
         """
-        from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.state_backend.runtime_scope_resolver import resolve_runtime_scope
 
         try:
-            scope = facade.resolve_runtime_scope(story_dir)
+            scope = resolve_runtime_scope(story_dir)
         except Exception:  # noqa: BLE001 -- unresolved scope -> no run filter
             return None
         return getattr(scope, "run_id", None)
@@ -270,14 +270,16 @@ class _BarrierPushVerification:
         from datetime import UTC, datetime
 
         from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
-        from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.state_backend.runtime_scope_resolver import (
+            resolve_runtime_scope,
+        )
         from agentkit.backend.state_backend.story_closure_store import (
             list_push_barrier_verdicts_global,
             upsert_push_barrier_verdict_global,
         )
 
         try:
-            scope = facade.resolve_runtime_scope(story_dir)
+            scope = resolve_runtime_scope(story_dir)
         except Exception:  # noqa: BLE001 -- unresolvable scope -> fail-closed (not pushed)
             return False
         project_key = getattr(scope, "project_key", None)
@@ -338,9 +340,11 @@ class _BarrierPushVerification:
 
     @staticmethod
     def _participating_repos(project_key: str, story_id: str) -> tuple[str, ...]:
-        from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.state_backend.store.story_read_repository import (
+            StateBackendStoryReadRepository,
+        )
 
-        ctx = facade.load_story_context_global(project_key, story_id)
+        ctx = StateBackendStoryReadRepository().load_story_context(project_key, story_id)
         return tuple(ctx.participating_repos) if ctx is not None else ()
 
     def _commission_sync_push_best_effort(
@@ -356,15 +360,23 @@ class _BarrierPushVerification:
             load_edge_command_record_global,
             supersede_open_edge_command_global,
         )
-        from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.state_backend.store.story_read_repository import (
+            StateBackendStoryReadRepository,
+        )
         from agentkit.backend.state_backend.story_closure_store import (
             load_push_barrier_verdict_global,
             upsert_push_barrier_verdict_global,
         )
+        from agentkit.backend.state_backend.story_lifecycle_store import (
+            load_active_run_ownership_record_global,
+        )
 
         try:
-            ctx = facade.load_story_context_global(project_key, story_id)
-            active = facade.load_active_run_ownership_record_global(project_key, story_id)
+            ctx = StateBackendStoryReadRepository().load_story_context(
+                project_key,
+                story_id,
+            )
+            active = load_active_run_ownership_record_global(project_key, story_id)
             if ctx is None or active is None or active.run_id != run_id:
                 return
             now = datetime.now(tz=UTC)
@@ -788,11 +800,17 @@ class _ControlPlaneQaCyclePushBarrierGate:
     def _qa_boundary_binding(story_dir: Path, sync_point_id: str) -> qa_boundary.QaBoundaryBinding | None:
         """Resolve QA boundary identity, story context, and active ownership."""
         from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
-        from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.state_backend.runtime_scope_resolver import (
+            resolve_runtime_scope,
+        )
+        from agentkit.backend.state_backend.story_lifecycle_store import (
+            load_active_run_ownership_record_global,
+            load_story_context,
+        )
 
-        scope = facade.resolve_runtime_scope(story_dir)
-        ctx = facade.load_story_context(story_dir)
-        active = facade.load_active_run_ownership_record_global(scope.project_key, scope.story_id)
+        scope = resolve_runtime_scope(story_dir)
+        ctx = load_story_context(story_dir)
+        active = load_active_run_ownership_record_global(scope.project_key, scope.story_id)
         boundary_id = qa_boundary.boundary_id_from_sync_point(
             sync_point_id,
             expected_type=SyncPointBarrierType.QA_CYCLE_BOUNDARY,
@@ -808,10 +826,15 @@ class _ControlPlaneQaCyclePushBarrierGate:
         from datetime import UTC, datetime
 
         from agentkit.backend.control_plane.push_sync import SyncPointBarrierType
-        from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.state_backend.runtime_scope_resolver import (
+            resolve_runtime_scope,
+        )
         from agentkit.backend.state_backend.story_closure_store import (
             list_push_barrier_verdicts_global,
             upsert_push_barrier_verdict_global,
+        )
+        from agentkit.backend.state_backend.story_lifecycle_store import (
+            load_story_context,
         )
         from agentkit.backend.verify_system.qa_cycle.lifecycle import (
             QaCycleBarrierBlockedError,
@@ -823,7 +846,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
             raise QaCycleBarrierBlockedError(str(exc)) from exc
         self._commission_sync_push_best_effort(story_dir, sync_point_id=sync_point_id)
         try:
-            scope = facade.resolve_runtime_scope(story_dir)
+            scope = resolve_runtime_scope(story_dir)
         except Exception as exc:  # noqa: BLE001 -- unresolvable scope -> fail-closed block
             msg = f"QA-cycle boundary fail-closed: run scope unresolvable ({exc})"
             raise QaCycleBarrierBlockedError(msg) from exc
@@ -851,7 +874,7 @@ class _ControlPlaneQaCyclePushBarrierGate:
         except Exception as exc:  # noqa: BLE001 -- unavailable verdict SSOT -> block
             msg = f"QA-cycle boundary fail-closed: verdict SSOT unavailable ({exc})"
             raise QaCycleBarrierBlockedError(msg) from exc
-        ctx = facade.load_story_context(story_dir)
+        ctx = load_story_context(story_dir)
         expected_repo_ids = tuple(ctx.participating_repos) if ctx is not None else ()
         aggregate = push_barrier_lifecycle.aggregate_persisted_push_barrier(
             SyncPointBarrierType.QA_CYCLE_BOUNDARY,
@@ -883,7 +906,9 @@ class _StateBackedQaCycleFingerprintSource:
     """Resolve QA-cycle fingerprint heads from push-freshness records (AC11)."""
 
     def collect(self, story_dir: Path) -> tuple[verify_types.ReportedHeadEvidence, ...]:
-        from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.state_backend.runtime_scope_resolver import (
+            resolve_runtime_scope,
+        )
         from agentkit.backend.state_backend.story_closure_store import (
             list_push_freshness_records_global,
         )
@@ -893,7 +918,7 @@ class _StateBackedQaCycleFingerprintSource:
         )
 
         try:
-            scope = facade.resolve_runtime_scope(story_dir)
+            scope = resolve_runtime_scope(story_dir)
             if scope.run_id is None:
                 raise FingerprintComputationError("QA-cycle fingerprint evidence has incomplete run scope")
             records = list_push_freshness_records_global(

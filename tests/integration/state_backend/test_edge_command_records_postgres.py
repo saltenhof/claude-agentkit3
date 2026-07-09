@@ -29,16 +29,18 @@ import pytest
 from agentkit.backend.control_plane.ownership import OwnershipAcquisition, OwnershipStatus
 from agentkit.backend.control_plane.records import ControlPlaneOperationRecord, EdgeCommandRecord, RunOwnershipRecord
 from agentkit.backend.exceptions import EdgeCommandNotOpenError, OwnershipFenceViolationError
-from agentkit.backend.state_backend.store import (
+from agentkit.backend.state_backend.harness_edge_command_store import (
     commission_edge_command_record_global,
-    commit_edge_command_result_global,
     insert_edge_command_record_global,
-    insert_run_ownership_record_global,
     list_and_ack_open_edge_command_records_global,
-    load_control_plane_operation_global,
     load_edge_command_record_global,
     supersede_open_edge_command_global,
 )
+from agentkit.backend.state_backend.operation_ledger import (
+    commit_edge_command_result_global,
+    load_control_plane_operation_global,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import insert_run_ownership_record_global
 
 if TYPE_CHECKING:
     from collections.abc import Callable

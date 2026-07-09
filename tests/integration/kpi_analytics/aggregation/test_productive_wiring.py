@@ -44,7 +44,7 @@ from agentkit.backend.state_backend.store.fact_repository import StateBackendFac
 from agentkit.backend.state_backend.store.guard_counter_repository import (
     StateBackendGuardCounterRepository,
 )
-from agentkit.backend.state_backend.store.projection_repositories import (
+from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
     build_projection_repositories,
 )
 from agentkit.backend.telemetry.projection_accessor import (

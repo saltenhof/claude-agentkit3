@@ -68,13 +68,13 @@ from agentkit.backend.governance.setup_preflight_gate.phase import (
 )
 from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
 from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
-from agentkit.backend.state_backend.store import (
-    commit_edge_command_result_global,
-    insert_run_ownership_record_global,
+from agentkit.backend.state_backend.harness_edge_command_store import (
     list_and_ack_open_edge_command_records_global,
-    list_ref_protection_degradation_findings_global,
     load_edge_command_record_global,
 )
+from agentkit.backend.state_backend.operation_ledger import commit_edge_command_result_global
+from agentkit.backend.state_backend.story_closure_store import list_ref_protection_degradation_findings_global
+from agentkit.backend.state_backend.story_lifecycle_store import insert_run_ownership_record_global
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.story_model import WireStoryType
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType

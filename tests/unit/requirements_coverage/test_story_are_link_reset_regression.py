@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 from agentkit.backend.project_management.entities import ProjectConfiguration
 from agentkit.backend.project_management.lifecycle import create_project
 from agentkit.backend.requirements_coverage.models import StoryAreLink, StoryAreLinkKind
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
@@ -36,7 +36,7 @@ from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 
 @pytest.fixture(autouse=True)
 def _reset_backend() -> None:
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
 
 
 def _configuration() -> ProjectConfiguration:
@@ -94,7 +94,7 @@ def test_story_are_links_survive_reset_simulation(tmp_path: Path) -> None:
     repository.add(link)
 
     # Simulate reset by clearing backend cache (same as pre-run reset would do)
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
 
     # Re-open the repository against the same path — links must still exist
     repository_after_reset = StateBackendStoryAreLinkRepository(tmp_path)

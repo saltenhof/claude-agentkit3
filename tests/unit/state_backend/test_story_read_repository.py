@@ -20,12 +20,12 @@ from tests.phase_state_factory import make_phase_state
 from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
 from agentkit.backend.phase_state_store.models import FlowExecution
 from agentkit.backend.pipeline_engine.phase_executor import PhaseState
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.postgres_store import (
     _qa_artifact_rows,
     _runtime_rows,
     _story_project_rows,
 )
-from agentkit.backend.state_backend.store import facade
 from agentkit.backend.state_backend.store.story_read_repository import (
     StateBackendStoryReadRepository,
 )
@@ -66,9 +66,9 @@ def _use_postgres_backend(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[None, None, None]:
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "postgres")
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
     yield
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
 
 
 def _seed(monkeypatch: pytest.MonkeyPatch, rows: list[Any]) -> None:

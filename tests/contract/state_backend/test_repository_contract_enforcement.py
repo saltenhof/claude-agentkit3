@@ -39,6 +39,22 @@ _PINNED_GLOBAL_READ_LOADERS = (
     "load_project_by_story_id_prefix",
 )
 
+_PINNED_GLOBAL_READ_LOADER_MODULES = {
+    "load_execution_events_for_project_global": (
+        "agentkit.backend.state_backend.telemetry_event_store"
+    ),
+    "load_execution_event_rows_for_project_global": (
+        "agentkit.backend.state_backend.sqlite_store"
+    ),
+    "load_story_context_by_uuid_global": (
+        "agentkit.backend.state_backend.story_lifecycle_store"
+    ),
+    "load_execution_event_rows_global": "agentkit.backend.state_backend.sqlite_store",
+    "load_project": "agentkit.backend.state_backend.project_store",
+    "load_projects": "agentkit.backend.state_backend.project_store",
+    "load_project_by_story_id_prefix": "agentkit.backend.state_backend.project_store",
+}
+
 
 def _run_check(*args: str) -> subprocess.CompletedProcess[str]:
     """Run the architecture-conformance CLI from the repo root."""
@@ -76,9 +92,10 @@ def test_global_read_loader_direct_facade_access_fails_closed(
     leak_root = tmp_path / "leaksrc"
     leak_module = leak_root / "agentkit" / "backend" / "kpi_analytics"
     leak_module.mkdir(parents=True)
+    loader_module = _PINNED_GLOBAL_READ_LOADER_MODULES[loader_symbol]
     (leak_module / "read_model_leak.py").write_text(
         "from __future__ import annotations\n"
-        "from agentkit.backend.state_backend.store.facade import (\n"
+        f"from {loader_module} import (\n"
         f"    {loader_symbol},\n"
         ")\n\n\n"
         "def leak() -> object:\n"

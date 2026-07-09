@@ -4,7 +4,7 @@ This is the SQLite/Postgres-backed implementation of ``StoryRepository``
 (``story_context_manager.story_repository.StoryRepository`` Protocol).
 
 Architecture Conformance AC003/AC004:
-  - Does NOT import or use the generic ``state_backend.store.facade``.
+  - Does NOT import or use the generic ``state-backend owner modules``.
   - Accesses the database directly via the sqlite_store / postgres_store
     drivers (raw connection pattern).
   - The ``stories`` and ``story_specifications`` tables were added in
@@ -535,7 +535,7 @@ def _postgres_connect() -> Iterator[Any]:
 class StateBackendStoryRepository:
     """SQLite/Postgres-backed implementation of StoryRepository Protocol.
 
-    Architecture Conformance: does NOT use ``state_backend.store.facade``.
+    Architecture Conformance: does NOT use ``state-backend owner modules``.
     This is an explicit, component-specific repository (AC003/AC004).
 
     Backend is determined at method-call time from

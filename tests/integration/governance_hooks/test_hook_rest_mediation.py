@@ -30,13 +30,13 @@ from agentkit.backend.control_plane.models import (
 from agentkit.backend.governance import runner as runner_mod
 from agentkit.backend.governance.guard_evaluation import HookEvent
 from agentkit.backend.governance.runner import _resolve_local_story_type, run_hook
-from agentkit.backend.state_backend.store import load_execution_events_global
 from agentkit.backend.state_backend.store.guard_counter_repository import (
     StateBackendGuardCounterRepository,
 )
 from agentkit.backend.state_backend.store.worker_health_repository import (
     StateBackendWorkerHealthRepository,
 )
+from agentkit.backend.state_backend.telemetry_event_store import load_execution_events_global
 from agentkit.backend.telemetry.events import Event, EventType
 from agentkit.backend.telemetry.rest_emitter import RestEventEmitter
 from agentkit.harness_client.projectedge.client import LocalEdgePublisher
@@ -571,9 +571,7 @@ def _control_plane_operation_row(op_id: str) -> dict[str, object] | None:
     no direct-DB back door) to prove the guard-counter idempotency record now lives
     in ``control_plane_operations`` (AG3-140) — not the retired ``idempotency_keys``.
     """
-    from agentkit.backend.state_backend.store import (
-        guard_counter_repository as gcr,
-    )
+    from agentkit.backend.state_backend.store import guard_counter_repository as gcr
 
     with gcr._postgres_connect() as conn:  # noqa: SLF001 -- real backend read in test
         row = conn.execute(
@@ -676,9 +674,7 @@ def _seed_foreign_committed_operation(
     ``op_id`` under the SAME request_body_hash. Uses the state backend's own
     Postgres connection path (real schema/search_path), not a direct-DB backdoor.
     """
-    from agentkit.backend.state_backend.store import (
-        guard_counter_repository as gcr,
-    )
+    from agentkit.backend.state_backend.store import guard_counter_repository as gcr
 
     with gcr._postgres_connect() as conn:  # noqa: SLF001 -- real backend write in test
         conn.execute(

@@ -6,7 +6,7 @@ directly into the FK-69 tables (ZERO DEBT, SINGLE SOURCE OF TRUTH).
 
 Architecture Conformance (AC#7):
 - ProjectionAccessor imports NO concrete implementations from
-  ``agentkit.backend.state_backend.store.facade`` or ``state_backend.store.*``.
+  ``agentkit.backend.state_backend owner modules`` or ``state_backend.store.*``.
 - It depends exclusively on injected repository protocols
   (``ProjectionRepositories`` via Dependency Injection).
 - Wired up in ``agentkit.backend.bootstrap.composition_root.build_projection_accessor``.
@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 
     from agentkit.backend.failure_corpus.incident import IncidentDraft
     from agentkit.backend.failure_corpus.types import IncidentId
-    from agentkit.backend.state_backend.store.telemetry_projection_repositories import (
+    from agentkit.backend.state_backend.store.telemetry_projection_repository_common import (
         ProjectionRepositories,
     )
     from agentkit.backend.task_management.models import Task, TaskLink, TaskListFilter, TaskTargetKind

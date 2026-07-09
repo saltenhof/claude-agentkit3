@@ -38,7 +38,7 @@ def build_phase_state_residue_probe(
     """
     from agentkit.backend.installer.paths import story_dir
     from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
-    from agentkit.backend.state_backend.store import facade
+    from agentkit.backend.state_backend.pipeline_runtime_store import load_phase_state
 
     _ = store_dir  # facade resolves the active backend itself.
     stalled = {
@@ -50,7 +50,7 @@ def build_phase_state_residue_probe(
 
     def _probe(project_root: Path, story_display_id: str) -> bool:
         s_dir = story_dir(project_root, story_display_id)
-        state = facade.load_phase_state(s_dir)
+        state = load_phase_state(s_dir)
         if state is None or state.status is PhaseStatus.COMPLETED:
             return False
         if state.status in stalled:
@@ -69,7 +69,7 @@ def build_runtime_execution_purge_port(
     """Wire the coordinating Runtime-Execution-Purge port (AG3-109, FK-53 §53.7.5).
 
     Composition root for the per-owner Runtime-Execution purge. The port
-    orchestrates the owner-purge facade APIs (``state_backend.store.facade``) for
+    orchestrates the owner-purge APIs (``state-backend owner modules``) for
     ``flow_executions``, ``node_execution_ledgers``, ``attempts``,
     ``override_records``, ``guard_decisions``, ``decision_records``, canonical
     ``phase_states``, ``phase_snapshots``, ``execution_events`` and run-bound
@@ -124,7 +124,7 @@ def build_projection_accessor(store_dir: Path | None = None) -> project_types.Pr
     accessor via DI and do not know the repository implementations.
 
     Architecture conformance (AC#7): ProjectionAccessor imports no concrete
-    implementations from ``state_backend.store.facade``.
+    implementations from ``state-backend owner modules``.
 
     Args:
         store_dir: Base directory of the state backend. Only relevant for
@@ -133,7 +133,7 @@ def build_projection_accessor(store_dir: Path | None = None) -> project_types.Pr
     Returns:
         ``ProjectionAccessor`` with all four repository adapters.
     """
-    from agentkit.backend.state_backend.store.telemetry_projection_repositories import (
+    from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
         build_projection_repositories,
     )
     from agentkit.backend.telemetry.projection_accessor import (

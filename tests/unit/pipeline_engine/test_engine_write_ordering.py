@@ -159,7 +159,6 @@ def _instrument_engine(
     attempt_repo = RecordingAttemptRepo(log, raise_after=crash_on_save_attempt)
     phase_repo = RecordingPhaseRepo(log)
 
-    import agentkit.backend.state_backend.store as _store
 
     def _fake_save_attempt(story_dir: object, record: AttemptRecord) -> None:
         attempt_repo.save(record)
@@ -167,9 +166,11 @@ def _instrument_engine(
     def _fake_save_phase_state(story_dir: object, state: PhaseState) -> None:
         phase_repo.save(state)
 
-    # Patch the canonical store module (source of truth)
-    monkeypatch.setattr(_store, "save_attempt", _fake_save_attempt)
-    monkeypatch.setattr(_store, "save_phase_state", _fake_save_phase_state)
+    # Patch the canonical runtime store module (source of truth)
+    import agentkit.backend.state_backend.pipeline_runtime_store as _runtime_store
+
+    monkeypatch.setattr(_runtime_store, "save_attempt", _fake_save_attempt)
+    monkeypatch.setattr(_runtime_store, "save_phase_state", _fake_save_phase_state)
 
     # Patch save_phase_completion module — it holds its own bound references
     # (module-level imports from agentkit.backend.state_backend.store)

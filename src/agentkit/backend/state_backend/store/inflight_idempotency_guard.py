@@ -42,7 +42,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.operation_ledger import (
+    claim_inflight_operation_row_global,
+    finalize_inflight_operation_row_global,
+    load_inflight_operation_row_global,
+    release_control_plane_operation_global,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -345,14 +350,14 @@ class StateBackendInflightIdempotencyGuard:
             "instance_incarnation": None,
             "declared_serialization_scope": None,
         }
-        won = facade.claim_inflight_operation_row_global(row)
+        won = claim_inflight_operation_row_global(row)
         if won:
             return FreshClaim(owner_token=owner_token, claimed_at_iso=now_iso)
         return self._resolve_loser(request)
 
     def _resolve_loser(self, request: IdempotencyRequest) -> ClaimOutcome:
         """Classify a claim-loser through the shared :func:`classify_terminal_row`."""
-        existing = facade.load_inflight_operation_row_global(request.op_id)
+        existing = load_inflight_operation_row_global(request.op_id)
         if existing is None:
             # The row vanished between the failed claim and the load (a
             # concurrent release/abort). Fail-closed to in-flight: a retry
@@ -390,7 +395,7 @@ class StateBackendInflightIdempotencyGuard:
             "session_id": request.session_id,
             "phase": request.phase,
         }
-        return facade.finalize_inflight_operation_row_global(
+        return finalize_inflight_operation_row_global(
             row,
             owner_token=claim.owner_token,
             owner_claimed_at=claim.claimed_at_iso,
@@ -398,7 +403,7 @@ class StateBackendInflightIdempotencyGuard:
 
     def release(self, request: IdempotencyRequest, claim: FreshClaim) -> None:
         """See :meth:`InflightIdempotencyGuard.release`."""
-        facade.release_control_plane_operation_global(
+        release_control_plane_operation_global(
             request.op_id,
             owner_token=claim.owner_token,
             owner_claimed_at=claim.claimed_at_iso,

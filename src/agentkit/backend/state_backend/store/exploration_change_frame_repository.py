@@ -8,7 +8,7 @@ exploration boundary ports -- ``exploration.ports.RunScopeResolver`` and
 (``bootstrap.composition_root.build_exploration_phase_handler``), mirroring
 ``StateBackendVerifyStoryContextAdapter`` (AG3-035).
 
-* ``resolve_run_id`` delegates to ``facade.load_flow_execution`` and fails
+* ``resolve_run_id`` delegates to ``load_flow_execution`` and fails
   closed (``CorruptStateError``) when no ``FlowExecution`` / ``run_id`` is bound.
 * ``load_change_frame`` reads the latest persisted ENTWURF envelope via the
   injected :class:`ArtifactManager` (the only authorized artifact read surface)
@@ -41,7 +41,7 @@ from agentkit.backend.exceptions import CorruptStateError
 from agentkit.backend.exploration.change_frame import ChangeFrame
 from agentkit.backend.exploration.register import EXPLORATION_ENTWURF_STAGE
 from agentkit.backend.installer.paths import resolve_qa_story_dir
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.pipeline_runtime_store import load_flow_execution
 from agentkit.backend.utils.io import atomic_write_text
 
 if TYPE_CHECKING:
@@ -78,7 +78,7 @@ class StateBackendExplorationChangeFrameAdapter:
         Raises:
             CorruptStateError: When no ``FlowExecution`` / ``run_id`` is bound.
         """
-        flow = facade.load_flow_execution(story_dir)
+        flow = load_flow_execution(story_dir)
         if flow is None or flow.run_id is None:
             raise CorruptStateError(
                 "Exploration phase requires a bound FlowExecution with run_id; "

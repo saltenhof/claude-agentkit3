@@ -39,10 +39,12 @@ from agentkit.backend.process.language.definitions import (
     RESEARCH_WORKFLOW,
     resolve_workflow,
 )
-from agentkit.backend.state_backend.store import (
+from agentkit.backend.state_backend.pipeline_runtime_store import (
     load_attempts,
     read_phase_snapshot_record,
     read_phase_state_record,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
     read_story_context_record,
     save_story_context,
 )
@@ -183,7 +185,7 @@ def _seed_exploration_run_ownership(
     """
     from agentkit.backend.phase_state_store.models import FlowExecution
     from agentkit.backend.process.language.model import WorkflowDefinition
-    from agentkit.backend.state_backend.store import save_flow_execution
+    from agentkit.backend.state_backend.pipeline_runtime_store import save_flow_execution
 
     assert isinstance(workflow_def, WorkflowDefinition)
     save_flow_execution(
@@ -386,7 +388,7 @@ class TestSmokeExplorationMode:
     ) -> None:
         """EXPLORATION mode yields at exploration to spawn the worker (AG3-055)."""
         from agentkit.backend.core_types import SpawnKind
-        from agentkit.backend.state_backend.store.facade import load_phase_state
+        from agentkit.backend.state_backend.pipeline_runtime_store import load_phase_state
 
         project_dir = tmp_path / "proj"
         project_dir.mkdir()

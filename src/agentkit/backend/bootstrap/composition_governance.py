@@ -220,11 +220,11 @@ def _load_story_context_for_gate(gate_ctx: object) -> object | None:
     code story as APPLICABLE-but-unresolvable -> Dim 9 fails closed.
     """
     from agentkit.backend.governance.integrity_gate import IntegrityGateContext
-    from agentkit.backend.state_backend.store import facade
+    from agentkit.backend.state_backend.story_lifecycle_store import load_story_context
 
     assert isinstance(gate_ctx, IntegrityGateContext)  # noqa: S101 - DI guard
     try:
-        return facade.load_story_context(gate_ctx.story_dir)
+        return load_story_context(gate_ctx.story_dir)
     except Exception:  # noqa: BLE001 -- unreadable context -> fail-closed downstream
         return None
 

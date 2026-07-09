@@ -25,7 +25,7 @@ from agentkit.backend.failure_corpus.top import (
     PatternDecision,
 )
 from agentkit.backend.failure_corpus.types import CheckId, PatternId
-from agentkit.backend.state_backend.store.projection_repositories import (
+from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
     build_projection_repositories,
 )
 from agentkit.backend.telemetry.projection_accessor import (

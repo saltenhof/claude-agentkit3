@@ -115,7 +115,7 @@ def build_story_split_service(
     from agentkit.backend.state_backend.store.story_dependency_repository import (
         StateBackendStoryDependencyRepository,
     )
-    from agentkit.backend.state_backend.store.telemetry_projection_repositories import (
+    from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
         FacadePhaseStateProjectionRepository,
     )
     from agentkit.backend.story_context_manager.service import StoryService
@@ -481,7 +481,7 @@ def build_project_read_model_routes(store_dir: Path | None = None) -> project_ty
 def cli_load_story_context(story_dir: Path) -> project_types.StoryContext | None:
     """Load a :class:`~agentkit.backend.story_context_manager.models.StoryContext` for the CLI.
 
-    Thin composition-root wrapper over ``facade.load_story_context`` so the
+    Thin composition-root wrapper over ``story_lifecycle_store.load_story_context`` so the
     operator/recovery CLI (AG3-076) can read story context without importing
     ``agentkit.backend.state_backend.store`` directly.
 
@@ -491,7 +491,7 @@ def cli_load_story_context(story_dir: Path) -> project_types.StoryContext | None
     Returns:
         The persisted :class:`StoryContext`, or ``None`` when absent.
     """
-    from agentkit.backend.state_backend.store.facade import load_story_context
+    from agentkit.backend.state_backend.story_lifecycle_store import load_story_context
 
     return load_story_context(story_dir)
 
@@ -499,7 +499,7 @@ def cli_load_story_context(story_dir: Path) -> project_types.StoryContext | None
 def cli_read_phase_state_record(story_dir: Path) -> object:
     """Read the current phase-state record for the CLI.
 
-    Thin composition-root wrapper over ``facade.read_phase_state_record`` so
+    Thin composition-root wrapper over ``pipeline_runtime_store.read_phase_state_record`` so
     the operator/recovery CLI (AG3-076) can read phase state without importing
     ``agentkit.backend.state_backend.store`` directly.
 
@@ -509,7 +509,7 @@ def cli_read_phase_state_record(story_dir: Path) -> object:
     Returns:
         The persisted phase-state model instance, or ``None`` when absent.
     """
-    from agentkit.backend.state_backend.store.facade import read_phase_state_record
+    from agentkit.backend.state_backend.pipeline_runtime_store import read_phase_state_record
 
     return read_phase_state_record(story_dir)
 

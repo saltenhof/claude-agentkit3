@@ -30,16 +30,18 @@ from agentkit.backend.pipeline_engine.phase_executor import (
 )
 from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
-from agentkit.backend.state_backend.sqlite_store import state_db_path_for
-from agentkit.backend.state_backend.store import (
-    record_layer_artifacts,
-    record_verify_decision,
+from agentkit.backend.state_backend.pipeline_runtime_store import (
     save_flow_execution,
     save_phase_snapshot,
-    save_story_context,
 )
+from agentkit.backend.state_backend.sqlite_store import state_db_path_for
 from agentkit.backend.state_backend.store.integrity_gate_repository import (
     StateBackendIntegrityGateStateAdapter,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
+from agentkit.backend.state_backend.verify_artifact_store import (
+    record_layer_artifacts,
+    record_verify_decision,
 )
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.story_model import WireStoryMode

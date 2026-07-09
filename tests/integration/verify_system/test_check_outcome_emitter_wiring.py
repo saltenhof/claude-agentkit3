@@ -37,7 +37,8 @@ import pytest
 
 from agentkit.backend.phase_state_store.models import FlowExecution
 from agentkit.backend.pipeline_engine.phase_executor import PhaseSnapshot, PhaseStatus
-from agentkit.backend.state_backend.store import save_phase_snapshot, save_story_context
+from agentkit.backend.state_backend.pipeline_runtime_store import save_phase_snapshot
+from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.story_model import ChangeImpact
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType, get_profile
@@ -419,7 +420,10 @@ def _flow_ac4() -> FlowExecution:
 
 def _prepare_story_dir_ac4(tmp_path: Path) -> Path:
     """Minimal story dir for AC4: FlowExecution + OverrideRecord persisted."""
-    from agentkit.backend.state_backend.store import save_flow_execution, save_override_record
+    from agentkit.backend.state_backend.pipeline_runtime_store import (
+        save_flow_execution,
+        save_override_record,
+    )
 
     story_dir = tmp_path / "stories" / _STORY_ID_AC4
     story_dir.mkdir(parents=True, exist_ok=True)

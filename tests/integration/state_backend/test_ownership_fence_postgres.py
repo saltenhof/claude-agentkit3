@@ -56,14 +56,16 @@ from agentkit.backend.control_plane.records import (
 )
 from agentkit.backend.exceptions import OwnershipFenceViolationError
 from agentkit.backend.state_backend import postgres_store
-from agentkit.backend.state_backend.store import (
+from agentkit.backend.state_backend.operation_ledger import (
     admin_abort_control_plane_operation_global,
     claim_control_plane_operation_global,
     commit_control_plane_operation_with_side_effects_global,
     finalize_control_plane_start_phase_global,
+    load_control_plane_operation_global,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
     insert_run_ownership_record_global,
     load_active_run_ownership_record_global,
-    load_control_plane_operation_global,
     load_run_ownership_record_global,
 )
 

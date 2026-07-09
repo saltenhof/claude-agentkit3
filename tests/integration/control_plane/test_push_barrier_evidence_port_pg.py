@@ -28,7 +28,7 @@ from agentkit.backend.control_plane.push_verification import (
     StateBackedPushBarrierEvidence,
 )
 from agentkit.backend.control_plane.workspace_locator import StoryWorkspace
-from agentkit.backend.state_backend.store import upsert_push_freshness_record_global
+from agentkit.backend.state_backend.story_closure_store import upsert_push_freshness_record_global
 
 if TYPE_CHECKING:
     from pathlib import Path

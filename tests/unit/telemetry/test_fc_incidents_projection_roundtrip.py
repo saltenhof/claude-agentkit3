@@ -16,7 +16,7 @@ import pytest
 
 from agentkit.backend.core_types import FailureCategory, IncidentStatus
 from agentkit.backend.failure_corpus import IncidentDraft, IncidentRole, IncidentSeverity
-from agentkit.backend.state_backend.store.projection_repositories import (
+from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
     build_projection_repositories,
 )
 from agentkit.backend.telemetry.errors import (

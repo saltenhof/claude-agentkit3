@@ -12,7 +12,7 @@ from agentkit.backend.execution_planning.errors import StoryDependencyConflictEr
 from agentkit.backend.execution_planning.lifecycle import add_dependency
 from agentkit.backend.project_management.entities import ProjectConfiguration
 from agentkit.backend.project_management.lifecycle import create_project
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     InMemoryInflightIdempotencyGuard,
 )
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 
 @pytest.fixture(autouse=True)
 def _reset_backend() -> None:
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
 
 
 def _configuration() -> ProjectConfiguration:
@@ -163,9 +163,9 @@ def test_derive_lifecycle_status_prefers_runtime_when_present(
     from agentkit.backend.state_backend.store import planning_story_repository as psr
 
     # No runtime -> default.
-    monkeypatch.setattr(psr.facade, "load_phase_state_global", lambda *_a, **_k: None)
+    monkeypatch.setattr(psr, "load_phase_state_global", lambda *_a, **_k: None)
     monkeypatch.setattr(
-        psr.facade, "load_latest_story_metrics_global", lambda *_a, **_k: None
+        psr, "load_latest_story_metrics_global", lambda *_a, **_k: None
     )
     assert (
         psr._derive_lifecycle_status(
@@ -178,7 +178,7 @@ def test_derive_lifecycle_status_prefers_runtime_when_present(
 
     # Phase-state present, no metrics -> phase status value.
     monkeypatch.setattr(
-        psr.facade,
+        psr,
         "load_phase_state_global",
         lambda *_a, **_k: SimpleNamespace(status=SimpleNamespace(value="in_progress")),
     )
@@ -193,7 +193,7 @@ def test_derive_lifecycle_status_prefers_runtime_when_present(
 
     # Final metrics win over phase-state and are lower-cased.
     monkeypatch.setattr(
-        psr.facade,
+        psr,
         "load_latest_story_metrics_global",
         lambda *_a, **_k: SimpleNamespace(final_status="PASS"),
     )

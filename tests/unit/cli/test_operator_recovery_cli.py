@@ -980,7 +980,7 @@ class TestQueryStatePhaseState:
         mock_record.model_dump.return_value = {"phase": "setup", "status": "completed"}
 
         with patch(
-            "agentkit.backend.state_backend.store.facade.read_phase_state_record",
+            "agentkit.backend.state_backend.pipeline_runtime_store.read_phase_state_record",
             return_value=mock_record,
         ):
             code, out, _ = _invoke(
@@ -1007,7 +1007,7 @@ class TestQueryStatePhaseState:
         story_dir.mkdir(parents=True)
 
         with patch(
-            "agentkit.backend.state_backend.store.facade.read_phase_state_record",
+            "agentkit.backend.state_backend.pipeline_runtime_store.read_phase_state_record",
             return_value=None,
         ):
             code, _out, err = _invoke(
@@ -1091,7 +1091,7 @@ class TestStatusIncludesWeeklyReview:
         mock_record.model_dump.return_value = {"phase": "setup", "status": "completed"}
 
         with patch(
-            "agentkit.backend.state_backend.store.facade.read_phase_state_record",
+            "agentkit.backend.state_backend.pipeline_runtime_store.read_phase_state_record",
             return_value=mock_record,
         ):
             code, out, _ = _invoke(
@@ -1113,7 +1113,7 @@ class TestStatusIncludesWeeklyReview:
         story_dir.mkdir(parents=True)
 
         with patch(
-            "agentkit.backend.state_backend.store.facade.read_phase_state_record",
+            "agentkit.backend.state_backend.pipeline_runtime_store.read_phase_state_record",
             return_value=None,
         ):
             code, _out, err = _invoke(

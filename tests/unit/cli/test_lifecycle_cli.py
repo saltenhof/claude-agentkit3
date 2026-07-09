@@ -310,13 +310,13 @@ class TestDetachAndDecommissionDispatch:
     ) -> None:
         # A real (empty) SQLite backend so the default exporter reads the
         # canonical state (real, empty export — no fake manifest).
-        from agentkit.backend.state_backend.store import facade
+        from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
         monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
         monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
         monkeypatch.setenv("AGENTKIT_STORE_DIR", str(tmp_path))
         monkeypatch.chdir(tmp_path)
-        facade.reset_backend_cache_for_tests()
+        reset_backend_cache_for_tests()
         # Stub the teardown subprocess at the boundary (no Docker daemon in CI) —
         # the PRODUCTIVE default controller still executes the real command path.
         teardown_calls: list[tuple[str, ...]] = []
@@ -339,7 +339,7 @@ class TestDetachAndDecommissionDispatch:
                 str(export_dir),
             ])
         finally:
-            facade.reset_backend_cache_for_tests()
+            reset_backend_cache_for_tests()
         assert exit_code == 0
         # The default exporter wrote REAL per-record-class artifacts + a manifest.
         assert (export_dir / "state-backend-export-manifest.json").is_file()

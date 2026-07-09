@@ -35,8 +35,13 @@ from agentkit.backend.state_backend.config import (
     STATE_BACKEND_ENV,
     STORE_DIR_ENV,
 )
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.project_store import save_project
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.story_lifecycle_store import save_story_context_global
+from agentkit.backend.state_backend.telemetry_event_store import (
+    append_execution_event_global,
+    upsert_story_metrics,
+)
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import (
     ImplementationContract,
@@ -64,9 +69,9 @@ def sqlite_store(
     monkeypatch.setenv(STATE_BACKEND_ENV, "sqlite")
     monkeypatch.setenv(ALLOW_SQLITE_ENV, "1")
     monkeypatch.setenv(STORE_DIR_ENV, str(store))
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
     yield store
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
 
 
 def _seed_canonical_state(store: Path) -> None:
@@ -85,7 +90,7 @@ def _seed_canonical_state(store: Path) -> None:
         ),
         store_dir=store,
     )
-    facade.save_story_context_global(
+    save_story_context_global(
         store,
         StoryContext(
             project_key=_PROJECT,
@@ -100,7 +105,7 @@ def _seed_canonical_state(store: Path) -> None:
         ),
     )
     # Closure record (post-merge metrics) — also the canonical QA outcome source.
-    facade.upsert_story_metrics(
+    upsert_story_metrics(
         store,
         StoryMetricsRecord(
             project_key=_PROJECT,
@@ -119,7 +124,7 @@ def _seed_canonical_state(store: Path) -> None:
         ),
     )
     # Audit-trail record (execution event).
-    facade.append_execution_event_global(
+    append_execution_event_global(
         ExecutionEventRecord(
             project_key=_PROJECT,
             story_id=_STORY,

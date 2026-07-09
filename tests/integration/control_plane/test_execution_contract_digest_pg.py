@@ -44,16 +44,18 @@ from agentkit.backend.state_backend.prompt_runtime_store import (
     insert_execution_contract_digest_global,
     load_execution_contract_digest_global,
 )
-from agentkit.backend.state_backend.store import (
+from agentkit.backend.state_backend.state_backend_connection_manager import (
     boot_backend_instance_identity_global,
-    load_active_run_ownership_record_global,
-    save_story_context_global,
 )
 from agentkit.backend.state_backend.store.project_registration_repository import (
     StateBackendProjectRegistrationRepository,
 )
 from agentkit.backend.state_backend.store.story_repository import (
     StateBackendStoryRepository,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    load_active_run_ownership_record_global,
+    save_story_context_global,
 )
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.story_model import StorySpecification
@@ -430,11 +432,11 @@ def test_config_change_after_run_start_pins_the_running_run_new_run_diverges(
 def test_insert_and_load_fail_closed_on_non_postgres_backend(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from agentkit.backend.state_backend.store import facade as store_facade
+    from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-    store_facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
     try:
         with pytest.raises(ConfigError, match="(?i)postgres"):
             insert_execution_contract_digest_global(
@@ -452,4 +454,4 @@ def test_insert_and_load_fail_closed_on_non_postgres_backend(
     finally:
         monkeypatch.delenv("AGENTKIT_STATE_BACKEND", raising=False)
         monkeypatch.delenv("AGENTKIT_ALLOW_SQLITE", raising=False)
-        store_facade.reset_backend_cache_for_tests()
+        reset_backend_cache_for_tests()

@@ -38,10 +38,7 @@ from agentkit.backend.installer import InstallConfig, install_agentkit
 from agentkit.backend.installer.paths import story_dir
 from agentkit.backend.pipeline_engine.phase_envelope.store import PhaseEnvelopeStore
 from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
-from agentkit.backend.state_backend.store import (
-    facade,
-    read_story_context_record,
-)
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     InMemoryInflightIdempotencyGuard,
 )
@@ -54,6 +51,7 @@ from agentkit.backend.state_backend.store.story_dependency_repository import (
 from agentkit.backend.state_backend.store.story_repository import (
     StateBackendStoryRepository,
 )
+from agentkit.backend.state_backend.story_lifecycle_store import read_story_context_record
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.service import StoryService
 from agentkit.backend.story_context_manager.story_model import (
@@ -76,9 +74,9 @@ def _sqlite_backend(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, No
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
     monkeypatch.delenv("AGENTKIT_STATE_DATABASE_URL", raising=False)
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
     yield
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
 
 
 def _init_repo(root: Path) -> None:

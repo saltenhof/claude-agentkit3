@@ -34,10 +34,10 @@ import pytest
 
 from agentkit.backend.control_plane.models import PhaseDispatchResult, PhaseMutationRequest
 from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
-from agentkit.backend.state_backend.store import (
+from agentkit.backend.state_backend.state_backend_connection_manager import (
     boot_backend_instance_identity_global,
-    save_story_context_global,
 )
+from agentkit.backend.state_backend.story_lifecycle_store import save_story_context_global
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 

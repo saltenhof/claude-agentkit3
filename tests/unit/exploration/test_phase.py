@@ -59,9 +59,7 @@ from agentkit.backend.pipeline_engine.phase_executor import (
 from agentkit.backend.process.language.guards import exploration_gate_approved
 from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
-from agentkit.backend.state_backend.store import (
-    save_flow_execution,
-)
+from agentkit.backend.state_backend.pipeline_runtime_store import save_flow_execution
 from agentkit.backend.state_backend.store.exploration_change_frame_repository import (
     StateBackendExplorationChangeFrameAdapter,
 )

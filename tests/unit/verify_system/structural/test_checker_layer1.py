@@ -14,7 +14,8 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from agentkit.backend.pipeline_engine.phase_executor.models import PhaseSnapshot, PhaseStatus
-from agentkit.backend.state_backend.store import save_phase_snapshot, save_story_context
+from agentkit.backend.state_backend.pipeline_runtime_store import save_phase_snapshot
+from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.story_model import ChangeImpact
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType, get_profile

@@ -35,7 +35,9 @@ from agentkit.backend.project_management.lifecycle import create_project
 from agentkit.backend.project_management.read_model_routes import ReadModelRoutes
 from agentkit.backend.project_management.service import ProjectDetailService
 from agentkit.backend.requirements_coverage.models import StoryAreLink, StoryAreLinkKind
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.persistence_test_support import (
+    reset_backend_cache_for_tests,
+)
 from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
     InMemoryInflightIdempotencyGuard,
 )
@@ -72,7 +74,7 @@ if TYPE_CHECKING:
 def _reset_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTKIT_STATE_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTKIT_ALLOW_SQLITE", "1")
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
 
 
 def _story_service(tmp_path: Path) -> StoryService:
@@ -813,7 +815,7 @@ def test_story_flow_active_when_phase_state_persisted(tmp_path: Path) -> None:
     from tests.phase_state_factory import make_phase_state
 
     from agentkit.backend.pipeline_engine.phase_executor.models import PhaseStatus
-    from agentkit.backend.state_backend.store.facade import save_phase_state
+    from agentkit.backend.state_backend.pipeline_runtime_store import save_phase_state
 
     _seed_project(tmp_path)
     svc = _story_service(tmp_path)
@@ -841,7 +843,7 @@ def test_story_flow_active_when_phase_state_persisted(tmp_path: Path) -> None:
 
     # Wire the app with a custom phase_state_loader that passes tmp_path as
     # store_dir so the global lookup targets the same SQLite file written above.
-    from agentkit.backend.state_backend.store.facade import load_phase_state_global
+    from agentkit.backend.state_backend.pipeline_runtime_store import load_phase_state_global
 
     def _phase_loader(sid: str) -> object:
         return load_phase_state_global(sid, tmp_path)
@@ -1171,7 +1173,7 @@ def _app_with_real_phase_state(
     ``load_phase_state_global`` — no stub at the backend/DB boundary.
     """
     from agentkit.backend.pipeline_engine.phase_executor import PhaseState
-    from agentkit.backend.state_backend.store.facade import (
+    from agentkit.backend.state_backend.pipeline_runtime_store import (
         load_phase_state_global,
         save_phase_state,
     )

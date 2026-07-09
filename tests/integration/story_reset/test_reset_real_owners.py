@@ -45,8 +45,9 @@ from agentkit.backend.pipeline_engine.phase_executor.records import AttemptRecor
 from agentkit.backend.project_management.entities import Project, ProjectConfiguration
 from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
-from agentkit.backend.state_backend.store import (
-    facade,
+from agentkit.backend.state_backend.pipeline_runtime_store import (
+    save_attempt,
+    save_flow_execution,
 )
 from agentkit.backend.state_backend.store.analytics_source import StateBackendAnalyticsSource
 from agentkit.backend.state_backend.store.fact_repository import StateBackendFactRepository
@@ -164,7 +165,7 @@ class _MemoryFence:
 
 def _seed_real_state(store_dir: Path, story_id: str) -> None:
     """Seed REAL runtime + lock + read-model rows via the canonical owners."""
-    facade.save_flow_execution(
+    save_flow_execution(
         store_dir,
         FlowExecution(
             project_key=_PROJECT,
@@ -176,7 +177,7 @@ def _seed_real_state(store_dir: Path, story_id: str) -> None:
             started_at=_NOW,
         ),
     )
-    facade.save_attempt(
+    save_attempt(
         store_dir,
         AttemptRecord(
             run_id=_RUN,

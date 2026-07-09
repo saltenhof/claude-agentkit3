@@ -21,11 +21,9 @@ from agentkit.backend.artifacts.reference import ArtifactReference
 from agentkit.backend.control_plane.ownership import OwnershipAcquisition, OwnershipStatus
 from agentkit.backend.control_plane.records import RunOwnershipRecord
 from agentkit.backend.core_types import ArtifactClass, EnvelopeStatus
-from agentkit.backend.state_backend.store import (
-    bind_ownership_fence_scope,
-    insert_run_ownership_record_global,
-)
+from agentkit.backend.state_backend.governance_runtime_store import bind_ownership_fence_scope
 from agentkit.backend.state_backend.store.artifact_repository import StateBackendArtifactRepository
+from agentkit.backend.state_backend.story_lifecycle_store import insert_run_ownership_record_global
 
 pytest_plugins = ("tests.fixtures.postgres_backend",)
 

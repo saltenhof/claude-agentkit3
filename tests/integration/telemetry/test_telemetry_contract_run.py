@@ -21,13 +21,11 @@ import pytest
 from agentkit.backend.phase_state_store.models import FlowExecution
 from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
-from agentkit.backend.state_backend.store import (
-    save_flow_execution,
-    save_story_context,
-)
-from agentkit.backend.state_backend.store.projection_repositories import (
+from agentkit.backend.state_backend.pipeline_runtime_store import save_flow_execution
+from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
     build_projection_repositories,
 )
+from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.types import StoryMode, StoryType
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
@@ -256,7 +254,7 @@ def test_risk_window_write_and_purge_roundtrip(tmp_path: Path) -> None:
 
 
 def _read_risk_window(story_dir: Path) -> list[dict[str, object]]:
-    from agentkit.backend.state_backend.store.projection_repositories import _sqlite_connect_qa
+    from agentkit.backend.state_backend.store.telemetry_projection_repository_common import _sqlite_connect_qa
 
     with _sqlite_connect_qa(story_dir) as conn:
         rows = conn.execute("SELECT * FROM risk_window").fetchall()

@@ -47,13 +47,13 @@ from agentkit.backend.pipeline_engine.phase_executor import (
     PhaseSnapshot,
     PhaseStatus,
 )
-from agentkit.backend.state_backend.store import (
-    append_execution_event,
+from agentkit.backend.state_backend.pipeline_runtime_store import (
     load_phase_state,
     save_flow_execution,
     save_phase_snapshot,
-    save_story_context,
 )
+from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
+from agentkit.backend.state_backend.telemetry_event_store import append_execution_event
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.service import StoryService
 from agentkit.backend.story_context_manager.story_model import (

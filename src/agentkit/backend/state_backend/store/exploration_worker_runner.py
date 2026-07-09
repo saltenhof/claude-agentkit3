@@ -49,7 +49,8 @@ from agentkit.backend.implementation.worker_session.session import (
     build_state_backend_context_loader,
 )
 from agentkit.backend.installer.paths import resolve_qa_story_dir
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.pipeline_runtime_store import load_flow_execution
+from agentkit.backend.state_backend.story_lifecycle_store import load_story_context
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -150,7 +151,7 @@ class StateBackendExplorationWorkerRunner:
                 for ``story_dir``, or its ``story_id`` / bound ``run_id`` does not
                 match the requested scope.
         """
-        persisted_ctx = facade.load_story_context(self._story_dir)
+        persisted_ctx = load_story_context(self._story_dir)
         if persisted_ctx is None:
             raise CorruptStateError(
                 "Exploration worker cannot resolve a persisted StoryContext for "
@@ -168,7 +169,7 @@ class StateBackendExplorationWorkerRunner:
                     "story_dir": str(self._story_dir),
                 },
             )
-        flow = facade.load_flow_execution(self._story_dir)
+        flow = load_flow_execution(self._story_dir)
         if flow is None or flow.run_id is None:
             raise CorruptStateError(
                 "Exploration worker cannot resolve the bound run id for the "

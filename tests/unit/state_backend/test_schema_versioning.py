@@ -9,7 +9,10 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from agentkit.backend.state_backend import config as state_config
-from agentkit.backend.state_backend import postgres_store, sqlite_store
+from agentkit.backend.state_backend import (
+    postgres_store,
+    sqlite_store,
+)
 from agentkit.backend.state_backend.sqlite_store import load_project_rows
 
 

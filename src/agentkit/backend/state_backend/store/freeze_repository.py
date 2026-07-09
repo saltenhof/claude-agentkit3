@@ -8,7 +8,7 @@ FK-31 §31.2.7): the state backend holds the freeze record, the local
 Architecture (mirrors ``lock_record_repository.py`` / ``fc_incident_repository.py``):
 - Postgres is canonical (DK-05 §5); SQLite is the test-only parallel path
   (``AGENTKIT_ALLOW_SQLITE=1``).
-- Does NOT import from ``agentkit.backend.state_backend.store.facade``.
+- Does NOT import from ``agentkit.backend.state_backend owner modules``.
 - Schema (``governance_freeze_records``) lives in both ``postgres_schema.sql``
   (canonical) and the ``sqlite_store`` package (test-parallel) — this adapter only
   reads/writes via the bootstrapped schema.

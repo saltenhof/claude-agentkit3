@@ -45,7 +45,7 @@ class ExecutionEventReader(Protocol):
     """Port: read governance_signal events from the execution-events store.
 
     The production implementation delegates to
-    :func:`~agentkit.backend.state_backend.store.facade.load_execution_events_global`
+    :func:`~agentkit.backend.state_backend.telemetry_event_store.load_execution_events_global`
     (or the story-dir-scoped variant for SQLite).  Tests inject a scripted
     fake at this boundary — never through the domain logic.
 

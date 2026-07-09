@@ -35,12 +35,12 @@ from agentkit.backend.phase_state_store.models import FlowExecution
 from agentkit.backend.pipeline_engine.lifecycle import NoOpHandler, PhaseHandlerRegistry
 from agentkit.backend.pipeline_engine.runner import run_pipeline
 from agentkit.backend.process.language.definitions import resolve_workflow
-from agentkit.backend.state_backend.store import (
-    append_execution_event,
+from agentkit.backend.state_backend.pipeline_runtime_store import save_flow_execution
+from agentkit.backend.state_backend.story_lifecycle_store import (
     read_story_context_record,
-    save_flow_execution,
     save_story_context,
 )
+from agentkit.backend.state_backend.telemetry_event_store import append_execution_event
 from agentkit.backend.story_context_manager.models import StoryContext
 from agentkit.backend.story_context_manager.story_model import WireStoryType
 from agentkit.backend.story_context_manager.types import StoryType

@@ -13,10 +13,10 @@ from agentkit.backend.requirements_coverage.errors import (
     StoryAreLinkNotFoundError,
 )
 from agentkit.backend.requirements_coverage.models import StoryAreLink, StoryAreLinkKind
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
 from agentkit.backend.state_backend.requirements_coverage_store import (
     save_story_are_link,
 )
-from agentkit.backend.state_backend.store import facade
 from agentkit.backend.state_backend.store.project_management_repository import (
     StateBackendProjectRepository,
 )
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 @pytest.fixture(autouse=True)
 def _reset_backend() -> None:
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
 
 
 def _configuration() -> ProjectConfiguration:

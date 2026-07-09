@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.backend.state_backend.store import (
+from agentkit.backend.state_backend.story_lifecycle_store import (
     load_story_context_global,
     load_story_contexts_global,
     save_story_context,

@@ -10,10 +10,10 @@ from agentkit.backend.bootstrap.composition_root import build_artifact_manager
 from agentkit.backend.installer import InstallConfig, install_agentkit
 from agentkit.backend.installer.paths import PROMPT_BUNDLE_STORE_ENV
 from agentkit.backend.phase_state_store import FlowExecution, save_flow_execution
-from agentkit.backend.state_backend.store import save_story_context
 from agentkit.backend.state_backend.store.verify_story_context_repository import (
     StateBackendVerifyStoryContextAdapter,
 )
+from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
 from agentkit.backend.verify_system.adversarial_orchestrator.challenger import AdversarialChallenger
 
 if TYPE_CHECKING:

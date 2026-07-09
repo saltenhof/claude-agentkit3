@@ -32,11 +32,9 @@ from agentkit.backend.control_plane.records import (
     RunOwnershipRecord,
 )
 from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
-from agentkit.backend.state_backend.store import (
-    insert_edge_command_record_global,
-    insert_run_ownership_record_global,
-    list_push_freshness_records_global,
-)
+from agentkit.backend.state_backend.harness_edge_command_store import insert_edge_command_record_global
+from agentkit.backend.state_backend.story_closure_store import list_push_freshness_records_global
+from agentkit.backend.state_backend.story_lifecycle_store import insert_run_ownership_record_global
 
 pytestmark = pytest.mark.integration
 

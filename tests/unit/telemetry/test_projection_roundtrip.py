@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from agentkit.backend.closure.post_merge_finalization.records import StoryMetricsRecord
-from agentkit.backend.state_backend.store.projection_repositories import (
+from agentkit.backend.state_backend.store.telemetry_projection_repository_misc import (
     build_projection_repositories,
 )
 from agentkit.backend.telemetry.projection_accessor import (
@@ -395,10 +395,8 @@ def test_record_qa_layer_artifacts_runs_real_batch_chain(
     from agentkit.backend.state_backend.persistence_test_support import (
         reset_backend_cache_for_tests,
     )
-    from agentkit.backend.state_backend.store import (
-        save_flow_execution,
-        save_story_context,
-    )
+    from agentkit.backend.state_backend.pipeline_runtime_store import save_flow_execution
+    from agentkit.backend.state_backend.story_lifecycle_store import save_story_context
     from agentkit.backend.story_context_manager.models import StoryContext
     from agentkit.backend.story_context_manager.types import StoryMode, StoryType
     from agentkit.backend.verify_system.artifacts import write_layer_artifacts

@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.backend.state_backend.store.projection_repositories import (
+from agentkit.backend.state_backend.store.telemetry_projection_repository_qa import (
     FacadeQACheckOutcomesRepository,
 )
 from agentkit.backend.telemetry.projection_accessor import (

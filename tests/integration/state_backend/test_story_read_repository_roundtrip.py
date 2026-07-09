@@ -21,9 +21,15 @@ from agentkit.backend.state_backend.config import (
     STATE_BACKEND_ENV,
     STORE_DIR_ENV,
 )
-from agentkit.backend.state_backend.store import facade
+from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
+from agentkit.backend.state_backend.pipeline_runtime_store import save_phase_state
 from agentkit.backend.state_backend.store.story_read_repository import (
     StateBackendStoryReadRepository,
+)
+from agentkit.backend.state_backend.story_lifecycle_store import save_story_context_global
+from agentkit.backend.state_backend.telemetry_event_store import (
+    append_execution_event_global,
+    upsert_story_metrics,
 )
 from agentkit.backend.story.repository import StoryReadPort
 from agentkit.backend.story_context_manager.models import StoryContext
@@ -54,13 +60,13 @@ def store_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Path]
     # The non-event global reads resolve store_dir=None to CWD; chdir so the
     # adapter (which passes no store_dir, mirroring production) hits the seeded DB.
     monkeypatch.chdir(tmp_path)
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
     yield tmp_path
-    facade.reset_backend_cache_for_tests()
+    reset_backend_cache_for_tests()
 
 
 def _seed(store_dir: Path) -> None:
-    facade.save_story_context_global(
+    save_story_context_global(
         store_dir,
         StoryContext(
             project_key=_PROJECT,
@@ -74,7 +80,7 @@ def _seed(store_dir: Path) -> None:
             created_at=_NOW,
         ),
     )
-    facade.save_phase_state(
+    save_phase_state(
         store_dir,
         make_phase_state(
             story_id=_STORY,
@@ -82,7 +88,7 @@ def _seed(store_dir: Path) -> None:
             status=PhaseStatus.IN_PROGRESS,
         ),
     )
-    facade.upsert_story_metrics(
+    upsert_story_metrics(
         store_dir,
         StoryMetricsRecord(
             project_key=_PROJECT,
@@ -98,7 +104,7 @@ def _seed(store_dir: Path) -> None:
             completed_at="2026-06-12T11:30:00+00:00",
         ),
     )
-    facade.append_execution_event_global(
+    append_execution_event_global(
         ExecutionEventRecord(
             project_key=_PROJECT,
             story_id=_STORY,

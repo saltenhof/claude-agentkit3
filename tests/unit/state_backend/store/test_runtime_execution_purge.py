@@ -8,7 +8,7 @@ Exercises the REAL driver path on both stores:
   ``postgres_store`` driver, same pattern as the other state_backend roundtrip
   tests, e.g. ``test_governance_hook_repository``).
 
-Each roundtrip seeds rows via the canonical ``save_*`` facade APIs / owner
+Each roundtrip seeds rows via the canonical ``save_*`` owner APIs / owner
 repositories, purges via the NEW owner-purge APIs / coordinating port, then
 asserts removal via the real ``load_*`` / query path. No hand-rolled fake that
 skips the actual DELETE.
@@ -62,13 +62,36 @@ from agentkit.backend.pipeline_engine.phase_executor.models import (
     PhaseStatus,
 )
 from agentkit.backend.pipeline_engine.phase_executor.records import AttemptRecord
+from agentkit.backend.state_backend.artifact_catalog_store import purge_run_bound_artifact_envelopes
 from agentkit.backend.state_backend.config import (
     ALLOW_SQLITE_ENV,
     STATE_BACKEND_ENV,
 )
+from agentkit.backend.state_backend.governance_runtime_store import (
+    bind_ownership_fence_scope,
+    purge_guard_decisions,
+)
 from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
-from agentkit.backend.state_backend.store import (
-    facade,
+from agentkit.backend.state_backend.pipeline_runtime_store import (
+    backend_has_completed_snapshot,
+    count_runtime_execution_residue,
+    load_attempts,
+    load_flow_execution,
+    load_node_execution_ledger,
+    load_override_records,
+    load_phase_state,
+    purge_attempts,
+    purge_flow_executions,
+    purge_node_execution_ledgers,
+    purge_override_records,
+    purge_phase_snapshots,
+    purge_phase_states,
+    save_attempt,
+    save_flow_execution,
+    save_node_execution_ledger,
+    save_override_record,
+    save_phase_snapshot,
+    save_phase_state,
 )
 from agentkit.backend.state_backend.store.artifact_repository import (
     StateBackendArtifactRepository,
@@ -81,6 +104,17 @@ from agentkit.backend.state_backend.store.runtime_execution_purge import (
     RuntimeExecutionPurgePort,
     RuntimeExecutionPurgeResult,
     RuntimeExecutionResidueProbe,
+)
+from agentkit.backend.state_backend.telemetry_event_store import (
+    append_execution_event,
+    load_execution_events,
+    purge_execution_events,
+)
+from agentkit.backend.state_backend.verify_artifact_store import (
+    backend_verify_decision_passed,
+    load_latest_verify_decision,
+    purge_decision_records,
+    record_verify_decision,
 )
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 from agentkit.backend.verify_system.policy_engine.engine import VerifyDecision
@@ -146,7 +180,7 @@ def _purge_all(story_dir: Path) -> None:
 
 
 def _seed_flow_execution(story_dir: Path, run_id: str = _RUN) -> None:
-    facade.save_flow_execution(
+    save_flow_execution(
         story_dir,
         FlowExecution(
             project_key=_PROJECT,
@@ -161,7 +195,7 @@ def _seed_flow_execution(story_dir: Path, run_id: str = _RUN) -> None:
 
 
 def _seed_node_ledger(story_dir: Path, run_id: str = _RUN) -> None:
-    facade.save_node_execution_ledger(
+    save_node_execution_ledger(
         story_dir,
         NodeExecutionLedger(
             project_key=_PROJECT,
@@ -176,7 +210,7 @@ def _seed_node_ledger(story_dir: Path, run_id: str = _RUN) -> None:
 
 
 def _seed_attempt(story_dir: Path, run_id: str = _RUN) -> None:
-    facade.save_attempt(
+    save_attempt(
         story_dir,
         AttemptRecord(
             run_id=run_id,
@@ -190,7 +224,7 @@ def _seed_attempt(story_dir: Path, run_id: str = _RUN) -> None:
 
 
 def _seed_override(story_dir: Path, run_id: str = _RUN) -> None:
-    facade.save_override_record(
+    save_override_record(
         story_dir,
         OverrideRecord(
             override_id=f"ovr-{run_id}",
@@ -224,14 +258,14 @@ def _seed_guard_decision(story_dir: Path, run_id: str = _RUN) -> None:
 
 
 def _seed_phase_state(story_dir: Path, run_id: str = _RUN) -> None:
-    facade.save_phase_state(
+    save_phase_state(
         story_dir,
         make_phase_state(story_id=_STORY, run_id=run_id, phase="implementation"),
     )
 
 
 def _seed_phase_snapshot(story_dir: Path) -> None:
-    facade.save_phase_snapshot(
+    save_phase_snapshot(
         story_dir,
         PhaseSnapshot(
             story_id=_STORY,
@@ -271,7 +305,7 @@ def _ownership_fence_for_test(run_id: str = _RUN) -> tuple[str, int]:
     )
     from agentkit.backend.control_plane.records import RunOwnershipRecord
     from agentkit.backend.state_backend import postgres_store
-    from agentkit.backend.state_backend.store import (
+    from agentkit.backend.state_backend.story_lifecycle_store import (
         insert_run_ownership_record_global,
         load_active_run_ownership_record_global,
     )
@@ -317,7 +351,7 @@ def _seed_verify_decision(story_dir: Path, attempt_nr: int = 3) -> None:
     # corrupted run (attempt numbering restarts at 1 in the next run, so a
     # leftover row would shadow the new run's decision via MAX(attempt_nr)).
     owner_session_id, expected_ownership_epoch = _ownership_fence_for_test()
-    facade.record_verify_decision(
+    record_verify_decision(
         story_dir,
         decision=VerifyDecision(
             passed=True,
@@ -334,7 +368,7 @@ def _seed_verify_decision(story_dir: Path, attempt_nr: int = 3) -> None:
 
 
 def _seed_execution_event(story_dir: Path, run_id: str = _RUN) -> None:
-    facade.append_execution_event(
+    append_execution_event(
         story_dir,
         ExecutionEventRecord(
             project_key=_PROJECT,
@@ -352,7 +386,7 @@ def _seed_execution_event(story_dir: Path, run_id: str = _RUN) -> None:
 
 def _seed_artifact_envelope(story_dir: Path, run_id: str = _RUN) -> None:
     owner_session_id, expected_ownership_epoch = _ownership_fence_for_test(run_id)
-    with facade.bind_ownership_fence_scope(
+    with bind_ownership_fence_scope(
         project_key=_PROJECT,
         story_id=_STORY,
         run_id=run_id,
@@ -393,7 +427,7 @@ def _seed_all(story_dir: Path, run_id: str = _RUN) -> None:
 
 
 def _residue(story_dir: Path, run_id: str = _RUN) -> dict[str, int]:
-    return facade.count_runtime_execution_residue(
+    return count_runtime_execution_residue(
         story_dir, _PROJECT, _STORY, run_id
     )
 
@@ -408,68 +442,68 @@ class TestPerEntityRoundtrip:
 
     def test_flow_executions_roundtrip(self, backend: Path) -> None:
         _seed_flow_execution(backend)
-        assert facade.load_flow_execution(backend) is not None
-        deleted = facade.purge_flow_executions(backend, _PROJECT, _STORY, _RUN)
+        assert load_flow_execution(backend) is not None
+        deleted = purge_flow_executions(backend, _PROJECT, _STORY, _RUN)
         assert deleted == 1
-        assert facade.load_flow_execution(backend) is None
+        assert load_flow_execution(backend) is None
 
     def test_node_execution_ledgers_roundtrip(self, backend: Path) -> None:
         _seed_node_ledger(backend)
-        assert facade.load_node_execution_ledger(backend, "flow-1", "node-1") is not None
-        deleted = facade.purge_node_execution_ledgers(backend, _PROJECT, _STORY, _RUN)
+        assert load_node_execution_ledger(backend, "flow-1", "node-1") is not None
+        deleted = purge_node_execution_ledgers(backend, _PROJECT, _STORY, _RUN)
         assert deleted == 1
-        assert facade.load_node_execution_ledger(backend, "flow-1", "node-1") is None
+        assert load_node_execution_ledger(backend, "flow-1", "node-1") is None
 
     def test_attempts_roundtrip(self, backend: Path) -> None:
         _seed_attempt(backend)
-        assert facade.load_attempts(backend, "implementation", run_id=_RUN)
-        deleted = facade.purge_attempts(backend, _STORY, _RUN)
+        assert load_attempts(backend, "implementation", run_id=_RUN)
+        deleted = purge_attempts(backend, _STORY, _RUN)
         assert deleted == 1
-        assert facade.load_attempts(backend, "implementation", run_id=_RUN) == []
+        assert load_attempts(backend, "implementation", run_id=_RUN) == []
 
     def test_override_records_roundtrip(self, backend: Path) -> None:
         _seed_override(backend)
-        assert facade.load_override_records(backend)
-        deleted = facade.purge_override_records(backend, _PROJECT, _STORY, _RUN)
+        assert load_override_records(backend)
+        deleted = purge_override_records(backend, _PROJECT, _STORY, _RUN)
         assert deleted == 1
-        assert facade.load_override_records(backend) == []
+        assert load_override_records(backend) == []
 
     def test_guard_decisions_roundtrip(self, backend: Path) -> None:
         _seed_guard_decision(backend)
         repo = GuardDecisionRepository(backend)
         assert repo.list_for_run(_PROJECT, _STORY, _RUN)
-        deleted = facade.purge_guard_decisions(backend, _PROJECT, _STORY, _RUN)
+        deleted = purge_guard_decisions(backend, _PROJECT, _STORY, _RUN)
         assert deleted == 1
         assert repo.list_for_run(_PROJECT, _STORY, _RUN) == ()
 
     def test_phase_states_roundtrip(self, backend: Path) -> None:
         _seed_phase_state(backend)
-        assert facade.load_phase_state(backend) is not None
-        deleted = facade.purge_phase_states(backend, _STORY)
+        assert load_phase_state(backend) is not None
+        deleted = purge_phase_states(backend, _STORY)
         assert deleted == 1
-        assert facade.load_phase_state(backend) is None
+        assert load_phase_state(backend) is None
 
     def test_phase_snapshots_roundtrip(self, backend: Path) -> None:
         _seed_phase_snapshot(backend)
-        assert facade.backend_has_completed_snapshot(backend, "setup")
-        deleted = facade.purge_phase_snapshots(backend, _STORY)
+        assert backend_has_completed_snapshot(backend, "setup")
+        deleted = purge_phase_snapshots(backend, _STORY)
         assert deleted == 1
-        assert not facade.backend_has_completed_snapshot(backend, "setup")
+        assert not backend_has_completed_snapshot(backend, "setup")
 
     def test_decision_records_roundtrip(self, backend: Path) -> None:
         _seed_flow_execution(backend)  # Postgres decision scope needs the flow
         _seed_verify_decision(backend)
-        assert facade.load_latest_verify_decision(backend) is not None
-        deleted = facade.purge_decision_records(backend, _STORY)
+        assert load_latest_verify_decision(backend) is not None
+        deleted = purge_decision_records(backend, _STORY)
         assert deleted == 1
-        assert facade.load_latest_verify_decision(backend) is None
+        assert load_latest_verify_decision(backend) is None
 
     def test_execution_events_roundtrip(self, backend: Path) -> None:
         _seed_execution_event(backend)
-        assert facade.load_execution_events(backend, run_id=_RUN)
-        deleted = facade.purge_execution_events(backend, _PROJECT, _STORY, _RUN)
+        assert load_execution_events(backend, run_id=_RUN)
+        deleted = purge_execution_events(backend, _PROJECT, _STORY, _RUN)
         assert deleted == 1
-        assert facade.load_execution_events(backend, run_id=_RUN) == []
+        assert load_execution_events(backend, run_id=_RUN) == []
 
     def test_artifact_envelopes_roundtrip(self, backend: Path) -> None:
         _seed_artifact_envelope(backend)
@@ -483,7 +517,7 @@ class TestPerEntityRoundtrip:
             )
             is not None
         )
-        deleted = facade.purge_run_bound_artifact_envelopes(backend, _STORY, _RUN)
+        deleted = purge_run_bound_artifact_envelopes(backend, _STORY, _RUN)
         assert deleted == 1
         assert (
             repo.find_latest_envelope(
@@ -598,17 +632,17 @@ class TestRuntimeResidue:
         _seed_flow_execution(backend)
         _seed_phase_snapshot(backend)
         _seed_verify_decision(backend, attempt_nr=3)  # late attempt of old run
-        assert facade.backend_has_completed_snapshot(backend, "setup")
-        assert facade.backend_verify_decision_passed(backend)
+        assert backend_has_completed_snapshot(backend, "setup")
+        assert backend_verify_decision_passed(backend)
 
         port = build_runtime_execution_purge_port(backend)
         result = port.purge_run(_PROJECT, _STORY, _RUN)
         assert result.purged_rows["phase_snapshots"] == 1
         assert result.purged_rows["decision_records"] == 1
 
-        assert not facade.backend_has_completed_snapshot(backend, "setup")
-        assert facade.load_latest_verify_decision(backend) is None
-        assert not facade.backend_verify_decision_passed(backend)
+        assert not backend_has_completed_snapshot(backend, "setup")
+        assert load_latest_verify_decision(backend) is None
+        assert not backend_verify_decision_passed(backend)
         probe = build_runtime_execution_residue_probe(backend)
         assert probe.check_run(_PROJECT, _STORY, _RUN).is_clean
 
@@ -654,7 +688,7 @@ class TestRunBoundArtifactPrecision:
         _seed_artifact_envelope(backend, _RUN)
         _seed_artifact_envelope(backend, _OTHER_RUN)
 
-        deleted = facade.purge_run_bound_artifact_envelopes(backend, _STORY, _RUN)
+        deleted = purge_run_bound_artifact_envelopes(backend, _STORY, _RUN)
         assert deleted == 1
 
         repo = StateBackendArtifactRepository(backend)
@@ -736,8 +770,8 @@ class TestReadModelBoundary:
 
     def test_canonical_phase_states_is_purged(self, backend: Path) -> None:
         _seed_phase_state(backend)
-        assert facade.load_phase_state(backend) is not None
+        assert load_phase_state(backend) is not None
         port = build_runtime_execution_purge_port(backend)
         result = port.purge_run(_PROJECT, _STORY, _RUN)
         assert result.purged_rows["phase_states"] == 1
-        assert facade.load_phase_state(backend) is None
+        assert load_phase_state(backend) is None

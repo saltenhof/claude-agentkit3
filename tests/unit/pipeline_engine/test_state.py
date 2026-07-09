@@ -22,15 +22,17 @@ from agentkit.backend.pipeline_engine.phase_executor import (
 from agentkit.backend.pipeline_engine.phase_executor.records import AttemptRecord
 from agentkit.backend.state_backend.config import ALLOW_SQLITE_ENV, STATE_BACKEND_ENV
 from agentkit.backend.state_backend.persistence_test_support import reset_backend_cache_for_tests
-from agentkit.backend.state_backend.sqlite_store import state_db_path_for
-from agentkit.backend.state_backend.store import (
+from agentkit.backend.state_backend.pipeline_runtime_store import (
     load_attempts,
     read_phase_snapshot_record,
     read_phase_state_record,
-    read_story_context_record,
     save_attempt,
     save_phase_snapshot,
     save_phase_state,
+)
+from agentkit.backend.state_backend.sqlite_store import state_db_path_for
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    read_story_context_record,
     save_story_context,
 )
 from agentkit.backend.story_context_manager.models import StoryContext

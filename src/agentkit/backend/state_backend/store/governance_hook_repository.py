@@ -17,7 +17,7 @@ Design decisions:
 - Fail-closed: no silent None returns on backend errors; exceptions propagate.
 
 Architecture Conformance (AK8):
-- Does NOT import from ``agentkit.backend.state_backend.store.facade`` or ``mappers``.
+- Does NOT import from ``agentkit.backend.state_backend owner modules`` or ``mappers``.
 - Accesses the database directly via its own connection helpers.
 - Imports governance BC types from ``agentkit.backend.governance.*`` only.
 
