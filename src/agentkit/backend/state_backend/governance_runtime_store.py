@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 def save_story_execution_lock_global(record: StoryExecutionLockRecord) -> None:
     """Persist one story-execution lock record."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     backend = _backend_module()
     if not hasattr(backend, "save_story_execution_lock_global_row"):
@@ -42,7 +42,7 @@ def load_story_execution_lock_global(
     lock_type: str = "story_execution",
 ) -> StoryExecutionLockRecord | None:
     """Load one story-execution lock record."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     backend = _backend_module()
     if not hasattr(backend, "load_story_execution_lock_global_row"):
@@ -82,7 +82,7 @@ def resolve_ownership_fence_snapshot(
     story_id: str,
 ) -> tuple[str, int] | None:
     """Resolve the caller's early ownership-lease snapshot."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     if not control_plane_backend_available():
         return None

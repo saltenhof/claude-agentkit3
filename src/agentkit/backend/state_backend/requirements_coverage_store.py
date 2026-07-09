@@ -22,7 +22,7 @@ def save_story_are_link(
     store_dir: Path | None = None,
 ) -> None:
     """Persist one StoryAreLink edge."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     row = mappers.story_are_link_to_row(link)
     _backend_module().save_story_are_link_row(store_dir, row)
@@ -33,7 +33,7 @@ def load_story_are_links(
     store_dir: Path | None = None,
 ) -> list[StoryAreLink]:
     """Load StoryAreLink edges for one story."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     rows = _backend_module().load_story_are_link_rows(store_dir, story_id)
     return [mappers.story_are_link_row_to_entity(row) for row in rows]
@@ -47,7 +47,7 @@ def update_story_are_link_kind(
     new_kind: StoryAreLinkKind,
 ) -> StoryAreLink | None:
     """Update one StoryAreLink edge kind."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     row = _backend_module().update_story_are_link_kind_row(
         store_dir,

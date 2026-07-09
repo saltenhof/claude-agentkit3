@@ -511,7 +511,7 @@ def test_insert_session_binding_row_persists_status_and_reason() -> None:
     columns; a revoked binding round-trips its status and machine-readable reason
     instead of silently defaulting to ``active`` / ``NULL``.
     """
-    from agentkit.backend.state_backend.store.mappers import session_binding_to_row
+    from agentkit.backend.state_backend.persistence_mappers import session_binding_to_row
 
     revoked = SessionRunBindingRecord(
         session_id="sess-revoked",

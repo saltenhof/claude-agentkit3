@@ -36,7 +36,7 @@ def save_control_plane_operation_global(
     record: ControlPlaneOperationRecord,
 ) -> None:
     """Persist one control-plane operation ledger record."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     backend = _backend_module()
     if not hasattr(backend, "save_control_plane_operation_global_row"):
@@ -49,7 +49,7 @@ def claim_control_plane_operation_global(
     record: ControlPlaneOperationRecord,
 ) -> bool:
     """Atomically claim an op_id before dispatch."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     backend = _backend_module()
     if not hasattr(backend, "claim_control_plane_operation_global_row"):
@@ -68,7 +68,7 @@ def finalize_control_plane_operation_global(
     owner_operation_epoch: int | None = None,
 ) -> bool:
     """Ownership-scoped terminal write of a claimed operation."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     backend = _backend_module()
     if not hasattr(backend, "finalize_control_plane_operation_global_row"):
@@ -140,7 +140,7 @@ def finalize_control_plane_start_phase_global(
     expected_ownership_epoch: int | None = None,
 ) -> bool:
     """Atomically CAS-finalize a start_phase and materialize side effects."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     backend = _backend_module()
     if not hasattr(backend, "finalize_control_plane_start_phase_global_row"):
@@ -187,7 +187,7 @@ def commit_control_plane_operation_with_side_effects_global(
     expected_ownership_epoch: int | None = None,
 ) -> None:
     """Atomically commit a terminal operation and its side effects."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     backend = _backend_module()
     if not hasattr(backend, "commit_control_plane_operation_with_side_effects_global_row"):
@@ -229,7 +229,7 @@ def commit_edge_command_result_global(
     expected_ownership_epoch: int,
 ) -> None:
     """Atomically commit the operation ledger row and command-result CAS."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -271,7 +271,7 @@ def list_orphaned_claimed_control_plane_operations_global(
     before_incarnation: int,
 ) -> tuple[ControlPlaneOperationRecord, ...]:
     """List claimed operations orphaned by earlier incarnations of this instance."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -292,7 +292,7 @@ def finalize_orphaned_control_plane_operation_global(
     owner_operation_epoch: int,
 ) -> bool:
     """CAS-finalize one orphaned claim during startup reconciliation."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -316,7 +316,7 @@ def admin_abort_control_plane_operation_global(
     now: datetime,
 ) -> bool:
     """CAS-abort one in-flight claim via the admin-abort service path."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -337,7 +337,7 @@ def resolve_repair_control_plane_operation_global(
     now: datetime,
 ) -> bool:
     """CAS-resolve one open repair operation to resolved."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -434,7 +434,7 @@ def load_control_plane_operation_global(
     op_id: str,
 ) -> ControlPlaneOperationRecord | None:
     """Load one control-plane operation record."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     backend = _backend_module()
     if not hasattr(backend, "load_control_plane_operation_global_row"):
@@ -447,7 +447,7 @@ def load_control_plane_operation_global(
 
 def insert_object_mutation_claim_global(record: ObjectMutationClaimRecord) -> None:
     """Strictly insert one object-mutation claim."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -462,7 +462,7 @@ def load_object_mutation_claim_global(
     scope_key: str,
 ) -> ObjectMutationClaimRecord | None:
     """Load one object-mutation claim by claimed-object identity."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -528,7 +528,7 @@ def list_orphaned_object_mutation_claims_global(
     before_incarnation: int,
 ) -> tuple[ObjectMutationClaimRecord, ...]:
     """List object-mutation claims orphaned by earlier incarnations of this instance."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()

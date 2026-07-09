@@ -33,7 +33,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from agentkit.backend.state_backend.store.mappers import (
+from agentkit.backend.state_backend.persistence_mappers import (
     skill_binding_row_to_record,
     skill_binding_to_row,
 )

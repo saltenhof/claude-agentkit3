@@ -61,7 +61,7 @@ def save_backend_instance_identity_global(
     """Upsert the backend-instance-identity record. Fail closed off Postgres."""
     _require_control_plane_backend()
     backend = _backend_module()
-    from agentkit.backend.state_backend.store.mappers import (
+    from agentkit.backend.state_backend.persistence_mappers import (
         backend_instance_identity_to_row,
     )
 
@@ -79,7 +79,7 @@ def load_backend_instance_identity_global(
     row = backend.load_backend_instance_identity_global_row(backend_instance_id)
     if row is None:
         return None
-    from agentkit.backend.state_backend.store.mappers import (
+    from agentkit.backend.state_backend.persistence_mappers import (
         backend_instance_identity_row_to_record,
     )
 
@@ -97,7 +97,7 @@ def boot_backend_instance_identity_global(
         candidate_backend_instance_id=candidate_backend_instance_id,
         now=now.isoformat(),
     )
-    from agentkit.backend.state_backend.store.mappers import (
+    from agentkit.backend.state_backend.persistence_mappers import (
         backend_instance_identity_row_to_record,
     )
 

@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 def resolve_runtime_scope(story_dir: Path) -> RuntimeStateScope:
     """Resolve explicit canonical scope for one story and current run."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     backend = _backend_module()
     try:

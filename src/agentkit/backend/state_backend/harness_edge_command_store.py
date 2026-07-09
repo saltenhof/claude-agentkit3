@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 def insert_edge_command_record_global(record: Any) -> None:
     """Strictly insert one edge-command row."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -26,7 +26,7 @@ def insert_edge_command_record_global(record: Any) -> None:
 
 def commission_edge_command_record_global(record: Any) -> bool:
     """Atomically insert one edge-command row if absent."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -39,7 +39,7 @@ def commission_edge_command_record_global(record: Any) -> bool:
 
 def load_edge_command_record_global(command_id: str) -> Any | None:
     """Load one edge-command record by ``command_id``, or ``None``."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -57,7 +57,7 @@ def list_and_ack_open_edge_command_records_global(
     delivered_at: datetime,
 ) -> tuple[Any, ...]:
     """Return and acknowledge the session's open edge commands."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -77,7 +77,7 @@ def supersede_open_edge_command_global(
     result_payload: dict[str, object],
 ) -> bool:
     """Terminalize an open edge command superseded by a newer boundary epoch."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()

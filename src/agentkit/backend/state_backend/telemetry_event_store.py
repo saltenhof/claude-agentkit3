@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 def append_execution_event(story_dir: Path, event: ExecutionEventRecord) -> None:
     """Append one local execution event."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     row = mappers.execution_event_to_row(event)
     _backend_module().append_execution_event_row(story_dir, row)
@@ -32,7 +32,7 @@ def append_execution_event(story_dir: Path, event: ExecutionEventRecord) -> None
 
 def append_execution_event_global(event: ExecutionEventRecord) -> None:
     """Append one global execution event."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     backend = _backend_module()
     if not hasattr(backend, "append_execution_event_global_row"):
@@ -53,7 +53,7 @@ def load_execution_events(
     limit: int | None = None,
 ) -> list[ExecutionEventRecord]:
     """Load local execution events with optional filters."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     rows = _backend_module().load_execution_event_rows(
         story_dir,
@@ -75,7 +75,7 @@ def load_execution_events_global(
     limit: int | None = None,
 ) -> list[ExecutionEventRecord]:
     """Load global execution events for one story."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     backend = _backend_module()
     if not hasattr(backend, "load_execution_event_rows_global"):
@@ -98,7 +98,7 @@ def load_execution_events_for_project_global(
     limit: int | None = None,
 ) -> list[ExecutionEventRecord]:
     """Load global execution events for one project."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     backend = _backend_module()
     if not hasattr(backend, "load_execution_event_rows_for_project_global"):
@@ -157,7 +157,7 @@ def purge_execution_events(
 
 def upsert_story_metrics(story_dir: Path, metrics: StoryMetricsRecord) -> None:
     """Upsert one story-metrics projection record."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     row = mappers.story_metrics_to_row(metrics)
     _backend_module().upsert_story_metrics_row(story_dir, row)
@@ -171,7 +171,7 @@ def load_story_metrics(
     run_id: str | None = None,
 ) -> list[StoryMetricsRecord]:
     """Load story-metrics projection records with optional filters."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     rows = _backend_module().load_story_metrics_rows(
         story_dir,
@@ -200,7 +200,7 @@ def load_latest_story_metrics_global(
     store_dir: Path | None = None,
 ) -> StoryMetricsRecord | None:
     """Load the latest global story-metrics projection for one story."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     backend = _backend_module()
     if not hasattr(backend, "load_latest_story_metrics_global_row"):
@@ -223,7 +223,7 @@ def load_qa_stage_results(
     stage_id: str | None = None,
 ) -> list[QAStageResultRecord]:
     """Load QA stage-result projection rows with optional filters."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     rows = _backend_module().load_qa_stage_result_rows(
         story_dir,
@@ -263,7 +263,7 @@ def load_qa_findings(
     stage_id: str | None = None,
 ) -> list[QAFindingRecord]:
     """Load QA finding projection rows with optional filters."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     rows = _backend_module().load_qa_finding_rows(
         story_dir,

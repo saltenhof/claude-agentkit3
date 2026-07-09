@@ -167,7 +167,7 @@ def test_configuration_model_rejects_legacy_record_without_repositories() -> Non
     """AG3-020 (second review): the schema is strict.
 
     Forward-compat for legacy DB rows lives exclusively in the mapper layer
-    (see ``state_backend/store/mappers.py::_backfill_legacy_project_configuration_payload``
+    (see ``state_backend/persistence_mappers::_backfill_legacy_project_configuration_payload``
     and the mapper-level test in ``test_repository.py``).  Bypassing the
     mapper and pushing a legacy-shaped dict directly into ``model_validate``
     MUST fail — that proves the schema is fail-closed.

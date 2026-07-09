@@ -78,6 +78,7 @@ _AG3_140_SOURCE_GLOBS: tuple[str, ...] = (
     "src/agentkit/backend/control_plane_http/*.py",
     "src/agentkit/backend/verify_system/**/*.py",
     "src/agentkit/backend/governance/hook_*.py",
+    "src/agentkit/backend/state_backend/persistence_mappers/*.py",
     "src/agentkit/backend/state_backend/store/*mappers*.py",
     "src/agentkit/backend/state_backend/store/*_json_projection.py",
     "src/agentkit/backend/state_backend/store/flow_execution_rows.py",

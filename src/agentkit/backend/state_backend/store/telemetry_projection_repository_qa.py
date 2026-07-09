@@ -197,7 +197,8 @@ class FacadeQAStageResultsRepository:
         attempt_no: int | None,
         stage_id: str | None,
     ) -> list[QAStageResultRecord]:
-        from agentkit.backend.state_backend.store import facade, mappers
+        from agentkit.backend.state_backend import persistence_mappers as mappers
+        from agentkit.backend.state_backend.store import facade
 
         rows = facade._backend_module().load_qa_stage_result_rows(
             self._story_dir,
@@ -441,7 +442,8 @@ class FacadeQAFindingsRepository:
         attempt_no: int | None,
         stage_id: str | None,
     ) -> list[QAFindingRecord]:
-        from agentkit.backend.state_backend.store import facade, mappers
+        from agentkit.backend.state_backend import persistence_mappers as mappers
+        from agentkit.backend.state_backend.store import facade
 
         rows = facade._backend_module().load_qa_finding_rows(
             self._story_dir,
@@ -506,10 +508,10 @@ class FacadeQALayerBatchWriter:
 
         from agentkit.backend.boundary.shared.time import now_iso
         from agentkit.backend.core_types.qa_artifact_names import LAYER_ARTIFACT_FILES
+        from agentkit.backend.state_backend import persistence_mappers as mappers
         from agentkit.backend.state_backend.state_backend_connection_manager import (
             _backend_module,
         )
-        from agentkit.backend.state_backend.store import mappers
 
         flow_row = _backend_module().load_flow_execution_row(story_dir)
         layer_payload_rows: list[dict[str, object]] = []

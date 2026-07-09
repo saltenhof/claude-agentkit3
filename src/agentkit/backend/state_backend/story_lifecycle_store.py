@@ -29,7 +29,7 @@ def _status_value(record: Any) -> str:
 
 def save_story_context(story_dir: Path, ctx: StoryContext) -> None:
     """Persist one local story context."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     row = mappers.story_context_to_row(ctx)
     _backend_module().save_story_context_row(story_dir, row)
@@ -37,7 +37,7 @@ def save_story_context(story_dir: Path, ctx: StoryContext) -> None:
 
 def save_story_context_global(store_dir: Path | None, ctx: StoryContext) -> None:
     """Persist one global story context."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     row = mappers.story_context_to_row(ctx)
     _backend_module().save_story_context_global_row(store_dir, row)
@@ -45,7 +45,7 @@ def save_story_context_global(store_dir: Path | None, ctx: StoryContext) -> None
 
 def load_story_context(story_dir: Path) -> StoryContext | None:
     """Load one local story context."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     row = _backend_module().load_story_context_row(story_dir)
     if row is None:
@@ -62,7 +62,7 @@ def load_story_context_global(
     store_dir: Path | None = None,
 ) -> StoryContext | None:
     """Load one global story context."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     backend = _backend_module()
     if not hasattr(backend, "load_story_context_global_row"):
@@ -84,7 +84,7 @@ def load_story_context_by_story_number_global(
     story_number: int,
 ) -> StoryContext | None:
     """Load one global story context by numeric story identity."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     row = _backend_module().load_story_context_by_story_number_row(
         store_dir,
@@ -104,7 +104,7 @@ def load_story_context_by_uuid_global(
     story_uuid: UUID,
 ) -> StoryContext | None:
     """Load one global story context by immutable story UUID."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     row = _backend_module().load_story_context_by_uuid_row(
         store_dir,
@@ -123,7 +123,7 @@ def load_story_contexts_global(
     store_dir: Path | None = None,
 ) -> list[StoryContext]:
     """Load global story contexts for one project."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     backend = _backend_module()
     if not hasattr(backend, "load_story_context_rows_global"):
@@ -147,7 +147,7 @@ def read_story_context_record(story_dir: Path) -> StoryContext | None:
 
 def save_session_run_binding_global(record: Any) -> None:
     """Persist the session-to-run binding projection."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     backend = _backend_module()
     if not hasattr(backend, "save_session_run_binding_global_row"):
@@ -158,7 +158,7 @@ def save_session_run_binding_global(record: Any) -> None:
 
 def load_session_run_binding_global(session_id: str) -> Any | None:
     """Load one session-to-run binding projection."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     backend = _backend_module()
     if not hasattr(backend, "load_session_run_binding_global_row"):
@@ -179,7 +179,7 @@ def delete_session_run_binding_global(session_id: str) -> None:
 
 def insert_run_ownership_record_global(record: Any) -> None:
     """Strictly insert one run-ownership record."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     if _status_value(record) == _OWNERSHIP_STATUS_TRANSFERRED:
         raise ValueError(
@@ -199,7 +199,7 @@ def load_run_ownership_record_global(
     run_id: str,
 ) -> Any | None:
     """Load one run-ownership record by run identity."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -214,7 +214,7 @@ def load_active_run_ownership_record_global(
     story_id: str,
 ) -> Any | None:
     """Load the single active run-ownership record for one story."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -226,7 +226,7 @@ def load_active_run_ownership_record_global(
 
 def save_takeover_transfer_record_global(record: Any) -> None:
     """Upsert one takeover-transfer record."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -243,7 +243,7 @@ def load_takeover_transfer_record_global(
     repo_id: str,
 ) -> Any | None:
     """Load one takeover-transfer record by per-repo identity."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()

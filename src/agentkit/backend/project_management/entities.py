@@ -26,7 +26,7 @@ class ProjectConfiguration(BaseModel):
     Forward-compatibility for legacy DB rows without a ``repositories`` key
     is the responsibility of the read-path adapter (state_backend mappers),
     NOT of this schema.  See ``backfill_legacy_configuration_payload`` in
-    ``state_backend/store/mappers.py``.
+    ``state_backend/persistence_mappers``.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)

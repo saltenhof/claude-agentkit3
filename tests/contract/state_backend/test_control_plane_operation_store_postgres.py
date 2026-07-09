@@ -1099,11 +1099,11 @@ def test_binding_save_run_scoped_collision_real_store(
     still succeeds (run-matched update).
     """
     from agentkit.backend.exceptions import ControlPlaneBindingCollisionError
+    from agentkit.backend.state_backend.persistence_mappers import session_binding_to_row
     from agentkit.backend.state_backend.postgres_store import (
         _connect_global,
         _insert_session_binding_row,
     )
-    from agentkit.backend.state_backend.store.mappers import session_binding_to_row
 
     del postgres_backend_env
     save_session_run_binding_global(_binding("run-NEW", version="500"))

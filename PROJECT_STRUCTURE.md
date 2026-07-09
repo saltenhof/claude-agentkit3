@@ -207,6 +207,7 @@ Deployment Unit, die sie ausliefert:
 | Control-Plane HTTP | `src/agentkit/backend/control_plane_http/` |
 | Control-Plane Runtime/Records | `src/agentkit/backend/control_plane/` |
 | State-Backend Repository/Driver | `src/agentkit/backend/state_backend/` |
+| State-Backend Record-Row Mapper | `src/agentkit/backend/state_backend/persistence_mappers/` |
 | Filesystem Boundary | `src/agentkit/backend/boundary/filesystem/` |
 | Drittsystem-Adapter | `src/agentkit/integration_clients/` |
 | Harness-/ProjectEdge-Client | `src/agentkit/harness_client/` |

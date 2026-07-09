@@ -24,7 +24,7 @@ def save_story_dependency(
     store_dir: Path | None = None,
 ) -> None:
     """Persist one story dependency edge."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     row = mappers.story_dependency_to_row(edge, project_key=project_key)
     _backend_module().save_story_dependency_row(store_dir, row)
@@ -35,7 +35,7 @@ def load_story_dependencies(
     store_dir: Path | None = None,
 ) -> list[StoryDependency]:
     """Load all story dependency edges for one project."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     rows = _backend_module().load_story_dependency_rows(store_dir, project_key)
     return [mappers.story_dependency_row_to_entity(row) for row in rows]
@@ -46,7 +46,7 @@ def load_story_dependency_rows_for_story(
     store_dir: Path | None = None,
 ) -> list[StoryDependency]:
     """Load story dependency edges for one story."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     rows = _backend_module().load_story_dependency_rows_for_story(store_dir, story_id)
     return [mappers.story_dependency_row_to_entity(row) for row in rows]
@@ -74,7 +74,7 @@ def load_parallelization_config(
     store_dir: Path | None = None,
 ) -> ParallelizationConfig | None:
     """Load the parallelization config for one project."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     row = _backend_module().load_parallelization_config_row(store_dir, project_key)
     if row is None:
@@ -87,7 +87,7 @@ def save_parallelization_config(
     store_dir: Path | None = None,
 ) -> None:
     """Persist one parallelization config."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     row = mappers.parallelization_config_to_row(config)
     _backend_module().save_parallelization_config_row(store_dir, row)

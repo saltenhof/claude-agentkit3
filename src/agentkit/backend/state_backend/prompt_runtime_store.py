@@ -25,7 +25,7 @@ def insert_execution_contract_digest_global(
     record: ExecutionContractDigestRecord,
 ) -> None:
     """Strictly insert one Postgres-only execution-contract-digest row."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -40,7 +40,7 @@ def load_execution_contract_digest_global(
     run_id: str,
 ) -> ExecutionContractDigestRecord | None:
     """Load the run's persisted execution-contract-digest row."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 def save_project(project: Project, store_dir: Path | None = None) -> None:
     """Persist one project record."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     row = mappers.project_to_row(project)
     _backend_module().save_project_row(store_dir, row)
@@ -25,7 +25,7 @@ def save_project(project: Project, store_dir: Path | None = None) -> None:
 
 def load_project(key: str, store_dir: Path | None = None) -> Project | None:
     """Load one project record by project key."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     row = _backend_module().load_project_row(store_dir, key)
     if row is None:
@@ -39,7 +39,7 @@ def load_projects(
     include_archived: bool = False,
 ) -> list[Project]:
     """Load project records."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     rows = _backend_module().load_project_rows(
         store_dir,
@@ -53,7 +53,7 @@ def load_project_by_story_id_prefix(
     store_dir: Path | None = None,
 ) -> Project | None:
     """Load the project owning a story-id prefix."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     row = _backend_module().load_project_row_by_story_id_prefix(
         store_dir,
@@ -69,7 +69,7 @@ def save_project_api_token(
     store_dir: Path | None = None,
 ) -> None:
     """Persist one opaque project API token record."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     row = mappers.project_api_token_to_row(token)
     _backend_module().save_project_api_token_row(store_dir, row)
@@ -80,7 +80,7 @@ def load_project_api_token(
     store_dir: Path | None = None,
 ) -> ProjectApiToken | None:
     """Load one project API token by token id."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     row = _backend_module().load_project_api_token_row(store_dir, token_id)
     if row is None:
@@ -93,7 +93,7 @@ def load_project_api_token_by_hash(
     store_dir: Path | None = None,
 ) -> ProjectApiToken | None:
     """Load one project API token by bearer-token hash."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     row = _backend_module().load_project_api_token_row_by_hash(store_dir, token_hash)
     if row is None:
@@ -106,7 +106,7 @@ def load_project_api_tokens_for_project(
     store_dir: Path | None = None,
 ) -> list[ProjectApiToken]:
     """Load project API tokens scoped to one project."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     rows = _backend_module().load_project_api_token_rows_for_project(
         store_dir,

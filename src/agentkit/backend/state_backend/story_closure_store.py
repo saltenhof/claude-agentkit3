@@ -44,7 +44,7 @@ def record_closure_report(
 
 def upsert_push_freshness_record_global(record: Any) -> None:
     """Upsert one push-freshness row per project/story/run/repo."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -60,7 +60,7 @@ def load_push_freshness_record_global(
     repo_id: str,
 ) -> Any | None:
     """Load one push-freshness record for a repo, or ``None``."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -81,7 +81,7 @@ def list_push_freshness_records_global(
     run_id: str,
 ) -> tuple[Any, ...]:
     """List the run's push-freshness records, one per repo."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -95,7 +95,7 @@ def list_push_freshness_records_global(
 
 def upsert_push_barrier_verdict_global(record: Any) -> None:
     """Upsert the authoritative per-repo push-barrier verdict."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -114,7 +114,7 @@ def load_push_barrier_verdict_global(
     repo_id: str,
 ) -> Any | None:
     """Load one push-barrier verdict, or ``None``."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()
@@ -140,7 +140,7 @@ def list_push_barrier_verdicts_global(
     boundary_id: str,
 ) -> tuple[Any, ...]:
     """List the per-repo verdicts for one boundary instance."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
     backend = _backend_module()

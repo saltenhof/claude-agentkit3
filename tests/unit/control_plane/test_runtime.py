@@ -3541,7 +3541,7 @@ def test_naive_or_malformed_claimed_at_foreign_claim_is_rejected_not_taken_over(
 
 def test_malformed_claimed_at_via_mapper_maps_to_none() -> None:
     """AG3-139: an unparseable claimed_at maps to None (no audit instant), no crash."""
-    from agentkit.backend.state_backend.store.mappers import control_plane_op_row_to_record
+    from agentkit.backend.state_backend.persistence_mappers import control_plane_op_row_to_record
 
     row = {
         "op_id": "op-bad-claimed-at",
@@ -3567,7 +3567,7 @@ def test_malformed_claimed_at_via_mapper_maps_to_none() -> None:
 
 def test_aware_non_utc_claimed_at_is_normalized_to_utc() -> None:
     """WARNING-4 (#4): an aware non-UTC claimed_at is converted to aware UTC."""
-    from agentkit.backend.state_backend.store.mappers import control_plane_op_row_to_record
+    from agentkit.backend.state_backend.persistence_mappers import control_plane_op_row_to_record
 
     row = {
         "op_id": "op-offset-claimed-at",

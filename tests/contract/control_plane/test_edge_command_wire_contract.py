@@ -29,7 +29,7 @@ from agentkit.backend.control_plane.models import (
     WorktreeReport,
 )
 from agentkit.backend.control_plane.records import EdgeCommandRecord
-from agentkit.backend.state_backend.store import mappers
+from agentkit.backend.state_backend import persistence_mappers as mappers
 
 _NOW = datetime(2026, 7, 4, 12, 0, tzinfo=UTC)
 

@@ -44,7 +44,7 @@ class FacadeStoryMetricsRepository:
         stays unfenced and is retained only as a low-level seeding helper for
         tests; the production write boundary is HERE).
         """
-        from agentkit.backend.state_backend.store import mappers
+        from agentkit.backend.state_backend import persistence_mappers as mappers
 
         row = mappers.story_metrics_to_row(record)
         if _is_postgres():

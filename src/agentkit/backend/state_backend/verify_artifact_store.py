@@ -36,7 +36,7 @@ def record_layer_artifacts(
 
     from agentkit.backend.boundary.shared.time import now_iso
     from agentkit.backend.core_types.qa_artifact_names import LAYER_ARTIFACT_FILES
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     flow_row = _backend_module().load_flow_execution_row(story_dir)
 
@@ -109,7 +109,7 @@ def record_verify_decision(
     projection_dir: Path | None = None,
 ) -> tuple[str, ...]:
     """Serialize and persist one verify decision."""
-    from agentkit.backend.state_backend.store import mappers
+    from agentkit.backend.state_backend import persistence_mappers as mappers
 
     canonical_payload = mappers.build_verify_decision_dict(
         decision,
