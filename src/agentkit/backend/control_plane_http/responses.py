@@ -147,6 +147,8 @@ def _takeover_result_response(
     """Map ownership-transfer results to their dedicated HTTP contract."""
     if result.status == "pending_human_approval":
         status = HTTPStatus.ACCEPTED
+    elif result.status == "denied":
+        status = HTTPStatus.OK
     elif result.status in {"offered", "committed", "replayed"}:
         status = HTTPStatus.CREATED
     elif result.error_code == "agent_confirm_forbidden" or result.error_code == ERROR_CODE_OWNERSHIP_TRANSFERRED:

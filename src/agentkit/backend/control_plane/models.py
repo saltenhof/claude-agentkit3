@@ -387,6 +387,21 @@ class TakeoverChallengeEchoRequest(BaseModel):
     source_component: str = Field(min_length=1, default="project_edge_client")
 
 
+class TakeoverDenyRequest(BaseModel):
+    """Request payload for human denial of a pending takeover approval."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    project_key: str = Field(min_length=1)
+    story_id: str = Field(min_length=1)
+    session_id: str = Field(min_length=1)
+    principal_type: str = Field(min_length=1, default="untrusted_http_body")
+    op_id: str = Field(min_length=1)
+    approval_id: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    source_component: str = Field(min_length=1, default="project_edge_client")
+
+
 class TakeoverApprovalView(BaseModel):
     """Wire view of a takeover approval request."""
 
@@ -712,6 +727,7 @@ _NO_EDGE_BUNDLE_STATUSES = frozenset(
         "resolved",
         "offered",
         "pending_human_approval",
+        "denied",
     }
 )
 
@@ -764,6 +780,7 @@ class ControlPlaneMutationResult(BaseModel):
         "resolved",
         "offered",
         "pending_human_approval",
+        "denied",
     ]
     op_id: str
     operation_kind: str

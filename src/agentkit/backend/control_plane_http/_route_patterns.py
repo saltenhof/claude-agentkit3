@@ -51,6 +51,9 @@ _TAKEOVER_REQUEST_PATTERN = re.compile(
 _TAKEOVER_CONFIRM_PATTERN = re.compile(
     r"^/v1/project-edge/story-runs/(?P<run_id>[^/]+)/ownership/takeover-confirm$",
 )
+_TAKEOVER_DENY_PATTERN = re.compile(
+    r"^/v1/project-edge/story-runs/(?P<run_id>[^/]+)/ownership/takeover-deny$",
+)
 
 # Project-scoped paths under /v1/projects/{project_key}/<bc>/...
 _PROJECT_SCOPED_PREFIX = re.compile(

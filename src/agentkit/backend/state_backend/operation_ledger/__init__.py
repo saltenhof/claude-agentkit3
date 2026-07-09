@@ -290,6 +290,26 @@ def commit_takeover_confirm_global(
     )
 
 
+def commit_takeover_deny_global(
+    op_record: ControlPlaneOperationRecord,
+    *,
+    request_op_record: ControlPlaneOperationRecord,
+    denied_approval: TakeoverApprovalRecord,
+    events: tuple[ExecutionEventRecord, ...],
+) -> None:
+    """Atomically deny a takeover approval and terminalize related rows."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    backend.commit_takeover_deny_global_row(
+        op_row=mappers.control_plane_op_to_row(op_record),
+        request_op_row=mappers.control_plane_op_to_row(request_op_record),
+        denied_approval_row=mappers.takeover_approval_to_row(denied_approval),
+        event_rows=tuple(mappers.execution_event_to_row(event) for event in events),
+    )
+
+
 def release_control_plane_operation_global(
     op_id: str,
     *,
@@ -592,6 +612,7 @@ __all__ = [
     "finalize_control_plane_start_phase_global",
     "commit_control_plane_operation_with_side_effects_global",
     "commit_edge_command_result_global",
+    "commit_takeover_deny_global",
     "commit_takeover_confirm_global",
     "release_control_plane_operation_global",
     "list_orphaned_claimed_control_plane_operations_global",

@@ -954,6 +954,7 @@ def commit_takeover_confirm_global_row(
 
     with _connect_global() as conn:
         _conditional_upsert_control_plane_op_row(conn, op_row)
+        _run_takeover_fault_hook(fault_after_step, "control_plane_op_upsert")
         active = conn.execute(
             """
             SELECT owner_session_id, ownership_epoch, status
@@ -1099,6 +1100,75 @@ def commit_takeover_confirm_global_row(
                 fault_after_step,
                 f"event_insert:{event_row['event_type']}",
             )
+
+
+def commit_takeover_deny_global_row(
+    *,
+    op_row: dict[str, Any],
+    request_op_row: dict[str, Any],
+    denied_approval_row: dict[str, Any],
+    event_rows: Sequence[dict[str, Any]],
+) -> None:
+    """Atomically deny a pending takeover approval and terminalize its request."""
+
+    with _connect_global() as conn:
+        _conditional_upsert_control_plane_op_row(conn, op_row)
+        cursor = conn.execute(
+            """
+            UPDATE takeover_approvals
+            SET status = ?, decided_at = ?, decided_by_session_id = ?,
+                decision_reason = ?
+            WHERE approval_id = ?
+              AND project_key = ?
+              AND story_id = ?
+              AND run_id = ?
+              AND status = 'pending'
+            """,
+            (
+                denied_approval_row["status"],
+                denied_approval_row["decided_at"],
+                denied_approval_row["decided_by_session_id"],
+                denied_approval_row["decision_reason"],
+                denied_approval_row["approval_id"],
+                denied_approval_row["project_key"],
+                denied_approval_row["story_id"],
+                denied_approval_row["run_id"],
+            ),
+        )
+        if int(cursor.rowcount) != 1:
+            raise OwnershipFenceViolationError(
+                "takeover deny CAS failed: approval is no longer pending",
+                detail={"approval_id": denied_approval_row["approval_id"]},
+            )
+        cursor = conn.execute(
+            """
+            UPDATE control_plane_operations
+            SET status = ?, response_json = ?, updated_at = ?,
+                finalized_at = ?
+            WHERE op_id = ?
+              AND project_key = ?
+              AND story_id = ?
+              AND run_id = ?
+              AND status = 'pending_human_approval'
+            """,
+            (
+                request_op_row["status"],
+                request_op_row["response_json"],
+                request_op_row["updated_at"],
+                request_op_row["updated_at"],
+                request_op_row["op_id"],
+                request_op_row["project_key"],
+                request_op_row["story_id"],
+                request_op_row["run_id"],
+            ),
+        )
+        if int(cursor.rowcount) != 1:
+            raise OwnershipFenceViolationError(
+                "takeover deny CAS failed: request operation is no longer pending",
+                detail={"op_id": request_op_row["op_id"]},
+            )
+        for event_row in event_rows:
+            _insert_execution_event_row(conn, event_row)
 
 
 def _approve_takeover_approval_row(

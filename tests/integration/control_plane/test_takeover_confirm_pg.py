@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from functools import partial
+from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 import pytest
 
+from agentkit.backend.auth.middleware import AuthMiddleware
+from agentkit.backend.auth.tokens import issue_project_api_token
+from agentkit.backend.control_plane.http import ControlPlaneApplication, HttpResponse
 from agentkit.backend.control_plane.models import (
     ControlPlaneMutationResult,
     EdgeBundle,
@@ -53,7 +58,10 @@ from agentkit.backend.state_backend.governance_runtime_store import (
     load_story_execution_lock_global,
     save_story_execution_lock_global,
 )
-from agentkit.backend.state_backend.operation_ledger import commit_takeover_confirm_global
+from agentkit.backend.state_backend.operation_ledger import (
+    commit_takeover_confirm_global,
+    load_control_plane_operation_global,
+)
 from agentkit.backend.state_backend.state_backend_connection_manager import (
     boot_backend_instance_identity_global,
 )
@@ -83,6 +91,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+    from agentkit.backend.auth.entities import ProjectApiToken
+
 pytest_plugins = ("tests.fixtures.postgres_backend",)
 
 _NOW = datetime(2026, 6, 7, 10, 0, tzinfo=UTC)
@@ -92,6 +102,7 @@ _PROJECT = "tenant-a"
 _REPO = "api"
 _SHA = "a" * 40
 _FAULT_STEPS = (
+    "control_plane_op_upsert",
     "ownership_update",
     "previous_binding_revoke",
     "approval_approve",
@@ -123,6 +134,45 @@ class _AdmittedDispatcher:
             dispatched=True,
             next_phase="implementation",
         )
+
+
+class _InMemoryTokenRepository:
+    def __init__(self) -> None:
+        self.tokens: dict[str, ProjectApiToken] = {}
+
+    def get(self, token_id: str) -> ProjectApiToken | None:
+        return self.tokens.get(token_id)
+
+    def get_by_hash(self, token_hash: str) -> ProjectApiToken | None:
+        for token in self.tokens.values():
+            if token.token_hash == token_hash:
+                return token
+        return None
+
+    def list_for_project(self, project_key: str) -> list[ProjectApiToken]:
+        return [token for token in self.tokens.values() if token.project_key == project_key]
+
+    def save(self, token: ProjectApiToken) -> None:
+        self.tokens[token.token_id] = token
+
+    def revoke(self, project_key: str, token_id: str) -> None:
+        del project_key
+        del self.tokens[token_id]
+
+
+def _human_headers(auth: AuthMiddleware, *, project_key: str) -> dict[str, str]:
+    session = auth.session_store.create()
+    return {
+        "Cookie": f"{auth.session_cookie_name()}={session.session_id}",
+        auth.csrf_header_name(): session.csrf_token,
+        "X-Project-Key": project_key,
+    }
+
+
+def _response_json(response: HttpResponse) -> dict[str, object]:
+    body = json.loads(response.body)
+    assert isinstance(body, dict)
+    return body
 
 
 def _seed_story_context(tmp_path: Path, story_id: str) -> None:
@@ -312,6 +362,10 @@ def _confirm_request(
 
 def _story_id(number: int) -> str:
     return f"AG3148-{number}"
+
+
+def _wire_time(value: datetime) -> str:
+    return value.isoformat().replace("+00:00", "Z")
 
 
 @pytest.mark.integration
@@ -726,6 +780,180 @@ def test_t4_expired_approval_confirm_rejects_and_only_lazy_expiry_is_written(
     assert _operation_row_count("op-t4-confirm") == 0
     approval_events = _event_payloads(story_id, run_id, EventType.TAKEOVER_APPROVAL_CHANGED)
     assert approval_events[-1]["approval"]["status"] == "expired"
+
+
+@pytest.mark.integration
+def test_human_bff_takeover_deny_persists_denied_event_and_blocks_later_confirm(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(204)
+    run_id = "run-deny"
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident="inst-deny-setup")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    pending_result = service.request_ownership_takeover(
+        request=TakeoverRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-agent-deny",
+            principal_type="interactive_agent",
+            op_id="op-deny-request",
+            reason="owner unavailable",
+            worktree_roots=[f"T:/worktrees/{story_id}/agent"],
+        )
+    )
+    assert pending_result.pending_human_approval is not None
+    approval_id = pending_result.pending_human_approval.approval_id
+    pending = load_takeover_approval_global(approval_id)
+    assert pending is not None
+    echo = _challenge_echo_from_current(story_id, pending.challenge_ref)
+    auth = AuthMiddleware()
+    app = ControlPlaneApplication(runtime_service=service, auth_middleware=auth)
+
+    response = app.handle_request(
+        method="POST",
+        path=f"/v1/project-edge/story-runs/{run_id}/ownership/takeover-deny",
+        body=json.dumps(
+            {
+                "project_key": _PROJECT,
+                "story_id": story_id,
+                "session_id": "sess-human-deny",
+                "principal_type": "interactive_agent",
+                "op_id": "op-deny-decision",
+                "approval_id": approval_id,
+                "reason": "human denied",
+            }
+        ).encode(),
+        request_headers=_human_headers(auth, project_key=_PROJECT),
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert _response_json(response)["status"] == "denied"
+    stored = load_takeover_approval_global(approval_id)
+    assert stored is not None
+    assert stored.status is TakeoverApprovalStatus.DENIED
+    assert stored.decided_by_session_id == "sess-human-deny"
+    request_op = load_control_plane_operation_global("op-deny-request")
+    assert request_op is not None
+    assert request_op.status == "denied"
+    assert request_op.response_payload["status"] == "denied"
+    approval_events = _event_payloads(
+        story_id,
+        run_id,
+        EventType.TAKEOVER_APPROVAL_CHANGED,
+    )
+    denied_events = [
+        event
+        for event in approval_events
+        if isinstance(event.get("approval"), dict)
+        and event["approval"].get("status") == "denied"
+    ]
+    assert denied_events == [
+        {
+            "project_key": _PROJECT,
+            "story_id": story_id,
+            "approval_id": approval_id,
+            "approval": {
+                "approval_id": approval_id,
+                "project_key": _PROJECT,
+                "story_id": story_id,
+                "run_id": run_id,
+                "requested_by_session_id": "sess-agent-deny",
+                "requested_by_principal_type": "interactive_agent",
+                "reason": "owner unavailable",
+                "challenge_ref": pending.challenge_ref,
+                "status": "denied",
+                "requested_at": _wire_time(pending.requested_at),
+                "expires_at": _wire_time(pending.expires_at),
+                "decided_at": _wire_time(_NOW),
+                "decided_by_session_id": "sess-human-deny",
+                "decision_reason": "human denied",
+            },
+        }
+    ]
+
+    follow_up = service.confirm_ownership_takeover(
+        request=_confirm_request(
+            story_id=story_id,
+            echo=echo,
+            op_id="op-denied-confirm",
+            approval_id=approval_id,
+        )
+    )
+
+    assert follow_up.status == "rejected"
+    assert follow_up.error_code == "approval_not_approved"
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None
+    assert active.owner_session_id == "sess-A"
+    assert active.ownership_epoch == 1
+    assert _binding_exists("sess-B") == 0
+    assert _operation_row_count("op-denied-confirm") == 0
+
+
+@pytest.mark.integration
+def test_token_authenticated_takeover_deny_is_forbidden_and_writes_nothing(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(205)
+    run_id = "run-deny-token"
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident="inst-deny-token-setup")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    pending_result = service.request_ownership_takeover(
+        request=TakeoverRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-agent-deny-token",
+            principal_type="interactive_agent",
+            op_id="op-deny-token-request",
+            reason="owner unavailable",
+            worktree_roots=[f"T:/worktrees/{story_id}/agent"],
+        )
+    )
+    assert pending_result.pending_human_approval is not None
+    approval_id = pending_result.pending_human_approval.approval_id
+    before = _state_snapshot(story_id, run_id, approval_id)
+    tokens = _InMemoryTokenRepository()
+    issued = issue_project_api_token(
+        project_key=_PROJECT,
+        label="agent",
+        repository=tokens,
+    )
+    app = ControlPlaneApplication(
+        runtime_service=service,
+        auth_middleware=AuthMiddleware(token_repository=tokens),
+    )
+
+    response = app.handle_request(
+        method="POST",
+        path=f"/v1/project-edge/story-runs/{run_id}/ownership/takeover-deny",
+        body=json.dumps(
+            {
+                "project_key": _PROJECT,
+                "story_id": story_id,
+                "session_id": "sess-agent-deny-token",
+                "principal_type": "human_cli",
+                "op_id": "op-forbidden-deny",
+                "approval_id": approval_id,
+                "reason": "forged",
+            }
+        ).encode(),
+        request_headers={
+            "Authorization": f"Bearer {issued.plaintext_token}",
+            "X-Project-Key": _PROJECT,
+        },
+    )
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert _response_json(response)["error_code"] == "agent_deny_forbidden"
+    assert _state_snapshot(story_id, run_id, approval_id) == before
+    assert _operation_row_count("op-forbidden-deny") == 0
 
 
 @pytest.mark.integration

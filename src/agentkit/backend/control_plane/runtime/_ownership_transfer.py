@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import replace
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -14,6 +15,7 @@ from agentkit.backend.control_plane.models import (
     TakeoverApprovalView,
     TakeoverChallenge,
     TakeoverChallengeEchoRequest,
+    TakeoverDenyRequest,
     TakeoverRepoChallenge,
     TakeoverRequest,
 )
@@ -58,6 +60,7 @@ logger = logging.getLogger(__name__)
 
 _TAKEOVER_REQUEST = "ownership_takeover_request"
 _TAKEOVER_CONFIRM = "ownership_takeover_confirm"
+_TAKEOVER_DENY = "ownership_takeover_deny"
 _TAKEOVER_PHASE = "ownership"
 _CHALLENGE_TTL = timedelta(minutes=15)
 _APPROVAL_TTL = timedelta(hours=2)
@@ -185,6 +188,59 @@ class _OwnershipTransferMixin:
                     story_id=request.story_id,
                     op_id=request.op_id,
                 )
+            raise
+
+    def deny_ownership_takeover(
+        self,
+        *,
+        request: TakeoverDenyRequest,
+    ) -> ControlPlaneMutationResult:
+        """Deny a pending agent-initiated takeover approval."""
+        existing = self._load_takeover_existing_operation(
+            request,
+            operation_kind=_TAKEOVER_DENY,
+        )
+        if existing is not None:
+            return existing
+        conflict = self._acquire_object_claim(
+            project_key=request.project_key,
+            story_id=request.story_id,
+            op_id=request.op_id,
+        )
+        if conflict is not None:
+            return _object_claim_busy_rejection(
+                op_id=request.op_id,
+                operation_kind=_TAKEOVER_DENY,
+                run_id=None,
+                phase=_TAKEOVER_PHASE,
+                conflict=conflict,
+            )
+        try:
+            result = self._deny_ownership_takeover_under_claim(request)
+            self._release_object_claim(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
+            return result
+        except OwnershipFenceViolationError:
+            self._release_object_claim(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
+            return _takeover_rejection(
+                op_id=request.op_id,
+                operation_kind=_TAKEOVER_DENY,
+                reason="takeover_approval_not_pending",
+                error_code="takeover_approval_not_pending",
+            )
+        except BaseException:
+            self._release_object_claim_best_effort(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
             raise
 
     def _request_ownership_takeover_under_claim(
@@ -556,6 +612,108 @@ class _OwnershipTransferMixin:
         )
         return result
 
+    def _deny_ownership_takeover_under_claim(
+        self,
+        request: TakeoverDenyRequest,
+    ) -> ControlPlaneMutationResult:
+        now = self._now_fn()
+        from agentkit.backend.control_plane.repository import (
+            TakeoverApprovalRepository,
+        )
+
+        approval = TakeoverApprovalRepository().load_approval(request.approval_id)
+        if approval is None:
+            return _takeover_rejection(
+                op_id=request.op_id,
+                operation_kind=_TAKEOVER_DENY,
+                reason="takeover_approval_not_found",
+                error_code="takeover_approval_not_found",
+            )
+        if approval.project_key != request.project_key or approval.story_id != request.story_id:
+            return _takeover_rejection(
+                op_id=request.op_id,
+                operation_kind=_TAKEOVER_DENY,
+                reason="takeover_approval_scope_mismatch",
+                error_code="takeover_approval_scope_mismatch",
+                run_id=approval.run_id,
+            )
+        if approval.status is not TakeoverApprovalStatus.PENDING or now >= approval.expires_at:
+            return _takeover_rejection(
+                op_id=request.op_id,
+                operation_kind=_TAKEOVER_DENY,
+                reason="takeover_approval_not_pending",
+                error_code="takeover_approval_not_pending",
+                run_id=approval.run_id,
+            )
+        request_op_id = _request_op_id_from_challenge_ref(approval.challenge_ref)
+        if request_op_id is None:
+            return _takeover_rejection(
+                op_id=request.op_id,
+                operation_kind=_TAKEOVER_DENY,
+                reason="takeover_request_operation_required",
+                error_code="takeover_request_operation_required",
+                run_id=approval.run_id,
+            )
+        request_operation = self._repo.load_operation(request_op_id)
+        if request_operation is None:
+            return _takeover_rejection(
+                op_id=request.op_id,
+                operation_kind=_TAKEOVER_DENY,
+                reason="takeover_request_operation_required",
+                error_code="takeover_request_operation_required",
+                run_id=approval.run_id,
+            )
+        denied_approval = replace(
+            approval,
+            status=TakeoverApprovalStatus.DENIED,
+            decided_at=now,
+            decided_by_session_id=request.session_id,
+            decision_reason=request.reason,
+        )
+        result = ControlPlaneMutationResult(
+            status="denied",
+            op_id=request.op_id,
+            operation_kind=_TAKEOVER_DENY,
+            run_id=approval.run_id,
+            phase=_TAKEOVER_PHASE,
+        )
+        request_result = ControlPlaneMutationResult(
+            status="denied",
+            op_id=request_op_id,
+            operation_kind=_TAKEOVER_REQUEST,
+            run_id=approval.run_id,
+            phase=_TAKEOVER_PHASE,
+            pending_human_approval=PendingHumanApprovalResponse(
+                op_id=request_op_id,
+                approval_id=approval.approval_id,
+                message="takeover_approval_denied",
+                approval=_approval_view(denied_approval),
+            ),
+        )
+        event = _lifecycle_event_record(
+            event_type=EventType.TAKEOVER_APPROVAL_CHANGED,
+            project_key=request.project_key,
+            story_id=request.story_id,
+            run_id=approval.run_id,
+            source_component=request.source_component,
+            payload=_approval_changed_payload(denied_approval),
+            now=now,
+            phase=_TAKEOVER_PHASE,
+        )
+        self._repo.commit_takeover_deny(
+            self._takeover_operation_record(request, result=result, now=now, run_id=approval.run_id),
+            request_op_record=replace(
+                request_operation,
+                status="denied",
+                response_payload=request_result.model_dump(mode="json"),
+                updated_at=now,
+                finalized_at=now,
+            ),
+            denied_approval=denied_approval,
+            events=(event,),
+        )
+        return result
+
     def _build_takeover_challenge(
         self,
         *,
@@ -634,7 +792,7 @@ class _OwnershipTransferMixin:
 
     def _load_takeover_existing_operation(
         self,
-        request: TakeoverRequest | TakeoverChallengeEchoRequest,
+        request: TakeoverRequest | TakeoverChallengeEchoRequest | TakeoverDenyRequest,
         *,
         operation_kind: str,
     ) -> ControlPlaneMutationResult | None:
@@ -658,7 +816,7 @@ class _OwnershipTransferMixin:
 
     def _takeover_operation_record(
         self,
-        request: TakeoverRequest | TakeoverChallengeEchoRequest,
+        request: TakeoverRequest | TakeoverChallengeEchoRequest | TakeoverDenyRequest,
         *,
         result: ControlPlaneMutationResult,
         now: datetime,
@@ -682,7 +840,7 @@ class _OwnershipTransferMixin:
 
 
 def _takeover_body_hash(
-    request: TakeoverRequest | TakeoverChallengeEchoRequest,
+    request: TakeoverRequest | TakeoverChallengeEchoRequest | TakeoverDenyRequest,
     *,
     operation_kind: str,
 ) -> str:
@@ -690,6 +848,14 @@ def _takeover_body_hash(
     payload["__operation_kind"] = operation_kind
     payload["__phase"] = _TAKEOVER_PHASE
     return compute_body_hash(payload)
+
+
+def _request_op_id_from_challenge_ref(challenge_ref: str) -> str | None:
+    prefix = "takeover-"
+    if not challenge_ref.startswith(prefix):
+        return None
+    op_id = challenge_ref[len(prefix) :]
+    return op_id or None
 
 
 def _takeover_rejection(

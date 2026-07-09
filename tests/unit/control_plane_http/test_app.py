@@ -36,7 +36,10 @@ from agentkit.backend.telemetry.http.routes import TelemetryRouteResponse
 
 if TYPE_CHECKING:
     from agentkit.backend.auth.entities import ProjectApiToken
-    from agentkit.backend.control_plane.models import TakeoverChallengeEchoRequest
+    from agentkit.backend.control_plane.models import (
+        TakeoverChallengeEchoRequest,
+        TakeoverDenyRequest,
+    )
 
 # ---------------------------------------------------------------------------
 # AC1 — compat re-export identity
@@ -385,10 +388,15 @@ class _InMemoryTokenRepository:
 class _FakeTakeoverRuntime:
     def __init__(self) -> None:
         self.confirm_calls: list[TakeoverChallengeEchoRequest] = []
+        self.deny_calls: list[TakeoverDenyRequest] = []
 
     def confirm_ownership_takeover(self, *, request: TakeoverChallengeEchoRequest) -> object:
         self.confirm_calls.append(request)
         raise AssertionError("forged takeover confirm reached runtime")
+
+    def deny_ownership_takeover(self, *, request: TakeoverDenyRequest) -> object:
+        self.deny_calls.append(request)
+        raise AssertionError("forged takeover deny reached runtime")
 
 
 def _make_app(
@@ -480,6 +488,55 @@ def test_token_agent_cannot_forge_human_takeover_confirm_and_writes_nothing() ->
     assert response.status_code == HTTPStatus.FORBIDDEN
     assert _json_body(response)["error_code"] == "agent_confirm_forbidden"  # type: ignore[index]
     assert runtime.confirm_calls == []
+
+
+def test_token_agent_cannot_forge_human_takeover_deny_and_writes_nothing() -> None:
+    tokens = _InMemoryTokenRepository()
+    issued = issue_project_api_token(
+        project_key="tenant-a",
+        label="agent",
+        repository=tokens,
+    )
+    runtime = _FakeTakeoverRuntime()
+    app = ControlPlaneApplication(
+        routes=ControlPlaneApplicationRoutes(
+            project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
+            story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
+            concept_routes=_FakeConceptRoutes(),  # type: ignore[arg-type]
+            hub_routes=_FakeHubRoutes(),  # type: ignore[arg-type]
+            planning_routes=_FakePlanningRoutes(),  # type: ignore[arg-type]
+            telemetry_routes=_FakeTelemetryRoutes(),  # type: ignore[arg-type]
+            auth_routes=_FakeAuthRoutes(),  # type: ignore[arg-type]
+            read_model_routes=_FakeReadModelRoutes(),  # type: ignore[arg-type]
+        ),
+        runtime_service=runtime,  # type: ignore[arg-type]
+        auth_middleware=AuthMiddleware(token_repository=tokens),
+        tenant_scope_middleware=_NoopTenantScope(),  # type: ignore[arg-type]
+    )
+    response = app.handle_request(
+        method="POST",
+        path="/v1/project-edge/story-runs/run-100/ownership/takeover-deny",
+        body=json.dumps(
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "session_id": "sess-agent",
+                "principal_type": "human_cli",
+                "op_id": "op-forged-deny",
+                "approval_id": "approval-100",
+                "reason": "forged",
+            }
+        ).encode(),
+        request_headers={
+            "Authorization": f"Bearer {issued.plaintext_token}",
+            "X-Project-Key": "tenant-a",
+            "X-Correlation-Id": "req-forged-deny",
+        },
+    )
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert _json_body(response)["error_code"] == "agent_deny_forbidden"  # type: ignore[index]
+    assert runtime.deny_calls == []
 
 
 # ---------------------------------------------------------------------------
