@@ -10,10 +10,15 @@ from agentkit.backend.control_plane import (
 )
 from agentkit.backend.control_plane.models import (
     AdminAbortRequest,
+    AdminTakeoverReconcileClearRequest,
     ControlPlaneMutationResult,
+)
+from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
+    compute_body_hash,
 )
 
 from ._models import OperationNotAbortableError, OperationNotFoundError
+from ._operation_records import _operation_record, _rejection_result
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -28,6 +33,13 @@ if TYPE_CHECKING:
     )
 
 logger = logging.getLogger(__name__)
+
+_TAKEOVER_RECONCILE_CLEAR = "takeover_reconcile_clear"
+_TAKEOVER_RECONCILE_PHASE = "ownership"
+_ADMIN_TRANSITION_PRINCIPALS = frozenset(
+    {"human_cli", "admin_service", "human_bff_session"},
+)
+
 
 class _AdminTransitionMixin:
     """AG3-138 ``admin_transition`` abort + repair-resolve service methods (mixin).
@@ -111,6 +123,86 @@ class _AdminTransitionMixin:
         #: Any truly closed terminal status (committed/aborted/failed/resolved/...) is
         #: not abortable (AC6, 409).
         raise OperationNotAbortableError(op_id, record.status)
+
+    def clear_takeover_reconcile_obligation(
+        self,
+        *,
+        request: AdminTakeoverReconcileClearRequest,
+    ) -> ControlPlaneMutationResult:
+        """Clear the current takeover reconcile obligation via admin_transition.
+
+        Pre-AG3-151, the frozen AG3-148 contract allows clearing
+        ``takeover_transfer_records.reconciled_at/reconcile_ref`` only through an
+        audited administrative transition. This runtime boundary is the sanctioned
+        path: it rejects non-privileged principals before persistence, then commits
+        the operation ledger row and the transfer-record clear in one store
+        transaction.
+        """
+        self._require_postgres_backend_on_first_use()
+        if request.principal_type not in _ADMIN_TRANSITION_PRINCIPALS:
+            return _admin_reconcile_clear_rejection(
+                request,
+                reason="takeover_reconcile_clear_forbidden",
+            )
+        existing = self._repo.load_operation(request.op_id)
+        if existing is not None and existing.status != "claimed":
+            stored_hash = existing.request_body_hash
+            if stored_hash is not None and stored_hash != _admin_reconcile_body_hash(
+                request,
+            ):
+                from agentkit.backend.story_context_manager.errors import (
+                    IdempotencyMismatchError,
+                )
+
+                raise IdempotencyMismatchError(
+                    f"op_id {request.op_id!r} was previously used with a "
+                    "different takeover reconcile clear request body",
+                    detail={
+                        "op_id": request.op_id,
+                        "conflict": "body_hash_mismatch",
+                    },
+                )
+            return ControlPlaneMutationResult.model_validate(existing.response_payload)
+        active = self._repo.load_active_ownership(request.project_key, request.story_id)
+        if active is None or active.run_id != request.run_id:
+            return _admin_reconcile_clear_rejection(
+                request,
+                reason="active_ownership_required",
+            )
+        now = self._now_fn()
+        actor = f"session={request.session_id!r} principal={request.principal_type!r}"
+        admin_note = (
+            f"takeover reconcile obligation cleared by {actor}: "
+            f"reason={request.reason!r}. The clear is an audited "
+            "admin_transition (FK-55 §55.5) and is the only pre-AG3-151 "
+            "sanctioned clear path."
+        )
+        result = ControlPlaneMutationResult(
+            status="resolved",
+            op_id=request.op_id,
+            operation_kind=_TAKEOVER_RECONCILE_CLEAR,
+            run_id=request.run_id,
+            phase=_TAKEOVER_RECONCILE_PHASE,
+            admin_note=admin_note,
+        )
+        self._repo.commit_takeover_reconcile_clear(
+            _operation_record(
+                op_id=request.op_id,
+                project_key=request.project_key,
+                story_id=request.story_id,
+                run_id=request.run_id,
+                session_id=request.session_id,
+                operation_kind=_TAKEOVER_RECONCILE_CLEAR,
+                phase=_TAKEOVER_RECONCILE_PHASE,
+                result=result,
+                now=now,
+                request_body_hash=_admin_reconcile_body_hash(request),
+            ),
+            ownership_epoch=active.ownership_epoch,
+            reconciled_at=now,
+            reconcile_ref=f"admin_transition:{request.op_id}",
+        )
+        return result
 
     def _abort_claimed_operation(
         self,
@@ -211,3 +303,30 @@ class _AdminTransitionMixin:
             "and its operation_epoch bumped so a late executor's finalize fails "
             "the fence deterministically (AC4).",
         )
+
+
+def _admin_reconcile_body_hash(
+    request: AdminTakeoverReconcileClearRequest,
+) -> str:
+    payload = dict(request.model_dump(mode="json"))
+    payload["__operation_kind"] = _TAKEOVER_RECONCILE_CLEAR
+    payload["__phase"] = _TAKEOVER_RECONCILE_PHASE
+    return compute_body_hash(payload)
+
+
+def _admin_reconcile_clear_rejection(
+    request: AdminTakeoverReconcileClearRequest,
+    *,
+    reason: str,
+) -> ControlPlaneMutationResult:
+    result = _rejection_result(
+        op_id=request.op_id,
+        operation_kind=_TAKEOVER_RECONCILE_CLEAR,
+        run_id=request.run_id,
+        phase=_TAKEOVER_RECONCILE_PHASE,
+        reason=reason,
+        dispatch_phase=_TAKEOVER_RECONCILE_PHASE,
+    )
+    return ControlPlaneMutationResult.model_validate(
+        {**result.model_dump(mode="json"), "error_code": reason},
+    )

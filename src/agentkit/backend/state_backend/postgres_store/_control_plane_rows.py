@@ -999,7 +999,7 @@ def commit_takeover_confirm_global_row(
             expected_ownership_epoch=expected_ownership_epoch,
             expected_binding_version=expected_binding_version,
         )
-        conn.execute(
+        cursor = conn.execute(
             """
             UPDATE run_ownership_records
             SET owner_session_id = ?, ownership_epoch = ?,
@@ -1017,6 +1017,18 @@ def commit_takeover_confirm_global_row(
                 op_row["run_id"],
             ),
         )
+        if int(cursor.rowcount) != 1:
+            raise OwnershipFenceViolationError(
+                "takeover confirm CAS failed: active ownership update affected "
+                "zero rows after verification",
+                detail={
+                    "project_key": op_row["project_key"],
+                    "story_id": op_row["story_id"],
+                    "run_id": op_row["run_id"],
+                    "expected_owner_session_id": expected_owner_session_id,
+                    "expected_ownership_epoch": expected_ownership_epoch,
+                },
+            )
         _run_takeover_fault_hook(fault_after_step, "ownership_update")
         cursor = conn.execute(
             """
@@ -1101,6 +1113,47 @@ def commit_takeover_confirm_global_row(
             _run_takeover_fault_hook(
                 fault_after_step,
                 f"event_insert:{event_row['event_type']}",
+            )
+
+
+def commit_takeover_reconcile_clear_global_row(
+    *,
+    op_row: dict[str, Any],
+    ownership_epoch: int,
+    reconciled_at: str,
+    reconcile_ref: str,
+) -> None:
+    """Atomically write the admin-transition op and clear transfer rows."""
+
+    with _connect_global() as conn:
+        _conditional_upsert_control_plane_op_row(conn, op_row)
+        cursor = conn.execute(
+            """
+            UPDATE takeover_transfer_records
+            SET reconciled_at = ?, reconcile_ref = ?
+            WHERE project_key = ? AND story_id = ? AND run_id = ?
+              AND ownership_epoch = ?
+              AND reconciled_at IS NULL
+            """,
+            (
+                reconciled_at,
+                reconcile_ref,
+                op_row["project_key"],
+                op_row["story_id"],
+                op_row["run_id"],
+                ownership_epoch,
+            ),
+        )
+        if int(cursor.rowcount) < 1:
+            raise OwnershipFenceViolationError(
+                "takeover reconcile clear CAS failed: no unreconciled transfer "
+                "rows exist for the active ownership epoch",
+                detail={
+                    "project_key": op_row["project_key"],
+                    "story_id": op_row["story_id"],
+                    "run_id": op_row["run_id"],
+                    "ownership_epoch": ownership_epoch,
+                },
             )
 
 

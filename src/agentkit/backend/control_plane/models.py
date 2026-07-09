@@ -288,6 +288,28 @@ class AdminAbortRequest(BaseModel):
     source_component: str = Field(min_length=1, default="project_edge_client")
 
 
+class AdminTakeoverReconcileClearRequest(BaseModel):
+    """Request payload for the pre-AG3-151 takeover reconcile admin clear.
+
+    The productive reconcile contract arrives with AG3-151. Until then the frozen
+    AG3-148 contract permits exactly one clear path: an audited
+    ``admin_transition`` performed by a privileged human/service principal. The
+    runtime writes the operation ledger row and the transfer-record clear in one
+    transaction; callers may not clear by writing ``reconcile_ref`` directly.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    project_key: str = Field(min_length=1)
+    story_id: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    session_id: str = Field(min_length=1)
+    principal_type: str = Field(min_length=1)
+    op_id: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    source_component: str = Field(min_length=1, default="project_edge_client")
+
+
 class ProjectEdgeSyncRequest(BaseModel):
     """Canonical request payload for a bounded project-edge sync."""
 

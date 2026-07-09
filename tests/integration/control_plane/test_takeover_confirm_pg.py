@@ -15,6 +15,7 @@ from agentkit.backend.auth.middleware import AuthMiddleware
 from agentkit.backend.auth.tokens import issue_project_api_token
 from agentkit.backend.control_plane.http import ControlPlaneApplication, HttpResponse
 from agentkit.backend.control_plane.models import (
+    AdminTakeoverReconcileClearRequest,
     ControlPlaneMutationResult,
     EdgeBundle,
     EdgePointer,
@@ -708,6 +709,78 @@ def test_takeover_confirm_global_approves_pending_approval_in_same_transaction(
     request_op = load_control_plane_operation_global("op-request-2")
     assert request_op is not None
     assert request_op.status == "approved"
+
+
+@pytest.mark.integration
+def test_takeover_confirm_global_checks_ownership_update_rowcount(
+    postgres_backend_env: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del postgres_backend_env
+    new_binding = SessionRunBindingRecord(
+        session_id="sess-B-rowcount",
+        project_key="tenant-a",
+        story_id="AG3-148-rowcount",
+        run_id="run-rowcount",
+        principal_type="human_cli",
+        worktree_roots=("T:/worktrees/rowcount",),
+        binding_version="2",
+        updated_at=_NOW,
+    )
+    op = _op_record(new_binding, op_id="op-rowcount-confirm")
+    challenge = _challenge_record(
+        challenge_id="challenge-rowcount",
+        request_op_id="op-rowcount-request",
+        project_key="tenant-a",
+        story_id="AG3-148-rowcount",
+        run_id="run-rowcount",
+    )
+
+    monkeypatch.setattr(
+        "agentkit.backend.state_backend.postgres_store._control_plane_rows."
+        "_verify_takeover_confirm_cas",
+        lambda *args, **kwargs: None,
+    )
+
+    with pytest.raises(OwnershipFenceViolationError, match="active ownership update"):
+        commit_takeover_confirm_global(
+            op,
+            expected_owner_session_id="sess-A",
+            expected_ownership_epoch=1,
+            expected_binding_version="1",
+            revoked_binding=SessionRunBindingRecord(
+                session_id="sess-A",
+                project_key="tenant-a",
+                story_id="AG3-148-rowcount",
+                run_id="run-rowcount",
+                principal_type="orchestrator",
+                worktree_roots=("T:/worktrees/a",),
+                binding_version="1",
+                updated_at=_NOW,
+                status=BindingStatus.REVOKED.value,
+                revocation_reason=OWNERSHIP_TRANSFERRED_REVOCATION_REASON,
+            ),
+            new_binding=new_binding,
+            locks=(),
+            transfers=(),
+            events=(),
+            terminal_records=TakeoverConfirmTerminalRecords(
+                challenge=_terminal_challenge_record(
+                    challenge,
+                    terminal_op_id=op.op_id,
+                ),
+                request_op_record=_request_op_record(
+                    op_id=challenge.request_op_id,
+                    project_key=challenge.project_key,
+                    story_id=challenge.story_id,
+                    run_id=challenge.run_id,
+                    session_id=challenge.requesting_session_id,
+                    status="approved",
+                    finalized_at=_NOW,
+                ),
+            ),
+        )
+    assert _operation_row_count(op.op_id) == 0
 
 
 @pytest.mark.integration
@@ -1465,23 +1538,67 @@ def test_reconcile_obligation_blocks_until_audited_admin_clear_and_story_upsert_
             reconcile_ref="agentic_clear:unattested",
         )
 
-    save_takeover_transfer_record_global(
-        TakeoverTransferRecord(
-            project_key=transfer.project_key,
-            story_id=transfer.story_id,
-            run_id=transfer.run_id,
-            ownership_epoch=transfer.ownership_epoch,
-            repo_id=transfer.repo_id,
-            takeover_base_sha=transfer.takeover_base_sha,
-            last_push_at=transfer.last_push_at,
-            push_lag_hint=transfer.push_lag_hint,
-            base_quality=transfer.base_quality,
-            challenge_ref=transfer.challenge_ref,
-            confirm_ref=transfer.confirm_ref,
-            reconciled_at=_LATER,
-            reconcile_ref="admin_transition:manual-clear",
+    with pytest.raises(ValueError, match="generic transfer upsert"):
+        save_takeover_transfer_record_global(
+            TakeoverTransferRecord(
+                project_key=transfer.project_key,
+                story_id=transfer.story_id,
+                run_id=transfer.run_id,
+                ownership_epoch=transfer.ownership_epoch,
+                repo_id=transfer.repo_id,
+                takeover_base_sha=transfer.takeover_base_sha,
+                last_push_at=transfer.last_push_at,
+                push_lag_hint=transfer.push_lag_hint,
+                base_quality=transfer.base_quality,
+                challenge_ref=transfer.challenge_ref,
+                confirm_ref=transfer.confirm_ref,
+                reconciled_at=_LATER,
+                reconcile_ref="admin_transition:manual-clear",
+            )
+        )
+    agentic_clear = service.clear_takeover_reconcile_obligation(
+        request=AdminTakeoverReconcileClearRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            run_id=run_id,
+            session_id="sess-agent-reconcile",
+            principal_type="interactive_agent",
+            op_id="op-reconcile-agentic-clear",
+            reason="forged clear",
         )
     )
+    assert agentic_clear.status == "rejected"
+    assert agentic_clear.error_code == "takeover_reconcile_clear_forbidden"
+    assert load_control_plane_operation_global("op-reconcile-agentic-clear") is None
+
+    cleared = service.clear_takeover_reconcile_obligation(
+        request=AdminTakeoverReconcileClearRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            run_id=run_id,
+            session_id="sess-admin-reconcile",
+            principal_type="human_cli",
+            op_id="op-reconcile-admin-clear",
+            reason="manual pre-AG3-151 reconcile clear",
+        )
+    )
+    assert cleared.status == "resolved"
+    clear_op = load_control_plane_operation_global("op-reconcile-admin-clear")
+    assert clear_op is not None
+    assert clear_op.status == "resolved"
+    assert clear_op.operation_kind == "takeover_reconcile_clear"
+    assert "admin_transition" in str(clear_op.response_payload["admin_note"])
+    cleared_transfer = load_takeover_transfer_record_global(
+        _PROJECT,
+        story_id,
+        run_id,
+        2,
+        _REPO,
+    )
+    assert cleared_transfer is not None
+    assert cleared_transfer.reconciled_at == _NOW
+    assert cleared_transfer.reconcile_ref == "admin_transition:op-reconcile-admin-clear"
+
     allowed = service.start_phase(
         run_id=run_id,
         phase="qa",

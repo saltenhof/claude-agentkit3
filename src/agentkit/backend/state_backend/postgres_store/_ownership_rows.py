@@ -844,7 +844,15 @@ def save_takeover_transfer_record_global_row(row: dict[str, Any]) -> None:
     Identity is ``(project_key, story_id, run_id, ownership_epoch, repo_id)`` —
     one row per repo (state-storage v5). Upsert so the productive writer AG3-148
     can materialise the attributes across the challenge → confirm lifecycle.
+    It is not a reconcile-clear API: pre-AG3-151 clears must go through the
+    audited runtime ``admin_transition`` unit of work.
     """
+    if row.get("reconciled_at") is not None or row.get("reconcile_ref") is not None:
+        raise ValueError(
+            "takeover reconcile clear requires the audited admin_transition "
+            "runtime operation; generic transfer upsert must not write "
+            "reconciled_at/reconcile_ref",
+        )
 
     with _connect_global() as conn:
         conn.execute(

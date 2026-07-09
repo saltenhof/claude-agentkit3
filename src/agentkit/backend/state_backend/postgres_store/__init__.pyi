@@ -88,6 +88,9 @@ from ._control_plane_rows import (
     commit_control_plane_operation_with_side_effects_global_row as commit_control_plane_operation_with_side_effects_global_row,
 )
 from ._control_plane_rows import (
+    commit_takeover_reconcile_clear_global_row as commit_takeover_reconcile_clear_global_row,
+)
+from ._control_plane_rows import (
     delete_control_plane_operation_global_row as delete_control_plane_operation_global_row,
 )
 from ._control_plane_rows import (

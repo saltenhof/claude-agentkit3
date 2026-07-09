@@ -358,6 +358,26 @@ def commit_takeover_expiry_global(
     )
 
 
+def commit_takeover_reconcile_clear_global(
+    op_record: ControlPlaneOperationRecord,
+    *,
+    ownership_epoch: int,
+    reconciled_at: datetime,
+    reconcile_ref: str,
+) -> None:
+    """Atomically record an admin clear of the takeover reconcile obligation."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    backend.commit_takeover_reconcile_clear_global_row(
+        op_row=mappers.control_plane_op_to_row(op_record),
+        ownership_epoch=ownership_epoch,
+        reconciled_at=reconciled_at.isoformat(),
+        reconcile_ref=reconcile_ref,
+    )
+
+
 def release_control_plane_operation_global(
     op_id: str,
     *,
@@ -678,6 +698,7 @@ __all__ = [
     "commit_takeover_deny_global",
     "commit_takeover_confirm_global",
     "commit_takeover_expiry_global",
+    "commit_takeover_reconcile_clear_global",
     "release_control_plane_operation_global",
     "list_orphaned_claimed_control_plane_operations_global",
     "finalize_orphaned_control_plane_operation_global",

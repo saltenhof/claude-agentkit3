@@ -310,6 +310,8 @@ class _OwnershipTransferMixin:
                 TakeoverApprovalRepository,
             )
 
+            # AG3-149/151 hardening follow-up: request persists approval/operation/
+            # challenge in separate writes; confirm/deny own the atomicity contract.
             TakeoverApprovalRepository().insert_approval(approval)
             result = ControlPlaneMutationResult(
                 status="pending_human_approval",

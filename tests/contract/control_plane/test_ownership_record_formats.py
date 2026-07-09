@@ -10,11 +10,13 @@ the mapper. Also pins the Postgres-only fail-closed gate (AK7) and the
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
+import yaml
 
 from agentkit.backend.control_plane.ownership import (
     BINDING_VERSION_SQL_CHECK,
@@ -68,66 +70,69 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
 _NOW = datetime(2026, 7, 2, 12, 0, 0, tzinfo=UTC)
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_FORMAL_BLOCK = re.compile(
+    r"<!-- FORMAL-SPEC:BEGIN -->\s*```yaml\n(.*?)```\s*<!-- FORMAL-SPEC:END -->",
+    re.DOTALL,
+)
+_PERSISTENCE_KEY_OVERRIDES = {
+    "repos": "repos_json",
+    "open_operation_ids": "open_operation_ids_json",
+    "takeover_history_refs": "takeover_history_refs_json",
+}
+
+
+def _load_formal_entities(rel_path: str) -> dict[str, dict[str, Any]]:
+    text = (_REPO_ROOT / "concept" / "formal-spec" / rel_path).read_text(
+        encoding="utf-8",
+    )
+    match = _FORMAL_BLOCK.search(text)
+    assert match is not None, f"FORMAL-SPEC block not found in {rel_path}"
+    data = yaml.safe_load(match.group(1))
+    assert isinstance(data, dict)
+    entities = data["entities"]
+    assert isinstance(entities, list)
+    return {str(entity["id"]): entity for entity in entities}
+
+
+_STATE_STORAGE_ENTITIES = _load_formal_entities("state-storage/entities.md")
+_OPERATING_MODE_ENTITIES = _load_formal_entities("operating-modes/entities.md")
+
+
+def _identity_fields(entity: dict[str, Any]) -> set[str]:
+    raw = entity.get("identity_key", entity.get("identity", ""))
+    return {part.strip() for part in str(raw).split("+") if part.strip()}
+
+
+def _formal_persisted_keys(
+    entity: dict[str, Any],
+    *,
+    include_identity: bool = False,
+    additive: set[str] | None = None,
+) -> set[str]:
+    raw_attrs = entity["attributes"]
+    assert isinstance(raw_attrs, list)
+    names = {str(name) for name in raw_attrs}
+    if include_identity:
+        names |= _identity_fields(entity)
+    persisted = {_PERSISTENCE_KEY_OVERRIDES.get(name, name) for name in names}
+    return persisted | (additive or set())
 
 # Expected row-dict key sets == the formal entity attribute sets (SSOT).
-_RUN_OWNERSHIP_KEYS = {
-    "project_key",
-    "story_id",
-    "run_id",
-    "owner_session_id",
-    "ownership_epoch",
-    "status",
-    "acquired_via",
-    "acquired_at",
-    "audit_ref",
-}
-_CLAIM_KEYS = {
-    "project_key",
-    "serialization_scope",
-    "scope_key",
-    "op_id",
-    "backend_instance_id",
-    "instance_incarnation",
-    "acquired_at",
-    "queue_position",
-}
-_TAKEOVER_KEYS = {
-    "project_key",
-    "story_id",
-    "run_id",
-    "ownership_epoch",
-    "repo_id",
-    "takeover_base_sha",
-    "last_push_at",
-    "push_lag_hint",
-    "base_quality",
-    "challenge_ref",
-    "confirm_ref",
-    "reconciled_at",
-    "reconcile_ref",
-}
-_TAKEOVER_CHALLENGE_KEYS = {
-    "challenge_id",
-    "request_op_id",
-    "project_key",
-    "story_id",
-    "run_id",
-    "requesting_session_id",
-    "requesting_principal_type",
-    "reason",
-    "owner_session_id",
-    "ownership_epoch",
-    "binding_version",
-    "phase_status",
-    "issued_at",
-    "expires_at",
-    "repos_json",
-    "open_operation_ids_json",
-    "takeover_history_refs_json",
-    "status",
-    "decided_at",
-    "terminal_op_id",
-}
+_RUN_OWNERSHIP_KEYS = _formal_persisted_keys(
+    _OPERATING_MODE_ENTITIES["operating-modes.entity.run-ownership-record"],
+    include_identity=True,
+    additive={"audit_ref"},
+)
+_CLAIM_KEYS = _formal_persisted_keys(
+    _STATE_STORAGE_ENTITIES["state-storage.entity.object-mutation-claim"],
+)
+_TAKEOVER_KEYS = _formal_persisted_keys(
+    _STATE_STORAGE_ENTITIES["state-storage.entity.takeover-transfer-record"],
+)
+_TAKEOVER_CHALLENGE_KEYS = _formal_persisted_keys(
+    _STATE_STORAGE_ENTITIES["state-storage.entity.takeover-challenge"],
+)
 _INSTANCE_KEYS = {"backend_instance_id", "instance_incarnation", "updated_at"}
 
 

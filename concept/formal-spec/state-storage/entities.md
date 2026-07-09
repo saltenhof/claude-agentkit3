@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: state-storage
 spec_kind: entity-set
-version: 5
+version: 6
 prose_refs:
   - concept/technical-design/17_fachliches_datenmodell_ownership.md
   - concept/technical-design/18_relationales_abbildungsmodell_postgres.md

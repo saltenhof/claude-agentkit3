@@ -25,6 +25,7 @@ from agentkit.backend.state_backend.operation_ledger import (
     commit_takeover_confirm_global,
     commit_takeover_deny_global,
     commit_takeover_expiry_global,
+    commit_takeover_reconcile_clear_global,
     delete_control_plane_operation_global,
     delete_object_mutation_claim_global,
     finalize_control_plane_operation_global,
@@ -263,6 +264,9 @@ class ControlPlaneRuntimeRepository:
     commit_takeover_confirm: Callable[..., None] = commit_takeover_confirm_global
     commit_takeover_deny: Callable[..., None] = commit_takeover_deny_global
     commit_takeover_expiry: Callable[..., None] = commit_takeover_expiry_global
+    commit_takeover_reconcile_clear: Callable[..., None] = (
+        commit_takeover_reconcile_clear_global
+    )
     load_takeover_challenge: Callable[[str], TakeoverChallengeRecord | None] = (
         load_takeover_challenge_global
     )
