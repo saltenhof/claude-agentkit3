@@ -13,10 +13,19 @@ from ._common import (
     _dump_json as _dump_json,
 )
 from ._common import (
+    _execution_event_global_store_dir as _execution_event_global_store_dir,
+)
+from ._common import (
+    _insert_default_project as _insert_default_project,
+)
+from ._common import (
     _JsonRecord as _JsonRecord,
 )
 from ._common import (
     _load_json as _load_json,
+)
+from ._common import (
+    _project_store_dir as _project_store_dir,
 )
 from ._common import (
     _write_projection as _write_projection,
@@ -232,12 +241,6 @@ from ._story_project_rows import (
     _ensure_project_for_story_row as _ensure_project_for_story_row,
 )
 from ._story_project_rows import (
-    _execution_event_global_store_dir as _execution_event_global_store_dir,
-)
-from ._story_project_rows import (
-    _project_store_dir as _project_store_dir,
-)
-from ._story_project_rows import (
     delete_story_are_link_row as delete_story_are_link_row,
 )
 from ._story_project_rows import (
@@ -341,6 +344,7 @@ __all__: tuple[
         "_ensure_schema_runtime_tables",
         "_ensure_story_identity_migration",
         "_execution_event_global_store_dir",
+        "_insert_default_project",
         "_load_json",
         "_project_store_dir",
         "_story_id_for",

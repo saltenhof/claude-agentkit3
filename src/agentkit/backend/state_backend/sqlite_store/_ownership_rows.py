@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ._common import _project_store_dir
 from ._connection import _connect
-from ._story_project_rows import _project_store_dir
 
 
 def save_story_execution_lock_global_row(row: dict[str, Any]) -> None:

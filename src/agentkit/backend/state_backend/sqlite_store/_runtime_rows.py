@@ -9,10 +9,13 @@ from agentkit.backend.boundary.shared.time import now_iso
 from agentkit.backend.exceptions import CorruptStateError
 from agentkit.backend.state_backend.paths import PHASE_STATE_EXPORT_FILE
 
-from ._common import _write_projection
+from ._common import (
+    _execution_event_global_store_dir,
+    _project_store_dir,
+    _write_projection,
+)
 from ._connection import _connect
 from ._story_identity import _story_id_for
-from ._story_project_rows import _execution_event_global_store_dir, _project_store_dir
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from ._common import _dump_json
+from ._common import _insert_default_project
 from ._schema_runtime import _ensure_schema_runtime_tables
 from ._story_identity import _story_number_from_id
 
@@ -337,31 +337,9 @@ def _ensure_default_projects_for_story_contexts(conn: sqlite3.Connection) -> Non
                 project_key,
             )
 
-        default_configuration = _dump_json(
-            {
-                "repo_url": "",
-                "default_branch": "main",
-                "are_url": None,
-                "default_worker_count": 1,
-                "repositories": repositories,
-            },
-        )
-
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO projects (
-                key,
-                name,
-                story_id_prefix,
-                configuration_json,
-                archived_at
-            )
-            VALUES (?, ?, ?, ?, NULL)
-            """,
-            (
-                project_key,
-                project_key,
-                prefix,
-                default_configuration,
-            ),
+        _insert_default_project(
+            conn,
+            project_key=project_key,
+            story_id_prefix=prefix,
+            repositories=repositories,
         )
