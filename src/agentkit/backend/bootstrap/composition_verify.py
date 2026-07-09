@@ -332,13 +332,6 @@ class _BarrierPushVerification:
         ).passed
 
     @staticmethod
-    def _server_head_for_verdict(verdict: Any) -> str | None:
-        return server_head_for_push_barrier_verdict(
-            verdict,
-            evidence_factory=composition_root_attr("build_push_barrier_evidence"),
-        )
-
-    @staticmethod
     def _participating_repos(project_key: str, story_id: str) -> tuple[str, ...]:
         from agentkit.backend.state_backend.store.story_read_repository import (
             StateBackendStoryReadRepository,
