@@ -291,7 +291,11 @@ def _handle_post_takeover_reconcile_clear(
     )
 
     try:
-        if auth_result is None or not auth_result.is_human_bff_session:
+        if (
+            auth_result is None
+            or not auth_result.is_human_bff_session
+            or auth_result.session_id is None
+        ):
             return _error_response(
                 HTTPStatus.FORBIDDEN,
                 error_code="takeover_reconcile_clear_forbidden",
@@ -306,7 +310,12 @@ def _handle_post_takeover_reconcile_clear(
         )
         if project_fence is not None:
             return project_fence
-        request = request.model_copy(update={"principal_type": "human_bff_session"})
+        request = request.model_copy(
+            update={
+                "session_id": auth_result.session_id,
+                "principal_type": "human_bff_session",
+            }
+        )
         result = runtime_service.clear_takeover_reconcile_obligation(request=request)
     except ValidationError as exc:
         return _error_response(

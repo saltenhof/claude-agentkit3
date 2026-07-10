@@ -415,8 +415,8 @@ commands:
       Menschlich initiierter Ownership-Takeover-Request aus der UI
       (FK-56 §56.13a, FK-72 §72.14.7). Die Antwort ist nie der
       Vollzug, sondern der versionierte Challenge mit der
-      Eigentumslage; der anschliessende Confirm bestaetigt exakt
-      diesen Challenge-Stand per Echo.
+      Eigentumslage; der anschliessende Confirm referenziert exakt
+      diesen gespeicherten Challenge-Stand per `challenge_id`.
     transport:
       method: POST
       endpoint: /v1/project-edge/story-runs/{run_id}/ownership/takeover-request

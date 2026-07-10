@@ -1582,7 +1582,7 @@ def test_takeover_deny_fault_injection_rolls_back_each_write_step(
 
 @pytest.mark.parametrize("fault_step", _RECONCILE_FAULT_STEPS)
 @pytest.mark.integration
-def test_takeover_cas_loss_reconcile_fault_rolls_back_each_write_step(
+def test_takeover_cas_loss_reconcile_fault_releases_claim_and_rolls_back_each_write_step(
     postgres_backend_env: object,
     tmp_path: Path,
     fault_step: str,
@@ -1593,6 +1593,7 @@ def test_takeover_cas_loss_reconcile_fault_rolls_back_each_write_step(
     _seed_story_context(tmp_path, story_id)
     setup = _service(ident=f"inst-reconcile-fault-{fault_step}-setup")
     _admit_run(setup, story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
     pending_result = setup.request_ownership_takeover(
         request=TakeoverRequest(
             project_key=_PROJECT,
@@ -1608,9 +1609,6 @@ def test_takeover_cas_loss_reconcile_fault_rolls_back_each_write_step(
     approval_id = pending_result.pending_human_approval.approval_id
     approval = load_takeover_approval_global(approval_id)
     assert approval is not None
-    binding = load_session_run_binding_global("sess-A")
-    assert binding is not None
-    save_session_run_binding_global(replace(binding, binding_version="2"))
     before = _state_snapshot(story_id, run_id, approval_id)
     challenge_before = load_takeover_challenge_global(approval.challenge_ref)
     request_before = load_control_plane_operation_global(
@@ -1621,22 +1619,25 @@ def test_takeover_cas_loss_reconcile_fault_rolls_back_each_write_step(
         if step == fault_step:
             raise RuntimeError(f"fault after {step}")
 
-    repo = replace(
-        ControlPlaneRuntimeRepository(),
-        reconcile_takeover_confirm_cas_loss=partial(
-            reconcile_takeover_confirm_cas_loss_global,
-            fault_after_step=fault_hook,
-        ),
+    def lose_confirm_cas(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        binding = load_session_run_binding_global("sess-A")
+        assert binding is not None
+        save_session_run_binding_global(replace(binding, binding_version="2"))
+        raise OwnershipFenceViolationError("injected confirm row CAS loss")
+
+    service = _service(
+        ident=f"inst-reconcile-fault-{fault_step}-confirm",
+        reconcile_fault_after_step=fault_hook,
+        commit_takeover_confirm_override=lose_confirm_cas,
     )
     with pytest.raises(RuntimeError, match="fault after"):
-        _reconcile_takeover_confirm_cas_loss(
-            repo,
+        service.confirm_ownership_takeover(
             command=_confirm_request(
                 story_id=story_id,
                 challenge_id=approval.challenge_ref,
                 op_id=f"op-reconcile-fault-{fault_step}",
-            ),
-            now=_LATER,
+            )
         )
 
     assert _state_snapshot(story_id, run_id, approval_id) == before
@@ -1645,6 +1646,25 @@ def test_takeover_cas_loss_reconcile_fault_rolls_back_each_write_step(
         f"op-reconcile-fault-{fault_step}-request"
     ) == request_before
     assert _operation_row_count(f"op-reconcile-fault-{fault_step}") == 0
+    follower = boot_backend_instance_identity_global(
+        f"inst-reconcile-fault-{fault_step}-follower",
+        _LATER,
+    )
+    assert acquire_object_mutation_claim_global(
+        project_key=_PROJECT,
+        serialization_scope="story",
+        scope_key=story_id,
+        op_id=f"op-after-reconcile-fault-{fault_step}",
+        backend_instance_id=follower.backend_instance_id,
+        instance_incarnation=follower.instance_incarnation,
+        acquired_at=_LATER,
+    ), "the failed reconcile must not leave the story mutation-blocked"
+    assert delete_object_mutation_claim_global(
+        _PROJECT,
+        "story",
+        story_id,
+        f"op-after-reconcile-fault-{fault_step}",
+    )
 
 
 @pytest.mark.integration
@@ -3236,7 +3256,7 @@ def test_t6_late_ex_owner_push_does_not_modify_committed_transfer_record(
 
 
 @pytest.mark.integration
-def test_reconcile_obligation_blocks_until_audited_admin_clear_and_story_upsert_does_not_clear(
+def test_reconcile_obligation_blocks_until_attested_admin_clear_and_story_upsert_does_not_clear(
     postgres_backend_env: object,
     tmp_path: Path,
 ) -> None:
@@ -3389,23 +3409,40 @@ def test_reconcile_obligation_blocks_until_audited_admin_clear_and_story_upsert_
     assert agentic_clear.error_code == "takeover_reconcile_clear_forbidden"
     assert load_control_plane_operation_global("op-reconcile-agentic-clear") is None
 
-    cleared = service.clear_takeover_reconcile_obligation(
-        request=AdminTakeoverReconcileClearRequest(
-            project_key=_PROJECT,
-            story_id=story_id,
-            run_id=run_id,
-            session_id="sess-admin-reconcile",
-            principal_type="human_cli",
-            op_id="op-reconcile-admin-clear",
-            reason="manual pre-AG3-151 reconcile clear",
-        )
+    auth = AuthMiddleware()
+    attested_session = auth.session_store.create()
+    app = ControlPlaneApplication(runtime_service=service, auth_middleware=auth)
+    clear_response = app.handle_request(
+        method="POST",
+        path=f"/v1/project-edge/story-runs/{run_id}/ownership/takeover-reconcile-clear",
+        body=json.dumps(
+            {
+                "project_key": _PROJECT,
+                "story_id": story_id,
+                "run_id": run_id,
+                "session_id": "sess-client-forged-audit-actor",
+                "principal_type": "human_cli",
+                "op_id": "op-reconcile-admin-clear",
+                "reason": "manual pre-AG3-151 reconcile clear",
+            }
+        ).encode(),
+        request_headers={
+            "Cookie": f"{auth.session_cookie_name()}={attested_session.session_id}",
+            auth.csrf_header_name(): attested_session.csrf_token,
+            "X-Project-Key": _PROJECT,
+        },
     )
-    assert cleared.status == "resolved"
+    assert clear_response.status_code == HTTPStatus.OK
+    assert _response_json(clear_response)["status"] == "resolved"
     clear_op = load_control_plane_operation_global("op-reconcile-admin-clear")
     assert clear_op is not None
     assert clear_op.status == "resolved"
     assert clear_op.operation_kind == "takeover_reconcile_clear"
+    assert clear_op.session_id == attested_session.session_id
     assert "admin_transition" in str(clear_op.response_payload["admin_note"])
+    assert "sess-client-forged-audit-actor" not in str(
+        clear_op.response_payload["admin_note"]
+    )
     cleared_transfer = load_takeover_transfer_record_global(
         _PROJECT,
         story_id,

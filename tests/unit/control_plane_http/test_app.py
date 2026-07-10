@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentkit.backend.auth.middleware import AuthMiddleware
+from agentkit.backend.auth.middleware import AuthMiddleware, AuthResult
 from agentkit.backend.auth.tokens import issue_project_api_token
 
 # AC1: compat re-export must resolve to the SAME class
@@ -31,6 +31,9 @@ from agentkit.backend.control_plane_http.app import (
     ControlPlaneApplication,
     ControlPlaneApplicationRoutes,
     HttpResponse,
+)
+from agentkit.backend.control_plane_http.takeover_handlers import (
+    dispatch_project_edge_takeover_post,
 )
 from agentkit.backend.telemetry.http.routes import TelemetryRouteResponse
 
@@ -1059,6 +1062,38 @@ def test_token_agent_cannot_forge_takeover_reconcile_clear_and_writes_nothing() 
     assert response.status_code == HTTPStatus.FORBIDDEN
     body = _json_body(response)
     assert isinstance(body, dict)
+    assert body["error_code"] == "takeover_reconcile_clear_forbidden"
+    assert runtime.clear_calls == []
+
+
+def test_takeover_reconcile_clear_without_attested_session_is_forbidden() -> None:
+    runtime = _FakeTakeoverRuntime()
+
+    response = dispatch_project_edge_takeover_post(
+        route_path=(
+            "/v1/project-edge/story-runs/run-100/ownership/takeover-reconcile-clear"
+        ),
+        payload={
+            "project_key": "tenant-a",
+            "story_id": "AG3-100",
+            "run_id": "run-100",
+            "session_id": "sess-client-supplied",
+            "principal_type": "human_cli",
+            "op_id": "op-missing-attested-session",
+            "reason": "clear",
+        },
+        correlation_id="req-missing-attested-session",
+        runtime_service=runtime,  # type: ignore[arg-type]
+        auth_result=AuthResult(
+            auth_kind="strategist_session",
+            project_key="tenant-a",
+            session_id=None,
+        ),
+    )
+
+    assert response is not None
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    body = json.loads(response.body)
     assert body["error_code"] == "takeover_reconcile_clear_forbidden"
     assert runtime.clear_calls == []
 

@@ -199,11 +199,19 @@ class _OwnershipTransferMixin:
             )
             return result
         except OwnershipFenceViolationError:
-            result = _reconcile_takeover_confirm_cas_loss(
-                self._repo,
-                command=command,
-                now=self._now_fn(),
-            )
+            try:
+                result = _reconcile_takeover_confirm_cas_loss(
+                    self._repo,
+                    command=command,
+                    now=self._now_fn(),
+                )
+            except BaseException:
+                self._release_object_claim_best_effort(
+                    project_key=request.project_key,
+                    story_id=request.story_id,
+                    op_id=request.op_id,
+                )
+                raise
             self._release_object_claim(
                 project_key=request.project_key,
                 story_id=request.story_id,
