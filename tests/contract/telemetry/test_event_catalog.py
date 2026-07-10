@@ -321,6 +321,17 @@ def test_takeover_approval_changed_payload_matches_frontend_contract() -> None:
         },
     }
     validate_event_payload(EventType.TAKEOVER_APPROVAL_CHANGED, denied_payload)
+    invalidated_payload = {
+        **payload,
+        "approval": {
+            **payload["approval"],
+            "status": "invalidated",
+            "decided_at": "2026-06-07T10:05:00+00:00",
+            "decided_by_session_id": "sess-human",
+            "decision_reason": "challenge_invalidated",
+        },
+    }
+    validate_event_payload(EventType.TAKEOVER_APPROVAL_CHANGED, invalidated_payload)
     with pytest.raises(EventPayloadContractError):
         validate_event_payload(
             EventType.TAKEOVER_APPROVAL_CHANGED,

@@ -1022,11 +1022,15 @@ entities:
       - name: status
         kind: enum
         required: true
-        values: [pending, approved, denied, expired]
+        values: [pending, approved, denied, expired, invalidated]
         notes:
           - >
             `expired` ist ein Entscheidungs-Verfall der offenen
             Anfrage, nie ein Ownership-Entzug (FK-55 §55.9a).
+          - >
+            `invalidated` beendet eine offene Anfrage, wenn die
+            gespeicherte Challenge-Grundlage durch eine zwischenzeitliche
+            Ownership-Aenderung stale geworden ist (FK-56 §56.13a).
       - name: requested_at
         kind: timestamp
         required: true

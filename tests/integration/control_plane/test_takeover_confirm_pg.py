@@ -1326,8 +1326,29 @@ def test_expired_agent_challenge_is_invalidated_not_reissued_after_intervening_t
     assert load_session_run_binding_global("sess-agent-stale") is None
     refreshed = load_takeover_approval_global(stale_approval.approval_id)
     assert refreshed is not None
-    assert refreshed.status is TakeoverApprovalStatus.PENDING
+    assert refreshed.status is TakeoverApprovalStatus.INVALIDATED
     assert refreshed.challenge_ref == stale_approval.challenge_ref
+    assert refreshed.decided_at == _NOW + timedelta(minutes=20)
+    assert refreshed.decision_reason == "challenge_invalidated"
+    invalidated_challenge = load_takeover_challenge_global(stale_approval.challenge_ref)
+    assert invalidated_challenge is not None
+    assert invalidated_challenge.status == "invalidated"
+    assert invalidated_challenge.terminal_op_id == "op-stale-agent-confirm"
+    request_op = load_control_plane_operation_global("op-stale-agent-request")
+    assert request_op is not None
+    assert request_op.status == "invalidated"
+    assert request_op.response_payload["status"] == "invalidated"
+    assert request_op.response_payload["error_code"] == "challenge_invalidated"
+    approval_events = [
+        payload
+        for payload in _event_payloads(
+            story_id,
+            run_id,
+            EventType.TAKEOVER_APPROVAL_CHANGED,
+        )
+        if payload["approval_id"] == stale_approval.approval_id
+    ]
+    assert approval_events[-1]["approval"]["status"] == "invalidated"
     assert load_takeover_transfer_record_global(_PROJECT, story_id, run_id, 3, _REPO) is None
 
 
@@ -1378,6 +1399,14 @@ def test_confirm_after_terminal_predecessor_is_rejected_as_challenge_invalidated
     assert active.ownership_epoch == 1
     assert load_session_run_binding_global("sess-B") is None
     assert _transfer_count(story_id, run_id) == 0
+    challenge = load_takeover_challenge_global(echo.challenge_id)
+    assert challenge is not None
+    assert challenge.status == "invalidated"
+    assert challenge.terminal_op_id == f"op-confirm-{operation_kind}"
+    request_op = load_control_plane_operation_global(f"op-request-{operation_kind}")
+    assert request_op is not None
+    assert request_op.status == "invalidated"
+    assert request_op.response_payload["error_code"] == "challenge_invalidated"
 
 
 @pytest.mark.integration

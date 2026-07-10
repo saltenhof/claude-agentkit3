@@ -72,7 +72,7 @@ Postgres-only). Felder (Minimum): opaque server-minted `challenge_id`,
   binding-CAS-Mismatch (`challenge_invalidated`) — sie ist KEIN Status, den
   exit/reset/split/closure/freeze schreiben (sonst 5-Flow-Kopplung in den
   Challenge-Store). Nur Takeover-Pfade schreiben Terminal-Status
-  (confirmed/denied/expired).
+  (confirmed/denied/expired/invalidated).
 - `challenge_id` ist opaque server-minted; der String-Parser
   `takeover-{op_id}` entfaellt (persistierte `request_op_id` ersetzt ihn).
 
