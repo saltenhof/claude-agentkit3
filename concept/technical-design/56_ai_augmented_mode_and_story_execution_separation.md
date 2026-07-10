@@ -472,17 +472,29 @@ Der Transfer ist ein zweistufiges Challenge-Confirm-Protokoll:
   nachlaufenden Read-Model.
 - Jede Anfrage traegt eine **Begruendungspflicht** (freies,
   auditiertes Begruendungsfeld).
-- Die Bestaetigung (`confirm-run-ownership-takeover`, mit
-  Challenge-Echo) ist ein **CAS auf
-  `ownership_epoch`/`binding_version`**: Jede zwischenzeitliche
-  Aenderung der Eigentumslage — Transfer, Exit, Reset, Split,
-  Closure — invalidiert offene Challenges. Von zwei konkurrierenden
-  Confirms gewinnt deterministisch genau einer; der zweite scheitert
-  am veralteten Challenge und fragt neu an — dann gegen den neuen
-  Owner und mit sichtbarer Takeover-Historie.
+- Die Bestaetigung (`confirm-run-ownership-takeover`) referenziert die
+  **gespeicherte Challenge per `challenge_id`** — sie traegt kein
+  Challenge-Echo und keine sonstigen Entscheidungsinputs im
+  Request-Body. Der Vollzug ist ein **serverseitiger CAS auf die
+  gespeicherte Challenge-Basis**, dem Tripel
+  `owner_session_id` + `ownership_epoch` + `binding_version` (aus der
+  persistierten Challenge-Zeile, nie aus Client-Input): Jede
+  zwischenzeitliche Aenderung der Eigentumslage — Transfer, Exit,
+  Reset, Split, Closure — invalidiert offene Challenges **terminal**
+  (die Challenge wird als `invalidated` geschrieben; kein
+  Rejection-Pfad laesst eine pending Challenge offen). Von zwei
+  konkurrierenden Confirms gewinnt deterministisch genau einer; der
+  zweite scheitert am veralteten Challenge und fragt neu an — dann
+  gegen den neuen Owner und mit sichtbarer Takeover-Historie.
 - Ein Challenge darf **befristet** sein. Die Frist ist ein
   Entscheidungs-Verfall (die offene Anfrage verfaellt), niemals ein
-  Ownership-Entzug.
+  Ownership-Entzug. Bestaetigt ein Mensch eine abgelaufene Challenge,
+  deren Approval noch gueltig und deren Eigentumslage (Owner + Epoch)
+  unveraendert ist, **re-issued** das System eine frische Challenge
+  und antwortet `challenge_reissued` — der Vollzug erfordert eine
+  erneute Bestaetigung der frischen `challenge_id` (Decision-Record
+  2026-07-09 §7.5): der Mensch entscheidet immer auf angezeigten,
+  aktuellen Daten, nie vollzieht ein Confirm eine ungesehene Basis.
 
 ### 56.13b Berechtigung und menschliche Frontend-Freigabe
 

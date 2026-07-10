@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: frontend-contracts
 spec_kind: entity-set
-version: 3
+version: 4
 prose_refs:
   - concept/technical-design/72_frontend_architektur.md
   - concept/technical-design/91_api_event_katalog.md
@@ -960,6 +960,18 @@ entities:
       - name: approval_id
         kind: string
         required: true
+      - name: challenge_id
+        kind: string
+        required: true
+        notes:
+          - >
+            Referenz auf die aktuell verknuepfte, gespeicherte
+            Challenge (Wire-Key `challenge_id`; persistiert als
+            `challenge_ref` am Approval-Record). Der Confirm
+            selektiert die Challenge ausschliesslich ueber diesen
+            Wert; nach einem Reissue traegt das Feld die frische
+            `challenge_id` (FK-56 §56.13a, Decision-Record
+            2026-07-09 §7.3/§7.5).
       - name: project_key
         kind: string
         required: true

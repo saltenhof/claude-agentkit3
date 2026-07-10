@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: frontend-contracts
 spec_kind: event-set
-version: 2
+version: 3
 prose_refs:
   - concept/technical-design/72_frontend_architektur.md
   - concept/technical-design/91_api_event_katalog.md
@@ -194,10 +194,13 @@ events:
   - id: frontend-contracts.event.takeover_approval_changed
     topic: governance
     description: >
-      Eine ausstehende Takeover-Freigabe wurde angelegt oder hat
-      ihren Zustand geaendert (approved, denied, expired, invalidated). Loest den
-      globalen, benutzeruebergreifenden Takeover-Freigabe-Overlay der
-      App-Shell aus bzw. schliesst ihn (FK-72 §72.14.7). Die
+      Eine ausstehende Takeover-Freigabe wurde angelegt, hat ihren
+      Zustand geaendert (approved, denied, expired, invalidated) ODER
+      wurde per Reissue auf eine frische Challenge re-linkt (auch ohne
+      Statuswechsel, z. B. approved→approved mit neuer Challenge).
+      Loest den globalen, benutzeruebergreifenden
+      Takeover-Freigabe-Overlay der App-Shell aus, aktualisiert dessen
+      Bestaetigungsschritt bzw. schliesst ihn (FK-72 §72.14.7). Die
       ausstehende Freigabe gehoert zur Permission-Request-Familie
       (FK-56 §56.13b, FK-55 §55.9a).
     producer:
@@ -213,6 +216,16 @@ events:
       - name: approval_id
         kind: string
         required: true
+      - name: challenge_id
+        kind: string
+        required: true
+        notes:
+          - >
+            `challenge_id` der aktuell verknuepften Challenge
+            (Wire-Key; persistiert als `challenge_ref`). Nach einem
+            Reissue traegt das Event die frische `challenge_id`, damit
+            bereits verbundene Overlays den Challenge-Wechsel ohne
+            Reconnect sehen (Decision-Record 2026-07-09 §7.5).
       - name: approval
         kind: ref
         required: true
@@ -221,7 +234,14 @@ events:
       - >
         Der Overlay verlaesst sich nicht allein auf das lossy
         SSE-Event: Beim Connection-Aufbau holt das Frontend offene
-        Freigaben per Initial-GET (Lossy-Re-Sync, FK-72 §72.12.4).
+        Freigaben per Initial-GET (Lossy-Re-Sync, FK-72 §72.12.4);
+        der Zustand "approved + frische Challenge wartet auf
+        Bestaetigung" ist server-persistiert und wird dabei
+        rekonstruiert.
+      - >
+        Emissionspflicht: bei jedem Approval-Statuswechsel UND bei
+        jedem erfolgreichen Challenge-Relink (CAS auf den erwarteten
+        vorherigen `challenge_ref` im Reissue-Unit-of-Work).
 
   # ---- Topic: closure -----------------------------------------------
 

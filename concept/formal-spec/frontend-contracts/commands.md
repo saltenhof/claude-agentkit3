@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: frontend-contracts
 spec_kind: command-set
-version: 2
+version: 3
 prose_refs:
   - concept/technical-design/72_frontend_architektur.md
   - concept/technical-design/91_api_event_katalog.md
@@ -458,11 +458,14 @@ commands:
 
   - id: frontend-contracts.command.confirm_story_run_takeover
     description: >
-      Vollzug eines Ownership-Takeovers per Challenge-Echo
-      (FK-56 §56.13a/§56.13c; Operationsklasse `admin_transition`,
-      FK-55 §55.5). Derselbe Command vollzieht die Freigabe eines
-      agenteninitiierten Requests aus dem globalen
-      Takeover-Freigabe-Overlay (FK-72 §72.14.7).
+      Vollzug eines Ownership-Takeovers per Referenz auf die
+      gespeicherte Challenge (FK-56 §56.13a/§56.13c; Operationsklasse
+      `admin_transition`, FK-55 §55.5). Derselbe Command vollzieht die
+      Freigabe eines agenteninitiierten Requests aus dem globalen
+      Takeover-Freigabe-Overlay (FK-72 §72.14.7). Der Request traegt
+      keine Identitaets- oder Entscheidungsfelder; der CAS laeuft
+      serverseitig gegen die persistierte Challenge-Basis
+      (`owner_session_id`/`ownership_epoch`/`binding_version`).
     transport:
       method: POST
       endpoint: /v1/project-edge/story-runs/{run_id}/ownership/takeover-confirm
@@ -470,14 +473,16 @@ commands:
       - name: run_id
         kind: string
         required: true
-      - name: challenge_echo
+      - name: challenge_id
         kind: string
         required: true
         notes:
           - >
-            Echo des versionierten Challenge (mindestens
-            `ownership_epoch` und `binding_version`); der Vollzug ist
-            ein CAS auf diese Versionen (FK-56 §56.13a).
+            Selektor der gespeicherten, server-minted Challenge; sie
+            identifiziert die angezeigte Entscheidungsgrundlage
+            eindeutig (jede Basisaenderung mintet eine neue
+            `challenge_id`). Ein Challenge-Echo existiert nicht mehr
+            (Decision-Record 2026-07-09 §7.3).
       - name: op_id
         kind: string
         required: true
@@ -490,8 +495,9 @@ commands:
         reason: >
           Challenge veraltet oder invalidiert (zwischenzeitlicher
           Transfer, Exit, Reset, Split, Closure oder Freeze-Eintritt)
-          — deterministischer fail-closed Fehlschlag ohne Vollzug;
-          erneuter Request gegen die aktuelle Eigentumslage noetig.
+          — deterministischer fail-closed Fehlschlag ohne Vollzug; die
+          Challenge wird terminal `invalidated` geschrieben; erneuter
+          Request gegen die aktuelle Eigentumslage noetig.
       - code: story_not_found
         http_status: 404
       - code: forbidden
@@ -499,7 +505,9 @@ commands:
         reason: >
           Auch die Ping-Pong-Schranke faellt hierunter: eine disowned
           Session kann nicht unmittelbar zurueckuebernehmen
-          (FK-55 §55.8.4).
+          (FK-55 §55.8.4). Confirm und Deny sind menschenexklusiv:
+          jede nicht-menschliche Auth-Art (auch Projekt-API-Token)
+          wird mit 403 abgewiesen.
       - code: idempotency_mismatch
         http_status: 409
       - code: internal_error
@@ -510,5 +518,14 @@ commands:
         eine ausstehende agenteninitiierte Freigabe aufloest; bei rein
         menschlich initiierten Takeovers existiert kein
         Approval-Objekt und damit kein solches Event.
+      - >
+        Nicht-Fehler-Antwort `challenge_reissued` (HTTP 200): Ist die
+        Challenge-TTL abgelaufen, die Approval gueltig und die
+        Eigentumslage (Owner + Epoch) unveraendert, terminalisiert der
+        Confirm die alte Challenge (`expired`), re-issued eine frische
+        Challenge und liefert sie in der Antwort mit — KEIN Vollzug in
+        diesem Call. Der Vollzug erfordert einen zweiten Confirm mit
+        neuem `op_id` auf der frischen `challenge_id`
+        (FK-56 §56.13a, Decision-Record 2026-07-09 §7.5).
 ```
 <!-- FORMAL-SPEC:END -->

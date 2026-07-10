@@ -666,11 +666,18 @@ Eigentumslage als Entscheidungsgrundlage:
 
 Der Uebernahme-Dialog **ist** der versionierte Challenge aus
 FK-56 §56.13a: Was der Benutzer sieht, ist exakt der Stand, den sein
-Confirm per Challenge-Echo bestaetigt. Die Entscheidungsdaten kommen
-aus dem Owner-BC-Port (`story-lifecycle`), **nicht** aus
-moeglicherweise nachlaufenden Read-Models; veraltet der Challenge
-(Epoche/Bindung zwischenzeitlich geaendert), scheitert der Confirm
-deterministisch und die Sicht laedt die aktuelle Eigentumslage neu.
+Confirm per Referenz auf die gespeicherte Challenge (`challenge_id`)
+bestaetigt — der Request traegt keine Entscheidungsinputs, der CAS
+laeuft serverseitig gegen die persistierte Challenge-Basis. Die
+Entscheidungsdaten kommen aus dem Owner-BC-Port (`story-lifecycle`),
+**nicht** aus moeglicherweise nachlaufenden Read-Models; veraltet der
+Challenge (Epoche/Bindung zwischenzeitlich geaendert), scheitert der
+Confirm deterministisch (`challenge_invalidated`) und die Sicht laedt
+die aktuelle Eigentumslage neu. Antwortet der Confirm mit
+`challenge_reissued` (Challenge-TTL abgelaufen, Approval gueltig,
+Eigentumslage unveraendert — FK-56 §56.13a), zeigt die Sicht die
+mitgelieferte **frische Challenge** an; erst deren erneute
+Bestaetigung (neuer `op_id`, frische `challenge_id`) vollzieht.
 
 **(2) Globaler Takeover-Freigabe-Overlay in der App-Shell
 (PO-Entscheidung).** Agenteninitiierte Takeover-Requests
@@ -681,7 +688,15 @@ Benutzer gebunden; jeder eingeloggte Benutzer sieht ihn und kann
 entscheiden. Der Overlay speist sich aus dem projektuebergreifenden
 governance-Stream (FK-91 §91.8.1), nicht aus dem projekt-skopierten
 Projekt-Stream. Er traegt die vollstaendige Challenge-Information aus
-(1); erst die Bestaetigung im Overlay vollzieht den Transfer.
+(1); erst die Bestaetigung im Overlay vollzieht den Transfer. Kommt
+auf die Bestaetigung `challenge_reissued` zurueck, schliesst der
+Overlay NICHT: er wechselt in den Bestaetigungsschritt der frischen
+Challenge (gleiches Informations- und Pflichttext-Niveau). Der
+Zustand "approved, aber frische Challenge wartet auf Bestaetigung"
+ist server-persistiert und wird beim Initial-GET/Reconnect
+rekonstruiert (§72.12.4); `takeover_approval_changed` traegt dafuer
+die aktuell verknuepfte Challenge (`challenge_id`) und wird auch bei
+Challenge-Wechsel ohne Statuswechsel emittiert.
 Challenge-Dialog und Overlay tragen verpflichtend den
 Verlustkorridor-Pflichttext aus FK-56 §56.13c (uebernommen wird
 ausschliesslich der gepushte Stand `<sha>`; nicht Gepushtes ist kein

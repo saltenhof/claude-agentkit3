@@ -240,3 +240,96 @@ mit unterschiedlicher sanktionierter Aufloesung; die Admission gibt distinkte
   ueber die realen Vorgaengerpfade belegt.
 - Pending-Approval-Abfrageflaeche (Story-Scope 10): pruefen, ob 148-AC-pflichtig oder
   AG3-153-UI-Flaeche; im 148-Scope belegen, sonst als 153-Kante dokumentieren.
+
+## 7. Nachtrag 2026-07-10 — Modellfix: OwnershipBasis + server-truth Confirm-Contract (R5)
+
+Anlass: Die Remediation-Runden R1–R4 haben viermal dieselbe Befundklasse
+korrigiert (client-attestierte Entscheidungsinputs, unvollstaendige
+Basis-Vergleiche, fail-open bei fehlenden Daten), ohne die Klasse zu
+eliminieren. Ursache ist eine Modell-Luecke: Die Invariante "Takeover-
+Entscheidungen sind Funktionen ausschliesslich server-persistierter
+Wahrheit" ist nirgends reifiziert. Dieser Nachtrag friert den Modellfix als
+verbindlichen Implementierungs-Kontrakt fuer die Remediation R5 ein. Das
+vollstaendige, durch sieben Codex-Review-Runden konvergierte Design liegt
+in `reports/AG3-148-model-fix-design.md` (v7, APPROVE); dieser Nachtrag
+fixiert die normativen Kernpunkte.
+
+### 7.1 Zielinvariante INV-TB (neu, formal verankert)
+Confirm-, Deny-, Reissue- und Invalidierungs-Entscheidungen sind Funktionen
+ausschliesslich server-persistierter Records (Challenge, Approval,
+Ownership, Binding). Client-Input selektiert genau EIN Protokollobjekt
+(Confirm: `challenge_id`; Deny: `approval_id`) und liefert Audit-Metadaten;
+er behauptet niemals Entscheidungsinputs. Vollzogen wird ausschliesslich
+auf der Basis exakt der selektierten Challenge. Kein Basis-Mismatch laesst
+eine pending Challenge offen. Formal-Anker:
+`operating-modes.invariant.takeover_decisions_bind_to_stored_challenge_basis_only`.
+
+### 7.2 OwnershipBasis als einziges Basis-Modell (A-Kern)
+Value-Object `OwnershipBasis` (`owner_session_id`, `ownership_epoch`,
+`binding_version`) mit genau EINER Vergleichsfunktion
+(`ownership_basis_unchanged`) und einem explizit schwaecheren
+Reissue-Eignungs-Praedikat (`ownership_anchor_unchanged`:
+owner+epoch). Alle vier bisherigen Feldvergleichsstellen (A-Kern-Decision,
+`_ownership_basis_changed`, Reissue-Guard, Row-CAS-Parameter) konsumieren
+diese Modelle; weitere Feldlisten sind verboten. Jede
+`challenge_invalidated`-Entscheidung muendet in den Invalidierungs-UoW;
+granulare Mismatch-Codes sind nur noch Audit-Detail, kein Wire-Kontrollfluss.
+
+### 7.3 Confirm-Wire-Contract: Selektor + Audit, Boundary-Command
+`TakeoverChallengeEchoRequest`/`TakeoverChallengeEcho` entfallen. Wire-DTO
+`TakeoverConfirmRequest` = `project_key`, `story_id`, `op_id`,
+`challenge_id`, `reason`, `source_component` (`extra="forbid"`; KEINE
+Identitaetsfelder, kein Echo, kein `approval_id`, keine `worktree_roots`).
+Attestierte Identitaet existiert nur im boundary-konstruierten
+`TakeoverConfirmCommand` (`confirmed_by_session_id` aus
+`AuthResult.session_id`, `confirmed_by_principal` als FK-55-Kanon-Enum).
+Confirm/Deny sind menschenexklusiv: nur attestierte menschliche
+BFF-/Strategist-Session ⇒ `HUMAN_CLI`; alles andere — auch
+`project_api_token` — ⇒ 403. Deny analog (Selektor `approval_id`).
+
+### 7.4 Approval-Aufloesung ueber challenge_ref (Server-Wahrheit)
+`_confirm_approval_state` loest die Approval ausschliesslich ueber
+`challenge_ref` auf (neuer Read-Port); UNIQUE-Index auf
+`takeover_approvals.challenge_ref` (0..1:1) mit
+Bestandsdaten-Duplikatpruefung; Scope-Mismatch ist Integritaets-ERROR,
+kein leerer Approval-State. Formal-Anker:
+`operating-modes.invariant.takeover_approval_links_at_most_one_challenge_atomically`.
+
+### 7.5 Reissue praezisiert §2.3/§6.3: kein Vollzug im selben Call
+Eignung: abgelaufene Challenge + `ownership_anchor_unchanged` + Approval
+entscheidungsfaehig-oder-approved. Mechanik: EIN UoW terminalisiert die
+alte Challenge (`expired`), inseriert die frische Challenge, entscheidet
+eine pending Approval auf `approved` (Terminalitaet unveraendert: approved
+verfaellt nie) und re-linkt sie per CAS (`challenge_ref` alt→neu,
+rowcount==1). Antwort: `challenge_reissued` mit der frischen Challenge —
+KEIN Transfer; der Vollzug erfordert einen zweiten Confirm (neuer `op_id`)
+auf der frischen `challenge_id`. FK-55-§55.9a-Einbettung: die approved
+Approval ist der entschiedene Permission-Request, die jeweils frische
+befristete Challenge die bounded Lease fuer den Vollzug.
+`takeover_approval_changed` wird bei jedem Statuswechsel UND jedem
+erfolgreichen Relink emittiert (Wire-Key `challenge_id` in der Payload).
+Operation-Lifecycle: erster Confirm-op terminal `challenge_reissued`
+(Replay liefert genau das); Request-Op bleibt vom Reissue unberuehrt.
+
+### 7.6 Nebenlaeufigkeit: kanonische Lock-Reihenfolge + Post-CAS-Loss-Reconcile
+Kanonische Row-Lock-Reihenfolge fuer ALLE Takeover-UoWs:
+`run_ownership_records → session_run_bindings → takeover_approvals →
+control_plane_operations (request-op) → takeover_challenges`; jeder UoW
+sperrt eine Teilfolge. Der bestehende Confirm-UoW wird darauf umgeordnet
+(alle Binding-Writes an die Binding-Position, deterministisch nach
+`session_id`; Request-Op vor Challenge). Nach einem Row-CAS-Verlust laeuft
+ein Post-CAS-Loss-Reconcile als EINE Transaktion, die alle
+basisbestimmenden UND Protokollzeilen per `SELECT ... FOR UPDATE` sperrt,
+dann klassifiziert: bereits terminal ⇒ Report; pending+stale ⇒
+Invalidierungs-UoW; pending+Basis passend ⇒ `takeover_confirm_cas_lost`
+(Retry erlaubt). Deadlock-Tests fuer beide kritischen Paarungen.
+
+### 7.7 Betroffenheit
+FK-56 §56.13a (Referenz statt Echo, Basis-Tripel), FK-72 §72.14.7
+(Reissue-Fluss im Overlay), FK-91 §91.1a (Confirm-Payload,
+`challenge_reissued`), formal.operating-modes (Command-Signatur, zwei neue
+Invarianten), formal.frontend-contracts (commands/entities/events:
+`challenge_id`, Relink-Emission), Stories AG3-148 (AC3/AC5/AC6/AC14) und
+AG3-153 (zweistufiger Overlay-Fluss, Initial-GET-Recovery des Zustands
+"approved + frische Challenge wartet"). formal.state-storage: KEIN
+Attribut-Delta (UNIQUE-Constraint ist DDL-Migration).

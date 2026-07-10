@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: operating-modes
 spec_kind: invariant-set
-version: 3
+version: 4
 prose_refs:
   - concept/technical-design/56_ai_augmented_mode_and_story_execution_separation.md
   - concept/technical-design/30_hook_adapter_guard_enforcement.md
@@ -17,7 +17,7 @@ prose_refs:
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.operating-modes.invariants
-schema_version: 3
+schema_version: 4
 kind: invariant-set
 context: operating-modes
 invariants:
@@ -74,7 +74,13 @@ invariants:
     rule: an agent initiated takeover request must not execute before a human approves it in the frontend and the requesting agent receives pending_human_approval and observes the outcome by op_id while the approval which may lapse like any open permission request is outstanding
   - id: operating-modes.invariant.takeover_confirm_fences_in_flight_mutations
     scope: governance
-    rule: takeover confirm is serialized behind in flight mutations of the same story and is a compare and swap on ownership_epoch and binding_version so any interim ownership change exit reset split or closure invalidates open challenges
+    rule: takeover confirm is serialized behind in flight mutations of the same story and is a server-side compare and swap on the stored challenge basis owner_session_id ownership_epoch and binding_version so any interim ownership change exit reset split or closure invalidates open challenges terminally
+  - id: operating-modes.invariant.takeover_decisions_bind_to_stored_challenge_basis_only
+    scope: governance
+    rule: takeover confirm deny reissue and invalidation decisions are functions of server persisted challenge approval ownership and binding records only while client input selects exactly one protocol object by challenge_id or approval_id and supplies audit metadata but never asserts decision inputs and no basis mismatch may leave a pending challenge open
+  - id: operating-modes.invariant.takeover_approval_links_at_most_one_challenge_atomically
+    scope: governance
+    rule: a takeover approval references at most one takeover challenge via challenge_ref enforced by a unique constraint and any relink to a fresh challenge is a compare and swap on the expected previous challenge_ref committed atomically within the reissue unit of work
   - id: operating-modes.invariant.disowned_session_cannot_immediately_reclaim
     scope: governance
     rule: a session disowned by takeover cannot immediately reconfirm ownership and a repeated transfer of the same story shortly afterwards requires a privileged principal and an explicit reason
