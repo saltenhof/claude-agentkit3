@@ -1,8 +1,8 @@
 story_id: AG3-149
 title: "Disown-Baustein + Ex-Owner-Verhalten + Ping-Pong-Schranke: vereinheitlichte Entzugspfade (Exit/Reset/Split), Record-Status-Pflege, Abloesung der Exit-Fence"
 type: implementation
-status: ready
-phase: setup
+status: completed
+phase: closure
 created: "2026-07-02"
 size: M
 # Herkunft: GAP-ST-07b (gap-analyse-session-ownership.md v4, Codex-APPROVE).
@@ -16,3 +16,13 @@ size: M
 # entfernt und owner-self-request scheitert mit requester_already_owner.
 depends_on: ["AG3-148"]
 unblocks: ["AG3-150", "AG3-151", "AG3-155"]
+# CLOSURE (2026-07-10) — merged SHA main@cd29236b; Jenkins #1780 SUCCESS;
+# Sonar claude-agentkit3 OK (0 violations / 0 critical / 0 hotspots, new-code
+# coverage 84.2%); 9222 tests pass. Review convergence: Codex R1->R3 (9 defects
+# fixed incl. a self-transfer exploit + a crash-window atomicity bug), Codex
+# convergence re-review APPROVE, orchestrator code-level adjudication of every
+# fix, Fable finale APPROVE (independent adversarial). GLM round trimmed
+# (demonstrably low-signal on this story: R1 missed 4/6 ERRORs).
+# Non-blocking hardening notes carried to reports/AG3-149-disown-design.md
+# closure addendum + tech-debt (public-writer INSERT-arm defense-in-depth).
+# Deferred by frozen ruling: positive self-rebind/recovery -> AG3-154.
