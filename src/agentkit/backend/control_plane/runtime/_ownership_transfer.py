@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentkit.backend.control_plane import ownership_transfer as transfer_core
@@ -77,6 +78,24 @@ if TYPE_CHECKING:
     from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _TakeoverInvalidationCandidate:
+    challenge: TakeoverChallengeRecord
+    approval: TakeoverApprovalRecord | None
+
+
+@dataclass(frozen=True)
+class _TakeoverConfirmBasis:
+    owner_binding: SessionRunBindingRecord | None
+    approval_state: _ConfirmApprovalState
+    effective_challenge: TakeoverChallengeRecord
+    challenge_to_insert: TakeoverChallengeRecord | None
+    challenge_to_expire: TakeoverChallengeRecord | None
+    invalidation: _TakeoverInvalidationCandidate | None = None
+    rejection: ControlPlaneMutationResult | None = None
+
 
 class _OwnershipTransferMixin:
     """Challenge-confirm-CAS takeover runtime surface."""
@@ -431,14 +450,21 @@ class _OwnershipTransferMixin:
             challenge=stored_challenge,
             approval_required=approval_required,
         )
-        invalidated_challenge: TakeoverChallengeRecord | None = None
-        invalidated_approval: TakeoverApprovalRecord | None = None
-        effective_challenge = stored_challenge
-        challenge_to_insert: TakeoverChallengeRecord | None = None
-        challenge_to_expire: TakeoverChallengeRecord | None = None
-        if _has_invalidating_transition(self._repo, request, stored_challenge):
-            invalidated_challenge = stored_challenge
-            invalidated_approval = approval_state.approval
+        invalidation = _transition_invalidation_candidate(
+            self._repo,
+            request,
+            stored_challenge,
+            approval_state,
+        )
+        if invalidation is not None:
+            basis = _TakeoverConfirmBasis(
+                owner_binding=owner_binding,
+                approval_state=approval_state,
+                effective_challenge=stored_challenge,
+                challenge_to_insert=None,
+                challenge_to_expire=None,
+                invalidation=invalidation,
+            )
         else:
             expired = self._expired_takeover_confirm_result(
                 request=request,
@@ -448,37 +474,30 @@ class _OwnershipTransferMixin:
             )
             if expired is not None:
                 return expired
-            reissue = _maybe_reissue_expired_challenge(
+            basis = _confirm_basis_after_reissue(
                 self._repo,
                 request=request,
                 stored_challenge=stored_challenge,
                 active=active,
+                owner_binding=owner_binding,
                 approval_state=approval_state,
                 now=now,
             )
-            if reissue.rejection is not None:
-                if reissue.rejection.error_code != "challenge_invalidated":
-                    return reissue.rejection
-                invalidated_challenge = stored_challenge
-                invalidated_approval = approval_state.approval
-            else:
-                if reissue.owner_binding is not None:
-                    owner_binding = reissue.owner_binding
-                approval_state = reissue.approval_state
-                effective_challenge = reissue.effective_challenge
-                challenge_to_insert = reissue.challenge_to_insert
-                challenge_to_expire = reissue.challenge_to_expire
-                if _ownership_basis_changed(active, effective_challenge):
-                    invalidated_challenge = effective_challenge
-                    invalidated_approval = approval_state.approval
-        if invalidated_challenge is not None:
+        if basis.rejection is not None:
+            return basis.rejection
+        if basis.invalidation is not None:
             return _commit_takeover_invalidation(
                 self._repo,
                 request=request,
-                challenge=invalidated_challenge,
-                approval=invalidated_approval,
+                challenge=basis.invalidation.challenge,
+                approval=basis.invalidation.approval,
                 now=now,
             )
+        owner_binding = basis.owner_binding
+        approval_state = basis.approval_state
+        effective_challenge = basis.effective_challenge
+        challenge_to_insert = basis.challenge_to_insert
+        challenge_to_expire = basis.challenge_to_expire
         core_echo = transfer_core.TakeoverChallengeEcho(
             challenge_id=effective_challenge.challenge_id,
             owner_session_id=effective_challenge.owner_session_id,
@@ -879,6 +898,100 @@ class _OwnershipTransferMixin:
             events=(event,),
         )
         return result
+
+
+def _transition_invalidation_candidate(
+    repo: ControlPlaneRuntimeRepository,
+    request: TakeoverChallengeEchoRequest,
+    challenge: TakeoverChallengeRecord,
+    approval_state: _ConfirmApprovalState,
+) -> _TakeoverInvalidationCandidate | None:
+    if not _has_invalidating_transition(repo, request, challenge):
+        return None
+    return _TakeoverInvalidationCandidate(
+        challenge=challenge,
+        approval=approval_state.approval,
+    )
+
+
+def _confirm_basis_after_reissue(
+    repo: ControlPlaneRuntimeRepository,
+    *,
+    request: TakeoverChallengeEchoRequest,
+    stored_challenge: TakeoverChallengeRecord,
+    active: RunOwnershipRecord | None,
+    owner_binding: SessionRunBindingRecord | None,
+    approval_state: _ConfirmApprovalState,
+    now: datetime,
+) -> _TakeoverConfirmBasis:
+    reissue = _maybe_reissue_expired_challenge(
+        repo,
+        request=request,
+        stored_challenge=stored_challenge,
+        active=active,
+        approval_state=approval_state,
+        now=now,
+    )
+    if reissue.rejection is not None:
+        return _confirm_basis_from_reissue_rejection(
+            owner_binding=owner_binding,
+            stored_challenge=stored_challenge,
+            approval_state=approval_state,
+            rejection=reissue.rejection,
+        )
+    resolved_owner_binding = reissue.owner_binding or owner_binding
+    invalidation = _ownership_basis_invalidation_candidate(
+        active,
+        reissue.effective_challenge,
+        reissue.approval_state,
+    )
+    return _TakeoverConfirmBasis(
+        owner_binding=resolved_owner_binding,
+        approval_state=reissue.approval_state,
+        effective_challenge=reissue.effective_challenge,
+        challenge_to_insert=reissue.challenge_to_insert,
+        challenge_to_expire=reissue.challenge_to_expire,
+        invalidation=invalidation,
+    )
+
+
+def _confirm_basis_from_reissue_rejection(
+    *,
+    owner_binding: SessionRunBindingRecord | None,
+    stored_challenge: TakeoverChallengeRecord,
+    approval_state: _ConfirmApprovalState,
+    rejection: ControlPlaneMutationResult,
+) -> _TakeoverConfirmBasis:
+    invalidation: _TakeoverInvalidationCandidate | None = None
+    basis_rejection: ControlPlaneMutationResult | None = rejection
+    if rejection.error_code == "challenge_invalidated":
+        invalidation = _TakeoverInvalidationCandidate(
+            challenge=stored_challenge,
+            approval=approval_state.approval,
+        )
+        basis_rejection = None
+    return _TakeoverConfirmBasis(
+        owner_binding=owner_binding,
+        approval_state=approval_state,
+        effective_challenge=stored_challenge,
+        challenge_to_insert=None,
+        challenge_to_expire=None,
+        invalidation=invalidation,
+        rejection=basis_rejection,
+    )
+
+
+def _ownership_basis_invalidation_candidate(
+    active: RunOwnershipRecord | None,
+    effective_challenge: TakeoverChallengeRecord,
+    approval_state: _ConfirmApprovalState,
+) -> _TakeoverInvalidationCandidate | None:
+    if not _ownership_basis_changed(active, effective_challenge):
+        return None
+    return _TakeoverInvalidationCandidate(
+        challenge=effective_challenge,
+        approval=approval_state.approval,
+    )
 
 
 def _commit_takeover_invalidation(
