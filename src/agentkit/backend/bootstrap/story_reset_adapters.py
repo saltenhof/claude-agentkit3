@@ -9,14 +9,19 @@ composition-root layer (which is allowed to depend on every BC); the
 from __future__ import annotations
 
 import shutil
-from dataclasses import dataclass, replace
+import uuid
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentkit.backend.control_plane.records import ControlPlaneOperationRecord
+    from agentkit.backend.control_plane.disown import DisownPlan
+    from agentkit.backend.control_plane.records import (
+        ControlPlaneOperationRecord,
+        SessionRunBindingRecord,
+    )
     from agentkit.backend.control_plane.repository import (
         ControlPlaneRuntimeRepository,
         EdgeCommandRepository,
@@ -31,6 +36,12 @@ if TYPE_CHECKING:
     )
     from agentkit.backend.story.repository import StoryReadPort
     from agentkit.backend.telemetry.projection_accessor import ProjectionAccessor
+
+from agentkit.backend.control_plane import object_claims
+from agentkit.backend.control_plane.ownership import BindingStatus, OwnershipStatus
+from agentkit.backend.control_plane.repository import ObjectMutationClaimRepository
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.telemetry.events import EventType
 
 
 class StoryResetLockError(RuntimeError):
@@ -101,7 +112,7 @@ class CompetingOperationAdapter:
         del reset_id
         if run_id is None:
             return False
-        return self.cp_repo.has_committed_story_exit_operation_for_run(
+        return self.cp_repo.has_committed_ownership_invalidating_operation_for_run(
             project_key, story_id, run_id
         )
 
@@ -124,6 +135,8 @@ class FenceAdapter:
         """Release the live reset claim by retaining a committed terminal marker."""
         claimed = self.cp_repo.load_operation(op_id)
         if claimed is None:
+            return
+        if claimed.status == "committed":
             return
         if claimed.status != "claimed" or claimed.claimed_by is None:
             raise StoryResetLockError(
@@ -155,6 +168,152 @@ class FenceAdapter:
             raise StoryResetLockError(
                 f"reset fence {op_id!r} lost its ownership-scoped finalize CAS"
             )
+
+
+@dataclass(frozen=True)
+class ResetDisownAdapter:
+    """Bind the reset disown port to the canonical control-plane transaction."""
+
+    cp_repo: ControlPlaneRuntimeRepository
+    object_claim_repo: ObjectMutationClaimRepository = field(
+        default_factory=ObjectMutationClaimRepository,
+    )
+
+    def quiesce_inflight(
+        self,
+        project_key: str,
+        story_id: str,
+        reset_id: str,
+        now: datetime,
+    ) -> None:
+        """Abort every foreign in-flight op and release its durable object claim."""
+
+        for op_id in self.cp_repo.list_open_operation_ids_for_story(
+            project_key,
+            story_id,
+        ):
+            if op_id == reset_id:
+                continue
+            record = self.cp_repo.load_operation(op_id)
+            if record is None or record.status != "claimed":
+                continue
+            response_payload = {
+                "status": "failed",
+                "op_id": record.op_id,
+                "operation_kind": record.operation_kind,
+                "run_id": record.run_id,
+                "phase": record.phase,
+                "admin_note": f"quiesced_by_story_reset:{reset_id}",
+            }
+            if not self.cp_repo.admin_abort_operation(
+                op_id=record.op_id,
+                status="failed",
+                response_payload=response_payload,
+                now=now,
+            ):
+                raise StoryResetLockError(
+                    f"reset could not quiesce in-flight operation {record.op_id!r}",
+                )
+            claim_key = object_claims.parse_declared_scope(
+                record.project_key,
+                record.declared_serialization_scope,
+            )
+            if claim_key is not None and not self.object_claim_repo.release_claim(
+                    claim_key.project_key,
+                    claim_key.serialization_scope,
+                    claim_key.scope_key,
+                    record.op_id,
+            ):
+                remaining = self.object_claim_repo.load_claim(
+                    claim_key.project_key,
+                    claim_key.serialization_scope,
+                    claim_key.scope_key,
+                )
+                if remaining is not None:
+                    raise StoryResetLockError(
+                        f"reset could not release object claim for {record.op_id!r}",
+                    )
+
+    def load_active_binding(
+        self,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+    ) -> SessionRunBindingRecord | None:
+        """Load the active ownership projection and its exact active binding."""
+
+        active = self.cp_repo.load_active_ownership(project_key, story_id)
+        if active is None:
+            return None
+        if active.run_id != run_id:
+            raise StoryResetLockError("reset disown active ownership belongs to another run")
+        binding = self.cp_repo.load_binding(active.owner_session_id)
+        if (
+            binding is None
+            or binding.status != BindingStatus.ACTIVE.value
+            or binding.project_key != project_key
+            or binding.story_id != story_id
+            or binding.run_id != run_id
+        ):
+            raise StoryResetLockError(
+                "reset disown requires the active owner's exact session binding",
+            )
+        return binding
+
+    def commit_disown(
+        self,
+        reset_id: str,
+        plan: DisownPlan,
+        now: datetime,
+    ) -> None:
+        """Finalize the claimed reset op with revoke/status/audit atomically."""
+
+        if plan.ownership_status_target is not OwnershipStatus.RESET:
+            raise StoryResetLockError("reset disown plan must target ownership status reset")
+        claimed = self.cp_repo.load_operation(reset_id)
+        if (
+            claimed is None
+            or claimed.status != "claimed"
+            or claimed.claimed_by is None
+        ):
+            raise StoryResetLockError("reset disown requires the owned claimed fence")
+        terminal = replace(
+            claimed,
+            status="committed",
+            response_payload={
+                **claimed.response_payload,
+                "status": "committed",
+                "reset_status": "disowned",
+                "revocation_reason": plan.reconcile_reason,
+            },
+            updated_at=now,
+            finalized_at=now,
+            claimed_by=None,
+            claimed_at=None,
+        )
+        event = ExecutionEventRecord(
+            project_key=plan.revoked_binding.project_key,
+            story_id=plan.revoked_binding.story_id,
+            run_id=plan.revoked_binding.run_id,
+            event_id=f"evt-{uuid.uuid4().hex}",
+            event_type=EventType.SESSION_DISOWNED.value,
+            occurred_at=now,
+            source_component="story_reset_service",
+            severity="INFO",
+            payload=plan.audit_payload,
+        )
+        if not self.cp_repo.finalize_disown(
+            terminal,
+            owner_token=claimed.claimed_by,
+            owner_claimed_at=(
+                claimed.claimed_at.isoformat() if claimed.claimed_at is not None else None
+            ),
+            owner_operation_epoch=claimed.operation_epoch,
+            revoked_binding=plan.revoked_binding,
+            ownership_status_target=plan.ownership_status_target,
+            events=(event,),
+        ):
+            raise StoryResetLockError("reset disown lost its operation claim CAS")
 
 
 @dataclass(frozen=True)
@@ -284,7 +443,7 @@ class WorktreePurgeAdapter:
         """Commission a ``teardown_worktree`` edge command per worktree (§53.9.1).
 
         A worktree-less story (or a run-less reset) is a convergent no-op. When a
-        worktree exists but no OWN active ownership record scopes it, the reset
+        worktree exists but no OWN active/reset ownership record scopes it, the reset
         fails closed (:class:`StoryResetWorktreeError`) -- never a silent skip.
         """
         if run_id is None:
@@ -292,10 +451,13 @@ class WorktreePurgeAdapter:
         repos = self._worktree_repos(story_id)
         if not repos:
             return
-        record = self.ownership_repo.load_active_ownership(project_key, story_id)
-        if record is None or record.run_id != run_id:
+        record = self.ownership_repo.load_ownership(project_key, story_id, run_id)
+        if record is None or record.status not in {
+            OwnershipStatus.ACTIVE,
+            OwnershipStatus.RESET,
+        }:
             raise StoryResetWorktreeError(
-                "story-reset worktree teardown cannot be commissioned: no active "
+                "story-reset worktree teardown cannot be commissioned: no owned "
                 f"run-ownership record for (project={project_key!r}, "
                 f"story={story_id!r}, run={run_id!r}); the owning session that "
                 "scopes the teardown command is required (FK-56 §56.8a)."
@@ -360,6 +522,7 @@ __all__ = [
     "FenceAdapter",
     "LockPurgeAdapter",
     "ReadModelPurgeAdapter",
+    "ResetDisownAdapter",
     "RunScopeAdapter",
     "RuntimePurgeAdapter",
     "StoryResetLockError",

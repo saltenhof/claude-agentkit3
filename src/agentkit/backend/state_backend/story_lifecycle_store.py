@@ -224,6 +224,24 @@ def load_active_run_ownership_record_global(
     return mappers.run_ownership_row_to_record(row)
 
 
+def transition_run_ownership_status_global(
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    target_status: Any,
+) -> None:
+    """CAS one active ownership record to ended, reset, or split."""
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    backend.transition_run_ownership_status_global_row(
+        project_key=project_key,
+        story_id=story_id,
+        run_id=run_id,
+        target_status=str(getattr(target_status, "value", target_status)),
+    )
+
+
 def save_takeover_transfer_record_global(record: Any) -> None:
     """Upsert one takeover-transfer record."""
     from agentkit.backend.state_backend import persistence_mappers as mappers
@@ -386,6 +404,7 @@ __all__ = [
     "insert_run_ownership_record_global",
     "load_run_ownership_record_global",
     "load_active_run_ownership_record_global",
+    "transition_run_ownership_status_global",
     "save_takeover_transfer_record_global",
     "load_takeover_transfer_record_global",
     "list_takeover_transfer_records_for_story_global",

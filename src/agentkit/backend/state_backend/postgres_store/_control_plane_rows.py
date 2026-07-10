@@ -28,6 +28,7 @@ from ._mutation_commit_rows import (
 from ._ownership_rows import (
     _insert_execution_contract_digest_row,
     _insert_run_ownership_record_row,
+    _transition_run_ownership_status_row,
 )
 from ._runtime_rows import _insert_execution_event_row
 
@@ -286,17 +287,17 @@ def _insert_session_binding_row(conn: _CompatConnection, row: dict[str, Any]) ->
 
     The binding is keyed by ``session_id`` (one row per session) but carries
     ``(project_key, story_id, run_id)``. The conditional upsert creates the row when
-    absent and updates it ONLY when the existing row already belongs to the SAME
-    ``(project_key, story_id, run_id)``. A live binding for a DIFFERENT run that has
-    since rebound the same ``session_id`` is NEVER overwritten: the
+    absent and updates it when the existing row belongs to the SAME run or is
+    explicitly ``revoked``. The latter is the official rebind exception for the
+    one-slot row. An ``active`` binding for a DIFFERENT run is NEVER overwritten: the
     ``DO UPDATE ... WHERE`` predicate is false, the statement touches zero rows, and
     a still-present foreign row makes this raise
     :class:`ControlPlaneBindingCollisionError` so the WHOLE atomic transaction rolls
     back (no foreign-binding clobber).
 
     Raises:
-        ControlPlaneBindingCollisionError: When the session is bound to a DIFFERENT
-            ``(project_key, story_id, run_id)`` (the upsert refused to overwrite).
+        ControlPlaneBindingCollisionError: When the session is actively bound to a
+            DIFFERENT ``(project_key, story_id, run_id)``.
     """
     cursor = conn.execute(
         """
@@ -306,6 +307,9 @@ def _insert_session_binding_row(conn: _CompatConnection, row: dict[str, Any]) ->
             status, revocation_reason
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (session_id) DO UPDATE SET
+            project_key = EXCLUDED.project_key,
+            story_id = EXCLUDED.story_id,
+            run_id = EXCLUDED.run_id,
             principal_type = EXCLUDED.principal_type,
             worktree_roots_json = EXCLUDED.worktree_roots_json,
             binding_version = EXCLUDED.binding_version,
@@ -315,9 +319,11 @@ def _insert_session_binding_row(conn: _CompatConnection, row: dict[str, Any]) ->
             -- stale reason behind (the mapper always supplies both).
             status = EXCLUDED.status,
             revocation_reason = EXCLUDED.revocation_reason
-        WHERE session_run_bindings.project_key = EXCLUDED.project_key
-          AND session_run_bindings.story_id = EXCLUDED.story_id
-          AND session_run_bindings.run_id = EXCLUDED.run_id
+        WHERE (
+            session_run_bindings.project_key = EXCLUDED.project_key
+            AND session_run_bindings.story_id = EXCLUDED.story_id
+            AND session_run_bindings.run_id = EXCLUDED.run_id
+        ) OR session_run_bindings.status = 'revoked'
         """,
         (
             row["session_id"],
@@ -343,6 +349,38 @@ def _insert_session_binding_row(conn: _CompatConnection, row: dict[str, Any]) ->
             "stale/late operation for an old run must not overwrite a live "
             "binding that has since rebound the same session_id (AG3-054 "
             "run-scoping, fail-closed).",
+        )
+
+
+def _revoke_session_binding_row(
+    conn: _CompatConnection,
+    row: dict[str, Any],
+) -> None:
+    """CAS one exact active binding to its caller-planned revoked projection."""
+
+    if row["status"] != "revoked" or not row["revocation_reason"]:
+        raise ValueError("binding revocation requires revoked status and reason")
+    cursor = conn.execute(
+        """
+        UPDATE session_run_bindings
+        SET status = 'revoked', revocation_reason = ?,
+            binding_version = ?, updated_at = ?
+        WHERE session_id = ? AND project_key = ? AND story_id = ?
+          AND run_id = ? AND status = 'active'
+        """,
+        (
+            row["revocation_reason"],
+            row["binding_version"],
+            row["updated_at"],
+            row["session_id"],
+            row["project_key"],
+            row["story_id"],
+            row["run_id"],
+        ),
+    )
+    if int(cursor.rowcount) != 1:
+        raise ControlPlaneBindingCollisionError(
+            "disown could not revoke the expected active session binding",
         )
 
 
@@ -904,6 +942,7 @@ def commit_control_plane_operation_with_side_effects_global_row(
     lock_rows: Sequence[dict[str, Any]],
     event_rows: Sequence[dict[str, Any]],
     expected_ownership_epoch: int | None = None,
+    ownership_status_target: str | None = None,
 ) -> None:
     """Atomically commit a terminal op AND its side effects in ONE transaction (#2).
 
@@ -961,8 +1000,19 @@ def commit_control_plane_operation_with_side_effects_global_row(
                 session_id=str(op_row["session_id"]),
                 expected_ownership_epoch=expected_ownership_epoch,
             )
+        if ownership_status_target is not None:
+            _transition_run_ownership_status_row(
+                conn,
+                project_key=str(op_row["project_key"]),
+                story_id=str(op_row["story_id"]),
+                run_id=str(op_row["run_id"]),
+                target_status=ownership_status_target,
+            )
         if binding_to_save is not None:
-            _insert_session_binding_row(conn, binding_to_save)
+            if binding_to_save["status"] == "revoked":
+                _revoke_session_binding_row(conn, binding_to_save)
+            else:
+                _insert_session_binding_row(conn, binding_to_save)
         if binding_to_delete is not None:
             # Run-scoped delete: a foreign run's live binding raises and rolls back
             # the WHOLE transaction (no foreign teardown, no orphan op/lock/event).
@@ -977,6 +1027,61 @@ def commit_control_plane_operation_with_side_effects_global_row(
             _insert_story_execution_lock_row(conn, lock_row)
         for event_row in event_rows:
             _insert_execution_event_row(conn, event_row)
+
+
+def finalize_control_plane_disown_global_row(
+    *,
+    op_row: dict[str, Any],
+    owner_token: str,
+    owner_claimed_at: str | None,
+    owner_operation_epoch: int | None,
+    revoked_binding_row: dict[str, Any],
+    ownership_status_target: str,
+    event_rows: Sequence[dict[str, Any]],
+) -> bool:
+    """CAS-finalize a claimed terminal-path disown in one transaction."""
+
+    class _NotOwnerError(RuntimeError):
+        """Internal rollback sentinel for a lost reset/split claim."""
+
+    epoch_clause, epoch_params = _owner_fencing_cas_clause(
+        owner_claimed_at,
+        owner_operation_epoch,
+    )
+    try:
+        with _connect_global() as conn:
+            cursor = conn.execute(
+                f"""
+                UPDATE control_plane_operations
+                SET status = ?, response_json = ?, updated_at = ?,
+                    finalized_at = ?, claimed_by = NULL, claimed_at = NULL
+                WHERE op_id = ? AND status = 'claimed' AND claimed_by = ?{epoch_clause}
+                """,  # noqa: S608 -- epoch_clause is a fixed internal fragment
+                (
+                    op_row["status"],
+                    op_row["response_json"],
+                    op_row["updated_at"],
+                    op_row["finalized_at"],
+                    op_row["op_id"],
+                    owner_token,
+                    *epoch_params,
+                ),
+            )
+            if int(cursor.rowcount) != 1:
+                raise _NotOwnerError
+            _transition_run_ownership_status_row(
+                conn,
+                project_key=str(op_row["project_key"]),
+                story_id=str(op_row["story_id"]),
+                run_id=str(op_row["run_id"]),
+                target_status=ownership_status_target,
+            )
+            _revoke_session_binding_row(conn, revoked_binding_row)
+            for event_row in event_rows:
+                _insert_execution_event_row(conn, event_row)
+    except _NotOwnerError:
+        return False
+    return True
 
 def _write_takeover_binding_rows(
     conn: _CompatConnection,

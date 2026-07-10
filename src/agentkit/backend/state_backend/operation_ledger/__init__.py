@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
+    from agentkit.backend.control_plane.ownership import OwnershipStatus
     from agentkit.backend.control_plane.ownership_transfer import OwnershipBasis
     from agentkit.backend.control_plane.records import (
         BindingDeleteScope,
@@ -192,6 +193,7 @@ def commit_control_plane_operation_with_side_effects_global(
     locks: tuple[StoryExecutionLockRecord, ...],
     events: tuple[ExecutionEventRecord, ...],
     expected_ownership_epoch: int | None = None,
+    ownership_status_target: OwnershipStatus | None = None,
 ) -> None:
     """Atomically commit a terminal operation and its side effects."""
     from agentkit.backend.state_backend import persistence_mappers as mappers
@@ -219,8 +221,42 @@ def commit_control_plane_operation_with_side_effects_global(
             else None
         ),
         expected_ownership_epoch=expected_ownership_epoch,
+        ownership_status_target=(
+            ownership_status_target.value
+            if ownership_status_target is not None
+            else None
+        ),
         lock_rows=tuple(mappers.execution_lock_to_row(lock) for lock in locks),
         event_rows=tuple(mappers.execution_event_to_row(event) for event in events),
+    )
+
+
+def finalize_control_plane_disown_global(
+    record: ControlPlaneOperationRecord,
+    *,
+    owner_token: str,
+    owner_claimed_at: str | None,
+    owner_operation_epoch: int | None,
+    revoked_binding: SessionRunBindingRecord,
+    ownership_status_target: OwnershipStatus,
+    events: tuple[ExecutionEventRecord, ...],
+) -> bool:
+    """Atomically finalize a claimed reset/split disown unit of work."""
+
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    return bool(
+        backend.finalize_control_plane_disown_global_row(
+            op_row=mappers.control_plane_op_to_row(record),
+            owner_token=owner_token,
+            owner_claimed_at=owner_claimed_at,
+            owner_operation_epoch=owner_operation_epoch,
+            revoked_binding_row=mappers.session_binding_to_row(revoked_binding),
+            ownership_status_target=ownership_status_target.value,
+            event_rows=tuple(mappers.execution_event_to_row(event) for event in events),
+        ),
     )
 
 

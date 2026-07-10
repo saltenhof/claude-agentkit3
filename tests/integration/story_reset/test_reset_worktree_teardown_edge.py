@@ -233,6 +233,16 @@ def _build_service(
     project_root: Path, story_service: StoryService, run_id: str
 ) -> StoryResetService:
     ports = _FakePorts(run_id)
+    class _NoDisown:
+        def quiesce_inflight(self, *_args: object) -> None:
+            return None
+
+        def load_active_binding(self, *_args: object) -> None:
+            return None
+
+        def commit_disown(self, *_args: object) -> None:
+            raise AssertionError("no active binding was loaded")
+
     return StoryResetService(
         story_status=story_service,
         record_store=FileResetRecordStore(project_root / "reset_audit"),
@@ -241,6 +251,7 @@ def _build_service(
         competing_operation=ports,
         fence=ports,
         runtime_purge=ports,
+        disown=_NoDisown(),  # type: ignore[arg-type]
         lock_purge=ports,
         read_model_purge=_ReadModelAdapter(ports),
         analytics_purge=ports,

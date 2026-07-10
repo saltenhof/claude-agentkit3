@@ -11,7 +11,12 @@ from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from agentkit.backend.control_plane.records import BindingDeleteScope, ControlPlaneOperationRecord
+from agentkit.backend.control_plane.disown import build_disown_plan
+from agentkit.backend.control_plane.ownership import (
+    BindingRevocationReason,
+    BindingStatus,
+)
+from agentkit.backend.control_plane.records import ControlPlaneOperationRecord
 from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
 from agentkit.backend.governance.principal_capabilities.principals import Principal
 from agentkit.backend.story_exit.models import (
@@ -189,12 +194,7 @@ class StoryExitService:
         self._write_json(artifact_dir / "story_exit_record.json", record)
 
         self._commit_fence(normalized, record=record, now=now)
-        story_exit_committed = self._repo.has_committed_story_exit_operation_for_run(
-            normalized.project_key,
-            normalized.story_id,
-            normalized.run_id,
-        )
-        self._administratively_cancel(normalized, record, story_exit_committed)
+        self._administratively_cancel(normalized, record, True)
         teardown_mode = self._commit_teardown(normalized, record=record, now=now)
         deactivation = self._governance.deactivate_locks(normalized.story_id)
         self.exit_finalized(
@@ -252,16 +252,22 @@ class StoryExitService:
             request.run_id,
             "qa_artifact_write",
         )
-        if binding is not None:
-            raise StoryExitError("exit_finalized rejected: session binding still exists")
+        if (
+            binding is None
+            or binding.status != BindingStatus.REVOKED.value
+            or binding.revocation_reason != BindingRevocationReason.STORY_ENDED.value
+        ):
+            raise StoryExitError(
+                "exit_finalized rejected: story-ended revoked binding is missing",
+            )
         if lock is None or lock.status != "INACTIVE":
             raise StoryExitError("exit_finalized rejected: story lock is not inactive")
         if qa_lock is None or qa_lock.status != "INACTIVE":
             raise StoryExitError("exit_finalized rejected: QA lock is not inactive")
         if not bool(getattr(deactivation_result, "restored_to_ai_augmented", False)):
             raise StoryExitError("exit_finalized rejected: guards were not deactivated")
-        if operating_mode != "ai_augmented":
-            raise StoryExitError("exit_finalized rejected: session is not ai_augmented")
+        if operating_mode != "binding_invalid":
+            raise StoryExitError("exit_finalized rejected: disown notification is not active")
 
     def _default_run_state(self, request: StoryExitRequest) -> ExitRunState:
         binding = self._repo.load_binding(request.session_id)
@@ -520,9 +526,8 @@ class StoryExitService:
     ) -> str:
         binding = self._repo.load_binding(request.session_id)
         if binding is None:
-            worktree_roots: tuple[str, ...] = ()
-            binding_version = f"exit-{record.exit_id}"
-        elif (
+            raise StoryExitError("story exit teardown requires the active binding")
+        if (
             binding.project_key == request.project_key
             and binding.story_id == request.story_id
             and binding.run_id == request.run_id
@@ -531,6 +536,28 @@ class StoryExitService:
             binding_version = binding.binding_version
         else:
             raise StoryExitError("story exit teardown refused: binding collision")
+        if (
+            binding.status == BindingStatus.REVOKED.value
+            and binding.revocation_reason == BindingRevocationReason.STORY_ENDED.value
+        ):
+            existing_lock = self._repo.load_lock(
+                request.project_key,
+                request.story_id,
+                request.run_id,
+                "story_execution",
+            )
+            if existing_lock is None:
+                raise StoryExitError("story exit replay requires the inactive lock")
+            from agentkit.backend.control_plane.runtime import _resolve_operating_mode
+
+            return _resolve_operating_mode(binding=binding, lock=existing_lock)
+        if binding.status != BindingStatus.ACTIVE.value:
+            raise StoryExitError("story exit teardown refused: binding is not active")
+        disown_plan = build_disown_plan(
+            binding,
+            BindingRevocationReason.STORY_ENDED,
+            now,
+        )
         lock = self._inactive_lock(
             request,
             lock_type="story_execution",
@@ -549,7 +576,17 @@ class StoryExitService:
             self._event(
                 request,
                 event_type=EventType.STORY_EXIT_BINDING_REVOKED,
-                payload={"exit_id": record.exit_id, "session_id": request.session_id},
+                payload={
+                    "exit_id": record.exit_id,
+                    "session_id": request.session_id,
+                    "reason": disown_plan.reason.value,
+                },
+                now=now,
+            ),
+            self._event(
+                request,
+                event_type=EventType.SESSION_DISOWNED,
+                payload=disown_plan.audit_payload,
                 now=now,
             ),
             self._event(
@@ -567,19 +604,15 @@ class StoryExitService:
         )
         self._repo.commit_operation_with_side_effects(
             op_record,
-            binding_to_save=None,
-            binding_to_delete=BindingDeleteScope(
-                session_id=request.session_id,
-                project_key=request.project_key,
-                story_id=request.story_id,
-                run_id=request.run_id,
-            ),
+            binding_to_save=disown_plan.revoked_binding,
+            binding_to_delete=None,
             locks=(lock, qa_lock),
             events=events,
+            ownership_status_target=disown_plan.ownership_status_target,
         )
         from agentkit.backend.control_plane.runtime import _resolve_operating_mode
 
-        return _resolve_operating_mode(binding=None, lock=lock)
+        return _resolve_operating_mode(binding=disown_plan.revoked_binding, lock=lock)
 
     def _operation_record(
         self,

@@ -119,6 +119,7 @@ class _AdmissionRejectionMixin:
         operation_kind: str,
         run_id: str | None,
         phase: str | None,
+        session_id: str,
     ) -> ControlPlaneMutationResult:
         """Build the ex-owner rejection from a rejected :class:`OwnershipAdmission`.
 
@@ -132,13 +133,32 @@ class _AdmissionRejectionMixin:
         plain fail-closed rejection shape callers already use.
         """
         if admission.rejection_reason is not OwnershipRejectionReason.OWNERSHIP_TRANSFERRED:
+            binding = self._repo.load_binding(session_id)
+            if (
+                binding is not None
+                and binding.status == "revoked"
+                and (run_id is None or binding.run_id == run_id)
+            ):
+                reason = binding.revocation_reason or "session_binding_mismatch"
+                return _rejection_result(
+                    op_id=op_id,
+                    operation_kind=operation_kind,
+                    run_id=run_id,
+                    phase=phase,
+                    reason=(
+                        f"{operation_kind} rejected: session disowned; reason={reason}; "
+                        "new_owner_ref=none"
+                    ),
+                    error_code=reason,
+                )
             return _rejection_result(
                 op_id=op_id,
                 operation_kind=operation_kind,
                 run_id=run_id,
                 phase=phase,
                 reason=(
-                    f"{operation_kind} rejected: the active run-ownership record "
+                    f"{operation_kind} rejected: no prior admitted start; the "
+                    "active run-ownership record "
                     f"does not admit run {run_id!r} "
                     f"({admission.rejection_reason}); fail-closed "
                     "(FK-56 §56.8a)."

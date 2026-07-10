@@ -3811,8 +3811,8 @@ def test_committed_op_for_that_run_no_longer_admits() -> None:
     assert state.events == []
 
 
-def test_committed_story_exit_preferentially_blocks_same_run_admission() -> None:
-    """FK-58: story_exit terminal marker wins over binding/start evidence."""
+def test_ended_ownership_record_blocks_same_run_admission_without_exit_fence() -> None:
+    """AG3-149: ended record status is the sole post-exit admission barrier."""
 
     state = _RepoState()
     state.story_contexts[("tenant-a", "AG3-100")] = _story_context(
@@ -3825,11 +3825,17 @@ def test_committed_story_exit_preferentially_blocks_same_run_admission() -> None
         op_id="op-start",
         run_id="run-100",
     )
-    state.operations["exit-1"] = _committed_op(
-        op_id="exit-1",
-        run_id="run-100",
-        operation_kind="story_exit",
-        phase=None,
+    active = state.ownership_records[("tenant-a", "AG3-100", "run-100")]
+    state.ownership_records[("tenant-a", "AG3-100", "run-100")] = RunOwnershipRecord(
+        project_key=active.project_key,
+        story_id=active.story_id,
+        run_id=active.run_id,
+        owner_session_id=active.owner_session_id,
+        ownership_epoch=active.ownership_epoch,
+        status=OwnershipStatus.ENDED,
+        acquired_via=active.acquired_via,
+        acquired_at=active.acquired_at,
+        audit_ref=active.audit_ref,
     )
     service = ControlPlaneRuntimeService(repository=_repository(state))
 

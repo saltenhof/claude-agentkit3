@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from agentkit.backend.exceptions import (
     EdgeCommandNotOpenError,
+    OwnershipFenceViolationError,
 )
 
 from ._connection import (
@@ -962,6 +963,60 @@ def load_takeover_challenge_global_row(challenge_id: str) -> dict[str, Any] | No
     if row is None:
         return None
     return dict(row)
+
+
+def _transition_run_ownership_status_row(
+    conn: _CompatConnection,
+    *,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    target_status: str,
+) -> None:
+    """CAS one active ownership record to a terminal lifecycle status."""
+
+    if target_status not in {"ended", "reset", "split"}:
+        raise ValueError(
+            "run ownership lifecycle target must be ended, reset, or split",
+        )
+    cursor = conn.execute(
+        """
+        UPDATE run_ownership_records
+        SET status = ?
+        WHERE project_key = ? AND story_id = ? AND run_id = ?
+          AND status = 'active'
+        """,
+        (target_status, project_key, story_id, run_id),
+    )
+    if int(cursor.rowcount) != 1:
+        raise OwnershipFenceViolationError(
+            "run ownership lifecycle transition requires exactly one active record",
+            detail={
+                "project_key": project_key,
+                "story_id": story_id,
+                "run_id": run_id,
+                "target_status": target_status,
+            },
+        )
+
+
+def transition_run_ownership_status_global_row(
+    *,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    target_status: str,
+) -> None:
+    """CAS one active ownership record on a fresh connection."""
+
+    with _connect_global() as conn:
+        _transition_run_ownership_status_row(
+            conn,
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            target_status=target_status,
+        )
 
 
 def update_takeover_challenge_status_global_row(row: dict[str, Any]) -> bool:

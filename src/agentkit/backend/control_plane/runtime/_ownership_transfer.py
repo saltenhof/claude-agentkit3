@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentkit.backend.control_plane import ownership_transfer as transfer_core
+from agentkit.backend.control_plane.disown import build_disown_plan
 from agentkit.backend.control_plane.models import (
     ControlPlaneMutationResult,
     PendingHumanApprovalResponse,
@@ -16,8 +17,7 @@ from agentkit.backend.control_plane.models import (
     TakeoverRequest,
 )
 from agentkit.backend.control_plane.ownership import (
-    OWNERSHIP_TRANSFERRED_REVOCATION_REASON,
-    BindingStatus,
+    BindingRevocationReason,
     TakeoverApprovalStatus,
 )
 from agentkit.backend.control_plane.records import (
@@ -78,6 +78,33 @@ if TYPE_CHECKING:
     from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 logger = logging.getLogger(__name__)
+
+
+def _current_epoch_disown_context(
+    repo: ControlPlaneRuntimeRepository,
+    active: RunOwnershipRecord | None,
+) -> tuple[str | None, bool]:
+    """Resolve the current-epoch disowned identity from transfer+challenge rows."""
+
+    if active is None:
+        return None, False
+    current = tuple(
+        record
+        for record in repo.list_takeover_history(active.project_key, active.story_id)
+        if record.run_id == active.run_id
+        and record.ownership_epoch == active.ownership_epoch
+    )
+    if not current:
+        return None, False
+    challenge_refs = {
+        record.challenge_ref for record in current if record.challenge_ref is not None
+    }
+    owner_ids = {
+        challenge.owner_session_id
+        for challenge_ref in challenge_refs
+        if (challenge := repo.load_takeover_challenge(challenge_ref)) is not None
+    }
+    return (next(iter(owner_ids)) if len(owner_ids) == 1 else None), True
 
 
 @dataclass(frozen=True)
@@ -261,6 +288,37 @@ class _OwnershipTransferMixin:
                 )
             )
             return result
+        disowned_session_id, current_epoch_was_takeover = _current_epoch_disown_context(
+            self._repo,
+            active,
+        )
+        self_rebind = transfer_core.is_self_rebind_identity(
+            requesting_session_id=request.session_id,
+            orphaned_owner_session_id=active.owner_session_id,
+        )
+        barrier_failure = transfer_core.evaluate_disowned_session_takeover_barrier(
+            current_epoch_disowned_session_id=None,
+            beneficiary_session_id=request.session_id,
+            requesting_principal_type=request.principal_type,
+            request_reason=request.reason,
+            current_epoch_was_takeover=(
+                current_epoch_was_takeover
+                and not self_rebind
+                and request.session_id != disowned_session_id
+            ),
+        )
+        if barrier_failure is not None:
+            result = _takeover_rejection(
+                op_id=request.op_id,
+                operation_kind=_TAKEOVER_REQUEST,
+                reason=barrier_failure.value,
+                error_code=barrier_failure.value,
+                run_id=active.run_id,
+            )
+            self._repo.save_operation(
+                _takeover_operation_record(request, result=result, now=now),
+            )
+            return result
         challenge = _build_takeover_challenge(
                 self._repo,
             request=request,
@@ -268,7 +326,11 @@ class _OwnershipTransferMixin:
             owner_binding=owner_binding,
             expires_at=now + _CHALLENGE_TTL,
         )
-        if transfer_core.requires_human_approval(request.principal_type):
+        if transfer_core.requires_human_approval(
+            request.principal_type,
+            requesting_session_id=request.session_id,
+            orphaned_owner_session_id=active.owner_session_id,
+        ):
             approval = TakeoverApprovalRecord(
                 approval_id=f"approval-{uuid.uuid4().hex}",
                 project_key=request.project_key,
@@ -328,6 +390,7 @@ class _OwnershipTransferMixin:
                     {
                         "challenge_id": challenge.challenge_id,
                         "requesting_session_id": request.session_id,
+                        "self_rebind": self_rebind,
                     },
                 ),
             )
@@ -386,7 +449,11 @@ class _OwnershipTransferMixin:
             active.run_id if active is not None else "",
         )
         approval_required = transfer_core.requires_human_approval(
-            stored_challenge.requesting_principal_type
+            stored_challenge.requesting_principal_type,
+            requesting_session_id=stored_challenge.requesting_session_id,
+            orphaned_owner_session_id=(
+                active.owner_session_id if active is not None else None
+            ),
         )
         approval_state = _confirm_approval_state(
             self._repo,
@@ -436,6 +503,16 @@ class _OwnershipTransferMixin:
         )
         if expired is not None:
             return expired
+        disowned_session_id, current_epoch_was_takeover = _current_epoch_disown_context(
+            self._repo,
+            active,
+        )
+        self_rebind = transfer_core.is_self_rebind_identity(
+            requesting_session_id=stored_challenge.requesting_session_id,
+            orphaned_owner_session_id=(
+                active.owner_session_id if active is not None else None
+            ),
+        )
         decision = transfer_core.evaluate_takeover_confirm(
             active_basis=active_basis,
             challenge_basis=challenge_basis,
@@ -444,6 +521,13 @@ class _OwnershipTransferMixin:
             approval_status=approval_state.status,
             approval_required=approval_required,
             repo_evidence=repo_evidence,
+            current_epoch_disowned_session_id=disowned_session_id,
+            beneficiary_session_id=stored_challenge.requesting_session_id,
+            requesting_principal_type=stored_challenge.requesting_principal_type,
+            request_reason=stored_challenge.reason,
+            current_epoch_was_takeover=(
+                current_epoch_was_takeover and not self_rebind
+            ),
         )
         if not decision.accepted:
             if decision.failure is transfer_core.TakeoverConfirmFailure.CHALLENGE_INVALIDATED:
@@ -465,17 +549,10 @@ class _OwnershipTransferMixin:
         assert owner_binding is not None
         new_epoch = active.ownership_epoch + 1
         new_binding_version = _next_binding_version(owner_binding.binding_version)
-        revoked_binding = SessionRunBindingRecord(
-            session_id=owner_binding.session_id,
-            project_key=owner_binding.project_key,
-            story_id=owner_binding.story_id,
-            run_id=owner_binding.run_id,
-            principal_type=owner_binding.principal_type,
-            worktree_roots=owner_binding.worktree_roots,
-            binding_version=owner_binding.binding_version,
-            updated_at=now,
-            status=BindingStatus.REVOKED.value,
-            revocation_reason=OWNERSHIP_TRANSFERRED_REVOCATION_REASON,
+        disown_plan = build_disown_plan(
+            owner_binding,
+            BindingRevocationReason.OWNERSHIP_TRANSFERRED,
+            now,
         )
         new_binding = SessionRunBindingRecord(
             session_id=stored_challenge.requesting_session_id,
@@ -519,7 +596,7 @@ class _OwnershipTransferMixin:
             lock=lock,
             sync_class="mutation",
             now=now,
-            tombstone_worktree_roots=owner_binding.worktree_roots,
+            tombstone_worktree_roots=disown_plan.tombstone_worktree_roots,
         )
         result = ControlPlaneMutationResult(
             status="committed",
@@ -574,10 +651,7 @@ class _OwnershipTransferMixin:
             ),
             (
                 EventType.SESSION_DISOWNED,
-                {
-                    "previous_owner_session_id": owner_binding.session_id,
-                    "reason": "ownership_transferred",
-                },
+                disown_plan.audit_payload,
             ),
         )
         if approval_state.approved_approval is not None:
@@ -603,7 +677,7 @@ class _OwnershipTransferMixin:
         self._repo.commit_takeover_confirm(
             record,
             expected_basis=challenge_basis,
-            revoked_binding=revoked_binding,
+            revoked_binding=disown_plan.revoked_binding,
             new_binding=new_binding,
             locks=(lock,),
             transfers=transfer_records,

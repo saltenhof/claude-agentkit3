@@ -197,6 +197,7 @@ def _cp_repo(state: _CpState) -> ControlPlaneRuntimeRepository:
     return ControlPlaneRuntimeRepository(
         load_operation=state.operations.get,
         commit_operation_with_side_effects=_commit,
+        load_active_ownership=lambda _project_key, _story_id: None,
         has_committed_operation_for_run=lambda pk, sid, rid: any(
             op.status == "committed"
             and op.project_key == pk

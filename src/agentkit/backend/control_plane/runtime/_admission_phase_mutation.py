@@ -8,9 +8,6 @@ from typing import TYPE_CHECKING
 from agentkit.backend.control_plane import (
     runtime_constants,
 )
-from agentkit.backend.control_plane.ownership_fence import (
-    OwnershipRejectionReason,
-)
 from agentkit.backend.control_plane.push_sync import (
     SyncPointBarrierType,
 )
@@ -79,6 +76,7 @@ class _AdmittedPhaseMutationMixin:
             operation_kind: str,
             run_id: str | None,
             phase: str | None,
+            session_id: str,
         ) -> ControlPlaneMutationResult: ...
 
         def _ownership_fence_violation_rejection(
@@ -183,26 +181,13 @@ class _AdmittedPhaseMutationMixin:
             return locked
         admission = self._run_was_admitted(request, run_id=run_id)
         if not admission.admitted:
-            if admission.rejection_reason is OwnershipRejectionReason.OWNERSHIP_TRANSFERRED:
-                return self._ownership_admission_rejection(
-                    admission,
-                    op_id=request.op_id,
-                    operation_kind=operation_kind,
-                    run_id=run_id,
-                    phase=phase,
-                )
-            return _rejection_result(
+            return self._ownership_admission_rejection(
+                admission,
                 op_id=request.op_id,
                 operation_kind=operation_kind,
                 run_id=run_id,
                 phase=phase,
-                reason=(
-                    f"{operation_kind} rejected: the run has no prior admitted "
-                    "start (no committed setup phase_start and no session binding "
-                    "for THIS project/story/run); fail-closed -- a "
-                    "completion/failure must not materialize story-scoped state "
-                    "for an unadmitted run (FK-20 §20.8.2)."
-                ),
+                session_id=request.session_id,
             )
         #: ``admission.admitted`` is True here, so ``active_record`` is present
         #: (``evaluate_ownership_admission``): its epoch is threaded verbatim to

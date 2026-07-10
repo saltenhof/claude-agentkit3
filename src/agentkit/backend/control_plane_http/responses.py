@@ -33,6 +33,14 @@ if TYPE_CHECKING:
 
 
 _CORRELATION_HEADER = "X-Correlation-Id"
+_DISOWNED_ERROR_CODES = frozenset(
+    {
+        ERROR_CODE_OWNERSHIP_TRANSFERRED,
+        "story_ended",
+        "story_reset",
+        "story_split",
+    },
+)
 logger = logging.getLogger(__name__)
 
 
@@ -90,7 +98,7 @@ def _mutation_result_response(
     """
     if result.status != "rejected":
         status = HTTPStatus.CREATED
-    elif result.error_code == ERROR_CODE_OWNERSHIP_TRANSFERRED:
+    elif result.error_code in _DISOWNED_ERROR_CODES:
         status = HTTPStatus.FORBIDDEN
     else:
         status = HTTPStatus.CONFLICT
@@ -124,7 +132,7 @@ def _edge_command_result_response(
         status = HTTPStatus.CREATED
     elif result.error_code == "edge_command_not_found":
         status = HTTPStatus.NOT_FOUND
-    elif result.error_code == ERROR_CODE_OWNERSHIP_TRANSFERRED:
+    elif result.error_code in _DISOWNED_ERROR_CODES:
         status = HTTPStatus.FORBIDDEN
     else:
         status = HTTPStatus.CONFLICT
@@ -151,7 +159,12 @@ def _takeover_result_response(
         status = HTTPStatus.OK
     elif result.status in {"offered", "committed", "replayed"}:
         status = HTTPStatus.CREATED
-    elif result.error_code == "agent_confirm_forbidden" or result.error_code == ERROR_CODE_OWNERSHIP_TRANSFERRED:
+    elif result.error_code in {
+        "agent_confirm_forbidden",
+        ERROR_CODE_OWNERSHIP_TRANSFERRED,
+        "disowned_session_cannot_immediately_reclaim",
+        "repeat_transfer_requires_privileged_principal_and_reason",
+    }:
         status = HTTPStatus.FORBIDDEN
     else:
         status = HTTPStatus.CONFLICT

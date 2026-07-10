@@ -101,6 +101,9 @@ class _ProjectEdgeSyncMixin:
             qa_lock=qa_lock_record,
             sync_class=request.freshness_class,
             now=now,
+            tombstone_worktree_roots=(
+                binding.worktree_roots if binding.status == "revoked" else ()
+            ),
         )
         return ControlPlaneMutationResult(
             status="synced",

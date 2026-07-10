@@ -127,6 +127,7 @@ class _StartPhaseAdmissionMixin:
             operation_kind: str,
             run_id: str | None,
             phase: str | None,
+            session_id: str,
         ) -> ControlPlaneMutationResult: ...
 
         def _ownership_fence_violation_rejection(
@@ -409,6 +410,7 @@ class _StartPhaseAdmissionMixin:
                     operation_kind="phase_start",
                     run_id=run_id,
                     phase=phase,
+                    session_id=request.session_id,
                 ),
                 dispatch_result=None,
             )

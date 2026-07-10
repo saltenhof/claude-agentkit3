@@ -4,6 +4,8 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal
 
+import pytest
+
 from agentkit.backend.control_plane.models import (
     ControlPlaneMutationResult,
     EdgeBundle,
@@ -20,8 +22,6 @@ from agentkit.harness_client.projectedge.client import (
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
     # Canonical FK-56 operating-mode literal -- the SINGLE foundation definition
     # (``core_types.operating_mode``). Annotation-only here (PEP 563 deferred), so
@@ -129,19 +129,21 @@ def test_resolver_returns_binding_invalid_for_session_mismatch(tmp_path: Path) -
     assert resolved.block_reason == "session_binding_mismatch"
 
 
-def test_resolver_returns_binding_invalid_for_ownership_transferred(tmp_path: Path) -> None:
-    """AG3-142 (SOLL-034 behaviour, FK-56 §56.7a/§56.13c): a revoked binding with
-    reason ``ownership_transferred`` is deterministically ``binding_invalid`` --
-    even though the CALLING session_id still matches the bundle's own
-    ``session_id`` (the ex-owner asking about their OWN now-revoked binding).
-    No silent fall-back to ``ai_augmented``.
-    """
+@pytest.mark.parametrize(
+    "revocation_reason",
+    ("ownership_transferred", "story_ended", "story_reset", "story_split"),
+)
+def test_resolver_returns_binding_invalid_for_every_disown_reason(
+    tmp_path: Path,
+    revocation_reason: str,
+) -> None:
+    """Every closed-vocabulary disown reason resolves identically and verbatim."""
     worktree = tmp_path / "worktree"
     LocalEdgePublisher(project_root=tmp_path).publish(
         _bundle(
             worktree_root=str(worktree),
             binding_status="revoked",
-            revocation_reason="ownership_transferred",
+            revocation_reason=revocation_reason,
         ),
     )
 
@@ -152,7 +154,7 @@ def test_resolver_returns_binding_invalid_for_ownership_transferred(tmp_path: Pa
     )
 
     assert resolved.operating_mode == "binding_invalid"
-    assert resolved.block_reason == "ownership_transferred"
+    assert resolved.block_reason == revocation_reason
 
 
 def test_resolver_revoked_binding_with_missing_reason_stays_fail_closed(

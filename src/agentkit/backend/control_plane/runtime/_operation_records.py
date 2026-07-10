@@ -313,6 +313,7 @@ def _rejection_result(
     phase: str | None,
     reason: str,
     dispatch_phase: str = "setup",
+    error_code: str | None = None,
 ) -> ControlPlaneMutationResult:
     """Build a fail-closed REJECTED mutation result (no bundle, no committed op).
 
@@ -339,6 +340,7 @@ def _rejection_result(
         operation_kind=operation_kind,
         run_id=run_id,
         phase=phase,
+        error_code=error_code,
         edge_bundle=None,
         phase_dispatch=PhaseDispatchResult(
             phase=phase or dispatch_phase,

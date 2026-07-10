@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
+from agentkit.backend.control_plane.ownership import OwnershipStatus
 from agentkit.backend.control_plane.records import (
     BindingDeleteScope,
     ControlPlaneOperationRecord,
@@ -101,12 +102,16 @@ def _repo(state: _RepoState) -> ControlPlaneRuntimeRepository:
         binding_to_delete: BindingDeleteScope | None,
         locks: tuple[StoryExecutionLockRecord, ...],
         events: tuple[ExecutionEventRecord, ...],
+        ownership_status_target: OwnershipStatus | None = None,
     ) -> None:
-        del binding_to_save
         state.commits.append(
             (record.operation_kind, binding_to_delete is not None, len(locks), len(events))
         )
         state.operations[record.op_id] = record
+        if binding_to_save is not None:
+            state.bindings[binding_to_save.session_id] = binding_to_save
+        if ownership_status_target is not None:
+            assert ownership_status_target is OwnershipStatus.ENDED
         if binding_to_delete is not None:
             existing = state.bindings.get(binding_to_delete.session_id)
             if existing is not None and (
@@ -344,13 +349,14 @@ def test_story_exit_canonical_order_and_no_closure_operation(tmp_path: Path) -> 
     story_service = _StoryService()
     result = _service(state, tmp_path, story_service=story_service).exit_story(_request())
 
-    assert result.operating_mode == "ai_augmented"
+    assert result.operating_mode == "binding_invalid"
     assert story_service.calls == ["cancelled"]
     assert state.commits == [
         ("story_exit", False, 0, 0),
-        ("story_exit", True, 2, 2),
+        ("story_exit", False, 2, 3),
     ]
-    assert "sess-1" not in state.bindings
+    assert state.bindings["sess-1"].status == "revoked"
+    assert state.bindings["sess-1"].revocation_reason == "story_ended"
     assert state.operations["exit-1"].operation_kind == "story_exit"
     assert all(op.operation_kind != "closure_complete" for op in state.operations.values())
 
@@ -381,9 +387,9 @@ def test_crash_after_fence_before_cancel_leaves_binding_and_resume_finishes(
     assert resumed_story_service.calls == ["cancelled"]
     assert state.commits == [
         ("story_exit", False, 0, 0),
-        ("story_exit", True, 2, 2),
+        ("story_exit", False, 2, 3),
     ]
-    assert "sess-1" not in state.bindings
+    assert state.bindings["sess-1"].status == "revoked"
 
 
 def test_teardown_does_not_run_before_cancelled_status(tmp_path: Path) -> None:

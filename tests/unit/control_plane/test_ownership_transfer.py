@@ -16,11 +16,13 @@ from agentkit.backend.control_plane.ownership_transfer import (
     OwnershipBasis,
     TakeoverConfirmFailure,
     TakeoverRepoChallenge,
+    evaluate_disowned_session_takeover_barrier,
     evaluate_takeover_confirm,
     ownership_anchor_unchanged,
     ownership_basis_of_active,
     ownership_basis_of_challenge,
     ownership_basis_unchanged,
+    requires_human_approval,
 )
 from agentkit.backend.control_plane.records import (
     RunOwnershipRecord,
@@ -141,10 +143,59 @@ def test_each_single_field_basis_drift_is_terminal_invalidation(
                 base_quality="pushed",
             ),
         ),
+        current_epoch_disowned_session_id=None,
+        beneficiary_session_id="sess-beneficiary",
+        requesting_principal_type="orchestrator",
+        request_reason="take over stalled work",
+        current_epoch_was_takeover=False,
     )
 
     assert decision.accepted is False
     assert decision.failure is TakeoverConfirmFailure.CHALLENGE_INVALIDATED
+
+
+def test_disowned_session_cannot_immediately_reclaim_without_privileged_reason() -> None:
+    failure = evaluate_disowned_session_takeover_barrier(
+        current_epoch_disowned_session_id="session-a",
+        beneficiary_session_id="session-a",
+        requesting_principal_type="orchestrator",
+        request_reason="reclaim",
+        current_epoch_was_takeover=True,
+    )
+    assert (
+        failure
+        is TakeoverConfirmFailure.DISOWNED_SESSION_CANNOT_IMMEDIATELY_RECLAIM
+    )
+
+
+def test_repeat_transfer_requires_privileged_principal_and_reason() -> None:
+    assert evaluate_disowned_session_takeover_barrier(
+        current_epoch_disowned_session_id="session-a",
+        beneficiary_session_id="session-c",
+        requesting_principal_type="orchestrator",
+        request_reason="repeat",
+        current_epoch_was_takeover=True,
+    ) is TakeoverConfirmFailure.REPEAT_TRANSFER_REQUIRES_PRIVILEGED_PRINCIPAL_AND_REASON
+    assert evaluate_disowned_session_takeover_barrier(
+        current_epoch_disowned_session_id="session-a",
+        beneficiary_session_id="session-c",
+        requesting_principal_type="human_cli",
+        request_reason="audited correction",
+        current_epoch_was_takeover=True,
+    ) is None
+
+
+def test_self_rebind_skips_approval_only_for_same_non_empty_identity() -> None:
+    assert not requires_human_approval(
+        "orchestrator",
+        requesting_session_id="session-a",
+        orphaned_owner_session_id="session-a",
+    )
+    assert requires_human_approval(
+        "orchestrator",
+        requesting_session_id="session-b",
+        orphaned_owner_session_id="session-a",
+    )
 
 
 def test_full_basis_and_weaker_reissue_anchor_have_distinct_roles() -> None:

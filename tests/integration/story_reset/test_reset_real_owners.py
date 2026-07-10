@@ -224,6 +224,16 @@ def _build_service(store_dir: Path, story_service: StoryService) -> StoryResetSe
         FactStore(StateBackendFactRepository(store_dir)),
         StateBackendAnalyticsSource(accessor, project_key=_PROJECT),
     )
+    class _NoDisown:
+        def quiesce_inflight(self, *_args: object) -> None:
+            return None
+
+        def load_active_binding(self, *_args: object) -> None:
+            return None
+
+        def commit_disown(self, *_args: object) -> None:
+            raise AssertionError("no active binding was loaded")
+
     return StoryResetService(
         story_status=story_service,
         record_store=FileResetRecordStore(store_dir / "reset_audit"),
@@ -235,6 +245,7 @@ def _build_service(store_dir: Path, story_service: StoryService) -> StoryResetSe
             RuntimeExecutionPurgePort(store_dir),
             RuntimeExecutionResidueProbe(store_dir),
         ),
+        disown=_NoDisown(),  # type: ignore[arg-type]
         lock_purge=LockPurgeAdapter(governance, LockRecordRepository(store_dir)),
         read_model_purge=ReadModelPurgeAdapter(accessor),
         analytics_purge=AnalyticsPurgeAdapter(refresh_worker),

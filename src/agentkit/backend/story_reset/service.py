@@ -37,6 +37,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
+from agentkit.backend.control_plane.disown import build_disown_plan
+from agentkit.backend.control_plane.ownership import BindingRevocationReason
 from agentkit.backend.control_plane.records import ControlPlaneOperationRecord
 from agentkit.backend.story_reset.models import (
     PlannedPurge,
@@ -50,6 +52,9 @@ from agentkit.backend.story_reset.models import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from agentkit.backend.control_plane.disown import DisownPlan
+    from agentkit.backend.control_plane.records import SessionRunBindingRecord
 
 
 class StoryResetError(RuntimeError):
@@ -170,6 +175,35 @@ class LockPurgePort(Protocol):
         """Return whether any active lock/lease remains for the story."""
 
 
+class ResetDisownPort(Protocol):
+    """Adapter boundary for the reset's foreign-active-binding disown."""
+
+    def load_active_binding(
+        self,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+    ) -> SessionRunBindingRecord | None:
+        """Return the active owner binding for the reset run, if any."""
+
+    def quiesce_inflight(
+        self,
+        project_key: str,
+        story_id: str,
+        reset_id: str,
+        now: datetime,
+    ) -> None:
+        """CAS-abort in-flight operations and release their object claims."""
+
+    def commit_disown(
+        self,
+        reset_id: str,
+        plan: DisownPlan,
+        now: datetime,
+    ) -> None:
+        """Atomically finalize the reset fence and persist the disown plan."""
+
+
 class ReadModelPurgePort(Protocol):
     """Schritt 6 FK-69 read-model purge owner (AG3-081 ``ProjectionAccessor``)."""
 
@@ -250,6 +284,7 @@ class StoryResetService:
         competing_operation: CompetingOperationPort,
         fence: FencePort,
         runtime_purge: RuntimePurgePort,
+        disown: ResetDisownPort,
         lock_purge: LockPurgePort,
         read_model_purge: ReadModelPurgePort,
         analytics_purge: AnalyticsPurgePort,
@@ -264,6 +299,7 @@ class StoryResetService:
         self._competing = competing_operation
         self._fence = fence
         self._runtime_purge = runtime_purge
+        self._disown = disown
         self._lock_purge = lock_purge
         self._read_model_purge = read_model_purge
         self._analytics_purge = analytics_purge
@@ -503,6 +539,27 @@ class StoryResetService:
             # any deletion. Convergent: a story already RESETTING stays RESETTING.
             self._fence_story(record)
             self._acquire_fence(record, run_id)
+            self._disown.quiesce_inflight(
+                record.project_key,
+                record.story_id,
+                record.reset_id,
+                self._now_fn(),
+            )
+
+            if run_id is not None:
+                binding = self._disown.load_active_binding(
+                    record.project_key,
+                    record.story_id,
+                    run_id,
+                )
+                if binding is not None:
+                    disowned_at = self._now_fn()
+                    plan = build_disown_plan(
+                        binding,
+                        BindingRevocationReason.STORY_RESET,
+                        disowned_at,
+                    )
+                    self._disown.commit_disown(record.reset_id, plan, disowned_at)
 
             # Schritt 3 + 5 (locks/leases): quiesce active runtime participants and
             # deactivate locks/leases via the dedicated lock owner (NOT a read-model
@@ -657,6 +714,7 @@ __all__ = [
     "FencePort",
     "LockPurgePort",
     "ReadModelPurgePort",
+    "ResetDisownPort",
     "ResetRecordStore",
     "RunScopePort",
     "RuntimePurgePort",

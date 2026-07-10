@@ -14,6 +14,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
+from agentkit.backend.control_plane.disown import build_disown_plan
+from agentkit.backend.control_plane.ownership import (
+    BindingRevocationReason,
+    BindingStatus,
+)
 from agentkit.backend.control_plane.records import ControlPlaneOperationRecord
 from agentkit.backend.core_types import StoryDependencyKind, StorySize
 from agentkit.backend.execution_planning.entities import StoryDependency
@@ -43,6 +48,8 @@ from agentkit.backend.story_split.rebinding import (
     plan_rebinding,
     validate_rebinding_plan,
 )
+from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
+from agentkit.backend.telemetry.events import EventType
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -307,6 +314,7 @@ class StorySplitService:
         Returns:
             The completed :class:`StorySplitResult`.
         """
+        self._disown_source_binding(request, split_id=split_id, plan_ref=plan_ref, now=now)
         # Step 3: quiesce the steering runtime (phase_state_projection + locks).
         # NOT a full analytics purge — audit/telemetry are preserved (§54.9).
         self._phase_state_quiesce.purge_run(
@@ -403,6 +411,65 @@ class StorySplitService:
             successor_ids=successor_ids,
             rebinding_plan=rebinding_plan,
             resumed=resumed,
+        )
+
+    def _disown_source_binding(
+        self,
+        request: StorySplitRequest,
+        *,
+        split_id: str,
+        plan_ref: str,
+        now: datetime,
+    ) -> None:
+        """Revoke the source owner and terminalize its ownership before quiesce."""
+
+        active = self._repo.load_active_ownership(
+            request.project_key,
+            request.source_story_id,
+        )
+        if active is None:
+            return
+        if active.run_id != request.run_id:
+            raise StorySplitError("split disown active ownership belongs to another run")
+        binding = self._repo.load_binding(active.owner_session_id)
+        if (
+            binding is None
+            or binding.status != BindingStatus.ACTIVE.value
+            or binding.project_key != request.project_key
+            or binding.story_id != request.source_story_id
+            or binding.run_id != request.run_id
+        ):
+            raise StorySplitError("split disown requires the exact active owner binding")
+        plan = build_disown_plan(
+            binding,
+            BindingRevocationReason.STORY_SPLIT,
+            now,
+        )
+        op_record = _committed_split_record(
+            request=request,
+            split_id=split_id,
+            plan_ref=plan_ref,
+            now=now,
+            extra_payload={"revocation_reason": plan.reconcile_reason},
+        )
+        event = ExecutionEventRecord(
+            project_key=request.project_key,
+            story_id=request.source_story_id,
+            run_id=request.run_id,
+            event_id=f"{split_id}:session-disowned",
+            event_type=EventType.SESSION_DISOWNED.value,
+            occurred_at=now,
+            source_component="story_split_service",
+            severity="INFO",
+            payload=plan.audit_payload,
+        )
+        self._repo.commit_operation_with_side_effects(
+            op_record,
+            binding_to_save=plan.revoked_binding,
+            binding_to_delete=None,
+            locks=(),
+            events=(event,),
+            ownership_status_target=plan.ownership_status_target,
         )
 
     # ------------------------------------------------------------------

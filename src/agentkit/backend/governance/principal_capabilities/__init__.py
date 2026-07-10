@@ -11,6 +11,7 @@ from agentkit.backend.governance.principal_capabilities.enforcement import (
     CapabilityEnforcement,
     CapabilityHull,
     CapabilityResult,
+    DisownedSessionOverlay,
     EnforcementOutcome,
 )
 from agentkit.backend.governance.principal_capabilities.freeze import (
@@ -46,6 +47,7 @@ __all__ = [
     "CapabilityResult",
     "CapabilityVerdict",
     "ConflictFreezeOverlay",
+    "DisownedSessionOverlay",
     "EnforcementOutcome",
     "LocalFreezeExport",
     "OperationClass",

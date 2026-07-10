@@ -30,6 +30,7 @@ from agentkit.backend.state_backend.operation_ledger import (
     commit_takeover_reissue_global,
     delete_control_plane_operation_global,
     delete_object_mutation_claim_global,
+    finalize_control_plane_disown_global,
     finalize_control_plane_operation_global,
     finalize_control_plane_start_phase_global,
     finalize_orphaned_control_plane_operation_global,
@@ -75,6 +76,7 @@ from agentkit.backend.state_backend.story_lifecycle_store import (
     load_takeover_transfer_record_global,
     save_session_run_binding_global,
     save_takeover_transfer_record_global,
+    transition_run_ownership_status_global,
     update_takeover_approval_status_global,
     update_takeover_challenge_status_global,
 )
@@ -86,6 +88,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
+    from agentkit.backend.control_plane.ownership import OwnershipStatus
     from agentkit.backend.control_plane.push_sync import PushBarrierVerdict, PushFreshnessRecord
     from agentkit.backend.control_plane.records import (
         BackendInstanceIdentityRecord,
@@ -147,6 +150,7 @@ class ControlPlaneRuntimeRepository:
     #: result + clears ``claimed_by`` ONLY when the row is still ``claimed`` by the
     #: owner token. Returns ``True`` iff this owner's terminal write applied.
     finalize_operation: Callable[..., bool] = finalize_control_plane_operation_global
+    finalize_disown: Callable[..., bool] = finalize_control_plane_disown_global
     #: AG3-054 (#1): ownership-scoped, atomic start_phase finalize. CAS-finalizes
     #: the claimed op AND materializes its side effects (binding/locks/events) in
     #: ONE transaction, gated on still owning the claim. A loser (a stale claim
@@ -333,6 +337,9 @@ class RunOwnershipRepository:
     )
     load_active_ownership: Callable[[str, str], RunOwnershipRecord | None] = (
         load_active_run_ownership_record_global
+    )
+    transition_status: Callable[[str, str, str, OwnershipStatus], None] = (
+        transition_run_ownership_status_global
     )
 
 

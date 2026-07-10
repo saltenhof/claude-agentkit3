@@ -163,6 +163,27 @@ class _Ports:
         self.events.append("fence_release")
         self.fence_claimed.pop(op_id, None)
 
+    # ResetDisownPort (no active binding in the legacy orchestration fixture)
+    def quiesce_inflight(
+        self,
+        project_key: str,
+        story_id: str,
+        reset_id: str,
+        now: datetime,
+    ) -> None:
+        self.events.append("quiesce_inflight")
+
+    def load_active_binding(
+        self,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+    ) -> None:
+        return None
+
+    def commit_disown(self, reset_id: str, plan: object, now: datetime) -> None:
+        raise AssertionError("no binding means reset disown must not be committed")
+
     # RuntimePurgePort (Schritt 5)
     def purge_run(self, project_key: str, story_id: str, run_id: str) -> dict[str, int]:
         self.events.append("runtime_purge")
@@ -239,6 +260,7 @@ def _make_service(
         competing_operation=ports,
         fence=ports,
         runtime_purge=ports,
+        disown=ports,
         lock_purge=ports,
         read_model_purge=_ReadModelAdapter(ports),
         analytics_purge=ports,

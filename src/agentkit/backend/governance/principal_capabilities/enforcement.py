@@ -35,6 +35,10 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agentkit.backend.control_plane.ownership_transfer import (
+    TakeoverConfirmFailure,
+    evaluate_disowned_session_takeover_barrier,
+)
 from agentkit.backend.governance.principal_capabilities.matrix import (
     CapabilityDecision,
     CapabilityVerdict,
@@ -181,6 +185,55 @@ class CapabilityResult:
         self.hull = hull
 
 
+class DisownedSessionOverlay:
+    """Derived, storage-free capability overlay for a revoked session binding."""
+
+    RULE_ID = "FK-55-55.8.3-disowned-session"
+    PING_PONG_RULE_ID = "disowned_session_cannot_immediately_reclaim"
+
+    def apply(
+        self,
+        base_verdict: CapabilityVerdict,
+        *,
+        binding_revocation_reason: str | None,
+        new_owner_ref: str | None,
+        operation_class: OperationClass,
+    ) -> CapabilityVerdict:
+        """Deny story mutations when the resolved binding is revoked."""
+
+        if base_verdict.decision is CapabilityDecision.DENY:
+            return base_verdict
+        if binding_revocation_reason is None:
+            return base_verdict
+        if operation_class not in _MUTATING_OP_CLASSES:
+            return base_verdict
+        owner_detail = new_owner_ref or "unknown"
+        return CapabilityVerdict.deny(
+            "session disowned: "
+            f"reason={binding_revocation_reason}; new_owner_ref={owner_detail}",
+            rule_id=self.RULE_ID,
+        )
+
+    @staticmethod
+    def evaluate_takeover_barrier(
+        *,
+        current_epoch_disowned_session_id: str | None,
+        beneficiary_session_id: str,
+        requesting_principal_type: str,
+        request_reason: str,
+        current_epoch_was_takeover: bool,
+    ) -> TakeoverConfirmFailure | None:
+        """Name the same A-core ping-pong predicate at the capability locus."""
+
+        return evaluate_disowned_session_takeover_barrier(
+            current_epoch_disowned_session_id=current_epoch_disowned_session_id,
+            beneficiary_session_id=beneficiary_session_id,
+            requesting_principal_type=requesting_principal_type,
+            request_reason=request_reason,
+            current_epoch_was_takeover=current_epoch_was_takeover,
+        )
+
+
 class CapabilityEnforcement:
     """Runs FK-55 §55.10.3 steps 1-5 and gates CCAG (step 7).
 
@@ -205,6 +258,7 @@ class CapabilityEnforcement:
         self._op_classifier = op_classifier
         self._matrix = matrix
         self._freeze = freeze
+        self._disowned = DisownedSessionOverlay()
 
     def evaluate(
         self,
@@ -213,6 +267,8 @@ class CapabilityEnforcement:
         project_root: Path | None = None,
         story_id: str | None = None,
         story_scope_roots: Sequence[str] | None = None,
+        binding_revocation_reason: str | None = None,
+        new_owner_ref: str | None = None,
     ) -> CapabilityResult:
         """Evaluate the capability decision for ``event`` (steps 1-5).
 
@@ -278,7 +334,13 @@ class CapabilityEnforcement:
         # UNCLASSIFIED_MUTATION (block-all-modes) for ANY mutating op, else an
         # UNRESOLVED (mode-specific) non-mutating event.
         deny_result, unresolved = self._resolve_targets(
-            event, principal, op_class, story_id, path_classes
+            event,
+            principal,
+            op_class,
+            story_id,
+            path_classes,
+            binding_revocation_reason,
+            new_owner_ref,
         )
         if deny_result is not None:
             return deny_result
@@ -342,6 +404,8 @@ class CapabilityEnforcement:
         op_class: OperationClass,
         story_id: str | None,
         path_classes: list[PathClass | None],
+        binding_revocation_reason: str | None,
+        new_owner_ref: str | None,
     ) -> tuple[CapabilityResult | None, bool]:
         """Apply the hard matrix + freeze overlay per target (§55.10.3 steps 4-5).
 
@@ -364,6 +428,12 @@ class CapabilityEnforcement:
                 continue
             base = self._matrix.is_allowed(principal, op_class, path_class)
             verdict = self._freeze.apply(base, principal, story_id or "", op_class)
+            verdict = self._disowned.apply(
+                verdict,
+                binding_revocation_reason=binding_revocation_reason,
+                new_owner_ref=new_owner_ref,
+                operation_class=op_class,
+            )
             if verdict.decision is CapabilityDecision.DENY:
                 if _service_path_override_allowed(
                     event, principal, op_class, path_class
@@ -567,5 +637,6 @@ __all__ = [
     "UNKNOWN_PERMISSION_REASON",
     "CapabilityEnforcement",
     "CapabilityResult",
+    "DisownedSessionOverlay",
     "EnforcementOutcome",
 ]

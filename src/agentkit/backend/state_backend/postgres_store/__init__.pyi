@@ -91,6 +91,9 @@ from ._control_plane_rows import (
     delete_control_plane_operation_global_row as delete_control_plane_operation_global_row,
 )
 from ._control_plane_rows import (
+    finalize_control_plane_disown_global_row as finalize_control_plane_disown_global_row,
+)
+from ._control_plane_rows import (
     finalize_control_plane_operation_global_row as finalize_control_plane_operation_global_row,
 )
 from ._control_plane_rows import (
@@ -173,6 +176,9 @@ from ._ownership_rows import (
 )
 from ._ownership_rows import (
     _push_barrier_verdict_params as _push_barrier_verdict_params,
+)
+from ._ownership_rows import (
+    _transition_run_ownership_status_row as _transition_run_ownership_status_row,
 )
 from ._ownership_rows import (
     acquire_object_mutation_claim_global_row as acquire_object_mutation_claim_global_row,
@@ -272,6 +278,9 @@ from ._ownership_rows import (
 )
 from ._ownership_rows import (
     supersede_open_edge_command_global_row as supersede_open_edge_command_global_row,
+)
+from ._ownership_rows import (
+    transition_run_ownership_status_global_row as transition_run_ownership_status_global_row,
 )
 from ._ownership_rows import (
     update_takeover_challenge_status_global_row as update_takeover_challenge_status_global_row,

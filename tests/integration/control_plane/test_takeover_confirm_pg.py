@@ -17,7 +17,10 @@ import pytest
 
 from agentkit.backend.auth.middleware import AuthMiddleware
 from agentkit.backend.auth.tokens import issue_project_api_token
-from agentkit.backend.bootstrap.story_reset_adapters import FenceAdapter
+from agentkit.backend.bootstrap.story_reset_adapters import (
+    FenceAdapter,
+    ResetDisownAdapter,
+)
 from agentkit.backend.control_plane.http import ControlPlaneApplication, HttpResponse
 from agentkit.backend.control_plane.models import (
     AdminTakeoverReconcileClearRequest,
@@ -27,6 +30,7 @@ from agentkit.backend.control_plane.models import (
     EdgePointer,
     PhaseDispatchResult,
     PhaseMutationRequest,
+    ProjectEdgeSyncRequest,
     SessionRunBindingView,
     StoryExecutionLockView,
     TakeoverConfirmRequest,
@@ -103,6 +107,7 @@ from agentkit.backend.state_backend.story_lifecycle_store import (
     insert_takeover_approval_global,
     insert_takeover_challenge_global,
     load_active_run_ownership_record_global,
+    load_run_ownership_record_global,
     load_session_run_binding_global,
     load_takeover_approval_for_challenge_global,
     load_takeover_approval_global,
@@ -647,6 +652,332 @@ def _story_id(number: int) -> str:
 
 def _wire_time(value: datetime) -> str:
     return value.isoformat().replace("+00:00", "Z")
+
+
+@pytest.mark.integration
+def test_ping_pong_barrier_uses_current_epoch_transfer_and_challenge_history(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(1490)
+    run_id = "run-ping-pong"
+    service = _service(ident="inst-ping-pong")
+    _seed_story_context(tmp_path, story_id)
+    _admit_run(service, story_id=story_id, run_id=run_id, session_id="sess-A")
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+
+    first_challenge = _request_takeover(
+        service,
+        story_id=story_id,
+        run_id=run_id,
+        session_id="sess-B",
+        principal_type="human_cli",
+        op_id="op-ping-first-request",
+    )
+    first = service.confirm_ownership_takeover(
+        command=_confirm_request(
+            story_id=story_id,
+            challenge_id=first_challenge,
+            op_id="op-ping-first-confirm",
+            session_id="sess-B",
+        ),
+    )
+    assert first.status == "committed"
+
+    tokens = _InMemoryTokenRepository()
+    issued = issue_project_api_token(
+        project_key=_PROJECT,
+        label="disowned-read",
+        repository=tokens,
+    )
+    read_response = ControlPlaneApplication(
+        runtime_service=service,
+        auth_middleware=AuthMiddleware(token_repository=tokens),
+    ).handle_request(
+        method="GET",
+        path="/v1/project-edge/operations/op-ping-first-confirm",
+        body=b"",
+        request_headers={
+            "Authorization": f"Bearer {issued.plaintext_token}",
+            "X-Project-Key": _PROJECT,
+        },
+    )
+    assert read_response.status_code == HTTPStatus.OK
+
+    later_service = _service(ident="inst-ping-pong-later", now=_EXPIRED_NOW)
+    refreshed = later_service.sync_project_edge(
+        ProjectEdgeSyncRequest(
+            project_key=_PROJECT,
+            session_id="sess-A",
+            op_id="op-ping-disowned-renewed-contact",
+        )
+    )
+    assert refreshed.status == "synced"
+    assert refreshed.edge_bundle is not None
+    assert refreshed.edge_bundle.current.operating_mode == "binding_invalid"
+
+    reclaim_request = later_service.request_ownership_takeover(
+        request=TakeoverRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-A",
+            principal_type="orchestrator",
+            op_id="op-ping-reclaim-request",
+            reason="reclaim immediately",
+            worktree_roots=[f"T:/worktrees/{story_id}/sess-A"],
+        ),
+    )
+    assert reclaim_request.status == "pending_human_approval"
+    assert reclaim_request.pending_human_approval is not None
+    approval = load_takeover_approval_global(
+        reclaim_request.pending_human_approval.approval_id,
+    )
+    assert approval is not None
+    approved = replace(
+        approval,
+        status=TakeoverApprovalStatus.APPROVED,
+        decided_at=_EXPIRED_NOW,
+        decided_by_session_id="human-approver",
+        decision_reason="approved",
+    )
+    assert update_takeover_approval_status_global(approved)
+    reclaim = later_service.confirm_ownership_takeover(
+        command=_confirm_request(
+            story_id=story_id,
+            challenge_id=approval.challenge_ref,
+            op_id="op-ping-reclaim-confirm",
+            session_id="sess-A",
+        ),
+    )
+    assert reclaim.status == "rejected"
+    assert reclaim.error_code == "disowned_session_cannot_immediately_reclaim"
+
+    repeat = service.request_ownership_takeover(
+        request=TakeoverRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-C",
+            principal_type="orchestrator",
+            op_id="op-ping-repeat-request",
+            reason="repeat transfer",
+            worktree_roots=[f"T:/worktrees/{story_id}/sess-C"],
+        ),
+    )
+    assert repeat.status == "rejected"
+    assert (
+        repeat.error_code
+        == "repeat_transfer_requires_privileged_principal_and_reason"
+    )
+
+    privileged = service.request_ownership_takeover(
+        request=TakeoverRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-C",
+            principal_type="human_cli",
+            op_id="op-ping-privileged-request",
+            reason="audited operator correction",
+            worktree_roots=[f"T:/worktrees/{story_id}/sess-C"],
+        ),
+    )
+    assert privileged.status == "offered"
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None
+    assert active.owner_session_id == "sess-B"
+
+
+@pytest.mark.integration
+def test_same_harness_self_rebind_skips_approval_queue_but_foreign_does_not(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(1491)
+    run_id = "run-self-rebind"
+    service = _service(ident="inst-self-rebind")
+    _seed_story_context(tmp_path, story_id)
+    _admit_run(service, story_id=story_id, run_id=run_id, session_id="sess-A")
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+
+    own = service.request_ownership_takeover(
+        request=TakeoverRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-A",
+            principal_type="orchestrator",
+            op_id="op-self-rebind",
+            reason="resume own orphaned work",
+            worktree_roots=[f"T:/worktrees/{story_id}/sess-A"],
+        ),
+    )
+    assert own.status == "offered"
+    assert own.pending_human_approval is None
+    own_events = load_execution_events_global(_PROJECT, story_id, run_id=run_id)
+    offered = [event for event in own_events if event.event_type == "run_ownership_takeover_offered"]
+    assert offered[-1].payload["self_rebind"] is True
+
+    foreign = service.request_ownership_takeover(
+        request=TakeoverRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-B",
+            principal_type="orchestrator",
+            op_id="op-foreign-rebind",
+            reason="foreign takeover",
+            worktree_roots=[f"T:/worktrees/{story_id}/sess-B"],
+        ),
+    )
+    assert foreign.status == "pending_human_approval"
+    assert foreign.pending_human_approval is not None
+
+
+@pytest.mark.integration
+def test_official_setup_rebind_supersedes_only_revoked_one_slot_binding(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    old_story = _story_id(1492)
+    new_story = _story_id(1493)
+    service = _service(ident="inst-revoked-rebind")
+    _seed_story_context(tmp_path, old_story)
+    _admit_run(service, story_id=old_story, run_id="run-old", session_id="sess-A")
+    _run_real_invalidating_predecessor(
+        operation_kind="story_exit",
+        story_id=old_story,
+        run_id="run-old",
+        service=service,
+        tmp_path=tmp_path,
+    )
+    revoked = load_session_run_binding_global("sess-A")
+    assert revoked is not None
+    assert revoked.status == "revoked"
+    assert revoked.revocation_reason == "story_ended"
+
+    _seed_story_context(tmp_path, new_story)
+    rebound = service.start_phase(
+        run_id="run-new",
+        phase="setup",
+        request=_phase_request(
+            story_id=new_story,
+            op_id="op-official-rebind",
+            session_id="sess-A",
+        ),
+    )
+
+    assert rebound.status == "committed"
+    active_binding = load_session_run_binding_global("sess-A")
+    assert active_binding is not None
+    assert active_binding.status == "active"
+    assert active_binding.story_id == new_story
+    assert active_binding.run_id == "run-new"
+
+
+@pytest.mark.integration
+def test_setup_after_real_reset_admits_new_run_and_supersedes_revoked_binding(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(1494)
+    service = _service(ident="inst-reset-restart")
+    _seed_story_context(tmp_path, story_id)
+    _admit_run(service, story_id=story_id, run_id="run-reset-old", session_id="sess-A")
+    holder = boot_backend_instance_identity_global("inst-reset-inflight-holder", _NOW)
+    save_control_plane_operation_global(
+        ControlPlaneOperationRecord(
+            op_id="op-inflight-before-reset",
+            project_key=_PROJECT,
+            story_id=story_id,
+            run_id="run-reset-old",
+            session_id="sess-A",
+            operation_kind="phase_complete",
+            phase="implementation",
+            status="claimed",
+            response_payload={"status": "claimed"},
+            created_at=_NOW,
+            updated_at=_NOW,
+            claimed_by="owner-inflight-before-reset",
+            claimed_at=_NOW,
+            operation_epoch=1,
+            backend_instance_id=holder.backend_instance_id,
+            instance_incarnation=holder.instance_incarnation,
+            declared_serialization_scope=f"{_PROJECT}:{story_id}",
+        )
+    )
+    assert acquire_object_mutation_claim_global(
+        project_key=_PROJECT,
+        serialization_scope="story",
+        scope_key=story_id,
+        op_id="op-inflight-before-reset",
+        backend_instance_id=holder.backend_instance_id,
+        instance_incarnation=holder.instance_incarnation,
+        acquired_at=_NOW,
+    )
+    _run_real_invalidating_predecessor(
+        operation_kind="story_reset",
+        story_id=story_id,
+        run_id="run-reset-old",
+        service=service,
+        tmp_path=tmp_path,
+    )
+
+    quiesced = load_control_plane_operation_global("op-inflight-before-reset")
+    assert quiesced is not None
+    assert quiesced.status == "failed"
+    assert quiesced.response_payload["admin_note"].startswith(
+        "quiesced_by_story_reset:"
+    )
+    after_reset = boot_backend_instance_identity_global(
+        "inst-after-reset-claim-probe",
+        _LATER,
+    )
+    assert acquire_object_mutation_claim_global(
+        project_key=_PROJECT,
+        serialization_scope="story",
+        scope_key=story_id,
+        op_id="op-after-reset-claim-probe",
+        backend_instance_id=after_reset.backend_instance_id,
+        instance_incarnation=after_reset.instance_incarnation,
+        acquired_at=_LATER,
+    )
+    assert delete_object_mutation_claim_global(
+        _PROJECT,
+        "story",
+        story_id,
+        "op-after-reset-claim-probe",
+    )
+
+    old_mutation = service.complete_phase(
+        run_id="run-reset-old",
+        phase="implementation",
+        request=_phase_request(
+            story_id=story_id,
+            op_id="op-old-run-after-reset",
+            session_id="sess-A",
+        ),
+    )
+    assert old_mutation.status == "rejected"
+    assert old_mutation.error_code == "story_reset"
+
+    restarted = service.start_phase(
+        run_id="run-reset-new",
+        phase="setup",
+        request=_phase_request(
+            story_id=story_id,
+            op_id="op-setup-after-reset",
+            session_id="sess-A",
+        ),
+    )
+
+    assert restarted.status == "committed"
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None
+    assert active.run_id == "run-reset-new"
+    old = load_run_ownership_record_global(_PROJECT, story_id, "run-reset-old")
+    assert old is not None
+    assert old.status is OwnershipStatus.RESET
 
 
 def _set_challenge_expires_at(challenge_id: str, expires_at: datetime) -> None:
@@ -2440,14 +2771,16 @@ def _run_real_invalidating_predecessor(
             run_id=run_id,
         )
         reset_id = predecessor_op_id
+        cp_repo = ControlPlaneRuntimeRepository()
         reset_service = StoryResetService(
             story_status=ports,  # type: ignore[arg-type]
             record_store=FileResetRecordStore(tmp_path / "story-reset"),
             run_scope=ports,
             escalation_evidence=ports,
             competing_operation=ports,
-            fence=FenceAdapter(ControlPlaneRuntimeRepository()),
+            fence=FenceAdapter(cp_repo),
             runtime_purge=ports,
+            disown=ResetDisownAdapter(cp_repo),
             lock_purge=ports,
             read_model_purge=ports,
             analytics_purge=ports,
@@ -2604,9 +2937,72 @@ def test_confirm_after_terminal_predecessor_is_rejected_as_challenge_invalidated
     assert result.status == "rejected"
     assert result.error_code == "challenge_invalidated"
     active = load_active_run_ownership_record_global(_PROJECT, story_id)
-    assert active is not None
-    assert active.owner_session_id == "sess-A"
-    assert active.ownership_epoch == 1
+    if operation_kind in {"story_exit", "story_reset", "story_split"}:
+        assert active is None
+        historical = load_run_ownership_record_global(_PROJECT, story_id, run_id)
+        assert historical is not None
+        expected_status = {
+            "story_exit": "ended",
+            "story_reset": "reset",
+            "story_split": "split",
+        }[operation_kind]
+        expected_reason = {
+            "story_exit": "story_ended",
+            "story_reset": "story_reset",
+            "story_split": "story_split",
+        }[operation_kind]
+        assert historical.status.value == expected_status
+        revoked = load_session_run_binding_global("sess-A")
+        assert revoked is not None
+        assert revoked.status == "revoked"
+        assert revoked.revocation_reason == expected_reason
+        synced = service.sync_project_edge(
+            ProjectEdgeSyncRequest(
+                project_key=_PROJECT,
+                session_id="sess-A",
+                op_id=f"op-sync-{operation_kind}",
+            ),
+        )
+        assert synced.edge_bundle is not None
+        assert synced.edge_bundle.current.operating_mode == "binding_invalid"
+        assert synced.edge_bundle.session is not None
+        assert synced.edge_bundle.session.revocation_reason == expected_reason
+        assert synced.edge_bundle.tombstone_worktree_roots == list(
+            revoked.worktree_roots,
+        )
+        source_mutation = service.complete_phase(
+            run_id=run_id,
+            phase="implementation",
+            request=_phase_request(
+                story_id=story_id,
+                op_id=f"op-source-after-{operation_kind}",
+                session_id="sess-A",
+            ),
+        )
+        assert source_mutation.status == "rejected"
+        assert source_mutation.error_code == expected_reason
+        if operation_kind == "story_split":
+            successor_mutation = service.complete_phase(
+                run_id=f"{run_id}-successor",
+                phase="implementation",
+                request=_phase_request(
+                    story_id=f"{story_id}-SUCCESSOR",
+                    op_id="op-unowned-split-successor-mutation",
+                    session_id="sess-A",
+                ),
+            )
+            assert successor_mutation.status == "rejected"
+            assert successor_mutation.error_code is None
+            assert successor_mutation.phase_dispatch is not None
+            assert successor_mutation.phase_dispatch.rejection_reason is not None
+            assert (
+                "no prior admitted start"
+                in successor_mutation.phase_dispatch.rejection_reason
+            )
+    else:
+        assert active is not None
+        assert active.owner_session_id == "sess-A"
+        assert active.ownership_epoch == 1
     assert load_session_run_binding_global("sess-B") is None
     assert _transfer_count(story_id, run_id) == 0
     challenge = load_takeover_challenge_global(echo)

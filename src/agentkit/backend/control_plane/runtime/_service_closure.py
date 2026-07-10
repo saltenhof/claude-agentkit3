@@ -89,6 +89,7 @@ class _ControlPlaneClosureMixin:
             run_id: str | None,
             phase: str | None,
             reason: str,
+            session_id: str,
         ) -> ControlPlaneMutationResult: ...
 
         def _closure_push_precondition_block(
@@ -170,6 +171,7 @@ class _ControlPlaneClosureMixin:
                 operation_kind="closure_complete",
                 run_id=run_id,
                 phase="closure",
+                session_id=request.session_id,
                 reason=(
                     "closure_complete rejected: the run has no active "
                     "run-ownership record for THIS project/story/run; "

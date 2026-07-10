@@ -72,7 +72,11 @@ def _default_split_source_state_loader(
             paused_with_scope_explosion = True
 
     repo = ControlPlaneRuntimeRepository()
-    competing = repo.has_committed_story_exit_operation_for_run(request.project_key, request.source_story_id, request.run_id)
+    competing = repo.has_committed_ownership_invalidating_operation_for_run(
+        request.project_key,
+        request.source_story_id,
+        request.run_id,
+    )
     return SplitSourceState(
         scope_explosion_established=scope_exploded,
         paused_with_scope_explosion=paused_with_scope_explosion,
@@ -230,6 +234,7 @@ def build_story_reset_service(
         FenceAdapter,
         LockPurgeAdapter,
         ReadModelPurgeAdapter,
+        ResetDisownAdapter,
         RunScopeAdapter,
         RuntimePurgeAdapter,
         WorkspacePurgeAdapter,
@@ -286,6 +291,7 @@ def build_story_reset_service(
             build_runtime_execution_purge_port(store_dir),
             build_runtime_execution_residue_probe(store_dir),
         ),
+        disown=ResetDisownAdapter(cp_repo),
         lock_purge=LockPurgeAdapter(governance, lock_repo),
         read_model_purge=ReadModelPurgeAdapter(accessor),
         analytics_purge=AnalyticsPurgeAdapter(refresh_worker),

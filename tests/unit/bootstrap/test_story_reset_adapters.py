@@ -73,7 +73,12 @@ class _ControlPlaneRepo:
             )
         }
 
-    def has_committed_story_exit_operation_for_run(self, _project_key: str, _story_id: str, _run_id: str) -> bool:
+    def has_committed_ownership_invalidating_operation_for_run(
+        self,
+        _project_key: str,
+        _story_id: str,
+        _run_id: str,
+    ) -> bool:
         return self.committed
 
     def claim_operation(self, record: object) -> bool:

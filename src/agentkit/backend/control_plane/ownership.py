@@ -108,6 +108,9 @@ class BindingRevocationReason(StrEnum):
     """
 
     OWNERSHIP_TRANSFERRED = "ownership_transferred"
+    STORY_ENDED = "story_ended"
+    STORY_RESET = "story_reset"
+    STORY_SPLIT = "story_split"
 
 
 class TakeoverApprovalStatus(StrEnum):

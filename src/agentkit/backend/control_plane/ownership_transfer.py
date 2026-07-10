@@ -41,6 +41,12 @@ class TakeoverConfirmFailure(StrEnum):
     APPROVAL_REQUIRED = "approval_required"
     APPROVAL_NOT_APPROVED = "approval_not_approved"
     PUSHED_HEAD_REQUIRED = "pushed_head_required"
+    DISOWNED_SESSION_CANNOT_IMMEDIATELY_RECLAIM = (
+        "disowned_session_cannot_immediately_reclaim"
+    )
+    REPEAT_TRANSFER_REQUIRES_PRIVILEGED_PRINCIPAL_AND_REASON = (
+        "repeat_transfer_requires_privileged_principal_and_reason"
+    )
 
 
 InvalidationReason = Literal["transfer", "exit", "reset", "split", "closure"]
@@ -243,6 +249,11 @@ def evaluate_takeover_confirm(
     approval_status: TakeoverApprovalStatus | None,
     approval_required: bool,
     repo_evidence: tuple[TakeoverRepoChallenge, ...],
+    current_epoch_disowned_session_id: str | None,
+    beneficiary_session_id: str,
+    requesting_principal_type: str,
+    request_reason: str,
+    current_epoch_was_takeover: bool,
 ) -> TakeoverConfirmDecision:
     """Evaluate the technology-free confirm preconditions before the row CAS."""
 
@@ -254,6 +265,15 @@ def evaluate_takeover_confirm(
         return TakeoverConfirmDecision(False, TakeoverConfirmFailure.APPROVAL_REQUIRED)
     if approval_required and approval_status is not TakeoverApprovalStatus.APPROVED:
         return TakeoverConfirmDecision(False, TakeoverConfirmFailure.APPROVAL_NOT_APPROVED)
+    ping_pong_failure = evaluate_disowned_session_takeover_barrier(
+        current_epoch_disowned_session_id=current_epoch_disowned_session_id,
+        beneficiary_session_id=beneficiary_session_id,
+        requesting_principal_type=requesting_principal_type,
+        request_reason=request_reason,
+        current_epoch_was_takeover=current_epoch_was_takeover,
+    )
+    if ping_pong_failure is not None:
+        return TakeoverConfirmDecision(False, ping_pong_failure)
     if not repo_evidence:
         return TakeoverConfirmDecision(False, TakeoverConfirmFailure.PUSHED_HEAD_REQUIRED)
     if any(repo.takeover_base_sha is None or not repo.takeover_base_sha.strip() for repo in repo_evidence):
@@ -281,7 +301,58 @@ def challenge_invalidated_by_transition(reason: InvalidationReason) -> TakeoverC
     return TakeoverConfirmFailure.CHALLENGE_INVALIDATED
 
 
-def requires_human_approval(principal_type: str) -> bool:
+def evaluate_disowned_session_takeover_barrier(
+    *,
+    current_epoch_disowned_session_id: str | None,
+    beneficiary_session_id: str,
+    requesting_principal_type: str,
+    request_reason: str,
+    current_epoch_was_takeover: bool,
+) -> TakeoverConfirmFailure | None:
+    """Evaluate both epoch-scoped ping-pong prongs from explicit inputs."""
+
+    privileged_with_reason = (
+        requesting_principal_type in {"human_cli", "admin_service"}
+        and bool(request_reason.strip())
+    )
+    if (
+        current_epoch_disowned_session_id is not None
+        and current_epoch_disowned_session_id == beneficiary_session_id
+        and not privileged_with_reason
+    ):
+        return TakeoverConfirmFailure.DISOWNED_SESSION_CANNOT_IMMEDIATELY_RECLAIM
+    if current_epoch_was_takeover and not privileged_with_reason:
+        return (
+            TakeoverConfirmFailure.REPEAT_TRANSFER_REQUIRES_PRIVILEGED_PRINCIPAL_AND_REASON
+        )
+    return None
+
+
+def is_self_rebind_identity(
+    *,
+    requesting_session_id: str | None,
+    orphaned_owner_session_id: str | None,
+) -> bool:
+    """Return whether both non-empty identifiers prove the same harness identity."""
+
+    return bool(
+        requesting_session_id
+        and orphaned_owner_session_id
+        and requesting_session_id == orphaned_owner_session_id
+    )
+
+
+def requires_human_approval(
+    principal_type: str,
+    *,
+    requesting_session_id: str | None = None,
+    orphaned_owner_session_id: str | None = None,
+) -> bool:
     """Return whether a request path must wait for a human approval."""
 
+    if is_self_rebind_identity(
+        requesting_session_id=requesting_session_id,
+        orphaned_owner_session_id=orphaned_owner_session_id,
+    ):
+        return False
     return principal_type in {"interactive_agent", "orchestrator"}

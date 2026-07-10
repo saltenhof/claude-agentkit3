@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from agentkit.backend.control_plane.ownership_transfer import TakeoverConfirmFailure
 from agentkit.backend.governance.guard_evaluation import HookEvent
 from agentkit.backend.governance.principal_capabilities import (
     CapabilityEnforcement,
     CapabilityMatrix,
     ConflictFreezeOverlay,
+    DisownedSessionOverlay,
     EnforcementOutcome,
     OperationClassifier,
     PathClassifier,
@@ -68,6 +70,80 @@ def test_happy_path_worker_writes_story_scope_allow(tmp_path: Path) -> None:
         event, project_root=tmp_path, story_id=_STORY, story_scope_roots=_SCOPE
     )
     assert result.outcome is EnforcementOutcome.ALLOW
+
+
+def test_disowned_overlay_denies_mutation_with_reason_rule_and_new_owner(
+    tmp_path: Path,
+) -> None:
+    event = _event(
+        tmp_path,
+        principal_kind="subagent",
+        session_id="session-a",
+        cli_args=[_ATTEST, "worker"],
+        operation_args={"file_path": f"{_WORKTREE}/src/module.py"},
+    )
+
+    result = _enforcement(tmp_path).evaluate(
+        event,
+        project_root=tmp_path,
+        story_id=_STORY,
+        story_scope_roots=_SCOPE,
+        binding_revocation_reason="ownership_transferred",
+        new_owner_ref="session-b",
+    )
+
+    assert result.outcome is EnforcementOutcome.DENY
+    assert result.verdict.rule_id == DisownedSessionOverlay.RULE_ID
+    assert "ownership_transferred" in result.verdict.reason
+    assert "session-b" in result.verdict.reason
+
+
+def test_disowned_overlay_allows_reads_and_does_not_freeze_new_owner(
+    tmp_path: Path,
+) -> None:
+    read = _event(
+        tmp_path,
+        operation="file_read",
+        principal_kind="subagent",
+        session_id="session-a",
+        cli_args=[_ATTEST, "worker"],
+        operation_args={"file_path": f"{_WORKTREE}/src/module.py"},
+    )
+    write = _event(
+        tmp_path,
+        principal_kind="subagent",
+        session_id="session-b",
+        cli_args=[_ATTEST, "worker"],
+        operation_args={"file_path": f"{_WORKTREE}/src/module.py"},
+    )
+
+    read_result = _enforcement(tmp_path).evaluate(
+        read,
+        project_root=tmp_path,
+        story_id=_STORY,
+        story_scope_roots=_SCOPE,
+        binding_revocation_reason="ownership_transferred",
+        new_owner_ref="session-b",
+    )
+    new_owner_result = _enforcement(tmp_path).evaluate(
+        write,
+        project_root=tmp_path,
+        story_id=_STORY,
+        story_scope_roots=_SCOPE,
+    )
+
+    assert read_result.outcome is EnforcementOutcome.ALLOW
+    assert new_owner_result.outcome is EnforcementOutcome.ALLOW
+
+
+def test_capability_ping_pong_rule_calls_the_shared_a_core_predicate() -> None:
+    assert DisownedSessionOverlay.evaluate_takeover_barrier(
+        current_epoch_disowned_session_id="session-a",
+        beneficiary_session_id="session-a",
+        requesting_principal_type="orchestrator",
+        request_reason="reclaim",
+        current_epoch_was_takeover=True,
+    ) is TakeoverConfirmFailure.DISOWNED_SESSION_CANNOT_IMMEDIATELY_RECLAIM
 
 
 def test_fail_closed_worker_writes_qa_artifact_deny(tmp_path: Path) -> None:

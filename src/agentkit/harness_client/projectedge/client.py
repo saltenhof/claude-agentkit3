@@ -439,6 +439,27 @@ class LocalEdgePublisher:
         self._project_root = project_root
 
     def publish(self, bundle: EdgeBundle) -> None:
+        if (
+            bundle.session is not None
+            and bundle.session.status == "revoked"
+            and bundle.session.revocation_reason == "ownership_transferred"
+        ):
+            from agentkit.harness_client.projectedge.quarantine import (
+                quarantine_worktree,
+            )
+
+            quarantine_store = (
+                self._project_root.parent
+                / ".agentkit-quarantine"
+                / self._project_root.name
+            )
+            for root in bundle.tombstone_worktree_roots:
+                quarantine_worktree(
+                    source_root=Path(root),
+                    quarantine_store=quarantine_store,
+                    reason=bundle.session.revocation_reason,
+                    now=bundle.current.generated_at,
+                )
         bundle_root = self._project_root / bundle.current.bundle_dir
         bundle_root.mkdir(parents=True, exist_ok=True)
         _write_json(bundle_root / "session.json", _session_payload(bundle))

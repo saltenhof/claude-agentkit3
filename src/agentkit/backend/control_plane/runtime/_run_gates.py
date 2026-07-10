@@ -10,7 +10,6 @@ from agentkit.backend.control_plane import (
 )
 from agentkit.backend.control_plane.ownership_fence import (
     OwnershipAdmission,
-    OwnershipRejectionReason,
     evaluate_ownership_admission,
 )
 from agentkit.backend.control_plane.push_sync import (
@@ -22,7 +21,6 @@ from agentkit.backend.control_plane.push_sync import (
     SyncPointBarrierType,
 )
 
-from ._operation_records import _rejection_result
 from ._push_barrier_results import _barrier_from_repo_verdicts, _merge_precondition_from_barrier
 
 if TYPE_CHECKING:
@@ -70,6 +68,7 @@ class _RunGateMixin:
             operation_kind: str,
             run_id: str | None,
             phase: str | None,
+            session_id: str,
         ) -> ControlPlaneMutationResult: ...
 
     def _resolve_push_barrier_evidence(self, *, require_wired: bool) -> PushBarrierEvidencePort | None:
@@ -428,20 +427,12 @@ class _RunGateMixin:
         :attr:`~agentkit.backend.control_plane.repository.ControlPlaneRuntimeRepository.load_active_ownership`
         and therefore never admits (SOLL-014 / AC3).
 
-        The exit-fence negative check (``has_committed_story_exit_operation_for_run``)
-        is kept as the transition-protection short-circuit (AC11) until AG3-149
-        maintains the record status on the exit path -- it is consulted FIRST,
-        unchanged from the retired heuristic.
+        Run terminality is represented only by ownership-record status. A
+        terminal record is historical and therefore absent from the active read.
 
         Fail-closed: no active record for THIS run, or an active record whose
         ``owner_session_id`` differs, means the run was never admitted.
         """
-        if self._repo.has_committed_story_exit_operation_for_run(project_key, story_id, run_id):
-            return OwnershipAdmission(
-                admitted=False,
-                active_record=None,
-                rejection_reason=OwnershipRejectionReason.STORY_EXITED,
-            )
         active = self._repo.load_active_ownership(project_key, story_id)
         return evaluate_ownership_admission(active_record=active, run_id=run_id, session_id=session_id)
 
@@ -454,6 +445,7 @@ class _RunGateMixin:
         run_id: str,
         phase: str,
         reason: str,
+        session_id: str,
     ) -> ControlPlaneMutationResult:
         """Fail-closed rejection for a run the active ownership record does not admit.
 
@@ -463,19 +455,12 @@ class _RunGateMixin:
         yields the generic fail-closed rejection carrying ``reason``. The caller
         guards on ``not admission.admitted``.
         """
-        if admission.rejection_reason is OwnershipRejectionReason.OWNERSHIP_TRANSFERRED:
-            return self._ownership_admission_rejection(
-                admission,
-                op_id=op_id,
-                operation_kind=operation_kind,
-                run_id=run_id,
-                phase=phase,
-            )
-        return _rejection_result(
+        del reason
+        return self._ownership_admission_rejection(
+            admission,
             op_id=op_id,
             operation_kind=operation_kind,
             run_id=run_id,
             phase=phase,
-            reason=reason,
-            dispatch_phase=phase,
+            session_id=session_id,
         )

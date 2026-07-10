@@ -32,6 +32,7 @@ from agentkit.backend.control_plane.records import (
     SessionRunBindingRecord,
     TakeoverTransferRecord,
 )
+from agentkit.backend.exceptions import OwnershipFenceViolationError
 from agentkit.backend.state_backend import postgres_store
 from agentkit.backend.state_backend.governance_runtime_store import save_story_execution_lock_global
 from agentkit.backend.state_backend.operation_ledger import (
@@ -52,6 +53,7 @@ from agentkit.backend.state_backend.story_lifecycle_store import (
     load_takeover_transfer_record_global,
     save_session_run_binding_global,
     save_takeover_transfer_record_global,
+    transition_run_ownership_status_global,
 )
 
 pytestmark = pytest.mark.integration
@@ -179,6 +181,36 @@ def test_inactive_records_coexist_with_one_active_record() -> None:
     ended = load_run_ownership_record_global("tenant-a", "AG3-202", "run-old")
     assert ended is not None
     assert ended.status is OwnershipStatus.ENDED
+
+
+@pytest.mark.parametrize(
+    "target_status",
+    (OwnershipStatus.ENDED, OwnershipStatus.RESET, OwnershipStatus.SPLIT),
+)
+def test_active_ownership_lifecycle_transition_is_cas_and_never_admits_history(
+    target_status: OwnershipStatus,
+) -> None:
+    story_id = f"AG3-149-{target_status.value}"
+    insert_run_ownership_record_global(_ownership(story_id=story_id, run_id="run-a"))
+
+    transition_run_ownership_status_global(
+        "tenant-a",
+        story_id,
+        "run-a",
+        target_status,
+    )
+
+    historical = load_run_ownership_record_global("tenant-a", story_id, "run-a")
+    assert historical is not None
+    assert historical.status is target_status
+    assert load_active_run_ownership_record_global("tenant-a", story_id) is None
+    with pytest.raises(OwnershipFenceViolationError):
+        transition_run_ownership_status_global(
+            "tenant-a",
+            story_id,
+            "run-a",
+            target_status,
+        )
 
 
 # ---------------------------------------------------------------------------

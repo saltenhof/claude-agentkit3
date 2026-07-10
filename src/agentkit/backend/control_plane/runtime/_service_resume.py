@@ -86,6 +86,7 @@ class _ControlPlaneResumeMixin:
             run_id: str | None,
             phase: str | None,
             reason: str,
+            session_id: str,
         ) -> ControlPlaneMutationResult: ...
 
         def _mint_owner_token(self) -> str: ...
@@ -203,6 +204,7 @@ class _ControlPlaneResumeMixin:
                 operation_kind="phase_resume",
                 run_id=run_id,
                 phase=phase,
+                session_id=request.session_id,
                 reason=(
                     "phase_resume rejected: the run has no active run-ownership "
                     "record for THIS project/story/run; fail-closed -- a resume "
