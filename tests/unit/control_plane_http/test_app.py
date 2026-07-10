@@ -693,6 +693,9 @@ def test_null_scope_human_takeover_request_is_forbidden_before_runtime() -> None
 
 
 def test_cross_project_token_takeover_request_is_forbidden_before_runtime() -> None:
+    # §6.5 defense in depth: AuthMiddleware already rejects bearer requests
+    # without an attested project (401) or with a mismatched token project
+    # (403); this fence still rejects a body-forged project_key before runtime.
     tokens = _InMemoryTokenRepository()
     issued = issue_project_api_token(
         project_key="tenant-a",

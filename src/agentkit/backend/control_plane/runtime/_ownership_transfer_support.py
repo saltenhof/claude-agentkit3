@@ -140,7 +140,8 @@ def _maybe_reissue_expired_challenge(
     approval_state: _ConfirmApprovalState,
     now: datetime,
 ) -> _ChallengeReissueResult:
-    if now < stored_challenge.expires_at or approval_state.approved_approval is None:
+    approved_for_reissue = _approved_approval_for_reissue(approval_state)
+    if now < stored_challenge.expires_at or approved_for_reissue is None:
         return _ChallengeReissueResult(
             stored_challenge,
             None,
@@ -224,7 +225,7 @@ def _maybe_reissue_expired_challenge(
         approval_state.status,
         approval_state.approval,
         _approval_with_challenge_ref(
-            approval_state.approved_approval,
+            approved_for_reissue,
             challenge_ref=fresh_challenge.challenge_id,
         ),
         approval_state.repo,
@@ -242,6 +243,19 @@ def _maybe_reissue_expired_challenge(
         owner_binding,
         None,
     )
+
+
+def _approved_approval_for_reissue(
+    approval_state: _ConfirmApprovalState,
+) -> TakeoverApprovalRecord | None:
+    if approval_state.approved_approval is not None:
+        return approval_state.approved_approval
+    if (
+        approval_state.approval is not None
+        and approval_state.approval.status is TakeoverApprovalStatus.APPROVED
+    ):
+        return approval_state.approval
+    return None
 
 
 def _build_takeover_challenge(

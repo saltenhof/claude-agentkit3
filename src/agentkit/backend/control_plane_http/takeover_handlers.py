@@ -330,6 +330,10 @@ def _project_key_fence(
     auth_result: AuthResult | None,
     correlation_id: str,
 ) -> HttpResponse | None:
+    # Project API tokens are normally fenced earlier by AuthMiddleware
+    # (missing attested project -> 401; token/project mismatch -> 403). The
+    # takeover fence still fails closed on null scope as defense-in-depth for
+    # optional-auth deployments and human strategist sessions.
     if auth_result is None or auth_result.project_key is None:
         return _error_response(
             HTTPStatus.FORBIDDEN,

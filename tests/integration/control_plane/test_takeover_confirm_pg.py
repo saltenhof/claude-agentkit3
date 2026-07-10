@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from http import HTTPStatus
@@ -89,6 +90,7 @@ from agentkit.backend.state_backend.story_lifecycle_store import (
     save_session_run_binding_global,
     save_story_context_global,
     save_takeover_transfer_record_global,
+    update_takeover_approval_status_global,
 )
 from agentkit.backend.state_backend.telemetry_event_store import (
     load_execution_events_global,
@@ -1349,6 +1351,97 @@ def test_expired_agent_challenge_is_invalidated_not_reissued_after_intervening_t
         if payload["approval_id"] == stale_approval.approval_id
     ]
     assert approval_events[-1]["approval"]["status"] == "invalidated"
+    assert load_takeover_transfer_record_global(_PROJECT, story_id, run_id, 3, _REPO) is None
+
+
+@pytest.mark.integration
+def test_reissue_guard_invalidates_challenge_and_request_but_keeps_approved_approval(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(215)
+    run_id = "run-reissue-approved-intervening-transfer"
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident="inst-reissue-approved-request")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    pending_result = service.request_ownership_takeover(
+        request=TakeoverRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-agent-approved-stale",
+            principal_type="interactive_agent",
+            op_id="op-stale-approved-agent-request",
+            reason="owner unavailable",
+            worktree_roots=[f"T:/worktrees/{story_id}/agent"],
+        )
+    )
+    assert pending_result.pending_human_approval is not None
+    approval = load_takeover_approval_global(
+        pending_result.pending_human_approval.approval_id
+    )
+    assert approval is not None
+    assert update_takeover_approval_status_global(
+        replace(
+            approval,
+            status=TakeoverApprovalStatus.APPROVED,
+            decided_at=_NOW + timedelta(minutes=1),
+            decided_by_session_id="sess-human-approver",
+            decision_reason="approved for takeover",
+        )
+    )
+    stale_echo = _challenge_echo_from_current(story_id, approval.challenge_ref)
+
+    human_echo = _request_takeover(
+        service,
+        story_id=story_id,
+        run_id=run_id,
+        session_id="sess-C",
+        principal_type="human_cli",
+        op_id="op-transfer-c-approved-request",
+    )
+    moved = service.confirm_ownership_takeover(
+        request=_confirm_request(
+            story_id=story_id,
+            echo=human_echo,
+            op_id="op-transfer-c-approved-confirm",
+            session_id="sess-human-confirmer",
+        )
+    )
+    assert moved.status == "committed"
+
+    stale_result = _service(
+        ident="inst-reissue-approved-confirm",
+        now=_NOW + timedelta(minutes=20),
+    ).confirm_ownership_takeover(
+        request=_confirm_request(
+            story_id=story_id,
+            echo=stale_echo,
+            op_id="op-stale-approved-agent-confirm",
+            approval_id=approval.approval_id,
+        )
+    )
+
+    assert stale_result.status == "rejected"
+    assert stale_result.error_code == "challenge_invalidated"
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None
+    assert active.owner_session_id == "sess-C"
+    assert active.ownership_epoch == 2
+    refreshed = load_takeover_approval_global(approval.approval_id)
+    assert refreshed is not None
+    assert refreshed.status is TakeoverApprovalStatus.APPROVED
+    assert refreshed.decided_by_session_id == "sess-human-approver"
+    invalidated_challenge = load_takeover_challenge_global(approval.challenge_ref)
+    assert invalidated_challenge is not None
+    assert invalidated_challenge.status == "invalidated"
+    assert invalidated_challenge.terminal_op_id == "op-stale-approved-agent-confirm"
+    request_op = load_control_plane_operation_global("op-stale-approved-agent-request")
+    assert request_op is not None
+    assert request_op.status == "invalidated"
+    assert request_op.response_payload["error_code"] == "challenge_invalidated"
+    assert load_session_run_binding_global("sess-agent-approved-stale") is None
     assert load_takeover_transfer_record_global(_PROJECT, story_id, run_id, 3, _REPO) is None
 
 
