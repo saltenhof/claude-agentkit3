@@ -260,7 +260,6 @@ def _make_service(
         competing_operation=ports,
         fence=ports,
         runtime_purge=ports,
-        disown=ports,
         lock_purge=ports,
         read_model_purge=_ReadModelAdapter(ports),
         analytics_purge=ports,

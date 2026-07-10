@@ -107,6 +107,37 @@ def _current_epoch_disown_context(
     return (next(iter(owner_ids)) if len(owner_ids) == 1 else None), True
 
 
+def _confirm_decision_rejection(
+    repo: ControlPlaneRuntimeRepository,
+    *,
+    command: TakeoverConfirmCommand,
+    challenge: TakeoverChallengeRecord,
+    approval_state: _ConfirmApprovalState,
+    decision: transfer_core.TakeoverConfirmDecision,
+    active_run_id: str | None,
+    now: datetime,
+) -> ControlPlaneMutationResult | None:
+    """Materialize one rejected pure confirm decision, if any."""
+
+    if decision.accepted:
+        return None
+    if decision.failure is transfer_core.TakeoverConfirmFailure.CHALLENGE_INVALIDATED:
+        return _commit_takeover_invalidation(
+            repo,
+            command=command,
+            challenge=challenge,
+            approval=approval_state.approval,
+            now=now,
+        )
+    return _takeover_rejection(
+        op_id=command.request.op_id,
+        operation_kind=_TAKEOVER_CONFIRM,
+        reason=str(decision.failure),
+        error_code=str(decision.failure),
+        run_id=active_run_id,
+    )
+
+
 @dataclass(frozen=True)
 class _TakeoverInvalidationCandidate:
     challenge: TakeoverChallengeRecord
@@ -529,22 +560,17 @@ class _OwnershipTransferMixin:
                 current_epoch_was_takeover and not self_rebind
             ),
         )
-        if not decision.accepted:
-            if decision.failure is transfer_core.TakeoverConfirmFailure.CHALLENGE_INVALIDATED:
-                return _commit_takeover_invalidation(
-                    self._repo,
-                    command=command,
-                    challenge=stored_challenge,
-                    approval=approval_state.approval,
-                    now=now,
-                )
-            return _takeover_rejection(
-                op_id=request.op_id,
-                operation_kind=_TAKEOVER_CONFIRM,
-                reason=str(decision.failure),
-                error_code=str(decision.failure),
-                run_id=active.run_id if active is not None else None,
-            )
+        decision_rejection = _confirm_decision_rejection(
+            self._repo,
+            command=command,
+            challenge=stored_challenge,
+            approval_state=approval_state,
+            decision=decision,
+            active_run_id=active.run_id if active is not None else None,
+            now=now,
+        )
+        if decision_rejection is not None:
+            return decision_rejection
         assert active is not None
         assert owner_binding is not None
         new_epoch = active.ownership_epoch + 1

@@ -179,6 +179,21 @@ class ResetDisownAdapter:
         default_factory=ObjectMutationClaimRepository,
     )
 
+    def claim(self, record: ControlPlaneOperationRecord) -> bool:
+        """Claim the reset fence through the same control-plane repository."""
+
+        return self.cp_repo.claim_operation(record)
+
+    def load(self, op_id: str) -> ControlPlaneOperationRecord | None:
+        """Load the reset fence through the same control-plane repository."""
+
+        return self.cp_repo.load_operation(op_id)
+
+    def release(self, op_id: str) -> None:
+        """Finalize the reset fence unless disown already finalized it."""
+
+        FenceAdapter(self.cp_repo).release(op_id)
+
     def quiesce_inflight(
         self,
         project_key: str,

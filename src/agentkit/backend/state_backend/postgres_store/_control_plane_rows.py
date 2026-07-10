@@ -352,10 +352,7 @@ def _insert_session_binding_row(conn: _CompatConnection, row: dict[str, Any]) ->
         )
 
 
-def _revoke_session_binding_row(
-    conn: _CompatConnection,
-    row: dict[str, Any],
-) -> None:
+def _revoke_session_binding_row(conn: _CompatConnection, row: dict[str, Any]) -> None:
     """CAS one exact active binding to its caller-planned revoked projection."""
 
     if row["status"] != "revoked" or not row["revocation_reason"]:

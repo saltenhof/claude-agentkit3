@@ -204,6 +204,10 @@ class ResetDisownPort(Protocol):
         """Atomically finalize the reset fence and persist the disown plan."""
 
 
+class ResetControlPlanePort(FencePort, ResetDisownPort, Protocol):
+    """Cohesive reset fence/disown boundary over one control-plane adapter."""
+
+
 class ReadModelPurgePort(Protocol):
     """Schritt 6 FK-69 read-model purge owner (AG3-081 ``ProjectionAccessor``)."""
 
@@ -282,9 +286,8 @@ class StoryResetService:
         run_scope: RunScopePort,
         escalation_evidence: EscalationEvidencePort,
         competing_operation: CompetingOperationPort,
-        fence: FencePort,
+        fence: ResetControlPlanePort,
         runtime_purge: RuntimePurgePort,
-        disown: ResetDisownPort,
         lock_purge: LockPurgePort,
         read_model_purge: ReadModelPurgePort,
         analytics_purge: AnalyticsPurgePort,
@@ -299,7 +302,7 @@ class StoryResetService:
         self._competing = competing_operation
         self._fence = fence
         self._runtime_purge = runtime_purge
-        self._disown = disown
+        self._disown = fence
         self._lock_purge = lock_purge
         self._read_model_purge = read_model_purge
         self._analytics_purge = analytics_purge
@@ -714,6 +717,7 @@ __all__ = [
     "FencePort",
     "LockPurgePort",
     "ReadModelPurgePort",
+    "ResetControlPlanePort",
     "ResetDisownPort",
     "ResetRecordStore",
     "RunScopePort",

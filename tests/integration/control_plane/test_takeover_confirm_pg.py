@@ -17,10 +17,7 @@ import pytest
 
 from agentkit.backend.auth.middleware import AuthMiddleware
 from agentkit.backend.auth.tokens import issue_project_api_token
-from agentkit.backend.bootstrap.story_reset_adapters import (
-    FenceAdapter,
-    ResetDisownAdapter,
-)
+from agentkit.backend.bootstrap.story_reset_adapters import ResetDisownAdapter
 from agentkit.backend.control_plane.http import ControlPlaneApplication, HttpResponse
 from agentkit.backend.control_plane.models import (
     AdminTakeoverReconcileClearRequest,
@@ -2778,9 +2775,8 @@ def _run_real_invalidating_predecessor(
             run_scope=ports,
             escalation_evidence=ports,
             competing_operation=ports,
-            fence=FenceAdapter(cp_repo),
+            fence=ResetDisownAdapter(cp_repo),
             runtime_purge=ports,
-            disown=ResetDisownAdapter(cp_repo),
             lock_purge=ports,
             read_model_purge=ports,
             analytics_purge=ports,
