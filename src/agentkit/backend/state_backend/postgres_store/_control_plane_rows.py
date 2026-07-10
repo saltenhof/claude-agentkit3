@@ -931,16 +931,14 @@ def resolve_repair_control_plane_operation_global_row(
         return int(cursor.rowcount) == 1
 
 
-def commit_control_plane_operation_with_side_effects_global_row(
-    *,
+def commit_control_plane_operation_with_side_effects_global_row(*,
     op_row: dict[str, Any],
     binding_to_save: dict[str, Any] | None,
     binding_to_delete: dict[str, Any] | None,
     lock_rows: Sequence[dict[str, Any]],
     event_rows: Sequence[dict[str, Any]],
     expected_ownership_epoch: int | None = None,
-    ownership_status_target: str | None = None,
-    fault_after_step: Callable[[str], None] | None = None,
+    ownership_status_target: str | None = None, fault_after_step: Callable[[str], None] | None = None,
 ) -> None:
     """Atomically commit a terminal op AND its side effects in ONE transaction (#2).
 
@@ -990,8 +988,7 @@ def commit_control_plane_operation_with_side_effects_global_row(
             # a failure raises and rolls back the op upsert above too.
             _enforce_ownership_fence_row(
                 conn,
-                project_key=str(op_row["project_key"]),
-                story_id=str(op_row["story_id"]),
+                project_key=str(op_row["project_key"]), story_id=str(op_row["story_id"]),
                 run_id=str(op_row["run_id"]),
                 session_id=str(op_row["session_id"]),
                 expected_ownership_epoch=expected_ownership_epoch,
