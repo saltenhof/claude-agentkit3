@@ -78,7 +78,9 @@ class _ControlPlaneClosureMixin:
             phase: str,
         ) -> ControlPlaneMutationResult | None: ...
 
-        def _closure_run_was_admitted(self, request: ClosureCompleteRequest, *, run_id: str) -> OwnershipAdmission: ...
+        def _closure_run_was_admitted(
+            self, request: ClosureCompleteRequest, *, run_id: str, command_id: str
+        ) -> OwnershipAdmission: ...
 
         def _unadmitted_run_rejection(
             self,
@@ -156,7 +158,11 @@ class _ControlPlaneClosureMixin:
         if locked is not None:
             return locked
 
-        closure_admission = self._closure_run_was_admitted(request, run_id=run_id)
+        closure_admission = self._closure_run_was_admitted(
+            request,
+            run_id=run_id,
+            command_id="closure_complete",
+        )
         if not closure_admission.admitted:
             #: ERROR-6 fix (#6): closure is consistent with complete/fail admission
             #: -- a closure for a run with NO active ownership record must NOT

@@ -117,6 +117,10 @@ class _MinimalControlPlaneRepo:
         del project_key, story_id
         return None
 
+    def load_active_freeze(self, story_id: str) -> None:
+        del story_id
+        return None
+
     def load_binding(self, session_id: str) -> None:
         del session_id
         return None
@@ -461,6 +465,10 @@ class _ClosureRepo:
             acquired_at=datetime(2026, 7, 4, 12, 0, tzinfo=UTC),
             audit_ref="op-seed",
         )
+
+    def load_active_freeze(self, story_id: str) -> None:
+        del story_id
+        return None
 
     def load_binding(self, session_id: str) -> None:
         del session_id

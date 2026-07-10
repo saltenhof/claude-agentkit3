@@ -34,7 +34,11 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.backend.auth.middleware import AuthMiddleware
-from agentkit.backend.control_plane.models import PhaseDispatchResult, PhaseMutationRequest
+from agentkit.backend.control_plane.models import (
+    ClosureCompleteRequest,
+    PhaseDispatchResult,
+    PhaseMutationRequest,
+)
 from agentkit.backend.control_plane.push_sync import (
     PushBarrierVerdict,
     PushBarrierVerdictStatus,
@@ -48,6 +52,7 @@ from agentkit.backend.state_backend.operation_ledger import load_control_plane_o
 from agentkit.backend.state_backend.state_backend_connection_manager import (
     boot_backend_instance_identity_global,
 )
+from agentkit.backend.state_backend.store.freeze_repository import FreezeRepository
 from agentkit.backend.state_backend.story_closure_store import (
     upsert_push_barrier_verdict_global,
     upsert_push_freshness_record_global,
@@ -221,6 +226,38 @@ class _RacingDispatcher:
             reaction="advance",
             dispatched=True,
             next_phase="implementation",
+        )
+
+
+class _FreezingDispatcher(_AdmittedDispatcher):
+    """Enter a freeze after early admission but before the start commit fence."""
+
+    def __init__(self, *, story_id: str) -> None:
+        self._story_id = story_id
+        self.dispatched = False
+
+    def dispatch(
+        self,
+        *,
+        ctx: StoryContext,
+        phase: str,
+        run_id: str,
+        run_admitted: bool,
+        detail: dict[str, object] | None = None,
+    ) -> PhaseDispatchResult:
+        self.dispatched = True
+        FreezeRepository().set_freeze(
+            self._story_id,
+            frozen_at="2026-07-11T12:00:00+00:00",
+            freeze_reason="entered during executor dispatch",
+            freeze_version=1,
+        )
+        return super().dispatch(
+            ctx=ctx,
+            phase=phase,
+            run_id=run_id,
+            run_admitted=run_admitted,
+            detail=detail,
         )
 
 
@@ -446,3 +483,173 @@ def test_t3_real_takeover_confirm_fences_ex_owner_mutations_but_allows_operation
     assert replayed is not None
     assert replayed.status == "replayed"
     assert replayed.op_id == "op-ac7-setup"
+
+
+def _real_setup_then_freeze(
+    tmp_path: Path,
+    *,
+    story_id: str,
+    run_id: str,
+    identity_id: str,
+) -> ControlPlaneRuntimeService:
+    _seed_story_context(tmp_path, story_id)
+    identity = boot_backend_instance_identity_global(identity_id, _T0)
+    service = ControlPlaneRuntimeService(
+        phase_dispatcher=_AdmittedDispatcher(),  # type: ignore[arg-type]
+        now_fn=lambda: _T0,
+        instance_identity=identity,
+    )
+    setup = service.start_phase(
+        run_id=run_id,
+        phase="setup",
+        request=_request(
+            story_id=story_id,
+            op_id=f"op-{story_id}-setup",
+            session_id="sess-A",
+        ),
+    )
+    assert setup.status == "committed"
+    FreezeRepository().set_freeze(
+        story_id,
+        frozen_at="2026-07-11T12:00:00+00:00",
+        freeze_reason="integration hard stop",
+        freeze_version=1,
+    )
+    return service
+
+
+def _assert_real_freeze_block(
+    result: object,
+    *,
+    story_id: str,
+    op_id: str,
+) -> None:
+    assert result.status == "rejected"
+    assert result.error_code == "story_frozen"
+    assert load_control_plane_operation_global(op_id) is None
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None
+    assert active.status.value == "active"
+
+
+def test_postgres_freeze_blocks_start_boundary_after_real_setup(tmp_path: Path) -> None:
+    story_id, run_id, op_id = "AG3-650", "run-650", "op-freeze-start-pg"
+    service = _real_setup_then_freeze(
+        tmp_path, story_id=story_id, run_id=run_id, identity_id="inst-freeze-start"
+    )
+    result = service.start_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(story_id=story_id, op_id=op_id, session_id="sess-A"),
+    )
+    _assert_real_freeze_block(result, story_id=story_id, op_id=op_id)
+
+
+def test_postgres_freeze_blocks_complete_boundary_after_real_setup(tmp_path: Path) -> None:
+    story_id, run_id, op_id = "AG3-651", "run-651", "op-freeze-complete-pg"
+    service = _real_setup_then_freeze(
+        tmp_path, story_id=story_id, run_id=run_id, identity_id="inst-freeze-complete"
+    )
+    result = service.complete_phase(
+        run_id=run_id,
+        phase="setup",
+        request=_request(story_id=story_id, op_id=op_id, session_id="sess-A"),
+    )
+    _assert_real_freeze_block(result, story_id=story_id, op_id=op_id)
+
+
+def test_postgres_freeze_blocks_fail_boundary_after_real_setup(tmp_path: Path) -> None:
+    story_id, run_id, op_id = "AG3-652", "run-652", "op-freeze-fail-pg"
+    service = _real_setup_then_freeze(
+        tmp_path, story_id=story_id, run_id=run_id, identity_id="inst-freeze-fail"
+    )
+    result = service.fail_phase(
+        run_id=run_id,
+        phase="setup",
+        request=_request(story_id=story_id, op_id=op_id, session_id="sess-A"),
+    )
+    _assert_real_freeze_block(result, story_id=story_id, op_id=op_id)
+
+
+def test_postgres_freeze_blocks_resume_boundary_after_real_setup(tmp_path: Path) -> None:
+    story_id, run_id, op_id = "AG3-653", "run-653", "op-freeze-resume-pg"
+    service = _real_setup_then_freeze(
+        tmp_path, story_id=story_id, run_id=run_id, identity_id="inst-freeze-resume"
+    )
+    result = service.resume_phase(
+        run_id=run_id,
+        phase="setup",
+        request=_request(story_id=story_id, op_id=op_id, session_id="sess-A"),
+    )
+    _assert_real_freeze_block(result, story_id=story_id, op_id=op_id)
+
+
+def test_postgres_freeze_blocks_closure_boundary_after_real_setup(tmp_path: Path) -> None:
+    story_id, run_id, op_id = "AG3-654", "run-654", "op-freeze-closure-pg"
+    service = _real_setup_then_freeze(
+        tmp_path, story_id=story_id, run_id=run_id, identity_id="inst-freeze-closure"
+    )
+    result = service.complete_closure(
+        run_id=run_id,
+        request=ClosureCompleteRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-A",
+            op_id=op_id,
+        ),
+    )
+    _assert_real_freeze_block(result, story_id=story_id, op_id=op_id)
+
+
+def test_postgres_freeze_entering_during_executor_dispatch_blocks_commit(
+    tmp_path: Path,
+) -> None:
+    story_id, run_id, op_id = "AG3-655", "run-655", "op-freeze-race-pg"
+    _seed_story_context(tmp_path, story_id)
+    identity = boot_backend_instance_identity_global("inst-freeze-race", _T0)
+    setup_service = ControlPlaneRuntimeService(
+        phase_dispatcher=_AdmittedDispatcher(),  # type: ignore[arg-type]
+        now_fn=lambda: _T0,
+        instance_identity=identity,
+    )
+    setup = setup_service.start_phase(
+        run_id=run_id,
+        phase="setup",
+        request=_request(story_id=story_id, op_id="op-freeze-race-setup", session_id="sess-A"),
+    )
+    assert setup.status == "committed"
+    dispatcher = _FreezingDispatcher(story_id=story_id)
+    racing_service = ControlPlaneRuntimeService(
+        phase_dispatcher=dispatcher,  # type: ignore[arg-type]
+        now_fn=lambda: _T0,
+        instance_identity=identity,
+    )
+
+    result = racing_service.start_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(story_id=story_id, op_id=op_id, session_id="sess-A"),
+    )
+
+    assert dispatcher.dispatched is True
+    _assert_real_freeze_block(result, story_id=story_id, op_id=op_id)
+
+
+def test_postgres_freeze_epoch_is_db_monotone_with_conflict_default() -> None:
+    repo = FreezeRepository()
+    first = repo.set_freeze(
+        "AG3-656",
+        frozen_at="2026-07-11T12:00:00+00:00",
+        freeze_reason="first entry",
+        freeze_version=4,
+    )
+    second = repo.set_freeze(
+        "AG3-656",
+        frozen_at="2026-07-11T12:01:00+00:00",
+        freeze_reason="second entry",
+        freeze_version=5,
+    )
+
+    assert first.kind.value == "conflict_freeze"
+    assert first.freeze_epoch == "1"
+    assert second.freeze_epoch == "2"

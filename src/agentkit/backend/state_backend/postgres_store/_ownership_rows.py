@@ -382,6 +382,7 @@ def commit_edge_command_result_global_row(
             run_id=str(op_row["run_id"]),
             session_id=str(op_row["session_id"]),
             expected_ownership_epoch=expected_ownership_epoch,
+            command_id=str(op_row["operation_kind"]),
         )
         cursor = conn.execute(
             """

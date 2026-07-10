@@ -72,6 +72,7 @@ from agentkit.backend.control_plane.runtime._ownership_transfer import (
     _commit_takeover_invalidation,
     _reconcile_takeover_confirm_cas_loss,
 )
+from agentkit.backend.core_types.freeze import FreezeKind
 from agentkit.backend.exceptions import OwnershipFenceViolationError
 from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
 from agentkit.backend.governance.principal_capabilities.principals import Principal
@@ -96,6 +97,7 @@ from agentkit.backend.state_backend.operation_ledger import (
 from agentkit.backend.state_backend.state_backend_connection_manager import (
     boot_backend_instance_identity_global,
 )
+from agentkit.backend.state_backend.store.freeze_repository import FreezeRepository
 from agentkit.backend.state_backend.story_closure_store import (
     upsert_push_barrier_verdict_global,
     upsert_push_freshness_record_global,
@@ -1563,6 +1565,9 @@ def test_post_cas_loss_reconcile_waits_for_concurrent_binding_drift_then_invalid
     challenge = load_takeover_challenge_global(challenge_id)
     assert challenge is not None
     assert challenge.status == "invalidated"
+    request_operation = load_control_plane_operation_global(challenge.request_op_id)
+    assert request_operation is not None
+    assert request_operation.status == "invalidated"
     request_op = load_control_plane_operation_global(
         "op-cas-loss-concurrent-binding-request"
     )
@@ -4407,3 +4412,60 @@ def _terminal_challenge_record(
         decided_at=_NOW,
         terminal_op_id=terminal_op_id,
     )
+
+
+@pytest.mark.parametrize("kind", tuple(FreezeKind), ids=lambda kind: kind.value)
+def test_freeze_entry_invalidates_challenge_per_family_kind_and_never_revives(
+    postgres_backend_env: object,
+    tmp_path: Path,
+    kind: FreezeKind,
+) -> None:
+    del postgres_backend_env
+    suffix = kind.value.replace("_", "-")
+    story_id = f"AG3-{740 + tuple(FreezeKind).index(kind)}"
+    run_id = f"run-150-{suffix}"
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident=f"inst-150-{suffix}")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    challenge_id = _request_takeover(
+        service,
+        story_id=story_id,
+        run_id=run_id,
+        op_id=f"op-request-{suffix}",
+    )
+
+    FreezeRepository().set_freeze(
+        story_id,
+        frozen_at="2026-07-11T12:00:00+00:00",
+        freeze_reason=f"active {kind.value}",
+        freeze_version=1,
+        kind=kind,
+    )
+
+    challenge = load_takeover_challenge_global(challenge_id)
+    assert challenge is not None
+    assert challenge.status == "invalidated"
+    active_rejection = service.confirm_ownership_takeover(
+        command=_confirm_request(
+            story_id=story_id,
+            challenge_id=challenge_id,
+            op_id=f"op-confirm-frozen-{suffix}",
+        )
+    )
+    assert active_rejection.status == "rejected"
+    assert active_rejection.error_code == "story_not_takeover_admissible"
+
+    assert FreezeRepository().clear_freeze(story_id) == 1
+    after_release = service.confirm_ownership_takeover(
+        command=_confirm_request(
+            story_id=story_id,
+            challenge_id=challenge_id,
+            op_id=f"op-confirm-after-release-{suffix}",
+        )
+    )
+    assert after_release.status == "rejected"
+    assert after_release.error_code == "challenge_not_pending"
+    challenge_after = load_takeover_challenge_global(challenge_id)
+    assert challenge_after is not None
+    assert challenge_after.status == "invalidated"

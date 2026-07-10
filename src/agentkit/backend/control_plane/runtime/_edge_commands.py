@@ -24,9 +24,9 @@ from agentkit.backend.control_plane.models import (
 )
 from agentkit.backend.control_plane.ownership_fence import (
     ERROR_CODE_OWNERSHIP_TRANSFERRED,
+    ERROR_CODE_STORY_FROZEN,
     OwnershipAdmission,
     OwnershipRejectionReason,
-    evaluate_ownership_admission,
 )
 from agentkit.backend.control_plane.push_sync import (
     PushBarrierVerdict,
@@ -80,6 +80,15 @@ class _EdgeCommandMixin:
         _now_fn: Callable[[], datetime]
 
         def _require_postgres_backend_on_first_use(self) -> None: ...
+        def _evaluate_run_admission(
+            self,
+            *,
+            project_key: str,
+            story_id: str,
+            session_id: str,
+            run_id: str,
+            command_id: str,
+        ) -> OwnershipAdmission: ...
         def _acquire_object_claim(
             self, *, project_key: str, story_id: str, op_id: str
         ) -> object_claims.ObjectClaimConflict | None: ...
@@ -197,10 +206,12 @@ class _EdgeCommandMixin:
         """
         self._require_postgres_backend_on_first_use()
         active_record = self._repo.load_active_ownership(project_key, story_id)
-        admission = evaluate_ownership_admission(
-            active_record=active_record,
+        admission = self._evaluate_run_admission(
+            project_key=project_key,
+            story_id=story_id,
             run_id=run_id,
             session_id=session_id,
+            command_id="push_ownership_confirmation",
         )
         write_auth = authorize_story_ref_write(
             active_owner_session_id=(active_record.owner_session_id if active_record is not None else None),
@@ -262,10 +273,12 @@ class _EdgeCommandMixin:
                 error_code="edge_command_already_resolved",
             )
 
-        admission = evaluate_ownership_admission(
-            active_record=self._repo.load_active_ownership(request.project_key, request.story_id),
+        admission = self._evaluate_run_admission(
+            project_key=request.project_key,
+            story_id=request.story_id,
             run_id=existing.run_id,
             session_id=request.session_id,
+            command_id="edge_command_result",
         )
         if not admission.admitted:
             return self._edge_command_ownership_admission_rejection(
@@ -579,6 +592,13 @@ class _EdgeCommandMixin:
         returns :class:`EdgeCommandMutationResult`: ONLY the
         ``OWNERSHIP_TRANSFERRED`` reason carries the rich structured payload.
         """
+        if admission.rejection_reason is OwnershipRejectionReason.FREEZE_ACTIVE:
+            return EdgeCommandMutationResult(
+                status="rejected",
+                command_id=command_id,
+                op_id=op_id,
+                error_code=ERROR_CODE_STORY_FROZEN,
+            )
         if admission.rejection_reason is not OwnershipRejectionReason.OWNERSHIP_TRANSFERRED:
             return EdgeCommandMutationResult(
                 status="rejected",
@@ -619,6 +639,13 @@ class _EdgeCommandMixin:
         new_owner = exc.detail.get("current_owner_session_id")
         new_epoch = exc.detail.get("current_ownership_epoch")
         transferred_at = exc.detail.get("transferred_at")
+        if exc.detail.get("error_code") == ERROR_CODE_STORY_FROZEN:
+            return EdgeCommandMutationResult(
+                status="rejected",
+                command_id=command_id,
+                op_id=op_id,
+                error_code=ERROR_CODE_STORY_FROZEN,
+            )
         if not isinstance(new_owner, str) or not isinstance(new_epoch, int) or not isinstance(transferred_at, str):
             return EdgeCommandMutationResult(
                 status="rejected",

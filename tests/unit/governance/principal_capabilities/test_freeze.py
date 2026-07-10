@@ -169,3 +169,23 @@ def test_apply_leaves_read_unaffected(tmp_path: Path) -> None:
     base = CapabilityVerdict.allow("read allow")
     result = overlay.apply(base, Principal.WORKER, _STORY, OperationClass.READ)
     assert result.decision is CapabilityDecision.ALLOW
+
+
+def test_freeze_does_not_auto_expire_when_clock_advances(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC6: wall-clock movement never resolves an active family record."""
+
+    monkeypatch.setattr(
+        "agentkit.backend.governance.principal_capabilities.freeze._frozen_at_now",
+        lambda: "2026-01-01T00:00:00+00:00",
+    )
+    overlay = _overlay(tmp_path)
+    overlay.freeze(_STORY, reason="hard_stop", freeze_version=1)
+    monkeypatch.setattr(
+        "agentkit.backend.governance.principal_capabilities.freeze._frozen_at_now",
+        lambda: "2126-01-01T00:00:00+00:00",
+    )
+
+    assert overlay.is_frozen(_STORY) is True

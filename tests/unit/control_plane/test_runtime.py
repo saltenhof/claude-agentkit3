@@ -107,6 +107,7 @@ class _RepoState:
         self.takeover_transfers: list[TakeoverTransferRecord] = []
         self.takeover_challenges: dict[str, TakeoverChallengeRecord] = {}
         self.takeover_approvals: dict[str, TakeoverApprovalRecord] = {}
+        self.active_freeze: object | None = None
 
     def load_active_ownership(
         self, project_key: str, story_id: str
@@ -816,6 +817,7 @@ def _repository(state: _RepoState) -> ControlPlaneRuntimeRepository:
     ops = _FakeOps(state)
 
     return ControlPlaneRuntimeRepository(
+        load_active_freeze=lambda story_id: state.active_freeze,
         load_operation=state.operations.get,
         save_operation=ops.save,
         claim_operation=ops.claim,
@@ -5666,3 +5668,127 @@ def test_commit_time_fence_with_no_active_record_is_plain_rejection_not_transfer
     assert result.error_code is None
     assert result.ownership_conflict is None
     assert "op-race-norecord" not in state.operations
+
+
+def _service_with_real_setup_then_freeze(
+    *,
+    predecessor_op_id: str,
+) -> tuple[_RepoState, ControlPlaneRuntimeService]:
+    """Drive the real setup boundary, then activate the fake freeze read port."""
+
+    state = _RepoState()
+    _resolvable_standard_ctx(state)
+    service = _admitting_service(state)
+    predecessor = service.start_phase(
+        run_id="run-100",
+        phase="setup",
+        request=_setup_request(predecessor_op_id),
+    )
+    assert predecessor.status == "committed"
+    state.active_freeze = {
+        "kind": "conflict_freeze",
+        "freeze_reason": "test hard stop",
+        "freeze_epoch": "1",
+    }
+    return state, service
+
+
+def _assert_freeze_rejection_without_write(
+    state: _RepoState,
+    result: ControlPlaneMutationResult,
+    *,
+    op_id: str,
+    baseline_operation_ids: set[str],
+) -> None:
+    assert result.status == "rejected"
+    assert result.error_code == "story_frozen"
+    assert result.freeze_conflict is not None
+    assert result.freeze_conflict.kind == "conflict_freeze"
+    assert set(state.operations) == baseline_operation_ids
+    assert op_id not in state.operations
+    active = state.load_active_ownership("tenant-a", "AG3-100")
+    assert active is not None
+    assert active.status is OwnershipStatus.ACTIVE
+
+
+def test_freeze_blocks_start_boundary_after_real_setup_without_state_write() -> None:
+    state, service = _service_with_real_setup_then_freeze(
+        predecessor_op_id="op-freeze-start-predecessor"
+    )
+    baseline = set(state.operations)
+    op_id = "op-freeze-start"
+
+    result = service.start_phase(
+        run_id="run-100",
+        phase="implementation",
+        request=_phase_request(op_id),
+    )
+
+    _assert_freeze_rejection_without_write(
+        state, result, op_id=op_id, baseline_operation_ids=baseline
+    )
+
+
+def test_freeze_blocks_complete_boundary_after_real_setup_without_state_write() -> None:
+    state, service = _service_with_real_setup_then_freeze(
+        predecessor_op_id="op-freeze-complete-predecessor"
+    )
+    baseline = set(state.operations)
+    op_id = "op-freeze-complete"
+
+    result = service.complete_phase(
+        run_id="run-100", phase="setup", request=_phase_request(op_id)
+    )
+
+    _assert_freeze_rejection_without_write(
+        state, result, op_id=op_id, baseline_operation_ids=baseline
+    )
+
+
+def test_freeze_blocks_fail_boundary_after_real_setup_without_state_write() -> None:
+    state, service = _service_with_real_setup_then_freeze(
+        predecessor_op_id="op-freeze-fail-predecessor"
+    )
+    baseline = set(state.operations)
+    op_id = "op-freeze-fail"
+
+    result = service.fail_phase(
+        run_id="run-100", phase="setup", request=_phase_request(op_id)
+    )
+
+    _assert_freeze_rejection_without_write(
+        state, result, op_id=op_id, baseline_operation_ids=baseline
+    )
+
+
+def test_freeze_blocks_resume_boundary_after_real_setup_without_state_write() -> None:
+    state, service = _service_with_real_setup_then_freeze(
+        predecessor_op_id="op-freeze-resume-predecessor"
+    )
+    baseline = set(state.operations)
+    op_id = "op-freeze-resume"
+
+    result = service.resume_phase(
+        run_id="run-100", phase="setup", request=_phase_request(op_id)
+    )
+
+    _assert_freeze_rejection_without_write(
+        state, result, op_id=op_id, baseline_operation_ids=baseline
+    )
+
+
+def test_freeze_blocks_closure_boundary_after_real_setup_without_state_write() -> None:
+    state, service = _service_with_real_setup_then_freeze(
+        predecessor_op_id="op-freeze-closure-predecessor"
+    )
+    baseline = set(state.operations)
+    op_id = "op-freeze-closure"
+
+    result = service.complete_closure(
+        run_id="run-100",
+        request=_closure_request(op_id=op_id, detail={}),
+    )
+
+    _assert_freeze_rejection_without_write(
+        state, result, op_id=op_id, baseline_operation_ids=baseline
+    )

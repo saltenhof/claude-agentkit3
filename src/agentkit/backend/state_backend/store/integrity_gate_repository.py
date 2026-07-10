@@ -290,7 +290,13 @@ class StateBackendIntegrityGateStateAdapter:
             return False
         from agentkit.backend.state_backend.store.freeze_repository import FreezeRepository
 
-        return FreezeRepository(story_dir).read_freeze(ctx.story_id) is not None
+        try:
+            record = FreezeRepository(story_dir).read_freeze(ctx.story_id)
+        except (KeyError, TypeError, ValueError):
+            # Unknown/corrupt family state is conservatively treated as a
+            # conflict freeze so the proof dimension cannot fail open.
+            return True
+        return record is not None and record.kind.value == "conflict_freeze"
 
     def has_conflict_freeze_proof(
         self,

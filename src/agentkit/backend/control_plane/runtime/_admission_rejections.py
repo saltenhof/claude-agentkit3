@@ -10,6 +10,7 @@ from agentkit.backend.control_plane.ownership import (
     canonical_binding_revocation_reason,
 )
 from agentkit.backend.control_plane.ownership_fence import (
+    ERROR_CODE_STORY_FROZEN,
     OwnershipAdmission,
     OwnershipRejectionReason,
 )
@@ -135,6 +136,34 @@ class _AdmissionRejectionMixin:
         ``STORY_EXITED``) has no "new owner" to report and falls back to the
         plain fail-closed rejection shape callers already use.
         """
+        if admission.rejection_reason is OwnershipRejectionReason.FREEZE_ACTIVE:
+            from agentkit.backend.control_plane.models import FreezeConflictDetail
+
+            freeze = admission.blocking_freeze
+            assert freeze is not None  # noqa: S101 -- freeze rejection carries its state
+            kind = freeze.kind.value if freeze.kind is not None else None
+            result = _rejection_result(
+                op_id=op_id,
+                operation_kind=operation_kind,
+                run_id=run_id,
+                phase=phase,
+                reason=(
+                    f"{operation_kind} rejected: story freeze blocks mutation; "
+                    f"kind={kind!r}, freeze_epoch={freeze.freeze_epoch!r}; "
+                    "ownership remains active (FK-56 §56.13f, fail-closed)."
+                ),
+                error_code=ERROR_CODE_STORY_FROZEN,
+            )
+            return result.model_copy(
+                update={
+                    "freeze_conflict": FreezeConflictDetail(
+                        kind=kind,
+                        freeze_reason=freeze.freeze_reason,
+                        freeze_epoch=freeze.freeze_epoch,
+                        state_readable=freeze.readable,
+                    )
+                }
+            )
         if admission.rejection_reason is not OwnershipRejectionReason.OWNERSHIP_TRANSFERRED:
             binding = self._repo.load_binding(session_id)
             if (
@@ -202,6 +231,30 @@ class _AdmissionRejectionMixin:
         new_owner = exc.detail.get("current_owner_session_id")
         new_epoch = exc.detail.get("current_ownership_epoch")
         transferred_at = exc.detail.get("transferred_at")
+        if exc.detail.get("error_code") == ERROR_CODE_STORY_FROZEN:
+            from agentkit.backend.control_plane.models import FreezeConflictDetail
+
+            result = _rejection_result(
+                op_id=op_id,
+                operation_kind=operation_kind,
+                run_id=run_id,
+                phase=phase,
+                reason=(
+                    f"{operation_kind} rejected: a story freeze entered before "
+                    "commit; no state was written (FK-56 §56.13f, no TOCTOU)."
+                ),
+                error_code=ERROR_CODE_STORY_FROZEN,
+            )
+            return result.model_copy(
+                update={
+                    "freeze_conflict": FreezeConflictDetail(
+                        kind=_optional_str(exc.detail.get("freeze_kind")),
+                        freeze_reason=_optional_str(exc.detail.get("freeze_reason")),
+                        freeze_epoch=_optional_str(exc.detail.get("freeze_epoch")),
+                        state_readable=bool(exc.detail.get("freeze_state_readable", True)),
+                    )
+                }
+            )
         if not isinstance(new_owner, str) or not isinstance(new_epoch, int) or not isinstance(transferred_at, str):
             return _rejection_result(
                 op_id=op_id,
@@ -223,6 +276,10 @@ class _AdmissionRejectionMixin:
             new_ownership_epoch=new_epoch,
             transferred_at=datetime.fromisoformat(transferred_at),
         )
+
+
+def _optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) else None
 
 
 __all__ = ["_AdmissionRejectionMixin"]

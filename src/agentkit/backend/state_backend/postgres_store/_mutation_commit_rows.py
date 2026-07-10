@@ -4,6 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from agentkit.backend.core_types.freeze import (
+    ERROR_CODE_STORY_FROZEN,
+    ActiveFreezeState,
+    FreezeKind,
+    command_resolves_freeze,
+    is_canonical_freeze_epoch,
+)
 from agentkit.backend.exceptions import (
     ControlPlaneClaimCollisionError,
     OwnershipFenceViolationError,
@@ -21,6 +28,7 @@ def _enforce_ownership_fence_row(
     run_id: str,
     session_id: str,
     expected_ownership_epoch: int,
+    command_id: str = "executor_commit",
 ) -> None:
     """Re-verify the ownership fence AT COMMIT TIME, in THIS transaction (AG3-142).
 
@@ -68,6 +76,7 @@ def _enforce_ownership_fence_row(
     # encodings apply the SAME four predicates in lock-step: an active row
     # exists, its ``run_id`` matches, its ``owner_session_id`` matches, its
     # ``ownership_epoch`` matches.
+    _enforce_blocking_freeze_row(conn, story_id=story_id, command_id=command_id)
     active = conn.execute(
         """
         SELECT run_id, owner_session_id, ownership_epoch, acquired_at
@@ -100,6 +109,54 @@ def _enforce_ownership_fence_row(
             "current_owner_session_id": (str(active["owner_session_id"]) if active is not None else None),
             "current_ownership_epoch": (int(active["ownership_epoch"]) if active is not None else None),
             "transferred_at": (str(active["acquired_at"]) if active is not None else None),
+        },
+    )
+
+
+def _enforce_blocking_freeze_row(
+    conn: _CompatConnection,
+    *,
+    story_id: str,
+    command_id: str,
+) -> None:
+    """Serialize with freeze entry and reject any unresolved active family row."""
+
+    conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", (story_id,))
+    row = conn.execute(
+        """
+        SELECT kind, freeze_reason, freeze_epoch
+        FROM governance_freeze_records
+        WHERE story_id = ?
+        FOR UPDATE
+        """,
+        (story_id,),
+    ).fetchone()
+    if row is None:
+        return
+    raw_kind = row["kind"]
+    try:
+        kind = FreezeKind(str(raw_kind))
+    except ValueError:
+        kind = None
+    raw_reason = row["freeze_reason"]
+    reason = raw_reason if isinstance(raw_reason, str) and raw_reason.strip() else None
+    raw_epoch = row["freeze_epoch"]
+    epoch = (
+        raw_epoch
+        if isinstance(raw_epoch, str) and is_canonical_freeze_epoch(raw_epoch)
+        else None
+    )
+    freeze = ActiveFreezeState(kind=kind, freeze_reason=reason, freeze_epoch=epoch)
+    if command_resolves_freeze(command_id, freeze):
+        return
+    raise OwnershipFenceViolationError(
+        f"story freeze blocks command {command_id!r} for story {story_id!r}",
+        detail={
+            "error_code": ERROR_CODE_STORY_FROZEN,
+            "freeze_kind": kind.value if kind is not None else None,
+            "freeze_reason": reason,
+            "freeze_epoch": epoch,
+            "freeze_state_readable": kind is not None and reason is not None and epoch is not None,
         },
     )
 

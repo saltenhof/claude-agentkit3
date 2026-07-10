@@ -23,6 +23,7 @@ from ._connection import (
 )
 from ._mutation_commit_rows import (
     _conditional_upsert_control_plane_op_row,
+    _enforce_blocking_freeze_row,
     _enforce_ownership_fence_row,
 )
 from ._ownership_rows import (
@@ -582,6 +583,16 @@ def finalize_control_plane_start_phase_global_row(
                     run_id=str(op_row["run_id"]),
                     session_id=str(op_row["session_id"]),
                     expected_ownership_epoch=expected_ownership_epoch,
+                    command_id=str(op_row["operation_kind"]),
+                )
+            else:
+                # A fresh setup mints ownership in this transaction, so it has
+                # no ownership row to fence yet but must still serialize with
+                # freeze entry.
+                _enforce_blocking_freeze_row(
+                    conn,
+                    story_id=str(op_row["story_id"]),
+                    command_id=str(op_row["operation_kind"]),
                 )
             if ownership_row_to_insert is not None:
                 _insert_run_ownership_record_row(conn, ownership_row_to_insert)
@@ -992,6 +1003,7 @@ def commit_control_plane_operation_with_side_effects_global_row(*,
                 run_id=str(op_row["run_id"]),
                 session_id=str(op_row["session_id"]),
                 expected_ownership_epoch=expected_ownership_epoch,
+                command_id=str(op_row["operation_kind"]),
             )
         if ownership_status_target is not None:
             _transition_run_ownership_status_row(

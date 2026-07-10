@@ -20,11 +20,18 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from agentkit.backend.core_types.freeze import (
+    ERROR_CODE_STORY_FROZEN,
+    ActiveFreezeState,
+    command_resolves_freeze,
+)
+
 if TYPE_CHECKING:
     from agentkit.backend.control_plane.records import RunOwnershipRecord
 
 __all__ = (
     "ERROR_CODE_OWNERSHIP_TRANSFERRED",
+    "ERROR_CODE_STORY_FROZEN",
     "OwnershipAdmission",
     "OwnershipRejectionReason",
     "evaluate_ownership_admission",
@@ -55,6 +62,7 @@ class OwnershipRejectionReason(StrEnum):
     NO_ACTIVE_RECORD = "no_active_record"
     RUN_MISMATCH = "run_mismatch"
     OWNERSHIP_TRANSFERRED = "ownership_transferred"
+    FREEZE_ACTIVE = "freeze_active"
 
 
 @dataclass(frozen=True)
@@ -69,6 +77,7 @@ class OwnershipAdmission:
     admitted: bool
     active_record: RunOwnershipRecord | None
     rejection_reason: OwnershipRejectionReason | None
+    blocking_freeze: ActiveFreezeState | None = None
 
 
 def evaluate_ownership_admission(
@@ -76,6 +85,8 @@ def evaluate_ownership_admission(
     active_record: RunOwnershipRecord | None,
     run_id: str,
     session_id: str,
+    active_freezes: tuple[ActiveFreezeState, ...] = (),
+    command_id: str = "",
 ) -> OwnershipAdmission:
     """Classify admission from an already-loaded active ownership record.
 
@@ -91,6 +102,14 @@ def evaluate_ownership_admission(
         The :class:`OwnershipAdmission` verdict. Admitted iff an active record
         exists for THIS run and its ``owner_session_id`` matches the caller.
     """
+    for freeze in active_freezes:
+        if not command_resolves_freeze(command_id, freeze):
+            return OwnershipAdmission(
+                admitted=False,
+                active_record=active_record,
+                rejection_reason=OwnershipRejectionReason.FREEZE_ACTIVE,
+                blocking_freeze=freeze,
+            )
     if active_record is None:
         return OwnershipAdmission(
             admitted=False,

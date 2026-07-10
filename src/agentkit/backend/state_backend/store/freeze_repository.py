@@ -29,6 +29,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from agentkit.backend.core_types.freeze import (
+    FreezeKind,
+    is_canonical_freeze_epoch,
+    next_freeze_epoch,
+)
 from agentkit.backend.core_types.plane_artifact_names import GOVERNANCE_FREEZE_EXPORT_PARTS
 from agentkit.backend.utils.io import atomic_write_text, read_json_object
 
@@ -46,12 +51,14 @@ _FREEZE_EXPORT_RELPATH = Path(*GOVERNANCE_FREEZE_EXPORT_PARTS)
 
 @dataclass(frozen=True)
 class FreezeRecord:
-    """A persisted conflict-freeze record (FK-55 §55.8 / formal capability-freeze)."""
+    """A persisted member of the story-scoped freeze family."""
 
     story_id: str
     frozen_at: str
     freeze_reason: str
     freeze_version: int
+    kind: FreezeKind
+    freeze_epoch: str
 
 
 # ---------------------------------------------------------------------------
@@ -117,26 +124,31 @@ def _postgres_connect() -> Iterator[Any]:
 
 _SQLITE_UPSERT = """
     INSERT INTO governance_freeze_records (
-        story_id, frozen_at, freeze_reason, freeze_version
+        story_id, frozen_at, freeze_reason, freeze_version, kind, freeze_epoch
     ) VALUES (
-        :story_id, :frozen_at, :freeze_reason, :freeze_version
+        :story_id, :frozen_at, :freeze_reason, :freeze_version, :kind, :freeze_epoch
     )
     ON CONFLICT (story_id) DO UPDATE SET
         frozen_at = excluded.frozen_at,
         freeze_reason = excluded.freeze_reason,
-        freeze_version = excluded.freeze_version
+        freeze_version = excluded.freeze_version,
+        kind = excluded.kind,
+        freeze_epoch = excluded.freeze_epoch
 """
 
 _PG_UPSERT = """
     INSERT INTO governance_freeze_records (
-        story_id, frozen_at, freeze_reason, freeze_version
+        story_id, frozen_at, freeze_reason, freeze_version, kind, freeze_epoch
     ) VALUES (
-        %(story_id)s, %(frozen_at)s, %(freeze_reason)s, %(freeze_version)s
+        %(story_id)s, %(frozen_at)s, %(freeze_reason)s, %(freeze_version)s,
+        %(kind)s, %(freeze_epoch)s
     )
     ON CONFLICT (story_id) DO UPDATE SET
         frozen_at = excluded.frozen_at,
         freeze_reason = excluded.freeze_reason,
-        freeze_version = excluded.freeze_version
+        freeze_version = excluded.freeze_version,
+        kind = excluded.kind,
+        freeze_epoch = excluded.freeze_epoch
 """
 
 
@@ -159,29 +171,69 @@ class FreezeRepository:
         frozen_at: str,
         freeze_reason: str,
         freeze_version: int,
+        kind: FreezeKind = FreezeKind.CONFLICT_FREEZE,
     ) -> FreezeRecord:
         """Persist (upsert) the canonical freeze record for ``story_id``.
 
         Returns:
             The persisted :class:`FreezeRecord`.
         """
-        row = {
-            "story_id": story_id,
-            "frozen_at": frozen_at,
-            "freeze_reason": freeze_reason,
-            "freeze_version": freeze_version,
-        }
+        if not freeze_reason.strip():
+            raise ValueError("freeze_reason must not be empty")
         if _is_postgres():
             with _postgres_connect() as conn:
-                conn.execute(_PG_UPSERT, row)
+                # The same transaction-scoped story lock is taken by regime
+                # commit fences, closing the absent-row INSERT race as well as
+                # ordinary update races.
+                conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    (story_id,),
+                )
+                previous = conn.execute(
+                    "SELECT freeze_epoch FROM governance_freeze_records "
+                    "WHERE story_id=%s FOR UPDATE",
+                    (story_id,),
+                ).fetchone()
+                previous_epoch = str(previous["freeze_epoch"]) if previous is not None else None
+                freeze_epoch = next_freeze_epoch(previous_epoch)
+                row = _freeze_row(
+                    story_id=story_id,
+                    frozen_at=frozen_at,
+                    freeze_reason=freeze_reason,
+                    freeze_version=freeze_version,
+                    kind=kind,
+                    freeze_epoch=freeze_epoch,
+                )
+                cursor = conn.execute(_PG_UPSERT, row)
+                if int(cursor.rowcount) != 1:
+                    raise RuntimeError("freeze upsert affected an unexpected row count")
+                _invalidate_open_takeover_challenges(conn, row)
         else:
             with _sqlite_connect(self._store_dir) as conn:
-                conn.execute(_SQLITE_UPSERT, row)
+                previous = conn.execute(
+                    "SELECT freeze_epoch FROM governance_freeze_records WHERE story_id=?",
+                    (story_id,),
+                ).fetchone()
+                previous_epoch = str(previous["freeze_epoch"]) if previous is not None else None
+                freeze_epoch = next_freeze_epoch(previous_epoch)
+                row = _freeze_row(
+                    story_id=story_id,
+                    frozen_at=frozen_at,
+                    freeze_reason=freeze_reason,
+                    freeze_version=freeze_version,
+                    kind=kind,
+                    freeze_epoch=freeze_epoch,
+                )
+                cursor = conn.execute(_SQLITE_UPSERT, row)
+                if int(cursor.rowcount) != 1:
+                    raise RuntimeError("freeze upsert affected an unexpected row count")
         return FreezeRecord(
             story_id=story_id,
             frozen_at=frozen_at,
             freeze_reason=freeze_reason,
             freeze_version=freeze_version,
+            kind=kind,
+            freeze_epoch=freeze_epoch,
         )
 
     def read_freeze(self, story_id: str) -> FreezeRecord | None:
@@ -224,11 +276,82 @@ class FreezeRepository:
 
 
 def _row_to_record(row: dict[str, Any]) -> FreezeRecord:
+    reason = row.get("freeze_reason")
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError("persisted freeze_reason is missing or empty")
+    epoch = row.get("freeze_epoch")
+    if not isinstance(epoch, str) or not is_canonical_freeze_epoch(epoch):
+        raise ValueError("persisted freeze_epoch is not canonical")
     return FreezeRecord(
         story_id=str(row["story_id"]),
         frozen_at=str(row["frozen_at"]),
-        freeze_reason=str(row["freeze_reason"]),
+        freeze_reason=reason,
         freeze_version=int(row["freeze_version"]),
+        kind=FreezeKind(row["kind"]),
+        freeze_epoch=epoch,
+    )
+
+
+def _freeze_row(
+    *,
+    story_id: str,
+    frozen_at: str,
+    freeze_reason: str,
+    freeze_version: int,
+    kind: FreezeKind,
+    freeze_epoch: str,
+) -> dict[str, object]:
+    """Map the typed record fields to the persistence row shape."""
+
+    return {
+        "story_id": story_id,
+        "frozen_at": frozen_at,
+        "freeze_reason": freeze_reason,
+        "freeze_version": freeze_version,
+        "kind": kind.value,
+        "freeze_epoch": freeze_epoch,
+        "freeze_terminal_ref": f"freeze:{kind.value}:{freeze_epoch}",
+    }
+
+
+def _invalidate_open_takeover_challenges(conn: Any, row: dict[str, object]) -> None:
+    """Invalidate open takeover decisions in the same freeze-entry transaction."""
+
+    conn.execute(
+        """
+        UPDATE control_plane_operations AS operation
+        SET status = 'invalidated', updated_at = %(frozen_at)s,
+            response_json = jsonb_build_object(
+                'status', 'invalidated',
+                'op_id', operation.op_id,
+                'operation_kind', 'ownership_takeover_request',
+                'run_id', challenge.run_id,
+                'phase', 'ownership'
+            )::text
+        FROM takeover_challenges AS challenge
+        WHERE operation.op_id = challenge.request_op_id
+          AND challenge.story_id = %(story_id)s
+          AND challenge.status = 'pending'
+        """,
+        row,
+    )
+    conn.execute(
+        """
+        UPDATE takeover_approvals
+        SET status = 'invalidated', decided_at = %(frozen_at)s,
+            decision_reason = 'freeze'
+        WHERE story_id = %(story_id)s AND status IN ('pending', 'approved')
+        """,
+        row,
+    )
+    conn.execute(
+        """
+        UPDATE takeover_challenges
+        SET status = 'invalidated', decided_at = %(frozen_at)s,
+            terminal_op_id = %(freeze_terminal_ref)s
+        WHERE story_id = %(story_id)s AND status = 'pending'
+        """,
+        row,
     )
 
 

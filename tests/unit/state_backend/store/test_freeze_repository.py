@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from agentkit.backend.core_types.freeze import FreezeKind
 from agentkit.backend.state_backend.store.freeze_repository import (
     FreezeRecord,
     FreezeRepository,
@@ -32,6 +33,8 @@ def test_set_then_read_roundtrip(tmp_path: Path) -> None:
         frozen_at="2026-06-02T00:00:00+00:00",
         freeze_reason="normative_conflict",
         freeze_version=1,
+        kind=FreezeKind.CONFLICT_FREEZE,
+        freeze_epoch="1",
     )
 
 
@@ -51,6 +54,7 @@ def test_set_is_upsert_on_story_id(tmp_path: Path) -> None:
     assert record is not None
     assert record.freeze_version == 2
     assert record.freeze_reason == "r2"
+    assert record.freeze_epoch == "2"
 
 
 def test_clear_removes_record(tmp_path: Path) -> None:

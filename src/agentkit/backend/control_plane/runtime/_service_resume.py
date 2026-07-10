@@ -75,7 +75,9 @@ class _ControlPlaneResumeMixin:
             phase: str,
         ) -> ControlPlaneMutationResult | None: ...
 
-        def _run_was_admitted(self, request: PhaseMutationRequest, *, run_id: str) -> OwnershipAdmission: ...
+        def _run_was_admitted(
+            self, request: PhaseMutationRequest, *, run_id: str, command_id: str
+        ) -> OwnershipAdmission: ...
 
         def _unadmitted_run_rejection(
             self,
@@ -196,7 +198,11 @@ class _ControlPlaneResumeMixin:
         )
         if locked is not None:
             return locked
-        resume_admission = self._run_was_admitted(request, run_id=run_id)
+        resume_admission = self._run_was_admitted(
+            request,
+            run_id=run_id,
+            command_id="phase_resume",
+        )
         if not resume_admission.admitted:
             return self._unadmitted_run_rejection(
                 resume_admission,

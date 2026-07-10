@@ -16,6 +16,7 @@ from agentkit.backend.control_plane.ownership_transfer import (
     OwnershipBasis,
     TakeoverConfirmFailure,
     TakeoverRepoChallenge,
+    challenge_invalidated_by_transition,
     evaluate_disowned_session_takeover_barrier,
     evaluate_takeover_confirm,
     ownership_anchor_unchanged,
@@ -29,6 +30,7 @@ from agentkit.backend.control_plane.records import (
     SessionRunBindingRecord,
     TakeoverChallengeRecord,
 )
+from agentkit.backend.core_types.freeze import ActiveFreezeState, FreezeKind
 
 _NOW = datetime(2026, 7, 10, 10, 0, tzinfo=UTC)
 
@@ -152,6 +154,38 @@ def test_each_single_field_basis_drift_is_terminal_invalidation(
 
     assert decision.accepted is False
     assert decision.failure is TakeoverConfirmFailure.CHALLENGE_INVALIDATED
+
+
+@pytest.mark.parametrize("kind", tuple(FreezeKind))
+def test_takeover_confirm_rule_8_rejects_each_active_freeze_regardless_of_basis(
+    kind: FreezeKind,
+) -> None:
+    decision = evaluate_takeover_confirm(
+        active_basis=None,
+        challenge_basis=OwnershipBasis("stale-owner", 99, "99"),
+        now=_NOW,
+        challenge_expires_at=None,
+        approval_status=None,
+        approval_required=False,
+        repo_evidence=(),
+        current_epoch_disowned_session_id=None,
+        beneficiary_session_id="sess-beneficiary",
+        requesting_principal_type="human_cli",
+        request_reason="audited takeover",
+        current_epoch_was_takeover=False,
+        active_freezes=(ActiveFreezeState(kind, "hard stop", "3"),),
+    )
+
+    assert decision == (
+        type(decision)(False, TakeoverConfirmFailure.STORY_NOT_TAKEOVER_ADMISSIBLE)
+    )
+
+
+def test_freeze_is_a_typed_terminal_challenge_invalidation_reason() -> None:
+    assert (
+        challenge_invalidated_by_transition("freeze")
+        is TakeoverConfirmFailure.CHALLENGE_INVALIDATED
+    )
 
 
 def test_disowned_session_cannot_immediately_reclaim_without_privileged_reason() -> None:

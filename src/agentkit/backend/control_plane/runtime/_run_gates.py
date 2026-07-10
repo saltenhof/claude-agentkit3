@@ -20,6 +20,10 @@ from agentkit.backend.control_plane.push_sync import (
     RepoPushVerificationInput,
     SyncPointBarrierType,
 )
+from agentkit.backend.core_types.freeze import (
+    ActiveFreezeState,
+    active_freeze_state_from_record,
+)
 
 from ._push_barrier_results import _barrier_from_repo_verdicts, _merge_precondition_from_barrier
 
@@ -370,6 +374,7 @@ class _RunGateMixin:
         request: PhaseMutationRequest,
         *,
         run_id: str,
+        command_id: str,
     ) -> OwnershipAdmission:
         """Whether the active ownership record admits THIS exact run (E3 / AG3-142).
 
@@ -385,6 +390,7 @@ class _RunGateMixin:
             story_id=request.story_id,
             session_id=request.session_id,
             run_id=run_id,
+            command_id=command_id,
         )
 
     def _closure_run_was_admitted(
@@ -392,6 +398,7 @@ class _RunGateMixin:
         request: ClosureCompleteRequest,
         *,
         run_id: str,
+        command_id: str,
     ) -> OwnershipAdmission:
         """Whether the active ownership record admits THIS run for closure (#6).
 
@@ -404,6 +411,7 @@ class _RunGateMixin:
             story_id=request.story_id,
             session_id=request.session_id,
             run_id=run_id,
+            command_id=command_id,
         )
 
     def _evaluate_run_admission(
@@ -413,6 +421,7 @@ class _RunGateMixin:
         story_id: str,
         session_id: str,
         run_id: str,
+        command_id: str,
     ) -> OwnershipAdmission:
         """Shared RUN-scoped admission probe for ALL 5 regime paths (AG3-142).
 
@@ -434,7 +443,22 @@ class _RunGateMixin:
         ``owner_session_id`` differs, means the run was never admitted.
         """
         active = self._repo.load_active_ownership(project_key, story_id)
-        return evaluate_ownership_admission(active_record=active, run_id=run_id, session_id=session_id)
+        try:
+            freeze_record = self._repo.load_active_freeze(story_id)
+            active_freezes = (
+                (active_freeze_state_from_record(freeze_record),)
+                if freeze_record is not None
+                else ()
+            )
+        except Exception:  # noqa: BLE001 -- unreadable freeze state blocks admission
+            active_freezes = (ActiveFreezeState.unreadable(),)
+        return evaluate_ownership_admission(
+            active_record=active,
+            run_id=run_id,
+            session_id=session_id,
+            active_freezes=active_freezes,
+            command_id=command_id,
+        )
 
     def _unadmitted_run_rejection(
         self,

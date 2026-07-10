@@ -116,7 +116,13 @@ class _StartPhaseAdmissionMixin:
         def _release_object_claim_best_effort(self, *, project_key: str, story_id: str, op_id: str) -> None: ...
 
         def _evaluate_run_admission(
-            self, *, project_key: str, story_id: str, session_id: str, run_id: str
+            self,
+            *,
+            project_key: str,
+            story_id: str,
+            session_id: str,
+            run_id: str,
+            command_id: str,
         ) -> OwnershipAdmission: ...
 
         def _ownership_admission_rejection(
@@ -391,6 +397,7 @@ class _StartPhaseAdmissionMixin:
             story_id=request.story_id,
             session_id=request.session_id,
             run_id=run_id,
+            command_id="phase_start",
         )
         #: AG3-142 (SOLL-015, FK-56 §56.8a): a run whose active ownership record
         #: belongs to a DIFFERENT run or a DIFFERENT session is fenced OUT of
@@ -402,6 +409,7 @@ class _StartPhaseAdmissionMixin:
         if admission.rejection_reason in (
             OwnershipRejectionReason.RUN_MISMATCH,
             OwnershipRejectionReason.OWNERSHIP_TRANSFERRED,
+            OwnershipRejectionReason.FREEZE_ACTIVE,
         ):
             return _StartPhaseOutcome(
                 rejection=self._ownership_admission_rejection(

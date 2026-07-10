@@ -182,7 +182,10 @@ SCHEMA_OVERRIDE_ALLOWED_ENV = "AGENTKIT_PG_SCHEMA_OVERRIDE_ALLOWED"
 # agentkit_3_29_0.sqlite is created WITHOUT the column; the old 3.28.0 DB is never
 # touched (no in-place drop on existing data; the versioned-schema pattern is the
 # migration mechanism).
-SCHEMA_VERSION = "3.29.0"
+# AG3-150: 3.29.0 -> 3.30.0 adds the closed freeze-family kind and canonical
+# freeze_epoch to governance_freeze_records. Side-by-side versioning ensures
+# CREATE TABLE IF NOT EXISTS cannot leave an old additive shape behind.
+SCHEMA_VERSION = "3.30.0"
 _SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 # AG3-051: reserved test-schema namespace. Disjoint from the production schema
 # name (``ak3_v<slug>``), so a test override can never resolve onto production

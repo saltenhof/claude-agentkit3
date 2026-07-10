@@ -622,6 +622,16 @@ def _ensure_runtime_tables_part2b(conn: sqlite3.Connection) -> None:
             frozen_at       TEXT NOT NULL,
             freeze_reason   TEXT NOT NULL,
             freeze_version  INTEGER NOT NULL,
+            kind            TEXT NOT NULL DEFAULT 'conflict_freeze' CHECK (
+                kind IN (
+                    'conflict_freeze', 'split_admin_freeze',
+                    'reconcile_repair', 'contested_local_writes'
+                )
+            ),
+            freeze_epoch    TEXT NOT NULL CHECK (
+                freeze_epoch NOT GLOB '*[^0-9]*'
+                AND substr(freeze_epoch, 1, 1) BETWEEN '1' AND '9'
+            ),
             PRIMARY KEY (story_id)
         );
 

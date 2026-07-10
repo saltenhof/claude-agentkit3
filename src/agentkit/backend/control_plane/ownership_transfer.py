@@ -11,6 +11,10 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
 from agentkit.backend.control_plane.ownership import OwnershipStatus, TakeoverApprovalStatus
+from agentkit.backend.core_types.freeze import (
+    ActiveFreezeState,
+    command_resolves_freeze,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -47,9 +51,10 @@ class TakeoverConfirmFailure(StrEnum):
     REPEAT_TRANSFER_REQUIRES_PRIVILEGED_PRINCIPAL_AND_REASON = (
         "repeat_transfer_requires_privileged_principal_and_reason"
     )
+    STORY_NOT_TAKEOVER_ADMISSIBLE = "story_not_takeover_admissible"
 
 
-InvalidationReason = Literal["transfer", "exit", "reset", "split", "closure"]
+InvalidationReason = Literal["transfer", "exit", "reset", "split", "closure", "freeze"]
 
 
 @dataclass(frozen=True)
@@ -254,9 +259,13 @@ def evaluate_takeover_confirm(
     requesting_principal_type: str,
     request_reason: str,
     current_epoch_was_takeover: bool,
+    active_freezes: tuple[ActiveFreezeState, ...] = (),
 ) -> TakeoverConfirmDecision:
     """Evaluate the technology-free confirm preconditions before the row CAS."""
 
+    admissibility_failure = evaluate_takeover_admissibility(active_freezes)
+    if admissibility_failure is not None:
+        return TakeoverConfirmDecision(False, admissibility_failure)
     if not ownership_basis_unchanged(active_basis, challenge_basis):
         return TakeoverConfirmDecision(False, TakeoverConfirmFailure.CHALLENGE_INVALIDATED)
     if challenge_expires_at is not None and now >= challenge_expires_at:
@@ -299,6 +308,19 @@ def challenge_invalidated_by_transition(reason: InvalidationReason) -> TakeoverC
 
     del reason
     return TakeoverConfirmFailure.CHALLENGE_INVALIDATED
+
+
+def evaluate_takeover_admissibility(
+    active_freezes: tuple[ActiveFreezeState, ...],
+) -> TakeoverConfirmFailure | None:
+    """Apply the Rule-8 takeover precondition independently of ownership basis."""
+
+    if any(
+        not command_resolves_freeze("ownership_takeover_confirm", freeze)
+        for freeze in active_freezes
+    ):
+        return TakeoverConfirmFailure.STORY_NOT_TAKEOVER_ADMISSIBLE
+    return None
 
 
 def evaluate_disowned_session_takeover_barrier(

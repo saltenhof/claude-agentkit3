@@ -1153,6 +1153,13 @@
             frozen_at       TEXT NOT NULL,
             freeze_reason   TEXT NOT NULL,
             freeze_version  INTEGER NOT NULL,
+            kind            TEXT NOT NULL DEFAULT 'conflict_freeze' CHECK (
+                kind IN (
+                    'conflict_freeze', 'split_admin_freeze',
+                    'reconcile_repair', 'contested_local_writes'
+                )
+            ),
+            freeze_epoch    TEXT NOT NULL CHECK (freeze_epoch ~ '^[1-9][0-9]*$'),
             PRIMARY KEY (story_id)
         );
 

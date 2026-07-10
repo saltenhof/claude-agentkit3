@@ -28,6 +28,10 @@ from agentkit.backend.control_plane.records import (
     TakeoverReissueRecords,
     TakeoverTransferRecord,
 )
+from agentkit.backend.core_types.freeze import (
+    ActiveFreezeState,
+    active_freeze_state_from_record,
+)
 from agentkit.backend.exceptions import OwnershipFenceViolationError
 from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
 from agentkit.backend.governance.principal_capabilities.principals import Principal
@@ -105,6 +109,19 @@ def _current_epoch_disown_context(
         if (challenge := repo.load_takeover_challenge(challenge_ref)) is not None
     }
     return (next(iter(owner_ids)) if len(owner_ids) == 1 else None), True
+
+
+def _active_freezes(
+    repo: ControlPlaneRuntimeRepository,
+    story_id: str,
+) -> tuple[ActiveFreezeState, ...]:
+    """Read the family state and turn every read/shape fault into a blocker."""
+
+    try:
+        record = repo.load_active_freeze(story_id)
+    except Exception:  # noqa: BLE001 -- unreadable freeze state is blocking
+        return (ActiveFreezeState.unreadable(),)
+    return (active_freeze_state_from_record(record),) if record is not None else ()
 
 
 def _confirm_decision_rejection(
@@ -466,6 +483,17 @@ class _OwnershipTransferMixin:
     ) -> ControlPlaneMutationResult:
         request = command.request
         now = self._now_fn()
+        active_freezes = _active_freezes(self._repo, request.story_id)
+        admissibility_failure = transfer_core.evaluate_takeover_admissibility(
+            active_freezes
+        )
+        if admissibility_failure is not None:
+            return _takeover_rejection(
+                op_id=request.op_id,
+                operation_kind=_TAKEOVER_CONFIRM,
+                reason=str(admissibility_failure),
+                error_code=str(admissibility_failure),
+            )
         challenge_lookup = _load_pending_takeover_challenge(self._repo, request)
         if challenge_lookup.rejection is not None:
             return challenge_lookup.rejection
@@ -551,6 +579,7 @@ class _OwnershipTransferMixin:
             requesting_principal_type=stored_challenge.requesting_principal_type,
             request_reason=stored_challenge.reason,
             current_epoch_was_takeover=current_epoch_was_takeover,
+            active_freezes=active_freezes,
         )
         decision_rejection = _confirm_decision_rejection(
             self._repo,

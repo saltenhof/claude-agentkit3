@@ -773,6 +773,17 @@ class OwnershipTransferredDetail(BaseModel):
     transferred_at: datetime
 
 
+class FreezeConflictDetail(BaseModel):
+    """Structured Rule-8 detail for a story-freeze admission rejection."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: str | None
+    freeze_reason: str | None
+    freeze_epoch: str | None
+    state_readable: bool
+
+
 class ControlPlaneMutationResult(BaseModel):
     """Shared response body for mutations, sync, and op reconciliation."""
 
@@ -827,6 +838,7 @@ class ControlPlaneMutationResult(BaseModel):
     #: ``None`` for every other rejection cause and every non-``rejected``
     #: status.
     error_code: str | None = None
+    freeze_conflict: FreezeConflictDetail | None = None
     #: AG3-141 (K4): the pinned client retry-hint budget (seconds) for a
     #: busy-object ``rejected`` result. Carried into the HTTP ``Retry-After``
     #: header (``control_plane_http.app._mutation_result_response``). ``None``

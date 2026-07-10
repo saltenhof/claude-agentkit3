@@ -39,6 +39,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
+from agentkit.backend.core_types.freeze import (
+    ERROR_CODE_STORY_FROZEN,
+    MIN_FREEZE_EPOCH,
+    RESOLVING_COMMANDS_BY_KIND,
+    ActiveFreezeState,
+    FreezeKind,
+    active_freeze_state_from_record,
+    command_resolves_freeze,
+    is_canonical_freeze_epoch,
+    next_freeze_epoch,
+)
 from agentkit.backend.core_types.plane_artifact_names import GOVERNANCE_FREEZE_EXPORT_PARTS
 from agentkit.backend.governance.principal_capabilities.matrix import (
     CapabilityDecision,
@@ -97,6 +108,7 @@ class FreezeStore(Protocol):
         frozen_at: str,
         freeze_reason: str,
         freeze_version: int,
+        kind: FreezeKind = FreezeKind.CONFLICT_FREEZE,
     ) -> object:
         """Persist the canonical freeze record."""
         ...
@@ -219,6 +231,7 @@ class ConflictFreezeOverlay:
                 frozen_at=frozen_at,
                 freeze_reason=reason,
                 freeze_version=freeze_version,
+                kind=FreezeKind.CONFLICT_FREEZE,
             )
         if self._local_export is not None:
             self._local_export.write(
@@ -392,9 +405,18 @@ def _record_freeze_version(record: object) -> int | None:
 
 
 __all__ = [
+    "ActiveFreezeState",
     "FREEZE_EXPORT_RELPATH",
     "ConflictFreezeOverlay",
     "ConflictFreezeProofStore",
+    "ERROR_CODE_STORY_FROZEN",
     "FreezeStore",
+    "FreezeKind",
     "LocalFreezeExport",
+    "MIN_FREEZE_EPOCH",
+    "RESOLVING_COMMANDS_BY_KIND",
+    "active_freeze_state_from_record",
+    "command_resolves_freeze",
+    "is_canonical_freeze_epoch",
+    "next_freeze_epoch",
 ]

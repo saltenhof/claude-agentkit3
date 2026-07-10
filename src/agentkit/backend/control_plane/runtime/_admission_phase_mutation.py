@@ -66,7 +66,9 @@ class _AdmittedPhaseMutationMixin:
             phase: str,
         ) -> ControlPlaneMutationResult | None: ...
 
-        def _run_was_admitted(self, request: PhaseMutationRequest, *, run_id: str) -> OwnershipAdmission: ...
+        def _run_was_admitted(
+            self, request: PhaseMutationRequest, *, run_id: str, command_id: str
+        ) -> OwnershipAdmission: ...
 
         def _ownership_admission_rejection(
             self,
@@ -179,7 +181,11 @@ class _AdmittedPhaseMutationMixin:
         )
         if locked is not None:
             return locked
-        admission = self._run_was_admitted(request, run_id=run_id)
+        admission = self._run_was_admitted(
+            request,
+            run_id=run_id,
+            command_id=operation_kind,
+        )
         if not admission.admitted:
             return self._ownership_admission_rejection(
                 admission,
