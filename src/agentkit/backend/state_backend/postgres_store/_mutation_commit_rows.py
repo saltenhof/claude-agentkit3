@@ -113,6 +113,32 @@ def _enforce_ownership_fence_row(
     )
 
 
+def _enforce_start_phase_fence_row(
+    conn: _CompatConnection,
+    *,
+    op_row: dict[str, Any],
+    expected_ownership_epoch: int | None,
+) -> None:
+    """Fence both fresh ownership minting and already-owned phase starts."""
+
+    if expected_ownership_epoch is None:
+        _enforce_blocking_freeze_row(
+            conn,
+            story_id=str(op_row["story_id"]),
+            command_id=str(op_row["operation_kind"]),
+        )
+        return
+    _enforce_ownership_fence_row(
+        conn,
+        project_key=str(op_row["project_key"]),
+        story_id=str(op_row["story_id"]),
+        run_id=str(op_row["run_id"]),
+        session_id=str(op_row["session_id"]),
+        expected_ownership_epoch=expected_ownership_epoch,
+        command_id=str(op_row["operation_kind"]),
+    )
+
+
 def _enforce_blocking_freeze_row(
     conn: _CompatConnection,
     *,

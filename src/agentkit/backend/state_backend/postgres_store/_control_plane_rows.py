@@ -23,8 +23,8 @@ from ._connection import (
 )
 from ._mutation_commit_rows import (
     _conditional_upsert_control_plane_op_row,
-    _enforce_blocking_freeze_row,
     _enforce_ownership_fence_row,
+    _enforce_start_phase_fence_row,
 )
 from ._ownership_rows import (
     _insert_execution_contract_digest_row,
@@ -573,18 +573,9 @@ def finalize_control_plane_start_phase_global_row(
             if int(cursor.rowcount) != 1:
                 # Lost the ownership CAS: roll back so NO side effect is written.
                 raise _NotOwnerError
-            if expected_ownership_epoch is not None:
-                # AG3-142: re-verify AT COMMIT TIME, in THIS transaction (no
-                # TOCTOU) -- a failure raises and rolls back EVERYTHING above too.
-                _enforce_ownership_fence_row(
-                    conn,
-                    project_key=str(op_row["project_key"]), story_id=str(op_row["story_id"]),
-                    run_id=str(op_row["run_id"]), session_id=str(op_row["session_id"]),
-                    expected_ownership_epoch=expected_ownership_epoch,
-                    command_id=str(op_row["operation_kind"]),
-                )
-            else:
-                _enforce_blocking_freeze_row(conn, story_id=str(op_row["story_id"]), command_id=str(op_row["operation_kind"]))
+            _enforce_start_phase_fence_row(
+                conn, op_row=op_row, expected_ownership_epoch=expected_ownership_epoch
+            )
             if ownership_row_to_insert is not None:
                 _insert_run_ownership_record_row(conn, ownership_row_to_insert)
             if execution_contract_digest_row_to_insert is not None:
