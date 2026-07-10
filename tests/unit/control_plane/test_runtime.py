@@ -1994,6 +1994,51 @@ def test_project_edge_sync_with_revoked_binding_returns_binding_invalid() -> Non
     assert result.edge_bundle.session.revocation_reason == "ownership_transferred"
 
 
+def test_project_edge_sync_genericizes_unknown_revocation_reason_in_bundle() -> None:
+    """R3-3: sync never exposes an unknown non-empty revocation reason."""
+    state = _RepoState()
+    state.bindings["sess-001"] = SessionRunBindingRecord(
+        session_id="sess-001",
+        project_key="tenant-a",
+        story_id="AG3-100",
+        run_id="run-100",
+        principal_type="orchestrator",
+        worktree_roots=("T:/worktrees/ag3-100",),
+        binding_version="1",
+        updated_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
+        status="revoked",
+        revocation_reason="future_untrusted_reason",
+    )
+    state.locks[("tenant-a", "AG3-100", "run-100", "story_execution")] = (
+        StoryExecutionLockRecord(
+            project_key="tenant-a",
+            story_id="AG3-100",
+            run_id="run-100",
+            lock_type="story_execution",
+            status="ACTIVE",
+            worktree_roots=("T:/worktrees/ag3-100",),
+            binding_version="1",
+            activated_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
+            updated_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
+        )
+    )
+    service = ControlPlaneRuntimeService(repository=_repository(state))
+
+    result = service.sync_project_edge(
+        ProjectEdgeSyncRequest(
+            project_key="tenant-a",
+            session_id="sess-001",
+            op_id="op-sync-unknown-revocation-r3",
+        ),
+    )
+
+    assert result.edge_bundle is not None
+    assert result.edge_bundle.current.operating_mode == "binding_invalid"
+    assert result.edge_bundle.session is not None
+    assert result.edge_bundle.session.status == "revoked"
+    assert result.edge_bundle.session.revocation_reason == "session_binding_mismatch"
+
+
 def test_get_operation_returns_replayed_result() -> None:
     state = _RepoState()
     _resolvable_standard_ctx(state)

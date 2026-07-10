@@ -654,6 +654,8 @@ def save_session_run_binding_global_row(row: dict[str, Any]) -> None:
               AND session_run_bindings.story_id = EXCLUDED.story_id
               AND session_run_bindings.run_id = EXCLUDED.run_id
               AND session_run_bindings.status = 'active'
+              AND EXCLUDED.status = 'active'
+              AND EXCLUDED.revocation_reason IS NULL
             """,
             (
                 row["session_id"],
@@ -671,8 +673,9 @@ def save_session_run_binding_global_row(row: dict[str, Any]) -> None:
         if int(cursor.rowcount) == 0:
             raise ControlPlaneBindingCollisionError(
                 "public session-binding save refused: the one-slot session row "
-                "contains a foreign active binding or a revoked notification; "
-                "revoked-row supersede requires an audited operation-ledger commit",
+                "contains a foreign active binding, a revoked notification, or "
+                "the update attempts a revocation transition; disown and "
+                "revoked-row supersede require an audited operation-ledger commit",
             )
 
 

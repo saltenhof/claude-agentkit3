@@ -38,9 +38,11 @@ from agentkit.backend.control_plane.records import (
     ControlPlaneOperationRecord,
     SessionRunBindingRecord,
 )
+from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
 from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.backend.core_types import StoryMode
 from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
+from agentkit.backend.state_backend import postgres_store
 from agentkit.backend.state_backend.governance_runtime_store import load_story_execution_lock_global
 from agentkit.backend.state_backend.operation_ledger import (
     admin_abort_control_plane_operation_global,
@@ -1142,6 +1144,37 @@ def test_public_binding_save_cannot_erase_revoked_notification(
 
     survived = load_session_run_binding_global("sess-001")
     assert survived == revoked
+
+
+@pytest.mark.contract
+def test_public_repository_binding_save_cannot_disown_same_run_active_binding(
+    postgres_backend_env: object,
+) -> None:
+    """R3-1: the public writer cannot perform same-run ACTIVE -> revoked."""
+    from agentkit.backend.exceptions import ControlPlaneBindingCollisionError
+
+    del postgres_backend_env
+    repository = ControlPlaneRuntimeRepository()
+    active = _binding("run-100", version="500")
+    repository.save_binding(active)
+
+    with pytest.raises(ControlPlaneBindingCollisionError):
+        repository.save_binding(
+            replace(
+                active,
+                status="revoked",
+                revocation_reason="story_reset",
+            )
+        )
+
+    assert repository.load_binding("sess-001") == active
+    assert load_execution_events_global("tenant-a", "AG3-100", run_id="run-100") == []
+    with postgres_store._connect_global() as conn:  # noqa: SLF001 -- read-only assertion
+        marker_count = conn.execute(
+            "SELECT COUNT(*) AS n FROM control_plane_operations"
+        ).fetchone()
+    assert marker_count is not None
+    assert int(marker_count["n"]) == 0
 
 
 @pytest.mark.contract

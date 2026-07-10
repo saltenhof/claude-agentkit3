@@ -17,6 +17,7 @@ from agentkit.backend.control_plane.models import (
 )
 from agentkit.backend.control_plane.ownership import (
     MIN_BINDING_VERSION,
+    canonical_binding_revocation_reason,
 )
 
 if TYPE_CHECKING:
@@ -105,7 +106,12 @@ def _build_edge_bundle(
             #: resolve() can surface deterministic ``binding_invalid`` (FK-56
             #: §56.7a) rather than silently falling back to ``ai_augmented``.
             status=binding.status,
-            revocation_reason=binding.revocation_reason,
+            revocation_reason=(
+                canonical_binding_revocation_reason(binding.revocation_reason)
+                or "session_binding_mismatch"
+                if binding.status == "revoked"
+                else binding.revocation_reason
+            ),
             new_owner_ref=new_owner_ref,
         )
         if binding is not None

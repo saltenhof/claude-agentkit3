@@ -196,8 +196,6 @@ class DisownedSessionOverlay:
     ) -> CapabilityVerdict:
         """Deny story mutations when the resolved binding is revoked."""
 
-        if base_verdict.decision is CapabilityDecision.DENY:
-            return base_verdict
         if binding_revocation_reason is None:
             return base_verdict
         if operation_class not in _MUTATING_OP_CLASSES:

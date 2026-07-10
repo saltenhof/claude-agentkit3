@@ -194,6 +194,45 @@ def test_disowned_deny_is_not_official_service_path_override_convertible(
     assert verdict.detail["capability_rule_id"] == "FK-55-55.8.3-disowned-session"
 
 
+def test_disowned_matrix_deny_with_service_path_remains_terminal(
+    tmp_path: Path,
+) -> None:
+    """R3-2: a real service attestation cannot override a matrix DENY."""
+    worktree = str(tmp_path / "worktree")
+    _publish_story_binding(
+        tmp_path,
+        worktree,
+        binding_status="revoked",
+        revocation_reason="story_reset",
+    )
+    event = HookEvent.model_validate(
+        {
+            "operation": "file_write",
+            "freshness_class": "mutation",
+            "cwd": worktree,
+            "principal_kind": "main",
+            "session_id": _SESSION,
+            "cli_args": ["--ak3-principal-attest", "human_cli"],
+            "operation_args": {
+                "file_path": f"{worktree}/.agentkit/governance/freeze.json",
+                "service_path": "agentkit reset-story",
+            },
+        }
+    )
+
+    verdict = run_hook(
+        "ccag_gatekeeper",
+        event,
+        phase="pre",
+        project_root=tmp_path,
+    )
+
+    assert verdict.allowed is False
+    assert verdict.guard_name == "principal_capability"
+    assert verdict.detail is not None
+    assert verdict.detail["capability_rule_id"] == "FK-55-55.8.3-disowned-session"
+
+
 def test_foreign_revoked_bundle_does_not_apply_disowned_overlay(
     tmp_path: Path,
 ) -> None:
