@@ -88,12 +88,6 @@ from ._control_plane_rows import (
     commit_control_plane_operation_with_side_effects_global_row as commit_control_plane_operation_with_side_effects_global_row,
 )
 from ._control_plane_rows import (
-    commit_takeover_reconcile_clear_global_row as commit_takeover_reconcile_clear_global_row,
-)
-from ._control_plane_rows import (
-    commit_takeover_reissue_global_row as commit_takeover_reissue_global_row,
-)
-from ._control_plane_rows import (
     delete_control_plane_operation_global_row as delete_control_plane_operation_global_row,
 )
 from ._control_plane_rows import (
@@ -125,9 +119,6 @@ from ._control_plane_rows import (
 )
 from ._control_plane_rows import (
     load_control_plane_operation_global_row as load_control_plane_operation_global_row,
-)
-from ._control_plane_rows import (
-    reconcile_takeover_confirm_cas_loss_global_row as reconcile_takeover_confirm_cas_loss_global_row,
 )
 from ._control_plane_rows import (
     release_control_plane_operation_global_row as release_control_plane_operation_global_row,
@@ -659,4 +650,16 @@ from ._story_project_rows import (
 )
 from ._story_project_rows import (
     update_story_are_link_kind_row as update_story_are_link_kind_row,
+)
+from ._takeover_rows import (
+    commit_takeover_confirm_global_row as commit_takeover_confirm_global_row,
+)
+from ._takeover_rows import (
+    commit_takeover_reconcile_clear_global_row as commit_takeover_reconcile_clear_global_row,
+)
+from ._takeover_rows import (
+    commit_takeover_reissue_global_row as commit_takeover_reissue_global_row,
+)
+from ._takeover_rows import (
+    reconcile_takeover_confirm_cas_loss_global_row as reconcile_takeover_confirm_cas_loss_global_row,
 )

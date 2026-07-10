@@ -975,7 +975,7 @@ def test_takeover_confirm_global_checks_ownership_update_rowcount(
     )
 
     monkeypatch.setattr(
-        "agentkit.backend.state_backend.postgres_store._control_plane_rows."
+        "agentkit.backend.state_backend.postgres_store._takeover_rows."
         "_verify_takeover_confirm_cas",
         lambda *args, **kwargs: None,
     )
@@ -1101,7 +1101,7 @@ def test_post_cas_loss_reconcile_waits_for_concurrent_binding_drift_then_invalid
 ) -> None:
     """Close the second window by classifying after the concurrent binding lock."""
     del postgres_backend_env
-    from agentkit.backend.state_backend.postgres_store import _control_plane_rows
+    from agentkit.backend.state_backend.postgres_store import _takeover_rows
 
     story_id = _story_id(264)
     run_id = "run-cas-loss-concurrent-binding"
@@ -1120,14 +1120,14 @@ def test_post_cas_loss_reconcile_waits_for_concurrent_binding_drift_then_invalid
     binding_locked = Event()
     release_binding = Event()
     reconcile_entered = Event()
-    original_lock_basis = _control_plane_rows._lock_takeover_basis_rows  # noqa: SLF001
+    original_lock_basis = _takeover_rows._lock_takeover_basis_rows  # noqa: SLF001
 
     def observed_lock_basis(*args: object, **kwargs: object) -> tuple[object, object]:
         reconcile_entered.set()
         return original_lock_basis(*args, **kwargs)
 
     monkeypatch.setattr(
-        _control_plane_rows,
+        _takeover_rows,
         "_lock_takeover_basis_rows",
         observed_lock_basis,
     )

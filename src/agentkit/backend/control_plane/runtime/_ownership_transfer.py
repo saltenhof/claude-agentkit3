@@ -43,7 +43,6 @@ from ._ownership_transfer_support import (
     _CANONICAL_PRINCIPAL_TYPES,
     _CHALLENGE_TTL,
     _TAKEOVER_CONFIRM,
-    _TAKEOVER_DENY,
     _TAKEOVER_PHASE,
     _TAKEOVER_REQUEST,
     _approval_changed_payload,
@@ -53,8 +52,6 @@ from ._ownership_transfer_support import (
     _challenge_view,
     _confirm_approval_state,
     _ConfirmApprovalState,
-    _denied_approval_record,
-    _denied_request_operation_record,
     _invalidated_approval_record,
     _load_pending_takeover_challenge,
     _load_takeover_existing_operation,
@@ -77,7 +74,6 @@ if TYPE_CHECKING:
     )
     from agentkit.backend.control_plane.runtime._ownership_transfer_commands import (
         TakeoverConfirmCommand,
-        TakeoverDenyCommand,
     )
     from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
@@ -221,68 +217,6 @@ class _OwnershipTransferMixin:
                     story_id=request.story_id,
                     op_id=request.op_id,
                 )
-            raise
-
-    def deny_ownership_takeover(
-        self,
-        *,
-        command: TakeoverDenyCommand,
-    ) -> ControlPlaneMutationResult:
-        """Deny a pending agent-initiated takeover approval."""
-        request = command.request
-        if command.denied_by_principal is not Principal.HUMAN_CLI:
-            return _takeover_rejection(
-                op_id=request.op_id,
-                operation_kind=_TAKEOVER_DENY,
-                reason="agent_deny_forbidden",
-                error_code="agent_deny_forbidden",
-            )
-        existing = _load_takeover_existing_operation(
-            self._repo,
-            command,
-            operation_kind=_TAKEOVER_DENY,
-        )
-        if existing is not None:
-            return existing
-        conflict = self._acquire_object_claim(
-            project_key=request.project_key,
-            story_id=request.story_id,
-            op_id=request.op_id,
-        )
-        if conflict is not None:
-            return _object_claim_busy_rejection(
-                op_id=request.op_id,
-                operation_kind=_TAKEOVER_DENY,
-                run_id=None,
-                phase=_TAKEOVER_PHASE,
-                conflict=conflict,
-            )
-        try:
-            result = self._deny_ownership_takeover_under_claim(command)
-            self._release_object_claim(
-                project_key=request.project_key,
-                story_id=request.story_id,
-                op_id=request.op_id,
-            )
-            return result
-        except OwnershipFenceViolationError:
-            self._release_object_claim(
-                project_key=request.project_key,
-                story_id=request.story_id,
-                op_id=request.op_id,
-            )
-            return _takeover_rejection(
-                op_id=request.op_id,
-                operation_kind=_TAKEOVER_DENY,
-                reason="takeover_approval_not_pending",
-                error_code="takeover_approval_not_pending",
-            )
-        except BaseException:
-            self._release_object_claim_best_effort(
-                project_key=request.project_key,
-                story_id=request.story_id,
-                op_id=request.op_id,
-            )
             raise
 
     def _request_ownership_takeover_under_claim(
@@ -475,39 +409,15 @@ class _OwnershipTransferMixin:
         )
         if expired is not None:
             return expired
-        reissue = _maybe_reissue_expired_challenge(
-            self._repo,
+        reissue_result = self._takeover_reissue_result(
             command=command,
             stored_challenge=stored_challenge,
             active=active,
             approval_state=approval_state,
             now=now,
         )
-        if reissue.rejection is not None:
-            if reissue.rejection.error_code != "challenge_invalidated":
-                return reissue.rejection
-            return _commit_takeover_invalidation(
-                self._repo,
-                command=command,
-                challenge=stored_challenge,
-                approval=approval_state.approval,
-                now=now,
-            )
-        if reissue.challenge_to_insert is not None:
-            assert reissue.challenge_to_expire is not None
-            assert reissue.approval_state.approved_approval is not None
-            assert reissue.fresh_challenge_view is not None
-            return _commit_takeover_reissue(
-                self._repo,
-                command=command,
-                active=active,
-                owner_binding=reissue.owner_binding,
-                expired_challenge=reissue.challenge_to_expire,
-                fresh_challenge=reissue.challenge_to_insert,
-                fresh_challenge_view=reissue.fresh_challenge_view,
-                relinked_approval=reissue.approval_state.approved_approval,
-                now=now,
-            )
+        if reissue_result is not None:
+            return reissue_result
         active_basis = transfer_core.ownership_basis_of_active(active, owner_binding)
         challenge_basis = transfer_core.ownership_basis_of_challenge(stored_challenge)
         if not transfer_core.ownership_basis_unchanged(active_basis, challenge_basis):
@@ -698,6 +608,50 @@ class _OwnershipTransferMixin:
         )
         return result
 
+    def _takeover_reissue_result(
+        self,
+        *,
+        command: TakeoverConfirmCommand,
+        stored_challenge: TakeoverChallengeRecord,
+        active: RunOwnershipRecord | None,
+        approval_state: _ConfirmApprovalState,
+        now: datetime,
+    ) -> ControlPlaneMutationResult | None:
+        reissue = _maybe_reissue_expired_challenge(
+            self._repo,
+            command=command,
+            stored_challenge=stored_challenge,
+            active=active,
+            approval_state=approval_state,
+            now=now,
+        )
+        if reissue.rejection is not None:
+            if reissue.rejection.error_code != "challenge_invalidated":
+                return reissue.rejection
+            return _commit_takeover_invalidation(
+                self._repo,
+                command=command,
+                challenge=stored_challenge,
+                approval=approval_state.approval,
+                now=now,
+            )
+        if reissue.challenge_to_insert is None:
+            return None
+        assert reissue.challenge_to_expire is not None
+        assert reissue.approval_state.approved_approval is not None
+        assert reissue.fresh_challenge_view is not None
+        return _commit_takeover_reissue(
+            self._repo,
+            command=command,
+            active=active,
+            owner_binding=reissue.owner_binding,
+            expired_challenge=reissue.challenge_to_expire,
+            fresh_challenge=reissue.challenge_to_insert,
+            fresh_challenge_view=reissue.fresh_challenge_view,
+            relinked_approval=reissue.approval_state.approved_approval,
+            now=now,
+        )
+
     def _expired_takeover_confirm_result(
         self,
         *,
@@ -813,109 +767,6 @@ class _OwnershipTransferMixin:
             ),
         )
         return result
-
-    def _deny_ownership_takeover_under_claim(
-        self,
-        command: TakeoverDenyCommand,
-    ) -> ControlPlaneMutationResult:
-        request = command.request
-        now = self._now_fn()
-        approval = self._repo.load_takeover_approval(request.approval_id)
-        if approval is None:
-            return _takeover_rejection(
-                op_id=request.op_id,
-                operation_kind=_TAKEOVER_DENY,
-                reason="takeover_approval_not_found",
-                error_code="takeover_approval_not_found",
-            )
-        if approval.project_key != request.project_key or approval.story_id != request.story_id:
-            return _takeover_rejection(
-                op_id=request.op_id,
-                operation_kind=_TAKEOVER_DENY,
-                reason="takeover_approval_scope_mismatch",
-                error_code="takeover_approval_scope_mismatch",
-                run_id=approval.run_id,
-            )
-        if approval.status is not TakeoverApprovalStatus.PENDING or now >= approval.expires_at:
-            return _takeover_rejection(
-                op_id=request.op_id,
-                operation_kind=_TAKEOVER_DENY,
-                reason="takeover_approval_not_pending",
-                error_code="takeover_approval_not_pending",
-                run_id=approval.run_id,
-            )
-        challenge = self._repo.load_takeover_challenge(approval.challenge_ref)
-        if challenge is None:
-            return _takeover_rejection(
-                op_id=request.op_id,
-                operation_kind=_TAKEOVER_DENY,
-                reason="takeover_challenge_required",
-                error_code="takeover_challenge_required",
-                run_id=approval.run_id,
-            )
-        request_operation = self._repo.load_operation(challenge.request_op_id)
-        if request_operation is None:
-            return _takeover_rejection(
-                op_id=request.op_id,
-                operation_kind=_TAKEOVER_DENY,
-                reason="takeover_request_operation_required",
-                error_code="takeover_request_operation_required",
-                run_id=approval.run_id,
-            )
-        denied_approval = _denied_approval_record(approval, command=command, now=now)
-        result = ControlPlaneMutationResult(
-            status="denied",
-            op_id=request.op_id,
-            operation_kind=_TAKEOVER_DENY,
-            run_id=approval.run_id,
-            phase=_TAKEOVER_PHASE,
-        )
-        request_result = ControlPlaneMutationResult(
-            status="denied",
-            op_id=challenge.request_op_id,
-            operation_kind=_TAKEOVER_REQUEST,
-            run_id=approval.run_id,
-            phase=_TAKEOVER_PHASE,
-            pending_human_approval=PendingHumanApprovalResponse(
-                op_id=challenge.request_op_id,
-                approval_id=approval.approval_id,
-                message="takeover_approval_denied",
-                approval=_approval_view(denied_approval),
-            ),
-        )
-        event = _lifecycle_event_record(
-            event_type=EventType.TAKEOVER_APPROVAL_CHANGED,
-            project_key=request.project_key,
-            story_id=request.story_id,
-            run_id=approval.run_id,
-            source_component=request.source_component,
-            payload=_approval_changed_payload(denied_approval),
-            now=now,
-            phase=_TAKEOVER_PHASE,
-        )
-        self._repo.commit_takeover_deny(
-            _takeover_operation_record(
-                command,
-                result=result,
-                now=now,
-                run_id=approval.run_id,
-            ),
-            request_op_record=_denied_request_operation_record(
-                request_operation,
-                response_payload=request_result.model_dump(mode="json"),
-                now=now,
-            ),
-            denied_approval=denied_approval,
-            challenge=_terminal_challenge_record(
-                challenge,
-                status="denied",
-                terminal_op_id=request.op_id,
-                now=now,
-            ),
-            events=(event,),
-        )
-        return result
-
 
 def _transition_invalidation_candidate(
     repo: ControlPlaneRuntimeRepository,
