@@ -185,17 +185,11 @@ def test_repeat_transfer_requires_privileged_principal_and_reason() -> None:
     ) is None
 
 
-def test_self_rebind_skips_approval_only_for_same_non_empty_identity() -> None:
-    assert not requires_human_approval(
-        "orchestrator",
-        requesting_session_id="session-a",
-        orphaned_owner_session_id="session-a",
-    )
-    assert requires_human_approval(
-        "orchestrator",
-        requesting_session_id="session-b",
-        orphaned_owner_session_id="session-a",
-    )
+def test_no_session_identity_bypasses_human_approval() -> None:
+    """R2-4/AC10-negative: foreign identities have no carve-out surface."""
+    assert requires_human_approval("orchestrator")
+    assert requires_human_approval("interactive_agent")
+    assert not requires_human_approval("human_cli")
 
 
 def test_full_basis_and_weaker_reissue_anchor_have_distinct_roles() -> None:

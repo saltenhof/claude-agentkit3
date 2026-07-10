@@ -193,9 +193,8 @@ class StoryExitService:
         record = record.model_copy(update={"artifact_paths": artifact_paths})
         self._write_json(artifact_dir / "story_exit_record.json", record)
 
-        self._commit_fence(normalized, record=record, now=now)
-        self._administratively_cancel(normalized, record, True)
         teardown_mode = self._commit_teardown(normalized, record=record, now=now)
+        self._administratively_cancel(normalized, record, True)
         deactivation = self._governance.deactivate_locks(normalized.story_id)
         self.exit_finalized(
             request=normalized,
@@ -469,38 +468,6 @@ class StoryExitService:
             encoding="utf-8",
         )
 
-    def _commit_fence(
-        self,
-        request: StoryExitRequest,
-        *,
-        record: StoryExitRecord,
-        now: datetime,
-    ) -> None:
-        existing = self._repo.load_operation(record.exit_id)
-        if existing is not None:
-            if (
-                existing.status == "committed"
-                and existing.operation_kind == "story_exit"
-                and existing.project_key == request.project_key
-                and existing.story_id == request.story_id
-                and existing.run_id == request.run_id
-            ):
-                return
-            raise StoryExitError("story exit fence collides with a foreign operation")
-        op_record = self._operation_record(
-            request,
-            record=record,
-            now=now,
-            exit_status="exit_gate_passed",
-        )
-        self._repo.commit_operation_with_side_effects(
-            op_record,
-            binding_to_save=None,
-            binding_to_delete=None,
-            locks=(),
-            events=(),
-        )
-
     def _administratively_cancel(
         self,
         request: StoryExitRequest,
@@ -524,6 +491,15 @@ class StoryExitService:
         record: StoryExitRecord,
         now: datetime,
     ) -> str:
+        existing_operation = self._repo.load_operation(record.exit_id)
+        if existing_operation is not None and not (
+            existing_operation.status == "committed"
+            and existing_operation.operation_kind == "story_exit"
+            and existing_operation.project_key == request.project_key
+            and existing_operation.story_id == request.story_id
+            and existing_operation.run_id == request.run_id
+        ):
+            raise StoryExitError("story exit collides with a foreign operation")
         binding = self._repo.load_binding(request.session_id)
         if binding is None:
             raise StoryExitError("story exit teardown requires the active binding")
@@ -540,6 +516,10 @@ class StoryExitService:
             binding.status == BindingStatus.REVOKED.value
             and binding.revocation_reason == BindingRevocationReason.STORY_ENDED.value
         ):
+            if existing_operation is None:
+                raise StoryExitError(
+                    "story exit replay requires its committed operation marker"
+                )
             existing_lock = self._repo.load_lock(
                 request.project_key,
                 request.story_id,

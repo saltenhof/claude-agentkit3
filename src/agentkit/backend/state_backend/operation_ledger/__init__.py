@@ -194,6 +194,7 @@ def commit_control_plane_operation_with_side_effects_global(
     events: tuple[ExecutionEventRecord, ...],
     expected_ownership_epoch: int | None = None,
     ownership_status_target: OwnershipStatus | None = None,
+    fault_after_step: Callable[[str], None] | None = None,
 ) -> None:
     """Atomically commit a terminal operation and its side effects."""
     from agentkit.backend.state_backend import persistence_mappers as mappers
@@ -228,6 +229,7 @@ def commit_control_plane_operation_with_side_effects_global(
         ),
         lock_rows=tuple(mappers.execution_lock_to_row(lock) for lock in locks),
         event_rows=tuple(mappers.execution_event_to_row(event) for event in events),
+        fault_after_step=fault_after_step,
     )
 
 

@@ -940,6 +940,7 @@ def commit_control_plane_operation_with_side_effects_global_row(
     event_rows: Sequence[dict[str, Any]],
     expected_ownership_epoch: int | None = None,
     ownership_status_target: str | None = None,
+    fault_after_step: Callable[[str], None] | None = None,
 ) -> None:
     """Atomically commit a terminal op AND its side effects in ONE transaction (#2).
 
@@ -986,6 +987,8 @@ def commit_control_plane_operation_with_side_effects_global_row(
         # Collision gate FIRST: a live-claim collision raises here, BEFORE any side
         # effect is durable, so the transaction rolls back with zero orphan state.
         _conditional_upsert_control_plane_op_row(conn, op_row)
+        if fault_after_step is not None:
+            fault_after_step("operation_marker")
         if expected_ownership_epoch is not None:
             # AG3-142: re-verify AT COMMIT TIME, in THIS transaction (no TOCTOU) --
             # a failure raises and rolls back the op upsert above too.
@@ -1005,11 +1008,15 @@ def commit_control_plane_operation_with_side_effects_global_row(
                 run_id=str(op_row["run_id"]),
                 target_status=ownership_status_target,
             )
+            if fault_after_step is not None:
+                fault_after_step("ownership_status")
         if binding_to_save is not None:
             if binding_to_save["status"] == "revoked":
                 _revoke_session_binding_row(conn, binding_to_save)
             else:
                 _insert_session_binding_row(conn, binding_to_save)
+            if fault_after_step is not None:
+                fault_after_step("binding")
         if binding_to_delete is not None:
             # Run-scoped delete: a foreign run's live binding raises and rolls back
             # the WHOLE transaction (no foreign teardown, no orphan op/lock/event).

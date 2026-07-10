@@ -32,17 +32,26 @@ def test_disowned_phase_mutation_maps_reason_to_forbidden(reason: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "reason",
+    ("operation_kind", "reason"),
     (
-        "disowned_session_cannot_immediately_reclaim",
-        "repeat_transfer_requires_privileged_principal_and_reason",
+        (
+            "ownership_takeover_request",
+            "repeat_transfer_requires_privileged_principal_and_reason",
+        ),
+        (
+            "ownership_takeover_confirm",
+            "disowned_session_cannot_immediately_reclaim",
+        ),
     ),
 )
-def test_ping_pong_denial_maps_to_forbidden(reason: str) -> None:
+def test_ping_pong_request_and_confirm_denials_map_rule_id_to_forbidden(
+    operation_kind: str,
+    reason: str,
+) -> None:
     result = ControlPlaneMutationResult(
         status="rejected",
         op_id="op-ping",
-        operation_kind="ownership_takeover_confirm",
+        operation_kind=operation_kind,
         run_id="run-a",
         error_code=reason,
     )

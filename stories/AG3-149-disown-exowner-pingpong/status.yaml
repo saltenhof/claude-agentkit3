@@ -11,5 +11,8 @@ size: M
 # die Record-Status (ended/reset/split) und VOLLENDET damit die in AG3-142
 # begonnene Abloesung der committed-op-Admission (Exit-Fence runtime.py:1078
 # entfaellt hier). Plus Ping-Pong-Schranke + Ex-Owner-Edge-Quarantaene.
+# R2: Positive Self-Rebind/AC10-positive ist nach AG3-154 (recover-story,
+# stabile Harness-Identitaet, neuer Run) verschoben; der Takeover-Carve-out ist
+# entfernt und owner-self-request scheitert mit requester_already_owner.
 depends_on: ["AG3-148"]
 unblocks: ["AG3-150", "AG3-151", "AG3-155"]

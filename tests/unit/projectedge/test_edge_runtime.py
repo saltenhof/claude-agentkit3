@@ -185,6 +185,53 @@ def test_resolver_revoked_binding_with_missing_reason_stays_fail_closed(
     assert resolved.block_reason != "ownership_transferred"
 
 
+def test_resolver_revoked_binding_with_unknown_reason_is_generic(
+    tmp_path: Path,
+) -> None:
+    """R2-5: an unknown non-empty reason is never surfaced verbatim."""
+    worktree = tmp_path / "worktree"
+    LocalEdgePublisher(project_root=tmp_path).publish(
+        _bundle(
+            worktree_root=str(worktree),
+            binding_status="revoked",
+            revocation_reason="future_untrusted_reason",
+        ),
+    )
+
+    resolved = ProjectEdgeResolver(project_root=tmp_path).resolve(
+        session_id="sess-001",
+        cwd=worktree,
+        freshness_class="guarded_read",
+    )
+
+    assert resolved.operating_mode == "binding_invalid"
+    assert resolved.block_reason == "session_binding_mismatch"
+
+
+def test_resolver_does_not_attribute_foreign_revoked_reason_to_event_session(
+    tmp_path: Path,
+) -> None:
+    """R2-3: stale revoked bundles cannot disenfranchise another session."""
+    worktree = tmp_path / "worktree"
+    LocalEdgePublisher(project_root=tmp_path).publish(
+        _bundle(
+            worktree_root=str(worktree),
+            session_id="sess-old",
+            binding_status="revoked",
+            revocation_reason="ownership_transferred",
+        ),
+    )
+
+    resolved = ProjectEdgeResolver(project_root=tmp_path).resolve(
+        session_id="sess-new",
+        cwd=worktree,
+        freshness_class="guarded_read",
+    )
+
+    assert resolved.block_reason == "session_binding_mismatch"
+    assert resolved.new_owner_ref is None
+
+
 def test_resolver_performs_bounded_sync_for_stale_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     worktree = tmp_path / "worktree"
     stale_bundle = _bundle(

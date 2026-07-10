@@ -351,17 +351,14 @@ def test_story_exit_canonical_order_and_no_closure_operation(tmp_path: Path) -> 
 
     assert result.operating_mode == "binding_invalid"
     assert story_service.calls == ["cancelled"]
-    assert state.commits == [
-        ("story_exit", False, 0, 0),
-        ("story_exit", False, 2, 3),
-    ]
+    assert state.commits == [("story_exit", False, 2, 3)]
     assert state.bindings["sess-1"].status == "revoked"
     assert state.bindings["sess-1"].revocation_reason == "story_ended"
     assert state.operations["exit-1"].operation_kind == "story_exit"
     assert all(op.operation_kind != "closure_complete" for op in state.operations.values())
 
 
-def test_crash_after_fence_before_cancel_leaves_binding_and_resume_finishes(
+def test_crash_after_atomic_terminal_commit_resumes_story_cancellation(
     tmp_path: Path,
 ) -> None:
     state = _RepoState()
@@ -372,8 +369,8 @@ def test_crash_after_fence_before_cancel_leaves_binding_and_resume_finishes(
     with pytest.raises(RuntimeError, match="crash"):
         service.exit_story(_request())
 
-    assert state.commits == [("story_exit", False, 0, 0)]
-    assert state.bindings["sess-1"].run_id == "run-1"
+    assert state.commits == [("story_exit", False, 2, 3)]
+    assert state.bindings["sess-1"].status == "revoked"
     assert _repo(state).has_committed_story_exit_operation_for_run(
         "ak3", "AG3-073", "run-1"
     )
@@ -385,14 +382,13 @@ def test_crash_after_fence_before_cancel_leaves_binding_and_resume_finishes(
 
     assert resumed.exit_finalized is True
     assert resumed_story_service.calls == ["cancelled"]
-    assert state.commits == [
-        ("story_exit", False, 0, 0),
-        ("story_exit", False, 2, 3),
-    ]
+    assert state.commits == [("story_exit", False, 2, 3)]
     assert state.bindings["sess-1"].status == "revoked"
 
 
-def test_teardown_does_not_run_before_cancelled_status(tmp_path: Path) -> None:
+def test_terminal_transition_is_not_split_when_story_cancel_validation_fails(
+    tmp_path: Path,
+) -> None:
     state = _RepoState()
     _seed_binding(state)
     story_service = _StoryService(returned_status="In Progress")
@@ -400,8 +396,8 @@ def test_teardown_does_not_run_before_cancelled_status(tmp_path: Path) -> None:
     with pytest.raises(StoryExitError, match="Cancelled"):
         _service(state, tmp_path, story_service=story_service).exit_story(_request())
 
-    assert state.commits == [("story_exit", False, 0, 0)]
-    assert state.bindings["sess-1"].run_id == "run-1"
+    assert state.commits == [("story_exit", False, 2, 3)]
+    assert state.bindings["sess-1"].status == "revoked"
 
 
 def test_artifacts_have_producer_and_no_delta_file_without_deltas(tmp_path: Path) -> None:

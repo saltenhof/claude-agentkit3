@@ -44,6 +44,7 @@ __all__ = (
     "OwnershipStatus",
     "SessionId",
     "TakeoverApprovalStatus",
+    "canonical_binding_revocation_reason",
     "is_canonical_binding_version",
 )
 
@@ -121,6 +122,17 @@ class TakeoverApprovalStatus(StrEnum):
     DENIED = "denied"
     EXPIRED = "expired"
     INVALIDATED = "invalidated"
+
+
+def canonical_binding_revocation_reason(reason: str | None) -> str | None:
+    """Return a closed-vocabulary revocation reason, or ``None`` if unknown."""
+
+    if reason is None:
+        return None
+    try:
+        return BindingRevocationReason(reason).value
+    except ValueError:
+        return None
 
 
 #: Enforced-by-persistence invariant name (``formal.operating-modes.invariants``).

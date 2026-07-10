@@ -95,6 +95,21 @@ class _ProjectEdgeSyncMixin:
             )
         else:
             lock = lock_record
+        new_owner_ref = None
+        if (
+            binding.status == "revoked"
+            and binding.revocation_reason == "ownership_transferred"
+        ):
+            active = self._repo.load_active_ownership(
+                binding.project_key,
+                binding.story_id,
+            )
+            if (
+                active is not None
+                and active.run_id == binding.run_id
+                and active.owner_session_id != binding.session_id
+            ):
+                new_owner_ref = active.owner_session_id
         bundle = _build_edge_bundle(
             binding=binding,
             lock=lock,
@@ -104,6 +119,7 @@ class _ProjectEdgeSyncMixin:
             tombstone_worktree_roots=(
                 binding.worktree_roots if binding.status == "revoked" else ()
             ),
+            new_owner_ref=new_owner_ref,
         )
         return ControlPlaneMutationResult(
             status="synced",

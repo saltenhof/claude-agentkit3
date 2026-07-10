@@ -1796,6 +1796,8 @@ def _run_capability_enforcement(
             project_root=project_root,
             story_id=story_id,
             story_scope_roots=scope_roots,
+            binding_revocation_reason=context.binding_revocation_reason,
+            new_owner_ref=context.new_owner_ref,
         )
     except Exception as exc:  # noqa: BLE001
         # AG3-032 ERROR 6 + ERROR D / FK-55 §55.10.5 / FK-31 §31.2.7 / FAIL-CLOSED:
@@ -1868,6 +1870,8 @@ def _resolve_capability_hull(
             project_root=project_root,
             story_id=context.story_id,
             story_scope_roots=context.scope_roots,
+            binding_revocation_reason=context.binding_revocation_reason,
+            new_owner_ref=context.new_owner_ref,
         )
     except Exception:  # noqa: BLE001 -- a capability fault -> no hull -> CCAG fail-closed
         return None
@@ -2039,6 +2043,8 @@ class _CapabilityContext:
     story_id: str | None
     scope_roots: list[str] | None
     block_reason: str | None = None
+    binding_revocation_reason: str | None = None
+    new_owner_ref: str | None = None
 
     @property
     def is_story_execution(self) -> bool:
@@ -2094,11 +2100,20 @@ def _resolve_capability_context(
             block_reason=resolved.block_reason,
         )
     session = resolved.bundle.session
+    revoked_session_matches_event = (
+        session.status == "revoked"
+        and event.session_id is not None
+        and session.session_id == event.session_id
+    )
     return _CapabilityContext(
         execution_mode=resolved.operating_mode,
         story_id=session.story_id,
         scope_roots=list(session.worktree_roots),
         block_reason=resolved.block_reason,
+        binding_revocation_reason=(
+            resolved.block_reason if revoked_session_matches_event else None
+        ),
+        new_owner_ref=(resolved.new_owner_ref if revoked_session_matches_event else None),
     )
 
 

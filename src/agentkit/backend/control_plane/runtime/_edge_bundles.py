@@ -76,6 +76,7 @@ def _build_edge_bundle(
     sync_class: runtime_constants.FreshnessClass,
     now: datetime,
     tombstone_worktree_roots: tuple[str, ...] = (),
+    new_owner_ref: str | None = None,
 ) -> EdgeBundle:
     operating_mode = _resolve_operating_mode(binding=binding, lock=lock)
     export_version = f"edge-{uuid.uuid4().hex}"
@@ -105,6 +106,7 @@ def _build_edge_bundle(
             #: §56.7a) rather than silently falling back to ``ai_augmented``.
             status=binding.status,
             revocation_reason=binding.revocation_reason,
+            new_owner_ref=new_owner_ref,
         )
         if binding is not None
         else None

@@ -10,7 +10,7 @@ via the frontend ``cancel_story`` guard.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
@@ -254,8 +254,14 @@ class StorySplitService:
         # AK3) before raising, so the resume key still resolves to an audit trail.
         self._entry_gate(request, plan_ref, split_id=split_id, now=now)
 
-        # Step 1+2: register the split fence (idempotent claim) + exclusive fence.
-        self._commit_fence(request, split_id=split_id, plan_ref=plan_ref, now=now)
+        # Step 1+2: atomically register the committed marker, revoke the binding,
+        # and terminalize ownership. There is no committed-marker-only window.
+        self._commit_terminal_transition(
+            request,
+            split_id=split_id,
+            plan_ref=plan_ref,
+            now=now,
+        )
 
         # Steps 3-7 run through the single resume-safe sequence so a crash at any
         # point converges identically on rerun.
@@ -314,7 +320,6 @@ class StorySplitService:
         Returns:
             The completed :class:`StorySplitResult`.
         """
-        self._disown_source_binding(request, split_id=split_id, plan_ref=plan_ref, now=now)
         # Step 3: quiesce the steering runtime (phase_state_projection + locks).
         # NOT a full analytics purge — audit/telemetry are preserved (§54.9).
         self._phase_state_quiesce.purge_run(
@@ -411,65 +416,6 @@ class StorySplitService:
             successor_ids=successor_ids,
             rebinding_plan=rebinding_plan,
             resumed=resumed,
-        )
-
-    def _disown_source_binding(
-        self,
-        request: StorySplitRequest,
-        *,
-        split_id: str,
-        plan_ref: str,
-        now: datetime,
-    ) -> None:
-        """Revoke the source owner and terminalize its ownership before quiesce."""
-
-        active = self._repo.load_active_ownership(
-            request.project_key,
-            request.source_story_id,
-        )
-        if active is None:
-            return
-        if active.run_id != request.run_id:
-            raise StorySplitError("split disown active ownership belongs to another run")
-        binding = self._repo.load_binding(active.owner_session_id)
-        if (
-            binding is None
-            or binding.status != BindingStatus.ACTIVE.value
-            or binding.project_key != request.project_key
-            or binding.story_id != request.source_story_id
-            or binding.run_id != request.run_id
-        ):
-            raise StorySplitError("split disown requires the exact active owner binding")
-        plan = build_disown_plan(
-            binding,
-            BindingRevocationReason.STORY_SPLIT,
-            now,
-        )
-        op_record = _committed_split_record(
-            request=request,
-            split_id=split_id,
-            plan_ref=plan_ref,
-            now=now,
-            extra_payload={"revocation_reason": plan.reconcile_reason},
-        )
-        event = ExecutionEventRecord(
-            project_key=request.project_key,
-            story_id=request.source_story_id,
-            run_id=request.run_id,
-            event_id=f"{split_id}:session-disowned",
-            event_type=EventType.SESSION_DISOWNED.value,
-            occurred_at=now,
-            source_component="story_split_service",
-            severity="INFO",
-            payload=plan.audit_payload,
-        )
-        self._repo.commit_operation_with_side_effects(
-            op_record,
-            binding_to_save=plan.revoked_binding,
-            binding_to_delete=None,
-            locks=(),
-            events=(event,),
-            ownership_status_target=plan.ownership_status_target,
         )
 
     # ------------------------------------------------------------------
@@ -641,7 +587,7 @@ class StorySplitService:
     # Step 1+2: register + fence
     # ------------------------------------------------------------------
 
-    def _commit_fence(
+    def _commit_terminal_transition(
         self,
         request: StorySplitRequest,
         *,
@@ -649,8 +595,9 @@ class StorySplitService:
         plan_ref: str,
         now: datetime,
     ) -> None:
-        """Register the split fence (§54.8.1/§54.8.2), idempotent on split_id."""
+        """Commit marker, binding revocation, and ownership status atomically."""
         existing = self._repo.load_operation(split_id)
+        committed_existing: ControlPlaneOperationRecord | None = None
         if existing is not None:
             same_split = (
                 existing.operation_kind == "story_split"
@@ -658,11 +605,11 @@ class StorySplitService:
                 and existing.story_id == request.source_story_id
             )
             if existing.status == "committed" and same_split:
-                return
+                committed_existing = existing
             # A prior ``failed`` audit record for THIS split_id (a rejected
             # earlier run, §54.4) is overwritten by the real commit; it never
             # counts as a foreign collision. Any other occupant is a collision.
-            if not (existing.status == "failed" and same_split):
+            elif not (existing.status == "failed" and same_split):
                 raise StorySplitError(
                     "split fence collides with a foreign operation",
                 )
@@ -672,12 +619,73 @@ class StorySplitService:
             plan_ref=plan_ref,
             now=now,
         )
+        active = self._repo.load_active_ownership(
+            request.project_key,
+            request.source_story_id,
+        )
+        if active is None:
+            if committed_existing is not None:
+                return
+            self._repo.commit_operation_with_side_effects(
+                op_record,
+                binding_to_save=None,
+                binding_to_delete=None,
+                locks=(),
+                events=(),
+            )
+            return
+        if active.run_id != request.run_id:
+            raise StorySplitError("split disown active ownership belongs to another run")
+        binding = self._repo.load_binding(active.owner_session_id)
+        if (
+            binding is None
+            or binding.status != BindingStatus.ACTIVE.value
+            or binding.project_key != request.project_key
+            or binding.story_id != request.source_story_id
+            or binding.run_id != request.run_id
+        ):
+            raise StorySplitError("split disown requires the exact active owner binding")
+        plan = build_disown_plan(
+            binding,
+            BindingRevocationReason.STORY_SPLIT,
+            now,
+        )
+        op_record = (
+            replace(
+                committed_existing,
+                response_payload={
+                    **committed_existing.response_payload,
+                    "revocation_reason": plan.reconcile_reason,
+                },
+                updated_at=now,
+            )
+            if committed_existing is not None
+            else _committed_split_record(
+                request=request,
+                split_id=split_id,
+                plan_ref=plan_ref,
+                now=now,
+                extra_payload={"revocation_reason": plan.reconcile_reason},
+            )
+        )
+        event = ExecutionEventRecord(
+            project_key=request.project_key,
+            story_id=request.source_story_id,
+            run_id=request.run_id,
+            event_id=f"{split_id}:session-disowned",
+            event_type=EventType.SESSION_DISOWNED.value,
+            occurred_at=now,
+            source_component="story_split_service",
+            severity="INFO",
+            payload=plan.audit_payload,
+        )
         self._repo.commit_operation_with_side_effects(
             op_record,
-            binding_to_save=None,
+            binding_to_save=plan.revoked_binding,
             binding_to_delete=None,
             locks=(),
-            events=(),
+            events=(event,),
+            ownership_status_target=plan.ownership_status_target,
         )
 
     def _finalize_fence(
@@ -1088,6 +1096,15 @@ class StorySplitService:
         if isinstance(raw_ids, list):
             return self._replay_finalized(request, operation, plan_ref, split_id, raw_ids)
         # Committed-but-unfinalized: converge from the durable checkpoint.
+        # R2 also repairs a legacy R1 marker-only crash before any resumed saga
+        # mutation: the existing marker is rewritten with revocation + terminal
+        # ownership status in one operation-ledger transaction.
+        self._commit_terminal_transition(
+            request,
+            split_id=split_id,
+            plan_ref=plan_ref,
+            now=operation.created_at,
+        )
         known = self._reconstruct_successor_checkpoint(request, payload)
         return self._run_split_to_completion(
             request,

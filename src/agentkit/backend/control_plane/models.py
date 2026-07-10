@@ -635,6 +635,7 @@ class SessionRunBindingView(BaseModel):
     operating_mode: OperatingMode
     status: str = "active"
     revocation_reason: str | None = None
+    new_owner_ref: str | None = None
 
 
 class StoryExecutionLockView(BaseModel):

@@ -159,11 +159,12 @@ committed-op-Übergangskrücke, und AG3-150 (Freeze-Familie) sowie AG3-155
    Run-Ende), nie durch Zeitablauf oder erneute Aktivität. Anders als
    `conflict_freeze` ist die Entmündigung **kein Story-Freeze**: die Story
    bleibt unter dem neuen Owner voll arbeitsfähig.
-9. **Self-Rebind-Ausnahme** (SOLL-091): Recovery-/Self-Rebind-Fälle, in
-   denen **dieselbe Harness-Identität** ihre eigene verwaiste Arbeit
-   wieder aufnimmt, benötigen keine menschliche Mitzeichnung — als Regel
-   im Request-/Approval-Pfad (kein Approval-Queue-Zwang für Self-Rebind),
-   auditiert. (Das `recover-story`-Kommando selbst ist **AG3-154**.)
+9. **Self-Rebind-Deferral (R2):** Der Takeover-Pfad kennt keine
+   Self-Rebind-Ausnahme. Ein Request der aktiven Owner-Session wird mit
+   `requester_already_owner` abgewiesen. Der positive Recovery-/Self-Rebind-Fall
+   aus SOLL-091/AC10 ist vollständig nach **AG3-154** verschoben
+   (`recover-story`, stabile Harness-Identität, neuer Run); AG3-149 erfindet
+   dafür keine Ad-hoc-Identität.
 10. **Umstellung der Fence-Sicht-Quelle (AG3-144):** ist die
     materialisierte Run-Status-/Fence-Sicht aus AG3-144 bereits gelandet,
     wird ihre Quelle der Exit-/Reset-/Split-Freiheit von der
@@ -262,10 +263,11 @@ committed-op-Übergangskrücke, und AG3-150 (Freeze-Familie) sowie AG3-155
    erneute Aktivität löst den Zustand nicht (Negativtest); die Story
    selbst bleibt unter dem neuen Owner mutierbar (kein Story-Freeze,
    Positivtest).
-10. **Self-Rebind-Ausnahme:** dieselbe Harness-Identität re-bindet ihre
-    eigene verwaiste Arbeit ohne menschliche Freigabe und ohne
-    Approval-Queue-Eintrag (auditiert); eine fremde Identität fällt
-    nachweislich nicht unter die Ausnahme (Negativtest fail-closed).
+10. **Self-Rebind fail-closed / Deferral:** der aktive Owner kann kein
+    Takeover gegen seine eigene Bindung anfragen (`requester_already_owner`);
+    eine fremde Identität erhält keinerlei Ausnahme. Nur der auditierte
+    revoked-row-supersede bleibt in AG3-149. Der positive Recovery-/Self-Rebind-
+    Fall (SOLL-091/AC10-positiv) ist nach AG3-154 verschoben.
 11. **Fence-Sicht-Quellen-Umstellung:** die materialisierte
     Run-Status-/Fence-Sicht (AG3-144, falls gelandet) bezieht die
     Exit-/Reset-/Split-Freiheit ausschließlich aus den Record-Status

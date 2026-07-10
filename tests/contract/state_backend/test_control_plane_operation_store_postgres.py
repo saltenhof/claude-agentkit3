@@ -1101,19 +1101,12 @@ def test_binding_save_run_scoped_collision_real_store(
     still succeeds (run-matched update).
     """
     from agentkit.backend.exceptions import ControlPlaneBindingCollisionError
-    from agentkit.backend.state_backend.persistence_mappers import session_binding_to_row
-    from agentkit.backend.state_backend.postgres_store import (
-        _connect_global,
-        _insert_session_binding_row,
-    )
-
     del postgres_backend_env
     save_session_run_binding_global(_binding("run-NEW", version="500"))
 
-    # A run-OLD save for the same session is refused (foreign run).
-    old_row = session_binding_to_row(_binding("run-OLD", version="400"))
-    with pytest.raises(ControlPlaneBindingCollisionError), _connect_global() as conn:
-        _insert_session_binding_row(conn, old_row)
+    # The PUBLIC save surface refuses a foreign active overwrite.
+    with pytest.raises(ControlPlaneBindingCollisionError):
+        save_session_run_binding_global(_binding("run-OLD", version="400"))
 
     # The live NEW binding is intact (run + version unchanged).
     survived = load_session_run_binding_global("sess-001")
@@ -1127,6 +1120,28 @@ def test_binding_save_run_scoped_collision_real_store(
     assert updated is not None
     assert updated.run_id == "run-NEW"
     assert updated.binding_version == "501"
+
+
+@pytest.mark.contract
+def test_public_binding_save_cannot_erase_revoked_notification(
+    postgres_backend_env: object,
+) -> None:
+    """R2-1: revoked-row supersede requires an audited ledger transaction."""
+    from agentkit.backend.exceptions import ControlPlaneBindingCollisionError
+
+    del postgres_backend_env
+    revoked = replace(
+        _binding("run-OLD", version="500"),
+        status="revoked",
+        revocation_reason="story_reset",
+    )
+    save_session_run_binding_global(revoked)
+
+    with pytest.raises(ControlPlaneBindingCollisionError):
+        save_session_run_binding_global(_binding("run-NEW", version="501"))
+
+    survived = load_session_run_binding_global("sess-001")
+    assert survived == revoked
 
 
 @pytest.mark.contract

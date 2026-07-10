@@ -302,6 +302,23 @@ class _OwnershipTransferMixin:
                 _takeover_operation_record(request, result=result, now=now)
             )
             return result
+        if request.session_id == active.owner_session_id:
+            result = _takeover_rejection(
+                op_id=request.op_id,
+                operation_kind=_TAKEOVER_REQUEST,
+                reason="requester_already_owner",
+                error_code="requester_already_owner",
+                run_id=active.run_id,
+            )
+            self._repo.save_operation(
+                _takeover_operation_record(
+                    request,
+                    result=result,
+                    now=now,
+                    run_id=active.run_id,
+                )
+            )
+            return result
         owner_binding = self._repo.load_binding(active.owner_session_id)
         if owner_binding is None:
             result = _takeover_rejection(
@@ -319,24 +336,16 @@ class _OwnershipTransferMixin:
                 )
             )
             return result
-        disowned_session_id, current_epoch_was_takeover = _current_epoch_disown_context(
+        _, current_epoch_was_takeover = _current_epoch_disown_context(
             self._repo,
             active,
-        )
-        self_rebind = transfer_core.is_self_rebind_identity(
-            requesting_session_id=request.session_id,
-            orphaned_owner_session_id=active.owner_session_id,
         )
         barrier_failure = transfer_core.evaluate_disowned_session_takeover_barrier(
             current_epoch_disowned_session_id=None,
             beneficiary_session_id=request.session_id,
             requesting_principal_type=request.principal_type,
             request_reason=request.reason,
-            current_epoch_was_takeover=(
-                current_epoch_was_takeover
-                and not self_rebind
-                and request.session_id != disowned_session_id
-            ),
+            current_epoch_was_takeover=current_epoch_was_takeover,
         )
         if barrier_failure is not None:
             result = _takeover_rejection(
@@ -357,11 +366,7 @@ class _OwnershipTransferMixin:
             owner_binding=owner_binding,
             expires_at=now + _CHALLENGE_TTL,
         )
-        if transfer_core.requires_human_approval(
-            request.principal_type,
-            requesting_session_id=request.session_id,
-            orphaned_owner_session_id=active.owner_session_id,
-        ):
+        if transfer_core.requires_human_approval(request.principal_type):
             approval = TakeoverApprovalRecord(
                 approval_id=f"approval-{uuid.uuid4().hex}",
                 project_key=request.project_key,
@@ -421,7 +426,6 @@ class _OwnershipTransferMixin:
                     {
                         "challenge_id": challenge.challenge_id,
                         "requesting_session_id": request.session_id,
-                        "self_rebind": self_rebind,
                     },
                 ),
             )
@@ -481,10 +485,6 @@ class _OwnershipTransferMixin:
         )
         approval_required = transfer_core.requires_human_approval(
             stored_challenge.requesting_principal_type,
-            requesting_session_id=stored_challenge.requesting_session_id,
-            orphaned_owner_session_id=(
-                active.owner_session_id if active is not None else None
-            ),
         )
         approval_state = _confirm_approval_state(
             self._repo,
@@ -538,12 +538,6 @@ class _OwnershipTransferMixin:
             self._repo,
             active,
         )
-        self_rebind = transfer_core.is_self_rebind_identity(
-            requesting_session_id=stored_challenge.requesting_session_id,
-            orphaned_owner_session_id=(
-                active.owner_session_id if active is not None else None
-            ),
-        )
         decision = transfer_core.evaluate_takeover_confirm(
             active_basis=active_basis,
             challenge_basis=challenge_basis,
@@ -556,9 +550,7 @@ class _OwnershipTransferMixin:
             beneficiary_session_id=stored_challenge.requesting_session_id,
             requesting_principal_type=stored_challenge.requesting_principal_type,
             request_reason=stored_challenge.reason,
-            current_epoch_was_takeover=(
-                current_epoch_was_takeover and not self_rebind
-            ),
+            current_epoch_was_takeover=current_epoch_was_takeover,
         )
         decision_rejection = _confirm_decision_rejection(
             self._repo,

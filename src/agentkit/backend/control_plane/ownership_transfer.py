@@ -328,31 +328,7 @@ def evaluate_disowned_session_takeover_barrier(
     return None
 
 
-def is_self_rebind_identity(
-    *,
-    requesting_session_id: str | None,
-    orphaned_owner_session_id: str | None,
-) -> bool:
-    """Return whether both non-empty identifiers prove the same harness identity."""
-
-    return bool(
-        requesting_session_id
-        and orphaned_owner_session_id
-        and requesting_session_id == orphaned_owner_session_id
-    )
-
-
-def requires_human_approval(
-    principal_type: str,
-    *,
-    requesting_session_id: str | None = None,
-    orphaned_owner_session_id: str | None = None,
-) -> bool:
+def requires_human_approval(principal_type: str) -> bool:
     """Return whether a request path must wait for a human approval."""
 
-    if is_self_rebind_identity(
-        requesting_session_id=requesting_session_id,
-        orphaned_owner_session_id=orphaned_owner_session_id,
-    ):
-        return False
     return principal_type in {"interactive_agent", "orchestrator"}

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from agentkit.backend.boundary.shared.time import now_iso
 from agentkit.backend.exceptions import (
+    ControlPlaneBindingCollisionError,
     CorruptStateError,
 )
 from agentkit.backend.state_backend.paths import (
@@ -619,10 +620,20 @@ def load_execution_event_rows_for_project_global(
 
 
 def save_session_run_binding_global_row(row: dict[str, Any]) -> None:
-    """Persist a session-run-binding row dict globally."""
+    """Persist a session binding without bypassing the one-slot guard.
+
+    This compatibility surface may insert a new row or update the same ACTIVE
+    run.  Superseding a revoked notification is deliberately excluded here:
+    that exception is legal only inside an audited operation-ledger unit of
+    work (``_insert_session_binding_row``).
+
+    Raises:
+        ControlPlaneBindingCollisionError: If the session slot contains a
+            foreign active binding or a revoked notification.
+    """
 
     with _connect_global() as conn:
-        conn.execute(
+        cursor = conn.execute(
             """
             INSERT INTO session_run_bindings (
                 session_id, project_key, story_id, run_id, principal_type,
@@ -639,6 +650,10 @@ def save_session_run_binding_global_row(row: dict[str, Any]) -> None:
                 updated_at = EXCLUDED.updated_at,
                 status = EXCLUDED.status,
                 revocation_reason = EXCLUDED.revocation_reason
+            WHERE session_run_bindings.project_key = EXCLUDED.project_key
+              AND session_run_bindings.story_id = EXCLUDED.story_id
+              AND session_run_bindings.run_id = EXCLUDED.run_id
+              AND session_run_bindings.status = 'active'
             """,
             (
                 row["session_id"],
@@ -653,6 +668,12 @@ def save_session_run_binding_global_row(row: dict[str, Any]) -> None:
                 row.get("revocation_reason"),
             ),
         )
+        if int(cursor.rowcount) == 0:
+            raise ControlPlaneBindingCollisionError(
+                "public session-binding save refused: the one-slot session row "
+                "contains a foreign active binding or a revoked notification; "
+                "revoked-row supersede requires an audited operation-ledger commit",
+            )
 
 
 def load_session_run_binding_global_row(

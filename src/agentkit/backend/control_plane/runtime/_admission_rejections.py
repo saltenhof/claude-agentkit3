@@ -6,6 +6,9 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from agentkit.backend.control_plane.ownership import (
+    canonical_binding_revocation_reason,
+)
 from agentkit.backend.control_plane.ownership_fence import (
     OwnershipAdmission,
     OwnershipRejectionReason,
@@ -139,7 +142,10 @@ class _AdmissionRejectionMixin:
                 and binding.status == "revoked"
                 and (run_id is None or binding.run_id == run_id)
             ):
-                reason = binding.revocation_reason or "session_binding_mismatch"
+                reason = (
+                    canonical_binding_revocation_reason(binding.revocation_reason)
+                    or "session_binding_mismatch"
+                )
                 return _rejection_result(
                     op_id=op_id,
                     operation_kind=operation_kind,

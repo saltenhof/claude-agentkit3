@@ -82,6 +82,7 @@ from agentkit.backend.state_backend.governance_runtime_store import (
 )
 from agentkit.backend.state_backend.operation_ledger import (
     acquire_object_mutation_claim_global,
+    commit_control_plane_operation_with_side_effects_global,
     commit_takeover_confirm_global,
     commit_takeover_deny_global,
     commit_takeover_expiry_global,
@@ -326,11 +327,48 @@ class _ResetPhaseBoundaryPorts:
 class _SplitStoryBoundary:
     def __init__(self, story_id: str) -> None:
         self.story_id = story_id
+        self.cancelled = False
+        self.successors: list[str] = []
 
     def get_story(self, story_display_id: str) -> object | None:
-        if story_display_id != self.story_id:
-            return None
-        return SimpleNamespace(status="In Progress")
+        if story_display_id == self.story_id:
+            return SimpleNamespace(
+                status=("Cancelled" if self.cancelled else "In Progress"),
+                project_key=_PROJECT,
+                story_type="implementation",
+                participating_repos=("ak3",),
+                epic="",
+                module="",
+                size="M",
+                change_impact="Local",
+                concept_quality="High",
+                owner="",
+                risk="medium",
+                labels=(),
+            )
+        if story_display_id in self.successors:
+            return SimpleNamespace(story_display_id=story_display_id)
+        return None
+
+    def create_story(self, _request: object, *, op_id: str) -> object:
+        del op_id
+        created_id = f"{self.story_id}-SUCCESSOR"
+        if created_id not in self.successors:
+            self.successors.append(created_id)
+        return SimpleNamespace(story_display_id=created_id)
+
+    def materialize_split_lineage(
+        self,
+        *,
+        source_story_id: str,
+        successor_ids: tuple[str, ...],
+    ) -> None:
+        assert source_story_id == self.story_id
+        assert successor_ids == tuple(self.successors)
+
+    def administratively_cancel_for_story_split(self, *_args: object, **_kwargs: object) -> object:
+        self.cancelled = True
+        return SimpleNamespace(status="Cancelled")
 
 
 class _NoDependencies:
@@ -338,14 +376,26 @@ class _NoDependencies:
         return []
 
 
-class _StopAfterSplitFence:
+class _SplitPhaseBoundary:
     def purge_run(self, *_args: object) -> int:
-        raise RuntimeError("split phase boundary reached after committed fence")
+        return 1
 
 
 class _UnusedSplitBoundary:
     def __getattr__(self, name: str) -> object:
         raise AssertionError(f"split collaborator {name!r} ran past the tested boundary")
+
+
+class _SuccessfulSplitExport:
+    def export(self, *, story_id: str, story_dir: Path) -> object:
+        del story_id, story_dir
+        return SimpleNamespace(success=True)
+
+
+class _SuccessfulSupersededIndex:
+    def mark_superseded(self, *, story_id: str, superseded_by: tuple[str, ...]) -> int:
+        del story_id, superseded_by
+        return 1
 
 
 class _VerifiedPushBoundary:
@@ -713,6 +763,8 @@ def test_ping_pong_barrier_uses_current_epoch_transfer_and_challenge_history(
     assert refreshed.status == "synced"
     assert refreshed.edge_bundle is not None
     assert refreshed.edge_bundle.current.operating_mode == "binding_invalid"
+    assert refreshed.edge_bundle.session is not None
+    assert refreshed.edge_bundle.session.new_owner_ref == "sess-B"
 
     reclaim_request = later_service.request_ownership_takeover(
         request=TakeoverRequest(
@@ -725,30 +777,11 @@ def test_ping_pong_barrier_uses_current_epoch_transfer_and_challenge_history(
             worktree_roots=[f"T:/worktrees/{story_id}/sess-A"],
         ),
     )
-    assert reclaim_request.status == "pending_human_approval"
-    assert reclaim_request.pending_human_approval is not None
-    approval = load_takeover_approval_global(
-        reclaim_request.pending_human_approval.approval_id,
+    assert reclaim_request.status == "rejected"
+    assert (
+        reclaim_request.error_code
+        == "repeat_transfer_requires_privileged_principal_and_reason"
     )
-    assert approval is not None
-    approved = replace(
-        approval,
-        status=TakeoverApprovalStatus.APPROVED,
-        decided_at=_EXPIRED_NOW,
-        decided_by_session_id="human-approver",
-        decision_reason="approved",
-    )
-    assert update_takeover_approval_status_global(approved)
-    reclaim = later_service.confirm_ownership_takeover(
-        command=_confirm_request(
-            story_id=story_id,
-            challenge_id=approval.challenge_ref,
-            op_id="op-ping-reclaim-confirm",
-            session_id="sess-A",
-        ),
-    )
-    assert reclaim.status == "rejected"
-    assert reclaim.error_code == "disowned_session_cannot_immediately_reclaim"
 
     repeat = service.request_ownership_takeover(
         request=TakeoverRequest(
@@ -785,7 +818,7 @@ def test_ping_pong_barrier_uses_current_epoch_transfer_and_challenge_history(
 
 
 @pytest.mark.integration
-def test_same_harness_self_rebind_skips_approval_queue_but_foreign_does_not(
+def test_active_owner_self_takeover_is_rejected_and_foreign_gets_no_exemption(
     postgres_backend_env: object,
     tmp_path: Path,
 ) -> None:
@@ -808,11 +841,9 @@ def test_same_harness_self_rebind_skips_approval_queue_but_foreign_does_not(
             worktree_roots=[f"T:/worktrees/{story_id}/sess-A"],
         ),
     )
-    assert own.status == "offered"
+    assert own.status == "rejected"
+    assert own.error_code == "requester_already_owner"
     assert own.pending_human_approval is None
-    own_events = load_execution_events_global(_PROJECT, story_id, run_id=run_id)
-    offered = [event for event in own_events if event.event_type == "run_ownership_takeover_offered"]
-    assert offered[-1].payload["self_rebind"] is True
 
     foreign = service.request_ownership_takeover(
         request=TakeoverRequest(
@@ -2797,14 +2828,19 @@ def _run_real_invalidating_predecessor(
         result = reset_service.execute_reset(reset_id)
         assert result.clean_state.is_clean
     elif operation_kind == "story_split":
+        split_story_boundary = _SplitStoryBoundary(story_id)
         split_service = StorySplitService(
             control_plane_repository=ControlPlaneRuntimeRepository(),
-            story_service=_SplitStoryBoundary(story_id),  # type: ignore[arg-type]
+            story_service=split_story_boundary,  # type: ignore[arg-type]
             dependency_repository=_NoDependencies(),  # type: ignore[arg-type]
-            phase_state_quiesce=_StopAfterSplitFence(),  # type: ignore[arg-type]
-            governance=_UnusedSplitBoundary(),  # type: ignore[arg-type]
-            successor_export=_UnusedSplitBoundary(),  # type: ignore[arg-type]
-            superseded_index=_UnusedSplitBoundary(),  # type: ignore[arg-type]
+            phase_state_quiesce=_SplitPhaseBoundary(),  # type: ignore[arg-type]
+            governance=_ResetPhaseBoundaryPorts(  # type: ignore[arg-type]
+                project_key=_PROJECT,
+                story_id=story_id,
+                run_id=run_id,
+            ),
+            successor_export=_SuccessfulSplitExport(),  # type: ignore[arg-type]
+            superseded_index=_SuccessfulSupersededIndex(),  # type: ignore[arg-type]
             stories_root=tmp_path / "stories",
             source_state_loader=lambda _request: SplitSourceState(
                 scope_explosion_established=True,
@@ -2833,22 +2869,21 @@ def _run_real_invalidating_predecessor(
             story_id,
             compute_plan_ref(plan_text),
         )
-        with pytest.raises(
-            RuntimeError,
-            match="split phase boundary reached after committed fence",
-        ):
-            split_service.split_story(
-                StorySplitRequest(
-                    project_key=_PROJECT,
-                    source_story_id=story_id,
-                    plan=plan,
-                    plan_text=plan_text,
-                    reason="scope_explosion",
-                    requested_by="human_cli",
-                    run_id=run_id,
-                    principal=Principal.HUMAN_CLI,
-                )
+        split_result = split_service.split_story(
+            StorySplitRequest(
+                project_key=_PROJECT,
+                source_story_id=story_id,
+                plan=plan,
+                plan_text=plan_text,
+                reason="scope_explosion",
+                requested_by="human_cli",
+                run_id=run_id,
+                principal=Principal.HUMAN_CLI,
             )
+        )
+        assert split_result.successor_ids == (f"{story_id}-SUCCESSOR",)
+        assert split_story_boundary.cancelled
+        assert split_result.record.successor_ids == split_result.successor_ids
     else:
         upsert_push_barrier_verdict_global(
             PushBarrierVerdict(
@@ -3009,6 +3044,159 @@ def test_confirm_after_terminal_predecessor_is_rejected_as_challenge_invalidated
     assert request_op is not None
     assert request_op.status == "invalidated"
     assert request_op.response_payload["error_code"] == "challenge_invalidated"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("terminal_kind", ["story_exit", "story_split"])
+def test_terminal_uow_fault_rolls_back_marker_status_and_revocation_together(
+    postgres_backend_env: object,
+    tmp_path: Path,
+    terminal_kind: str,
+) -> None:
+    """R2-2: a write fault cannot leave a committed-marker-only terminal state."""
+    del postgres_backend_env
+    story_id = _story_id(1495 + (terminal_kind == "story_split"))
+    run_id = f"run-terminal-uow-{terminal_kind}"
+    _seed_story_context(tmp_path, story_id)
+    setup = _service(ident=f"inst-terminal-uow-{terminal_kind}")
+    _admit_run(setup, story_id=story_id, run_id=run_id)
+
+    def fail_after_status(step: str) -> None:
+        if step == "ownership_status":
+            raise RuntimeError("injected terminal-uow fault")
+
+    repository = ControlPlaneRuntimeRepository(
+        commit_operation_with_side_effects=partial(
+            commit_control_plane_operation_with_side_effects_global,
+            fault_after_step=fail_after_status,
+        )
+    )
+    if terminal_kind == "story_exit":
+        op_id = f"op-uow-{terminal_kind}"
+        service = StoryExitService(
+            control_plane_repository=repository,
+            story_service=_StoryExitBoundary(),  # type: ignore[arg-type]
+            governance=_GovernanceExitBoundary(),  # type: ignore[arg-type]
+            artifact_root=tmp_path / terminal_kind,
+            run_state_loader=lambda _request: ExitRunState(
+                project_key=_PROJECT,
+                story_id=story_id,
+                run_id=run_id,
+                session_id="sess-A",
+                human_design_required=True,
+                remediation_exhausted=True,
+                architecture_blockers=("human decision",),
+            ),
+            now_fn=lambda: _NOW,
+        )
+        with pytest.raises(RuntimeError, match="injected terminal-uow fault"):
+            service.exit_story(
+                StoryExitRequest(
+                    project_key=_PROJECT,
+                    story_id=story_id,
+                    run_id=run_id,
+                    session_id="sess-A",
+                    reason=ExitReason.SOLUTION_VIABILITY_REQUIRES_HUMAN_DESIGN,
+                    principal=Principal.HUMAN_CLI,
+                    exit_id=op_id,
+                )
+            )
+    else:
+        plan = SplitPlan.model_validate(
+            {
+                "project_key": _PROJECT,
+                "source_story_id": story_id,
+                "reason": "scope_explosion",
+                "successors": [
+                    {
+                        "story_id": f"{story_id}-SUCCESSOR",
+                        "title": "Rollback successor",
+                        "scope_slice": "isolated slice",
+                    }
+                ],
+            }
+        )
+        plan_text = plan.model_dump_json()
+        op_id = derive_split_id(_PROJECT, story_id, compute_plan_ref(plan_text))
+        service = StorySplitService(
+            control_plane_repository=repository,
+            story_service=_SplitStoryBoundary(story_id),  # type: ignore[arg-type]
+            dependency_repository=_NoDependencies(),  # type: ignore[arg-type]
+            phase_state_quiesce=_SplitPhaseBoundary(),  # type: ignore[arg-type]
+            governance=_UnusedSplitBoundary(),  # type: ignore[arg-type]
+            successor_export=_SuccessfulSplitExport(),  # type: ignore[arg-type]
+            superseded_index=_SuccessfulSupersededIndex(),  # type: ignore[arg-type]
+            stories_root=tmp_path / "stories",
+            source_state_loader=lambda _request: SplitSourceState(
+                scope_explosion_established=True,
+                paused_with_scope_explosion=True,
+                competing_admin_operation_active=False,
+            ),
+            now_fn=lambda: _NOW,
+        )
+        with pytest.raises(RuntimeError, match="injected terminal-uow fault"):
+            service.split_story(
+                StorySplitRequest(
+                    project_key=_PROJECT,
+                    source_story_id=story_id,
+                    plan=plan,
+                    plan_text=plan_text,
+                    reason="scope_explosion",
+                    requested_by="human_cli",
+                    run_id=run_id,
+                    principal=Principal.HUMAN_CLI,
+                )
+            )
+
+    assert load_control_plane_operation_global(op_id) is None
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None
+    assert active.status.value == "active"
+    binding = load_session_run_binding_global("sess-A")
+    assert binding is not None
+    assert binding.status == "active"
+
+
+@pytest.mark.integration
+def test_backend_unknown_revocation_reason_is_generic(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    """R2-5: backend mutation rejection closes the reason vocabulary."""
+    del postgres_backend_env
+    story_id = _story_id(1497)
+    run_id = "run-unknown-revocation"
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident="inst-unknown-revocation")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    _run_real_invalidating_predecessor(
+        operation_kind="story_exit",
+        story_id=story_id,
+        run_id=run_id,
+        service=service,
+        tmp_path=tmp_path,
+    )
+    with postgres_store._connect_global() as conn:  # noqa: SLF001 -- corrupt-row probe
+        conn.execute(
+            "UPDATE session_run_bindings SET revocation_reason = ? WHERE session_id = ?",
+            ("future_untrusted_reason", "sess-A"),
+        )
+
+    result = service.complete_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_phase_request(
+            story_id=story_id,
+            op_id="op-unknown-revocation-mutation",
+            session_id="sess-A",
+        ),
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "session_binding_mismatch"
+    assert result.phase_dispatch is not None
+    assert result.phase_dispatch.rejection_reason is not None
+    assert "future_untrusted_reason" not in result.phase_dispatch.rejection_reason
 
 
 @pytest.mark.integration

@@ -21,7 +21,7 @@ from agentkit.backend.control_plane.models import (
     StoryExecutionLockView,
 )
 from agentkit.backend.governance import runner as runner_mod
-from agentkit.backend.governance.guard_evaluation import HookEvent
+from agentkit.backend.governance.guard_evaluation import HookEvent, evaluate_pre_tool_use
 from agentkit.backend.governance.runner import run_hook
 from agentkit.harness_client.projectedge.client import LocalEdgePublisher
 
@@ -46,27 +46,38 @@ def _publish_story_binding(
     worktree: str,
     *,
     lock_status: str = "ACTIVE",
+    session_id: str = _SESSION,
+    binding_status: str = "active",
+    revocation_reason: str | None = None,
+    new_owner_ref: str | None = None,
 ) -> None:
     now = datetime(2026, 6, 2, 12, 0, tzinfo=UTC)
     bundle = EdgeBundle(
         current=EdgePointer(
             project_key="tenant-a",
             export_version="edge-001",
-            operating_mode="story_execution",
+            operating_mode=(
+                "binding_invalid" if binding_status == "revoked" else "story_execution"
+            ),
             bundle_dir="_temp/governance/bundles/edge-001",
             sync_after=now + timedelta(minutes=5),
             freshness_class="guarded_read",
             generated_at=now,
         ),
         session=SessionRunBindingView(
-            session_id=_SESSION,
+            session_id=session_id,
             project_key="tenant-a",
             story_id=_STORY,
             run_id="run-100",
             principal_type="orchestrator",
             worktree_roots=[worktree],
             binding_version="bind-001",
-            operating_mode="story_execution",
+            operating_mode=(
+                "binding_invalid" if binding_status == "revoked" else "story_execution"
+            ),
+            status=binding_status,
+            revocation_reason=revocation_reason,
+            new_owner_ref=new_owner_ref,
         ),
         lock=StoryExecutionLockView(
             project_key="tenant-a",
@@ -82,6 +93,144 @@ def _publish_story_binding(
         qa_lock=None,
     )
     LocalEdgePublisher(project_root=project_root).publish(bundle)
+
+
+def test_disowned_overlay_is_wired_through_real_runner_and_resolver(
+    tmp_path: Path,
+) -> None:
+    """R2-3: real local resolution yields a named, terminal disown DENY."""
+    worktree = str(tmp_path / "worktree")
+    _publish_story_binding(
+        tmp_path,
+        worktree,
+        binding_status="revoked",
+        revocation_reason="ownership_transferred",
+        new_owner_ref="sess-new-owner",
+    )
+
+    mutation = HookEvent.model_validate(
+        {
+            "operation": "file_write",
+            "freshness_class": "mutation",
+            "cwd": worktree,
+            "principal_kind": "subagent",
+            "session_id": _SESSION,
+            "cli_args": ["--ak3-principal-attest", "worker"],
+            "operation_args": {"file_path": f"{worktree}/src/module.py"},
+        }
+    )
+    verdict = run_hook(
+        "ccag_gatekeeper",
+        mutation,
+        phase="pre",
+        project_root=tmp_path,
+    )
+
+    assert verdict.allowed is False
+    assert verdict.guard_name == "principal_capability"
+    assert verdict.detail is not None
+    assert verdict.detail["capability_rule_id"] == "FK-55-55.8.3-disowned-session"
+    assert verdict.message is not None
+    assert "ownership_transferred" in verdict.message
+    assert "sess-new-owner" in verdict.message
+
+    read = mutation.model_copy(
+        update={
+            "operation": "file_read",
+            "freshness_class": "guarded_read",
+        }
+    )
+    assert run_hook(
+        "ccag_gatekeeper",
+        read,
+        phase="pre",
+        project_root=tmp_path,
+    ).allowed
+
+    _publish_story_binding(tmp_path, worktree, session_id="sess-new-owner")
+    new_owner_mutation = mutation.model_copy(
+        update={"session_id": "sess-new-owner"},
+    )
+    assert run_hook(
+        "ccag_gatekeeper",
+        new_owner_mutation,
+        phase="pre",
+        project_root=tmp_path,
+    ).allowed
+
+
+def test_disowned_deny_is_not_official_service_path_override_convertible(
+    tmp_path: Path,
+) -> None:
+    """R2-3: per-call service attestation cannot dissolve disenfranchisement."""
+    worktree = str(tmp_path / "worktree")
+    _publish_story_binding(
+        tmp_path,
+        worktree,
+        binding_status="revoked",
+        revocation_reason="story_reset",
+    )
+    event = HookEvent.model_validate(
+        {
+            "operation": "bash_command",
+            "freshness_class": "mutation",
+            "cwd": worktree,
+            "principal_kind": "main",
+            "session_id": _SESSION,
+            "cli_args": ["--ak3-principal-attest", "human_cli"],
+            "operation_args": {"command": "agentkit reset-story AG3-100"},
+        }
+    )
+
+    verdict = run_hook(
+        "ccag_gatekeeper",
+        event,
+        phase="pre",
+        project_root=tmp_path,
+    )
+
+    assert verdict.allowed is False
+    assert verdict.detail is not None
+    assert verdict.detail["capability_rule_id"] == "FK-55-55.8.3-disowned-session"
+
+
+def test_foreign_revoked_bundle_does_not_apply_disowned_overlay(
+    tmp_path: Path,
+) -> None:
+    """R2-3: a stale bundle reason is scoped to its own session id."""
+    worktree = str(tmp_path / "worktree")
+    _publish_story_binding(
+        tmp_path,
+        worktree,
+        session_id="sess-old-owner",
+        binding_status="revoked",
+        revocation_reason="ownership_transferred",
+        new_owner_ref=_SESSION,
+    )
+    event = HookEvent.model_validate(
+        {
+            "operation": "file_write",
+            "freshness_class": "mutation",
+            "cwd": worktree,
+            "principal_kind": "subagent",
+            "session_id": _SESSION,
+            "cli_args": ["--ak3-principal-attest", "worker"],
+            "operation_args": {"file_path": f"{worktree}/src/module.py"},
+        }
+    )
+
+    verdict = run_hook(
+        "ccag_gatekeeper",
+        event,
+        phase="pre",
+        project_root=tmp_path,
+    )
+
+    assert verdict.allowed is True
+    mode_verdict = evaluate_pre_tool_use(event, project_root=tmp_path)
+    assert mode_verdict.allowed is False
+    assert mode_verdict.guard_name == "operating_mode_guard"
+    assert mode_verdict.detail == {"reason": "session_binding_mismatch"}
 
 
 def _write_corrupt_freeze_export(project_root: Path) -> None:

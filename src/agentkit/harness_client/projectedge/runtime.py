@@ -17,6 +17,9 @@ from agentkit.backend.control_plane.models import (
     EdgePointer,
     ProjectEdgeSyncRequest,
 )
+from agentkit.backend.control_plane.ownership import (
+    canonical_binding_revocation_reason,
+)
 
 # RE-IMPORT the canonical FK-56 operating-mode literal from its SINGLE foundation
 # definition (``core_types.operating_mode``). This R-boundary CLASSIFIES the mode
@@ -103,6 +106,7 @@ class ResolvedEdgeState:
     operating_mode: OperatingMode
     bundle: EdgeBundle | None
     block_reason: str | None = None
+    new_owner_ref: str | None = None
     synced: bool = False
 
 
@@ -216,10 +220,20 @@ class ProjectEdgeResolver:
             # (e.g. ``ownership_transferred``) is surfaced verbatim; a missing
             # (malformed/legacy) reason still fails closed to ``binding_invalid``
             # with a generic reason, never treated as "not revoked".
+            reason = (
+                canonical_binding_revocation_reason(session.revocation_reason)
+                if session_id == session.session_id
+                else None
+            )
             return ResolvedEdgeState(
                 operating_mode="binding_invalid",
                 bundle=bundle,
-                block_reason=session.revocation_reason or "session_binding_mismatch",
+                block_reason=reason or "session_binding_mismatch",
+                new_owner_ref=(
+                    session.new_owner_ref
+                    if reason == "ownership_transferred"
+                    else None
+                ),
                 synced=synced,
             )
 

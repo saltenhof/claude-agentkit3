@@ -35,10 +35,6 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agentkit.backend.control_plane.ownership_transfer import (
-    TakeoverConfirmFailure,
-    evaluate_disowned_session_takeover_barrier,
-)
 from agentkit.backend.governance.principal_capabilities.matrix import (
     CapabilityDecision,
     CapabilityVerdict,
@@ -189,7 +185,6 @@ class DisownedSessionOverlay:
     """Derived, storage-free capability overlay for a revoked session binding."""
 
     RULE_ID = "FK-55-55.8.3-disowned-session"
-    PING_PONG_RULE_ID = "disowned_session_cannot_immediately_reclaim"
 
     def apply(
         self,
@@ -213,26 +208,6 @@ class DisownedSessionOverlay:
             f"reason={binding_revocation_reason}; new_owner_ref={owner_detail}",
             rule_id=self.RULE_ID,
         )
-
-    @staticmethod
-    def evaluate_takeover_barrier(
-        *,
-        current_epoch_disowned_session_id: str | None,
-        beneficiary_session_id: str,
-        requesting_principal_type: str,
-        request_reason: str,
-        current_epoch_was_takeover: bool,
-    ) -> TakeoverConfirmFailure | None:
-        """Name the same A-core ping-pong predicate at the capability locus."""
-
-        return evaluate_disowned_session_takeover_barrier(
-            current_epoch_disowned_session_id=current_epoch_disowned_session_id,
-            beneficiary_session_id=beneficiary_session_id,
-            requesting_principal_type=requesting_principal_type,
-            request_reason=request_reason,
-            current_epoch_was_takeover=current_epoch_was_takeover,
-        )
-
 
 class CapabilityEnforcement:
     """Runs FK-55 §55.10.3 steps 1-5 and gates CCAG (step 7).
@@ -435,8 +410,11 @@ class CapabilityEnforcement:
                 operation_class=op_class,
             )
             if verdict.decision is CapabilityDecision.DENY:
-                if _service_path_override_allowed(
-                    event, principal, op_class, path_class
+                if (
+                    verdict.rule_id != DisownedSessionOverlay.RULE_ID
+                    and _service_path_override_allowed(
+                        event, principal, op_class, path_class
+                    )
                 ):
                     return (
                         CapabilityResult(
