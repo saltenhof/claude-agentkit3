@@ -88,10 +88,7 @@ def _handle_post_takeover_request(
 
     try:
         request = TakeoverRequest.model_validate(payload)
-        principal = _takeover_request_principal(
-            request.principal_type,
-            auth_result=auth_result,
-        )
+        principal = _takeover_request_principal(auth_result=auth_result)
         if principal is None:
             return _error_response(
                 HTTPStatus.FORBIDDEN,
@@ -351,7 +348,6 @@ def _project_key_fence(
 
 
 def _takeover_request_principal(
-    body_principal_type: str,
     *,
     auth_result: AuthResult | None,
 ) -> str | None:

@@ -74,6 +74,7 @@ if TYPE_CHECKING:
     from agentkit.backend.control_plane.repository import (
         ControlPlaneRuntimeRepository,
     )
+    from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 logger = logging.getLogger(__name__)
 
@@ -431,7 +432,8 @@ class _OwnershipTransferMixin:
             approval_required=approval_required,
         )
         if _has_invalidating_transition(self._repo, request, stored_challenge):
-            return self._commit_takeover_invalidation(
+            return _commit_takeover_invalidation(
+                self._repo,
                 request=request,
                 challenge=stored_challenge,
                 approval=approval_state.approval,
@@ -454,14 +456,14 @@ class _OwnershipTransferMixin:
             now=now,
         )
         if reissue.rejection is not None:
-            if reissue.rejection.error_code == "challenge_invalidated":
-                return self._commit_takeover_invalidation(
-                    request=request,
-                    challenge=stored_challenge,
-                    approval=approval_state.approval,
-                    now=now,
-                )
-            return reissue.rejection
+            return _reissue_rejection_result(
+                self._repo,
+                request=request,
+                stored_challenge=stored_challenge,
+                approval=approval_state.approval,
+                now=now,
+                rejection=reissue.rejection,
+            )
         if reissue.owner_binding is not None:
             owner_binding = reissue.owner_binding
         approval_state = reissue.approval_state
@@ -469,7 +471,8 @@ class _OwnershipTransferMixin:
         challenge_to_insert = reissue.challenge_to_insert
         challenge_to_expire = reissue.challenge_to_expire
         if _ownership_basis_changed(active, effective_challenge):
-            return self._commit_takeover_invalidation(
+            return _commit_takeover_invalidation(
+                self._repo,
                 request=request,
                 challenge=effective_challenge,
                 approval=approval_state.approval,
@@ -656,92 +659,6 @@ class _OwnershipTransferMixin:
                 challenge_to_insert=challenge_to_insert,
                 challenge_to_expire=challenge_to_expire,
                 approved_approval=approval_state.approved_approval,
-            ),
-        )
-        return result
-
-    def _commit_takeover_invalidation(
-        self,
-        *,
-        request: TakeoverChallengeEchoRequest,
-        challenge: TakeoverChallengeRecord,
-        approval: TakeoverApprovalRecord | None,
-        now: datetime,
-    ) -> ControlPlaneMutationResult:
-        result = _challenge_invalidated_rejection(request, run_id=challenge.run_id)
-        invalidated_approval = (
-            _invalidated_approval_record(approval, request=request, now=now)
-            if approval is not None
-            and approval.status is TakeoverApprovalStatus.PENDING
-            else None
-        )
-        request_result = ControlPlaneMutationResult(
-            status="invalidated",
-            op_id=challenge.request_op_id,
-            operation_kind=_TAKEOVER_REQUEST,
-            run_id=challenge.run_id,
-            phase=_TAKEOVER_PHASE,
-            error_code="challenge_invalidated",
-            pending_human_approval=(
-                PendingHumanApprovalResponse(
-                    op_id=challenge.request_op_id,
-                    approval_id=invalidated_approval.approval_id,
-                    message="challenge_invalidated",
-                    approval=_approval_view(invalidated_approval),
-                )
-                if invalidated_approval is not None
-                else None
-            ),
-        )
-        request_record = _terminal_request_operation_record(
-            self._repo.load_operation(challenge.request_op_id),
-            response_payload=request_result.model_dump(mode="json"),
-            status="invalidated",
-            now=now,
-        )
-        if request_record is None:
-            return _takeover_rejection(
-                op_id=request.op_id,
-                operation_kind=_TAKEOVER_CONFIRM,
-                reason="takeover_request_operation_required",
-                error_code="takeover_request_operation_required",
-                run_id=challenge.run_id,
-            )
-        events: tuple[tuple[EventType, dict[str, object]], ...] = ()
-        if invalidated_approval is not None:
-            events = (
-                (
-                    EventType.TAKEOVER_APPROVAL_CHANGED,
-                    _approval_changed_payload(invalidated_approval),
-                ),
-            )
-        self._repo.commit_takeover_invalidation(
-            _takeover_operation_record(
-                request,
-                result=result,
-                now=now,
-                run_id=challenge.run_id,
-            ),
-            request_op_record=request_record,
-            challenge=_terminal_challenge_record(
-                challenge,
-                status="invalidated",
-                terminal_op_id=request.op_id,
-                now=now,
-            ),
-            invalidated_approval=invalidated_approval,
-            events=tuple(
-                _lifecycle_event_record(
-                    event_type=event_type,
-                    project_key=request.project_key,
-                    story_id=request.story_id,
-                    run_id=challenge.run_id,
-                    source_component=request.source_component,
-                    payload=payload,
-                    now=now,
-                    phase=_TAKEOVER_PHASE,
-                )
-                for event_type, payload in events
             ),
         )
         return result
@@ -954,6 +871,141 @@ class _OwnershipTransferMixin:
             events=(event,),
         )
         return result
+
+
+def _reissue_rejection_result(
+    repo: ControlPlaneRuntimeRepository,
+    *,
+    request: TakeoverChallengeEchoRequest,
+    stored_challenge: TakeoverChallengeRecord,
+    approval: TakeoverApprovalRecord | None,
+    now: datetime,
+    rejection: ControlPlaneMutationResult,
+) -> ControlPlaneMutationResult:
+    if rejection.error_code != "challenge_invalidated":
+        return rejection
+    return _commit_takeover_invalidation(
+        repo,
+        request=request,
+        challenge=stored_challenge,
+        approval=approval,
+        now=now,
+    )
+
+
+def _commit_takeover_invalidation(
+    repo: ControlPlaneRuntimeRepository,
+    *,
+    request: TakeoverChallengeEchoRequest,
+    challenge: TakeoverChallengeRecord,
+    approval: TakeoverApprovalRecord | None,
+    now: datetime,
+) -> ControlPlaneMutationResult:
+    result = _challenge_invalidated_rejection(request, run_id=challenge.run_id)
+    invalidated_approval = _takeover_invalidated_approval(
+        approval,
+        request=request,
+        now=now,
+    )
+    request_result = ControlPlaneMutationResult(
+        status="invalidated",
+        op_id=challenge.request_op_id,
+        operation_kind=_TAKEOVER_REQUEST,
+        run_id=challenge.run_id,
+        phase=_TAKEOVER_PHASE,
+        error_code="challenge_invalidated",
+        pending_human_approval=_invalidated_pending_approval_response(
+            challenge,
+            invalidated_approval=invalidated_approval,
+        ),
+    )
+    request_record = _terminal_request_operation_record(
+        repo.load_operation(challenge.request_op_id),
+        response_payload=request_result.model_dump(mode="json"),
+        status="invalidated",
+        now=now,
+    )
+    if request_record is None:
+        return _takeover_rejection(
+            op_id=request.op_id,
+            operation_kind=_TAKEOVER_CONFIRM,
+            reason="takeover_request_operation_required",
+            error_code="takeover_request_operation_required",
+            run_id=challenge.run_id,
+        )
+    events = _takeover_invalidation_events(
+        request,
+        challenge=challenge,
+        invalidated_approval=invalidated_approval,
+        now=now,
+    )
+    repo.commit_takeover_invalidation(
+        _takeover_operation_record(
+            request,
+            result=result,
+            now=now,
+            run_id=challenge.run_id,
+        ),
+        request_op_record=request_record,
+        challenge=_terminal_challenge_record(
+            challenge,
+            status="invalidated",
+            terminal_op_id=request.op_id,
+            now=now,
+        ),
+        invalidated_approval=invalidated_approval,
+        events=events,
+    )
+    return result
+
+
+def _takeover_invalidated_approval(
+    approval: TakeoverApprovalRecord | None,
+    *,
+    request: TakeoverChallengeEchoRequest,
+    now: datetime,
+) -> TakeoverApprovalRecord | None:
+    if approval is None or approval.status is not TakeoverApprovalStatus.PENDING:
+        return None
+    return _invalidated_approval_record(approval, request=request, now=now)
+
+
+def _invalidated_pending_approval_response(
+    challenge: TakeoverChallengeRecord,
+    *,
+    invalidated_approval: TakeoverApprovalRecord | None,
+) -> PendingHumanApprovalResponse | None:
+    if invalidated_approval is None:
+        return None
+    return PendingHumanApprovalResponse(
+        op_id=challenge.request_op_id,
+        approval_id=invalidated_approval.approval_id,
+        message="challenge_invalidated",
+        approval=_approval_view(invalidated_approval),
+    )
+
+
+def _takeover_invalidation_events(
+    request: TakeoverChallengeEchoRequest,
+    *,
+    challenge: TakeoverChallengeRecord,
+    invalidated_approval: TakeoverApprovalRecord | None,
+    now: datetime,
+) -> tuple[ExecutionEventRecord, ...]:
+    if invalidated_approval is None:
+        return ()
+    return (
+        _lifecycle_event_record(
+            event_type=EventType.TAKEOVER_APPROVAL_CHANGED,
+            project_key=request.project_key,
+            story_id=request.story_id,
+            run_id=challenge.run_id,
+            source_component=request.source_component,
+            payload=_approval_changed_payload(invalidated_approval),
+            now=now,
+            phase=_TAKEOVER_PHASE,
+        ),
+    )
 
 
 def _has_invalidating_transition(
