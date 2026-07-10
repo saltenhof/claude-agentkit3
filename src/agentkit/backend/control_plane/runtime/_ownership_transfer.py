@@ -51,6 +51,7 @@ from ._ownership_transfer_support import (
     _challenge_record_from_core,
     _challenge_view,
     _confirm_approval_state,
+    _ConfirmApprovalState,
     _denied_approval_record,
     _denied_request_operation_record,
     _load_pending_takeover_challenge,
@@ -431,27 +432,14 @@ class _OwnershipTransferMixin:
             challenge=stored_challenge,
             approval_required=approval_required,
         )
-        if (
-            approval_state.approval is not None
-            and approval_state.approval.status is TakeoverApprovalStatus.EXPIRED
-        ):
-            return self._commit_takeover_expiry(
-                request=request,
-                challenge=stored_challenge,
-                expired_approval=approval_state.approval,
-                now=now,
-                reason="approval_not_approved",
-                error_code="approval_not_approved",
-            )
-        if now >= stored_challenge.expires_at and approval_state.approved_approval is None:
-            return self._commit_takeover_expiry(
-                request=request,
-                challenge=stored_challenge,
-                expired_approval=None,
-                now=now,
-                reason="challenge_expired",
-                error_code="challenge_expired",
-            )
+        expired = self._expired_takeover_confirm_result(
+            request=request,
+            challenge=stored_challenge,
+            approval_state=approval_state,
+            now=now,
+        )
+        if expired is not None:
+            return expired
         reissue = _maybe_reissue_expired_challenge(
             self._repo,
             request=request,
@@ -654,6 +642,37 @@ class _OwnershipTransferMixin:
             ),
         )
         return result
+
+    def _expired_takeover_confirm_result(
+        self,
+        *,
+        request: TakeoverChallengeEchoRequest,
+        challenge: TakeoverChallengeRecord,
+        approval_state: _ConfirmApprovalState,
+        now: datetime,
+    ) -> ControlPlaneMutationResult | None:
+        if (
+            approval_state.approval is not None
+            and approval_state.approval.status is TakeoverApprovalStatus.EXPIRED
+        ):
+            return self._commit_takeover_expiry(
+                request=request,
+                challenge=challenge,
+                expired_approval=approval_state.approval,
+                now=now,
+                reason="approval_not_approved",
+                error_code="approval_not_approved",
+            )
+        if now < challenge.expires_at or approval_state.approved_approval is not None:
+            return None
+        return self._commit_takeover_expiry(
+            request=request,
+            challenge=challenge,
+            expired_approval=None,
+            now=now,
+            reason="challenge_expired",
+            error_code="challenge_expired",
+        )
 
     def _commit_takeover_expiry(
         self,
