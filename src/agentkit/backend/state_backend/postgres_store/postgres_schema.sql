@@ -416,7 +416,7 @@
             open_operation_ids_json JSONB NOT NULL DEFAULT '[]'::jsonb,
             takeover_history_refs_json JSONB NOT NULL DEFAULT '[]'::jsonb,
             status TEXT NOT NULL CHECK (
-                status IN ('pending', 'confirmed', 'denied', 'expired', 'invalidated')
+                status IN ('pending', 'confirmed', 'denied', 'expired')
             ),
             decided_at TEXT,
             terminal_op_id TEXT
@@ -438,7 +438,7 @@
             reason TEXT NOT NULL,
             challenge_ref TEXT NOT NULL,
             status TEXT NOT NULL CHECK (
-                status IN ('pending', 'approved', 'denied', 'expired', 'invalidated')
+                status IN ('pending', 'approved', 'denied', 'expired')
             ),
             requested_at TEXT NOT NULL,
             expires_at TEXT NOT NULL,

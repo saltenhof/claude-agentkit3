@@ -464,16 +464,6 @@ def _schema_alter_statements() -> tuple[str, ...]:
             "ALTER TABLE takeover_challenges ADD COLUMN IF NOT EXISTS "
             "requesting_worktree_roots_json JSONB NOT NULL DEFAULT '[]'::jsonb"
         ),
-        "ALTER TABLE takeover_challenges DROP CONSTRAINT IF EXISTS takeover_challenges_status_check",
-        (
-            "ALTER TABLE takeover_challenges ADD CONSTRAINT takeover_challenges_status_check "
-            "CHECK (status IN ('pending', 'confirmed', 'denied', 'expired', 'invalidated'))"
-        ),
-        "ALTER TABLE takeover_approvals DROP CONSTRAINT IF EXISTS takeover_approvals_status_check",
-        (
-            "ALTER TABLE takeover_approvals ADD CONSTRAINT takeover_approvals_status_check "
-            "CHECK (status IN ('pending', 'approved', 'denied', 'expired', 'invalidated'))"
-        ),
         ("ALTER TABLE control_plane_operations ALTER COLUMN story_id DROP NOT NULL"),
         # AG3-147 remediation: hard push barriers require boundary-correlated
         # freshness, so existing push_freshness_records rows need producer

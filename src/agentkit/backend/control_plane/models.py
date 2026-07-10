@@ -437,7 +437,7 @@ class TakeoverApprovalView(BaseModel):
     requested_by_principal_type: str = Field(min_length=1)
     reason: str = Field(min_length=1)
     challenge_ref: str = Field(min_length=1)
-    status: Literal["pending", "approved", "denied", "expired", "invalidated"]
+    status: Literal["pending", "approved", "denied", "expired"]
     requested_at: datetime
     expires_at: datetime
     decided_at: datetime | None = None
@@ -752,7 +752,6 @@ _NO_EDGE_BUNDLE_STATUSES = frozenset(
         "approved",
         "denied",
         "expired",
-        "invalidated",
     }
 )
 
@@ -808,7 +807,6 @@ class ControlPlaneMutationResult(BaseModel):
         "approved",
         "denied",
         "expired",
-        "invalidated",
     ]
     op_id: str
     operation_kind: str

@@ -117,7 +117,6 @@ class TakeoverApprovalStatus(StrEnum):
     APPROVED = "approved"
     DENIED = "denied"
     EXPIRED = "expired"
-    INVALIDATED = "invalidated"
 
 
 #: Enforced-by-persistence invariant name (``formal.operating-modes.invariants``).

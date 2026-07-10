@@ -408,24 +408,6 @@ class _FakeOps:
         self._state.takeover_challenges[challenge.challenge_id] = challenge
         self._state.events.extend(events)
 
-    def commit_takeover_invalidation(
-        self,
-        record: ControlPlaneOperationRecord,
-        *,
-        request_op_record: ControlPlaneOperationRecord,
-        challenge: TakeoverChallengeRecord,
-        invalidated_approval: TakeoverApprovalRecord | None,
-        events: tuple[ExecutionEventRecord, ...],
-    ) -> None:
-        self._state.operations[record.op_id] = record
-        self._state.operations[request_op_record.op_id] = request_op_record
-        self._state.takeover_challenges[challenge.challenge_id] = challenge
-        if invalidated_approval is not None:
-            self._state.takeover_approvals[invalidated_approval.approval_id] = (
-                invalidated_approval
-            )
-        self._state.events.extend(events)
-
     def release(
         self,
         op_id: str,
@@ -822,7 +804,6 @@ def _repository(state: _RepoState) -> ControlPlaneRuntimeRepository:
         ),
         commit_takeover_confirm=ops.commit_takeover_confirm,
         commit_takeover_expiry=ops.commit_takeover_expiry,
-        commit_takeover_invalidation=ops.commit_takeover_invalidation,
         load_takeover_challenge=state.takeover_challenges.get,
         insert_takeover_challenge=lambda record: state.takeover_challenges.__setitem__(
             record.challenge_id,

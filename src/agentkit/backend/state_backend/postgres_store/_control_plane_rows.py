@@ -1319,25 +1319,6 @@ def commit_takeover_expiry_global_row(
             _insert_execution_event_row(conn, event_row)
 
 
-def commit_takeover_invalidation_global_row(
-    *,
-    op_row: dict[str, Any],
-    request_op_row: dict[str, Any],
-    challenge_row: dict[str, Any],
-    invalidated_approval_row: dict[str, Any] | None,
-    event_rows: Sequence[dict[str, Any]],
-) -> None:
-    """Atomically terminalize a stale takeover challenge and its request."""
-
-    with _connect_global() as conn:
-        _conditional_upsert_control_plane_op_row(conn, op_row)
-        _invalidate_takeover_approval_row(conn, invalidated_approval_row)
-        _terminalize_takeover_request_operation_row(conn, request_op_row)
-        _terminalize_takeover_challenge_row(conn, challenge_row)
-        for event_row in event_rows:
-            _insert_execution_event_row(conn, event_row)
-
-
 def _expire_takeover_approval_row(
     conn: _CompatConnection,
     row: dict[str, Any] | None,
@@ -1367,41 +1348,6 @@ def _expire_takeover_approval_row(
     if int(cursor.rowcount) != 1:
         raise OwnershipFenceViolationError(
             "takeover expiry CAS failed: approval is no longer pending",
-            detail={"approval_id": row["approval_id"]},
-        )
-
-
-def _invalidate_takeover_approval_row(
-    conn: _CompatConnection,
-    row: dict[str, Any] | None,
-) -> None:
-    if row is None:
-        return
-    cursor = conn.execute(
-        """
-        UPDATE takeover_approvals
-        SET status = ?, decided_at = ?, decided_by_session_id = ?,
-            decision_reason = ?
-        WHERE approval_id = ?
-          AND project_key = ?
-          AND story_id = ?
-          AND run_id = ?
-          AND status = 'pending'
-        """,
-        (
-            row["status"],
-            row["decided_at"],
-            row["decided_by_session_id"],
-            row["decision_reason"],
-            row["approval_id"],
-            row["project_key"],
-            row["story_id"],
-            row["run_id"],
-        ),
-    )
-    if int(cursor.rowcount) != 1:
-        raise OwnershipFenceViolationError(
-            "takeover invalidation CAS failed: approval is no longer pending",
             detail={"approval_id": row["approval_id"]},
         )
 

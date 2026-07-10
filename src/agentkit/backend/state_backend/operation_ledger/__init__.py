@@ -358,32 +358,6 @@ def commit_takeover_expiry_global(
     )
 
 
-def commit_takeover_invalidation_global(
-    op_record: ControlPlaneOperationRecord,
-    *,
-    request_op_record: ControlPlaneOperationRecord,
-    challenge: TakeoverChallengeRecord,
-    invalidated_approval: TakeoverApprovalRecord | None,
-    events: tuple[ExecutionEventRecord, ...],
-) -> None:
-    """Atomically record stale challenge invalidation and terminalize request rows."""
-    from agentkit.backend.state_backend import persistence_mappers as mappers
-
-    _require_control_plane_backend()
-    backend = _backend_module()
-    backend.commit_takeover_invalidation_global_row(
-        op_row=mappers.control_plane_op_to_row(op_record),
-        request_op_row=mappers.control_plane_op_to_row(request_op_record),
-        challenge_row=mappers.takeover_challenge_to_row(challenge),
-        invalidated_approval_row=(
-            mappers.takeover_approval_to_row(invalidated_approval)
-            if invalidated_approval is not None
-            else None
-        ),
-        event_rows=tuple(mappers.execution_event_to_row(event) for event in events),
-    )
-
-
 def commit_takeover_reconcile_clear_global(
     op_record: ControlPlaneOperationRecord,
     *,
@@ -762,7 +736,6 @@ __all__ = [
     "commit_takeover_deny_global",
     "commit_takeover_confirm_global",
     "commit_takeover_expiry_global",
-    "commit_takeover_invalidation_global",
     "commit_takeover_reconcile_clear_global",
     "release_control_plane_operation_global",
     "list_orphaned_claimed_control_plane_operations_global",
