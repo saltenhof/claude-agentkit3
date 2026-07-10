@@ -27,6 +27,7 @@ from agentkit.backend.state_backend.operation_ledger import (
     commit_takeover_expiry_global,
     commit_takeover_invalidation_global,
     commit_takeover_reconcile_clear_global,
+    commit_takeover_reissue_global,
     delete_control_plane_operation_global,
     delete_object_mutation_claim_global,
     finalize_control_plane_operation_global,
@@ -44,6 +45,7 @@ from agentkit.backend.state_backend.operation_ledger import (
     list_orphaned_object_mutation_claims_global,
     load_control_plane_operation_global,
     load_object_mutation_claim_global,
+    reconcile_takeover_confirm_cas_loss_global,
     release_control_plane_operation_global,
     resolve_repair_control_plane_operation_global,
     save_control_plane_operation_global,
@@ -67,6 +69,7 @@ from agentkit.backend.state_backend.story_lifecycle_store import (
     load_active_run_ownership_record_global,
     load_run_ownership_record_global,
     load_session_run_binding_global,
+    load_takeover_approval_for_challenge_global,
     load_takeover_approval_global,
     load_takeover_challenge_global,
     load_takeover_transfer_record_global,
@@ -274,6 +277,10 @@ class ControlPlaneRuntimeRepository:
     commit_takeover_deny: Callable[..., None] = commit_takeover_deny_global
     commit_takeover_expiry: Callable[..., None] = commit_takeover_expiry_global
     commit_takeover_invalidation: Callable[..., None] = commit_takeover_invalidation_global
+    commit_takeover_reissue: Callable[..., None] = commit_takeover_reissue_global
+    reconcile_takeover_confirm_cas_loss: Callable[..., str] = (
+        reconcile_takeover_confirm_cas_loss_global
+    )
     commit_takeover_reconcile_clear: Callable[..., None] = (
         commit_takeover_reconcile_clear_global
     )
@@ -289,6 +296,9 @@ class ControlPlaneRuntimeRepository:
     load_takeover_approval: Callable[[str], TakeoverApprovalRecord | None] = (
         load_takeover_approval_global
     )
+    load_takeover_approval_for_challenge: Callable[
+        [str], TakeoverApprovalRecord | None
+    ] = load_takeover_approval_for_challenge_global
     list_pending_takeover_approvals: Callable[
         [str | None], tuple[TakeoverApprovalRecord, ...]
     ] = list_pending_takeover_approvals_global
@@ -394,6 +404,9 @@ class TakeoverApprovalRepository:
     load_approval: Callable[[str], TakeoverApprovalRecord | None] = (
         load_takeover_approval_global
     )
+    load_approval_for_challenge: Callable[
+        [str], TakeoverApprovalRecord | None
+    ] = load_takeover_approval_for_challenge_global
     update_status: Callable[[TakeoverApprovalRecord], bool] = (
         update_takeover_approval_status_global
     )

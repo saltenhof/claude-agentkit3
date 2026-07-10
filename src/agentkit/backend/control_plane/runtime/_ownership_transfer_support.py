@@ -12,7 +12,7 @@ from agentkit.backend.control_plane.models import (
     ControlPlaneMutationResult,
     TakeoverApprovalView,
     TakeoverChallenge,
-    TakeoverChallengeEchoRequest,
+    TakeoverConfirmRequest,
     TakeoverDenyRequest,
     TakeoverRepoChallenge,
     TakeoverRequest,
@@ -31,6 +31,7 @@ from agentkit.backend.state_backend.store.inflight_idempotency_guard import (
 )
 
 from ._operation_records import _operation_record, _rejection_result
+from ._ownership_transfer_commands import TakeoverConfirmCommand, TakeoverDenyCommand
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -42,7 +43,6 @@ if TYPE_CHECKING:
     from agentkit.backend.control_plane.records import RunOwnershipRecord
     from agentkit.backend.control_plane.repository import (
         ControlPlaneRuntimeRepository,
-        TakeoverApprovalRepository,
     )
 
 _TAKEOVER_REQUEST = "ownership_takeover_request"
@@ -72,7 +72,6 @@ class _ConfirmApprovalState:
     status: TakeoverApprovalStatus | None
     approval: TakeoverApprovalRecord | None
     approved_approval: TakeoverApprovalRecord | None
-    repo: TakeoverApprovalRepository | None
 
 
 @dataclass(frozen=True)
@@ -89,13 +88,14 @@ class _ChallengeReissueResult:
     approval_state: _ConfirmApprovalState
     owner_binding: SessionRunBindingRecord | None
     rejection: ControlPlaneMutationResult | None
+    fresh_challenge_view: TakeoverChallenge | None = None
 
 
 def _load_pending_takeover_challenge(
     repo: ControlPlaneRuntimeRepository,
-    request: TakeoverChallengeEchoRequest,
+    request: TakeoverConfirmRequest,
 ) -> _StoredChallengeLookup:
-    challenge = repo.load_takeover_challenge(request.challenge_echo.challenge_id)
+    challenge = repo.load_takeover_challenge(request.challenge_id)
     if challenge is None:
         return _StoredChallengeLookup(
             None,
@@ -134,12 +134,13 @@ def _load_pending_takeover_challenge(
 def _maybe_reissue_expired_challenge(
     repo: ControlPlaneRuntimeRepository,
     *,
-    request: TakeoverChallengeEchoRequest,
+    command: TakeoverConfirmCommand,
     stored_challenge: TakeoverChallengeRecord,
     active: RunOwnershipRecord | None,
     approval_state: _ConfirmApprovalState,
     now: datetime,
 ) -> _ChallengeReissueResult:
+    request = command.request
     approved_for_reissue = _approved_approval_for_reissue(approval_state)
     if now < stored_challenge.expires_at or approved_for_reissue is None:
         return _ChallengeReissueResult(
@@ -150,25 +151,12 @@ def _maybe_reissue_expired_challenge(
             None,
             None,
         )
-    if active is None:
-        return _ChallengeReissueResult(
-            stored_challenge,
-            None,
-            None,
-            approval_state,
-            None,
-            _takeover_rejection(
-                op_id=request.op_id,
-                operation_kind=_TAKEOVER_CONFIRM,
-                reason="active_ownership_required",
-                error_code="active_ownership_required",
-                run_id=stored_challenge.run_id,
-            ),
-        )
-    if (
-        active.owner_session_id != stored_challenge.owner_session_id
-        or active.ownership_epoch != stored_challenge.ownership_epoch
-    ):
+    owner_binding = (
+        repo.load_binding(active.owner_session_id) if active is not None else None
+    )
+    active_basis = transfer_core.ownership_basis_of_active(active, owner_binding)
+    challenge_basis = transfer_core.ownership_basis_of_challenge(stored_challenge)
+    if not transfer_core.ownership_anchor_unchanged(active_basis, challenge_basis):
         return _ChallengeReissueResult(
             stored_challenge,
             None,
@@ -183,22 +171,8 @@ def _maybe_reissue_expired_challenge(
                 run_id=stored_challenge.run_id,
             ),
         )
-    owner_binding = repo.load_binding(active.owner_session_id)
-    if owner_binding is None:
-        return _ChallengeReissueResult(
-            stored_challenge,
-            None,
-            None,
-            approval_state,
-            None,
-            _takeover_rejection(
-                op_id=request.op_id,
-                operation_kind=_TAKEOVER_CONFIRM,
-                reason="owner_binding_required",
-                error_code="owner_binding_required",
-                run_id=stored_challenge.run_id,
-            ),
-        )
+    assert active is not None
+    assert owner_binding is not None
     fresh_core = _build_takeover_challenge(
         repo,
         request=TakeoverRequest(
@@ -228,7 +202,6 @@ def _maybe_reissue_expired_challenge(
             approved_for_reissue,
             challenge_ref=fresh_challenge.challenge_id,
         ),
-        approval_state.repo,
     )
     return _ChallengeReissueResult(
         fresh_challenge,
@@ -242,6 +215,7 @@ def _maybe_reissue_expired_challenge(
         fresh_approval_state,
         owner_binding,
         None,
+        _challenge_view(fresh_core),
     )
 
 
@@ -346,11 +320,12 @@ def _repo_evidence(
 
 def _load_takeover_existing_operation(
     repo: ControlPlaneRuntimeRepository,
-    request: TakeoverRequest | TakeoverChallengeEchoRequest | TakeoverDenyRequest,
+    request: TakeoverRequest | TakeoverConfirmCommand | TakeoverDenyCommand,
     *,
     operation_kind: str,
 ) -> ControlPlaneMutationResult | None:
-    stored = repo.load_operation(request.op_id)
+    wire_request = _takeover_wire_request(request)
+    stored = repo.load_operation(wire_request.op_id)
     if stored is None or stored.status == "claimed":
         return None
     stored_hash = stored.request_body_hash
@@ -362,25 +337,26 @@ def _load_takeover_existing_operation(
             )
 
             raise IdempotencyMismatchError(
-                f"op_id {request.op_id!r} was previously used with a "
+                f"op_id {wire_request.op_id!r} was previously used with a "
                 "different takeover request body",
-                detail={"op_id": request.op_id, "conflict": "body_hash_mismatch"},
+                detail={"op_id": wire_request.op_id, "conflict": "body_hash_mismatch"},
             )
     return ControlPlaneMutationResult.model_validate(stored.response_payload)
 
 def _takeover_operation_record(
-    request: TakeoverRequest | TakeoverChallengeEchoRequest | TakeoverDenyRequest,
+    request: TakeoverRequest | TakeoverConfirmCommand | TakeoverDenyCommand,
     *,
     result: ControlPlaneMutationResult,
     now: datetime,
     run_id: str | None = None,
 ) -> ControlPlaneOperationRecord:
+    wire_request = _takeover_wire_request(request)
     return _operation_record(
-        op_id=request.op_id,
-        project_key=request.project_key,
-        story_id=request.story_id,
+        op_id=wire_request.op_id,
+        project_key=wire_request.project_key,
+        story_id=wire_request.story_id,
         run_id=run_id,
-        session_id=request.session_id,
+        session_id=_takeover_actor_session_id(request),
         operation_kind=result.operation_kind,
         phase=_TAKEOVER_PHASE,
         result=result,
@@ -392,31 +368,46 @@ def _takeover_operation_record(
     )
 
 def _takeover_body_hash(
-    request: TakeoverRequest | TakeoverChallengeEchoRequest | TakeoverDenyRequest,
+    request: TakeoverRequest | TakeoverConfirmCommand | TakeoverDenyCommand,
     *,
     operation_kind: str,
 ) -> str:
-    payload = dict(request.model_dump(mode="json"))
+    payload = dict(_takeover_wire_request(request).model_dump(mode="json"))
     payload["__operation_kind"] = operation_kind
     payload["__phase"] = _TAKEOVER_PHASE
     return compute_body_hash(payload)
 
 
+def _takeover_wire_request(
+    request: TakeoverRequest | TakeoverConfirmCommand | TakeoverDenyCommand,
+) -> TakeoverRequest | TakeoverConfirmRequest | TakeoverDenyRequest:
+    if isinstance(request, (TakeoverConfirmCommand, TakeoverDenyCommand)):
+        return request.request
+    return request
+
+
+def _takeover_actor_session_id(
+    request: TakeoverRequest | TakeoverConfirmCommand | TakeoverDenyCommand,
+) -> str:
+    if isinstance(request, TakeoverConfirmCommand):
+        return request.confirmed_by_session_id
+    if isinstance(request, TakeoverDenyCommand):
+        return request.denied_by_session_id
+    return request.session_id
+
+
 def _confirm_approval_state(
     repo: ControlPlaneRuntimeRepository,
-    request: TakeoverChallengeEchoRequest,
+    command: TakeoverConfirmCommand,
     now: datetime,
     *,
     challenge: TakeoverChallengeRecord,
     approval_required: bool,
 ) -> _ConfirmApprovalState:
-    if request.approval_id is None:
-        if not approval_required:
-            return _ConfirmApprovalState(None, None, None, None)
-        return _ConfirmApprovalState(None, None, None, None)
-    approval = repo.load_takeover_approval(request.approval_id)
+    request = command.request
+    approval = repo.load_takeover_approval_for_challenge(challenge.challenge_id)
     if approval is None:
-        return _ConfirmApprovalState(None, None, None, None)
+        return _ConfirmApprovalState(None, None, None)
     if (
         approval.project_key != request.project_key
         or approval.story_id != request.story_id
@@ -425,7 +416,14 @@ def _confirm_approval_state(
         or approval.requested_by_session_id != challenge.requesting_session_id
         or approval.requested_by_principal_type != challenge.requesting_principal_type
     ):
-        return _ConfirmApprovalState(None, None, None, None)
+        raise RuntimeError(
+            "takeover approval linked by challenge_ref violates the stored "
+            "challenge scope"
+        )
+    if not approval_required:
+        raise RuntimeError(
+            "a direct human takeover challenge must not carry an approval record"
+        )
     approval_status = transfer_core.approval_status_after_expiry(
         current_status=approval.status,
         now=now,
@@ -433,16 +431,15 @@ def _confirm_approval_state(
     )
     if approval_status is not approval.status:
         expired = _expired_approval_record(approval, now=now)
-        return _ConfirmApprovalState(approval_status, expired, None, None)
+        return _ConfirmApprovalState(approval_status, expired, None)
     if approval.status is TakeoverApprovalStatus.PENDING:
-        approved = _approved_approval_record(approval, request=request, now=now)
+        approved = _approved_approval_record(approval, command=command, now=now)
         return _ConfirmApprovalState(
             TakeoverApprovalStatus.APPROVED,
             approval,
             approved,
-            None,
         )
-    return _ConfirmApprovalState(approval_status, approval, None, None)
+    return _ConfirmApprovalState(approval_status, approval, None)
 
 
 def _expired_approval_record(
@@ -470,7 +467,7 @@ def _expired_approval_record(
 def _approved_approval_record(
     approval: TakeoverApprovalRecord,
     *,
-    request: TakeoverChallengeEchoRequest,
+    command: TakeoverConfirmCommand,
     now: datetime,
 ) -> TakeoverApprovalRecord:
     return TakeoverApprovalRecord(
@@ -486,7 +483,7 @@ def _approved_approval_record(
         requested_at=approval.requested_at,
         expires_at=approval.expires_at,
         decided_at=now,
-        decided_by_session_id=request.session_id,
+        decided_by_session_id=command.confirmed_by_session_id,
         decision_reason="human_confirm",
     )
 
@@ -517,9 +514,10 @@ def _approval_with_challenge_ref(
 def _denied_approval_record(
     approval: TakeoverApprovalRecord,
     *,
-    request: TakeoverDenyRequest,
+    command: TakeoverDenyCommand,
     now: datetime,
 ) -> TakeoverApprovalRecord:
+    request = command.request
     return TakeoverApprovalRecord(
         approval_id=approval.approval_id,
         project_key=approval.project_key,
@@ -533,7 +531,7 @@ def _denied_approval_record(
         requested_at=approval.requested_at,
         expires_at=approval.expires_at,
         decided_at=now,
-        decided_by_session_id=request.session_id,
+        decided_by_session_id=command.denied_by_session_id,
         decision_reason=request.reason,
     )
 
@@ -541,7 +539,7 @@ def _denied_approval_record(
 def _invalidated_approval_record(
     approval: TakeoverApprovalRecord,
     *,
-    request: TakeoverChallengeEchoRequest,
+    command: TakeoverConfirmCommand,
     now: datetime,
 ) -> TakeoverApprovalRecord:
     return TakeoverApprovalRecord(
@@ -557,7 +555,7 @@ def _invalidated_approval_record(
         requested_at=approval.requested_at,
         expires_at=approval.expires_at,
         decided_at=now,
-        decided_by_session_id=request.session_id,
+        decided_by_session_id=command.confirmed_by_session_id,
         decision_reason="challenge_invalidated",
     )
 
@@ -733,7 +731,7 @@ def _approval_view(record: TakeoverApprovalRecord) -> TakeoverApprovalView:
         requested_by_session_id=record.requested_by_session_id,
         requested_by_principal_type=record.requested_by_principal_type,
         reason=record.reason,
-        challenge_ref=record.challenge_ref,
+        challenge_id=record.challenge_ref,
         status=record.status.value,
         requested_at=record.requested_at,
         expires_at=record.expires_at,
@@ -748,6 +746,7 @@ def _approval_changed_payload(record: TakeoverApprovalRecord) -> dict[str, objec
         "project_key": record.project_key,
         "story_id": record.story_id,
         "approval_id": record.approval_id,
+        "challenge_id": record.challenge_ref,
         "approval": _approval_view(record).model_dump(mode="json"),
     }
 

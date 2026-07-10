@@ -38,9 +38,11 @@ if TYPE_CHECKING:
     from agentkit.backend.auth.entities import ProjectApiToken
     from agentkit.backend.control_plane.models import (
         AdminTakeoverReconcileClearRequest,
-        TakeoverChallengeEchoRequest,
-        TakeoverDenyRequest,
         TakeoverRequest,
+    )
+    from agentkit.backend.control_plane.runtime import (
+        TakeoverConfirmCommand,
+        TakeoverDenyCommand,
     )
 
 # ---------------------------------------------------------------------------
@@ -390,8 +392,8 @@ class _InMemoryTokenRepository:
 class _FakeTakeoverRuntime:
     def __init__(self) -> None:
         self.request_calls: list[TakeoverRequest] = []
-        self.confirm_calls: list[TakeoverChallengeEchoRequest] = []
-        self.deny_calls: list[TakeoverDenyRequest] = []
+        self.confirm_calls: list[TakeoverConfirmCommand] = []
+        self.deny_calls: list[TakeoverDenyCommand] = []
         self.clear_calls: list[AdminTakeoverReconcileClearRequest] = []
 
     def request_ownership_takeover(self, *, request: TakeoverRequest) -> object:
@@ -406,13 +408,29 @@ class _FakeTakeoverRuntime:
             phase="ownership",
         )
 
-    def confirm_ownership_takeover(self, *, request: TakeoverChallengeEchoRequest) -> object:
-        self.confirm_calls.append(request)
-        raise AssertionError("forged takeover confirm reached runtime")
+    def confirm_ownership_takeover(self, *, command: TakeoverConfirmCommand) -> object:
+        from agentkit.backend.control_plane.models import ControlPlaneMutationResult
 
-    def deny_ownership_takeover(self, *, request: TakeoverDenyRequest) -> object:
-        self.deny_calls.append(request)
-        raise AssertionError("forged takeover deny reached runtime")
+        self.confirm_calls.append(command)
+        return ControlPlaneMutationResult(
+            status="challenge_reissued",
+            op_id=command.request.op_id,
+            operation_kind="ownership_takeover_confirm",
+            run_id="run-100",
+            phase="ownership",
+        )
+
+    def deny_ownership_takeover(self, *, command: TakeoverDenyCommand) -> object:
+        from agentkit.backend.control_plane.models import ControlPlaneMutationResult
+
+        self.deny_calls.append(command)
+        return ControlPlaneMutationResult(
+            status="denied",
+            op_id=command.request.op_id,
+            operation_kind="ownership_takeover_deny",
+            run_id="run-100",
+            phase="ownership",
+        )
 
     def clear_takeover_reconcile_obligation(
         self,
@@ -489,17 +507,9 @@ def test_token_agent_cannot_forge_human_takeover_confirm_and_writes_nothing() ->
             {
                 "project_key": "tenant-a",
                 "story_id": "AG3-100",
-                "session_id": "sess-agent",
-                "principal_type": "human_cli",
                 "op_id": "op-forged-confirm",
                 "reason": "forged",
-                "worktree_roots": ["T:/worktrees/ag3-100"],
-                "challenge_echo": {
-                    "challenge_id": "takeover-op",
-                    "owner_session_id": "sess-001",
-                    "ownership_epoch": 1,
-                    "binding_version": "1",
-                },
+                "challenge_id": "takeover-op",
             }
         ).encode(),
         request_headers={
@@ -512,6 +522,111 @@ def test_token_agent_cannot_forge_human_takeover_confirm_and_writes_nothing() ->
     assert response.status_code == HTTPStatus.FORBIDDEN
     assert _json_body(response)["error_code"] == "agent_confirm_forbidden"  # type: ignore[index]
     assert runtime.confirm_calls == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("session_id", "sess-forged"),
+        ("principal_type", "human_cli"),
+        ("confirmed_by_session_id", "sess-forged"),
+        ("confirmed_by_principal", "human_cli"),
+        ("approval_id", "approval-forged"),
+        ("worktree_roots", ["T:/forged"]),
+        ("challenge_echo", {"challenge_id": "challenge-100"}),
+    ],
+)
+def test_human_takeover_confirm_rejects_body_identity_and_decision_fields(
+    field: str,
+    value: object,
+) -> None:
+    runtime = _FakeTakeoverRuntime()
+    auth = AuthMiddleware(token_repository=_InMemoryTokenRepository())
+    session = auth.session_store.create()
+    app = ControlPlaneApplication(
+        routes=ControlPlaneApplicationRoutes(
+            project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
+            story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
+            concept_routes=_FakeConceptRoutes(),  # type: ignore[arg-type]
+            hub_routes=_FakeHubRoutes(),  # type: ignore[arg-type]
+            planning_routes=_FakePlanningRoutes(),  # type: ignore[arg-type]
+            telemetry_routes=_FakeTelemetryRoutes(),  # type: ignore[arg-type]
+            auth_routes=_FakeAuthRoutes(),  # type: ignore[arg-type]
+            read_model_routes=_FakeReadModelRoutes(),  # type: ignore[arg-type]
+        ),
+        runtime_service=runtime,  # type: ignore[arg-type]
+        auth_middleware=auth,
+        tenant_scope_middleware=_NoopTenantScope(),  # type: ignore[arg-type]
+    )
+    payload: dict[str, object] = {
+        "project_key": "tenant-a",
+        "story_id": "AG3-100",
+        "op_id": f"op-invalid-{field}",
+        "challenge_id": "challenge-100",
+        "reason": "confirm",
+        field: value,
+    }
+
+    response = app.handle_request(
+        method="POST",
+        path="/v1/project-edge/story-runs/run-100/ownership/takeover-confirm",
+        body=json.dumps(payload).encode(),
+        request_headers={
+            "Cookie": f"{AuthMiddleware.session_cookie_name()}={session.session_id}",
+            AuthMiddleware.csrf_header_name(): session.csrf_token,
+            "X-Project-Key": "tenant-a",
+        },
+    )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert _json_body(response)["error_code"] == "invalid_takeover_confirm_payload"  # type: ignore[index]
+    assert runtime.confirm_calls == []
+
+
+def test_human_takeover_confirm_constructs_attested_command() -> None:
+    runtime = _FakeTakeoverRuntime()
+    auth = AuthMiddleware(token_repository=_InMemoryTokenRepository())
+    session = auth.session_store.create()
+    app = ControlPlaneApplication(
+        routes=ControlPlaneApplicationRoutes(
+            project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
+            story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
+            concept_routes=_FakeConceptRoutes(),  # type: ignore[arg-type]
+            hub_routes=_FakeHubRoutes(),  # type: ignore[arg-type]
+            planning_routes=_FakePlanningRoutes(),  # type: ignore[arg-type]
+            telemetry_routes=_FakeTelemetryRoutes(),  # type: ignore[arg-type]
+            auth_routes=_FakeAuthRoutes(),  # type: ignore[arg-type]
+            read_model_routes=_FakeReadModelRoutes(),  # type: ignore[arg-type]
+        ),
+        runtime_service=runtime,  # type: ignore[arg-type]
+        auth_middleware=auth,
+        tenant_scope_middleware=_NoopTenantScope(),  # type: ignore[arg-type]
+    )
+
+    response = app.handle_request(
+        method="POST",
+        path="/v1/project-edge/story-runs/run-100/ownership/takeover-confirm",
+        body=json.dumps(
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "op_id": "op-attested-confirm",
+                "challenge_id": "challenge-100",
+                "reason": "confirm",
+            }
+        ).encode(),
+        request_headers={
+            "Cookie": f"{AuthMiddleware.session_cookie_name()}={session.session_id}",
+            AuthMiddleware.csrf_header_name(): session.csrf_token,
+            "X-Project-Key": "tenant-a",
+        },
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert len(runtime.confirm_calls) == 1
+    command = runtime.confirm_calls[0]
+    assert command.confirmed_by_session_id == session.session_id
+    assert command.confirmed_by_principal.value == "human_cli"
 
 
 def test_token_takeover_request_derives_agent_principal_from_auth_not_body() -> None:
@@ -774,17 +889,9 @@ def test_cross_project_human_takeover_confirm_is_forbidden_before_runtime() -> N
             {
                 "project_key": "tenant-b",
                 "story_id": "AG3-100",
-                "session_id": "sess-human",
-                "principal_type": "human_cli",
                 "op_id": "op-cross-confirm",
                 "reason": "confirmed",
-                "worktree_roots": ["T:/worktrees/ag3-100"],
-                "challenge_echo": {
-                    "challenge_id": "takeover-op",
-                    "owner_session_id": "sess-001",
-                    "ownership_epoch": 1,
-                    "binding_version": "1",
-                },
+                "challenge_id": "takeover-op",
             }
         ).encode(),
         request_headers={
@@ -832,8 +939,6 @@ def test_token_agent_cannot_forge_human_takeover_deny_and_writes_nothing() -> No
             {
                 "project_key": "tenant-a",
                 "story_id": "AG3-100",
-                "session_id": "sess-agent",
-                "principal_type": "human_cli",
                 "op_id": "op-forged-deny",
                 "approval_id": "approval-100",
                 "reason": "forged",
@@ -848,6 +953,62 @@ def test_token_agent_cannot_forge_human_takeover_deny_and_writes_nothing() -> No
 
     assert response.status_code == HTTPStatus.FORBIDDEN
     assert _json_body(response)["error_code"] == "agent_deny_forbidden"  # type: ignore[index]
+    assert runtime.deny_calls == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("session_id", "sess-forged"),
+        ("principal_type", "human_cli"),
+        ("denied_by_session_id", "sess-forged"),
+        ("denied_by_principal", "human_cli"),
+    ],
+)
+def test_human_takeover_deny_rejects_body_identity_fields(
+    field: str,
+    value: object,
+) -> None:
+    runtime = _FakeTakeoverRuntime()
+    auth = AuthMiddleware(token_repository=_InMemoryTokenRepository())
+    session = auth.session_store.create()
+    app = ControlPlaneApplication(
+        routes=ControlPlaneApplicationRoutes(
+            project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
+            story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
+            concept_routes=_FakeConceptRoutes(),  # type: ignore[arg-type]
+            hub_routes=_FakeHubRoutes(),  # type: ignore[arg-type]
+            planning_routes=_FakePlanningRoutes(),  # type: ignore[arg-type]
+            telemetry_routes=_FakeTelemetryRoutes(),  # type: ignore[arg-type]
+            auth_routes=_FakeAuthRoutes(),  # type: ignore[arg-type]
+            read_model_routes=_FakeReadModelRoutes(),  # type: ignore[arg-type]
+        ),
+        runtime_service=runtime,  # type: ignore[arg-type]
+        auth_middleware=auth,
+        tenant_scope_middleware=_NoopTenantScope(),  # type: ignore[arg-type]
+    )
+    payload: dict[str, object] = {
+        "project_key": "tenant-a",
+        "story_id": "AG3-100",
+        "op_id": f"op-invalid-deny-{field}",
+        "approval_id": "approval-100",
+        "reason": "deny",
+        field: value,
+    }
+
+    response = app.handle_request(
+        method="POST",
+        path="/v1/project-edge/story-runs/run-100/ownership/takeover-deny",
+        body=json.dumps(payload).encode(),
+        request_headers={
+            "Cookie": f"{AuthMiddleware.session_cookie_name()}={session.session_id}",
+            AuthMiddleware.csrf_header_name(): session.csrf_token,
+            "X-Project-Key": "tenant-a",
+        },
+    )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert _json_body(response)["error_code"] == "invalid_takeover_deny_payload"  # type: ignore[index]
     assert runtime.deny_calls == []
 
 

@@ -380,44 +380,26 @@ class TakeoverChallenge(BaseModel):
     expires_at: datetime | None = None
 
 
-class TakeoverChallengeEcho(BaseModel):
-    """Confirm payload echo of the CAS-relevant challenge fields."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    challenge_id: str = Field(min_length=1)
-    owner_session_id: str = Field(min_length=1)
-    ownership_epoch: int = Field(ge=1)
-    binding_version: str = Field(min_length=1)
-    expires_at: datetime | None = None
-
-
-class TakeoverChallengeEchoRequest(BaseModel):
-    """Request payload for ``takeover-confirm``."""
+class TakeoverConfirmRequest(BaseModel):
+    """Wire payload for ``takeover-confirm`` (selector and audit only)."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     project_key: str = Field(min_length=1)
     story_id: str = Field(min_length=1)
-    session_id: str = Field(min_length=1)
-    principal_type: str = Field(min_length=1, default="untrusted_http_body")
     op_id: str = Field(min_length=1)
+    challenge_id: str = Field(min_length=1)
     reason: str = Field(min_length=1)
-    worktree_roots: list[str] = Field(min_length=1)
-    challenge_echo: TakeoverChallengeEcho
-    approval_id: str | None = None
     source_component: str = Field(min_length=1, default="project_edge_client")
 
 
 class TakeoverDenyRequest(BaseModel):
-    """Request payload for human denial of a pending takeover approval."""
+    """Wire payload for human denial (selector and audit only)."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     project_key: str = Field(min_length=1)
     story_id: str = Field(min_length=1)
-    session_id: str = Field(min_length=1)
-    principal_type: str = Field(min_length=1, default="untrusted_http_body")
     op_id: str = Field(min_length=1)
     approval_id: str = Field(min_length=1)
     reason: str = Field(min_length=1)
@@ -436,7 +418,7 @@ class TakeoverApprovalView(BaseModel):
     requested_by_session_id: str = Field(min_length=1)
     requested_by_principal_type: str = Field(min_length=1)
     reason: str = Field(min_length=1)
-    challenge_ref: str = Field(min_length=1)
+    challenge_id: str = Field(min_length=1)
     status: Literal["pending", "approved", "denied", "expired", "invalidated"]
     requested_at: datetime
     expires_at: datetime
@@ -749,6 +731,7 @@ _NO_EDGE_BUNDLE_STATUSES = frozenset(
         "resolved",
         "offered",
         "pending_human_approval",
+        "challenge_reissued",
         "approved",
         "denied",
         "expired",
@@ -805,6 +788,7 @@ class ControlPlaneMutationResult(BaseModel):
         "resolved",
         "offered",
         "pending_human_approval",
+        "challenge_reissued",
         "approved",
         "denied",
         "expired",

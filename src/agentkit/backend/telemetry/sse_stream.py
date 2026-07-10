@@ -234,7 +234,7 @@ def _takeover_approval_snapshot_envelope(
             "requested_by_session_id": approval.requested_by_session_id,
             "requested_by_principal_type": approval.requested_by_principal_type,
             "reason": approval.reason,
-            "challenge_ref": approval.challenge_ref,
+            "challenge_id": approval.challenge_ref,
             "status": approval.status.value,
             "requested_at": approval.requested_at.isoformat(),
             "expires_at": approval.expires_at.isoformat(),

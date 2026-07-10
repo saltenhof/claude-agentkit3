@@ -1019,6 +1019,21 @@ def load_takeover_approval_global_row(approval_id: str) -> dict[str, Any] | None
     return dict(row)
 
 
+def load_takeover_approval_for_challenge_global_row(
+    challenge_id: str,
+) -> dict[str, Any] | None:
+    """Return the at-most-one approval linked to a challenge, or None."""
+
+    with _connect_global() as conn:
+        row = conn.execute(
+            "SELECT * FROM takeover_approvals WHERE challenge_ref = ?",
+            (challenge_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
 def update_takeover_approval_status_global_row(row: dict[str, Any]) -> bool:
     """Update one approval status if the row still exists."""
 

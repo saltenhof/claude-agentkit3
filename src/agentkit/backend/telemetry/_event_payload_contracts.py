@@ -176,6 +176,7 @@ def _build_mandatory_payload_fields_raw() -> Mapping[str, tuple[str, ...]]:
             "project_key",
             "story_id",
             "approval_id",
+            "challenge_id",
             "approval",
         ),
         # FK-68 §68.2.2 (Z. 397-399) — BC15 ARE / Requirements events.

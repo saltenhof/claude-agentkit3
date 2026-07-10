@@ -139,8 +139,13 @@ FK-56 §56.13b) hat keine Oberfläche.
    AG3-148-Challenge („Übernommen wird ausschließlich der gepushte Stand
    `<sha>`; nicht gepushte Commits, uncommittete Änderungen und untracked
    Dateien werden nicht übertragen …") — der Mensch bestätigt den möglichen
-   Verlust nicht gepushter Arbeit ausdrücklich. Erst die Bestätigung im
-   Overlay vollzieht den Transfer (`confirm_story_run_takeover`);
+   Verlust nicht gepushter Arbeit ausdrücklich. Liefert die Bestätigung
+   `challenge_reissued`, bleibt der Overlay offen, zeigt die frische
+   Challenge vollständig an und verlangt einen zweiten Confirm mit neuem
+   `op_id`; erst dieser zweite Confirm vollzieht den Transfer
+   (`confirm_story_run_takeover`). Der Zustand „approved, aber frische
+   Challenge wartet auf Bestätigung" wird über Initial-GET/Reconnect
+   rekonstruiert;
    Ablehnung oder Fristablauf lässt ausschließlich die Anfrage verfallen
    und entzieht niemals Eigentum.
 4. **Cockpit-Takeover-Sicht im Story-Inspector** (SOLL-107, SOLL-164):
@@ -172,7 +177,8 @@ FK-56 §56.13b) hat keine Oberfläche.
    Inputs `run_id`/`reason` Pflicht/`op_id`; `owner_bc: story-lifecycle`;
    409 bei nicht takeover-admissible; **kein** Frontend-Event — der
    Challenge kommt synchron) und `confirm_story_run_takeover`
-   (POST `…/ownership/takeover-confirm`; `challenge_echo` Pflicht;
+   (POST `…/ownership/takeover-confirm`; `challenge_id` Pflicht;
+   `challenge_reissued` führt in den zweiten Bestätigungsschritt;
    emittiert `takeover_approval_changed`; 409 bei veraltetem Challenge;
    403 inkl. Ping-Pong-Schranke) — exakt nach
    `formal.frontend-contracts.commands`, `op_id` client-gemintet
@@ -180,8 +186,10 @@ FK-56 §56.13b) hat keine Oberfläche.
    (`api.ts:156-157`; der Transfer selbst ist kurz/bounded per AG3-148).
 7. **Event-Konsum `takeover_approval_changed`** (SOLL-104): das Event
    (Topic `governance`) öffnet bzw. schließt den globalen Overlay
-   (`pending` → anzeigen; `approved`/`denied`/`expired` → schließen/
-   aktualisieren); der Overlay verlässt sich nie allein auf das lossy
+   (`pending` → anzeigen; `approved` mit frischer pending Challenge →
+   Bestätigungsschritt; `denied`/`expired` → schließen/aktualisieren);
+   ein `approved`-Event allein schließt den Overlay nicht. Der Overlay
+   verlässt sich nie allein auf das lossy
    SSE-Event — bei jedem Connection-Aufbau (initial + Reconnect) frischer
    Initial-GET (Punkt 2).
 
@@ -218,7 +226,7 @@ FK-56 §56.13b) hat keine Oberfläche.
 | `src/agentkit/frontend/app/api.ts` | ändern | Wire-Commands `request_story_run_takeover`/`confirm_story_run_takeover`, Approvals-Initial-GET, typisierte Fehlerbilder (409 stale challenge, 403 ping-pong, `pending_human_approval`-Form) — `makeOpId`-Muster :225, 12-s-Budget :156-157 |
 | `src/agentkit/frontend/app/App.tsx` | ändern | Zweite, projekt-**unabhängige** `EventSource` auf `GET /v1/events/governance` (der projekt-skopierte Stream :194-229 bleibt unverändert); Approval-State + Overlay-Steuerung |
 | `src/agentkit/frontend/app/app_shell/layout/Shell.tsx` | ändern | Overlay-Region als Slot (R-Klammer, keine fachliche Aussage in der Shell) |
-| `src/agentkit/frontend/app/contexts/story_context_manager/components/TakeoverApprovalOverlay.tsx` | neu | Overlay-Inhalt: Challenge-Anzeige inkl. Verlustkorridor-Pflichttext, Freigabe-/Ablehnungs-Aktion (Confirm = Challenge-Echo) |
+| `src/agentkit/frontend/app/contexts/story_context_manager/components/TakeoverApprovalOverlay.tsx` | neu | Overlay-Inhalt: Challenge-Anzeige inkl. Verlustkorridor-Pflichttext, Freigabe-/Ablehnungs-Aktion (Confirm selektiert `challenge_id`; `challenge_reissued` zeigt die frische Challenge) |
 | `src/agentkit/frontend/app/contexts/story_context_manager/components/TakeoverPanel.tsx` | neu | Cockpit-Takeover-Sicht: Eigentumslage, SHA/Push-Frische je Repo, offene Jobs/`op_id`s, Takeover-Historie, Edge-Zustands-Anzeige mit Auflösungs-Hinweis |
 | `src/agentkit/frontend/app/app_shell/inspector/DetailInspector.tsx` | ändern | Einhängen der Cockpit-Takeover-Sicht als Story-Slice-Beitrag |
 | `tests/unit/telemetry/**`, `tests/unit/control_plane/**` | neu/ändern | Stream-Kompositions-/Filter-/Auth-Entscheidungslogik über Ports/Fakes |
@@ -243,7 +251,10 @@ FK-56 §56.13b) hat keine Oberfläche.
 4. **Lossy-Re-Sync bewiesen:** nach einem simulierten Event-Drop +
    Reconnect stellt der Initial-GET des Read-Models den vollständigen
    Approval-Stand wieder her (Integrationstest); der Overlay-Zustand hängt
-   nie allein am SSE-Event (SOLL-104/130).
+   nie allein am SSE-Event. Das gilt ausdrücklich für „approved, aber
+   frische Challenge wartet auf Bestätigung": Initial-GET liefert Approval
+   plus aktuell verknüpfte `challenge_id` und öffnet den Bestätigungsschritt
+   erneut (SOLL-104/130).
 5. **Read-Model feldgenau:** der Approvals-Initial-GET liefert
    `takeover_approval_request` exakt nach
    `frontend-contracts.entity.takeover_approval_request` (Contract-Pin);
@@ -262,8 +273,11 @@ FK-56 §56.13b) hat keine Oberfläche.
    es gibt keinen Confirm-Pfad, der den Pflichttext umgeht (SOLL-151-
    Anzeige-Anteil, FK-56 §56.13c).
 8. **Confirm = exakter Challenge-Stand:** die Bestätigung im Overlay bzw.
-   Cockpit-Dialog sendet exakt das Challenge-Echo des angezeigten Standes
-   (`confirm_story_run_takeover`); ein zwischenzeitlich veralteter
+   Cockpit-Dialog sendet die `challenge_id` des angezeigten, serverseitig
+   gespeicherten Standes (`confirm_story_run_takeover`). Bei
+   `challenge_reissued` zeigt sie die frische Challenge und sendet einen
+   zweiten Confirm mit neuem `op_id`; im ersten Call findet kein Transfer
+   statt. Ein zwischenzeitlich veralteter
    Challenge führt zu deterministischem 409 ohne Vollzug, und die Sicht
    lädt die aktuelle Eigentumslage neu (Negativtest; SOLL-101/107).
 9. **Ablehnung/Verfall ohne Eigentumswirkung:** Ablehnen im Overlay und
@@ -285,7 +299,8 @@ FK-56 §56.13b) hat keine Oberfläche.
     den gelieferten Daten, zeigt die Sicht keinen „grünen" Default
     (fail-closed Unbekannt-Darstellung; SOLL-109/164).
 12. **Command-Verträge gepinnt:** beide Wire-Commands sind contract-gepinnt
-    (Inputs inkl. Pflicht-`reason`/`challenge_echo`/`op_id`, Fehlercodes
+    (Inputs inkl. Pflicht-`reason`/`challenge_id`/`op_id`, Antwort
+    `challenge_reissued`, Fehlercodes
     409/403/404/`idempotency_mismatch`); `op_id` wird client-seitig
     gemintet; `request_story_run_takeover` emittiert kein Frontend-Event
     (SOLL-100/101/106).

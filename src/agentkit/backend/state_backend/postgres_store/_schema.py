@@ -126,6 +126,8 @@ def _schema_is_bootstrapped(conn: _CompatConnection) -> bool:
         return False
     if not _ag3_137_binding_constraints_present(conn):
         return False
+    if not _takeover_approval_challenge_ref_unique_present(conn):
+        return False
     if not _analytics_versions_are_recorded(conn):
         return False
     return _fact_tables_are_fk62_shaped(conn)
@@ -176,6 +178,22 @@ def _ag3_147_push_freshness_columns_present(conn: _CompatConnection) -> bool:
     ).fetchall()
     present = {str(row["column_name"]) for row in rows}
     return set(_AG3_147_PUSH_FRESHNESS_COLUMNS) <= present
+
+
+def _takeover_approval_challenge_ref_unique_present(conn: _CompatConnection) -> bool:
+    """Return whether the R5 approval-to-challenge cardinality is enforced."""
+
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM pg_indexes
+        WHERE schemaname = current_schema()
+          AND tablename = 'takeover_approvals'
+          AND indexname = 'takeover_approvals_challenge_ref_uidx'
+          AND left(indexdef, 19) = 'CREATE UNIQUE INDEX'
+        """,
+    ).fetchone()
+    return row is not None
 
 
 def _ag3_137_additive_columns_present(conn: _CompatConnection) -> bool:
@@ -473,6 +491,17 @@ def _schema_alter_statements() -> tuple[str, ...]:
         (
             "ALTER TABLE takeover_approvals ADD CONSTRAINT takeover_approvals_status_check "
             "CHECK (status IN ('pending', 'approved', 'denied', 'expired', 'invalidated'))"
+        ),
+        (
+            "DO $$ BEGIN "
+            "IF EXISTS (SELECT challenge_ref FROM takeover_approvals "
+            "GROUP BY challenge_ref HAVING COUNT(*) > 1) THEN "
+            "RAISE EXCEPTION 'duplicate takeover_approvals.challenge_ref values block the R5 unique migration'; "
+            "END IF; END $$"
+        ),
+        (
+            "CREATE UNIQUE INDEX IF NOT EXISTS takeover_approvals_challenge_ref_uidx "
+            "ON takeover_approvals (challenge_ref)"
         ),
         ("ALTER TABLE control_plane_operations ALTER COLUMN story_id DROP NOT NULL"),
         # AG3-147 remediation: hard push barriers require boundary-correlated

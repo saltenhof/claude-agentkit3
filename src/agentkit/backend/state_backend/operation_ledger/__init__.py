@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
+    from agentkit.backend.control_plane.ownership_transfer import OwnershipBasis
     from agentkit.backend.control_plane.records import (
         BindingDeleteScope,
         ControlPlaneOperationRecord,
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
         TakeoverApprovalRecord,
         TakeoverChallengeRecord,
         TakeoverConfirmTerminalRecords,
+        TakeoverReissueRecords,
         TakeoverTransferRecord,
     )
     from agentkit.backend.governance.guard_system.records import (
@@ -255,9 +257,7 @@ def commit_edge_command_result_global(
 def commit_takeover_confirm_global(
     op_record: ControlPlaneOperationRecord,
     *,
-    expected_owner_session_id: str,
-    expected_ownership_epoch: int,
-    expected_binding_version: str,
+    expected_basis: OwnershipBasis,
     revoked_binding: SessionRunBindingRecord,
     new_binding: SessionRunBindingRecord,
     locks: tuple[StoryExecutionLockRecord, ...],
@@ -273,9 +273,7 @@ def commit_takeover_confirm_global(
     backend = _backend_module()
     backend.commit_takeover_confirm_global_row(
         op_row=mappers.control_plane_op_to_row(op_record),
-        expected_owner_session_id=expected_owner_session_id,
-        expected_ownership_epoch=expected_ownership_epoch,
-        expected_binding_version=expected_binding_version,
+        expected_basis=expected_basis,
         revoked_binding_row=mappers.session_binding_to_row(revoked_binding),
         new_binding_row=mappers.session_binding_to_row(new_binding),
         lock_rows=tuple(mappers.execution_lock_to_row(lock) for lock in locks),
@@ -290,16 +288,6 @@ def commit_takeover_confirm_global(
             "request_op": mappers.control_plane_op_to_row(
                 terminal_records.request_op_record,
             ),
-            "challenge_to_insert": (
-                mappers.takeover_challenge_to_row(terminal_records.challenge_to_insert)
-                if terminal_records.challenge_to_insert is not None
-                else None
-            ),
-            "challenge_to_expire": (
-                mappers.takeover_challenge_to_row(terminal_records.challenge_to_expire)
-                if terminal_records.challenge_to_expire is not None
-                else None
-            ),
             "approved_approval": (
                 mappers.takeover_approval_to_row(terminal_records.approved_approval)
                 if terminal_records.approved_approval is not None
@@ -307,6 +295,68 @@ def commit_takeover_confirm_global(
             ),
         },
         fault_after_step=fault_after_step,
+    )
+
+
+def commit_takeover_reissue_global(
+    op_record: ControlPlaneOperationRecord,
+    *,
+    expected_basis: OwnershipBasis,
+    records: TakeoverReissueRecords,
+    events: tuple[ExecutionEventRecord, ...],
+    fault_after_step: Callable[[str], None] | None = None,
+) -> None:
+    """Atomically expire, mint, approve/relink, and record one reissue."""
+
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    backend.commit_takeover_reissue_global_row(
+        op_row=mappers.control_plane_op_to_row(op_record),
+        expected_basis=expected_basis,
+        expired_challenge_row=mappers.takeover_challenge_to_row(
+            records.expired_challenge
+        ),
+        fresh_challenge_row=mappers.takeover_challenge_to_row(records.fresh_challenge),
+        relinked_approval_row=mappers.takeover_approval_to_row(
+            records.relinked_approval
+        ),
+        event_rows=tuple(mappers.execution_event_to_row(event) for event in events),
+        fault_after_step=fault_after_step,
+    )
+
+
+def reconcile_takeover_confirm_cas_loss_global(
+    op_record: ControlPlaneOperationRecord,
+    *,
+    expected_basis: OwnershipBasis,
+    request_op_record: ControlPlaneOperationRecord,
+    challenge: TakeoverChallengeRecord,
+    invalidated_approval: TakeoverApprovalRecord | None,
+    events: tuple[ExecutionEventRecord, ...],
+) -> str:
+    """Classify and, when stale, terminalize one confirm CAS loss."""
+
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    return str(
+        backend.reconcile_takeover_confirm_cas_loss_global_row(
+            op_row=mappers.control_plane_op_to_row(op_record),
+            expected_basis=expected_basis,
+            request_op_row=mappers.control_plane_op_to_row(request_op_record),
+            challenge_row=mappers.takeover_challenge_to_row(challenge),
+            invalidated_approval_row=(
+                mappers.takeover_approval_to_row(invalidated_approval)
+                if invalidated_approval is not None
+                else None
+            ),
+            event_rows=tuple(
+                mappers.execution_event_to_row(event) for event in events
+            ),
+        )
     )
 
 
@@ -365,6 +415,7 @@ def commit_takeover_invalidation_global(
     challenge: TakeoverChallengeRecord,
     invalidated_approval: TakeoverApprovalRecord | None,
     events: tuple[ExecutionEventRecord, ...],
+    fault_after_step: Callable[[str], None] | None = None,
 ) -> None:
     """Atomically record stale challenge invalidation and terminalize request rows."""
     from agentkit.backend.state_backend import persistence_mappers as mappers
@@ -381,6 +432,7 @@ def commit_takeover_invalidation_global(
             else None
         ),
         event_rows=tuple(mappers.execution_event_to_row(event) for event in events),
+        fault_after_step=fault_after_step,
     )
 
 
@@ -761,6 +813,8 @@ __all__ = [
     "commit_edge_command_result_global",
     "commit_takeover_deny_global",
     "commit_takeover_confirm_global",
+    "commit_takeover_reissue_global",
+    "reconcile_takeover_confirm_cas_loss_global",
     "commit_takeover_expiry_global",
     "commit_takeover_invalidation_global",
     "commit_takeover_reconcile_clear_global",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -20,6 +21,7 @@ from agentkit.backend.bootstrap.story_reset_adapters import (
     StoryResetLockError,
     WorkspacePurgeAdapter,
 )
+from agentkit.backend.control_plane.records import ControlPlaneOperationRecord
 
 
 @dataclass(frozen=True)
@@ -50,7 +52,26 @@ class _ControlPlaneRepo:
         self.committed = False
         self.claimed: list[object] = []
         self.deleted: list[str] = []
-        self.records: dict[str, object] = {"reset-1": object()}
+        self.finalized: list[object] = []
+        now = datetime(2026, 7, 10, tzinfo=UTC)
+        self.records: dict[str, Any] = {
+            "reset-1": ControlPlaneOperationRecord(
+                op_id="reset-1",
+                project_key="p",
+                story_id="s",
+                run_id="run-1",
+                session_id=None,
+                operation_kind="story_reset",
+                phase=None,
+                status="claimed",
+                response_payload={"reset_status": "started"},
+                created_at=now,
+                updated_at=now,
+                claimed_by="story-reset-reset-1",
+                claimed_at=now,
+                operation_epoch=1,
+            )
+        }
 
     def has_committed_story_exit_operation_for_run(self, _project_key: str, _story_id: str, _run_id: str) -> bool:
         return self.committed
@@ -64,6 +85,11 @@ class _ControlPlaneRepo:
 
     def delete_operation(self, op_id: str) -> None:
         self.deleted.append(op_id)
+
+    def finalize_operation(self, record: Any, **_kwargs: object) -> bool:
+        self.finalized.append(record)
+        self.records[record.op_id] = record
+        return True
 
 
 @dataclass(frozen=True)
@@ -155,7 +181,9 @@ def test_control_plane_adapters_delegate_to_committed_owner() -> None:
     assert FenceAdapter(cp_repo).load("reset-1") is not None  # type: ignore[arg-type]
     FenceAdapter(cp_repo).release("reset-1")  # type: ignore[arg-type]
     assert cp_repo.claimed == [record]
-    assert cp_repo.deleted == ["reset-1"]
+    assert cp_repo.deleted == []
+    assert len(cp_repo.finalized) == 1
+    assert cp_repo.records["reset-1"].status == "committed"
 
 
 def test_runtime_and_projection_purge_adapters_return_plain_row_maps() -> None:

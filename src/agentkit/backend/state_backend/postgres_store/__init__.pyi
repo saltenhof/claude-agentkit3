@@ -91,6 +91,9 @@ from ._control_plane_rows import (
     commit_takeover_reconcile_clear_global_row as commit_takeover_reconcile_clear_global_row,
 )
 from ._control_plane_rows import (
+    commit_takeover_reissue_global_row as commit_takeover_reissue_global_row,
+)
+from ._control_plane_rows import (
     delete_control_plane_operation_global_row as delete_control_plane_operation_global_row,
 )
 from ._control_plane_rows import (
@@ -122,6 +125,9 @@ from ._control_plane_rows import (
 )
 from ._control_plane_rows import (
     load_control_plane_operation_global_row as load_control_plane_operation_global_row,
+)
+from ._control_plane_rows import (
+    reconcile_takeover_confirm_cas_loss_global_row as reconcile_takeover_confirm_cas_loss_global_row,
 )
 from ._control_plane_rows import (
     release_control_plane_operation_global_row as release_control_plane_operation_global_row,
@@ -254,6 +260,9 @@ from ._ownership_rows import (
 )
 from ._ownership_rows import (
     load_story_execution_lock_global_row as load_story_execution_lock_global_row,
+)
+from ._ownership_rows import (
+    load_takeover_approval_for_challenge_global_row as load_takeover_approval_for_challenge_global_row,
 )
 from ._ownership_rows import (
     load_takeover_challenge_global_row as load_takeover_challenge_global_row,

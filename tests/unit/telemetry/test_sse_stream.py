@@ -90,6 +90,7 @@ def test_render_project_snapshot_includes_pending_takeover_approvals_on_governan
     assert "event: governance" in payload
     assert '"event_type": "pending_takeover_approval"' in payload
     assert '"approval_id": "approval-1"' in payload
+    assert '"challenge_id": "challenge-1"' in payload
     assert '"requested_by_principal_type": "interactive_agent"' in payload
 
 

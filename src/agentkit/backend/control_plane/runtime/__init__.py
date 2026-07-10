@@ -46,4 +46,10 @@ from ._operation_records import (
 from ._operation_records import (
     _rejection_result as _rejection_result,
 )
+from ._ownership_transfer_commands import (
+    TakeoverConfirmCommand as TakeoverConfirmCommand,
+)
+from ._ownership_transfer_commands import (
+    TakeoverDenyCommand as TakeoverDenyCommand,
+)
 from ._service import ControlPlaneRuntimeService as ControlPlaneRuntimeService

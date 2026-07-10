@@ -398,9 +398,16 @@ class TakeoverConfirmTerminalRecords:
 
     challenge: TakeoverChallengeRecord
     request_op_record: ControlPlaneOperationRecord
-    challenge_to_insert: TakeoverChallengeRecord | None = None
-    challenge_to_expire: TakeoverChallengeRecord | None = None
     approved_approval: TakeoverApprovalRecord | None = None
+
+
+@dataclass(frozen=True)
+class TakeoverReissueRecords:
+    """Rows committed atomically when an expired challenge is reissued."""
+
+    expired_challenge: TakeoverChallengeRecord
+    fresh_challenge: TakeoverChallengeRecord
+    relinked_approval: TakeoverApprovalRecord
 
 
 @dataclass(frozen=True)

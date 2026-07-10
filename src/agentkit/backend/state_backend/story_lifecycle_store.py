@@ -332,6 +332,19 @@ def load_takeover_approval_global(approval_id: str) -> Any | None:
     return mappers.takeover_approval_row_to_record(row)
 
 
+def load_takeover_approval_for_challenge_global(challenge_id: str) -> Any | None:
+    """Load the unique takeover approval linked by ``challenge_ref``."""
+
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    row = backend.load_takeover_approval_for_challenge_global_row(challenge_id)
+    if row is None:
+        return None
+    return mappers.takeover_approval_row_to_record(row)
+
+
 def update_takeover_approval_status_global(record: Any) -> bool:
     """CAS-update one takeover approval status from its current record state."""
     from agentkit.backend.state_backend import persistence_mappers as mappers
@@ -381,6 +394,7 @@ __all__ = [
     "update_takeover_challenge_status_global",
     "insert_takeover_approval_global",
     "load_takeover_approval_global",
+    "load_takeover_approval_for_challenge_global",
     "update_takeover_approval_status_global",
     "list_pending_takeover_approvals_global",
     "backend_has_valid_context",

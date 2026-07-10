@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from agentkit.backend.control_plane.records import (
         RunOwnershipRecord,
         SessionRunBindingRecord,
+        TakeoverChallengeRecord,
     )
 
 LOSS_CORRIDOR_TEXT = (
@@ -43,6 +44,23 @@ class TakeoverConfirmFailure(StrEnum):
 
 
 InvalidationReason = Literal["transfer", "exit", "reset", "split", "closure"]
+
+
+@dataclass(frozen=True)
+class OwnershipBasis:
+    """Canonical CAS basis of a takeover decision (FK-56 §56.13a)."""
+
+    owner_session_id: str
+    ownership_epoch: int
+    binding_version: str
+
+    def __post_init__(self) -> None:
+        if not self.owner_session_id.strip():
+            raise ValueError("owner_session_id must not be empty")
+        if self.ownership_epoch < 1:
+            raise ValueError("ownership_epoch must be >= 1")
+        if not self.binding_version.strip():
+            raise ValueError("binding_version must not be empty")
 
 
 @dataclass(frozen=True)
@@ -111,22 +129,6 @@ class TakeoverChallenge:
 
 
 @dataclass(frozen=True)
-class TakeoverChallengeEcho:
-    """CAS-signature echoed by a confirm request."""
-
-    challenge_id: str
-    owner_session_id: str
-    ownership_epoch: int
-    binding_version: str
-
-    def __post_init__(self) -> None:
-        if not self.challenge_id.strip() or not self.owner_session_id.strip():
-            raise ValueError("challenge_id and owner_session_id must not be empty")
-        if self.ownership_epoch < 1:
-            raise ValueError("ownership_epoch must be >= 1")
-
-
-@dataclass(frozen=True)
 class TakeoverConfirmDecision:
     """Pure CAS decision result for takeover confirm."""
 
@@ -176,11 +178,66 @@ def build_takeover_challenge(
     )
 
 
-def evaluate_takeover_confirm(
-    *,
+def ownership_basis_of_active(
     active_record: RunOwnershipRecord | None,
     owner_binding: SessionRunBindingRecord | None,
-    echo: TakeoverChallengeEcho,
+) -> OwnershipBasis | None:
+    """Return the current full basis, failing closed on any scope mismatch."""
+
+    if active_record is None or active_record.status is not OwnershipStatus.ACTIVE:
+        return None
+    if owner_binding is None or owner_binding.status != "active":
+        return None
+    if (
+        owner_binding.session_id != active_record.owner_session_id
+        or owner_binding.project_key != active_record.project_key
+        or owner_binding.story_id != active_record.story_id
+        or owner_binding.run_id != active_record.run_id
+    ):
+        return None
+    return OwnershipBasis(
+        owner_session_id=active_record.owner_session_id,
+        ownership_epoch=active_record.ownership_epoch,
+        binding_version=owner_binding.binding_version,
+    )
+
+
+def ownership_basis_of_challenge(challenge: TakeoverChallengeRecord) -> OwnershipBasis:
+    """Return the immutable full basis persisted on a takeover challenge."""
+
+    return OwnershipBasis(
+        owner_session_id=challenge.owner_session_id,
+        ownership_epoch=challenge.ownership_epoch,
+        binding_version=challenge.binding_version,
+    )
+
+
+def ownership_basis_unchanged(
+    active_basis: OwnershipBasis | None,
+    challenge_basis: OwnershipBasis,
+) -> bool:
+    """Compare the complete confirm-CAS basis."""
+
+    return active_basis == challenge_basis
+
+
+def ownership_anchor_unchanged(
+    active_basis: OwnershipBasis | None,
+    challenge_basis: OwnershipBasis,
+) -> bool:
+    """Compare only owner and epoch for expired-challenge reissue eligibility."""
+
+    return (
+        active_basis is not None
+        and active_basis.owner_session_id == challenge_basis.owner_session_id
+        and active_basis.ownership_epoch == challenge_basis.ownership_epoch
+    )
+
+
+def evaluate_takeover_confirm(
+    *,
+    active_basis: OwnershipBasis | None,
+    challenge_basis: OwnershipBasis,
     now: datetime,
     challenge_expires_at: datetime | None,
     approval_status: TakeoverApprovalStatus | None,
@@ -189,16 +246,10 @@ def evaluate_takeover_confirm(
 ) -> TakeoverConfirmDecision:
     """Evaluate the technology-free confirm preconditions before the row CAS."""
 
+    if not ownership_basis_unchanged(active_basis, challenge_basis):
+        return TakeoverConfirmDecision(False, TakeoverConfirmFailure.CHALLENGE_INVALIDATED)
     if challenge_expires_at is not None and now >= challenge_expires_at:
         return TakeoverConfirmDecision(False, TakeoverConfirmFailure.CHALLENGE_EXPIRED)
-    if active_record is None or active_record.status is not OwnershipStatus.ACTIVE:
-        return TakeoverConfirmDecision(False, TakeoverConfirmFailure.OWNERSHIP_NOT_ACTIVE)
-    if active_record.owner_session_id != echo.owner_session_id:
-        return TakeoverConfirmDecision(False, TakeoverConfirmFailure.OWNER_SESSION_MISMATCH)
-    if active_record.ownership_epoch != echo.ownership_epoch:
-        return TakeoverConfirmDecision(False, TakeoverConfirmFailure.OWNERSHIP_EPOCH_MISMATCH)
-    if owner_binding is None or owner_binding.binding_version != echo.binding_version:
-        return TakeoverConfirmDecision(False, TakeoverConfirmFailure.BINDING_VERSION_MISMATCH)
     if approval_required and approval_status is None:
         return TakeoverConfirmDecision(False, TakeoverConfirmFailure.APPROVAL_REQUIRED)
     if approval_required and approval_status is not TakeoverApprovalStatus.APPROVED:

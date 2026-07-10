@@ -11,11 +11,12 @@ from pydantic import ValidationError
 from agentkit.backend.auth.middleware import is_ownership_transfer_path
 from agentkit.backend.control_plane.models import (
     AdminTakeoverReconcileClearRequest,
-    TakeoverChallengeEchoRequest,
+    TakeoverConfirmRequest,
     TakeoverDenyRequest,
     TakeoverRequest,
     op_id_validation_error,
 )
+from agentkit.backend.control_plane.runtime import TakeoverConfirmCommand, TakeoverDenyCommand
 from agentkit.backend.control_plane_http import _route_patterns
 from agentkit.backend.control_plane_http.responses import (
     _backend_requirement_response,
@@ -150,14 +151,18 @@ def _handle_post_takeover_confirm(
     )
 
     try:
-        if auth_result is None or not auth_result.is_human_bff_session:
+        if (
+            auth_result is None
+            or not auth_result.is_human_bff_session
+            or auth_result.session_id is None
+        ):
             return _error_response(
                 HTTPStatus.FORBIDDEN,
                 error_code="agent_confirm_forbidden",
                 message="Ownership takeover confirm requires a human BFF session",
                 correlation_id=correlation_id,
             )
-        request = TakeoverChallengeEchoRequest.model_validate(payload)
+        request = TakeoverConfirmRequest.model_validate(payload)
         project_fence = _project_key_fence(
             request_project_key=request.project_key,
             auth_result=auth_result,
@@ -165,8 +170,12 @@ def _handle_post_takeover_confirm(
         )
         if project_fence is not None:
             return project_fence
-        request = request.model_copy(update={"principal_type": "human_bff_session"})
-        result = runtime_service.confirm_ownership_takeover(request=request)
+        command = TakeoverConfirmCommand(
+            request=request,
+            confirmed_by_session_id=auth_result.session_id,
+            confirmed_by_principal=Principal.HUMAN_CLI,
+        )
+        result = runtime_service.confirm_ownership_takeover(command=command)
     except ValidationError as exc:
         return _error_response(
             HTTPStatus.UNPROCESSABLE_ENTITY
@@ -212,7 +221,11 @@ def _handle_post_takeover_deny(
     )
 
     try:
-        if auth_result is None or not auth_result.is_human_bff_session:
+        if (
+            auth_result is None
+            or not auth_result.is_human_bff_session
+            or auth_result.session_id is None
+        ):
             return _error_response(
                 HTTPStatus.FORBIDDEN,
                 error_code="agent_deny_forbidden",
@@ -227,8 +240,12 @@ def _handle_post_takeover_deny(
         )
         if project_fence is not None:
             return project_fence
-        request = request.model_copy(update={"principal_type": "human_bff_session"})
-        result = runtime_service.deny_ownership_takeover(request=request)
+        command = TakeoverDenyCommand(
+            request=request,
+            denied_by_session_id=auth_result.session_id,
+            denied_by_principal=Principal.HUMAN_CLI,
+        )
+        result = runtime_service.deny_ownership_takeover(command=command)
     except ValidationError as exc:
         return _error_response(
             HTTPStatus.UNPROCESSABLE_ENTITY

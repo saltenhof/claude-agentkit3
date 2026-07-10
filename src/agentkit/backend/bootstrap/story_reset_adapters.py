@@ -9,7 +9,8 @@ composition-root layer (which is allowed to depend on every BC); the
 from __future__ import annotations
 
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -120,8 +121,40 @@ class FenceAdapter:
         return self.cp_repo.load_operation(op_id)
 
     def release(self, op_id: str) -> None:
-        """Release the reset fence (§53.9.3)."""
-        self.cp_repo.delete_operation(op_id)
+        """Release the live reset claim by retaining a committed terminal marker."""
+        claimed = self.cp_repo.load_operation(op_id)
+        if claimed is None:
+            return
+        if claimed.status != "claimed" or claimed.claimed_by is None:
+            raise StoryResetLockError(
+                f"reset fence {op_id!r} is not owned by the completing reset"
+            )
+        now = datetime.now(tz=UTC)
+        response_payload = {
+            **claimed.response_payload,
+            "status": "committed",
+            "reset_status": "completed",
+        }
+        terminal = replace(
+            claimed,
+            status="committed",
+            response_payload=response_payload,
+            updated_at=now,
+            finalized_at=now,
+            claimed_by=None,
+            claimed_at=None,
+        )
+        if not self.cp_repo.finalize_operation(
+            terminal,
+            owner_token=claimed.claimed_by,
+            owner_claimed_at=(
+                claimed.claimed_at.isoformat() if claimed.claimed_at is not None else None
+            ),
+            owner_operation_epoch=claimed.operation_epoch,
+        ):
+            raise StoryResetLockError(
+                f"reset fence {op_id!r} lost its ownership-scoped finalize CAS"
+            )
 
 
 @dataclass(frozen=True)

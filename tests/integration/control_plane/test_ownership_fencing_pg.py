@@ -416,18 +416,10 @@ def test_t3_real_takeover_confirm_fences_ex_owner_mutations_but_allows_operation
             {
                 "project_key": _PROJECT,
                 "story_id": story_id,
-                "session_id": "sess-NEW-OWNER",
-                "principal_type": "interactive_agent",
                 "op_id": "op-ac15-confirm",
+                "challenge_id": challenge["challenge_id"],
                 "reason": "human confirmed",
-                "worktree_roots": [f"T:/worktrees/{story_id}/new"],
-                "challenge_echo": {
-                    "challenge_id": challenge["challenge_id"],
-                    "owner_session_id": challenge["current_owner_session_id"],
-                    "ownership_epoch": challenge["ownership_epoch"],
-                    "binding_version": challenge["binding_version"],
-                    "expires_at": challenge["expires_at"],
-                },
+                "source_component": "integration_test",
             }
         ).encode(),
         request_headers=headers,

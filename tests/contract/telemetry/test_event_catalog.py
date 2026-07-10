@@ -254,6 +254,7 @@ _EXPECTED_MANDATORY_FIELDS: dict[EventType, tuple[str, ...]] = {
         "project_key",
         "story_id",
         "approval_id",
+        "challenge_id",
         "approval",
     ),
     # Integration-stabilization contract events (FK-05 §5.14, AG3-069 AC11).
@@ -291,6 +292,7 @@ def test_takeover_approval_changed_payload_matches_frontend_contract() -> None:
         "project_key": "tenant-a",
         "story_id": "AG3-148",
         "approval_id": "approval-1",
+        "challenge_id": "takeover-op-request",
         "approval": {
             "approval_id": "approval-1",
             "project_key": "tenant-a",
@@ -299,7 +301,7 @@ def test_takeover_approval_changed_payload_matches_frontend_contract() -> None:
             "requested_by_session_id": "sess-agent",
             "requested_by_principal_type": "interactive_agent",
             "reason": "owner unavailable",
-            "challenge_ref": "takeover-op-request",
+            "challenge_id": "takeover-op-request",
             "status": "pending",
             "requested_at": "2026-06-07T10:00:00+00:00",
             "expires_at": "2026-06-07T12:00:00+00:00",

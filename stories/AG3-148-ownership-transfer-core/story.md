@@ -144,11 +144,14 @@ keinen Transfer, an den sie andocken.
    Response-Form + HTTP-Mapping für den agenteninitiierten Request, mit der
    expliziten Information, dass ein Benutzer im Frontend freigeben muss; der
    Agent beobachtet den Ausgang über `GET /v1/project-edge/operations/{op_id}`
-   (approved → Vollzug-Ergebnis; denied/expired → deterministischer
-   terminaler Ausgang).
+   (`challenge_reissued` → frische Challenge erneut bestätigen; erst der
+   zweite Confirm liefert das Vollzug-Ergebnis; denied/expired →
+   deterministischer terminaler Ausgang).
 6. **Endpoint `POST /v1/project-edge/story-runs/{run_id}/ownership/takeover-confirm`**
    (SOLL-024, SOLL-027, SOLL-041): formal `confirm-run-ownership-takeover`
-   mit Challenge-Echo; **CAS auf `ownership_epoch`/`binding_version`**. Jede
+   mit `challenge_id` als einzigem Selektor; **serverseitiger CAS auf
+   `owner_session_id`/`ownership_epoch`/`binding_version` der gespeicherten
+   Challenge**. Jede
    zwischenzeitliche Änderung der Eigentumslage (Transfer, Exit, Reset,
    Split, Closure) invalidiert offene Challenges; von zwei konkurrierenden
    Confirms gewinnt deterministisch genau einer, der zweite scheitert
@@ -252,7 +255,7 @@ keinen Transfer, an den sie andocken.
 |---|---|---|
 | `src/agentkit/backend/control_plane/ownership_transfer.py` | neu | Challenge-Modell + Assembler-Regeln, Confirm-CAS-Entscheidungslogik, Approval-Lifecycle (pending/approved/denied/expired), Verlustkorridor-Pflichttext-Baustein, Invalidierungsregeln — Blutgruppe A |
 | `src/agentkit/backend/control_plane/runtime.py` | ändern | Request-/Confirm-Handler; atomarer Vollzug (Record-CAS + Binding-Revoke/Neu-Bind + Tombstone + Transfer-Record in einer Transaktion); Event-Emission über die Lifecycle-Event-Mechanik (:1575 ff.); Historien-/Challenge-Query-Orchestrierung |
-| `src/agentkit/backend/control_plane/models.py` | ändern | Wire-Modelle: TakeoverRequest (reason Pflicht, client-op_id `min_length=1`, KEIN `default_factory`-Minting), Challenge-Response, Challenge-Echo, `pending_human_approval`-Response, Approval-Records |
+| `src/agentkit/backend/control_plane/models.py` | ändern | Wire-Modelle: TakeoverRequest; Challenge-Response; selector-only `TakeoverConfirmRequest`; boundary-konstruiertes Confirm-/Deny-Command mit attestierter Human-Identität; `pending_human_approval`-Response; Approval-Records |
 | `src/agentkit/backend/control_plane/records.py`, `repository.py` | ändern | Approval-Queue-Record + Repository-Port; Transfer-/Ownership-Repositories aus AG3-137 konsumieren (Schreibfläche des Vollzugs) |
 | `src/agentkit/backend/control_plane_http/app.py` | ändern | Routen `POST .../ownership/takeover-request` und `.../takeover-confirm` (Project-Edge-Gruppe); Statusform-Mapping inkl. `pending_human_approval`; Attestierungs-Wiring (Confirm nur menschlich attestiert); Fehlerbilder im Regel-8-Fehlervertrag |
 | `src/agentkit/backend/auth/middleware.py` (+ Attestierungs-Anbindung) | ändern (minimal) | Principal-Attestierungs-Kontext für die Ownership-Endpoints (menschliche BFF-Session vs. Agent-Pfad) — IMPL-018 |
@@ -278,8 +281,10 @@ keinen Transfer, an den sie andocken.
 3. **Agent-Pfad:** ein agenteninitiierter Request erzeugt deterministisch
    `pending_human_approval` + einen persistenten, benutzerübergreifenden
    Approval-Eintrag; der Ausgang ist über `GET operations/{op_id}`
-   beobachtbar (approved → Vollzugs-Ergebnis; denied/expired →
-   deterministischer terminaler Ausgang). Der Eintrag übersteht einen
+   beobachtbar: der erste Confirm kann terminal `challenge_reissued`
+   liefern, ohne zu vollziehen; erst ein zweiter Confirm mit neuem `op_id`
+   auf der frischen `challenge_id` liefert das Vollzugs-Ergebnis.
+   `denied`/`expired` bleiben deterministische terminale Ausgänge. Der Eintrag übersteht einen
    Backend-Neustart (Integrationstest gegen die Postgres-Fixture).
 4. **Verfall ist nie Ownership-Entzug:** ein verfallener Approval-Eintrag
    (`expired`) und ein verfallener Challenge lassen den
@@ -288,11 +293,14 @@ keinen Transfer, an den sie andocken.
 5. **Confirm-CAS deterministisch:** zwei konkurrierende Confirms auf
    denselben Challenge-Stand — genau einer gewinnt (Concurrency-
    Integrationstest); der Verlierer erhält einen deterministischen
-   fail-closed Fehler ohne jeden State-Write und muss neu anfragen.
+   fail-closed Fehler; jeder Basis-Mismatch terminalisiert die Challenge
+   als `invalidated` und muss anschließend neu angefragt werden.
 6. **Challenge-Invalidierung an den Phasengrenzen:** je ein Negativtest für
    zwischenzeitlichen Transfer, Exit, Reset, Split und Closure — der
-   Confirm mit veraltetem Challenge-Echo scheitert deterministisch, ohne
-   Side-Effects (Freeze-Eintritt: AG3-150).
+   Confirm mit der veralteten `challenge_id` scheitert deterministisch;
+   die Challenge und eine per `challenge_ref` verknüpfte pending Approval
+   werden atomar invalidiert, ohne Ownership-/Binding-/Transfer-Wirkung
+   (Freeze-Eintritt: AG3-150).
 7. **Atomarer Vollzug:** nach erfolgreichem Confirm existiert genau ein
    aktiver Record (`ownership_epoch` um 1 erhöht, `acquired_via='takeover'`,
    Owner = B), A's Bindung ist revoked (Grund `ownership_transferred`),
@@ -325,8 +333,10 @@ keinen Transfer, an den sie andocken.
     Schreibern); der Transfer selbst ist kurz/bounded.
 14. **Events + Topic:** die vier Events werden mit ihren Wire-Schemas
     emittiert (Contract-Pins); jeder Approval-Statuswechsel erzeugt
-    `takeover_approval_changed` auf dem projekt-skopierten
-    governance-Topic.
+   `takeover_approval_changed` auf dem projekt-skopierten governance-Topic;
+   zusätzlich wird das Event bei jedem erfolgreichen Challenge-Relink
+   emittiert (auch `approved` → `approved`) und trägt die aktuell
+   verknüpfte `challenge_id`.
 15. **E2E-Regression mit AG3-142:** nach echtem Transfer (kein präparierter
     Record) wird eine Ex-Owner-Mutation an den Regime-Pfaden mit
     `409`/`403` + `ownership_transferred`-Payload abgewiesen; Reads inkl.
