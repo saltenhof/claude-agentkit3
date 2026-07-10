@@ -68,6 +68,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from agentkit.backend.control_plane import object_claims
+    from agentkit.backend.control_plane.records import RunOwnershipRecord
     from agentkit.backend.control_plane.repository import (
         ControlPlaneRuntimeRepository,
     )
@@ -405,18 +406,9 @@ class _OwnershipTransferMixin:
             return challenge_lookup.rejection
         assert challenge_lookup.challenge is not None
         stored_challenge = challenge_lookup.challenge
-        if self._repo.has_committed_ownership_invalidating_operation_for_run(
-            request.project_key,
-            request.story_id,
-            stored_challenge.run_id,
-        ):
-            return _takeover_rejection(
-                op_id=request.op_id,
-                operation_kind=_TAKEOVER_CONFIRM,
-                reason="challenge_invalidated",
-                error_code="challenge_invalidated",
-                run_id=stored_challenge.run_id,
-            )
+        invalidated = _invalidating_transition_rejection(self._repo, request, stored_challenge)
+        if invalidated is not None:
+            return invalidated
         active = self._repo.load_active_ownership(request.project_key, request.story_id)
         owner_binding = (
             self._repo.load_binding(stored_challenge.owner_session_id)
@@ -476,19 +468,8 @@ class _OwnershipTransferMixin:
         effective_challenge = reissue.effective_challenge
         challenge_to_insert = reissue.challenge_to_insert
         challenge_to_expire = reissue.challenge_to_expire
-        if (
-            active is None
-            or active.status is not OwnershipStatus.ACTIVE
-            or active.owner_session_id != effective_challenge.owner_session_id
-            or active.ownership_epoch != effective_challenge.ownership_epoch
-        ):
-            return _takeover_rejection(
-                op_id=request.op_id,
-                operation_kind=_TAKEOVER_CONFIRM,
-                reason="challenge_invalidated",
-                error_code="challenge_invalidated",
-                run_id=effective_challenge.run_id,
-            )
+        if _ownership_basis_changed(active, effective_challenge):
+            return _challenge_invalidated_rejection(request, run_id=effective_challenge.run_id)
         core_echo = transfer_core.TakeoverChallengeEcho(
             challenge_id=effective_challenge.challenge_id,
             owner_session_id=effective_challenge.owner_session_id,
@@ -851,3 +832,43 @@ class _OwnershipTransferMixin:
             events=(event,),
         )
         return result
+
+
+def _invalidating_transition_rejection(
+    repo: ControlPlaneRuntimeRepository,
+    request: TakeoverChallengeEchoRequest,
+    challenge: TakeoverChallengeRecord,
+) -> ControlPlaneMutationResult | None:
+    if not repo.has_committed_ownership_invalidating_operation_for_run(
+        request.project_key,
+        request.story_id,
+        challenge.run_id,
+    ):
+        return None
+    return _challenge_invalidated_rejection(request, run_id=challenge.run_id)
+
+
+def _ownership_basis_changed(
+    active: RunOwnershipRecord | None,
+    challenge: TakeoverChallengeRecord,
+) -> bool:
+    return (
+        active is None
+        or active.status is not OwnershipStatus.ACTIVE
+        or active.owner_session_id != challenge.owner_session_id
+        or active.ownership_epoch != challenge.ownership_epoch
+    )
+
+
+def _challenge_invalidated_rejection(
+    request: TakeoverChallengeEchoRequest,
+    *,
+    run_id: str,
+) -> ControlPlaneMutationResult:
+    return _takeover_rejection(
+        op_id=request.op_id,
+        operation_kind=_TAKEOVER_CONFIRM,
+        reason="challenge_invalidated",
+        error_code="challenge_invalidated",
+        run_id=run_id,
+    )

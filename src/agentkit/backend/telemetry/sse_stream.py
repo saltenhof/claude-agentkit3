@@ -151,20 +151,18 @@ def iter_project_sse_stream(
     seen_event_ids: set[str] = set()
     last_heartbeat = 0.0
     while True:
-        if "governance" in allowed:
-            for approval in source.pending_takeover_approvals_for_project(project_key):
-                approval_key = f"takeover-approval:{approval.approval_id}:{approval.status.value}"
-                if approval_key in seen_event_ids:
-                    continue
-                seen_event_ids.add(approval_key)
-                yield render_sse_event(_takeover_approval_snapshot_envelope(approval))
-        for record in source.events_for_project(project_key):
-            if record.event_id in seen_event_ids:
-                continue
-            seen_event_ids.add(record.event_id)
-            envelope = project_event_to_sse(record)
-            if envelope.event in allowed:
-                yield render_sse_event(envelope)
+        yield from _iter_pending_takeover_approval_events(
+            project_key=project_key,
+            source=source,
+            allowed=allowed,
+            seen_event_ids=seen_event_ids,
+        )
+        yield from _iter_project_execution_events(
+            project_key=project_key,
+            source=source,
+            allowed=allowed,
+            seen_event_ids=seen_event_ids,
+        )
         current_time = time.monotonic()
         if current_time - last_heartbeat >= heartbeat_interval_seconds:
             yield render_heartbeat()
@@ -187,6 +185,39 @@ def _topic_for_record(record: ExecutionEventRecord) -> ProjectSseTopic:
     if record.event_type.startswith("story_"):
         return "stories"
     return "telemetry"
+
+
+def _iter_pending_takeover_approval_events(
+    *,
+    project_key: str,
+    source: ProjectTelemetryEventSource,
+    allowed: frozenset[ProjectSseTopic],
+    seen_event_ids: set[str],
+) -> Iterator[bytes]:
+    if "governance" not in allowed:
+        return
+    for approval in source.pending_takeover_approvals_for_project(project_key):
+        approval_key = f"takeover-approval:{approval.approval_id}:{approval.status.value}"
+        if approval_key in seen_event_ids:
+            continue
+        seen_event_ids.add(approval_key)
+        yield render_sse_event(_takeover_approval_snapshot_envelope(approval))
+
+
+def _iter_project_execution_events(
+    *,
+    project_key: str,
+    source: ProjectTelemetryEventSource,
+    allowed: frozenset[ProjectSseTopic],
+    seen_event_ids: set[str],
+) -> Iterator[bytes]:
+    for record in source.events_for_project(project_key):
+        if record.event_id in seen_event_ids:
+            continue
+        seen_event_ids.add(record.event_id)
+        envelope = project_event_to_sse(record)
+        if envelope.event in allowed:
+            yield render_sse_event(envelope)
 
 
 def _takeover_approval_snapshot_envelope(
