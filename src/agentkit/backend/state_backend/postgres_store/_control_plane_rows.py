@@ -790,8 +790,17 @@ def has_open_repair_control_plane_operation_for_story_global_row(
             """,
             (project_key, story_id),
         ).fetchone()
-        if row is not None:
-            return True
+        return row is not None
+
+
+def has_unreconciled_takeover_transfer_for_story_global_row(
+    *,
+    project_key: str,
+    story_id: str,
+) -> bool:
+    """Whether *story_id* has an unreconciled transfer in the active epoch."""
+
+    with _connect_global() as conn:
         active = conn.execute(
             """
             SELECT run_id, ownership_epoch
@@ -1418,11 +1427,12 @@ def _insert_takeover_challenge_row(
         """
         INSERT INTO takeover_challenges (
             challenge_id, request_op_id, project_key, story_id, run_id,
-            requesting_session_id, requesting_principal_type, reason,
+            requesting_session_id, requesting_principal_type,
+            requesting_worktree_roots_json, reason,
             owner_session_id, ownership_epoch, binding_version, phase_status,
             issued_at, expires_at, repos_json, open_operation_ids_json,
             takeover_history_refs_json, status, decided_at, terminal_op_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             row["challenge_id"],
@@ -1432,6 +1442,7 @@ def _insert_takeover_challenge_row(
             row["run_id"],
             row["requesting_session_id"],
             row["requesting_principal_type"],
+            row["requesting_worktree_roots_json"],
             row["reason"],
             row["owner_session_id"],
             row["ownership_epoch"],
@@ -1582,6 +1593,32 @@ def has_committed_story_exit_operation_for_run_global_row(
             WHERE project_key = ? AND story_id = ? AND run_id = ?
               AND status = 'committed'
               AND operation_kind = 'story_exit'
+            LIMIT 1
+            """,
+            (project_key, story_id, run_id),
+        ).fetchone()
+    return row is not None
+
+
+def has_committed_ownership_invalidating_operation_for_run_global_row(
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> bool:
+    """Whether a committed terminal predecessor invalidates open takeover challenges."""
+
+    with _connect_global() as conn:
+        row = conn.execute(
+            """
+            SELECT 1 FROM control_plane_operations
+            WHERE project_key = ? AND story_id = ? AND run_id = ?
+              AND status = 'committed'
+              AND operation_kind IN (
+                  'story_exit',
+                  'story_reset',
+                  'story_split',
+                  'closure_complete'
+              )
             LIMIT 1
             """,
             (project_key, story_id, run_id),

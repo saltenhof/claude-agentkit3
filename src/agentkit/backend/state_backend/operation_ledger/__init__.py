@@ -511,6 +511,21 @@ def has_open_repair_control_plane_operation_for_story_global(
     )
 
 
+def has_unreconciled_takeover_transfer_for_story_global(
+    project_key: str,
+    story_id: str,
+) -> bool:
+    """Return whether a story has an unreconciled takeover transfer."""
+    _require_control_plane_backend()
+    backend = _backend_module()
+    return bool(
+        backend.has_unreconciled_takeover_transfer_for_story_global_row(
+            project_key=project_key,
+            story_id=story_id,
+        )
+    )
+
+
 def list_open_control_plane_operation_ids_for_story_global(
     project_key: str,
     story_id: str,
@@ -559,6 +574,29 @@ def has_committed_story_exit_operation_for_run_global(
         )
     return bool(
         backend.has_committed_story_exit_operation_for_run_global_row(
+            project_key,
+            story_id,
+            run_id,
+        )
+    )
+
+
+def has_committed_ownership_invalidating_operation_for_run_global(
+    project_key: str,
+    story_id: str,
+    run_id: str,
+) -> bool:
+    """Return whether a committed terminal predecessor invalidates takeover challenges."""
+    backend = _backend_module()
+    if not hasattr(
+        backend,
+        "has_committed_ownership_invalidating_operation_for_run_global_row",
+    ):
+        raise RuntimeError(
+            "Control-plane ownership-invalidation probe is unsupported by the active backend",
+        )
+    return bool(
+        backend.has_committed_ownership_invalidating_operation_for_run_global_row(
             project_key,
             story_id,
             run_id,
@@ -706,9 +744,11 @@ __all__ = [
     "resolve_repair_control_plane_operation_global",
     "has_engine_writes_since_control_plane_claim_global",
     "has_open_repair_control_plane_operation_for_story_global",
+    "has_unreconciled_takeover_transfer_for_story_global",
     "list_open_control_plane_operation_ids_for_story_global",
     "has_committed_control_plane_operation_for_run_global",
     "has_committed_story_exit_operation_for_run_global",
+    "has_committed_ownership_invalidating_operation_for_run_global",
     "delete_control_plane_operation_global",
     "load_control_plane_operation_global",
     "insert_object_mutation_claim_global",

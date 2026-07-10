@@ -22,11 +22,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from agentkit.backend.state_backend.story_lifecycle_store import (
+    list_pending_takeover_approvals_global,
+)
 from agentkit.backend.state_backend.telemetry_event_store import (
     load_execution_events_for_project_global,
 )
 
 if TYPE_CHECKING:
+    from agentkit.backend.control_plane.records import TakeoverApprovalRecord
     from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 
@@ -47,6 +51,13 @@ class StateBackendProjectTelemetryEventSource:
     ) -> list[ExecutionEventRecord]:
         """Return recent execution events for one project (empty list when none)."""
         return load_execution_events_for_project_global(project_key, limit=limit)
+
+    def pending_takeover_approvals_for_project(
+        self,
+        project_key: str,
+    ) -> tuple[TakeoverApprovalRecord, ...]:
+        """Return pending takeover approvals for the project governance topic."""
+        return list_pending_takeover_approvals_global(project_key)
 
 
 __all__ = ["StateBackendProjectTelemetryEventSource"]

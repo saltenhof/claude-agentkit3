@@ -26,6 +26,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from agentkit.backend.control_plane.records import TakeoverApprovalRecord
     from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 __all__ = ["ProjectTelemetryEventSource"]
@@ -48,4 +49,11 @@ class ProjectTelemetryEventSource(Protocol):
         limit: int = 200,
     ) -> list[ExecutionEventRecord]:
         """Return recent execution events for one project (empty list when none)."""
+        ...
+
+    def pending_takeover_approvals_for_project(
+        self,
+        project_key: str,
+    ) -> tuple[TakeoverApprovalRecord, ...]:
+        """Return pending takeover approvals for the project governance topic."""
         ...

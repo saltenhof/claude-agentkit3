@@ -32,9 +32,11 @@ from agentkit.backend.state_backend.operation_ledger import (
     finalize_control_plane_start_phase_global,
     finalize_orphaned_control_plane_operation_global,
     has_committed_control_plane_operation_for_run_global,
+    has_committed_ownership_invalidating_operation_for_run_global,
     has_committed_story_exit_operation_for_run_global,
     has_engine_writes_since_control_plane_claim_global,
     has_open_repair_control_plane_operation_for_story_global,
+    has_unreconciled_takeover_transfer_for_story_global,
     insert_object_mutation_claim_global,
     list_open_control_plane_operation_ids_for_story_global,
     list_orphaned_claimed_control_plane_operations_global,
@@ -183,6 +185,9 @@ class ControlPlaneRuntimeRepository:
     has_committed_story_exit_operation_for_run: Callable[[str, str, str], bool] = (
         has_committed_story_exit_operation_for_run_global
     )
+    has_committed_ownership_invalidating_operation_for_run: Callable[
+        [str, str, str], bool
+    ] = has_committed_ownership_invalidating_operation_for_run_global
     #: AG3-054: unconditional delete for administrative recovery only (the
     #: productive release path is ``release_operation``). Idempotent.
     delete_operation: Callable[[str], None] = delete_control_plane_operation_global
@@ -244,6 +249,9 @@ class ControlPlaneRuntimeRepository:
     has_open_repair_for_story: Callable[[str, str], bool] = (
         has_open_repair_control_plane_operation_for_story_global
     )
+    has_unreconciled_takeover_for_story: Callable[[str, str], bool] = (
+        has_unreconciled_takeover_transfer_for_story_global
+    )
     #: AG3-142 (SOLL-014/SOLL-015): the SOLE admission/fencing truth for every
     #: regime mutation path -- the story's single active ``RunOwnershipRecord``
     #: (``status='active'``), or ``None`` when none exists (fail-closed: no
@@ -273,6 +281,15 @@ class ControlPlaneRuntimeRepository:
     insert_takeover_challenge: Callable[[TakeoverChallengeRecord], None] = (
         insert_takeover_challenge_global
     )
+    insert_takeover_approval: Callable[[TakeoverApprovalRecord], None] = (
+        insert_takeover_approval_global
+    )
+    load_takeover_approval: Callable[[str], TakeoverApprovalRecord | None] = (
+        load_takeover_approval_global
+    )
+    list_pending_takeover_approvals: Callable[
+        [str | None], tuple[TakeoverApprovalRecord, ...]
+    ] = list_pending_takeover_approvals_global
     update_takeover_challenge_status: Callable[[TakeoverChallengeRecord], bool] = (
         update_takeover_challenge_status_global
     )

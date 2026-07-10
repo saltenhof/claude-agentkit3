@@ -17,6 +17,7 @@ from agentkit.backend.control_plane.models import (
 from agentkit.backend.control_plane.ownership import (
     OWNERSHIP_TRANSFERRED_REVOCATION_REASON,
     BindingStatus,
+    OwnershipStatus,
     TakeoverApprovalStatus,
 )
 from agentkit.backend.control_plane.records import (
@@ -38,6 +39,7 @@ from ._operation_records import (
 from ._ownership_transfer_support import (
     _AGENT_PRINCIPAL_TYPES,
     _APPROVAL_TTL,
+    _CANONICAL_PRINCIPAL_TYPES,
     _CHALLENGE_TTL,
     _TAKEOVER_CONFIRM,
     _TAKEOVER_DENY,
@@ -104,6 +106,13 @@ class _OwnershipTransferMixin:
         )
         if existing is not None:
             return existing
+        if request.principal_type not in _CANONICAL_PRINCIPAL_TYPES:
+            return _takeover_rejection(
+                op_id=request.op_id,
+                operation_kind=_TAKEOVER_REQUEST,
+                reason="invalid_takeover_principal",
+                error_code="invalid_takeover_principal",
+            )
         conflict = self._acquire_object_claim(
             project_key=request.project_key,
             story_id=request.story_id,
@@ -306,13 +315,9 @@ class _OwnershipTransferMixin:
                 requested_at=now,
                 expires_at=now + _APPROVAL_TTL,
             )
-            from agentkit.backend.control_plane.repository import (
-                TakeoverApprovalRepository,
-            )
-
             # AG3-149/151 hardening follow-up: request persists approval/operation/
             # challenge in separate writes; confirm/deny own the atomicity contract.
-            TakeoverApprovalRepository().insert_approval(approval)
+            self._repo.insert_takeover_approval(approval)
             result = ControlPlaneMutationResult(
                 status="pending_human_approval",
                 op_id=request.op_id,
@@ -372,6 +377,7 @@ class _OwnershipTransferMixin:
                 challenge,
                 request_op_id=request.op_id,
                 issued_at=now,
+                requesting_worktree_roots=tuple(request.worktree_roots),
             )
         )
         for event_type, event_payload in event_specs:
@@ -399,6 +405,18 @@ class _OwnershipTransferMixin:
             return challenge_lookup.rejection
         assert challenge_lookup.challenge is not None
         stored_challenge = challenge_lookup.challenge
+        if self._repo.has_committed_ownership_invalidating_operation_for_run(
+            request.project_key,
+            request.story_id,
+            stored_challenge.run_id,
+        ):
+            return _takeover_rejection(
+                op_id=request.op_id,
+                operation_kind=_TAKEOVER_CONFIRM,
+                reason="challenge_invalidated",
+                error_code="challenge_invalidated",
+                run_id=stored_challenge.run_id,
+            )
         active = self._repo.load_active_ownership(request.project_key, request.story_id)
         owner_binding = (
             self._repo.load_binding(stored_challenge.owner_session_id)
@@ -411,10 +429,15 @@ class _OwnershipTransferMixin:
             request.story_id,
             active.run_id if active is not None else "",
         )
+        approval_required = transfer_core.requires_human_approval(
+            stored_challenge.requesting_principal_type
+        )
         approval_state = _confirm_approval_state(
+            self._repo,
             request,
             now,
             challenge=stored_challenge,
+            approval_required=approval_required,
         )
         if (
             approval_state.approval is not None
@@ -453,6 +476,19 @@ class _OwnershipTransferMixin:
         effective_challenge = reissue.effective_challenge
         challenge_to_insert = reissue.challenge_to_insert
         challenge_to_expire = reissue.challenge_to_expire
+        if (
+            active is None
+            or active.status is not OwnershipStatus.ACTIVE
+            or active.owner_session_id != effective_challenge.owner_session_id
+            or active.ownership_epoch != effective_challenge.ownership_epoch
+        ):
+            return _takeover_rejection(
+                op_id=request.op_id,
+                operation_kind=_TAKEOVER_CONFIRM,
+                reason="challenge_invalidated",
+                error_code="challenge_invalidated",
+                run_id=effective_challenge.run_id,
+            )
         core_echo = transfer_core.TakeoverChallengeEcho(
             challenge_id=effective_challenge.challenge_id,
             owner_session_id=effective_challenge.owner_session_id,
@@ -468,7 +504,7 @@ class _OwnershipTransferMixin:
                 None if challenge_to_insert is not None else effective_challenge.expires_at
             ),
             approval_status=approval_state.status,
-            approval_required=request.approval_id is not None,
+            approval_required=approval_required,
             repo_evidence=repo_evidence,
         )
         if not decision.accepted:
@@ -496,12 +532,12 @@ class _OwnershipTransferMixin:
             revocation_reason=OWNERSHIP_TRANSFERRED_REVOCATION_REASON,
         )
         new_binding = SessionRunBindingRecord(
-            session_id=request.session_id,
+            session_id=effective_challenge.requesting_session_id,
             project_key=request.project_key,
             story_id=request.story_id,
             run_id=active.run_id,
-            principal_type=request.principal_type,
-            worktree_roots=tuple(request.worktree_roots),
+            principal_type=effective_challenge.requesting_principal_type,
+            worktree_roots=effective_challenge.requesting_worktree_roots,
             binding_version=new_binding_version,
             updated_at=now,
         )
@@ -511,7 +547,7 @@ class _OwnershipTransferMixin:
             run_id=active.run_id,
             lock_type="story_execution",
             status="ACTIVE",
-            worktree_roots=tuple(request.worktree_roots),
+            worktree_roots=effective_challenge.requesting_worktree_roots,
             binding_version=new_binding_version,
             activated_at=now,
             updated_at=now,
@@ -586,7 +622,7 @@ class _OwnershipTransferMixin:
                 EventType.SESSION_RUN_BINDING_TRANSFERRED,
                 {
                     "previous_owner_session_id": owner_binding.session_id,
-                    "new_owner_session_id": request.session_id,
+                    "new_owner_session_id": effective_challenge.requesting_session_id,
                     "ownership_epoch": new_epoch,
                 },
             ),
@@ -720,11 +756,7 @@ class _OwnershipTransferMixin:
         request: TakeoverDenyRequest,
     ) -> ControlPlaneMutationResult:
         now = self._now_fn()
-        from agentkit.backend.control_plane.repository import (
-            TakeoverApprovalRepository,
-        )
-
-        approval = TakeoverApprovalRepository().load_approval(request.approval_id)
+        approval = self._repo.load_takeover_approval(request.approval_id)
         if approval is None:
             return _takeover_rejection(
                 op_id=request.op_id,

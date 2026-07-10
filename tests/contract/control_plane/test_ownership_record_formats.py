@@ -77,6 +77,7 @@ _FORMAL_BLOCK = re.compile(
 )
 _PERSISTENCE_KEY_OVERRIDES = {
     "repos": "repos_json",
+    "requesting_worktree_roots": "requesting_worktree_roots_json",
     "open_operation_ids": "open_operation_ids_json",
     "takeover_history_refs": "takeover_history_refs_json",
 }
@@ -208,6 +209,7 @@ def test_takeover_challenge_row_is_field_exact_and_roundtrips() -> None:
         run_id="run-1",
         requesting_session_id="sess-b",
         requesting_principal_type="orchestrator",
+        requesting_worktree_roots=("T:/worktrees/b",),
         reason="stalled owner",
         owner_session_id="sess-a",
         ownership_epoch=2,
@@ -366,6 +368,7 @@ def test_every_new_repository_entrypoint_fails_closed_on_sqlite(
                 run_id="run-1",
                 requesting_session_id="sess-b",
                 requesting_principal_type="orchestrator",
+                requesting_worktree_roots=("T:/worktrees/b",),
                 reason="stalled owner",
                 owner_session_id="sess-a",
                 ownership_epoch=1,

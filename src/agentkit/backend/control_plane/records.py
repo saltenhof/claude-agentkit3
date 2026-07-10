@@ -338,6 +338,7 @@ class TakeoverChallengeRecord:
     run_id: str
     requesting_session_id: str
     requesting_principal_type: str
+    requesting_worktree_roots: tuple[str, ...]
     reason: str
     owner_session_id: str
     ownership_epoch: int
@@ -373,6 +374,10 @@ class TakeoverChallengeRecord:
                 f"ownership_epoch must be >= {MIN_OWNERSHIP_EPOCH}, "
                 f"got {self.ownership_epoch!r}",
             )
+        if not self.requesting_worktree_roots:
+            raise ValueError("requesting_worktree_roots must not be empty")
+        if any(not root.strip() for root in self.requesting_worktree_roots):
+            raise ValueError("requesting_worktree_roots entries must not be empty")
         if self.expires_at <= self.issued_at:
             raise ValueError("expires_at must be after issued_at")
         if self.status not in _VALID_TAKEOVER_CHALLENGE_STATUS:

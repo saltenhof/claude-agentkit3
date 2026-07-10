@@ -94,6 +94,10 @@ class _MinimalControlPlaneRepo:
         del project_key, story_id
         return False
 
+    def has_unreconciled_takeover_for_story(self, project_key: str, story_id: str) -> bool:
+        del project_key, story_id
+        return False
+
     def has_committed_story_exit_operation_for_run(
         self, project_key: str, story_id: str, run_id: str
     ) -> bool:
@@ -413,6 +417,10 @@ class _ClosureRepo:
         return None
 
     def has_open_repair_for_story(self, project_key: str, story_id: str) -> bool:
+        del project_key, story_id
+        return False
+
+    def has_unreconciled_takeover_for_story(self, project_key: str, story_id: str) -> bool:
         del project_key, story_id
         return False
 

@@ -60,7 +60,23 @@ class _AdmissionRejectionMixin:
             fail-closed rejection in this module).
         """
         if not self._repo.has_open_repair_for_story(project_key, story_id):
-            return None
+            if not self._repo.has_unreconciled_takeover_for_story(project_key, story_id):
+                return None
+            result = _rejection_result(
+                op_id=op_id,
+                operation_kind=operation_kind,
+                run_id=run_id,
+                phase=phase,
+                reason=(
+                    f"{operation_kind} rejected: story {story_id!r} has an "
+                    "unreconciled takeover transfer in the active ownership "
+                    "epoch; no new mutating operation is admitted until the "
+                    "takeover reconcile obligation is cleared (fail-closed, "
+                    "FK-56 §56.13f)."
+                ),
+                dispatch_phase=phase,
+            )
+            return result.model_copy(update={"error_code": "takeover_reconcile_required"})
         result = _rejection_result(
             op_id=op_id,
             operation_kind=operation_kind,
@@ -76,7 +92,7 @@ class _AdmissionRejectionMixin:
             ),
             dispatch_phase=phase,
         )
-        return result.model_copy(update={"error_code": "takeover_reconcile_required"})
+        return result.model_copy(update={"error_code": "repair_lock_required"})
 
     def _fail_closed_setup_rejection(
         self,

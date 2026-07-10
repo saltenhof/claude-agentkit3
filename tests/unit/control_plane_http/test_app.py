@@ -40,6 +40,7 @@ if TYPE_CHECKING:
         AdminTakeoverReconcileClearRequest,
         TakeoverChallengeEchoRequest,
         TakeoverDenyRequest,
+        TakeoverRequest,
     )
 
 # ---------------------------------------------------------------------------
@@ -388,9 +389,22 @@ class _InMemoryTokenRepository:
 
 class _FakeTakeoverRuntime:
     def __init__(self) -> None:
+        self.request_calls: list[TakeoverRequest] = []
         self.confirm_calls: list[TakeoverChallengeEchoRequest] = []
         self.deny_calls: list[TakeoverDenyRequest] = []
         self.clear_calls: list[AdminTakeoverReconcileClearRequest] = []
+
+    def request_ownership_takeover(self, *, request: TakeoverRequest) -> object:
+        from agentkit.backend.control_plane.models import ControlPlaneMutationResult
+
+        self.request_calls.append(request)
+        return ControlPlaneMutationResult(
+            status="pending_human_approval",
+            op_id=request.op_id,
+            operation_kind="ownership_takeover_request",
+            run_id="run-100",
+            phase="ownership",
+        )
 
     def confirm_ownership_takeover(self, *, request: TakeoverChallengeEchoRequest) -> object:
         self.confirm_calls.append(request)
@@ -497,6 +511,203 @@ def test_token_agent_cannot_forge_human_takeover_confirm_and_writes_nothing() ->
 
     assert response.status_code == HTTPStatus.FORBIDDEN
     assert _json_body(response)["error_code"] == "agent_confirm_forbidden"  # type: ignore[index]
+    assert runtime.confirm_calls == []
+
+
+def test_token_takeover_request_derives_agent_principal_from_auth_not_body() -> None:
+    tokens = _InMemoryTokenRepository()
+    issued = issue_project_api_token(
+        project_key="tenant-a",
+        label="agent",
+        repository=tokens,
+    )
+    runtime = _FakeTakeoverRuntime()
+    app = ControlPlaneApplication(
+        routes=ControlPlaneApplicationRoutes(
+            project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
+            story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
+            concept_routes=_FakeConceptRoutes(),  # type: ignore[arg-type]
+            hub_routes=_FakeHubRoutes(),  # type: ignore[arg-type]
+            planning_routes=_FakePlanningRoutes(),  # type: ignore[arg-type]
+            telemetry_routes=_FakeTelemetryRoutes(),  # type: ignore[arg-type]
+            auth_routes=_FakeAuthRoutes(),  # type: ignore[arg-type]
+            read_model_routes=_FakeReadModelRoutes(),  # type: ignore[arg-type]
+        ),
+        runtime_service=runtime,  # type: ignore[arg-type]
+        auth_middleware=AuthMiddleware(token_repository=tokens),
+        tenant_scope_middleware=_NoopTenantScope(),  # type: ignore[arg-type]
+    )
+
+    response = app.handle_request(
+        method="POST",
+        path="/v1/project-edge/story-runs/run-100/ownership/takeover-request",
+        body=json.dumps(
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "session_id": "sess-agent",
+                "principal_type": "human_cli",
+                "op_id": "op-token-request",
+                "reason": "owner unavailable",
+                "worktree_roots": ["T:/worktrees/ag3-100"],
+            }
+        ).encode(),
+        request_headers={
+            "Authorization": f"Bearer {issued.plaintext_token}",
+            "X-Project-Key": "tenant-a",
+            "X-Correlation-Id": "req-token-request",
+        },
+    )
+
+    assert response.status_code != HTTPStatus.FORBIDDEN
+    assert len(runtime.request_calls) == 1
+    assert runtime.request_calls[0].principal_type == "interactive_agent"
+
+
+def test_unknown_takeover_request_principal_is_rejected_fail_closed() -> None:
+    runtime = _FakeTakeoverRuntime()
+    app = ControlPlaneApplication(
+        routes=ControlPlaneApplicationRoutes(
+            project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
+            story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
+            concept_routes=_FakeConceptRoutes(),  # type: ignore[arg-type]
+            hub_routes=_FakeHubRoutes(),  # type: ignore[arg-type]
+            planning_routes=_FakePlanningRoutes(),  # type: ignore[arg-type]
+            telemetry_routes=_FakeTelemetryRoutes(),  # type: ignore[arg-type]
+            auth_routes=_FakeAuthRoutes(),  # type: ignore[arg-type]
+            read_model_routes=_FakeReadModelRoutes(),  # type: ignore[arg-type]
+        ),
+        runtime_service=runtime,  # type: ignore[arg-type]
+        tenant_scope_middleware=_NoopTenantScope(),  # type: ignore[arg-type]
+    )
+
+    response = app.handle_request(
+        method="POST",
+        path="/v1/project-edge/story-runs/run-100/ownership/takeover-request",
+        body=json.dumps(
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "session_id": "sess-agent",
+                "principal_type": "agent",
+                "op_id": "op-unknown-principal",
+                "reason": "owner unavailable",
+                "worktree_roots": ["T:/worktrees/ag3-100"],
+            }
+        ).encode(),
+    )
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    body = _json_body(response)
+    assert isinstance(body, dict)
+    assert body["error_code"] == "invalid_takeover_principal"
+    assert runtime.request_calls == []
+
+
+def test_cross_project_token_takeover_request_is_forbidden_before_runtime() -> None:
+    tokens = _InMemoryTokenRepository()
+    issued = issue_project_api_token(
+        project_key="tenant-a",
+        label="agent",
+        repository=tokens,
+    )
+    runtime = _FakeTakeoverRuntime()
+    app = ControlPlaneApplication(
+        routes=ControlPlaneApplicationRoutes(
+            project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
+            story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
+            concept_routes=_FakeConceptRoutes(),  # type: ignore[arg-type]
+            hub_routes=_FakeHubRoutes(),  # type: ignore[arg-type]
+            planning_routes=_FakePlanningRoutes(),  # type: ignore[arg-type]
+            telemetry_routes=_FakeTelemetryRoutes(),  # type: ignore[arg-type]
+            auth_routes=_FakeAuthRoutes(),  # type: ignore[arg-type]
+            read_model_routes=_FakeReadModelRoutes(),  # type: ignore[arg-type]
+        ),
+        runtime_service=runtime,  # type: ignore[arg-type]
+        auth_middleware=AuthMiddleware(token_repository=tokens),
+        tenant_scope_middleware=_NoopTenantScope(),  # type: ignore[arg-type]
+    )
+
+    response = app.handle_request(
+        method="POST",
+        path="/v1/project-edge/story-runs/run-100/ownership/takeover-request",
+        body=json.dumps(
+            {
+                "project_key": "tenant-b",
+                "story_id": "AG3-100",
+                "session_id": "sess-agent",
+                "principal_type": "interactive_agent",
+                "op_id": "op-cross-request",
+                "reason": "owner unavailable",
+                "worktree_roots": ["T:/worktrees/ag3-100"],
+            }
+        ).encode(),
+        request_headers={
+            "Authorization": f"Bearer {issued.plaintext_token}",
+            "X-Project-Key": "tenant-a",
+            "X-Correlation-Id": "req-cross-request",
+        },
+    )
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    body = _json_body(response)
+    assert isinstance(body, dict)
+    assert body["error_code"] == "project_scope_mismatch"
+    assert runtime.request_calls == []
+
+
+def test_cross_project_human_takeover_confirm_is_forbidden_before_runtime() -> None:
+    runtime = _FakeTakeoverRuntime()
+    auth = AuthMiddleware(token_repository=_InMemoryTokenRepository())
+    session = auth.session_store.create()
+    app = ControlPlaneApplication(
+        routes=ControlPlaneApplicationRoutes(
+            project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
+            story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
+            concept_routes=_FakeConceptRoutes(),  # type: ignore[arg-type]
+            hub_routes=_FakeHubRoutes(),  # type: ignore[arg-type]
+            planning_routes=_FakePlanningRoutes(),  # type: ignore[arg-type]
+            telemetry_routes=_FakeTelemetryRoutes(),  # type: ignore[arg-type]
+            auth_routes=_FakeAuthRoutes(),  # type: ignore[arg-type]
+            read_model_routes=_FakeReadModelRoutes(),  # type: ignore[arg-type]
+        ),
+        runtime_service=runtime,  # type: ignore[arg-type]
+        auth_middleware=auth,
+        tenant_scope_middleware=_NoopTenantScope(),  # type: ignore[arg-type]
+    )
+
+    response = app.handle_request(
+        method="POST",
+        path="/v1/project-edge/story-runs/run-100/ownership/takeover-confirm",
+        body=json.dumps(
+            {
+                "project_key": "tenant-b",
+                "story_id": "AG3-100",
+                "session_id": "sess-human",
+                "principal_type": "human_cli",
+                "op_id": "op-cross-confirm",
+                "reason": "confirmed",
+                "worktree_roots": ["T:/worktrees/ag3-100"],
+                "challenge_echo": {
+                    "challenge_id": "takeover-op",
+                    "owner_session_id": "sess-001",
+                    "ownership_epoch": 1,
+                    "binding_version": "1",
+                },
+            }
+        ).encode(),
+        request_headers={
+            "Cookie": f"{AuthMiddleware.session_cookie_name()}={session.session_id}",
+            AuthMiddleware.csrf_header_name(): session.csrf_token,
+            "X-Project-Key": "tenant-a",
+            "X-Correlation-Id": "req-cross-confirm",
+        },
+    )
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    body = _json_body(response)
+    assert isinstance(body, dict)
+    assert body["error_code"] == "project_scope_mismatch"
     assert runtime.confirm_calls == []
 
 

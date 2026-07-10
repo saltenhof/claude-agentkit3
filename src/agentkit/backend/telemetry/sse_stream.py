@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Literal
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Sequence
 
+    from agentkit.backend.control_plane.records import TakeoverApprovalRecord
     from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
     from agentkit.backend.telemetry.repository import ProjectTelemetryEventSource
 
@@ -114,10 +115,16 @@ def render_project_snapshot(
     records: Sequence[ExecutionEventRecord],
     *,
     topics: Iterable[ProjectSseTopic],
+    pending_takeover_approvals: Sequence[TakeoverApprovalRecord] = (),
 ) -> bytes:
     """Render current matching project events as SSE bytes."""
     allowed = set(topics)
     chunks: list[bytes] = []
+    if "governance" in allowed:
+        chunks.extend(
+            render_sse_event(_takeover_approval_snapshot_envelope(approval))
+            for approval in pending_takeover_approvals
+        )
     for record in records:
         envelope = project_event_to_sse(record)
         if envelope.event in allowed:
@@ -144,6 +151,13 @@ def iter_project_sse_stream(
     seen_event_ids: set[str] = set()
     last_heartbeat = 0.0
     while True:
+        if "governance" in allowed:
+            for approval in source.pending_takeover_approvals_for_project(project_key):
+                approval_key = f"takeover-approval:{approval.approval_id}:{approval.status.value}"
+                if approval_key in seen_event_ids:
+                    continue
+                seen_event_ids.add(approval_key)
+                yield render_sse_event(_takeover_approval_snapshot_envelope(approval))
         for record in source.events_for_project(project_key):
             if record.event_id in seen_event_ids:
                 continue
@@ -173,6 +187,28 @@ def _topic_for_record(record: ExecutionEventRecord) -> ProjectSseTopic:
     if record.event_type.startswith("story_"):
         return "stories"
     return "telemetry"
+
+
+def _takeover_approval_snapshot_envelope(
+    approval: TakeoverApprovalRecord,
+) -> SseEnvelope:
+    return SseEnvelope(
+        event="governance",
+        data={
+            "project_key": approval.project_key,
+            "story_id": approval.story_id,
+            "run_id": approval.run_id,
+            "event_type": "pending_takeover_approval",
+            "approval_id": approval.approval_id,
+            "requested_by_session_id": approval.requested_by_session_id,
+            "requested_by_principal_type": approval.requested_by_principal_type,
+            "reason": approval.reason,
+            "challenge_ref": approval.challenge_ref,
+            "status": approval.status.value,
+            "requested_at": approval.requested_at.isoformat(),
+            "expires_at": approval.expires_at.isoformat(),
+        },
+    )
 
 
 __all__ = [

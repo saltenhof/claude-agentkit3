@@ -153,6 +153,7 @@ _AG3_137_ADDITIVE_COLUMNS: tuple[tuple[str, str], ...] = (
     ("control_plane_operations", "request_body_hash"),
     ("takeover_transfer_records", "reconciled_at"),
     ("takeover_transfer_records", "reconcile_ref"),
+    ("takeover_challenges", "requesting_worktree_roots_json"),
 )
 
 _AG3_147_PUSH_FRESHNESS_COLUMNS: tuple[str, ...] = (
@@ -459,6 +460,10 @@ def _schema_alter_statements() -> tuple[str, ...]:
         ("ALTER TABLE control_plane_operations ADD COLUMN IF NOT EXISTS request_body_hash TEXT"),
         "ALTER TABLE takeover_transfer_records ADD COLUMN IF NOT EXISTS reconciled_at TEXT",
         "ALTER TABLE takeover_transfer_records ADD COLUMN IF NOT EXISTS reconcile_ref TEXT",
+        (
+            "ALTER TABLE takeover_challenges ADD COLUMN IF NOT EXISTS "
+            "requesting_worktree_roots_json JSONB NOT NULL DEFAULT '[]'::jsonb"
+        ),
         ("ALTER TABLE control_plane_operations ALTER COLUMN story_id DROP NOT NULL"),
         # AG3-147 remediation: hard push barriers require boundary-correlated
         # freshness, so existing push_freshness_records rows need producer

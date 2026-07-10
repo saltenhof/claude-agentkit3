@@ -51,7 +51,20 @@ _TAKEOVER_DENY = "ownership_takeover_deny"
 _TAKEOVER_PHASE = "ownership"
 _CHALLENGE_TTL = timedelta(minutes=15)
 _APPROVAL_TTL = timedelta(hours=2)
-_AGENT_PRINCIPAL_TYPES = frozenset({"interactive_agent", "orchestrator", "agent"})
+_AGENT_PRINCIPAL_TYPES = frozenset({"interactive_agent", "orchestrator"})
+_CANONICAL_PRINCIPAL_TYPES = frozenset(
+    {
+        "interactive_agent",
+        "orchestrator",
+        "worker",
+        "qa_reader",
+        "adversarial_writer",
+        "llm_evaluator",
+        "pipeline_deterministic",
+        "human_cli",
+        "admin_service",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -151,6 +164,24 @@ def _maybe_reissue_expired_challenge(
                 run_id=stored_challenge.run_id,
             ),
         )
+    if (
+        active.owner_session_id != stored_challenge.owner_session_id
+        or active.ownership_epoch != stored_challenge.ownership_epoch
+    ):
+        return _ChallengeReissueResult(
+            stored_challenge,
+            None,
+            None,
+            approval_state,
+            None,
+            _takeover_rejection(
+                op_id=request.op_id,
+                operation_kind=_TAKEOVER_CONFIRM,
+                reason="challenge_invalidated",
+                error_code="challenge_invalidated",
+                run_id=stored_challenge.run_id,
+            ),
+        )
     owner_binding = repo.load_binding(active.owner_session_id)
     if owner_binding is None:
         return _ChallengeReissueResult(
@@ -176,7 +207,7 @@ def _maybe_reissue_expired_challenge(
             principal_type=stored_challenge.requesting_principal_type,
             op_id=stored_challenge.request_op_id,
             reason=stored_challenge.reason,
-            worktree_roots=list(request.worktree_roots),
+            worktree_roots=list(stored_challenge.requesting_worktree_roots),
             source_component=request.source_component,
         ),
         active_record=active,
@@ -187,6 +218,7 @@ def _maybe_reissue_expired_challenge(
         fresh_core,
         request_op_id=stored_challenge.request_op_id,
         issued_at=now,
+        requesting_worktree_roots=stored_challenge.requesting_worktree_roots,
     )
     fresh_approval_state = _ConfirmApprovalState(
         approval_state.status,
@@ -357,28 +389,29 @@ def _takeover_body_hash(
 
 
 def _confirm_approval_state(
+    repo: ControlPlaneRuntimeRepository,
     request: TakeoverChallengeEchoRequest,
     now: datetime,
     *,
     challenge: TakeoverChallengeRecord,
+    approval_required: bool,
 ) -> _ConfirmApprovalState:
     if request.approval_id is None:
+        if not approval_required:
+            return _ConfirmApprovalState(None, None, None, None)
         return _ConfirmApprovalState(None, None, None, None)
-    from agentkit.backend.control_plane.repository import (
-        TakeoverApprovalRepository,
-    )
-
-    approval_repo = TakeoverApprovalRepository()
-    approval = approval_repo.load_approval(request.approval_id)
+    approval = repo.load_takeover_approval(request.approval_id)
     if approval is None:
-        return _ConfirmApprovalState(None, None, None, approval_repo)
+        return _ConfirmApprovalState(None, None, None, None)
     if (
         approval.project_key != request.project_key
         or approval.story_id != request.story_id
         or approval.run_id != challenge.run_id
         or approval.challenge_ref != challenge.challenge_id
+        or approval.requested_by_session_id != challenge.requesting_session_id
+        or approval.requested_by_principal_type != challenge.requesting_principal_type
     ):
-        return _ConfirmApprovalState(None, None, None, approval_repo)
+        return _ConfirmApprovalState(None, None, None, None)
     approval_status = transfer_core.approval_status_after_expiry(
         current_status=approval.status,
         now=now,
@@ -386,16 +419,16 @@ def _confirm_approval_state(
     )
     if approval_status is not approval.status:
         expired = _expired_approval_record(approval, now=now)
-        return _ConfirmApprovalState(approval_status, expired, None, approval_repo)
+        return _ConfirmApprovalState(approval_status, expired, None, None)
     if approval.status is TakeoverApprovalStatus.PENDING:
         approved = _approved_approval_record(approval, request=request, now=now)
         return _ConfirmApprovalState(
             TakeoverApprovalStatus.APPROVED,
             approval,
             approved,
-            approval_repo,
+            None,
         )
-    return _ConfirmApprovalState(approval_status, approval, None, approval_repo)
+    return _ConfirmApprovalState(approval_status, approval, None, None)
 
 
 def _expired_approval_record(
@@ -567,6 +600,7 @@ def _terminal_challenge_record(
         run_id=challenge.run_id,
         requesting_session_id=challenge.requesting_session_id,
         requesting_principal_type=challenge.requesting_principal_type,
+        requesting_worktree_roots=challenge.requesting_worktree_roots,
         reason=challenge.reason,
         owner_session_id=challenge.owner_session_id,
         ownership_epoch=challenge.ownership_epoch,
@@ -588,6 +622,7 @@ def _challenge_record_from_core(
     *,
     request_op_id: str,
     issued_at: datetime,
+    requesting_worktree_roots: tuple[str, ...],
 ) -> TakeoverChallengeRecord:
     return TakeoverChallengeRecord(
         challenge_id=challenge.challenge_id,
@@ -597,6 +632,7 @@ def _challenge_record_from_core(
         run_id=challenge.run_id,
         requesting_session_id=challenge.requesting_session_id,
         requesting_principal_type=challenge.requesting_principal_type,
+        requesting_worktree_roots=requesting_worktree_roots,
         reason=challenge.reason,
         owner_session_id=challenge.current_owner_session_id,
         ownership_epoch=challenge.ownership_epoch,

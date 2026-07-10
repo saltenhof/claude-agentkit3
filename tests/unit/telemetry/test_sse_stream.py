@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 
 import pytest
 
+from agentkit.backend.control_plane.ownership import TakeoverApprovalStatus
+from agentkit.backend.control_plane.records import TakeoverApprovalRecord
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 from agentkit.backend.telemetry.sse_stream import (
     parse_project_topics,
@@ -62,6 +64,33 @@ def test_render_project_snapshot_filters_topics_and_adds_heartbeat() -> None:
     assert "evt-2" in payload
     assert "evt-1" not in payload
     assert "event: heartbeat" in payload
+
+
+def test_render_project_snapshot_includes_pending_takeover_approvals_on_governance_topic() -> None:
+    approval = TakeoverApprovalRecord(
+        approval_id="approval-1",
+        project_key="tenant-a",
+        story_id="AG3-148",
+        run_id="run-1",
+        requested_by_session_id="sess-agent",
+        requested_by_principal_type="interactive_agent",
+        reason="owner unavailable",
+        challenge_ref="challenge-1",
+        status=TakeoverApprovalStatus.PENDING,
+        requested_at=datetime(2026, 5, 4, 10, 0, tzinfo=UTC),
+        expires_at=datetime(2026, 5, 4, 10, 15, tzinfo=UTC),
+    )
+
+    payload = render_project_snapshot(
+        [],
+        topics={"governance"},
+        pending_takeover_approvals=[approval],
+    ).decode("utf-8")
+
+    assert "event: governance" in payload
+    assert '"event_type": "pending_takeover_approval"' in payload
+    assert '"approval_id": "approval-1"' in payload
+    assert '"requested_by_principal_type": "interactive_agent"' in payload
 
 
 def test_render_heartbeat_is_sse_json_payload() -> None:

@@ -302,6 +302,7 @@ def takeover_challenge_to_row(record: TakeoverChallengeRecord) -> dict[str, Any]
         "run_id": record.run_id,
         "requesting_session_id": record.requesting_session_id,
         "requesting_principal_type": record.requesting_principal_type,
+        "requesting_worktree_roots_json": dump_json(list(record.requesting_worktree_roots)),
         "reason": record.reason,
         "owner_session_id": record.owner_session_id,
         "ownership_epoch": record.ownership_epoch,
@@ -361,6 +362,14 @@ def takeover_challenge_row_to_record(row: dict[str, Any]) -> TakeoverChallengeRe
     raw_open_ops = _load_json_value(row.get("open_operation_ids_json"), [])
     if not isinstance(raw_open_ops, list):
         raise ValueError("takeover_challenges.open_operation_ids_json must be a list")
+    raw_requesting_roots = _load_json_value(
+        row.get("requesting_worktree_roots_json"),
+        [],
+    )
+    if not isinstance(raw_requesting_roots, list):
+        raise ValueError(
+            "takeover_challenges.requesting_worktree_roots_json must be a list"
+        )
     raw_history = _load_json_value(row.get("takeover_history_refs_json"), [])
     if not isinstance(raw_history, list):
         raise ValueError("takeover_challenges.takeover_history_refs_json must be a list")
@@ -385,6 +394,7 @@ def takeover_challenge_row_to_record(row: dict[str, Any]) -> TakeoverChallengeRe
         run_id=str(row["run_id"]),
         requesting_session_id=str(row["requesting_session_id"]),
         requesting_principal_type=str(row["requesting_principal_type"]),
+        requesting_worktree_roots=tuple(str(item) for item in raw_requesting_roots),
         reason=str(row["reason"]),
         owner_session_id=str(row["owner_session_id"]),
         ownership_epoch=int(row["ownership_epoch"]),

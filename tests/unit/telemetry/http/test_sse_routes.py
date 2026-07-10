@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 from agentkit.backend.auth.middleware import AuthMiddleware
 from agentkit.backend.auth.sessions import InMemorySessionStore
 from agentkit.backend.control_plane.http import ControlPlaneApplication, HttpResponse
+from agentkit.backend.control_plane.ownership import TakeoverApprovalStatus
+from agentkit.backend.control_plane.records import TakeoverApprovalRecord
 from agentkit.backend.control_plane_http.app import ControlPlaneApplicationRoutes
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 from agentkit.backend.telemetry.http.routes import TelemetryRoutes
@@ -50,7 +52,23 @@ class _FakeProjectEventSource:
             _record(project_key="tenant-b", event_id="evt-b", topic="stories"),
             _record(project_key="tenant-a", event_id="evt-g", topic="governance"),
         ]
+        self.approvals = [
+            TakeoverApprovalRecord(
+                approval_id="approval-a",
+                project_key="tenant-a",
+                story_id="AG3-100",
+                run_id="run-1",
+                requested_by_session_id="sess-agent",
+                requested_by_principal_type="interactive_agent",
+                reason="owner unavailable",
+                challenge_ref="challenge-a",
+                status=TakeoverApprovalStatus.PENDING,
+                requested_at=datetime(2026, 5, 4, 10, 0, tzinfo=UTC),
+                expires_at=datetime(2026, 5, 4, 10, 15, tzinfo=UTC),
+            )
+        ]
         self.project_keys: list[str] = []
+        self.approval_project_keys: list[str] = []
 
     def events_for_project(
         self,
@@ -61,6 +79,15 @@ class _FakeProjectEventSource:
         del limit
         self.project_keys.append(project_key)
         return [record for record in self.records if record.project_key == project_key]
+
+    def pending_takeover_approvals_for_project(
+        self,
+        project_key: str,
+    ) -> tuple[TakeoverApprovalRecord, ...]:
+        self.approval_project_keys.append(project_key)
+        return tuple(
+            approval for approval in self.approvals if approval.project_key == project_key
+        )
 
 
 def _record(
@@ -104,6 +131,29 @@ def test_project_events_endpoint_returns_sse_stream_and_filters_project() -> Non
     assert "evt-a" in first_chunk
     assert "evt-b" not in first_chunk
     assert source.project_keys == ["tenant-a"]
+
+
+def test_project_events_endpoint_includes_project_pending_takeover_approvals() -> None:
+    source = _FakeProjectEventSource()
+    app = ControlPlaneApplication(
+        routes=ControlPlaneApplicationRoutes(telemetry_routes=TelemetryRoutes(source)),
+        tenant_scope_middleware=_NoopTenantScopeMiddleware(),  # type: ignore[arg-type]
+    )
+
+    response = app.handle_request(
+        method="GET",
+        path="/v1/projects/tenant-a/events?topics=governance",
+        body=b"",
+        request_headers={"X-Correlation-Id": "req-sse"},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.stream is not None
+    first_chunk = next(iter(response.stream)).decode("utf-8")
+    assert "event: governance" in first_chunk
+    assert "pending_takeover_approval" in first_chunk
+    assert "approval-a" in first_chunk
+    assert source.approval_project_keys == ["tenant-a"]
 
 
 def test_project_events_endpoint_rejects_unknown_topics() -> None:

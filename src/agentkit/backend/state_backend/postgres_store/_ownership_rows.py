@@ -940,11 +940,12 @@ def insert_takeover_challenge_global_row(row: dict[str, Any]) -> None:
             """
             INSERT INTO takeover_challenges (
                 challenge_id, request_op_id, project_key, story_id, run_id,
-                requesting_session_id, requesting_principal_type, reason,
+                requesting_session_id, requesting_principal_type,
+                requesting_worktree_roots_json, reason,
                 owner_session_id, ownership_epoch, binding_version, phase_status,
                 issued_at, expires_at, repos_json, open_operation_ids_json,
                 takeover_history_refs_json, status, decided_at, terminal_op_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             _takeover_challenge_params(row),
         )
@@ -1135,6 +1136,7 @@ def _takeover_challenge_params(row: dict[str, Any]) -> tuple[object, ...]:
         row["run_id"],
         row["requesting_session_id"],
         row["requesting_principal_type"],
+        row["requesting_worktree_roots_json"],
         row["reason"],
         row["owner_session_id"],
         row["ownership_epoch"],

@@ -23,6 +23,7 @@ from agentkit.backend.control_plane_http.responses import (
     _takeover_result_response,
 )
 from agentkit.backend.exceptions import ConfigError
+from agentkit.backend.governance.principal_capabilities.principals import Principal
 
 if TYPE_CHECKING:
     from agentkit.backend.auth.middleware import AuthResult
@@ -48,6 +49,7 @@ def dispatch_project_edge_takeover_post(
             payload,
             correlation_id,
             runtime_service=runtime_service,
+            auth_result=auth_result,
         )
     if _route_patterns._TAKEOVER_CONFIRM_PATTERN.match(route_path):
         return _handle_post_takeover_confirm(
@@ -78,6 +80,7 @@ def _handle_post_takeover_request(
     correlation_id: str,
     *,
     runtime_service: ControlPlaneRuntimeService,
+    auth_result: AuthResult | None,
 ) -> HttpResponse:
     from agentkit.backend.story_context_manager.errors import (
         IdempotencyMismatchError,
@@ -85,6 +88,25 @@ def _handle_post_takeover_request(
 
     try:
         request = TakeoverRequest.model_validate(payload)
+        project_fence = _project_key_fence(
+            request_project_key=request.project_key,
+            auth_result=auth_result,
+            correlation_id=correlation_id,
+        )
+        if project_fence is not None:
+            return project_fence
+        principal = _takeover_request_principal(
+            request.principal_type,
+            auth_result=auth_result,
+        )
+        if principal is None:
+            return _error_response(
+                HTTPStatus.FORBIDDEN,
+                error_code="invalid_takeover_principal",
+                message="Ownership takeover request requires an attested canonical principal",
+                correlation_id=correlation_id,
+            )
+        request = request.model_copy(update={"principal_type": principal})
         result = runtime_service.request_ownership_takeover(request=request)
     except ValidationError as exc:
         return _error_response(
@@ -139,6 +161,13 @@ def _handle_post_takeover_confirm(
                 correlation_id=correlation_id,
             )
         request = TakeoverChallengeEchoRequest.model_validate(payload)
+        project_fence = _project_key_fence(
+            request_project_key=request.project_key,
+            auth_result=auth_result,
+            correlation_id=correlation_id,
+        )
+        if project_fence is not None:
+            return project_fence
         request = request.model_copy(update={"principal_type": "human_bff_session"})
         result = runtime_service.confirm_ownership_takeover(request=request)
     except ValidationError as exc:
@@ -194,6 +223,13 @@ def _handle_post_takeover_deny(
                 correlation_id=correlation_id,
             )
         request = TakeoverDenyRequest.model_validate(payload)
+        project_fence = _project_key_fence(
+            request_project_key=request.project_key,
+            auth_result=auth_result,
+            correlation_id=correlation_id,
+        )
+        if project_fence is not None:
+            return project_fence
         request = request.model_copy(update={"principal_type": "human_bff_session"})
         result = runtime_service.deny_ownership_takeover(request=request)
     except ValidationError as exc:
@@ -249,6 +285,13 @@ def _handle_post_takeover_reconcile_clear(
                 correlation_id=correlation_id,
             )
         request = AdminTakeoverReconcileClearRequest.model_validate(payload)
+        project_fence = _project_key_fence(
+            request_project_key=request.project_key,
+            auth_result=auth_result,
+            correlation_id=correlation_id,
+        )
+        if project_fence is not None:
+            return project_fence
         request = request.model_copy(update={"principal_type": "human_bff_session"})
         result = runtime_service.clear_takeover_reconcile_obligation(request=request)
     except ValidationError as exc:
@@ -282,6 +325,41 @@ def _handle_post_takeover_reconcile_clear(
             correlation_id=correlation_id,
         )
     return _takeover_result_response(result, correlation_id=correlation_id)
+
+
+def _project_key_fence(
+    *,
+    request_project_key: str,
+    auth_result: AuthResult | None,
+    correlation_id: str,
+) -> HttpResponse | None:
+    if auth_result is None or auth_result.project_key is None:
+        return None
+    if request_project_key == auth_result.project_key:
+        return None
+    return _error_response(
+        HTTPStatus.FORBIDDEN,
+        error_code="project_scope_mismatch",
+        message="Request project_key does not match the authenticated project scope",
+        correlation_id=correlation_id,
+    )
+
+
+def _takeover_request_principal(
+    body_principal_type: str,
+    *,
+    auth_result: AuthResult | None,
+) -> str | None:
+    if auth_result is None:
+        try:
+            return Principal(body_principal_type).value
+        except ValueError:
+            return None
+    if auth_result.auth_kind == "project_api_token":
+        return Principal.INTERACTIVE_AGENT.value
+    if auth_result.is_human_bff_session:
+        return Principal.HUMAN_CLI.value
+    return None
 
 
 __all__ = ["dispatch_project_edge_takeover_post"]

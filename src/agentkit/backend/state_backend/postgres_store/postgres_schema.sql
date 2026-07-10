@@ -404,6 +404,7 @@
             run_id TEXT NOT NULL,
             requesting_session_id TEXT NOT NULL,
             requesting_principal_type TEXT NOT NULL,
+            requesting_worktree_roots_json JSONB NOT NULL,
             reason TEXT NOT NULL,
             owner_session_id TEXT NOT NULL,
             ownership_epoch INTEGER NOT NULL CHECK (ownership_epoch >= 1),

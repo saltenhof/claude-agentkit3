@@ -842,14 +842,15 @@ def test_t1_concurrent_takeover_confirm_same_challenge_one_commits_loser_writes_
     active = load_active_run_ownership_record_global(_PROJECT, story_id)
     assert active is not None
     assert active.ownership_epoch == 2
-    assert active.owner_session_id in {"sess-B", "sess-C"}
+    assert active.owner_session_id == "sess-B"
     losing_op_id = (
         "op-t1-confirm-a"
         if committed_results[0].op_id == "op-t1-confirm-b"
         else "op-t1-confirm-b"
     )
     assert _operation_row_count(losing_op_id) == 0
-    assert _binding_exists("sess-B") + _binding_exists("sess-C") == 1
+    assert _binding_exists("sess-B") == 1
+    assert _binding_exists("sess-C") == 0
     assert _transfer_count(story_id, run_id) == 1
     assert _event_count(story_id, run_id) == events_before_confirm + 2
 
@@ -1194,9 +1195,290 @@ def test_t5_pending_approval_survives_backend_restart_and_remains_usable(
     stored = load_takeover_approval_global(approval_id)
     assert stored is not None
     assert stored.status is TakeoverApprovalStatus.APPROVED
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None
+    assert active.owner_session_id == "sess-agent-t5"
+    new_binding = load_session_run_binding_global("sess-agent-t5")
+    assert new_binding is not None
+    assert new_binding.principal_type == "interactive_agent"
+    assert new_binding.worktree_roots == (f"T:/worktrees/{story_id}/agent",)
+    assert load_session_run_binding_global("sess-B") is None
     replayed_request = restarted.get_operation("op-t5-request")
     assert replayed_request is not None
     assert replayed_request.status == "approved"
+
+
+@pytest.mark.integration
+def test_agent_initiated_challenge_without_approval_id_is_rejected_fail_closed(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(213)
+    run_id = "run-agent-approval-required"
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident="inst-agent-approval-required")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    pending_result = service.request_ownership_takeover(
+        request=TakeoverRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-agent-required",
+            principal_type="interactive_agent",
+            op_id="op-agent-required-request",
+            reason="owner unavailable",
+            worktree_roots=[f"T:/worktrees/{story_id}/agent"],
+        )
+    )
+    assert pending_result.pending_human_approval is not None
+    approval_id = pending_result.pending_human_approval.approval_id
+    approval = load_takeover_approval_global(approval_id)
+    assert approval is not None
+
+    result = service.confirm_ownership_takeover(
+        request=_confirm_request(
+            story_id=story_id,
+            echo=_challenge_echo_from_current(story_id, approval.challenge_ref),
+            op_id="op-agent-required-confirm",
+            approval_id=None,
+        )
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "approval_required"
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None
+    assert active.owner_session_id == "sess-A"
+    assert load_session_run_binding_global("sess-agent-required") is None
+    stored = load_takeover_approval_global(approval_id)
+    assert stored is not None
+    assert stored.status is TakeoverApprovalStatus.PENDING
+    assert load_takeover_transfer_record_global(_PROJECT, story_id, run_id, 2, _REPO) is None
+
+
+@pytest.mark.integration
+def test_expired_agent_challenge_is_invalidated_not_reissued_after_intervening_transfer(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(214)
+    run_id = "run-reissue-intervening-transfer"
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident="inst-reissue-intervening-request")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    pending_result = service.request_ownership_takeover(
+        request=TakeoverRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-agent-stale",
+            principal_type="interactive_agent",
+            op_id="op-stale-agent-request",
+            reason="owner unavailable",
+            worktree_roots=[f"T:/worktrees/{story_id}/agent"],
+        )
+    )
+    assert pending_result.pending_human_approval is not None
+    stale_approval = load_takeover_approval_global(
+        pending_result.pending_human_approval.approval_id
+    )
+    assert stale_approval is not None
+    stale_echo = _challenge_echo_from_current(story_id, stale_approval.challenge_ref)
+
+    human_echo = _request_takeover(
+        service,
+        story_id=story_id,
+        run_id=run_id,
+        session_id="sess-C",
+        principal_type="human_cli",
+        op_id="op-transfer-c-request",
+    )
+    moved = service.confirm_ownership_takeover(
+        request=_confirm_request(
+            story_id=story_id,
+            echo=human_echo,
+            op_id="op-transfer-c-confirm",
+            session_id="sess-human-confirmer",
+        )
+    )
+    assert moved.status == "committed"
+
+    stale_result = _service(
+        ident="inst-reissue-intervening-confirm",
+        now=_NOW + timedelta(minutes=20),
+    ).confirm_ownership_takeover(
+        request=_confirm_request(
+            story_id=story_id,
+            echo=stale_echo,
+            op_id="op-stale-agent-confirm",
+            approval_id=stale_approval.approval_id,
+        )
+    )
+
+    assert stale_result.status == "rejected"
+    assert stale_result.error_code == "challenge_invalidated"
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None
+    assert active.owner_session_id == "sess-C"
+    assert active.ownership_epoch == 2
+    assert load_session_run_binding_global("sess-agent-stale") is None
+    refreshed = load_takeover_approval_global(stale_approval.approval_id)
+    assert refreshed is not None
+    assert refreshed.status is TakeoverApprovalStatus.PENDING
+    assert refreshed.challenge_ref == stale_approval.challenge_ref
+    assert load_takeover_transfer_record_global(_PROJECT, story_id, run_id, 3, _REPO) is None
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "operation_kind",
+    ["story_exit", "story_reset", "story_split", "closure_complete"],
+)
+def test_confirm_after_terminal_predecessor_is_rejected_as_challenge_invalidated(
+    postgres_backend_env: object,
+    tmp_path: Path,
+    operation_kind: str,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(132 + len(operation_kind))
+    run_id = f"run-invalidating-{operation_kind}"
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident=f"inst-invalidating-{operation_kind}")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    echo = _request_takeover(
+        service,
+        story_id=story_id,
+        run_id=run_id,
+        op_id=f"op-request-{operation_kind}",
+    )
+    save_control_plane_operation_global(
+        _terminal_predecessor_op(
+            story_id=story_id,
+            run_id=run_id,
+            operation_kind=operation_kind,
+        )
+    )
+
+    result = service.confirm_ownership_takeover(
+        request=_confirm_request(
+            story_id=story_id,
+            echo=echo,
+            op_id=f"op-confirm-{operation_kind}",
+        )
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "challenge_invalidated"
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None
+    assert active.owner_session_id == "sess-A"
+    assert active.ownership_epoch == 1
+    assert load_session_run_binding_global("sess-B") is None
+    assert _transfer_count(story_id, run_id) == 0
+
+
+@pytest.mark.integration
+def test_stale_push_freshness_does_not_trigger_automatic_takeover(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(143)
+    run_id = "run-stale-freshness-no-auto"
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident="inst-stale-freshness-no-auto")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    upsert_push_freshness_record_global(
+        PushFreshnessRecord(
+            project_key=_PROJECT,
+            story_id=story_id,
+            run_id=run_id,
+            repo_id=_REPO,
+            last_reported_head_sha=_SHA,
+            last_pushed_head_sha=_SHA,
+            last_reported_at=_NOW - timedelta(days=3),
+            last_sync_point_id=f"stale:{run_id}",
+            last_command_id=f"{run_id}::stale::{_REPO}",
+            backlog=False,
+            backlog_detail=None,
+        )
+    )
+
+    result = service.start_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_phase_request(
+            story_id=story_id,
+            op_id="op-stale-freshness-normal-mutation",
+            session_id="sess-A",
+        ),
+    )
+
+    assert result.status == "committed"
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None
+    assert active.owner_session_id == "sess-A"
+    assert active.ownership_epoch == 1
+    assert _transfer_count(story_id, run_id) == 0
+    assert load_session_run_binding_global("sess-B") is None
+
+
+@pytest.mark.integration
+def test_takeover_confirm_respects_running_story_mutation_object_claim(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(144)
+    run_id = "run-confirm-object-claim"
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident="inst-confirm-object-claim")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    echo = _request_takeover(
+        service,
+        story_id=story_id,
+        run_id=run_id,
+        op_id="op-confirm-claim-request",
+    )
+    holder = boot_backend_instance_identity_global("inst-confirm-claim-holder", _NOW)
+    assert acquire_object_mutation_claim_global(
+        project_key=_PROJECT,
+        serialization_scope="story",
+        scope_key=story_id,
+        op_id="op-held-story-mutation",
+        backend_instance_id=holder.backend_instance_id,
+        instance_incarnation=holder.instance_incarnation,
+        acquired_at=_NOW,
+    )
+    try:
+        result = service.confirm_ownership_takeover(
+            request=_confirm_request(
+                story_id=story_id,
+                echo=echo,
+                op_id="op-confirm-behind-running-mutation",
+            )
+        )
+    finally:
+        assert delete_object_mutation_claim_global(
+            _PROJECT,
+            "story",
+            story_id,
+            "op-held-story-mutation",
+        )
+
+    assert result.status == "rejected"
+    assert result.error_code == "conflict"
+    assert load_control_plane_operation_global("op-confirm-behind-running-mutation") is None
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None
+    assert active.owner_session_id == "sess-A"
+    assert active.ownership_epoch == 1
+    assert _transfer_count(story_id, run_id) == 0
+    assert load_session_run_binding_global("sess-B") is None
 
 
 @pytest.mark.integration
@@ -1863,6 +2145,33 @@ def _transfer_row(story_id: str, run_id: str) -> dict[str, object]:
     return dict(row)
 
 
+def _terminal_predecessor_op(
+    *,
+    story_id: str,
+    run_id: str,
+    operation_kind: str,
+) -> ControlPlaneOperationRecord:
+    op_id = f"op-terminal-{operation_kind}-{story_id}"
+    return ControlPlaneOperationRecord(
+        op_id=op_id,
+        project_key=_PROJECT,
+        story_id=story_id,
+        run_id=run_id,
+        session_id="sess-admin-terminal",
+        operation_kind=operation_kind,
+        phase="closure" if operation_kind == "closure_complete" else "ownership",
+        status="committed",
+        response_payload={
+            "status": "committed",
+            "op_id": op_id,
+            "operation_kind": operation_kind,
+        },
+        created_at=_NOW,
+        updated_at=_NOW,
+        finalized_at=_NOW,
+    )
+
+
 def _op_record(
     new_binding: SessionRunBindingRecord,
     *,
@@ -1969,6 +2278,7 @@ def _challenge_record(
         run_id=run_id,
         requesting_session_id="sess-agent",
         requesting_principal_type="interactive_agent",
+        requesting_worktree_roots=("T:/worktrees/agent",),
         reason="owner unavailable",
         owner_session_id=owner_session_id,
         ownership_epoch=1,
@@ -2003,6 +2313,7 @@ def _terminal_challenge_record(
         run_id=challenge.run_id,
         requesting_session_id=challenge.requesting_session_id,
         requesting_principal_type=challenge.requesting_principal_type,
+        requesting_worktree_roots=challenge.requesting_worktree_roots,
         reason=challenge.reason,
         owner_session_id=challenge.owner_session_id,
         ownership_epoch=challenge.ownership_epoch,

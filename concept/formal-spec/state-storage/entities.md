@@ -111,6 +111,7 @@ entities:
       - run_id
       - requesting_session_id
       - requesting_principal_type
+      - requesting_worktree_roots
       - reason
       - owner_session_id
       - ownership_epoch
