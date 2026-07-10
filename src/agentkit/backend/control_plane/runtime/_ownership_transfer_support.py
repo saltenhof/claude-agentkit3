@@ -524,6 +524,30 @@ def _denied_approval_record(
     )
 
 
+def _invalidated_approval_record(
+    approval: TakeoverApprovalRecord,
+    *,
+    request: TakeoverChallengeEchoRequest,
+    now: datetime,
+) -> TakeoverApprovalRecord:
+    return TakeoverApprovalRecord(
+        approval_id=approval.approval_id,
+        project_key=approval.project_key,
+        story_id=approval.story_id,
+        run_id=approval.run_id,
+        requested_by_session_id=approval.requested_by_session_id,
+        requested_by_principal_type=approval.requested_by_principal_type,
+        reason=approval.reason,
+        challenge_ref=approval.challenge_ref,
+        status=TakeoverApprovalStatus.INVALIDATED,
+        requested_at=approval.requested_at,
+        expires_at=approval.expires_at,
+        decided_at=now,
+        decided_by_session_id=request.session_id,
+        decision_reason="challenge_invalidated",
+    )
+
+
 def _denied_request_operation_record(
     operation: ControlPlaneOperationRecord,
     *,

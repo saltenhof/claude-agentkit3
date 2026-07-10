@@ -34,7 +34,7 @@ from agentkit.backend.state_backend.backend_instance_identity_types import (
 #: ``BindingStatus`` value space) for fail-closed record-boundary validation.
 _VALID_BINDING_STATUS = frozenset(status.value for status in BindingStatus)
 _VALID_TAKEOVER_CHALLENGE_STATUS = frozenset(
-    {"pending", "confirmed", "denied", "expired"}
+    {"pending", "confirmed", "denied", "expired", "invalidated"}
 )
 _ADMIN_TRANSITION_REF_PATTERN = re.compile(
     r"^admin_transition:[A-Za-z0-9][A-Za-z0-9_.:-]*$",

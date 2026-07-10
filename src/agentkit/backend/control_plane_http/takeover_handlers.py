@@ -88,13 +88,6 @@ def _handle_post_takeover_request(
 
     try:
         request = TakeoverRequest.model_validate(payload)
-        project_fence = _project_key_fence(
-            request_project_key=request.project_key,
-            auth_result=auth_result,
-            correlation_id=correlation_id,
-        )
-        if project_fence is not None:
-            return project_fence
         principal = _takeover_request_principal(
             request.principal_type,
             auth_result=auth_result,
@@ -106,6 +99,13 @@ def _handle_post_takeover_request(
                 message="Ownership takeover request requires an attested canonical principal",
                 correlation_id=correlation_id,
             )
+        project_fence = _project_key_fence(
+            request_project_key=request.project_key,
+            auth_result=auth_result,
+            correlation_id=correlation_id,
+        )
+        if project_fence is not None:
+            return project_fence
         request = request.model_copy(update={"principal_type": principal})
         result = runtime_service.request_ownership_takeover(request=request)
     except ValidationError as exc:
@@ -334,7 +334,12 @@ def _project_key_fence(
     correlation_id: str,
 ) -> HttpResponse | None:
     if auth_result is None or auth_result.project_key is None:
-        return None
+        return _error_response(
+            HTTPStatus.FORBIDDEN,
+            error_code="project_scope_mismatch",
+            message="Ownership takeover requires an attested project scope",
+            correlation_id=correlation_id,
+        )
     if request_project_key == auth_result.project_key:
         return None
     return _error_response(
@@ -351,10 +356,7 @@ def _takeover_request_principal(
     auth_result: AuthResult | None,
 ) -> str | None:
     if auth_result is None:
-        try:
-            return Principal(body_principal_type).value
-        except ValueError:
-            return None
+        return None
     if auth_result.auth_kind == "project_api_token":
         return Principal.INTERACTIVE_AGENT.value
     if auth_result.is_human_bff_session:

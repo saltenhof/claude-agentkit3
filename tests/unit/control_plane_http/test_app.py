@@ -564,6 +564,46 @@ def test_token_takeover_request_derives_agent_principal_from_auth_not_body() -> 
     assert runtime.request_calls[0].principal_type == "interactive_agent"
 
 
+def test_unattested_takeover_request_does_not_trust_body_principal() -> None:
+    runtime = _FakeTakeoverRuntime()
+    app = ControlPlaneApplication(
+        routes=ControlPlaneApplicationRoutes(
+            project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
+            story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
+            concept_routes=_FakeConceptRoutes(),  # type: ignore[arg-type]
+            hub_routes=_FakeHubRoutes(),  # type: ignore[arg-type]
+            planning_routes=_FakePlanningRoutes(),  # type: ignore[arg-type]
+            telemetry_routes=_FakeTelemetryRoutes(),  # type: ignore[arg-type]
+            auth_routes=_FakeAuthRoutes(),  # type: ignore[arg-type]
+            read_model_routes=_FakeReadModelRoutes(),  # type: ignore[arg-type]
+        ),
+        runtime_service=runtime,  # type: ignore[arg-type]
+        tenant_scope_middleware=_NoopTenantScope(),  # type: ignore[arg-type]
+    )
+
+    response = app.handle_request(
+        method="POST",
+        path="/v1/project-edge/story-runs/run-100/ownership/takeover-request",
+        body=json.dumps(
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "session_id": "sess-forged-human",
+                "principal_type": "human_cli",
+                "op_id": "op-unattested-request",
+                "reason": "owner unavailable",
+                "worktree_roots": ["T:/worktrees/ag3-100"],
+            }
+        ).encode(),
+    )
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    body = _json_body(response)
+    assert isinstance(body, dict)
+    assert body["error_code"] == "invalid_takeover_principal"
+    assert runtime.request_calls == []
+
+
 def test_unknown_takeover_request_principal_is_rejected_fail_closed() -> None:
     runtime = _FakeTakeoverRuntime()
     app = ControlPlaneApplication(
@@ -601,6 +641,54 @@ def test_unknown_takeover_request_principal_is_rejected_fail_closed() -> None:
     body = _json_body(response)
     assert isinstance(body, dict)
     assert body["error_code"] == "invalid_takeover_principal"
+    assert runtime.request_calls == []
+
+
+def test_null_scope_human_takeover_request_is_forbidden_before_runtime() -> None:
+    runtime = _FakeTakeoverRuntime()
+    auth = AuthMiddleware(token_repository=_InMemoryTokenRepository())
+    session = auth.session_store.create()
+    app = ControlPlaneApplication(
+        routes=ControlPlaneApplicationRoutes(
+            project_routes=_FakeProjectRoutes(),  # type: ignore[arg-type]
+            story_routes=_FakeStoryContextRoutes(),  # type: ignore[arg-type]
+            concept_routes=_FakeConceptRoutes(),  # type: ignore[arg-type]
+            hub_routes=_FakeHubRoutes(),  # type: ignore[arg-type]
+            planning_routes=_FakePlanningRoutes(),  # type: ignore[arg-type]
+            telemetry_routes=_FakeTelemetryRoutes(),  # type: ignore[arg-type]
+            auth_routes=_FakeAuthRoutes(),  # type: ignore[arg-type]
+            read_model_routes=_FakeReadModelRoutes(),  # type: ignore[arg-type]
+        ),
+        runtime_service=runtime,  # type: ignore[arg-type]
+        auth_middleware=auth,
+        tenant_scope_middleware=_NoopTenantScope(),  # type: ignore[arg-type]
+    )
+
+    response = app.handle_request(
+        method="POST",
+        path="/v1/project-edge/story-runs/run-100/ownership/takeover-request",
+        body=json.dumps(
+            {
+                "project_key": "tenant-a",
+                "story_id": "AG3-100",
+                "session_id": "sess-human",
+                "principal_type": "human_cli",
+                "op_id": "op-null-scope-request",
+                "reason": "owner unavailable",
+                "worktree_roots": ["T:/worktrees/ag3-100"],
+            }
+        ).encode(),
+        request_headers={
+            "Cookie": f"{auth.session_cookie_name()}={session.session_id}",
+            auth.csrf_header_name(): session.csrf_token,
+            "X-Correlation-Id": "req-null-scope-request",
+        },
+    )
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    body = _json_body(response)
+    assert isinstance(body, dict)
+    assert body["error_code"] == "project_scope_mismatch"
     assert runtime.request_calls == []
 
 

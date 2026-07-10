@@ -195,7 +195,7 @@ events:
     topic: governance
     description: >
       Eine ausstehende Takeover-Freigabe wurde angelegt oder hat
-      ihren Zustand geaendert (approved, denied, expired). Loest den
+      ihren Zustand geaendert (approved, denied, expired, invalidated). Loest den
       globalen, benutzeruebergreifenden Takeover-Freigabe-Overlay der
       App-Shell aus bzw. schliesst ihn (FK-72 §72.14.7). Die
       ausstehende Freigabe gehoert zur Permission-Request-Familie
