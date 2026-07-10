@@ -26,6 +26,7 @@ from ._ownership_transfer_support import (
     _takeover_operation_record,
     _takeover_rejection,
     _terminal_challenge_record,
+    _validate_takeover_approval_challenge_scope,
 )
 
 if TYPE_CHECKING:
@@ -159,6 +160,12 @@ class _OwnershipTransferDenyMixin:
                 error_code="takeover_challenge_required",
                 run_id=approval.run_id,
             )
+        _validate_takeover_approval_challenge_scope(
+            approval=approval,
+            challenge=challenge,
+            project_key=request.project_key,
+            story_id=request.story_id,
+        )
         request_operation = self._repo.load_operation(challenge.request_op_id)
         if request_operation is None:
             return _takeover_rejection(

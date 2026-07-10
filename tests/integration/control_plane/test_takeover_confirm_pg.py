@@ -82,11 +82,13 @@ from agentkit.backend.state_backend.governance_runtime_store import (
 from agentkit.backend.state_backend.operation_ledger import (
     acquire_object_mutation_claim_global,
     commit_takeover_confirm_global,
+    commit_takeover_deny_global,
     commit_takeover_expiry_global,
     commit_takeover_invalidation_global,
     commit_takeover_reissue_global,
     delete_object_mutation_claim_global,
     load_control_plane_operation_global,
+    reconcile_takeover_confirm_cas_loss_global,
     save_control_plane_operation_global,
 )
 from agentkit.backend.state_backend.state_backend_connection_manager import (
@@ -159,11 +161,27 @@ _FAULT_STEPS = (
     "previous_binding_revoke",
     "approval_approve",
     "new_binding_insert",
+    "request_operation_terminalize",
+    "challenge_terminalize",
     "lock_insert",
     f"transfer_record_insert:{_REPO}",
     "takeover_reconcile_required",
     f"event_insert:{EventType.SESSION_RUN_BINDING_TRANSFERRED.value}",
     f"event_insert:{EventType.SESSION_DISOWNED.value}",
+    f"event_insert:{EventType.TAKEOVER_APPROVAL_CHANGED.value}",
+)
+_DENY_FAULT_STEPS = (
+    "control_plane_op_upsert",
+    "approval_deny",
+    "request_operation_terminalize",
+    "challenge_terminalize",
+    f"event_insert:{EventType.TAKEOVER_APPROVAL_CHANGED.value}",
+)
+_RECONCILE_FAULT_STEPS = (
+    "control_plane_op_upsert",
+    "approval_invalidate",
+    "request_operation_terminalize",
+    "challenge_terminalize",
     f"event_insert:{EventType.TAKEOVER_APPROVAL_CHANGED.value}",
 )
 
@@ -431,6 +449,8 @@ def _service(
     fault_after_step: Callable[[str], None] | None = None,
     invalidation_fault_after_step: Callable[[str], None] | None = None,
     reissue_fault_after_step: Callable[[str], None] | None = None,
+    deny_fault_after_step: Callable[[str], None] | None = None,
+    reconcile_fault_after_step: Callable[[str], None] | None = None,
     commit_takeover_confirm_override: Callable[..., None] | None = None,
     push_barrier_evidence: object | None = None,
 ) -> ControlPlaneRuntimeService:
@@ -443,6 +463,8 @@ def _service(
             fault_after_step,
             invalidation_fault_after_step,
             reissue_fault_after_step,
+            deny_fault_after_step,
+            reconcile_fault_after_step,
             commit_takeover_confirm_override,
         )
     ):
@@ -458,6 +480,14 @@ def _service(
             commit_takeover_reissue=partial(
                 commit_takeover_reissue_global,
                 fault_after_step=reissue_fault_after_step,
+            ),
+            commit_takeover_deny=partial(
+                commit_takeover_deny_global,
+                fault_after_step=deny_fault_after_step,
+            ),
+            reconcile_takeover_confirm_cas_loss=partial(
+                reconcile_takeover_confirm_cas_loss_global,
+                fault_after_step=reconcile_fault_after_step,
             ),
         )
         if commit_takeover_confirm_override is not None:
@@ -1491,6 +1521,132 @@ def test_t2_takeover_confirm_fault_injection_rolls_back_each_write_step(
     assert _operation_row_count(f"op-t2-confirm-{fault_step}") == 0
 
 
+@pytest.mark.parametrize("fault_step", _DENY_FAULT_STEPS)
+@pytest.mark.integration
+def test_takeover_deny_fault_injection_rolls_back_each_write_step(
+    postgres_backend_env: object,
+    tmp_path: Path,
+    fault_step: str,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(280 + _DENY_FAULT_STEPS.index(fault_step))
+    run_id = f"run-deny-fault-{_DENY_FAULT_STEPS.index(fault_step)}"
+    _seed_story_context(tmp_path, story_id)
+    setup = _service(ident=f"inst-deny-fault-{fault_step}-setup")
+    _admit_run(setup, story_id=story_id, run_id=run_id)
+    pending_result = setup.request_ownership_takeover(
+        request=TakeoverRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-agent-deny-fault",
+            principal_type="interactive_agent",
+            op_id=f"op-deny-fault-{fault_step}-request",
+            reason="owner unavailable",
+            worktree_roots=[f"T:/worktrees/{story_id}/agent"],
+        )
+    )
+    assert pending_result.pending_human_approval is not None
+    approval_id = pending_result.pending_human_approval.approval_id
+    approval = load_takeover_approval_global(approval_id)
+    assert approval is not None
+    before = _state_snapshot(story_id, run_id, approval_id)
+    challenge_before = load_takeover_challenge_global(approval.challenge_ref)
+    request_before = load_control_plane_operation_global(
+        f"op-deny-fault-{fault_step}-request"
+    )
+
+    def fault_hook(step: str) -> None:
+        if step == fault_step:
+            raise RuntimeError(f"fault after {step}")
+
+    service = _service(
+        ident=f"inst-deny-fault-{fault_step}",
+        deny_fault_after_step=fault_hook,
+    )
+    with pytest.raises(RuntimeError, match="fault after"):
+        service.deny_ownership_takeover(
+            command=_deny_request(
+                story_id=story_id,
+                approval_id=approval_id,
+                op_id=f"op-deny-fault-{fault_step}",
+            )
+        )
+
+    assert _state_snapshot(story_id, run_id, approval_id) == before
+    assert load_takeover_challenge_global(approval.challenge_ref) == challenge_before
+    assert load_control_plane_operation_global(
+        f"op-deny-fault-{fault_step}-request"
+    ) == request_before
+    assert _operation_row_count(f"op-deny-fault-{fault_step}") == 0
+
+
+@pytest.mark.parametrize("fault_step", _RECONCILE_FAULT_STEPS)
+@pytest.mark.integration
+def test_takeover_cas_loss_reconcile_fault_rolls_back_each_write_step(
+    postgres_backend_env: object,
+    tmp_path: Path,
+    fault_step: str,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(290 + _RECONCILE_FAULT_STEPS.index(fault_step))
+    run_id = f"run-reconcile-fault-{_RECONCILE_FAULT_STEPS.index(fault_step)}"
+    _seed_story_context(tmp_path, story_id)
+    setup = _service(ident=f"inst-reconcile-fault-{fault_step}-setup")
+    _admit_run(setup, story_id=story_id, run_id=run_id)
+    pending_result = setup.request_ownership_takeover(
+        request=TakeoverRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-agent-reconcile-fault",
+            principal_type="interactive_agent",
+            op_id=f"op-reconcile-fault-{fault_step}-request",
+            reason="owner unavailable",
+            worktree_roots=[f"T:/worktrees/{story_id}/agent"],
+        )
+    )
+    assert pending_result.pending_human_approval is not None
+    approval_id = pending_result.pending_human_approval.approval_id
+    approval = load_takeover_approval_global(approval_id)
+    assert approval is not None
+    binding = load_session_run_binding_global("sess-A")
+    assert binding is not None
+    save_session_run_binding_global(replace(binding, binding_version="2"))
+    before = _state_snapshot(story_id, run_id, approval_id)
+    challenge_before = load_takeover_challenge_global(approval.challenge_ref)
+    request_before = load_control_plane_operation_global(
+        f"op-reconcile-fault-{fault_step}-request"
+    )
+
+    def fault_hook(step: str) -> None:
+        if step == fault_step:
+            raise RuntimeError(f"fault after {step}")
+
+    repo = replace(
+        ControlPlaneRuntimeRepository(),
+        reconcile_takeover_confirm_cas_loss=partial(
+            reconcile_takeover_confirm_cas_loss_global,
+            fault_after_step=fault_hook,
+        ),
+    )
+    with pytest.raises(RuntimeError, match="fault after"):
+        _reconcile_takeover_confirm_cas_loss(
+            repo,
+            command=_confirm_request(
+                story_id=story_id,
+                challenge_id=approval.challenge_ref,
+                op_id=f"op-reconcile-fault-{fault_step}",
+            ),
+            now=_LATER,
+        )
+
+    assert _state_snapshot(story_id, run_id, approval_id) == before
+    assert load_takeover_challenge_global(approval.challenge_ref) == challenge_before
+    assert load_control_plane_operation_global(
+        f"op-reconcile-fault-{fault_step}-request"
+    ) == request_before
+    assert _operation_row_count(f"op-reconcile-fault-{fault_step}") == 0
+
+
 @pytest.mark.integration
 def test_t4_expired_approval_confirm_rejects_and_only_lazy_expiry_is_written(
     postgres_backend_env: object,
@@ -1671,6 +1827,86 @@ def test_human_bff_takeover_deny_persists_denied_event_and_blocks_later_confirm(
 
 
 @pytest.mark.integration
+def test_deny_rejects_foreign_challenge_ref_as_integrity_error_without_terminalizing(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_a = _story_id(272)
+    story_b = _story_id(273)
+    run_a = "run-deny-scope-a"
+    run_b = "run-deny-scope-b"
+    service = _service(ident="inst-deny-scope-setup")
+    for story_id, run_id, owner_session_id in (
+        (story_a, run_a, "sess-deny-scope-owner-a"),
+        (story_b, run_b, "sess-deny-scope-owner-b"),
+    ):
+        _seed_story_context(tmp_path, story_id)
+        _admit_run(
+            service,
+            story_id=story_id,
+            run_id=run_id,
+            session_id=owner_session_id,
+        )
+        _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    pending = service.request_ownership_takeover(
+        request=TakeoverRequest(
+            project_key=_PROJECT,
+            story_id=story_a,
+            session_id="sess-deny-scope-agent-a",
+            principal_type="interactive_agent",
+            op_id="op-deny-scope-request-a",
+            reason="owner unavailable",
+            worktree_roots=[f"T:/worktrees/{story_a}/agent"],
+        )
+    )
+    assert pending.pending_human_approval is not None
+    approval_id = pending.pending_human_approval.approval_id
+    approval = load_takeover_approval_global(approval_id)
+    assert approval is not None
+    original_challenge_id = approval.challenge_ref
+    foreign_challenge_id = _request_takeover(
+        service,
+        story_id=story_b,
+        run_id=run_b,
+        session_id="sess-deny-scope-human-b",
+        op_id="op-deny-scope-request-b",
+    )
+    events_a_before = _event_count(story_a, run_a)
+    events_b_before = _event_count(story_b, run_b)
+    with postgres_store._connect_global() as conn:  # noqa: SLF001 -- corruption fixture
+        cursor = conn.execute(
+            "UPDATE takeover_approvals SET challenge_ref = ? WHERE approval_id = ?",
+            (foreign_challenge_id, approval_id),
+        )
+        assert cursor.rowcount == 1
+
+    with pytest.raises(RuntimeError, match="violates the stored challenge scope"):
+        service.deny_ownership_takeover(
+            command=_deny_request(
+                story_id=story_a,
+                approval_id=approval_id,
+                op_id="op-deny-scope-decision",
+            )
+        )
+
+    stored_approval = load_takeover_approval_global(approval_id)
+    original_challenge = load_takeover_challenge_global(original_challenge_id)
+    foreign_challenge = load_takeover_challenge_global(foreign_challenge_id)
+    request_a = load_control_plane_operation_global("op-deny-scope-request-a")
+    request_b = load_control_plane_operation_global("op-deny-scope-request-b")
+    assert stored_approval is not None
+    assert stored_approval.status is TakeoverApprovalStatus.PENDING
+    assert original_challenge is not None and original_challenge.status == "pending"
+    assert foreign_challenge is not None and foreign_challenge.status == "pending"
+    assert request_a is not None and request_a.status == "pending_human_approval"
+    assert request_b is not None and request_b.status == "offered"
+    assert _operation_row_count("op-deny-scope-decision") == 0
+    assert _event_count(story_a, run_a) == events_a_before
+    assert _event_count(story_b, run_b) == events_b_before
+
+
+@pytest.mark.integration
 def test_token_authenticated_takeover_deny_is_forbidden_and_writes_nothing(
     postgres_backend_env: object,
     tmp_path: Path,
@@ -1833,6 +2069,62 @@ def test_agent_initiated_challenge_resolves_approval_without_client_hint(
     assert stored is not None
     assert stored.status is TakeoverApprovalStatus.APPROVED
     assert load_takeover_transfer_record_global(_PROJECT, story_id, run_id, 2, _REPO) is not None
+
+
+@pytest.mark.integration
+def test_expired_direct_challenge_is_invalidated_after_ownership_drift(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(270)
+    run_id = "run-expired-direct-ownership-drift"
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident="inst-expired-direct-drift-setup")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    stale_challenge_id = _request_takeover(
+        service,
+        story_id=story_id,
+        run_id=run_id,
+        session_id="sess-stale-direct",
+        op_id="op-expired-direct-drift-request",
+    )
+    foreign_challenge_id = _request_takeover(
+        service,
+        story_id=story_id,
+        run_id=run_id,
+        session_id="sess-foreign-owner",
+        op_id="op-expired-direct-foreign-request",
+    )
+    moved = service.confirm_ownership_takeover(
+        command=_confirm_request(
+            story_id=story_id,
+            challenge_id=foreign_challenge_id,
+            op_id="op-expired-direct-foreign-confirm",
+        )
+    )
+    assert moved.status == "committed"
+
+    result = _service(
+        ident="inst-expired-direct-drift-confirm",
+        now=_NOW + timedelta(minutes=20),
+    ).confirm_ownership_takeover(
+        command=_confirm_request(
+            story_id=story_id,
+            challenge_id=stale_challenge_id,
+            op_id="op-expired-direct-drift-confirm",
+        )
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "challenge_invalidated"
+    challenge = load_takeover_challenge_global(stale_challenge_id)
+    assert challenge is not None
+    assert challenge.status == "invalidated"
+    request_op = load_control_plane_operation_global("op-expired-direct-drift-request")
+    assert request_op is not None
+    assert request_op.status == "invalidated"
 
 
 @pytest.mark.integration
@@ -2017,6 +2309,71 @@ def test_reissue_guard_invalidates_challenge_and_request_but_keeps_approved_appr
     assert request_op.response_payload["error_code"] == "challenge_invalidated"
     assert load_session_run_binding_global("sess-agent-approved-stale") is None
     assert load_takeover_transfer_record_global(_PROJECT, story_id, run_id, 3, _REPO) is None
+
+
+@pytest.mark.integration
+def test_expired_approval_challenge_is_invalidated_after_ownership_drift(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(271)
+    run_id = "run-expired-approval-ownership-drift"
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident="inst-expired-approval-drift-setup")
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    pending_result = service.request_ownership_takeover(
+        request=TakeoverRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-expired-approval-requester",
+            principal_type="interactive_agent",
+            op_id="op-expired-approval-drift-request",
+            reason="owner unavailable",
+            worktree_roots=[f"T:/worktrees/{story_id}/agent"],
+        )
+    )
+    assert pending_result.pending_human_approval is not None
+    approval = load_takeover_approval_global(
+        pending_result.pending_human_approval.approval_id
+    )
+    assert approval is not None
+    foreign_challenge_id = _request_takeover(
+        service,
+        story_id=story_id,
+        run_id=run_id,
+        session_id="sess-expired-approval-foreign-owner",
+        op_id="op-expired-approval-foreign-request",
+    )
+    moved = service.confirm_ownership_takeover(
+        command=_confirm_request(
+            story_id=story_id,
+            challenge_id=foreign_challenge_id,
+            op_id="op-expired-approval-foreign-confirm",
+        )
+    )
+    assert moved.status == "committed"
+
+    result = _service(
+        ident="inst-expired-approval-drift-confirm",
+        now=_EXPIRED_NOW,
+    ).confirm_ownership_takeover(
+        command=_confirm_request(
+            story_id=story_id,
+            challenge_id=approval.challenge_ref,
+            op_id="op-expired-approval-drift-confirm",
+        )
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "challenge_invalidated"
+    challenge = load_takeover_challenge_global(approval.challenge_ref)
+    assert challenge is not None
+    assert challenge.status == "invalidated"
+    request_op = load_control_plane_operation_global("op-expired-approval-drift-request")
+    assert request_op is not None
+    assert request_op.status == "invalidated"
 
 
 def _run_real_invalidating_predecessor(

@@ -224,6 +224,7 @@ def reconcile_takeover_confirm_cas_loss_global_row(
     challenge_row: dict[str, Any],
     invalidated_approval_row: dict[str, Any] | None,
     event_rows: Sequence[dict[str, Any]],
+    fault_after_step: Callable[[str], None] | None = None,
 ) -> str:
     """Lock all decision rows, classify a CAS loss, and invalidate when stale."""
 
@@ -285,11 +286,20 @@ def reconcile_takeover_confirm_cas_loss_global_row(
         if _locked_takeover_basis_matches(expected_basis, active, binding):
             return "takeover_confirm_cas_lost"
         _conditional_upsert_control_plane_op_row(conn, op_row)
+        _run_takeover_fault_hook(fault_after_step, "control_plane_op_upsert")
         _invalidate_takeover_approval_row(conn, invalidated_approval_row)
+        if invalidated_approval_row is not None:
+            _run_takeover_fault_hook(fault_after_step, "approval_invalidate")
         _terminalize_takeover_request_operation_row(conn, request_op_row)
+        _run_takeover_fault_hook(fault_after_step, "request_operation_terminalize")
         _terminalize_takeover_challenge_row(conn, challenge_row)
+        _run_takeover_fault_hook(fault_after_step, "challenge_terminalize")
         for event_row in event_rows:
             _insert_execution_event_row(conn, event_row)
+            _run_takeover_fault_hook(
+                fault_after_step,
+                f"event_insert:{event_row['event_type']}",
+            )
         return "invalidated"
 
 

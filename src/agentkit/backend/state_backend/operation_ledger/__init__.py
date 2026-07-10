@@ -335,6 +335,7 @@ def reconcile_takeover_confirm_cas_loss_global(
     challenge: TakeoverChallengeRecord,
     invalidated_approval: TakeoverApprovalRecord | None,
     events: tuple[ExecutionEventRecord, ...],
+    fault_after_step: Callable[[str], None] | None = None,
 ) -> str:
     """Classify and, when stale, terminalize one confirm CAS loss."""
 
@@ -356,6 +357,7 @@ def reconcile_takeover_confirm_cas_loss_global(
             event_rows=tuple(
                 mappers.execution_event_to_row(event) for event in events
             ),
+            fault_after_step=fault_after_step,
         )
     )
 
@@ -367,6 +369,7 @@ def commit_takeover_deny_global(
     denied_approval: TakeoverApprovalRecord,
     challenge: TakeoverChallengeRecord,
     events: tuple[ExecutionEventRecord, ...],
+    fault_after_step: Callable[[str], None] | None = None,
 ) -> None:
     """Atomically deny a takeover approval and terminalize related rows."""
     from agentkit.backend.state_backend import persistence_mappers as mappers
@@ -379,6 +382,7 @@ def commit_takeover_deny_global(
         denied_approval_row=mappers.takeover_approval_to_row(denied_approval),
         challenge_row=mappers.takeover_challenge_to_row(challenge),
         event_rows=tuple(mappers.execution_event_to_row(event) for event in events),
+        fault_after_step=fault_after_step,
     )
 
 

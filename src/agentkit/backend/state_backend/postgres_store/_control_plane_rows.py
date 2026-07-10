@@ -1114,11 +1114,13 @@ def commit_takeover_deny_global_row(
     denied_approval_row: dict[str, Any],
     challenge_row: dict[str, Any],
     event_rows: Sequence[dict[str, Any]],
+    fault_after_step: Callable[[str], None] | None = None,
 ) -> None:
     """Atomically deny a pending takeover approval and terminalize its request."""
 
     with _connect_global() as conn:
         _conditional_upsert_control_plane_op_row(conn, op_row)
+        _run_takeover_fault_hook(fault_after_step, "control_plane_op_upsert")
         cursor = conn.execute(
             """
             UPDATE takeover_approvals
@@ -1146,6 +1148,7 @@ def commit_takeover_deny_global_row(
                 "takeover deny CAS failed: approval is no longer pending",
                 detail={"approval_id": denied_approval_row["approval_id"]},
             )
+        _run_takeover_fault_hook(fault_after_step, "approval_deny")
         cursor = conn.execute(
             """
             UPDATE control_plane_operations
@@ -1173,9 +1176,15 @@ def commit_takeover_deny_global_row(
                 "takeover deny CAS failed: request operation is no longer pending",
                 detail={"op_id": request_op_row["op_id"]},
             )
+        _run_takeover_fault_hook(fault_after_step, "request_operation_terminalize")
         _terminalize_takeover_challenge_row(conn, challenge_row)
+        _run_takeover_fault_hook(fault_after_step, "challenge_terminalize")
         for event_row in event_rows:
             _insert_execution_event_row(conn, event_row)
+            _run_takeover_fault_hook(
+                fault_after_step,
+                f"event_insert:{event_row['event_type']}",
+            )
 
 
 def commit_takeover_expiry_global_row(

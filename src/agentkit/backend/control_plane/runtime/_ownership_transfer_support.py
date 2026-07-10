@@ -408,18 +408,12 @@ def _confirm_approval_state(
     approval = repo.load_takeover_approval_for_challenge(challenge.challenge_id)
     if approval is None:
         return _ConfirmApprovalState(None, None, None)
-    if (
-        approval.project_key != request.project_key
-        or approval.story_id != request.story_id
-        or approval.run_id != challenge.run_id
-        or approval.challenge_ref != challenge.challenge_id
-        or approval.requested_by_session_id != challenge.requesting_session_id
-        or approval.requested_by_principal_type != challenge.requesting_principal_type
-    ):
-        raise RuntimeError(
-            "takeover approval linked by challenge_ref violates the stored "
-            "challenge scope"
-        )
+    _validate_takeover_approval_challenge_scope(
+        approval=approval,
+        challenge=challenge,
+        project_key=request.project_key,
+        story_id=request.story_id,
+    )
     if not approval_required:
         raise RuntimeError(
             "a direct human takeover challenge must not carry an approval record"
@@ -440,6 +434,33 @@ def _confirm_approval_state(
             approved,
         )
     return _ConfirmApprovalState(approval_status, approval, None)
+
+
+def _validate_takeover_approval_challenge_scope(
+    *,
+    approval: TakeoverApprovalRecord,
+    challenge: TakeoverChallengeRecord,
+    project_key: str,
+    story_id: str,
+) -> None:
+    """Fail closed when a stored Approval-to-Challenge chain crosses scope."""
+
+    if (
+        approval.project_key != project_key
+        or approval.story_id != story_id
+        or challenge.project_key != project_key
+        or challenge.story_id != story_id
+        or approval.project_key != challenge.project_key
+        or approval.story_id != challenge.story_id
+        or approval.run_id != challenge.run_id
+        or approval.challenge_ref != challenge.challenge_id
+        or approval.requested_by_session_id != challenge.requesting_session_id
+        or approval.requested_by_principal_type != challenge.requesting_principal_type
+    ):
+        raise RuntimeError(
+            "takeover approval linked by challenge_ref violates the stored "
+            "challenge scope"
+        )
 
 
 def _expired_approval_record(

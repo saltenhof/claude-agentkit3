@@ -401,14 +401,6 @@ class _OwnershipTransferMixin:
                 approval=invalidation.approval,
                 now=now,
             )
-        expired = self._expired_takeover_confirm_result(
-            command=command,
-            challenge=stored_challenge,
-            approval_state=approval_state,
-            now=now,
-        )
-        if expired is not None:
-            return expired
         reissue_result = self._takeover_reissue_result(
             command=command,
             stored_challenge=stored_challenge,
@@ -428,6 +420,14 @@ class _OwnershipTransferMixin:
                 approval=approval_state.approval,
                 now=now,
             )
+        expired = self._expired_takeover_confirm_result(
+            command=command,
+            challenge=stored_challenge,
+            approval_state=approval_state,
+            now=now,
+        )
+        if expired is not None:
+            return expired
         decision = transfer_core.evaluate_takeover_confirm(
             active_basis=active_basis,
             challenge_basis=challenge_basis,
