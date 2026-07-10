@@ -1796,8 +1796,7 @@ def _run_capability_enforcement(
             project_root=project_root,
             story_id=story_id,
             story_scope_roots=scope_roots,
-            binding_revocation_reason=context.binding_revocation_reason,
-            new_owner_ref=context.new_owner_ref,
+            binding_revocation_reason=context.binding_revocation_reason, new_owner_ref=context.new_owner_ref,
         )
     except Exception as exc:  # noqa: BLE001
         # AG3-032 ERROR 6 + ERROR D / FK-55 §55.10.5 / FK-31 §31.2.7 / FAIL-CLOSED:
@@ -1870,8 +1869,7 @@ def _resolve_capability_hull(
             project_root=project_root,
             story_id=context.story_id,
             story_scope_roots=context.scope_roots,
-            binding_revocation_reason=context.binding_revocation_reason,
-            new_owner_ref=context.new_owner_ref,
+            binding_revocation_reason=context.binding_revocation_reason, new_owner_ref=context.new_owner_ref,
         )
     except Exception:  # noqa: BLE001 -- a capability fault -> no hull -> CCAG fail-closed
         return None

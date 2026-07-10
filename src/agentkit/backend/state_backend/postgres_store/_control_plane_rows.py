@@ -953,11 +953,8 @@ def commit_control_plane_operation_with_side_effects_global_row(
     were already committed -> orphan state (e.g. a deleted binding / deactivated
     lock while the live claim survived and the result was a rejection).
 
-    This function applies the conditional op-row upsert AND all side effects on the
-    SAME connection / ONE transaction, with the collision gate running FIRST: a
-    collision raises before any commit, so the whole transaction (including every
-    side effect) rolls back. The mutation is therefore atomic -- a collision leaves
-    NO side effect written and the live claimed row intact (FK-22 §22.9).
+    The collision gate and all side effects share one connection and transaction.
+    A collision therefore rolls back every write (FK-22 §22.9).
 
     Args:
         op_row: The terminal control-plane operation row (committed result).
@@ -987,8 +984,7 @@ def commit_control_plane_operation_with_side_effects_global_row(
         # Collision gate FIRST: a live-claim collision raises here, BEFORE any side
         # effect is durable, so the transaction rolls back with zero orphan state.
         _conditional_upsert_control_plane_op_row(conn, op_row)
-        if fault_after_step is not None:
-            fault_after_step("operation_marker")
+        _run_takeover_fault_hook(fault_after_step, "operation_marker")
         if expected_ownership_epoch is not None:
             # AG3-142: re-verify AT COMMIT TIME, in THIS transaction (no TOCTOU) --
             # a failure raises and rolls back the op upsert above too.
@@ -1008,15 +1004,13 @@ def commit_control_plane_operation_with_side_effects_global_row(
                 run_id=str(op_row["run_id"]),
                 target_status=ownership_status_target,
             )
-            if fault_after_step is not None:
-                fault_after_step("ownership_status")
+            _run_takeover_fault_hook(fault_after_step, "ownership_status")
         if binding_to_save is not None:
             if binding_to_save["status"] == "revoked":
                 _revoke_session_binding_row(conn, binding_to_save)
             else:
                 _insert_session_binding_row(conn, binding_to_save)
-            if fault_after_step is not None:
-                fault_after_step("binding")
+            _run_takeover_fault_hook(fault_after_step, "binding")
         if binding_to_delete is not None:
             # Run-scoped delete: a foreign run's live binding raises and rolls back
             # the WHOLE transaction (no foreign teardown, no orphan op/lock/event).
