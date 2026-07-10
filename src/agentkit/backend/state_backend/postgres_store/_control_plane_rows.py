@@ -578,22 +578,13 @@ def finalize_control_plane_start_phase_global_row(
                 # TOCTOU) -- a failure raises and rolls back EVERYTHING above too.
                 _enforce_ownership_fence_row(
                     conn,
-                    project_key=str(op_row["project_key"]),
-                    story_id=str(op_row["story_id"]),
-                    run_id=str(op_row["run_id"]),
-                    session_id=str(op_row["session_id"]),
+                    project_key=str(op_row["project_key"]), story_id=str(op_row["story_id"]),
+                    run_id=str(op_row["run_id"]), session_id=str(op_row["session_id"]),
                     expected_ownership_epoch=expected_ownership_epoch,
                     command_id=str(op_row["operation_kind"]),
                 )
             else:
-                # A fresh setup mints ownership in this transaction, so it has
-                # no ownership row to fence yet but must still serialize with
-                # freeze entry.
-                _enforce_blocking_freeze_row(
-                    conn,
-                    story_id=str(op_row["story_id"]),
-                    command_id=str(op_row["operation_kind"]),
-                )
+                _enforce_blocking_freeze_row(conn, story_id=str(op_row["story_id"]), command_id=str(op_row["operation_kind"]))
             if ownership_row_to_insert is not None:
                 _insert_run_ownership_record_row(conn, ownership_row_to_insert)
             if execution_contract_digest_row_to_insert is not None:
