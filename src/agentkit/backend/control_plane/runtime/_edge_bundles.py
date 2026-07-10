@@ -90,6 +90,12 @@ def _build_edge_bundle(
         freshness_class=sync_class,
         generated_at=now,
     )
+    bundle_revocation_reason = binding.revocation_reason if binding is not None else None
+    if binding is not None and binding.status == "revoked":
+        bundle_revocation_reason = (
+            canonical_binding_revocation_reason(binding.revocation_reason)
+            or "session_binding_mismatch"
+        )
     binding_view = (
         SessionRunBindingView(
             session_id=binding.session_id,
@@ -106,12 +112,7 @@ def _build_edge_bundle(
             #: resolve() can surface deterministic ``binding_invalid`` (FK-56
             #: §56.7a) rather than silently falling back to ``ai_augmented``.
             status=binding.status,
-            revocation_reason=(
-                canonical_binding_revocation_reason(binding.revocation_reason)
-                or "session_binding_mismatch"
-                if binding.status == "revoked"
-                else binding.revocation_reason
-            ),
+            revocation_reason=bundle_revocation_reason,
             new_owner_ref=new_owner_ref,
         )
         if binding is not None
