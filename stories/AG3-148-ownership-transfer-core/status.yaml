@@ -1,19 +1,26 @@
 story_id: AG3-148
 title: "Transfer-Kern: takeover-request/-confirm (Challenge-Confirm-CAS), persistente Approval-Queue, pending_human_approval, atomarer Vollzug mit takeover_base_sha"
 type: implementation
-status: in_progress
-phase: implementation
+status: completed
+phase: closure
 created: "2026-07-02"
 size: L
-# NOTE (2026-07-09): premature `completed` reverted. A final third-reviewer
-# (Fable) pass found confirmed defects the Codex+GLM loop missed: F2 event
-# routed to topic `phases` not `governance`; F4b reconcile-blocker UPDATE
-# fail-open (no rowcount, shared free-text stories.blocker clearable by an
-# unattested agent PATCH — AC16); F3 challenge not persisted (client-attested
-# expires_at/challenge_id, K5/FK-56 §56.13a); F1 approved outcome not
-# terminalized on the request op; F5 challenge content (open_operation_ids/
-# takeover_history_refs) hardcoded empty. Design clarification (challenge
-# persistence + blocker fencing) in progress before remediation.
+# NOTE (2026-07-10): completed after a model-fix re-architecture. Four
+# instance-fix rounds (R1-R4) repeatedly hit the same finding class
+# (client-attested decision inputs, incomplete ownership-basis compares,
+# fail-open/write-free invalidation). Root cause was a missing data model,
+# not architecture. Resolved by reifying the invariant (decision-record §7,
+# reports/AG3-148-model-fix-design.md v7, Codex-APPROVED over 7 design rounds):
+# `OwnershipBasis` as the single CAS-basis model (one full compare + one weaker
+# reissue anchor), server-truth confirm (selector+audit wire DTO with
+# extra="forbid"; identity attested at boundary), approval resolved by
+# challenge_ref (UNIQUE), reissue two-step (no blind transfer), every basis
+# mismatch → terminalizing UoW, canonical row-lock order across all takeover
+# UoWs, human-exclusive confirm/deny. Implemented R5 (e1662943) + R6 (6e133f9b)
+# + R7 (c74969a3). Final Fable finale: APPROVE — finding class closed by
+# construction; F1/F2/F5, GAP1/2, §6.1-6.7, §7 all closed; no ERROR. Non-
+# blocking cleanup (Note B) tracked separately. Green on main c74969a3,
+# Jenkins #1766, Sonar 0/0/0, coverage 92.46% local / 85%+ CI.
 # Herkunft: GAP-ST-07a (gap-analyse-session-ownership.md v4, Codex-APPROVE).
 # Kern des Ownership-Transfers: Challenge-Confirm-Protokoll, Approval-Queue
 # (persistent/verfallbar/benutzeruebergreifend), pending_human_approval,
