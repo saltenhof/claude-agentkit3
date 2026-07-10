@@ -163,5 +163,80 @@ schreibt heute schon governance-Lock- + story-lifecycle-Rows atomar).
 | formal.state-storage.entities (v5) | **geaendert (Migrationsschnitt)** | neue Entitaeten `takeover-challenge`, `takeover-approval` und Reconcile-Felder am `takeover-transfer-record` → Schema-Version-Bump + Contract-Tests im Remediation-Diff |
 | FK-72 §72.14 | nicht betroffen | `owner_bc: story-lifecycle` bestaetigt |
 | K5 (control-plane Postgres-only) | nicht betroffen | Challenge/Reconcile Postgres-only, bestaetigt |
-| TTL-Semantik agent→human | **entschieden** | Confirm re-issued frische Challenge (§2.3) — war unterspezifiziert |
+| TTL-Semantik agent→human | **entschieden + verschaerft (§6.3)** | Confirm re-issued frische Challenge (§2.3), ABER nur bei unveraenderter Eigentumslage — sonst §56.13a-Invalidierung |
 | PROJECT_STRUCTURE.md | nicht betroffen | keine neuen Top-Level-Verzeichnisse |
+
+## 6. Nachtrag 2026-07-10 — Confirm-Identitaetsmodell + Reissue-Guard (Finale-Befunde)
+
+Ein zweites Fable-Finale (Component-Architecture) auf dem konvergierten Remediation-
+Head (main@bcce5555) hat drei ERROR-Befunde aufgedeckt, die alle dieselbe Wurzel
+haben: der **Confirm zieht die Entscheidungsgrundlage aus dem Request-Body statt aus
+der gespeicherten Challenge (Server-Wahrheit)** — genau der FIX-THE-MODEL-/§56.13a-
+Verstoss, den diese Story tilgen soll. Codex+GLM (beide APPROVE nach Runde 2) haben
+diese Schicht uebersehen; am Code verifiziert. Dieser Nachtrag friert die Zielsemantik
+ein; er ist verbindlicher Implementierungs-Kontrakt fuer die AG3-148-Remediation R3.
+
+### 6.1 Confirm-Identitaetsmodell (ERROR 1) — REQUIRED
+Die neue `SessionRunBinding` MUSS auf die **requesting session der gespeicherten
+Challenge/Approval** lauten (`requested_by_session_id` / `requested_by_principal_type`
++ deren edge-reported `worktree_roots`), NICHT auf `request.session_id` /
+`request.principal_type` aus dem Confirm-Body (heute `_ownership_transfer.py:498-507`).
+Der Confirm-Body (menschliche BFF-Session) legitimiert den Vollzug, bestimmt aber NIE
+die Owner-Identitaet. Fuer den agent-initiierten Pfad wird B (der Agent) Owner mit
+`principal_type` des Agents — kein Stempeln als `human_bff_session`. Normativ:
+`formal.operating-modes.command.confirm-run-ownership-takeover` ("transfer the run
+binding to the requesting session … rebinding worktree_roots to the edge reported
+roots of the new session"), FK-56 §56.13c/e. Die Tests, die heute Owner=Confirm-Body-
+Session pinnen (`test_takeover_confirm_pg.py:664ff`, t5), pinnen das falsche Verhalten
+und sind mitzuziehen.
+
+### 6.2 approval_required aus Server-Wahrheit (ERROR 2) — REQUIRED
+`approval_required` wird aus `stored_challenge.requested_by_principal_type` abgeleitet
+(agent-initiiert ⇒ Approval Pflicht), NICHT aus `request.approval_id is not None`
+(heute `:471`). Eine agent-initiierte Challenge ist ohne die zugehoerige APPROVED
+Approval **nicht** confirmbar (fail-closed); ein Confirm ohne `approval_id` darf sie
+nicht als approval-frei behandeln. Verhindert die persistente Zombie-Approval
+(`agent_initiated_takeover_requires_human_frontend_approval`, AC14).
+
+### 6.3 Reissue-Guard (ERROR 3) — Verschaerfung von §2.3
+Der §2.3-Reissue (frische Challenge bei abgelaufener Challenge-TTL, gueltige Approval)
+gilt AUSSCHLIESSLICH bei **unveraenderter Eigentumslage**: reissue nur, wenn
+`active.owner_session_id` UND `active.ownership_epoch` noch der Basis der gespeicherten
+Challenge entsprechen. Hat sich die Eigentumslage zwischenzeitlich geaendert (fremder
+Transfer/Exit/Reset/Split → neuer Owner/Epoch), wird die offene Challenge INVALIDIERT
+(FK-56 §56.13a: "jede zwischenzeitliche Aenderung der Eigentumslage invalidiert offene
+Challenges; der Verlierer muss neu anfragen — dann gegen den neuen Owner"); KEIN
+Auto-Reissue gegen einen Owner, den kein Mensch je in einer Challenge gesehen hat.
+Damit bleibt §2.3s Zweck (kein TTL-Sackgassen-Dead-End) erhalten, ohne §56.13a zu
+verletzen. Prioritaet: kanonisches Konzept (§56.13a) vor Decision-Detail.
+
+### 6.4 Request-Principal fail-closed (WARNING 5) — REQUIRED
+Die Request-seitige Principal-Klassifikation (Approval-Queue vs. offered) wird aus dem
+**attestierten** `auth_kind`/Boundary-Principal abgeleitet, nicht aus einem Client-
+String. Principals ausserhalb der FK-55-Kanonwerte werden abgewiesen (kein Fail-open-
+Fallback in den human-`offered`-Zweig); das Vokabular ist einheitlich
+(`_AGENT_PRINCIPAL_TYPES` an FK-55 ausrichten, kein nicht-kanonisches `"agent"`).
+
+### 6.5 Cross-Project-Fence (WARNING 6) — REQUIRED sofern reproduzierbar
+Takeover-Request/-Confirm erzwingen `body.project_key == auth_result.project_key`
+(fail-closed 403), sodass ein Projekt-A-Token keine Takeover-Operationen gegen
+Projekt B ausfuehren kann (kein Cross-Tenant ueber den `X-Project-Key`-Fallback). Vom
+Worker am Code zu reproduzieren; falls nicht ausnutzbar, mit Beweis dokumentieren.
+
+### 6.6 Getrennte Admission-Gruende (WARNING 7)
+Repair-Lock (AG3-138) und Reconcile-Obligation sind zwei Zustaende der §56.13f-Familie
+mit unterschiedlicher sanktionierter Aufloesung; die Admission gibt distinkte
+`error_code`s zurueck (nicht beide als `takeover_reconcile_required`).
+
+### 6.7 Component-/Test-Auflagen (WARNING 4/8/9)
+- `TakeoverApprovalRepository` wird ueber den `ControlPlaneRuntimeRepository`-Port
+  konsumiert (kein ad-hoc Inline-Import als verstecktes Required-Interface;
+  Replaceability/Fake-Barkeit herstellen). Request-Pfad-Atomizitaet bleibt
+  dokumentierter AG3-149-Follow-up (§3 bindet Atomizitaet an confirm/deny), aber die
+  Lese-Seite bleibt fail-closed und §6.2 eliminiert die Zombie-Approval.
+- AC6 (Stale-Confirm je zwischenzeitlichem Uebergang: Exit/Reset/Split/Closure, nicht
+  nur Transfer), AC12 (praeparierte Stale-Push-Freshness triggert nichts) und AC13
+  (Confirm hinter laufender Mutation) werden mit echten fail-before/pass-after-Tests
+  ueber die realen Vorgaengerpfade belegt.
+- Pending-Approval-Abfrageflaeche (Story-Scope 10): pruefen, ob 148-AC-pflichtig oder
+  AG3-153-UI-Flaeche; im 148-Scope belegen, sonst als 153-Kante dokumentieren.
