@@ -489,12 +489,14 @@ def _replayed_result(
     tampered stored payload that violates it raises at the boundary instead of
     silently passing.
 
-    AG3-138: an ``aborted`` / ``repair`` / ``failed`` terminal result (which
+    AG3-138/AG3-150: an ``aborted`` / ``repair`` / ``failed`` / ``rejected``
+    terminal result (which
     carries NO ``edge_bundle``) is surfaced VERBATIM -- rewriting its status to
     ``replayed`` would both hide the true terminal state from an idempotent
     retry AND violate the model invariant (``replayed`` requires an
-    ``edge_bundle``). Only the ordinary success statuses are echoed as
-    ``replayed``.
+    ``edge_bundle``). A terminal freeze rejection is likewise returned verbatim
+    so its structured ``story_frozen`` detail remains replayable. Only the
+    ordinary success statuses are echoed as ``replayed``.
 
     Args:
         stored_payload: The JSON payload of the persisted operation.
@@ -505,6 +507,7 @@ def _replayed_result(
     """
     stored_status = stored_payload.get("status")
     if stored_status in _RECONCILE_PRESERVED_STATUSES or stored_status in {
+        "rejected",
         "offered",
         "pending_human_approval",
         "approved",

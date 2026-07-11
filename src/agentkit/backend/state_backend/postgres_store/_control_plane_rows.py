@@ -472,6 +472,7 @@ def finalize_control_plane_start_phase_global_row(
     ownership_row_to_insert: dict[str, Any] | None = None,
     execution_contract_digest_row_to_insert: dict[str, Any] | None = None,
     expected_ownership_epoch: int | None = None,
+    productive_completion_returned: bool = False,
 ) -> bool:
     """Atomically CAS-finalize a start_phase AND materialize its side effects (#1).
 
@@ -574,7 +575,10 @@ def finalize_control_plane_start_phase_global_row(
                 # Lost the ownership CAS: roll back so NO side effect is written.
                 raise _NotOwnerError
             _enforce_start_phase_fence_row(
-                conn, op_row=op_row, expected_ownership_epoch=expected_ownership_epoch
+                conn,
+                op_row=op_row,
+                expected_ownership_epoch=expected_ownership_epoch,
+                productive_completion_returned=productive_completion_returned,
             )
             if ownership_row_to_insert is not None:
                 _insert_run_ownership_record_row(conn, ownership_row_to_insert)

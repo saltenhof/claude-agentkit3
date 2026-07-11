@@ -29,6 +29,7 @@ def _enforce_ownership_fence_row(
     session_id: str,
     expected_ownership_epoch: int,
     command_id: str = "executor_commit",
+    enforce_freeze: bool = True,
 ) -> None:
     """Re-verify the ownership fence AT COMMIT TIME, in THIS transaction (AG3-142).
 
@@ -76,7 +77,8 @@ def _enforce_ownership_fence_row(
     # encodings apply the SAME four predicates in lock-step: an active row
     # exists, its ``run_id`` matches, its ``owner_session_id`` matches, its
     # ``ownership_epoch`` matches.
-    _enforce_blocking_freeze_row(conn, story_id=story_id, command_id=command_id)
+    if enforce_freeze:
+        _enforce_blocking_freeze_row(conn, story_id=story_id, command_id=command_id)
     active = conn.execute(
         """
         SELECT run_id, owner_session_id, ownership_epoch, acquired_at
@@ -118,15 +120,31 @@ def _enforce_start_phase_fence_row(
     *,
     op_row: dict[str, Any],
     expected_ownership_epoch: int | None,
+    productive_completion_returned: bool = False,
 ) -> None:
-    """Fence both fresh ownership minting and already-owned phase starts."""
+    """Fence both fresh ownership minting and already-owned phase starts.
+
+    A real dispatcher can return ``phase_completed`` only after the executor's
+    attempt/phase-state transaction committed. The caller's signal is still not
+    trusted on its own: canonical rows are re-read below on this finalize
+    connection. When both agree, a later freeze cannot retroactively turn that
+    committed completion into ``story_frozen``; the ownership fence remains in
+    force and the freeze blocks the next admission instead (INV-FRZ-2).
+    """
+
+    completion_is_durable = productive_completion_returned and _has_durable_phase_completion(
+        conn,
+        story_id=str(op_row["story_id"]),
+        phase=str(op_row["phase"]),
+    )
 
     if expected_ownership_epoch is None:
-        _enforce_blocking_freeze_row(
-            conn,
-            story_id=str(op_row["story_id"]),
-            command_id=str(op_row["operation_kind"]),
-        )
+        if not completion_is_durable:
+            _enforce_blocking_freeze_row(
+                conn,
+                story_id=str(op_row["story_id"]),
+                command_id=str(op_row["operation_kind"]),
+            )
         return
     _enforce_ownership_fence_row(
         conn,
@@ -136,7 +154,36 @@ def _enforce_start_phase_fence_row(
         session_id=str(op_row["session_id"]),
         expected_ownership_epoch=expected_ownership_epoch,
         command_id=str(op_row["operation_kind"]),
+        enforce_freeze=not completion_is_durable,
     )
+
+
+def _has_durable_phase_completion(
+    conn: _CompatConnection,
+    *,
+    story_id: str,
+    phase: str,
+) -> bool:
+    """Return canonical proof that the executor completion commit stands."""
+
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM phase_states AS state
+        WHERE state.story_id = ?
+          AND state.phase = ?
+          AND state.status = 'completed'
+          AND EXISTS (
+              SELECT 1
+              FROM attempts AS attempt
+              WHERE attempt.story_id = state.story_id
+                AND attempt.phase = state.phase
+                AND attempt.outcome = 'COMPLETED'
+          )
+        """,
+        (story_id, phase),
+    ).fetchone()
+    return row is not None
 
 
 def _enforce_blocking_freeze_row(

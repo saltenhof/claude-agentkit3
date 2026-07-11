@@ -26,6 +26,7 @@ from agentkit.backend.control_plane.ownership_fence import (
 from agentkit.backend.control_plane.records import (
     RunOwnershipRecord,
 )
+from agentkit.backend.core_types.freeze import ERROR_CODE_STORY_FROZEN
 from agentkit.backend.exceptions import (
     ControlPlaneBindingCollisionError,
     OwnershipFenceViolationError,
@@ -279,6 +280,11 @@ class _StartPhaseAdmissionMixin:
                 mints_ownership_record=outcome.mints_ownership_record,
                 observed_ownership_epoch=outcome.observed_ownership_epoch,
                 execution_contract_digest=outcome.execution_contract_digest,
+                productive_completion_returned=(
+                    outcome.dispatch_result is not None
+                    and outcome.dispatch_result.dispatched
+                    and outcome.dispatch_result.status == "phase_completed"
+                ),
             )
             #: Finalize DONE (won or lost the ownership CAS): the op is terminal, so
             #: mark ``finalized`` BEFORE releasing the object claim -- a release
@@ -302,19 +308,58 @@ class _StartPhaseAdmissionMixin:
             #: (``_start_phase_after_claim``) and this commit. The whole finalize
             #: rolled back (no side effect, no stored op). Release MY claims and
             #: surface the rich ex-owner rejection.
-            self._release_my_claim_best_effort(request.op_id, owner_token, owner_claimed_at)
-            self._release_object_claim(
-                project_key=request.project_key,
-                story_id=request.story_id,
-                op_id=request.op_id,
-            )
-            return self._ownership_fence_violation_rejection(
+            rejection = self._ownership_fence_violation_rejection(
                 exc,
                 op_id=request.op_id,
                 operation_kind="phase_start",
                 run_id=run_id,
                 phase=phase,
             )
+            if exc.detail.get("error_code") == ERROR_CODE_STORY_FROZEN:
+                terminal = _operation_record(
+                    op_id=request.op_id,
+                    project_key=request.project_key,
+                    story_id=request.story_id,
+                    run_id=run_id,
+                    session_id=request.session_id,
+                    operation_kind="phase_start",
+                    phase=phase,
+                    result=rejection,
+                    now=self._now_fn(),
+                    request_body_hash=_control_plane_request_body_hash(
+                        request,
+                        operation_kind="phase_start",
+                        phase=phase,
+                    ),
+                )
+                if self._repo.finalize_operation(
+                    terminal,
+                    owner_token=owner_token,
+                    owner_claimed_at=owner_claimed_at,
+                    owner_operation_epoch=owner_operation_epoch,
+                ):
+                    finalized = True
+                else:
+                    existing = self._load_existing_operation(
+                        request,
+                        operation_kind="phase_start",
+                        phase=phase,
+                        mutating_retry=False,
+                    )
+                    if existing is not None:
+                        rejection = existing
+            else:
+                self._release_my_claim_best_effort(
+                    request.op_id,
+                    owner_token,
+                    owner_claimed_at,
+                )
+            self._release_object_claim(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                op_id=request.op_id,
+            )
+            return rejection
         except ControlPlaneBindingCollisionError as exc:
             #: AG3-054 run-scoping sweep: this fresh start would materialize a
             #: binding for THIS run, but the session is already bound to a DIFFERENT
@@ -592,6 +637,7 @@ class _StartPhaseAdmissionMixin:
         mints_ownership_record: bool = False,
         observed_ownership_epoch: int | None = None,
         execution_contract_digest: str | None = None,
+        productive_completion_returned: bool = False,
     ) -> ControlPlaneMutationResult:
         """Atomically CAS-finalize the claim AND materialize side effects (#1).
 
@@ -741,6 +787,7 @@ class _StartPhaseAdmissionMixin:
             ownership_record_to_insert=ownership_record_to_insert,
             execution_contract_digest_to_insert=execution_contract_digest_to_insert,
             expected_ownership_epoch=(None if mints_ownership_record else ownership_epoch_for_commit),
+            productive_completion_returned=productive_completion_returned,
         ):
             return result
         #: Lost the ownership CAS: a concurrent finalize/admin-abort already

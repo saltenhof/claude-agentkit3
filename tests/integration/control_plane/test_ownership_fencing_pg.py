@@ -27,6 +27,7 @@ suite), so this module requests the isolation fixture explicitly.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from http import HTTPStatus
 from typing import TYPE_CHECKING
@@ -46,6 +47,7 @@ from agentkit.backend.control_plane.push_sync import (
     PushFreshnessRecord,
     SyncPointBarrierType,
 )
+from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
 from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
 from agentkit.backend.control_plane.workspace_locator import StoryWorkspace
 from agentkit.backend.control_plane_http.app import ControlPlaneApplication
@@ -58,6 +60,8 @@ from agentkit.backend.state_backend import postgres_store
 from agentkit.backend.state_backend.operation_ledger import load_control_plane_operation_global
 from agentkit.backend.state_backend.pipeline_runtime_store import (
     load_attempts,
+    load_flow_execution,
+    load_phase_snapshot,
     load_phase_state,
 )
 from agentkit.backend.state_backend.state_backend_connection_manager import (
@@ -281,6 +285,20 @@ class _FreezeDuringImplementationHandler:
         del ctx, envelope, trigger
         return HandlerResult(status=PhaseStatus.COMPLETED)
 
+
+class _CompleteImplementationHandler:
+    """Complete through the real engine without entering a freeze in-handler."""
+
+    def on_enter(self, ctx: StoryContext, envelope: object) -> HandlerResult:
+        del ctx, envelope
+        return HandlerResult(status=PhaseStatus.COMPLETED)
+
+    def on_exit(self, ctx: StoryContext, envelope: object) -> None:
+        del ctx, envelope
+
+    def on_resume(self, ctx: StoryContext, envelope: object, trigger: str) -> HandlerResult:
+        del ctx, envelope, trigger
+        return HandlerResult(status=PhaseStatus.COMPLETED)
 
 def test_real_setup_start_atomically_creates_the_active_ownership_record(
     tmp_path: Path,
@@ -622,7 +640,7 @@ def test_postgres_freeze_blocks_closure_boundary_after_real_setup(tmp_path: Path
     _assert_real_freeze_block(result, story_id=story_id, op_id=op_id)
 
 
-def test_postgres_freeze_entering_during_executor_dispatch_blocks_commit(
+def test_postgres_freeze_mid_handler_fences_completion_but_keeps_in_progress_trace(
     tmp_path: Path,
 ) -> None:
     story_id, run_id, op_id = "AG3-655", "run-655", "op-freeze-race-pg"
@@ -665,9 +683,123 @@ def test_postgres_freeze_entering_during_executor_dispatch_blocks_commit(
     )
 
     assert handler.entered is True
-    _assert_real_freeze_block(result, story_id=story_id, op_id=op_id)
-    assert load_attempts(story_dir, "implementation", run_id=run_id) == []
+    assert result.status == "rejected"
+    assert result.error_code == "story_frozen"
+    assert result.freeze_conflict is not None
+    assert load_attempts(story_dir, "implementation") == []
     assert load_phase_state(story_dir) is None
+    assert load_phase_snapshot(story_dir, "implementation") is None
+    flow = load_flow_execution(story_dir)
+    assert flow is not None
+    assert flow.status == "IN_PROGRESS"
+
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None
+    assert active.status.value == "active"
+    stored = load_control_plane_operation_global(op_id)
+    assert stored is not None
+    assert stored.status == "rejected"
+    replay = racing_service.start_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(story_id=story_id, op_id=op_id, session_id="sess-A"),
+    )
+    assert replay.status == "rejected"
+    assert replay.error_code == "story_frozen"
+    assert replay.freeze_conflict == result.freeze_conflict
+
+    next_op_id = "op-freeze-race-next-pg"
+    blocked_next = racing_service.start_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(story_id=story_id, op_id=next_op_id, session_id="sess-A"),
+    )
+    assert blocked_next.status == "rejected"
+    assert blocked_next.error_code == "story_frozen"
+    assert load_control_plane_operation_global(next_op_id) is None
+
+
+def test_postgres_freeze_after_completion_before_finalize_preserves_completed_truth(
+    tmp_path: Path,
+) -> None:
+    story_id, run_id, op_id = "AG3-658", "run-658", "op-freeze-after-completion-pg"
+    _seed_story_context(tmp_path, story_id)
+    identity = boot_backend_instance_identity_global("inst-freeze-after-completion", _T0)
+    setup_service = ControlPlaneRuntimeService(
+        phase_dispatcher=_AdmittedDispatcher(),  # type: ignore[arg-type]
+        now_fn=lambda: _T0,
+        instance_identity=identity,
+    )
+    setup = setup_service.start_phase(
+        run_id=run_id,
+        phase="setup",
+        request=_request(story_id=story_id, op_id="op-freeze-after-setup", session_id="sess-A"),
+    )
+    assert setup.status == "committed"
+    story_dir = tmp_path / _PROJECT / "stories" / story_id
+
+    def _engine_factory(ctx: StoryContext, workspace: StoryWorkspace) -> PipelineEngine:
+        registry = PhaseHandlerRegistry()
+        registry.register("implementation", _CompleteImplementationHandler())
+        return PipelineEngine(resolve_workflow(ctx.story_type), registry, workspace.story_dir)
+
+    dispatcher = PhaseDispatcher(
+        workspace_locator=_TestWorkspaceLocator(tmp_path / _PROJECT),
+        engine_factory=_engine_factory,
+        guard_factory=lambda workspace: pytest.fail("guard must not run for admitted phase"),
+    )
+    repository = ControlPlaneRuntimeRepository()
+    finalize_start_phase = repository.finalize_start_phase
+
+    def _freeze_then_finalize(record: object, **kwargs: object) -> bool:
+        FreezeRepository().set_freeze(
+            story_id,
+            frozen_at="2026-07-11T12:01:00+00:00",
+            freeze_reason="entered after executor completion",
+            freeze_version=1,
+        )
+        return finalize_start_phase(record, **kwargs)
+
+    racing_service = ControlPlaneRuntimeService(
+        repository=replace(repository, finalize_start_phase=_freeze_then_finalize),
+        phase_dispatcher=dispatcher,  # type: ignore[arg-type]
+        now_fn=lambda: _T0,
+        instance_identity=identity,
+    )
+
+    result = racing_service.start_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(story_id=story_id, op_id=op_id, session_id="sess-A"),
+    )
+
+    assert result.status == "committed"
+    assert result.phase_dispatch is not None
+    assert result.phase_dispatch.status == "phase_completed"
+    phase_state = load_phase_state(story_dir)
+    assert phase_state is not None
+    assert phase_state.phase == "implementation"
+    assert phase_state.status is PhaseStatus.COMPLETED
+    attempts = load_attempts(story_dir, "implementation")
+    assert len(attempts) == 1
+    assert attempts[0].outcome.value == "COMPLETED"
+    snapshot = load_phase_snapshot(story_dir, "implementation")
+    assert snapshot is not None
+    assert snapshot.status is PhaseStatus.COMPLETED
+    stored = load_control_plane_operation_global(op_id)
+    assert stored is not None
+    assert stored.status == "committed"
+    assert stored.response_payload["phase_dispatch"]["status"] == "phase_completed"
+
+    next_op_id = "op-freeze-after-next-pg"
+    blocked_next = racing_service.start_phase(
+        run_id=run_id,
+        phase="closure",
+        request=_request(story_id=story_id, op_id=next_op_id, session_id="sess-A"),
+    )
+    assert blocked_next.status == "rejected"
+    assert blocked_next.error_code == "story_frozen"
+    assert load_control_plane_operation_global(next_op_id) is None
 
 
 def test_postgres_resolving_repair_keeps_conflict_member_blocking_admission(

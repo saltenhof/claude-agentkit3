@@ -146,6 +146,7 @@ def finalize_control_plane_start_phase_global(
     ownership_record_to_insert: RunOwnershipRecord | None = None,
     execution_contract_digest_to_insert: ExecutionContractDigestRecord | None = None,
     expected_ownership_epoch: int | None = None,
+    productive_completion_returned: bool = False,
 ) -> bool:
     """Atomically CAS-finalize a start_phase and materialize side effects."""
     from agentkit.backend.state_backend import persistence_mappers as mappers
@@ -181,6 +182,7 @@ def finalize_control_plane_start_phase_global(
                 else None
             ),
             expected_ownership_epoch=expected_ownership_epoch,
+            productive_completion_returned=productive_completion_returned,
         )
     )
 
