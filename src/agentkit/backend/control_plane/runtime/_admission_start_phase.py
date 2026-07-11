@@ -308,52 +308,15 @@ class _StartPhaseAdmissionMixin:
             #: (``_start_phase_after_claim``) and this commit. The whole finalize
             #: rolled back (no side effect, no stored op). Release MY claims and
             #: surface the rich ex-owner rejection.
-            rejection = self._ownership_fence_violation_rejection(
+            rejection = self._resolve_start_phase_fence_violation(
                 exc,
-                op_id=request.op_id,
-                operation_kind="phase_start",
+                request=request,
                 run_id=run_id,
                 phase=phase,
+                owner_token=owner_token,
+                owner_claimed_at=owner_claimed_at,
+                owner_operation_epoch=owner_operation_epoch,
             )
-            if exc.detail.get("error_code") == ERROR_CODE_STORY_FROZEN:
-                terminal = _operation_record(
-                    op_id=request.op_id,
-                    project_key=request.project_key,
-                    story_id=request.story_id,
-                    run_id=run_id,
-                    session_id=request.session_id,
-                    operation_kind="phase_start",
-                    phase=phase,
-                    result=rejection,
-                    now=self._now_fn(),
-                    request_body_hash=_control_plane_request_body_hash(
-                        request,
-                        operation_kind="phase_start",
-                        phase=phase,
-                    ),
-                )
-                if self._repo.finalize_operation(
-                    terminal,
-                    owner_token=owner_token,
-                    owner_claimed_at=owner_claimed_at,
-                    owner_operation_epoch=owner_operation_epoch,
-                ):
-                    finalized = True
-                else:
-                    existing = self._load_existing_operation(
-                        request,
-                        operation_kind="phase_start",
-                        phase=phase,
-                        mutating_retry=False,
-                    )
-                    if existing is not None:
-                        rejection = existing
-            else:
-                self._release_my_claim_best_effort(
-                    request.op_id,
-                    owner_token,
-                    owner_claimed_at,
-                )
             self._release_object_claim(
                 project_key=request.project_key,
                 story_id=request.story_id,
@@ -405,6 +368,64 @@ class _StartPhaseAdmissionMixin:
                     op_id=request.op_id,
                 )
             raise
+
+    def _resolve_start_phase_fence_violation(
+        self,
+        exc: OwnershipFenceViolationError,
+        *,
+        request: PhaseMutationRequest,
+        run_id: str,
+        phase: str,
+        owner_token: str,
+        owner_claimed_at: str | None,
+        owner_operation_epoch: int | None,
+    ) -> ControlPlaneMutationResult:
+        """Terminalize a frozen executor fence, or release a lost-owner claim."""
+
+        rejection = self._ownership_fence_violation_rejection(
+            exc,
+            op_id=request.op_id,
+            operation_kind="phase_start",
+            run_id=run_id,
+            phase=phase,
+        )
+        if exc.detail.get("error_code") != ERROR_CODE_STORY_FROZEN:
+            self._release_my_claim_best_effort(
+                request.op_id,
+                owner_token,
+                owner_claimed_at,
+            )
+            return rejection
+        terminal = _operation_record(
+            op_id=request.op_id,
+            project_key=request.project_key,
+            story_id=request.story_id,
+            run_id=run_id,
+            session_id=request.session_id,
+            operation_kind="phase_start",
+            phase=phase,
+            result=rejection,
+            now=self._now_fn(),
+            request_body_hash=_control_plane_request_body_hash(
+                request,
+                operation_kind="phase_start",
+                phase=phase,
+            ),
+        )
+        if self._repo.finalize_operation(
+            terminal,
+            owner_token=owner_token,
+            owner_claimed_at=owner_claimed_at,
+            owner_operation_epoch=owner_operation_epoch,
+        ):
+            return rejection
+        existing = self._load_existing_operation(
+            request,
+            operation_kind="phase_start",
+            phase=phase,
+            mutating_retry=False,
+        )
+        return existing if existing is not None else rejection
 
     def _start_phase_after_claim(
         self,
