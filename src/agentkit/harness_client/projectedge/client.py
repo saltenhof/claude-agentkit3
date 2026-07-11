@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 _LOCK_EXPORT_FILE = "lock.json"
 _QA_LOCK_EXPORT_FILE = "qa-lock.json"
 _FREEZE_EXPORT_FILE = "freeze.json"
+_AGENT_GUARD_DIR = ".agent-guard"
 
 
 #: The wire header that carries the stable correlation id (FK-91 §91.1a Regel #7).
@@ -442,27 +443,7 @@ class LocalEdgePublisher:
         self._project_root = project_root
 
     def publish(self, bundle: EdgeBundle) -> None:
-        if (
-            bundle.session is not None
-            and bundle.session.status == "revoked"
-            and bundle.session.revocation_reason == "ownership_transferred"
-        ):
-            from agentkit.harness_client.projectedge.quarantine import (
-                quarantine_worktree,
-            )
-
-            quarantine_store = (
-                self._project_root.parent
-                / ".agentkit-quarantine"
-                / self._project_root.name
-            )
-            for root in bundle.tombstone_worktree_roots:
-                quarantine_worktree(
-                    source_root=Path(root),
-                    quarantine_store=quarantine_store,
-                    reason=bundle.session.revocation_reason,
-                    now=bundle.current.generated_at,
-                )
+        self._quarantine_transferred_worktrees(bundle)
         bundle_root = self._project_root / bundle.current.bundle_dir
         bundle_root.mkdir(parents=True, exist_ok=True)
         _write_json(bundle_root / "session.json", _session_payload(bundle))
@@ -487,7 +468,39 @@ class LocalEdgePublisher:
             self._project_root / "_temp" / "governance" / "current.json",
             bundle.current.model_dump(mode="json"),
         )
+        self._publish_worktree_exports(bundle, freeze_payload=freeze_payload)
 
+    def _quarantine_transferred_worktrees(self, bundle: EdgeBundle) -> None:
+        """Apply the ex-owner tombstone quarantine before publishing its bundle."""
+        if (
+            bundle.session is not None
+            and bundle.session.status == "revoked"
+            and bundle.session.revocation_reason == "ownership_transferred"
+        ):
+            from agentkit.harness_client.projectedge.quarantine import (
+                quarantine_worktree,
+            )
+
+            quarantine_store = (
+                self._project_root.parent
+                / ".agentkit-quarantine"
+                / self._project_root.name
+            )
+            for root in bundle.tombstone_worktree_roots:
+                quarantine_worktree(
+                    source_root=Path(root),
+                    quarantine_store=quarantine_store,
+                    reason=bundle.session.revocation_reason,
+                    now=bundle.current.generated_at,
+                )
+
+    def _publish_worktree_exports(
+        self,
+        bundle: EdgeBundle,
+        *,
+        freeze_payload: dict[str, object],
+    ) -> None:
+        """Write active worktree projections and remove tombstone projections."""
         if (
             bundle.session is not None
             and bundle.session.operating_mode == "story_execution"
@@ -495,16 +508,16 @@ class LocalEdgePublisher:
         ):
             for root in bundle.session.worktree_roots:
                 _write_json(
-                    Path(root) / ".agent-guard" / _LOCK_EXPORT_FILE,
+                    Path(root) / _AGENT_GUARD_DIR / _LOCK_EXPORT_FILE,
                     bundle.lock.model_dump(mode="json"),
                 )
                 _write_json(
-                    Path(root) / ".agent-guard" / _FREEZE_EXPORT_FILE,
+                    Path(root) / _AGENT_GUARD_DIR / _FREEZE_EXPORT_FILE,
                     freeze_payload,
                 )
         for root in bundle.tombstone_worktree_roots:
             for filename in (_LOCK_EXPORT_FILE, _FREEZE_EXPORT_FILE):
-                export_path = Path(root) / ".agent-guard" / filename
+                export_path = Path(root) / _AGENT_GUARD_DIR / filename
                 if export_path.exists():
                     export_path.unlink()
 
@@ -531,7 +544,7 @@ class LocalEdgePublisher:
                     payload,
                 )
         for root in worktree_roots:
-            _write_json(root / ".agent-guard" / _FREEZE_EXPORT_FILE, payload)
+            _write_json(root / _AGENT_GUARD_DIR / _FREEZE_EXPORT_FILE, payload)
 
 
 class ProjectEdgeClient:

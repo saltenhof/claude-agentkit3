@@ -76,15 +76,12 @@ def execute_takeover_reconcile(
     )
 
     if not worktree_path.exists():
-        try:
-            report = execute_provision_worktree(
-                provision_payload,
-                project_config=project_config,
-                project_root=project_root,
-            )
-        except EdgeGitError as exc:
-            return _error(payload, "local_stale_or_dirty_takeover_target", str(exc))
-        return TakeoverReconcileExecution(result=report)
+        return _provision_missing_target(
+            payload,
+            provision_payload=provision_payload,
+            project_config=project_config,
+            project_root=project_root,
+        )
 
     marker = _read_marker(worktree_path)
     marker_state = _classify_marker(marker, payload=payload)
@@ -182,6 +179,30 @@ def execute_takeover_reconcile(
         result=report,
         quarantine_detail=quarantine_detail,
     )
+
+
+def _provision_missing_target(
+    payload: TakeoverReconcileCommandPayload,
+    *,
+    provision_payload: ProvisionWorktreeCommandPayload,
+    project_config: ProjectConfig,
+    project_root: Path,
+) -> TakeoverReconcileExecution:
+    """Provision an absent target or report its stale local branch fail-closed."""
+    from agentkit.harness_client.projectedge.command_executor import (
+        EdgeGitError,
+        execute_provision_worktree,
+    )
+
+    try:
+        report = execute_provision_worktree(
+            provision_payload,
+            project_config=project_config,
+            project_root=project_root,
+        )
+    except EdgeGitError as exc:
+        return _error(payload, "local_stale_or_dirty_takeover_target", str(exc))
+    return TakeoverReconcileExecution(result=report)
 
 
 def _read_marker(worktree_path: Path) -> dict[str, object] | None:

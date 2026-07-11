@@ -266,20 +266,7 @@ class ProjectEdgeResolver:
                 synced=synced,
             )
 
-        freeze_reason = _blocking_freeze_reason(bundle)
-        if freeze_reason is not None:
-            return ResolvedEdgeState(
-                operating_mode="binding_invalid",
-                bundle=bundle,
-                block_reason=freeze_reason,
-                synced=synced,
-            )
-
-        return ResolvedEdgeState(
-            operating_mode="story_execution",
-            bundle=bundle,
-            synced=synced,
-        )
+        return _resolve_freeze_or_story_execution(bundle, synced=synced)
 
     def load_current_bundle(self) -> EdgeBundle | None:
         """Load the current local edge bundle if one is published."""
@@ -420,6 +407,27 @@ def _blocking_freeze_reason(bundle: EdgeBundle) -> str | None:
     return min(
         (freeze.block_reason for freeze in bundle.active_freezes),
         key=lambda reason: priorities[reason],
+    )
+
+
+def _resolve_freeze_or_story_execution(
+    bundle: EdgeBundle,
+    *,
+    synced: bool,
+) -> ResolvedEdgeState:
+    """Finish resolution with additive freeze blocking before story success."""
+    freeze_reason = _blocking_freeze_reason(bundle)
+    if freeze_reason is not None:
+        return ResolvedEdgeState(
+            operating_mode="binding_invalid",
+            bundle=bundle,
+            block_reason=freeze_reason,
+            synced=synced,
+        )
+    return ResolvedEdgeState(
+        operating_mode="story_execution",
+        bundle=bundle,
+        synced=synced,
     )
 
 

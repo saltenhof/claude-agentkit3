@@ -49,6 +49,10 @@ from agentkit.backend.control_plane.push_sync import (
     official_story_ref,
 )
 from agentkit.backend.utils.io import atomic_write_text
+from agentkit.harness_client.projectedge.reconcile import (
+    TakeoverReconcileExecution,
+    execute_takeover_reconcile,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -61,9 +65,6 @@ if TYPE_CHECKING:
         EdgeCommandView,
     )
     from agentkit.harness_client.projectedge.client import ProjectEdgeClient
-    from agentkit.harness_client.projectedge.reconcile import (
-        TakeoverReconcileExecution,
-    )
 
 _STORY_MARKER_FILENAME = ".agentkit-story.json"
 _EDGE_GIT_TIMEOUT_S = 30
@@ -575,10 +576,6 @@ def _dispatch_executable(
             context=sync_push_context,
         )
     if command.command_kind == "takeover_reconcile":
-        from agentkit.harness_client.projectedge.reconcile import (
-            execute_takeover_reconcile,
-        )
-
         return execute_takeover_reconcile(
             TakeoverReconcileCommandPayload.model_validate(command.payload),
             project_config=project_config,
@@ -628,10 +625,6 @@ def process_open_commands(
                 ),
             )
         )
-
-    from agentkit.harness_client.projectedge.reconcile import (
-        TakeoverReconcileExecution,
-    )
 
     reconcile_executions = [
         execution
