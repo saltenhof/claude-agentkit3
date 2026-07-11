@@ -8,11 +8,9 @@ owns the closed, contract-pinned command-kind / result-type / lifecycle-status
 vocabulary shared by both sides of the wire (backend command creation +
 ``harness_client`` edge executor) -- no I/O, no transactions.
 
-``provision_worktree`` / ``teardown_worktree`` / ``preflight_probe`` (AG3-145
-substep B) plus ``sync_push`` (the AG3-147 official Edge-Push-Gate path,
-FK-10 §10.2.4b / FK-15 §15.5.4) are EXECUTED by the edge; ``takeover_reconcile``
-/ ``merge_local`` are REGISTERED here (contract-pinned vocabulary) but their
-commissioning/execution belongs to AG3-151 / AG3-152 respectively. An edge that
+``provision_worktree`` / ``teardown_worktree`` / ``preflight_probe`` (AG3-145),
+``sync_push`` (AG3-147), and ``takeover_reconcile`` (AG3-151) are executed by
+the edge. ``merge_local`` remains registered for AG3-152. An edge that
 receives a command of a kind outside :data:`EXECUTABLE_COMMAND_KINDS` reports a
 deterministic error result -- never a silent no-op (Scope item 4).
 """
@@ -45,9 +43,9 @@ __all__ = (
 )
 
 #: FK-91 §91.1b "initial command kinds": the closed set of command kinds the
-#: Edge-Command-Queue can carry. Six total; four are executed (see
-#: :data:`EXECUTABLE_COMMAND_KINDS`) -- the remaining two are registered
-#: vocabulary owned by AG3-151 / AG3-152.
+#: Edge-Command-Queue can carry. Six total; five are executed (see
+#: :data:`EXECUTABLE_COMMAND_KINDS`) and ``merge_local`` remains registered for
+#: AG3-152.
 CommandKind = Literal[
     "provision_worktree",
     "teardown_worktree",
