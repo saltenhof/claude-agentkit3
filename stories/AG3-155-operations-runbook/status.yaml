@@ -1,8 +1,17 @@
 story_id: AG3-155
 title: "Betriebs-Runbook (FK-04): Takeover-Ablauf, admin_abort, Startup-Rekonsiliierung, Migrationsreihenfolge ST-01→ST-02→ST-03"
 type: concept
-status: blocked
-phase: setup
+status: completed
+phase: closure
+# All 4 deps completed 2026-07-11 (139/149/151/154) -> unblocked + CLOSED 2026-07-11.
+# Doc-only: FK-04 §4.5.10 Ownership-Takeover, §4.5.11 admin_abort, §4.5.12
+# Startup-Rekonsiliierung, §4.5.13 Migrationsreihenfolge (ST-01->02->03) + §4.5.2
+# stale-lock PID-liveness cleanup + formal_refs. Single-Assertion (references
+# FK-56/91/30/10/20, no norm duplication). Codex review found 3 accuracy fixes
+# (agent-init approval is frontend-only; admin_abort not instance-restricted;
+# startup failed-vs-repair) -> applied by the orchestrator. 4 concept gates green;
+# doc-only (no code). Covers IMPL-024. Finding: freeze-kind + takeover_reconcile_clear
+# tokens are code-only (not concept-anchored) -> tech-debt.
 created: "2026-07-02"
 size: S
 # Herkunft: GAP-ST-13 (gap-analyse-session-ownership.md v4, Codex-APPROVE).

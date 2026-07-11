@@ -31,6 +31,8 @@ formal_refs:
   - formal.story-reset.events
   - formal.story-reset.invariants
   - formal.story-reset.scenarios
+  - formal.state-storage.invariants
+  - formal.operating-modes.invariants
 ---
 
 # 4 — Betrieb, Monitoring, Audit und Runbooks
@@ -172,14 +174,32 @@ Lösung:
 
 ### 4.5.2 Stale Lock
 
-```
-Symptom: Story kann nicht gestartet werden (Preflight FAIL: stale lock)
-Ursache: Vorheriger Run abgestürzt, Lock nicht aufgeräumt
+```text
+Symptom: Story kann nicht gestartet werden (Preflight-Anzeige: stale lock)
+Ursache: Vorheriger Run abgestuerzt oder verwaist; Lock und Bindung
+bestehen weiter (kein automatischer Entzug)
 
-Lösung:
-1. Lock-Record prüfen: Prozess noch aktiv?
-2. Wenn Prozess tot: agentkit cleanup --story {story_id}
-3. Wenn Prozess aktiv: Warten oder Prozess manuell beenden
+WICHTIG: Locks laufen nie automatisch ab. Es gibt kein Lease, kein
+TTL und keine PID-/Prozess-Liveness-Heuristik. Die Stale-Anzeige (z. B.
+letzter API-Kontakt) ist reine Information; Inaktivitaet ist keine
+Diagnose (FK-10 §10.6.1/§10.6.2, Kap. 02.7). Der Mensch entscheidet
+explizit ueber einen offiziellen Recovery-Pfad.
+
+Loesung:
+1. Zustand lesen (reine Information):
+   agentkit status --story {story_id} (REST) bzw. Backend-State des Runs
+2. Explizit-administrative Recovery-Entscheidung ueber einen offiziellen
+   Pfad treffen (kein Warten auf Ablauf, kein manuelles Loeschen):
+   - dieselbe Harness-Identitaet nimmt ihre Arbeit wieder auf →
+     Session-Continuation via /resume (kein Transfer, kein
+     Recovery-Ereignis; FK-56 §56.13g, FK-20 §20.7.3/§20.7.4)
+   - Harness-Identitaet verloren / bewusster Clean-Slate →
+     agentkit recover-story --story {story_id} (neuer Run,
+     acquired_via=recovery; Uebernehmen/Verwerfen: FK-20 §20.7.3)
+   - fremde aktive Session soll uebernommen werden →
+     Ownership-Takeover (§4.5.10, FK-56 §56.13)
+3. Nur bei bewusster Aufraeum-Entscheidung des Menschen:
+   agentkit cleanup --story {story_id} (Worktree, Branch, Locks, Artefakte)
 ```
 
 ### 4.5.3 Integrity-Gate FAIL
@@ -314,6 +334,188 @@ Loesung:
    - Request ist `approved`, `rejected` oder `expired`
    - kein unendlicher Wait auf Host-UI
    - derselbe Run wird nur mit expliziter Entscheidung fortgesetzt
+```
+
+<!-- PROSE-FORMAL: formal.state-storage.invariants, formal.operating-modes.invariants -->
+
+Die folgenden vier Runbooks betreffen den Ownership-/In-Flight-Betrieb.
+Sie sind reine Betriebssicht (Symptom → Ursache → Loesungsschritte ueber
+offizielle Pfade) und definieren nichts neu: Protokoll, Zustaende und
+Endpoints liegen bei den Owner-Konzepten (FK-56, FK-91, FK-30, FK-10,
+FK-20) und den formalen Speicher-/Betriebsmodus-Invarianten
+(`formal.state-storage.invariants`, `formal.operating-modes.invariants`).
+Ein durchgaengiges Prinzip: **Nichts laeuft ab.** Ownership und In-Flight-
+Claims enden nie durch Wanduhr, TTL, Lease-Ablauf oder Heartbeat-Verlust
+(`operating-modes.invariant.ownership_transfer_requires_explicit_confirmed_request`,
+FK-91 §91.1a Regel 16/17). Jeder Endweg ist eine explizite Entscheidung.
+
+### 4.5.10 Ownership-Takeover
+
+```text
+Symptom: Ein aktiver Story-Run soll unter neuem Owner (andere Session)
+fortgefuehrt werden — z. B. Reviewer/Operator uebernimmt eine haengende
+oder abwesende Fremd-Session, oder ein Agent fordert die Uebernahme an
+Ursache: Der Run gehoert noch der bisherigen Session; Ownership wird nie
+automatisch entzogen (FK-56 §56.13 Grundsatz 1). Ein Wechsel ist nur der
+offizielle Ownership-Transfer (Takeover)
+
+WICHTIG: Der Transfer uebertraegt ausschliesslich den gepushten Stand
+`takeover_base_sha` (Pushed-only, FK-56 §56.13c). Nicht gepushte Commits,
+uncommittete und untracked Aenderungen der bisherigen Session sind kein
+Uebergabegut (Verlustkorridor); sie werden lokal quarantaeniert, nie
+stillschweigend mitgenommen.
+
+Loesung:
+1. Anfrage stellen (Begruendungspflicht, auditiert):
+   agentkit takeover-request --story {story_id} --run {run_id} ...
+   (REST: POST .../ownership/takeover-request, FK-91 §91.1a)
+   Antwort ist nie der Vollzug, sondern ein versionierter Challenge:
+   Eigentumslage (owner_session_id, ownership_epoch, binding_version),
+   Kandidaten-SHA + Push-Frische und der Verlustkorridor-Pflichttext
+   (FK-56 §56.13a/§56.13c). Letzter API-Kontakt ist Nicht-Diagnose.
+2. Menschlich vollziehen (informierte Freigabe):
+   agentkit takeover-confirm --story {story_id} --challenge-id {id} ...
+   (REST: POST .../ownership/takeover-confirm). Der Confirm ist
+   human-BFF-session-exklusiv (Strategen-Session; FK-91 §91.1) und
+   waehlt die gespeicherte Challenge nur per challenge_id aus; der CAS
+   laeuft serverseitig gegen die persistierte Challenge-Basis
+   (FK-56 §56.13a). Kein Force-Pfad.
+3. Agenten-initiierter Fall: Der anfragende Agent erhaelt deterministisch
+   `pending_human_approval` (kein Vollzug). Ein Mensch gibt die Uebernahme
+   im globalen Notification-Overlay des Frontends (FK-72) frei — eine
+   agenteninitiierte Anfrage verlangt die Frontend-Freigabe (die CLI ist
+   der Weg fuer den direkt menschlich initiierten Takeover, §4.5.10
+   Schritt 1/2); den Ausgang beobachtet der Agent ueber
+   GET .../operations/{op_id} (FK-56 §56.13b,
+   `operating-modes.invariant.agent_initiated_takeover_requires_human_frontend_approval`).
+   Die offene Freigabe darf wie jede Permission-Request verfallen (dann
+   DENIED) — sie entzieht nie bestehendes Eigentum.
+4. Wirkung auf den Ex-Owner pruefen: Die alte Session geht in
+   binding_invalid mit Grund `ownership_transferred`; jeder mutierende
+   Call wird deterministisch abgewiesen, Reads (inkl.
+   GET .../operations/{op_id} zur eigenen Rekonsiliierung) bleiben
+   erlaubt (FK-56 §56.13c, FK-91 §91.1a Regel 18). Der Ex-Owner erhaelt
+   ueber den Disown-Baustein eine klare, maschinenlesbare Auskunft mit
+   Grund (FK-56 §56.13h).
+5. takeover_reconcile durch die NEUE Session ausfuehren und Betriebs-
+   Befund aufloesen (siehe Tabelle). Offizieller Pfad:
+   POST .../ownership/takeover-reconcile-worktree (SHA-Semantik gegen
+   takeover_base_sha; FK-91 §91.1a, FK-30 §30.6.3).
+```
+
+Die vier Edge-Zustaende nach dem Transfer sind benannte Guard-Zustaende
+(FK-30 §30.6.3), keine Sammel-FAILs — jeder hat einen definierten
+Aufloesungscharakter:
+
+| Betriebs-Befund | Bedeutung (Owner-Konzept) | Offizielle Aufloesung |
+|---|---|---|
+| `takeover_reconcile_required` | Normaler Startzustand des neuen Owners: Worktree noch nicht auf `takeover_base_sha` ausgerichtet (FK-30 §30.6.3, FK-56 §56.13e) | Reconcile ausfuehren — Quarantaene + Reprovisionierung, dann Meldung ueber `POST .../ownership/takeover-reconcile-worktree`. Keine menschliche Entscheidung noetig |
+| `contested_local_writes` | Reconcile gescheitert oder Worktree-Identitaet nicht eindeutig — read-only Konflikt-Freeze (Admission-Blocker mit `freeze_epoch`/`freeze_reason`; FK-30 §30.6.3, FK-56 §56.13f) | Menschliche/administrative Entscheidung loest den Freeze; kein automatisches Fortfahren, kein manueller DB-Eingriff. Ownership bleibt `active` (nur Admission blockiert) |
+| `remote_branch_diverged_after_takeover` | Remote-Head des Story-Branch weicht nach dem Confirm von `takeover_base_sha` ab (z. B. regelwidriger Ex-Owner-Push; FK-30 §30.6.3, FK-56 §56.13c) | Administrative Aufloesung; kein stilles Mitnehmen des divergierten Stands. Der SHA-Vergleich macht den Verstoss zuordenbar |
+| `local_stale_or_dirty_takeover_target` | Am Provisionierungsziel liegt ein alter/schmutziger Worktree derselben Story (Reprovisionierungs-Fall; FK-30 §30.6.3, FK-56 §56.13e) | Quarantaene (gleiche Mechanik wie beim Same-Worktree-Reconcile); nie stilles Ueberschreiben |
+
+### 4.5.11 Haengende In-Flight-Operation / admin_abort
+
+```text
+Symptom: Eine serverseitige Operation steht dauerhaft auf `claimed`; der
+ausloesende Client ist weg (Verbindung gerissen, Prozess beendet)
+Ursache: Der In-Flight-Claim ist instanzgebunden und laeuft NICHT ab —
+weder Transport-Timeout noch Client-Stille beenden ihn (FK-91 §91.1a
+Regel 16/17)
+
+WICHTIG: Nicht auf Ablauf warten — es laeuft nichts ab. Kein Lease, kein
+TTL, keine PID-Heuristik. Transport-/Proxy-Timeouts haben keine fachliche
+Bedeutung (Regel 17).
+
+Diagnose:
+1. Lage rekonsiliieren, nicht raten:
+   GET /v1/project-edge/operations/{op_id} (FK-91 §91.1a Regel 17)
+2. Betrifft der Claim eine servereigene In-Flight-Operation? admin_abort
+   adressiert servereigene Claims (geladen per `op_id`) und ist NICHT auf
+   die eigene `backend_instance_id` beschraenkt — die Beschraenkung auf
+   eigene fruehere Inkarnationen gilt nur fuer die Startup-Rekonsiliierung
+   (§4.5.12), nicht fuer admin_abort (FK-91 §91.1a Regel 16).
+
+Loesung (einziger manueller Endweg):
+1. Administrativen Abbruch ausloesen — ausschliesslich ueber
+   POST /v1/project-edge/operations/{op_id}/admin-abort
+   (`admin_abort_inflight_operation`, Klasse `admin_transition`, FK-55;
+   auditiert) oder den gleichbedeutenden CLI-Adapter (AG3-138). Betrifft
+   ausschliesslich servereigene Claims und leitet nie Client-Ownership
+   aus Stille ab (FK-91 §91.1a Regel 16).
+2. Teil-Writes behandeln: Hat die abgebrochene Mutation bereits
+   Teil-Writes hinterlassen, geht die Operation in einen expliziten,
+   auditierten Reconcile-/Repair-Zustand statt stillschweigend in
+   `failed` (FK-91 §91.1a admin-abort;
+   `state-storage.invariant.operation_finalize_requires_cas_on_operation_epoch`).
+   Der Operator behandelt diesen Zustand als Handlungsauftrag: den
+   auditierten Reconcile-/Repair-Pfad abschliessen, nicht ignorieren.
+3. Alt-Executor-Fence beachten: Ein physisch noch weiterlaufender
+   Alt-Executor kann nach dem Abort nichts mehr finalisieren — das
+   Finalize ist per `operation_epoch`-CAS gefenct; Late-Commits scheitern
+   deterministisch und registrieren hoechstens einen No-op-/Abort-Vermerk
+   (FK-91 §91.1a admin-abort).
+```
+
+### 4.5.12 Server-Boot / Startup-Rekonsiliierung
+
+```text
+Symptom: Verstaendnis, was ein Neustart der Control-Plane-Writer-Instanz
+mit verwaisten Claims tut — bzw. der Start wird fail-closed verweigert
+Ursache: Nach einem Absturz koennen Claims der eigenen frueheren
+Inkarnation verwaist zurueckbleiben; sie muessen deterministisch
+finalisiert werden, bevor Requests angenommen werden
+
+Betriebsannahme (normativ): genau eine aktive Control-Plane-Writer-Instanz
+pro Datenbank (FK-10 §10.5.4). Diese Ein-Writer-Annahme ist die Grundlage
+der Startup-Rekonsiliierung.
+
+Was der Boot deterministisch tut:
+1. Vor Beginn der Request-Annahme finalisiert die Instanz verwaiste
+   Claims IHRER EIGENEN Identitaet aus frueheren Inkarnationen: ein Claim
+   ohne Teil-Writes wird `failed`, ein Claim mit bereits persistierten
+   Teil-Writes geht in den auditierten Reconcile-/Repair-Zustand statt
+   stillschweigend `failed` (Start-Rekonsiliierung; FK-10 §10.5.4,
+   `state-storage.invariant.operation_finalize_requires_cas_on_operation_epoch`).
+2. FREMDE Claims (andere `backend_instance_id`) bleiben unangetastet —
+   der Server spekuliert nie ueber fremde Instanzen oder ueber
+   Client-Stille (FK-91 §91.1a Regel 16,
+   `state-storage.invariant.orphaned_claims_are_finalized_only_by_same_instance_startup_reconciliation_or_admin_abort`).
+
+Loesung bei fail-closed verweigertem Start:
+1. Scheitert die Start-Rekonsiliierung, nimmt die Instanz keine Requests
+   an (fail-closed) — sie startet nicht mit halb finalisiertem Zustand.
+2. Der Operator behebt die Ursache (DB-Erreichbarkeit/Integritaet); kein
+   Bypass, kein manuelles Freigeben von Claims. Verbleibende
+   servereigene In-Flight-Operationen werden ausschliesslich ueber
+   admin_abort aufgeloest (§4.5.11), nie durch Warten auf Ablauf.
+```
+
+### 4.5.13 Deployment-/Migrationsreihenfolge (Ownership ohne TTL)
+
+Dies ist eine **Betriebsregel**, kein Symptom-Runbook: die Reihenfolge,
+in der die Ownership-ohne-TTL-Mechanik ausgerollt wird, ist verbindlich.
+
+```text
+Regel: Der Rollout folgt der harten Ordnung
+  AG3-137  (Schema + Backfill laufender Runs)
+    → AG3-138  (Startup-Rekonsiliierung + admin_abort produktiv)
+      → AG3-139  (TTL-Entfall)
+Eine Umkehrung oder ein Ueberspringen ist unzulaessig.
+
+Begruendung (IMPL-006): Zwischen AG3-138 und AG3-139 darf KEIN
+Deployment-Zustand ohne Verwaisungs-Handling existieren. Bis AG3-138
+produktiv ist, war die Claim-TTL das EINZIGE Verwaisungs-Handling; sie
+darf erst entfallen (AG3-139), nachdem Startup-Rekonsiliierung und
+admin_abort (die beiden einzigen Endwege verwaister Claims,
+`state-storage.invariant.orphaned_claims_are_finalized_only_by_same_instance_startup_reconciliation_or_admin_abort`)
+tatsaechlich laufen. Andernfalls entstuende ein Fenster, in dem verwaiste
+Claims weder ablaufen noch offiziell finalisiert werden koennen —
+fail-closed-widrig.
+
+Backfill-Hinweis (AG3-137): Der Backfill laufender Runs ist idempotent —
+bestehende aktive Runs erhalten `ownership_epoch=1` und `status='active'`.
+Wiederholtes Anwenden aendert nichts (Idempotenz).
 ```
 
 ## 4.6 Kapazitäts- und Kostensteuerung
