@@ -11,6 +11,7 @@ path from the takeover base. Git stash and salvage are deliberately absent.
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -60,7 +61,6 @@ def execute_takeover_reconcile(
         _require_git,
         _resolve_repo_root,
         _run_git,
-        execute_provision_worktree,
     )
 
     repo_root = _resolve_repo_root(project_config, project_root, payload.repo_id)
@@ -81,11 +81,30 @@ def execute_takeover_reconcile(
             provision_payload=provision_payload,
             project_config=project_config,
             project_root=project_root,
+            repo_root=repo_root,
+            worktree_path=worktree_path,
+            branch=branch,
         )
 
     marker = _read_marker(worktree_path)
     marker_state = _classify_marker(marker, payload=payload)
     if marker_state == "ambiguous":
+        if _is_reprovision_remnant(
+            repo_root,
+            worktree_path,
+            branch=branch,
+            takeover_base_sha=payload.takeover_base_sha,
+        ):
+            return _provision_missing_target(
+                payload,
+                provision_payload=provision_payload,
+                project_config=project_config,
+                project_root=project_root,
+                repo_root=repo_root,
+                worktree_path=worktree_path,
+                branch=branch,
+                remove_remnant=True,
+            )
         return _error(
             payload,
             "contested_local_writes",
@@ -147,18 +166,13 @@ def execute_takeover_reconcile(
     )
 
     try:
-        _run_git(repo_root, "worktree", "prune")
-        branch_present = _run_git(
-            repo_root, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"
-        )
-        if branch_present.returncode == 0:
-            _require_git(_run_git(repo_root, "branch", "-D", branch), "branch delete")
-        elif branch_present.returncode != 1:
-            _require_git(branch_present, "show-ref")
-        report = execute_provision_worktree(
+        report = _recover_and_provision(
             provision_payload,
             project_config=project_config,
             project_root=project_root,
+            repo_root=repo_root,
+            worktree_path=worktree_path,
+            branch=branch,
         )
     except EdgeGitError as exc:
         return _error(
@@ -187,22 +201,129 @@ def _provision_missing_target(
     provision_payload: ProvisionWorktreeCommandPayload,
     project_config: ProjectConfig,
     project_root: Path,
+    repo_root: Path,
+    worktree_path: Path,
+    branch: str,
+    remove_remnant: bool = False,
 ) -> TakeoverReconcileExecution:
-    """Provision an absent target or report its stale local branch fail-closed."""
+    """Recover and provision an absent or owned partial-reprovision target."""
     from agentkit.harness_client.projectedge.command_executor import (
         EdgeGitError,
-        execute_provision_worktree,
     )
 
     try:
-        report = execute_provision_worktree(
+        report = _recover_and_provision(
             provision_payload,
             project_config=project_config,
             project_root=project_root,
+            repo_root=repo_root,
+            worktree_path=worktree_path,
+            branch=branch,
+            remove_remnant=remove_remnant,
         )
     except EdgeGitError as exc:
         return _error(payload, "local_stale_or_dirty_takeover_target", str(exc))
     return TakeoverReconcileExecution(result=report)
+
+
+def _recover_and_provision(
+    provision_payload: ProvisionWorktreeCommandPayload,
+    *,
+    project_config: ProjectConfig,
+    project_root: Path,
+    repo_root: Path,
+    worktree_path: Path,
+    branch: str,
+    remove_remnant: bool = False,
+) -> WorktreeReport:
+    """Converge stale registration/branch state before provisioning.
+
+    Both the post-quarantine path and every replay use this single recovery
+    sequence. A markerless path is removed only after the caller has proved it
+    is an owned partial reprovision, never for an ambiguous foreign target.
+    """
+    from agentkit.harness_client.projectedge.command_executor import (
+        _require_git,
+        _run_git,
+        execute_provision_worktree,
+    )
+
+    if remove_remnant and worktree_path.exists():
+        if _registered_at_canonical_path(repo_root, worktree_path):
+            _require_git(
+                _run_git(repo_root, "worktree", "remove", "--force", str(worktree_path)),
+                "partial worktree remove",
+            )
+        else:
+            shutil.rmtree(worktree_path)
+
+    _require_git(_run_git(repo_root, "worktree", "prune"), "worktree prune")
+    branch_present = _run_git(
+        repo_root, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"
+    )
+    if branch_present.returncode == 0:
+        _require_git(_run_git(repo_root, "branch", "-D", branch), "branch delete")
+    elif branch_present.returncode != 1:
+        _require_git(branch_present, "show-ref")
+    return execute_provision_worktree(
+        provision_payload,
+        project_config=project_config,
+        project_root=project_root,
+    )
+
+
+def _is_reprovision_remnant(
+    repo_root: Path,
+    worktree_path: Path,
+    *,
+    branch: str,
+    takeover_base_sha: str,
+) -> bool:
+    """Recognize only state produced by an interrupted local reprovision."""
+    marker_path = worktree_path / _STORY_MARKER_FILENAME
+    if marker_path.exists():
+        return False
+    if _registered_at_canonical_path(repo_root, worktree_path):
+        from agentkit.harness_client.projectedge.command_executor import (
+            EdgeGitError,
+            _require_git,
+            _run_git,
+        )
+
+        try:
+            branch_result = _run_git(
+                worktree_path, "symbolic-ref", "--quiet", "--short", "HEAD"
+            )
+            _require_git(branch_result, "symbolic-ref HEAD")
+            head_result = _run_git(worktree_path, "rev-parse", "HEAD")
+            _require_git(head_result, "rev-parse HEAD")
+            return (
+                branch_result.stdout.strip() == branch
+                and head_result.stdout.strip() == takeover_base_sha
+                and _has_no_local_writes(worktree_path)
+            )
+        except EdgeGitError:
+            return False
+    return _is_unreadable_freeze_publication_remnant(worktree_path)
+
+
+def _is_unreadable_freeze_publication_remnant(worktree_path: Path) -> bool:
+    """Identify the guard-only root created after failed reprovision publication."""
+    try:
+        children = list(worktree_path.iterdir())
+        freeze_path = worktree_path / ".agent-guard" / "freeze.json"
+        payload = json.loads(freeze_path.read_text(encoding="utf-8"))
+        guard_children = set(children[0].iterdir()) if len(children) == 1 else set()
+    except (OSError, ValueError):
+        return False
+    return (
+        len(children) == 1
+        and children[0].name == ".agent-guard"
+        and children[0].is_dir()
+        and not children[0].is_symlink()
+        and guard_children == {freeze_path}
+        and payload == {"state_readable": False, "active_freezes": []}
+    )
 
 
 def _read_marker(worktree_path: Path) -> dict[str, object] | None:

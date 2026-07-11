@@ -176,6 +176,25 @@ def test_resolver_blocks_when_published_freeze_state_is_unreadable(
     assert resolved.block_reason == "freeze_state_unreadable"
 
 
+def test_resolver_blocks_when_bound_bundle_freeze_state_is_absent(
+    tmp_path: Path,
+) -> None:
+    worktree = tmp_path / "worktree"
+    bundle = _bundle(worktree_root=str(worktree))
+    LocalEdgePublisher(project_root=tmp_path).publish(bundle)
+    freeze_path = tmp_path / bundle.current.bundle_dir / "freeze.json"
+    freeze_path.unlink()
+
+    resolved = ProjectEdgeResolver(project_root=tmp_path).resolve(
+        session_id="sess-001",
+        cwd=worktree,
+        freshness_class="guarded_read",
+    )
+
+    assert resolved.operating_mode == "binding_invalid"
+    assert resolved.block_reason == "freeze_state_unreadable"
+
+
 def test_resolver_returns_binding_invalid_for_session_mismatch(tmp_path: Path) -> None:
     worktree = tmp_path / "worktree"
     LocalEdgePublisher(project_root=tmp_path).publish(_bundle(worktree_root=str(worktree)))

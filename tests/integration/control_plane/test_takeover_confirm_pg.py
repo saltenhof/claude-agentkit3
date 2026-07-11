@@ -4617,8 +4617,11 @@ def test_real_transfer_command_queue_contested_bundle_blocks_active_owner(
         )
     )
     assert confirmed.status == "committed"
-    # Partial multi-repo failure: api is ambiguous while web remains clean.
-    (worktrees[_REPO] / ".agentkit-story.json").unlink()
+    # Partial multi-repo failure: api has a foreign marker while web remains clean.
+    marker_path = worktrees[_REPO] / ".agentkit-story.json"
+    marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    marker["story_id"] = "FOREIGN-1"
+    marker_path.write_text(json.dumps(marker), encoding="utf-8")
 
     client = _RuntimeEdgeClient(
         service,
