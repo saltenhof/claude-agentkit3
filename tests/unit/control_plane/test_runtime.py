@@ -33,6 +33,7 @@ from agentkit.backend.control_plane.records import (
     BackendInstanceIdentityRecord,
     BindingDeleteScope,
     ControlPlaneOperationRecord,
+    EdgeCommandRecord,
     RunOwnershipRecord,
     SessionRunBindingRecord,
     TakeoverApprovalRecord,
