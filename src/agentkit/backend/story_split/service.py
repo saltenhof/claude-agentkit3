@@ -983,8 +983,8 @@ class StorySplitService:
             raise StorySplitError("source story vanished between gate and creation")
         plan_to_created: dict[str, str] = dict(known_successor_ids)
         for index, successor in enumerate(request.plan.successors):
-            created_id = cast(
-                "str",
+            created = cast(
+                "Story",
                 self._saga_guard.run_claimed_step(
                     request,
                     story_id=request.source_story_id,
@@ -992,18 +992,32 @@ class StorySplitService:
                         f"{split_id}:successor-create:{index}:{successor.story_id}"
                     ),
                     mutation=partial(
-                        self._create_and_checkpoint_successor,
+                        self._story_service.create_story,
+                        _build_successor_input(source, successor),
+                        op_id=f"{split_id}:successor:{index}:{successor.story_id}",
+                    ),
+                ),
+            )
+            # The REAL allocated display id, always — never a silent fallback to
+            # the plan-local reference id (the contract returns a Story).
+            created_id = str(created.story_display_id)
+            if plan_to_created.get(successor.story_id) != created_id:
+                plan_to_created[successor.story_id] = created_id
+                # Checkpoint the REAL allocated ids onto the durable fence BEFORE
+                # the crash-prone export, so a mid-sequence fault leaves a record
+                # the convergent resume reconstructs from (never plan-local ids).
+                self._saga_guard.run_claimed_step(
+                    request,
+                    story_id=request.source_story_id,
+                    op_id=f"{split_id}:successor-checkpoint:{index}",
+                    mutation=lambda: self._checkpoint_successors(
                         request,
-                        source=source,
-                        successor=successor,
-                        index=index,
                         split_id=split_id,
                         plan_ref=plan_ref,
                         now=now,
                         plan_to_created=plan_to_created,
                     ),
-                ),
-            )
+                )
             self._saga_guard.run_claimed_step(
                 request,
                 story_id=created_id,
@@ -1011,40 +1025,6 @@ class StorySplitService:
                 mutation=partial(self._export_successor, created_id),
             )
         return plan_to_created
-
-    def _create_and_checkpoint_successor(
-        self,
-        request: StorySplitRequest,
-        *,
-        source: Story,
-        successor: SuccessorStory,
-        index: int,
-        split_id: str,
-        plan_ref: str,
-        now: datetime,
-        plan_to_created: dict[str, str],
-    ) -> str:
-        """Create and checkpoint one successor inside one bounded source claim."""
-        created = self._story_service.create_story(
-            _build_successor_input(source, successor),
-            op_id=f"{split_id}:successor:{index}:{successor.story_id}",
-        )
-        # The REAL allocated display id, always — never a silent fallback to the
-        # plan-local reference id (the contract returns a Story).
-        created_id = str(created.story_display_id)
-        if plan_to_created.get(successor.story_id) != created_id:
-            plan_to_created[successor.story_id] = created_id
-            # Checkpoint the REAL allocated ids onto the durable fence BEFORE the
-            # crash-prone export, so a mid-sequence fault leaves a record the
-            # convergent resume reconstructs from (never plan-local ids).
-            self._checkpoint_successors(
-                request,
-                split_id=split_id,
-                plan_ref=plan_ref,
-                now=now,
-                plan_to_created=plan_to_created,
-            )
-        return created_id
 
     def _checkpoint_successors(
         self,
