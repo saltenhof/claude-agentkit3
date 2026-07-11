@@ -1,8 +1,9 @@
 story_id: AG3-150
 title: "Freeze-Zustaende als Admission-Blocker: freeze_epoch/freeze_reason auf der conflict_freeze-Familie, Challenge-Invalidierung bei Freeze-Eintritt, Split-Fence -> Admin-Freeze"
 type: implementation
-status: blocked
+status: ready
 phase: setup
+# AG3-149 closed 2026-07-10 (main@d8bc9e89) -> dependency satisfied, unblocked.
 created: "2026-07-02"
 size: M
 # Herkunft: GAP-ST-07c (gap-analyse-session-ownership.md v4, Codex-APPROVE).
