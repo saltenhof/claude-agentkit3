@@ -193,6 +193,7 @@ def commit_control_plane_operation_with_side_effects_global(
     locks: tuple[StoryExecutionLockRecord, ...],
     events: tuple[ExecutionEventRecord, ...],
     expected_ownership_epoch: int | None = None,
+    command_id: str | None = None,
     ownership_status_target: OwnershipStatus | None = None,
     fault_after_step: Callable[[str], None] | None = None,
 ) -> None:
@@ -222,6 +223,7 @@ def commit_control_plane_operation_with_side_effects_global(
             else None
         ),
         expected_ownership_epoch=expected_ownership_epoch,
+        command_id=command_id,
         ownership_status_target=(
             ownership_status_target.value
             if ownership_status_target is not None

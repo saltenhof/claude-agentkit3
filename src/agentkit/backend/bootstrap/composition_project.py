@@ -110,8 +110,19 @@ def build_story_split_service(
     Returns:
         A wired ``StorySplitService``.
     """
-    from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
+    from agentkit.backend.control_plane.instance_identity import (
+        resolve_backend_instance_identity,
+    )
+    from agentkit.backend.control_plane.repository import (
+        BackendInstanceIdentityRepository,
+        ControlPlaneRuntimeRepository,
+        ObjectMutationClaimRepository,
+    )
+    from agentkit.backend.control_plane.startup_reconcile import (
+        run_startup_reconciliation,
+    )
     from agentkit.backend.governance.runner import Governance
+    from agentkit.backend.state_backend.store.freeze_repository import FreezeRepository
     from agentkit.backend.state_backend.store.governance_hook_repository import (
         StateBackendHookRegistrationRepository,
     )
@@ -140,6 +151,15 @@ def build_story_split_service(
     if source_state_loader is None:
         source_state_loader = _default_split_source_state_loader
 
+    control_plane_repository = ControlPlaneRuntimeRepository()
+    object_claim_store = ObjectMutationClaimRepository()
+    identity = resolve_backend_instance_identity(BackendInstanceIdentityRepository())
+    run_startup_reconciliation(
+        control_plane_repository,
+        identity,
+        object_claim_repo=object_claim_store,
+    )
+
     class _SuccessorExport:
         def export(self, *, story_id: str, story_dir: Path) -> object:
             return export_story_md(
@@ -158,7 +178,7 @@ def build_story_split_service(
             # ``materialize_split_lineage`` writes ``split_successors`` (which IS
             # the superseded_by set); re-asserting it here keeps the index
             # honoring superseded_by independent of step ordering. Idempotent.
-            story_attributes.materialize_split_lineage(
+            story_attributes.materialize_split_source_lineage(
                 source_story_id=story_id,
                 successor_ids=superseded_by,
             )
@@ -184,7 +204,7 @@ def build_story_split_service(
             return 1
 
     return StorySplitService(
-        control_plane_repository=ControlPlaneRuntimeRepository(),
+        control_plane_repository=control_plane_repository,
         # Share the single StoryService instance with the export/superseded path
         # so lineage materialization and the superseded re-index see one
         # authoritative story surface (no divergent shadow service).
@@ -196,6 +216,10 @@ def build_story_split_service(
         superseded_index=_SupersededIndex(),
         stories_root=stories_root,
         source_state_loader=source_state_loader,
+        freeze_store=FreezeRepository(),
+        object_claim_store=object_claim_store,
+        backend_instance_id=identity.backend_instance_id,
+        instance_incarnation=identity.instance_incarnation,
     )
 
 

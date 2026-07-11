@@ -1330,6 +1330,23 @@ class StoryService(ResetTransitionMixin):
         Raises:
             StoryNotFoundError: When the source or a successor does not exist.
         """
+        self.materialize_split_source_lineage(
+            source_story_id=source_story_id,
+            successor_ids=successor_ids,
+        )
+        for successor_id in successor_ids:
+            self.materialize_split_successor_lineage(
+                successor_story_id=successor_id,
+                source_story_id=source_story_id,
+            )
+
+    def materialize_split_source_lineage(
+        self,
+        *,
+        source_story_id: str,
+        successor_ids: tuple[str, ...],
+    ) -> None:
+        """Persist only the source side of split lineage, idempotently."""
         source = self.get_story_or_raise(source_story_id)
         source.split_successors = list(successor_ids)
         self._story_repo.save(source)
@@ -1338,15 +1355,22 @@ class StoryService(ResetTransitionMixin):
             source_story_id,
             story_to_wire_summary(source),
         )
-        for successor_id in successor_ids:
-            successor = self.get_story_or_raise(successor_id)
-            successor.split_from = source_story_id
-            self._story_repo.save(successor)
-            self._emit(
-                successor.project_key,
-                successor_id,
-                story_to_wire_summary(successor),
-            )
+
+    def materialize_split_successor_lineage(
+        self,
+        *,
+        successor_story_id: str,
+        source_story_id: str,
+    ) -> None:
+        """Persist only one successor side of split lineage, idempotently."""
+        successor = self.get_story_or_raise(successor_story_id)
+        successor.split_from = source_story_id
+        self._story_repo.save(successor)
+        self._emit(
+            successor.project_key,
+            successor_story_id,
+            story_to_wire_summary(successor),
+        )
 
     # ------------------------------------------------------------------
     # Private helpers

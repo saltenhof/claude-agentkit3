@@ -20,6 +20,7 @@ import pytest
 from agentkit.backend.control_plane.records import ControlPlaneOperationRecord
 from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
 from agentkit.backend.core_types import StoryDependencyKind
+from agentkit.backend.core_types.freeze import FreezeKind
 from agentkit.backend.execution_planning.entities import StoryDependency
 from agentkit.backend.execution_planning.errors import (
     StoryDependencyConflictError,
@@ -181,6 +182,90 @@ class _CpState:
         self.commits: list[str] = []
 
 
+@dataclass(frozen=True)
+class _FreezeRecord:
+    freeze_reason: str
+
+
+class _FreezeStore:
+    def __init__(self) -> None:
+        self.records: dict[tuple[str, FreezeKind], _FreezeRecord] = {}
+        self.entries: list[tuple[str, FreezeKind, str]] = []
+        self.clears: list[tuple[str, FreezeKind]] = []
+
+    def set_freeze(
+        self,
+        story_id: str,
+        *,
+        frozen_at: str,
+        freeze_reason: str,
+        freeze_version: int,
+        kind: FreezeKind = FreezeKind.CONFLICT_FREEZE,
+    ) -> object:
+        del frozen_at, freeze_version
+        record = _FreezeRecord(freeze_reason=freeze_reason)
+        self.records[(story_id, kind)] = record
+        self.entries.append((story_id, kind, freeze_reason))
+        return record
+
+    def read_freeze(
+        self,
+        story_id: str,
+        kind: FreezeKind = FreezeKind.CONFLICT_FREEZE,
+    ) -> object | None:
+        return self.records.get((story_id, kind))
+
+    def clear_freeze(
+        self,
+        story_id: str,
+        kind: FreezeKind = FreezeKind.CONFLICT_FREEZE,
+    ) -> int:
+        if self.records.pop((story_id, kind), None) is None:
+            return 0
+        self.clears.append((story_id, kind))
+        return 1
+
+
+class _ClaimStore:
+    def __init__(self) -> None:
+        self.held: dict[tuple[str, str, str], str] = {}
+        self.acquired: list[tuple[str, str]] = []
+        self.released: list[tuple[str, str]] = []
+
+    def acquire_claim(
+        self,
+        *,
+        project_key: str,
+        serialization_scope: str,
+        scope_key: str,
+        op_id: str,
+        backend_instance_id: str,
+        instance_incarnation: int,
+        acquired_at: datetime,
+    ) -> bool:
+        del backend_instance_id, instance_incarnation, acquired_at
+        key = (project_key, serialization_scope, scope_key)
+        if key in self.held:
+            return False
+        self.held[key] = op_id
+        self.acquired.append((scope_key, op_id))
+        return True
+
+    def release_claim(
+        self,
+        project_key: str,
+        serialization_scope: str,
+        scope_key: str,
+        op_id: str,
+    ) -> bool:
+        key = (project_key, serialization_scope, scope_key)
+        if self.held.get(key) != op_id:
+            return False
+        del self.held[key]
+        self.released.append((scope_key, op_id))
+        return True
+
+
 def _cp_repo(state: _CpState) -> ControlPlaneRuntimeRepository:
     def _commit(
         record: ControlPlaneOperationRecord,
@@ -189,8 +274,10 @@ def _cp_repo(state: _CpState) -> ControlPlaneRuntimeRepository:
         binding_to_delete: object,
         locks: tuple[object, ...],
         events: tuple[object, ...],
+        command_id: str | None = None,
+        **_kwargs: object,
     ) -> None:
-        del binding_to_save, binding_to_delete, locks, events
+        del binding_to_save, binding_to_delete, locks, events, command_id
         state.operations[record.op_id] = record
         state.commits.append(record.operation_kind)
 
@@ -225,6 +312,8 @@ class _Harness:
     quiesce: _PhaseStateQuiesce
     governance: _Governance
     cp_state: _CpState
+    freeze_store: _FreezeStore
+    claim_store: _ClaimStore
     closure_calls: list[str]
 
 
@@ -278,6 +367,8 @@ def _build_harness(
     quiesce = _PhaseStateQuiesce()
     governance = _Governance()
     cp_state = _CpState()
+    freeze_store = _FreezeStore()
+    claim_store = _ClaimStore()
 
     split_service = StorySplitService(
         control_plane_repository=_cp_repo(cp_state),
@@ -289,6 +380,10 @@ def _build_harness(
         superseded_index=superseded,
         stories_root=Path("stories"),
         source_state_loader=source_state_loader or _good_source_state,
+        freeze_store=freeze_store,
+        object_claim_store=claim_store,
+        backend_instance_id="unit-instance",
+        instance_incarnation=1,
         now_fn=lambda: NOW,
     )
     return _Harness(
@@ -300,6 +395,8 @@ def _build_harness(
         quiesce=quiesce,
         governance=governance,
         cp_state=cp_state,
+        freeze_store=freeze_store,
+        claim_store=claim_store,
         closure_calls=closure_calls,
     )
 
@@ -680,6 +777,103 @@ def test_second_run_with_same_story_plan_resumes() -> None:
     # No double successor creation / export / superseded reindex.
     assert h.export.exported == export_after_first
     assert h.superseded.calls == superseded_after_first
+
+
+def test_split_admin_freeze_spans_saga_and_every_step_releases_its_claim() -> None:
+    """AC7: the freeze is saga-scoped while claims are strictly step-scoped."""
+    h = _build_harness()
+    observed_freeze_during_step: list[object | None] = []
+    original_export = h.export.export
+
+    def _observe_export(*, story_id: str, story_dir: Path) -> object:
+        observed_freeze_during_step.append(
+            h.freeze_store.read_freeze(
+                "AK3-001",
+                FreezeKind.SPLIT_ADMIN_FREEZE,
+            )
+        )
+        return original_export(story_id=story_id, story_dir=story_dir)
+
+    h.export.export = _observe_export  # type: ignore[method-assign]
+    h.split_service.split_story(_request(_plan(rebinding=False)))
+
+    assert observed_freeze_during_step
+    assert all(record is not None for record in observed_freeze_during_step)
+    assert h.freeze_store.entries[0][1] is FreezeKind.SPLIT_ADMIN_FREEZE
+    assert h.freeze_store.read_freeze(
+        "AK3-001",
+        FreezeKind.SPLIT_ADMIN_FREEZE,
+    ) is None
+    assert h.freeze_store.clears == [("AK3-001", FreezeKind.SPLIT_ADMIN_FREEZE)]
+    assert h.claim_store.held == {}
+    assert h.claim_store.acquired == h.claim_store.released
+
+
+def test_resume_after_abort_between_subcommits_with_active_admin_freeze_has_no_double_execution() -> None:
+    """AC8: abort after source-cancel, then resume the real saga lineage."""
+    h = _build_harness()
+    h.dependency_repo.add(
+        StoryDependency(
+            story_id="AK3-051",
+            depends_on_story_id="AK3-001",
+            kind=HARD,
+            created_at=NOW,
+        ),
+        project_key="ak3",
+    )
+    original_reindex = h.superseded.mark_superseded
+    state = {"raised": False}
+
+    def _abort_between_steps(
+        *,
+        story_id: str,
+        superseded_by: tuple[str, ...],
+    ) -> int:
+        if not state["raised"]:
+            state["raised"] = True
+            raise RuntimeError("abort between source-cancel and source-reindex")
+        return original_reindex(story_id=story_id, superseded_by=superseded_by)
+
+    h.superseded.mark_superseded = _abort_between_steps  # type: ignore[method-assign]
+    plan = _plan()
+    with pytest.raises(RuntimeError, match="abort between source-cancel"):
+        h.split_service.split_story(_request(plan))
+
+    source = h.story_service.get_story("AK3-001")
+    assert source is not None and source.status is StoryStatus.CANCELLED
+    assert h.freeze_store.read_freeze(
+        "AK3-001",
+        FreezeKind.SPLIT_ADMIN_FREEZE,
+    ) is not None
+    assert h.claim_store.held == {}
+    stories_before_resume = tuple(
+        story.story_display_id for story in h.story_service.list_stories("ak3")
+    )
+    edges_before_resume = tuple(
+        (edge.story_id, edge.depends_on_story_id, edge.kind)
+        for edge in h.dependency_repo.edges
+    )
+    blocker_before_resume = source.blocker
+
+    result = h.split_service.split_story(_request(plan))
+
+    assert result.resumed is True
+    assert tuple(
+        story.story_display_id for story in h.story_service.list_stories("ak3")
+    ) == stories_before_resume
+    assert tuple(
+        (edge.story_id, edge.depends_on_story_id, edge.kind)
+        for edge in h.dependency_repo.edges
+    ) == edges_before_resume
+    source = h.story_service.get_story("AK3-001")
+    assert source is not None
+    assert source.status is StoryStatus.CANCELLED
+    assert source.blocker == blocker_before_resume
+    assert h.freeze_store.read_freeze(
+        "AK3-001",
+        FreezeKind.SPLIT_ADMIN_FREEZE,
+    ) is None
+    assert h.claim_store.held == {}
 
 
 def test_failed_record_is_overwritten_by_a_later_successful_split() -> None:
@@ -1388,6 +1582,10 @@ def _build_real_export_harness(stories_root: Path) -> _RealExportHarness:
         superseded_index=superseded,
         stories_root=stories_root,
         source_state_loader=_good_source_state,
+        freeze_store=_FreezeStore(),
+        object_claim_store=_ClaimStore(),
+        backend_instance_id="unit-instance",
+        instance_incarnation=1,
         now_fn=lambda: NOW,
     )
     return _RealExportHarness(

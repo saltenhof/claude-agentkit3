@@ -12,15 +12,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Protocol
+from functools import partial
+from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from agentkit.backend.control_plane.disown import build_disown_plan
+from agentkit.backend.control_plane.object_claims import (
+    ObjectClaimStorePort,
+    acquire_story_claim,
+    release_story_claim,
+    story_claim_key,
+)
 from agentkit.backend.control_plane.ownership import (
     BindingRevocationReason,
     BindingStatus,
 )
 from agentkit.backend.control_plane.records import ControlPlaneOperationRecord
 from agentkit.backend.core_types import StoryDependencyKind, StorySize
+from agentkit.backend.core_types.freeze import FreezeKind
 from agentkit.backend.execution_planning.entities import StoryDependency
 from agentkit.backend.governance.principal_capabilities.principals import Principal
 from agentkit.backend.story_context_manager.story_model import (
@@ -57,6 +65,9 @@ if TYPE_CHECKING:
 
     from agentkit.backend.control_plane.repository import ControlPlaneRuntimeRepository
     from agentkit.backend.story_context_manager.story_model import Story
+
+
+_T = TypeVar("_T")
 
 
 class StorySplitError(RuntimeError):
@@ -100,6 +111,22 @@ class _StoryServicePort(Protocol):
         successor_ids: tuple[str, ...],
     ) -> None:
         """Persist split_successors on the source + split_from on each successor."""
+
+    def materialize_split_source_lineage(
+        self,
+        *,
+        source_story_id: str,
+        successor_ids: tuple[str, ...],
+    ) -> None:
+        """Persist the source side of the split lineage."""
+
+    def materialize_split_successor_lineage(
+        self,
+        *,
+        successor_story_id: str,
+        source_story_id: str,
+    ) -> None:
+        """Persist one successor side of the split lineage."""
 
     def administratively_cancel_for_story_split(
         self,
@@ -157,6 +184,35 @@ class _SupersededIndexPort(Protocol):
         """
 
 
+class _SplitFreezeStorePort(Protocol):
+    """Canonical freeze-family persistence consumed by the split saga."""
+
+    def set_freeze(
+        self,
+        story_id: str,
+        *,
+        frozen_at: str,
+        freeze_reason: str,
+        freeze_version: int,
+        kind: FreezeKind = ...,
+    ) -> object:
+        """Enter one audited freeze-family member."""
+
+    def read_freeze(
+        self,
+        story_id: str,
+        kind: FreezeKind = ...,
+    ) -> object | None:
+        """Read one active freeze-family member."""
+
+    def clear_freeze(
+        self,
+        story_id: str,
+        kind: FreezeKind = ...,
+    ) -> int:
+        """Resolve exactly one freeze-family member."""
+
+
 @dataclass(frozen=True)
 class StorySplitRequest:
     """Human-CLI request for a story split (§54.6 — no split_id)."""
@@ -197,6 +253,10 @@ class StorySplitService:
         superseded_index: _SupersededIndexPort,
         stories_root: Path,
         source_state_loader: Callable[[StorySplitRequest], SplitSourceState],
+        freeze_store: _SplitFreezeStorePort,
+        object_claim_store: ObjectClaimStorePort,
+        backend_instance_id: str,
+        instance_incarnation: int,
         now_fn: Callable[[], datetime] | None = None,
     ) -> None:
         self._repo = control_plane_repository
@@ -208,7 +268,109 @@ class StorySplitService:
         self._superseded_index = superseded_index
         self._stories_root = stories_root
         self._source_state_loader = source_state_loader
+        self._freeze_store = freeze_store
+        self._object_claim_store = object_claim_store
+        self._backend_instance_id = backend_instance_id
+        self._instance_incarnation = instance_incarnation
         self._now_fn = now_fn or (lambda: datetime.now(tz=UTC))
+
+    def _run_claimed_step(
+        self,
+        request: StorySplitRequest,
+        *,
+        story_id: str,
+        op_id: str,
+        mutation: Callable[[], _T],
+    ) -> _T:
+        """Run one bounded saga mutation under its per-story object claim."""
+        key = story_claim_key(request.project_key, story_id)
+        conflict = acquire_story_claim(
+            self._object_claim_store,
+            key,
+            op_id=op_id,
+            backend_instance_id=self._backend_instance_id,
+            instance_incarnation=self._instance_incarnation,
+            now=self._now_fn(),
+        )
+        if conflict is not None:
+            raise StorySplitError(
+                "story-split saga step could not acquire the per-story object "
+                f"claim for {story_id!r} (op_id={op_id!r}, "
+                f"retry_after_seconds={conflict.retry_after_seconds})",
+            )
+        try:
+            return mutation()
+        finally:
+            release_story_claim(self._object_claim_store, key, op_id=op_id)
+
+    def _admin_freeze_reason(self, split_id: str) -> str:
+        """Return the split-bound reason used to validate re-entrant entry."""
+        return f"story_split:{split_id}:administrative_saga"
+
+    def _enter_admin_freeze(
+        self,
+        request: StorySplitRequest,
+        *,
+        split_id: str,
+        now: datetime,
+    ) -> None:
+        """Enter or re-use this split's audited, non-expiring admin freeze."""
+        reason = self._admin_freeze_reason(split_id)
+
+        def _enter() -> None:
+            existing = self._freeze_store.read_freeze(
+                request.source_story_id,
+                FreezeKind.SPLIT_ADMIN_FREEZE,
+            )
+            if existing is not None:
+                existing_reason = getattr(existing, "freeze_reason", None)
+                if existing_reason != reason:
+                    raise StorySplitError(
+                        "source story already has a foreign split_admin_freeze",
+                    )
+                return
+            self._freeze_store.set_freeze(
+                request.source_story_id,
+                frozen_at=now.isoformat(),
+                freeze_reason=reason,
+                freeze_version=1,
+                kind=FreezeKind.SPLIT_ADMIN_FREEZE,
+            )
+
+        self._run_claimed_step(
+            request,
+            story_id=request.source_story_id,
+            op_id=f"{split_id}:admin-freeze-enter",
+            mutation=_enter,
+        )
+
+    def _clear_admin_freeze(
+        self,
+        request: StorySplitRequest,
+        *,
+        split_id: str,
+    ) -> None:
+        """Resolve only this saga's admin freeze after durable finalization."""
+        existing = self._freeze_store.read_freeze(
+            request.source_story_id,
+            FreezeKind.SPLIT_ADMIN_FREEZE,
+        )
+        if existing is None:
+            return
+        if getattr(existing, "freeze_reason", None) != self._admin_freeze_reason(
+            split_id
+        ):
+            raise StorySplitError(
+                "refusing to clear a foreign split_admin_freeze during finalization",
+            )
+        cleared = self._freeze_store.clear_freeze(
+            request.source_story_id,
+            FreezeKind.SPLIT_ADMIN_FREEZE,
+        )
+        if cleared != 1:
+            raise StorySplitError(
+                "split_admin_freeze resolution affected an unexpected row count",
+            )
 
     def split_story(self, request: StorySplitRequest) -> StorySplitResult:
         """Execute the FK-54 §54.8 split with a deterministic resume key.
@@ -254,13 +416,23 @@ class StorySplitService:
         # AK3) before raising, so the resume key still resolves to an audit trail.
         self._entry_gate(request, plan_ref, split_id=split_id, now=now)
 
-        # Step 1+2: atomically register the committed marker, revoke the binding,
-        # and terminalize ownership. There is no committed-marker-only window.
-        self._commit_terminal_transition(
+        # Step 1: enter the audited, non-expiring administrative freeze. It is
+        # the saga-duration admission blocker; serialization remains bounded to
+        # the individual mutations below.
+        self._enter_admin_freeze(request, split_id=split_id, now=now)
+
+        # Step 2: atomically register the committed marker, revoke the binding,
+        # and terminalize ownership under this step's short source-story claim.
+        self._run_claimed_step(
             request,
-            split_id=split_id,
-            plan_ref=plan_ref,
-            now=now,
+            story_id=request.source_story_id,
+            op_id=f"{split_id}:terminal-transition",
+            mutation=lambda: self._commit_terminal_transition(
+                request,
+                split_id=split_id,
+                plan_ref=plan_ref,
+                now=now,
+            ),
         )
 
         # Steps 3-7 run through the single resume-safe sequence so a crash at any
@@ -322,10 +494,19 @@ class StorySplitService:
         """
         # Step 3: quiesce the steering runtime (phase_state_projection + locks).
         # NOT a full analytics purge — audit/telemetry are preserved (§54.9).
-        self._phase_state_quiesce.purge_run(
-            request.project_key, request.source_story_id, request.run_id
+        self._run_claimed_step(
+            request,
+            story_id=request.source_story_id,
+            op_id=f"{split_id}:quiesce",
+            mutation=lambda: (
+                self._phase_state_quiesce.purge_run(
+                    request.project_key,
+                    request.source_story_id,
+                    request.run_id,
+                ),
+                self._governance.deactivate_locks(request.source_story_id),
+            ),
         )
-        self._governance.deactivate_locks(request.source_story_id)
 
         # Step 4: create successors in Backlog via the Story-Creation contract.
         # The contract atomically allocates each successor's authoritative
@@ -365,10 +546,26 @@ class StorySplitService:
         # Step 5b: materialize the AK7 lineage on the REAL stories — split_from on
         # each successor, split_successors on the source — using the allocated ids
         # (never the plan ids). Idempotent.
-        self._story_service.materialize_split_lineage(
-            source_story_id=request.source_story_id,
-            successor_ids=successor_ids,
+        self._run_claimed_step(
+            request,
+            story_id=request.source_story_id,
+            op_id=f"{split_id}:lineage:source",
+            mutation=lambda: self._story_service.materialize_split_source_lineage(
+                source_story_id=request.source_story_id,
+                successor_ids=successor_ids,
+            ),
         )
+        for index, successor_id in enumerate(successor_ids):
+            self._run_claimed_step(
+                request,
+                story_id=successor_id,
+                op_id=f"{split_id}:lineage:successor:{index}:{successor_id}",
+                mutation=partial(
+                    self._story_service.materialize_split_successor_lineage,
+                    successor_story_id=successor_id,
+                    source_story_id=request.source_story_id,
+                ),
+            )
 
         # Build the committed record (CONSUMES AG3-074 result axis).
         record = _committed_split_result_record(
@@ -384,7 +581,16 @@ class StorySplitService:
         # step 7 observes the source already Cancelled — the final indexed source
         # state is Cancelled WITH superseded_by, not a stale In Progress (§54.8.7).
         # Idempotent on an already-Cancelled source (no second cancel transition).
-        self._administratively_cancel(request, record, split_id=split_id)
+        self._run_claimed_step(
+            request,
+            story_id=request.source_story_id,
+            op_id=f"{split_id}:source-cancel",
+            mutation=lambda: self._administratively_cancel(
+                request,
+                record,
+                split_id=split_id,
+            ),
+        )
 
         # Step 7: reindex the now-Cancelled source as superseded_by (NOT deleted,
         # §54.8.6). Ordered after the administrative cancel so both the Cancelled
@@ -395,9 +601,14 @@ class StorySplitService:
         # split never finalizes on an un-indexed source. A raised/failed source
         # reindex strands the fence committed-but-unfinalized; a later rerun
         # RESUMES and re-attempts this reindex idempotently.
-        reindexed = self._superseded_index.mark_superseded(
+        reindexed = self._run_claimed_step(
+            request,
             story_id=request.source_story_id,
-            superseded_by=successor_ids,
+            op_id=f"{split_id}:source-reindex",
+            mutation=lambda: self._superseded_index.mark_superseded(
+                story_id=request.source_story_id,
+                superseded_by=successor_ids,
+            ),
         )
         if reindexed < 1:
             raise StorySplitError(
@@ -408,7 +619,17 @@ class StorySplitService:
 
         # Finalize the fence record with the resolved successors so a later
         # resume (AC11) replays the exact committed result as a pure no-op.
-        self._finalize_fence(request, split_id=split_id, record=record, now=now)
+        self._run_claimed_step(
+            request,
+            story_id=request.source_story_id,
+            op_id=f"{split_id}:finalize",
+            mutation=lambda: self._finalize_fence(
+                request,
+                split_id=split_id,
+                record=record,
+                now=now,
+            ),
+        )
 
         return StorySplitResult(
             split_id=split_id,
@@ -710,7 +931,9 @@ class StorySplitService:
             binding_to_delete=None,
             locks=(),
             events=(),
+            command_id="story_split_finalize",
         )
+        self._clear_admin_freeze(request, split_id=split_id)
 
     # ------------------------------------------------------------------
     # Step 4: successor creation via the Story-Creation contract
@@ -762,14 +985,24 @@ class StorySplitService:
                 # Checkpoint the REAL allocated ids onto the durable fence BEFORE
                 # the crash-prone export, so a mid-sequence fault leaves a record
                 # the convergent resume reconstructs from (never plan-local ids).
-                self._checkpoint_successors(
+                self._run_claimed_step(
                     request,
-                    split_id=split_id,
-                    plan_ref=plan_ref,
-                    now=now,
-                    plan_to_created=plan_to_created,
+                    story_id=request.source_story_id,
+                    op_id=f"{split_id}:successor-checkpoint:{index}",
+                    mutation=lambda: self._checkpoint_successors(
+                        request,
+                        split_id=split_id,
+                        plan_ref=plan_ref,
+                        now=now,
+                        plan_to_created=plan_to_created,
+                    ),
                 )
-            self._export_successor(created_id)
+            self._run_claimed_step(
+                request,
+                story_id=created_id,
+                op_id=f"{split_id}:successor-export:{index}:{created_id}",
+                mutation=partial(self._export_successor, created_id),
+            )
         return plan_to_created
 
     def _checkpoint_successors(
@@ -908,13 +1141,18 @@ class StorySplitService:
                     f"dependency rebinding rejected: {exc}"
                 ) from exc
             if plan.removals or plan.additions:
-                self._checkpoint_rebinding_plan(
+                self._run_claimed_step(
                     request,
-                    split_id=split_id,
-                    plan_ref=plan_ref,
-                    now=now,
-                    plan_to_created=plan_to_created,
-                    plan=plan,
+                    story_id=request.source_story_id,
+                    op_id=f"{split_id}:rebinding-checkpoint",
+                    mutation=lambda: self._checkpoint_rebinding_plan(
+                        request,
+                        split_id=split_id,
+                        plan_ref=plan_ref,
+                        now=now,
+                        plan_to_created=plan_to_created,
+                        plan=plan,
+                    ),
                 )
 
         present = {
@@ -926,8 +1164,19 @@ class StorySplitService:
                 removal.depends_on_story_id,
                 removal.kind.value,
             ) in present:
-                self._dependency_repo.remove(
-                    removal.story_id, removal.depends_on_story_id, removal.kind
+                self._run_claimed_step(
+                    request,
+                    story_id=removal.story_id,
+                    op_id=(
+                        f"{split_id}:rebind:remove:{removal.story_id}:"
+                        f"{removal.depends_on_story_id}:{removal.kind.value}"
+                    ),
+                    mutation=partial(
+                        self._dependency_repo.remove,
+                        removal.story_id,
+                        removal.depends_on_story_id,
+                        removal.kind,
+                    ),
                 )
         created_at = self._now_fn()
         for addition in plan.additions:
@@ -936,14 +1185,23 @@ class StorySplitService:
                 addition.depends_on_story_id,
                 addition.kind.value,
             ) not in present:
-                self._dependency_repo.add(
-                    StoryDependency(
-                        story_id=addition.story_id,
-                        depends_on_story_id=addition.depends_on_story_id,
-                        kind=addition.kind,
-                        created_at=created_at,
+                self._run_claimed_step(
+                    request,
+                    story_id=addition.story_id,
+                    op_id=(
+                        f"{split_id}:rebind:add:{addition.story_id}:"
+                        f"{addition.depends_on_story_id}:{addition.kind.value}"
                     ),
-                    project_key=request.project_key,
+                    mutation=partial(
+                        self._dependency_repo.add,
+                        StoryDependency(
+                            story_id=addition.story_id,
+                            depends_on_story_id=addition.depends_on_story_id,
+                            kind=addition.kind,
+                            created_at=created_at,
+                        ),
+                        project_key=request.project_key,
+                    ),
                 )
         return plan
 
@@ -1022,8 +1280,14 @@ class StorySplitService:
         split_id: str,
     ) -> None:
         """Cancel the source via the administrative split-cancel path (§54.8.7)."""
-        committed = self._repo.has_committed_operation_for_run(
-            request.project_key, request.source_story_id, request.run_id
+        operation = self._repo.load_operation(split_id)
+        committed = (
+            operation is not None
+            and operation.status == "committed"
+            and operation.operation_kind == "story_split"
+            and operation.project_key == request.project_key
+            and operation.story_id == request.source_story_id
+            and operation.run_id == request.run_id
         )
         story = self._story_service.administratively_cancel_for_story_split(
             request.source_story_id,
@@ -1094,16 +1358,35 @@ class StorySplitService:
         )
         raw_ids = payload.get("successor_ids")
         if isinstance(raw_ids, list):
-            return self._replay_finalized(request, operation, plan_ref, split_id, raw_ids)
+            # A crash can occur after durable finalization but before the
+            # kind-scoped clear. Reconcile that narrow window idempotently.
+            self._clear_admin_freeze(request, split_id=split_id)
+            return self._replay_finalized(
+                request,
+                operation,
+                plan_ref,
+                split_id,
+                raw_ids,
+            )
         # Committed-but-unfinalized: converge from the durable checkpoint.
         # R2 also repairs a legacy R1 marker-only crash before any resumed saga
         # mutation: the existing marker is rewritten with revocation + terminal
         # ownership status in one operation-ledger transaction.
-        self._commit_terminal_transition(
+        self._enter_admin_freeze(
             request,
             split_id=split_id,
-            plan_ref=plan_ref,
             now=operation.created_at,
+        )
+        self._run_claimed_step(
+            request,
+            story_id=request.source_story_id,
+            op_id=f"{split_id}:terminal-transition",
+            mutation=lambda: self._commit_terminal_transition(
+                request,
+                split_id=split_id,
+                plan_ref=plan_ref,
+                now=operation.created_at,
+            ),
         )
         known = self._reconstruct_successor_checkpoint(request, payload)
         return self._run_split_to_completion(

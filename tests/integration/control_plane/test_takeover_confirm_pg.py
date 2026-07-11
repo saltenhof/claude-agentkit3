@@ -368,6 +368,26 @@ class _SplitStoryBoundary:
         assert source_story_id == self.story_id
         assert successor_ids == tuple(self.successors)
 
+    def materialize_split_source_lineage(
+        self,
+        *,
+        source_story_id: str,
+        successor_ids: tuple[str, ...],
+    ) -> None:
+        self.materialize_split_lineage(
+            source_story_id=source_story_id,
+            successor_ids=successor_ids,
+        )
+
+    def materialize_split_successor_lineage(
+        self,
+        *,
+        successor_story_id: str,
+        source_story_id: str,
+    ) -> None:
+        assert source_story_id == self.story_id
+        assert successor_story_id in self.successors
+
     def administratively_cancel_for_story_split(self, *_args: object, **_kwargs: object) -> object:
         self.cancelled = True
         return SimpleNamespace(status="Cancelled")
@@ -2852,6 +2872,10 @@ def _run_real_invalidating_predecessor(
                 paused_with_scope_explosion=True,
                 competing_admin_operation_active=False,
             ),
+            freeze_store=FreezeRepository(),
+            object_claim_store=ObjectMutationClaimRepository(),
+            backend_instance_id="integration-instance",
+            instance_incarnation=1,
             now_fn=lambda: _NOW,
         )
         plan = SplitPlan.model_validate(
@@ -2971,7 +2995,11 @@ def test_confirm_after_terminal_predecessor_is_rejected_as_challenge_invalidated
     )
 
     assert result.status == "rejected"
-    assert result.error_code == "challenge_invalidated"
+    assert result.error_code == (
+        "challenge_not_pending"
+        if operation_kind == "story_split"
+        else "challenge_invalidated"
+    )
     active = load_active_run_ownership_record_global(_PROJECT, story_id)
     if operation_kind in {"story_exit", "story_reset", "story_split"}:
         assert active is None
@@ -3044,11 +3072,18 @@ def test_confirm_after_terminal_predecessor_is_rejected_as_challenge_invalidated
     challenge = load_takeover_challenge_global(echo)
     assert challenge is not None
     assert challenge.status == "invalidated"
-    assert challenge.terminal_op_id == f"op-confirm-{operation_kind}"
+    assert challenge.terminal_op_id == (
+        "freeze:split_admin_freeze:1"
+        if operation_kind == "story_split"
+        else f"op-confirm-{operation_kind}"
+    )
     request_op = load_control_plane_operation_global(f"op-request-{operation_kind}")
     assert request_op is not None
     assert request_op.status == "invalidated"
-    assert request_op.response_payload["error_code"] == "challenge_invalidated"
+    if operation_kind == "story_split":
+        assert request_op.response_payload["status"] == "invalidated"
+    else:
+        assert request_op.response_payload["error_code"] == "challenge_invalidated"
 
 
 @pytest.mark.integration
@@ -3137,6 +3172,10 @@ def test_terminal_uow_fault_rolls_back_marker_status_and_revocation_together(
                 paused_with_scope_explosion=True,
                 competing_admin_operation_active=False,
             ),
+            freeze_store=FreezeRepository(),
+            object_claim_store=ObjectMutationClaimRepository(),
+            backend_instance_id="integration-instance",
+            instance_incarnation=1,
             now_fn=lambda: _NOW,
         )
         with pytest.raises(RuntimeError, match="injected terminal-uow fault"):

@@ -23,6 +23,7 @@ from ._connection import (
 )
 from ._mutation_commit_rows import (
     _conditional_upsert_control_plane_op_row,
+    _enforce_blocking_freeze_row,
     _enforce_ownership_fence_row,
     _enforce_start_phase_fence_row,
 )
@@ -933,6 +934,7 @@ def commit_control_plane_operation_with_side_effects_global_row(*,
     lock_rows: Sequence[dict[str, Any]],
     event_rows: Sequence[dict[str, Any]],
     expected_ownership_epoch: int | None = None,
+    command_id: str | None = None,
     ownership_status_target: str | None = None, fault_after_step: Callable[[str], None] | None = None,
 ) -> None:
     """Atomically commit a terminal op AND its side effects in ONE transaction (#2).
@@ -978,6 +980,12 @@ def commit_control_plane_operation_with_side_effects_global_row(*,
         # effect is durable, so the transaction rolls back with zero orphan state.
         _conditional_upsert_control_plane_op_row(conn, op_row)
         _run_takeover_fault_hook(fault_after_step, "operation_marker")
+        if command_id is not None:
+            _enforce_blocking_freeze_row(
+                conn,
+                story_id=str(op_row["story_id"]),
+                command_id=command_id,
+            )
         if expected_ownership_epoch is not None:
             # AG3-142: re-verify AT COMMIT TIME, in THIS transaction (no TOCTOU) --
             # a failure raises and rolls back the op upsert above too.
