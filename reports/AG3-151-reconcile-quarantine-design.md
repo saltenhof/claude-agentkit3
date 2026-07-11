@@ -111,3 +111,38 @@ once pre-push; mypy full both platforms; 4 concept gates. Green-on-main: ruff �
 http://localhost:9901 admin/`meinSonarCube2026!` key `claude-agentkit3` (0/0/0, new-code cov≥80). Do NOT
 set status.yaml=completed (review + Fable finale + Inc-2 follow). Fire Codex jobs serially. Ignore
 harness-bridge jobs not self-started.
+
+---
+
+## AG3-151 — WHOLE STORY CLOSED (2026-07-11)
+
+CLOSED at code SHA `5af89461` (Jenkins #1811/#1812 SUCCESS, Sonar 0/0/0, new-code cov 83.9%,
+9307 tests). Two increments, full review convergence:
+- **Inc-1** (backend reconcile contract + contested_local_writes entry, a27bdbb0): Codex defect
+  review APPROVE (8 areas) + orchestrator code-adjudication (pattern widen + A-core purity).
+- **Inc-2** (edge executor + resolve() consumption + round-trip): Codex review found 1 crash-recovery
+  ERROR + 3 test gaps → R1 (1eefbd59, shared crash-recovery helper + airtight remnant data-loss
+  guard) + orchestrator adjudication.
+- **Whole-story Fable finale** (1eefbd59): APPROVED all areas incl. the data-loss guard (verified
+  AIRTIGHT byte-for-byte) EXCEPT 1 HIGH liveness defect — reconcile replay non-convergence at the
+  WIRE PROTOCOL (a resolved-but-unreported takeover_reconcile command + the fresh-op_id +
+  takeover_reconcile_not_required + raise-before-report cycle permanently wedged the session's whole
+  edge command loop; untested path, the shared blind spot that fooled the per-increment reviews AND
+  the orchestrator's filesystem-only adjudication).
+- **R2** (5af89461): treat status=rejected+error_code=takeover_reconcile_not_required as a convergent
+  no-op (proceed to sync + report → the command terminalizes; every other status stays fail-closed) +
+  NB2 symlink-rmtree hardening. Codex convergence re-review APPROVE (no false-convergent: the
+  not_required query uses the identical active (run_id, ownership_epoch) identity as the canonical
+  obligation query; real 2-repo scenario tests prove both commands terminalize + next fetch empty) +
+  orchestrator code-adjudication.
+
+Covers the AG3-151 SOLL set. Unblocks AG3-153, AG3-155. Deferred/tracked: Fable non-blocking
+NB1 (remnant guard gitignored-files residual — hardening: quarantine instead of remove), NB5
+(reconcile↔command_executor lazy-import cycle), NB3/NB6 (diagnostic) → tech-debt #22. Distinct
+error codes (takeover_reconcile_required / contested_local_writes / repair_lock_required) settled
+per decision-record §6.6.
+
+Process note: the whole-story Fable finale earned its keep — a HIGH wire-protocol defect survived
+Inc-1/Inc-2 Codex reviews AND the orchestrator's per-round adjudication (which verified filesystem
+convergence but not protocol convergence). The independent finale gate is why it was caught before
+close.

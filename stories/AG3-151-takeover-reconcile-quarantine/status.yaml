@@ -1,10 +1,16 @@
 story_id: AG3-151
 title: "Takeover-Reconcile + Quarantaene + Edge-Zustaende: takeover-reconcile-worktree mit base_sha-Abgleich, atomare Quarantaene + Reprovisionierung, vier Guard-Zustaende (K1-Semantik)"
 type: implementation
-status: ready
-phase: setup
+status: completed
+phase: closure
 # AG3-150 closed 2026-07-11 (main@6b5b7468) -> all 4 deps completed, unblocked.
 # Design freeze: reports/AG3-151-reconcile-quarantine-design.md (2 increments).
+# CLOSED 2026-07-11 at main@5af89461. Inc-1 backend reconcile contract + contested
+# entry (a27bdbb0); Inc-2 edge executor + resolve() consumption (cf67549d) -> R1
+# crash-recovery + airtight data-loss guard (1eefbd59) -> R2 wire-protocol
+# convergence (5af89461). Codex reviews per increment + whole-story Fable finale
+# (caught 1 HIGH wire-wedge) + convergence re-review + orchestrator code-adjudication.
+# Jenkins #1811/#1812 SUCCESS, Sonar 0/0/0, cov new-code 83.9%. Unblocks AG3-153/155.
 created: "2026-07-02"
 size: L
 # Herkunft: GAP-ST-08 (gap-analyse-session-ownership.md v4, Codex-APPROVE;
