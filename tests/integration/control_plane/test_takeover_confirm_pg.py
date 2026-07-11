@@ -131,6 +131,7 @@ from agentkit.backend.state_backend.story_lifecycle_store import (
     insert_takeover_approval_global,
     insert_takeover_challenge_global,
     load_active_run_ownership_record_global,
+    load_all_active_run_ownership_records_global,
     load_run_ownership_record_global,
     load_session_run_binding_global,
     load_takeover_approval_for_challenge_global,
@@ -976,6 +977,151 @@ def test_recovery_hard_refuses_no_active_record(
     assert result.status == "rejected"
     assert result.error_code == "nothing_to_recover"
     assert load_active_run_ownership_record_global(_PROJECT, story_id) is None
+
+
+def test_recovery_multiple_active_records_refuses_and_transaction_rolls_back(
+    postgres_backend_env: object,
+) -> None:
+    """A degraded two-owner state is refused by both productive fences."""
+    del postgres_backend_env
+    story_id = _story_id(1548)
+    first = RunOwnershipRecord(
+        project_key=_PROJECT,
+        story_id=story_id,
+        run_id="run-recovery-corrupt-a",
+        owner_session_id="sess-corrupt-a",
+        ownership_epoch=1,
+        status=OwnershipStatus.ACTIVE,
+        acquired_via=OwnershipAcquisition.SETUP,
+        acquired_at=_NOW,
+        audit_ref="op-corrupt-a",
+    )
+    second = replace(
+        first,
+        run_id="run-recovery-corrupt-b",
+        owner_session_id="sess-corrupt-b",
+        audit_ref="op-corrupt-b",
+    )
+    recovery = replace(
+        first,
+        run_id="run-recovery-must-not-exist",
+        owner_session_id="sess-human-recovery",
+        acquired_via=OwnershipAcquisition.RECOVERY,
+        audit_ref="op-recovery-transaction-guard",
+    )
+    revoked_binding = SessionRunBindingRecord(
+        session_id=first.owner_session_id,
+        project_key=_PROJECT,
+        story_id=story_id,
+        run_id=first.run_id,
+        principal_type="orchestrator",
+        worktree_roots=(f"T:/worktrees/{story_id}/{first.owner_session_id}",),
+        binding_version="1",
+        updated_at=_NOW,
+        status=BindingStatus.REVOKED.value,
+        revocation_reason="recovery_superseded",
+    )
+    new_binding = replace(
+        revoked_binding,
+        session_id=recovery.owner_session_id,
+        run_id=recovery.run_id,
+        principal_type="human_cli",
+        status=BindingStatus.ACTIVE.value,
+        revocation_reason=None,
+    )
+    transaction_op = ControlPlaneOperationRecord(
+        op_id="op-recovery-transaction-guard",
+        project_key=_PROJECT,
+        story_id=story_id,
+        run_id=recovery.run_id,
+        session_id=recovery.owner_session_id,
+        operation_kind="ownership_recovery",
+        phase="ownership",
+        status="committed",
+        response_payload={"status": "committed"},
+        created_at=_NOW,
+        updated_at=_NOW,
+    )
+
+    with postgres_store._connect_global() as conn:  # noqa: SLF001 -- corruption fixture
+        conn.execute("DROP INDEX run_ownership_records_active_uidx")
+        for record in (first, second):
+            conn.execute(
+                """
+                INSERT INTO run_ownership_records (
+                    project_key, story_id, run_id, owner_session_id,
+                    ownership_epoch, status, acquired_via, acquired_at, audit_ref
+                ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)
+                """,
+                (
+                    record.project_key,
+                    record.story_id,
+                    record.run_id,
+                    record.owner_session_id,
+                    record.ownership_epoch,
+                    record.acquired_via.value,
+                    record.acquired_at.isoformat(),
+                    record.audit_ref,
+                ),
+            )
+    try:
+        service = _service(ident="inst-recovery-corrupt-multiple")
+        result = service.recover_ownership(
+            command=_recovery_command(
+                story_id=story_id,
+                run_id=first.run_id,
+                op_id="op-recovery-multiple-admissibility",
+            )
+        )
+
+        assert result.status == "rejected"
+        assert result.error_code == "multiple_active_ownership_records"
+        assert load_all_active_run_ownership_records_global(_PROJECT, story_id) == (
+            first,
+            second,
+        )
+
+        with pytest.raises(
+            OwnershipFenceViolationError,
+            match="exact observed active ownership record",
+        ):
+            commit_recovery_acquisition_global(
+                transaction_op,
+                expected_active=first,
+                recovery_ownership=recovery,
+                revoked_binding=revoked_binding,
+                new_binding=new_binding,
+                locks=(),
+                events=(),
+            )
+
+        assert load_control_plane_operation_global(transaction_op.op_id) is None
+        assert load_run_ownership_record_global(
+            _PROJECT,
+            story_id,
+            recovery.run_id,
+        ) is None
+        assert load_all_active_run_ownership_records_global(_PROJECT, story_id) == (
+            first,
+            second,
+        )
+    finally:
+        with postgres_store._connect_global() as conn:  # noqa: SLF001 -- restore fence
+            conn.execute(
+                "DELETE FROM control_plane_operations WHERE story_id = ?",
+                (story_id,),
+            )
+            conn.execute(
+                "DELETE FROM run_ownership_records WHERE project_key = ? AND story_id = ?",
+                (_PROJECT, story_id),
+            )
+            conn.execute(
+                """
+                CREATE UNIQUE INDEX run_ownership_records_active_uidx
+                ON run_ownership_records (project_key, story_id)
+                WHERE status = 'active'
+                """,
+            )
 
 
 def test_recovery_supersede_rolls_back_old_terminalization_on_mid_uow_fault(

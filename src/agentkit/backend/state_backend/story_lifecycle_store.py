@@ -223,6 +223,22 @@ def load_active_run_ownership_record_global(
     return mappers.run_ownership_row_to_record(row)
 
 
+def load_all_active_run_ownership_records_global(
+    project_key: str,
+    story_id: str,
+) -> tuple[Any, ...]:
+    """Load every active run-ownership record for one story."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    rows = backend.load_all_active_run_ownership_records_global_rows(
+        project_key,
+        story_id,
+    )
+    return tuple(mappers.run_ownership_row_to_record(row) for row in rows)
+
+
 def transition_run_ownership_status_global(
     project_key: str,
     story_id: str,
@@ -403,6 +419,7 @@ __all__ = [
     "insert_run_ownership_record_global",
     "load_run_ownership_record_global",
     "load_active_run_ownership_record_global",
+    "load_all_active_run_ownership_records_global",
     "transition_run_ownership_status_global",
     "save_takeover_transfer_record_global",
     "load_takeover_transfer_record_global",

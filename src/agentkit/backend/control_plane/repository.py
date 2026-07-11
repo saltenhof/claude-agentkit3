@@ -68,6 +68,7 @@ from agentkit.backend.state_backend.story_lifecycle_store import (
     list_pending_takeover_approvals_global,
     list_takeover_transfer_records_for_story_global,
     load_active_run_ownership_record_global,
+    load_all_active_run_ownership_records_global,
     load_run_ownership_record_global,
     load_session_run_binding_global,
     load_takeover_approval_for_challenge_global,
@@ -292,6 +293,9 @@ class ControlPlaneRuntimeRepository:
     load_active_ownership: Callable[[str, str], RunOwnershipRecord | None] = (
         load_active_run_ownership_record_global
     )
+    load_all_active_ownership: Callable[
+        [str, str], tuple[RunOwnershipRecord, ...]
+    ] = load_all_active_run_ownership_records_global
     list_push_freshness: Callable[
         [str, str, str], tuple[PushFreshnessRecord, ...]
     ] = list_push_freshness_records_global
@@ -360,6 +364,9 @@ class RunOwnershipRepository:
     load_active_ownership: Callable[[str, str], RunOwnershipRecord | None] = (
         load_active_run_ownership_record_global
     )
+    load_all_active_ownership: Callable[
+        [str, str], tuple[RunOwnershipRecord, ...]
+    ] = load_all_active_run_ownership_records_global
     transition_status: Callable[[str, str, str, OwnershipStatus], None] = (
         transition_run_ownership_status_global
     )

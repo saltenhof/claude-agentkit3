@@ -916,6 +916,24 @@ def load_takeover_transfer_record_global_row(
     return dict(row)
 
 
+def load_all_active_run_ownership_records_global_rows(
+    project_key: str,
+    story_id: str,
+) -> tuple[dict[str, Any], ...]:
+    """Return every raw ACTIVE run-ownership row for one story."""
+
+    with _connect_global() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM run_ownership_records
+            WHERE project_key = ? AND story_id = ? AND status = 'active'
+            ORDER BY run_id
+            """,
+            (project_key, story_id),
+        ).fetchall()
+    return tuple(dict(row) for row in rows)
+
+
 def list_takeover_transfer_records_for_story_global_row(
     project_key: str,
     story_id: str,

@@ -163,7 +163,11 @@ class _RecoveryMixin:
 
     def _recover_under_claim(self, command: RecoveryCommand) -> ControlPlaneMutationResult:
         request = command.request
-        active = self._repo.load_active_ownership(request.project_key, request.story_id)
+        active_records = self._repo.load_all_active_ownership(
+            request.project_key,
+            request.story_id,
+        )
+        active = active_records[0] if len(active_records) == 1 else None
         disowned_session_id, was_takeover = _current_epoch_disown_context(
             self._repo, active
         )
@@ -183,7 +187,7 @@ class _RecoveryMixin:
             for record in self._repo.load_active_freezes(request.story_id)
         )
         decision = recovery_core.evaluate_recovery_admissibility(
-            active_records=(() if active is None else (active,)),
+            active_records=active_records,
             superseded_run_id=command.superseded_run_id,
             active_freezes=active_freezes,
             has_unreconciled_takeover=self._repo.has_unreconciled_takeover_for_story(
@@ -328,9 +332,12 @@ class _RecoveryMixin:
         self, command: RecoveryCommand
     ) -> ControlPlaneMutationResult:
         request = command.request
-        active = self._repo.load_active_ownership(request.project_key, request.story_id)
+        active_records = self._repo.load_all_active_ownership(
+            request.project_key,
+            request.story_id,
+        )
         decision = recovery_core.evaluate_recovery_admissibility(
-            active_records=(() if active is None else (active,)),
+            active_records=active_records,
             superseded_run_id=command.superseded_run_id,
             active_freezes=tuple(
                 active_freeze_state_from_record(record)

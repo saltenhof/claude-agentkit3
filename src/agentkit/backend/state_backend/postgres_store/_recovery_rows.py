@@ -46,7 +46,7 @@ def commit_recovery_acquisition_global_row(
             story_id=expected_active.story_id,
             command_id="ownership_recovery",
         )
-        active = conn.execute(
+        active_rows = conn.execute(
             """
             SELECT run_id, owner_session_id, ownership_epoch, status
             FROM run_ownership_records
@@ -54,9 +54,11 @@ def commit_recovery_acquisition_global_row(
             FOR UPDATE
             """,
             (expected_active.project_key, expected_active.story_id),
-        ).fetchone()
+        ).fetchall()
+        active = active_rows[0] if len(active_rows) == 1 else None
         if (
-            active is None
+            len(active_rows) != 1
+            or active is None
             or str(active["run_id"]) != expected_active.run_id
             or str(active["owner_session_id"]) != expected_active.owner_session_id
             or int(active["ownership_epoch"]) != expected_active.ownership_epoch
@@ -69,6 +71,7 @@ def commit_recovery_acquisition_global_row(
                     "expected_run_id": expected_active.run_id,
                     "expected_owner_session_id": expected_active.owner_session_id,
                     "expected_ownership_epoch": expected_active.ownership_epoch,
+                    "active_record_count": len(active_rows),
                 },
             )
         unreconciled = conn.execute(

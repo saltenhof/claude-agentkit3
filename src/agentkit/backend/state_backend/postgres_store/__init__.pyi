@@ -235,6 +235,9 @@ from ._ownership_rows import (
     load_active_run_ownership_record_global_row as load_active_run_ownership_record_global_row,
 )
 from ._ownership_rows import (
+    load_all_active_run_ownership_records_global_rows as load_all_active_run_ownership_records_global_rows,
+)
+from ._ownership_rows import (
     load_backend_instance_identity_global_row as load_backend_instance_identity_global_row,
 )
 from ._ownership_rows import (
