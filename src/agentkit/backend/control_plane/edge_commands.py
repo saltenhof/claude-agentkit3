@@ -9,8 +9,9 @@ vocabulary shared by both sides of the wire (backend command creation +
 ``harness_client`` edge executor) -- no I/O, no transactions.
 
 ``provision_worktree`` / ``teardown_worktree`` / ``preflight_probe`` (AG3-145),
-``sync_push`` (AG3-147), and ``takeover_reconcile`` (AG3-151) are executed by
-the edge. ``merge_local`` remains registered for AG3-152. An edge that
+``sync_push`` (AG3-147), ``takeover_reconcile`` (AG3-151), and
+``reset_worktree`` (AG3-154) are executed by the edge. ``merge_local`` remains
+registered for AG3-152. An edge that
 receives a command of a kind outside :data:`EXECUTABLE_COMMAND_KINDS` reports a
 deterministic error result -- never a silent no-op (Scope item 4).
 """
@@ -52,6 +53,7 @@ CommandKind = Literal[
     "preflight_probe",
     "sync_push",
     "takeover_reconcile",
+    "reset_worktree",
     "merge_local",
 ]
 
@@ -62,6 +64,7 @@ ALL_COMMAND_KINDS: frozenset[str] = frozenset(
         "preflight_probe",
         "sync_push",
         "takeover_reconcile",
+        "reset_worktree",
         "merge_local",
     }
 )
@@ -76,6 +79,7 @@ EXECUTABLE_COMMAND_KINDS: frozenset[str] = frozenset(
         "preflight_probe",
         "sync_push",
         "takeover_reconcile",
+        "reset_worktree",
     }
 )
 
@@ -124,7 +128,7 @@ TAKEOVER_ERROR_RESULT_TYPES: frozenset[str] = frozenset(
 
 
 def is_known_command_kind(kind: str) -> bool:
-    """Return whether ``kind`` is one of the six registered command kinds."""
+    """Return whether ``kind`` is a registered command kind."""
     return kind in ALL_COMMAND_KINDS
 
 

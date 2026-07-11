@@ -477,7 +477,7 @@
             command_kind TEXT NOT NULL CHECK (
                 command_kind IN (
                     'provision_worktree', 'teardown_worktree', 'preflight_probe',
-                    'sync_push', 'takeover_reconcile', 'merge_local'
+                    'sync_push', 'takeover_reconcile', 'reset_worktree', 'merge_local'
                 )
             ),
             payload_json TEXT NOT NULL,

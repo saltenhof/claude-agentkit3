@@ -29,6 +29,7 @@ from agentkit.backend.config.models import (
     SonarQubeConfig,
 )
 from agentkit.backend.control_plane import object_claims as oc
+from agentkit.backend.control_plane.edge_commands import edge_command_id
 from agentkit.backend.control_plane.http import ControlPlaneApplication, HttpResponse
 from agentkit.backend.control_plane.models import (
     AdminTakeoverReconcileClearRequest,
@@ -100,6 +101,9 @@ from agentkit.backend.state_backend import postgres_store
 from agentkit.backend.state_backend.governance_runtime_store import (
     load_story_execution_lock_global,
     save_story_execution_lock_global,
+)
+from agentkit.backend.state_backend.harness_edge_command_store import (
+    load_edge_command_record_global,
 )
 from agentkit.backend.state_backend.operation_ledger import (
     acquire_object_mutation_claim_global,
@@ -183,6 +187,7 @@ from agentkit.harness_client.projectedge.command_executor import (
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
+    from typing import Literal
 
     from agentkit.backend.auth.entities import ProjectApiToken
 
@@ -837,6 +842,7 @@ def _recovery_command(
     session_id: str = "sess-human-recovery",
     principal_type: str = "human_cli",
     reason: str = "operator confirmed the orphaned claim",
+    worktree_disposition: Literal["adopt", "reset"] = "adopt",
 ) -> RecoveryCommand:
     return RecoveryCommand(
         request=RecoveryRequest(
@@ -844,6 +850,7 @@ def _recovery_command(
             story_id=story_id,
             op_id=op_id,
             reason=reason,
+            worktree_disposition=worktree_disposition,
             source_component="recovery_integration_test",
         ),
         superseded_run_id=run_id,
@@ -955,6 +962,121 @@ def test_recovery_supersedes_orphaned_record_atomically_and_fences_late_session(
     assert late.error_code == "recovery_superseded"
     still_active = load_active_run_ownership_record_global(_PROJECT, story_id)
     assert still_active is not None and still_active.run_id == recovered.run_id
+
+
+def test_recovery_reset_commissions_edge_reset_without_backend_git(
+    postgres_backend_env: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(1550)
+    old_run_id = "run-recovery-reset"
+    service = _service(ident="inst-recovery-reset")
+    _seed_story_context(tmp_path, story_id)
+    _admit_run(service, story_id=story_id, run_id=old_run_id)
+
+    def reject_backend_git(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("the recovery backend must not run a subprocess")
+
+    monkeypatch.setattr(subprocess, "run", reject_backend_git)
+    recovered = service.recover_ownership(
+        command=_recovery_command(
+            story_id=story_id,
+            run_id=old_run_id,
+            op_id="op-recovery-reset",
+            worktree_disposition="reset",
+        )
+    )
+
+    assert recovered.status == "committed"
+    assert recovered.run_id is not None
+    command = load_edge_command_record_global(
+        edge_command_id(recovered.run_id, "reset_worktree", _REPO)
+    )
+    assert command is not None
+    assert command.status == "created"
+    assert command.session_id == "sess-human-recovery"
+    assert command.ownership_epoch == 1
+    assert command.payload == {
+        "story_id": story_id,
+        "project_key": _PROJECT,
+        "run_id": recovered.run_id,
+        "repo_id": _REPO,
+    }
+
+
+def test_recovery_adopt_keeps_worktree_without_reset_command(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(1551)
+    old_run_id = "run-recovery-adopt"
+    service = _service(ident="inst-recovery-adopt")
+    _seed_story_context(tmp_path, story_id)
+    _admit_run(service, story_id=story_id, run_id=old_run_id)
+
+    recovered = service.recover_ownership(
+        command=_recovery_command(
+            story_id=story_id,
+            run_id=old_run_id,
+            op_id="op-recovery-adopt",
+            worktree_disposition="adopt",
+        )
+    )
+
+    assert recovered.status == "committed"
+    assert recovered.run_id is not None
+    assert (
+        load_edge_command_record_global(
+            edge_command_id(recovered.run_id, "reset_worktree", _REPO)
+        )
+        is None
+    )
+    binding = load_session_run_binding_global("sess-human-recovery")
+    assert binding is not None
+    assert binding.worktree_roots == (f"T:/worktrees/{story_id}/sess-A",)
+
+
+def test_recovery_reset_fault_rolls_back_recovery_and_edge_commission(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(1552)
+    old_run_id = "run-recovery-reset-rollback"
+
+    def fail_after_reset_commission(step: str) -> None:
+        if step.startswith("edge_command_insert:"):
+            raise RuntimeError("injected reset commissioning fault")
+
+    service = _service(
+        ident="inst-recovery-reset-rollback",
+        recovery_fault_after_step=fail_after_reset_commission,
+    )
+    _seed_story_context(tmp_path, story_id)
+    _admit_run(service, story_id=story_id, run_id=old_run_id)
+
+    with pytest.raises(RuntimeError, match="injected reset commissioning fault"):
+        service.recover_ownership(
+            command=_recovery_command(
+                story_id=story_id,
+                run_id=old_run_id,
+                op_id="op-recovery-reset-rollback",
+                worktree_disposition="reset",
+            )
+        )
+
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None and active.run_id == old_run_id
+    assert load_control_plane_operation_global("op-recovery-reset-rollback") is None
+    with postgres_store._connect_global() as conn:
+        command_count = conn.execute(
+            "SELECT COUNT(*) AS n FROM edge_command_records WHERE story_id = ?",
+            (story_id,),
+        ).fetchone()
+    assert command_count is not None and int(command_count["n"]) == 0
 
 
 def test_recovery_hard_refuses_no_active_record(

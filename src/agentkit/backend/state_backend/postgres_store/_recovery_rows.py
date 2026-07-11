@@ -33,9 +33,10 @@ def commit_recovery_acquisition_global_row(
     new_binding_row: dict[str, Any],
     lock_rows: Sequence[dict[str, Any]],
     event_rows: Sequence[dict[str, Any]],
+    edge_command_rows: Sequence[dict[str, Any]],
     fault_after_step: Callable[[str], None] | None = None,
 ) -> None:
-    """Atomically supersede one active run and acquire its existing worktree."""
+    """Atomically supersede one run and commission any recovery edge work."""
 
     with _connect_global() as conn:
         _conditional_upsert_control_plane_op_row(conn, op_row)
@@ -128,6 +129,36 @@ def commit_recovery_acquisition_global_row(
             fault_after_step("bindings_written")
         for lock_row in lock_rows:
             _insert_story_execution_lock_row(conn, lock_row)
+        for command_row in edge_command_rows:
+            conn.execute(
+                """
+                INSERT INTO edge_command_records (
+                    command_id, project_key, story_id, run_id, session_id,
+                    command_kind, payload_json, status, ownership_epoch,
+                    created_at, delivered_at, completed_at, result_op_id,
+                    result_type, result_payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    command_row["command_id"],
+                    command_row["project_key"],
+                    command_row["story_id"],
+                    command_row["run_id"],
+                    command_row["session_id"],
+                    command_row["command_kind"],
+                    command_row["payload_json"],
+                    command_row["status"],
+                    command_row["ownership_epoch"],
+                    command_row["created_at"],
+                    command_row["delivered_at"],
+                    command_row["completed_at"],
+                    command_row["result_op_id"],
+                    command_row["result_type"],
+                    command_row["result_payload_json"],
+                ),
+            )
+            if fault_after_step is not None:
+                fault_after_step(f"edge_command_insert:{command_row['command_id']}")
         for event_row in event_rows:
             _insert_execution_event_row(conn, event_row)
 

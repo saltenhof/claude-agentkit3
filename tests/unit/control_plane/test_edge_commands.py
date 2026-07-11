@@ -8,26 +8,28 @@ from __future__ import annotations
 from agentkit.backend.control_plane import edge_commands as ec
 
 
-def test_all_command_kinds_pins_the_six_registered_kinds() -> None:
-    """FK-91 §91.1b: exactly the six initial command kinds, no more, no less."""
+def test_all_command_kinds_pins_the_seven_registered_kinds() -> None:
+    """FK-91 §91.1b: exactly the seven registered command kinds."""
     assert {
         "provision_worktree",
         "teardown_worktree",
         "preflight_probe",
         "sync_push",
         "takeover_reconcile",
+        "reset_worktree",
         "merge_local",
     } == ec.ALL_COMMAND_KINDS
 
 
-def test_executable_command_kinds_includes_takeover_reconcile() -> None:
-    """AG3-151 adds takeover reconcile to the productive edge executors."""
+def test_executable_command_kinds_includes_recovery_reset() -> None:
+    """Recovery reset and takeover reconcile have productive edge executors."""
     assert {
         "provision_worktree",
         "teardown_worktree",
         "preflight_probe",
         "sync_push",
         "takeover_reconcile",
+        "reset_worktree",
     } == ec.EXECUTABLE_COMMAND_KINDS
     assert ec.EXECUTABLE_COMMAND_KINDS < ec.ALL_COMMAND_KINDS
 

@@ -24,6 +24,7 @@ from agentkit.backend.control_plane.models import (
     PreflightProbeReport,
     ProvisionWorktreeCommandPayload,
     PushStatusReport,
+    ResetWorktreeCommandPayload,
     TakeoverErrorResult,
     TakeoverQuarantineDetail,
     TakeoverReconcileWorktreeRequest,
@@ -41,13 +42,14 @@ _NOW = datetime(2026, 7, 4, 12, 0, tzinfo=UTC)
 
 
 @pytest.mark.contract
-def test_six_command_kinds_are_pinned() -> None:
+def test_seven_command_kinds_are_pinned() -> None:
     assert {
         "provision_worktree",
         "teardown_worktree",
         "preflight_probe",
         "sync_push",
         "takeover_reconcile",
+        "reset_worktree",
         "merge_local",
     } == ec.ALL_COMMAND_KINDS
 
@@ -59,6 +61,24 @@ def test_only_merge_local_remains_registered_but_not_executable() -> None:
     assert ec.is_executable_command_kind("merge_local") is False
     assert ec.is_executable_command_kind("sync_push") is True
     assert ec.is_executable_command_kind("takeover_reconcile") is True
+    assert ec.is_executable_command_kind("reset_worktree") is True
+
+
+@pytest.mark.contract
+def test_reset_worktree_payload_is_path_free_and_field_exact() -> None:
+    payload = ResetWorktreeCommandPayload(
+        story_id="AG3-154",
+        project_key="project-a",
+        run_id="run-recovery",
+        repo_id="api",
+    )
+
+    assert payload.model_dump(mode="json") == {
+        "story_id": "AG3-154",
+        "project_key": "project-a",
+        "run_id": "run-recovery",
+        "repo_id": "api",
+    }
 
 
 # ---------------------------------------------------------------------------

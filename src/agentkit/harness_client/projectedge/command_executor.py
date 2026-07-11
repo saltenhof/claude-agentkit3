@@ -8,7 +8,8 @@ against the REAL git repo, and reports the typed result with the edge's OWN
 ``op_id`` (:meth:`ProjectEdgeClient.report_command_result`).
 
 ``provision_worktree`` / ``teardown_worktree`` / ``preflight_probe`` (AG3-145),
-``sync_push`` (AG3-147), and ``takeover_reconcile`` (AG3-151) are executed here.
+``sync_push`` (AG3-147), ``takeover_reconcile`` (AG3-151), and
+``reset_worktree`` (AG3-154) are executed here.
 The remaining registered kind (``merge_local``, owned by AG3-152) yields a
 deterministic :class:`CommandErrorResult`, never a silent
 no-op (Scope item 4). The edge derives the physical repo path from its LOCAL
@@ -38,6 +39,7 @@ from agentkit.backend.control_plane.models import (
     ProjectEdgeSyncRequest,
     ProvisionWorktreeCommandPayload,
     PushStatusReport,
+    ResetWorktreeCommandPayload,
     SyncPushCommandPayload,
     TakeoverReconcileCommandPayload,
     TakeoverReconcileWorktreeRequest,
@@ -279,6 +281,41 @@ def execute_teardown_worktree(
         outcome="torn_down" if existed else "no_op",
         worktree_root=str(worktree_path),
         branch=payload.branch,
+    )
+
+
+def execute_reset_worktree(
+    payload: ResetWorktreeCommandPayload,
+    *,
+    project_config: ProjectConfig,
+    project_root: Path,
+) -> WorktreeReport:
+    """Discard uncommitted work by resetting the existing worktree to ``HEAD``."""
+    repo_root = _resolve_repo_root(project_config, project_root, payload.repo_id)
+    worktrees_root = repo_root / "worktrees"
+    worktree_path = worktrees_root / payload.story_id
+    if worktrees_root.is_symlink() or worktree_path.is_symlink():
+        raise EdgeGitError("reset_worktree refuses to follow a symlinked worktree path")
+    if not worktree_path.is_dir():
+        raise EdgeGitError("reset_worktree requires the recovered worktree to exist")
+    _require_git(
+        _run_git(worktree_path, "reset", "--hard", "HEAD"),
+        "reset --hard HEAD",
+    )
+    _require_git(_run_git(worktree_path, "clean", "-fd"), "clean -fd")
+    _write_story_marker(
+        worktree_path,
+        story_id=payload.story_id,
+        project_key=payload.project_key,
+        run_id=payload.run_id,
+    )
+    head_sha = _current_head_sha(worktree_path)
+    return WorktreeReport(
+        repo_id=payload.repo_id,
+        outcome="reset",
+        worktree_root=str(worktree_path),
+        head_sha=head_sha,
+        marker_present=True,
     )
 
 
@@ -564,6 +601,12 @@ def _dispatch_executable(
     if command.command_kind == "teardown_worktree":
         return execute_teardown_worktree(
             TeardownWorktreeCommandPayload.model_validate(command.payload),
+            project_config=project_config,
+            project_root=project_root,
+        )
+    if command.command_kind == "reset_worktree":
+        return execute_reset_worktree(
+            ResetWorktreeCommandPayload.model_validate(command.payload),
             project_config=project_config,
             project_root=project_root,
         )

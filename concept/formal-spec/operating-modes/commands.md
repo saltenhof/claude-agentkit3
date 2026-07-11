@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: operating-modes
 spec_kind: command-set
-version: 5
+version: 6
 prose_refs:
   - concept/technical-design/56_ai_augmented_mode_and_story_execution_separation.md
   - concept/technical-design/91_api_event_katalog.md
@@ -16,7 +16,7 @@ prose_refs:
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.operating-modes.commands
-schema_version: 5
+schema_version: 6
 kind: command-set
 context: operating-modes
 commands:
@@ -95,7 +95,7 @@ commands:
       - operating-modes.event.session_run_binding_transferred
       - operating-modes.event.session_disowned
   - id: operating-modes.command.recover-run-ownership
-    signature: internal explicit human_cli crash recovery atomically transitions the exactly one active superseded run ownership record to transferred revokes its binding with recovery_superseded and creates a new active run ownership record with acquired_via recovery on the unchanged worktree roots
+    signature: internal explicit human_cli crash recovery with typed worktree_disposition adopt or reset atomically transitions the exactly one active superseded run ownership record to transferred revokes its binding with recovery_superseded and creates a new active run ownership record with acquired_via recovery on the existing worktree roots where adopt preserves the worktree and reset commissions one reset_worktree edge command per participating repo in the same unit of work to reset the existing worktree to its own HEAD and remove untracked files without backend git execution
     allowed_statuses:
       - operating-modes.status.ai_augmented
       - operating-modes.status.unresolved

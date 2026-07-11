@@ -352,9 +352,10 @@ def commit_recovery_acquisition_global(
     new_binding: SessionRunBindingRecord,
     locks: tuple[StoryExecutionLockRecord, ...],
     events: tuple[ExecutionEventRecord, ...],
+    commands: tuple[EdgeCommandRecord, ...] = (),
     fault_after_step: Callable[[str], None] | None = None,
 ) -> None:
-    """Atomically commit a recovery supersede and all ownership side effects."""
+    """Atomically commit recovery, ownership effects, and edge commissioning."""
     from agentkit.backend.state_backend import persistence_mappers as mappers
 
     _require_control_plane_backend()
@@ -367,6 +368,9 @@ def commit_recovery_acquisition_global(
         new_binding_row=mappers.session_binding_to_row(new_binding),
         lock_rows=tuple(mappers.execution_lock_to_row(lock) for lock in locks),
         event_rows=tuple(mappers.execution_event_to_row(event) for event in events),
+        edge_command_rows=tuple(
+            mappers.edge_command_record_to_row(command) for command in commands
+        ),
         fault_after_step=fault_after_step,
     )
 

@@ -9,6 +9,7 @@ kind (Scope item 4).
 
 from __future__ import annotations
 
+import inspect
 import json
 import subprocess
 from typing import TYPE_CHECKING
@@ -37,6 +38,7 @@ from agentkit.harness_client.projectedge.command_executor import (
     execute_command,
     execute_preflight_probe,
     execute_provision_worktree,
+    execute_reset_worktree,
 )
 
 if TYPE_CHECKING:
@@ -172,6 +174,112 @@ def test_teardown_removes_worktree_then_double_teardown_is_no_op(tmp_path: Path)
     second = execute_command(teardown_cmd, project_config=config, project_root=tmp_path)
     assert isinstance(second, WorktreeReport)
     assert second.outcome == "no_op"
+
+
+def test_reset_worktree_keeps_local_head_and_discards_uncommitted_changes(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "api"
+    _init_repo(repo_root)
+    config = _project_config(tmp_path, ["api"])
+    from agentkit.backend.control_plane.models import (
+        ProvisionWorktreeCommandPayload,
+        ResetWorktreeCommandPayload,
+    )
+
+    execute_provision_worktree(
+        ProvisionWorktreeCommandPayload(
+            story_id=_STORY_ID, project_key="test-project", run_id="run-old",
+            repo_id="api", branch=_BRANCH, base_ref="main",
+        ),
+        project_config=config,
+        project_root=tmp_path,
+    )
+    worktree = repo_root / "worktrees" / _STORY_ID
+    (worktree / "local-commit.txt").write_text("kept\n", encoding="utf-8")
+    _git(worktree, "add", "local-commit.txt")
+    _git(worktree, "commit", "-q", "-m", "local story commit")
+    head_before = subprocess.run(
+        ["git", "-C", str(worktree), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    (worktree / "local-commit.txt").write_text("dirty\n", encoding="utf-8")
+    (worktree / "untracked").mkdir()
+    (worktree / "untracked" / "drop.txt").write_text("drop\n", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sentinel = outside / "keep.txt"
+    sentinel.write_text("keep\n", encoding="utf-8")
+    link = worktree / "outside-link"
+    symlink_created = True
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        symlink_created = False
+
+    result = execute_reset_worktree(
+        ResetWorktreeCommandPayload(
+            story_id=_STORY_ID,
+            project_key="test-project",
+            run_id="run-recovered",
+            repo_id="api",
+        ),
+        project_config=config,
+        project_root=tmp_path,
+    )
+
+    assert result.outcome == "reset"
+    assert result.head_sha == head_before
+    assert (worktree / "local-commit.txt").read_text(encoding="utf-8") == "kept\n"
+    assert not (worktree / "untracked").exists()
+    if symlink_created:
+        assert not link.exists()
+    assert sentinel.read_text(encoding="utf-8") == "keep\n"
+    marker = json.loads(
+        (worktree / ".agentkit-story.json").read_text(encoding="utf-8")
+    )
+    assert marker["run_id"] == "run-recovered"
+
+
+def test_reset_worktree_refuses_a_symlinked_target_before_git(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = tmp_path / "api"
+    _init_repo(repo_root)
+    config = _project_config(tmp_path, ["api"])
+    from pathlib import Path as ConcretePath
+
+    from agentkit.backend.control_plane.models import ResetWorktreeCommandPayload
+
+    worktree = repo_root / "worktrees" / _STORY_ID
+    original_is_symlink = ConcretePath.is_symlink
+
+    def report_target_symlink(path: Path) -> bool:
+        return path == worktree or original_is_symlink(path)
+
+    monkeypatch.setattr(ConcretePath, "is_symlink", report_target_symlink)
+    with pytest.raises(EdgeGitError, match="refuses to follow"):
+        execute_reset_worktree(
+            ResetWorktreeCommandPayload(
+                story_id=_STORY_ID,
+                project_key="test-project",
+                run_id="run-recovered",
+                repo_id="api",
+            ),
+            project_config=config,
+            project_root=tmp_path,
+        )
+
+
+def test_reset_worktree_has_no_stash_salvage_or_quarantine_path() -> None:
+    source = inspect.getsource(execute_reset_worktree)
+
+    assert '"reset", "--hard", "HEAD"' in source
+    assert '"clean", "-fd"' in source
+    assert not {"stash", "salvage", "quarantine"} & set(source.lower().split())
 
 
 # ---------------------------------------------------------------------------

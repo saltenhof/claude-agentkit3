@@ -108,8 +108,8 @@ def main(
 
     # AG3-145: the Edge-Command-Queue loop -- fetch this session's open commands
     # (FK-91 §91.1b), execute them dev-locally (provision/teardown/preflight,
-    # sync-push, and takeover-reconcile), and report each result with the edge's
-    # own op_id.
+    # sync-push, takeover-reconcile, and recovery reset), and report each result
+    # with the edge's own op_id. Executors stay in the shared harness transport.
     commands_parser = subparsers.add_parser("run-commands")
     commands_parser.add_argument("--project-key", required=True)
     commands_parser.add_argument("--story-id", required=True)

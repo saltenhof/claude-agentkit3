@@ -7,7 +7,11 @@ from typing import TYPE_CHECKING
 
 from agentkit.backend.control_plane import recovery as recovery_core
 from agentkit.backend.control_plane.disown import build_disown_plan
-from agentkit.backend.control_plane.models import ControlPlaneMutationResult
+from agentkit.backend.control_plane.edge_commands import edge_command_id
+from agentkit.backend.control_plane.models import (
+    ControlPlaneMutationResult,
+    ResetWorktreeCommandPayload,
+)
 from agentkit.backend.control_plane.ownership import (
     INITIAL_OWNERSHIP_EPOCH,
     BindingRevocationReason,
@@ -15,6 +19,7 @@ from agentkit.backend.control_plane.ownership import (
     OwnershipStatus,
 )
 from agentkit.backend.control_plane.records import (
+    EdgeCommandRecord,
     RunOwnershipRecord,
     SessionRunBindingRecord,
 )
@@ -45,6 +50,38 @@ if TYPE_CHECKING:
 
 _RECOVERY = "ownership_recovery"
 _RECOVERY_PHASE = "ownership"
+
+
+def _reset_worktree_commands(
+    *,
+    project_key: str,
+    story_id: str,
+    run_id: str,
+    session_id: str,
+    repo_ids: tuple[str, ...],
+    created_at: datetime,
+) -> tuple[EdgeCommandRecord, ...]:
+    """Build per-repo reset commands for the recovered run."""
+    return tuple(
+        EdgeCommandRecord(
+            command_id=edge_command_id(run_id, "reset_worktree", repo_id),
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            session_id=session_id,
+            command_kind="reset_worktree",
+            payload=ResetWorktreeCommandPayload(
+                story_id=story_id,
+                project_key=project_key,
+                run_id=run_id,
+                repo_id=repo_id,
+            ).model_dump(mode="json"),
+            status="created",
+            ownership_epoch=INITIAL_OWNERSHIP_EPOCH,
+            created_at=created_at,
+        )
+        for repo_id in repo_ids
+    )
 
 
 def _recovery_body_hash(command: RecoveryCommand) -> str:
@@ -244,6 +281,23 @@ class _RecoveryMixin:
             acquired_at=now,
             audit_ref=request.op_id,
         )
+        reset_commands: tuple[EdgeCommandRecord, ...] = ()
+        if request.worktree_disposition == "reset":
+            story_context = self._repo.load_story_context(
+                request.project_key, request.story_id
+            )
+            if story_context is None or not story_context.participating_repos:
+                raise ValueError(
+                    "reset recovery requires authoritative participating repositories"
+                )
+            reset_commands = _reset_worktree_commands(
+                project_key=request.project_key,
+                story_id=request.story_id,
+                run_id=new_run_id,
+                session_id=command.actor_session_id,
+                repo_ids=tuple(story_context.participating_repos),
+                created_at=now,
+            )
         lock = StoryExecutionLockRecord(
             project_key=request.project_key,
             story_id=request.story_id,
@@ -325,6 +379,7 @@ class _RecoveryMixin:
             new_binding=new_binding,
             locks=(lock,),
             events=events,
+            commands=reset_commands,
         )
         return result
 

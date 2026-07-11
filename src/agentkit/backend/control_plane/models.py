@@ -402,6 +402,7 @@ class RecoveryRequest(BaseModel):
     story_id: str = Field(min_length=1)
     op_id: str = Field(min_length=1)
     reason: str = Field(min_length=1)
+    worktree_disposition: Literal["adopt", "reset"] = "adopt"
     source_component: str = Field(min_length=1, default="project_edge_client")
 
 
@@ -1005,6 +1006,17 @@ class TeardownWorktreeCommandPayload(BaseModel):
     branch: str = Field(min_length=1)
 
 
+class ResetWorktreeCommandPayload(BaseModel):
+    """Typed destructive reset of an existing worktree to its own ``HEAD``."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    story_id: str = Field(min_length=1, pattern=r"^[^/\\]+$")
+    project_key: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    repo_id: str = Field(min_length=1)
+
+
 class PreflightProbeCommandPayload(BaseModel):
     """Typed ``preflight_probe`` command payload (FK-91 §91.1b, FK-22 §22.3.1).
 
@@ -1106,7 +1118,7 @@ class WorktreeReport(BaseModel):
 
     result_type: Literal["worktree_report"] = "worktree_report"
     repo_id: str = Field(min_length=1)
-    outcome: Literal["provisioned", "torn_down", "no_op"]
+    outcome: Literal["provisioned", "torn_down", "reset", "no_op"]
     worktree_root: str | None = None
     branch: str | None = None
     head_sha: str | None = None
