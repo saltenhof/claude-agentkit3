@@ -298,18 +298,31 @@ def execute_reset_worktree(
         raise EdgeGitError("reset_worktree refuses to follow a symlinked worktree path")
     if not worktree_path.is_dir():
         raise EdgeGitError("reset_worktree requires the recovered worktree to exist")
+
+    try:
+        resolved_worktree = worktree_path.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise EdgeGitError(
+            "reset_worktree could not resolve the recovered worktree path"
+        ) from exc
+
+    _require_registered_linked_worktree(repo_root, resolved_worktree)
     _require_git(
-        _run_git(worktree_path, "reset", "--hard", "HEAD"),
+        _run_git(resolved_worktree, "reset", "--hard", "HEAD"),
         "reset --hard HEAD",
     )
-    _require_git(_run_git(worktree_path, "clean", "-fd"), "clean -fd")
+    # A local single-operator edge is the trust boundary: Windows cannot pin a
+    # directory handle across git processes. Revalidate immediately before the
+    # second destructive operation and keep using the same once-resolved path.
+    _require_registered_linked_worktree(repo_root, resolved_worktree)
+    _require_git(_run_git(resolved_worktree, "clean", "-fd"), "clean -fd")
     _write_story_marker(
-        worktree_path,
+        resolved_worktree,
         story_id=payload.story_id,
         project_key=payload.project_key,
         run_id=payload.run_id,
     )
-    head_sha = _current_head_sha(worktree_path)
+    head_sha = _current_head_sha(resolved_worktree)
     return WorktreeReport(
         repo_id=payload.repo_id,
         outcome="reset",
@@ -317,6 +330,70 @@ def execute_reset_worktree(
         head_sha=head_sha,
         marker_present=True,
     )
+
+
+def _require_registered_linked_worktree(repo_root: Path, worktree_path: Path) -> None:
+    """Fail closed unless ``worktree_path`` is this repo's registered linked root."""
+    main_toplevel_result = _run_git(repo_root, "rev-parse", "--show-toplevel")
+    _require_git(main_toplevel_result, "rev-parse --show-toplevel for primary worktree")
+    main_toplevel = _canonical_git_path(main_toplevel_result.stdout.strip())
+    if worktree_path == main_toplevel:
+        raise EdgeGitError("reset_worktree refuses to reset the primary worktree")
+
+    worktree_toplevel_result = _run_git(worktree_path, "rev-parse", "--show-toplevel")
+    _require_git(worktree_toplevel_result, "rev-parse --show-toplevel for recovered worktree")
+    worktree_toplevel = _canonical_git_path(worktree_toplevel_result.stdout.strip())
+    if worktree_toplevel != worktree_path:
+        raise EdgeGitError(
+            "reset_worktree target is not its own git worktree root "
+            f"(target={worktree_path}, toplevel={worktree_toplevel})"
+        )
+
+    listing = _run_git(repo_root, "worktree", "list", "--porcelain", "-z")
+    _require_git(listing, "worktree list --porcelain -z")
+    registered_paths = {
+        _canonical_git_path(field.removeprefix("worktree "), strict=False)
+        for field in listing.stdout.split("\0")
+        if field.startswith("worktree ")
+    }
+    if worktree_path not in registered_paths:
+        raise EdgeGitError(
+            "reset_worktree target is not a registered worktree of the configured repo"
+        )
+
+    repo_common_dir = _git_common_dir(repo_root)
+    worktree_common_dir = _git_common_dir(worktree_path)
+    if worktree_common_dir != repo_common_dir:
+        raise EdgeGitError(
+            "reset_worktree target is not linked to the configured repo's git metadata"
+        )
+
+
+def _git_common_dir(worktree_path: Path) -> Path:
+    """Return one worktree's canonical common git metadata directory."""
+    result = _run_git(worktree_path, "rev-parse", "--git-common-dir")
+    _require_git(result, "rev-parse --git-common-dir")
+    return _canonical_git_path(result.stdout.strip(), relative_to=worktree_path)
+
+
+def _canonical_git_path(
+    raw_path: str,
+    *,
+    relative_to: Path | None = None,
+    strict: bool = True,
+) -> Path:
+    """Canonicalize a git-reported path or raise the edge's fail-closed error."""
+    from pathlib import Path
+
+    path = Path(raw_path)
+    if relative_to is not None and not path.is_absolute():
+        path = relative_to / path
+    try:
+        return path.resolve(strict=strict)
+    except (OSError, RuntimeError) as exc:
+        raise EdgeGitError(
+            f"reset_worktree could not canonicalize git-reported path {raw_path!r}"
+        ) from exc
 
 
 def execute_preflight_probe(

@@ -197,7 +197,9 @@ def test_reset_worktree_keeps_local_head_and_discards_uncommitted_changes(
     )
     worktree = repo_root / "worktrees" / _STORY_ID
     (worktree / "local-commit.txt").write_text("kept\n", encoding="utf-8")
+    (worktree / ".gitignore").write_text("ignored-local.txt\n", encoding="utf-8")
     _git(worktree, "add", "local-commit.txt")
+    _git(worktree, "add", ".gitignore")
     _git(worktree, "commit", "-q", "-m", "local story commit")
     head_before = subprocess.run(
         ["git", "-C", str(worktree), "rev-parse", "HEAD"],
@@ -208,6 +210,8 @@ def test_reset_worktree_keeps_local_head_and_discards_uncommitted_changes(
     (worktree / "local-commit.txt").write_text("dirty\n", encoding="utf-8")
     (worktree / "untracked").mkdir()
     (worktree / "untracked" / "drop.txt").write_text("drop\n", encoding="utf-8")
+    ignored = worktree / "ignored-local.txt"
+    ignored.write_text("keep ignored state\n", encoding="utf-8")
     outside = tmp_path / "outside"
     outside.mkdir()
     sentinel = outside / "keep.txt"
@@ -234,6 +238,7 @@ def test_reset_worktree_keeps_local_head_and_discards_uncommitted_changes(
     assert result.head_sha == head_before
     assert (worktree / "local-commit.txt").read_text(encoding="utf-8") == "kept\n"
     assert not (worktree / "untracked").exists()
+    assert ignored.read_text(encoding="utf-8") == "keep ignored state\n"
     if symlink_created:
         assert not link.exists()
     assert sentinel.read_text(encoding="utf-8") == "keep\n"
@@ -241,6 +246,84 @@ def test_reset_worktree_keeps_local_head_and_discards_uncommitted_changes(
         (worktree / ".agentkit-story.json").read_text(encoding="utf-8")
     )
     assert marker["run_id"] == "run-recovered"
+
+
+def test_reset_worktree_plain_directory_fails_without_resetting_primary_checkout(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "api"
+    _init_repo(repo_root)
+    config = _project_config(tmp_path, ["api"])
+    from agentkit.backend.control_plane.models import ResetWorktreeCommandPayload
+
+    (repo_root / "README.md").write_text("unrelated primary edit\n", encoding="utf-8")
+    worktree = repo_root / "worktrees" / _STORY_ID
+    worktree.mkdir(parents=True)
+    (worktree / "corrupt-remnant.txt").write_text("keep\n", encoding="utf-8")
+
+    with pytest.raises(EdgeGitError, match="not its own git worktree root"):
+        execute_reset_worktree(
+            ResetWorktreeCommandPayload(
+                story_id=_STORY_ID,
+                project_key="test-project",
+                run_id="run-recovered",
+                repo_id="api",
+            ),
+            project_config=config,
+            project_root=tmp_path,
+        )
+
+    assert (repo_root / "README.md").read_text(encoding="utf-8") == (
+        "unrelated primary edit\n"
+    )
+    assert (worktree / "corrupt-remnant.txt").read_text(encoding="utf-8") == "keep\n"
+
+
+def test_reset_worktree_refuses_when_resolved_toplevel_differs_from_target(
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "api"
+    _init_repo(repo_root)
+    config = _project_config(tmp_path, ["api"])
+    from agentkit.backend.control_plane.models import ResetWorktreeCommandPayload
+
+    nested_repo = repo_root / "worktrees"
+    _init_repo(nested_repo)
+    (nested_repo / _STORY_ID).mkdir()
+
+    with pytest.raises(EdgeGitError, match="not its own git worktree root"):
+        execute_reset_worktree(
+            ResetWorktreeCommandPayload(
+                story_id=_STORY_ID,
+                project_key="test-project",
+                run_id="run-recovered",
+                repo_id="api",
+            ),
+            project_config=config,
+            project_root=tmp_path,
+        )
+
+
+def test_reset_worktree_refuses_unregistered_foreign_checkout(tmp_path: Path) -> None:
+    repo_root = tmp_path / "api"
+    _init_repo(repo_root)
+    config = _project_config(tmp_path, ["api"])
+    from agentkit.backend.control_plane.models import ResetWorktreeCommandPayload
+
+    foreign_checkout = repo_root / "worktrees" / _STORY_ID
+    _init_repo(foreign_checkout)
+
+    with pytest.raises(EdgeGitError, match="not a registered worktree"):
+        execute_reset_worktree(
+            ResetWorktreeCommandPayload(
+                story_id=_STORY_ID,
+                project_key="test-project",
+                run_id="run-recovered",
+                repo_id="api",
+            ),
+            project_config=config,
+            project_root=tmp_path,
+        )
 
 
 def test_reset_worktree_refuses_a_symlinked_target_before_git(
