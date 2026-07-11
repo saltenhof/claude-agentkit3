@@ -33,6 +33,10 @@ if TYPE_CHECKING:
     )
     from agentkit.backend.control_plane.push_verification import PushBarrierEvidencePort
     from agentkit.backend.control_plane.records import BackendInstanceIdentityRecord
+    from agentkit.backend.state_backend.store.freeze_repository import (
+        FreezeRepository,
+        LocalFreezeJsonExport,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +57,8 @@ class _AdmissionIdentityMixin:
         execution_contract_digest_reader: (Callable[[PhaseMutationRequest, str], ExecutionContractDigestOutcome] | None) = None,
         push_barrier_evidence: PushBarrierEvidencePort | None = None,
         push_barrier_evidence_factory: Callable[[], PushBarrierEvidencePort] | None = None,
+        freeze_repository: FreezeRepository | None = None,
+        local_freeze_export: LocalFreezeJsonExport | None = None,
     ) -> None:
         #: ERROR-3 fix (#3): whether this service uses the PRODUCTIVE default
         #: control-plane store (Postgres-only by design). When ``True`` every
@@ -84,6 +90,13 @@ class _AdmissionIdentityMixin:
         #: ``object_claim_repository`` above; extracted to a module-level
         #: helper to keep this constructor's LOC budget, PY_CLASS_MAX_LOC_800).
         self._edge_command_repo = _resolve_edge_command_repository(edge_command_repository, repository)
+        from agentkit.backend.state_backend.store.freeze_repository import (
+            FreezeRepository,
+            LocalFreezeJsonExport,
+        )
+
+        self._freeze_repository = freeze_repository or FreezeRepository()
+        self._local_freeze_export = local_freeze_export or LocalFreezeJsonExport()
         #: AG3-147 (FK-10 §10.2.4b): the two-stage push-barrier evidence DI seam
         #: (Edge freshness ∧ server ref-read). An injected port wins; otherwise
         #: the composition root injects a factory for the PRODUCTIVE default store
@@ -237,6 +250,19 @@ class _AdmissionIdentityMixin:
             return
         _require_postgres_control_plane_backend()
         self._backend_checked = True
+
+    def _sync_local_freeze_projection(self, story_id: str) -> None:
+        """Publish one active family member, or remove the empty projection."""
+
+        records = self._freeze_repository.read_freezes(story_id)
+        if records:
+            contested = next(
+                (record for record in records if record.kind.value == "contested_local_writes"),
+                records[0],
+            )
+            self._local_freeze_export.write_record(contested)
+            return
+        self._local_freeze_export.remove()
 
 
 __all__ = ["_AdmissionIdentityMixin"]

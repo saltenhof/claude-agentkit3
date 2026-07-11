@@ -32,7 +32,10 @@ from agentkit.backend.control_plane.models import (
     StoryExecutionLockView,
     TakeoverConfirmRequest,
     TakeoverDenyRequest,
+    TakeoverErrorResult,
+    TakeoverReconcileWorktreeRequest,
     TakeoverRequest,
+    WorktreeReport,
 )
 from agentkit.backend.control_plane.ownership import (
     OWNERSHIP_TRANSFERRED_REVOCATION_REASON,
@@ -97,7 +100,10 @@ from agentkit.backend.state_backend.operation_ledger import (
 from agentkit.backend.state_backend.state_backend_connection_manager import (
     boot_backend_instance_identity_global,
 )
-from agentkit.backend.state_backend.store.freeze_repository import FreezeRepository
+from agentkit.backend.state_backend.store.freeze_repository import (
+    FreezeRepository,
+    LocalFreezeJsonExport,
+)
 from agentkit.backend.state_backend.story_closure_store import (
     upsert_push_barrier_verdict_global,
     upsert_push_freshness_record_global,
@@ -172,6 +178,7 @@ _FAULT_STEPS = (
     "lock_insert",
     f"transfer_record_insert:{_REPO}",
     "takeover_reconcile_required",
+    "takeover_reconcile_commands",
     f"event_insert:{EventType.SESSION_RUN_BINDING_TRANSFERRED.value}",
     f"event_insert:{EventType.SESSION_DISOWNED.value}",
     f"event_insert:{EventType.TAKEOVER_APPROVAL_CHANGED.value}",
@@ -528,6 +535,7 @@ def _service(
     reconcile_fault_after_step: Callable[[str], None] | None = None,
     commit_takeover_confirm_override: Callable[..., None] | None = None,
     push_barrier_evidence: object | None = None,
+    local_freeze_export: LocalFreezeJsonExport | None = None,
 ) -> ControlPlaneRuntimeService:
     identity = boot_backend_instance_identity_global(ident, now)
     repository = None
@@ -578,6 +586,7 @@ def _service(
         now_fn=lambda: now,
         instance_identity=identity,
         push_barrier_evidence=push_barrier_evidence,  # type: ignore[arg-type]
+        local_freeze_export=local_freeze_export,
     )
 
 
@@ -4174,6 +4183,228 @@ def test_takeover_reconcile_admin_clear_respects_story_object_claim(
     assert transfer is not None
     assert transfer.reconciled_at is None
     assert transfer.reconcile_ref is None
+
+
+@pytest.mark.integration
+def test_successful_takeover_reconcile_clears_obligation_and_admits(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(221)
+    run_id = "run-reconcile-success"
+    _seed_story_context(tmp_path, story_id)
+    service = _service(
+        ident="inst-reconcile-success",
+        push_barrier_evidence=_VerifiedPushBoundary(),
+        local_freeze_export=LocalFreezeJsonExport(tmp_path),
+    )
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    challenge_id = _request_takeover(
+        service,
+        story_id=story_id,
+        run_id=run_id,
+        op_id="op-reconcile-success-request",
+    )
+    confirmed = service.confirm_ownership_takeover(
+        command=_confirm_request(
+            story_id=story_id,
+            challenge_id=challenge_id,
+            op_id="op-reconcile-success-confirm",
+        )
+    )
+    assert confirmed.status == "committed"
+    commands = service.list_and_ack_open_commands(
+        run_id,
+        project_key=_PROJECT,
+        session_id="sess-B",
+    ).commands
+    assert [(command.command_kind, command.payload["repo_id"]) for command in commands] == [
+        ("takeover_reconcile", _REPO)
+    ]
+    assert commands[0].payload["takeover_base_sha"] == _SHA
+
+    reconciled = service.reconcile_takeover_worktree(
+        run_id,
+        TakeoverReconcileWorktreeRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-B",
+            op_id="op-reconcile-success",
+            results=[
+                WorktreeReport(
+                    repo_id=_REPO,
+                    outcome="provisioned",
+                    worktree_root=f"T:/worktrees/{story_id}/sess-B",
+                    branch=f"story/{story_id}",
+                    head_sha=_SHA,
+                    marker_present=True,
+                )
+            ],
+        ),
+    )
+    assert reconciled.status == "resolved"
+    assert reconciled.takeover_reconcile is not None
+    assert reconciled.takeover_reconcile.results[0].result_type == "identity_ok"
+    transfer = load_takeover_transfer_record_global(
+        _PROJECT, story_id, run_id, 2, _REPO
+    )
+    assert transfer is not None
+    assert transfer.reconcile_ref == "takeover_reconcile:op-reconcile-success"
+
+    admitted = service.start_phase(
+        run_id=run_id,
+        phase="exploration",
+        request=_phase_request(
+            story_id=story_id,
+            op_id="op-after-reconcile-success",
+            session_id="sess-B",
+        ),
+    )
+    assert admitted.status == "committed"
+
+
+@pytest.mark.integration
+def test_failed_takeover_reconcile_enters_contested_and_successful_retry_clears_both(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(222)
+    run_id = "run-reconcile-contested"
+    _seed_story_context(tmp_path, story_id)
+    local_export = LocalFreezeJsonExport(tmp_path)
+    service = _service(
+        ident="inst-reconcile-contested",
+        push_barrier_evidence=_VerifiedPushBoundary(),
+        local_freeze_export=local_export,
+    )
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    challenge_id = _request_takeover(
+        service,
+        story_id=story_id,
+        run_id=run_id,
+        op_id="op-contested-request",
+    )
+    confirmed = service.confirm_ownership_takeover(
+        command=_confirm_request(
+            story_id=story_id,
+            challenge_id=challenge_id,
+            op_id="op-contested-confirm",
+        )
+    )
+    assert confirmed.status == "committed"
+    pending_challenge_id = _request_takeover(
+        service,
+        story_id=story_id,
+        run_id=run_id,
+        session_id="sess-C",
+        op_id="op-pending-before-contested",
+    )
+
+    failed = service.reconcile_takeover_worktree(
+        run_id,
+        TakeoverReconcileWorktreeRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-B",
+            op_id="op-reconcile-contested",
+            results=[
+                TakeoverErrorResult(
+                    result_type="contested_local_writes",
+                    repo_id=_REPO,
+                    detail="worktree marker could not be verified",
+                )
+            ],
+        ),
+    )
+    assert failed.status == "failed"
+    freeze = FreezeRepository().read_freeze(
+        story_id, FreezeKind.CONTESTED_LOCAL_WRITES
+    )
+    assert freeze is not None
+    assert local_export.read() == {
+        "story_id": story_id,
+        "frozen_at": _NOW.isoformat(),
+        "freeze_reason": freeze.freeze_reason,
+        "freeze_version": 1,
+        "kind": "contested_local_writes",
+        "freeze_epoch": freeze.freeze_epoch,
+    }
+    ownership = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert ownership is not None
+    assert ownership.status is OwnershipStatus.ACTIVE
+    assert ownership.owner_session_id == "sess-B"
+    invalidated = load_takeover_challenge_global(pending_challenge_id)
+    assert invalidated is not None
+    assert invalidated.status == "invalidated"
+
+    blocked = service.start_phase(
+        run_id=run_id,
+        phase="exploration",
+        request=_phase_request(
+            story_id=story_id,
+            op_id="op-blocked-by-contested",
+            session_id="sess-B",
+        ),
+    )
+    assert blocked.status == "rejected"
+    assert blocked.error_code == "contested_local_writes"
+    synced = service.sync_project_edge(
+        ProjectEdgeSyncRequest(
+            project_key=_PROJECT,
+            session_id="sess-B",
+            op_id="op-sync-contested-bundle",
+        )
+    )
+    assert [state.kind for state in synced.edge_bundle.active_freezes] == [
+        "contested_local_writes"
+    ]
+
+    cleared = service.reconcile_takeover_worktree(
+        run_id,
+        TakeoverReconcileWorktreeRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-B",
+            op_id="op-reconcile-clear-both",
+            results=[
+                WorktreeReport(
+                    repo_id=_REPO,
+                    outcome="provisioned",
+                    worktree_root=f"T:/worktrees/{story_id}/sess-B",
+                    branch=f"story/{story_id}",
+                    head_sha=_SHA,
+                    marker_present=True,
+                )
+            ],
+        ),
+    )
+    assert cleared.status == "resolved"
+    transfer = load_takeover_transfer_record_global(
+        _PROJECT, story_id, run_id, 2, _REPO
+    )
+    assert transfer is not None
+    assert transfer.reconcile_ref == "takeover_reconcile:op-reconcile-clear-both"
+    assert (
+        FreezeRepository().read_freeze(
+            story_id, FreezeKind.CONTESTED_LOCAL_WRITES
+        )
+        is None
+    )
+    assert local_export.read() is None
+    admitted = service.start_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_phase_request(
+            story_id=story_id,
+            op_id="op-after-dual-clear",
+            session_id="sess-B",
+        ),
+    )
+    assert admitted.status == "committed"
 
 
 def _challenge_id_from_current(story_id: str, challenge_id: str) -> str:

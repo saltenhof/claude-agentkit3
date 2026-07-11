@@ -41,6 +41,7 @@ from agentkit.backend.control_plane.records import (
     ControlPlaneOperationRecord,
     EdgeCommandRecord,
 )
+from agentkit.backend.core_types.freeze import freeze_error_code
 from agentkit.backend.exceptions import (
     ControlPlaneClaimCollisionError,
     EdgeCommandNotOpenError,
@@ -597,7 +598,11 @@ class _EdgeCommandMixin:
                 status="rejected",
                 command_id=command_id,
                 op_id=op_id,
-                error_code=ERROR_CODE_STORY_FROZEN,
+                error_code=freeze_error_code(
+                    admission.blocking_freeze.kind
+                    if admission.blocking_freeze is not None
+                    else None
+                ),
             )
         if admission.rejection_reason is not OwnershipRejectionReason.OWNERSHIP_TRANSFERRED:
             return EdgeCommandMutationResult(
@@ -644,7 +649,9 @@ class _EdgeCommandMixin:
                 status="rejected",
                 command_id=command_id,
                 op_id=op_id,
-                error_code=ERROR_CODE_STORY_FROZEN,
+                error_code=freeze_error_code(
+                    cast("str | None", exc.detail.get("freeze_kind"))
+                ),
             )
         if not isinstance(new_owner, str) or not isinstance(new_epoch, int) or not isinstance(transferred_at, str):
             return EdgeCommandMutationResult(

@@ -13,6 +13,7 @@ from agentkit.backend.control_plane.models import (
     AdminTakeoverReconcileClearRequest,
     TakeoverConfirmRequest,
     TakeoverDenyRequest,
+    TakeoverReconcileWorktreeRequest,
     TakeoverRequest,
     op_id_validation_error,
 )
@@ -73,7 +74,79 @@ def dispatch_project_edge_takeover_post(
             runtime_service=runtime_service,
             auth_result=auth_result,
         )
+    reconcile_match = _route_patterns._TAKEOVER_RECONCILE_WORKTREE_PATTERN.match(
+        route_path
+    )
+    if reconcile_match:
+        return _handle_post_takeover_reconcile_worktree(
+            reconcile_match.group("run_id"),
+            payload,
+            correlation_id,
+            runtime_service=runtime_service,
+            auth_result=auth_result,
+        )
     return None
+
+
+def _handle_post_takeover_reconcile_worktree(
+    run_id: str,
+    payload: object,
+    correlation_id: str,
+    *,
+    runtime_service: ControlPlaneRuntimeService,
+    auth_result: AuthResult | None,
+) -> HttpResponse:
+    """Handle the official new-owner reconcile result contract."""
+
+    from agentkit.backend.story_context_manager.errors import (
+        IdempotencyMismatchError,
+    )
+
+    try:
+        request = TakeoverReconcileWorktreeRequest.model_validate(payload)
+        project_fence = _project_key_fence(
+            request_project_key=request.project_key,
+            auth_result=auth_result,
+            correlation_id=correlation_id,
+        )
+        if project_fence is not None:
+            return project_fence
+        if auth_result is not None and auth_result.session_id is not None:
+            request = request.model_copy(
+                update={"session_id": auth_result.session_id}
+            )
+        result = runtime_service.reconcile_takeover_worktree(run_id, request)
+    except ValidationError as exc:
+        return _error_response(
+            HTTPStatus.UNPROCESSABLE_ENTITY
+            if op_id_validation_error(exc)
+            else HTTPStatus.BAD_REQUEST,
+            error_code="invalid_takeover_reconcile_payload",
+            message="Invalid takeover reconcile payload",
+            correlation_id=correlation_id,
+            detail=exc.errors(),
+        )
+    except IdempotencyMismatchError as exc:
+        return _error_response(
+            HTTPStatus.CONFLICT,
+            error_code="idempotency_mismatch",
+            message=str(exc),
+            correlation_id=correlation_id,
+            detail=exc.detail,
+        )
+    except ConfigError as exc:
+        return _backend_requirement_response(
+            "ownership_takeover_unavailable", exc, correlation_id
+        )
+    except RuntimeError as exc:
+        logger.warning("Takeover reconcile unavailable: %s", exc)
+        return _error_response(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            error_code="ownership_takeover_unavailable",
+            message=str(exc),
+            correlation_id=correlation_id,
+        )
+    return _takeover_result_response(result, correlation_id=correlation_id)
 
 
 def _handle_post_takeover_request(

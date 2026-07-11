@@ -450,6 +450,19 @@ class LocalFreezeJsonExport:
         }
         atomic_write_text(self._export_path(), json.dumps(payload, indent=2))
 
+    def write_record(self, record: FreezeRecord) -> None:
+        """Atomically publish one canonical freeze-family record locally."""
+
+        payload = {
+            "story_id": record.story_id,
+            "frozen_at": record.frozen_at,
+            "freeze_reason": record.freeze_reason,
+            "freeze_version": record.freeze_version,
+            "kind": record.kind.value,
+            "freeze_epoch": record.freeze_epoch,
+        }
+        atomic_write_text(self._export_path(), json.dumps(payload, indent=2))
+
     def read(self) -> dict[str, object] | None:
         """Return the local export payload, or ``None`` when absent.
 

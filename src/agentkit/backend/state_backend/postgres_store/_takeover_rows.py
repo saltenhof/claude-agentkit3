@@ -39,6 +39,7 @@ def commit_takeover_confirm_global_row(
     lock_rows: Sequence[dict[str, Any]],
     transfer_rows: Sequence[dict[str, Any]],
     event_rows: Sequence[dict[str, Any]],
+    edge_command_rows: Sequence[dict[str, Any]],
     terminal_rows: dict[str, dict[str, Any] | None],
     fault_after_step: Callable[[str], None] | None = None,
 ) -> None:
@@ -134,6 +135,41 @@ def commit_takeover_confirm_global_row(
                 f"transfer_record_insert:{transfer_row['repo_id']}",
             )
         _run_takeover_fault_hook(fault_after_step, "takeover_reconcile_required")
+        for command_row in edge_command_rows:
+            cursor = conn.execute(
+                """
+                INSERT INTO edge_command_records (
+                    command_id, project_key, story_id, run_id, session_id,
+                    command_kind, payload_json, status, ownership_epoch,
+                    created_at, delivered_at, completed_at, result_op_id,
+                    result_type, result_payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    command_row["command_id"],
+                    command_row["project_key"],
+                    command_row["story_id"],
+                    command_row["run_id"],
+                    command_row["session_id"],
+                    command_row["command_kind"],
+                    command_row["payload_json"],
+                    command_row["status"],
+                    command_row["ownership_epoch"],
+                    command_row["created_at"],
+                    command_row["delivered_at"],
+                    command_row["completed_at"],
+                    command_row["result_op_id"],
+                    command_row["result_type"],
+                    command_row["result_payload_json"],
+                ),
+            )
+            if int(cursor.rowcount) != 1:
+                raise RuntimeError("takeover reconcile command insert affected an unexpected row count")
+            _run_takeover_fault_hook(
+                fault_after_step,
+                f"edge_command_insert:{command_row['command_id']}",
+            )
+        _run_takeover_fault_hook(fault_after_step, "takeover_reconcile_commands")
         for event_row in event_rows:
             _insert_execution_event_row(conn, event_row)
             _run_takeover_fault_hook(
@@ -310,7 +346,7 @@ def commit_takeover_reconcile_clear_global_row(
     reconciled_at: str,
     reconcile_ref: str,
 ) -> None:
-    """Atomically write the admin-transition op and clear transfer rows."""
+    """Atomically write the reconcile op and clear transfer/freeze blockers."""
 
     with _connect_global() as conn:
         _conditional_upsert_control_plane_op_row(conn, op_row)
@@ -341,6 +377,15 @@ def commit_takeover_reconcile_clear_global_row(
                     "run_id": op_row["run_id"],
                     "ownership_epoch": ownership_epoch,
                 },
+            )
+        freeze_cursor = conn.execute(
+            "DELETE FROM governance_freeze_records "
+            "WHERE story_id = ? AND kind = 'contested_local_writes'",
+            (op_row["story_id"],),
+        )
+        if int(freeze_cursor.rowcount) not in {0, 1}:
+            raise RuntimeError(
+                "takeover reconcile contested-freeze clear affected an unexpected row count"
             )
 
 

@@ -58,6 +58,10 @@ _TAKEOVER_RECONCILE_CLEAR_PATTERN = re.compile(
     r"^/v1/project-edge/story-runs/(?P<run_id>[^/]+)/ownership/"
     r"takeover-reconcile-clear$",
 )
+_TAKEOVER_RECONCILE_WORKTREE_PATTERN = re.compile(
+    r"^/v1/project-edge/story-runs/(?P<run_id>[^/]+)/ownership/"
+    r"takeover-reconcile-worktree$",
+)
 
 # Project-scoped paths under /v1/projects/{project_key}/<bc>/...
 _PROJECT_SCOPED_PREFIX = re.compile(

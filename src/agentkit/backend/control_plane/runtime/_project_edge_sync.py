@@ -120,6 +120,7 @@ class _ProjectEdgeSyncMixin:
                 binding.worktree_roots if binding.status == "revoked" else ()
             ),
             new_owner_ref=new_owner_ref,
+            active_freezes=self._repo.load_active_freezes(binding.story_id),
         )
         return ControlPlaneMutationResult(
             status="synced",

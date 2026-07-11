@@ -11,9 +11,11 @@ from ._project_edge_sync import _ProjectEdgeSyncMixin
 from ._service_closure import _ControlPlaneClosureMixin
 from ._service_phase_mutation import _ControlPlanePhaseMutationMixin
 from ._service_resume import _ControlPlaneResumeMixin
+from ._takeover_reconcile import _TakeoverReconcileMixin
 
 
 class ControlPlaneRuntimeService(
+    _TakeoverReconcileMixin,
     _AdminTransitionMixin,
     _OwnershipTransferDenyMixin,
     _OwnershipTransferMixin,

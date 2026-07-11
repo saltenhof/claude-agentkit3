@@ -655,6 +655,21 @@ class StoryExecutionLockView(BaseModel):
     deactivated_at: datetime | None = None
 
 
+class EdgeFreezeStateView(BaseModel):
+    """One active blocking freeze-family member published to ProjectEdge."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal[
+        "conflict_freeze",
+        "split_admin_freeze",
+        "reconcile_repair",
+        "contested_local_writes",
+    ]
+    freeze_reason: str = Field(min_length=1)
+    freeze_epoch: str = Field(min_length=1)
+
+
 class EdgeBundle(BaseModel):
     """Complete bundle that the local Project Edge Client publishes."""
 
@@ -670,6 +685,7 @@ class EdgeBundle(BaseModel):
     lock: StoryExecutionLockView | None = None
     qa_lock: StoryExecutionLockView | None = None
     tombstone_worktree_roots: list[str] = Field(default_factory=list)
+    active_freezes: list[EdgeFreezeStateView] = Field(default_factory=list)
 
 
 class PhaseDispatchResult(BaseModel):
@@ -871,6 +887,9 @@ class ControlPlaneMutationResult(BaseModel):
     #: persist a pending approval and return this typed handle until a human
     #: explicitly approves and confirms.
     pending_human_approval: PendingHumanApprovalResponse | None = None
+    #: AG3-151: per-repo backend classifications returned by the official
+    #: takeover-reconcile-worktree mutation.
+    takeover_reconcile: TakeoverReconcileResponse | None = None
 
     @model_validator(mode="after")
     def _edge_bundle_optionality_is_bound_to_rejection(self) -> ControlPlaneMutationResult:
@@ -1006,6 +1025,18 @@ class SyncPushCommandPayload(BaseModel):
     ownership_epoch: int | None = Field(default=None, ge=1)
 
 
+class TakeoverReconcileCommandPayload(BaseModel):
+    """Backend-commissioned reconcile contract for one transferred repo."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    story_id: str = Field(min_length=1)
+    project_key: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    repo_id: str = Field(min_length=1)
+    takeover_base_sha: str = Field(min_length=1)
+
+
 class BranchRefReport(BaseModel):
     """``branch_ref_report`` (FK-91 §91.1b / FK-10 §10.2.4b): per-repo branch
     class + head SHA, reported after every sync point."""
@@ -1093,6 +1124,49 @@ class TakeoverErrorResult(BaseModel):
     ]
     repo_id: str = Field(min_length=1)
     detail: str = ""
+
+
+TakeoverReconcileReportedResult = Annotated[
+    WorktreeReport | TakeoverErrorResult,
+    Field(discriminator="result_type"),
+]
+
+
+class TakeoverReconcileWorktreeRequest(BaseModel):
+    """Official new-owner report for a commissioned takeover reconcile."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    project_key: str = Field(min_length=1)
+    story_id: str = Field(min_length=1)
+    session_id: str = Field(min_length=1)
+    op_id: str = Field(min_length=1)
+    results: list[TakeoverReconcileReportedResult] = Field(min_length=1)
+    quarantine_details: list[TakeoverQuarantineDetail] = Field(default_factory=list)
+
+
+class TakeoverReconcileResultView(BaseModel):
+    """Backend classification returned for one participating repository."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    repo_id: str = Field(min_length=1)
+    result_type: Literal[
+        "identity_ok",
+        "remote_branch_diverged_after_takeover",
+        "local_stale_or_dirty_takeover_target",
+        "contested_local_writes",
+    ]
+    detail: str = Field(min_length=1)
+    quarantine_detail: TakeoverQuarantineDetail | None = None
+
+
+class TakeoverReconcileResponse(BaseModel):
+    """Structured reconcile outcome attached to the mutation response."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    results: list[TakeoverReconcileResultView] = Field(min_length=1)
 
 
 class PreflightProbeReport(BaseModel):

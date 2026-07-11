@@ -11,6 +11,7 @@ from agentkit.backend.control_plane import (
 )
 from agentkit.backend.control_plane.models import (
     EdgeBundle,
+    EdgeFreezeStateView,
     EdgePointer,
     SessionRunBindingView,
     StoryExecutionLockView,
@@ -19,6 +20,7 @@ from agentkit.backend.control_plane.ownership import (
     MIN_BINDING_VERSION,
     canonical_binding_revocation_reason,
 )
+from agentkit.backend.core_types.freeze import active_freeze_state_from_record
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -78,6 +80,7 @@ def _build_edge_bundle(
     now: datetime,
     tombstone_worktree_roots: tuple[str, ...] = (),
     new_owner_ref: str | None = None,
+    active_freezes: tuple[object, ...] = (),
 ) -> EdgeBundle:
     operating_mode = _resolve_operating_mode(binding=binding, lock=lock)
     export_version = f"edge-{uuid.uuid4().hex}"
@@ -152,7 +155,30 @@ def _build_edge_bundle(
         lock=lock_view,
         qa_lock=qa_lock_view,
         tombstone_worktree_roots=list(tombstone_worktree_roots),
+        active_freezes=_edge_freeze_views(active_freezes),
     )
+
+
+def _edge_freeze_views(records: tuple[object, ...]) -> list[EdgeFreezeStateView]:
+    """Project canonical active freeze-family records into the edge bundle."""
+
+    views: list[EdgeFreezeStateView] = []
+    for record in records:
+        state = active_freeze_state_from_record(record)
+        if (
+            state.kind is None
+            or state.freeze_reason is None
+            or state.freeze_epoch is None
+        ):
+            raise ValueError("active freeze state is unreadable or non-canonical")
+        views.append(
+            EdgeFreezeStateView(
+                kind=state.kind.value,
+                freeze_reason=state.freeze_reason,
+                freeze_epoch=state.freeze_epoch,
+            )
+        )
+    return views
 
 
 def _resolve_operating_mode(

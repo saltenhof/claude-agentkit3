@@ -14,6 +14,11 @@ from agentkit.backend.control_plane.ownership_fence import (
     OwnershipAdmission,
     OwnershipRejectionReason,
 )
+from agentkit.backend.core_types.freeze import (
+    FreezeKind,
+    active_freeze_state_from_record,
+    freeze_error_code,
+)
 
 from ._operation_records import (
     _ownership_transferred_rejection,
@@ -64,6 +69,43 @@ class _AdmissionRejectionMixin:
             fail-closed rejection in this module).
         """
         if not self._repo.has_open_repair_for_story(project_key, story_id):
+            freeze_states = tuple(
+                active_freeze_state_from_record(record)
+                for record in self._repo.load_active_freezes(story_id)
+            )
+            contested = next(
+                (
+                    state
+                    for state in freeze_states
+                    if state.kind is FreezeKind.CONTESTED_LOCAL_WRITES
+                ),
+                None,
+            )
+            if contested is not None:
+                from agentkit.backend.control_plane.models import FreezeConflictDetail
+
+                result = _rejection_result(
+                    op_id=op_id,
+                    operation_kind=operation_kind,
+                    run_id=run_id,
+                    phase=phase,
+                    reason=(
+                        f"{operation_kind} rejected: contested local writes "
+                        "freeze blocks mutation while ownership remains active."
+                    ),
+                    dispatch_phase=phase,
+                    error_code="contested_local_writes",
+                )
+                return result.model_copy(
+                    update={
+                        "freeze_conflict": FreezeConflictDetail(
+                            kind="contested_local_writes",
+                            freeze_reason=contested.freeze_reason,
+                            freeze_epoch=contested.freeze_epoch,
+                            state_readable=contested.readable,
+                        )
+                    }
+                )
             if not self._repo.has_unreconciled_takeover_for_story(project_key, story_id):
                 return None
             result = _rejection_result(
@@ -152,7 +194,7 @@ class _AdmissionRejectionMixin:
                     f"kind={kind!r}, freeze_epoch={freeze.freeze_epoch!r}; "
                     "ownership remains active (FK-56 §56.13f, fail-closed)."
                 ),
-                error_code=ERROR_CODE_STORY_FROZEN,
+                error_code=freeze_error_code(freeze.kind),
             )
             return result.model_copy(
                 update={
@@ -243,7 +285,9 @@ class _AdmissionRejectionMixin:
                     f"{operation_kind} rejected: a story freeze entered before "
                     "commit; no state was written (FK-56 §56.13f, no TOCTOU)."
                 ),
-                error_code=ERROR_CODE_STORY_FROZEN,
+                error_code=freeze_error_code(
+                    _optional_str(exc.detail.get("freeze_kind"))
+                ),
             )
             return result.model_copy(
                 update={

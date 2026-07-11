@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from agentkit.backend.auth.entities import ProjectApiToken
     from agentkit.backend.control_plane.models import (
         AdminTakeoverReconcileClearRequest,
+        TakeoverReconcileWorktreeRequest,
         TakeoverRequest,
     )
     from agentkit.backend.control_plane.runtime import (
@@ -398,6 +399,7 @@ class _FakeTakeoverRuntime:
         self.confirm_calls: list[TakeoverConfirmCommand] = []
         self.deny_calls: list[TakeoverDenyCommand] = []
         self.clear_calls: list[AdminTakeoverReconcileClearRequest] = []
+        self.reconcile_calls: list[tuple[str, TakeoverReconcileWorktreeRequest]] = []
 
     def request_ownership_takeover(self, *, request: TakeoverRequest) -> object:
         from agentkit.backend.control_plane.models import ControlPlaneMutationResult
@@ -442,6 +444,22 @@ class _FakeTakeoverRuntime:
     ) -> object:
         self.clear_calls.append(request)
         raise AssertionError("forged takeover reconcile clear reached runtime")
+
+    def reconcile_takeover_worktree(
+        self,
+        run_id: str,
+        request: TakeoverReconcileWorktreeRequest,
+    ) -> object:
+        from agentkit.backend.control_plane.models import ControlPlaneMutationResult
+
+        self.reconcile_calls.append((run_id, request))
+        return ControlPlaneMutationResult(
+            status="resolved",
+            op_id=request.op_id,
+            operation_kind="takeover_reconcile_worktree",
+            run_id=run_id,
+            phase="ownership",
+        )
 
 
 def _make_app(
@@ -1096,6 +1114,44 @@ def test_takeover_reconcile_clear_without_attested_session_is_forbidden() -> Non
     body = json.loads(response.body)
     assert body["error_code"] == "takeover_reconcile_clear_forbidden"
     assert runtime.clear_calls == []
+
+
+def test_takeover_reconcile_worktree_route_passes_typed_per_repo_result() -> None:
+    runtime = _FakeTakeoverRuntime()
+    response = dispatch_project_edge_takeover_post(
+        route_path=(
+            "/v1/project-edge/story-runs/run-100/ownership/"
+            "takeover-reconcile-worktree"
+        ),
+        payload={
+            "project_key": "tenant-a",
+            "story_id": "AG3-100",
+            "session_id": "sess-b",
+            "op_id": "op-reconcile-worktree",
+            "results": [
+                {
+                    "result_type": "worktree_report",
+                    "repo_id": "api",
+                    "outcome": "provisioned",
+                    "head_sha": "a" * 40,
+                    "marker_present": True,
+                }
+            ],
+            "quarantine_details": [],
+        },
+        correlation_id="req-reconcile-worktree",
+        runtime_service=runtime,  # type: ignore[arg-type]
+        auth_result=AuthResult(
+            auth_kind="project_api_token",
+            project_key="tenant-a",
+        ),
+    )
+    assert response is not None
+    assert response.status_code == HTTPStatus.OK
+    assert len(runtime.reconcile_calls) == 1
+    run_id, request = runtime.reconcile_calls[0]
+    assert run_id == "run-100"
+    assert request.results[0].repo_id == "api"
 
 
 # ---------------------------------------------------------------------------

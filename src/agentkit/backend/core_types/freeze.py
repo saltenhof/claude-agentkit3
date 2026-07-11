@@ -95,6 +95,14 @@ def command_resolves_freeze(command_id: str, freeze: ActiveFreezeState) -> bool:
     return command_id in RESOLVING_COMMANDS_BY_KIND[freeze.kind]
 
 
+def freeze_error_code(kind: FreezeKind | str | None) -> str:
+    """Return the distinct wire code for freeze kinds that own one."""
+
+    if kind == FreezeKind.CONTESTED_LOCAL_WRITES:
+        return FreezeKind.CONTESTED_LOCAL_WRITES.value
+    return ERROR_CODE_STORY_FROZEN
+
+
 __all__ = [
     "ActiveFreezeState",
     "ERROR_CODE_STORY_FROZEN",
@@ -103,6 +111,7 @@ __all__ = [
     "RESOLVING_COMMANDS_BY_KIND",
     "active_freeze_state_from_record",
     "command_resolves_freeze",
+    "freeze_error_code",
     "is_canonical_freeze_epoch",
     "next_freeze_epoch",
 ]

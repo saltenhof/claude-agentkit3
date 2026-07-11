@@ -69,6 +69,7 @@ class _AdminTransitionMixin:
         _object_claim_repo: ObjectMutationClaimRepository
 
         def _require_postgres_backend_on_first_use(self) -> None: ...
+        def _sync_local_freeze_projection(self, story_id: str) -> None: ...
         def _acquire_object_claim(
             self, *, project_key: str, story_id: str, op_id: str
         ) -> object_claims.ObjectClaimConflict | None: ...
@@ -268,6 +269,7 @@ class _AdminTransitionMixin:
             reconciled_at=now,
             reconcile_ref=f"admin_transition:{request.op_id}",
         )
+        self._sync_local_freeze_projection(request.story_id)
         return result
 
     def _abort_claimed_operation(

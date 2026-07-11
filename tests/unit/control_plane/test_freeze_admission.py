@@ -19,6 +19,7 @@ from agentkit.backend.core_types.freeze import (
     RESOLVING_COMMANDS_BY_KIND,
     ActiveFreezeState,
     FreezeKind,
+    freeze_error_code,
 )
 
 
@@ -101,3 +102,12 @@ def test_inconsistent_freeze_state_fails_closed(freeze: ActiveFreezeState) -> No
 
     assert admission.admitted is False
     assert admission.rejection_reason is OwnershipRejectionReason.FREEZE_ACTIVE
+
+
+def test_contested_freeze_code_is_distinct_from_transfer_reconcile_obligation() -> None:
+    assert freeze_error_code(FreezeKind.CONTESTED_LOCAL_WRITES) == (
+        "contested_local_writes"
+    )
+    assert freeze_error_code(FreezeKind.CONTESTED_LOCAL_WRITES) != (
+        "takeover_reconcile_required"
+    )

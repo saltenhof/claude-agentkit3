@@ -9,11 +9,13 @@ from typing import TYPE_CHECKING
 
 from agentkit.backend.control_plane import ownership_transfer as transfer_core
 from agentkit.backend.control_plane.disown import build_disown_plan
+from agentkit.backend.control_plane.edge_commands import edge_command_id
 from agentkit.backend.control_plane.models import (
     ControlPlaneMutationResult,
     PendingHumanApprovalResponse,
     TakeoverChallenge,
     TakeoverConfirmRequest,
+    TakeoverReconcileCommandPayload,
     TakeoverRequest,
 )
 from agentkit.backend.control_plane.ownership import (
@@ -21,6 +23,7 @@ from agentkit.backend.control_plane.ownership import (
     TakeoverApprovalStatus,
 )
 from agentkit.backend.control_plane.records import (
+    EdgeCommandRecord,
     SessionRunBindingRecord,
     TakeoverApprovalRecord,
     TakeoverChallengeRecord,
@@ -82,6 +85,42 @@ if TYPE_CHECKING:
     from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 
 logger = logging.getLogger(__name__)
+
+
+def _takeover_reconcile_command(
+    transfer: TakeoverTransferRecord,
+    *,
+    session_id: str,
+    created_at: datetime,
+) -> EdgeCommandRecord:
+    """Build the per-repo reconcile command committed with takeover confirm."""
+
+    if transfer.takeover_base_sha is None:
+        raise ValueError("takeover reconcile command requires takeover_base_sha")
+    command_id = edge_command_id(
+        transfer.run_id,
+        "takeover_reconcile",
+        f"{transfer.repo_id}:epoch-{transfer.ownership_epoch}",
+    )
+    payload = TakeoverReconcileCommandPayload(
+        story_id=transfer.story_id,
+        project_key=transfer.project_key,
+        run_id=transfer.run_id,
+        repo_id=transfer.repo_id,
+        takeover_base_sha=transfer.takeover_base_sha,
+    )
+    return EdgeCommandRecord(
+        command_id=command_id,
+        project_key=transfer.project_key,
+        story_id=transfer.story_id,
+        run_id=transfer.run_id,
+        session_id=session_id,
+        command_kind="takeover_reconcile",
+        payload=payload.model_dump(mode="json"),
+        status="created",
+        ownership_epoch=transfer.ownership_epoch,
+        created_at=created_at,
+    )
 
 
 def _current_epoch_disown_context(
@@ -638,6 +677,14 @@ class _OwnershipTransferMixin:
             )
             for repo in repo_evidence
         )
+        reconcile_commands = tuple(
+            _takeover_reconcile_command(
+                transfer,
+                session_id=new_binding.session_id,
+                created_at=now,
+            )
+            for transfer in transfer_records
+        )
         bundle = _build_edge_bundle(
             binding=new_binding,
             lock=lock,
@@ -734,6 +781,7 @@ class _OwnershipTransferMixin:
                 request_op_record=request_record,
                 approved_approval=approval_state.approved_approval,
             ),
+            commands=reconcile_commands,
         )
         return result
 

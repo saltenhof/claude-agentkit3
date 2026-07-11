@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from agentkit.backend.control_plane.records import (
         BindingDeleteScope,
         ControlPlaneOperationRecord,
+        EdgeCommandRecord,
         ObjectMutationClaimRecord,
         RunOwnershipRecord,
         SessionRunBindingRecord,
@@ -304,6 +305,7 @@ def commit_takeover_confirm_global(
     transfers: tuple[TakeoverTransferRecord, ...],
     events: tuple[ExecutionEventRecord, ...],
     terminal_records: TakeoverConfirmTerminalRecords,
+    commands: tuple[EdgeCommandRecord, ...] = (),
     fault_after_step: Callable[[str], None] | None = None,
 ) -> None:
     """Atomically commit takeover confirm side effects in one transaction."""
@@ -321,6 +323,9 @@ def commit_takeover_confirm_global(
             mappers.takeover_transfer_to_row(record) for record in transfers
         ),
         event_rows=tuple(mappers.execution_event_to_row(event) for event in events),
+        edge_command_rows=tuple(
+            mappers.edge_command_record_to_row(command) for command in commands
+        ),
         terminal_rows={
             "challenge": mappers.takeover_challenge_to_row(
                 terminal_records.challenge,

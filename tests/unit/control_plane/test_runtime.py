@@ -333,7 +333,9 @@ class _FakeOps:
         transfers: tuple[TakeoverTransferRecord, ...],
         events: tuple[ExecutionEventRecord, ...],
         terminal_records: TakeoverConfirmTerminalRecords,
+        commands: tuple[EdgeCommandRecord, ...] = (),
     ) -> None:
+        del commands
         active = self._state.load_active_ownership(record.project_key, record.story_id)
         owner_binding = self._state.bindings.get(expected_basis.owner_session_id)
         if (

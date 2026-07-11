@@ -204,6 +204,50 @@ def test_takeover_transfer_empty_repo_id_is_rejected() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "reconcile_ref",
+    ["admin_transition:op-admin", "takeover_reconcile:op-edge"],
+)
+def test_takeover_transfer_accepts_both_audited_reconcile_ref_forms(
+    reconcile_ref: str,
+) -> None:
+    record = TakeoverTransferRecord(
+        project_key="tenant-a",
+        story_id="AG3-151",
+        run_id="run-1",
+        ownership_epoch=2,
+        repo_id="repo-a",
+        reconciled_at=_NOW,
+        reconcile_ref=reconcile_ref,
+    )
+    assert record.reconcile_ref == reconcile_ref
+
+
+@pytest.mark.parametrize(
+    "reconcile_ref",
+    ["agentic_clear:op", "takeover_reconcile:", "admin_transition:"],
+)
+def test_takeover_transfer_rejects_non_audited_reconcile_ref_with_widened_message(
+    reconcile_ref: str,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"admin_transition:\{op_id\} or "
+            r"takeover_reconcile:\{op_id\} reconcile_ref"
+        ),
+    ):
+        TakeoverTransferRecord(
+            project_key="tenant-a",
+            story_id="AG3-151",
+            run_id="run-1",
+            ownership_epoch=2,
+            repo_id="repo-a",
+            reconciled_at=_NOW,
+            reconcile_ref=reconcile_ref,
+        )
+
+
 def test_takeover_transfer_has_no_snapshot_fields() -> None:
     """SOLL-147: the transfer record REPLACES the worktree snapshot -> no snapshot."""
     fields = set(

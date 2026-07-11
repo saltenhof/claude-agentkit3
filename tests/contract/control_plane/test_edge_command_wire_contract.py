@@ -19,12 +19,14 @@ from agentkit.backend.control_plane.models import (
     BranchRefReport,
     CommandErrorResult,
     EdgeCommandResultRequest,
+    EdgeFreezeStateView,
     PreflightProbeCommandPayload,
     PreflightProbeReport,
     ProvisionWorktreeCommandPayload,
     PushStatusReport,
     TakeoverErrorResult,
     TakeoverQuarantineDetail,
+    TakeoverReconcileWorktreeRequest,
     TeardownWorktreeCommandPayload,
     WorktreeReport,
 )
@@ -157,6 +159,53 @@ def test_named_takeover_error_states_are_pinned(result_type: str) -> None:
 def test_takeover_error_result_rejects_an_unregistered_state() -> None:
     with pytest.raises(ValidationError):
         TakeoverErrorResult(result_type="made_up_state", repo_id="repo-a")
+
+
+@pytest.mark.contract
+def test_takeover_reconcile_worktree_wire_pins_per_repo_results_and_quarantine() -> None:
+    request = TakeoverReconcileWorktreeRequest(
+        project_key="tenant-a",
+        story_id="AG3-151",
+        session_id="sess-b",
+        op_id="op-reconcile",
+        results=[
+            WorktreeReport(
+                repo_id="repo-a",
+                outcome="provisioned",
+                head_sha="a" * 40,
+                marker_present=True,
+            )
+        ],
+        quarantine_details=[
+            TakeoverQuarantineDetail(
+                repo_id="repo-a",
+                quarantine_path="/quarantine/repo-a",
+                reason="same_worktree_takeover",
+            )
+        ],
+    )
+    assert set(request.model_dump(mode="json")) == {
+        "project_key",
+        "story_id",
+        "session_id",
+        "op_id",
+        "results",
+        "quarantine_details",
+    }
+
+
+@pytest.mark.contract
+def test_edge_bundle_projection_pins_contested_local_writes_state() -> None:
+    state = EdgeFreezeStateView(
+        kind="contested_local_writes",
+        freeze_reason="marker identity is ambiguous",
+        freeze_epoch="3",
+    )
+    assert state.model_dump(mode="json") == {
+        "kind": "contested_local_writes",
+        "freeze_reason": "marker identity is ambiguous",
+        "freeze_epoch": "3",
+    }
 
 
 @pytest.mark.contract

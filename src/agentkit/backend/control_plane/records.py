@@ -36,8 +36,9 @@ _VALID_BINDING_STATUS = frozenset(status.value for status in BindingStatus)
 _VALID_TAKEOVER_CHALLENGE_STATUS = frozenset(
     {"pending", "confirmed", "denied", "expired", "invalidated"}
 )
-_ADMIN_TRANSITION_REF_PATTERN = re.compile(
-    r"^admin_transition:[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+_TAKEOVER_RECONCILE_REF_PATTERN = re.compile(
+    r"^(?:admin_transition|takeover_reconcile):"
+    r"[A-Za-z0-9][A-Za-z0-9_.:-]*$",
 )
 
 if TYPE_CHECKING:
@@ -301,12 +302,12 @@ class TakeoverTransferRecord:
             raise ValueError("reconciled_at requires reconcile_ref")
         if self.reconcile_ref is not None and not self.reconcile_ref.strip():
             raise ValueError("reconcile_ref must be non-empty when present")
-        if self.reconcile_ref is not None and not _ADMIN_TRANSITION_REF_PATTERN.fullmatch(
+        if self.reconcile_ref is not None and not _TAKEOVER_RECONCILE_REF_PATTERN.fullmatch(
             self.reconcile_ref,
         ):
             raise ValueError(
-                "pre-AG3-151 takeover reconcile clear requires "
-                "an audited admin_transition:{op_id} reconcile_ref",
+                "takeover reconcile clear requires an audited "
+                "admin_transition:{op_id} or takeover_reconcile:{op_id} reconcile_ref",
             )
 
 
