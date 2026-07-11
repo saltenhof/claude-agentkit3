@@ -215,9 +215,7 @@ class _FakeOps:
         ownership_record_to_insert: RunOwnershipRecord | None = None,
         execution_contract_digest_to_insert: ExecutionContractDigestRecord | None = None,
         expected_ownership_epoch: int | None = None,
-        productive_completion_returned: bool = False,
     ) -> bool:
-        del productive_completion_returned
         # ERROR-1 (#1): ownership CAS finalize + side-effect materialization in ONE
         # atomic step. Apply ONLY if still claimed by owner_token (and claim instant
         # when given, #4; and operation_epoch when given, AG3-138); else write

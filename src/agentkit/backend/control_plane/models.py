@@ -706,6 +706,8 @@ class PhaseDispatchResult(BaseModel):
         "rejected",
     ]
     dispatched: bool
+    attempt_id: str | None = None
+    executor_run_id: str | None = None
     next_phase: str | None = None
     yield_status: str | None = None
     rejection_reason: str | None = None

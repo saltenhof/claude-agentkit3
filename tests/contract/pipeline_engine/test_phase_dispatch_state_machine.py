@@ -258,7 +258,10 @@ class TestReactionNormalization:
             phase="implementation",
             next_phase=next_phase,
         )
-        normalized = _normalize(result)
+        normalized = _normalize(
+            result,
+            executor_run_id="00000000-0000-0000-0000-000000000001",
+        )
         assert normalized.status == expected_status
         assert normalized.reaction == expected_reaction
         assert normalized.dispatched is True

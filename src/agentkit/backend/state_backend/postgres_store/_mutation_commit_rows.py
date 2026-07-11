@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any
 
 from agentkit.backend.core_types.freeze import (
@@ -120,26 +121,32 @@ def _enforce_start_phase_fence_row(
     *,
     op_row: dict[str, Any],
     expected_ownership_epoch: int | None,
-    productive_completion_returned: bool = False,
 ) -> None:
     """Fence both fresh ownership minting and already-owned phase starts.
 
-    A real dispatcher can return ``phase_completed`` only after the executor's
-    attempt/phase-state transaction committed. The caller's signal is still not
-    trusted on its own: canonical rows are re-read below on this finalize
-    connection. When both agree, a later freeze cannot retroactively turn that
-    committed completion into ``story_frozen``; the ownership fence remains in
-    force and the freeze blocks the next admission instead (INV-FRZ-2).
+    The terminal payload belongs to the exact ``op_id`` whose claim is being
+    finalized. Its dispatch identity is only a correlation key: the canonical
+    phase-state and attempt rows are re-read below on this finalize connection.
+    When that exact dispatch is durable, a later freeze cannot retroactively turn
+    its actual outcome into ``story_frozen``; the ownership fence remains in force
+    and the freeze blocks the next admission instead (INV-FRZ-2). No outcome/status
+    allowlist is involved.
     """
 
-    completion_is_durable = productive_completion_returned and _has_durable_phase_completion(
-        conn,
-        story_id=str(op_row["story_id"]),
-        phase=str(op_row["phase"]),
+    dispatch_identity = _dispatch_identity_for_operation(op_row)
+    productive_commit_is_durable = (
+        dispatch_identity is not None
+        and _has_durable_dispatch_commit(
+            conn,
+            story_id=str(op_row["story_id"]),
+            run_id=dispatch_identity[0],
+            phase=str(op_row["phase"]),
+            attempt_id=dispatch_identity[1],
+        )
     )
 
     if expected_ownership_epoch is None:
-        if not completion_is_durable:
+        if not productive_commit_is_durable:
             _enforce_blocking_freeze_row(
                 conn,
                 story_id=str(op_row["story_id"]),
@@ -154,34 +161,61 @@ def _enforce_start_phase_fence_row(
         session_id=str(op_row["session_id"]),
         expected_ownership_epoch=expected_ownership_epoch,
         command_id=str(op_row["operation_kind"]),
-        enforce_freeze=not completion_is_durable,
+        enforce_freeze=not productive_commit_is_durable,
     )
 
 
-def _has_durable_phase_completion(
+def _dispatch_identity_for_operation(op_row: dict[str, Any]) -> tuple[str, str] | None:
+    """Return this operation's executor-run/attempt identity, if productive."""
+
+    payload = json.loads(str(op_row["response_json"]))
+    phase_dispatch = payload.get("phase_dispatch")
+    if not isinstance(phase_dispatch, dict) or phase_dispatch.get("dispatched") is not True:
+        return None
+    executor_run_id = phase_dispatch.get("executor_run_id")
+    attempt_id = phase_dispatch.get("attempt_id")
+    if not isinstance(executor_run_id, str) or not executor_run_id:
+        return None
+    if not isinstance(attempt_id, str) or not attempt_id:
+        return None
+    return executor_run_id, attempt_id
+
+
+def _has_durable_dispatch_commit(
     conn: _CompatConnection,
     *,
     story_id: str,
+    run_id: str,
     phase: str,
+    attempt_id: str,
 ) -> bool:
-    """Return canonical proof that the executor completion commit stands."""
+    """Return canonical proof that this exact dispatch commit stands."""
+
+    attempt_prefix = f"{phase}-"
+    if not attempt_id.startswith(attempt_prefix):
+        return False
+    try:
+        attempt_number = int(attempt_id.removeprefix(attempt_prefix))
+    except ValueError:
+        return False
+    if attempt_number < 1:
+        return False
 
     row = conn.execute(
         """
         SELECT 1
         FROM phase_states AS state
+        JOIN attempts AS attempt
+          ON attempt.story_id = state.story_id
+         AND attempt.run_id = ?
+         AND attempt.phase = state.phase
+         AND attempt.attempt = ?
         WHERE state.story_id = ?
           AND state.phase = ?
-          AND state.status = 'completed'
-          AND EXISTS (
-              SELECT 1
-              FROM attempts AS attempt
-              WHERE attempt.story_id = state.story_id
-                AND attempt.phase = state.phase
-                AND attempt.outcome = 'COMPLETED'
-          )
+          AND state.attempt_id = ?
+          AND CAST(state.payload_json AS JSONB) ->> 'run_id' = ?
         """,
-        (story_id, phase),
+        (run_id, attempt_number, story_id, phase, attempt_id, run_id),
     ).fetchone()
     return row is not None
 

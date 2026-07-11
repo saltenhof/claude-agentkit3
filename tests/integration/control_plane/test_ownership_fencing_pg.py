@@ -55,6 +55,7 @@ from agentkit.backend.core_types.freeze import FreezeKind
 from agentkit.backend.pipeline_engine.engine import PipelineEngine
 from agentkit.backend.pipeline_engine.lifecycle import HandlerResult, PhaseHandlerRegistry
 from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
+from agentkit.backend.process.language import Workflow
 from agentkit.backend.process.language.definitions import resolve_workflow
 from agentkit.backend.state_backend import postgres_store
 from agentkit.backend.state_backend.operation_ledger import load_control_plane_operation_global
@@ -299,6 +300,43 @@ class _CompleteImplementationHandler:
     def on_resume(self, ctx: StoryContext, envelope: object, trigger: str) -> HandlerResult:
         del ctx, envelope, trigger
         return HandlerResult(status=PhaseStatus.COMPLETED)
+
+
+class _FailedImplementationHandler:
+    """Return a real failed handler outcome for the engine's backtrack path."""
+
+    def on_enter(self, ctx: StoryContext, envelope: object) -> HandlerResult:
+        del ctx, envelope
+        return HandlerResult(status=PhaseStatus.FAILED, errors=("qa failed",))
+
+    def on_exit(self, ctx: StoryContext, envelope: object) -> None:
+        del ctx, envelope
+
+    def on_resume(self, ctx: StoryContext, envelope: object, trigger: str) -> HandlerResult:
+        del ctx, envelope, trigger
+        return HandlerResult(status=PhaseStatus.FAILED, errors=("qa failed",))
+
+
+class _PausedImplementationHandler:
+    """Return a real paused handler outcome through the engine yield path."""
+
+    def on_enter(self, ctx: StoryContext, envelope: object) -> HandlerResult:
+        del ctx, envelope
+        return HandlerResult(
+            status=PhaseStatus.PAUSED,
+            yield_status="GOVERNANCE_INCIDENT",
+        )
+
+    def on_exit(self, ctx: StoryContext, envelope: object) -> None:
+        del ctx, envelope
+
+    def on_resume(self, ctx: StoryContext, envelope: object, trigger: str) -> HandlerResult:
+        del ctx, envelope, trigger
+        return HandlerResult(
+            status=PhaseStatus.PAUSED,
+            yield_status="GOVERNANCE_INCIDENT",
+        )
+
 
 def test_real_setup_start_atomically_creates_the_active_ownership_record(
     tmp_path: Path,
@@ -795,6 +833,179 @@ def test_postgres_freeze_after_completion_before_finalize_preserves_completed_tr
     blocked_next = racing_service.start_phase(
         run_id=run_id,
         phase="closure",
+        request=_request(story_id=story_id, op_id=next_op_id, session_id="sess-A"),
+    )
+    assert blocked_next.status == "rejected"
+    assert blocked_next.error_code == "story_frozen"
+    assert load_control_plane_operation_global(next_op_id) is None
+
+
+def test_postgres_freeze_after_failed_backtrack_commit_preserves_actual_truth(
+    tmp_path: Path,
+) -> None:
+    story_id, run_id, op_id = "AG3-659", "run-659", "op-freeze-after-backtrack-pg"
+    _seed_story_context(tmp_path, story_id)
+    identity = boot_backend_instance_identity_global("inst-freeze-after-backtrack", _T0)
+    setup_service = ControlPlaneRuntimeService(
+        phase_dispatcher=_AdmittedDispatcher(),  # type: ignore[arg-type]
+        now_fn=lambda: _T0,
+        instance_identity=identity,
+    )
+    setup = setup_service.start_phase(
+        run_id=run_id,
+        phase="setup",
+        request=_request(story_id=story_id, op_id="op-freeze-backtrack-setup", session_id="sess-A"),
+    )
+    assert setup.status == "committed"
+    story_dir = tmp_path / _PROJECT / "stories" / story_id
+
+    def _engine_factory(ctx: StoryContext, workspace: StoryWorkspace) -> PipelineEngine:
+        del ctx
+        workflow = (
+            Workflow("failed-backtrack-race")
+            .phase("implementation")
+            .retry_policy(max_attempts=3, backtrack_target="implementation")
+            .build()
+        )
+        registry = PhaseHandlerRegistry()
+        registry.register("implementation", _FailedImplementationHandler())
+        return PipelineEngine(workflow, registry, workspace.story_dir)
+
+    dispatcher = PhaseDispatcher(
+        workspace_locator=_TestWorkspaceLocator(tmp_path / _PROJECT),
+        engine_factory=_engine_factory,
+        guard_factory=lambda workspace: pytest.fail("guard must not run for admitted phase"),
+    )
+    repository = ControlPlaneRuntimeRepository()
+    finalize_start_phase = repository.finalize_start_phase
+
+    def _freeze_then_finalize(record: object, **kwargs: object) -> bool:
+        FreezeRepository().set_freeze(
+            story_id,
+            frozen_at="2026-07-11T12:02:00+00:00",
+            freeze_reason="entered after failed-backtrack commit",
+            freeze_version=1,
+        )
+        return finalize_start_phase(record, **kwargs)
+
+    racing_service = ControlPlaneRuntimeService(
+        repository=replace(repository, finalize_start_phase=_freeze_then_finalize),
+        phase_dispatcher=dispatcher,  # type: ignore[arg-type]
+        now_fn=lambda: _T0,
+        instance_identity=identity,
+    )
+
+    result = racing_service.start_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(story_id=story_id, op_id=op_id, session_id="sess-A"),
+    )
+
+    assert result.status == "committed"
+    assert result.phase_dispatch is not None
+    assert result.phase_dispatch.status == "phase_completed"
+    assert result.phase_dispatch.next_phase == "implementation"
+    phase_state = load_phase_state(story_dir)
+    assert phase_state is not None
+    assert phase_state.status is PhaseStatus.FAILED
+    assert phase_state.attempt_id == result.phase_dispatch.attempt_id
+    attempts = load_attempts(story_dir, "implementation")
+    assert len(attempts) == 1
+    assert attempts[0].run_id == result.phase_dispatch.executor_run_id
+    assert attempts[0].outcome.value == "FAILED"
+    stored = load_control_plane_operation_global(op_id)
+    assert stored is not None
+    assert stored.status == "committed"
+    assert stored.response_payload["phase_dispatch"]["status"] == "phase_completed"
+    assert stored.response_payload["phase_dispatch"]["attempt_id"] == phase_state.attempt_id
+
+    next_op_id = "op-freeze-after-backtrack-next-pg"
+    blocked_next = racing_service.start_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(story_id=story_id, op_id=next_op_id, session_id="sess-A"),
+    )
+    assert blocked_next.status == "rejected"
+    assert blocked_next.error_code == "story_frozen"
+    assert load_control_plane_operation_global(next_op_id) is None
+
+
+def test_postgres_freeze_after_paused_commit_preserves_actual_truth(
+    tmp_path: Path,
+) -> None:
+    story_id, run_id, op_id = "AG3-660", "run-660", "op-freeze-after-paused-pg"
+    _seed_story_context(tmp_path, story_id)
+    identity = boot_backend_instance_identity_global("inst-freeze-after-paused", _T0)
+    setup_service = ControlPlaneRuntimeService(
+        phase_dispatcher=_AdmittedDispatcher(),  # type: ignore[arg-type]
+        now_fn=lambda: _T0,
+        instance_identity=identity,
+    )
+    setup = setup_service.start_phase(
+        run_id=run_id,
+        phase="setup",
+        request=_request(story_id=story_id, op_id="op-freeze-paused-setup", session_id="sess-A"),
+    )
+    assert setup.status == "committed"
+    story_dir = tmp_path / _PROJECT / "stories" / story_id
+
+    def _engine_factory(ctx: StoryContext, workspace: StoryWorkspace) -> PipelineEngine:
+        registry = PhaseHandlerRegistry()
+        registry.register("implementation", _PausedImplementationHandler())
+        return PipelineEngine(resolve_workflow(ctx.story_type), registry, workspace.story_dir)
+
+    dispatcher = PhaseDispatcher(
+        workspace_locator=_TestWorkspaceLocator(tmp_path / _PROJECT),
+        engine_factory=_engine_factory,
+        guard_factory=lambda workspace: pytest.fail("guard must not run for admitted phase"),
+    )
+    repository = ControlPlaneRuntimeRepository()
+    finalize_start_phase = repository.finalize_start_phase
+
+    def _freeze_then_finalize(record: object, **kwargs: object) -> bool:
+        FreezeRepository().set_freeze(
+            story_id,
+            frozen_at="2026-07-11T12:03:00+00:00",
+            freeze_reason="entered after paused commit",
+            freeze_version=1,
+        )
+        return finalize_start_phase(record, **kwargs)
+
+    racing_service = ControlPlaneRuntimeService(
+        repository=replace(repository, finalize_start_phase=_freeze_then_finalize),
+        phase_dispatcher=dispatcher,  # type: ignore[arg-type]
+        now_fn=lambda: _T0,
+        instance_identity=identity,
+    )
+
+    result = racing_service.start_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(story_id=story_id, op_id=op_id, session_id="sess-A"),
+    )
+
+    assert result.status == "committed"
+    assert result.phase_dispatch is not None
+    assert result.phase_dispatch.status == "yielded"
+    assert result.phase_dispatch.yield_status == "GOVERNANCE_INCIDENT"
+    phase_state = load_phase_state(story_dir)
+    assert phase_state is not None
+    assert phase_state.status is PhaseStatus.PAUSED
+    assert phase_state.attempt_id == result.phase_dispatch.attempt_id
+    attempts = load_attempts(story_dir, "implementation")
+    assert len(attempts) == 1
+    assert attempts[0].run_id == result.phase_dispatch.executor_run_id
+    assert attempts[0].outcome.value == "YIELDED"
+    stored = load_control_plane_operation_global(op_id)
+    assert stored is not None
+    assert stored.status == "committed"
+    assert stored.response_payload["phase_dispatch"]["status"] == "yielded"
+    assert stored.response_payload["phase_dispatch"]["attempt_id"] == phase_state.attempt_id
+
+    next_op_id = "op-freeze-after-paused-next-pg"
+    blocked_next = racing_service.start_phase(
+        run_id=run_id,
+        phase="implementation",
         request=_request(story_id=story_id, op_id=next_op_id, session_id="sess-A"),
     )
     assert blocked_next.status == "rejected"

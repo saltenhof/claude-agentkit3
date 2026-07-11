@@ -280,11 +280,6 @@ class _StartPhaseAdmissionMixin:
                 mints_ownership_record=outcome.mints_ownership_record,
                 observed_ownership_epoch=outcome.observed_ownership_epoch,
                 execution_contract_digest=outcome.execution_contract_digest,
-                productive_completion_returned=(
-                    outcome.dispatch_result is not None
-                    and outcome.dispatch_result.dispatched
-                    and outcome.dispatch_result.status == "phase_completed"
-                ),
             )
             #: Finalize DONE (won or lost the ownership CAS): the op is terminal, so
             #: mark ``finalized`` BEFORE releasing the object claim -- a release
@@ -658,7 +653,6 @@ class _StartPhaseAdmissionMixin:
         mints_ownership_record: bool = False,
         observed_ownership_epoch: int | None = None,
         execution_contract_digest: str | None = None,
-        productive_completion_returned: bool = False,
     ) -> ControlPlaneMutationResult:
         """Atomically CAS-finalize the claim AND materialize side effects (#1).
 
@@ -808,7 +802,6 @@ class _StartPhaseAdmissionMixin:
             ownership_record_to_insert=ownership_record_to_insert,
             execution_contract_digest_to_insert=execution_contract_digest_to_insert,
             expected_ownership_epoch=(None if mints_ownership_record else ownership_epoch_for_commit),
-            productive_completion_returned=productive_completion_returned,
         ):
             return result
         #: Lost the ownership CAS: a concurrent finalize/admin-abort already

@@ -360,7 +360,10 @@ class PhaseDispatcher:
         )
         if isinstance(run_result, PhaseDispatchResult):
             return run_result
-        return _normalize(run_result)
+        return _normalize(
+            run_result,
+            executor_run_id=engine._runtime.resolve_run_id(ctx),
+        )
 
     def _admission_rejection(
         self,
@@ -637,7 +640,7 @@ _REACTION_BY_STATUS: dict[str, tuple[str, str]] = {
 }
 
 
-def _normalize(result: EngineResult) -> PhaseDispatchResult:
+def _normalize(result: EngineResult, *, executor_run_id: str) -> PhaseDispatchResult:
     """Normalize an engine result to the FK-45 §45.3 dispatch contract."""
     status, reaction = _REACTION_BY_STATUS.get(
         result.status, ("failed", "escalate")
@@ -651,6 +654,8 @@ def _normalize(result: EngineResult) -> PhaseDispatchResult:
         status=status,
         reaction=reaction,
         dispatched=True,
+        attempt_id=result.attempt_id,
+        executor_run_id=executor_run_id,
         next_phase=result.next_phase,
         yield_status=result.yield_status,
         errors=tuple(result.errors),
