@@ -269,6 +269,21 @@ def _enforce_blocking_freeze_row(
         )
 
 
+def _enforce_optional_blocking_freeze_row(
+    conn: _CompatConnection,
+    *,
+    story_id: str,
+    command_id: str | None,
+) -> None:
+    """Fence a mutation when its caller declares a freeze-aware command."""
+    if command_id is not None:
+        _enforce_blocking_freeze_row(
+            conn,
+            story_id=story_id,
+            command_id=command_id,
+        )
+
+
 def _conditional_upsert_control_plane_op_row(conn: _CompatConnection, row: dict[str, Any]) -> None:
     """Conditionally upsert a terminal op row on an EXISTING connection (ERROR-2).
 

@@ -26,6 +26,7 @@ from agentkit.backend.story_split.service import (
     StorySplitError,
     StorySplitRequest,
     StorySplitResult,
+    StorySplitSagaGuard,
     StorySplitService,
 )
 
@@ -44,6 +45,7 @@ __all__ = [
     "StorySplitRecord",
     "StorySplitRequest",
     "StorySplitResult",
+    "StorySplitSagaGuard",
     "StorySplitService",
     "SuccessorStory",
     "compute_plan_ref",

@@ -47,6 +47,7 @@ from agentkit.backend.story_split import (
     SplitSourceState,
     StorySplitError,
     StorySplitRequest,
+    StorySplitSagaGuard,
     StorySplitService,
     compute_plan_ref,
     derive_split_id,
@@ -380,10 +381,13 @@ def _build_harness(
         superseded_index=superseded,
         stories_root=Path("stories"),
         source_state_loader=source_state_loader or _good_source_state,
-        freeze_store=freeze_store,
-        object_claim_store=claim_store,
-        backend_instance_id="unit-instance",
-        instance_incarnation=1,
+        saga_guard=StorySplitSagaGuard(
+            freeze_store=freeze_store,
+            object_claim_store=claim_store,
+            backend_instance_id="unit-instance",
+            instance_incarnation=1,
+            now_fn=lambda: NOW,
+        ),
         now_fn=lambda: NOW,
     )
     return _Harness(
@@ -1582,10 +1586,13 @@ def _build_real_export_harness(stories_root: Path) -> _RealExportHarness:
         superseded_index=superseded,
         stories_root=stories_root,
         source_state_loader=_good_source_state,
-        freeze_store=_FreezeStore(),
-        object_claim_store=_ClaimStore(),
-        backend_instance_id="unit-instance",
-        instance_incarnation=1,
+        saga_guard=StorySplitSagaGuard(
+            freeze_store=_FreezeStore(),
+            object_claim_store=_ClaimStore(),
+            backend_instance_id="unit-instance",
+            instance_incarnation=1,
+            now_fn=lambda: NOW,
+        ),
         now_fn=lambda: NOW,
     )
     return _RealExportHarness(

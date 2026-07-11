@@ -37,6 +37,7 @@ from agentkit.backend.story_split import (
     SplitPlan,
     SplitSourceState,
     StorySplitRequest,
+    StorySplitSagaGuard,
     StorySplitService,
 )
 
@@ -204,10 +205,13 @@ def test_running_split_releases_source_claim_between_steps_and_independent_story
             paused_with_scope_explosion=True,
             competing_admin_operation_active=False,
         ),
-        freeze_store=freeze_store,
-        object_claim_store=claim_store,
-        backend_instance_id="split-integration-instance",
-        instance_incarnation=1,
+        saga_guard=StorySplitSagaGuard(
+            freeze_store=freeze_store,
+            object_claim_store=claim_store,
+            backend_instance_id="split-integration-instance",
+            instance_incarnation=1,
+            now_fn=lambda: _NOW,
+        ),
         now_fn=lambda: _NOW,
     )
     plan = SplitPlan.model_validate(

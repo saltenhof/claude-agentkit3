@@ -139,6 +139,7 @@ from agentkit.backend.story_split import (
     SplitPlan,
     SplitSourceState,
     StorySplitRequest,
+    StorySplitSagaGuard,
     StorySplitService,
     compute_plan_ref,
     derive_split_id,
@@ -2872,10 +2873,13 @@ def _run_real_invalidating_predecessor(
                 paused_with_scope_explosion=True,
                 competing_admin_operation_active=False,
             ),
-            freeze_store=FreezeRepository(),
-            object_claim_store=ObjectMutationClaimRepository(),
-            backend_instance_id="integration-instance",
-            instance_incarnation=1,
+            saga_guard=StorySplitSagaGuard(
+                freeze_store=FreezeRepository(),
+                object_claim_store=ObjectMutationClaimRepository(),
+                backend_instance_id="integration-instance",
+                instance_incarnation=1,
+                now_fn=lambda: _NOW,
+            ),
             now_fn=lambda: _NOW,
         )
         plan = SplitPlan.model_validate(
@@ -3172,10 +3176,13 @@ def test_terminal_uow_fault_rolls_back_marker_status_and_revocation_together(
                 paused_with_scope_explosion=True,
                 competing_admin_operation_active=False,
             ),
-            freeze_store=FreezeRepository(),
-            object_claim_store=ObjectMutationClaimRepository(),
-            backend_instance_id="integration-instance",
-            instance_incarnation=1,
+            saga_guard=StorySplitSagaGuard(
+                freeze_store=FreezeRepository(),
+                object_claim_store=ObjectMutationClaimRepository(),
+                backend_instance_id="integration-instance",
+                instance_incarnation=1,
+                now_fn=lambda: _NOW,
+            ),
             now_fn=lambda: _NOW,
         )
         with pytest.raises(RuntimeError, match="injected terminal-uow fault"):

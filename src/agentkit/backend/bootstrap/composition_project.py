@@ -136,7 +136,11 @@ def build_story_split_service(
     from agentkit.backend.story_context_manager.service import StoryService
     from agentkit.backend.story_creation.story_md_export import export_story_md
     from agentkit.backend.story_creation.weaviate_index import WeaviateStoryIndex
-    from agentkit.backend.story_split.service import StorySplitError, StorySplitService
+    from agentkit.backend.story_split.service import (
+        StorySplitError,
+        StorySplitSagaGuard,
+        StorySplitService,
+    )
     from agentkit.backend.vectordb.wait_for_weaviate import _resolve_host_port
     from agentkit.integration_clients.vectordb import WeaviateStoryAdapter
 
@@ -216,10 +220,12 @@ def build_story_split_service(
         superseded_index=_SupersededIndex(),
         stories_root=stories_root,
         source_state_loader=source_state_loader,
-        freeze_store=FreezeRepository(),
-        object_claim_store=object_claim_store,
-        backend_instance_id=identity.backend_instance_id,
-        instance_incarnation=identity.instance_incarnation,
+        saga_guard=StorySplitSagaGuard(
+            freeze_store=FreezeRepository(),
+            object_claim_store=object_claim_store,
+            backend_instance_id=identity.backend_instance_id,
+            instance_incarnation=identity.instance_incarnation,
+        ),
     )
 
 
