@@ -3,6 +3,14 @@ title: "CLI/Admin-Kommandos + Edge-Tool: takeover-request/-confirm (human_cli, d
 type: implementation
 status: ready
 phase: setup
+# Design freeze: reports/AG3-154-cli-admin-design.md (2 increments), after a
+# Fable design ruling. SETTLED: recovery = new run + acquired_via=recovery,
+# supersede-the-one-active-record, freeze/obligation hard-refuse, human_cli-only;
+# CLI confirm via a genuine strategist session (FK-15 15.10.3), AG3-148 gates
+# untouched. ESCALATED to human (non-blocking, ships fail-closed): SOLL-091
+# co-sign-free agent self-rebind (no attestable stable-harness-identity primitive
+# + FK-56 56.13g vs FK-20 20.7.3 unreconciled) -> agent recovery refused
+# (recovery_requires_human_cli) until decided.
 created: "2026-07-02"
 size: M
 # Herkunft: GAP-ST-11 (gap-analyse-session-ownership.md v4, Codex-APPROVE).
