@@ -81,9 +81,6 @@ from agentkit.backend.state_backend.story_lifecycle_store import (
     update_takeover_approval_status_global,
     update_takeover_challenge_status_global,
 )
-from agentkit.backend.state_backend.telemetry_event_store import (
-    append_execution_event_global,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -135,6 +132,15 @@ def _load_active_freezes(story_id: str) -> tuple[object, ...]:
     from agentkit.backend.state_backend.store.freeze_repository import FreezeRepository
 
     return FreezeRepository().read_freezes(story_id)
+
+
+def _append_execution_event(event: ExecutionEventRecord) -> None:
+    """Resolve the telemetry writer lazily through the state-backend facade."""
+    from agentkit.backend.state_backend.telemetry_event_store import (
+        append_execution_event_global,
+    )
+
+    append_execution_event_global(event)
 
 
 def _commit_recovery_acquisition(*args: object, **kwargs: object) -> None:
@@ -234,7 +240,7 @@ class ControlPlaneRuntimeRepository:
     save_lock: Callable[[StoryExecutionLockRecord], None] = (
         save_story_execution_lock_global
     )
-    append_event: Callable[[ExecutionEventRecord], None] = append_execution_event_global
+    append_event: Callable[[ExecutionEventRecord], None] = _append_execution_event
     #: Authoritative server-side resolver for the run ``StoryContext`` keyed by
     #: ``(project_key, story_id)``. AG3-018 (FK-24 §24.3.4): the control plane
     #: reads the operating mode from the state-backend record, NEVER from an
@@ -293,7 +299,9 @@ class ControlPlaneRuntimeRepository:
     load_active_ownership: Callable[[str, str], RunOwnershipRecord | None] = (
         load_active_run_ownership_record_global
     )
-    load_all_active_ownership: Callable[[str, str], tuple[RunOwnershipRecord, ...]] = load_all_active_run_ownership_records_global
+    load_all_active_ownership: Callable[[str, str], tuple[RunOwnershipRecord, ...]] = (
+        load_all_active_run_ownership_records_global
+    )
     list_push_freshness: Callable[
         [str, str, str], tuple[PushFreshnessRecord, ...]
     ] = list_push_freshness_records_global
