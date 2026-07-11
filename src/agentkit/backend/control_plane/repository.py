@@ -293,9 +293,9 @@ class ControlPlaneRuntimeRepository:
     load_active_ownership: Callable[[str, str], RunOwnershipRecord | None] = (
         load_active_run_ownership_record_global
     )
-    load_all_active_ownership: Callable[
-        [str, str], tuple[RunOwnershipRecord, ...]
-    ] = load_all_active_run_ownership_records_global
+    load_all_active_ownership: Callable[[str, str], tuple[RunOwnershipRecord, ...]] = (
+        load_all_active_run_ownership_records_global
+    )
     list_push_freshness: Callable[
         [str, str, str], tuple[PushFreshnessRecord, ...]
     ] = list_push_freshness_records_global
