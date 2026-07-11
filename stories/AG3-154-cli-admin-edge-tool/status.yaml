@@ -1,8 +1,15 @@
 story_id: AG3-154
 title: "CLI/Admin-Kommandos + Edge-Tool: takeover-request/-confirm (human_cli, direkter Challenge-Dialog), echtes recover-story (acquired_via=recovery, neuer Run auf bestehendem Worktree), Agent-Kommandos im deployten projectedge.py"
 type: implementation
-status: ready
-phase: setup
+status: completed
+phase: closure
+# CLOSED 2026-07-11 at main@294919ea. Inc-1 recovery acquisition + Inc-1b Verwerfen
+# worktree-reset (edge job) + Inc-1b-R1 data-loss hardening (proven-own registered
+# worktree only) + Inc-2 CLI/edge + strategist-session confirm. Codex reviews per
+# increment + whole-story Fable finale APPROVE + orchestrator code-adjudication.
+# Jenkins #1828 SUCCESS, Sonar 0/0/0, new-code cov 83.8%. Covers SOLL-090 + the
+# SOLL-091 disposition (satisfied by /resume, decision-record 2026-07-11). Unblocks
+# AG3-155. Non-blocking N1-N5 -> tech-debt.
 # Design freeze: reports/AG3-154-cli-admin-design.md (2 increments), after a
 # Fable design ruling. SETTLED: recovery = new run + acquired_via=recovery,
 # supersede-the-one-active-record, freeze/obligation hard-refuse, human_cli-only;

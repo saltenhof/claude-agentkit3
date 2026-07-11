@@ -153,3 +153,82 @@ IMPACT ON THE CODE: NONE. The frozen behavior (recover-story = human_cli; agent 
 corrected understanding — only the justification changed (agent recovery is refused because it is
 inherently the fresh-session/human path, NOT because identity is unprovable). No escalation to the
 human. Do NOT narrow/strike §56.13g. Inc-1 and Inc-2 proceed unchanged.
+
+---
+
+## Inc-1b (2026-07-11) — Verwerfen path completion (Inc-1 shipped adopt-only)
+
+The Inc-2 worker correctly STOPPED: `recover-story` needs the Übernehmen/Verwerfen
+choice (FK-20 §20.7.3), but Inc-1 built ADOPT-ONLY — `RecoveryRequest` (models.py:396)
+has no disposition field and `_recovery.py` `_commit_recovery` always reuses the
+worktree without commissioning a reset. Confirmed at code by the orchestrator. This is
+a real Inc-1 scope gap (D1 required both branches); it is a scoped Inc-1 correction, not
+adapter work. This sub-contract authorizes it (Inc-1b), then Inc-2 re-runs.
+
+FK-20 §20.7.3 semantics (authoritative):
+- **Übernahme (adopt):** new run, worker continues from the existing worktree state
+  (worker-manifest.json updated). = current Inc-1 behavior.
+- **Verwerfen (discard):** new run, the worktree is reset (`git reset --hard HEAD`, drop
+  unstaged), the implementation phase restarts from scratch. NOTE: reset is to the
+  worktree's OWN HEAD (local commits kept, uncommitted dropped) — NOT a teardown+reprovision
+  from a remote base.
+
+Inc-1b scope:
+1. Add a typed disposition to `RecoveryRequest` (models.py:396): e.g.
+   `worktree_disposition: Literal["adopt", "reset"] = "adopt"` (ARCH-55 English; additive
+   default preserves current behavior; extra="forbid"/frozen kept). Thread it through the
+   RecoveryCommand + the runtime.
+2. In `_commit_recovery`: on `adopt` → current behavior (reuse worktree). On `reset` →
+   commission an edge-side worktree reset (`git reset --hard HEAD` + `git clean -fd`)
+   ATOMICALLY within the recovery UoW — NEVER a backend git subprocess (D1). REUSE an
+   existing worktree-reset edge mechanism if one already exists (check story_reset/FK-53 and
+   the AG3-145 command set); only ADD a new `reset_worktree` edge command kind (executable
+   set + executor + deployed bundles/target_project mirror) if none exists. If a genuine
+   AG3-145 contract conflict arises → STOP and report.
+3. Concept-nachzug: if a new edge command kind is added, register it in the FK-91 §91.1a
+   command catalog + the formal edge-command set; keep the 4 concept gates green.
+4. Tests: recovery with disposition=reset commissions the reset edge job atomically (the
+   worktree is reset via the edge queue, backend runs no git); disposition=adopt keeps the
+   worktree (current behavior) — both through the REAL recovery path. Keep the Inc-1
+   fail-closed/supersede tests green.
+
+Then Inc-2 (CLI + edge-tool adapters) re-runs and exposes the Übernehmen/Verwerfen choice.
+Lesson recorded: two-branch design items (adopt/discard) must be explicit deliverables in
+the worker prompt AND the review checklist, not left implicit in the design note.
+
+---
+
+## AG3-154 — WHOLE STORY CLOSED (2026-07-11)
+
+CLOSED at code SHA `294919ea` (Jenkins #1828 SUCCESS, Sonar 0/0/0, new-code cov 83.8%,
+9361 tests). Increments + review convergence:
+- Inc-1 (recovery acquisition): Codex review → R1 (2+-active fail-closed) → LOC-finish → green.
+- Inc-1b (Verwerfen worktree reset, edge job): green.
+- Inc-2 (CLI takeover-request/-confirm via strategist session + recover-story --discard +
+  edge-tool + concept nachzug): green (the first Inc-2 attempt correctly STOPPED on the
+  adopt-only gap → Inc-1b built the Verwerfen path → Inc-2 re-ran).
+- Codex Inc-1b+Inc-2 defect review found 2 DATA-LOSS ERRORs in the reset executor (a plain
+  non-worktree dir → git climbs to the parent .git and resets the primary checkout; + a TOCTOU)
+  → Inc-1b-R1 hardened it: show-toplevel==worktree_path + registered-linked-worktree +
+  primary-refusal + re-validation before clean; clean stays -fd (no -x), reset to own HEAD.
+- Whole-story Fable finale: APPROVE (independent worst-case sweep of the data-loss path;
+  confirm-auth security; recovery atomicity; all 8 areas closed).
+- Orchestrator code-adjudication every round (incl. re-adjudicating the data-loss fix, which
+  my first Inc-1b adjudication had missed — the identity-binding via show-toplevel).
+
+Key design outcomes: recovery = new run + acquired_via=recovery, supersede-the-one-active
+(fail-closed on 0/2+), freeze/obligation hard-refuse (distinct codes), human_cli-only,
+disown 5th caller, transferred terminal status, all one UoW. CLI confirm via a genuine
+strategist session (FK-15 §15.10.3), AG3-148 gates byte-identical. Verwerfen = git reset
+--hard HEAD + clean -fd on the proven-own registered worktree, edge job, backend no git.
+SOLL-091 satisfied by /resume (decision-record 2026-07-11), agent recovery fail-closed.
+Covers SOLL-090 + the SOLL-091 disposition. Unblocks AG3-155.
+
+Non-blocking (Fable finale, → tech-debt, none blocks ship): N1 ResetWorktreeCommandPayload
+story_id pattern admits Windows drive-relative names (all identity gates still confine to a
+registered linked worktree of the same repo — defense-in-depth only, tighten regex to also
+exclude ':'/'..'); N2 empty participating_repos on reset → bare ValueError not mapped → 500
+instead of a stable code (fail-closed either way); N3 doc drift (repository.py:360 +
+postgres_schema.sql:312 still say `transferred` has no writer — recovery is now its writer);
+N4 no e2e recover→queue-fetch→reset test (executor + commissioning tested separately);
+N5 CSRF compare not constant-time (pre-existing, loopback single-user BFF).
