@@ -811,6 +811,67 @@ def test_split_admin_freeze_spans_saga_and_every_step_releases_its_claim() -> No
     assert h.freeze_store.clears == [("AK3-001", FreezeKind.SPLIT_ADMIN_FREEZE)]
     assert h.claim_store.held == {}
     assert h.claim_store.acquired == h.claim_store.released
+    split_id = derive_split_id("ak3", "AK3-001", compute_plan_ref("{}"))
+    assert (
+        "AK3-001",
+        f"{split_id}:successor-create:0:AK3-107",
+    ) in h.claim_store.acquired
+    assert (
+        "AK3-001",
+        f"{split_id}:successor-create:1:AK3-108",
+    ) in h.claim_store.acquired
+
+
+def test_successor_creation_rejects_before_mutation_when_source_claim_conflicts() -> (
+    None
+):
+    """AC7: a foreign source claim rejects before successor creation mutates."""
+    h = _build_harness()
+    original_release = h.claim_store.release_claim
+
+    def _hold_foreign_claim_after_quiesce(
+        project_key: str,
+        serialization_scope: str,
+        scope_key: str,
+        op_id: str,
+    ) -> bool:
+        released = original_release(
+            project_key,
+            serialization_scope,
+            scope_key,
+            op_id,
+        )
+        if op_id.endswith(":quiesce"):
+            acquired = h.claim_store.acquire_claim(
+                project_key=project_key,
+                serialization_scope=serialization_scope,
+                scope_key=scope_key,
+                op_id="foreign-story-mutation",
+                backend_instance_id="foreign-instance",
+                instance_incarnation=1,
+                acquired_at=NOW,
+            )
+            assert acquired is True
+        return released
+
+    h.claim_store.release_claim = (  # type: ignore[method-assign]
+        _hold_foreign_claim_after_quiesce
+    )
+    split_id = derive_split_id("ak3", "AK3-001", compute_plan_ref("{}"))
+
+    with pytest.raises(
+        StorySplitError,
+        match=rf"claim for 'AK3-001'.*{split_id}:successor-create:0:AK3-107",
+    ):
+        h.split_service.split_story(_request(_plan(rebinding=False)))
+
+    assert [
+        story.story_display_id for story in h.story_service.list_stories("ak3")
+    ] == ["AK3-001"]
+    assert h.export.exported == []
+    assert h.claim_store.held == {
+        ("ak3", "story", "AK3-001"): "foreign-story-mutation"
+    }
 
 
 def test_resume_after_abort_between_subcommits_with_active_admin_freeze_has_no_double_execution() -> None:
