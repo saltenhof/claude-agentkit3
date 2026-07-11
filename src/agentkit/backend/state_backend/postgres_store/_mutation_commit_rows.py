@@ -148,7 +148,7 @@ def _enforce_blocking_freeze_row(
     """Serialize with freeze entry and reject any unresolved active family row."""
 
     conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", (story_id,))
-    row = conn.execute(
+    rows = conn.execute(
         """
         SELECT kind, freeze_reason, freeze_epoch
         FROM governance_freeze_records
@@ -156,35 +156,36 @@ def _enforce_blocking_freeze_row(
         FOR UPDATE
         """,
         (story_id,),
-    ).fetchone()
-    if row is None:
-        return
-    raw_kind = row["kind"]
-    try:
-        kind = FreezeKind(str(raw_kind))
-    except ValueError:
-        kind = None
-    raw_reason = row["freeze_reason"]
-    reason = raw_reason if isinstance(raw_reason, str) and raw_reason.strip() else None
-    raw_epoch = row["freeze_epoch"]
-    epoch = (
-        raw_epoch
-        if isinstance(raw_epoch, str) and is_canonical_freeze_epoch(raw_epoch)
-        else None
-    )
-    freeze = ActiveFreezeState(kind=kind, freeze_reason=reason, freeze_epoch=epoch)
-    if command_resolves_freeze(command_id, freeze):
-        return
-    raise OwnershipFenceViolationError(
-        f"story freeze blocks command {command_id!r} for story {story_id!r}",
-        detail={
-            "error_code": ERROR_CODE_STORY_FROZEN,
-            "freeze_kind": kind.value if kind is not None else None,
-            "freeze_reason": reason,
-            "freeze_epoch": epoch,
-            "freeze_state_readable": kind is not None and reason is not None and epoch is not None,
-        },
-    )
+    ).fetchall()
+    for row in rows:
+        raw_kind = row["kind"]
+        try:
+            kind = FreezeKind(str(raw_kind))
+        except ValueError:
+            kind = None
+        raw_reason = row["freeze_reason"]
+        reason = raw_reason if isinstance(raw_reason, str) and raw_reason.strip() else None
+        raw_epoch = row["freeze_epoch"]
+        epoch = (
+            raw_epoch
+            if isinstance(raw_epoch, str) and is_canonical_freeze_epoch(raw_epoch)
+            else None
+        )
+        freeze = ActiveFreezeState(kind=kind, freeze_reason=reason, freeze_epoch=epoch)
+        if command_resolves_freeze(command_id, freeze):
+            continue
+        raise OwnershipFenceViolationError(
+            f"story freeze blocks command {command_id!r} for story {story_id!r}",
+            detail={
+                "error_code": ERROR_CODE_STORY_FROZEN,
+                "freeze_kind": kind.value if kind is not None else None,
+                "freeze_reason": reason,
+                "freeze_epoch": epoch,
+                "freeze_state_readable": (
+                    kind is not None and reason is not None and epoch is not None
+                ),
+            },
+        )
 
 
 def _conditional_upsert_control_plane_op_row(conn: _CompatConnection, row: dict[str, Any]) -> None:

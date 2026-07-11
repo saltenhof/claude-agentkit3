@@ -615,8 +615,8 @@ def _ensure_runtime_tables_part2b(conn: sqlite3.Connection) -> None:
         -- Test-parallel path with IDENTICAL DDL to postgres_schema.sql (Postgres
         -- is canonical). Canonical (truth) side of the dual conflict-freeze
         -- materialization; the local .agentkit/governance/freeze.json is the
-        -- hook-fast export with an identical freeze_version. Exactly one active
-        -- freeze per story (PK story_id).
+        -- hook-fast export with an identical freeze_version. Active members are
+        -- keyed independently by (story_id, kind).
         CREATE TABLE IF NOT EXISTS governance_freeze_records (
             story_id        TEXT NOT NULL,
             frozen_at       TEXT NOT NULL,
@@ -632,7 +632,25 @@ def _ensure_runtime_tables_part2b(conn: sqlite3.Connection) -> None:
                 freeze_epoch NOT GLOB '*[^0-9]*'
                 AND substr(freeze_epoch, 1, 1) BETWEEN '1' AND '9'
             ),
-            PRIMARY KEY (story_id)
+            PRIMARY KEY (story_id, kind)
+        );
+
+        CREATE TABLE IF NOT EXISTS governance_freeze_audit_records (
+            story_id        TEXT NOT NULL,
+            freeze_epoch    TEXT NOT NULL CHECK (
+                freeze_epoch NOT GLOB '*[^0-9]*'
+                AND substr(freeze_epoch, 1, 1) BETWEEN '1' AND '9'
+            ),
+            kind            TEXT NOT NULL CHECK (
+                kind IN (
+                    'conflict_freeze', 'split_admin_freeze',
+                    'reconcile_repair', 'contested_local_writes'
+                )
+            ),
+            frozen_at       TEXT NOT NULL,
+            freeze_reason   TEXT NOT NULL,
+            freeze_version  INTEGER NOT NULL,
+            PRIMARY KEY (story_id, freeze_epoch)
         );
 
         CREATE TABLE IF NOT EXISTS guard_decisions (

@@ -454,6 +454,9 @@ from ._runtime_rows import (
     save_flow_execution_row as save_flow_execution_row,
 )
 from ._runtime_rows import (
+    save_phase_completion_rows as save_phase_completion_rows,
+)
+from ._runtime_rows import (
     save_phase_snapshot_row as save_phase_snapshot_row,
 )
 from ._runtime_rows import (

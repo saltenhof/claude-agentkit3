@@ -128,11 +128,10 @@ _SQLITE_UPSERT = """
     ) VALUES (
         :story_id, :frozen_at, :freeze_reason, :freeze_version, :kind, :freeze_epoch
     )
-    ON CONFLICT (story_id) DO UPDATE SET
+    ON CONFLICT (story_id, kind) DO UPDATE SET
         frozen_at = excluded.frozen_at,
         freeze_reason = excluded.freeze_reason,
         freeze_version = excluded.freeze_version,
-        kind = excluded.kind,
         freeze_epoch = excluded.freeze_epoch
 """
 
@@ -143,12 +142,28 @@ _PG_UPSERT = """
         %(story_id)s, %(frozen_at)s, %(freeze_reason)s, %(freeze_version)s,
         %(kind)s, %(freeze_epoch)s
     )
-    ON CONFLICT (story_id) DO UPDATE SET
+    ON CONFLICT (story_id, kind) DO UPDATE SET
         frozen_at = excluded.frozen_at,
         freeze_reason = excluded.freeze_reason,
         freeze_version = excluded.freeze_version,
-        kind = excluded.kind,
         freeze_epoch = excluded.freeze_epoch
+"""
+
+_SQLITE_INSERT_AUDIT = """
+    INSERT INTO governance_freeze_audit_records (
+        story_id, freeze_epoch, kind, frozen_at, freeze_reason, freeze_version
+    ) VALUES (
+        :story_id, :freeze_epoch, :kind, :frozen_at, :freeze_reason, :freeze_version
+    )
+"""
+
+_PG_INSERT_AUDIT = """
+    INSERT INTO governance_freeze_audit_records (
+        story_id, freeze_epoch, kind, frozen_at, freeze_reason, freeze_version
+    ) VALUES (
+        %(story_id)s, %(freeze_epoch)s, %(kind)s, %(frozen_at)s,
+        %(freeze_reason)s, %(freeze_version)s
+    )
 """
 
 
@@ -190,8 +205,9 @@ class FreezeRepository:
                     (story_id,),
                 )
                 previous = conn.execute(
-                    "SELECT freeze_epoch FROM governance_freeze_records "
-                    "WHERE story_id=%s FOR UPDATE",
+                    "SELECT freeze_epoch FROM governance_freeze_audit_records "
+                    "WHERE story_id=%s "
+                    "ORDER BY length(freeze_epoch) DESC, freeze_epoch DESC LIMIT 1",
                     (story_id,),
                 ).fetchone()
                 previous_epoch = str(previous["freeze_epoch"]) if previous is not None else None
@@ -204,6 +220,9 @@ class FreezeRepository:
                     kind=kind,
                     freeze_epoch=freeze_epoch,
                 )
+                audit_cursor = conn.execute(_PG_INSERT_AUDIT, row)
+                if int(audit_cursor.rowcount) != 1:
+                    raise RuntimeError("freeze audit insert affected an unexpected row count")
                 cursor = conn.execute(_PG_UPSERT, row)
                 if int(cursor.rowcount) != 1:
                     raise RuntimeError("freeze upsert affected an unexpected row count")
@@ -211,7 +230,9 @@ class FreezeRepository:
         else:
             with _sqlite_connect(self._store_dir) as conn:
                 previous = conn.execute(
-                    "SELECT freeze_epoch FROM governance_freeze_records WHERE story_id=?",
+                    "SELECT freeze_epoch FROM governance_freeze_audit_records "
+                    "WHERE story_id=? "
+                    "ORDER BY length(freeze_epoch) DESC, freeze_epoch DESC LIMIT 1",
                     (story_id,),
                 ).fetchone()
                 previous_epoch = str(previous["freeze_epoch"]) if previous is not None else None
@@ -224,6 +245,9 @@ class FreezeRepository:
                     kind=kind,
                     freeze_epoch=freeze_epoch,
                 )
+                audit_cursor = conn.execute(_SQLITE_INSERT_AUDIT, row)
+                if int(audit_cursor.rowcount) != 1:
+                    raise RuntimeError("freeze audit insert affected an unexpected row count")
                 cursor = conn.execute(_SQLITE_UPSERT, row)
                 if int(cursor.rowcount) != 1:
                     raise RuntimeError("freeze upsert affected an unexpected row count")
@@ -236,43 +260,77 @@ class FreezeRepository:
             freeze_epoch=freeze_epoch,
         )
 
-    def read_freeze(self, story_id: str) -> FreezeRecord | None:
-        """Return the canonical freeze record for ``story_id``, or ``None``."""
+    def read_freeze(
+        self,
+        story_id: str,
+        kind: FreezeKind = FreezeKind.CONFLICT_FREEZE,
+    ) -> FreezeRecord | None:
+        """Return one active family member, defaulting to conflict-freeze."""
         if _is_postgres():
-            return self._pg_read(story_id)
-        return self._sqlite_read(story_id)
+            return self._pg_read(story_id, kind)
+        return self._sqlite_read(story_id, kind)
 
-    def clear_freeze(self, story_id: str) -> int:
-        """Delete the freeze record for ``story_id``; return rows removed."""
+    def read_freezes(self, story_id: str) -> tuple[FreezeRecord, ...]:
+        """Return the complete active freeze-family set for ``story_id``."""
+        if _is_postgres():
+            return self._pg_read_all(story_id)
+        return self._sqlite_read_all(story_id)
+
+    def clear_freeze(
+        self,
+        story_id: str,
+        kind: FreezeKind = FreezeKind.CONFLICT_FREEZE,
+    ) -> int:
+        """Resolve only ``(story_id, kind)``; return rows removed."""
         if _is_postgres():
             with _postgres_connect() as conn:
-                cursor = conn.execute(
-                    "DELETE FROM governance_freeze_records WHERE story_id=%s",
+                conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                     (story_id,),
+                )
+                cursor = conn.execute(
+                    "DELETE FROM governance_freeze_records WHERE story_id=%s AND kind=%s",
+                    (story_id, kind.value),
                 )
                 return int(cursor.rowcount)
         with _sqlite_connect(self._store_dir) as conn:
             cursor = conn.execute(
-                "DELETE FROM governance_freeze_records WHERE story_id=?",
-                (story_id,),
+                "DELETE FROM governance_freeze_records WHERE story_id=? AND kind=?",
+                (story_id, kind.value),
             )
             return int(cursor.rowcount)
 
-    def _sqlite_read(self, story_id: str) -> FreezeRecord | None:
+    def _sqlite_read(self, story_id: str, kind: FreezeKind) -> FreezeRecord | None:
         with _sqlite_connect(self._store_dir) as conn:
             row = conn.execute(
-                "SELECT * FROM governance_freeze_records WHERE story_id=?",
-                (story_id,),
+                "SELECT * FROM governance_freeze_records WHERE story_id=? AND kind=?",
+                (story_id, kind.value),
             ).fetchone()
         return _row_to_record(dict(row)) if row is not None else None
 
-    def _pg_read(self, story_id: str) -> FreezeRecord | None:
+    def _pg_read(self, story_id: str, kind: FreezeKind) -> FreezeRecord | None:
         with _postgres_connect() as conn:
             row = conn.execute(
-                "SELECT * FROM governance_freeze_records WHERE story_id=%s",
-                (story_id,),
+                "SELECT * FROM governance_freeze_records WHERE story_id=%s AND kind=%s",
+                (story_id, kind.value),
             ).fetchone()
         return _row_to_record(dict(row)) if row is not None else None
+
+    def _sqlite_read_all(self, story_id: str) -> tuple[FreezeRecord, ...]:
+        with _sqlite_connect(self._store_dir) as conn:
+            rows = conn.execute(
+                "SELECT * FROM governance_freeze_records WHERE story_id=? ORDER BY kind",
+                (story_id,),
+            ).fetchall()
+        return tuple(_row_to_record(dict(row)) for row in rows)
+
+    def _pg_read_all(self, story_id: str) -> tuple[FreezeRecord, ...]:
+        with _postgres_connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM governance_freeze_records WHERE story_id=%s ORDER BY kind",
+                (story_id,),
+            ).fetchall()
+        return tuple(_row_to_record(dict(row)) for row in rows)
 
 
 def _row_to_record(row: dict[str, Any]) -> FreezeRecord:

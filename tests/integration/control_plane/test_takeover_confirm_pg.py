@@ -4456,7 +4456,7 @@ def test_freeze_entry_invalidates_challenge_per_family_kind_and_never_revives(
     assert active_rejection.status == "rejected"
     assert active_rejection.error_code == "story_not_takeover_admissible"
 
-    assert FreezeRepository().clear_freeze(story_id) == 1
+    assert FreezeRepository().clear_freeze(story_id, kind) == 1
     after_release = service.confirm_ownership_takeover(
         command=_confirm_request(
             story_id=story_id,

@@ -111,6 +111,24 @@ def save_attempt(story_dir: Path, attempt: AttemptRecord) -> None:
     _backend_module().save_attempt_row(story_dir, row)
 
 
+def save_phase_completion(
+    story_dir: Path,
+    *,
+    attempt: AttemptRecord,
+    state: PhaseState,
+) -> None:
+    """Atomically freeze-fence and persist a completed executor boundary."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    attempt_row = mappers.attempt_record_to_row(attempt)
+    phase_state_row = mappers.phase_state_to_row(state)
+    _backend_module().save_phase_completion_rows(
+        story_dir,
+        attempt_row,
+        phase_state_row,
+    )
+
+
 def load_attempts(
     story_dir: Path,
     phase: str,
@@ -303,6 +321,7 @@ __all__ = [
     "load_phase_snapshot",
     "read_phase_snapshot_record",
     "save_attempt",
+    "save_phase_completion",
     "load_attempts",
     "save_flow_execution",
     "load_flow_execution",

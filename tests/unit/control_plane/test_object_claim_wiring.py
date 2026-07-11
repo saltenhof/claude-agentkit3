@@ -117,9 +117,9 @@ class _MinimalControlPlaneRepo:
         del project_key, story_id
         return None
 
-    def load_active_freeze(self, story_id: str) -> None:
+    def load_active_freezes(self, story_id: str) -> tuple[object, ...]:
         del story_id
-        return None
+        return ()
 
     def load_binding(self, session_id: str) -> None:
         del session_id
@@ -466,9 +466,9 @@ class _ClosureRepo:
             audit_ref="op-seed",
         )
 
-    def load_active_freeze(self, story_id: str) -> None:
+    def load_active_freezes(self, story_id: str) -> tuple[object, ...]:
         del story_id
-        return None
+        return ()
 
     def load_binding(self, session_id: str) -> None:
         del session_id

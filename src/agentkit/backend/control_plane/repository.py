@@ -128,19 +128,19 @@ def _load_story_context_via_story_surface(
     return StateBackendStoryReadRepository().load_story_context(project_key, story_id)
 
 
-def _load_active_freeze(story_id: str) -> object | None:
-    """Load the canonical active freeze through its repository boundary."""
+def _load_active_freezes(story_id: str) -> tuple[object, ...]:
+    """Load the canonical active freeze-family set through its boundary."""
 
     from agentkit.backend.state_backend.store.freeze_repository import FreezeRepository
 
-    return FreezeRepository().read_freeze(story_id)
+    return FreezeRepository().read_freezes(story_id)
 
 
 @dataclass(frozen=True)
 class ControlPlaneRuntimeRepository:
     """Persistence dependencies for runtime mutations and sync."""
 
-    load_active_freeze: Callable[[str], object | None] = _load_active_freeze
+    load_active_freezes: Callable[[str], tuple[object, ...]] = _load_active_freezes
     load_operation: Callable[[str], ControlPlaneOperationRecord | None] = (
         load_control_plane_operation_global
     )

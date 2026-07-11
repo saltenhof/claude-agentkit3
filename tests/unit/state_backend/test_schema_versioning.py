@@ -76,11 +76,12 @@ def test_schema_version_helpers_derive_versioned_names() -> None:
     # the story via story_id, GitHub is only the code backend, FK-12 §12.1.1 /
     # FK-91 §91.2 rule 9; side-by-side versioned-schema migration, FK-18 §18.9a)
     # AG3-150: 3.29.0 -> 3.30.0 (freeze-family kind + freeze_epoch).
-    assert state_config.SCHEMA_VERSION == "3.30.0"
+    # AG3-150 R1: 3.30.0 -> 3.31.0 (per-kind active set + epoch audit highwater).
+    assert state_config.SCHEMA_VERSION == "3.31.0"
     assert state_config.versioned_postgres_schema_name("3.0.0") == "ak3_v3_0_0"
     assert state_config.versioned_sqlite_db_file("3.0.0") == "agentkit_3_0_0.sqlite"
-    assert state_config.versioned_postgres_schema_name() == "ak3_v3_30_0"
-    assert state_config.versioned_sqlite_db_file() == "agentkit_3_30_0.sqlite"
+    assert state_config.versioned_postgres_schema_name() == "ak3_v3_31_0"
+    assert state_config.versioned_sqlite_db_file() == "agentkit_3_31_0.sqlite"
 
 
 def test_schema_version_rejects_non_semver() -> None:

@@ -160,23 +160,21 @@ def _instrument_engine(
     phase_repo = RecordingPhaseRepo(log)
 
 
-    def _fake_save_attempt(story_dir: object, record: AttemptRecord) -> None:
-        attempt_repo.save(record)
-
-    def _fake_save_phase_state(story_dir: object, state: PhaseState) -> None:
+    def _fake_save_completion(
+        story_dir: object,
+        *,
+        attempt: AttemptRecord,
+        state: PhaseState,
+    ) -> None:
+        del story_dir
+        if crash_on_save_attempt:
+            raise RuntimeError("Simulated crash before atomic completion commit")
+        attempt_repo.save(attempt)
         phase_repo.save(state)
 
-    # Patch the canonical runtime store module (source of truth)
-    import agentkit.backend.state_backend.pipeline_runtime_store as _runtime_store
-
-    monkeypatch.setattr(_runtime_store, "save_attempt", _fake_save_attempt)
-    monkeypatch.setattr(_runtime_store, "save_phase_state", _fake_save_phase_state)
-
-    # Patch save_phase_completion module — it holds its own bound references
-    # (module-level imports from agentkit.backend.state_backend.store)
     import agentkit.backend.pipeline_engine.phase_executor.save_phase_completion as _spc
-    monkeypatch.setattr(_spc, "save_attempt", _fake_save_attempt)
-    monkeypatch.setattr(_spc, "save_phase_state", _fake_save_phase_state)
+
+    monkeypatch.setattr(_spc, "_save", _fake_save_completion)
 
     return attempt_repo, phase_repo
 
@@ -369,15 +367,15 @@ class TestPausedResultWriteOrdering:
 
 
 class TestCrashSafetyInvariant:
-    """AK5: Crash-Safety — nach Crash zwischen Saves bleibt AttemptRecord erhalten."""
+    """AK5: a failed atomic completion call persists neither constituent."""
 
-    def test_crash_between_saves_keeps_attempt_record(
+    def test_crash_before_atomic_commit_keeps_no_partial_record(
         self,
         story_dir: Path,
         story_ctx: StoryContext,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Simulated crash after save_attempt, before save_phase_state."""
+        """A completion-boundary failure cannot expose a partial pair."""
         workflow = Workflow("crash-test").phase("setup").build()
         registry = PhaseHandlerRegistry()
         registry.register("setup", CompletingHandler())
@@ -387,13 +385,11 @@ class TestCrashSafetyInvariant:
         _instrument_engine(engine, monkeypatch, log, crash_on_save_attempt=True)
 
         state = make_phase_state(story_id="WO-001", phase="setup", status=PhaseStatus.PENDING)
-        with pytest.raises(RuntimeError, match="Simulated crash"):
+        with pytest.raises(RuntimeError, match="before atomic completion commit"):
             engine.run_phase(story_ctx, _make_envelope(state))  # type: ignore[arg-type]
 
         save_attempt_calls = [k for k, _ in log if k == "save_attempt"]
         save_phase_calls = [k for k, _ in log if k == "save_phase_state"]
 
-        # AttemptRecord-Call ist erfolgt
-        assert len(save_attempt_calls) >= 1, "save_attempt must have been called"
-        # PhaseState-Call ist NICHT erfolgt (Crash dazwischen)
-        assert len(save_phase_calls) == 0, "save_phase_state must NOT have been called after crash"
+        assert save_attempt_calls == []
+        assert save_phase_calls == []

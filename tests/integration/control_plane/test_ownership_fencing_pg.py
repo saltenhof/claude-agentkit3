@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentkit.backend.auth.middleware import AuthMiddleware
+from agentkit.backend.control_plane.dispatch import PhaseDispatcher
 from agentkit.backend.control_plane.models import (
     ClosureCompleteRequest,
     PhaseDispatchResult,
@@ -46,9 +47,19 @@ from agentkit.backend.control_plane.push_sync import (
     SyncPointBarrierType,
 )
 from agentkit.backend.control_plane.runtime import ControlPlaneRuntimeService
+from agentkit.backend.control_plane.workspace_locator import StoryWorkspace
 from agentkit.backend.control_plane_http.app import ControlPlaneApplication
+from agentkit.backend.core_types.freeze import FreezeKind
+from agentkit.backend.pipeline_engine.engine import PipelineEngine
+from agentkit.backend.pipeline_engine.lifecycle import HandlerResult, PhaseHandlerRegistry
+from agentkit.backend.pipeline_engine.phase_executor import PhaseStatus
+from agentkit.backend.process.language.definitions import resolve_workflow
 from agentkit.backend.state_backend import postgres_store
 from agentkit.backend.state_backend.operation_ledger import load_control_plane_operation_global
+from agentkit.backend.state_backend.pipeline_runtime_store import (
+    load_attempts,
+    load_phase_state,
+)
 from agentkit.backend.state_backend.state_backend_connection_manager import (
     boot_backend_instance_identity_global,
 )
@@ -229,36 +240,46 @@ class _RacingDispatcher:
         )
 
 
-class _FreezingDispatcher(_AdmittedDispatcher):
-    """Enter a freeze after early admission but before the start commit fence."""
+class _TestWorkspaceLocator:
+    """Resolve the integration story directory without bypassing dispatch."""
 
-    def __init__(self, *, story_id: str) -> None:
+    def __init__(self, project_root: Path) -> None:
+        self._project_root = project_root
+
+    def resolve(self, project_key: str, story_id: str, run_id: str) -> StoryWorkspace:
+        return StoryWorkspace(
+            project_key=project_key,
+            story_id=story_id,
+            run_id=run_id,
+            project_root=self._project_root,
+            story_dir=self._project_root / "stories" / story_id,
+        )
+
+
+class _FreezeDuringImplementationHandler:
+    """Enter the real freeze race from inside a PipelineEngine phase handler."""
+
+    def __init__(self, story_id: str) -> None:
         self._story_id = story_id
-        self.dispatched = False
+        self.entered = False
 
-    def dispatch(
-        self,
-        *,
-        ctx: StoryContext,
-        phase: str,
-        run_id: str,
-        run_admitted: bool,
-        detail: dict[str, object] | None = None,
-    ) -> PhaseDispatchResult:
-        self.dispatched = True
+    def on_enter(self, ctx: StoryContext, envelope: object) -> HandlerResult:
+        del ctx, envelope
+        self.entered = True
         FreezeRepository().set_freeze(
             self._story_id,
             frozen_at="2026-07-11T12:00:00+00:00",
             freeze_reason="entered during executor dispatch",
             freeze_version=1,
         )
-        return super().dispatch(
-            ctx=ctx,
-            phase=phase,
-            run_id=run_id,
-            run_admitted=run_admitted,
-            detail=detail,
-        )
+        return HandlerResult(status=PhaseStatus.COMPLETED)
+
+    def on_exit(self, ctx: StoryContext, envelope: object) -> None:
+        del ctx, envelope
+
+    def on_resume(self, ctx: StoryContext, envelope: object, trigger: str) -> HandlerResult:
+        del ctx, envelope, trigger
+        return HandlerResult(status=PhaseStatus.COMPLETED)
 
 
 def test_real_setup_start_atomically_creates_the_active_ownership_record(
@@ -618,7 +639,19 @@ def test_postgres_freeze_entering_during_executor_dispatch_blocks_commit(
         request=_request(story_id=story_id, op_id="op-freeze-race-setup", session_id="sess-A"),
     )
     assert setup.status == "committed"
-    dispatcher = _FreezingDispatcher(story_id=story_id)
+    story_dir = tmp_path / _PROJECT / "stories" / story_id
+    handler = _FreezeDuringImplementationHandler(story_id)
+
+    def _engine_factory(ctx: StoryContext, workspace: StoryWorkspace) -> PipelineEngine:
+        registry = PhaseHandlerRegistry()
+        registry.register("implementation", handler)
+        return PipelineEngine(resolve_workflow(ctx.story_type), registry, workspace.story_dir)
+
+    dispatcher = PhaseDispatcher(
+        workspace_locator=_TestWorkspaceLocator(tmp_path / _PROJECT),
+        engine_factory=_engine_factory,
+        guard_factory=lambda workspace: pytest.fail("guard must not run for admitted phase"),
+    )
     racing_service = ControlPlaneRuntimeService(
         phase_dispatcher=dispatcher,  # type: ignore[arg-type]
         now_fn=lambda: _T0,
@@ -631,8 +664,54 @@ def test_postgres_freeze_entering_during_executor_dispatch_blocks_commit(
         request=_request(story_id=story_id, op_id=op_id, session_id="sess-A"),
     )
 
-    assert dispatcher.dispatched is True
+    assert handler.entered is True
     _assert_real_freeze_block(result, story_id=story_id, op_id=op_id)
+    assert load_attempts(story_dir, "implementation", run_id=run_id) == []
+    assert load_phase_state(story_dir) is None
+
+
+def test_postgres_resolving_repair_keeps_conflict_member_blocking_admission(
+    tmp_path: Path,
+) -> None:
+    story_id, run_id = "AG3-657", "run-657"
+    service = _real_setup_then_freeze(
+        tmp_path,
+        story_id=story_id,
+        run_id=run_id,
+        identity_id="inst-freeze-family-set",
+    )
+    repo = FreezeRepository()
+    repo.set_freeze(
+        story_id,
+        frozen_at="2026-07-11T12:01:00+00:00",
+        freeze_reason="admin abort partial-write repair",
+        freeze_version=1,
+        kind=FreezeKind.RECONCILE_REPAIR,
+    )
+    assert {record.kind for record in repo.read_freezes(story_id)} == {
+        FreezeKind.CONFLICT_FREEZE,
+        FreezeKind.RECONCILE_REPAIR,
+    }
+
+    assert repo.clear_freeze(story_id, FreezeKind.RECONCILE_REPAIR) == 1
+    result = service.start_phase(
+        run_id=run_id,
+        phase="implementation",
+        request=_request(
+            story_id=story_id,
+            op_id="op-freeze-family-still-blocked",
+            session_id="sess-A",
+        ),
+    )
+
+    _assert_real_freeze_block(
+        result,
+        story_id=story_id,
+        op_id="op-freeze-family-still-blocked",
+    )
+    assert tuple(record.kind for record in repo.read_freezes(story_id)) == (
+        FreezeKind.CONFLICT_FREEZE,
+    )
 
 
 def test_postgres_freeze_epoch_is_db_monotone_with_conflict_default() -> None:
@@ -643,6 +722,7 @@ def test_postgres_freeze_epoch_is_db_monotone_with_conflict_default() -> None:
         freeze_reason="first entry",
         freeze_version=4,
     )
+    assert repo.clear_freeze("AG3-656") == 1
     second = repo.set_freeze(
         "AG3-656",
         frozen_at="2026-07-11T12:01:00+00:00",
@@ -652,4 +732,4 @@ def test_postgres_freeze_epoch_is_db_monotone_with_conflict_default() -> None:
 
     assert first.kind.value == "conflict_freeze"
     assert first.freeze_epoch == "1"
-    assert second.freeze_epoch == "2"
+    assert int(second.freeze_epoch) > int(first.freeze_epoch)

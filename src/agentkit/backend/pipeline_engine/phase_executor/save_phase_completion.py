@@ -11,10 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from agentkit.backend.state_backend.pipeline_runtime_store import (
-    save_attempt,
-    save_phase_state,
-)
+from agentkit.backend.state_backend.pipeline_runtime_store import save_phase_completion as _save
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -63,5 +60,4 @@ def save_phase_completion(
         attempt_record: The ``AttemptRecord`` documenting this attempt; always
             written first.
     """
-    save_attempt(story_dir, attempt_record)       # AttemptRecord FIRST
-    save_phase_state(story_dir, envelope.state)   # PhaseState AFTERWARDS
+    _save(story_dir, attempt=attempt_record, state=envelope.state)

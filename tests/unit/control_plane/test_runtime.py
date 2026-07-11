@@ -817,7 +817,9 @@ def _repository(state: _RepoState) -> ControlPlaneRuntimeRepository:
     ops = _FakeOps(state)
 
     return ControlPlaneRuntimeRepository(
-        load_active_freeze=lambda story_id: state.active_freeze,
+        load_active_freezes=lambda story_id: (
+            (state.active_freeze,) if state.active_freeze is not None else ()
+        ),
         load_operation=state.operations.get,
         save_operation=ops.save,
         claim_operation=ops.claim,

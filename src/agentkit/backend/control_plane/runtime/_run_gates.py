@@ -444,11 +444,9 @@ class _RunGateMixin:
         """
         active = self._repo.load_active_ownership(project_key, story_id)
         try:
-            freeze_record = self._repo.load_active_freeze(story_id)
-            active_freezes = (
-                (active_freeze_state_from_record(freeze_record),)
-                if freeze_record is not None
-                else ()
+            freeze_records = self._repo.load_active_freezes(story_id)
+            active_freezes = tuple(
+                active_freeze_state_from_record(record) for record in freeze_records
             )
         except Exception:  # noqa: BLE001 -- unreadable freeze state blocks admission
             active_freezes = (ActiveFreezeState.unreadable(),)

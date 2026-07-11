@@ -117,8 +117,12 @@ class FreezeStore(Protocol):
         """Return the canonical freeze record, or ``None``."""
         ...
 
-    def clear_freeze(self, story_id: str) -> int:
-        """Delete the canonical freeze record; return rows removed."""
+    def clear_freeze(
+        self,
+        story_id: str,
+        kind: FreezeKind = FreezeKind.CONFLICT_FREEZE,
+    ) -> int:
+        """Resolve one canonical freeze-family member; return rows removed."""
         ...
 
 
@@ -250,7 +254,7 @@ class ConflictFreezeOverlay:
     def release(self, story_id: str) -> None:
         """Release a freeze: clear the backend record and remove the export."""
         if self._store is not None:
-            self._store.clear_freeze(story_id)
+            self._store.clear_freeze(story_id, FreezeKind.CONFLICT_FREEZE)
         if self._local_export is not None:
             self._local_export.remove()
 

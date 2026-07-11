@@ -190,6 +190,9 @@ from ._runtime_rows import (
     save_override_record_row as save_override_record_row,
 )
 from ._runtime_rows import (
+    save_phase_completion_rows as save_phase_completion_rows,
+)
+from ._runtime_rows import (
     save_phase_snapshot_row as save_phase_snapshot_row,
 )
 from ._runtime_rows import (

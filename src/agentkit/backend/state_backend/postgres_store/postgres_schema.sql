@@ -1146,8 +1146,8 @@
         -- Canonical truth side of dual conflict-freeze materialization;
         -- local .agentkit/governance/freeze.json is the hook-fast export
         -- with identical freeze_version. Schema/DB owner governance-and-guards.
-        -- Exactly one active freeze per story (PK story_id). Identical parallel
-        -- schema in sqlite_store.py for unit tests.
+        -- Active freeze family: one member per (story_id, kind). Identical
+        -- parallel schema in sqlite_store for unit tests.
         CREATE TABLE IF NOT EXISTS governance_freeze_records (
             story_id        TEXT NOT NULL,
             frozen_at       TEXT NOT NULL,
@@ -1160,7 +1160,25 @@
                 )
             ),
             freeze_epoch    TEXT NOT NULL CHECK (freeze_epoch ~ '^[1-9][0-9]*$'),
-            PRIMARY KEY (story_id)
+            PRIMARY KEY (story_id, kind)
+        );
+
+        -- Append-only epoch highwater and audit trail. Active family members may
+        -- be resolved independently, so epoch minting cannot depend on rows that
+        -- are deleted from governance_freeze_records.
+        CREATE TABLE IF NOT EXISTS governance_freeze_audit_records (
+            story_id        TEXT NOT NULL,
+            freeze_epoch    TEXT NOT NULL CHECK (freeze_epoch ~ '^[1-9][0-9]*$'),
+            kind            TEXT NOT NULL CHECK (
+                kind IN (
+                    'conflict_freeze', 'split_admin_freeze',
+                    'reconcile_repair', 'contested_local_writes'
+                )
+            ),
+            frozen_at       TEXT NOT NULL,
+            freeze_reason   TEXT NOT NULL,
+            freeze_version  INTEGER NOT NULL,
+            PRIMARY KEY (story_id, freeze_epoch)
         );
 
         CREATE TABLE IF NOT EXISTS guard_decisions (

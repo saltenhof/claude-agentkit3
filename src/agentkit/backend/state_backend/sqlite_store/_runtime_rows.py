@@ -197,6 +197,102 @@ def save_attempt_row(story_dir: Path, row: dict[str, Any]) -> None:
         )
 
 
+def save_phase_completion_rows(
+    story_dir: Path,
+    attempt_row: dict[str, Any],
+    phase_state_row: dict[str, Any],
+) -> None:
+    """Atomically freeze-fence and persist one attempt/state completion pair."""
+
+    from agentkit.backend.core_types.freeze import (
+        ActiveFreezeState,
+        FreezeKind,
+        command_resolves_freeze,
+        is_canonical_freeze_epoch,
+    )
+    from agentkit.backend.exceptions import OwnershipFenceViolationError
+
+    story_id = _story_id_for(story_dir)
+    if story_id is None or str(phase_state_row["story_id"]) != story_id:
+        raise CorruptStateError(
+            "Cannot persist phase completion without one canonical story scope",
+        )
+    payload_dict = json.loads(str(phase_state_row["payload_json"]))
+    with _connect(story_dir) as conn:
+        rows = conn.execute(
+            "SELECT kind, freeze_reason, freeze_epoch "
+            "FROM governance_freeze_records WHERE story_id=?",
+            (story_id,),
+        ).fetchall()
+        for row in rows:
+            try:
+                kind = FreezeKind(str(row["kind"]))
+            except ValueError:
+                kind = None
+            raw_reason = row["freeze_reason"]
+            reason = raw_reason if isinstance(raw_reason, str) and raw_reason.strip() else None
+            raw_epoch = row["freeze_epoch"]
+            epoch = (
+                raw_epoch
+                if isinstance(raw_epoch, str) and is_canonical_freeze_epoch(raw_epoch)
+                else None
+            )
+            freeze = ActiveFreezeState(kind=kind, freeze_reason=reason, freeze_epoch=epoch)
+            if not command_resolves_freeze("executor_commit", freeze):
+                raise OwnershipFenceViolationError(
+                    f"story freeze blocks executor commit for story {story_id!r}",
+                    detail={"error_code": "story_frozen"},
+                )
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO attempts (
+                story_id, run_id, phase, attempt, outcome, failure_cause,
+                started_at, ended_at, detail_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                story_id,
+                attempt_row["run_id"],
+                attempt_row["phase"],
+                attempt_row["attempt"],
+                attempt_row["outcome"],
+                attempt_row.get("failure_cause"),
+                attempt_row["started_at"],
+                attempt_row["ended_at"],
+                attempt_row.get("detail_json"),
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO phase_states (
+                story_id, phase, status, paused_reason, review_round,
+                attempt_id, errors_json, payload_json, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(story_id) DO UPDATE SET
+                phase=excluded.phase,
+                status=excluded.status,
+                paused_reason=excluded.paused_reason,
+                review_round=excluded.review_round,
+                attempt_id=excluded.attempt_id,
+                errors_json=excluded.errors_json,
+                payload_json=excluded.payload_json,
+                updated_at=excluded.updated_at
+            """,
+            (
+                story_id,
+                phase_state_row["phase"],
+                phase_state_row["status"],
+                phase_state_row["paused_reason"],
+                phase_state_row["review_round"],
+                phase_state_row["attempt_id"],
+                phase_state_row["errors_json"],
+                phase_state_row["payload_json"],
+                now_iso(),
+            ),
+        )
+    _write_projection(story_dir / PHASE_STATE_EXPORT_FILE, payload_dict)
+
+
 def load_attempt_rows(
     story_dir: Path,
     phase: str,

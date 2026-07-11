@@ -102,19 +102,19 @@ def _run_paused_phase(
     phase_state_calls: list[tuple[str, Any]] = []
 
 
-    def _fake_save_attempt(story_dir: object, record: AttemptRecord) -> None:
-        attempt_calls.append(("save_attempt", record))
-
-    def _fake_save_phase_state(story_dir: object, state: PhaseState) -> None:
+    def _fake_save_completion(
+        story_dir: object,
+        *,
+        attempt: AttemptRecord,
+        state: PhaseState,
+    ) -> None:
+        del story_dir
+        attempt_calls.append(("save_attempt", attempt))
         phase_state_calls.append(("save_phase_state", state))
 
-    import agentkit.backend.state_backend.pipeline_runtime_store as _runtime_store
-
-    monkeypatch.setattr(_runtime_store, "save_attempt", _fake_save_attempt)
-    monkeypatch.setattr(_runtime_store, "save_phase_state", _fake_save_phase_state)
     import agentkit.backend.pipeline_engine.phase_executor.save_phase_completion as _spc
-    monkeypatch.setattr(_spc, "save_attempt", _fake_save_attempt)
-    monkeypatch.setattr(_spc, "save_phase_state", _fake_save_phase_state)
+
+    monkeypatch.setattr(_spc, "_save", _fake_save_completion)
 
     state = make_phase_state(story_id="YS-001", phase="setup", status=PhaseStatus.PENDING)
     result = engine.run_phase(story_ctx, _make_envelope(state))  # type: ignore[arg-type]
@@ -208,19 +208,19 @@ class TestYieldedSplit:
         engine = PipelineEngine(workflow, registry, story_dir)
 
 
-        def _fake_save_attempt(story_dir: object, record: AttemptRecord) -> None:
-            all_calls.append(("save_attempt", record))
-
-        def _fake_save_phase_state(story_dir: object, state: PhaseState) -> None:
+        def _fake_save_completion(
+            story_dir: object,
+            *,
+            attempt: AttemptRecord,
+            state: PhaseState,
+        ) -> None:
+            del story_dir
+            all_calls.append(("save_attempt", attempt))
             all_calls.append(("save_phase_state", state))
 
-        import agentkit.backend.state_backend.pipeline_runtime_store as _runtime_store2
-
-        monkeypatch.setattr(_runtime_store2, "save_attempt", _fake_save_attempt)
-        monkeypatch.setattr(_runtime_store2, "save_phase_state", _fake_save_phase_state)
         import agentkit.backend.pipeline_engine.phase_executor.save_phase_completion as _spc2
-        monkeypatch.setattr(_spc2, "save_attempt", _fake_save_attempt)
-        monkeypatch.setattr(_spc2, "save_phase_state", _fake_save_phase_state)
+
+        monkeypatch.setattr(_spc2, "_save", _fake_save_completion)
 
         state = make_phase_state(story_id="YS-001", phase="setup", status=PhaseStatus.PENDING)
         engine.run_phase(story_ctx, _make_envelope(state))  # type: ignore[arg-type]

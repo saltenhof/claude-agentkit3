@@ -118,10 +118,10 @@ def _active_freezes(
     """Read the family state and turn every read/shape fault into a blocker."""
 
     try:
-        record = repo.load_active_freeze(story_id)
+        records = repo.load_active_freezes(story_id)
     except Exception:  # noqa: BLE001 -- unreadable freeze state is blocking
         return (ActiveFreezeState.unreadable(),)
-    return (active_freeze_state_from_record(record),) if record is not None else ()
+    return tuple(active_freeze_state_from_record(record) for record in records)
 
 
 def _confirm_decision_rejection(

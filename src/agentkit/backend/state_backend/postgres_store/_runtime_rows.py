@@ -214,6 +214,83 @@ def save_attempt_row(story_dir: Path, row: dict[str, Any]) -> None:
         )
 
 
+def save_phase_completion_rows(
+    story_dir: Path,
+    attempt_row: dict[str, Any],
+    phase_state_row: dict[str, Any],
+) -> None:
+    """Atomically freeze-fence and persist one attempt/state completion pair."""
+
+    story_id = _story_id_for(story_dir)
+    if story_id is None or str(phase_state_row["story_id"]) != story_id:
+        raise CorruptStateError(
+            "Cannot persist phase completion without one canonical story scope",
+        )
+    payload_dict = json.loads(str(phase_state_row["payload_json"]))
+    from ._mutation_commit_rows import _enforce_blocking_freeze_row
+
+    with _connect(story_dir) as conn:
+        _enforce_blocking_freeze_row(
+            conn,
+            story_id=story_id,
+            command_id="executor_commit",
+        )
+        conn.execute(
+            """
+            INSERT INTO attempts (
+                story_id, run_id, phase, attempt, outcome, failure_cause,
+                started_at, ended_at, detail_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (story_id, run_id, phase, attempt) DO UPDATE SET
+                outcome=excluded.outcome,
+                failure_cause=excluded.failure_cause,
+                started_at=excluded.started_at,
+                ended_at=excluded.ended_at,
+                detail_json=excluded.detail_json
+            """,
+            (
+                story_id,
+                attempt_row["run_id"],
+                attempt_row["phase"],
+                attempt_row["attempt"],
+                attempt_row["outcome"],
+                attempt_row.get("failure_cause"),
+                attempt_row["started_at"],
+                attempt_row["ended_at"],
+                attempt_row.get("detail_json"),
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO phase_states (
+                story_id, phase, status, paused_reason, review_round,
+                attempt_id, errors_json, payload_json, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(story_id) DO UPDATE SET
+                phase=excluded.phase,
+                status=excluded.status,
+                paused_reason=excluded.paused_reason,
+                review_round=excluded.review_round,
+                attempt_id=excluded.attempt_id,
+                errors_json=excluded.errors_json,
+                payload_json=excluded.payload_json,
+                updated_at=excluded.updated_at
+            """,
+            (
+                story_id,
+                phase_state_row["phase"],
+                phase_state_row["status"],
+                phase_state_row["paused_reason"],
+                phase_state_row["review_round"],
+                phase_state_row["attempt_id"],
+                phase_state_row["errors_json"],
+                phase_state_row["payload_json"],
+                now_iso(),
+            ),
+        )
+    _write_projection(story_dir / PHASE_STATE_EXPORT_FILE, payload_dict)
+
+
 def load_attempt_rows(
     story_dir: Path,
     phase: str,
