@@ -43,8 +43,16 @@ if TYPE_CHECKING:
 class _RecordingClient:
     """A fake ProjectEdgeClient recording the fetch + report calls."""
 
-    def __init__(self, commands: list[EdgeCommandView]) -> None:
+    def __init__(
+        self,
+        commands: list[EdgeCommandView],
+        *,
+        reconcile_status: str = "resolved",
+        reconcile_error_code: str | None = None,
+    ) -> None:
         self._commands = commands
+        self._reconcile_status = reconcile_status
+        self._reconcile_error_code = reconcile_error_code
         self.fetch_calls: list[tuple[str, str, str]] = []
         self.reported: list[tuple[str, EdgeCommandResultRequest]] = []
         self.reconcile_calls: list[tuple[str, TakeoverReconcileWorktreeRequest]] = []
@@ -69,7 +77,10 @@ class _RecordingClient:
         self, *, run_id: str, request: TakeoverReconcileWorktreeRequest
     ) -> object:
         self.reconcile_calls.append((run_id, request))
-        return SimpleNamespace(status="resolved")
+        return SimpleNamespace(
+            status=self._reconcile_status,
+            error_code=self._reconcile_error_code,
+        )
 
     def sync(self, request: ProjectEdgeSyncRequest) -> None:
         self.sync_calls.append(request)
@@ -154,6 +165,54 @@ def test_loop_leaves_unreadable_takeover_command_open(tmp_path: Path) -> None:
         )
 
     assert client.reconcile_calls == []
+    assert client.reported == []
+
+
+def test_loop_rejects_genuinely_unaccepted_takeover_status(tmp_path: Path) -> None:
+    repo_root = tmp_path / "api"
+    repo_root.mkdir(parents=True)
+    subprocess.run(["git", "-C", str(repo_root), "init", "-q", "-b", "main"], check=True)
+    subprocess.run(["git", "-C", str(repo_root), "config", "user.email", "t@x"], check=True)
+    subprocess.run(["git", "-C", str(repo_root), "config", "user.name", "T"], check=True)
+    (repo_root / "README.md").write_text("seed\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo_root), "add", "README.md"], check=True)
+    subprocess.run(["git", "-C", str(repo_root), "commit", "-q", "-m", "seed"], check=True)
+    base_sha = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    client = _RecordingClient(
+        [
+            _command(
+                "cmd-bad-status",
+                "takeover_reconcile",
+                {
+                    "story_id": "AG3-700",
+                    "project_key": "test-project",
+                    "run_id": "run-1",
+                    "repo_id": "api",
+                    "takeover_base_sha": base_sha,
+                },
+            )
+        ],
+        reconcile_status="rejected",
+        reconcile_error_code="object_claim_conflict",
+    )
+
+    with pytest.raises(EdgeGitError, match="result was not accepted"):
+        process_open_commands(
+            client,  # type: ignore[arg-type]
+            project_config=_project_config(tmp_path, ["api"]),
+            project_root=tmp_path,
+            run_id="run-1",
+            project_key="test-project",
+            session_id="sess-B",
+            story_id="AG3-700",
+        )
+
+    assert client.sync_calls == []
     assert client.reported == []
 
 

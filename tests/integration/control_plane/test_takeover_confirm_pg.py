@@ -509,9 +509,13 @@ class _RuntimeEdgeClient:
         self,
         service: ControlPlaneRuntimeService,
         publisher: LocalEdgePublisher,
+        *,
+        fail_sync_once: bool = False,
     ) -> None:
         self._service = service
         self._publisher = publisher
+        self._fail_sync_once = fail_sync_once
+        self.reconcile_results: list[ControlPlaneMutationResult] = []
 
     def fetch_open_commands(
         self, *, run_id: str, project_key: str, session_id: str
@@ -525,9 +529,14 @@ class _RuntimeEdgeClient:
     def reconcile_takeover_worktree(
         self, *, run_id: str, request: TakeoverReconcileWorktreeRequest
     ) -> ControlPlaneMutationResult:
-        return self._service.reconcile_takeover_worktree(run_id, request)
+        result = self._service.reconcile_takeover_worktree(run_id, request)
+        self.reconcile_results.append(result)
+        return result
 
     def sync(self, request: ProjectEdgeSyncRequest) -> ControlPlaneMutationResult:
+        if self._fail_sync_once:
+            self._fail_sync_once = False
+            raise RuntimeError("injected transient sync failure")
         result = self._service.sync_project_edge(request)
         assert result.edge_bundle is not None
         self._publisher.publish(result.edge_bundle)
@@ -4509,6 +4518,223 @@ def test_failed_takeover_reconcile_enters_contested_and_successful_retry_clears_
         ),
     )
     assert admitted.status == "committed"
+
+
+@pytest.mark.integration
+@pytest.mark.requires_git
+def test_reconcile_replay_after_sync_failure_terminalizes_real_queue(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    """A committed clear plus transient sync failure converges on replay."""
+    del postgres_backend_env
+    story_id = _story_id(224)
+    run_id = "run-reconcile-replay-after-sync-failure"
+    config, service = _setup_clean_reconcile_queue(
+        tmp_path,
+        story_id=story_id,
+        run_id=run_id,
+    )
+    client = _RuntimeEdgeClient(
+        service,
+        LocalEdgePublisher(project_root=tmp_path / "edge-project"),
+        fail_sync_once=True,
+    )
+
+    with pytest.raises(RuntimeError, match="transient sync failure"):
+        process_open_commands(
+            client,  # type: ignore[arg-type]
+            project_config=config,
+            project_root=tmp_path / "edge-project",
+            run_id=run_id,
+            project_key=_PROJECT,
+            session_id="sess-B",
+            story_id=story_id,
+        )
+
+    open_after_failure = service.list_and_ack_open_commands(
+        run_id,
+        project_key=_PROJECT,
+        session_id="sess-B",
+    )
+    assert len(open_after_failure.commands) == 2
+    outcomes = process_open_commands(
+        client,  # type: ignore[arg-type]
+        project_config=config,
+        project_root=tmp_path / "edge-project",
+        run_id=run_id,
+        project_key=_PROJECT,
+        session_id="sess-B",
+        story_id=story_id,
+    )
+
+    assert len(outcomes) == 2
+    assert all(outcome.status == "completed" for outcome in outcomes)
+    assert client.reconcile_results[-1].status == "rejected"
+    assert client.reconcile_results[-1].error_code == (
+        "takeover_reconcile_not_required"
+    )
+    assert service.list_and_ack_open_commands(
+        run_id,
+        project_key=_PROJECT,
+        session_id="sess-B",
+    ).commands == []
+
+
+@pytest.mark.integration
+@pytest.mark.requires_git
+def test_admin_clear_with_open_reconcile_command_terminalizes_real_queue(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    """The sanctioned admin clear cannot wedge its commissioned edge command."""
+    del postgres_backend_env
+    story_id = _story_id(225)
+    run_id = "run-admin-clear-open-reconcile-command"
+    config, service = _setup_clean_reconcile_queue(
+        tmp_path,
+        story_id=story_id,
+        run_id=run_id,
+    )
+    cleared = service.clear_takeover_reconcile_obligation(
+        request=AdminTakeoverReconcileClearRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            run_id=run_id,
+            session_id="sess-admin",
+            principal_type="human_cli",
+            op_id="op-admin-clear-open-command",
+            reason="sanctioned administrative reconcile clear",
+        )
+    )
+    assert cleared.status == "resolved"
+    client = _RuntimeEdgeClient(
+        service,
+        LocalEdgePublisher(project_root=tmp_path / "edge-project"),
+    )
+
+    outcomes = process_open_commands(
+        client,  # type: ignore[arg-type]
+        project_config=config,
+        project_root=tmp_path / "edge-project",
+        run_id=run_id,
+        project_key=_PROJECT,
+        session_id="sess-B",
+        story_id=story_id,
+    )
+
+    assert len(outcomes) == 2
+    assert all(outcome.status == "completed" for outcome in outcomes)
+    assert client.reconcile_results[-1].status == "rejected"
+    assert client.reconcile_results[-1].error_code == (
+        "takeover_reconcile_not_required"
+    )
+    assert service.list_and_ack_open_commands(
+        run_id,
+        project_key=_PROJECT,
+        session_id="sess-B",
+    ).commands == []
+
+
+def _setup_clean_reconcile_queue(
+    tmp_path: Path,
+    *,
+    story_id: str,
+    run_id: str,
+) -> tuple[ProjectConfig, ControlPlaneRuntimeService]:
+    """Create a real two-repo transfer whose confirm commissions reconcile."""
+    project_root = tmp_path / "edge-project"
+    repo_ids = [_REPO, "web"]
+    repo_roots: dict[str, Path] = {}
+    base_shas: dict[str, str] = {}
+    for repo_id in repo_ids:
+        repo_root = project_root / repo_id
+        repo_roots[repo_id] = repo_root
+        repo_root.mkdir(parents=True)
+        subprocess.run(
+            ["git", "-C", str(repo_root), "init", "-q", "-b", "main"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo_root), "config", "user.email", "t@example.com"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo_root), "config", "user.name", "T"],
+            check=True,
+        )
+        (repo_root / "README.md").write_text(f"{repo_id}\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo_root), "add", "README.md"], check=True)
+        subprocess.run(
+            ["git", "-C", str(repo_root), "commit", "-q", "-m", "seed"],
+            check=True,
+        )
+        base_shas[repo_id] = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    config = ProjectConfig(
+        project_key=_PROJECT,
+        project_name="Tenant A",
+        repositories=[
+            RepositoryConfig(name=repo_id, path=repo_roots[repo_id])
+            for repo_id in repo_ids
+        ],
+        pipeline=PipelineConfig(
+            config_version=SUPPORTED_CONFIG_VERSION,
+            features=Features(multi_llm=False),
+            sonarqube=SonarQubeConfig(available=False, enabled=False),
+            ci=JenkinsConfig(available=False, enabled=False),
+        ),
+    )
+    worktrees = {
+        repo_id: repo_roots[repo_id] / "worktrees" / story_id for repo_id in repo_ids
+    }
+    for repo_id in repo_ids:
+        execute_provision_worktree(
+            ProvisionWorktreeCommandPayload(
+                story_id=story_id,
+                project_key=_PROJECT,
+                run_id=run_id,
+                repo_id=repo_id,
+                branch=f"story/{story_id}",
+                base_ref=base_shas[repo_id],
+            ),
+            project_config=config,
+            project_root=project_root,
+        )
+    _seed_story_context(tmp_path, story_id, participating_repos=repo_ids)
+    service = _service(
+        ident=f"inst-{story_id.lower()}",
+        push_barrier_evidence=_ShaPushBoundary(base_shas),
+        local_freeze_export=LocalFreezeJsonExport(tmp_path),
+    )
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    for repo_id, base_sha in base_shas.items():
+        _seed_pushed_only_evidence(
+            story_id=story_id,
+            run_id=run_id,
+            repo_id=repo_id,
+            sha=base_sha,
+        )
+    challenge_id = _request_takeover(
+        service,
+        story_id=story_id,
+        run_id=run_id,
+        op_id=f"op-request-{story_id}",
+        worktree_roots=[str(worktrees[repo_id]) for repo_id in repo_ids],
+    )
+    confirmed = service.confirm_ownership_takeover(
+        command=_confirm_request(
+            story_id=story_id,
+            challenge_id=challenge_id,
+            op_id=f"op-confirm-{story_id}",
+        )
+    )
+    assert confirmed.status == "committed"
+    return config, service
 
 
 @pytest.mark.integration

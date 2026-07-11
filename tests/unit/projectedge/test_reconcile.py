@@ -274,6 +274,39 @@ def test_registered_markerless_partial_reprovision_replay_converges(
     assert marker["run_id"] == "run-151"
 
 
+def test_symlinked_reprovision_remnant_fails_closed_without_traversal(
+    tmp_path: Path,
+) -> None:
+    base_sha = _init_repo(tmp_path / "api")
+    worktree = tmp_path / "api" / "worktrees" / "AG3-151"
+    target = tmp_path / "foreign-target"
+    guard = target / ".agent-guard"
+    guard.mkdir(parents=True)
+    (guard / "freeze.json").write_text(
+        json.dumps({"state_readable": False, "active_freezes": []}),
+        encoding="utf-8",
+    )
+    worktree.parent.mkdir(parents=True)
+    try:
+        worktree.symlink_to(target, target_is_directory=True)
+    except OSError as exc:
+        if exc.winerror == 1314:
+            pytest.skip("Windows symlink privilege is unavailable")
+        raise
+
+    execution = execute_takeover_reconcile(
+        _payload(base_sha),
+        project_config=_config(tmp_path),
+        project_root=tmp_path,
+    )
+
+    assert isinstance(execution.result, TakeoverErrorResult)
+    assert execution.result.result_type == "local_stale_or_dirty_takeover_target"
+    assert "symlinked partial worktree remnant" in execution.result.detail
+    assert worktree.is_symlink()
+    assert (guard / "freeze.json").is_file()
+
+
 def test_mismatching_identity_reports_contested_without_moving_target(
     tmp_path: Path,
 ) -> None:

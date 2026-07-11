@@ -664,7 +664,14 @@ def process_open_commands(
                 ],
             ),
         )
-        if reconcile_result.status not in {"resolved", "failed"}:
+        reconcile_already_complete = (
+            reconcile_result.status == "rejected"
+            and reconcile_result.error_code == "takeover_reconcile_not_required"
+        )
+        if (
+            reconcile_result.status not in {"resolved", "failed"}
+            and not reconcile_already_complete
+        ):
             raise EdgeGitError(
                 "takeover reconcile result was not accepted by the official "
                 f"route (status={reconcile_result.status!r}); queue commands "

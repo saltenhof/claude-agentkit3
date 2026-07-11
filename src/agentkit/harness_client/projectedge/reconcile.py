@@ -243,6 +243,7 @@ def _recover_and_provision(
     is an owned partial reprovision, never for an ambiguous foreign target.
     """
     from agentkit.harness_client.projectedge.command_executor import (
+        EdgeGitError,
         _require_git,
         _run_git,
         execute_provision_worktree,
@@ -255,7 +256,16 @@ def _recover_and_provision(
                 "partial worktree remove",
             )
         else:
-            shutil.rmtree(worktree_path)
+            if worktree_path.is_symlink():
+                raise EdgeGitError(
+                    "refusing to remove a symlinked partial worktree remnant"
+                )
+            try:
+                shutil.rmtree(worktree_path)
+            except OSError as exc:
+                raise EdgeGitError(
+                    f"partial worktree remnant removal failed: {exc}"
+                ) from exc
 
     _require_git(_run_git(repo_root, "worktree", "prune"), "worktree prune")
     branch_present = _run_git(
