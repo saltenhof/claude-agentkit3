@@ -162,12 +162,9 @@ Abort-Eskalation.
      das Tool erfindet keinen Umgehungsweg und keine clientseitige
      „Erlaubnis".
    - `recover` — Recovery-Anfrage derselben Harness-Identität über den
-     offiziellen Recovery-Pfad aus Punkt 3 (Self-Rebind-Fall: die eigene
-     verwaiste Arbeit wieder aufnehmen). Die Capability-Regel, dass
-     Self-Rebind derselben Harness-Identität keine menschliche
-     Mitzeichnung braucht (SOLL-091), gehört **AG3-149**; bis dahin bzw.
-     außerhalb des Self-Rebind-Falls gilt der normale Freigabe-Weg —
-     dieses Kommando ändert an der serverseitigen Entscheidung nichts.
+     offiziellen Recovery-Pfad aus Punkt 3; der Server verweigert
+     Agent-Principals diesen frischen Recovery-Pfad fail-closed mit
+     `recovery_requires_human_cli`.
    - **Kein `takeover-confirm` im Edge-Tool:** der Vollzug einer fremden
      aktiven Session erfordert menschliche Freigabe; ein Agent-Confirm
      existiert nicht (fail-closed; AG3-148).
@@ -281,7 +278,11 @@ Abort-Eskalation.
 
 ## Abdeckung (Traceability)
 
-**Deckt ab:** SOLL-090.
+**Deckt ab:** SOLL-090 und SOLL-091.
+
+**SOLL-091 DISPOSITION:** satisfied by the `/resume` session-continuation
+path (FK-56 §56.13g), see decision-record 2026-07-11; `recover-story` is
+the fresh-session fallback.
 
 ## Konzept-Referenzen
 

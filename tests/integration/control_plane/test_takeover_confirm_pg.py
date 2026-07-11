@@ -5,17 +5,21 @@ from __future__ import annotations
 import json
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from http import HTTPStatus
-from threading import Event
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Event, Thread
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import psycopg
 import pytest
 
+from agentkit.backend.auth.credentials import StrategistCredentialStore
+from agentkit.backend.auth.http.routes import AuthRoutes
 from agentkit.backend.auth.middleware import AuthMiddleware
 from agentkit.backend.auth.tokens import issue_project_api_token
 from agentkit.backend.bootstrap.story_reset_adapters import ResetDisownAdapter
@@ -93,6 +97,7 @@ from agentkit.backend.control_plane.runtime._ownership_transfer import (
     _commit_takeover_invalidation,
     _reconcile_takeover_confirm_cas_loss,
 )
+from agentkit.backend.control_plane_http.routes_config import ControlPlaneApplicationRoutes
 from agentkit.backend.core_types.freeze import FreezeKind
 from agentkit.backend.exceptions import OwnershipFenceViolationError
 from agentkit.backend.governance.guard_system.records import StoryExecutionLockRecord
@@ -176,7 +181,9 @@ from agentkit.backend.story_split import (
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 from agentkit.backend.telemetry.events import EventType
 from agentkit.harness_client.projectedge import (
+    HttpsJsonTransport,
     LocalEdgePublisher,
+    ProjectEdgeClient,
     ProjectEdgeResolver,
     process_open_commands,
 )
@@ -185,7 +192,7 @@ from agentkit.harness_client.projectedge.command_executor import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
     from pathlib import Path
     from typing import Literal
 
@@ -241,10 +248,13 @@ def test_takeover_approval_unique_migration_rejects_existing_duplicate_links(
         for statement in postgres_store._schema_alter_statements()  # noqa: SLF001
         if statement.startswith("DO $$ BEGIN IF EXISTS (SELECT challenge_ref")
     )
-    with pytest.raises(
-        psycopg.errors.RaiseException,
-        match="duplicate takeover_approvals.challenge_ref",
-    ), postgres_store._connect_global() as conn:  # noqa: SLF001 -- migration transaction
+    with (
+        pytest.raises(
+            psycopg.errors.RaiseException,
+            match="duplicate takeover_approvals.challenge_ref",
+        ),
+        postgres_store._connect_global() as conn,
+    ):  # noqa: SLF001 -- migration transaction
         # Everything stays in this transaction. The expected exception rolls back
         # both the index drop and duplicate fixtures, so parallel workers never see
         # a catalog mutation and cannot race pg_indexes relation OIDs.
@@ -527,9 +537,7 @@ class _RuntimeEdgeClient:
         self._fail_sync_once = fail_sync_once
         self.reconcile_results: list[ControlPlaneMutationResult] = []
 
-    def fetch_open_commands(
-        self, *, run_id: str, project_key: str, session_id: str
-    ) -> OpenEdgeCommandsResponse:
+    def fetch_open_commands(self, *, run_id: str, project_key: str, session_id: str) -> OpenEdgeCommandsResponse:
         return self._service.list_and_ack_open_commands(
             run_id,
             project_key=project_key,
@@ -552,17 +560,11 @@ class _RuntimeEdgeClient:
         self._publisher.publish(result.edge_bundle)
         return result
 
-    def report_command_result(
-        self, *, command_id: str, request: EdgeCommandResultRequest
-    ) -> EdgeCommandMutationResult:
+    def report_command_result(self, *, command_id: str, request: EdgeCommandResultRequest) -> EdgeCommandMutationResult:
         return self._service.submit_command_result(command_id, request)
 
-    def publish_unreadable_freeze_state(
-        self, *, worktree_roots: list[Path]
-    ) -> None:
-        self._publisher.publish_unreadable_freeze_state(
-            worktree_roots=worktree_roots
-        )
+    def publish_unreadable_freeze_state(self, *, worktree_roots: list[Path]) -> None:
+        self._publisher.publish_unreadable_freeze_state(worktree_roots=worktree_roots)
 
 
 class _InMemoryTokenRepository:
@@ -602,6 +604,41 @@ def _response_json(response: HttpResponse) -> dict[str, object]:
     body = json.loads(response.body)
     assert isinstance(body, dict)
     return body
+
+
+@contextmanager
+def _live_http_app(app: ControlPlaneApplication) -> Iterator[str]:
+    """Expose the real application over a localhost HTTP listener."""
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 - stdlib handler contract
+            length = int(self.headers.get("Content-Length", "0"))
+            response = app.handle_request(
+                method="POST",
+                path=self.path,
+                body=self.rfile.read(length),
+                request_headers=dict(self.headers.items()),
+            )
+            self.send_response(response.status_code)
+            for key, value in response.headers:
+                self.send_header(key, value)
+            self.send_header("Content-Length", str(len(response.body)))
+            self.end_headers()
+            self.wfile.write(response.body)
+
+        def log_message(self, _format: str, *args: object) -> None:
+            del _format, args
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        yield f"http://{host}:{port}"
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
 
 
 def _seed_story_context(
@@ -796,11 +833,7 @@ def _request_takeover(
             principal_type=principal_type,
             op_id=op_id,
             reason="owner unavailable",
-            worktree_roots=(
-                worktree_roots
-                if worktree_roots is not None
-                else [f"T:/worktrees/{story_id}/{session_id}"]
-            ),
+            worktree_roots=(worktree_roots if worktree_roots is not None else [f"T:/worktrees/{story_id}/{session_id}"]),
         )
     )
     assert result.status in {"offered", "pending_human_approval"}
@@ -812,6 +845,212 @@ def _request_takeover(
         challenge_id = approval.challenge_ref
         return challenge_id
     return challenge.challenge_id
+
+
+@pytest.mark.integration
+def test_cli_takeover_confirm_requires_real_strategist_session_and_is_403_without_one(
+    postgres_backend_env: object,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Real password login reaches confirm; a project-token session is forbidden."""
+    from agentkit.backend.cli._operator_ownership_commands import _cmd_takeover_confirm
+
+    del postgres_backend_env
+    story_id = "AG3-154"
+    run_id = "run-cli-confirm"
+    old_root = tmp_path / "old-owner"
+    new_root = tmp_path / "new-owner"
+    old_root.mkdir()
+    new_root.mkdir()
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident="cli-confirm-http")
+    admitted = service.start_phase(
+        run_id=run_id,
+        phase="setup",
+        request=PhaseMutationRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            session_id="sess-old",
+            principal_type="orchestrator",
+            worktree_roots=[str(old_root)],
+            op_id="op-cli-confirm-setup",
+        ),
+    )
+    assert admitted.status == "committed"
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    challenge_id = _request_takeover(
+        service,
+        story_id=story_id,
+        run_id=run_id,
+        session_id="sess-new",
+        worktree_roots=[str(new_root)],
+    )
+
+    tokens = _InMemoryTokenRepository()
+    auth = AuthMiddleware(token_repository=tokens)
+    credentials = StrategistCredentialStore(tmp_path / "auth.json")
+    credentials.set_password("secret", username="strategist")
+    routes = ControlPlaneApplicationRoutes(
+        auth_routes=AuthRoutes(
+            credential_store=credentials,
+            session_store=auth.session_store,
+            token_repository=auth.token_repository,
+        )
+    )
+    app = ControlPlaneApplication(
+        routes=routes,
+        runtime_service=service,
+        auth_middleware=auth,
+    )
+    issued = issue_project_api_token(
+        project_key=_PROJECT,
+        label="agent-confirm-negative",
+        repository=tokens,
+    )
+
+    args = SimpleNamespace(
+        story=story_id,
+        run=run_id,
+        challenge_id=challenge_id,
+        reason="operator confirmed after inspection",
+        project=_PROJECT,
+        config=None,
+        project_root=str(tmp_path),
+        username="strategist",
+        op_id="op-cli-confirm-final",
+    )
+    with _live_http_app(app) as base_url:
+        args.base_url = base_url
+        agent_client = ProjectEdgeClient(
+            transport=HttpsJsonTransport(
+                base_url=base_url,
+                bearer_token=issued.plaintext_token,
+                project_key=_PROJECT,
+            ),
+            publisher=LocalEdgePublisher(project_root=tmp_path / "agent-edge"),
+        )
+        forbidden = _cmd_takeover_confirm(
+            args,
+            client_builder=lambda *_values: agent_client,
+            password_reader=lambda _prompt: "unused",
+            confirmation_reader=lambda _prompt: "YES",
+        )
+        assert forbidden == 1
+        assert "[agent_confirm_forbidden] HTTP 403" in capsys.readouterr().err
+
+        committed = _cmd_takeover_confirm(
+            args,
+            password_reader=lambda _prompt: "secret",
+            confirmation_reader=lambda _prompt: "YES",
+        )
+
+    assert committed == 0
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None
+    assert active.owner_session_id == "sess-new"
+
+
+@pytest.mark.integration
+def test_deployed_edge_tool_agent_commands_are_server_fail_closed(
+    postgres_backend_env: object,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The deployed wrapper uses shared transport for pending/403/recovery refusal."""
+    from agentkit.bundles.target_project.tools.agentkit import projectedge
+
+    del postgres_backend_env
+    story_id = "AG3-155"
+    run_id = "run-edge-agent"
+    worktree = tmp_path / "agent-worktree"
+    worktree.mkdir()
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident="edge-agent-http")
+    _admit_run(service, story_id=story_id, run_id=run_id, session_id="sess-old")
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+
+    tokens = _InMemoryTokenRepository()
+    issued = issue_project_api_token(
+        project_key=_PROJECT,
+        label="deployed-edge",
+        repository=tokens,
+    )
+    auth = AuthMiddleware(token_repository=tokens)
+    app = ControlPlaneApplication(runtime_service=service, auth_middleware=auth)
+
+    with _live_http_app(app) as base_url:
+        client = ProjectEdgeClient(
+            transport=HttpsJsonTransport(
+                base_url=base_url,
+                bearer_token=issued.plaintext_token,
+                project_key=_PROJECT,
+            ),
+            publisher=LocalEdgePublisher(project_root=tmp_path / "edge-state"),
+        )
+        def factory(_root: Path) -> ProjectEdgeClient:
+            return client
+        common = [
+            "--project-root",
+            str(tmp_path),
+            "takeover-request",
+            "--project-key",
+            _PROJECT,
+            "--story-id",
+            story_id,
+            "--run-id",
+            run_id,
+            "--session-id",
+            "sess-agent",
+            "--reason",
+            "owner unavailable",
+            "--worktree-root",
+            str(worktree),
+            "--op-id",
+            "op-edge-takeover",
+        ]
+        assert projectedge.main(common, client_factory=factory) == 0
+        takeover_output = json.loads(capsys.readouterr().out)
+        assert takeover_output["status"] == "pending_human_approval"
+        assert takeover_output["op_id"] == "op-edge-takeover"
+        assert "approve" in takeover_output["operator_action"]
+        assert takeover_output["reconcile_path"].endswith("/op-edge-takeover")
+
+        recover = [
+            "--project-root",
+            str(tmp_path),
+            "recover",
+            "--project-key",
+            _PROJECT,
+            "--story-id",
+            story_id,
+            "--run-id",
+            run_id,
+            "--session-id",
+            "sess-agent",
+            "--reason",
+            "resume orphaned work",
+            "--op-id",
+            "op-edge-recover",
+        ]
+        assert projectedge.main(recover, client_factory=factory) == 3
+        recovery_error = json.loads(capsys.readouterr().err)
+        assert recovery_error["error_code"] == "recovery_requires_human_cli"
+
+        abort = [
+            "--project-root",
+            str(tmp_path),
+            "abort",
+            "--op-id",
+            "op-nonexistent",
+            "--session-id",
+            "sess-agent",
+            "--reason",
+            "attempted agent abort",
+        ]
+        assert projectedge.main(abort, client_factory=factory) == 3
+        abort_error = json.loads(capsys.readouterr().err)
+        assert abort_error["error_code"] == "admin_abort_forbidden"
 
 
 def _confirm_request(
@@ -911,9 +1150,7 @@ def test_recovery_supersedes_orphaned_record_atomically_and_fences_late_session(
     assert recovered.run_id is not None and recovered.run_id != old_run_id
     assert recovered.ownership_epoch == 1
     assert recovered.edge_bundle is not None
-    assert recovered.edge_bundle.tombstone_worktree_roots == [
-        f"T:/worktrees/{story_id}/sess-A"
-    ]
+    assert recovered.edge_bundle.tombstone_worktree_roots == [f"T:/worktrees/{story_id}/sess-A"]
     old = load_run_ownership_record_global(_PROJECT, story_id, old_run_id)
     assert old is not None and old.status is OwnershipStatus.TRANSFERRED
     active = load_active_run_ownership_record_global(_PROJECT, story_id)
@@ -930,22 +1167,15 @@ def test_recovery_supersedes_orphaned_record_atomically_and_fences_late_session(
     assert new_binding.worktree_roots == old_binding.worktree_roots
     with postgres_store._connect_global() as conn:
         active_count = conn.execute(
-            "SELECT COUNT(*) AS n FROM run_ownership_records "
-            "WHERE project_key = ? AND story_id = ? AND status = 'active'",
+            "SELECT COUNT(*) AS n FROM run_ownership_records WHERE project_key = ? AND story_id = ? AND status = 'active'",
             (_PROJECT, story_id),
         ).fetchone()
     assert active_count is not None and int(active_count["n"]) == 1
     operation = load_control_plane_operation_global("op-recovery-success")
     assert operation is not None
     assert operation.operation_kind == "ownership_recovery"
-    audit_events = load_execution_events_global(
-        _PROJECT, story_id, run_id=recovered.run_id
-    )
-    created = next(
-        event
-        for event in audit_events
-        if event.event_type == EventType.SESSION_RUN_BINDING_CREATED.value
-    )
+    audit_events = load_execution_events_global(_PROJECT, story_id, run_id=recovered.run_id)
+    created = next(event for event in audit_events if event.event_type == EventType.SESSION_RUN_BINDING_CREATED.value)
     assert created.payload["operation_class"] == "admin_transition"
     assert created.payload["reason"] == "operator confirmed the orphaned claim"
 
@@ -991,9 +1221,7 @@ def test_recovery_reset_commissions_edge_reset_without_backend_git(
 
     assert recovered.status == "committed"
     assert recovered.run_id is not None
-    command = load_edge_command_record_global(
-        edge_command_id(recovered.run_id, "reset_worktree", _REPO)
-    )
+    command = load_edge_command_record_global(edge_command_id(recovered.run_id, "reset_worktree", _REPO))
     assert command is not None
     assert command.status == "created"
     assert command.session_id == "sess-human-recovery"
@@ -1028,12 +1256,7 @@ def test_recovery_adopt_keeps_worktree_without_reset_command(
 
     assert recovered.status == "committed"
     assert recovered.run_id is not None
-    assert (
-        load_edge_command_record_global(
-            edge_command_id(recovered.run_id, "reset_worktree", _REPO)
-        )
-        is None
-    )
+    assert load_edge_command_record_global(edge_command_id(recovered.run_id, "reset_worktree", _REPO)) is None
     binding = load_session_run_binding_global("sess-human-recovery")
     assert binding is not None
     assert binding.worktree_roots == (f"T:/worktrees/{story_id}/sess-A",)
@@ -1218,11 +1441,14 @@ def test_recovery_multiple_active_records_refuses_and_transaction_rolls_back(
             )
 
         assert load_control_plane_operation_global(transaction_op.op_id) is None
-        assert load_run_ownership_record_global(
-            _PROJECT,
-            story_id,
-            recovery.run_id,
-        ) is None
+        assert (
+            load_run_ownership_record_global(
+                _PROJECT,
+                story_id,
+                recovery.run_id,
+            )
+            is None
+        )
         assert load_all_active_run_ownership_records_global(_PROJECT, story_id) == (
             first,
             second,
@@ -1544,10 +1770,7 @@ def test_ping_pong_barrier_uses_current_epoch_transfer_and_challenge_history(
         ),
     )
     assert reclaim_request.status == "rejected"
-    assert (
-        reclaim_request.error_code
-        == "repeat_transfer_requires_privileged_principal_and_reason"
-    )
+    assert reclaim_request.error_code == "repeat_transfer_requires_privileged_principal_and_reason"
 
     repeat = service.request_ownership_takeover(
         request=TakeoverRequest(
@@ -1561,10 +1784,7 @@ def test_ping_pong_barrier_uses_current_epoch_transfer_and_challenge_history(
         ),
     )
     assert repeat.status == "rejected"
-    assert (
-        repeat.error_code
-        == "repeat_transfer_requires_privileged_principal_and_reason"
-    )
+    assert repeat.error_code == "repeat_transfer_requires_privileged_principal_and_reason"
 
     privileged = service.request_ownership_takeover(
         request=TakeoverRequest(
@@ -1720,9 +1940,7 @@ def test_setup_after_real_reset_admits_new_run_and_supersedes_revoked_binding(
     quiesced = load_control_plane_operation_global("op-inflight-before-reset")
     assert quiesced is not None
     assert quiesced.status == "failed"
-    assert quiesced.response_payload["admin_note"].startswith(
-        "quiesced_by_story_reset:"
-    )
+    assert quiesced.response_payload["admin_note"].startswith("quiesced_by_story_reset:")
     after_reset = boot_backend_instance_identity_global(
         "inst-after-reset-claim-probe",
         _LATER,
@@ -1958,21 +2176,15 @@ def test_takeover_confirm_global_commits_all_side_effects_atomically(
     assert old_binding.status == "revoked"
     assert old_binding.revocation_reason == "ownership_transferred"
     assert load_session_run_binding_global("sess-B") == new_binding
-    assert load_story_execution_lock_global(
-        "tenant-a", "AG3-148", "run-148", "story_execution"
-    ) == lock
-    transfer = load_takeover_transfer_record_global(
-        "tenant-a", "AG3-148", "run-148", 2, "backend"
-    )
+    assert load_story_execution_lock_global("tenant-a", "AG3-148", "run-148", "story_execution") == lock
+    transfer = load_takeover_transfer_record_global("tenant-a", "AG3-148", "run-148", 2, "backend")
     assert transfer is not None
     assert transfer.takeover_base_sha == "abc123"
     request_op = load_control_plane_operation_global("op-request")
     assert request_op is not None
     assert request_op.status == "approved"
     events = load_execution_events_global("tenant-a", "AG3-148", run_id="run-148")
-    assert [event.event_type for event in events] == [
-        EventType.SESSION_RUN_BINDING_TRANSFERRED.value
-    ]
+    assert [event.event_type for event in events] == [EventType.SESSION_RUN_BINDING_TRANSFERRED.value]
 
 
 @pytest.mark.integration
@@ -2130,8 +2342,7 @@ def test_takeover_confirm_global_checks_ownership_update_rowcount(
     )
 
     monkeypatch.setattr(
-        "agentkit.backend.state_backend.postgres_store._takeover_rows."
-        "_verify_takeover_confirm_cas",
+        "agentkit.backend.state_backend.postgres_store._takeover_rows._verify_takeover_confirm_cas",
         lambda *args, **kwargs: None,
     )
 
@@ -2239,13 +2450,16 @@ def test_post_cas_loss_reconcile_classifies_all_outcomes_under_lock(
     challenge = load_takeover_challenge_global(challenge_id)
     assert challenge is not None
     assert challenge.status == expected_status
-    assert load_takeover_transfer_record_global(
-        _PROJECT,
-        story_id,
-        run_id,
-        2,
-        _REPO,
-    ) is None
+    assert (
+        load_takeover_transfer_record_global(
+            _PROJECT,
+            story_id,
+            run_id,
+            2,
+            _REPO,
+        )
+        is None
+    )
 
 
 @pytest.mark.integration
@@ -2332,9 +2546,7 @@ def test_post_cas_loss_reconcile_waits_for_concurrent_binding_drift_then_invalid
     request_operation = load_control_plane_operation_global(challenge.request_op_id)
     assert request_operation is not None
     assert request_operation.status == "invalidated"
-    request_op = load_control_plane_operation_global(
-        "op-cas-loss-concurrent-binding-request"
-    )
+    request_op = load_control_plane_operation_global("op-cas-loss-concurrent-binding-request")
     assert request_op is not None
     assert request_op.status == "invalidated"
 
@@ -2379,11 +2591,7 @@ def test_t1_concurrent_takeover_confirm_same_challenge_one_commits_loser_writes_
             )
         )
 
-    committed_results = [
-        result
-        for result in results
-        if isinstance(result, ControlPlaneMutationResult)
-    ]
+    committed_results = [result for result in results if isinstance(result, ControlPlaneMutationResult)]
     assert len(committed_results) == 1
     assert committed_results[0].status == "committed"
     assert results.count("takeover_confirm_cas_lost") == 1
@@ -2391,11 +2599,7 @@ def test_t1_concurrent_takeover_confirm_same_challenge_one_commits_loser_writes_
     assert active is not None
     assert active.ownership_epoch == 2
     assert active.owner_session_id == "sess-B"
-    losing_op_id = (
-        "op-t1-confirm-a"
-        if committed_results[0].op_id == "op-t1-confirm-b"
-        else "op-t1-confirm-b"
-    )
+    losing_op_id = "op-t1-confirm-a" if committed_results[0].op_id == "op-t1-confirm-b" else "op-t1-confirm-b"
     assert _operation_row_count(losing_op_id) == 0
     assert _binding_exists("sess-B") == 1
     assert _binding_exists("sess-C") == 0
@@ -2679,9 +2883,7 @@ def test_takeover_deny_fault_injection_rolls_back_each_write_step(
     assert approval is not None
     before = _state_snapshot(story_id, run_id, approval_id)
     challenge_before = load_takeover_challenge_global(approval.challenge_ref)
-    request_before = load_control_plane_operation_global(
-        f"op-deny-fault-{fault_step}-request"
-    )
+    request_before = load_control_plane_operation_global(f"op-deny-fault-{fault_step}-request")
 
     def fault_hook(step: str) -> None:
         if step == fault_step:
@@ -2702,9 +2904,7 @@ def test_takeover_deny_fault_injection_rolls_back_each_write_step(
 
     assert _state_snapshot(story_id, run_id, approval_id) == before
     assert load_takeover_challenge_global(approval.challenge_ref) == challenge_before
-    assert load_control_plane_operation_global(
-        f"op-deny-fault-{fault_step}-request"
-    ) == request_before
+    assert load_control_plane_operation_global(f"op-deny-fault-{fault_step}-request") == request_before
     assert _operation_row_count(f"op-deny-fault-{fault_step}") == 0
 
 
@@ -2739,9 +2939,7 @@ def test_takeover_cas_loss_reconcile_fault_releases_claim_and_rolls_back_each_wr
     assert approval is not None
     before = _state_snapshot(story_id, run_id, approval_id)
     challenge_before = load_takeover_challenge_global(approval.challenge_ref)
-    request_before = load_control_plane_operation_global(
-        f"op-reconcile-fault-{fault_step}-request"
-    )
+    request_before = load_control_plane_operation_global(f"op-reconcile-fault-{fault_step}-request")
 
     def fault_hook(step: str) -> None:
         if step == fault_step:
@@ -2770,9 +2968,7 @@ def test_takeover_cas_loss_reconcile_fault_releases_claim_and_rolls_back_each_wr
 
     assert _state_snapshot(story_id, run_id, approval_id) == before
     assert load_takeover_challenge_global(approval.challenge_ref) == challenge_before
-    assert load_control_plane_operation_global(
-        f"op-reconcile-fault-{fault_step}-request"
-    ) == request_before
+    assert load_control_plane_operation_global(f"op-reconcile-fault-{fault_step}-request") == request_before
     assert _operation_row_count(f"op-reconcile-fault-{fault_step}") == 0
     follower = boot_backend_instance_identity_global(
         f"inst-reconcile-fault-{fault_step}-follower",
@@ -2928,8 +3124,7 @@ def test_human_bff_takeover_deny_persists_denied_event_and_blocks_later_confirm(
     denied_events = [
         event
         for event in approval_events
-        if isinstance(event.get("approval"), dict)
-        and event["approval"].get("status") == "denied"
+        if isinstance(event.get("approval"), dict) and event["approval"].get("status") == "denied"
     ]
     assert denied_events == [
         {
@@ -3299,9 +3494,7 @@ def test_expired_agent_challenge_is_invalidated_not_reissued_after_intervening_t
         )
     )
     assert pending_result.pending_human_approval is not None
-    stale_approval = load_takeover_approval_global(
-        pending_result.pending_human_approval.approval_id
-    )
+    stale_approval = load_takeover_approval_global(pending_result.pending_human_approval.approval_id)
     assert stale_approval is not None
     stale_echo = _challenge_id_from_current(story_id, stale_approval.challenge_ref)
 
@@ -3393,9 +3586,7 @@ def test_reissue_guard_invalidates_challenge_and_request_but_keeps_approved_appr
         )
     )
     assert pending_result.pending_human_approval is not None
-    approval = load_takeover_approval_global(
-        pending_result.pending_human_approval.approval_id
-    )
+    approval = load_takeover_approval_global(pending_result.pending_human_approval.approval_id)
     assert approval is not None
     assert update_takeover_approval_status_global(
         replace(
@@ -3483,9 +3674,7 @@ def test_expired_approval_challenge_is_invalidated_after_ownership_drift(
         )
     )
     assert pending_result.pending_human_approval is not None
-    approval = load_takeover_approval_global(
-        pending_result.pending_human_approval.approval_id
-    )
+    approval = load_takeover_approval_global(pending_result.pending_human_approval.approval_id)
     assert approval is not None
     foreign_challenge_id = _request_takeover(
         service,
@@ -3742,11 +3931,7 @@ def test_confirm_after_terminal_predecessor_is_rejected_as_challenge_invalidated
     )
 
     assert result.status == "rejected"
-    assert result.error_code == (
-        "challenge_not_pending"
-        if operation_kind == "story_split"
-        else "challenge_invalidated"
-    )
+    assert result.error_code == ("challenge_not_pending" if operation_kind == "story_split" else "challenge_invalidated")
     active = load_active_run_ownership_record_global(_PROJECT, story_id)
     if operation_kind in {"story_exit", "story_reset", "story_split"}:
         assert active is None
@@ -3806,10 +3991,7 @@ def test_confirm_after_terminal_predecessor_is_rejected_as_challenge_invalidated
             assert successor_mutation.error_code is None
             assert successor_mutation.phase_dispatch is not None
             assert successor_mutation.phase_dispatch.rejection_reason is not None
-            assert (
-                "no prior admitted start"
-                in successor_mutation.phase_dispatch.rejection_reason
-            )
+            assert "no prior admitted start" in successor_mutation.phase_dispatch.rejection_reason
     else:
         assert active is not None
         assert active.owner_session_id == "sess-A"
@@ -3820,9 +4002,7 @@ def test_confirm_after_terminal_predecessor_is_rejected_as_challenge_invalidated
     assert challenge is not None
     assert challenge.status == "invalidated"
     assert challenge.terminal_op_id == (
-        "freeze:split_admin_freeze:1"
-        if operation_kind == "story_split"
-        else f"op-confirm-{operation_kind}"
+        "freeze:split_admin_freeze:1" if operation_kind == "story_split" else f"op-confirm-{operation_kind}"
     )
     request_op = load_control_plane_operation_global(f"op-request-{operation_kind}")
     assert request_op is not None
@@ -4098,13 +4278,16 @@ def test_binding_version_only_phase_drift_terminally_invalidates_challenge(
     invalidated_approval = load_takeover_approval_global(linked_approval.approval_id)
     assert invalidated_approval is not None
     assert invalidated_approval.status is TakeoverApprovalStatus.INVALIDATED
-    assert load_takeover_transfer_record_global(
-        _PROJECT,
-        story_id,
-        run_id,
-        2,
-        _REPO,
-    ) is None
+    assert (
+        load_takeover_transfer_record_global(
+            _PROJECT,
+            story_id,
+            run_id,
+            2,
+            _REPO,
+        )
+        is None
+    )
 
 
 @pytest.mark.integration
@@ -4129,15 +4312,18 @@ def test_takeover_invalidation_uow_fault_rolls_back_every_protocol_row(
     )
     approval = load_takeover_approval_for_challenge_global(challenge_id)
     assert approval is not None
-    assert setup.start_phase(
-        run_id=run_id,
-        phase="implementation",
-        request=_phase_request(
-            story_id=story_id,
-            op_id="op-invalidation-rollback-phase",
-            session_id="sess-A",
-        ),
-    ).status == "committed"
+    assert (
+        setup.start_phase(
+            run_id=run_id,
+            phase="implementation",
+            request=_phase_request(
+                story_id=story_id,
+                op_id="op-invalidation-rollback-phase",
+                session_id="sess-A",
+            ),
+        ).status
+        == "committed"
+    )
     events_before = _event_count(story_id, run_id)
 
     def fail_after_challenge(step: str) -> None:
@@ -4282,9 +4468,7 @@ def test_expired_challenge_with_valid_agent_approval_reissues_fresh_basis(
         )
     )
     assert pending_result.pending_human_approval is not None
-    approval = load_takeover_approval_global(
-        pending_result.pending_human_approval.approval_id
-    )
+    approval = load_takeover_approval_global(pending_result.pending_human_approval.approval_id)
     assert approval is not None
     old_challenge_id = approval.challenge_ref
     echo = _challenge_id_from_current(story_id, old_challenge_id)
@@ -4312,13 +4496,16 @@ def test_expired_challenge_with_valid_agent_approval_reissues_fresh_basis(
     assert old_challenge.status == "expired"
     assert new_challenge is not None
     assert new_challenge.status == "pending"
-    assert load_takeover_transfer_record_global(
-        _PROJECT,
-        story_id,
-        run_id,
-        2,
-        _REPO,
-    ) is None
+    assert (
+        load_takeover_transfer_record_global(
+            _PROJECT,
+            story_id,
+            run_id,
+            2,
+            _REPO,
+        )
+        is None
+    )
     first_op = load_control_plane_operation_global("op-reissue-confirm")
     assert first_op is not None
     assert first_op.status == "challenge_reissued"
@@ -4370,13 +4557,16 @@ def test_expired_challenge_with_valid_agent_approval_reissues_fresh_basis(
     ]
     assert approval_events[-1].payload["challenge_id"] == twice_refreshed.challenge_ref
     assert approval_events[-1].payload["approval"]["status"] == "approved"  # type: ignore[index]
-    assert load_takeover_transfer_record_global(
-        _PROJECT,
-        story_id,
-        run_id,
-        2,
-        _REPO,
-    ) is None
+    assert (
+        load_takeover_transfer_record_global(
+            _PROJECT,
+            story_id,
+            run_id,
+            2,
+            _REPO,
+        )
+        is None
+    )
 
     second = _service(
         ident="inst-reissue-second-confirm",
@@ -4754,11 +4944,7 @@ def test_reconcile_obligation_blocks_until_attested_admin_clear_and_story_upsert
         "ownership_epoch": transfer.ownership_epoch,
         "repo_id": transfer.repo_id,
         "takeover_base_sha": transfer.takeover_base_sha,
-        "last_push_at": (
-            transfer.last_push_at.isoformat()
-            if transfer.last_push_at is not None
-            else None
-        ),
+        "last_push_at": (transfer.last_push_at.isoformat() if transfer.last_push_at is not None else None),
         "push_lag_hint": transfer.push_lag_hint,
         "base_quality": transfer.base_quality,
         "challenge_ref": transfer.challenge_ref,
@@ -4814,9 +5000,7 @@ def test_reconcile_obligation_blocks_until_attested_admin_clear_and_story_upsert
     assert clear_op.operation_kind == "takeover_reconcile_clear"
     assert clear_op.session_id == attested_session.session_id
     assert "admin_transition" in str(clear_op.response_payload["admin_note"])
-    assert "sess-client-forged-audit-actor" not in str(
-        clear_op.response_payload["admin_note"]
-    )
+    assert "sess-client-forged-audit-actor" not in str(clear_op.response_payload["admin_note"])
     cleared_transfer = load_takeover_transfer_record_global(
         _PROJECT,
         story_id,
@@ -4836,10 +5020,7 @@ def test_reconcile_obligation_blocks_until_attested_admin_clear_and_story_upsert
     )
     assert cleared_web_transfer is not None
     assert cleared_web_transfer.reconciled_at == _NOW
-    assert (
-        cleared_web_transfer.reconcile_ref
-        == "admin_transition:op-reconcile-admin-clear"
-    )
+    assert cleared_web_transfer.reconcile_ref == "admin_transition:op-reconcile-admin-clear"
 
     allowed = service.start_phase(
         run_id=run_id,
@@ -4954,9 +5135,7 @@ def test_successful_takeover_reconcile_clears_obligation_and_admits(
         project_key=_PROJECT,
         session_id="sess-B",
     ).commands
-    assert [(command.command_kind, command.payload["repo_id"]) for command in commands] == [
-        ("takeover_reconcile", _REPO)
-    ]
+    assert [(command.command_kind, command.payload["repo_id"]) for command in commands] == [("takeover_reconcile", _REPO)]
     assert commands[0].payload["takeover_base_sha"] == _SHA
 
     reconciled = service.reconcile_takeover_worktree(
@@ -4981,9 +5160,7 @@ def test_successful_takeover_reconcile_clears_obligation_and_admits(
     assert reconciled.status == "resolved"
     assert reconciled.takeover_reconcile is not None
     assert reconciled.takeover_reconcile.results[0].result_type == "identity_ok"
-    transfer = load_takeover_transfer_record_global(
-        _PROJECT, story_id, run_id, 2, _REPO
-    )
+    transfer = load_takeover_transfer_record_global(_PROJECT, story_id, run_id, 2, _REPO)
     assert transfer is not None
     assert transfer.reconcile_ref == "takeover_reconcile:op-reconcile-success"
 
@@ -5055,9 +5232,7 @@ def test_failed_takeover_reconcile_enters_contested_and_successful_retry_clears_
         ),
     )
     assert failed.status == "failed"
-    freeze = FreezeRepository().read_freeze(
-        story_id, FreezeKind.CONTESTED_LOCAL_WRITES
-    )
+    freeze = FreezeRepository().read_freeze(story_id, FreezeKind.CONTESTED_LOCAL_WRITES)
     assert freeze is not None
     assert local_export.read() == {
         "story_id": story_id,
@@ -5093,9 +5268,7 @@ def test_failed_takeover_reconcile_enters_contested_and_successful_retry_clears_
             op_id="op-sync-contested-bundle",
         )
     )
-    assert [state.kind for state in synced.edge_bundle.active_freezes] == [
-        "contested_local_writes"
-    ]
+    assert [state.kind for state in synced.edge_bundle.active_freezes] == ["contested_local_writes"]
 
     cleared = service.reconcile_takeover_worktree(
         run_id,
@@ -5117,17 +5290,10 @@ def test_failed_takeover_reconcile_enters_contested_and_successful_retry_clears_
         ),
     )
     assert cleared.status == "resolved"
-    transfer = load_takeover_transfer_record_global(
-        _PROJECT, story_id, run_id, 2, _REPO
-    )
+    transfer = load_takeover_transfer_record_global(_PROJECT, story_id, run_id, 2, _REPO)
     assert transfer is not None
     assert transfer.reconcile_ref == "takeover_reconcile:op-reconcile-clear-both"
-    assert (
-        FreezeRepository().read_freeze(
-            story_id, FreezeKind.CONTESTED_LOCAL_WRITES
-        )
-        is None
-    )
+    assert FreezeRepository().read_freeze(story_id, FreezeKind.CONTESTED_LOCAL_WRITES) is None
     assert local_export.read() is None
     admitted = service.start_phase(
         run_id=run_id,
@@ -5192,14 +5358,15 @@ def test_reconcile_replay_after_sync_failure_terminalizes_real_queue(
     assert len(outcomes) == 2
     assert all(outcome.status == "completed" for outcome in outcomes)
     assert client.reconcile_results[-1].status == "rejected"
-    assert client.reconcile_results[-1].error_code == (
-        "takeover_reconcile_not_required"
+    assert client.reconcile_results[-1].error_code == ("takeover_reconcile_not_required")
+    assert (
+        service.list_and_ack_open_commands(
+            run_id,
+            project_key=_PROJECT,
+            session_id="sess-B",
+        ).commands
+        == []
     )
-    assert service.list_and_ack_open_commands(
-        run_id,
-        project_key=_PROJECT,
-        session_id="sess-B",
-    ).commands == []
 
 
 @pytest.mark.integration
@@ -5247,14 +5414,15 @@ def test_admin_clear_with_open_reconcile_command_terminalizes_real_queue(
     assert len(outcomes) == 2
     assert all(outcome.status == "completed" for outcome in outcomes)
     assert client.reconcile_results[-1].status == "rejected"
-    assert client.reconcile_results[-1].error_code == (
-        "takeover_reconcile_not_required"
+    assert client.reconcile_results[-1].error_code == ("takeover_reconcile_not_required")
+    assert (
+        service.list_and_ack_open_commands(
+            run_id,
+            project_key=_PROJECT,
+            session_id="sess-B",
+        ).commands
+        == []
     )
-    assert service.list_and_ack_open_commands(
-        run_id,
-        project_key=_PROJECT,
-        session_id="sess-B",
-    ).commands == []
 
 
 def _setup_clean_reconcile_queue(
@@ -5299,10 +5467,7 @@ def _setup_clean_reconcile_queue(
     config = ProjectConfig(
         project_key=_PROJECT,
         project_name="Tenant A",
-        repositories=[
-            RepositoryConfig(name=repo_id, path=repo_roots[repo_id])
-            for repo_id in repo_ids
-        ],
+        repositories=[RepositoryConfig(name=repo_id, path=repo_roots[repo_id]) for repo_id in repo_ids],
         pipeline=PipelineConfig(
             config_version=SUPPORTED_CONFIG_VERSION,
             features=Features(multi_llm=False),
@@ -5310,9 +5475,7 @@ def _setup_clean_reconcile_queue(
             ci=JenkinsConfig(available=False, enabled=False),
         ),
     )
-    worktrees = {
-        repo_id: repo_roots[repo_id] / "worktrees" / story_id for repo_id in repo_ids
-    }
+    worktrees = {repo_id: repo_roots[repo_id] / "worktrees" / story_id for repo_id in repo_ids}
     for repo_id in repo_ids:
         execute_provision_worktree(
             ProvisionWorktreeCommandPayload(
@@ -5407,10 +5570,7 @@ def test_real_transfer_command_queue_contested_bundle_blocks_active_owner(
     config = ProjectConfig(
         project_key=_PROJECT,
         project_name="Tenant A",
-        repositories=[
-            RepositoryConfig(name=repo_id, path=repo_roots[repo_id])
-            for repo_id in repo_ids
-        ],
+        repositories=[RepositoryConfig(name=repo_id, path=repo_roots[repo_id]) for repo_id in repo_ids],
         pipeline=PipelineConfig(
             config_version=SUPPORTED_CONFIG_VERSION,
             features=Features(multi_llm=False),
@@ -5418,9 +5578,7 @@ def test_real_transfer_command_queue_contested_bundle_blocks_active_owner(
             ci=JenkinsConfig(available=False, enabled=False),
         ),
     )
-    worktrees = {
-        repo_id: repo_roots[repo_id] / "worktrees" / story_id for repo_id in repo_ids
-    }
+    worktrees = {repo_id: repo_roots[repo_id] / "worktrees" / story_id for repo_id in repo_ids}
     for repo_id in repo_ids:
         execute_provision_worktree(
             ProvisionWorktreeCommandPayload(
@@ -5501,14 +5659,8 @@ def test_real_transfer_command_queue_contested_bundle_blocks_active_owner(
     )
     assert resolved.operating_mode == "binding_invalid"
     assert resolved.block_reason == "contested_local_writes"
-    guard_freeze = json.loads(
-        (worktrees[_REPO] / ".agent-guard" / "freeze.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert guard_freeze["active_freezes"][0]["block_reason"] == (
-        "contested_local_writes"
-    )
+    guard_freeze = json.loads((worktrees[_REPO] / ".agent-guard" / "freeze.json").read_text(encoding="utf-8"))
+    assert guard_freeze["active_freezes"][0]["block_reason"] == ("contested_local_writes")
 
 
 def _challenge_id_from_current(story_id: str, challenge_id: str) -> str:
@@ -5532,9 +5684,7 @@ def _state_snapshot(
         "active_epoch": active.ownership_epoch if active is not None else None,
         "active_acquired_via": active.acquired_via.value if active is not None else None,
         "old_binding_status": old_binding.status if old_binding is not None else None,
-        "old_binding_revocation": (
-            old_binding.revocation_reason if old_binding is not None else None
-        ),
+        "old_binding_revocation": (old_binding.revocation_reason if old_binding is not None else None),
         "new_binding": _binding_exists("sess-B"),
         "transfers": _transfer_count(story_id, run_id),
         "blocker": _story_blocker(story_id),

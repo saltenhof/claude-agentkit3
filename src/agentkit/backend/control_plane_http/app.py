@@ -794,6 +794,7 @@ class ControlPlaneApplication(
                 op_id=admin_abort_match.group("op_id"),
                 payload=payload,
                 correlation_id=correlation_id,
+                auth_result=auth_result,
             )
 
         # Project-scoped story mutations:
@@ -1244,6 +1245,7 @@ class ControlPlaneApplication(
         op_id: str,
         payload: object,
         correlation_id: str,
+        auth_result: AuthResult | None,
     ) -> HttpResponse:
         """POST /v1/project-edge/operations/{op_id}/admin-abort (AG3-138).
 
@@ -1254,13 +1256,27 @@ class ControlPlaneApplication(
         concurrently) -> 409 ``operation_not_abortable``. On success the terminal
         ``aborted`` / ``repair`` result (200) carries the audited ``admin_note``;
         a partial write target goes to ``repair`` (IMPL-005) and mutation-locks its
-        story (AC10). Minimal authorization: the mandatory audited actor
-        (``session_id`` / ``principal_type``) and ``reason`` are recorded on the
-        terminal record; the full HTTP principal-attestation infrastructure
-        (IMPL-018) is explicitly a follow-up story (AG3-148/AG3-154).
+        story (AC10). With HTTP authentication enabled, only an attested strategist
+        session may cross this ``admin_transition`` boundary; project API tokens are
+        rejected before the target operation is loaded. The audited actor is derived
+        from that session, never trusted from the request body.
         """
         try:
+            if auth_result is not None and not auth_result.is_human_bff_session:
+                return _error_response(
+                    HTTPStatus.FORBIDDEN,
+                    error_code="admin_abort_forbidden",
+                    message="Administrative abort requires a human BFF session",
+                    correlation_id=correlation_id,
+                )
             request = AdminAbortRequest.model_validate(payload)
+            if auth_result is not None and auth_result.session_id is not None:
+                request = request.model_copy(
+                    update={
+                        "session_id": auth_result.session_id,
+                        "principal_type": "human_cli",
+                    }
+                )
             result = self._runtime_service.admin_abort_inflight_operation(op_id, request)
         except ValidationError as exc:
             return _error_response(

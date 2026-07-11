@@ -14,10 +14,13 @@ from pydantic import ValidationError
 
 from agentkit.backend.config.loader import load_project_config
 from agentkit.backend.control_plane.models import (
+    AdminAbortRequest,
     ClosureCompleteRequest,
     CreateStoryInputs,
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,
+    RecoveryRequest,
+    TakeoverRequest,
 )
 from agentkit.backend.exceptions import (
     ConfigError,
@@ -119,6 +122,17 @@ def main(
     create_parser = subparsers.add_parser("create-story")
     _add_create_story_args(create_parser)
 
+    takeover_parser = subparsers.add_parser("takeover-request")
+    _add_agent_ownership_args(takeover_parser, worktree=True)
+
+    abort_parser = subparsers.add_parser("abort")
+    abort_parser.add_argument("--op-id", required=True)
+    abort_parser.add_argument("--session-id", required=True)
+    abort_parser.add_argument("--reason", required=True)
+
+    recover_parser = subparsers.add_parser("recover")
+    _add_agent_ownership_args(recover_parser)
+
     args = parser.parse_args(argv)
     project_root = Path(args.project_root).resolve()
 
@@ -132,6 +146,9 @@ def main(
 
     if args.command == "run-commands":
         return _run_commands(project_root, args, client_factory=client_factory)
+
+    if args.command in {"takeover-request", "abort", "recover"}:
+        return _run_agent_ownership(project_root, args, client_factory=client_factory)
 
     client = _build_client(project_root, client_factory)
 
@@ -190,6 +207,18 @@ def _add_create_story_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--label", action="append", dest="labels")
     parser.add_argument("--story-was-adapted", action="store_true")
     parser.add_argument("--op-id")
+
+
+def _add_agent_ownership_args(parser: argparse.ArgumentParser, *, worktree: bool = False) -> None:
+    """Register shared agent ownership-adapter arguments."""
+    parser.add_argument("--project-key", required=True)
+    parser.add_argument("--story-id", required=True)
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--session-id", required=True)
+    parser.add_argument("--reason", required=True)
+    parser.add_argument("--op-id")
+    if worktree:
+        parser.add_argument("--worktree-root", action="append", required=True)
 
 
 def _build_master_fields(args: argparse.Namespace) -> dict[str, object]:
@@ -252,16 +281,12 @@ def _run_create_story(
         project_config = load_project_config(project_root)
         reconciler = build_reconciler(project_config)
     except ConfigError as exc:
-        return _emit_create_error(
-            "configuration_error", str(exc), correlation_id, op_id
-        )
+        return _emit_create_error("configuration_error", str(exc), correlation_id, op_id)
     except VectorDbError as exc:
         # The runtime factory fails closed when the VectorDB is unconfigured /
         # unready (FK-21 §21.4.3). This escapes the ConfigError try, so map it to
         # the stable ``vectordb_unavailable`` contract (Codex R2 finding #3).
-        return _emit_create_error(
-            "vectordb_unavailable", str(exc), correlation_id, op_id
-        )
+        return _emit_create_error("vectordb_unavailable", str(exc), correlation_id, op_id)
 
     try:
         inputs = CreateStoryInputs.model_validate(master_fields)
@@ -273,18 +298,14 @@ def _run_create_story(
     except OSError as exc:
         # The story body was a path that could not be read (a configuration /
         # environment defect, not a reconciliation outcome).
-        return _emit_create_error(
-            "configuration_error", str(exc), correlation_id, op_id
-        )
+        return _emit_create_error("configuration_error", str(exc), correlation_id, op_id)
 
     # Client build can fail on a missing / invalid control-plane.json (a stable
     # ``configuration_error``) BEFORE any wire call.
     try:
         client = _build_client(project_root, client_factory)
     except (OSError, ValueError, KeyError) as exc:
-        return _emit_create_error(
-            "configuration_error", str(exc), correlation_id, op_id
-        )
+        return _emit_create_error("configuration_error", str(exc), correlation_id, op_id)
 
     # The fail-closed reconciliation now runs INSIDE the client boundary
     # (Codex R2 finding #1): the client drives ``reconcile_only`` and builds the
@@ -308,17 +329,11 @@ def _run_create_story(
         ConflictAdjudicationUnavailableError,
         CreateTimeConflictAdjudicationError,
     ) as exc:
-        return _emit_create_error(
-            "conflict_adjudication_unavailable", str(exc), correlation_id, op_id
-        )
+        return _emit_create_error("conflict_adjudication_unavailable", str(exc), correlation_id, op_id)
     except VectorDbError as exc:
-        return _emit_create_error(
-            "vectordb_unavailable", str(exc), correlation_id, op_id
-        )
+        return _emit_create_error("vectordb_unavailable", str(exc), correlation_id, op_id)
     except ControlPlaneApiError as exc:
-        return _emit_create_error(
-            exc.error_code, str(exc), exc.correlation_id or correlation_id, op_id
-        )
+        return _emit_create_error(exc.error_code, str(exc), exc.correlation_id or correlation_id, op_id)
     except URLError as exc:
         # A connection-level transport failure (the control plane is unreachable /
         # TLS handshake failed). urllib raises URLError, which is NOT a subclass of
@@ -369,13 +384,9 @@ def _run_commands(
         project_config = load_project_config(project_root)
         client = _build_client(project_root, client_factory)
     except ConfigError as exc:
-        return _emit_create_error(
-            "configuration_error", str(exc), f"corr-{uuid.uuid4().hex}", ""
-        )
+        return _emit_create_error("configuration_error", str(exc), f"corr-{uuid.uuid4().hex}", "")
     except (OSError, ValueError, KeyError) as exc:
-        return _emit_create_error(
-            "configuration_error", str(exc), f"corr-{uuid.uuid4().hex}", ""
-        )
+        return _emit_create_error("configuration_error", str(exc), f"corr-{uuid.uuid4().hex}", "")
 
     outcomes = process_open_commands(
         client,
@@ -396,6 +407,72 @@ def _run_commands(
     return 0
 
 
+def _run_agent_ownership(
+    project_root: Path,
+    args: argparse.Namespace,
+    *,
+    client_factory: ClientFactory | None = None,
+) -> int:
+    """Run one thin agent ownership adapter; authorization stays server-side."""
+    op_id = _client_op_id(args.op_id)
+    try:
+        client = _build_client(project_root, client_factory)
+        if args.command == "takeover-request":
+            result = client.takeover_request(
+                run_id=args.run_id,
+                request=TakeoverRequest(
+                    project_key=args.project_key,
+                    story_id=args.story_id,
+                    session_id=args.session_id,
+                    principal_type="interactive_agent",
+                    op_id=op_id,
+                    reason=args.reason,
+                    worktree_roots=args.worktree_root,
+                ),
+            )
+        elif args.command == "abort":
+            result = client.admin_abort_operation(
+                op_id=args.op_id,
+                request=AdminAbortRequest(
+                    session_id=args.session_id,
+                    principal_type="interactive_agent",
+                    reason=args.reason,
+                ),
+            )
+        else:
+            result = client.recover(
+                run_id=args.run_id,
+                request=RecoveryRequest(
+                    project_key=args.project_key,
+                    story_id=args.story_id,
+                    op_id=op_id,
+                    reason=args.reason,
+                    worktree_disposition="adopt",
+                ),
+            )
+    except ControlPlaneApiError as exc:
+        return _emit_create_error(exc.error_code, str(exc), exc.correlation_id or "", op_id)
+    except URLError as exc:
+        return _emit_create_error("transport_error", str(exc), "", op_id)
+    except json.JSONDecodeError as exc:
+        return _emit_create_error("transport_error", str(exc), "", op_id)
+    except (OSError, ValueError, KeyError, RuntimeError) as exc:
+        return _emit_create_error("transport_error", str(exc), "", op_id)
+    if result.status == "rejected":
+        return _emit_create_error(
+            result.error_code or "rejected",
+            result.admin_note or "Control plane rejected the operation",
+            "",
+            op_id,
+        )
+    output = result.model_dump(mode="json")
+    if result.status == "pending_human_approval":
+        output["operator_action"] = "A user must approve this takeover in the frontend."
+        output["reconcile_path"] = f"/v1/project-edge/operations/{result.op_id}"
+    print(json.dumps(output, indent=2, sort_keys=True))
+    return 0
+
+
 def _read_story_body(value: str) -> str:
     """Resolve the story body: a file path if it exists, else the literal text."""
     candidate = Path(value)
@@ -404,9 +481,7 @@ def _read_story_body(value: str) -> str:
     return value
 
 
-def _emit_create_error(
-    error_code: str, message: str, correlation_id: str, op_id: str
-) -> int:
+def _emit_create_error(error_code: str, message: str, correlation_id: str, op_id: str) -> int:
     """Print the stable §91.1a error contract on stderr and fail closed.
 
     The ``op_id`` is included so the caller can reconcile an ambiguous failure via
@@ -462,9 +537,7 @@ def _default_reconciler_factory(
     return build_story_creation_reconciler(project_config=project_config)
 
 
-def _build_client(
-    project_root: Path, client_factory: ClientFactory | None
-) -> ProjectEdgeClient:
+def _build_client(project_root: Path, client_factory: ClientFactory | None) -> ProjectEdgeClient:
     factory = client_factory or build_project_edge_client
     return factory(project_root)
 

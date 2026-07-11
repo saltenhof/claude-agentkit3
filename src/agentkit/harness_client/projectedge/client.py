@@ -28,7 +28,9 @@ from agentkit.backend.control_plane.models import (
     ProjectEdgeSyncRequest,
     PushOwnershipConfirmation,
     RecoveryRequest,
+    TakeoverConfirmRequest,
     TakeoverReconcileWorktreeRequest,
+    TakeoverRequest,
 )
 from agentkit.backend.exceptions import ControlPlaneApiError
 from agentkit.backend.utils.io import atomic_write_text
@@ -151,8 +153,7 @@ class ControlPlaneTransport(Protocol):
         payload: Mapping[str, object] | None = None,
         headers: Mapping[str, str] | None = None,
         timeout: float | None = None,
-    ) -> dict[str, object]:
-        ...
+    ) -> dict[str, object]: ...
 
 
 class HttpsJsonTransport:
@@ -164,6 +165,9 @@ class HttpsJsonTransport:
         base_url: str,
         ssl_context: ssl.SSLContext | None = None,
         skill_bundle_version: str | None = None,
+        bearer_token: str | None = None,
+        project_key: str | None = None,
+        strategist_headers: Mapping[str, str] | None = None,
     ) -> None:
         """Initialise the transport.
 
@@ -179,6 +183,9 @@ class HttpsJsonTransport:
         self._base_url = base_url.rstrip("/")
         self._ssl_context = ssl_context
         self._skill_bundle_version = skill_bundle_version
+        self._bearer_token = bearer_token
+        self._project_key = project_key
+        self._strategist_headers = dict(strategist_headers or {})
 
     def send(
         self,
@@ -189,11 +196,7 @@ class HttpsJsonTransport:
         headers: Mapping[str, str] | None = None,
         timeout: float | None = None,
     ) -> dict[str, object]:
-        body = (
-            json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
-            if payload is not None
-            else None
-        )
+        body = json.dumps(payload, sort_keys=True, default=str).encode("utf-8") if payload is not None else None
         # FK-91 §91.1a Regel 11: carry the version handshake on every request.
         # ``X-AK3-Client`` is the installed package metadata version (no hardcoded
         # string); ``X-AK3-Skill-Bundle`` is the bound bundle version when present.
@@ -203,6 +206,11 @@ class HttpsJsonTransport:
         }
         if self._skill_bundle_version is not None:
             request_headers[_SKILL_BUNDLE_HEADER] = self._skill_bundle_version
+        if self._bearer_token is not None:
+            request_headers["Authorization"] = f"Bearer {self._bearer_token}"
+        if self._project_key is not None:
+            request_headers["X-Project-Key"] = self._project_key
+        request_headers.update(self._strategist_headers)
         if headers is not None:
             # FK-91 §91.1a Regel #7: pass through the caller's correlation header
             # so the control plane adopts the SAME id it audits (no divergent
@@ -224,13 +232,9 @@ class HttpsJsonTransport:
             # keeps the pre-existing behaviour (the process-wide socket default)
             # byte-for-byte -- the other endpoints are unchanged.
             if timeout is None:
-                response_ctx = urllib.request.urlopen(
-                    request, context=self._ssl_context
-                )
+                response_ctx = urllib.request.urlopen(request, context=self._ssl_context)
             else:
-                response_ctx = urllib.request.urlopen(
-                    request, context=self._ssl_context, timeout=timeout
-                )
+                response_ctx = urllib.request.urlopen(request, context=self._ssl_context, timeout=timeout)
             with response_ctx as response:
                 response_body = response.read()
                 response_correlation = response.headers.get(_CORRELATION_HEADER)
@@ -245,6 +249,45 @@ class HttpsJsonTransport:
         if response_correlation and not data.get("correlation_id"):
             data["correlation_id"] = response_correlation
         return data
+
+    def authenticate_strategist(
+        self,
+        *,
+        username: str,
+        password: str,
+        project_key: str,
+    ) -> HttpsJsonTransport:
+        """Log in through FK-15 and return a cookie/CSRF-bound transport."""
+        request = urllib.request.Request(
+            url=f"{self._base_url}/v1/auth/login",
+            method="POST",
+            data=json.dumps({"username": username, "password": password}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, context=self._ssl_context) as response:
+                body = response.read()
+                set_cookie = response.headers.get("Set-Cookie")
+        except urllib.error.HTTPError as exc:
+            self._handle_http_error(exc)
+            raise AssertionError("HTTP error handler must raise for login") from exc
+        data = json.loads(body.decode("utf-8"))
+        if not isinstance(data, dict) or not isinstance(data.get("csrf_token"), str):
+            raise RuntimeError("strategist login response is malformed")
+        if not isinstance(set_cookie, str) or not set_cookie:
+            raise RuntimeError("strategist login response omitted the session cookie")
+        cookie = set_cookie.split(";", maxsplit=1)[0]
+        return HttpsJsonTransport(
+            base_url=self._base_url,
+            ssl_context=self._ssl_context,
+            skill_bundle_version=self._skill_bundle_version,
+            project_key=project_key,
+            strategist_headers={
+                "Cookie": cookie,
+                "X-CSRF-Token": data["csrf_token"],
+                "X-Project-Key": project_key,
+            },
+        )
 
     @staticmethod
     def _handle_http_error(exc: urllib.error.HTTPError) -> dict[str, object]:
@@ -271,7 +314,7 @@ class HttpsJsonTransport:
                 rejected control-plane mutation result.
         """
         detail = exc.read().decode("utf-8", errors="replace")
-        if exc.code == HTTPStatus.CONFLICT:
+        if exc.code in (HTTPStatus.FORBIDDEN, HTTPStatus.CONFLICT):
             rejected = _parse_rejected_conflict_body(detail)
             if rejected is not None:
                 return rejected
@@ -371,9 +414,7 @@ def _parse_rejected_command_result_body(detail: str) -> dict[str, object] | None
     return body
 
 
-def _parse_api_error_body(
-    detail: str, *, http_status: int
-) -> ControlPlaneApiError | None:
+def _parse_api_error_body(detail: str, *, http_status: int) -> ControlPlaneApiError | None:
     """Parse an HTTP error body as a stable §91.1a error contract (Regel #8).
 
     The error body must parse, ``model_validate`` to an :class:`ApiErrorResponse`
@@ -402,9 +443,7 @@ def _parse_api_error_body(
         parsed = ApiErrorResponse.model_validate(body)
     except ValidationError:
         return None
-    structured_detail = (
-        parsed.detail if isinstance(parsed.detail, dict) else None
-    )
+    structured_detail = parsed.detail if isinstance(parsed.detail, dict) else None
     return ControlPlaneApiError(
         parsed.error,
         error_code=parsed.error_code,
@@ -460,9 +499,7 @@ class LocalEdgePublisher:
             )
         freeze_payload = {
             "state_readable": bundle.active_freezes_readable,
-            "active_freezes": [
-                freeze.model_dump(mode="json") for freeze in bundle.active_freezes
-            ],
+            "active_freezes": [freeze.model_dump(mode="json") for freeze in bundle.active_freezes],
         }
         _write_json(bundle_root / _FREEZE_EXPORT_FILE, freeze_payload)
         _write_json(
@@ -482,11 +519,7 @@ class LocalEdgePublisher:
                 quarantine_worktree,
             )
 
-            quarantine_store = (
-                self._project_root.parent
-                / ".agentkit-quarantine"
-                / self._project_root.name
-            )
+            quarantine_store = self._project_root.parent / ".agentkit-quarantine" / self._project_root.name
             for root in bundle.tombstone_worktree_roots:
                 quarantine_worktree(
                     source_root=Path(root),
@@ -502,11 +535,7 @@ class LocalEdgePublisher:
         freeze_payload: dict[str, object],
     ) -> None:
         """Write active worktree projections and remove tombstone projections."""
-        if (
-            bundle.session is not None
-            and bundle.session.operating_mode == "story_execution"
-            and bundle.lock is not None
-        ):
+        if bundle.session is not None and bundle.session.operating_mode == "story_execution" and bundle.lock is not None:
             for root in bundle.session.worktree_roots:
                 _write_json(
                     Path(root) / _AGENT_GUARD_DIR / _LOCK_EXPORT_FILE,
@@ -532,16 +561,12 @@ class LocalEdgePublisher:
         current_path = self._project_root / "_temp" / "governance" / "current.json"
         if current_path.is_file():
             try:
-                pointer = EdgePointer.model_validate(
-                    json.loads(current_path.read_text(encoding="utf-8"))
-                )
+                pointer = EdgePointer.model_validate(json.loads(current_path.read_text(encoding="utf-8")))
             except (OSError, ValueError):
                 pointer = None
             if pointer is not None:
                 _write_json(
-                    self._project_root
-                    / pointer.bundle_dir
-                    / _FREEZE_EXPORT_FILE,
+                    self._project_root / pointer.bundle_dir / _FREEZE_EXPORT_FILE,
                     payload,
                 )
         for root in worktree_roots:
@@ -719,6 +744,35 @@ class ProjectEdgeClient:
         data.pop("correlation_id", None)
         return ControlPlaneMutationResult.model_validate(data)
 
+    def takeover_request(
+        self,
+        *,
+        run_id: str,
+        request: TakeoverRequest,
+    ) -> ControlPlaneMutationResult:
+        """Request an ownership takeover through the official REST route."""
+        run_segment = urllib.parse.quote(run_id, safe="")
+        data = self._transport.send(
+            method="POST",
+            path=f"/v1/project-edge/story-runs/{run_segment}/ownership/takeover-request",
+            payload=request.model_dump(mode="json"),
+        )
+        data.pop("correlation_id", None)
+        return ControlPlaneMutationResult.model_validate(data)
+
+    def takeover_confirm(
+        self,
+        *,
+        run_id: str,
+        request: TakeoverConfirmRequest,
+    ) -> ControlPlaneMutationResult:
+        """Confirm an offered challenge through the official REST route."""
+        run_segment = urllib.parse.quote(run_id, safe="")
+        return self._post_and_publish(
+            path=f"/v1/project-edge/story-runs/{run_segment}/ownership/takeover-confirm",
+            payload=request.model_dump(mode="json"),
+        )
+
     def _post_project_phase(
         self,
         *,
@@ -741,10 +795,7 @@ class ProjectEdgeClient:
         phase_segment = urllib.parse.quote(phase, safe="")
         data = self._transport.send(
             method="POST",
-            path=(
-                f"/v1/projects/{project_segment}/story-runs/{run_segment}"
-                f"/phases/{phase_segment}/{action}"
-            ),
+            path=(f"/v1/projects/{project_segment}/story-runs/{run_segment}/phases/{phase_segment}/{action}"),
             payload=request.model_dump(mode="json"),
         )
         # The transport surfaces the server's audited correlation id (FK-91 §91.1a
@@ -859,9 +910,7 @@ class ProjectEdgeClient:
             op_id=op_id,
             participating_repos=outcome.participating_repos,
         )
-        headers = (
-            {_CORRELATION_HEADER: correlation_id} if correlation_id else None
-        )
+        headers = {_CORRELATION_HEADER: correlation_id} if correlation_id else None
         # Target the actually exposed tenant-scoped route (§91.1a Regel #1 /
         # FK-72 §72.8.1). ``project_key`` is URL-encoded so a key with reserved
         # characters cannot break out of the path segment.
@@ -909,9 +958,7 @@ class ProjectEdgeClient:
         (this is a read, not a mutation).
         """
         run_segment = urllib.parse.quote(run_id, safe="")
-        query = urllib.parse.urlencode(
-            {"project_key": project_key, "session_id": session_id}
-        )
+        query = urllib.parse.urlencode({"project_key": project_key, "session_id": session_id})
         data = self._transport.send(
             method="GET",
             path=f"/v1/project-edge/story-runs/{run_segment}/commands?{query}",
@@ -953,10 +1000,7 @@ class ProjectEdgeClient:
         """Submit all per-repo edge results through the official reconcile route."""
         run_segment = urllib.parse.quote(run_id, safe="")
         return self._post_and_publish(
-            path=(
-                f"/v1/project-edge/story-runs/{run_segment}/ownership/"
-                "takeover-reconcile-worktree"
-            ),
+            path=(f"/v1/project-edge/story-runs/{run_segment}/ownership/takeover-reconcile-worktree"),
             payload=request.model_dump(mode="json"),
         )
 
@@ -969,9 +1013,7 @@ class ProjectEdgeClient:
         """Request explicit recovery and publish its authoritative edge bundle."""
         run_segment = urllib.parse.quote(run_id, safe="")
         return self._post_and_publish(
-            path=(
-                f"/v1/project-edge/story-runs/{run_segment}/ownership/recover"
-            ),
+            path=(f"/v1/project-edge/story-runs/{run_segment}/ownership/recover"),
             payload=request.model_dump(mode="json"),
         )
 
@@ -981,9 +1023,7 @@ class ProjectEdgeClient:
         worktree_roots: list[Path],
     ) -> None:
         """Block local hooks until the post-reconcile authoritative sync lands."""
-        self._publisher.publish_unreadable_freeze_state(
-            worktree_roots=worktree_roots
-        )
+        self._publisher.publish_unreadable_freeze_state(worktree_roots=worktree_roots)
 
     def confirm_push_ownership(
         self,
@@ -1014,9 +1054,7 @@ class ProjectEdgeClient:
         try:
             data = self._transport.send(
                 method="GET",
-                path=(
-                    f"/v1/project-edge/story-runs/{run_segment}/push-ownership?{query}"
-                ),
+                path=(f"/v1/project-edge/story-runs/{run_segment}/push-ownership?{query}"),
                 timeout=PUSH_GATE_OWNERSHIP_TIMEOUT_S,
             )
         except OSError as exc:
@@ -1059,6 +1097,7 @@ class ProjectEdgeClient:
         payload: Mapping[str, object],
     ) -> ControlPlaneMutationResult:
         data = self._transport.send(method="POST", path=path, payload=payload)
+        data.pop("correlation_id", None)
         result = ControlPlaneMutationResult.model_validate(data)
         # AG3-054 (FK-20 §20.8.2): a fail-closed REJECTED start carries no edge
         # bundle (it materialized no run state). There is nothing to publish

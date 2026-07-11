@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from ._operator_ownership_commands import _build_strategist_client as _build_strategist_client
+from ._operator_ownership_commands import _cmd_recover_story as _cmd_recover_story
+from ._operator_ownership_commands import _cmd_takeover_confirm as _cmd_takeover_confirm
+from ._operator_ownership_commands import _cmd_takeover_request as _cmd_takeover_request
 from ._operator_recovery_admin import _cmd_admin_abort as _cmd_admin_abort
 from ._operator_recovery_admin import _cmd_cleanup as _cmd_cleanup
 from ._operator_recovery_admin import _cmd_override_integrity as _cmd_override_integrity
@@ -61,12 +65,14 @@ __all__ = [
     "_VALID_PHASES",
     "_apply_since_filter",
     "_build_control_plane_client",
+    "_build_strategist_client",
     "_build_weekly_review_frame",
     "_cmd_admin_abort",
     "_cmd_cleanup",
     "_cmd_export_telemetry",
     "_cmd_override_integrity",
     "_cmd_query_state",
+    "_cmd_recover_story",
     "_cmd_query_telemetry",
     "_cmd_query_telemetry_global_form",
     "_cmd_query_telemetry_story_form",
@@ -74,6 +80,8 @@ __all__ = [
     "_cmd_resume",
     "_cmd_run_phase",
     "_cmd_status",
+    "_cmd_takeover_confirm",
+    "_cmd_takeover_request",
     "_cmd_weekly_review",
     "_coerce_to_aware_datetime",
     "_invoke_control_plane_phase",

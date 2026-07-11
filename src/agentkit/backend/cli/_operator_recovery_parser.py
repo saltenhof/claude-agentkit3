@@ -107,6 +107,32 @@ def _setup_operator_recovery_subparsers(
         help="Core control-plane base URL for the admin-abort REST call (AG3-138).",
     )
 
+    takeover_request_parser = subparsers.add_parser(
+        "takeover-request",
+        help="Request an informed ownership-transfer challenge",
+    )
+    _add_ownership_common_args(takeover_request_parser)
+    takeover_request_parser.add_argument("--session", required=True, help="Prospective owner session ID")
+    takeover_request_parser.add_argument("--worktree", action="append", required=True, help="Prospective owner worktree root")
+
+    takeover_confirm_parser = subparsers.add_parser(
+        "takeover-confirm",
+        help="Confirm a takeover through a strategist session",
+    )
+    _add_ownership_common_args(takeover_confirm_parser)
+    takeover_confirm_parser.add_argument("--challenge-id", required=True, help="Echoed challenge ID")
+
+    recover_parser = subparsers.add_parser(
+        "recover-story",
+        help="Recover a crashed story into a new run",
+    )
+    _add_ownership_common_args(recover_parser)
+    recover_parser.add_argument(
+        "--discard",
+        action="store_true",
+        help="Discard uncommitted work through the edge reset job (requires confirmation)",
+    )
+
     # reset-escalation (Class C — service gap)
     reset_esc_parser = subparsers.add_parser(
         "reset-escalation",
@@ -186,6 +212,18 @@ def _setup_operator_recovery_subparsers(
         action="store_true",
         help="Check output directory reachability/writability only",
     )
+
+
+def _add_ownership_common_args(parser: argparse.ArgumentParser) -> None:
+    """Register shared strategist ownership-adapter arguments."""
+    parser.add_argument("--story", required=True, help=_STORY_ID_FIELD_LABEL)
+    parser.add_argument("--run", required=True, help="Current/superseded run ID")
+    parser.add_argument("--reason", required=True, help="Mandatory audited justification")
+    parser.add_argument("--project", required=True, help="Project key")
+    parser.add_argument("--project-root", default=".", help=_PROJECT_ROOT_HELP)
+    parser.add_argument("--base-url", required=True, help="Control-plane base URL")
+    parser.add_argument("--username", default="admin", help="Strategist login username")
+    parser.add_argument("--op-id", help=_OP_ID_HELP)
 
 
 __all__ = ["_setup_operator_recovery_subparsers"]

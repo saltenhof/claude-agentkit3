@@ -29,9 +29,7 @@ if TYPE_CHECKING:
     from agentkit.harness_client.projectedge.client import ProjectEdgeClient
 
 _cmd_failure_corpus = _failure_corpus_commands._cmd_failure_corpus
-_setup_failure_corpus_subparsers = (
-    _failure_corpus_commands._setup_failure_corpus_subparsers
-)
+_setup_failure_corpus_subparsers = _failure_corpus_commands._setup_failure_corpus_subparsers
 
 _build_engine_config = _installer_commands._build_engine_config
 _split_jenkins_url = _installer_commands._split_jenkins_url
@@ -84,13 +82,12 @@ def main(argv: list[str] | None = None) -> int:
     """
     parser = argparse.ArgumentParser(
         prog="agentkit",
-        description=(
-            "AgentKit -- deterministic orchestration engine "
-            "for AI-driven story execution"
-        ),
+        description=("AgentKit -- deterministic orchestration engine for AI-driven story execution"),
     )
     parser.add_argument(
-        "--version", action="store_true", help="Show version and exit",
+        "--version",
+        action="store_true",
+        help="Show version and exit",
     )
 
     subparsers = parser.add_subparsers(dest="command")
@@ -120,9 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _dispatch_command(
-    args: argparse.Namespace, cli_args: list[str]
-) -> tuple[bool, int]:
+def _dispatch_command(args: argparse.Namespace, cli_args: list[str]) -> tuple[bool, int]:
     """Dispatch a parsed subcommand. Returns ``(handled, exit_code)``."""
     from agentkit.backend.cli import lifecycle
 
@@ -150,6 +145,9 @@ def _dispatch_command(
         "run-phase": lambda: _cmd_run_phase(args),
         "resume": lambda: _cmd_resume(args),
         "admin-abort": lambda: _cmd_admin_abort(args),
+        "takeover-request": lambda: _operator_recovery_commands._cmd_takeover_request(args),
+        "takeover-confirm": lambda: _operator_recovery_commands._cmd_takeover_confirm(args),
+        "recover-story": lambda: _operator_recovery_commands._cmd_recover_story(args),
         "reset-escalation": lambda: _operator_recovery_commands._cmd_reset_escalation(args),
         "cleanup": lambda: _operator_recovery_commands._cmd_cleanup(args),
         "status": lambda: _operator_recovery_commands._cmd_status(args),
@@ -178,9 +176,7 @@ def _invoke_control_plane_phase(
     call: Callable[[ProjectEdgeClient], ControlPlaneMutationResult],
 ) -> ControlPlaneMutationResult | None:
     """Run a control-plane phase call through the public CLI facade seam."""
-    return _operator_recovery_commands._invoke_control_plane_phase(
-        verb, ctx, call, client_builder=_build_control_plane_client
-    )
+    return _operator_recovery_commands._invoke_control_plane_phase(verb, ctx, call, client_builder=_build_control_plane_client)
 
 
 def _cmd_export_story_md(args: argparse.Namespace) -> int:
@@ -203,20 +199,14 @@ def _cmd_repair_story_md(args: argparse.Namespace) -> int:
 
 def _cmd_run_phase(args: argparse.Namespace) -> int:
     """Handle ``agentkit run-phase`` through the stable main-module seam."""
-    return _operator_recovery_commands._cmd_run_phase(
-        args, client_builder=_build_control_plane_client
-    )
+    return _operator_recovery_commands._cmd_run_phase(args, client_builder=_build_control_plane_client)
 
 
 def _cmd_resume(args: argparse.Namespace) -> int:
     """Handle ``agentkit resume`` through the stable main-module seam."""
-    return _operator_recovery_commands._cmd_resume(
-        args, client_builder=_build_control_plane_client
-    )
+    return _operator_recovery_commands._cmd_resume(args, client_builder=_build_control_plane_client)
 
 
 def _cmd_admin_abort(args: argparse.Namespace) -> int:
     """Handle ``agentkit admin-abort`` through the stable main-module seam."""
-    return _operator_recovery_commands._cmd_admin_abort(
-        args, client_builder=_build_control_plane_client
-    )
+    return _operator_recovery_commands._cmd_admin_abort(args, client_builder=_build_control_plane_client)

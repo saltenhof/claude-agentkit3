@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Literal
 
 import pytest
@@ -521,6 +522,11 @@ def test_build_project_edge_client_uses_local_control_plane_config(
         json.dumps({"base_url": "https://127.0.0.1:9443", "ca_file": None}),
         encoding="utf-8",
     )
+    monkeypatch.setattr(
+        "agentkit.harness_client.projectedge.runtime.load_project_config",
+        lambda _root: SimpleNamespace(project_key="tenant-a"),
+    )
+    monkeypatch.setenv("AGENTKIT_PROJECT_API_TOKEN", "ak3-test-token")
 
     client = build_project_edge_client(tmp_path)
 
@@ -529,6 +535,8 @@ def test_build_project_edge_client_uses_local_control_plane_config(
     transport = cast("HttpsJsonTransport", client._transport)
     publisher = client._publisher
     assert transport._base_url == "https://127.0.0.1:9443"
+    assert transport._project_key == "tenant-a"
+    assert transport._bearer_token == "ak3-test-token"
     assert publisher._project_root == tmp_path
 
 

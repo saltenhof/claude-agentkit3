@@ -19,7 +19,9 @@ from agentkit.backend.control_plane.models import (
     RecoveryRequest,
     SessionRunBindingView,
     StoryExecutionLockView,
+    TakeoverConfirmRequest,
     TakeoverReconcileWorktreeRequest,
+    TakeoverRequest,
     WorktreeReport,
 )
 from agentkit.harness_client.projectedge import (
@@ -230,6 +232,58 @@ def test_project_edge_client_recover_is_thin_official_transport(tmp_path: Path) 
 
     assert transport.calls == [
         ("POST", "/v1/project-edge/story-runs/run%2Fold/ownership/recover")
+    ]
+
+
+def test_project_edge_client_takeover_request_is_thin_official_transport(
+    tmp_path: Path,
+) -> None:
+    transport = _FakeTransport(_mutation_result(str(tmp_path / "worktree")))
+    client = ProjectEdgeClient(
+        transport=transport,
+        publisher=LocalEdgePublisher(project_root=tmp_path),
+    )
+
+    client.takeover_request(
+        run_id="run/old",
+        request=TakeoverRequest(
+            project_key="tenant-a",
+            story_id="AG3-154",
+            session_id="sess-new",
+            principal_type="interactive_agent",
+            op_id="op-request",
+            reason="owner unavailable",
+            worktree_roots=[str(tmp_path)],
+        ),
+    )
+
+    assert transport.calls == [
+        ("POST", "/v1/project-edge/story-runs/run%2Fold/ownership/takeover-request")
+    ]
+
+
+def test_project_edge_client_takeover_confirm_is_thin_official_transport(
+    tmp_path: Path,
+) -> None:
+    transport = _FakeTransport(_mutation_result(str(tmp_path / "worktree")))
+    client = ProjectEdgeClient(
+        transport=transport,
+        publisher=LocalEdgePublisher(project_root=tmp_path),
+    )
+
+    client.takeover_confirm(
+        run_id="run/old",
+        request=TakeoverConfirmRequest(
+            project_key="tenant-a",
+            story_id="AG3-154",
+            op_id="op-confirm",
+            challenge_id="challenge-1",
+            reason="human confirmed",
+        ),
+    )
+
+    assert transport.calls == [
+        ("POST", "/v1/project-edge/story-runs/run%2Fold/ownership/takeover-confirm")
     ]
 
 
@@ -488,6 +542,59 @@ def test_https_json_transport_returns_object(monkeypatch: pytest.MonkeyPatch) ->
     transport = HttpsJsonTransport(base_url="https://127.0.0.1:9080")
 
     assert transport.send(method="GET", path="/healthz") == {"status": "ok"}
+
+
+def test_https_transport_strategist_login_reuses_cookie_csrf_and_project_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[Any] = []
+
+    def fake_urlopen(request: Any, **_kwargs: Any) -> _FakeResponse:
+        requests.append(request)
+        if len(requests) == 1:
+            return _FakeResponse(
+                b'{"csrf_token": "csrf-real", "status": "authenticated"}',
+                headers={"Set-Cookie": "ak3_session=session-real; Path=/; HttpOnly"},
+            )
+        return _FakeResponse(b'{"status": "ok"}')
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    transport = HttpsJsonTransport(base_url="https://127.0.0.1:9080")
+
+    authenticated = transport.authenticate_strategist(
+        username="strategist",
+        password="secret",
+        project_key="tenant-a",
+    )
+    authenticated.send(method="POST", path="/v1/example", payload={})
+
+    headers = {key.lower(): value for key, value in requests[1].header_items()}
+    assert headers["cookie"] == "ak3_session=session-real"
+    assert headers["x-csrf-token"] == "csrf-real"
+    assert headers["x-project-key"] == "tenant-a"
+
+
+def test_https_transport_bearer_auth_carries_project_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[Any] = []
+
+    def fake_urlopen(request: Any, **_kwargs: Any) -> _FakeResponse:
+        captured.append(request)
+        return _FakeResponse(b'{"status": "ok"}')
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    transport = HttpsJsonTransport(
+        base_url="https://127.0.0.1:9080",
+        bearer_token="ak3-token",
+        project_key="tenant-a",
+    )
+
+    transport.send(method="GET", path="/v1/example")
+
+    headers = {key.lower(): value for key, value in captured[0].header_items()}
+    assert headers["authorization"] == "Bearer ak3-token"
+    assert headers["x-project-key"] == "tenant-a"
 
 
 def test_https_json_transport_raises_runtime_error_for_http_error(monkeypatch: pytest.MonkeyPatch) -> None:

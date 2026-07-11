@@ -114,6 +114,7 @@ class ResolvedEdgeState:
 #: Project-pinned prompt-bundle lock (FK-43/FK-44), the authoritative local
 #: source of the bound skill-bundle version surfaced in the version handshake.
 _PROMPT_BUNDLE_LOCK_RELPATH = Path(".agentkit") / "config" / "prompt-bundle.lock.json"
+_PROJECT_API_TOKEN_ENV = "AGENTKIT_PROJECT_API_TOKEN"
 
 
 def _read_bound_skill_bundle_version(project_root: Path) -> str | None:
@@ -154,10 +155,9 @@ def read_bound_skill_bundle_version(project_root: Path) -> str | None:
 
 def build_project_edge_client(project_root: Path) -> ProjectEdgeClient:
     """Construct a configured project-edge client from local project config."""
+    project_config = load_project_config(project_root)
     config = json.loads(
-        (
-            project_root / ".agentkit" / "config" / "control-plane.json"
-        ).read_text(encoding="utf-8"),
+        (project_root / ".agentkit" / "config" / "control-plane.json").read_text(encoding="utf-8"),
     )
     cafile = config.get("ca_file")
     ssl_context = ssl.create_default_context(cafile=cafile) if cafile else None
@@ -166,6 +166,8 @@ def build_project_edge_client(project_root: Path) -> ProjectEdgeClient:
             base_url=str(config["base_url"]),
             ssl_context=ssl_context,
             skill_bundle_version=_read_bound_skill_bundle_version(project_root),
+            bearer_token=os.environ.get(_PROJECT_API_TOKEN_ENV),
+            project_key=project_config.project_key,
         ),
         publisher=LocalEdgePublisher(project_root=project_root),
     )
@@ -221,20 +223,12 @@ class ProjectEdgeResolver:
             # (e.g. ``ownership_transferred``) is surfaced verbatim; a missing
             # (malformed/legacy) reason still fails closed to ``binding_invalid``
             # with a generic reason, never treated as "not revoked".
-            reason = (
-                canonical_binding_revocation_reason(session.revocation_reason)
-                if session_id == session.session_id
-                else None
-            )
+            reason = canonical_binding_revocation_reason(session.revocation_reason) if session_id == session.session_id else None
             return ResolvedEdgeState(
                 operating_mode="binding_invalid",
                 bundle=bundle,
                 block_reason=reason or "session_binding_mismatch",
-                new_owner_ref=(
-                    session.new_owner_ref
-                    if reason == "ownership_transferred"
-                    else None
-                ),
+                new_owner_ref=(session.new_owner_ref if reason == "ownership_transferred" else None),
                 synced=synced,
             )
 
@@ -290,12 +284,8 @@ class ProjectEdgeResolver:
         #   session == None && lock == None -> ai_augmented (the intended FAST bundle)
         #   session != None && lock != None -> story_execution (standard)
         lock_payload = _load_json(lock_path) if lock_path.is_file() else None
-        qa_lock_payload = (
-            _load_json(qa_lock_path) if qa_lock_path.is_file() else None
-        )
-        freeze_payload, freezes_readable = _load_freeze_projection(
-            bundle_root / "freeze.json"
-        )
+        qa_lock_payload = _load_json(qa_lock_path) if qa_lock_path.is_file() else None
+        freeze_payload, freezes_readable = _load_freeze_projection(bundle_root / "freeze.json")
         return EdgeBundle.model_validate(
             {
                 "current": pointer.model_dump(mode="json"),

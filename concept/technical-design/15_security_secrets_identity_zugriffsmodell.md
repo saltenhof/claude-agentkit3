@@ -440,7 +440,7 @@ Drei klar abgegrenzte Aufrufer-Klassen:
 
 | Klasse | Aufrufer | Auth-Mechanismus | Zugriffsumfang |
 |---|---|---|---|
-| **Stratege** | Mensch im Browser | Cookie-basierte Session nach Login mit lokalem Passwort | UI-BFF (9701), alle UI-Sichten |
+| **Stratege** | Mensch im Browser/CLI | Cookie-basierte Session nach Login mit lokalem Passwort | UI-BFF (9701), alle UI-Sichten |
 | **Thin-Client** | Maschinen-Prozess im Zielprojekt | Bearer-Token im `Authorization`-Header | Project-API (9702), alle projektbezogenen Mutations- und Lesepfade |
 | **Worker-Agent** | AK3-internes Subprocess | kein API-Auth (selbe Prozesssphaere, Trusted-Path) | nur ueber AK3-Domain-Schichten, nicht ueber HTTP |
 
