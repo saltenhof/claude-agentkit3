@@ -1,9 +1,16 @@
 story_id: AG3-150
 title: "Freeze-Zustaende als Admission-Blocker: freeze_epoch/freeze_reason auf der conflict_freeze-Familie, Challenge-Invalidierung bei Freeze-Eintritt, Split-Fence -> Admin-Freeze"
 type: implementation
-status: ready
-phase: setup
+status: completed
+phase: closure
 # AG3-149 closed 2026-07-10 (main@d8bc9e89) -> dependency satisfied, unblocked.
+# CLOSED 2026-07-11 at main@31b44c6a. Two increments: Inc-1 freeze family +
+# admission-blocker + challenge invalidation + truthful-finalize (sealed ba422598,
+# 3-reviewer convergence + Fable finale); Inc-2 split exclusive-fence -> admin-freeze
+# saga + per-step object claims (Codex review -> R1 31b44c6a + Fable finale APPROVE).
+# Jenkins #1800 SUCCESS, Sonar 0/0/0, cov new-code 84.0%. Covers SOLL-086/087/092/093.
+# Design + all review rounds/rulings: reports/AG3-150-freeze-admission-design.md.
+# Unblocks AG3-151.
 created: "2026-07-02"
 size: M
 # Herkunft: GAP-ST-07c (gap-analyse-session-ownership.md v4, Codex-APPROVE).

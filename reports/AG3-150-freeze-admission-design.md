@@ -409,3 +409,45 @@ ship-fit. Three-reviewer convergence achieved.
   (`_di.py:35`), SQLite has no takeover tables. Structurally moot.
 
 Inc-1 SEALED at main@ba422598. Proceeding to Increment 2 (pillar 4).
+
+---
+
+## Inc-2 R1 — successor creation must run under the per-step claim (2026-07-11)
+
+Inc-2 defect review (`job-29609627`): CHANGES-REQUIRED, 1 ERROR (other 6 areas closed).
+Orchestrator confirmed at code (`service.py:985-1009`): the successor-creation loop calls
+`create_story` DIRECTLY at :986 — OUTSIDE `run_claimed_step`; only the checkpoint (:998) and
+the following step (:1010) are claim-gated. So the productive successor create+number
+sub-commit is NOT under the per-story object claim: a foreign claim on the source lets the
+successor be durably created, conflict detected too late (AC7 + fail-closed violation). Test
+gap: `acquired==released` cannot detect an OMITTED acquisition.
+R1 (`job-6c10a16c`, dispatched): wrap the create_story sub-commit in run_claimed_step
+(story_id=source, distinct op_id), fail-closed BEFORE the create; preserve op-id idempotency,
+crash-before-export checkpoint ordering, and op_id-lineage resume convergence; add a test that a
+held conflicting claim rejects the creation with NO successor durably created. Inc-2 base:
+main@e9c1e44f (Jenkins #1796). After R1 green: adjudicate → re-review → Fable finale Inc-2 →
+whole-story DoD + status.yaml=completed (unblocks AG3-151).
+
+---
+
+## Inc-2 FABLE FINALE — APPROVE + STORY CLOSED (2026-07-11)
+
+Fable finale on main@31b44c6a: **VERDICT: APPROVE** (38 tool-uses; per-area 1-7 file:line
+evidence; explicit confirmation the R1 claim-wrap introduced NO reentrancy/resume regression;
+full durable-writer sweep confirms every productive sub-commit is claim-gated). Whole story
+closeable. Non-blocking: N1 (resume finalized-replay clear runs without a per-step claim —
+idempotent/kind+reason-scoped/rowcount-checked; cosmetic, same family as sealed O3), N2 (no-TTL
+strand → same-instance startup reconciliation / admin_abort; deliberate design), N3
+(freeze_version=1 constant is the local-export-match counter, consistent — freeze_epoch is the
+monotone anchor). All recorded per ZERO DEBT; none gates shipping.
+
+### AG3-150 — WHOLE STORY CLOSED at main@31b44c6a
+Inc-1 SEALED (ba422598, 3-reviewer convergence) + Inc-2 R1 (31b44c6a, Codex review + orchestrator
+code-adjudication + Fable finale APPROVE). Covers SOLL-086/087/092/093. DoD: all ACs met
+(freeze-family record form + epoch, admission-blocker at every regime path, resolving-command
+registry, challenge invalidation + takeover-admissibility, no auto-expiry, split admin-freeze
+saga with per-step claims + docked reentrancy); gate suite green (ruff, mypy both platforms,
+pytest 9268 passed, cov 92.44% local / 84.0% new-code Sonar, 4 concept gates); Jenkins #1800
+SUCCESS; Sonar 0/0/0. Unblocks AG3-151. Deferred by ruling: positive self-rebind → AG3-154 (via
+149). Carried tech-debt: O1 CCAG escalator (sanctioned), O2/N1 DRY/uniformity nits, SQLite
+ResourceWarnings (#20).
