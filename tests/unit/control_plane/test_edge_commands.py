@@ -20,14 +20,14 @@ def test_all_command_kinds_pins_the_six_registered_kinds() -> None:
     } == ec.ALL_COMMAND_KINDS
 
 
-def test_executable_command_kinds_is_the_ag3_145_subset() -> None:
-    """The edge executes four of the six kinds: the AG3-145 worktree/preflight
-    trio plus the AG3-147 ``sync_push`` official Edge-Push-Gate path."""
+def test_executable_command_kinds_includes_takeover_reconcile() -> None:
+    """AG3-151 adds takeover reconcile to the productive edge executors."""
     assert {
         "provision_worktree",
         "teardown_worktree",
         "preflight_probe",
         "sync_push",
+        "takeover_reconcile",
     } == ec.EXECUTABLE_COMMAND_KINDS
     assert ec.EXECUTABLE_COMMAND_KINDS < ec.ALL_COMMAND_KINDS
 
@@ -75,7 +75,7 @@ def test_is_known_command_kind_accepts_all_six_and_rejects_unknown() -> None:
     assert ec.is_known_command_kind("") is False
 
 
-def test_is_executable_command_kind_true_only_for_the_ag3_145_subset() -> None:
+def test_is_executable_command_kind_true_only_for_the_productive_subset() -> None:
     for kind in ec.EXECUTABLE_COMMAND_KINDS:
         assert ec.is_executable_command_kind(kind) is True
     for kind in ec.ALL_COMMAND_KINDS - ec.EXECUTABLE_COMMAND_KINDS:

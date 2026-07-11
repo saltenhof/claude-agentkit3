@@ -107,8 +107,9 @@ def main(
     sync_parser.add_argument("--op-id")
 
     # AG3-145: the Edge-Command-Queue loop -- fetch this session's open commands
-    # (FK-91 §91.1b), execute them dev-locally (provision/teardown/preflight_probe)
-    # and report each result with the edge's own op_id.
+    # (FK-91 §91.1b), execute them dev-locally (provision/teardown/preflight,
+    # sync-push, and takeover-reconcile), and report each result with the edge's
+    # own op_id.
     commands_parser = subparsers.add_parser("run-commands")
     commands_parser.add_argument("--project-key", required=True)
     commands_parser.add_argument("--story-id", required=True)
@@ -351,12 +352,13 @@ def _run_commands(
     *,
     client_factory: ClientFactory | None = None,
 ) -> int:
-    """Run the Edge-Command-Queue loop for this session (AG3-145/AG3-147, FK-91 §91.1b).
+    """Run the Edge command loop (AG3-145/147/151, FK-91 §91.1b).
 
     Fetches this session's open commands, executes provision/teardown/
-    preflight_probe AND the official ``sync_push`` Edge-Push-Gate path (FK-15
-    §15.5.4: bounded online-ownership check, push only the official
-    ``story/{id}`` ref via the backend-managed service identity) dev-locally, and
+    preflight_probe, the official ``sync_push`` Edge-Push-Gate path, AND the
+    ``takeover_reconcile`` quarantine/reprovision path. The push path uses the
+    backend-managed service identity and only the official ``story/{id}`` ref
+    (FK-15 §15.5.4). All execute dev-locally, and the loop
     reports each result with the edge's own ``op_id``. The push mechanic is the
     SINGLE shared :func:`process_open_commands` (the harness-client executor) --
     this bundle wrapper adds no second copy. A missing / invalid project.yaml or

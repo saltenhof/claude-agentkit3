@@ -68,11 +68,17 @@ ALL_COMMAND_KINDS: frozenset[str] = frozenset(
     }
 )
 
-#: The edge executors that exist: the AG3-145 worktree/preflight trio plus the
-#: AG3-147 ``sync_push`` official Edge-Push-Gate path (FK-10 §10.2.4b). A command
-#: of any OTHER registered kind is a deterministic error result at the edge.
+#: The productive edge executors: the AG3-145 worktree/preflight trio, AG3-147
+#: ``sync_push``, and AG3-151 ``takeover_reconcile``. Any remaining registered
+#: kind is a deterministic error result at the edge.
 EXECUTABLE_COMMAND_KINDS: frozenset[str] = frozenset(
-    {"provision_worktree", "teardown_worktree", "preflight_probe", "sync_push"}
+    {
+        "provision_worktree",
+        "teardown_worktree",
+        "preflight_probe",
+        "sync_push",
+        "takeover_reconcile",
+    }
 )
 
 #: FK-91 §91.1a Rule 16 (no wall-clock end): a command record's lifecycle

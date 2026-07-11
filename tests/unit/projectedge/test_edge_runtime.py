@@ -9,6 +9,7 @@ import pytest
 from agentkit.backend.control_plane.models import (
     ControlPlaneMutationResult,
     EdgeBundle,
+    EdgeFreezeStateView,
     EdgePointer,
     ProjectEdgeSyncRequest,
     SessionRunBindingView,
@@ -39,6 +40,7 @@ def _bundle(
     qa_lock_status: Literal["ACTIVE", "INACTIVE", "INVALID"] = "ACTIVE",
     binding_status: str = "active",
     revocation_reason: str | None = None,
+    active_freezes: list[EdgeFreezeStateView] | None = None,
 ) -> EdgeBundle:
     now = datetime(2026, 4, 22, 12, 0, tzinfo=UTC)
     return EdgeBundle(
@@ -85,6 +87,7 @@ def _bundle(
             activated_at=now,
             updated_at=now,
         ),
+        active_freezes=active_freezes or [],
     )
 
 
@@ -113,6 +116,64 @@ def test_resolver_returns_story_execution_for_matching_bundle(tmp_path: Path) ->
     assert resolved.bundle is not None
     assert resolved.bundle.qa_lock is not None
     assert resolved.bundle.qa_lock.lock_type == "qa_artifact_write"
+
+
+@pytest.mark.parametrize(
+    "block_reason",
+    (
+        "remote_branch_diverged_after_takeover",
+        "local_stale_or_dirty_takeover_target",
+        "contested_local_writes",
+    ),
+)
+def test_resolver_blocks_active_ownership_for_takeover_guard_state(
+    tmp_path: Path,
+    block_reason: str,
+) -> None:
+    worktree = tmp_path / "worktree"
+    freeze = EdgeFreezeStateView(
+        kind="contested_local_writes",
+        freeze_reason=f"{block_reason}: repo=api; reconcile failed",
+        freeze_epoch="4",
+        block_reason=block_reason,
+    )
+    bundle = _bundle(worktree_root=str(worktree), active_freezes=[freeze])
+    LocalEdgePublisher(project_root=tmp_path).publish(bundle)
+
+    resolved = ProjectEdgeResolver(project_root=tmp_path).resolve(
+        session_id="sess-001",
+        cwd=worktree,
+        freshness_class="guarded_read",
+    )
+
+    assert resolved.operating_mode == "binding_invalid"
+    assert resolved.block_reason == block_reason
+    assert resolved.bundle is not None
+    assert resolved.bundle.session is not None
+    assert resolved.bundle.session.status == "active"
+    guard_payload = json.loads(
+        (worktree / ".agent-guard" / "freeze.json").read_text(encoding="utf-8")
+    )
+    assert guard_payload["active_freezes"][0]["block_reason"] == block_reason
+
+
+def test_resolver_blocks_when_published_freeze_state_is_unreadable(
+    tmp_path: Path,
+) -> None:
+    worktree = tmp_path / "worktree"
+    bundle = _bundle(worktree_root=str(worktree))
+    LocalEdgePublisher(project_root=tmp_path).publish(bundle)
+    freeze_path = tmp_path / bundle.current.bundle_dir / "freeze.json"
+    freeze_path.write_text("{not-json", encoding="utf-8")
+
+    resolved = ProjectEdgeResolver(project_root=tmp_path).resolve(
+        session_id="sess-001",
+        cwd=worktree,
+        freshness_class="guarded_read",
+    )
+
+    assert resolved.operating_mode == "binding_invalid"
+    assert resolved.block_reason == "freeze_state_unreadable"
 
 
 def test_resolver_returns_binding_invalid_for_session_mismatch(tmp_path: Path) -> None:

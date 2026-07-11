@@ -279,7 +279,11 @@ class _EdgeCommandMixin:
             story_id=request.story_id,
             run_id=existing.run_id,
             session_id=request.session_id,
-            command_id="edge_command_result",
+            command_id=(
+                "takeover_reconcile_clear"
+                if existing.command_kind == "takeover_reconcile"
+                else "edge_command_result"
+            ),
         )
         if not admission.admitted:
             return self._edge_command_ownership_admission_rejection(

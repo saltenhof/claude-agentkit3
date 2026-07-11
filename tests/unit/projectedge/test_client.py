@@ -18,6 +18,8 @@ from agentkit.backend.control_plane.models import (
     ProjectEdgeSyncRequest,
     SessionRunBindingView,
     StoryExecutionLockView,
+    TakeoverReconcileWorktreeRequest,
+    WorktreeReport,
 )
 from agentkit.harness_client.projectedge import (
     HttpsJsonTransport,
@@ -134,10 +136,77 @@ def test_local_edge_publisher_writes_current_bundle_and_worktree_export(
         ).read_text(),
     )
     lock_export = json.loads((worktree / ".agent-guard" / "lock.json").read_text())
+    freeze_export = json.loads(
+        (worktree / ".agent-guard" / "freeze.json").read_text()
+    )
 
     assert current["export_version"] == "edge-001"
     assert qa_lock["lock_type"] == "qa_artifact_write"
     assert lock_export["status"] == "ACTIVE"
+    assert freeze_export == {"active_freezes": [], "state_readable": True}
+
+
+def test_local_edge_publisher_can_fail_closed_until_authoritative_sync(
+    tmp_path: Path,
+) -> None:
+    worktree = tmp_path / "worktree"
+    bundle = _mutation_result(str(worktree)).edge_bundle
+    publisher = LocalEdgePublisher(project_root=tmp_path)
+    publisher.publish(bundle)
+
+    publisher.publish_unreadable_freeze_state(worktree_roots=[worktree])
+
+    expected = {"active_freezes": [], "state_readable": False}
+    assert json.loads(
+        (worktree / ".agent-guard" / "freeze.json").read_text()
+    ) == expected
+    assert json.loads(
+        (
+            tmp_path
+            / "_temp"
+            / "governance"
+            / "bundles"
+            / "edge-001"
+            / "freeze.json"
+        ).read_text()
+    ) == expected
+
+
+def test_project_edge_client_posts_official_takeover_reconcile_route(
+    tmp_path: Path,
+) -> None:
+    result = _mutation_result(str(tmp_path / "worktree"))
+    transport = _FakeTransport(result)
+    client = ProjectEdgeClient(
+        transport=transport,
+        publisher=LocalEdgePublisher(project_root=tmp_path),
+    )
+
+    client.reconcile_takeover_worktree(
+        run_id="run/100",
+        request=TakeoverReconcileWorktreeRequest(
+            project_key="tenant-a",
+            story_id="AG3-100",
+            session_id="sess-001",
+            op_id="op-reconcile-client",
+            results=[
+                WorktreeReport(
+                    repo_id="api",
+                    outcome="no_op",
+                    head_sha="a" * 40,
+                    marker_present=True,
+                )
+            ],
+        ),
+    )
+
+    assert transport.calls == [
+        (
+            "POST",
+            "/v1/project-edge/story-runs/run%2F100/ownership/"
+            "takeover-reconcile-worktree",
+        )
+    ]
 
 
 def test_project_edge_client_posts_and_publishes(tmp_path: Path) -> None:

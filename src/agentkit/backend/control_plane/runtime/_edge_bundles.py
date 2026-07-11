@@ -176,9 +176,27 @@ def _edge_freeze_views(records: tuple[object, ...]) -> list[EdgeFreezeStateView]
                 kind=state.kind.value,
                 freeze_reason=state.freeze_reason,
                 freeze_epoch=state.freeze_epoch,
+                block_reason=_freeze_block_reason(
+                    kind=state.kind.value,
+                    freeze_reason=state.freeze_reason,
+                ),
             )
         )
     return views
+
+
+def _freeze_block_reason(*, kind: str, freeze_reason: str) -> str:
+    """Project a canonical freeze into the most specific edge guard reason."""
+    if kind != "contested_local_writes":
+        return kind
+    for result_type in (
+        "remote_branch_diverged_after_takeover",
+        "local_stale_or_dirty_takeover_target",
+        "contested_local_writes",
+    ):
+        if freeze_reason.startswith(f"{result_type}: repo="):
+            return result_type
+    return "contested_local_writes"
 
 
 def _resolve_operating_mode(

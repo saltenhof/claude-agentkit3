@@ -668,6 +668,14 @@ class EdgeFreezeStateView(BaseModel):
     ]
     freeze_reason: str = Field(min_length=1)
     freeze_epoch: str = Field(min_length=1)
+    block_reason: Literal[
+        "conflict_freeze",
+        "split_admin_freeze",
+        "reconcile_repair",
+        "remote_branch_diverged_after_takeover",
+        "local_stale_or_dirty_takeover_target",
+        "contested_local_writes",
+    ]
 
 
 class EdgeBundle(BaseModel):
@@ -686,6 +694,7 @@ class EdgeBundle(BaseModel):
     qa_lock: StoryExecutionLockView | None = None
     tombstone_worktree_roots: list[str] = Field(default_factory=list)
     active_freezes: list[EdgeFreezeStateView] = Field(default_factory=list)
+    active_freezes_readable: bool = True
 
 
 class PhaseDispatchResult(BaseModel):

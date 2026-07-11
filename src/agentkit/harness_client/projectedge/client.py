@@ -22,10 +22,12 @@ from agentkit.backend.control_plane.models import (
     EdgeBundle,
     EdgeCommandMutationResult,
     EdgeCommandResultRequest,
+    EdgePointer,
     OpenEdgeCommandsResponse,
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,
     PushOwnershipConfirmation,
+    TakeoverReconcileWorktreeRequest,
 )
 from agentkit.backend.exceptions import ControlPlaneApiError
 from agentkit.backend.utils.io import atomic_write_text
@@ -44,6 +46,7 @@ if TYPE_CHECKING:
 
 _LOCK_EXPORT_FILE = "lock.json"
 _QA_LOCK_EXPORT_FILE = "qa-lock.json"
+_FREEZE_EXPORT_FILE = "freeze.json"
 
 
 #: The wire header that carries the stable correlation id (FK-91 §91.1a Regel #7).
@@ -473,6 +476,13 @@ class LocalEdgePublisher:
                 bundle_root / _QA_LOCK_EXPORT_FILE,
                 bundle.qa_lock.model_dump(mode="json"),
             )
+        freeze_payload = {
+            "state_readable": bundle.active_freezes_readable,
+            "active_freezes": [
+                freeze.model_dump(mode="json") for freeze in bundle.active_freezes
+            ],
+        }
+        _write_json(bundle_root / _FREEZE_EXPORT_FILE, freeze_payload)
         _write_json(
             self._project_root / "_temp" / "governance" / "current.json",
             bundle.current.model_dump(mode="json"),
@@ -488,10 +498,40 @@ class LocalEdgePublisher:
                     Path(root) / ".agent-guard" / _LOCK_EXPORT_FILE,
                     bundle.lock.model_dump(mode="json"),
                 )
+                _write_json(
+                    Path(root) / ".agent-guard" / _FREEZE_EXPORT_FILE,
+                    freeze_payload,
+                )
         for root in bundle.tombstone_worktree_roots:
-            lock_path = Path(root) / ".agent-guard" / _LOCK_EXPORT_FILE
-            if lock_path.exists():
-                lock_path.unlink()
+            for filename in (_LOCK_EXPORT_FILE, _FREEZE_EXPORT_FILE):
+                export_path = Path(root) / ".agent-guard" / filename
+                if export_path.exists():
+                    export_path.unlink()
+
+    def publish_unreadable_freeze_state(
+        self,
+        *,
+        worktree_roots: list[Path],
+    ) -> None:
+        """Fail closed locally while a reconcile result awaits authoritative sync."""
+        payload = {"state_readable": False, "active_freezes": []}
+        current_path = self._project_root / "_temp" / "governance" / "current.json"
+        if current_path.is_file():
+            try:
+                pointer = EdgePointer.model_validate(
+                    json.loads(current_path.read_text(encoding="utf-8"))
+                )
+            except (OSError, ValueError):
+                pointer = None
+            if pointer is not None:
+                _write_json(
+                    self._project_root
+                    / pointer.bundle_dir
+                    / _FREEZE_EXPORT_FILE,
+                    payload,
+                )
+        for root in worktree_roots:
+            _write_json(root / ".agent-guard" / _FREEZE_EXPORT_FILE, payload)
 
 
 class ProjectEdgeClient:
@@ -889,6 +929,32 @@ class ProjectEdgeClient:
         )
         data.pop("correlation_id", None)
         return EdgeCommandMutationResult.model_validate(data)
+
+    def reconcile_takeover_worktree(
+        self,
+        *,
+        run_id: str,
+        request: TakeoverReconcileWorktreeRequest,
+    ) -> ControlPlaneMutationResult:
+        """Submit all per-repo edge results through the official reconcile route."""
+        run_segment = urllib.parse.quote(run_id, safe="")
+        return self._post_and_publish(
+            path=(
+                f"/v1/project-edge/story-runs/{run_segment}/ownership/"
+                "takeover-reconcile-worktree"
+            ),
+            payload=request.model_dump(mode="json"),
+        )
+
+    def publish_unreadable_freeze_state(
+        self,
+        *,
+        worktree_roots: list[Path],
+    ) -> None:
+        """Block local hooks until the post-reconcile authoritative sync lands."""
+        self._publisher.publish_unreadable_freeze_state(
+            worktree_roots=worktree_roots
+        )
 
     def confirm_push_ownership(
         self,

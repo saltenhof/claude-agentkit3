@@ -53,13 +53,12 @@ def test_six_command_kinds_are_pinned() -> None:
 
 
 @pytest.mark.contract
-def test_an_edge_unknown_command_kind_is_registered_but_not_executable() -> None:
-    """Scope item 4: 4 of the 6 registered kinds are EXECUTED (the AG3-145 trio
-    plus the AG3-147 ``sync_push`` path); the neighbour-owned two are not."""
-    for kind in ("takeover_reconcile", "merge_local"):
-        assert ec.is_known_command_kind(kind) is True
-        assert ec.is_executable_command_kind(kind) is False
+def test_only_merge_local_remains_registered_but_not_executable() -> None:
+    """AG3-151 makes takeover reconcile executable; AG3-152 owns merge local."""
+    assert ec.is_known_command_kind("merge_local") is True
+    assert ec.is_executable_command_kind("merge_local") is False
     assert ec.is_executable_command_kind("sync_push") is True
+    assert ec.is_executable_command_kind("takeover_reconcile") is True
 
 
 # ---------------------------------------------------------------------------
@@ -200,11 +199,13 @@ def test_edge_bundle_projection_pins_contested_local_writes_state() -> None:
         kind="contested_local_writes",
         freeze_reason="marker identity is ambiguous",
         freeze_epoch="3",
+        block_reason="contested_local_writes",
     )
     assert state.model_dump(mode="json") == {
         "kind": "contested_local_writes",
         "freeze_reason": "marker identity is ambiguous",
         "freeze_epoch": "3",
+        "block_reason": "contested_local_writes",
     }
 
 

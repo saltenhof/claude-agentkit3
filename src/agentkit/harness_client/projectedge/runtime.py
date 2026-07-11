@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Literal
 from agentkit.backend.config.loader import load_project_config
 from agentkit.backend.control_plane.models import (
     EdgeBundle,
+    EdgeFreezeStateView,
     EdgePointer,
     ProjectEdgeSyncRequest,
 )
@@ -265,6 +266,15 @@ class ProjectEdgeResolver:
                 synced=synced,
             )
 
+        freeze_reason = _blocking_freeze_reason(bundle)
+        if freeze_reason is not None:
+            return ResolvedEdgeState(
+                operating_mode="binding_invalid",
+                bundle=bundle,
+                block_reason=freeze_reason,
+                synced=synced,
+            )
+
         return ResolvedEdgeState(
             operating_mode="story_execution",
             bundle=bundle,
@@ -296,6 +306,9 @@ class ProjectEdgeResolver:
         qa_lock_payload = (
             _load_json(qa_lock_path) if qa_lock_path.is_file() else None
         )
+        freeze_payload, freezes_readable = _load_freeze_projection(
+            bundle_root / "freeze.json"
+        )
         return EdgeBundle.model_validate(
             {
                 "current": pointer.model_dump(mode="json"),
@@ -303,6 +316,8 @@ class ProjectEdgeResolver:
                 "lock": lock_payload,
                 "qa_lock": qa_lock_payload,
                 "tombstone_worktree_roots": [],
+                "active_freezes": freeze_payload,
+                "active_freezes_readable": freezes_readable,
             },
         )
 
@@ -371,6 +386,41 @@ def _cwd_matches_worktree(cwd: Path, worktree_roots: list[str]) -> bool:
         except ValueError:
             continue
     return False
+
+
+def _load_freeze_projection(path: Path) -> tuple[list[dict[str, object]], bool]:
+    """Load the local freeze projection, preserving unreadable as blocking state."""
+    if not path.is_file():
+        return [], False
+    try:
+        payload = _load_json(path)
+        raw_freezes = payload.get("active_freezes")
+        if payload.get("state_readable") is not True or not isinstance(raw_freezes, list):
+            return [], False
+        freezes = [EdgeFreezeStateView.model_validate(item) for item in raw_freezes]
+    except (OSError, ValueError, RuntimeError):
+        return [], False
+    return [freeze.model_dump(mode="json") for freeze in freezes], True
+
+
+def _blocking_freeze_reason(bundle: EdgeBundle) -> str | None:
+    """Return the deterministic fail-closed block reason for bundle freezes."""
+    if not bundle.active_freezes_readable:
+        return "freeze_state_unreadable"
+    if not bundle.active_freezes:
+        return None
+    priorities = {
+        "contested_local_writes": 0,
+        "remote_branch_diverged_after_takeover": 1,
+        "local_stale_or_dirty_takeover_target": 2,
+        "reconcile_repair": 3,
+        "split_admin_freeze": 4,
+        "conflict_freeze": 5,
+    }
+    return min(
+        (freeze.block_reason for freeze in bundle.active_freezes),
+        key=lambda reason: priorities[reason],
+    )
 
 
 def _acquire_sync_lock(lock_path: Path, *, now: datetime) -> bool:

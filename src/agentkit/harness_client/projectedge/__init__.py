@@ -15,6 +15,10 @@ from agentkit.harness_client.projectedge.command_executor import (
     execute_sync_push,
     process_open_commands,
 )
+from agentkit.harness_client.projectedge.reconcile import (
+    TakeoverReconcileExecution,
+    execute_takeover_reconcile,
+)
 from agentkit.harness_client.projectedge.runtime import (
     ChangeFrameFreezeState,
     ProjectEdgeResolver,
@@ -33,9 +37,11 @@ __all__ = [
     "ProjectEdgeClient",
     "ResolvedEdgeState",
     "SyncPushContext",
+    "TakeoverReconcileExecution",
     "build_project_edge_client",
     "execute_command",
     "execute_sync_push",
+    "execute_takeover_reconcile",
     "process_open_commands",
     "read_change_frame_freeze_state",
 ]

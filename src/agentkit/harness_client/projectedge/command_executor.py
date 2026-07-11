@@ -7,11 +7,10 @@ the Project Edge. The command loop fetches this session's open commands
 against the REAL git repo, and reports the typed result with the edge's OWN
 ``op_id`` (:meth:`ProjectEdgeClient.report_command_result`).
 
-``provision_worktree`` / ``teardown_worktree`` / ``preflight_probe`` (AG3-145
-substep B) plus ``sync_push`` (the AG3-147 official Edge-Push-Gate path,
-FK-15 §15.5.4 / FK-55 §55.9) are executed here. A command of any OTHER
-registered kind (``takeover_reconcile`` / ``merge_local`` -- owned by
-AG3-151/152) yields a deterministic :class:`CommandErrorResult`, never a silent
+``provision_worktree`` / ``teardown_worktree`` / ``preflight_probe`` (AG3-145),
+``sync_push`` (AG3-147), and ``takeover_reconcile`` (AG3-151) are executed here.
+The remaining registered kind (``merge_local``, owned by AG3-152) yields a
+deterministic :class:`CommandErrorResult`, never a silent
 no-op (Scope item 4). The edge derives the physical repo path from its LOCAL
 project config, never from the backend (FK-10 §10.2.4a).
 """
@@ -36,9 +35,12 @@ from agentkit.backend.control_plane.models import (
     EdgeCommandResultRequest,
     PreflightProbeCommandPayload,
     PreflightProbeReport,
+    ProjectEdgeSyncRequest,
     ProvisionWorktreeCommandPayload,
     PushStatusReport,
     SyncPushCommandPayload,
+    TakeoverReconcileCommandPayload,
+    TakeoverReconcileWorktreeRequest,
     TeardownWorktreeCommandPayload,
     WorktreeReport,
 )
@@ -59,6 +61,9 @@ if TYPE_CHECKING:
         EdgeCommandView,
     )
     from agentkit.harness_client.projectedge.client import ProjectEdgeClient
+    from agentkit.harness_client.projectedge.reconcile import (
+        TakeoverReconcileExecution,
+    )
 
 _STORY_MARKER_FILENAME = ".agentkit-story.json"
 _EDGE_GIT_TIMEOUT_S = 30
@@ -498,11 +503,11 @@ def execute_command(
     project_config: ProjectConfig,
     project_root: Path,
     sync_push_context: SyncPushContext | None = None,
-) -> EdgeCommandResultPayload:
+) -> EdgeCommandResultPayload | TakeoverReconcileExecution:
     """Dispatch ONE command to its executor and return the typed result payload.
 
-    A kind outside the edge's executable set (``takeover_reconcile`` /
-    ``merge_local``, or an unknown kind) yields a deterministic
+    A kind outside the edge's executable set (``merge_local`` or an unknown
+    kind) yields a deterministic
     :class:`CommandErrorResult` -- NEVER a silent no-op (Scope item 4). A
     ``sync_push`` needs the :class:`SyncPushContext` (client + identity); without
     it the command is a fail-closed ``sync_push_context_missing`` error, never a
@@ -547,7 +552,7 @@ def _dispatch_executable(
     project_config: ProjectConfig,
     project_root: Path,
     sync_push_context: SyncPushContext | None,
-) -> EdgeCommandResultPayload:
+) -> EdgeCommandResultPayload | TakeoverReconcileExecution:
     """Validate the payload and run the matching executor (executable kinds only)."""
     if command.command_kind == "provision_worktree":
         return execute_provision_worktree(
@@ -568,6 +573,16 @@ def _dispatch_executable(
             project_config=project_config,
             project_root=project_root,
             context=sync_push_context,
+        )
+    if command.command_kind == "takeover_reconcile":
+        from agentkit.harness_client.projectedge.reconcile import (
+            execute_takeover_reconcile,
+        )
+
+        return execute_takeover_reconcile(
+            TakeoverReconcileCommandPayload.model_validate(command.payload),
+            project_config=project_config,
+            project_root=project_root,
         )
     return execute_preflight_probe(
         PreflightProbeCommandPayload.model_validate(command.payload),
@@ -598,13 +613,85 @@ def process_open_commands(
         run_id=run_id, project_key=project_key, session_id=session_id
     )
     sync_push_context = SyncPushContext(client=client, session_id=session_id)
-    outcomes: list[EdgeCommandMutationResult] = []
+    executions: list[
+        tuple[EdgeCommandView, EdgeCommandResultPayload | TakeoverReconcileExecution]
+    ] = []
     for command in response.commands:
-        result_payload = execute_command(
-            command,
-            project_config=project_config,
-            project_root=project_root,
-            sync_push_context=sync_push_context,
+        executions.append(
+            (
+                command,
+                execute_command(
+                    command,
+                    project_config=project_config,
+                    project_root=project_root,
+                    sync_push_context=sync_push_context,
+                ),
+            )
+        )
+
+    from agentkit.harness_client.projectedge.reconcile import (
+        TakeoverReconcileExecution,
+    )
+
+    reconcile_executions = [
+        execution
+        for command, execution in executions
+        if command.command_kind == "takeover_reconcile"
+        and isinstance(execution, TakeoverReconcileExecution)
+    ]
+    if any(
+        command.command_kind == "takeover_reconcile"
+        and not isinstance(execution, TakeoverReconcileExecution)
+        for command, execution in executions
+    ):
+        raise EdgeGitError(
+            "takeover reconcile command payload was unreadable; refusing to "
+            "terminalize the queue command or bypass the reconcile obligation"
+        )
+    if reconcile_executions:
+        reconcile_roots = [
+            _resolve_repo_root(project_config, project_root, execution.result.repo_id)
+            / "worktrees"
+            / story_id
+            for execution in reconcile_executions
+        ]
+        client.publish_unreadable_freeze_state(worktree_roots=reconcile_roots)
+        reconcile_result = client.reconcile_takeover_worktree(
+            run_id=run_id,
+            request=TakeoverReconcileWorktreeRequest(
+                project_key=project_key,
+                story_id=story_id,
+                session_id=session_id,
+                op_id=f"op-{uuid.uuid4().hex}",
+                results=[execution.result for execution in reconcile_executions],
+                quarantine_details=[
+                    execution.quarantine_detail
+                    for execution in reconcile_executions
+                    if execution.quarantine_detail is not None
+                ],
+            ),
+        )
+        if reconcile_result.status not in {"resolved", "failed"}:
+            raise EdgeGitError(
+                "takeover reconcile result was not accepted by the official "
+                f"route (status={reconcile_result.status!r}); queue commands "
+                "remain open for deterministic retry"
+            )
+        client.sync(
+            ProjectEdgeSyncRequest(
+                project_key=project_key,
+                session_id=session_id,
+                op_id=f"op-{uuid.uuid4().hex}",
+                freshness_class="mutation",
+            )
+        )
+
+    outcomes: list[EdgeCommandMutationResult] = []
+    for command, execution in executions:
+        result_payload = (
+            execution.result
+            if isinstance(execution, TakeoverReconcileExecution)
+            else execution
         )
         request = EdgeCommandResultRequest(
             project_key=project_key,

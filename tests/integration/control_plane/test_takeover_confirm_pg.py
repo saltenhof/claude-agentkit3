@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -18,16 +19,29 @@ import pytest
 from agentkit.backend.auth.middleware import AuthMiddleware
 from agentkit.backend.auth.tokens import issue_project_api_token
 from agentkit.backend.bootstrap.story_reset_adapters import ResetDisownAdapter
+from agentkit.backend.config.models import (
+    SUPPORTED_CONFIG_VERSION,
+    Features,
+    JenkinsConfig,
+    PipelineConfig,
+    ProjectConfig,
+    RepositoryConfig,
+    SonarQubeConfig,
+)
 from agentkit.backend.control_plane.http import ControlPlaneApplication, HttpResponse
 from agentkit.backend.control_plane.models import (
     AdminTakeoverReconcileClearRequest,
     ClosureCompleteRequest,
     ControlPlaneMutationResult,
     EdgeBundle,
+    EdgeCommandMutationResult,
+    EdgeCommandResultRequest,
     EdgePointer,
+    OpenEdgeCommandsResponse,
     PhaseDispatchResult,
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,
+    ProvisionWorktreeCommandPayload,
     SessionRunBindingView,
     StoryExecutionLockView,
     TakeoverConfirmRequest,
@@ -152,6 +166,14 @@ from agentkit.backend.story_split import (
 )
 from agentkit.backend.telemetry.contract.records import ExecutionEventRecord
 from agentkit.backend.telemetry.events import EventType
+from agentkit.harness_client.projectedge import (
+    LocalEdgePublisher,
+    ProjectEdgeResolver,
+    process_open_commands,
+)
+from agentkit.harness_client.projectedge.command_executor import (
+    execute_provision_worktree,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -452,6 +474,78 @@ class _VerifiedPushBoundary:
         )
 
 
+class _ShaPushBoundary:
+    def __init__(self, shas: dict[str, str]) -> None:
+        self._shas = shas
+
+    def collect_repo_inputs(
+        self,
+        *,
+        project_key: str,
+        story_id: str,
+        run_id: str,
+        required_sync_point_id: str | None = None,
+    ) -> tuple[RepoPushVerificationInput, ...]:
+        del project_key, story_id, run_id
+        return tuple(
+            RepoPushVerificationInput(
+                repo_id=repo_id,
+                edge_report_present=True,
+                edge_reported_pushed=True,
+                edge_reported_head_sha=sha,
+                server_ref_resolved=True,
+                server_head_sha=sha,
+                edge_report_sync_point_id=required_sync_point_id,
+                required_sync_point_id=required_sync_point_id,
+            )
+            for repo_id, sha in self._shas.items()
+        )
+
+
+class _RuntimeEdgeClient:
+    """In-process adapter over the real runtime and command-queue methods."""
+
+    def __init__(
+        self,
+        service: ControlPlaneRuntimeService,
+        publisher: LocalEdgePublisher,
+    ) -> None:
+        self._service = service
+        self._publisher = publisher
+
+    def fetch_open_commands(
+        self, *, run_id: str, project_key: str, session_id: str
+    ) -> OpenEdgeCommandsResponse:
+        return self._service.list_and_ack_open_commands(
+            run_id,
+            project_key=project_key,
+            session_id=session_id,
+        )
+
+    def reconcile_takeover_worktree(
+        self, *, run_id: str, request: TakeoverReconcileWorktreeRequest
+    ) -> ControlPlaneMutationResult:
+        return self._service.reconcile_takeover_worktree(run_id, request)
+
+    def sync(self, request: ProjectEdgeSyncRequest) -> ControlPlaneMutationResult:
+        result = self._service.sync_project_edge(request)
+        assert result.edge_bundle is not None
+        self._publisher.publish(result.edge_bundle)
+        return result
+
+    def report_command_result(
+        self, *, command_id: str, request: EdgeCommandResultRequest
+    ) -> EdgeCommandMutationResult:
+        return self._service.submit_command_result(command_id, request)
+
+    def publish_unreadable_freeze_state(
+        self, *, worktree_roots: list[Path]
+    ) -> None:
+        self._publisher.publish_unreadable_freeze_state(
+            worktree_roots=worktree_roots
+        )
+
+
 class _InMemoryTokenRepository:
     def __init__(self) -> None:
         self.tokens: dict[str, ProjectApiToken] = {}
@@ -491,7 +585,12 @@ def _response_json(response: HttpResponse) -> dict[str, object]:
     return body
 
 
-def _seed_story_context(tmp_path: Path, story_id: str) -> None:
+def _seed_story_context(
+    tmp_path: Path,
+    story_id: str,
+    *,
+    participating_repos: list[str] | None = None,
+) -> None:
     project_root = tmp_path / _PROJECT
     (project_root / "stories" / story_id).mkdir(parents=True, exist_ok=True)
     save_story_context_global(
@@ -502,7 +601,7 @@ def _seed_story_context(tmp_path: Path, story_id: str) -> None:
             story_type=StoryType.IMPLEMENTATION,
             execution_route=StoryMode.EXECUTION,
             project_root=project_root,
-            participating_repos=[_REPO],
+            participating_repos=participating_repos or [_REPO],
         ),
     )
 
@@ -661,6 +760,7 @@ def _request_takeover(
     session_id: str = "sess-B",
     principal_type: str = "human_cli",
     op_id: str = "op-takeover-request",
+    worktree_roots: list[str] | None = None,
 ) -> str:
     del run_id
     result = service.request_ownership_takeover(
@@ -671,7 +771,11 @@ def _request_takeover(
             principal_type=principal_type,
             op_id=op_id,
             reason="owner unavailable",
-            worktree_roots=[f"T:/worktrees/{story_id}/{session_id}"],
+            worktree_roots=(
+                worktree_roots
+                if worktree_roots is not None
+                else [f"T:/worktrees/{story_id}/{session_id}"]
+            ),
         )
     )
     assert result.status in {"offered", "pending_human_approval"}
@@ -4405,6 +4509,156 @@ def test_failed_takeover_reconcile_enters_contested_and_successful_retry_clears_
         ),
     )
     assert admitted.status == "committed"
+
+
+@pytest.mark.integration
+@pytest.mark.requires_git
+def test_real_transfer_command_queue_contested_bundle_blocks_active_owner(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    """Full AG3-148 -> AG3-145 -> edge -> freeze -> resolve round-trip."""
+    del postgres_backend_env
+    story_id = _story_id(223)
+    run_id = "run-reconcile-edge-roundtrip"
+    project_root = tmp_path / "edge-project"
+    repo_ids = [_REPO, "web"]
+    repo_roots: dict[str, Path] = {}
+    base_shas: dict[str, str] = {}
+    for repo_id in repo_ids:
+        repo_root = project_root / repo_id
+        repo_roots[repo_id] = repo_root
+        repo_root.mkdir(parents=True)
+        subprocess.run(
+            ["git", "-C", str(repo_root), "init", "-q", "-b", "main"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo_root), "config", "user.email", "t@example.com"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo_root), "config", "user.name", "T"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo_root), "config", "commit.gpgsign", "false"],
+            check=True,
+        )
+        (repo_root / "README.md").write_text(f"{repo_id}\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo_root), "add", "README.md"], check=True)
+        subprocess.run(
+            ["git", "-C", str(repo_root), "commit", "-q", "-m", "seed"],
+            check=True,
+        )
+        base_shas[repo_id] = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    config = ProjectConfig(
+        project_key=_PROJECT,
+        project_name="Tenant A",
+        repositories=[
+            RepositoryConfig(name=repo_id, path=repo_roots[repo_id])
+            for repo_id in repo_ids
+        ],
+        pipeline=PipelineConfig(
+            config_version=SUPPORTED_CONFIG_VERSION,
+            features=Features(multi_llm=False),
+            sonarqube=SonarQubeConfig(available=False, enabled=False),
+            ci=JenkinsConfig(available=False, enabled=False),
+        ),
+    )
+    worktrees = {
+        repo_id: repo_roots[repo_id] / "worktrees" / story_id for repo_id in repo_ids
+    }
+    for repo_id in repo_ids:
+        execute_provision_worktree(
+            ProvisionWorktreeCommandPayload(
+                story_id=story_id,
+                project_key=_PROJECT,
+                run_id=run_id,
+                repo_id=repo_id,
+                branch=f"story/{story_id}",
+                base_ref=base_shas[repo_id],
+            ),
+            project_config=config,
+            project_root=project_root,
+        )
+
+    _seed_story_context(tmp_path, story_id, participating_repos=repo_ids)
+    service = _service(
+        ident="inst-edge-roundtrip",
+        push_barrier_evidence=_ShaPushBoundary(base_shas),
+        local_freeze_export=LocalFreezeJsonExport(tmp_path),
+    )
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    for repo_id, base_sha in base_shas.items():
+        _seed_pushed_only_evidence(
+            story_id=story_id,
+            run_id=run_id,
+            repo_id=repo_id,
+            sha=base_sha,
+        )
+    challenge_id = _request_takeover(
+        service,
+        story_id=story_id,
+        run_id=run_id,
+        op_id="op-edge-roundtrip-request",
+        worktree_roots=[str(worktrees[repo_id]) for repo_id in repo_ids],
+    )
+    confirmed = service.confirm_ownership_takeover(
+        command=_confirm_request(
+            story_id=story_id,
+            challenge_id=challenge_id,
+            op_id="op-edge-roundtrip-confirm",
+        )
+    )
+    assert confirmed.status == "committed"
+    # Partial multi-repo failure: api is ambiguous while web remains clean.
+    (worktrees[_REPO] / ".agentkit-story.json").unlink()
+
+    client = _RuntimeEdgeClient(
+        service,
+        LocalEdgePublisher(project_root=project_root),
+    )
+    outcomes = process_open_commands(
+        client,  # type: ignore[arg-type]
+        project_config=config,
+        project_root=project_root,
+        run_id=run_id,
+        project_key=_PROJECT,
+        session_id="sess-B",
+        story_id=story_id,
+    )
+
+    assert len(outcomes) == 2
+    freeze = FreezeRepository().read_freeze(
+        story_id,
+        FreezeKind.CONTESTED_LOCAL_WRITES,
+    )
+    assert freeze is not None
+    ownership = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert ownership is not None
+    assert ownership.status is OwnershipStatus.ACTIVE
+    assert ownership.owner_session_id == "sess-B"
+    resolved = ProjectEdgeResolver(project_root=project_root).resolve(
+        session_id="sess-B",
+        cwd=worktrees[_REPO],
+        freshness_class="guarded_read",
+    )
+    assert resolved.operating_mode == "binding_invalid"
+    assert resolved.block_reason == "contested_local_writes"
+    guard_freeze = json.loads(
+        (worktrees[_REPO] / ".agent-guard" / "freeze.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert guard_freeze["active_freezes"][0]["block_reason"] == (
+        "contested_local_writes"
+    )
 
 
 def _challenge_id_from_current(story_id: str, challenge_id: str) -> str:
