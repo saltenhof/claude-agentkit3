@@ -364,9 +364,6 @@ class RunOwnershipRepository:
     load_active_ownership: Callable[[str, str], RunOwnershipRecord | None] = (
         load_active_run_ownership_record_global
     )
-    load_all_active_ownership: Callable[
-        [str, str], tuple[RunOwnershipRecord, ...]
-    ] = load_all_active_run_ownership_records_global
     transition_status: Callable[[str, str, str, OwnershipStatus], None] = (
         transition_run_ownership_status_global
     )
