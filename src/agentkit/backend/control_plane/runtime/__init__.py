@@ -52,4 +52,5 @@ from ._ownership_transfer_commands import (
 from ._ownership_transfer_commands import (
     TakeoverDenyCommand as TakeoverDenyCommand,
 )
+from ._recovery_commands import RecoveryCommand as RecoveryCommand
 from ._service import ControlPlaneRuntimeService as ControlPlaneRuntimeService

@@ -270,8 +270,8 @@ def test_postgres_schema_binding_version_check_is_single_sourced() -> None:
 
 
 @pytest.mark.contract
-def test_transferred_status_has_no_writer_and_is_rejected() -> None:
-    """AG3-137 §1: setting status='transferred' is fail-closed rejected (no writer)."""
+def test_transferred_status_is_restricted_to_atomic_recovery_writer() -> None:
+    """AG3-154: standalone transferred writes remain fail-closed."""
     record = RunOwnershipRecord(
         project_key="tenant-a",
         story_id="AG3-100",
@@ -283,7 +283,7 @@ def test_transferred_status_has_no_writer_and_is_rejected() -> None:
         acquired_at=_NOW,
         audit_ref="audit:x",
     )
-    with pytest.raises(ValueError, match="'transferred' has no writer"):
+    with pytest.raises(ValueError, match="atomic recovery-supersede transaction"):
         insert_run_ownership_record_global(record)
 
 

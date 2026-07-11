@@ -27,7 +27,7 @@ _PROJECT_TOKEN_MANAGEMENT = re.compile(
 )
 _OWNERSHIP_TRANSFER_PATH = re.compile(
     r"^/v1/project-edge/story-runs/[^/]+/ownership/"
-    r"takeover-(?:request|confirm|deny|reconcile-clear|reconcile-worktree)$",
+    r"(?:takeover-(?:request|confirm|deny|reconcile-clear|reconcile-worktree)|recover)$",
 )
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 

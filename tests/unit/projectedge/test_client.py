@@ -16,6 +16,7 @@ from agentkit.backend.control_plane.models import (
     EdgePointer,
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,
+    RecoveryRequest,
     SessionRunBindingView,
     StoryExecutionLockView,
     TakeoverReconcileWorktreeRequest,
@@ -206,6 +207,29 @@ def test_project_edge_client_posts_official_takeover_reconcile_route(
             "/v1/project-edge/story-runs/run%2F100/ownership/"
             "takeover-reconcile-worktree",
         )
+    ]
+
+
+def test_project_edge_client_recover_is_thin_official_transport(tmp_path: Path) -> None:
+    result = _mutation_result(str(tmp_path / "worktree"))
+    transport = _FakeTransport(result)
+    client = ProjectEdgeClient(
+        transport=transport,
+        publisher=LocalEdgePublisher(project_root=tmp_path),
+    )
+
+    client.recover(
+        run_id="run/old",
+        request=RecoveryRequest(
+            project_key="tenant-a",
+            story_id="AG3-154",
+            op_id="op-recovery-client",
+            reason="operator confirmed crash recovery",
+        ),
+    )
+
+    assert transport.calls == [
+        ("POST", "/v1/project-edge/story-runs/run%2Fold/ownership/recover")
     ]
 
 

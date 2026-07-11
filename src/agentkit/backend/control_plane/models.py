@@ -393,6 +393,18 @@ class TakeoverConfirmRequest(BaseModel):
     source_component: str = Field(min_length=1, default="project_edge_client")
 
 
+class RecoveryRequest(BaseModel):
+    """Wire payload for explicit human crash-recovery acquisition."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    project_key: str = Field(min_length=1)
+    story_id: str = Field(min_length=1)
+    op_id: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    source_component: str = Field(min_length=1, default="project_edge_client")
+
+
 class TakeoverDenyRequest(BaseModel):
     """Wire payload for human denial (selector and audit only)."""
 

@@ -11,13 +11,18 @@ from pydantic import ValidationError
 from agentkit.backend.auth.middleware import is_ownership_transfer_path
 from agentkit.backend.control_plane.models import (
     AdminTakeoverReconcileClearRequest,
+    RecoveryRequest,
     TakeoverConfirmRequest,
     TakeoverDenyRequest,
     TakeoverReconcileWorktreeRequest,
     TakeoverRequest,
     op_id_validation_error,
 )
-from agentkit.backend.control_plane.runtime import TakeoverConfirmCommand, TakeoverDenyCommand
+from agentkit.backend.control_plane.runtime import (
+    RecoveryCommand,
+    TakeoverConfirmCommand,
+    TakeoverDenyCommand,
+)
 from agentkit.backend.control_plane_http import _route_patterns
 from agentkit.backend.control_plane_http.responses import (
     _backend_requirement_response,
@@ -60,6 +65,15 @@ def dispatch_project_edge_takeover_post(
             runtime_service=runtime_service,
             auth_result=auth_result,
         )
+    recovery_match = _route_patterns._RECOVERY_PATTERN.match(route_path)
+    if recovery_match:
+        return _handle_post_recovery(
+            recovery_match.group("run_id"),
+            payload,
+            correlation_id,
+            runtime_service=runtime_service,
+            auth_result=auth_result,
+        )
     if _route_patterns._TAKEOVER_DENY_PATTERN.match(route_path):
         return _handle_post_takeover_deny(
             payload,
@@ -86,6 +100,76 @@ def dispatch_project_edge_takeover_post(
             auth_result=auth_result,
         )
     return None
+
+
+def _handle_post_recovery(
+    superseded_run_id: str,
+    payload: object,
+    correlation_id: str,
+    *,
+    runtime_service: ControlPlaneRuntimeService,
+    auth_result: AuthResult | None,
+) -> HttpResponse:
+    """Handle the explicit recovery acquisition contract."""
+    from agentkit.backend.story_context_manager.errors import IdempotencyMismatchError
+
+    try:
+        request = RecoveryRequest.model_validate(payload)
+        project_fence = _project_key_fence(
+            request_project_key=request.project_key,
+            auth_result=auth_result,
+            correlation_id=correlation_id,
+        )
+        if project_fence is not None:
+            return project_fence
+        actor = _recovery_actor(auth_result)
+        if actor is None:
+            return _error_response(
+                HTTPStatus.FORBIDDEN,
+                error_code="recovery_requires_human_cli",
+                message="Recovery requires an attested human CLI principal",
+                correlation_id=correlation_id,
+            )
+        actor_session_id, actor_principal_type = actor
+        result = runtime_service.recover_ownership(
+            command=RecoveryCommand(
+                request=request,
+                superseded_run_id=superseded_run_id,
+                actor_session_id=actor_session_id,
+                actor_principal_type=actor_principal_type,
+            )
+        )
+    except ValidationError as exc:
+        return _error_response(
+            HTTPStatus.UNPROCESSABLE_ENTITY
+            if op_id_validation_error(exc)
+            else HTTPStatus.BAD_REQUEST,
+            error_code="invalid_recovery_payload",
+            message="Invalid recovery payload",
+            correlation_id=correlation_id,
+            detail=exc.errors(),
+        )
+    except IdempotencyMismatchError as exc:
+        return _error_response(
+            HTTPStatus.CONFLICT,
+            error_code="idempotency_mismatch",
+            message=str(exc),
+            correlation_id=correlation_id,
+            detail=exc.detail,
+        )
+    except ConfigError as exc:
+        return _backend_requirement_response(
+            "ownership_recovery_unavailable", exc, correlation_id
+        )
+    except RuntimeError as exc:
+        logger.warning("Ownership recovery unavailable: %s", exc)
+        return _error_response(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            error_code="ownership_recovery_unavailable",
+            message=str(exc),
+            correlation_id=correlation_id,
+        )
+    return _takeover_result_response(result, correlation_id=correlation_id)
 
 
 def _handle_post_takeover_reconcile_worktree(
@@ -460,6 +544,17 @@ def _takeover_request_principal(
         return Principal.INTERACTIVE_AGENT.value
     if auth_result.is_human_bff_session:
         return Principal.HUMAN_CLI.value
+    return None
+
+
+def _recovery_actor(auth_result: AuthResult | None) -> tuple[str, str] | None:
+    """Return the attested actor; authorization remains in the A capability gate."""
+    if auth_result is None:
+        return None
+    if auth_result.is_human_bff_session and auth_result.session_id is not None:
+        return auth_result.session_id, Principal.HUMAN_CLI.value
+    if auth_result.auth_kind == "project_api_token" and auth_result.token_id is not None:
+        return auth_result.token_id, Principal.INTERACTIVE_AGENT.value
     return None
 
 

@@ -51,6 +51,9 @@ _TAKEOVER_REQUEST_PATTERN = re.compile(
 _TAKEOVER_CONFIRM_PATTERN = re.compile(
     r"^/v1/project-edge/story-runs/(?P<run_id>[^/]+)/ownership/takeover-confirm$",
 )
+_RECOVERY_PATTERN = re.compile(
+    r"^/v1/project-edge/story-runs/(?P<run_id>[^/]+)/ownership/recover$",
+)
 _TAKEOVER_DENY_PATTERN = re.compile(
     r"^/v1/project-edge/story-runs/(?P<run_id>[^/]+)/ownership/takeover-deny$",
 )

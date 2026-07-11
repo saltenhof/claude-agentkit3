@@ -36,12 +36,13 @@ def _binding(*, status: str = BindingStatus.ACTIVE.value) -> SessionRunBindingRe
     ("reason", "status_target"),
     (
         (BindingRevocationReason.OWNERSHIP_TRANSFERRED, None),
+        (BindingRevocationReason.RECOVERY_SUPERSEDED, OwnershipStatus.TRANSFERRED),
         (BindingRevocationReason.STORY_ENDED, OwnershipStatus.ENDED),
         (BindingRevocationReason.STORY_RESET, OwnershipStatus.RESET),
         (BindingRevocationReason.STORY_SPLIT, OwnershipStatus.SPLIT),
     ),
 )
-def test_build_disown_plan_has_one_uniform_four_path_contract(
+def test_build_disown_plan_has_one_uniform_five_path_contract(
     reason: BindingRevocationReason,
     status_target: OwnershipStatus | None,
 ) -> None:
@@ -61,9 +62,10 @@ def test_build_disown_plan_has_one_uniform_four_path_contract(
     assert plan.reconcile_reason == reason.value
 
 
-def test_binding_revocation_reason_wire_vocabulary_is_exactly_four_keys() -> None:
+def test_binding_revocation_reason_wire_vocabulary_is_exactly_five_keys() -> None:
     assert tuple(reason.value for reason in BindingRevocationReason) == (
         "ownership_transferred",
+        "recovery_superseded",
         "story_ended",
         "story_reset",
         "story_split",

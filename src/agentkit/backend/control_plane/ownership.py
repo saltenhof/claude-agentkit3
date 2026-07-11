@@ -62,12 +62,11 @@ class OwnershipStatus(StrEnum):
     audit fact (FK-56 §56.8a,
     ``historical_ownership_records_are_never_admission_evidence``).
 
-    ``TRANSFERRED`` is part of the canonical vocabulary but has **no writer** in
-    the current normative strand: no path (takeover/disown/recovery) sets it,
-    and any attempt to persist it is fail-closed rejected until a normative
-    concretisation exists (AG3-137 scope §1). A run-continuing takeover is an
-    in-place CAS on the SAME row (owner change, ``ownership_epoch + 1``, record
-    stays ``ACTIVE``) and never sets ``TRANSFERRED``.
+    ``TRANSFERRED`` is written only by the explicit crash-recovery acquisition:
+    that path supersedes the old run with a new run in one transaction. A
+    run-continuing takeover is an in-place CAS on the SAME row (owner change,
+    ``ownership_epoch + 1``, record stays ``ACTIVE``) and never sets
+    ``TRANSFERRED``.
     """
 
     ACTIVE = "active"
@@ -109,6 +108,7 @@ class BindingRevocationReason(StrEnum):
     """
 
     OWNERSHIP_TRANSFERRED = "ownership_transferred"
+    RECOVERY_SUPERSEDED = "recovery_superseded"
     STORY_ENDED = "story_ended"
     STORY_RESET = "story_reset"
     STORY_SPLIT = "story_split"

@@ -393,6 +393,9 @@ from ._qa_artifact_rows import (
 from ._qa_artifact_rows import (
     upsert_story_metrics_row as upsert_story_metrics_row,
 )
+from ._recovery_rows import (
+    commit_recovery_acquisition_global_row as commit_recovery_acquisition_global_row,
+)
 from ._runtime_rows import (
     _insert_execution_event_row as _insert_execution_event_row,
 )

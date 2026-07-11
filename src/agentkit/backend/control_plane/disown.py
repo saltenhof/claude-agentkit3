@@ -3,8 +3,8 @@
 Blood-type A: callers provide an active binding plus the path reason and this
 module derives the complete, technology-free consequence plan. Persistence,
 runtime orchestration, path services, clocks, and event emission stay at the
-edges. The four official callers are ownership transfer, story exit, story
-reset, and story split (FK-56 §56.13h; AG3-149 D1/D3).
+edges. The five official callers are ownership transfer, recovery, story exit,
+story reset, and story split (FK-56 §56.13h; AG3-149 D1/D3; AG3-154 D1).
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ __all__ = ("DisownPlan", "build_disown_plan")
 
 _OWNERSHIP_STATUS_TARGETS: dict[BindingRevocationReason, OwnershipStatus | None] = {
     BindingRevocationReason.OWNERSHIP_TRANSFERRED: None,
+    BindingRevocationReason.RECOVERY_SUPERSEDED: OwnershipStatus.TRANSFERRED,
     BindingRevocationReason.STORY_ENDED: OwnershipStatus.ENDED,
     BindingRevocationReason.STORY_RESET: OwnershipStatus.RESET,
     BindingRevocationReason.STORY_SPLIT: OwnershipStatus.SPLIT,
@@ -55,7 +56,7 @@ def build_disown_plan(
 
     Args:
         binding: The active binding being withdrawn.
-        path_reason: One of the four official machine-readable path reasons.
+        path_reason: One of the five official machine-readable path reasons.
         now: Caller-owned timestamp for the revoked projection.
 
     Returns:
@@ -63,7 +64,7 @@ def build_disown_plan(
 
     Raises:
         ValueError: If the input binding is not active or the reason is outside
-            the closed four-path vocabulary.
+            the closed five-path vocabulary.
     """
 
     if binding.status != BindingStatus.ACTIVE.value:

@@ -27,6 +27,7 @@ from agentkit.backend.control_plane.models import (
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,
     PushOwnershipConfirmation,
+    RecoveryRequest,
     TakeoverReconcileWorktreeRequest,
 )
 from agentkit.backend.exceptions import ControlPlaneApiError
@@ -955,6 +956,21 @@ class ProjectEdgeClient:
             path=(
                 f"/v1/project-edge/story-runs/{run_segment}/ownership/"
                 "takeover-reconcile-worktree"
+            ),
+            payload=request.model_dump(mode="json"),
+        )
+
+    def recover(
+        self,
+        *,
+        run_id: str,
+        request: RecoveryRequest,
+    ) -> ControlPlaneMutationResult:
+        """Request explicit recovery and publish its authoritative edge bundle."""
+        run_segment = urllib.parse.quote(run_id, safe="")
+        return self._post_and_publish(
+            path=(
+                f"/v1/project-edge/story-runs/{run_segment}/ownership/recover"
             ),
             payload=request.model_dump(mode="json"),
         )

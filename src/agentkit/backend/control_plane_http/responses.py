@@ -39,6 +39,7 @@ _DISOWNED_ERROR_CODES = frozenset(
         "story_ended",
         "story_reset",
         "story_split",
+        "recovery_superseded",
     },
 )
 logger = logging.getLogger(__name__)
@@ -164,6 +165,7 @@ def _takeover_result_response(
         ERROR_CODE_OWNERSHIP_TRANSFERRED,
         "disowned_session_cannot_immediately_reclaim",
         "repeat_transfer_requires_privileged_principal_and_reason",
+        "recovery_requires_human_cli",
     }:
         status = HTTPStatus.FORBIDDEN
     else:

@@ -183,10 +183,9 @@ def insert_run_ownership_record_global(record: Any) -> None:
 
     if _status_value(record) == _OWNERSHIP_STATUS_TRANSFERRED:
         raise ValueError(
-            "run-ownership status 'transferred' has no writer in this strand "
-            "(AG3-137 scope §1): a run-continuing takeover is an in-place CAS "
-            "that keeps status='active'; setting 'transferred' is fail-closed "
-            "rejected until a normative concretisation exists.",
+            "run-ownership status 'transferred' may only be written by the "
+            "atomic recovery-supersede transaction (AG3-154); standalone "
+            "insertion is fail-closed rejected",
         )
     _require_control_plane_backend()
     backend = _backend_module()

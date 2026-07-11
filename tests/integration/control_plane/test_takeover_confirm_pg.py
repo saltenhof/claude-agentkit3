@@ -28,6 +28,7 @@ from agentkit.backend.config.models import (
     RepositoryConfig,
     SonarQubeConfig,
 )
+from agentkit.backend.control_plane import object_claims as oc
 from agentkit.backend.control_plane.http import ControlPlaneApplication, HttpResponse
 from agentkit.backend.control_plane.models import (
     AdminTakeoverReconcileClearRequest,
@@ -42,6 +43,7 @@ from agentkit.backend.control_plane.models import (
     PhaseMutationRequest,
     ProjectEdgeSyncRequest,
     ProvisionWorktreeCommandPayload,
+    RecoveryRequest,
     SessionRunBindingView,
     StoryExecutionLockView,
     TakeoverConfirmRequest,
@@ -82,6 +84,7 @@ from agentkit.backend.control_plane.repository import (
 )
 from agentkit.backend.control_plane.runtime import (
     ControlPlaneRuntimeService,
+    RecoveryCommand,
     TakeoverConfirmCommand,
     TakeoverDenyCommand,
 )
@@ -101,6 +104,7 @@ from agentkit.backend.state_backend.governance_runtime_store import (
 from agentkit.backend.state_backend.operation_ledger import (
     acquire_object_mutation_claim_global,
     commit_control_plane_operation_with_side_effects_global,
+    commit_recovery_acquisition_global,
     commit_takeover_confirm_global,
     commit_takeover_deny_global,
     commit_takeover_expiry_global,
@@ -641,6 +645,7 @@ def _service(
     reissue_fault_after_step: Callable[[str], None] | None = None,
     deny_fault_after_step: Callable[[str], None] | None = None,
     reconcile_fault_after_step: Callable[[str], None] | None = None,
+    recovery_fault_after_step: Callable[[str], None] | None = None,
     commit_takeover_confirm_override: Callable[..., None] | None = None,
     push_barrier_evidence: object | None = None,
     local_freeze_export: LocalFreezeJsonExport | None = None,
@@ -656,6 +661,7 @@ def _service(
             reissue_fault_after_step,
             deny_fault_after_step,
             reconcile_fault_after_step,
+            recovery_fault_after_step,
             commit_takeover_confirm_override,
         )
     ):
@@ -679,6 +685,10 @@ def _service(
             reconcile_takeover_confirm_cas_loss=partial(
                 reconcile_takeover_confirm_cas_loss_global,
                 fault_after_step=reconcile_fault_after_step,
+            ),
+            commit_recovery_acquisition=partial(
+                commit_recovery_acquisition_global,
+                fault_after_step=recovery_fault_after_step,
             ),
         )
         if commit_takeover_confirm_override is not None:
@@ -818,6 +828,29 @@ def _confirm_request(
     )
 
 
+def _recovery_command(
+    *,
+    story_id: str,
+    run_id: str,
+    op_id: str,
+    session_id: str = "sess-human-recovery",
+    principal_type: str = "human_cli",
+    reason: str = "operator confirmed the orphaned claim",
+) -> RecoveryCommand:
+    return RecoveryCommand(
+        request=RecoveryRequest(
+            project_key=_PROJECT,
+            story_id=story_id,
+            op_id=op_id,
+            reason=reason,
+            source_component="recovery_integration_test",
+        ),
+        superseded_run_id=run_id,
+        actor_session_id=session_id,
+        actor_principal_type=principal_type,
+    )
+
+
 def _deny_request(
     *,
     story_id: str,
@@ -844,6 +877,326 @@ def _story_id(number: int) -> str:
 
 def _wire_time(value: datetime) -> str:
     return value.isoformat().replace("+00:00", "Z")
+
+
+def test_recovery_supersedes_orphaned_record_atomically_and_fences_late_session(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    """Real setup dispatch -> recovery -> late old-session write fence."""
+    del postgres_backend_env
+    story_id = _story_id(1540)
+    old_run_id = "run-recovery-orphan"
+    service = _service(ident="inst-recovery-success")
+    _seed_story_context(tmp_path, story_id)
+    _admit_run(service, story_id=story_id, run_id=old_run_id, session_id="sess-A")
+
+    recovered = service.recover_ownership(
+        command=_recovery_command(
+            story_id=story_id,
+            run_id=old_run_id,
+            op_id="op-recovery-success",
+        )
+    )
+
+    assert recovered.status == "committed"
+    assert recovered.run_id is not None and recovered.run_id != old_run_id
+    assert recovered.ownership_epoch == 1
+    assert recovered.edge_bundle is not None
+    assert recovered.edge_bundle.tombstone_worktree_roots == [
+        f"T:/worktrees/{story_id}/sess-A"
+    ]
+    old = load_run_ownership_record_global(_PROJECT, story_id, old_run_id)
+    assert old is not None and old.status is OwnershipStatus.TRANSFERRED
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None
+    assert active.run_id == recovered.run_id
+    assert active.acquired_via is OwnershipAcquisition.RECOVERY
+    assert active.owner_session_id == "sess-human-recovery"
+    old_binding = load_session_run_binding_global("sess-A")
+    assert old_binding is not None
+    assert old_binding.status == BindingStatus.REVOKED.value
+    assert old_binding.revocation_reason == "recovery_superseded"
+    new_binding = load_session_run_binding_global("sess-human-recovery")
+    assert new_binding is not None
+    assert new_binding.worktree_roots == old_binding.worktree_roots
+    with postgres_store._connect_global() as conn:
+        active_count = conn.execute(
+            "SELECT COUNT(*) AS n FROM run_ownership_records "
+            "WHERE project_key = ? AND story_id = ? AND status = 'active'",
+            (_PROJECT, story_id),
+        ).fetchone()
+    assert active_count is not None and int(active_count["n"]) == 1
+    operation = load_control_plane_operation_global("op-recovery-success")
+    assert operation is not None
+    assert operation.operation_kind == "ownership_recovery"
+    audit_events = load_execution_events_global(
+        _PROJECT, story_id, run_id=recovered.run_id
+    )
+    created = next(
+        event
+        for event in audit_events
+        if event.event_type == EventType.SESSION_RUN_BINDING_CREATED.value
+    )
+    assert created.payload["operation_class"] == "admin_transition"
+    assert created.payload["reason"] == "operator confirmed the orphaned claim"
+
+    late = service.complete_phase(
+        run_id=old_run_id,
+        phase="implementation",
+        request=_phase_request(
+            story_id=story_id,
+            op_id="op-recovery-late-old-session",
+            session_id="sess-A",
+        ),
+    )
+    assert late.status == "rejected"
+    assert late.error_code == "recovery_superseded"
+    still_active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert still_active is not None and still_active.run_id == recovered.run_id
+
+
+def test_recovery_hard_refuses_no_active_record(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(1541)
+    _seed_story_context(tmp_path, story_id)
+    service = _service(ident="inst-recovery-none")
+
+    result = service.recover_ownership(
+        command=_recovery_command(
+            story_id=story_id,
+            run_id="run-does-not-exist",
+            op_id="op-recovery-none",
+        )
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "nothing_to_recover"
+    assert load_active_run_ownership_record_global(_PROJECT, story_id) is None
+
+
+def test_recovery_supersede_rolls_back_old_terminalization_on_mid_uow_fault(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(1547)
+    run_id = "run-recovery-atomic-rollback"
+
+    def fail_after_terminalization(step: str) -> None:
+        if step == "superseded_ownership_terminalized":
+            raise RuntimeError("injected recovery transaction fault")
+
+    service = _service(
+        ident="inst-recovery-atomic-rollback",
+        recovery_fault_after_step=fail_after_terminalization,
+    )
+    _seed_story_context(tmp_path, story_id)
+    _admit_run(service, story_id=story_id, run_id=run_id, session_id="sess-A")
+
+    with pytest.raises(RuntimeError, match="injected recovery transaction fault"):
+        service.recover_ownership(
+            command=_recovery_command(
+                story_id=story_id,
+                run_id=run_id,
+                op_id="op-recovery-atomic-rollback",
+            )
+        )
+
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None and active.run_id == run_id
+    assert active.status is OwnershipStatus.ACTIVE
+    old_binding = load_session_run_binding_global("sess-A")
+    assert old_binding is not None and old_binding.status == BindingStatus.ACTIVE.value
+    assert load_session_run_binding_global("sess-human-recovery") is None
+    assert load_control_plane_operation_global("op-recovery-atomic-rollback") is None
+
+
+def test_recovery_refuses_in_flight_story_mutation_at_object_fence(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(1542)
+    run_id = "run-recovery-busy"
+    service = _service(ident="inst-recovery-busy")
+    _seed_story_context(tmp_path, story_id)
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    identity = boot_backend_instance_identity_global("inst-recovery-holder", _NOW)
+    conflict = oc.acquire_story_claim(
+        ObjectMutationClaimRepository(),
+        oc.story_claim_key(_PROJECT, story_id),
+        op_id="op-held-story-mutation",
+        backend_instance_id=identity.backend_instance_id,
+        instance_incarnation=identity.instance_incarnation,
+        now=_NOW,
+    )
+    assert conflict is None
+
+    result = service.recover_ownership(
+        command=_recovery_command(
+            story_id=story_id,
+            run_id=run_id,
+            op_id="op-recovery-busy",
+        )
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "conflict"
+    assert result.retry_after_seconds == 2
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None and active.run_id == run_id
+
+
+def test_recovery_hard_refuses_blocking_freeze_without_resolving_it(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(1543)
+    run_id = "run-recovery-frozen"
+    service = _service(ident="inst-recovery-freeze")
+    _seed_story_context(tmp_path, story_id)
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    FreezeRepository().set_freeze(
+        story_id,
+        kind=FreezeKind.CONFLICT_FREEZE,
+        freeze_reason="operator conflict remains unresolved",
+        freeze_version=1,
+        frozen_at=_NOW.isoformat(),
+    )
+
+    result = service.recover_ownership(
+        command=_recovery_command(
+            story_id=story_id,
+            run_id=run_id,
+            op_id="op-recovery-freeze",
+        )
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "recovery_blocked_by_freeze"
+    assert FreezeRepository().read_freeze(story_id, FreezeKind.CONFLICT_FREEZE) is not None
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None and active.run_id == run_id
+
+
+def test_recovery_hard_refuses_unreconciled_takeover_obligation(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(1544)
+    run_id = "run-recovery-obligation"
+    service = _service(ident="inst-recovery-obligation")
+    _seed_story_context(tmp_path, story_id)
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    _seed_pushed_only_evidence(story_id=story_id, run_id=run_id)
+    challenge_id = _request_takeover(
+        service,
+        story_id=story_id,
+        run_id=run_id,
+        session_id="sess-B",
+        op_id="op-recovery-obligation-request",
+    )
+    transfer = service.confirm_ownership_takeover(
+        command=_confirm_request(
+            story_id=story_id,
+            challenge_id=challenge_id,
+            op_id="op-recovery-obligation-confirm",
+            session_id="sess-B",
+        )
+    )
+    assert transfer.status == "committed"
+
+    result = service.recover_ownership(
+        command=_recovery_command(
+            story_id=story_id,
+            run_id=run_id,
+            op_id="op-recovery-obligation",
+        )
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "takeover_reconcile_required"
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None and active.run_id == run_id
+
+
+def test_agent_recovery_refused_at_capability_layer(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(1545)
+    run_id = "run-recovery-agent"
+    service = _service(ident="inst-recovery-agent")
+    _seed_story_context(tmp_path, story_id)
+    _admit_run(service, story_id=story_id, run_id=run_id, session_id="sess-A")
+    human_recovery = service.recover_ownership(
+        command=_recovery_command(
+            story_id=story_id,
+            run_id=run_id,
+            op_id="op-recovery-agent-prerequisite",
+        )
+    )
+    assert human_recovery.status == "committed"
+    assert human_recovery.run_id is not None
+    disowned = load_session_run_binding_global("sess-A")
+    assert disowned is not None and disowned.status == BindingStatus.REVOKED.value
+
+    result = service.recover_ownership(
+        command=_recovery_command(
+            story_id=story_id,
+            run_id=human_recovery.run_id,
+            op_id="op-recovery-agent",
+            session_id="sess-A",
+            principal_type="interactive_agent",
+        )
+    )
+
+    assert result.status == "rejected"
+    assert result.error_code == "recovery_requires_human_cli"
+    operation = load_control_plane_operation_global("op-recovery-agent")
+    assert operation is not None
+    assert operation.operation_kind == "ownership_recovery"
+    assert operation.response_payload["error_code"] == "recovery_requires_human_cli"
+    active = load_active_run_ownership_record_global(_PROJECT, story_id)
+    assert active is not None and active.run_id == human_recovery.run_id
+
+
+def test_recovery_missing_reason_returns_400(
+    postgres_backend_env: object,
+    tmp_path: Path,
+) -> None:
+    del postgres_backend_env
+    story_id = _story_id(1546)
+    run_id = "run-recovery-reason"
+    service = _service(ident="inst-recovery-reason")
+    _seed_story_context(tmp_path, story_id)
+    _admit_run(service, story_id=story_id, run_id=run_id)
+    auth = AuthMiddleware(token_repository=_InMemoryTokenRepository())
+    response = ControlPlaneApplication(
+        runtime_service=service,
+        auth_middleware=auth,
+    ).handle_request(
+        method="POST",
+        path=f"/v1/project-edge/story-runs/{run_id}/ownership/recover",
+        body=json.dumps(
+            {
+                "project_key": _PROJECT,
+                "story_id": story_id,
+                "op_id": "op-recovery-missing-reason",
+            }
+        ).encode(),
+        request_headers=_human_headers(auth, project_key=_PROJECT),
+    )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert _response_json(response)["error_code"] == "invalid_recovery_payload"
 
 
 @pytest.mark.integration

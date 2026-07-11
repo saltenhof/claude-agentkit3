@@ -5,7 +5,7 @@ status: active
 doc_kind: spec
 context: operating-modes
 spec_kind: command-set
-version: 4
+version: 5
 prose_refs:
   - concept/technical-design/56_ai_augmented_mode_and_story_execution_separation.md
   - concept/technical-design/91_api_event_katalog.md
@@ -16,7 +16,7 @@ prose_refs:
 <!-- FORMAL-SPEC:BEGIN -->
 ```yaml
 object: formal.operating-modes.commands
-schema_version: 4
+schema_version: 5
 kind: command-set
 context: operating-modes
 commands:
@@ -94,5 +94,20 @@ commands:
     emits:
       - operating-modes.event.session_run_binding_transferred
       - operating-modes.event.session_disowned
+  - id: operating-modes.command.recover-run-ownership
+    signature: internal explicit human_cli crash recovery atomically transitions the exactly one active superseded run ownership record to transferred revokes its binding with recovery_superseded and creates a new active run ownership record with acquired_via recovery on the unchanged worktree roots
+    allowed_statuses:
+      - operating-modes.status.ai_augmented
+      - operating-modes.status.unresolved
+      - operating-modes.status.binding_invalid
+    requires:
+      - operating-modes.invariant.at_most_one_active_ownership_per_story
+      - operating-modes.invariant.ownership_transfer_requires_explicit_confirmed_request
+      - operating-modes.invariant.takeover_confirm_fences_in_flight_mutations
+      - operating-modes.invariant.disowned_session_cannot_immediately_reclaim
+      - operating-modes.invariant.freeze_states_are_admission_blockers_and_invalidate_challenges
+    emits:
+      - operating-modes.event.session_disowned
+      - operating-modes.event.session_run_binding_created
 ```
 <!-- FORMAL-SPEC:END -->

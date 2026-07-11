@@ -8,6 +8,7 @@ from ._edge_commands import _EdgeCommandMixin
 from ._ownership_transfer import _OwnershipTransferMixin
 from ._ownership_transfer_deny import _OwnershipTransferDenyMixin
 from ._project_edge_sync import _ProjectEdgeSyncMixin
+from ._recovery import _RecoveryMixin
 from ._service_closure import _ControlPlaneClosureMixin
 from ._service_phase_mutation import _ControlPlanePhaseMutationMixin
 from ._service_resume import _ControlPlaneResumeMixin
@@ -15,6 +16,7 @@ from ._takeover_reconcile import _TakeoverReconcileMixin
 
 
 class ControlPlaneRuntimeService(
+    _RecoveryMixin,
     _TakeoverReconcileMixin,
     _AdminTransitionMixin,
     _OwnershipTransferDenyMixin,

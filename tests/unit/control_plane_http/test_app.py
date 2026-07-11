@@ -45,6 +45,7 @@ if TYPE_CHECKING:
         TakeoverRequest,
     )
     from agentkit.backend.control_plane.runtime import (
+        RecoveryCommand,
         TakeoverConfirmCommand,
         TakeoverDenyCommand,
     )
@@ -58,6 +59,57 @@ def test_compat_reexport_is_same_class() -> None:
     """control_plane.http is a compat re-export; the class must be identical."""
     assert ControlPlaneApplication is CompatCPA
     assert HttpResponse is CompatHttpResponse
+
+
+def test_recovery_route_stamps_human_attestation_for_capability_layer() -> None:
+    runtime = _FakeTakeoverRuntime()
+    response = dispatch_project_edge_takeover_post(
+        route_path="/v1/project-edge/story-runs/run-old/ownership/recover",
+        payload={
+            "project_key": "tenant-a",
+            "story_id": "AG3-154",
+            "op_id": "op-recovery-human",
+            "reason": "operator confirmed orphaned claim",
+        },
+        correlation_id="corr-recovery-human",
+        runtime_service=runtime,  # type: ignore[arg-type]
+        auth_result=AuthResult(
+            auth_kind="strategist_session",
+            project_key="tenant-a",
+            session_id="human-session",
+        ),
+    )
+
+    assert response is not None and response.status_code == HTTPStatus.CONFLICT
+    assert len(runtime.recovery_calls) == 1
+    command = runtime.recovery_calls[0]
+    assert command.actor_principal_type == "human_cli"
+    assert command.actor_session_id == "human-session"
+    assert command.superseded_run_id == "run-old"
+
+
+def test_agent_recovery_reaches_capability_layer_and_returns_distinct_403() -> None:
+    runtime = _FakeTakeoverRuntime()
+    response = dispatch_project_edge_takeover_post(
+        route_path="/v1/project-edge/story-runs/run-old/ownership/recover",
+        payload={
+            "project_key": "tenant-a",
+            "story_id": "AG3-154",
+            "op_id": "op-recovery-agent",
+            "reason": "agent attempted self rebind",
+        },
+        correlation_id="corr-recovery-agent",
+        runtime_service=runtime,  # type: ignore[arg-type]
+        auth_result=AuthResult(
+            auth_kind="project_api_token",
+            project_key="tenant-a",
+            token_id="token-agent-session",
+        ),
+    )
+
+    assert response is not None and response.status_code == HTTPStatus.FORBIDDEN
+    assert json.loads(response.body)["error_code"] == "recovery_requires_human_cli"
+    assert runtime.recovery_calls[0].actor_principal_type == "interactive_agent"
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +452,7 @@ class _FakeTakeoverRuntime:
         self.deny_calls: list[TakeoverDenyCommand] = []
         self.clear_calls: list[AdminTakeoverReconcileClearRequest] = []
         self.reconcile_calls: list[tuple[str, TakeoverReconcileWorktreeRequest]] = []
+        self.recovery_calls: list[RecoveryCommand] = []
 
     def request_ownership_takeover(self, *, request: TakeoverRequest) -> object:
         from agentkit.backend.control_plane.models import ControlPlaneMutationResult
@@ -459,6 +512,24 @@ class _FakeTakeoverRuntime:
             operation_kind="takeover_reconcile_worktree",
             run_id=run_id,
             phase="ownership",
+        )
+
+    def recover_ownership(self, *, command: RecoveryCommand) -> object:
+        from agentkit.backend.control_plane.models import ControlPlaneMutationResult
+
+        self.recovery_calls.append(command)
+        error_code = (
+            "nothing_to_recover"
+            if command.actor_principal_type == "human_cli"
+            else "recovery_requires_human_cli"
+        )
+        return ControlPlaneMutationResult(
+            status="rejected",
+            op_id=command.request.op_id,
+            operation_kind="ownership_recovery",
+            run_id=command.superseded_run_id,
+            phase="ownership",
+            error_code=error_code,
         )
 
 

@@ -343,6 +343,34 @@ def commit_takeover_confirm_global(
     )
 
 
+def commit_recovery_acquisition_global(
+    op_record: ControlPlaneOperationRecord,
+    *,
+    expected_active: RunOwnershipRecord,
+    recovery_ownership: RunOwnershipRecord,
+    revoked_binding: SessionRunBindingRecord,
+    new_binding: SessionRunBindingRecord,
+    locks: tuple[StoryExecutionLockRecord, ...],
+    events: tuple[ExecutionEventRecord, ...],
+    fault_after_step: Callable[[str], None] | None = None,
+) -> None:
+    """Atomically commit a recovery supersede and all ownership side effects."""
+    from agentkit.backend.state_backend import persistence_mappers as mappers
+
+    _require_control_plane_backend()
+    backend = _backend_module()
+    backend.commit_recovery_acquisition_global_row(
+        op_row=mappers.control_plane_op_to_row(op_record),
+        expected_active=expected_active,
+        recovery_ownership_row=mappers.run_ownership_to_row(recovery_ownership),
+        revoked_binding_row=mappers.session_binding_to_row(revoked_binding),
+        new_binding_row=mappers.session_binding_to_row(new_binding),
+        lock_rows=tuple(mappers.execution_lock_to_row(lock) for lock in locks),
+        event_rows=tuple(mappers.execution_event_to_row(event) for event in events),
+        fault_after_step=fault_after_step,
+    )
+
+
 def commit_takeover_reissue_global(
     op_record: ControlPlaneOperationRecord,
     *,
@@ -862,6 +890,7 @@ __all__ = [
     "commit_edge_command_result_global",
     "commit_takeover_deny_global",
     "commit_takeover_confirm_global",
+    "commit_recovery_acquisition_global",
     "commit_takeover_reissue_global",
     "reconcile_takeover_confirm_cas_loss_global",
     "commit_takeover_expiry_global",
