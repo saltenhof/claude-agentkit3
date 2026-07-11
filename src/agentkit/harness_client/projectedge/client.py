@@ -200,26 +200,7 @@ class HttpsJsonTransport:
         # FK-91 §91.1a Regel 11: carry the version handshake on every request.
         # ``X-AK3-Client`` is the installed package metadata version (no hardcoded
         # string); ``X-AK3-Skill-Bundle`` is the bound bundle version when present.
-        request_headers = {
-            "Content-Type": "application/json",
-            _CLIENT_VERSION_HEADER: _resolve_client_version(),
-        }
-        if self._skill_bundle_version is not None:
-            request_headers[_SKILL_BUNDLE_HEADER] = self._skill_bundle_version
-        if self._bearer_token is not None:
-            request_headers["Authorization"] = f"Bearer {self._bearer_token}"
-        if self._project_key is not None:
-            request_headers["X-Project-Key"] = self._project_key
-        request_headers.update(self._strategist_headers)
-        if headers is not None:
-            # FK-91 §91.1a Regel #7: pass through the caller's correlation header
-            # so the control plane adopts the SAME id it audits (no divergent
-            # ``req-<uuid>``). Only explicitly-safe headers may be overridden; the
-            # computed handshake headers and Content-Type stay authoritative so a
-            # caller cannot forge a different runtime/bundle version (Regel 11).
-            for key, value in headers.items():
-                if key.lower() in _CALLER_OVERRIDABLE_HEADERS:
-                    request_headers[key] = value
+        request_headers = self._request_headers(headers)
         request = urllib.request.Request(
             url=f"{self._base_url}{path}",
             method=method,
@@ -249,6 +230,29 @@ class HttpsJsonTransport:
         if response_correlation and not data.get("correlation_id"):
             data["correlation_id"] = response_correlation
         return data
+
+    def _request_headers(
+        self,
+        caller_headers: Mapping[str, str] | None,
+    ) -> dict[str, str]:
+        """Build protected handshake and authentication request headers."""
+        request_headers = {
+            "Content-Type": "application/json",
+            _CLIENT_VERSION_HEADER: _resolve_client_version(),
+        }
+        if self._skill_bundle_version is not None:
+            request_headers[_SKILL_BUNDLE_HEADER] = self._skill_bundle_version
+        if self._bearer_token is not None:
+            request_headers["Authorization"] = f"Bearer {self._bearer_token}"
+        if self._project_key is not None:
+            request_headers["X-Project-Key"] = self._project_key
+        request_headers.update(self._strategist_headers)
+        if caller_headers is None:
+            return request_headers
+        for key, value in caller_headers.items():
+            if key.lower() in _CALLER_OVERRIDABLE_HEADERS:
+                request_headers[key] = value
+        return request_headers
 
     def authenticate_strategist(
         self,
