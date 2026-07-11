@@ -22,7 +22,6 @@ from agentkit.backend.state_backend.operation_ledger import (
     claim_control_plane_operation_global,
     commit_control_plane_operation_with_side_effects_global,
     commit_edge_command_result_global,
-    commit_recovery_acquisition_global,
     commit_takeover_confirm_global,
     commit_takeover_deny_global,
     commit_takeover_expiry_global,
@@ -135,6 +134,18 @@ def _load_active_freezes(story_id: str) -> tuple[object, ...]:
     from agentkit.backend.state_backend.store.freeze_repository import FreezeRepository
 
     return FreezeRepository().read_freezes(story_id)
+
+
+def _commit_recovery_acquisition(*args: object, **kwargs: object) -> None:
+    """Resolve the recovery writer lazily to keep the repository surface lean."""
+    from typing import cast
+
+    from agentkit.backend.state_backend.operation_ledger import (
+        commit_recovery_acquisition_global,
+    )
+
+    writer = cast("Callable[..., None]", commit_recovery_acquisition_global)
+    writer(*args, **kwargs)
 
 
 @dataclass(frozen=True)
@@ -288,7 +299,7 @@ class ControlPlaneRuntimeRepository:
         [str, str, str], tuple[PushBarrierVerdict, ...]
     ] = list_verified_push_barrier_verdicts_for_run_global
     commit_takeover_confirm: Callable[..., None] = commit_takeover_confirm_global
-    commit_recovery_acquisition: Callable[..., None] = commit_recovery_acquisition_global
+    commit_recovery_acquisition: Callable[..., None] = _commit_recovery_acquisition
     commit_takeover_deny: Callable[..., None] = commit_takeover_deny_global
     commit_takeover_expiry: Callable[..., None] = commit_takeover_expiry_global
     commit_takeover_invalidation: Callable[..., None] = commit_takeover_invalidation_global
