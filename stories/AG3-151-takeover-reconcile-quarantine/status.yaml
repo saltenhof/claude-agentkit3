@@ -1,8 +1,10 @@
 story_id: AG3-151
 title: "Takeover-Reconcile + Quarantaene + Edge-Zustaende: takeover-reconcile-worktree mit base_sha-Abgleich, atomare Quarantaene + Reprovisionierung, vier Guard-Zustaende (K1-Semantik)"
 type: implementation
-status: blocked
+status: ready
 phase: setup
+# AG3-150 closed 2026-07-11 (main@6b5b7468) -> all 4 deps completed, unblocked.
+# Design freeze: reports/AG3-151-reconcile-quarantine-design.md (2 increments).
 created: "2026-07-02"
 size: L
 # Herkunft: GAP-ST-08 (gap-analyse-session-ownership.md v4, Codex-APPROVE;
