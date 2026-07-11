@@ -659,14 +659,42 @@ Eintritt in einen solchen Zustand invalidiert offene
 Takeover-Challenges; `confirm-run-ownership-takeover` scheitert,
 solange die Story nicht takeover-admissible ist.
 
-### 56.13g Crash-Recovery als Transfer-Spezialfall
+### 56.13g Crash-Recovery: zwei Pfade nach Harness-Verfuegbarkeit
 
-Die Crash-Recovery (FK-20, `agentkit recover-story`) ist ein
-Spezialfall des Transfers mit `acquired_via=recovery` — allerdings
-mit **neuem Run**: Anders als beim Takeover ist der alte Run-Zustand
-dort nicht vertrauenswuerdig. Recovery-/Self-Rebind-Faelle, in denen
-dieselbe Harness-Identitaet ihre eigene verwaiste Arbeit wieder
-aufnimmt, benoetigen keine menschliche Mitzeichnung.
+Die Crash-Recovery kennt zwei Pfade, je nachdem ob die
+**Harness-Identitaet** noch verfuegbar ist.
+
+**Standardmechanismus (SOLL) — Session-Continuation via `/resume`.**
+Der Ownership-Anker ist die Harness-Session-Identitaet: `owner_session_id`
+ist die `session_id` des Harness-Hook-Events (die vom Harness gelieferte
+Session-ID, z. B. die Claude-Code-`session_id`), **nicht** eine
+AK3-intern frisch vergebene ID. Setzt der Operator die abgestuerzte
+Session per `/resume` fort, bleibt diese `session_id` — und damit
+`owner_session_id` — **unveraendert**. Die resumte Session **besitzt die
+Story weiterhin** (der Ownership-Fence trifft
+`owner_session_id@ownership_epoch`) und arbeitet einfach weiter; eine
+unterbrochene In-Flight-Operation rekonsiliert dieselbe Identitaet ueber
+die `op_id`-Idempotenz (FK-91 §91.1a Regeln 14/16). Es findet **kein
+Transfer, kein Recovery-Ereignis und keine menschliche Mitzeichnung**
+statt — das ist der Fall „dieselbe Harness-Identitaet nimmt ihre eigene
+verwaiste Arbeit wieder auf". Dies ist der **vorgesehene Standardweg**
+nach einem Crash und entspricht dem `auto-resume` aus FK-20 §20.7.3; ein
+eigenes Identitaets-Primitiv ist dafuer nicht noetig, weil die
+resumebare Session selbst der stabile Anker ist.
+
+**Fallback — `agentkit recover-story` (neuer Run, menschlich).** Nur
+wenn die Harness-Identitaet **nicht** wiederherstellbar ist
+(Session/Transcript verloren, bewusster Clean-Slate) oder waehrend der
+Ausfallzeit bereits ein Takeover die Story entzogen hat (der Ex-Owner
+ist dann disowned, §56.13h), ist ein echter Transfer noetig.
+`recover-story` erwirbt das Ownership mit `acquired_via=recovery` — mit
+**neuem Run** auf dem bestehenden Worktree, weil der alte Run-Zustand
+dann nicht vertrauenswuerdig ist (anders als der Takeover, der denselben
+`run_id` unter neuer `ownership_epoch` fortfuehrt). Weil dies per
+Definition **nicht** der Resume-Pfad ist (frische Session bzw. bewusste
+„alte Session aufgeben"-Entscheidung), ist er `human_cli`-exklusiv und
+wird als `admin_transition` auditiert (Uebernehmen/Verwerfen: FK-20
+§20.7.3).
 
 ### 56.13h Administrative Entmuendigung: der Disown-Baustein
 

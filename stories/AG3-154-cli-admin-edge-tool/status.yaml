@@ -7,10 +7,17 @@ phase: setup
 # Fable design ruling. SETTLED: recovery = new run + acquired_via=recovery,
 # supersede-the-one-active-record, freeze/obligation hard-refuse, human_cli-only;
 # CLI confirm via a genuine strategist session (FK-15 15.10.3), AG3-148 gates
-# untouched. ESCALATED to human (non-blocking, ships fail-closed): SOLL-091
-# co-sign-free agent self-rebind (no attestable stable-harness-identity primitive
-# + FK-56 56.13g vs FK-20 20.7.3 unreconciled) -> agent recovery refused
-# (recovery_requires_human_cli) until decided.
+# untouched. SOLL-091 co-sign-free same-harness-identity self-rebind: SATISFIED
+# BY CONSTRUCTION, nothing to build/strike/escalate. AK3's owner_session_id IS the
+# Claude Code hook session_id (harness_adapters/claude_code.py:147 maps every event
+# session_id=claude_event.session_id); a `/resume` preserves that session_id, so the
+# resumed session still OWNS the story (ownership fence matches owner_session_id@epoch)
+# and just continues -- an interrupted op reconciles via op_id idempotency (FK-91
+# rule 14/16). No recovery event, no co-sign. That IS FK-56 §56.13g. `recover-story`
+# (human_cli, new run) is ONLY the fresh-session fallback (transcript lost / clean
+# slate / a takeover happened while down -> AG3-149 disowned path). Agent recovery
+# stays fail-closed correctly: invoking recover-story is by definition NOT the resume
+# path (a fresh session), so it is a deliberate human decision. §56.13g is NOT struck.
 created: "2026-07-02"
 size: M
 # Herkunft: GAP-ST-11 (gap-analyse-session-ownership.md v4, Codex-APPROVE).

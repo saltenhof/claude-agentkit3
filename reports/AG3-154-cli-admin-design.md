@@ -125,3 +125,31 @@ loop; full suite once pre-push; mypy full both platforms; 4 concept gates. Green
 Sonar OK. Sonar http://localhost:9901 admin/`meinSonarCube2026!` key claude-agentkit3 (0/0/0, new-code cov≥80). Do NOT
 set status.yaml=completed (review + Fable finale + Inc-2 follow). Fire Codex jobs serially. CLI/edge adapters are thin
 REST over ProjectEdgeClient — never in-process core; edge tool mirrors shared harness_client transport (no divergent copy).
+
+---
+
+## CORRECTION (2026-07-11) — D1(e) escalation WITHDRAWN; §56.13g is satisfied, not deferred
+
+The earlier D1(e) framing ("no attestable stable-harness-identity primitive → escalate")
+was WRONG end-to-end. Corrected reasoning (operator workflow, not abstract):
+
+- A crashed harness does not need recovery at all when the operator uses `/resume`. AK3's
+  `owner_session_id` IS the Claude Code hook `session_id` (verified: harness_adapters/
+  claude_code.py:147 maps `session_id=claude_event.session_id` for EVERY operation). `/resume`
+  preserves that session_id, so the resumed session STILL OWNS the story (the ownership fence
+  matches `owner_session_id@ownership_epoch`) and simply continues; an interrupted in-flight
+  operation reconciles via op_id idempotency (FK-91 rule 14/16). No recovery event, no human
+  co-sign. THAT is FK-56 §56.13g "same harness identity self-rebind needs no co-sign" — satisfied
+  BY CONSTRUCTION via the existing session-derived-ownership + op-id model. The identity primitive
+  is the durable Claude Code session that `/resume` restores; there is nothing to build and nothing
+  to strike.
+- `recover-story` (human_cli, new run, acquired_via=recovery) is ONLY the fresh-session fallback:
+  the transcript is gone / a clean slate is wanted / a takeover happened during the downtime (→ the
+  AG3-149 disowned path). Any `recover-story` invocation is by definition NOT the `/resume` path,
+  so it is correctly a deliberate human decision.
+
+IMPACT ON THE CODE: NONE. The frozen behavior (recover-story = human_cli; agent recovery fail-closed
+`recovery_requires_human_cli`; no co-sign-free path; no approval-queue wiring) is CORRECT under the
+corrected understanding — only the justification changed (agent recovery is refused because it is
+inherently the fresh-session/human path, NOT because identity is unprovable). No escalation to the
+human. Do NOT narrow/strike §56.13g. Inc-1 and Inc-2 proceed unchanged.

@@ -689,13 +689,18 @@ auto-resume.
 
 ### 20.7.4 Einordnung: Crash-Recovery als Ownership-Transfer-Spezialfall
 
-Ownership-seitig ist die Crash-Recovery ein Spezialfall des
-Ownership-Transfers (FK-56 §56.13g): `agentkit recover-story` erwirbt
-das Run-Ownership mit `acquired_via=recovery` — aber mit **neuem Run
-auf dem bestehenden Worktree**, weil der alte Run-Zustand nach einem
-Crash nicht vertrauenswuerdig ist. Der Takeover (FK-56 §56.13) fuehrt
-dagegen denselben `run_id` unter neuer `ownership_epoch` fort — dort
-ist nichts abgestuerzt, der Zustand ist konsistent.
+Ownership-seitig ist die Crash-Recovery ueber `agentkit recover-story`
+nur der **Fallback**: Der `auto-resume` aus §20.7.3 ist der
+Standardmechanismus (SOLL) und entspricht der Session-Continuation via
+`/resume` aus FK-56 §56.13g — die resumte Session behaelt ihre
+`owner_session_id` und besitzt die Story weiter, ganz ohne Transfer.
+Erst wenn die Harness-Identitaet nicht wiederherstellbar ist, greift der
+Transfer-Pfad: `agentkit recover-story` erwirbt das Run-Ownership mit
+`acquired_via=recovery` — aber mit **neuem Run auf dem bestehenden
+Worktree**, weil der alte Run-Zustand nach einem Crash nicht
+vertrauenswuerdig ist. Der Takeover (FK-56 §56.13) fuehrt dagegen
+denselben `run_id` unter neuer `ownership_epoch` fort — dort ist nichts
+abgestuerzt, der Zustand ist konsistent.
 
 Die Uebernahme-/Verwerfen-Semantik aus §20.7.3 (Worker-Loop-Recovery)
 bleibt unveraendert gueltig; sie beschreibt das Schicksal des
