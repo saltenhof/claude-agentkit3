@@ -1,8 +1,24 @@
 story_id: AG3-157
 title: "Konzept-Referenz-Integritäts-Gate (W1): Auflösbarkeit aller Querverweise (Dokument-IDs, §-Anker, formal.*-IDs, Dateipfade) als deterministisches CI-Pflichtgate + scope-qualifizierte defers_to-Azyklik"
 type: implementation
-status: ready
-phase: setup
+status: completed
+phase: closure
+# CLOSED 2026-07-12 at main@ce2eaca9. New deterministic CI gate
+# scripts/ci/check_concept_reference_integrity.py + tools/concept_compiler/
+# reference_integrity.py: resolves 4 cross-ref classes (FK/DK/META doc-IDs,
+# §-anchors->headings, formal.* via reused CompiledFormalSpec.declared_ids,
+# git-ls-files-derived repo paths) + scope-qualified defers_to acyclicity
+# (per-scope cycle ERROR incl. both canonical defers_to forms scalar+mapping;
+# doc-level cycle report+justified-baseline). Deterministic REF-INTEGRITY:IGNORE
+# exclusion model; justified baseline. On first run it caught a REAL pre-existing
+# concept defect (closure-payload FK-29<->FK-39 defers_to cycle -> resolved,
+# decision-record + commit cd0697cc). Hardening: 3 review passes (5 ERRORs incl. 2
+# normative-corruptions-disguised-as-ref-fixes + 3 fail-open holes -> R1 stopped on
+# an orchestrator over-spec -> R2 fixed 5 incl. corrected two-defers_to-forms model
+# -> convergence found 2 more fail-open (case-variant root, defers_to:null) -> R3)
+# + orchestrator code-adjudication every round + gate self-verified green on main.
+# Jenkins #1862 SUCCESS, Sonar 0/0/0, 9382 tests, all 5 concept gates green.
+# Additive-only, no concept falsified. Covers W1. Unblocks AG3-158.
 created: "2026-07-02"
 size: M
 # Herkunft: META-CONCEPT-CONSISTENCY (concept/_meta/konzept-konsistenz-

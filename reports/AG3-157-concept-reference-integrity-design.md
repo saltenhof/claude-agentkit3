@@ -127,3 +127,40 @@ Path triage (after the ERROR-3 fix recognizes all repo-tracked-root paths): newl
 (tools/agentkit, tools/hooks/*, prompts/…, etc.) are deployed target-project / bundle / example /
 generated / runtime paths → BASELINE with justification (same category as the existing baseline).
 Genuine AK3-repo dead path → fix inline. NORMATIVE issue → STOP.
+
+---
+
+## AG3-157 — CLOSED (2026-07-12)
+
+CLOSED at code SHA `ce2eaca9` (gate lives at scripts/ci/check_concept_reference_integrity.py +
+tools/concept_compiler/reference_integrity.py). Jenkins #1862 SUCCESS, Sonar 0/0/0, 9382 tests,
+all 5 concept gates green (I ran the new gate on main → 0 errors). Additive-only; no concept
+content falsified.
+
+Journey (each round a distinct, real, narrower finding — convergent, not a loop):
+- Gate built (14d9bec5): on its FIRST run it caught a REAL pre-existing concept defect — a
+  same-scope defers_to cycle closure-payload (FK-29↔FK-39). Orchestrator resolved it factually
+  (FK-29 §29.1.0 owns ClosurePayload; FK-39 owns the generic phase-payload union) → re-scoped the
+  wrong edge + decision-record (commit cd0697cc). Immediate story value.
+- Defect review found 5 ERRORs: 2 normative-doc corruptions disguised as ref fixes (syntax-contract
+  §8 README, 11-review basename example) + 3 fail-open gate holes (unrecognized-path bypass,
+  malformed defers_to silently dropped, dangling IGNORE at EOF).
+- R1 correctly STOPPED: the orchestrator's ERROR-4 spec conflicted with the canonical SCALAR
+  defers_to form (`[FK-NN,...]`, 47 legit entries). Orchestrator over-spec → corrected to a
+  two-forms model.
+- R2 (a2e81936) fixed all 5 with the corrected two-forms handling (scalar=document-level;
+  mapping=scope; reason-less mapping kept in graph so it can't hide a cycle; missing target/scope=
+  INVALID); path recognition from git ls-files; dangling-IGNORE=ERROR; ERROR 1/2 fixed WITHOUT
+  falsifying content (README pattern marked, basename example made self-consistent); 29 prompts/
+  target-project paths baselined with justification.
+- Convergence re-review found 2 residual fail-open holes → R3 (ce2eaca9): case-variant tracked
+  root now recognized case-insensitively (final git-path check stays exact) so a case-variant dead
+  path is reported; `defers_to: null` (present-non-list) → INVALID_DEFERS_TO_EDGE (absent key stays
+  empty default).
+
+Lesson (recorded): for a FAIL-CLOSED integrity gate, "green" is nearly meaningless — fail-OPEN
+holes are green-and-broken and only adversarial layered review finds them. The orchestrator's
+"green + low-risk → close" instinct was wrong twice here; the layered reviews (2 Codex adversarial
+passes + a convergence pass) + code-adjudication are what made the gate genuinely fail-closed.
+This meta-gate justified more rounds than a normal story precisely because of that. Non-blocking:
+none. Follow-on: AG3-158 (sequence edge).
