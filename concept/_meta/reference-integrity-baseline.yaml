@@ -71,11 +71,6 @@ unresolved_references:
     reference: tools/hooks
     reason: Materialized target-project hook directory, not its bundle source path.
   - code: UNRESOLVED_REPO_PATH
-    path: concept/technical-design/31_branch_guard_orchestrator_guard_artefaktschutz.md
-    line: 353
-    reference: README.md
-    reason: Target-project documentation capability entry; AK3 has no root README.
-  - code: UNRESOLVED_REPO_PATH
     path: concept/technical-design/32_dokumententreue_conformance_service.md
     line: 263
     reference: guardrails/manifest-index.json
@@ -135,7 +130,153 @@ unresolved_references:
     line: 291
     reference: tools/agentkit
     reason: Materialized target-project launcher location, not its bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/11_llm_provider_browser_pools_prompt_execution.md
+    line: 452
+    reference: prompts/qa-semantic.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/11_llm_provider_browser_pools_prompt_execution.md
+    line: 453
+    reference: prompts/qa-semantic-review.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/11_llm_provider_browser_pools_prompt_execution.md
+    line: 454
+    reference: prompts/design-review.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/11_llm_provider_browser_pools_prompt_execution.md
+    line: 455
+    reference: prompts/design-challenge.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/11_llm_provider_browser_pools_prompt_execution.md
+    line: 456
+    reference: prompts/doc-fidelity-goal.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/11_llm_provider_browser_pools_prompt_execution.md
+    line: 457
+    reference: prompts/doc-fidelity-design.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/11_llm_provider_browser_pools_prompt_execution.md
+    line: 458
+    reference: prompts/doc-fidelity-impl.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/11_llm_provider_browser_pools_prompt_execution.md
+    line: 459
+    reference: prompts/doc-fidelity-feedback.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/11_llm_provider_browser_pools_prompt_execution.md
+    line: 460
+    reference: prompts/governance-adjudication.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/11_llm_provider_browser_pools_prompt_execution.md
+    line: 461
+    reference: prompts/vectordb-conflict.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/11_llm_provider_browser_pools_prompt_execution.md
+    line: 462
+    reference: prompts/fc-sharpen-invariant.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/11_llm_provider_browser_pools_prompt_execution.md
+    line: 463
+    reference: prompts/fc-check-proposal.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/11_llm_provider_browser_pools_prompt_execution.md
+    line: 512
+    reference: prompts/concept-feedback.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/11_llm_provider_browser_pools_prompt_execution.md
+    line: 513
+    reference: prompts/concept-feedback.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/11_llm_provider_browser_pools_prompt_execution.md
+    line: 514
+    reference: prompts/fc-sharpen-invariant.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/11_llm_provider_browser_pools_prompt_execution.md
+    line: 515
+    reference: prompts/fc-check-proposal.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/26_implementation_runtime_worker_loop.md
+    line: 473
+    reference: prompts/sparring
+    reason: Deployed target-project prompt directory, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/27_verify_pipeline_closure_orchestration.md
+    line: 416
+    reference: prompts/qa-semantic.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/27_verify_pipeline_closure_orchestration.md
+    line: 445
+    reference: prompts/qa-semantic-review.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/28_evidence_assembly_review_vorbereitung.md
+    line: 931
+    reference: prompts/sparring
+    reason: Deployed target-project prompt directory, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/32_dokumententreue_conformance_service.md
+    line: 191
+    reference: prompts/doc-fidelity-goal.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/32_dokumententreue_conformance_service.md
+    line: 192
+    reference: prompts/doc-fidelity-design.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/32_dokumententreue_conformance_service.md
+    line: 193
+    reference: prompts/doc-fidelity-impl.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/32_dokumententreue_conformance_service.md
+    line: 194
+    reference: prompts/doc-fidelity-feedback.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/34_llm_bewertungen_adversarial_testing_runtime.md
+    line: 121
+    reference: prompts/qa-semantic.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/34_llm_bewertungen_adversarial_testing_runtime.md
+    line: 188
+    reference: prompts/qa-semantic-review.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/47_request_dsl_und_preflight_turn.md
+    line: 339
+    reference: prompts/sparring/review-preflight.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/48_adversarial_testing_runtime.md
+    line: 81
+    reference: prompts/adversarial-testing.md
+    reason: Deployed target-project prompt path, not its packaged bundle source path.
 document_cycles:
+  - documents:
+      - DK-09
+      - DK-12
+    reason: >-
+      Canonical scalar deferrals form a document-level dependency cycle; scalar
+      edges carry no scope and therefore cannot form a same-scope ownership cycle.
   - documents:
       - DK-15
       - FK-77
@@ -148,10 +289,14 @@ document_cycles:
       - FK-03
       - FK-04
       - FK-05
+      - FK-07
       - FK-10
       - FK-11
       - FK-12
       - FK-13
+      - FK-15
+      - FK-17
+      - FK-18
       - FK-20
       - FK-21
       - FK-22
@@ -190,16 +335,14 @@ document_cycles:
       - FK-59
       - FK-60
       - FK-61
+      - FK-62
+      - FK-63
       - FK-68
       - FK-69
-      - FK-71
-    reason: >-
-      The established document graph contains the known FK-02/FK-71 and
-      FK-20/FK-27/FK-29/FK-54 paths, but every scope projection is acyclic;
-      this exact document-level component is therefore report-only.
-  - documents:
-      - FK-63
       - FK-70
+      - FK-71
+      - FK-91
     reason: >-
-      Dashboard evaluation and story planning delegate distinct scopes; the
-      two document edges do not form a same-scope ownership cycle.
+      The established graph combines the known scope-disjoint mapping paths
+      with canonical scalar document dependencies; every scope projection is
+      acyclic, so this exact document-level component is report-only.

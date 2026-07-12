@@ -116,7 +116,8 @@ ohne selbst die kanonische Liste erneut zu definieren.
 ## 8. Kontext-README
 
 Jeder fachliche Kontextordner unter `concept/formal-spec/` enthaelt
-zusaetzlich ein `concept/formal-spec/README.md`.
+<!-- REF-INTEGRITY:IGNORE-LINE Per-context README pattern, not one repo-relative path. -->
+zusaetzlich eine eigene `README.md`.
 
 Dieses README ist nicht die kanonische Spezifikation, sondern erklaert:
 

@@ -99,3 +99,31 @@ gate PASSES on real main (AC7) via anchor-only fixes + justified baseline; byte-
 new gate unit tests) / the 4 existing concept gates + the NEW gate → push main → Jenkins
 buildWithParameters (CSRF crumb + admin:password) SUCCESS + Sonar OK (0/0/0, new-code cov≥80). Sonar
 http://localhost:9901 admin/meinSonarCube2026! key claude-agentkit3. Do NOT set status.yaml=completed.
+
+---
+
+## R1→R2 correction (2026-07-12): defers_to has TWO canonical forms
+
+The R1 defect review found 5 real ERRORs (2 normative-doc corruptions disguised as ref fixes,
+3 fail-open gate holes). The R1 worker correctly STOPPED because the ERROR-4 fix as first
+specified ("every defers_to edge needs target+scope+reason else ERROR") CONFLICTS with the
+canonical contract: `00_index.md:250` defines `defers_to: [FK-NN, ...]` — a SCALAR list of
+doc-IDs — and 47 legitimate entries in 14 docs use it. Forcing target/scope/reason onto them
+would be a normative mass-migration. This was an orchestrator over-specification.
+
+CORRECTED defers_to model (the gate accepts BOTH forms; fail-closed only where an edge is truly
+unformable):
+- **Scalar** `- FK-NN` (canonical, 00_index:250) = a DOCUMENT-LEVEL (scope-less) deferral →
+  feeds DOCUMENT-LEVEL cycle detection (report + justified baseline; NOT a per-scope ERROR).
+- **Mapping** `{target, scope, reason}` = scope-qualified → feeds PER-SCOPE cycle detection (ERROR).
+- Fail-closed rule (closes the real ERROR-4 hole = "silent drop hides a cycle"): a mapping with a
+  determinable (target, scope) MUST be included in the per-scope graph — a MISSING/non-string
+  `reason` does NOT drop it (reason is documentation, not edge identity) → so it can never hide a
+  cycle. A mapping MISSING/non-string `target` OR `scope` (cannot form the edge) → ERROR. A value
+  that is neither a valid scalar string nor a valid mapping → ERROR. Scalar strings are always valid.
+- This closes the cycle-hiding hole WITHOUT flagging the 47 canonical scalar entries.
+
+Path triage (after the ERROR-3 fix recognizes all repo-tracked-root paths): newly-surfaced findings
+(tools/agentkit, tools/hooks/*, prompts/…, etc.) are deployed target-project / bundle / example /
+generated / runtime paths → BASELINE with justification (same category as the existing baseline).
+Genuine AK3-repo dead path → fix inline. NORMATIVE issue → STOP.

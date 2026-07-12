@@ -5,9 +5,10 @@ covered by explicit ``REF-INTEGRITY`` directives. ``IGNORE-LINE`` ignores the
 next physical line and requires a reason; ``IGNORE-BEGIN``/``IGNORE-END``
 delimit an ignored region and the begin directive requires a reason.
 
-``defers_to`` is scope-qualified: a strongly connected component within one
-scope is an error. Document-level components are reports only when their exact
-membership has a justified baseline entry.
+``defers_to`` accepts scalar document-level edges and scope-qualified mapping
+edges. A strongly connected component within one scope is an error.
+Document-level components are reports only when their exact membership has a
+justified baseline entry.
 """
 
 from __future__ import annotations
@@ -36,10 +37,6 @@ IGNORE_LINE_RE = re.compile(r"^\s*<!--\s*REF-INTEGRITY:IGNORE-LINE\s+(.+?)\s*-->
 IGNORE_BEGIN_RE = re.compile(r"^\s*<!--\s*REF-INTEGRITY:IGNORE-BEGIN\s+(.+?)\s*-->\s*$")
 IGNORE_END_RE = re.compile(r"^\s*<!--\s*REF-INTEGRITY:IGNORE-END\s*-->\s*$")
 FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
-ROOT_PATH_NAMES = frozenset({"CLAUDE.md", "Jenkinsfile", "PROJECT_STRUCTURE.md", "README.md", "pyproject.toml"})
-REPO_PATH_PREFIXES = frozenset({".githooks", "concept", "guardrails", "reports", "scripts", "src", "stories", "tests", "tools"})
-
-
 @dataclass(frozen=True, order=True)
 class ReferenceFinding:
     """One deterministic reference-integrity finding."""
@@ -54,11 +51,11 @@ class ReferenceFinding:
 
 @dataclass(frozen=True)
 class DefersEdge:
-    """One scope-qualified delegation edge from concept frontmatter."""
+    """One document-level or scope-qualified frontmatter deferral edge."""
 
     source: str
     target: str
-    scope: str
+    scope: str | None
     reason: str
     path: str
 
@@ -90,10 +87,10 @@ def audit_reference_integrity(
 ) -> ReferenceIntegrityResult:
     """Audit all concept references and scope-qualified delegation cycles."""
     paths = tuple(sorted(concept_root.rglob("*.md")))
-    tracked_paths = _tracked_repo_paths(repo_root)
+    tracked_paths, tracked_top_level, tracked_findings = _tracked_repo_paths(repo_root)
     documents, headings, edges, load_findings = _load_documents(repo_root, paths)
     baseline, baseline_findings = _load_baseline(repo_root, baseline_path)
-    raw_findings: list[ReferenceFinding] = [*load_findings, *baseline_findings]
+    raw_findings: list[ReferenceFinding] = [*tracked_findings, *load_findings, *baseline_findings]
     for path in paths:
         raw_findings.extend(
             _scan_document(
@@ -104,6 +101,7 @@ def audit_reference_integrity(
                 compiled.declared_ids,
                 frozenset(document.doc_id for document in compiled.documents),
                 tracked_paths,
+                tracked_top_level,
             )
         )
     raw_findings.extend(_scope_cycle_findings(edges))
@@ -149,29 +147,53 @@ def _load_documents(
             continue
         documents[concept_id] = path
         headings[concept_id] = _extract_headings(path.read_text(encoding="utf-8"))
-        edges.extend(_load_defers_edges(frontmatter, concept_id, relative))
+        loaded_edges, edge_findings = _load_defers_edges(frontmatter, concept_id, relative)
+        edges.extend(loaded_edges)
+        findings.extend(edge_findings)
     return (
         documents,
         headings,
-        tuple(sorted(edges, key=lambda edge: (edge.scope, edge.source, edge.target, edge.reason))),
+        tuple(sorted(edges, key=lambda edge: (edge.scope or "", edge.source, edge.target, edge.reason))),
         findings,
     )
 
 
-def _load_defers_edges(frontmatter: dict[str, Any], concept_id: str, relative: str) -> tuple[DefersEdge, ...]:
+def _load_defers_edges(
+    frontmatter: dict[str, Any], concept_id: str, relative: str
+) -> tuple[tuple[DefersEdge, ...], tuple[ReferenceFinding, ...]]:
     raw_edges = frontmatter.get("defers_to", [])
     if raw_edges is None:
-        return ()
+        return (), ()
     if not isinstance(raw_edges, list):
-        return ()
+        return (), (_invalid_defers_finding(relative, raw_edges),)
     edges: list[DefersEdge] = []
+    findings: list[ReferenceFinding] = []
     for raw_edge in raw_edges:
-        if not isinstance(raw_edge, dict) or not all(
-            isinstance(raw_edge.get(key), str) and raw_edge[key].strip() for key in ("target", "scope", "reason")
-        ):
+        if isinstance(raw_edge, str) and raw_edge.strip():
+            edges.append(DefersEdge(concept_id, raw_edge.strip(), None, "scalar document-level deferral", relative))
             continue
-        edges.append(DefersEdge(concept_id, raw_edge["target"], raw_edge["scope"], raw_edge["reason"], relative))
-    return tuple(edges)
+        if not isinstance(raw_edge, dict):
+            findings.append(_invalid_defers_finding(relative, raw_edge))
+            continue
+        target = raw_edge.get("target")
+        scope = raw_edge.get("scope")
+        if not isinstance(target, str) or not target.strip() or not isinstance(scope, str) or not scope.strip():
+            findings.append(_invalid_defers_finding(relative, raw_edge))
+            continue
+        raw_reason = raw_edge.get("reason")
+        reason = raw_reason.strip() if isinstance(raw_reason, str) and raw_reason.strip() else "reason missing or non-string"
+        edges.append(DefersEdge(concept_id, target.strip(), scope.strip(), reason, relative))
+    return tuple(edges), tuple(findings)
+
+
+def _invalid_defers_finding(relative: str, raw_edge: Any) -> ReferenceFinding:
+    return _finding(
+        relative,
+        1,
+        "INVALID_DEFERS_TO_EDGE",
+        repr(raw_edge),
+        "defers_to entry must be a scalar string or a mapping with non-empty string target and scope",
+    )
 
 
 def _scan_document(
@@ -182,6 +204,7 @@ def _scan_document(
     declared_ids: frozenset[str],
     formal_document_ids: frozenset[str],
     tracked_paths: frozenset[Path],
+    tracked_top_level: frozenset[str],
 ) -> tuple[ReferenceFinding, ...]:
     relative = path.relative_to(repo_root).as_posix()
     text = path.read_text(encoding="utf-8")
@@ -220,7 +243,7 @@ def _scan_document(
                     _finding(relative, line_number, "UNRESOLVED_FORMAL_ID", match.group(), "formal item id is not declared")
                 )
         for match in BACKTICK_RE.finditer(line):
-            candidate = _repo_path_candidate(match.group(1))
+            candidate = _repo_path_candidate(match.group(1), tracked_top_level)
             if candidate is not None and (repo_root / candidate).resolve() not in tracked_paths:
                 findings.append(
                     _finding(relative, line_number, "UNRESOLVED_REPO_PATH", candidate, "repo-relative path does not exist")
@@ -272,6 +295,7 @@ def _exclusion_findings(text: str, relative: str) -> tuple[ReferenceFinding, ...
     region_start: int | None = None
     fence_start: int | None = None
     fence_marker = ""
+    ignore_line_start: int | None = None
     for index, line in enumerate(text.splitlines(), start=1):
         fence = FENCE_RE.match(line)
         if fence:
@@ -311,6 +335,7 @@ def _exclusion_findings(text: str, relative: str) -> tuple[ReferenceFinding, ...
             region_start = None
             continue
         if IGNORE_LINE_RE.match(line):
+            ignore_line_start = index
             continue
         if "REF-INTEGRITY:" in line:
             findings.append(
@@ -322,6 +347,17 @@ def _exclusion_findings(text: str, relative: str) -> tuple[ReferenceFinding, ...
                     "ignore directive is malformed or lacks a reason",
                 )
             )
+    line_count = len(text.splitlines())
+    if ignore_line_start == line_count:
+        findings.append(
+            _finding(
+                relative,
+                ignore_line_start,
+                "INVALID_IGNORE_DIRECTIVE",
+                "REF-INTEGRITY:IGNORE-LINE",
+                "ignore-line directive has no following physical line",
+            )
+        )
     if region_start is not None:
         findings.append(
             _finding(
@@ -366,24 +402,24 @@ def _canonical_section(section: str) -> str:
     return ".".join(str(int(part)) if part.isdigit() else part for part in section.split("."))
 
 
-def _repo_path_candidate(token: str) -> str | None:
+def _repo_path_candidate(token: str, tracked_top_level: frozenset[str]) -> str | None:
     candidate = token.strip().replace("\\", "/")
     candidate = re.sub(r":\d+(?:-\d+)?$", "", candidate)
     if not candidate or any(character.isspace() for character in candidate) or candidate.startswith(("/", "http://", "https://")):
         return None
     if any(character in candidate for character in "*{}<>"):
         return None
-    if candidate in ROOT_PATH_NAMES:
-        return candidate
     first = candidate.split("/", 1)[0]
-    if first not in REPO_PATH_PREFIXES:
+    if first not in tracked_top_level:
         return None
     if any(part in {"", ".", ".."} for part in candidate.rstrip("/").split("/")):
         return None
     return candidate.rstrip("/")
 
 
-def _tracked_repo_paths(repo_root: Path) -> frozenset[Path]:
+def _tracked_repo_paths(
+    repo_root: Path,
+) -> tuple[frozenset[Path], frozenset[str], tuple[ReferenceFinding, ...]]:
     import subprocess
 
     completed = subprocess.run(
@@ -392,15 +428,24 @@ def _tracked_repo_paths(repo_root: Path) -> frozenset[Path]:
         capture_output=True,
     )
     if completed.returncode != 0:
-        return frozenset()
+        finding = _finding(
+            "concept",
+            0,
+            "TRACKED_PATH_DISCOVERY_FAILED",
+            "git ls-files",
+            "tracked repository paths could not be discovered",
+        )
+        return frozenset(), frozenset(), (finding,)
     tracked: set[Path] = set()
+    top_level: set[str] = set()
     for raw_path in completed.stdout.decode("utf-8").split("\0"):
         if not raw_path:
             continue
         path = (repo_root / raw_path).resolve()
         tracked.add(path)
+        top_level.add(raw_path.replace("\\", "/").split("/", 1)[0])
         tracked.update(parent for parent in path.parents if parent == repo_root or repo_root in parent.parents)
-    return frozenset(tracked)
+    return frozenset(tracked), frozenset(top_level), ()
 
 
 def _load_baseline(repo_root: Path, path: Path) -> tuple[_Baseline, list[ReferenceFinding]]:
@@ -526,7 +571,7 @@ def _parse_cycle_baseline(raw: Any, path: Path, repo_root: Path, findings: list[
 
 def _scope_cycle_findings(edges: tuple[DefersEdge, ...]) -> tuple[ReferenceFinding, ...]:
     findings: list[ReferenceFinding] = []
-    for scope in sorted({edge.scope for edge in edges}):
+    for scope in sorted({edge.scope for edge in edges if edge.scope is not None}):
         scoped = tuple(edge for edge in edges if edge.scope == scope)
         for component in _strong_components(scoped):
             details = "; ".join(

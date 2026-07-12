@@ -439,7 +439,7 @@ erfordert einen korrespondierenden Loader.
 
 **Path-Resolution fuer Concept-Excerpts:** Concept-Pfade in
 Im `StoryContext` bzw. dessen `context.json`-Export koennen Concept-Pfade als nackte Dateinamen gespeichert sein (z.B.
-`02-komponentenstruktur.md` statt
+`07_komponentenarchitektur_und_architekturkonformanz.md` statt
 `concept/technical-design/07_komponentenarchitektur_und_architekturkonformanz.md`). Der Builder
 muss eine Fallback-Suche in bekannten Concept-Verzeichnissen
 (`concept/domain-design/`, `concept/technical-design/` etc.)
