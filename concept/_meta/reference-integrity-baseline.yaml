@@ -4,6 +4,13 @@
 version: 1
 unresolved_references:
   - code: UNRESOLVED_REPO_PATH
+    path: concept/_meta/decisions/2026-07-09-takeover-challenge-persistence-und-reconcile-obligation.md
+    line: 254
+    reference: reports/AG3-148-model-fix-design.md
+    reason: >-
+      Pre-existing review artifact outside the tracked repository; the
+      decision record itself freezes the normative core used by the corpus.
+  - code: UNRESOLVED_REPO_PATH
     path: concept/domain-design/11-review-qualitaetsverbesserung.md
     line: 214
     reference: src/main/java

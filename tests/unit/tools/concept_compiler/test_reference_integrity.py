@@ -94,6 +94,7 @@ def test_production_governance_negative_examples_are_marked() -> None:
 
     governance = "concept/_meta/konzept-konsistenz-governance.md"
     assert not any(finding.path == governance and "§67.x" in finding.reference for finding in result.findings)
+    assert any(report.reference == "reports/AG3-148-model-fix-design.md" for report in result.reports)
 
 
 def test_rendering_is_byte_identical_across_runs() -> None:

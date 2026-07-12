@@ -90,6 +90,7 @@ def audit_reference_integrity(
 ) -> ReferenceIntegrityResult:
     """Audit all concept references and scope-qualified delegation cycles."""
     paths = tuple(sorted(concept_root.rglob("*.md")))
+    tracked_paths = _tracked_repo_paths(repo_root)
     documents, headings, edges, load_findings = _load_documents(repo_root, paths)
     baseline, baseline_findings = _load_baseline(repo_root, baseline_path)
     raw_findings: list[ReferenceFinding] = [*load_findings, *baseline_findings]
@@ -102,6 +103,7 @@ def audit_reference_integrity(
                 headings,
                 compiled.declared_ids,
                 frozenset(document.doc_id for document in compiled.documents),
+                tracked_paths,
             )
         )
     raw_findings.extend(_scope_cycle_findings(edges))
@@ -179,6 +181,7 @@ def _scan_document(
     headings: dict[str, frozenset[str]],
     declared_ids: frozenset[str],
     formal_document_ids: frozenset[str],
+    tracked_paths: frozenset[Path],
 ) -> tuple[ReferenceFinding, ...]:
     relative = path.relative_to(repo_root).as_posix()
     text = path.read_text(encoding="utf-8")
@@ -218,7 +221,7 @@ def _scan_document(
                 )
         for match in BACKTICK_RE.finditer(line):
             candidate = _repo_path_candidate(match.group(1))
-            if candidate is not None and not (repo_root / candidate).exists():
+            if candidate is not None and (repo_root / candidate).resolve() not in tracked_paths:
                 findings.append(
                     _finding(relative, line_number, "UNRESOLVED_REPO_PATH", candidate, "repo-relative path does not exist")
                 )
@@ -378,6 +381,26 @@ def _repo_path_candidate(token: str) -> str | None:
     if any(part in {"", ".", ".."} for part in candidate.rstrip("/").split("/")):
         return None
     return candidate.rstrip("/")
+
+
+def _tracked_repo_paths(repo_root: Path) -> frozenset[Path]:
+    import subprocess
+
+    completed = subprocess.run(
+        ["git", "-C", str(repo_root), "ls-files", "-z"],
+        check=False,
+        capture_output=True,
+    )
+    if completed.returncode != 0:
+        return frozenset()
+    tracked: set[Path] = set()
+    for raw_path in completed.stdout.decode("utf-8").split("\0"):
+        if not raw_path:
+            continue
+        path = (repo_root / raw_path).resolve()
+        tracked.add(path)
+        tracked.update(parent for parent in path.parents if parent == repo_root or repo_root in parent.parents)
+    return frozenset(tracked)
 
 
 def _load_baseline(repo_root: Path, path: Path) -> tuple[_Baseline, list[ReferenceFinding]]:
