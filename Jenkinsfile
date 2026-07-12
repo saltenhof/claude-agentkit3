@@ -277,11 +277,13 @@ PY
                 expression { params.agentkit_mode != 'cp10d_branch_plugin_self_test' }
             }
             steps {
-                sh '''
-                    set -e
-                    . .venv/bin/activate
-                    PYTHONPATH=src python scripts/ci/check_concept_reference_integrity.py
-                '''
+                dir('agentkit-src') {
+                    sh '''
+                        set -e
+                        . .venv/bin/activate
+                        PYTHONPATH=src python scripts/ci/check_concept_reference_integrity.py
+                    '''
+                }
             }
         }
 
