@@ -56,6 +56,13 @@ def test_dead_path_under_dynamically_discovered_top_level_is_error() -> None:
     assert result.findings[0].reference == "compile_ok/missing.yml"
 
 
+def test_ellipsis_dead_path_is_error_on_every_platform() -> None:
+    result = _audit("platform_ellipsis_dead_path")
+
+    assert [finding.code for finding in result.findings] == ["UNRESOLVED_REPO_PATH"]
+    assert result.findings[0].reference == "compile_ok/..."
+
+
 def test_same_scope_cycle_is_error_with_both_reasons() -> None:
     result = _audit("per_scope_cycle")
 

@@ -270,6 +270,11 @@ unresolved_references:
     line: 81
     reference: prompts/adversarial-testing.md
     reason: Deployed target-project prompt path, not its packaged bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/44_prompt_bundles_materialization_audit.md
+    line: 302
+    reference: prompts/...
+    reason: Illustrative deployed prompt-subtree placeholder, not a literal repository path.
 document_cycles:
   - documents:
       - DK-09

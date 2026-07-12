@@ -203,7 +203,7 @@ def _scan_document(
     headings: dict[str, frozenset[str]],
     declared_ids: frozenset[str],
     formal_document_ids: frozenset[str],
-    tracked_paths: frozenset[Path],
+    tracked_paths: frozenset[str],
     tracked_top_level: frozenset[str],
 ) -> tuple[ReferenceFinding, ...]:
     relative = path.relative_to(repo_root).as_posix()
@@ -244,7 +244,7 @@ def _scan_document(
                 )
         for match in BACKTICK_RE.finditer(line):
             candidate = _repo_path_candidate(match.group(1), tracked_top_level)
-            if candidate is not None and (repo_root / candidate).resolve() not in tracked_paths:
+            if candidate is not None and candidate not in tracked_paths:
                 findings.append(
                     _finding(relative, line_number, "UNRESOLVED_REPO_PATH", candidate, "repo-relative path does not exist")
                 )
@@ -419,7 +419,7 @@ def _repo_path_candidate(token: str, tracked_top_level: frozenset[str]) -> str |
 
 def _tracked_repo_paths(
     repo_root: Path,
-) -> tuple[frozenset[Path], frozenset[str], tuple[ReferenceFinding, ...]]:
+) -> tuple[frozenset[str], frozenset[str], tuple[ReferenceFinding, ...]]:
     import subprocess
 
     completed = subprocess.run(
@@ -436,15 +436,16 @@ def _tracked_repo_paths(
             "tracked repository paths could not be discovered",
         )
         return frozenset(), frozenset(), (finding,)
-    tracked: set[Path] = set()
+    tracked: set[str] = set()
     top_level: set[str] = set()
     for raw_path in completed.stdout.decode("utf-8").split("\0"):
         if not raw_path:
             continue
-        path = (repo_root / raw_path).resolve()
-        tracked.add(path)
-        top_level.add(raw_path.replace("\\", "/").split("/", 1)[0])
-        tracked.update(parent for parent in path.parents if parent == repo_root or repo_root in parent.parents)
+        normalized = raw_path.replace("\\", "/").strip("/")
+        parts = normalized.split("/")
+        tracked.add(normalized)
+        tracked.update("/".join(parts[:index]) for index in range(1, len(parts)))
+        top_level.add(parts[0])
     return frozenset(tracked), frozenset(top_level), ()
 
 
