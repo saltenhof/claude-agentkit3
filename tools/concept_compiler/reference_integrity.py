@@ -87,7 +87,7 @@ def audit_reference_integrity(
 ) -> ReferenceIntegrityResult:
     """Audit all concept references and scope-qualified delegation cycles."""
     paths = tuple(sorted(concept_root.rglob("*.md")))
-    tracked_paths, tracked_top_level, tracked_findings = _tracked_repo_paths(repo_root)
+    tracked_paths, tracked_top_level_casefold, tracked_findings = _tracked_repo_paths(repo_root)
     documents, headings, edges, load_findings = _load_documents(repo_root, paths)
     baseline, baseline_findings = _load_baseline(repo_root, baseline_path)
     raw_findings: list[ReferenceFinding] = [*tracked_findings, *load_findings, *baseline_findings]
@@ -101,7 +101,7 @@ def audit_reference_integrity(
                 compiled.declared_ids,
                 frozenset(document.doc_id for document in compiled.documents),
                 tracked_paths,
-                tracked_top_level,
+                tracked_top_level_casefold,
             )
         )
     raw_findings.extend(_scope_cycle_findings(edges))
@@ -162,8 +162,6 @@ def _load_defers_edges(
     frontmatter: dict[str, Any], concept_id: str, relative: str
 ) -> tuple[tuple[DefersEdge, ...], tuple[ReferenceFinding, ...]]:
     raw_edges = frontmatter.get("defers_to", [])
-    if raw_edges is None:
-        return (), ()
     if not isinstance(raw_edges, list):
         return (), (_invalid_defers_finding(relative, raw_edges),)
     edges: list[DefersEdge] = []
@@ -204,7 +202,7 @@ def _scan_document(
     declared_ids: frozenset[str],
     formal_document_ids: frozenset[str],
     tracked_paths: frozenset[str],
-    tracked_top_level: frozenset[str],
+    tracked_top_level_casefold: frozenset[str],
 ) -> tuple[ReferenceFinding, ...]:
     relative = path.relative_to(repo_root).as_posix()
     text = path.read_text(encoding="utf-8")
@@ -243,7 +241,7 @@ def _scan_document(
                     _finding(relative, line_number, "UNRESOLVED_FORMAL_ID", match.group(), "formal item id is not declared")
                 )
         for match in BACKTICK_RE.finditer(line):
-            candidate = _repo_path_candidate(match.group(1), tracked_top_level)
+            candidate = _repo_path_candidate(match.group(1), tracked_top_level_casefold)
             if candidate is not None and candidate not in tracked_paths:
                 findings.append(
                     _finding(relative, line_number, "UNRESOLVED_REPO_PATH", candidate, "repo-relative path does not exist")
@@ -402,7 +400,7 @@ def _canonical_section(section: str) -> str:
     return ".".join(str(int(part)) if part.isdigit() else part for part in section.split("."))
 
 
-def _repo_path_candidate(token: str, tracked_top_level: frozenset[str]) -> str | None:
+def _repo_path_candidate(token: str, tracked_top_level_casefold: frozenset[str]) -> str | None:
     candidate = token.strip().replace("\\", "/")
     candidate = re.sub(r":\d+(?:-\d+)?$", "", candidate)
     if not candidate or any(character.isspace() for character in candidate) or candidate.startswith(("/", "http://", "https://")):
@@ -410,7 +408,7 @@ def _repo_path_candidate(token: str, tracked_top_level: frozenset[str]) -> str |
     if any(character in candidate for character in "*{}<>"):
         return None
     first = candidate.split("/", 1)[0]
-    if first not in tracked_top_level:
+    if first.casefold() not in tracked_top_level_casefold:
         return None
     if any(part in {"", ".", ".."} for part in candidate.rstrip("/").split("/")):
         return None
@@ -445,7 +443,7 @@ def _tracked_repo_paths(
         parts = normalized.split("/")
         tracked.add(normalized)
         tracked.update("/".join(parts[:index]) for index in range(1, len(parts)))
-        top_level.add(parts[0])
+        top_level.add(parts[0].casefold())
     return frozenset(tracked), frozenset(top_level), ()
 
 

@@ -63,6 +63,13 @@ def test_ellipsis_dead_path_is_error_on_every_platform() -> None:
     assert result.findings[0].reference == "compile_ok/..."
 
 
+def test_case_variant_tracked_root_dead_path_is_error_while_exact_existing_path_resolves() -> None:
+    result = _audit("case_variant_root_path")
+
+    assert [finding.code for finding in result.findings] == ["UNRESOLVED_REPO_PATH"]
+    assert result.findings[0].reference == "Compile_ok/missing.yml"
+
+
 def test_same_scope_cycle_is_error_with_both_reasons() -> None:
     result = _audit("per_scope_cycle")
 
@@ -88,6 +95,14 @@ def test_mapping_missing_target_or_scope_is_malformed_error() -> None:
         "INVALID_DEFERS_TO_EDGE",
         "INVALID_DEFERS_TO_EDGE",
     ]
+
+
+def test_present_null_defers_to_is_invalid_while_absent_and_empty_are_valid() -> None:
+    result = _audit("null_absent_empty_defers_to")
+
+    assert [finding.code for finding in result.findings] == ["INVALID_DEFERS_TO_EDGE"]
+    assert result.findings[0].path.endswith("null.md")
+    assert result.findings[0].reference == "None"
 
 
 def test_scalar_defers_to_entry_is_valid_and_document_level_only() -> None:
