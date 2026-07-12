@@ -117,8 +117,12 @@ defers_to:
     scope: workflow-engine
     reason: Phase-Runner-Recovery und Workflow-Engine-Mechanik in FK-20
   - target: FK-39
-    scope: closure-payload
-    reason: ClosurePayload als diskriminierte Union in FK-39 §39.2.3
+    scope: phase-payload
+    reason: Der generische PhasePayload-Discriminated-Union-Rahmen (§39.2.3)
+      liegt in FK-39 (authority_over phase-payload); die Closure-Variante
+      ClosurePayload/ClosureProgress ist hier in FK-29 §29.1.0 definiert und
+      wird von FK-39 an FK-29 delegiert (scope closure-payload). FK-29
+      delegiert closure-payload NICHT zurueck (das waere ein Ownership-Zyklus).
   - target: FK-38
     scope: feedback-doc-fidelity
     reason: Rückkopplungstreue (Ebene 4) und Finding-Resolution-Quelle aus Layer-2-Artefakten in FK-38
