@@ -1,0 +1,198 @@
+# Exact, justified exceptions for the concept-reference-integrity gate.
+# REF-INTEGRITY directives are documented in reference_integrity.py; they are
+# the only line/region exclusions and always require an explicit reason.
+version: 1
+unresolved_references:
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/domain-design/11-review-qualitaetsverbesserung.md
+    line: 214
+    reference: src/main/java
+    reason: Language-agnostic Java source-layout example, not an AK3 repo path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/domain-design/11-review-qualitaetsverbesserung.md
+    line: 214
+    reference: src/test/java
+    reason: Language-agnostic Java test-layout example, not an AK3 repo path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/00_index.md
+    line: 405
+    reference: concept/technical-design/_meta/glossary-overview.md
+    reason: Declared generated read-only artifact; it is intentionally not source-controlled.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/00_index.md
+    line: 407
+    reference: concept/technical-design/_meta/glossary-reverse-index.md
+    reason: Declared generated read-only artifact; it is intentionally not source-controlled.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/03_konfigurationsmodell_schemas_versionierung.md
+    line: 420
+    reference: tools/qa/schemas
+    reason: Installer target-project location, not a source-repository location.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/10_runtime_deployment_speicher.md
+    line: 392
+    reference: tools/agentkit
+    reason: Materialized target-project launcher location, not its bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/13_retrieval_vektordb_wissenszugriff.md
+    line: 89
+    reference: stories/ODIN-042/story.md
+    reason: Illustrative target-project story instance, not a repository fixture.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/15_security_secrets_identity_zugriffsmodell.md
+    line: 199
+    reference: tools/hooks/pre-commit
+    reason: Materialized target-project hook location, not its bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/27_verify_pipeline_closure_orchestration.md
+    line: 559
+    reference: tests/adversarial_quarantine
+    reason: Runtime-created quarantine location, absent until an adversarial failure occurs.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/30_hook_adapter_guard_enforcement.md
+    line: 613
+    reference: tools/hooks/pre-commit
+    reason: Materialized target-project hook location, not its bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/30_hook_adapter_guard_enforcement.md
+    line: 637
+    reference: tools/hooks/post-commit
+    reason: Materialized target-project hook location, not its bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/30_hook_adapter_guard_enforcement.md
+    line: 672
+    reference: tools/hooks
+    reason: Materialized target-project hook directory, not its bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/31_branch_guard_orchestrator_guard_artefaktschutz.md
+    line: 353
+    reference: README.md
+    reason: Target-project documentation capability entry; AK3 has no root README.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/32_dokumententreue_conformance_service.md
+    line: 263
+    reference: guardrails/manifest-index.json
+    reason: Optional target-project curated index example, not an AK3 repository file.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/32_dokumententreue_conformance_service.md
+    line: 552
+    reference: guardrails/manifest-index.json
+    reason: Optional target-project curated index example, not an AK3 repository file.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/42_ccag_tool_governance_permission_runtime.md
+    line: 268
+    reference: src/main/java/com/acme
+    reason: Language-agnostic Java source-layout example, not an AK3 repo path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/48_adversarial_testing_runtime.md
+    line: 172
+    reference: tests/adversarial_quarantine
+    reason: Runtime-created quarantine location, absent until an adversarial failure occurs.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/50_installer_checkpoint_engine_bootstrap.md
+    line: 296
+    reference: tools/agentkit
+    reason: Materialized target-project launcher location, not its bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/50_installer_checkpoint_engine_bootstrap.md
+    line: 459
+    reference: tools/agentkit
+    reason: Materialized target-project launcher location, not its bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/50_installer_checkpoint_engine_bootstrap.md
+    line: 516
+    reference: tools/hooks/pre-commit
+    reason: Materialized target-project hook location, not its bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/50_installer_checkpoint_engine_bootstrap.md
+    line: 726
+    reference: tools/agentkit
+    reason: Materialized target-project launcher location, not its bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/51_upgrade_migration_customization_preservation.md
+    line: 200
+    reference: tools/hooks/pre-commit
+    reason: Materialized target-project hook location, not its bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/51_upgrade_migration_customization_preservation.md
+    line: 257
+    reference: tools/agentkit
+    reason: Materialized target-project launcher location, not its bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/76_agent_harness_integration.md
+    line: 289
+    reference: tools/agentkit
+    reason: Materialized target-project launcher location, not its bundle source path.
+  - code: UNRESOLVED_REPO_PATH
+    path: concept/technical-design/76_agent_harness_integration.md
+    line: 291
+    reference: tools/agentkit
+    reason: Materialized target-project launcher location, not its bundle source path.
+document_cycles:
+  - documents:
+      - DK-15
+      - FK-77
+    reason: >-
+      The cross-layer task-management documents delegate distinct domain and
+      technical scopes; no identical scope participates in the cycle.
+  - documents:
+      - FK-01
+      - FK-02
+      - FK-03
+      - FK-04
+      - FK-05
+      - FK-10
+      - FK-11
+      - FK-12
+      - FK-13
+      - FK-20
+      - FK-21
+      - FK-22
+      - FK-23
+      - FK-24
+      - FK-25
+      - FK-26
+      - FK-27
+      - FK-28
+      - FK-29
+      - FK-30
+      - FK-31
+      - FK-32
+      - FK-33
+      - FK-34
+      - FK-35
+      - FK-36
+      - FK-37
+      - FK-38
+      - FK-39
+      - FK-40
+      - FK-41
+      - FK-42
+      - FK-43
+      - FK-44
+      - FK-45
+      - FK-46
+      - FK-47
+      - FK-48
+      - FK-50
+      - FK-53
+      - FK-54
+      - FK-55
+      - FK-56
+      - FK-58
+      - FK-59
+      - FK-60
+      - FK-61
+      - FK-68
+      - FK-69
+      - FK-71
+    reason: >-
+      The established document graph contains the known FK-02/FK-71 and
+      FK-20/FK-27/FK-29/FK-54 paths, but every scope projection is acyclic;
+      this exact document-level component is therefore report-only.
+  - documents:
+      - FK-63
+      - FK-70
+    reason: >-
+      Dashboard evaluation and story planning delegate distinct scopes; the
+      two document edges do not form a same-scope ownership cycle.

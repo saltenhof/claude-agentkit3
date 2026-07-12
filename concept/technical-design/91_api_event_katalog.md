@@ -139,7 +139,7 @@ Endpoint-Liste unten ist die HTTP-Bindung dieser Vertraege.
 | `/v1/projects/{project_key}/coverage/stories/{story_id}/acceptance` | `GET` | Soll-Sicht: Akzeptanzkriterien und ARE-Anforderungs-Verknuepfungen, die diese Story adressiert (Inspector-Spezifikations-Tab; FK-40 §40.10) |
 | `/v1/projects/{project_key}/coverage/stories/{story_id}/are-evidence` | `GET` | Ist-Sicht: ARE-Evidenz pro Story — verlinkte Anforderungen, Coverage-Status, Evidenz-Pfade (Inspector-Ergebnis-Tab; FK-40 §40.10) |
 | `/v1/projects` | `GET` | Projekt-Liste (`project_summary`) fuer den Topbar-Project-Selector (FK-72 §72.5) |
-| `/v1/projects/{project_key}` | `GET` | Projekt-Detail (`project_detail`) inklusive `mode_lock` und `story_counters` (FK-72 §72.5 Topbar; `formal.frontend-contracts.entities.project_detail`) |
+| `/v1/projects/{project_key}` | `GET` | Projekt-Detail (`project_detail`) inklusive `mode_lock` und `story_counters` (FK-72 §72.5 Topbar; `formal.frontend-contracts.entity.project_detail`) |
 | `/v1/projects/{project_key}/mode-lock` | `GET` | Projektweiter Story-Mode-Lock (Standard/Fast/Idle) fuer den Topbar-ModeIndicator (FK-24 §24.3.3) |
 | `/v1/projects/{project_key}/stories/counters` | `GET` | Aggregierte Story-Zaehler (total, finished, running, ready, queue, blocked) fuer die KpiBar |
 | `/v1/projects/{project_key}/stories/{story_id}/flow` | `GET` | Phasen- und Substep-Snapshot fuer den Inspector-Ablauf-Tab (FK-72 §72.6, Projektion auf `phase-state-projection` FK-39) |

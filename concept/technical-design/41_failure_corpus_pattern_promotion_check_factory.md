@@ -160,7 +160,8 @@ und Backfill-Quellen, nicht operative Hauptwahrheit. Regelmaessige
 Operationen richten sich ausschliesslich nach den Postgres-Tabellen.
 
 **F-41-071 — Konzeptdokument als dauerhaftes Design-Artefakt (FK-10-071):** Das
-Failure-Corpus-Konzeptdokument muss unter `concept/failure-corpus-konzept.md`
+Failure-Corpus-Konzeptdokument muss unter
+`concept/technical-design/41_failure_corpus_pattern_promotion_check_factory.md`
 als persistentes Design-Artefakt gepflegt werden. Es beschreibt Zweck,
 Datenmodell und Betriebsgrundsaetze des Corpus und ist verbindliche Grundlage
 fuer alle Implementierungs- und Weiterentwicklungsentscheidungen.

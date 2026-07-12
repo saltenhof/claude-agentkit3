@@ -216,7 +216,7 @@ innerhalb der Implementation-Phase, also NACH der vollstaendigen
 Exploration-Phase (einschliesslich Design-Review-Gate). Das
 Design-Review-Gate (`ExplorationGateStatus.APPROVED`) wird durch den
 Phase-Runner-Guard am Uebergang `exploration -> implementation`
-erzwungen (FK-20 §20.4.2a). Wenn Closure erreicht wird, ist `APPROVED`
+erzwungen (FK-45 §45.2). Wenn Closure erreicht wird, ist `APPROVED`
 durch die State-Machine-Invariante garantiert — kein erneuter
 Payload-Zugriff noetig.
 

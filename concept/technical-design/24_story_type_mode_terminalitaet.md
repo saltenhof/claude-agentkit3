@@ -248,7 +248,7 @@ Story des aktiven Modus beendet ist.
 
 <!-- PROSE-FORMAL: formal.setup-preflight.invariants -->
 
-Formale Invariante: `formal.setup-preflight.no_competing_story_mode_active`.
+Formale Invariante: `formal.setup-preflight.invariant.no_competing_story_mode_active`.
 
 ### 24.3.4 Mode-Profil Fast (kanonische Tabelle, Owner FK-24)
 
@@ -303,7 +303,7 @@ FK-33) **verweisen** hierher. Auszeichnung: **IN** unveraendert /
 
 **Was in jedem Modus aktiv bleibt (Baseline-Guards):** destructive git
 protections, secrets protection, CCAG, self-protection
-(`formal.operating-modes.baseline_guards_apply_in_all_modes`). Fast
+(`formal.operating-modes.invariant.baseline_guards_apply_in_all_modes`). Fast
 deaktiviert nur die **Story-scoped** Repo-Schutz-Guards (Branch-Guard,
 Scope-Overlap, Lock-Records).
 

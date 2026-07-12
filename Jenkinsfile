@@ -272,6 +272,19 @@ PY
             }
         }
 
+        stage('Concept Reference Integrity') {
+            when {
+                expression { params.agentkit_mode != 'cp10d_branch_plugin_self_test' }
+            }
+            steps {
+                sh '''
+                    set -e
+                    . .venv/bin/activate
+                    PYTHONPATH=src python scripts/ci/check_concept_reference_integrity.py
+                '''
+            }
+        }
+
         stage('Concept Contract Checks') {
             when {
                 expression { params.agentkit_mode != 'cp10d_branch_plugin_self_test' }

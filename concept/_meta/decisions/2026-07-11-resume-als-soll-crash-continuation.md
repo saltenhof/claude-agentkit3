@@ -27,7 +27,7 @@ Ende-zu-Ende-Durchgang des realen Operator-Workflows hat die Annahme widerlegt.
 - AK3 vergibt die Ownership-Session-ID **nicht** selbst: `owner_session_id` ist die
   `session_id` des Harness-Hook-Events. Der Claude-Code-Adapter mappt fuer **jede**
   Operation `session_id=claude_event.session_id`
-  (`src/agentkit/backend/harness_client/harness_adapters/claude_code.py:147` u. a.).
+  (`src/agentkit/harness_client/harness_adapters/claude_code.py:147` u. a.).
 - `/resume` setzt dieselbe Harness-Session fort und behaelt deren `session_id`. Damit
   bleibt `owner_session_id` **unveraendert**; der Ownership-Fence
   (`story_execution_mutations_require_current_ownership_epoch`) trifft weiter

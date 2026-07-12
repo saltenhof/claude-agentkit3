@@ -117,8 +117,10 @@ Alle Querverweise im Korpus (FK-/DK-/META-Dokument-IDs,
 §-Abschnittsanker, formal.*-IDs, Dateipfade) muessen aufloesen. Tote
 Anker sind keine Kosmetik, sondern das Fruehsymptom
 auseinandergelaufener Dokumente (Beispiel: FK-02 verwies auf
+<!-- REF-INTEGRITY:IGNORE-BEGIN deliberate historical negative anchor example -->
 „FK-71 §67.x" — die Abschnitte heissen seit der Umnummerierung
 §71.x). Befund-Schwere: ERROR.
+<!-- REF-INTEGRITY:IGNORE-END -->
 
 ## 4. Severity-Zuordnung
 
@@ -221,9 +223,11 @@ Aenderung an normativen Saetzen).
 Empfohlene Reihenfolge, jeweils als eigene Story ueber den regulaeren
 Prozess:
 
+<!-- REF-INTEGRITY:IGNORE-BEGIN deliberate historical negative anchor example -->
 1. **W1** `concept-reference-integrity` — deterministisch, billig,
    sofortiger Nutzen; Anker-Klasse von Fehlern (FK-02 §67.x) stirbt
    aus. Keine Abhaengigkeiten.
+<!-- REF-INTEGRITY:IGNORE-END -->
 2. **W4** `concept-decision-record-gate` — Prozess + leichter Check;
    etabliert `concept/_meta/decisions/` und die Matrix-Pflicht.
    Keine technischen Abhaengigkeiten.

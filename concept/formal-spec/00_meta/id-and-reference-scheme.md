@@ -26,11 +26,13 @@ Namensschema:
 
 `formal.<context>.<artifact>`
 
+<!-- REF-INTEGRITY:IGNORE-BEGIN illustrative naming examples, not corpus references -->
 Beispiele:
 
 - `formal.workflow-engine.state-machine`
 - `formal.story-split.commands`
 - `formal.github-integration.events`
+<!-- REF-INTEGRITY:IGNORE-END -->
 
 ## 3. Objekt-IDs innerhalb der Spezifikationszone
 

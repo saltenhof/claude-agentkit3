@@ -259,6 +259,7 @@ Jedes FK-Dokument traegt **genau eine** der folgenden Varianten:
 
 | Variante | Bedingung | Pflichtfelder zusaetzlich |
 |----------|-----------|--------------------------|
+<!-- REF-INTEGRITY:IGNORE-LINE deliberate schema placeholder, not a real formal id -->
 | **A — formale Spec** | Doc verweist auf eine oder mehrere `formal-spec/`-Dateien | `prose_anchor_policy: strict` und `formal_refs: [formal.x.y, ...]` (non-empty) |
 | **B — reine Prosa** | Doc hat keine maschinell pruefbare Spec | `formal_scope: prose-only` |
 
@@ -319,7 +320,7 @@ Kanonische Quelle: `concept/technical-design/_meta/module-registry.yaml`.
 
 **Bedeutung:** Jedes `module:` im Frontmatter muss in dieser Registry
 eingetragen sein. Die Registry ist die Bruecke zwischen Konzept-Welt
-und Komponentenarchitektur (FK-07 §65.4 fuehrt den normativen
+und Komponentenarchitektur (FK-07 §7.4 fuehrt den normativen
 Top-Level-Schnitt). Pro Eintrag kann optional ein `component_family`
 gefuehrt werden, der gegen die FK-07-Familien abgleicht.
 
