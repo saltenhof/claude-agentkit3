@@ -12,9 +12,12 @@ from agentkit.backend.bootstrap.composition_governance import build_integrity_ga
 from agentkit.backend.bootstrap.composition_verify import _SubprocessGitChangeEvidenceProvider, build_push_verification_port
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from agentkit.backend.bootstrap import composition_closure_types as closure_types
     from agentkit.backend.bootstrap import composition_project_types as project_types
     from agentkit.backend.bootstrap import composition_verify_types as verify_types
+    from agentkit.backend.story_context_manager.models import StoryContext
 
 
 def build_closure_phase_handler(
@@ -115,11 +118,15 @@ def build_closure_phase_handler(
     )
     from agentkit.backend.control_plane.repository import EdgeCommandRepository
 
-    config.merge_local_port = QueueMergeLocalCommandPort(
+    merge_local_port = QueueMergeLocalCommandPort(
         edge_commands=EdgeCommandRepository()
     )
+    config.merge_local_port = merge_local_port
     config.push_verification_port = ClosureEntryPushVerificationPort()
-    config.doc_fidelity_port = _build_doc_fidelity_feedback_port(layer2_llm_client)
+    config.doc_fidelity_port = _build_doc_fidelity_feedback_port(
+        layer2_llm_client,
+        change_evidence_provider=merge_local_port.feedback_change_evidence,
+    )
     config.vectordb_sync_port = _build_vectordb_sync_port()
     config.guard_deactivation_port = _build_guard_deactivation_port(base_dir, project_key=project_key)
     config.mode_lock_release_port = _build_mode_lock_release_port(base_dir)
@@ -382,6 +389,8 @@ def _build_per_repo_runners(
 
 def _build_doc_fidelity_feedback_port(
     layer2_llm_client: verify_types.LlmClient | None = None,
+    *,
+    change_evidence_provider: Callable[[StoryContext, Path], str | None] | None = None,
 ) -> closure_types.DocFidelityFeedbackPort:
     """Build the level-4 doc-fidelity feedback seam (FK-38 §38.3.1, non-blocking).
 
@@ -402,7 +411,10 @@ def _build_doc_fidelity_feedback_port(
     """
     from agentkit.backend.closure.runtime_ports import ProductiveDocFidelityFeedbackPort
 
-    return ProductiveDocFidelityFeedbackPort(llm_client=layer2_llm_client)
+    return ProductiveDocFidelityFeedbackPort(
+        llm_client=layer2_llm_client,
+        change_evidence_provider=change_evidence_provider,
+    )
 
 
 def _build_vectordb_sync_port() -> closure_types.VectorDbSyncPort:

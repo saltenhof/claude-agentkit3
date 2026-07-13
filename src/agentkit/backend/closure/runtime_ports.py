@@ -168,17 +168,35 @@ class ProductiveDocFidelityFeedbackPort:
             same one Layer-2 reviewers use). ``None`` => the fail-closed
             :class:`FailClosedLlmClient` default, so the level-4 evaluation still
             RUNS and returns a real FAIL verdict rather than silently skipping.
+        change_evidence_provider: Loads the persisted edge-reported candidate
+            diff. Missing evidence skips and flags the evaluation fail-closed;
+            a placeholder subject is never evaluated.
     """
 
     llm_client: LlmClient | None = None
+    change_evidence_provider: Callable[[StoryContext, Path], str | None] | None = None
 
     def evaluate_feedback_fidelity(
         self, ctx: StoryContext, story_dir: Path
     ) -> tuple[bool, str | None]:
         """Run the level-4 feedback check through the conformance facade."""
+        change_evidence = (
+            self.change_evidence_provider(ctx, story_dir)
+            if self.change_evidence_provider is not None
+            else None
+        )
+        if change_evidence is None or not change_evidence.strip():
+            return (
+                False,
+                "feedback_fidelity skipped fail-closed: edge-reported change "
+                "evidence is unavailable; no placeholder evaluation was run",
+            )
         try:
             result = _run_feedback_fidelity_conformance(
-                ctx, story_dir, llm_client=self.llm_client
+                ctx,
+                story_dir,
+                change_evidence=change_evidence,
+                llm_client=self.llm_client,
             )
         except Exception as exc:  # noqa: BLE001 -- post-merge step is non-blocking
             logger.warning("feedback fidelity evaluation failed: %s", exc)
@@ -224,6 +242,7 @@ def _run_feedback_fidelity_conformance(
     ctx: StoryContext,
     story_dir: Path,
     *,
+    change_evidence: str,
     llm_client: LlmClient | None = None,
 ) -> FidelityResult:
     """Run FK-38 feedback fidelity through ``ConformanceService``.
@@ -282,10 +301,7 @@ def _run_feedback_fidelity_conformance(
         project_root=project_root,
         story_type=ctx.story_type.value,
         module=ctx.participating_repos[0] if ctx.participating_repos else "*",
-        subject=(
-            f"Merged edge candidate for {ctx.story_id}. Physical diff acquisition "
-            "is edge-resident; backend feedback evaluation must not re-read Git."
-        ),
+        subject=change_evidence,
         story_description=ctx.title,
         tags=("feedback", "document-fidelity"),
         qa_cycle_round=1,

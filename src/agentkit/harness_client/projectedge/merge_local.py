@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import stat
 import subprocess
 from typing import TYPE_CHECKING, Literal
 
@@ -19,13 +20,22 @@ if TYPE_CHECKING:
 FailureCode = Literal[
     "multi_repo_not_supported",
     "worktree_identity_invalid",
+    "candidate_fetch_failed",
     "candidate_mismatch",
     "candidate_not_fast_forward",
     "cas_contention",
+    "push_auth_failed",
+    "push_timeout",
+    "push_failed",
+    "push_result_unconfirmed",
     "local_merge_failed",
     "rollback_failed",
     "teardown_failed",
 ]
+
+
+class WorktreeIdentityError(RuntimeError):
+    """A destructive merge operation could not bind the commanded story worktree."""
 
 
 def execute_merge_local(
@@ -38,7 +48,6 @@ def execute_merge_local(
     from agentkit.harness_client.projectedge.command_executor import (
         EdgeGitError,
         _require_git,
-        _require_registered_linked_worktree,
         _run_git,
     )
 
@@ -46,17 +55,11 @@ def execute_merge_local(
     if isinstance(candidate_context, MergeLocalReport):
         return candidate_context
     repo_id, repo_root, worktree_path, candidate, locked_sha = candidate_context
-    if not worktree_path.is_dir() or worktree_path.is_symlink():
-        return _failure(
-            repo_id,
-            "worktree_identity_invalid",
-            "the registered linked story worktree is absent or unsafe",
-            locked_sha=locked_sha,
-        )
     try:
-        resolved_worktree = worktree_path.resolve(strict=True)
-        _require_registered_linked_worktree(repo_root, resolved_worktree)
-    except (OSError, RuntimeError) as exc:
+        resolved_worktree = _require_safe_story_worktree(
+            repo_root, worktree_path, payload.story_id
+        )
+    except WorktreeIdentityError as exc:
         return _failure(
             repo_id, "worktree_identity_invalid", str(exc), locked_sha=locked_sha
         )
@@ -68,6 +71,7 @@ def execute_merge_local(
             locked_sha=locked_sha,
         )
     pre_merge_sha = locked_sha
+    pre_execution_head = _head_state(resolved_worktree)
     try:
         _require_git(
             _run_git(resolved_worktree, "checkout", "--detach", locked_sha),
@@ -78,10 +82,13 @@ def execute_merge_local(
             "ff-only merge gated candidate",
         )
     except EdgeGitError as exc:
-        rollback_ok = _rollback(repo_root, resolved_worktree, pre_merge_sha)
+        head_moved = _head_state(resolved_worktree) != pre_execution_head
+        rollback_ok = head_moved and _rollback(
+            repo_root, worktree_path, payload.story_id, pre_merge_sha
+        )
         return _failure(
             repo_id,
-            "local_merge_failed" if rollback_ok else "rollback_failed",
+            "local_merge_failed" if rollback_ok or not head_moved else "rollback_failed",
             str(exc),
             locked_sha=locked_sha,
             pre_merge_sha=pre_merge_sha,
@@ -91,17 +98,17 @@ def execute_merge_local(
     refspec = f"{candidate}:refs/heads/{payload.base_branch}"
     push = _push(resolved_worktree, lease, refspec)
     if push.returncode != 0:
-        rollback_ok = _rollback(repo_root, resolved_worktree, pre_merge_sha)
-        return _failure(
-            repo_id,
-            "cas_contention" if rollback_ok else "rollback_failed",
-            "atomic main-update lease was rejected; local merge was rolled back",
+        return _reconcile_failed_push(
+            payload,
+            repo_id=repo_id,
+            repo_root=repo_root,
+            worktree_path=worktree_path,
+            candidate=candidate,
             locked_sha=locked_sha,
-            pre_merge_sha=pre_merge_sha,
-            rolled_back=rollback_ok,
+            push=push,
         )
     try:
-        _teardown_if_present(repo_root, resolved_worktree, payload.story_id)
+        _teardown_if_present(repo_root, worktree_path, payload.story_id)
     except EdgeGitError as exc:
         return _success(
             repo_id,
@@ -123,6 +130,7 @@ def _load_candidate(
 ) -> tuple[str, Path, Path, str, str] | MergeLocalReport:
     """Fetch and bind the single-repository candidate, including replay."""
     from agentkit.harness_client.projectedge.command_executor import (
+        EdgeGitError,
         _resolve_repo_root,
         _run_git,
     )
@@ -142,7 +150,7 @@ def _load_candidate(
         repo_root, "fetch", "origin", payload.base_branch, f"story/{payload.story_id}"
     )
     if fetch.returncode != 0:
-        return _failure(repo_id, "candidate_mismatch", _git_detail(fetch))
+        return _failure(repo_id, "candidate_fetch_failed", _git_detail(fetch))
     candidate = _read_sha(repo_root, story_ref)
     candidate_tree = _read_sha(repo_root, f"{story_ref}^{{tree}}")
     locked_sha = _read_sha(repo_root, base_ref)
@@ -157,7 +165,23 @@ def _load_candidate(
             locked_sha=locked_sha,
         )
     if _is_ancestor(repo_root, candidate, locked_sha):
-        _teardown_if_present(repo_root, worktree_path, payload.story_id)
+        try:
+            _teardown_if_present(repo_root, worktree_path, payload.story_id)
+        except WorktreeIdentityError as exc:
+            return _failure(
+                repo_id,
+                "worktree_identity_invalid",
+                str(exc),
+                locked_sha=locked_sha,
+            )
+        except EdgeGitError as exc:
+            return _success(
+                repo_id,
+                "already_merged",
+                candidate,
+                locked_sha,
+                detail=f"main already merged; teardown remains retryable: {exc}",
+            )
         return _success(repo_id, "already_merged", candidate, locked_sha)
     return repo_id, repo_root, worktree_path, candidate, locked_sha
 
@@ -174,21 +198,27 @@ def _is_ancestor(repo_root: Path, ancestor: str, descendant: str) -> bool:
 
     if not ancestor or not descendant:
         return False
-    return _run_git(repo_root, "merge-base", "--is-ancestor", ancestor, descendant).returncode == 0
-
-
-def _rollback(repo_root: Path, worktree_path: Path, pre_merge_sha: str) -> bool:
-    from agentkit.harness_client.projectedge.command_executor import (
-        EdgeGitError,
-        _require_registered_linked_worktree,
-        _run_git,
+    return (
+        _run_git(
+            repo_root, "merge-base", "--is-ancestor", ancestor, descendant
+        ).returncode
+        == 0
     )
 
+
+def _rollback(
+    repo_root: Path, worktree_path: Path, story_id: str, pre_merge_sha: str
+) -> bool:
+    from agentkit.harness_client.projectedge.command_executor import _run_git
+
     try:
-        _require_registered_linked_worktree(repo_root, worktree_path)
-    except EdgeGitError:
+        resolved = _require_safe_story_worktree(repo_root, worktree_path, story_id)
+    except WorktreeIdentityError:
         return False
-    return _run_git(worktree_path, "reset", "--hard", pre_merge_sha).returncode == 0
+    branch = _run_git(resolved, "symbolic-ref", "-q", "--short", "HEAD")
+    if branch.returncode == 0:
+        return False
+    return _run_git(resolved, "reset", "--hard", pre_merge_sha).returncode == 0
 
 
 def _teardown_if_present(
@@ -197,22 +227,161 @@ def _teardown_if_present(
     from agentkit.harness_client.projectedge.command_executor import (
         EdgeGitError,
         _require_git,
-        _require_registered_linked_worktree,
         _run_git,
     )
 
-    if worktree_path.exists():
-        resolved = worktree_path.resolve(strict=True)
-        _require_registered_linked_worktree(repo_root, resolved)
-        _require_git(
-            _run_git(repo_root, "worktree", "remove", "--force", str(resolved)),
-            "worktree remove after merge",
+    _require_safe_worktrees_root(repo_root)
+    if _path_is_link_or_junction(worktree_path):
+        raise WorktreeIdentityError(
+            "merge_local refuses to follow a symlinked or junction worktree path"
         )
-    else:
-        _run_git(repo_root, "worktree", "prune")
+    if not worktree_path.exists():
+        return
+    resolved = _require_safe_story_worktree(repo_root, worktree_path, story_id)
+    _require_git(
+        _run_git(repo_root, "worktree", "remove", "--force", str(resolved)),
+        "worktree remove after merge",
+    )
     branch = _run_git(repo_root, "branch", "-D", f"story/{story_id}")
     if branch.returncode not in (0, 1):
         raise EdgeGitError(_git_detail(branch))
+
+
+def _require_safe_story_worktree(
+    repo_root: Path, worktree_path: Path, story_id: str
+) -> Path:
+    """Bind a destructive operation to the commanded linked story worktree."""
+    from agentkit.harness_client.projectedge.command_executor import (
+        EdgeGitError,
+        _read_story_marker,
+        _require_registered_linked_worktree,
+    )
+
+    _require_safe_worktrees_root(repo_root)
+    if _path_is_link_or_junction(worktree_path):
+        raise WorktreeIdentityError(
+            "merge_local refuses to follow a symlinked or junction worktree path"
+        )
+    if not worktree_path.is_dir():
+        raise WorktreeIdentityError("the commanded story worktree is absent")
+    try:
+        resolved = worktree_path.resolve(strict=True)
+        _require_registered_linked_worktree(repo_root, resolved)
+    except (OSError, RuntimeError, EdgeGitError) as exc:
+        raise WorktreeIdentityError(str(exc)) from exc
+    marker = _read_story_marker(resolved)
+    if marker is None or marker.get("story_id") != story_id:
+        raise WorktreeIdentityError(
+            "the linked worktree marker does not match the commanded story"
+        )
+    return resolved
+
+
+def _require_safe_worktrees_root(repo_root: Path) -> None:
+    """Refuse a symlink or junction at the repository worktrees root."""
+    if _path_is_link_or_junction(repo_root / "worktrees"):
+        raise WorktreeIdentityError(
+            "merge_local refuses a symlinked or junction worktrees root"
+        )
+
+
+def _path_is_link_or_junction(path: Path) -> bool:
+    """Return whether ``path`` is a symlink or Windows reparse-point junction."""
+    try:
+        attributes = getattr(path.lstat(), "st_file_attributes", 0)
+    except OSError:
+        attributes = 0
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    return path.is_symlink() or bool(attributes & reparse_flag)
+
+
+def _head_state(worktree_path: Path) -> tuple[str, str | None]:
+    """Capture the current commit and attached branch before local merge work."""
+    from agentkit.harness_client.projectedge.command_executor import _run_git
+
+    head = _run_git(worktree_path, "rev-parse", "HEAD")
+    branch = _run_git(worktree_path, "symbolic-ref", "-q", "--short", "HEAD")
+    return (
+        head.stdout.strip() if head.returncode == 0 else "",
+        branch.stdout.strip() if branch.returncode == 0 else None,
+    )
+
+
+def _reconcile_failed_push(
+    payload: MergeLocalCommandPayload,
+    *,
+    repo_id: str,
+    repo_root: Path,
+    worktree_path: Path,
+    candidate: str,
+    locked_sha: str,
+    push: subprocess.CompletedProcess[str],
+) -> MergeLocalReport:
+    """Re-fetch remote main before classifying an ambiguous push result."""
+    from agentkit.harness_client.projectedge.command_executor import EdgeGitError, _run_git
+
+    fetch = _run_git(repo_root, "fetch", "origin", payload.base_branch)
+    if fetch.returncode != 0:
+        return _failure(
+            repo_id,
+            "push_result_unconfirmed",
+            "main-update push failed and remote main could not be reconciled; "
+            "no rollback is claimed",
+            locked_sha=locked_sha,
+            pre_merge_sha=locked_sha,
+        )
+    remote_sha = _read_sha(repo_root, f"refs/remotes/origin/{payload.base_branch}")
+    if _is_ancestor(repo_root, candidate, remote_sha):
+        detail = "main contains the candidate after an ambiguous push result"
+        try:
+            _teardown_if_present(repo_root, worktree_path, payload.story_id)
+        except (WorktreeIdentityError, EdgeGitError) as exc:
+            detail = f"{detail}; teardown remains retryable: {exc}"
+        return _success(
+            repo_id,
+            "already_merged",
+            candidate,
+            locked_sha,
+            pre_merge_sha=locked_sha,
+            detail=detail,
+        )
+    rollback_ok = _rollback(repo_root, worktree_path, payload.story_id, locked_sha)
+    if not rollback_ok:
+        return _failure(
+            repo_id,
+            "rollback_failed",
+            "main-update push failed and the detached local merge could not be rolled back",
+            locked_sha=locked_sha,
+            pre_merge_sha=locked_sha,
+        )
+    if remote_sha != locked_sha:
+        code: FailureCode = "cas_contention"
+        detail = (
+            "remote main changed and rejected the atomic lease; "
+            "local merge was rolled back"
+        )
+    else:
+        code = _push_failure_code(push)
+        detail = f"main-update push failed without advancing remote main: {_git_detail(push)}"
+    return _failure(
+        repo_id,
+        code,
+        detail,
+        locked_sha=locked_sha,
+        pre_merge_sha=locked_sha,
+        rolled_back=True,
+    )
+
+
+def _push_failure_code(push: subprocess.CompletedProcess[str]) -> FailureCode:
+    """Classify a confirmed-unapplied push without changing push credentials."""
+    detail = _git_detail(push).lower()
+    if push.returncode == 124 or "timed out" in detail or "timeout" in detail:
+        return "push_timeout"
+    auth_tokens = ("authentication", "permission denied", "could not read username")
+    if any(token in detail for token in auth_tokens):
+        return "push_auth_failed"
+    return "push_failed"
 
 
 def _push(worktree_path: Path, lease: str, refspec: str) -> subprocess.CompletedProcess[str]:

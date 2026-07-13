@@ -1121,6 +1121,10 @@ class PushStatusReport(BaseModel):
     §10.2.4b): the pushed branch head AND whether it reached the remote. It is
     the Edge-reported head of ``story/{story_id}`` (``None`` only when the local
     branch head could not be resolved -- a fail-closed backlog).
+
+    ``change_evidence`` is the bounded, edge-generated candidate diff consumed
+    by post-merge document-fidelity feedback. Its absence is explicit and makes
+    that non-blocking evaluation skip with a fail-closed warning.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -1136,6 +1140,7 @@ class PushStatusReport(BaseModel):
     tree_hash: str | None = None
     worktree_clean: bool | None = None
     base_ancestor: bool | None = None
+    change_evidence: str | None = Field(default=None, max_length=262_144)
 
 
 class MergeLocalRepoReport(BaseModel):
@@ -1166,9 +1171,14 @@ class MergeLocalReport(BaseModel):
     failure_code: Literal[
         "multi_repo_not_supported",
         "worktree_identity_invalid",
+        "candidate_fetch_failed",
         "candidate_mismatch",
         "candidate_not_fast_forward",
         "cas_contention",
+        "push_auth_failed",
+        "push_timeout",
+        "push_failed",
+        "push_result_unconfirmed",
         "local_merge_failed",
         "rollback_failed",
         "teardown_failed",

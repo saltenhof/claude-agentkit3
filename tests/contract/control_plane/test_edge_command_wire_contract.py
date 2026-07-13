@@ -116,6 +116,7 @@ def test_push_status_report_pins_its_field_shape() -> None:
         "tree_hash",
         "worktree_clean",
         "base_ancestor",
+        "change_evidence",
     }
     # It stays optional so the AG3-145 foundation shape (no head) still validates.
     assert PushStatusReport(repo_id="repo-a", push_outcome="behind_remote").head_sha is None

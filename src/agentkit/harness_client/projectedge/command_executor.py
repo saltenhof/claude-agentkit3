@@ -71,6 +71,7 @@ if TYPE_CHECKING:
 _STORY_MARKER_FILENAME = ".agentkit-story.json"
 _EDGE_GIT_TIMEOUT_S = 30
 _EDGE_GIT_PUSH_TIMEOUT_S = 120
+_MAX_CHANGE_EVIDENCE_CHARS = 262_144
 
 #: The backend-managed env-var HANDLE carrying the story/* write credential
 #: (FK-15 §15.5.1). Deployment contract: it MUST match the backend adapter's
@@ -570,6 +571,7 @@ def execute_sync_push(
             ).returncode
             == 0
         )
+        change_evidence = _edge_change_evidence(worktree_path, head_sha)
         outcome = _push_official_ref(
             worktree_path,
             story_id=payload.story_id,
@@ -587,6 +589,7 @@ def execute_sync_push(
         tree_hash=tree_hash,
         worktree_clean=not status.stdout.strip(),
         base_ancestor=base_ancestor,
+        change_evidence=change_evidence,
     )
 
 
@@ -635,6 +638,7 @@ def _sync_push_report(
     tree_hash: str | None = None,
     worktree_clean: bool | None = None,
     base_ancestor: bool | None = None,
+    change_evidence: str | None = None,
 ) -> PushStatusReport:
     """Build the boundary-tagged ``sync_push`` result."""
 
@@ -645,11 +649,31 @@ def _sync_push_report(
         tree_hash=tree_hash,
         worktree_clean=worktree_clean,
         base_ancestor=base_ancestor,
+        change_evidence=change_evidence,
         boundary_type=payload.boundary_type,
         boundary_id=payload.boundary_id,
         boundary_epoch=payload.boundary_epoch,
         ownership_epoch=payload.ownership_epoch,
     )
+
+
+def _edge_change_evidence(worktree_path: Path, head_sha: str) -> str | None:
+    """Return a bounded edge-reported diff for post-merge fidelity feedback."""
+    result = _run_git(
+        worktree_path,
+        "diff",
+        "--no-ext-diff",
+        "--unified=3",
+        f"origin/main...{head_sha}",
+        "--",
+    )
+    evidence = result.stdout.strip() if result.returncode == 0 else ""
+    if not evidence:
+        return None
+    if len(evidence) <= _MAX_CHANGE_EVIDENCE_CHARS:
+        return evidence
+    marker = "\n[edge-reported diff truncated]"
+    return evidence[: _MAX_CHANGE_EVIDENCE_CHARS - len(marker)] + marker
 
 
 def _push_env(credential_ref: str | None) -> dict[str, str]:

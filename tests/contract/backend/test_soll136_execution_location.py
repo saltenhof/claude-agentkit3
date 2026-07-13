@@ -21,12 +21,8 @@ ACTUAL backend sources, that
    ``os.system`` / shell-string call whose command literal starts with ``git``,
    and any GitPython import (incl. submodules) -- not only the worktree
    primitives. The residual sites are:
-     * the AG3-152 closure/merge block, which INCLUDES the RETAINED backend
-       worktree-teardown primitives (``utils/git.py`` ``remove_worktree`` =
-       ``git worktree remove`` / ``prune``, consumed by
-       ``closure/multi_repo_saga.py``) -- retained by design and correctly
-       assigned to AG3-152;
-     * the AG3-147 push/QA-evidence block;
+     * the AG3-156 implementation/Verify evidence reads, which precede merge;
+     * the AG3-156 implementation/Verify evidence block;
      * the AG3-146 provider-neutral network-protocol reads (``git ls-remote`` /
        ``git remote get-url`` -- no local checkout, expressly permitted by
        FK-10 §10.2.4a(b));
@@ -42,6 +38,7 @@ deterministic conformance gate independent of runtime wiring.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -104,15 +101,15 @@ _GIT_INVOCATION_FORMS = (
 #: scanned set (:func:`_git_subprocess_sites`), each with an explicit owner.
 _GIT_SUBPROCESS_INVENTORY: dict[str, str] = {
     "bootstrap/composition_git.py": "implementation/structural system evidence (not closure merge)",
-    "verify_system/sonarqube_gate/runtime_wiring.py": "AG3-152 (worktree-HEAD attestation reads)",
+    "verify_system/sonarqube_gate/runtime_wiring.py": "AG3-156 (worktree-HEAD attestation evidence reads)",
     # AG3-147 retargeted QA-cycle fingerprinting off backend-local git; it now
     # hashes reported pushed heads / compare evidence, so no inventory entry
     # remains for verify_system/qa_cycle/fingerprint.py.
-    # composition_verify wires the AG3-152 SubprocessGitBackend AND the FK-33 §33.5
-    # change-evidence subprocess-provider (branch/commit/diff reads). AG3-147
+    # composition_verify wires the AG3-156 FK-33 §33.5 change-evidence
+    # subprocess-provider (branch/commit/diff reads). AG3-147
     # moved the push-evidence (``pushed``) OFF backend git onto the two-stage
     # barrier (AC11), so this file's git surface is no longer an AG3-147 owner.
-    "bootstrap/composition_verify.py": "AG3-152 (SubprocessGitBackend) + FK-33 change-evidence provider (branch/commit/diff)",
+    "bootstrap/composition_verify.py": "AG3-156 (FK-33 change-evidence provider: branch/commit/diff)",
     # AG3-146 provider-neutral NETWORK-PROTOCOL reads -- no local checkout,
     # expressly permitted by FK-10 §10.2.4a(b); NOT a physical worktree op.
     "code_backend/git_protocol.py": "AG3-146 (git ls-remote ref-read)",
@@ -152,7 +149,7 @@ def test_backend_git_utility_module_is_deleted() -> None:
 
 
 def test_closure_merge_runtime_has_no_physical_git_adapter() -> None:
-    """AG3-152 AC-1: productive Closure cannot reach a local Git subprocess."""
+    """AG3-152 AC-1: the productive Closure merge path cannot reach local Git."""
     closure_sources = {
         _rel(path): path.read_text(encoding="utf-8")
         for path in (_BACKEND_ROOT / "closure").rglob("*.py")
@@ -168,6 +165,60 @@ def test_closure_merge_runtime_has_no_physical_git_adapter() -> None:
         if token in source
     }
     assert hits == {}, f"physical Git remains reachable from Closure: {hits}"
+
+
+def _closure_handler_method_source(method_name: str) -> str:
+    """Return one ``ClosurePhaseHandler`` method from the source AST."""
+    path = _BACKEND_ROOT / "closure" / "phase.py"
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    handler = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "ClosurePhaseHandler"
+    )
+    method = next(
+        node
+        for node in handler.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == method_name
+    )
+    return ast.get_source_segment(source, method) or ""
+
+
+def test_ac1_scans_the_exact_closure_merge_methods_and_excludes_ag3156_evidence() -> None:
+    """The AG3-156 evidence read is pre-merge; every merge method stays Git-free."""
+    merge_methods = (
+        "_reach_merge_done",
+        "_run_merge_block",
+        "_run_fast_merge_block",
+        "_run_edge_merge",
+        "_prepare_edge_merge",
+    )
+    forbidden = (
+        "subprocess",
+        "SubprocessGitBackend",
+        "_SubprocessGitChangeEvidenceProvider",
+        "change_evidence_port.collect",
+    )
+    hits = {
+        method: token
+        for method in merge_methods
+        for token in forbidden
+        if token in _closure_handler_method_source(method)
+    }
+    assert hits == {}, f"backend Git/evidence read leaked into Closure merge path: {hits}"
+
+    evidence_precondition = _closure_handler_method_source(
+        "_validate_implementation_terminality"
+    )
+    assert "change_evidence_port.collect" in evidence_precondition
+    assert _GIT_SUBPROCESS_INVENTORY["bootstrap/composition_verify.py"].startswith(
+        "AG3-156"
+    )
+    assert _GIT_SUBPROCESS_INVENTORY[
+        "verify_system/sonarqube_gate/runtime_wiring.py"
+    ].startswith("AG3-156")
 
 
 def test_state_backend_worktree_repository_is_deleted() -> None:

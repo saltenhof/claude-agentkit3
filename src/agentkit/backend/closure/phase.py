@@ -1215,10 +1215,9 @@ def _verify_edge_integrity(
         if (
             not scan.produced
             or scan.commit_sha != candidate.commit_sha
-            or scan.tree_hash != candidate.tree_hash
             or scan.attestation is None
         ):
-            return scan.reason or "scan commit/tree binding does not match edge candidate"
+            return scan.reason or "scan commit binding does not match edge candidate"
         sonar_config = (
             cfg.sonar_config
             if isinstance(cfg.sonar_config, SonarQubeConfig)

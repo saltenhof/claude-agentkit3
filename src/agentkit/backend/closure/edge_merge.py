@@ -26,6 +26,7 @@ if TYPE_CHECKING:
         ClosureProgress,
         MultiRepoClosureState,
     )
+    from agentkit.backend.story_context_manager.models import StoryContext
 
 
 class EdgeMergeState(StrEnum):
@@ -45,6 +46,7 @@ class EdgeCandidateEvidence:
     tree_hash: str
     worktree_clean: bool
     base_ancestor: bool
+    change_evidence: str | None = None
 
 
 @dataclass(frozen=True)
@@ -150,7 +152,31 @@ class QueueMergeLocalCommandPort:
             tree_hash=report.tree_hash,
             worktree_clean=report.worktree_clean,
             base_ancestor=report.base_ancestor,
+            change_evidence=report.change_evidence,
         )
+
+    def feedback_change_evidence(
+        self, ctx: StoryContext, story_dir: Path
+    ) -> str | None:
+        """Load persisted edge-reported change evidence for final feedback."""
+        from agentkit.backend.state_backend.runtime_scope_resolver import (
+            resolve_runtime_scope,
+        )
+
+        try:
+            scope = resolve_runtime_scope(story_dir)
+        except Exception:  # noqa: BLE001 -- the feedback port flags absence
+            return None
+        repo_ids = tuple(ctx.participating_repos)
+        if len(repo_ids) != 1 or not scope.run_id:
+            return None
+        candidate = self.candidate(
+            project_key=ctx.project_key,
+            story_id=ctx.story_id,
+            run_id=scope.run_id,
+            repo_id=repo_ids[0],
+        )
+        return candidate.change_evidence if candidate is not None else None
 
     def execute(
         self,

@@ -62,10 +62,11 @@ class _ScriptedFeedbackLlmClient:
 
     status: str = "PASS"
     calls: list[str] = field(default_factory=list)
+    prompts: list[str] = field(default_factory=list)
 
     def complete(self, *, role: str, prompt: str) -> str:
-        del prompt
         self.calls.append(role)
+        self.prompts.append(prompt)
         return json.dumps(
             [
                 {
@@ -212,10 +213,25 @@ def _ctx(project_root: Path) -> StoryContext:
     )
 
 
+def _edge_change_evidence(_ctx: StoryContext, _story_dir: Path) -> str:
+    """Return representative evidence already reported by the Project Edge."""
+    return (
+        "diff --git a/feature.py b/feature.py\n"
+        "new file mode 100644\n"
+        "--- /dev/null\n"
+        "+++ b/feature.py\n"
+        "@@ -0,0 +1 @@\n"
+        "+y = 2"
+    )
+
+
 def test_feedback_fidelity_pass_verdict_runs_real_eval(_feedback_project: Path) -> None:
     """A real PASS verdict from the LLM -> (True, None); the LLM was really called."""
     client = _ScriptedFeedbackLlmClient(status="PASS")
-    port = ProductiveDocFidelityFeedbackPort(llm_client=client)
+    port = ProductiveDocFidelityFeedbackPort(
+        llm_client=client,
+        change_evidence_provider=_edge_change_evidence,
+    )
 
     passed, warning = port.evaluate_feedback_fidelity(
         _ctx(_feedback_project), _feedback_project
@@ -226,6 +242,7 @@ def test_feedback_fidelity_pass_verdict_runs_real_eval(_feedback_project: Path) 
     # The real productive path actually invoked the doc_fidelity reviewer -- this
     # is NOT the old exception-to-warning crash path.
     assert client.calls == ["doc_fidelity"]
+    assert "diff --git a/feature.py b/feature.py" in client.prompts[0]
 
 
 def test_feedback_fidelity_fail_verdict_is_nonblocking_warning(
@@ -233,7 +250,10 @@ def test_feedback_fidelity_fail_verdict_is_nonblocking_warning(
 ) -> None:
     """A real FAIL verdict -> non-blocking warning + incident candidate (FK-38 §38.3)."""
     client = _ScriptedFeedbackLlmClient(status="FAIL")
-    port = ProductiveDocFidelityFeedbackPort(llm_client=client)
+    port = ProductiveDocFidelityFeedbackPort(
+        llm_client=client,
+        change_evidence_provider=_edge_change_evidence,
+    )
 
     passed, warning = port.evaluate_feedback_fidelity(
         _ctx(_feedback_project), _feedback_project
@@ -257,7 +277,9 @@ def test_feedback_fidelity_failclosed_default_still_runs(_feedback_project: Path
     RUNS and yields a non-blocking warning, never a silent skip and never a hard
     closure blockade.
     """
-    port = ProductiveDocFidelityFeedbackPort()  # llm_client=None -> fail-closed
+    port = ProductiveDocFidelityFeedbackPort(
+        change_evidence_provider=_edge_change_evidence
+    )  # llm_client=None -> fail-closed
 
     passed, warning = port.evaluate_feedback_fidelity(
         _ctx(_feedback_project), _feedback_project
@@ -266,3 +288,24 @@ def test_feedback_fidelity_failclosed_default_still_runs(_feedback_project: Path
     assert passed is False
     assert warning is not None
     assert "feedback_fidelity" in warning
+
+
+def test_feedback_fidelity_without_edge_evidence_skips_and_flags_fail_closed(
+    _feedback_project: Path,
+) -> None:
+    """Missing edge change evidence never evaluates a placeholder subject."""
+    client = _ScriptedFeedbackLlmClient(status="PASS")
+    port = ProductiveDocFidelityFeedbackPort(
+        llm_client=client,
+        change_evidence_provider=lambda _ctx, _path: None,
+    )
+
+    passed, warning = port.evaluate_feedback_fidelity(
+        _ctx(_feedback_project), _feedback_project
+    )
+
+    assert passed is False
+    assert warning is not None
+    assert "skipped fail-closed" in warning
+    assert "edge-reported change evidence is unavailable" in warning
+    assert client.calls == []

@@ -336,7 +336,12 @@ def test_gate_open_pushes_official_ref_to_remote(tmp_path: Path) -> None:
     _git(repo, "add", "README.md")
     _git(repo, "commit", "-q", "-m", f"seed ({_STORY_ID})")
     _git(repo, "remote", "add", "origin", str(remote))
-    _git(repo, "worktree", "add", str(repo / "worktrees" / _STORY_ID), "-b", _BRANCH, "main")
+    _git(repo, "push", "-q", "origin", "main")
+    worktree = repo / "worktrees" / _STORY_ID
+    _git(repo, "worktree", "add", str(worktree), "-b", _BRANCH, "main")
+    (worktree / "story.py").write_text("value = 1\n", encoding="utf-8")
+    _git(worktree, "add", "story.py")
+    _git(worktree, "commit", "-q", "-m", "story change")
 
     context = _context(
         PushOwnershipProbe(server_reachable=True, owner_confirmed=True, detail="owner")
@@ -350,6 +355,8 @@ def test_gate_open_pushes_official_ref_to_remote(tmp_path: Path) -> None:
 
     assert result.push_outcome == "pushed"
     assert result.head_sha is not None and len(result.head_sha) == 40
+    assert result.change_evidence is not None
+    assert "diff --git a/story.py b/story.py" in result.change_evidence
     # The official ref landed on the remote at the reported head SHA.
     remote_ref = subprocess.run(
         ["git", "-C", str(remote), "rev-parse", f"refs/heads/{_BRANCH}"],
