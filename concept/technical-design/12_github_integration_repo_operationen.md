@@ -438,6 +438,19 @@ Story-Status, Story-Attribute, Story-Erstellung, Story-Closure-Status
 und Closure-Metriken laufen ueber das AK3-Story-Backend
 (FK-17/FK-18/FK-91), nicht ueber GitHub.
 
+**Credential des `main`-Updates (`merge_local`):** der finale `main`-Update ist
+ein **CLI-Pfad** im Sinne von §12.1 — die vorauthentifizierte Host-`git`-CLI
+uebernimmt die Authentifizierung. Der Project Edge haelt dafuer **kein eigenes
+Credential** und die `story/*`-Dienst-Identitaet (§12.1.3) wird **nicht** zu einem
+separaten `main`-Credential ausgeweitet (Provider-Neutralitaet, §12.1: keine
+provider-spezifische Auth-Mechanik ausserhalb des Adapters). Autorisiert ist der
+`main`-Update ausschliesslich durch das `merge_local`-Commission-Gating
+(Ownership-Epoch, alle Closure-Verdicts PASSED, serverseitige Push-Verifikation;
+FK-29 §29.1a). Fehlende/abgelaufene CLI-Auth fuehrt fail-closed zu einem sichtbaren
+Fehler (§12.1.2: Mensch fuehrt `gh auth login` aus), nie zu einem blockierenden
+Prompt. Rationale und Herleitung: Concept-Decision-Record
+`META-DEC-2026-07-13-MERGE-LOCAL-MAIN-CREDENTIAL`.
+
 ### 12.7.2 Kein Webhook/Polling
 
 AgentKit verwendet kein Webhook- oder Polling-basiertes

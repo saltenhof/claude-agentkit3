@@ -266,6 +266,16 @@ wirkt nur lokal, ein stales Bundle koennte `git push` weiter
 erlauben, und Fast-Forward-Pushes umgehen Force-Push-Verbote. Erst
 die serverseitige Stufe 1 macht die Schranke belastbar.
 
+**`main`-Update (`merge_local`, Closure).** Die hier fuer `story/*` beschriebene
+Dienst-Identitaet wird **nicht** zu einem eigenen `main`-Credential ausgeweitet.
+Der finale `main`-Update laeuft als CLI-Pfad ueber die vorauthentifizierte
+Host-`git`-CLI (FK-12 §12.1); der Project Edge haelt dafuer kein Credential. Die
+Autorisierung ist das `merge_local`-Commission-Gating (Ownership-Epoch FK-56
+§56.8a, alle Closure-Verdicts PASSED, serverseitige Push-Verifikation FK-29
+§29.1a) — `main` wird nie direkt, sondern nur ueber diesen gegateten Backend-Auftrag
+fortgeschrieben. Herleitung: Concept-Decision-Record
+`META-DEC-2026-07-13-MERGE-LOCAL-MAIN-CREDENTIAL`.
+
 ## 15.6 Opake Fehlermeldungen
 
 ### 15.6.1 Prinzip
