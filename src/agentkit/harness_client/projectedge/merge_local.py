@@ -39,47 +39,13 @@ def execute_merge_local(
         EdgeGitError,
         _require_git,
         _require_registered_linked_worktree,
-        _resolve_repo_root,
         _run_git,
     )
 
-    if len(payload.repositories) != 1:
-        repo_id = payload.repositories[0].repo_id
-        return _failure(
-            repo_id,
-            "multi_repo_not_supported",
-            "merge_local preserves the productive >=2-repository fail-closed boundary",
-        )
-    repo_id = payload.repositories[0].repo_id
-    repo_root = _resolve_repo_root(project_config, project_root, repo_id)
-    worktree_path = repo_root / "worktrees" / payload.story_id
-    story_ref = f"refs/remotes/origin/story/{payload.story_id}"
-    base_ref = f"refs/remotes/origin/{payload.base_branch}"
-    fetch = _run_git(
-        repo_root,
-        "fetch",
-        "origin",
-        payload.base_branch,
-        f"story/{payload.story_id}",
-    )
-    if fetch.returncode != 0:
-        return _failure(repo_id, "candidate_mismatch", _git_detail(fetch))
-    candidate = _read_sha(repo_root, story_ref)
-    candidate_tree = _read_sha(repo_root, f"{story_ref}^{{tree}}")
-    locked_sha = _read_sha(repo_root, base_ref)
-    if (
-        candidate != payload.expected_candidate_commit
-        or candidate_tree != payload.expected_candidate_tree_hash
-    ):
-        return _failure(
-            repo_id,
-            "candidate_mismatch",
-            "the pushed story ref does not match the gated candidate commit/tree",
-            locked_sha=locked_sha,
-        )
-    if _is_ancestor(repo_root, candidate, locked_sha):
-        _teardown_if_present(repo_root, worktree_path, payload.story_id)
-        return _success(repo_id, "already_merged", candidate, locked_sha)
+    candidate_context = _load_candidate(payload, project_config, project_root)
+    if isinstance(candidate_context, MergeLocalReport):
+        return candidate_context
+    repo_id, repo_root, worktree_path, candidate, locked_sha = candidate_context
     if not worktree_path.is_dir() or worktree_path.is_symlink():
         return _failure(
             repo_id,
@@ -90,7 +56,7 @@ def execute_merge_local(
     try:
         resolved_worktree = worktree_path.resolve(strict=True)
         _require_registered_linked_worktree(repo_root, resolved_worktree)
-    except (OSError, RuntimeError, EdgeGitError) as exc:
+    except (OSError, RuntimeError) as exc:
         return _failure(
             repo_id, "worktree_identity_invalid", str(exc), locked_sha=locked_sha
         )
@@ -148,6 +114,52 @@ def execute_merge_local(
     return _success(
         repo_id, "merged", candidate, locked_sha, pre_merge_sha=pre_merge_sha
     )
+
+
+def _load_candidate(
+    payload: MergeLocalCommandPayload,
+    project_config: ProjectConfig,
+    project_root: Path,
+) -> tuple[str, Path, Path, str, str] | MergeLocalReport:
+    """Fetch and bind the single-repository candidate, including replay."""
+    from agentkit.harness_client.projectedge.command_executor import (
+        _resolve_repo_root,
+        _run_git,
+    )
+
+    if len(payload.repositories) != 1:
+        return _failure(
+            payload.repositories[0].repo_id,
+            "multi_repo_not_supported",
+            "merge_local preserves the productive >=2-repository fail-closed boundary",
+        )
+    repo_id = payload.repositories[0].repo_id
+    repo_root = _resolve_repo_root(project_config, project_root, repo_id)
+    worktree_path = repo_root / "worktrees" / payload.story_id
+    story_ref = f"refs/remotes/origin/story/{payload.story_id}"
+    base_ref = f"refs/remotes/origin/{payload.base_branch}"
+    fetch = _run_git(
+        repo_root, "fetch", "origin", payload.base_branch, f"story/{payload.story_id}"
+    )
+    if fetch.returncode != 0:
+        return _failure(repo_id, "candidate_mismatch", _git_detail(fetch))
+    candidate = _read_sha(repo_root, story_ref)
+    candidate_tree = _read_sha(repo_root, f"{story_ref}^{{tree}}")
+    locked_sha = _read_sha(repo_root, base_ref)
+    if (
+        candidate != payload.expected_candidate_commit
+        or candidate_tree != payload.expected_candidate_tree_hash
+    ):
+        return _failure(
+            repo_id,
+            "candidate_mismatch",
+            "the pushed story ref does not match the gated candidate commit/tree",
+            locked_sha=locked_sha,
+        )
+    if _is_ancestor(repo_root, candidate, locked_sha):
+        _teardown_if_present(repo_root, worktree_path, payload.story_id)
+        return _success(repo_id, "already_merged", candidate, locked_sha)
+    return repo_id, repo_root, worktree_path, candidate, locked_sha
 
 
 def _read_sha(repo_root: Path, ref: str) -> str:

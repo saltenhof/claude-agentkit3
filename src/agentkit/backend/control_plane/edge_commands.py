@@ -58,29 +58,14 @@ CommandKind = Literal[
 
 ALL_COMMAND_KINDS: frozenset[str] = frozenset(
     {
-        "provision_worktree",
-        "teardown_worktree",
-        "preflight_probe",
-        "sync_push",
-        "takeover_reconcile",
-        "reset_worktree",
-        "merge_local",
+        "provision_worktree", "teardown_worktree", "preflight_probe", "sync_push",
+        "takeover_reconcile", "reset_worktree", "merge_local",
     }
 )
 
 #: The productive edge executors: the AG3-145 worktree/preflight trio, AG3-147
 #: ``sync_push``, AG3-151 ``takeover_reconcile``, and AG3-152 ``merge_local``.
-EXECUTABLE_COMMAND_KINDS: frozenset[str] = frozenset(
-    {
-        "provision_worktree",
-        "teardown_worktree",
-        "preflight_probe",
-        "sync_push",
-        "takeover_reconcile",
-        "reset_worktree",
-        "merge_local",
-    }
-)
+EXECUTABLE_COMMAND_KINDS: frozenset[str] = frozenset(ALL_COMMAND_KINDS)
 
 #: FK-91 §91.1a Rule 16 (no wall-clock end): a command record's lifecycle
 #: status. ``created`` = enqueued, not yet fetched by any GET; ``delivered`` =
@@ -109,12 +94,7 @@ ResultType = Literal[
 ]
 
 RESULT_TYPES: frozenset[str] = frozenset(
-    {
-        "branch_ref_report",
-        "push_status_report",
-        "worktree_report",
-        "merge_local_report",
-    }
+    {"branch_ref_report", "push_status_report", "worktree_report", "merge_local_report"}
 )
 
 #: FK-91 §91.1b / FK-30 §30.6.3: the named takeover-family error states,

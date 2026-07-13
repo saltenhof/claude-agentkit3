@@ -690,47 +690,13 @@ class ClosurePhaseHandler:
         from agentkit.backend.core_types import PauseReason
         from agentkit.backend.verify_system.pre_merge_runner.contract import CandidateRef
 
-        cfg = self._config
-        port = cfg.merge_local_port
-        push_verification = cfg.push_verification_port
-        if port is None or push_verification is None:
-            return HandlerResult(
-                status=PhaseStatus.FAILED,
-                errors=("Closure edge merge collaborators are not wired",),
-            )
-        repo_ids = _resolve_repo_ids(ctx, cfg, s_dir)
-        if len(repo_ids) != 1:
-            return self._escalated(
-                ctx,
-                source_state,
-                progress,
-                ("merge_local preserves the >=2-repository fail-closed boundary",),
-            )
-        if not push_verification.confirm_story_pushed(s_dir):
-            return self._escalated(
-                ctx,
-                source_state,
-                progress,
-                ("merge_local requires the passed AG3-147 closure-entry push checkpoint",),
-            )
-        candidate = port.candidate(
-            project_key=ctx.project_key,
-            story_id=ctx.story_id,
-            run_id=run_id,
-            repo_id=repo_ids[0],
+        prepared = self._prepare_edge_merge(
+            ctx, s_dir, source_state, progress, run_id=run_id
         )
-        if candidate is None:
-            return self._escalated(
-                ctx,
-                source_state,
-                progress,
-                ("verified push has no edge-reported candidate commit/tree binding",),
-            )
-        candidate_error = _validate_edge_candidate(candidate)
-        if candidate_error is not None:
-            return self._escalated(
-                ctx, source_state, progress, (candidate_error,)
-            )
+        if isinstance(prepared, HandlerResult):
+            return prepared
+        port, repo_ids, candidate = prepared
+        cfg = self._config
         store = self._store()
         if not progress.story_branch_pushed:
             progress = _persist(
@@ -789,6 +755,59 @@ class ClosurePhaseHandler:
             )
         )
         return progress
+
+    def _prepare_edge_merge(
+        self,
+        ctx: StoryContext,
+        story_dir: Path,
+        source_state: PhaseState,
+        progress: ClosureProgress,
+        *,
+        run_id: str,
+    ) -> tuple[MergeLocalCommandPort, tuple[str, ...], EdgeCandidateEvidence] | HandlerResult:
+        """Validate collaborators and the edge candidate before any gate runs."""
+        cfg = self._config
+        port = cfg.merge_local_port
+        push_verification = cfg.push_verification_port
+        if port is None or push_verification is None:
+            return HandlerResult(
+                status=PhaseStatus.FAILED,
+                errors=("Closure edge merge collaborators are not wired",),
+            )
+        repo_ids = _resolve_repo_ids(ctx, cfg, story_dir)
+        if len(repo_ids) != 1:
+            return self._escalated(
+                ctx,
+                source_state,
+                progress,
+                ("merge_local preserves the >=2-repository fail-closed boundary",),
+            )
+        if not push_verification.confirm_story_pushed(story_dir):
+            return self._escalated(
+                ctx,
+                source_state,
+                progress,
+                ("merge_local requires the passed AG3-147 closure-entry push checkpoint",),
+            )
+        candidate = port.candidate(
+            project_key=ctx.project_key,
+            story_id=ctx.story_id,
+            run_id=run_id,
+            repo_id=repo_ids[0],
+        )
+        if candidate is None:
+            return self._escalated(
+                ctx,
+                source_state,
+                progress,
+                ("verified push has no edge-reported candidate commit/tree binding",),
+            )
+        candidate_error = _validate_edge_candidate(candidate)
+        if candidate_error is not None:
+            return self._escalated(
+                ctx, source_state, progress, (candidate_error,)
+            )
+        return port, repo_ids, candidate
 
     def _run_injected_standard_merge(
         self,
